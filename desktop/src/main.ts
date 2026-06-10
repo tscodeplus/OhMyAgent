@@ -51,10 +51,11 @@ if (!gotLock) {
 }
 
 function getPreloadPath(): string {
-  // In dev mode (tsx), preload.ts is in src/; in prod, preload.cjs is compiled as CommonJS
-  // (ESM preload scripts inside ASAR can fail silently in some Electron versions).
+  // In dev mode (tsx), preload.ts is in src/; in prod, preload.js (Electron 33+ supports ESM preload).
   const isDev = !app.isPackaged;
-  const p = path.join(__dirname, isDev ? 'preload.ts' : 'preload.cjs');
+  const p = isDev
+    ? path.join(__dirname, 'preload.ts')
+    : path.join(__dirname, 'preload.js');
   diagLog(`[OhMyAgent] getPreloadPath: ${p} exists=${fs.existsSync(p)} isDev=${isDev} isPackaged=${app.isPackaged}`);
   if (!fs.existsSync(p)) {
     diagLog(`[OhMyAgent] PRELOAD FILE NOT FOUND: ${p}`);
