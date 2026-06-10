@@ -83,7 +83,9 @@ jobs:
       - name: Install macOS system dependencies (libvips via Homebrew)
         if: runner.os == 'macOS'
         run: |
-          brew install vips
+          brew install vips python-setuptools
+          # Ensure Xcode CLT is properly configured for node-gyp
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer || true
 
       # --- Build ---
       - name: Install root dependencies
@@ -91,6 +93,9 @@ jobs:
 
       - name: Build server (TypeScript)
         run: pnpm build
+
+      - name: Install WebUI dependencies
+        run: cd ui && pnpm install --frozen-lockfile
 
       - name: Build WebUI
         run: pnpm build:ui
