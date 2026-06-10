@@ -155,10 +155,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ohmyagent-windows-x64
-          path: |
-            desktop/release/*.exe
-            desktop/release/*.blockmap
-            desktop/release/*.yml
+          path: desktop/release/*.exe
           retention-days: 30
 
       - name: Upload macOS artifacts
@@ -166,10 +163,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ohmyagent-macos-universal
-          path: |
-            desktop/release/*.dmg
-            desktop/release/*.blockmap
-            desktop/release/*-mac.yml
+          path: desktop/release/*.dmg
           retention-days: 30
 
       - name: Upload Linux artifacts
@@ -180,7 +174,6 @@ jobs:
           path: |
             desktop/release/*.AppImage
             desktop/release/*.deb
-            desktop/release/*-linux.yml
           retention-days: 30
 
   # ------------------------------------------------------------------
@@ -243,7 +236,7 @@ jobs:
           name: OhMyAgent Desktop ${{ github.ref_name }}
           body_path: /tmp/release-notes.md
           files: |
-            release-artifacts/**/*Setup*.exe
+            release-artifacts/**/*.exe
             release-artifacts/**/*.dmg
             release-artifacts/**/*.AppImage
             release-artifacts/**/*.deb
