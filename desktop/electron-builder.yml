@@ -40,9 +40,6 @@ nsis:
   shortcutName: OhMyAgent
   include: build/nsis-installer.nsh
   differentialPackage: false
-  # Non-solid compression: much faster extraction (solid LZMA makes
-  # large installers take 10+ minutes to decompress).
-  solid: false
 
 mac:
   target:
