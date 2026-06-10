@@ -80,16 +80,30 @@ jobs:
             libxtst6 \
             xdg-utils
 
-      - name: Install macOS system dependencies (libvips via Homebrew)
+      - name: Install macOS system dependencies and build tools
         if: runner.os == 'macOS'
         run: |
           brew install vips python-setuptools
           # Ensure Xcode CLT is properly configured for node-gyp
           sudo xcode-select -s /Applications/Xcode.app/Contents/Developer || true
+          # Help node-gyp find Python
+          npm config set python /usr/bin/python3 || true
 
       # --- Build ---
       - name: Install root dependencies
-        run: pnpm install --frozen-lockfile
+        env:
+          npm_config_build_from_source: 'true'
+        run: |
+          pnpm install --frozen-lockfile 2>&1 | tee /tmp/install.log
+          exit_code=${PIPESTATUS[0]}
+          if [ $exit_code -ne 0 ]; then
+            echo "::group::pnpm install error log"
+            tail -100 /tmp/install.log
+            echo "::endgroup::"
+            # Show native module build failures
+            find ~/.npm/_cacache -name "*.log" -exec tail -50 {} \; 2>/dev/null || true
+            exit $exit_code
+          fi
 
       - name: Build server (TypeScript)
         run: pnpm build

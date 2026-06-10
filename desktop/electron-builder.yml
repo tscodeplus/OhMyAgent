@@ -3,7 +3,7 @@ productName: OhMyAgent
 copyright: Copyright (c) 2026 OhMyAgent
 
 electronDownload:
-  mirror: https://npmmirror.com/mirrors/electron/
+  mirror: ${env.ELECTRON_MIRROR-https://github.com/electron/electron/releases/download/v}
 
 directories:
   output: release
