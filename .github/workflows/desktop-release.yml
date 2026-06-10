@@ -1,0 +1,110 @@
+name: Desktop Release
+
+on:
+  push:
+    tags:
+      - 'v*'          # Trigger on version tags: v0.2.0, v0.3.0, etc.
+  workflow_dispatch:   # Allow manual trigger from GitHub UI
+
+jobs:
+  # ------------------------------------------------------------------
+  # Build — runs on Windows and macOS in parallel
+  # ------------------------------------------------------------------
+  build:
+    strategy:
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install system dependencies (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvips-dev
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build server (TypeScript)
+        run: pnpm build
+
+      - name: Build WebUI
+        run: pnpm build:ui
+
+      - name: Build Electron app
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS code signing (optional — skipped if secrets not set)
+          CSC_LINK: ${{ secrets.MACOS_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Windows code signing (optional)
+          WIN_CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+        run: |
+          cd desktop
+          pnpm install --frozen-lockfile
+          pnpm dist
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ohmyagent-${{ matrix.os }}
+          path: desktop/release/*
+          retention-days: 30
+
+  # ------------------------------------------------------------------
+  # Create Release — collects artifacts and creates a GitHub Release
+  # ------------------------------------------------------------------
+  create-release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Generate release notes
+        run: |
+          echo "## OhMyAgent Desktop ${{ github.ref_name }}" > /tmp/release-notes.md
+          echo "" >> /tmp/release-notes.md
+          echo "### Assets" >> /tmp/release-notes.md
+          echo "" >> /tmp/release-notes.md
+          find release-artifacts -type f -exec basename {} ; | while read f; do
+            echo "- $f" >> /tmp/release-notes.md
+          done
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: OhMyAgent Desktop ${{ github.ref_name }}
+          body_path: /tmp/release-notes.md
+          files: |
+            release-artifacts/**/*.exe
+            release-artifacts/**/*.dmg
+            release-artifacts/**/*.yml
+            release-artifacts/**/*.blockmap
+          draft: true
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,124 @@
+import { useState, useEffect, useCallback, createContext, useContext, useRef, type ReactNode } from 'react';
+import { X, CheckCircle, AlertCircle, Info } from 'lucide-react';
+
+type ToastType = 'success' | 'error' | 'info';
+
+interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
+interface Toast {
+  id: number;
+  message: string;
+  type: ToastType;
+  duration: number;
+  action?: ToastAction;
+}
+
+interface ToastContextValue {
+  showToast: (message: string, type?: ToastType, duration?: number, action?: ToastAction) => void;
+}
+
+const ToastContext = createContext<ToastContextValue>({ showToast: () => {} });
+
+export function ToastProvider({ children }: { children: ReactNode }) {
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const nextIdRef = useRef(1);
+
+  const showToast = useCallback(
+    (message: string, type: ToastType = 'info', duration = 1500, action?: ToastAction) => {
+      const id = nextIdRef.current++;
+      setToasts((prev) => [...prev, { id, message, type, duration, action }]);
+    },
+    [],
+  );
+
+  const removeToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  return (
+    <ToastContext.Provider value={{ showToast }}>
+      {children}
+      {toasts.length > 0 && (
+        <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center gap-2 pointer-events-none bg-black/20 dark:bg-black/50">
+          {toasts.map((toast) => (
+            <ToastItem key={toast.id} toast={toast} onRemove={() => removeToast(toast.id)} />
+          ))}
+        </div>
+      )}
+    </ToastContext.Provider>
+  );
+}
+
+function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: () => void }) {
+  useEffect(() => {
+    // If there's an action button, don't auto-dismiss (duration 0 = sticky)
+    if (toast.duration <= 0) return;
+    const timer = setTimeout(onRemove, toast.duration);
+    return () => clearTimeout(timer);
+  }, [onRemove, toast.duration]);
+
+  const icons: Record<ToastType, typeof CheckCircle> = {
+    success: CheckCircle,
+    error: AlertCircle,
+    info: Info,
+  };
+
+  // Type-specific colored background — stands out clearly from page bg
+  const typeCard: Record<ToastType, string> = {
+    success:
+      'bg-emerald-50 dark:bg-emerald-950 ' +
+      'border-2 border-emerald-300 dark:border-emerald-700 ' +
+      'shadow-2xl shadow-emerald-500/10 dark:shadow-black/50',
+    error:
+      'bg-red-50 dark:bg-red-950 ' +
+      'border-2 border-red-300 dark:border-red-700 ' +
+      'shadow-2xl shadow-red-500/10 dark:shadow-black/50',
+    info:
+      'bg-blue-50 dark:bg-blue-950 ' +
+      'border-2 border-blue-300 dark:border-blue-700 ' +
+      'shadow-2xl shadow-blue-500/10 dark:shadow-black/50',
+  };
+
+  const typeIcon: Record<ToastType, string> = {
+    success: 'text-emerald-700 dark:text-emerald-300',
+    error:   'text-red-700 dark:text-red-300',
+    info:    'text-blue-700 dark:text-blue-300',
+  };
+
+  const card = typeCard[toast.type];
+  const ic = typeIcon[toast.type];
+  const Icon = icons[toast.type];
+
+  return (
+    <div
+      className={`pointer-events-auto flex items-center gap-3 rounded-lg px-4 py-3 min-w-[320px] max-w-[480px] animate-[toast-in_0.2s_ease-out] ${card}`}
+    >
+      <Icon size={18} className={`shrink-0 ${ic}`} />
+      <span className="text-sm flex-1 whitespace-pre-wrap leading-snug text-neutral-900 dark:text-neutral-100">{toast.message}</span>
+      {toast.action && (
+        <button
+          onClick={() => {
+            toast.action!.onClick();
+            onRemove();
+          }}
+          className="shrink-0 rounded-md bg-blue-600 dark:bg-blue-500 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 dark:hover:bg-blue-400 transition-colors"
+        >
+          {toast.action.label}
+        </button>
+      )}
+      <button
+        onClick={onRemove}
+        className={`shrink-0 rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors ${ic}`}
+      >
+        <X size={16} strokeWidth={2} />
+      </button>
+    </div>
+  );
+}
+
+export function useToast() {
+  return useContext(ToastContext);
+}

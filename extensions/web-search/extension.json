@@ -1,0 +1,8 @@
+{
+  "id": "web-search",
+  "name": "Web Search Tool",
+  "version": "1.0.0",
+  "kind": "tool",
+  "main": "index.js",
+  "description": "Multi-provider web search (Tavily, Exa, Baidu)"
+}

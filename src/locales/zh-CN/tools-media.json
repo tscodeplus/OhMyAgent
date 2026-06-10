@@ -1,0 +1,11 @@
+{
+  "error": {
+    "fileNotFound": "错误：文件不存在 — {{path}}",
+    "readError": "错误：无法读取文件 — {{message}}",
+    "sendFailed": "发送媒体失败: {{message}}",
+    "accessDenied": "访问被拒绝：路径不在允许的目录中",
+    "accessDeniedRetry": "路径 \"{{path}}\" 不在允许目录中。流程: 1) file_read 读该文件(触发审批) 2) shell copy 到 {{root}} 3) feishu_send_media 发送 {{root}} 下的副本。不要直接用原路径重试 feishu_send_media。"
+  },
+  "imageSent": "图片已发送到飞书聊天 (image_key: {{key}})",
+  "fileSent": "文件已发送到飞书聊天: {{name}} (file_key: {{key}})"
+}

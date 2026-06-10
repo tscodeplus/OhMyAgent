@@ -1,0 +1,10 @@
+{
+  "media": {
+    "imageSent": "[User sent an image]",
+    "fileSent": "[User sent a file: {{name}}]",
+    "audioSent": "[Voice message {{duration}}s]",
+    "videoSent": "[User sent a video: {{name}}]",
+    "stickerSent": "[User sent a sticker]",
+    "imagePlaceholder": "[Image]"
+  }
+}

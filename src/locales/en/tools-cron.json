@@ -1,0 +1,46 @@
+{
+  "card": {
+    "title": "⏰ Scheduled Task"
+  },
+  "status": {
+    "completed": "Completed",
+    "notExecuted": "Not executed"
+  },
+  "field": {
+    "deadline": "Deadline:",
+    "schedule": "Schedule:",
+    "nextRun": "Next:",
+    "lastRun": "Last:",
+    "prompt": "Prompt:"
+  },
+  "error": {
+    "parseEndAt": "Cannot parse deadline: {{endAt}}",
+    "missingJobId": "Please provide the job ID of the task to pause.",
+    "missingJobIdResume": "Please provide the job ID of the task to resume.",
+    "missingJobIdRemove": "Please provide the job ID of the task to remove.",
+    "missingJobIdRun": "Please provide the job ID of the task to run immediately.",
+    "jobNotFound": "Job {{id}} not found",
+    "unknownAction": "Unknown action: {{action}}",
+    "operationFailed": "Cron job operation failed: {{error}}"
+  },
+  "create": {
+    "success": "Created cron job {{id}}:\n{{detail}}"
+  },
+  "list": {
+    "empty": "No cron jobs currently.",
+    "title": "**Cron jobs ({{count}})**\n\n{{list}}"
+  },
+  "pause": {
+    "success": "Paused job {{id}}"
+  },
+  "resume": {
+    "success": "Resumed job {{id}}"
+  },
+  "remove": {
+    "success": "Removed job {{id}}"
+  },
+  "run": {
+    "success": "Job {{id}} executed successfully ({{ms}}ms):\n{{output}}",
+    "failed": "Job {{id}} execution failed: {{error}}"
+  }
+}

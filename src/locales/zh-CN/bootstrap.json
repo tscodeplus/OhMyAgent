@@ -1,0 +1,12 @@
+{
+  "toast": {
+    "requestsExpanded": "已展开审批记录",
+    "requestsCollapsed": "已收起审批记录",
+    "alreadyHandled": "该审批请求之前已处理。",
+    "approvedOnce": "已批准（仅此次）",
+    "approvedSession": "已批准（本次会话）",
+    "approvedAlways": "已批准（始终允许）",
+    "deniedOnce": "已拒绝（仅此次）",
+    "deniedAlways": "已拒绝（始终拒绝）"
+  }
+}

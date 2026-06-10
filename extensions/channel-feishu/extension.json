@@ -1,0 +1,9 @@
+{
+  "id": "channel-feishu",
+  "name": "飞书通道适配器",
+  "version": "1.0.0",
+  "kind": "channel",
+  "channel_type": "feishu",
+  "main": "index.js",
+  "description": "Feishu (Lark) channel adapter with CardKit 2.0"
+}

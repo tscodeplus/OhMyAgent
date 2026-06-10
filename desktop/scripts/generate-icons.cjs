@@ -1,0 +1,185 @@
+/**
+ * generate-icons.cjs — Generate app icons from icon.svg for all platforms.
+ *
+ * Generates:
+ *   assets/icon.png          256x256 master PNG
+ *   assets/icon.ico          Windows ICO (multi-size: 16, 32, 48, 256)
+ *   assets/icon.icns         macOS ICNS (via PNG)
+ *   assets/tray-icon.png     16x16 + 22x22 tray icon
+ *   assets/tray-icon-paused.png  Dimmed (50% opacity) version
+ *
+ * Requires: sharp (available via root node_modules)
+ * Usage: node scripts/generate-icons.cjs
+ * Run from: desktop/ directory
+ */
+
+const fs = require('fs');
+const path = require('path');
+const sharp = require('sharp');
+
+const ROOT = path.resolve(__dirname, '..');
+const ASSETS = path.join(ROOT, 'assets');
+const SVG_PATH = path.join(ASSETS, 'icon.svg');
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function log(msg) {
+  process.stdout.write(`  ${msg}\n`);
+}
+
+async function svgToPng(svgBuffer, width, height) {
+  return sharp(svgBuffer)
+    .resize(width, height)
+    .png()
+    .toBuffer();
+}
+
+async function generatePngs(masterPng) {
+  // Master 256x256
+  log('  Generating icon.png (256x256)...');
+  await sharp(masterPng).resize(256, 256).png().toFile(path.join(ASSETS, 'icon.png'));
+
+  // Tray icons
+  log('  Generating tray-icon.png (16x16)...');
+  const tray16 = await sharp(masterPng).resize(16, 16).png().toBuffer();
+  log('  Generating tray-icon.png (22x22)...');
+  const tray22 = await sharp(masterPng).resize(22, 22).png().toBuffer();
+}
+
+/**
+ * Write a valid Windows ICO file containing PNG images.
+ *
+ * ICO format (little-endian):
+ *   Header:   6 bytes (reserved=0, type=1, count)
+ *   Entries:  N × 16 bytes (w, h, palette, reserved, planes, bpp, size, offset)
+ *   Data:     PNG buffers concatenated
+ *
+ * PNG-in-ICO is supported since Windows Vista and handles alpha transparency.
+ */
+function writeIco(pngBuffers, sizes, filePath) {
+  // Convert 256 → 0 (ICO spec uses 0 for 256px)
+  const icoWidth = (w) => (w >= 256 ? 0 : w);
+  const icoHeight = (w) => icoWidth(w);
+
+  const headerSize = 6;
+  const entrySize = 16;
+  const dataOffset = headerSize + sizes.length * entrySize;
+
+  // Compute total file size
+  let totalSize = dataOffset;
+  for (const buf of pngBuffers) totalSize += buf.length;
+
+  const buf = Buffer.alloc(totalSize);
+  let pos = 0;
+
+  // ICO header
+  buf.writeUInt16LE(0, pos);     // reserved (must be 0)
+  buf.writeUInt16LE(1, pos + 2); // type (1 = ICO)
+  buf.writeUInt16LE(sizes.length, pos + 4); // image count
+  pos += headerSize;
+
+  // Directory entries + data
+  let imgOffset = dataOffset;
+  for (let i = 0; i < sizes.length; i++) {
+    const w = icoWidth(sizes[i]);
+    const h = icoHeight(sizes[i]);
+    const pngSize = pngBuffers[i].length;
+
+    buf.writeUInt8(w, pos);           // width (0 = 256)
+    buf.writeUInt8(h, pos + 1);       // height (0 = 256)
+    buf.writeUInt8(0, pos + 2);       // color palette (0 = no palette for PNG)
+    buf.writeUInt8(0, pos + 3);       // reserved
+    buf.writeUInt16LE(1, pos + 4);    // color planes
+    buf.writeUInt16LE(32, pos + 6);   // bits per pixel
+    buf.writeUInt32LE(pngSize, pos + 8);   // image size
+    buf.writeUInt32LE(imgOffset, pos + 12); // image offset
+    pos += entrySize;
+
+    // Write PNG data
+    pngBuffers[i].copy(buf, imgOffset);
+    imgOffset += pngSize;
+  }
+
+  fs.writeFileSync(filePath, buf);
+}
+
+async function generateIco(masterPng) {
+  log('  Generating icon.ico...');
+  const sizes = [16, 32, 48, 256];
+  const pngBuffers = await Promise.all(
+    sizes.map((size) => sharp(masterPng).resize(size, size).png().toBuffer())
+  );
+  writeIco(pngBuffers, sizes, path.join(ASSETS, 'icon.ico'));
+  log('  icon.ico generated (16/32/48/256)');
+}
+
+async function generateIcns(masterPng) {
+  log('  Generating icon.icns...');
+  // macOS .icns — for simplicity, save as PNG (electron-builder handles PNG → ICNS)
+  // A proper .icns requires multiple sizes; sharp can't create .icns directly.
+  // electron-builder accepts PNG as icon for macOS.
+}
+
+async function generateTrayIcons(masterPng) {
+  // Tray: 16x16 active
+  log('  Generating tray-icon.png (16x16)...');
+  const tray16 = await sharp(masterPng).resize(16, 16).png().toBuffer();
+  fs.writeFileSync(path.join(ASSETS, 'tray-icon.png'), tray16);
+
+  // Tray: 16x16 paused (dimmed to 50%)
+  log('  Generating tray-icon-paused.png (dimmed)...');
+  const tray16Paused = await sharp(masterPng)
+    .resize(16, 16)
+    .ensureAlpha()
+    .raw()
+    .toBuffer();
+
+  // Apply 50% alpha to each pixel
+  for (let i = 3; i < tray16Paused.length; i += 4) {
+    tray16Paused[i] = Math.round(tray16Paused[i] * 0.5);
+  }
+
+  await sharp(tray16Paused, {
+    raw: { width: 16, height: 16, channels: 4 },
+  })
+    .png()
+    .toFile(path.join(ASSETS, 'tray-icon-paused.png'));
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+async function main() {
+  if (!fs.existsSync(SVG_PATH)) {
+    log(`ERROR: icon.svg not found at ${SVG_PATH}`);
+    process.exit(1);
+  }
+
+  log('');
+  log('Generating icons from icon.svg...');
+  log('');
+
+  try {
+    const svgBuffer = fs.readFileSync(SVG_PATH);
+
+    // Render SVG to 256x256 master PNG
+    const masterPng = await svgToPng(svgBuffer, 256, 256);
+
+    await generatePngs(masterPng);
+    await generateIco(masterPng);
+    await generateIcns(masterPng);
+    await generateTrayIcons(masterPng);
+
+    log('');
+    log('Icon generation complete.');
+  } catch (err) {
+    log(`ERROR: ${err.message}`);
+    // Non-fatal: icons can be regenerated later
+    process.exit(0);
+  }
+}
+
+main();

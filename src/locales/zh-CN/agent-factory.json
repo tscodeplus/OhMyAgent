@@ -1,0 +1,7 @@
+{
+  "approval": {
+    "waitingMultiple": "等待 {{count}} 项审批：{{list}}",
+    "waitingSingle": "等待 1 项审批：{{name}}",
+    "waitingSimple": "等待 {{count}} 项审批"
+  }
+}

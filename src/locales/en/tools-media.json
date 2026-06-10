@@ -1,0 +1,11 @@
+{
+  "error": {
+    "fileNotFound": "Error: file not found — {{path}}",
+    "readError": "Error: unable to read file — {{message}}",
+    "sendFailed": "Failed to send media: {{message}}",
+    "accessDenied": "Access denied: path is outside allowed directories",
+    "accessDeniedRetry": "Path \"{{path}}\" is outside allowed directories. Workflow: 1) file_read the file (triggers approval) 2) shell copy to {{root}} 3) feishu_send_media with the copy in {{root}}. Do NOT retry feishu_send_media with the original path."
+  },
+  "imageSent": "Image sent to Feishu chat (image_key: {{key}})",
+  "fileSent": "File sent to Feishu chat: {{name}} (file_key: {{key}})"
+}

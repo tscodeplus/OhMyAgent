@@ -1,0 +1,7 @@
+{
+  "rateLimited": "Too Many Requests",
+  "tokenVerifyFailed": "token verification failed",
+  "decryptFailed": "decryption failed",
+  "signatureVerifyFailed": "signature verification failed",
+  "cardActionError": "card action handler error"
+}

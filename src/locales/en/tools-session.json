@@ -1,0 +1,8 @@
+{
+  "noActiveSession": "No active sessions found for summarization.",
+  "tooFewMessages": "Session {{id}}... has only {{count}} messages, not enough to summarize.",
+  "thresholdNotReached": "Session {{id}}... already has {{summaryCount}} summaries, message count ({{messageCount}}) has not reached the next threshold.",
+  "summaryCreated": "Session {{id}}... Generated summary #{{index}} ({{messageCount}} messages). Trigger reason: {{reason}}",
+  "noSessionsNeeded": "No sessions need summarization at this time.",
+  "summaryFailed": "Summarization failed: {{error}}"
+}

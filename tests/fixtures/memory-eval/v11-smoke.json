@@ -1,0 +1,31 @@
+[
+  {
+    "id": "recall-exact-1",
+    "category": "recall_exact",
+    "query": "dark mode preference",
+    "retrievedIds": ["pref-dark-mode"],
+    "expectedIds": ["pref-dark-mode"]
+  },
+  {
+    "id": "agent-isolation-1",
+    "category": "agent_isolation",
+    "query": "private deployment notes",
+    "retrievedIds": ["shared-note"],
+    "forbiddenIds": ["agent-b-private"]
+  },
+  {
+    "id": "preference-freshness-1",
+    "category": "preference_freshness",
+    "query": "preferred name",
+    "retrievedIds": ["pref-name-new"],
+    "expectedIds": ["pref-name-new"],
+    "forbiddenIds": ["pref-name-old"]
+  },
+  {
+    "id": "summary-parse-1",
+    "category": "summary_parse",
+    "query": "",
+    "retrievedIds": [],
+    "parseSuccess": true
+  }
+]

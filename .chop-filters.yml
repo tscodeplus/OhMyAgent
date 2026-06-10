@@ -1,0 +1,25 @@
+# Custom chop filters - user-defined output compression rules
+# Docs: https://github.com/AgusRdz/chop#custom-filters
+#
+# Each filter matches a command (or "command subcommand") and applies rules:
+#   keep: [regex...]   - only keep lines matching at least one pattern
+#   drop: [regex...]   - remove lines matching any pattern
+#   head: N            - keep first N lines (after keep/drop)
+#   tail: N            - keep last N lines (after keep/drop)
+#   exec: script       - pipe output through an external script
+#
+# Examples:
+#
+# filters:
+#   "myctl deploy":
+#     keep: ["ERROR", "WARN", "deployed", "^="]
+#     drop: ["DEBUG", "^\\s*$"]
+#
+#   "ansible-playbook":
+#     keep: ["^PLAY", "^TASK", "fatal", "changed", "^\\s+ok="]
+#     tail: 20
+#
+#   "custom-tool":
+#     exec: "~/.config/chop/scripts/custom-tool.sh"
+
+filters: {}

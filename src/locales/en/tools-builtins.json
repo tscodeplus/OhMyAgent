@@ -1,0 +1,43 @@
+{
+  "shell": {
+    "timedOut": "Error: Command timed out or was aborted",
+    "error": "Error: {{message}}",
+    "noOutput": "(no output)",
+    "truncated": "[Output truncated: {{count}} characters omitted]"
+  },
+  "fileRead": {
+    "accessDenied": "Access denied: path is outside allowed directories",
+    "notFound": "Error: File not found",
+    "error": "Error reading file",
+    "truncated": "[File truncated: {{count}} characters omitted]"
+  },
+  "fileSearch": {
+    "noResults": "No files found matching \"{{pattern}}\" in {{path}}",
+    "results": "Found {{count}} files:\n{{list}}",
+    "error": "Error searching: {{message}}"
+  },
+  "memoryRecall": {
+    "noResults": "No relevant memories found.",
+    "resultItem": "{{index}}. {{content}} (score: {{score}})"
+  },
+  "approval": {
+    "pathOutsideAllowed": "Path(s) outside allowed directories: {{paths}}"
+  },
+  "pathPolicy": {
+    "deniedPattern": "Path matches denied pattern: {{pattern}}",
+    "noRootsConfigured": "No {{operation}} roots configured",
+    "outsideRoots": "Path \"{{resolved}}\" is outside configured {{operation}} roots"
+  },
+  "memoryStore": {
+    "rejected": "Content rejected by safety filter (reason: {{reason}}).",
+    "duplicate": "This memory already exists (similar content detected).",
+    "stored": "Memory stored successfully (ID: {{id}}).",
+    "error": "Error storing memory: {{message}}"
+  },
+  "offloadRecall": {
+    "noRecords": "No offloaded tool execution records found for the current session.",
+    "nodeNotFound": "Node {{nodeId}} not found. Available node IDs: {{available}}",
+    "result": "Tool: {{toolName}}\nNode: {{nodeId}}\nStatus: {{status}}\nArgs: {{toolArgs}}\n\nFull result:\n{{content}}",
+    "error": "Error reading offloaded result: {{message}}"
+  }
+}

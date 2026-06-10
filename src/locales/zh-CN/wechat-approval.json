@@ -1,0 +1,11 @@
+{
+  "card.shellCommandApproval": "Shell 命令审批",
+  "card.computerUseApproval": "Computer Use 审批",
+  "card.fileAccessApproval": "文件读取权限审批",
+  "riskLow": "低",
+  "riskMedium": "中",
+  "riskHigh": "高",
+  "field.risk": "风险等级",
+  "field.reason": "原因",
+  "instructions": "请使用以下命令来审批：\n- /approve — 批准（仅此次）\n- /approve session — 批准（本次会话）\n- /approve always — 始终允许\n- /deny — 拒绝"
+}

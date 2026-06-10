@@ -1,0 +1,7 @@
+{
+  "rateLimited": "请求过于频繁",
+  "tokenVerifyFailed": "令牌验证失败",
+  "decryptFailed": "解密失败",
+  "signatureVerifyFailed": "签名验证失败",
+  "cardActionError": "卡片操作处理器错误"
+}

@@ -1,0 +1,31 @@
+{
+  "name": "ohmyagent-desktop",
+  "version": "0.2.0",
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "NODE_PATH=../node_modules:$NODE_PATH tsx src/main.ts",
+    "build": "tsc",
+    "start": "electron .",
+    "bundle-deps": "node scripts/bundle-deps.cjs",
+    "dist": "npm run bundle-deps && npm run build && electron-builder",
+    "dist:win": "npm run bundle-deps && npm run build && electron-builder --win",
+    "dist:mac": "npm run bundle-deps && npm run build && electron-builder --mac",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "@nut-tree-fork/nut-js": "^4.2.6",
+    "better-sqlite3": "^12.9.0",
+    "electron-store": "^10.0.0",
+    "electron-updater": "^6.3.0",
+    "sharp": "^0.34.5",
+    "sqlite-vec": "^0.1.9",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "~26.8.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.3"
+  }
+}

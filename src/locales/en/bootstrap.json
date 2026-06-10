@@ -1,0 +1,12 @@
+{
+  "toast": {
+    "requestsExpanded": "Approval records expanded",
+    "requestsCollapsed": "Approval records collapsed",
+    "alreadyHandled": "This approval request has already been processed before.",
+    "approvedOnce": "Approved (this time only)",
+    "approvedSession": "Approved (this session)",
+    "approvedAlways": "Approved (always allow)",
+    "deniedOnce": "Denied (this time only)",
+    "deniedAlways": "Denied (always deny)"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "id": "channel-wechat",
+  "name": "微信通道适配器",
+  "version": "1.0.0",
+  "kind": "channel",
+  "channel_type": "wechat",
+  "main": "index.js",
+  "description": "WeChat channel adapter via Tencent iLink protocol"
+}

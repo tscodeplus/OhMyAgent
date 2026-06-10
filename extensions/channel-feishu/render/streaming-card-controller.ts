@@ -1,0 +1,624 @@
+/**
+ * Streaming card controller using CardKit 2.0 APIs.
+ *
+ * Manages the lifecycle of a CardKit streaming card:
+ *   idle → creating → streaming → completed / aborted / error
+ *
+ * Handles throttled flushing, <think> tag parsing, and card state transitions.
+ */
+
+import type { Logger } from 'pino';
+import { STREAMING_ELEMENT_ID, buildStreamingCard, buildCompletedCard } from './cardkit-builder.js';
+import type { FooterConfig, Usage } from '../../../src/app/types.js';
+import { i18n } from '../../../src/i18n/index.js';
+import { fixFeishuBold } from './markdown-sanitizer.js';
+import { summarizeToolInput } from '../../../src/channel/tool-summary.js';
+
+// ─── Types ───
+
+export type CardState = 'idle' | 'creating' | 'streaming' | 'completed' | 'aborted' | 'error';
+
+const TERMINAL_STATES: ReadonlySet<CardState> = new Set(['completed', 'aborted', 'error']);
+
+export interface StreamingCardControllerOptions {
+  feishuClient: {
+    createCard(cardData: Record<string, unknown>): Promise<string>;
+    sendCardByCardId(chatId: string, cardId: string, replyToMessageId?: string): Promise<string>;
+    streamCardContent(cardId: string, elementId: string, content: string, sequence: number): Promise<void>;
+    setCardStreamingMode(cardId: string, streamingMode: boolean, sequence: number): Promise<void>;
+    updateCard(cardId: string, cardData: Record<string, unknown>, sequence: number): Promise<void>;
+    /** Fallback: update card via im.message.patch (non-CardKit). */
+    updateMessage?(messageId: string, msgType: string, card: Record<string, unknown>): Promise<void>;
+  };
+  chatId: string;
+  messageId?: string;
+  /** Agent name for footer display. */
+  agentName?: string;
+  /** Model name for footer display. */
+  model?: string;
+  /** Footer display configuration. */
+  footerConfig?: FooterConfig;
+  /** Throttle interval in ms for card content updates. Default: 800. */
+  flushIntervalMs?: number;
+  logger?: Logger;
+}
+
+// ─── Controller ───
+
+export class StreamingCardController {
+  private state: CardState = 'idle';
+  private readonly feishuClient: StreamingCardControllerOptions['feishuClient'];
+  private readonly chatId: string;
+  private readonly flushIntervalMs: number;
+  private messageId?: string;
+  private cardId?: string;
+
+  // Text accumulation
+  private pendingContent: string = '';
+  private pendingThinking: string = '';
+
+  // Think tag parsing state
+  private thinkingTagOpen: boolean = false;
+  private buffer: string = '';
+
+  // Throttle / flush
+  private flushTimer?: ReturnType<typeof setTimeout>;
+  private lastFlushTime: number = 0;
+  private flushInFlight: boolean = false;
+  private flushRequested: boolean = false;
+  // CardKit sequence — incremented before each API call.
+  private sequence: number = 0;
+  private cardOperationChain: Promise<void> = Promise.resolve();
+
+  // Tool tracking (keyed by toolCallId for uniqueness; stores name for display)
+  private toolIndicators: Map<string, { name: string; status: 'running' | 'done' | 'error'; args?: unknown }> = new Map();
+  // Thinking dot animation cycle (0, 1, 2 → '.', '..', '...')
+  private thinkingDotCycle = 0;
+  private finalCardSnapshot?: {
+    thinking?: string;
+    answer: string;
+    footer?: string;
+    elapsedMs?: number;
+    model?: string;
+    agentName?: string;
+    usage?: Usage;
+  };
+
+  // Timing, model, and agent info for footer
+  private startTime: number = 0;
+  private model?: string;
+  private agentName?: string;
+  private usage?: Usage;
+  private readonly footerConfig?: FooterConfig;
+  private readonly logger?: Logger;
+
+  constructor(options: StreamingCardControllerOptions) {
+    this.feishuClient = options.feishuClient;
+    this.chatId = options.chatId;
+    this.messageId = options.messageId;
+    this.model = options.model;
+    this.agentName = options.agentName;
+    this.footerConfig = options.footerConfig;
+    this.flushIntervalMs = options.flushIntervalMs ?? 2000;
+    this.logger = options.logger;
+  }
+
+  getState(): CardState {
+    return this.state;
+  }
+
+  getMessageId(): string | undefined {
+    return this.messageId;
+  }
+
+  /** Update the model name for the footer (call before complete()). */
+  setModel(model: string): void {
+    this.model = model;
+  }
+
+  /** Update the agent name for the footer (call before complete()). */
+  setAgentName(name: string): void {
+    this.agentName = name;
+  }
+
+  /** Update usage stats for the footer (call before complete()). */
+  setUsage(usage?: Usage): void {
+    this.usage = usage;
+  }
+
+  /** Get next sequence number, guaranteed to be higher than any previously used. */
+  private nextSeq(): number {
+    this.sequence += 1;
+    return this.sequence;
+  }
+
+  private enqueueCardOperation<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.cardOperationChain.then(operation, operation);
+    this.cardOperationChain = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  // ─── Lifecycle Methods ───
+
+  /**
+   * Create the initial streaming card placeholder.
+   * Transitions state: idle → creating → streaming.
+   */
+  async createPlaceholder(): Promise<void> {
+    if (this.state !== 'idle') {
+      throw new Error(`Cannot create placeholder in state: ${this.state}`);
+    }
+
+    this.state = 'creating';
+    this.startTime = Date.now();
+
+    try {
+      const card = buildStreamingCard();
+      this.cardId = await this.feishuClient.createCard(card);
+      // Sequence starts at 0; incremented before each stream/set/update call
+      this.messageId = await this.feishuClient.sendCardByCardId(
+        this.chatId,
+        this.cardId,
+        this.messageId,
+      );
+      this.lastFlushTime = Date.now();
+      this.state = 'streaming';
+
+      // Immediately show initial status so the card isn't blank
+      void this.flushNow();
+    } catch (err) {
+      this.state = 'error';
+      throw err;
+    }
+  }
+
+  /**
+   * Append a text delta and stream it to the card.
+   * Parses <think> tags to separate thinking from answer content.
+   */
+  appendDelta(delta: string): void {
+    if (this.state !== 'streaming') return;
+
+    // Process delta through think tag parser
+    this.processDelta(delta);
+
+    // Schedule throttled flush
+    this.scheduleFlush();
+  }
+
+  /**
+   * Flush immediately bypassing throttle. Used to show initial card content
+   * right after creation so the card doesn't appear blank.
+   */
+  private flushNow(): void {
+    if (this.state !== 'streaming' || !this.cardId) return;
+    this.cancelScheduledFlush();
+    this.requestFlush();
+  }
+
+  /**
+   * Show a tool execution indicator with optional args for display summary.
+   */
+  markToolRunning(toolName: string, args?: unknown, toolCallId?: string): void {
+    if (this.state !== 'streaming') return;
+    const key = toolCallId ?? toolName;
+    this.toolIndicators.set(key, { name: toolName, status: 'running', args });
+    this.cancelScheduledFlush();
+    this.requestFlush();
+  }
+
+  /**
+   * Mark a tool as completed (success). Preserves args from running state.
+   */
+  markToolComplete(toolName: string, toolCallId?: string): void {
+    if (this.state !== 'streaming') return;
+    const key = toolCallId ?? toolName;
+    const existing = this.toolIndicators.get(key);
+    this.toolIndicators.set(key, { name: toolName, status: 'done', args: existing?.args });
+    this.cancelScheduledFlush();
+    this.requestFlush();
+  }
+
+  /**
+   * Mark a tool as failed (error). Preserves args from running state.
+   */
+  markToolError(toolName: string, toolCallId?: string): void {
+    if (this.state !== 'streaming') return;
+    const key = toolCallId ?? toolName;
+    const existing = this.toolIndicators.get(key);
+    this.toolIndicators.set(key, { name: toolName, status: 'error', args: existing?.args });
+    this.cancelScheduledFlush();
+    this.requestFlush();
+  }
+
+  /**
+   * Flush tool indicators as permanent text and clear them from the active set.
+   * Called once tool execution is done and answer text is about to stream.
+   */
+  flushToolIndicators(): string {
+    let text = '';
+    for (const [name, info] of this.toolIndicators) {
+      const summary = info.args ? summarizeToolInput(name, info.args) : '';
+      text += formatToolLine(info.status === 'running' ? 'running' : info.status === 'done' ? 'done' : 'error', name, summary) + '\n';
+    }
+    this.toolIndicators.clear();
+    return text;
+  }
+
+  /**
+   * Flush remaining content and build the completed card.
+   * Transitions state: streaming → completed.
+   */
+  async complete(usage?: Usage): Promise<void> {
+    if (this.state === 'completed') return; // idempotent
+    if (this.state !== 'streaming') return;
+    this.setUsage(usage);
+
+    this.cancelScheduledFlush();
+    this.state = 'completed';
+
+    try {
+      // Build the final answer text (strip any unclosed think tags)
+      const answer = this.buildFinalAnswer() || this.pendingThinking || i18n.t('feishu-cards:stream.noResponse');
+      const thinking = this.pendingThinking || undefined;
+      const elapsedMs = this.startTime ? Date.now() - this.startTime : undefined;
+      this.finalCardSnapshot = { thinking, answer, elapsedMs, model: this.model, agentName: this.agentName, usage: this.usage };
+
+      // Close streaming mode first (official implementation pattern)
+      await this.enqueueCardOperation(async () => {
+        const seq1 = this.nextSeq();
+        await this.feishuClient.setCardStreamingMode(this.cardId!, false, seq1);
+      });
+
+      // Replace with completed card (includes streaming_mode: false)
+      const completedCard = this.buildTerminalCard();
+      try {
+        await this.enqueueCardOperation(async () => {
+          const seq2 = this.nextSeq();
+          await this.feishuClient.updateCard(this.cardId!, completedCard, seq2);
+        });
+      } catch (updateErr) {
+        // CardKit card.update failed — fall back to im.message.patch
+        this.logger?.warn({ err: updateErr }, 'CardKit updateCard failed, falling back to im.message.patch');
+        if (this.messageId && this.feishuClient.updateMessage) {
+          // Convert CardKit 2.0 format to standard interactive card format
+          const standardCard = {
+            elements: (completedCard.body as any)?.elements ?? [],
+          };
+          await this.feishuClient.updateMessage(this.messageId, 'interactive', standardCard);
+        }
+      }
+    } catch (err) {
+      // Error during finalization — state remains 'completed'
+    }
+  }
+
+  /**
+   * Show error state on the card.
+   * Transitions state: streaming → error.
+   */
+  async fail(error: string): Promise<void> {
+    if (this.state === 'completed' || this.state === 'aborted' || this.state === 'error') return;
+
+    this.cancelScheduledFlush();
+    this.state = 'error';
+
+    try {
+      // Close streaming mode first (official implementation pattern)
+      await this.enqueueCardOperation(async () => {
+        const seq1 = this.nextSeq();
+        await this.feishuClient.setCardStreamingMode(this.cardId!, false, seq1);
+      });
+
+      // Build error card (includes streaming_mode: false)
+      const elapsedMs = this.startTime ? Date.now() - this.startTime : undefined;
+      this.finalCardSnapshot = {
+        answer: `${i18n.t('feishu-cards:stream.errorPrefix')}${error}`,
+        footer: i18n.t('feishu-cards:stream.errorFooter'),
+        elapsedMs,
+        model: this.model,
+        agentName: this.agentName,
+        usage: this.usage,
+      };
+      await this.enqueueCardOperation(async () => {
+        const seq2 = this.nextSeq();
+        await this.feishuClient.updateCard(this.cardId!, this.buildTerminalCard(), seq2);
+      });
+    } catch (err) {
+    }
+  }
+
+  /**
+   * Show aborted state on the card.
+   * Transitions state: streaming → aborted.
+   */
+  async abort(): Promise<void> {
+    if (this.state === 'completed' || this.state === 'aborted' || this.state === 'error') return;
+
+    this.cancelScheduledFlush();
+    this.state = 'aborted';
+
+    try {
+      // Close streaming mode
+      await this.enqueueCardOperation(async () => {
+        const seq1 = this.nextSeq();
+        await this.feishuClient.setCardStreamingMode(this.cardId!, false, seq1);
+      });
+
+      // Keep answer content, discard thinking, append stop marker
+      const elapsedMs = this.startTime ? Date.now() - this.startTime : undefined;
+      const baseAnswer = this.buildFinalAnswer().trim();
+      const stopped = i18n.t('feishu-cards:stream.stopped');
+      const answer = baseAnswer ? `${baseAnswer}\n\n${stopped}` : stopped;
+      this.finalCardSnapshot = {
+        answer,
+        thinking: undefined,
+        footer: undefined,
+        elapsedMs,
+        model: this.model,
+        agentName: this.agentName,
+        usage: this.usage,
+      };
+      await this.enqueueCardOperation(async () => {
+        const seq2 = this.nextSeq();
+        await this.feishuClient.updateCard(this.cardId!, this.buildTerminalCard(), seq2);
+      });
+    } catch {
+      // Swallow errors during abort finalization
+    }
+  }
+
+  // ─── Think Tag Parsing ───
+
+  /**
+   * Process a delta through <think> tag state machine.
+   * Handles partial tags split across deltas.
+   */
+  private processDelta(delta: string): void {
+    this.buffer += delta;
+
+    // Process the buffer character by character to handle partial tags
+    let i = 0;
+    const THINK_OPEN = '<think>';
+    const THINK_CLOSE = '</think>';
+
+    while (i < this.buffer.length) {
+      if (!this.thinkingTagOpen) {
+        // Looking for <think> tag
+        const openIdx = this.buffer.indexOf(THINK_OPEN, i);
+        if (openIdx === -1) {
+          // No opening tag found — check if there's a partial match at the end
+          const remaining = this.buffer.slice(i);
+          const keepLen = partialTagAtEnd(remaining, THINK_OPEN);
+          if (keepLen > 0) {
+            // Keep partial tag in buffer for next delta
+            this.pendingContent += remaining.slice(0, remaining.length - keepLen);
+            this.buffer = remaining.slice(remaining.length - keepLen);
+          } else {
+            this.pendingContent += remaining;
+            this.buffer = '';
+          }
+          break;
+        }
+
+        // Append text before the opening tag
+        this.pendingContent += this.buffer.slice(i, openIdx);
+
+        // Check if we have the full opening tag
+        if (openIdx + THINK_OPEN.length <= this.buffer.length) {
+          this.thinkingTagOpen = true;
+          i = openIdx + THINK_OPEN.length;
+        } else {
+          // Partial opening tag — keep only the partial tag in buffer
+          this.pendingContent += this.buffer.slice(i, openIdx);
+          this.buffer = this.buffer.slice(openIdx);
+          break;
+        }
+      } else {
+        // Inside thinking block — look for  tag
+        const closeIdx = this.buffer.indexOf(THINK_CLOSE, i);
+        if (closeIdx === -1) {
+          // No closing tag found — check for partial match at end
+          const remaining = this.buffer.slice(i);
+          const keepLen = partialTagAtEnd(remaining, THINK_CLOSE);
+          if (keepLen > 0) {
+            this.pendingThinking += remaining.slice(0, remaining.length - keepLen);
+            this.buffer = remaining.slice(remaining.length - keepLen);
+          } else {
+            this.pendingThinking += remaining;
+            this.buffer = '';
+          }
+          break;
+        }
+
+        // Append thinking content before the closing tag
+        this.pendingThinking += this.buffer.slice(i, closeIdx);
+
+        // Check if we have the full closing tag
+        if (closeIdx + THINK_CLOSE.length <= this.buffer.length) {
+          this.thinkingTagOpen = false;
+          i = closeIdx + THINK_CLOSE.length;
+        } else {
+          // Partial closing tag — keep only the partial tag in buffer
+          this.pendingThinking += this.buffer.slice(i, closeIdx);
+          this.buffer = this.buffer.slice(closeIdx);
+          break;
+        }
+      }
+    }
+  }
+
+  // ─── Flush Logic ───
+
+  private scheduleFlush(): void {
+    if (this.state !== 'streaming') return;
+
+    const now = Date.now();
+    const elapsed = now - this.lastFlushTime;
+
+    if (elapsed >= this.flushIntervalMs) {
+      this.cancelScheduledFlush();
+      this.requestFlush();
+    } else if (!this.flushTimer) {
+      const delay = this.flushIntervalMs - elapsed;
+      this.flushTimer = setTimeout(() => {
+        this.flushTimer = undefined;
+        this.requestFlush();
+      }, delay);
+    }
+  }
+
+  private cancelScheduledFlush(): void {
+    if (this.flushTimer !== undefined) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = undefined;
+    }
+  }
+
+  private requestFlush(): void {
+    if (this.state !== 'streaming' || !this.cardId) return;
+    this.flushRequested = true;
+    void this.drainFlushQueue();
+  }
+
+  private async drainFlushQueue(): Promise<void> {
+    if (this.flushInFlight) return;
+    this.flushInFlight = true;
+
+    try {
+      while (this.flushRequested && this.state === 'streaming' && this.cardId) {
+        this.flushRequested = false;
+
+        try {
+          const content = this.buildStreamContent();
+          await this.enqueueCardOperation(async () => {
+            const seq = this.nextSeq();
+            await this.feishuClient.streamCardContent(
+              this.cardId!,
+              STREAMING_ELEMENT_ID,
+              content,
+              seq,
+            );
+          });
+          this.lastFlushTime = Date.now();
+        } catch (err) {
+          if (this.logger) {
+            const msg = err instanceof Error ? err.message : String(err);
+            this.logger.warn({ err: msg.slice(0, 100) }, 'flush skipped due to error');
+          }
+        }
+      }
+    } finally {
+      this.flushInFlight = false;
+    }
+  }
+
+  /**
+   * Build the streaming content text.
+   * Running tools always shown on top with ⏳.
+   * Answer text (with completed tool lines woven in) shown below.
+   * When neither: show 🧠 thinking + cycling dots.
+   */
+  private buildStreamContent(): string {
+    const sections: string[] = [];
+
+    // Show completed tool lines + answer text first (older content on top)
+    if (this.pendingContent.trim()) {
+      sections.push(fixFeishuBold(this.pendingContent.trimEnd()));
+    }
+
+    // Show running tools below completed content
+    for (const [, info] of this.toolIndicators) {
+      if (info.status === 'running') {
+        const summary = info.args ? summarizeToolInput(info.name, info.args) : '';
+        sections.push(formatToolLine('running', info.name, summary));
+      }
+    }
+
+    // If nothing at all → show thinking with cycling dots
+    if (sections.length === 0) {
+      if (this.thinkingTagOpen || this.pendingThinking) {
+        const dots = '.'.repeat((this.thinkingDotCycle % 3) + 1);
+        this.thinkingDotCycle++;
+        sections.push(`🧠 ${i18n.t('feishu-cards:stream.thinkingShort')}${dots}`);
+      }
+    }
+
+    return sections.join('\n') || i18n.t('feishu-cards:stream.thinking');
+  }
+
+  /**
+   * Build the final answer, stripping any unclosed think tags.
+   */
+  private buildFinalAnswer(): string {
+    // If there's remaining content in buffer that wasn't processed
+    const leftover = this.buffer;
+    let answer = this.pendingContent;
+    let thinking = this.pendingThinking;
+
+    // Process any leftover buffer
+    if (leftover) {
+      if (!this.thinkingTagOpen) {
+        answer += leftover;
+      } else {
+        thinking += leftover;
+      }
+    }
+
+    // Strip any incomplete/partial think tags from the answer
+    answer = answer.replace(/<\s*think(?:ing)?\s*>$/i, '').trim();
+
+    return fixFeishuBold(answer);
+  }
+
+  private buildTerminalCard(): Record<string, unknown> {
+    const snapshot = this.finalCardSnapshot ?? {
+      answer: this.buildFinalAnswer() || this.pendingThinking || i18n.t('feishu-cards:stream.noResponse'),
+      thinking: this.pendingThinking || undefined,
+      elapsedMs: this.startTime ? Date.now() - this.startTime : undefined,
+      model: this.model,
+      agentName: this.agentName,
+      usage: this.usage,
+    };
+    return buildCompletedCard({
+      ...snapshot,
+      footerConfig: this.footerConfig,
+    });
+  }
+
+}
+
+// ─── Helpers ───
+
+/**
+ * Format a single tool call line for streaming display.
+ *   running → > ⏳ **Bash** — echo '...'
+ *   done    → > ✅ **Bash** — echo '...'
+ *   error   → > ❌ **Bash** — echo '...'
+ */
+function formatToolLine(status: 'running' | 'done' | 'error', name: string, summary: string): string {
+  const icon = status === 'done' ? '✅' : status === 'error' ? '❌' : '⏳';
+  const truncated = summary.length > 100 ? summary.slice(0, 100) + '…' : summary;
+  if (truncated) {
+    return `> ${icon} **${name}** — ${truncated}`;
+  }
+  return `> ${icon} **${name}**`;
+}
+
+/**
+ * Check if `text` ends with a partial prefix of `tag`.
+ * Returns the number of characters to keep in the buffer (0 if no match).
+ */
+function partialTagAtEnd(text: string, tag: string): number {
+  if (!text || !tag) return 0;
+
+  // Search backwards for '<' — the start character of any tag
+  const ltIdx = text.lastIndexOf('<');
+  if (ltIdx === -1) return 0;
+
+  const suffix = text.slice(ltIdx);
+  if (tag.startsWith(suffix)) {
+    return suffix.length;
+  }
+  return 0;
+}

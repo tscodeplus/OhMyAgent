@@ -1,0 +1,11 @@
+{
+  "card.shellCommandApproval": "Shell Command Approval",
+  "card.computerUseApproval": "Computer Use Approval",
+  "card.fileAccessApproval": "File Read Permission Approval",
+  "riskLow": "Low",
+  "riskMedium": "Medium",
+  "riskHigh": "High",
+  "field.risk": "Risk Level",
+  "field.reason": "Reason",
+  "instructions": "Use the following commands to approve:\n- /approve — Approve (this time only)\n- /approve session — Approve (this session)\n- /approve always — Always allow\n- /deny — Deny"
+}

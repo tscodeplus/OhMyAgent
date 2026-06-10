@@ -1,0 +1,46 @@
+{
+  "card": {
+    "title": "⏰ 定时任务"
+  },
+  "status": {
+    "completed": "已完成",
+    "notExecuted": "未执行"
+  },
+  "field": {
+    "deadline": "截止:",
+    "schedule": "调度:",
+    "nextRun": "下次:",
+    "lastRun": "上次:",
+    "prompt": "提示:"
+  },
+  "error": {
+    "parseEndAt": "无法解析截止时间: {{endAt}}",
+    "missingJobId": "请提供要暂停的任务 ID (job_id)。",
+    "missingJobIdResume": "请提供要恢复的任务 ID (job_id)。",
+    "missingJobIdRemove": "请提供要删除的任务 ID (job_id)。",
+    "missingJobIdRun": "请提供要立即执行的任务 ID (job_id)。",
+    "jobNotFound": "未找到任务 {{id}}",
+    "unknownAction": "未知操作: {{action}}",
+    "operationFailed": "定时任务操作失败: {{error}}"
+  },
+  "create": {
+    "success": "已创建定时任务 {{id}}:\n{{detail}}"
+  },
+  "list": {
+    "empty": "当前没有定时任务。",
+    "title": "**定时任务 ({{count}})**\n\n{{list}}"
+  },
+  "pause": {
+    "success": "已暂停任务 {{id}}"
+  },
+  "resume": {
+    "success": "已恢复任务 {{id}}"
+  },
+  "remove": {
+    "success": "已删除任务 {{id}}"
+  },
+  "run": {
+    "success": "任务 {{id}} 执行成功 ({{ms}}ms):\n{{output}}",
+    "failed": "任务 {{id}} 执行失败: {{error}}"
+  }
+}

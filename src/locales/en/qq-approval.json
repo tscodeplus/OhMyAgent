@@ -1,0 +1,22 @@
+{
+  "card.shellCommandApproval": "Shell Command Approval",
+  "card.computerUseApproval": "Computer Use Approval",
+  "card.fileAccessApproval": "File Read Access Approval",
+  "riskLow": "Low",
+  "riskMedium": "Medium",
+  "riskHigh": "High",
+  "field.risk": "Risk",
+  "field.reason": "Reason",
+  "button.approveOnce": "✅ Approve Once",
+  "button.approveSession": "✅ Approve Session",
+  "button.alwaysAllow": "⭐ Always Allow",
+  "button.denyOnce": "❌ Deny",
+  "result.approve_once": "Approved (once)",
+  "result.approve_session": "Approved (session)",
+  "result.approve_always": "Approved (always)",
+  "result.reject_once": "Rejected (once)",
+  "result.reject_always": "Rejected (always)",
+  "result.approved": "Approved: {{command}}",
+  "result.rejected": "Rejected: {{command}}",
+  "result.alreadyProcessed": "⚠️ This approval request has already been processed before."
+}

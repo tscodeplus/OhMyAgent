@@ -1,0 +1,61 @@
+appId: com.ohmyagent.desktop
+productName: OhMyAgent
+copyright: Copyright (c) 2026 OhMyAgent
+
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - assets/**/*
+  - "!node_modules/**/*"
+
+extraResources:
+  - from: ../dist/
+    to: server-dist/
+  - from: ../ui/dist/
+    to: webui-dist/
+  - from: .electron-deps/node_modules/
+    to: node_modules/
+
+asar: true
+asarUnpack:
+  - "**/*.node"
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: assets/icon.ico
+
+nsis:
+  guid: "d5a8c4e2-1f3b-4c7d-8e9f-0a1b2c3d4e5f"
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: OhMyAgent
+  include: build/nsis-installer.nsh
+  differentialPackage: false
+
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  icon: assets/icon.icns
+  category: public.app-category.utilities
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+
+publish:
+  provider: generic
+  # TODO: replace with actual release server URL
+  url: https://releases.ohmyagent.example.com/desktop/
+  channel: latest

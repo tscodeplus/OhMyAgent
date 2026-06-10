@@ -1,0 +1,111 @@
+@import 'tailwindcss';
+
+/* Use class-based dark mode (html.dark) instead of prefers-color-scheme */
+@variant dark (&:where(.dark, .dark *));
+
+html, body, #root { height: 100%; width: 100%; }
+
+/* Use dynamic viewport height on mobile to account for Safari's
+   collapsing address bar. Falls back to 100vh on unsupported browsers. */
+@supports (height: 100dvh) {
+  html, body, #root { height: 100dvh; }
+}
+
+/* Prevent horizontal overflow on narrow screens */
+body {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+/* Safe area padding for notched devices */
+body {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* Improve touch targets on mobile */
+@media (max-width: 639px) {
+  button, a, [role="button"] {
+    min-height: 28px;
+    min-width: 28px;
+  }
+}
+
+html {
+  color-scheme: light;
+}
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar — thin, subtle */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d4d4d4; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #a3a3a3; }
+html.dark ::-webkit-scrollbar-thumb { background: #404040; }
+html.dark ::-webkit-scrollbar-thumb:hover { background: #525252; }
+
+/* Prevent content overflow on narrow screens */
+.markdown-content pre, .markdown-content code {
+  overflow-x: auto;
+  max-width: 100%;
+  word-break: break-word;
+}
+.markdown-content h1 { font-size: 1.25rem; font-weight: 700; margin: 0.75rem 0 0.5rem; }
+.markdown-content h2 { font-size: 1.1rem; font-weight: 600; margin: 0.5rem 0 0.25rem; }
+.markdown-content h3 { font-size: 1rem; font-weight: 600; margin: 0.5rem 0 0.25rem; }
+.markdown-content p { margin: 0.375rem 0; line-height: 1.625; font-size: 0.875rem; }
+.markdown-content ul, .markdown-content ol { margin: 0.375rem 0; padding-left: 1.25rem; }
+.markdown-content li { margin: 0.125rem 0; font-size: 0.875rem; }
+.markdown-content code {
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.8rem;
+  background: #e5e5e5;
+}
+html.dark .markdown-content code {
+  background: #262626;
+}
+.markdown-content pre {
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+  background: #e5e5e5;
+}
+html.dark .markdown-content pre {
+  background: #262626;
+}
+.markdown-content pre code { background: none; padding: 0; }
+.markdown-content blockquote {
+  border-left: 2px solid #2563eb;
+  padding-left: 0.75rem;
+  margin: 0.375rem 0;
+  color: #737373;
+  font-size: 0.875rem;
+}
+.markdown-content table { width: 100%; border-collapse: collapse; margin: 0.5rem 0; font-size: 0.8125rem; }
+.markdown-content th, .markdown-content td { border: 1px solid #e5e5e5; padding: 0.375rem 0.5rem; text-align: left; }
+.markdown-content th { background: #f5f5f5; font-weight: 600; }
+html.dark .markdown-content th { background: #262626; }
+html.dark .markdown-content th, html.dark .markdown-content td { border-color: #404040; }
+.markdown-content a { color: #2563eb; text-decoration: underline; }
+.markdown-content img { max-width: 100%; border-radius: 0.5rem; }
+
+/* Toast entrance animation — centered fade + scale */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}

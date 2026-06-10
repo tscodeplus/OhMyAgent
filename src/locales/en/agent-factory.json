@@ -1,0 +1,7 @@
+{
+  "approval": {
+    "waitingMultiple": "Waiting for {{count}} approvals: {{list}}",
+    "waitingSingle": "Waiting for 1 approval: {{name}}",
+    "waitingSimple": "Waiting for {{count}} approvals"
+  }
+}

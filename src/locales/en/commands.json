@@ -1,0 +1,68 @@
+{
+  "stop": {
+    "noTask": "There is no active task currently",
+    "stoppedWithApprovals": "Stopped current task (also rejected {{count}} pending approval(s))",
+    "stopped": "Stopped current task"
+  },
+  "clear": {
+    "cleared": "Current conversation history has been cleared",
+    "noSession": "There is no active conversation session"
+  },
+  "new": {
+    "created": "Created a new session"
+  },
+  "skill": {
+    "notEnabled": "Skill system is not enabled",
+    "noSkills": "No skills currently loaded",
+    "list": "Available skills:\n{{list}}",
+    "notFound": "Skill \"{{name}}\" not found. Use /skill to view the available skills.",
+    "info": "Include {{command}} in your message to activate the 「{{name}}」 skill.\n{{desc}}",
+    "reloaded": "Skills reloaded, {{count}} skills loaded",
+    "reloadFailed": "Skills reload failed: {{error}}"
+  },
+  "team": {
+    "enabled": "Smart Agent Team mode enabled.",
+    "disabled": "Smart Agent Team mode disabled.",
+    "executing": "Executing with Smart Agent Team..."
+  },
+  "cron": {
+    "notEnabled": "Cron system is not enabled",
+    "noJobs": "No cron jobs currently.",
+    "usage": "Usage: /cron list | remove <id> | pause <id> | resume <id> | run <id> | test",
+    "fieldSchedule": "Schedule:",
+    "fieldNext": "Next:",
+    "fieldStatus": "Status:",
+    "fieldLast": "Last:",
+    "fieldPrompt": "Prompt:",
+    "fieldEnd": "End:",
+    "completed": "Completed",
+    "notExecuted": "Not executed",
+    "listHeader": "**Cron Jobs ({{count}})**",
+    "removeUsage": "Usage: /cron remove <job ID>",
+    "removed": "Removed job {{id}}",
+    "notFound": "Job {{id}} not found",
+    "pauseUsage": "Usage: /cron pause <job ID>",
+    "paused": "Paused job {{id}}",
+    "resumeUsage": "Usage: /cron resume <job ID>",
+    "resumed": "Resumed job {{id}}",
+    "runUsage": "Usage: /cron run <job ID>",
+    "ranSuccess": "Job {{id}} executed ({{duration}}ms), see card for results",
+    "ranFailed": "Job {{id}} execution failed: {{error}}",
+    "execFailed": "Execution failed: {{error}}",
+    "testUsage": "Usage: /cron test <chatId> or send via Feishu",
+    "testCardTitle": "⏰ Cron Job",
+    "testCardBody": "## Markdown Rendering Test\n\n**Bold** *Italic* `Code`\n\n| Col A | Col B | Col C |\n|-------|-------|-------|\n| Val 1 | Val 2 | Val 3 |\n| Val 4 | Val 5 | Val 6 |\n\n```typescript\nconst x: number = 42;\n```",
+    "testCardFooter": "MiniMax-M2.7 · Test",
+    "testCardSent": "Test card sent"
+  },
+  "approve": {
+    "noPending": "No pending approvals",
+    "onceApproved": "✅ Approved (this time only)",
+    "sessionApproved": "✅ Approved {{count}} operation(s) (this session)",
+    "alwaysApproved": "⭐ Approved {{count}} operation(s) (always allow)"
+  },
+  "deny": {
+    "noPending": "No pending approvals",
+    "denied": "❌ Denied"
+  }
+}

@@ -1,0 +1,254 @@
+# ============================================================================
+# OhMyAgent Configuration
+# ============================================================================
+# Copy this file to config.yaml and edit the values you need.
+# Only "provider" and one channel are required to get started.
+#
+# Environment variable interpolation:
+#   Use ${VAR_NAME} to reference environment variables (e.g. ${OPENAI_API_KEY}).
+#   This lets you keep secrets in .env while everything else lives here.
+#
+# Priority: process.env > config.yaml > defaults
+# ============================================================================
+
+# --- LLM Provider (required) ---
+provider:
+  # Format: provider/model-id (same format used by fallback_models and agents)
+  primary: deepseek/deepseek-chat
+  # Reasoning model (optional, defaults to primary model)
+  reasoning: deepseek/deepseek-reasoner
+  # API key — inline or use ${DEEPSEEK_API_KEY} to reference .env
+  api_key: sk-xxx
+  # Optional base URL override
+  # base_url: https://api.deepseek.com/v1
+
+# --- Fallback Models ---
+# Tried in order when the primary model fails. Format: provider/model-id.
+# fallback_models:
+#   - mimo/mimo-v2.5
+#   - deepseek/deepseek-v4-flash
+
+# --- Default Reasoning Level ---
+# Applied to all models unless overridden per-model in custom_providers.
+# Accepts provider-specific values: low, medium, high, max, xhigh.
+# default_reasoning_level: medium
+
+# --- Summary LLM (optional) ---
+# Used for session summarization. Falls back to rule-based summary if unset.
+# summary:
+#   model: deepseek/deepseek-chat
+#   # api_key: sk-xxx
+#   # base_url: https://api.deepseek.com/v1
+
+# --- Vision Bridge (optional) ---
+# When enabled, images sent to text-only models are first analyzed
+# by a separate vision-capable model. See docs/VISION_BRIDGE_PLAN.md.
+# vision_bridge:
+#   enabled: true
+#   model_ref: nvidia/moonshotai/kimi-k2.6
+#   # timeout_ms: 120000
+
+# --- Custom Providers (optional) ---
+# Define LLM providers not in pi-mono's built-in registry.
+# custom_providers:
+#   ai-next:
+#     api_key: sk-xxx
+#     base_url: https://api.ai-next.top/v1
+#     models:
+#       - id: gpt-5.4
+#         name: GPT-5.4
+#         api: openai-responses         # or: openai-completions
+#         reasoning: true
+#         max_tokens: 128000
+#         cost:
+#           input: 0
+#           output: 0
+#           cache_read: 0
+#           cache_write: 0
+
+# --- Embedding ---
+# embedding:
+#   base_url: https://api.siliconflow.cn/v1
+#   api_key: sk-xxx
+#   model: BAAI/bge-m3
+#   dimension: 1024
+
+# --- Channels ---
+# At least one channel must be configured.
+channels:
+  feishu:
+    app_id: cli_xxx
+    app_secret: yyy
+    # verification_token: ""
+    # encrypt_key: ""
+    # connection_mode: websocket   # websocket | webhook
+
+  # telegram:
+  #   bot_token: xxx
+  #   mode: polling               # polling | webhook
+  #   proxy_url: http://127.0.0.1:7897
+
+  # wechat:
+  #   enabled: true
+  #   bot_token: xxx
+
+  # qq:
+  #   enabled: true
+  #   app_id: xxx
+  #   client_secret: xxx
+
+# --- Database ---
+# database:
+#   path: ~/.ohmyagent/data/app.db
+
+# --- Web Search ---
+# web_search:
+#   provider_order:
+#     - tavily
+#     - exa
+#     - baidu
+#   # tavily_api_key: tvly-xxx
+#   # baidu_api_key: bce-v3/xxx
+#   # timeout_ms: 30000
+#   # max_results: 5
+
+# --- Tools ---
+# tools:
+#   profile: standard             # minimal | standard | developer | full
+#   shell:
+#     enabled: true
+#     exec_mode: balanced         # safe | balanced | trusted
+#     allowlist:
+#       - date
+#       - ls
+#       - cat
+#       - grep
+#       - find
+#     # command_timeout_ms: 60000
+#     # max_output_chars: 12000
+#     # approval_timeout_sec: 120
+#     # approval_timeout_action: deny
+#   file_read:
+#     # allowed_roots:
+#     #   - /tmp
+#     #   - /home/user
+#     # denied_patterns:
+#     #   - .env
+#     #   - "*.pem"
+
+# --- Memory ---
+# memory:
+#   auto_recall: false
+#   auto_recall_frequency: first   # first | every
+#   summarize_interval: 20
+#   output_language: Auto          # Auto | English | Simplified Chinese | ...
+#   # recall_top_k: 3
+#   # recall_min_score: 0.01
+#   # capture_max_chars: 500
+#   # decay_half_life_days: 30
+#   # embedding_cache_max_entries: 10000
+#   # query_embedding_timeout_ms: 10000
+#   hygiene:
+#     enabled: true
+#     retention_days: 90
+#   embedding_circuit_breaker:
+#     failure_threshold: 5
+#     cooldown_sec: 30
+
+# --- Agents ---
+# Define agent personas. Each key is an agent ID.
+# The "default" agent is always present (built-in fallback if omitted).
+# agents:
+#   default:
+#     name: Default
+#     description: "General-purpose assistant"
+#     system_prompt: "You are a helpful AI assistant."
+#     tools:
+#       profile: standard
+#
+#   coder:
+#     name: Coder
+#     description: "Developer assistant"
+#     system_prompt: "You are a developer assistant. Help with code."
+#     tools:
+#       profile: developer
+#     model:
+#       primary: deepseek/deepseek-chat
+#
+#   designer:
+#     name: Designer
+#     description: "Design assistant"
+#     system_prompt: "You are a design assistant. Help with UI/UX."
+#     model:
+#       primary: mimo/mimo-v2.5
+
+# --- Cron (optional) ---
+# cron:
+#   enabled: true
+#   tick_interval_ms: 30000
+#   data_dir: ./cron
+#   execution_timeout_ms: 600000
+
+# --- Extensions ---
+# extensions:
+#   directory: extensions
+
+# --- v4 Policy Center (optional) ---
+# policy:
+#   mode: balanced                # safe | balanced | permissive
+#   path:
+#     read_roots: []
+#     write_roots: []
+#     denied_patterns: []
+#   approval:
+#     timeout_sec: 120
+#     timeout_action: deny        # deny | allow
+
+# --- v4 Orchestrator (optional) ---
+# orchestrator:
+#   enabled: true
+#   max_child_agents: 4
+#   allow_grandchildren: false
+#   inherit_approvals: true
+#   inherit_app_approvals: true
+
+# --- v4 Multimodal Runtime (optional) ---
+# multimodal:
+#   enabled: true
+#   attachments:
+#     cache_dir: ./data/media-cache
+#     auto_parse_images: true
+#     auto_parse_documents: true
+#     auto_transcribe_audio: false
+#   image:
+#     mode: native_first           # native_first | bridge_only | native_only
+#     bridge_model_ref: nvidia/moonshotai/kimi-k2.6
+#   imageGeneration:
+#     enabled: true
+#     modelRef: agnes/agnes-image-2.1-flash
+#     outputDir: ./data/generated-images
+#     maxPromptChars: 4000
+#   videoGeneration:
+#     enabled: true
+#     modelRef: agnes/agnes-video-v2.0
+#     outputDir: ./data/generated-videos
+#     maxPromptChars: 4000
+#     defaultSeconds: "5.0"
+#     defaultSize: 1280x768
+
+# --- v4 MCP Servers (optional) ---
+# mcp:
+#   servers:
+#     - id: filesystem
+#       name: Filesystem
+#       command: npx
+#       args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+#       resources:
+#         - id: root
+#           name: Root directory
+#           description: Access to /tmp files
+
+# --- Display & I18n ---
+# show_tool_calls: true          # Show tool indicators in chat
+# ui_language: en                # en | zh-CN
+# log_level: info                # fatal | error | warn | info | debug | trace

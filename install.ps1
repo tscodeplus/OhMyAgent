@@ -1,0 +1,284 @@
+# OhMyAgent Windows Installer
+# 长于记忆 · 精于理解 · 忠于边界
+#
+# Usage: powershell -ExecutionPolicy Bypass -File install.ps1
+#   Or:   Invoke-WebRequest -Uri "https://raw.githubusercontent.com/tscodeplus/OhMyAgent/main/install.ps1" | Invoke-Expression
+
+param(
+    [string]$InstallDir = "$env:USERPROFILE\OhMyAgent",
+    [string]$Branch = "main"
+)
+
+$ErrorActionPreference = "Stop"
+
+# ── Helpers ─────────────────────────────────────────────────────────────────────
+function Write-Info  { Write-Host "  [•] $args" -ForegroundColor Cyan }
+function Write-OK    { Write-Host "  [✓] $args" -ForegroundColor Green }
+function Write-Warn  { Write-Host "  [!] $args" -ForegroundColor Yellow }
+function Write-Err   { Write-Host "  [✗] $args" -ForegroundColor Red }
+function Abort       { Write-Err $args; Write-Host ""; exit 1 }
+
+# ── Banner ──────────────────────────────────────────────────────────────────────
+Write-Host ""
+Write-Host "╔══════════════════════════════════════╗" -ForegroundColor Cyan
+Write-Host "║       OhMyAgent Installer           ║" -ForegroundColor Cyan
+Write-Host "║   长于记忆 · 精于理解 · 忠于边界      ║" -ForegroundColor Cyan
+Write-Host "╚══════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host ""
+
+# ── Step 1: Node.js ─────────────────────────────────────────────────────────────
+Write-Info "Checking Node.js..."
+
+$nodePath = Get-Command node -ErrorAction SilentlyContinue
+if ($nodePath) {
+    $nodeVer = (node -v) -replace 'v',''
+    $majorVer = [int]($nodeVer -split '\.')[0]
+    if ($majorVer -ge 20) {
+        Write-OK "Node.js v$nodeVer"
+    } else {
+        Write-Warn "Node.js v$nodeVer found, but >= 20 required"
+        Write-Host ""
+        Write-Host "  Download Node.js >= 20 from: https://nodejs.org" -ForegroundColor Yellow
+        Write-Host "  Or use fnm (fast Node Manager):" -ForegroundColor Yellow
+        Write-Host "    winget install Schniz.fnm" -ForegroundColor Yellow
+        Write-Host "    fnm install 22" -ForegroundColor Yellow
+        Write-Host "    fnm use 22" -ForegroundColor Yellow
+        Abort "Please install Node.js >= 20 and re-run this script."
+    }
+} else {
+    Write-Host ""
+    Write-Host "  Download Node.js LTS from: https://nodejs.org" -ForegroundColor Yellow
+    Write-Host "  Or via winget: winget install OpenJS.NodeJS.LTS" -ForegroundColor Yellow
+    Abort "Node.js not found. Install it and re-run."
+}
+
+# ── Step 2: pnpm ────────────────────────────────────────────────────────────────
+Write-Info "Checking pnpm..."
+
+$pnpmPath = Get-Command pnpm -ErrorAction SilentlyContinue
+if (-not $pnpmPath) {
+    Write-Info "Installing pnpm..."
+    npm install -g pnpm 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        # Try corepack
+        corepack enable 2>$null
+        corepack prepare pnpm@latest --activate 2>$null
+    }
+    $pnpmPath = Get-Command pnpm -ErrorAction SilentlyContinue
+    if (-not $pnpmPath) {
+        Abort "Failed to install pnpm. Install it from: https://pnpm.io/installation"
+    }
+}
+Write-OK "pnpm $(pnpm -v)"
+
+# ── Step 3: Git ─────────────────────────────────────────────────────────────────
+Write-Info "Checking git..."
+$gitPath = Get-Command git -ErrorAction SilentlyContinue
+if (-not $gitPath) {
+    Write-Host ""
+    Write-Host "  Install git: winget install Git.Git" -ForegroundColor Yellow
+    Write-Host "  Or download from: https://git-scm.com" -ForegroundColor Yellow
+    Abort "git not found."
+}
+Write-OK "git $(git --version | Select-String -Pattern '\d+\.\d+\.\d+' | ForEach-Object { $_.Matches.Value })"
+
+# ── Step 5: Clone ───────────────────────────────────────────────────────────────
+$repoUrl = "https://github.com/tscodeplus/OhMyAgent.git"
+
+if (Test-Path "$InstallDir\.git") {
+    Write-OK "Repository already exists: $InstallDir"
+    Write-Info "Pulling latest changes..."
+    git -C $InstallDir pull --ff-only 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "Could not pull latest (ignored)"
+    }
+} else {
+    if (Test-Path $InstallDir) {
+        Write-Warn "$InstallDir exists but is not a git repo."
+        $InstallDir = "$InstallDir-new"
+    }
+    Write-Info "Cloning OhMyAgent to $InstallDir..."
+    git clone $repoUrl $InstallDir 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Abort "Failed to clone $repoUrl"
+    }
+    Write-OK "Repository cloned"
+}
+
+Set-Location $InstallDir
+
+# ── Step 5: Install dependencies ────────────────────────────────────────────────
+Write-Info "Installing dependencies..."
+
+# better-sqlite3 and sqlite-vec ship prebuilt binaries for all common platforms.
+# A C++ toolchain is only needed if prebuilds fail (rare architectures).
+pnpm install --prefer-offline 2>&1 | ForEach-Object {
+    if ($_ -match "ERR|error") { Write-Host "    $_" }
+}
+if ($LASTEXITCODE -eq 0) {
+    Write-OK "Dependencies installed (prebuilt binaries)"
+} else {
+    Write-Warn "Prebuilt binaries unavailable. Need C++ toolchain to compile from source."
+    Write-Host ""
+    Write-Host "  Install Visual Studio Build Tools:" -ForegroundColor Yellow
+    Write-Host "    winget install Microsoft.VisualStudio.2022.BuildTools --override `"--wait --quiet --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended`"" -ForegroundColor Yellow
+    Write-Host "  Or download from:" -ForegroundColor Yellow
+    Write-Host "    https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022" -ForegroundColor Yellow
+    Write-Host "  (Select: Desktop development with C++)" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Info "Retrying with source compilation..."
+    pnpm install --prefer-offline 2>&1 | ForEach-Object {
+        if ($_ -match "ERR|error") { Write-Host "    $_" }
+    }
+    if ($LASTEXITCODE -ne 0) {
+        Abort "Dependency installation failed. Check the output above."
+    }
+    Write-OK "Dependencies installed (compiled from source)"
+}
+
+# ── Step 7: Configuration ───────────────────────────────────────────────────────
+Write-Info "Setting up configuration..."
+
+if (-not (Test-Path "config.yaml")) {
+    Copy-Item "config.yaml.example" "config.yaml"
+    Write-OK "Created config.yaml from example"
+} else {
+    Write-OK "config.yaml already exists"
+}
+
+if (-not (Test-Path ".env")) {
+    Copy-Item ".env.example" ".env"
+    Write-OK "Created .env from example"
+} else {
+    Write-OK ".env already exists"
+}
+
+Write-Host ""
+Write-Host "  Quick setup — at minimum you need an LLM API key." -ForegroundColor Yellow
+Write-Host ""
+Write-Host "  Popular options:"
+Write-Host "    $(Write-Host '1' -NoNewline -ForegroundColor Cyan)) DeepSeek  — get key at https://platform.deepseek.com"
+Write-Host "    $(Write-Host '2' -NoNewline -ForegroundColor Cyan)) Anthropic — get key at https://console.anthropic.com"
+Write-Host "    $(Write-Host '3' -NoNewline -ForegroundColor Cyan)) OpenAI    — get key at https://platform.openai.com"
+Write-Host "    $(Write-Host '4' -NoNewline -ForegroundColor Cyan)) Other     — enter provider/model/URL/key manually"
+Write-Host ""
+
+$choice = Read-Host "  Choose [1-4] (default: 1)"
+if ([string]::IsNullOrWhiteSpace($choice)) { $choice = "1" }
+
+switch ($choice) {
+    "1" {
+        $PI_AI_PROVIDER = "deepseek"
+        $PI_AI_MODEL = "deepseek-chat"
+        $PI_AI_REASONING_MODEL = "deepseek-reasoner"
+        $DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
+    }
+    "2" {
+        $PI_AI_PROVIDER = "anthropic"
+        $PI_AI_MODEL = "claude-sonnet-4-6"
+        $PI_AI_REASONING_MODEL = "claude-opus-4-8"
+        $DEFAULT_BASE_URL = ""
+    }
+    "3" {
+        $PI_AI_PROVIDER = "openai"
+        $PI_AI_MODEL = "gpt-4o"
+        $PI_AI_REASONING_MODEL = "gpt-5.4"
+        $DEFAULT_BASE_URL = ""
+    }
+    "4" {
+        $PI_AI_PROVIDER = Read-Host "  Provider ID"
+        $PI_AI_MODEL = Read-Host "  Model name"
+        $PI_AI_REASONING_MODEL = Read-Host "  Reasoning model (or same as above)"
+        if ([string]::IsNullOrWhiteSpace($PI_AI_REASONING_MODEL)) { $PI_AI_REASONING_MODEL = $PI_AI_MODEL }
+        $DEFAULT_BASE_URL = Read-Host "  Base URL (or leave empty)"
+    }
+    default { Abort "Invalid choice" }
+}
+
+$secureKey = Read-Host "  API Key" -AsSecureString
+$PI_AI_API_KEY = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
+    [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureKey)
+)
+if ([string]::IsNullOrWhiteSpace($PI_AI_API_KEY)) {
+    Abort "API key is required."
+}
+
+$secureToken = Read-Host "  WebUI password (leave empty to auto-generate)" -AsSecureString
+$WEBUI_TOKEN = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
+    [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
+)
+$TOKEN_WAS_GENERATED = $false
+if ([string]::IsNullOrWhiteSpace($WEBUI_TOKEN)) {
+    $WEBUI_TOKEN = -join ((48..57) + (65..90) + (97..122) | Get-Random -Count 32 | ForEach-Object { [char]$_ })
+    $TOKEN_WAS_GENERATED = $true
+}
+
+# Write .env
+@"
+
+# ── OhMyAgent configuration ──
+PI_AI_PROVIDER=$PI_AI_PROVIDER
+PI_AI_MODEL=$PI_AI_MODEL
+PI_AI_REASONING_MODEL=$PI_AI_REASONING_MODEL
+PI_AI_API_KEY=$PI_AI_API_KEY
+$(
+if ($DEFAULT_BASE_URL) {
+    "PI_AI_BASE_URL=$DEFAULT_BASE_URL"
+}
+)
+WEBUI_TOKEN=$WEBUI_TOKEN
+LOG_LEVEL=info
+"@ | Out-File -FilePath ".env" -Encoding utf8
+
+Write-OK "Configuration saved"
+
+# ── Step 7: Build ───────────────────────────────────────────────────────────────
+Write-Info "Building TypeScript..."
+Set-Location $InstallDir
+pnpm build 2>&1 | Select-Object -Last 3
+if ($LASTEXITCODE -ne 0) {
+    Write-Warn "Build had warnings (this is usually fine)"
+}
+Write-OK "Build complete"
+
+# ── Step 8: Service ─────────────────────────────────────────────────────────────
+Write-Host ""
+$svc = Read-Host "  Install as system service (auto-start on boot)? [y/N]"
+if ($svc -eq "y" -or $svc -eq "Y") {
+    Set-Location $InstallDir
+    node dist/src/cli/index.js service install 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Write-OK "Service installed — OhMyAgent will start automatically on logon"
+    } else {
+        Write-Warn "Service installation failed. Try manually later: node dist/src/cli/index.js service install"
+    }
+}
+
+# ── Step 9: Ready ───────────────────────────────────────────────────────────────
+Write-Host ""
+Write-Host "╔══════════════════════════════════════╗" -ForegroundColor Green
+Write-Host "║      Installation complete!          ║" -ForegroundColor Green
+Write-Host "╚══════════════════════════════════════╝" -ForegroundColor Green
+Write-Host ""
+Write-Host "  WebUI:  " -NoNewline -ForegroundColor White; Write-Host "http://localhost:9191/webui" -ForegroundColor Cyan
+Write-Host "  Token:  " -NoNewline -ForegroundColor White; Write-Host "$WEBUI_TOKEN" -ForegroundColor Cyan
+if ($TOKEN_WAS_GENERATED) {
+    Write-Host "          (auto-generated — saved in .env, change with WEBUI_TOKEN)" -ForegroundColor Yellow
+}
+Write-Host ""
+Write-Host "  Start the server:" -ForegroundColor White
+Write-Host "    cd $InstallDir && pnpm dev"
+Write-Host ""
+Write-Host "  Or use the CLI:" -ForegroundColor White
+Write-Host "    ohmyagent start     # Start in background"
+Write-Host "    ohmyagent status    # Check if running"
+Write-Host "    ohmyagent doctor    # System diagnostics"
+Write-Host ""
+Write-Host "  Desktop app: https://github.com/tscodeplus/OhMyAgent/releases" -ForegroundColor White
+Write-Host ""
+
+$start = Read-Host "  Start now? [Y/n]"
+if ($start -eq "" -or $start -eq "y" -or $start -eq "Y") {
+    Set-Location $InstallDir
+    pnpm dev
+}

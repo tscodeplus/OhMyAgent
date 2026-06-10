@@ -1,0 +1,68 @@
+{
+  "stop": {
+    "noTask": "当前没有正在执行的任务",
+    "stoppedWithApprovals": "已停止当前任务（同时拒绝了 {{count}} 项待审批操作）",
+    "stopped": "已停止当前任务"
+  },
+  "clear": {
+    "cleared": "当前会话的对话历史已清除",
+    "noSession": "当前没有活跃的对话会话"
+  },
+  "new": {
+    "created": "已创建新会话"
+  },
+  "skill": {
+    "notEnabled": "技能系统未启用",
+    "noSkills": "当前没有已加载的技能",
+    "list": "可用技能：\n{{list}}",
+    "notFound": "未找到技能 \"{{name}}\"。使用 /skill 查看可用技能列表。",
+    "info": "在消息中包含 {{command}} 来激活「{{name}}」技能。\n{{desc}}",
+    "reloaded": "技能已重新加载，共 {{count}} 个技能",
+    "reloadFailed": "技能重新加载失败：{{error}}"
+  },
+  "team": {
+    "enabled": "Smart Agent Team 模式已启用",
+    "disabled": "Smart Agent Team 模式已关闭",
+    "executing": "正在使用 Smart Agent Team 执行..."
+  },
+  "cron": {
+    "notEnabled": "定时任务系统未启用",
+    "noJobs": "当前没有定时任务。",
+    "usage": "用法: /cron list | remove <id> | pause <id> | resume <id> | run <id> | test",
+    "fieldSchedule": "调度:",
+    "fieldNext": "下次:",
+    "fieldStatus": "状态:",
+    "fieldLast": "上次:",
+    "fieldPrompt": "提示:",
+    "fieldEnd": "截止:",
+    "completed": "已完成",
+    "notExecuted": "未执行",
+    "listHeader": "**定时任务 ({{count}})**",
+    "removeUsage": "用法: /cron remove <任务ID>",
+    "removed": "已删除任务 {{id}}",
+    "notFound": "未找到任务 {{id}}",
+    "pauseUsage": "用法: /cron pause <任务ID>",
+    "paused": "已暂停任务 {{id}}",
+    "resumeUsage": "用法: /cron resume <任务ID>",
+    "resumed": "已恢复任务 {{id}}",
+    "runUsage": "用法: /cron run <任务ID>",
+    "ranSuccess": "任务 {{id}} 已执行 ({{duration}}ms)，结果请查看卡片",
+    "ranFailed": "任务 {{id}} 执行失败: {{error}}",
+    "execFailed": "执行失败: {{error}}",
+    "testUsage": "用法: /cron test <chatId> 或通过 Feishu 发送",
+    "testCardTitle": "⏰ 定时任务",
+    "testCardBody": "## Markdown 渲染测试\n\n**粗体** *斜体* `代码`\n\n| 列A | 列B | 列C |\n|-----|-----|-----|\n| 值1 | 值2 | 值3 |\n| 值4 | 值5 | 值6 |\n\n```typescript\nconst x: number = 42;\n```",
+    "testCardFooter": "MiniMax-M2.7 · 测试",
+    "testCardSent": "测试卡已发送"
+  },
+  "approve": {
+    "noPending": "当前没有待审批的操作",
+    "onceApproved": "✅ 已批准（仅此次）",
+    "sessionApproved": "✅ 已批准 {{count}} 项操作（本次会话）",
+    "alwaysApproved": "⭐ 已批准 {{count}} 项操作（始终允许）"
+  },
+  "deny": {
+    "noPending": "当前没有待审批的操作",
+    "denied": "❌ 已拒绝"
+  }
+}

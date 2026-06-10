@@ -1,0 +1,11 @@
+{
+  "search": {
+    "resultHeader": "## Search results: {{query}}",
+    "providerInfo": "_Powered by {{provider}}, took {{ms}}ms_",
+    "noResults": "_(No results)_",
+    "scoreLabel": "Score:",
+    "dateLabel": "Date:",
+    "cancelled": "Search cancelled",
+    "allFailed": "## Search failed: {{query}}\n\nAll search providers failed:\n{{errors}}"
+  }
+}

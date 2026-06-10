@@ -1,0 +1,9 @@
+{
+  "id": "channel-telegram",
+  "name": "Telegram 通道适配器",
+  "version": "1.0.0",
+  "kind": "channel",
+  "channel_type": "telegram",
+  "main": "index.js",
+  "description": "Telegram Bot channel adapter using grammY"
+}

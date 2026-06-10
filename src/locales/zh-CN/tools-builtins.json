@@ -1,0 +1,43 @@
+{
+  "shell": {
+    "timedOut": "错误：命令执行超时或被中止",
+    "error": "错误：{{message}}",
+    "noOutput": "（无输出）",
+    "truncated": "[输出已截断：省略了 {{count}} 个字符]"
+  },
+  "fileRead": {
+    "accessDenied": "访问被拒绝：路径在允许目录之外",
+    "notFound": "错误：文件未找到",
+    "error": "读取文件时出错",
+    "truncated": "[文件已截断：省略了 {{count}} 个字符]"
+  },
+  "fileSearch": {
+    "noResults": "在 {{path}} 中未找到匹配 \"{{pattern}}\" 的文件",
+    "results": "找到 {{count}} 个文件：\n{{list}}",
+    "error": "搜索出错：{{message}}"
+  },
+  "memoryRecall": {
+    "noResults": "未找到相关记忆。",
+    "resultItem": "{{index}}. {{content}}（得分：{{score}}）"
+  },
+  "approval": {
+    "pathOutsideAllowed": "路径超出允许目录范围：{{paths}}"
+  },
+  "pathPolicy": {
+    "deniedPattern": "路径匹配拒绝模式：{{pattern}}",
+    "noRootsConfigured": "未配置{{operation}}根目录",
+    "outsideRoots": "路径 \"{{resolved}}\" 在配置的{{operation}}根目录之外"
+  },
+  "memoryStore": {
+    "rejected": "内容因安全过滤被拒绝（原因：{{reason}}）。",
+    "duplicate": "此记忆已存在（检测到相似内容）。",
+    "stored": "记忆已成功存储（ID：{{id}}）。",
+    "error": "存储记忆时出错：{{message}}"
+  },
+  "offloadRecall": {
+    "noRecords": "当前会话没有已卸载的工具执行记录。",
+    "nodeNotFound": "未找到节点 {{nodeId}}。可用的节点 ID：{{available}}",
+    "result": "工具：{{toolName}}\n节点：{{nodeId}}\n状态：{{status}}\n参数：{{toolArgs}}\n\n完整结果：\n{{content}}",
+    "error": "读取卸载结果时出错：{{message}}"
+  }
+}

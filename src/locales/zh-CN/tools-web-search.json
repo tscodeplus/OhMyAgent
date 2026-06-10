@@ -1,0 +1,11 @@
+{
+  "search": {
+    "resultHeader": "## 搜索结果: {{query}}",
+    "providerInfo": "_由 {{provider}} 提供，耗时 {{ms}}ms_",
+    "noResults": "_(无搜索结果)_",
+    "scoreLabel": "评分:",
+    "dateLabel": "日期:",
+    "cancelled": "搜索已取消",
+    "allFailed": "## 搜索失败: {{query}}\n\n所有搜索 Provider 均失败:\n{{errors}}"
+  }
+}

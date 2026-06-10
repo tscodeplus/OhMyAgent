@@ -1,0 +1,8 @@
+{
+  "noActiveSession": "没有找到活跃的会话可摘要。",
+  "tooFewMessages": "会话 {{id}}... 只有 {{count}} 条消息，不足以摘要。",
+  "thresholdNotReached": "会话 {{id}}... 已有 {{summaryCount}} 个摘要，消息量({{messageCount}}条)尚未达到下一个摘要阈值。",
+  "summaryCreated": "已为会话 {{id}}... 生成第 {{index}} 个摘要（共 {{messageCount}} 条消息）。触发原因: {{reason}}",
+  "noSessionsNeeded": "当前没有需要摘要的会话。",
+  "summaryFailed": "摘要失败: {{error}}"
+}

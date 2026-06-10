@@ -1,0 +1,9 @@
+{
+  "id": "channel-qq",
+  "name": "QQ通道适配器",
+  "version": "1.0.0",
+  "kind": "channel",
+  "channel_type": "qq",
+  "main": "index.js",
+  "description": "QQ Bot API v2 channel adapter (api.sgroup.qq.com)"
+}

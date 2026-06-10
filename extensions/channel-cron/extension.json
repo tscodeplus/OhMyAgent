@@ -1,0 +1,9 @@
+{
+  "id": "channel-cron",
+  "name": "定时任务通道",
+  "version": "1.0.0",
+  "kind": "channel",
+  "channel_type": "cron",
+  "main": "index.js",
+  "description": "Cron job scheduling channel adapter"
+}

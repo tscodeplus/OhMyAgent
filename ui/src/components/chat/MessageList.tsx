@@ -1,0 +1,233 @@
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
+import { apiRequest } from '../../utils/api';
+import MessageBubble from './MessageBubble';
+import type { Message } from '../../types/session';
+import Spinner from '../ui/Spinner';
+
+interface MessageListProps {
+  projectId?: string;
+  sessionId?: string;
+  streamingMessages?: Message[];
+  /** True while an SSE stream is active. */
+  isStreaming?: boolean;
+  /** Increment after each turn completes to refetch from API. */
+  refetchKey?: number;
+  /** Called after a refetch completes successfully — signals ChatView to clean up streaming messages. */
+  onRefetched?: () => void;
+}
+
+const PAGE_SIZE = 50;
+
+export default function MessageList({ projectId: _projectId, sessionId, streamingMessages: externalMessages, isStreaming, refetchKey, onRefetched }: MessageListProps) {
+  const { t } = useTranslation('common');
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [oldestCreatedAt, setOldestCreatedAt] = useState<number | string | undefined>(undefined);
+
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const topSentinelRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const prevScrollHeightRef = useRef(0);
+  // True while a "load more" is in progress — suppress auto-scroll to bottom.
+  const isLoadingMoreRef = useRef(false);
+
+  // Stable refs for IntersectionObserver closure
+  const hasMoreRef = useRef(hasMore);
+  hasMoreRef.current = hasMore;
+  const loadingMoreRef = useRef(loadingMore);
+  loadingMoreRef.current = loadingMore;
+
+  const formatResponse = useCallback((data: { messages: Message[]; hasMore: boolean }) => {
+    // Re-extract images from markdown content AND tool call outputs
+    // (frontend-only fields, not persisted by the API).
+    const imgRegex = /!\[([^\]]*)\]\(([^)\s]+)\)/g;
+    for (const msg of (data.messages || [])) {
+      if (msg.role === 'assistant') {
+        const images: { url: string; alt?: string }[] = [];
+        const seen = new Set<string>();
+        const scan = (text: string) => {
+          imgRegex.lastIndex = 0;
+          let m: RegExpExecArray | null;
+          while ((m = imgRegex.exec(text)) !== null) {
+            const url = m[2];
+            if (!seen.has(url)) {
+              seen.add(url);
+              images.push({ alt: m[1] || undefined, url });
+            }
+          }
+        };
+        scan(msg.content);
+        // Also scan tool call outputs (webui_send_media puts images here)
+        if (msg.tool_calls) {
+          for (const tc of msg.tool_calls) {
+            if (tc.output) scan(tc.output);
+          }
+        }
+        if (images.length > 0) { msg.images = images; console.log('[MessageList] extracted images for msg', msg.id.slice(0, 8), images); }
+      }
+    }
+    return data;
+  }, []);
+
+  // Fetch latest messages (initial load or after turn complete — replaces all messages)
+  const fetchLatest = useCallback(async () => {
+    if (!_projectId || !sessionId) return;
+    setLoading(true);
+    try {
+      const data = await apiRequest<{ messages: Message[]; hasMore: boolean }>(
+        `/api/projects/${_projectId}/sessions/${sessionId}?limit=${PAGE_SIZE}`
+      );
+      formatResponse(data);
+      console.log('[MessageList] API fetch OK (latest)', { count: data.messages?.length, hasMore: data.hasMore, refetchKey });
+      setMessages(data.messages || []);
+      setHasMore(data.hasMore ?? false);
+      if (data.messages && data.messages.length > 0) {
+        setOldestCreatedAt(data.messages[0].created_at);
+      } else {
+        setOldestCreatedAt(undefined);
+      }
+      onRefetched?.();
+    } catch (e) {
+      console.log('[MessageList] API fetch FAILED', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [_projectId, sessionId, refetchKey, onRefetched, formatResponse]);
+
+  // Load older messages (prepends to existing list, preserves scroll position)
+  const loadMore = useCallback(async () => {
+    if (!_projectId || !sessionId || !hasMore || loadingMore || !oldestCreatedAt) return;
+    console.log('[MessageList] loadMore triggered', { oldestCreatedAt });
+    setLoadingMore(true);
+    isLoadingMoreRef.current = true;
+    // Record scrollHeight before DOM update so we can restore position
+    if (scrollContainerRef.current) {
+      prevScrollHeightRef.current = scrollContainerRef.current.scrollHeight;
+    }
+    try {
+      const data = await apiRequest<{ messages: Message[]; hasMore: boolean }>(
+        `/api/projects/${_projectId}/sessions/${sessionId}?before=${encodeURIComponent(oldestCreatedAt)}&limit=${PAGE_SIZE}`
+      );
+      formatResponse(data);
+      console.log('[MessageList] loadMore OK', { count: data.messages?.length, hasMore: data.hasMore });
+      const older = data.messages || [];
+      setMessages(prev => [...older, ...prev]);
+      setHasMore(data.hasMore ?? false);
+      if (older.length > 0) {
+        setOldestCreatedAt(older[0].created_at);
+      }
+    } catch (e) {
+      console.log('[MessageList] loadMore FAILED', e);
+    } finally {
+      setLoadingMore(false);
+      isLoadingMoreRef.current = false;
+    }
+  }, [_projectId, sessionId, hasMore, loadingMore, oldestCreatedAt, formatResponse]);
+
+  // Store loadMore in a ref so IntersectionObserver can always call the latest version
+  const loadMoreRef = useRef(loadMore);
+  loadMoreRef.current = loadMore;
+
+  // Initial fetch + refetch when refetchKey changes
+  useEffect(() => {
+    fetchLatest();
+  }, [fetchLatest]);
+
+  // IntersectionObserver on the top sentinel — triggers loadMore when
+  // the user scrolls to the top and there are more messages to load.
+  useEffect(() => {
+    const sentinel = topSentinelRef.current;
+    if (!sentinel) return;
+    // Only observe when there are more messages to load
+    if (!hasMore) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMoreRef.current && !loadingMoreRef.current) {
+          loadMoreRef.current();
+        }
+      },
+      { root: scrollContainerRef.current, threshold: 0 }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore]);
+
+  // Restore scroll position after prepending older messages
+  useEffect(() => {
+    if (prevScrollHeightRef.current > 0 && scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop =
+        scrollContainerRef.current.scrollHeight - prevScrollHeightRef.current;
+      prevScrollHeightRef.current = 0;
+    }
+  }, [messages]);
+
+  // Auto-scroll to bottom when new messages arrive (streaming or fresh fetch).
+  // Skip when loading older history to avoid jumping away from the loaded content.
+  useEffect(() => {
+    if (!isLoadingMoreRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, externalMessages]);
+
+  // Merge API history with live streaming messages, deduplicating by ID.
+  const displayMessages = useMemo(() => {
+    if (!externalMessages || externalMessages.length === 0) return messages;
+    const seen = new Set(messages.map(m => m.id));
+    const merged = [...messages];
+    for (const em of externalMessages) {
+      if (!seen.has(em.id)) {
+        merged.push(em);
+        seen.add(em.id);
+      }
+    }
+    const sorted = merged.sort((a, b) =>
+      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    );
+    console.log('[MessageList] displayMessages merge', {
+      apiCount: messages.length,
+      extCount: externalMessages.length,
+      mergedCount: sorted.length,
+    });
+    return sorted;
+  }, [messages, externalMessages]);
+
+  return (
+    <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 sm:py-6">
+      {/* Top sentinel for infinite scroll — IntersectionObserver watches this */}
+      <div ref={topSentinelRef} className="h-px" />
+
+      {/* Loading spinner for initial load (no messages yet) */}
+      {loading && displayMessages.length === 0 && (
+        <div className="flex justify-center py-8">
+          <Spinner size="sm" />
+        </div>
+      )}
+
+      {/* Loading spinner for "load more" at top */}
+      {loadingMore && (
+        <div className="flex justify-center py-3">
+          <Spinner size="sm" />
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!loading && displayMessages.length === 0 && (
+        <div className="flex items-center justify-center h-full text-neutral-500 dark:text-neutral-400 text-sm">
+          {t("chat.sendMessage")}
+        </div>
+      )}
+
+      <div className="max-w-3xl mx-auto space-y-4">
+        {displayMessages.map((msg) => (
+          <MessageBubble key={msg.id} message={msg} />
+        ))}
+      </div>
+      <div ref={bottomRef} />
+    </div>
+  );
+}
