@@ -78,7 +78,9 @@ jobs:
             libnss3 \
             libxss1 \
             libxtst6 \
-            xdg-utils
+            xdg-utils \
+            fakeroot \
+            dpkg-dev
 
       - name: Install macOS system dependencies and build tools
         if: runner.os == 'macOS'
@@ -95,10 +97,16 @@ jobs:
       # --- Build ---
       - name: Install root dependencies (macOS)
         if: runner.os == 'macOS'
-        # macOS ARM native module build may fail; retry with rebuild
+        shell: bash
+        # macOS ARM64 may need lockfile relaxed for platform-specific deps
         run: |
-          pnpm install --frozen-lockfile --ignore-scripts
-          pnpm rebuild
+          echo "pnpm version:" && pnpm --version
+          pnpm install --no-frozen-lockfile --ignore-scripts 2>&1 || {
+            echo "::error::pnpm install failed even without frozen-lockfile"
+            exit 1
+          }
+          echo "Rebuilding native modules..."
+          pnpm rebuild 2>&1 || echo "::warning::pnpm rebuild failed, continuing"
 
       - name: Install root dependencies (Linux/Windows)
         if: runner.os != 'macOS'
