@@ -313,6 +313,14 @@ function Invoke-RootBuild {
 
     $elapsed = [math]::Round(((Get-Date) - $tscStart).TotalSeconds, 1)
     Write-OK "Root build complete (${elapsed}s)"
+
+    # Create a minimal package.json in dist/ so that the server-dist
+    # extraResources is self-contained for ESM resolution.
+    # Without this, Node.js treats .js files as CommonJS when the installed
+    # Electron app has no package.json in its ancestor chain (unlike the
+    # portable build which inherits "type":"module" from desktop/package.json).
+    Set-Content -Path "$RootDir\dist\package.json" -Value '{ "type": "module" }'
+    Write-OK "Added dist/package.json (type: module for ESM resolution)"
 }
 
 # ---------------------------------------------------------------------------
@@ -410,7 +418,7 @@ function Invoke-Package([string]$Target) {
     $desc = if ($Target -eq "portable") { "portable (win-unpacked)" } else { "NSIS installer" }
     Write-Step "Packaging: $desc"
 
-    $flags = if ($Target -eq "portable") { "--win --dir" } else { "--win" }
+    $flags = if ($Target -eq "portable") { "--win --dir" } else { "--win --publish never" }
     $r = Invoke-Cmd "npx electron-builder $flags" $DesktopDir
 
     if (-not $r.Success) {

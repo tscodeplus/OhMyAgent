@@ -51,11 +51,11 @@ if (!gotLock) {
 }
 
 function getPreloadPath(): string {
-  // In dev mode (tsx), preload.ts is in src/; in prod, preload.js (Electron 33+ supports ESM preload).
+  // In dev mode (tsx), preload.ts is in src/.
+  // In prod, preload.cjs is built by tsconfig.preload.json (CommonJS) —
+  // ESM preload scripts inside ASAR can fail silently.
   const isDev = !app.isPackaged;
-  const p = isDev
-    ? path.join(__dirname, 'preload.ts')
-    : path.join(__dirname, 'preload.js');
+  const p = path.join(__dirname, isDev ? 'preload.ts' : 'preload.cjs');
   diagLog(`[OhMyAgent] getPreloadPath: ${p} exists=${fs.existsSync(p)} isDev=${isDev} isPackaged=${app.isPackaged}`);
   if (!fs.existsSync(p)) {
     diagLog(`[OhMyAgent] PRELOAD FILE NOT FOUND: ${p}`);
@@ -1047,8 +1047,11 @@ app.whenReady().then(async () => {
 
       // DevTools: F12 or Ctrl+Shift+I.
     } catch (err) {
-      console.error('Failed to start OhMyAgent server:', err);
       const errorMsg = err instanceof Error ? err.message : String(err);
+      const errorStack = err instanceof Error ? err.stack : '';
+      diagLog(`[OhMyAgent] Server startup FAILED: ${errorMsg}`);
+      if (errorStack) diagLog(`[OhMyAgent] Server startup stack: ${errorStack}`);
+      console.error('Failed to start OhMyAgent server:', err);
       const lang = resolveUILanguage();
       const title = lang === 'zh-CN' ? '启动失败' : 'Startup Failed';
       const portHint = errorMsg.includes('EADDRINUSE')

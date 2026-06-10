@@ -118,6 +118,11 @@ jobs:
       - name: Build server (TypeScript)
         run: pnpm build
 
+      - name: Add package.json for ESM resolution
+        # Without this, Node.js treats .js files in server-dist as CommonJS
+        # when the installed app has no package.json in its ancestor chain.
+        run: echo '{ "type": "module" }' > dist/package.json
+
       - name: Install WebUI dependencies
         run: cd ui && pnpm install --frozen-lockfile
 
@@ -142,6 +147,14 @@ jobs:
 
       - name: Build desktop TypeScript
         run: cd desktop && npm run build
+
+      - name: Build preload.cjs (CommonJS)
+        # ESM preload scripts fail silently inside ASAR.
+        # tsconfig.preload.json compiles preload.ts as CommonJS.
+        run: |
+          cd desktop
+          npx tsc -p tsconfig.preload.json
+          mv dist/preload.js dist/preload.cjs
 
       - name: Package Electron app
         env:

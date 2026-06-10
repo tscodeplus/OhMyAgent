@@ -67,4 +67,4 @@ publish:
   repo: OhMyAgent
   # Auto-update channel is set via PUBLISH_CHANNEL env var in CI
   # (beta for pre-releases, latest for stable releases)
-  channel: ${env.PUBLISH_CHANNEL}
+  channel: ${env.PUBLISH_CHANNEL,latest}

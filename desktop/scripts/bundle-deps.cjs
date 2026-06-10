@@ -174,10 +174,13 @@ function collectPnpmDeps(projectDir) {
 
   let output;
   try {
-    output = execSync('pnpm list --prod --json --depth=100', {
+    // depth=20 is sufficient for any realistic dependency tree.
+    // depth=100 produces enormous JSON (100+ MB) that can exceed maxBuffer
+    // and cause JSON.parse to fail on truncated output (pnpm v10+).
+    output = execSync('pnpm list --prod --json --depth=20', {
       cwd: projectDir,
       encoding: 'utf8',
-      maxBuffer: 20 * 1024 * 1024,
+      maxBuffer: 50 * 1024 * 1024,
     });
   } catch (err) {
     // pnpm list may exit non-zero but still output valid JSON

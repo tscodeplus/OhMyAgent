@@ -162,10 +162,19 @@ export class ServerManager {
     );
 
     console.log('[ServerManager] Importing bootstrap from:', bootstrapPath);
-    const { bootstrap } = await import(pathToFileURL(bootstrapPath).href);
+    let bootstrapModule: { bootstrap: () => Promise<BootstrapResult> };
+    try {
+      bootstrapModule = await import(pathToFileURL(bootstrapPath).href) as typeof bootstrapModule;
+    } catch (importErr) {
+      const msg = importErr instanceof Error ? importErr.message : String(importErr);
+      const stack = importErr instanceof Error ? importErr.stack : '';
+      console.error('[ServerManager] Failed to import bootstrap:', msg);
+      console.error('[ServerManager] Import stack:', stack);
+      throw new Error(`Failed to load server: ${msg}`, { cause: importErr });
+    }
 
     // 5. Call bootstrap
-    const result: BootstrapResult = await bootstrap();
+    const result: BootstrapResult = await bootstrapModule.bootstrap();
     this.services = result.services;
     this.startFn = result.start;
     this.stopFn = result.stop;
