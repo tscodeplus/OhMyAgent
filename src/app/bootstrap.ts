@@ -834,11 +834,18 @@ export async function bootstrap(): Promise<BootstrapResult> {
   // ─── Register WebUI routes (after services are assembled) ───
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+  // Mutable ref for onConfigReload callback — assigned later after all services
+  // are created. Passed to config routes so PUT /api/config can trigger a full
+  // hot-reload (critical for first-run setup wizard where config.yaml doesn't
+  // exist at bootstrap time and the file watcher was never started).
+  const onConfigSavedRef: { current?: (newConfig: AppConfig) => void } = {};
+
   // Register WebUI API routes + WebSocket on the Fastify server
   const { wsManager, bridgeRegistry } = await registerWebUIRoutes(server, {
     db,
     getConfig: () => loadConfig(),
     services,
+    onConfigSaved: (newConfig) => onConfigSavedRef.current?.(newConfig),
     onConfigChanged: () => {
       // Persist in-memory config mutations (agent CRUD, etc.) to config.yaml.
       // The empty callback comment was misleading — the file watcher only detects
@@ -1136,6 +1143,9 @@ export async function bootstrap(): Promise<BootstrapResult> {
       'config reloaded (hot-reloaded items applied; channels/embedding/database require restart)',
     );
   };
+
+  // Wire up the onConfigReload callback so PUT /api/config can trigger hot-reload
+  onConfigSavedRef.current = onConfigReload;
 
   startConfigWatcher(yamlPath, onConfigReload);
 

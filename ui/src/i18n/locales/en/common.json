@@ -650,6 +650,13 @@
       "description": "Choose your preferred language for the interface",
       "autoDetected": "Auto-detected: {{language}}"
     },
+    "theme": {
+      "title": "Theme Mode",
+      "description": "Choose your interface theme mode",
+      "system": "Follow System",
+      "light": "Light Mode",
+      "dark": "Dark Mode"
+    },
     "provider": {
       "title": "Model Provider",
       "description": "Select your AI model provider",
@@ -694,6 +701,7 @@
       "title": "Review & Save",
       "description": "Review your choices before saving",
       "language": "Language",
+      "theme": "Theme Mode",
       "provider": "Provider",
       "providerNotSet": "Not selected",
       "mainModel": "Main Model",

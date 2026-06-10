@@ -24,6 +24,7 @@ interface SetupWizardProps {
 
 interface WizardState {
   uiLanguage: 'zh-CN' | 'en';
+  theme: 'system' | 'light' | 'dark';
   provider: string;
   customProviderName: string;
   customApiKey: string;
@@ -37,7 +38,7 @@ interface WizardState {
   embeddingModel: string;
 }
 
-const TOTAL_STEPS = 6;
+const TOTAL_STEPS = 7;
 
 const DEFAULT_EMBEDDING_BASE_URL = 'https://api.siliconflow.cn/v1';
 const DEFAULT_EMBEDDING_MODEL = 'BAAI/bge-m3';
@@ -85,6 +86,7 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
 
   const [state, setState] = useState<WizardState>({
     uiLanguage: initialLanguage,
+    theme: 'system',
     provider: '',
     customProviderName: '',
     customApiKey: '',
@@ -113,11 +115,13 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
       case 1:
         return true;
       case 2:
+        return true;
+      case 3:
         if (isCustomProvider) {
           return state.customProviderName.trim().length > 0 && state.customApiKey.trim().length > 0;
         }
         return state.provider.length > 0;
-      case 3:
+      case 4:
         if (isCustomProvider) return state.modelId.trim().length > 0;
         return state.modelId.trim().length > 0 && state.apiKey.trim().length > 0;
       default:
@@ -150,6 +154,9 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
         uiLanguage: state.uiLanguage,
       };
 
+      // Theme — persist via localStorage (the WebUI theme system reads from it)
+      try { localStorage.setItem('oma-theme-mode', state.theme); } catch {}
+
       // Provider + model
       payload['piAi.provider'] = resolvedProvider;
       payload['piAi.model'] = state.modelId;
@@ -159,11 +166,27 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
       } else {
         payload['piAi.apiKey'] = state.apiKey;
         if (state.baseUrl) payload['piAi.baseUrl'] = state.baseUrl;
+
+        // Also save to provider_keys so the settings UI shows editable entries
+        // (not the read-only piAi fallback display)
+        const providerKeyEntry: Record<string, unknown> = {
+          apiKey: state.apiKey,
+        };
+        if (state.baseUrl) {
+          providerKeyEntry.baseUrl = state.baseUrl;
+        }
+        payload['providerKeys'] = {
+          [resolvedProvider]: providerKeyEntry,
+        };
       }
 
-      // Reasoning model (optional)
+      // Reasoning model (optional) — always use provider/model format
       if (state.reasoningModelId) {
-        payload['piAi.reasoningModel'] = state.reasoningModelId;
+        // If reasoning model already has provider/ prefix, use as-is; otherwise prepend provider
+        const reasoningRef = state.reasoningModelId.includes('/')
+          ? state.reasoningModelId
+          : `${resolvedProvider}/${state.reasoningModelId}`;
+        payload['piAi.reasoningModel'] = reasoningRef;
       }
 
       // Embedding (optional — only if user filled in both fields)
@@ -211,6 +234,12 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
     { value: 'en', label: 'English' },
   ];
 
+  const themeOptions = [
+    { value: 'system', label: t('setupWizard.theme.system') },
+    { value: 'light', label: t('setupWizard.theme.light') },
+    { value: 'dark', label: t('setupWizard.theme.dark') },
+  ];
+
   // ─── Build review items ───
 
   const reviewItems = [
@@ -221,24 +250,29 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
     },
     {
       step: 2,
+      label: t('setupWizard.review.theme'),
+      value: themeOptions.find(o => o.value === state.theme)?.label ?? state.theme,
+    },
+    {
+      step: 3,
       label: t('setupWizard.review.provider'),
       value: resolvedProvider || undefined,
       fallback: t('setupWizard.review.providerNotSet'),
     },
     {
-      step: 3,
+      step: 4,
       label: t('setupWizard.review.mainModel'),
       value: state.modelId ? `${resolvedProvider}/${state.modelId}` : undefined,
       fallback: t('setupWizard.review.mainModelNotSet'),
     },
     {
-      step: 4,
+      step: 5,
       label: t('setupWizard.review.reasoningModel'),
       value: state.reasoningModelId || undefined,
       fallback: t('setupWizard.review.reasoningNotSet'),
     },
     {
-      step: 5,
+      step: 6,
       label: t('setupWizard.review.embedding'),
       value: state.embeddingApiKey
         ? `${state.embeddingModel} @ ${state.embeddingBaseUrl}`
@@ -299,8 +333,28 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
             </div>
           )}
 
-          {/* Step 2 — Provider */}
+          {/* Step 2 — Theme */}
           {currentStep === 2 && (
+            <div className="flex flex-col gap-4">
+              <div>
+                <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+                  {t('setupWizard.theme.title')}
+                </h3>
+                <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+                  {t('setupWizard.theme.description')}
+                </p>
+              </div>
+              <Select
+                label={t('setupWizard.review.theme')}
+                options={themeOptions}
+                value={state.theme}
+                onChange={(e) => update({ theme: e.target.value as 'system' | 'light' | 'dark' })}
+              />
+            </div>
+          )}
+
+          {/* Step 3 — Provider */}
+          {currentStep === 3 && (
             <div className="flex flex-col gap-4">
               <div>
                 <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
@@ -340,8 +394,8 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
             </div>
           )}
 
-          {/* Step 3 — Main Model */}
-          {currentStep === 3 && (
+          {/* Step 4 — Main Model */}
+          {currentStep === 4 && (
             <div className="flex flex-col gap-4">
               <div>
                 <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
@@ -381,8 +435,8 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
             </div>
           )}
 
-          {/* Step 4 — Reasoning Model (optional) */}
-          {currentStep === 4 && (
+          {/* Step 5 — Reasoning Model (optional) */}
+          {currentStep === 5 && (
             <div className="flex flex-col gap-4">
               <div>
                 <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
@@ -403,8 +457,7 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
                   variant="secondary"
                   size="sm"
                   onClick={() => {
-                    update({ reasoningModelId: state.modelId });
-                    handleNext();
+                    update({ reasoningModelId: `${resolvedProvider}/${state.modelId}` });
                   }}
                 >
                   {t('setupWizard.reasoningModel.useMainModel')}
@@ -423,8 +476,8 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
             </div>
           )}
 
-          {/* Step 5 — Embedding (optional but recommended) */}
-          {currentStep === 5 && (
+          {/* Step 6 — Embedding (optional but recommended) */}
+          {currentStep === 6 && (
             <div className="flex flex-col gap-4">
               <div>
                 <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
@@ -473,8 +526,8 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
             </div>
           )}
 
-          {/* Step 6 — Review */}
-          {currentStep === 6 && (
+          {/* Step 7 — Review */}
+          {currentStep === 7 && (
             <div className="flex flex-col gap-4">
               <div>
                 <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">

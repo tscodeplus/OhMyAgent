@@ -11,7 +11,7 @@ import type { AppConfig } from '../types.js';
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { load as parseYaml, dump as dumpYaml } from 'js-yaml';
 import { getModels, getProviders } from '../../pi-mono/ai/models.js';
-import { resetConfig } from '../config.js';
+import { resetConfig, loadConfig, startConfigWatcher } from '../config.js';
 import { jsConfigToYaml } from '../config-loader.js';
 
 const SECRET_FIELDS = [
@@ -124,6 +124,8 @@ function expandDotKeys(body: Record<string, unknown>): Record<string, unknown> {
 interface ConfigRouteConfig {
   getConfig: () => AppConfig;
   configPath: string;
+  /** Called after config is saved via PUT — triggers hot-reload of services. */
+  onConfigSaved?: (newConfig: AppConfig) => void;
 }
 
 export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfig): void {
@@ -227,6 +229,30 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
 
       // Invalidate cached config so next GET returns fresh data
       resetConfig();
+
+      // Trigger hot-reload of services with the new config (critical for first-run
+      // setup wizard where the config.yaml didn't exist at bootstrap time, so the
+      // file watcher was never started — without this, providers/models won't work
+      // until a manual restart).
+      if (cfg.onConfigSaved) {
+        try {
+          const newConfig = loadConfig();
+          cfg.onConfigSaved(newConfig);
+        } catch (err) {
+          // Don't fail the save if hot-reload fails — config is written
+        }
+      }
+
+      // Start the config file watcher if it wasn't active (first-run scenario
+      // where config.yaml didn't exist at bootstrap). Starts the watcher so
+      // subsequent changes via settings UI are picked up without restart.
+      try {
+        startConfigWatcher(cfg.configPath, (newCfg) => {
+          cfg.onConfigSaved?.(newCfg);
+        });
+      } catch {
+        // Watcher already active or file still missing — ignore
+      }
 
       return reply.send({ ok: true });
     } catch (err: unknown) {

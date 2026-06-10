@@ -34,6 +34,8 @@ export interface WebUIRouteConfig {
   getConfig: () => AppConfig;
   services: AppServices;
   onConfigChanged: () => void;
+  /** Called after config is saved via PUT /api/config — triggers hot-reload. */
+  onConfigSaved?: (newConfig: AppConfig) => void;
 }
 
 export async function registerWebUIRoutes(
@@ -95,6 +97,7 @@ export async function registerWebUIRoutes(
   registerConfigRoutes(app, {
     getConfig: cfg.getConfig,
     configPath: process.env.CONFIG_FILE || './config.yaml',
+    onConfigSaved: cfg.onConfigSaved,
   });
 
   registerDashboardRoutes(app, {

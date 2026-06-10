@@ -681,6 +681,13 @@
       "description": "选择界面显示的语言",
       "autoDetected": "自动检测: {{language}}"
     },
+    "theme": {
+      "title": "主题模式",
+      "description": "选择界面主题颜色模式",
+      "system": "跟随系统",
+      "light": "浅色模式",
+      "dark": "深色模式"
+    },
     "provider": {
       "title": "模型提供商",
       "description": "选择您的 AI 模型提供商",
@@ -725,6 +732,7 @@
       "title": "确认并保存",
       "description": "保存前请确认您的选择",
       "language": "语言",
+      "theme": "主题模式",
       "provider": "提供商",
       "providerNotSet": "未选择",
       "mainModel": "主模型",
