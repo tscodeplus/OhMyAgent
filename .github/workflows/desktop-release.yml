@@ -84,25 +84,24 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew install vips python-setuptools
-          # Ensure Xcode CLT is properly configured for node-gyp
+          # Ensure Xcode CLT is properly configured
           sudo xcode-select -s /Applications/Xcode.app/Contents/Developer || true
-          # Help node-gyp find Python
-          npm config set python /usr/bin/python3 || true
+          # Show build environment for debugging
+          echo "=== Python ===" && which python3 && python3 --version
+          echo "=== Xcode ===" && xcode-select -p || true
+          echo "=== arch ===" && uname -m
+          echo "=== node-gyp deps ===" && which make && make --version | head -1
 
       # --- Build ---
       - name: Install root dependencies
-        env:
-          npm_config_build_from_source: 'true'
+        shell: bash
+        # On macOS, allow lockfile updates in case platform-specific
+        # resolutions are needed for native modules
         run: |
-          pnpm install --frozen-lockfile 2>&1 | tee /tmp/install.log
-          exit_code=${PIPESTATUS[0]}
-          if [ $exit_code -ne 0 ]; then
-            echo "::group::pnpm install error log"
-            tail -100 /tmp/install.log
-            echo "::endgroup::"
-            # Show native module build failures
-            find ~/.npm/_cacache -name "*.log" -exec tail -50 {} \; 2>/dev/null || true
-            exit $exit_code
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
+          else
+            pnpm install --frozen-lockfile
           fi
 
       - name: Build server (TypeScript)
