@@ -11,6 +11,9 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: write      # Required for creating GitHub Releases
+
 jobs:
   # ------------------------------------------------------------------
   # Detect release type (prerelease vs stable) from tag name
