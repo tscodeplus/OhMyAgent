@@ -121,8 +121,12 @@ describe('OffloadHygiene', () => {
       fs.utimesSync(goodDir, oldTime, oldTime);
       fs.utimesSync(badDir, oldTime, oldTime);
 
-      // Make bad-session directory read-only to cause deletion failure
-      fs.chmodSync(badDir, 0o444);
+      // Remove all permissions from bad-session directory.
+      // chmod 0o444 (read-only) does NOT prevent deletion on Linux — fs.rmSync
+      // with { force: true } still removes it, so both sessions get deleted.
+      // chmod 0o000 prevents readdirSync() inside _calculateDirSize(), which
+      // throws EACCES, is caught by the catch block, and skips the deletion.
+      fs.chmodSync(badDir, 0o000);
 
       const report = hygiene.clean();
 

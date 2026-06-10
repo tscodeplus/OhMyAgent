@@ -128,10 +128,13 @@ function createWindow(): BrowserWindow {
     },
   });
 
-  // Forward renderer/preload console messages to diag log + main stdout
+  // Forward renderer/preload console messages to main stdout only.
+  // Do NOT write to diagLog — the WebUI emits verbose debug messages
+  // (SSE streaming events, React state updates) that would bloat the
+  // persistent log file to hundreds of MB within a few hours.
   mainWindow.webContents.on('console-message', (_event, level, message) => {
     const lvl = level === 1 ? 'WARN' : level === 2 ? 'ERROR' : 'INFO';
-    diagLog(`[renderer:${lvl}] ${message}`);
+    console.log(`[renderer:${lvl}] ${message}`);
   });
 
   // Report preload script status after page load
