@@ -1,0 +1,10 @@
+{
+  "description": "Generic/common terms that LLMs sometimes misreport as entities. Used to filter both LLM and regex extraction results.",
+  "terms": {
+    "zh-CN": ["用户", "客户", "同事", "朋友", "大家", "某人", "有人", "本人", "对方", "自己", "助手", "AI", "助理"],
+    "en": ["user", "client", "customer", "colleague", "friend", "everyone", "someone", "anyone", "person", "people"],
+    "ja": ["ユーザー", "利用者", "客", "顧客", "同僚", "友達", "皆", "誰か", "人", "自分"],
+    "es": ["usuario", "cliente", "colega", "amigo", "todos", "alguien", "nadie", "persona", "gente"],
+    "ko": ["사용자", "고객", "동료", "친구", "모두", "누군가", "사람", "자신"]
+  }
+}
