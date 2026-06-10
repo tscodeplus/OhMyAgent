@@ -54,8 +54,18 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
 
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  icon: assets/icon.png
+  category: Utility
+  maintainer: ohmyagent@example.com
+
 publish:
-  provider: generic
-  # TODO: replace with actual release server URL
-  url: https://releases.ohmyagent.example.com/desktop/
-  channel: latest
+  provider: github
+  # Auto-update channel is set via PUBLISH_CHANNEL env var in CI
+  # (beta for pre-releases, latest for stable releases)
+  channel: ${env.PUBLISH_CHANNEL}

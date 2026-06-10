@@ -3,19 +3,54 @@ name: Desktop Release
 on:
   push:
     tags:
-      - 'v*'          # Trigger on version tags: v0.2.0, v0.3.0, etc.
-  workflow_dispatch:   # Allow manual trigger from GitHub UI
+      - 'v*'          # Trigger on version tags: v0.2.0, v0.2.0-beta.1, etc.
+  workflow_dispatch:   # Manual trigger from GitHub UI
+    inputs:
+      prerelease:
+        description: 'Mark as pre-release'
+        type: boolean
+        default: false
 
 jobs:
   # ------------------------------------------------------------------
-  # Build — runs on Windows and macOS in parallel
+  # Detect release type (prerelease vs stable) from tag name
+  # ------------------------------------------------------------------
+  detect-release-type:
+    runs-on: ubuntu-latest
+    outputs:
+      prerelease: ${{ steps.release_type.outputs.prerelease }}
+      channel: ${{ steps.release_type.outputs.channel }}
+    steps:
+      - name: Detect release type
+        id: release_type
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            if [[ "${{ github.event.inputs.prerelease }}" == "true" ]]; then
+              echo "prerelease=true" >> $GITHUB_OUTPUT
+              echo "channel=beta" >> $GITHUB_OUTPUT
+            else
+              echo "prerelease=false" >> $GITHUB_OUTPUT
+              echo "channel=latest" >> $GITHUB_OUTPUT
+            fi
+          elif [[ "${{ github.ref_name }}" =~ -(beta|rc|alpha|pre) ]]; then
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+            echo "channel=beta" >> $GITHUB_OUTPUT
+          else
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+            echo "channel=latest" >> $GITHUB_OUTPUT
+          fi
+
+  # ------------------------------------------------------------------
+  # Build — runs on Windows, macOS, and Linux in parallel
   # ------------------------------------------------------------------
   build:
+    needs: detect-release-type
     strategy:
       matrix:
         os:
           - windows-latest
           - macos-latest
+          - ubuntu-latest
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -30,13 +65,28 @@ jobs:
           node-version: 20
           cache: pnpm
 
-      - name: Install system dependencies (Linux only)
+      # --- OS-specific dependencies ---
+      - name: Install Linux system dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libvips-dev
+          sudo apt-get install -y --no-install-recommends \
+            libvips-dev \
+            libfuse2 \
+            libgtk-3-0 \
+            libnotify4 \
+            libnss3 \
+            libxss1 \
+            libxtst6 \
+            xdg-utils
 
-      - name: Install dependencies
+      - name: Install macOS system dependencies (libvips via Homebrew)
+        if: runner.os == 'macOS'
+        run: |
+          brew install vips
+
+      # --- Build ---
+      - name: Install root dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Build server (TypeScript)
@@ -45,9 +95,23 @@ jobs:
       - name: Build WebUI
         run: pnpm build:ui
 
+      - name: Install desktop dependencies
+        run: cd desktop && pnpm install --frozen-lockfile
+
+      - name: Determine electron-builder platform flag
+        id: platform_flag
+        shell: bash
+        run: |
+          case "${{ runner.os }}" in
+            Windows) echo "flag=--win"   >> $GITHUB_OUTPUT ;;
+            macOS)   echo "flag=--mac"   >> $GITHUB_OUTPUT ;;
+            Linux)   echo "flag=--linux" >> $GITHUB_OUTPUT ;;
+          esac
+
       - name: Build Electron app
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUBLISH_CHANNEL: ${{ needs.detect-release-type.outputs.channel }}
           # macOS code signing (optional — skipped if secrets not set)
           CSC_LINK: ${{ secrets.MACOS_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MACOS_CSC_KEY_PASSWORD }}
@@ -59,39 +123,95 @@ jobs:
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
         run: |
           cd desktop
-          pnpm install --frozen-lockfile
-          pnpm dist
+          npm run bundle-deps
+          npm run build
+          npx electron-builder ${{ steps.platform_flag.outputs.flag }} --publish never
 
-      - name: Upload build artifacts
+      # --- Upload artifacts ---
+      - name: Upload Windows artifacts
+        if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: ohmyagent-${{ matrix.os }}
-          path: desktop/release/*
+          name: ohmyagent-windows-x64
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.blockmap
+            desktop/release/*.yml
+          retention-days: 30
+
+      - name: Upload macOS artifacts
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ohmyagent-macos-universal
+          path: |
+            desktop/release/*.dmg
+            desktop/release/*.blockmap
+            desktop/release/*-mac.yml
+          retention-days: 30
+
+      - name: Upload Linux artifacts
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ohmyagent-linux-x64
+          path: |
+            desktop/release/*.AppImage
+            desktop/release/*.deb
+            desktop/release/*-linux.yml
           retention-days: 30
 
   # ------------------------------------------------------------------
   # Create Release — collects artifacts and creates a GitHub Release
+  # Only runs on tag push (not workflow_dispatch)
   # ------------------------------------------------------------------
   create-release:
-    needs: build
+    needs: [detect-release-type, build]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all artifacts
+      - name: Download Windows artifacts
         uses: actions/download-artifact@v4
         with:
-          path: release-artifacts
+          name: ohmyagent-windows-x64
+          path: release-artifacts/windows
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ohmyagent-macos-universal
+          path: release-artifacts/macos
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ohmyagent-linux-x64
+          path: release-artifacts/linux
 
       - name: Generate release notes
         run: |
-          echo "## OhMyAgent Desktop ${{ github.ref_name }}" > /tmp/release-notes.md
-          echo "" >> /tmp/release-notes.md
-          echo "### Assets" >> /tmp/release-notes.md
-          echo "" >> /tmp/release-notes.md
-          find release-artifacts -type f -exec basename {} ; | while read f; do
-            echo "- $f" >> /tmp/release-notes.md
+          cat > /tmp/release-notes.md << 'EOF'
+          ## OhMyAgent Desktop ${{ github.ref_name }}
+
+          > **Channel:** ${{ needs.detect-release-type.outputs.channel }}
+          > **Pre-release:** ${{ needs.detect-release-type.outputs.prerelease }}
+
+          ### 📦 Downloads
+
+          | Platform | Package |
+          |----------|---------|
+          | Windows (x64) | `OhMyAgent Setup *.exe` |
+          | macOS (Intel + Apple Silicon) | `OhMyAgent-*.dmg` |
+          | Linux (x64) | `OhMyAgent-*.AppImage` / `OhMyAgent_*.deb` |
+
+          ### Assets
+
+          EOF
+
+          find release-artifacts -type f | sort | while read f; do
+            echo "- \`${f#release-artifacts/}\`" >> /tmp/release-notes.md
           done
 
       - name: Create GitHub Release
@@ -102,9 +222,11 @@ jobs:
           files: |
             release-artifacts/**/*.exe
             release-artifacts/**/*.dmg
+            release-artifacts/**/*.AppImage
+            release-artifacts/**/*.deb
             release-artifacts/**/*.yml
             release-artifacts/**/*.blockmap
           draft: true
-          prerelease: false
+          prerelease: ${{ fromJSON(needs.detect-release-type.outputs.prerelease) }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
