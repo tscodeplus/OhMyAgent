@@ -218,4 +218,10 @@ jobs:
           for f in release-artifacts/**/*.exe release-artifacts/**/*.dmg release-artifacts/**/*.AppImage release-artifacts/**/*.deb; do
             [[ -f "$f" ]] && ASSETS+=("$f")
           done
-          gh release create "${{ github.ref_name }}"             --title "OhMyAgent Desktop ${{ github.ref_name }}"             --generate-notes             $PRERELEASE_FLAG             --draft=false             "${ASSETS[@]}"
+          gh release create "${{ github.ref_name }}" \
+            --title "OhMyAgent Desktop ${{ github.ref_name }}" \
+            --notes "Desktop builds for Windows, macOS, and Linux." \
+            --generate-notes \
+            $PRERELEASE_FLAG \
+            --draft=false \
+            "${ASSETS[@]}"
