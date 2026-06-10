@@ -219,6 +219,8 @@ jobs:
             [[ -f "$f" ]] && ASSETS+=("$f")
           done
           NOTES_FILE="docs/release-notes/${{ github.ref_name }}.md"
+          # Delete existing release if re-running (tag already has one)
+          gh release delete "${{ github.ref_name }}" --yes --cleanup-tag 2>/dev/null || true
           if [[ -f "$NOTES_FILE" ]]; then
             gh release create "${{ github.ref_name }}" \
               --title "OhMyAgent Desktop ${{ github.ref_name }}" \
