@@ -144,6 +144,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PUBLISH_CHANNEL: ${{ needs.detect-release-type.outputs.channel }}
+          # Skip code signing when certificates are not configured
+          CSC_IDENTITY_AUTO_DISCOVERY: false
           # macOS code signing (optional — skipped if secrets not set)
           CSC_LINK: ${{ secrets.MACOS_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MACOS_CSC_KEY_PASSWORD }}
