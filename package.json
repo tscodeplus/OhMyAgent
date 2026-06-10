@@ -6,7 +6,7 @@
     "ohmyagent": "./bin/cli.js"
   },
   "scripts": {
-    "build": "tsc && tsc-alias && node scripts/copy-locales.js && node scripts/copy-extension-resources.js",
+    "build": "tsc && tsc-alias && node scripts/copy-locales.js && node scripts/copy-extension-resources.js && node scripts/copy-skills.js",
     "build:ui": "cd ui && pnpm build",
     "dev": "tsx src/index.ts",
     "dev:ui": "cd ui && pnpm dev",
