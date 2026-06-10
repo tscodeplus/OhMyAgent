@@ -205,6 +205,10 @@ jobs:
           name: ohmyagent-linux-x64
           path: release-artifacts/linux
 
+      - name: Remove auto-update metadata files
+        run: |
+          find release-artifacts \( -name '*.yml' -o -name '*.blockmap' \) -delete
+
       - name: Generate release notes
         run: |
           cat > /tmp/release-notes.md << 'EOF'
@@ -221,11 +225,9 @@ jobs:
           | macOS (Intel + Apple Silicon) | `OhMyAgent-*.dmg` |
           | Linux (x64) | `OhMyAgent-*.AppImage` / `OhMyAgent_*.deb` |
 
-          ### Assets
-
           EOF
 
-          find release-artifacts \( -name '*.exe' -o -name '*.dmg' -o -name '*.AppImage' -o -name '*.deb' \) -type f | sort | while read f; do
+          find release-artifacts -type f | sort | while read f; do
             size=$(du -h "$f" | cut -f1)
             echo "- ${f#release-artifacts/} (${size})" >> /tmp/release-notes.md
           done
@@ -236,10 +238,7 @@ jobs:
           name: OhMyAgent Desktop ${{ github.ref_name }}
           body_path: /tmp/release-notes.md
           files: |
-            release-artifacts/**/*.exe
-            release-artifacts/**/*.dmg
-            release-artifacts/**/*.AppImage
-            release-artifacts/**/*.deb
+            release-artifacts/**/*
           draft: false
           prerelease: ${{ fromJSON(needs.detect-release-type.outputs.prerelease) }}
         env:
