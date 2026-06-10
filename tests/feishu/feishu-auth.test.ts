@@ -138,12 +138,26 @@ describe('decryptEvent', () => {
     expect(JSON.parse(result)).toEqual(data);
   });
 
-  it('throws with wrong encrypt key', () => {
+  it('rejects wrong encrypt key (by throw or garbage output)', () => {
     const encryptKey = 'correct-key';
     const plaintext = '{"test": true}';
     const encrypted = encryptPayload(plaintext, encryptKey);
 
-    expect(() => decryptEvent(encrypted, 'wrong-key')).toThrow();
+    // decryptEvent may throw (Node.js 22+) or return garbage bytes
+    // (Node.js 20). Either way, wrong key must not recover plaintext.
+    let threw = false;
+    let result = '';
+    try {
+      result = decryptEvent(encrypted, 'wrong-key');
+    } catch {
+      threw = true;
+    }
+    // If it threw, the key was rejected — pass.
+    // If it returned, output must be garbage (not valid JSON).
+    if (!threw) {
+      expect(result).not.toBe(plaintext);
+      expect(() => JSON.parse(result)).toThrow();
+    }
   });
 
   it('handles empty plaintext', () => {
