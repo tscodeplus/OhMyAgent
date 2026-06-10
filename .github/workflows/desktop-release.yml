@@ -144,17 +144,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PUBLISH_CHANNEL: ${{ needs.detect-release-type.outputs.channel }}
-          # Skip code signing when certificates are not configured
-          CSC_IDENTITY_AUTO_DISCOVERY: false
-          # macOS code signing (optional — skipped if secrets not set)
-          CSC_LINK: ${{ secrets.MACOS_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # Windows code signing (optional)
-          WIN_CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
         run: cd desktop && npx electron-builder ${{ steps.platform_flag.outputs.flag }} --publish never
 
       # --- Upload artifacts ---
