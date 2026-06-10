@@ -205,33 +205,6 @@ jobs:
           name: ohmyagent-linux-x64
           path: release-artifacts/linux
 
-      - name: Remove auto-update metadata files
-        run: |
-          find release-artifacts \( -name '*.yml' -o -name '*.blockmap' \) -delete
-
-      - name: Generate release notes
-        run: |
-          cat > /tmp/release-notes.md << 'EOF'
-          ## OhMyAgent Desktop ${{ github.ref_name }}
-
-          > **Channel:** ${{ needs.detect-release-type.outputs.channel }}
-          > **Pre-release:** ${{ needs.detect-release-type.outputs.prerelease }}
-
-          ### 📦 Downloads
-
-          | Platform | Package |
-          |----------|---------|
-          | Windows (x64) | `OhMyAgent Setup *.exe` |
-          | macOS (Intel + Apple Silicon) | `OhMyAgent-*.dmg` |
-          | Linux (x64) | `OhMyAgent-*.AppImage` / `OhMyAgent_*.deb` |
-
-          EOF
-
-          find release-artifacts -type f | sort | while read f; do
-            size=$(du -h "$f" | cut -f1)
-            echo "- ${f#release-artifacts/} (${size})" >> /tmp/release-notes.md
-          done
-
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -240,14 +213,9 @@ jobs:
           if [[ "${{ needs.detect-release-type.outputs.prerelease }}" == "true" ]]; then
             PRERELEASE_FLAG="--prerelease"
           fi
-          # Collect only installer files (not auto-update metadata)
+          # Collect only installer files
           ASSETS=()
           for f in release-artifacts/**/*.exe release-artifacts/**/*.dmg release-artifacts/**/*.AppImage release-artifacts/**/*.deb; do
             [[ -f "$f" ]] && ASSETS+=("$f")
           done
-          gh release create "${{ github.ref_name }}" \
-            --title "OhMyAgent Desktop ${{ github.ref_name }}" \
-            --notes-file /tmp/release-notes.md \
-            $PRERELEASE_FLAG \
-            --draft=false \
-            "${ASSETS[@]}"
+          gh release create "${{ github.ref_name }}"             --title "OhMyAgent Desktop ${{ github.ref_name }}"             --generate-notes             $PRERELEASE_FLAG             --draft=false             "${ASSETS[@]}"
