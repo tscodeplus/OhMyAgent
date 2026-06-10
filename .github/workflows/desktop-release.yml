@@ -93,16 +93,16 @@ jobs:
           echo "=== node-gyp deps ===" && which make && make --version | head -1
 
       # --- Build ---
-      - name: Install root dependencies
-        shell: bash
-        # On macOS, allow lockfile updates in case platform-specific
-        # resolutions are needed for native modules
+      - name: Install root dependencies (macOS)
+        if: runner.os == 'macOS'
+        # macOS ARM native module build may fail; retry with rebuild
         run: |
-          if [[ "${{ runner.os }}" == "macOS" ]]; then
-            pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
-          else
-            pnpm install --frozen-lockfile
-          fi
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm rebuild
+
+      - name: Install root dependencies (Linux/Windows)
+        if: runner.os != 'macOS'
+        run: pnpm install --frozen-lockfile
 
       - name: Build server (TypeScript)
         run: pnpm build
@@ -126,7 +126,13 @@ jobs:
             Linux)   echo "flag=--linux" >> $GITHUB_OUTPUT ;;
           esac
 
-      - name: Build Electron app
+      - name: Bundle Electron dependencies
+        run: cd desktop && npm run bundle-deps
+
+      - name: Build desktop TypeScript
+        run: cd desktop && npm run build
+
+      - name: Package Electron app
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PUBLISH_CHANNEL: ${{ needs.detect-release-type.outputs.channel }}
@@ -139,11 +145,7 @@ jobs:
           # Windows code signing (optional)
           WIN_CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
-        run: |
-          cd desktop
-          npm run bundle-deps
-          npm run build
-          npx electron-builder ${{ steps.platform_flag.outputs.flag }} --publish never
+        run: cd desktop && npx electron-builder ${{ steps.platform_flag.outputs.flag }} --publish never
 
       # --- Upload artifacts ---
       - name: Upload Windows artifacts
