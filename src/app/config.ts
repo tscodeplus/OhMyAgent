@@ -363,7 +363,7 @@ const configSchema = z.object({
     allowGrandchildren: z.boolean().default(false),
     inheritApprovals: z.boolean().default(true),
     inheritAppApprovals: z.boolean().default(true),
-  }).optional(),
+  }).default({}),
   smart_agent_team: z.object({
     enabled: z.boolean().default(true),
     max_children: z.number().int().min(1).max(10).default(4),
