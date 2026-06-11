@@ -10,7 +10,7 @@ import type { AgentFactory } from './agent-factory.js';
 import type { AgentTurnContext } from './agent-factory.js';
 import type { Agent } from '../pi-mono/agent/agent.js';
 import { setSessionAgent, clearSessionAgent } from './agent-context.js';
-import type { ReplyDispatcher } from '../app/types.js';
+import type { ReplyDispatcher, FooterConfig } from '../app/types.js';
 import type { SessionRepository } from '../memory/repositories/session-repository.js';
 import type { MessageRepository } from '../memory/repositories/message-repository.js';
 import type { EpisodeRepository } from '../memory/repositories/episode-repository.js';
@@ -73,6 +73,8 @@ export class AgentService {
     turnElapsed?: number;
     turnContext: AgentTurnContext;
     channel?: string;
+    /** Footer display config captured from the dispatcher for metadata persistence. */
+    footerConfig?: FooterConfig;
   }>();
 
   private sessionAgentMap = new Map<string, string>();
@@ -154,6 +156,10 @@ export class AgentService {
     if (options?.channel) runtime.channel = options.channel;
     runtime.turnContext.replyDispatcher = dispatcher;
     runtime.turnContext.replyDispatcherFactory = options?.replyDispatcherFactory;
+    // Capture footer config from the dispatcher for metadata persistence.
+    // This snapshots the config at message-send time so historical messages
+    // retain their footer display even after settings change.
+    runtime.footerConfig = (dispatcher as unknown as Record<string, unknown>).footerConfig as FooterConfig | undefined;
     // Clear cached approval session so each turn gets a fresh tracker
     (runtime.turnContext as Record<string, unknown>).approvalSession = undefined;
     runtime.bridge = new EventBridge(dispatcher);
@@ -468,7 +474,7 @@ export class AgentService {
   private async persistMessages(
     agent: Agent,
     sessionKey: string,
-    runtime: { persistedMessageCount: number; turnElapsed?: number },
+    runtime: { persistedMessageCount: number; turnElapsed?: number; footerConfig?: FooterConfig },
   ): Promise<void> {
     const { messageRepository, logger } = this.persistence!;
 
@@ -623,6 +629,9 @@ export class AgentService {
         const agentName = (agent as any).ohmyagent_agentName;
         if (agentName) meta.agentName = agentName;
         if (runtime.turnElapsed) meta.elapsed = runtime.turnElapsed;
+        // Store footer config snapshot so historical messages retain their
+        // display settings even after the global config changes.
+        if (runtime.footerConfig) meta.footerConfig = runtime.footerConfig;
 
         const metadata = Object.keys(meta).length > 0 ? JSON.stringify(meta) : null;
 
@@ -701,6 +710,7 @@ export class AgentService {
               const agentName = (agent as any).ohmyagent_agentName;
               if (agentName) meta.agentName = agentName;
               if (runtime.turnElapsed) meta.elapsed = runtime.turnElapsed;
+              if (runtime.footerConfig) meta.footerConfig = runtime.footerConfig;
               // Only attach images/files to the last assistant.
               // Since this is a simple text-only msg in isolation,
               // determine if it's the last assistant in the batch.

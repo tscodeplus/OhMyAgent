@@ -230,10 +230,12 @@ export function registerSessionRoutes(
       }
 
       // Reconstruct footer from persisted metadata.
-      // Footer config flags (showUsage, showCacheHitRate, etc.) are read from
-      // the current config so the user's display preferences are respected.
+      // Use the footer config SNAPSHOT stored at message-save time so that
+      // each message retains its original footer display regardless of
+      // subsequent global config changes. Falls back to the current config
+      // for messages saved before footer config was persisted.
       if (meta && (meta.usage || meta.model || meta.elapsed)) {
-        const fc = getFooterConfig?.() ?? {
+        const fc = (meta.footerConfig as FooterConfig | undefined) ?? getFooterConfig?.() ?? {
           showAgentName: true,
           showModel: true,
           showCompleted: false,
