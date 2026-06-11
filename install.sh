@@ -13,7 +13,7 @@ NC='\033[0m'
 echo ""
 echo -e "${CYAN}${BOLD}╔══════════════════════════════════════╗${NC}"
 echo -e "${CYAN}${BOLD}║       OhMyAgent Installer           ║${NC}"
-echo -e "${CYAN}${BOLD}║   长于记忆 · 精于理解 · 忠于边界      ║${NC}"
+echo -e "${CYAN}${BOLD}║   Remembers. Understands. Respects. ║${NC}"
 echo -e "${CYAN}${BOLD}╚══════════════════════════════════════╝${NC}"
 echo ""
 
@@ -108,7 +108,24 @@ check_pnpm() {
   abort "Failed to install pnpm. Install it manually: https://pnpm.io/installation"
 }
 
-# ── Step 3: Clone ───────────────────────────────────────────────────────────────
+# ── Step 3: Git ─────────────────────────────────────────────────────────────────
+check_git() {
+  if command -v git &>/dev/null; then
+    ok "git $(git --version | grep -oP '\d+\.\d+\.\d+' | head -1)"
+    return 0
+  fi
+
+  echo ""
+  echo -e "  ${YELLOW}Install git:${NC}"
+  case "$PLATFORM" in
+    termux)  echo "    pkg install git" ;;
+    linux)   echo "    sudo apt-get install -y git  (or: sudo dnf install -y git)" ;;
+    macos)   echo "    brew install git  (or: xcode-select --install)" ;;
+  esac
+  abort "git not found. Install it and re-run."
+}
+
+# ── Step 4: Clone ───────────────────────────────────────────────────────────────
 clone_repo() {
   if [ -d "$INSTALL_DIR/.git" ]; then
     ok "Repository already exists: $INSTALL_DIR"
@@ -128,7 +145,7 @@ clone_repo() {
   ok "Repository cloned"
 }
 
-# ── Step 4: Install dependencies ────────────────────────────────────────────────
+# ── Step 5: Install dependencies ────────────────────────────────────────────────
 install_deps() {
   info "Installing dependencies..."
   cd "$INSTALL_DIR"
@@ -173,7 +190,22 @@ install_deps() {
   abort "Dependency installation failed. Check the output above."
 }
 
-# ── Step 6: Configuration ───────────────────────────────────────────────────────
+# ── Step 6: Install UI dependencies ──────────────────────────────────────────────
+install_ui_deps() {
+  info "Installing WebUI dependencies..."
+
+  cd "$INSTALL_DIR"
+
+  if [ -f ui/package.json ]; then
+    (cd ui && pnpm install --prefer-offline 2>&1) && ok "WebUI dependencies installed" || warn "WebUI dependency installation failed"
+    info "Building WebUI frontend..."
+    (cd ui && pnpm build 2>&1) && ok "WebUI built to ui/dist/" || warn "WebUI build had issues (server can still serve UI in dev mode)"
+  else
+    warn "ui/package.json not found, skipping WebUI"
+  fi
+}
+
+# ── Step 7: Configuration ───────────────────────────────────────────────────────
 setup_config() {
   info "Setting up configuration..."
 
@@ -270,7 +302,7 @@ setup_config() {
   ok "Configuration saved"
 }
 
-# ── Step 6: Build ───────────────────────────────────────────────────────────────
+# ── Step 8: Build ───────────────────────────────────────────────────────────────
 build_project() {
   info "Building TypeScript..."
   cd "$INSTALL_DIR"
@@ -278,7 +310,7 @@ build_project() {
   ok "Build complete"
 }
 
-# ── Step 7: Service ─────────────────────────────────────────────────────────────
+# ── Step 9: Service ─────────────────────────────────────────────────────────────
 install_service() {
   echo ""
   read -r -p "  Install as system service (auto-start on boot)? [y/N] " svc
@@ -292,7 +324,7 @@ install_service() {
   fi
 }
 
-# ── Step 8: Ready ───────────────────────────────────────────────────────────────
+# ── Step 10: Ready ───────────────────────────────────────────────────────────────
 finish() {
   echo ""
   echo -e "${GREEN}${BOLD}╔══════════════════════════════════════╗${NC}"
@@ -326,8 +358,10 @@ finish() {
 # ── Main ────────────────────────────────────────────────────────────────────────
 check_node
 check_pnpm
+check_git
 clone_repo
 install_deps
+install_ui_deps
 setup_config
 build_project
 install_service

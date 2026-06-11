@@ -1,5 +1,5 @@
 # OhMyAgent Windows Installer
-# 长于记忆 · 精于理解 · 忠于边界
+# Remembers. Understands. Respects.
 #
 # Usage: powershell -ExecutionPolicy Bypass -File install.ps1
 #   Or:   Invoke-WebRequest -Uri "https://raw.githubusercontent.com/tscodeplus/OhMyAgent/main/install.ps1" | Invoke-Expression
@@ -22,7 +22,7 @@ function Abort       { Write-Err $args; Write-Host ""; exit 1 }
 Write-Host ""
 Write-Host "╔══════════════════════════════════════╗" -ForegroundColor Cyan
 Write-Host "║       OhMyAgent Installer           ║" -ForegroundColor Cyan
-Write-Host "║   长于记忆 · 精于理解 · 忠于边界      ║" -ForegroundColor Cyan
+Write-Host "║   Remembers. Understands. Respects. ║" -ForegroundColor Cyan
 Write-Host "╚══════════════════════════════════════╝" -ForegroundColor Cyan
 Write-Host ""
 
@@ -82,7 +82,7 @@ if (-not $gitPath) {
 }
 Write-OK "git $(git --version | Select-String -Pattern '\d+\.\d+\.\d+' | ForEach-Object { $_.Matches.Value })"
 
-# ── Step 5: Clone ───────────────────────────────────────────────────────────────
+# ── Step 4: Clone ───────────────────────────────────────────────────────────────
 $repoUrl = "https://github.com/tscodeplus/OhMyAgent.git"
 
 if (Test-Path "$InstallDir\.git") {
@@ -136,6 +136,34 @@ if ($LASTEXITCODE -eq 0) {
     Write-OK "Dependencies installed (compiled from source)"
 }
 
+# ── Step 6: Install UI dependencies ───────────────────────────────────────────────
+Write-Info "Installing WebUI dependencies..."
+
+if (Test-Path "$InstallDir\ui\package.json") {
+    Push-Location "$InstallDir\ui"
+    pnpm install --prefer-offline 2>&1 | ForEach-Object {
+        if ($_ -match "ERR|error") { Write-Host "    $_" }
+    }
+    Pop-Location
+    if ($LASTEXITCODE -eq 0) {
+        Write-OK "WebUI dependencies installed"
+    } else {
+        Write-Warn "WebUI dependency installation failed"
+    }
+
+    Write-Info "Building WebUI frontend..."
+    Push-Location "$InstallDir\ui"
+    pnpm build 2>&1 | Out-Null
+    Pop-Location
+    if ($LASTEXITCODE -eq 0) {
+        Write-OK "WebUI built to ui/dist/"
+    } else {
+        Write-Warn "WebUI build had issues (server can still serve UI in dev mode)"
+    }
+} else {
+    Write-Warn "ui/package.json not found, skipping WebUI"
+}
+
 # ── Step 7: Configuration ───────────────────────────────────────────────────────
 Write-Info "Setting up configuration..."
 
@@ -157,10 +185,18 @@ Write-Host ""
 Write-Host "  Quick setup — at minimum you need an LLM API key." -ForegroundColor Yellow
 Write-Host ""
 Write-Host "  Popular options:"
-Write-Host "    $(Write-Host '1' -NoNewline -ForegroundColor Cyan)) DeepSeek  — get key at https://platform.deepseek.com"
-Write-Host "    $(Write-Host '2' -NoNewline -ForegroundColor Cyan)) Anthropic — get key at https://console.anthropic.com"
-Write-Host "    $(Write-Host '3' -NoNewline -ForegroundColor Cyan)) OpenAI    — get key at https://platform.openai.com"
-Write-Host "    $(Write-Host '4' -NoNewline -ForegroundColor Cyan)) Other     — enter provider/model/URL/key manually"
+Write-Host "    " -NoNewline
+Write-Host "1" -NoNewline -ForegroundColor Cyan
+Write-Host ") DeepSeek  — get key at https://platform.deepseek.com"
+Write-Host "    " -NoNewline
+Write-Host "2" -NoNewline -ForegroundColor Cyan
+Write-Host ") Anthropic — get key at https://console.anthropic.com"
+Write-Host "    " -NoNewline
+Write-Host "3" -NoNewline -ForegroundColor Cyan
+Write-Host ") OpenAI    — get key at https://platform.openai.com"
+Write-Host "    " -NoNewline
+Write-Host "4" -NoNewline -ForegroundColor Cyan
+Write-Host ") Other     — enter provider/model/URL/key manually"
 Write-Host ""
 
 $choice = Read-Host "  Choose [1-4] (default: 1)"
@@ -232,7 +268,7 @@ LOG_LEVEL=info
 
 Write-OK "Configuration saved"
 
-# ── Step 7: Build ───────────────────────────────────────────────────────────────
+# ── Step 8: Build ───────────────────────────────────────────────────────────────
 Write-Info "Building TypeScript..."
 Set-Location $InstallDir
 pnpm build 2>&1 | Select-Object -Last 3
@@ -245,12 +281,21 @@ Write-OK "Build complete"
 Write-Host ""
 $svc = Read-Host "  Install as system service (auto-start on boot)? [y/N]"
 if ($svc -eq "y" -or $svc -eq "Y") {
-    Set-Location $InstallDir
-    node dist/src/cli/index.js service install 2>$null
-    if ($LASTEXITCODE -eq 0) {
-        Write-OK "Service installed — OhMyAgent will start automatically on logon"
+    $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $isAdmin) {
+        Write-Warn "Service installation requires Administrator privileges."
+        Write-Host "  Please re-run this script in an elevated PowerShell (Run as Administrator)." -ForegroundColor Yellow
+        Write-Host "  Or install the service manually later:" -ForegroundColor Yellow
+        Write-Host "    Run PowerShell as Administrator, then:" -ForegroundColor Yellow
+        Write-Host "    cd $InstallDir && node dist/src/cli/index.js service install" -ForegroundColor Yellow
     } else {
-        Write-Warn "Service installation failed. Try manually later: node dist/src/cli/index.js service install"
+        Set-Location $InstallDir
+        node dist/src/cli/index.js service install 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Write-OK "Service installed — OhMyAgent will start automatically on logon"
+        } else {
+            Write-Warn "Service installation failed. Try manually later: node dist/src/cli/index.js service install"
+        }
     }
 }
 
