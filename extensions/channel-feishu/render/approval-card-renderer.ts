@@ -332,7 +332,7 @@ function formatDecisionStatus(record: ReplyApprovalRecord): string {
 export function renderApprovalResultCard(
   decision: ApprovalDecisionType,
   request: ApprovalRequest,
-  rejectReason?: 'timeout' | 'restart',
+  rejectReason?: 'timeout' | 'restart' | 'steered',
 ): Record<string, unknown> {
   const isApproved = decision.startsWith('approve');
   const headerColor = isApproved ? 'green' : 'red';
@@ -341,6 +341,8 @@ export function renderApprovalResultCard(
     rejectReason && !isApproved
       ? (rejectReason === 'timeout'
           ? i18n.t('feishu-cards:status.rejectedTimeout')
+          : rejectReason === 'steered'
+          ? i18n.t('feishu-cards:status.rejectedSteered')
           : i18n.t('feishu-cards:status.rejectedRestart'))
       : decision === 'approve_once' ? i18n.t('feishu-cards:status.approvedOnce') :
         decision === 'approve_session' ? i18n.t('feishu-cards:status.approvedSession') :

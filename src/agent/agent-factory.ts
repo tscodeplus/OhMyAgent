@@ -193,7 +193,7 @@ export interface AgentFactoryOptions {
   policyCenter?: PolicyCenter;
   orchestratorFactory?: () => Orchestrator | undefined;
   getServices?: () => AppServices | undefined;
-  onApprovalAutoReject?: (requestId: string, reason: 'timeout' | 'stale_after_restart' | 'expired_before_recovery') => void;
+  onApprovalAutoReject?: (requestId: string, reason: 'timeout' | 'stale_after_restart' | 'expired_before_recovery' | 'steered') => void;
   onApprovalAutoApprove?: (requestId: string) => void;
   logger?: Logger;
   promptManager?: PromptManager;
@@ -208,7 +208,7 @@ export interface AgentFactory {
   create(options?: AgentCreateOptions): Agent;
   updateConfig(config: AppConfig): void;
   resolveApproval(requestId: string, decision: ApprovalDecisionType): boolean;
-  rejectPendingApprovals(sessionKey: string): number;
+  rejectPendingApprovals(sessionKey: string, reason?: 'stopped_by_user' | 'steered'): number;
   /** Resolve the first pending approval for a session. Returns false if none pending. */
   resolveFirstPendingApproval(sessionKey: string, decision: ApprovalDecisionType): boolean;
   /** Resolve all pending approvals for a session. Returns count. */
@@ -1002,8 +1002,8 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
       return pendingApprovals.resolveAllForSession(sessionKey, decision);
     },
 
-    rejectPendingApprovals(sessionKey: string): number {
-      return pendingApprovals.rejectAllForSession(sessionKey, approvalRequestRepo);
+    rejectPendingApprovals(sessionKey: string, reason?: 'stopped_by_user' | 'steered'): number {
+      return pendingApprovals.rejectAllForSession(sessionKey, approvalRequestRepo, reason);
     },
 
     getAutoCompressConfig() {

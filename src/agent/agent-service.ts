@@ -282,10 +282,11 @@ export class AgentService {
 
   /**
    * Reject all pending approval requests for a given session.
-   * Called by /stop before aborting the agent.
+   * Called by /stop before aborting the agent, and by steer() to clear
+   * approvals when a new message supersedes the current turn.
    */
-  rejectPendingApprovals(sessionId: string): number {
-    return this.factory.rejectPendingApprovals(sessionId);
+  rejectPendingApprovals(sessionId: string, reason?: 'stopped_by_user' | 'steered'): number {
+    return this.factory.rejectPendingApprovals(sessionId, reason);
   }
 
   /**
@@ -333,11 +334,14 @@ export class AgentService {
 
   /**
    * Queue a steering message for mid-execution course correction.
-   * Clears any previously queued steering messages before enqueuing.
+   * Clears any previously queued steering messages and auto-rejects pending
+   * approvals before enqueuing.
    */
   steer(sessionId: string, message: string): boolean {
     const runtime = this.runtimes.get(sessionId);
     if (!runtime) return false;
+    // Auto-reject any pending approvals — new message supersedes old context
+    this.rejectPendingApprovals(sessionId, 'steered');
     runtime.agent.clearSteeringQueue();
     runtime.agent.steer({
       role: 'user',
@@ -358,6 +362,19 @@ export class AgentService {
   async swapCard(sessionId: string, replyToMessageId?: string): Promise<boolean> {
     const runtime = this.runtimes.get(sessionId);
     if (!runtime || !runtime.turnContext.chatId) return false;
+
+    // Update old dispatcher's model from the agent's actual state model
+    // before finalizing the card. Without this, the footer shows the global
+    // default model instead of the agent-specific model (swapCard fires
+    // before EventBridge.agent_end, which is where setModel normally runs).
+    const stateModel = (runtime.agent.state as any)?.model;
+    if (stateModel?.provider && stateModel?.id) {
+      try {
+        runtime.turnContext.replyDispatcher?.setModel(
+          `${stateModel.provider}/${stateModel.id}`,
+        );
+      } catch { /* dispatcher may not support setModel */ }
+    }
 
     // Finalize old card so generated content is preserved
     try {

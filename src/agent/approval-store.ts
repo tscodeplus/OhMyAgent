@@ -25,12 +25,12 @@ interface PendingApprovalEntry {
 export class PendingApprovalStore {
   private pending = new Map<string, PendingApprovalEntry>();
   private events = new EventEmitter();
-  private onAutoReject?: (requestId: string, reason: 'timeout' | 'stale_after_restart' | 'expired_before_recovery') => void;
+  private onAutoReject?: (requestId: string, reason: 'timeout' | 'stale_after_restart' | 'expired_before_recovery' | 'steered') => void;
   private onAutoApprove?: (requestId: string) => void;
   private timeoutAction: 'deny' | 'allow';
 
   constructor(options?: {
-    onAutoReject?: (requestId: string, reason: 'timeout' | 'stale_after_restart' | 'expired_before_recovery') => void;
+    onAutoReject?: (requestId: string, reason: 'timeout' | 'stale_after_restart' | 'expired_before_recovery' | 'steered') => void;
     onAutoApprove?: (requestId: string) => void;
     timeoutAction?: 'deny' | 'allow';
   }) {
@@ -136,16 +136,20 @@ export class PendingApprovalStore {
     return rejected;
   }
 
-  rejectAllForSession(sessionKey: string, approvalRepo?: ApprovalRequestRepository): number {
+  rejectAllForSession(sessionKey: string, approvalRepo?: ApprovalRequestRepository, reason: 'stopped_by_user' | 'steered' = 'stopped_by_user'): number {
     let count = 0;
     for (const [requestId, entry] of this.pending) {
       if (entry.sessionKey !== sessionKey) continue;
       clearTimeout(entry.timer);
       this.pending.delete(requestId);
       if (approvalRepo) {
-        approvalRepo.update(requestId, { status: 'rejected', reason: 'stopped_by_user' });
+        approvalRepo.update(requestId, { status: 'rejected', reason });
       }
       this.events.emit(requestId, 'reject_once');
+      // Trigger auto-reject callback so the channel UI (e.g. Feishu approval card) is updated
+      if (reason === 'steered') {
+        this.onAutoReject?.(requestId, 'steered');
+      }
       count++;
     }
     return count;

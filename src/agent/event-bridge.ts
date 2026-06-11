@@ -107,6 +107,18 @@ export class EventBridge {
    */
   start(agent: Agent): void {
     this.agent = agent;
+
+    // Set the dispatcher's model from the agent's configured model immediately,
+    // so the footer is correct from the start. The agent_end handler will still
+    // update it later if a fallback model was actually used.
+    const stateModel = (agent.state as any)?.model;
+    if (stateModel?.provider && stateModel?.id) {
+      const modelStr = `${stateModel.provider}/${stateModel.id}`;
+      try {
+        this.replyDispatcher.setModel(modelStr);
+      } catch { /* dispatcher may not support setModel */ }
+    }
+
     this.unsubscribe = agent.subscribe(async (event: AgentEvent) => {
       switch (event.type) {
         case 'agent_start':

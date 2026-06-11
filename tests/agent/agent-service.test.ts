@@ -54,6 +54,7 @@ function createMockFactory(agentOverride?: ReturnType<typeof createMockAgent>) {
   const agent = agentOverride ?? createMockAgent();
   return {
     create: vi.fn().mockReturnValue(agent),
+    rejectPendingApprovals: vi.fn().mockReturnValue(0),
     agent,
   };
 }
@@ -67,6 +68,7 @@ function createFactoryWithPerSessionAgents() {
       agents.set(sessionId, agent);
       return agent;
     }),
+    rejectPendingApprovals: vi.fn().mockReturnValue(0),
     agents,
   };
 }

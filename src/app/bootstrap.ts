@@ -460,7 +460,7 @@ export async function bootstrap(): Promise<BootstrapResult> {
         risk: (req.risk_level as 'low' | 'medium' | 'high') ?? 'low',
         sessionId: req.session_key,
         timestamp: Date.now(),
-      }, reason === 'timeout' || reason === 'expired_before_recovery' ? 'timeout' : 'restart');
+      }, reason === 'timeout' || reason === 'expired_before_recovery' ? 'timeout' : reason === 'steered' ? 'steered' : 'restart');
       feishuClient.updateMessage(req.card_message_id, 'interactive', resultCard).catch(() => {});
     },
     logger,

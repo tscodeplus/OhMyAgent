@@ -12,6 +12,7 @@
   "status.alwaysAllow": "Approved (Always)",
   "status.rejectedTimeout": "Auto-rejected (timeout)",
   "status.rejectedRestart": "Auto-rejected (service restart)",
+  "status.rejectedSteered": "Auto-rejected due to new message",
   "button.approveOnce": "Approve Once",
   "button.approveSession": "Approve Session",
   "button.alwaysAllow": "Always Allow",
