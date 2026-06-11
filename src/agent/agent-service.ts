@@ -335,19 +335,23 @@ export class AgentService {
   /**
    * Queue a steering message for mid-execution course correction.
    * Clears any previously queued steering messages and auto-rejects pending
-   * approvals before enqueuing.
+   * approvals. Order matters: the steer message MUST be queued BEFORE
+   * resolving approvals, so the agent loop finds it when it resumes.
    */
   steer(sessionId: string, message: string): boolean {
     const runtime = this.runtimes.get(sessionId);
     if (!runtime) return false;
-    // Auto-reject any pending approvals — new message supersedes old context
-    this.rejectPendingApprovals(sessionId, 'steered');
+    // 1. Clear any previous steering message
     runtime.agent.clearSteeringQueue();
+    // 2. Queue the new message BEFORE unblocking the agent via reject
     runtime.agent.steer({
       role: 'user',
       content: [{ type: 'text', text: message }],
       timestamp: Date.now(),
     });
+    // 3. Now resolve pending approvals — the message is already in the
+    //    steering queue, so the agent loop will find it when it resumes
+    this.rejectPendingApprovals(sessionId, 'steered');
     return true;
   }
 

@@ -153,9 +153,9 @@ export class MessageHandler {
       if (isSteer) {
         const args = text.split(/\s+/).slice(1).join(' ');
         if (args && this.options.commandDeps.agentService.isRunning(context.sessionKey)) {
-          // Auto-reject pending approvals before swapping card — must happen
-          // before swapCard() so rejections aren't delayed by Feishu API calls
-          this.options.commandDeps.agentService.rejectPendingApprovals(context.sessionKey, 'steered');
+          // swapCard is async but the agent is still blocked on the pending
+          // approval at this point — handleCommand → handleSteer will call
+          // steer() which does clear → steer → reject synchronously AFTER
           await this.options.commandDeps.agentService.swapCard(context.sessionKey, context.messageId);
         }
       }
@@ -182,11 +182,12 @@ export class MessageHandler {
 
     // ── Normal message → steer if running, otherwise execute ──
     if (this.options.commandDeps.agentService.isRunning(context.sessionKey)) {
-      // Auto-reject pending approvals before swapping card — must happen
-      // before swapCard() so rejections aren't delayed by Feishu API calls
-      this.options.commandDeps.agentService.rejectPendingApprovals(context.sessionKey, 'steered');
-      await this.options.commandDeps.agentService.swapCard(context.sessionKey, context.messageId);
+      // Steer MUST happen before swapCard: steer() synchronously rejects
+      // pending approvals and queues the new message. swapCard() is async
+      // (Feishu API calls) — if reject ran before steer, the agent loop
+      // would resume during the await and find an empty steering queue.
       this.options.commandDeps.agentService.steer(context.sessionKey, text);
+      await this.options.commandDeps.agentService.swapCard(context.sessionKey, context.messageId);
       return true;
     }
     this.enqueueAgentExecution(text, context);
