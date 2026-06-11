@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import { loadSqliteVec, probeSqliteVec, sqliteVecAvailable, vecDelete, vecInsert, vecSearch } from '../sqlite-vec.js';
+import { loadSqliteVec, probeSqliteVec, sqliteVecAvailable, sqliteVecTableReady, vecDelete, vecInsert, vecSearch } from '../sqlite-vec.js';
 import { errorForObservation, memoryObservability } from '../observability.js';
 
 export interface MemoryEmbedding {
@@ -134,7 +134,7 @@ export class EmbeddingRepository {
   }
 
   vecSearch(queryEmbedding: Float32Array, limit: number = 10, candidateIds?: string[] | null): CosineSearchResult[] {
-    if (!sqliteVecAvailable(this.db)) return [];
+    if (!sqliteVecTableReady(this.db)) return [];
     try {
       return vecSearch(this.db, queryEmbedding, limit, candidateIds)
         .map(result => ({
@@ -213,7 +213,7 @@ export class EmbeddingRepository {
   deleteByMemoryId(memoryId: string): boolean {
     const stmt = this.db.prepare('DELETE FROM memory_embeddings WHERE memory_id = ?');
     const result = stmt.run(memoryId);
-    if (result.changes > 0 && sqliteVecAvailable(this.db)) {
+    if (result.changes > 0 && sqliteVecTableReady(this.db)) {
       try {
         vecDelete(this.db, memoryId);
       } catch {

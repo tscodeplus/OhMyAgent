@@ -62,10 +62,18 @@ export function probeSqliteVec(db: Database.Database): void {
 }
 
 /**
- * Returns true if the sqlite-vec extension has been loaded into this
- * database AND the vec0 virtual table exists.
+ * Returns true if the sqlite-vec extension has been loaded into this database.
+ * The virtual table may not exist yet on fresh installs — it's created lazily
+ * when the first embedding is written with a known dimension.
  */
 export function sqliteVecAvailable(db: Database.Database): boolean {
+  return dbsWithExtension.has(db);
+}
+
+/**
+ * Returns true if the vec0 virtual table is ready for queries.
+ */
+export function sqliteVecTableReady(db: Database.Database): boolean {
   if (!dbsWithExtension.has(db)) return false;
   try {
     const row = db.prepare(`
