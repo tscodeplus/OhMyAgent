@@ -136,6 +136,19 @@ if ($LASTEXITCODE -eq 0) {
     Write-OK "Dependencies installed (compiled from source)"
 }
 
+# Verify sqlite-vec native extension — its optional dep may be silently skipped by pnpm
+Write-Info "Verifying sqlite-vec native extension..."
+Push-Location $InstallDir
+try {
+    node -e "require('sqlite-vec')" 2>$null
+    Write-OK "sqlite-vec available"
+} catch {
+    Write-Warn "sqlite-vec native extension unavailable; memory vector search will use cosine fallback"
+    Write-Host "  This is expected if sqlite-vec has no prebuilt binary for your platform." -ForegroundColor Yellow
+    Write-Host "  Everything works — just slower for large memory banks." -ForegroundColor Yellow
+}
+Pop-Location
+
 # ── Step 6: Install UI dependencies ───────────────────────────────────────────────
 Write-Info "Installing WebUI dependencies..."
 

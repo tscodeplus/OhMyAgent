@@ -190,6 +190,20 @@ install_deps() {
   abort "Dependency installation failed. Check the output above."
 }
 
+# ── Verify sqlite-vec native extension (optional dep may be skipped) ────────────
+verify_sqlite_vec() {
+  info "Verifying sqlite-vec native extension..."
+  cd "$INSTALL_DIR"
+
+  if node -e "require('sqlite-vec')" 2>/dev/null; then
+    ok "sqlite-vec available"
+  else
+    warn "sqlite-vec native extension unavailable; memory vector search will use cosine fallback"
+    echo -e "  ${YELLOW}This is expected if sqlite-vec has no prebuilt binary for your platform.${NC}"
+    echo -e "  ${YELLOW}Everything works — just slower for large memory banks.${NC}"
+  fi
+}
+
 # ── Step 6: Install UI dependencies ──────────────────────────────────────────────
 install_ui_deps() {
   info "Installing WebUI dependencies..."
@@ -361,6 +375,7 @@ check_pnpm
 check_git
 clone_repo
 install_deps
+verify_sqlite_vec
 install_ui_deps
 setup_config
 build_project
