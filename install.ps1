@@ -12,18 +12,18 @@ param(
 $ErrorActionPreference = "Stop"
 
 # ── Helpers ─────────────────────────────────────────────────────────────────────
-function Write-Info  { Write-Host "  [•] $args" -ForegroundColor Cyan }
-function Write-OK    { Write-Host "  [✓] $args" -ForegroundColor Green }
+function Write-Info  { Write-Host "  [*] $args" -ForegroundColor Cyan }
+function Write-OK    { Write-Host "  [+] $args" -ForegroundColor Green }
 function Write-Warn  { Write-Host "  [!] $args" -ForegroundColor Yellow }
-function Write-Err   { Write-Host "  [✗] $args" -ForegroundColor Red }
+function Write-Err   { Write-Host "  [x] $args" -ForegroundColor Red }
 function Abort       { Write-Err $args; Write-Host ""; exit 1 }
 
 # ── Banner ──────────────────────────────────────────────────────────────────────
 Write-Host ""
-Write-Host "╔══════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║       OhMyAgent Installer           ║" -ForegroundColor Cyan
-Write-Host "║   Remembers. Understands. Respects. ║" -ForegroundColor Cyan
-Write-Host "╚══════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "  OhMyAgent Installer" -ForegroundColor Cyan
+Write-Host "  Remembers. Understands. Respects." -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
 # ── Step 1: Node.js ─────────────────────────────────────────────────────────────
@@ -182,21 +182,21 @@ if (-not (Test-Path ".env")) {
 }
 
 Write-Host ""
-Write-Host "  Quick setup — at minimum you need an LLM API key." -ForegroundColor Yellow
+Write-Host "  Quick setup -- at minimum you need an LLM API key." -ForegroundColor Yellow
 Write-Host ""
 Write-Host "  Popular options:"
 Write-Host "    " -NoNewline
 Write-Host "1" -NoNewline -ForegroundColor Cyan
-Write-Host ") DeepSeek  — get key at https://platform.deepseek.com"
+Write-Host ") DeepSeek  -- get key at https://platform.deepseek.com"
 Write-Host "    " -NoNewline
 Write-Host "2" -NoNewline -ForegroundColor Cyan
-Write-Host ") Anthropic — get key at https://console.anthropic.com"
+Write-Host ") Anthropic -- get key at https://console.anthropic.com"
 Write-Host "    " -NoNewline
 Write-Host "3" -NoNewline -ForegroundColor Cyan
-Write-Host ") OpenAI    — get key at https://platform.openai.com"
+Write-Host ") OpenAI    -- get key at https://platform.openai.com"
 Write-Host "    " -NoNewline
 Write-Host "4" -NoNewline -ForegroundColor Cyan
-Write-Host ") Other     — enter provider/model/URL/key manually"
+Write-Host ") Other     -- enter provider/model/URL/key manually"
 Write-Host ""
 
 $choice = Read-Host "  Choose [1-4] (default: 1)"
@@ -292,7 +292,7 @@ if ($svc -eq "y" -or $svc -eq "Y") {
         Set-Location $InstallDir
         node dist/src/cli/index.js service install 2>$null
         if ($LASTEXITCODE -eq 0) {
-            Write-OK "Service installed — OhMyAgent will start automatically on logon"
+            Write-OK "Service installed -- OhMyAgent will start automatically on logon"
         } else {
             Write-Warn "Service installation failed. Try manually later: node dist/src/cli/index.js service install"
         }
@@ -301,14 +301,14 @@ if ($svc -eq "y" -or $svc -eq "Y") {
 
 # ── Step 9: Ready ───────────────────────────────────────────────────────────────
 Write-Host ""
-Write-Host "╔══════════════════════════════════════╗" -ForegroundColor Green
-Write-Host "║      Installation complete!          ║" -ForegroundColor Green
-Write-Host "╚══════════════════════════════════════╝" -ForegroundColor Green
+Write-Host "========================================" -ForegroundColor Green
+Write-Host "  Installation complete!" -ForegroundColor Green
+Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "  WebUI:  " -NoNewline -ForegroundColor White; Write-Host "http://localhost:9191/webui" -ForegroundColor Cyan
 Write-Host "  Token:  " -NoNewline -ForegroundColor White; Write-Host "$WEBUI_TOKEN" -ForegroundColor Cyan
 if ($TOKEN_WAS_GENERATED) {
-    Write-Host "          (auto-generated — saved in .env, change with WEBUI_TOKEN)" -ForegroundColor Yellow
+    Write-Host "          (auto-generated -- saved in .env, change with WEBUI_TOKEN)" -ForegroundColor Yellow
 }
 Write-Host ""
 Write-Host "  Start the server:" -ForegroundColor White
