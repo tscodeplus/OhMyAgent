@@ -638,11 +638,6 @@ export class AgentService {
         }
         if (pending.model) meta.model = pending.model;
         const agentName = (agent as any).ohmyagent_agentName || runtime.agentName;
-        console.log('[persistMessages] agentName sources', {
-          ohmyagent: (agent as any).ohmyagent_agentName,
-          runtimeAgentName: runtime.agentName,
-          resolved: agentName,
-        });
         if (agentName) meta.agentName = agentName;
         if (runtime.turnElapsed) meta.elapsed = runtime.turnElapsed;
         // Store footer config snapshot so historical messages retain their

@@ -424,9 +424,9 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
     // Resolve agent name upfront — the event-bridge also calls setAgentName
     // during agent_end, but doing it here ensures it's always available.
     const agentName = cfg.agentManager
-      ? (project.agent_id
+      ? ((project.agent_id
           ? cfg.agentManager.get(project.agent_id)?.name
-          : cfg.agentManager.getDefault()?.name)
+          : undefined) ?? cfg.agentManager.getDefault()?.name)
       : undefined;
     const dispatcher = new SSEReplyDispatcher(sendSSE, cfg.getFooterConfig?.(), cfg.db, sessionId);
     if (agentName) {

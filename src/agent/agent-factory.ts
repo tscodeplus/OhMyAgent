@@ -315,7 +315,7 @@ export function createAgentFactory(
       let agentConfig: ResolvedAgentConfig | undefined;
       if (agentManager) {
         agentConfig = options?.agentId
-          ? agentManager.get(options.agentId)
+          ? (agentManager.get(options.agentId) ?? agentManager.getDefault(options?.channel))
           : agentManager.getDefault(options?.channel);
       }
 
