@@ -137,4 +137,22 @@ export class ProjectStore {
       deletedMemories,
     };
   }
+
+  /**
+   * Atomically ensure a default project exists. Uses a write transaction so
+   * concurrent calls from multiple browser tabs cannot both see zero projects
+   * and create duplicates.
+   */
+  ensureDefault(agentId: string): { project: ProjectRow; created: boolean } {
+    const fn = this.db.transaction(() => {
+      const existing = this.stmt_list.all() as ProjectRow[];
+      if (existing.length > 0) {
+        return { project: existing[0], created: false };
+      }
+      const id = generateId();
+      this.stmt_insert.run(id, 'Default Space', null, agentId);
+      return { project: this.stmt_getById.get(id) as ProjectRow, created: true };
+    });
+    return fn();
+  }
 }

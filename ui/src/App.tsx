@@ -13,43 +13,20 @@ import MemoryView from './components/memory/MemoryView';
 import CronView from './components/cron/CronView';
 import { apiRequest } from './utils/api';
 import type { Session } from './types/session';
-import type { Project } from './types/project';
 
 function HomePage() {
   const navigate = useNavigate();
-  const { selectedProjectId, setSelectedProjectId, setSelectedSessionId } = useProject();
+  const { selectedProjectId, setSelectedSessionId } = useProject();
 
   useEffect(() => {
+    const pid = selectedProjectId;
+    if (!pid) {
+      // ProjectProvider's ensure-default should have set this already;
+      // only reachable if the backend is unreachable.
+      navigate('/dashboard', { replace: true });
+      return;
+    }
     (async () => {
-      let pid = selectedProjectId;
-      if (!pid) {
-        try {
-          const projects = await apiRequest<Project[]>('/api/projects');
-          if (projects.length > 0) {
-            pid = projects[0].id;
-            setSelectedProjectId(pid);
-          } else {
-            // No projects — auto-create one with the default agent
-            try {
-              const agents = await apiRequest<any[]>('/api/agents');
-              const defaultAgent = agents.find(a => a.id === 'default') || agents[0];
-              const agentId = defaultAgent?.id || 'default';
-              const newProject = await apiRequest<Project>('/api/projects', {
-                method: 'POST',
-                body: JSON.stringify({ name: '默认空间', agent_id: agentId }),
-              });
-              pid = newProject.id;
-              setSelectedProjectId(pid);
-            } catch {
-              navigate('/dashboard', { replace: true });
-              return;
-            }
-          }
-        } catch {
-          navigate('/dashboard', { replace: true });
-          return;
-        }
-      }
       // Try to find the most recently active session
       try {
         const sessions = await apiRequest<Session[]>(`/api/projects/${pid}/sessions`);
@@ -73,14 +50,15 @@ function HomePage() {
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return <div className="flex items-center justify-center h-full text-neutral-500">加载中...</div>;
+  return <div className="flex items-center justify-center h-full text-neutral-500">Loading...</div>;
 }
 
 export default function App() {
   const { isAuthenticated, isLoading, connectionError, remoteUrl, retryAuth } = useAuth();
+  const { initialized } = useProject();
 
   // Still validating token / establishing connection
-  if (isLoading) {
+  if (isLoading || !initialized) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-neutral-50 dark:bg-neutral-950">
         <div className="flex flex-col items-center gap-3">
@@ -88,7 +66,7 @@ export default function App() {
             <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
             <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" className="opacity-75" />
           </svg>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400">连接中...</p>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading...</p>
         </div>
       </div>
     );

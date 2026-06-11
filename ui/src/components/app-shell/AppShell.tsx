@@ -203,29 +203,15 @@ export default function AppShell() {
                 <button key={tab.id} type="button" role="tab" aria-selected={isActive}
                   onClick={async () => {
                     if (tab.path === '/') {
-                      // Resolve project ID — use selected or pick first available
-                      let pid = selectedProjectId;
+                      const pid = selectedProjectId;
                       if (!pid) {
-                        try {
-                          const projects = await apiRequest<Project[]>('/api/projects');
-                          if (projects.length > 0) {
-                            pid = projects[0].id;
-                            setSelectedProjectId(pid);
-                          } else {
-                            navigate('/dashboard');
-                            return;
-                          }
-                        } catch {
-                          navigate('/dashboard');
-                          return;
-                        }
+                        navigate('/dashboard');
+                        return;
                       }
                       // Try to find the most recently active session
                       try {
                         const sessions = await apiRequest<Session[]>(`/api/projects/${pid}/sessions`);
                         if (sessions.length > 0) {
-                          // API returns sessions ordered by created_at DESC (newest first)
-                          // Pick the one with the most recent updated_at
                           const latest = sessions.reduce((a, b) =>
                             new Date(a.updated_at).getTime() > new Date(b.updated_at).getTime() ? a : b
                           );
@@ -240,7 +226,6 @@ export default function AppShell() {
                         setSelectedSessionId(session.id);
                         navigate(`/p/${pid}/s/${session.id}`);
                       } catch {
-                        // If creation fails, just open the project
                         navigate(`/p/${pid}`);
                       }
                     } else {
