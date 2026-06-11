@@ -3,21 +3,35 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 
-const loadedDbs = new WeakSet<Database.Database>();
+const dbsWithExtension = new WeakSet<Database.Database>();
 
-export function loadSqliteVec(db: Database.Database, dimension: number): boolean {
-  if (!loadedDbs.has(db)) {
-    try {
-      // sqlite-vec's npm package resolves the platform-specific extension path.
-      // Dynamic require keeps tests/environments without the package from failing at import time.
-      const sqliteVec = require('sqlite-vec') as { load: (db: Database.Database) => void };
-      sqliteVec.load(db);
-      loadedDbs.add(db);
-    } catch (err: any) {
-      console.warn('[sqlite-vec] Failed to load extension:', err?.message ?? err);
-      return false;
-    }
+/**
+ * Load the sqlite-vec native extension into the given database.
+ * Safe to call multiple times — subsequent calls are no-ops.
+ * Returns true on success, false with a console.warn on failure.
+ */
+export function loadSqliteVecExtension(db: Database.Database): boolean {
+  if (dbsWithExtension.has(db)) return true;
+
+  try {
+    const sqliteVec = require('sqlite-vec') as { load: (db: Database.Database) => void };
+    sqliteVec.load(db);
+    dbsWithExtension.add(db);
+    return true;
+  } catch (err: any) {
+    console.warn('[sqlite-vec] Failed to load extension:', err?.message ?? err);
+    return false;
   }
+}
+
+/**
+ * Load the extension (if needed) and create the vec0 virtual table.
+ * The virtual table is created with the given embedding dimension.
+ * Dimension only matters on first call — subsequent calls with a different
+ * dimension are ignored because the table already exists (IF NOT EXISTS).
+ */
+export function loadSqliteVec(db: Database.Database, dimension: number): boolean {
+  if (!loadSqliteVecExtension(db)) return false;
 
   try {
     db.exec(`
@@ -34,21 +48,25 @@ export function loadSqliteVec(db: Database.Database, dimension: number): boolean
 }
 
 /**
- * Probe whether sqlite-vec can be loaded at all (package installed, native
- * extension resolvable). Throws with a diagnostic message on failure so
- * startup can log the actual reason. Does NOT modify the database.
+ * Probe whether sqlite-vec can be loaded into the given database.
+ * Actually loads the extension (so any DLL/platform issues surface
+ * immediately) but does NOT create the virtual table — that happens
+ * lazily on first embedding write with the real dimension.
+ *
+ * Throws with a diagnostic message on failure.
  */
-export function probeSqliteVec(): void {
-  try {
-    const sqliteVec = require('sqlite-vec') as { getLoadablePath: () => string };
-    const path = sqliteVec.getLoadablePath();
-    if (!path) throw new Error('sqlite-vec returned empty loadable path');
-  } catch (err: any) {
-    throw new Error(`sqlite-vec not loadable: ${err?.message ?? err}`);
+export function probeSqliteVec(db: Database.Database): void {
+  if (!loadSqliteVecExtension(db)) {
+    throw new Error('sqlite-vec extension failed to load; check earlier [sqlite-vec] log line for details');
   }
 }
 
+/**
+ * Returns true if the sqlite-vec extension has been loaded into this
+ * database AND the vec0 virtual table exists.
+ */
 export function sqliteVecAvailable(db: Database.Database): boolean {
+  if (!dbsWithExtension.has(db)) return false;
   try {
     const row = db.prepare(`
       SELECT name FROM sqlite_master

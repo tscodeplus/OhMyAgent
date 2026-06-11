@@ -169,8 +169,13 @@ export class EmbeddingRepository {
     return this.cosineSearch(queryEmbedding, limit);
   }
 
+  /**
+   * Actually load sqlite-vec into this database so any DLL/platform issues
+   * surface immediately at startup. Does NOT create the virtual table —
+   * that happens on first embedding write via loadSqliteVec().
+   */
   probeVec(): void {
-    probeSqliteVec();
+    probeSqliteVec(this.db);
   }
 
   isVecAvailable(): boolean {
