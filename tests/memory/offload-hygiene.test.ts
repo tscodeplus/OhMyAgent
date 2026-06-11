@@ -104,6 +104,14 @@ describe('OffloadHygiene', () => {
       store.writeToolResult('recent', 1, 'shell', {}, 'data', false);
       store.writeToolResult('old', 1, 'shell', {}, 'data', false);
 
+      // Set directory mtime 1 second in the past so retentionDays=0
+      // reliably treats them as expired. Without this, mtime can equal
+      // Date.now() on fast CI runners (same-ms resolution), causing
+      // now - mtimeMs > 0 to be false and 0 sessions to be deleted.
+      const pastTime = new Date(Date.now() - 1000);
+      fs.utimesSync(path.join(baseDir, 'offload', 'recent'), pastTime, pastTime);
+      fs.utimesSync(path.join(baseDir, 'offload', 'old'), pastTime, pastTime);
+
       const report = shortHygiene.clean();
 
       expect(report.deletedSessions).toBe(2);
