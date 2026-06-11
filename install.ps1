@@ -195,13 +195,20 @@ if (-not $envExists) {
     Write-OK ".env already exists"
 }
 
-# Check if minimum config is already satisfied (API key + WebUI token set)
-$envContent = if (Test-Path ".env") { Get-Content ".env" -Raw } else { "" }
-$hasApiKey = $envContent -match '^\s*PI_AI_API_KEY\s*=\s*\S+' -and $envContent -notmatch 'PI_AI_API_KEY\s*=\s*sk-xxx'
-$hasToken = $envContent -match '^\s*WEBUI_TOKEN\s*=\s*\S+' -and $envContent -notmatch 'WEBUI_TOKEN\s*=\s*changeme'
+# Check if minimum config is already satisfied (API key in config.yaml + WebUI token in .env)
+$hasToken = $false
+if (Test-Path ".env") {
+    $envContent = Get-Content ".env" -Raw
+    $hasToken = $envContent -match '^\s*WEBUI_TOKEN\s*=\s*\S+' -and $envContent -notmatch 'WEBUI_TOKEN\s*=\s*changeme'
+}
+$hasApiKey = $false
+if (Test-Path "config.yaml") {
+    $yamlContent = Get-Content "config.yaml" -Raw -Encoding utf8
+    $hasApiKey = $yamlContent -match 'api_key\s*:\s*\S+' -and $yamlContent -notmatch 'api_key\s*:\s*sk-xxx'
+}
 
 if ($hasApiKey -and $hasToken) {
-    Write-OK "Config appears complete (API key + WebUI token found) -- skipping setup"
+    Write-OK "Config appears complete (API key in config.yaml, WebUI token in .env) -- skipping setup"
     $skipSetup = $true
 } else {
     $skipSetup = $false
@@ -277,40 +284,33 @@ if ([string]::IsNullOrWhiteSpace($WEBUI_TOKEN)) {
     $TOKEN_WAS_GENERATED = $true
 }
 
-# Write .env
-@"
-
-# ── OhMyAgent configuration ──
-PI_AI_PROVIDER=$PI_AI_PROVIDER
-PI_AI_MODEL=$PI_AI_MODEL
-PI_AI_REASONING_MODEL=$PI_AI_REASONING_MODEL
-PI_AI_API_KEY=$PI_AI_API_KEY
-$(
-if ($DEFAULT_BASE_URL) {
-    "PI_AI_BASE_URL=$DEFAULT_BASE_URL"
-}
-)
-WEBUI_TOKEN=$WEBUI_TOKEN
-LOG_LEVEL=info
-"@ | Out-File -FilePath ".env" -Encoding utf8
-
-    # Also save API key to config.yaml provider_keys so Settings UI shows editable
-    # entries instead of the read-only piAi fallback (same approach as setup wizard).
-    if (Test-Path "config.yaml") {
-        $nodeScript = @"
+# Write provider config to config.yaml (primary source), then write a minimal
+# .env with only WEBUI_TOKEN + LOG_LEVEL. This avoids duplication and ensures
+# the Settings UI shows editable provider entries.
+$baseUrlYaml = if ($DEFAULT_BASE_URL) { "base_url: '$DEFAULT_BASE_URL'" } else { "" }
+if (Test-Path "config.yaml") {
+    $nodeScript = @"
 const { readFileSync, writeFileSync } = require('fs');
 const { load, dump } = require('js-yaml');
 const cfg = load(readFileSync('config.yaml', 'utf8')) || {};
+cfg.provider = cfg.provider || {};
+cfg.provider.primary = '$PI_AI_PROVIDER/$PI_AI_MODEL';
+cfg.provider.reasoning = '$PI_AI_PROVIDER/$PI_AI_REASONING_MODEL';
+cfg.provider.api_key = '$($PI_AI_API_KEY -replace "'", "''")';
+$baseUrlYaml
 cfg.provider_keys = cfg.provider_keys || {};
 cfg.provider_keys['$PI_AI_PROVIDER'] = { api_key: '$($PI_AI_API_KEY -replace "'", "''")' };
 if ('$DEFAULT_BASE_URL') cfg.provider_keys['$PI_AI_PROVIDER'].base_url = '$DEFAULT_BASE_URL';
 writeFileSync('config.yaml', dump(cfg, { lineWidth: -1, noRefs: true }), 'utf8');
 "@
-        node -e $nodeScript 2>$null
-        if ($LASTEXITCODE -eq 0) {
-            Write-OK "API key also saved to config.yaml (provider_keys)"
-        }
-    }
+    node -e $nodeScript 2>$null
+}
+
+# Write minimal .env — only values that must stay in env (WebUI auth token)
+@"
+WEBUI_TOKEN=$WEBUI_TOKEN
+LOG_LEVEL=info
+"@ | Out-File -FilePath ".env" -Encoding utf8
 
 Write-OK "Configuration saved"
 }

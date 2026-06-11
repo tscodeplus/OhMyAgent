@@ -240,14 +240,21 @@ setup_config() {
     ok ".env already exists"
   fi
 
-  # Check if minimum config is already satisfied (API key + WebUI token set)
+  # Check if minimum config is already satisfied (API key in config.yaml + WebUI token in .env)
+  HAS_API_KEY=0
+  if [ -f config.yaml ]; then
+    HAS_API_KEY=$(grep -c 'api_key:' config.yaml 2>/dev/null | head -1)
+    # Still count as 0 if it's the placeholder
+    grep -q 'api_key: sk-xxx' config.yaml 2>/dev/null && HAS_API_KEY=0
+  fi
+  HAS_TOKEN=0
   if [ -f .env ]; then
-    HAS_API_KEY=$(grep -E '^[[:space:]]*PI_AI_API_KEY[[:space:]]*=[[:space:]]*[^[:space:]]' .env 2>/dev/null | grep -v 'sk-xxx' | wc -l)
-    HAS_TOKEN=$(grep -E '^[[:space:]]*WEBUI_TOKEN[[:space:]]*=[[:space:]]*[^[:space:]]' .env 2>/dev/null | grep -v 'changeme' | wc -l)
-    if [ "$HAS_API_KEY" -gt 0 ] && [ "$HAS_TOKEN" -gt 0 ]; then
-      ok "Config appears complete (API key + WebUI token found) — skipping setup"
-      return 0
-    fi
+    HAS_TOKEN=$(grep -c '^WEBUI_TOKEN=' .env 2>/dev/null | head -1)
+    grep -q 'WEBUI_TOKEN=changeme' .env 2>/dev/null && HAS_TOKEN=0
+  fi
+  if [ "$HAS_API_KEY" -gt 0 ] && [ "$HAS_TOKEN" -gt 0 ]; then
+    ok "Config appears complete (API key in config.yaml, WebUI token in .env) — skipping setup"
+    return 0
   fi
 
   echo ""
@@ -310,32 +317,35 @@ setup_config() {
     TOKEN_WAS_GENERATED=true
   fi
 
-  # Write .env
-  {
-    echo ""
-    echo "# ── OhMyAgent configuration ──"
-    echo "PI_AI_PROVIDER=${PI_AI_PROVIDER}"
-    echo "PI_AI_MODEL=${PI_AI_MODEL}"
-    echo "PI_AI_REASONING_MODEL=${PI_AI_REASONING_MODEL}"
-    echo "PI_AI_API_KEY=${PI_AI_API_KEY}"
-    [ -n "$DEFAULT_BASE_URL" ] && echo "PI_AI_BASE_URL=${DEFAULT_BASE_URL}"
-    echo "WEBUI_TOKEN=${WEBUI_TOKEN}"
-    echo "LOG_LEVEL=info"
-  } > .env
+  # Write provider config to config.yaml (primary source), then write a minimal
+  # .env with only WEBUI_TOKEN + LOG_LEVEL. Avoids duplication and ensures the
+  # Settings UI shows editable provider entries.
+  BASE_URL_LINE=""
+  [ -n "$DEFAULT_BASE_URL" ] && BASE_URL_LINE="cfg.provider.base_url = '${DEFAULT_BASE_URL}';"
 
-  # Also save API key to config.yaml provider_keys so Settings UI shows editable
-  # entries instead of the read-only piAi fallback (same approach as setup wizard).
   if [ -f config.yaml ]; then
     node -e "
 const { readFileSync, writeFileSync } = require('fs');
 const { load, dump } = require('js-yaml');
 const cfg = load(readFileSync('config.yaml', 'utf8')) || {};
+cfg.provider = cfg.provider || {};
+cfg.provider.primary = '${PI_AI_PROVIDER}/${PI_AI_MODEL}';
+cfg.provider.reasoning = '${PI_AI_PROVIDER}/${PI_AI_REASONING_MODEL}';
+cfg.provider.api_key = '${PI_AI_API_KEY}';
+${BASE_URL_LINE}
 cfg.provider_keys = cfg.provider_keys || {};
 cfg.provider_keys['${PI_AI_PROVIDER}'] = { api_key: '${PI_AI_API_KEY}' };
 if ('${DEFAULT_BASE_URL}') cfg.provider_keys['${PI_AI_PROVIDER}'].base_url = '${DEFAULT_BASE_URL}';
 writeFileSync('config.yaml', dump(cfg, { lineWidth: -1, noRefs: true }), 'utf8');
-" 2>/dev/null && ok "API key also saved to config.yaml (provider_keys)"
+" 2>/dev/null
+    ok "Provider config saved to config.yaml"
   fi
+
+  # Write minimal .env — only values that must stay in env (WebUI auth token)
+  {
+    echo "WEBUI_TOKEN=${WEBUI_TOKEN}"
+    echo "LOG_LEVEL=info"
+  } > .env
 
   ok "Configuration saved"
 }
