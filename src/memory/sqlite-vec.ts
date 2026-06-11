@@ -13,7 +13,8 @@ export function loadSqliteVec(db: Database.Database, dimension: number): boolean
       const sqliteVec = require('sqlite-vec') as { load: (db: Database.Database) => void };
       sqliteVec.load(db);
       loadedDbs.add(db);
-    } catch {
+    } catch (err: any) {
+      console.warn('[sqlite-vec] Failed to load extension:', err?.message ?? err);
       return false;
     }
   }
@@ -26,7 +27,8 @@ export function loadSqliteVec(db: Database.Database, dimension: number): boolean
       )
     `);
     return true;
-  } catch {
+  } catch (err: any) {
+    console.warn('[sqlite-vec] Failed to create virtual table:', err?.message ?? err);
     return false;
   }
 }

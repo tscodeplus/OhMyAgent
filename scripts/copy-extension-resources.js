@@ -40,4 +40,4 @@ for (const entry of entries) {
   }
 }
 
-console.log(`Copied ${copied} extension resource files → ${dest}`);
+console.log(`Copied ${copied} extension resource files to ${dest}`);

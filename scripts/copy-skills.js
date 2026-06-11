@@ -10,4 +10,4 @@ if (!existsSync(src)) {
 
 mkdirSync(dest, { recursive: true });
 cpSync(src, dest, { recursive: true });
-console.log(`Copied ${src} → ${dest}`);
+console.log(`Copied ${src} to ${dest}`);

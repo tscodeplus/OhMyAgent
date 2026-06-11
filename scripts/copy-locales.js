@@ -12,8 +12,8 @@ if (!existsSync(src)) {
 
 mkdirSync(dest1, { recursive: true });
 cpSync(src, dest1, { recursive: true });
-console.log(`Copied ${src} → ${dest1}`);
+console.log(`Copied ${src} to ${dest1}`);
 
 mkdirSync(dest2, { recursive: true });
 cpSync(src, dest2, { recursive: true });
-console.log(`Copied ${src} → ${dest2}`);
+console.log(`Copied ${src} to ${dest2}`);
