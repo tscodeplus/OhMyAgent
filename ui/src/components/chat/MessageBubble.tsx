@@ -356,6 +356,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
         {isAssistant && (
           <div className="mt-1 px-1 text-[11px] text-neutral-400 dark:text-neutral-500">
             {(() => {
+              console.log('[MessageBubble] footer render', { id: message.id.slice(0,8), role: message.role, footer });
               const parts: string[] = [];
               if (footer?.agentName) parts.push(footer.agentName);
               if (footer?.completed) parts.push('已完成');

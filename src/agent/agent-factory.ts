@@ -316,7 +316,7 @@ export function createAgentFactory(
       if (agentManager) {
         agentConfig = options?.agentId
           ? agentManager.get(options.agentId)
-          : agentManager.list()[0];
+          : agentManager.getDefault(options?.channel);
       }
 
       let model = options?.model ?? getDefaultModel(configRef.current) ?? defaultModel;
