@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import { loadSqliteVec, sqliteVecAvailable, vecDelete, vecInsert, vecSearch } from '../sqlite-vec.js';
+import { loadSqliteVec, probeSqliteVec, sqliteVecAvailable, vecDelete, vecInsert, vecSearch } from '../sqlite-vec.js';
 import { errorForObservation, memoryObservability } from '../observability.js';
 
 export interface MemoryEmbedding {
@@ -167,6 +167,10 @@ export class EmbeddingRepository {
     }
     if (this.count() > maxFullScan) return [];
     return this.cosineSearch(queryEmbedding, limit);
+  }
+
+  probeVec(): void {
+    probeSqliteVec();
   }
 
   isVecAvailable(): boolean {

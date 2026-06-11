@@ -33,6 +33,21 @@ export function loadSqliteVec(db: Database.Database, dimension: number): boolean
   }
 }
 
+/**
+ * Probe whether sqlite-vec can be loaded at all (package installed, native
+ * extension resolvable). Throws with a diagnostic message on failure so
+ * startup can log the actual reason. Does NOT modify the database.
+ */
+export function probeSqliteVec(): void {
+  try {
+    const sqliteVec = require('sqlite-vec') as { getLoadablePath: () => string };
+    const path = sqliteVec.getLoadablePath();
+    if (!path) throw new Error('sqlite-vec returned empty loadable path');
+  } catch (err: any) {
+    throw new Error(`sqlite-vec not loadable: ${err?.message ?? err}`);
+  }
+}
+
 export function sqliteVecAvailable(db: Database.Database): boolean {
   try {
     const row = db.prepare(`

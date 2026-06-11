@@ -3,7 +3,7 @@ export type { FilterResult, MemoryCategory } from './memory-filter.js';
 
 export { applySchema } from './schema.js';
 export { openDatabase, getDatabase, closeDatabase, resetDatabase } from './db.js';
-export { loadSqliteVec, vecInsert, vecSearch, vecDelete } from './sqlite-vec.js';
+export { loadSqliteVec, probeSqliteVec, vecInsert, vecSearch, vecDelete } from './sqlite-vec.js';
 
 export { MemoryWriter } from './memory-writer.js';
 export type { WriteOptions, WriteResult, SimilarMemoryMatch } from './memory-writer.js';

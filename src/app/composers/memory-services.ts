@@ -89,6 +89,17 @@ export async function createMemoryServices(
 
   const memoryRepository = new MemoryRepository(db);
   const embeddingRepository = new EmbeddingRepository(db);
+
+  // Eagerly probe sqlite-vec availability so the warning at startup reflects
+  // the real state and produces a diagnostic log. backfillVec() only calls
+  // loadSqliteVec() when there are existing embeddings, which is never true on
+  // a fresh install — so we must try to load the extension independently.
+  try {
+    embeddingRepository.probeVec();
+  } catch (err: any) {
+    logger.warn({ err: err?.message ?? err }, 'sqlite-vec probe failed; memory vector search will use cosine fallback');
+  }
+
   const vecBackfilled = embeddingRepository.backfillVec();
   if (embeddingRepository.isVecAvailable()) {
     logger.info({ backfilled: vecBackfilled }, 'sqlite-vec memory search initialized');
