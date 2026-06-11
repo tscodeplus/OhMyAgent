@@ -73,6 +73,8 @@ export class AgentService {
     turnElapsed?: number;
     turnContext: AgentTurnContext;
     channel?: string;
+    /** Agent name captured from the dispatcher for metadata persistence. */
+    agentName?: string;
     /** Footer display config captured from the dispatcher for metadata persistence. */
     footerConfig?: FooterConfig;
   }>();
@@ -156,10 +158,14 @@ export class AgentService {
     if (options?.channel) runtime.channel = options.channel;
     runtime.turnContext.replyDispatcher = dispatcher;
     runtime.turnContext.replyDispatcherFactory = options?.replyDispatcherFactory;
-    // Capture footer config from the dispatcher for metadata persistence.
-    // This snapshots the config at message-send time so historical messages
-    // retain their footer display even after settings change.
-    runtime.footerConfig = (dispatcher as unknown as Record<string, unknown>).footerConfig as FooterConfig | undefined;
+    // Capture footer config and agent name from the dispatcher for metadata
+    // persistence. These snapshot values at message-send time so historical
+    // messages retain their display even after settings change.
+    const dispatcherAny = dispatcher as unknown as Record<string, unknown>;
+    runtime.footerConfig = dispatcherAny.footerConfig as FooterConfig | undefined;
+    if (!runtime.agentName && dispatcherAny.agentName) {
+      runtime.agentName = dispatcherAny.agentName as string;
+    }
     // Clear cached approval session so each turn gets a fresh tracker
     (runtime.turnContext as Record<string, unknown>).approvalSession = undefined;
     runtime.bridge = new EventBridge(dispatcher);
@@ -167,10 +173,16 @@ export class AgentService {
 
     const agent = runtime.agent;
 
+    // Capture turn start for elapsed-time computation in the pre-complete
+    // callback (which fires before agent.prompt() returns).
+    const turnStart = Date.now();
+
     // Wire pre-complete callback: persist messages BEFORE the SSE "done"
     // event is sent so the frontend refetch always sees the latest turn.
     if (this.persistence && sessionId) {
       runtime.bridge.setPreCompleteCallback(async () => {
+        // Compute elapsed now — agent_end has already fired so the turn is over.
+        runtime.turnElapsed = Date.now() - turnStart;
         await this.persistMessages(agent, sessionId, runtime);
       });
     }
@@ -213,7 +225,6 @@ export class AgentService {
       }
 
       // Run the prompt — Agent.state.messages provides conversation continuity
-      const turnStart = Date.now();
       await agent.prompt(finalInput, finalImages);
       runtime.turnElapsed = Date.now() - turnStart;
 
@@ -474,7 +485,7 @@ export class AgentService {
   private async persistMessages(
     agent: Agent,
     sessionKey: string,
-    runtime: { persistedMessageCount: number; turnElapsed?: number; footerConfig?: FooterConfig },
+    runtime: { persistedMessageCount: number; turnElapsed?: number; footerConfig?: FooterConfig; agentName?: string },
   ): Promise<void> {
     const { messageRepository, logger } = this.persistence!;
 
@@ -626,7 +637,7 @@ export class AgentService {
           };
         }
         if (pending.model) meta.model = pending.model;
-        const agentName = (agent as any).ohmyagent_agentName;
+        const agentName = (agent as any).ohmyagent_agentName || runtime.agentName;
         if (agentName) meta.agentName = agentName;
         if (runtime.turnElapsed) meta.elapsed = runtime.turnElapsed;
         // Store footer config snapshot so historical messages retain their
@@ -707,7 +718,7 @@ export class AgentService {
                 };
               }
               if (msg.model) meta.model = msg.model;
-              const agentName = (agent as any).ohmyagent_agentName;
+              const agentName = (agent as any).ohmyagent_agentName || runtime.agentName;
               if (agentName) meta.agentName = agentName;
               if (runtime.turnElapsed) meta.elapsed = runtime.turnElapsed;
               if (runtime.footerConfig) meta.footerConfig = runtime.footerConfig;
