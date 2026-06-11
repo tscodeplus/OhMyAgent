@@ -235,7 +235,9 @@ export function registerSessionRoutes(
       // subsequent global config changes. Falls back to the current config
       // for messages saved before footer config was persisted.
       if (meta && (meta.usage || meta.model || meta.elapsed)) {
-        const fc = (meta.footerConfig as FooterConfig | undefined) ?? getFooterConfig?.() ?? {
+        const storedFc = meta.footerConfig as FooterConfig | undefined;
+        const currentFc = getFooterConfig?.();
+        const fc = storedFc ?? currentFc ?? {
           showAgentName: true,
           showModel: true,
           showCompleted: false,
@@ -243,6 +245,11 @@ export function registerSessionRoutes(
           showUsage: false,
           showCacheHitRate: false,
         };
+        console.log('[session-routes] footer reconstruction', {
+          msgId: m.id, metaModel: meta.model, metaElapsed: meta.elapsed,
+          metaAgentName: meta.agentName, metaUsage: !!meta.usage,
+          storedFc, currentFc, resolvedFc: fc,
+        });
         result.footer = {
           agentName: fc.showAgentName ? meta.agentName as string | undefined : undefined,
           model: fc.showModel ? meta.model as string | undefined : undefined,
