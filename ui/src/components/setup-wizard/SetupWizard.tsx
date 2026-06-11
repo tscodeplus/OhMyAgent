@@ -6,6 +6,7 @@ import Input from '../ui/Input';
 import Select from '../ui/Select';
 import PasswordInput from '../ui/PasswordInput';
 import { apiRequest } from '../../utils/api';
+import { useTheme } from '../../contexts/ThemeContext';
 
 // ─── Types ───
 
@@ -78,6 +79,7 @@ function StepIndicator({ currentStep }: { currentStep: number }) {
 
 export default function SetupWizard({ initialLanguage, providers, onComplete, onDismiss }: SetupWizardProps) {
   const { t } = useTranslation('common');
+  const { setThemeMode } = useTheme();
 
   const [currentStep, setCurrentStep] = useState(1);
   const [saving, setSaving] = useState(false);
@@ -154,8 +156,8 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
         uiLanguage: state.uiLanguage,
       };
 
-      // Theme — persist via localStorage (the WebUI theme system reads from it)
-      try { localStorage.setItem('oma-theme-mode', state.theme); } catch {}
+      // Theme is applied immediately via ThemeContext.setThemeMode when selected
+      // (no need to persist here — already in localStorage from step 2 onChange)
 
       // Provider + model
       payload['piAi.provider'] = resolvedProvider;
@@ -348,7 +350,11 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
                 label={t('setupWizard.review.theme')}
                 options={themeOptions}
                 value={state.theme}
-                onChange={(e) => update({ theme: e.target.value as 'system' | 'light' | 'dark' })}
+                onChange={(e) => {
+                  const mode = e.target.value as 'system' | 'light' | 'dark';
+                  update({ theme: mode });
+                  setThemeMode(mode);
+                }}
               />
             </div>
           )}
