@@ -9,6 +9,7 @@ describe('yamlToAppConfigRaw', () => {
     },
     channels: {
       feishu: {
+        enabled: true,
         app_id: 'cli_test',
         app_secret: 'test-secret',
       },

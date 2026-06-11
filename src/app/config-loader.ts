@@ -126,7 +126,7 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
     showToolCalls: envBool(root.show_tool_calls, true),
 
     feishu: {
-      enabled: envBool(feishu?.enabled, true),
+      enabled: envBool(feishu?.enabled, false),
       appId: str(feishu?.app_id, ''),
       appSecret: str(feishu?.app_secret, ''),
       verificationToken: str(feishu?.verification_token, ''),

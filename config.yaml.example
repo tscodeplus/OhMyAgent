@@ -76,12 +76,13 @@ provider:
 # --- Channels ---
 # At least one channel must be configured.
 channels:
-  feishu:
-    app_id: cli_xxx
-    app_secret: yyy
-    # verification_token: ""
-    # encrypt_key: ""
-    # connection_mode: websocket   # websocket | webhook
+  # feishu:
+  #   enabled: true                     # Set to true to enable
+  #   app_id: cli_xxx
+  #   app_secret: yyy
+  #   # verification_token: ""
+  #   # encrypt_key: ""
+  #   # connection_mode: websocket   # websocket | webhook
 
   # telegram:
   #   bot_token: xxx
