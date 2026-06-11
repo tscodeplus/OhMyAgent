@@ -47,8 +47,9 @@ export function registerProjectRoutes(app: FastifyInstance, store: ProjectStore)
 
   // Idempotent: return first project or atomically create a default one.
   // Uses db.transaction() to prevent duplicate creation across concurrent tabs.
-  app.post('/api/projects/ensure-default', async (_request, reply) => {
-    const result = store.ensureDefault('default');
+  app.post('/api/projects/ensure-default', async (request, reply) => {
+    const body = request.body as { name?: string } | undefined;
+    const result = store.ensureDefault('default', body?.name);
     return reply.send(result);
   });
 

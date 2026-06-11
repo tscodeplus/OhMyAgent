@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Bot, Send } from 'lucide-react';
 import { apiRequest } from '../../utils/api';
 import { isElectron } from '../../utils/env';
+import { useProject } from '../../contexts/ProjectContext';
 import { useToast } from '../ui/Toast';
 import MessageList from './MessageList';
 import ChatInput from './ChatInput';
@@ -16,6 +17,7 @@ export default function ChatView() {
   const navigate = useNavigate();
   const { t } = useTranslation('common');
   const { showToast } = useToast();
+  const { bumpSessionsRefreshKey } = useProject();
   const [quickInput, setQuickInput] = useState('');
   const [creating, setCreating] = useState(false);
   const [streamMessages, setStreamMessages] = useState<Message[]>([]);
@@ -85,6 +87,7 @@ export default function ChatView() {
       // Pass the initial message so ChatInput can auto-send it
       setInitialMessage(msg);
       setQuickInput('');
+      bumpSessionsRefreshKey();
       navigate(`/p/${projectId}/s/${session.id}`, { state: { initialMessage: msg } });
     } catch {
       showToast(t('chat.createSessionError'), 'error');

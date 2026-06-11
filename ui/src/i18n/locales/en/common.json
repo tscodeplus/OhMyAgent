@@ -56,6 +56,7 @@
     "createSessionError": "Failed to create session"
   },
   "project": {
+    "defaultName": "Default Space",
     "create": "Create Project",
     "name": "Name",
     "namePlaceholder": "Enter project name",

@@ -33,7 +33,7 @@ export default function ProjectList({ refreshKey, onRefresh, onCreateProject }: 
   const { t } = useTranslation('common');
   const navigate = useNavigate();
   const { projectId } = useParams();
-  const { selectedProjectId, setSelectedProjectId, setSelectedSessionId } = useProject();
+  const { selectedProjectId, setSelectedProjectId, setSelectedSessionId, bumpSessionsRefreshKey } = useProject();
   const { showToast } = useToast();
 
   const [projects, setProjects] = useState<Project[]>([]);
@@ -118,6 +118,7 @@ export default function ProjectList({ refreshKey, onRefresh, onCreateProject }: 
       const s = await apiRequest<Session>(`/api/projects/${proj.id}/sessions`, { method: 'POST' });
       setSelectedProjectId(proj.id);
       setSelectedSessionId(s.id);
+      bumpSessionsRefreshKey();
       navigate(`/p/${proj.id}/s/${s.id}`);
     } catch { /* silent */ }
   };

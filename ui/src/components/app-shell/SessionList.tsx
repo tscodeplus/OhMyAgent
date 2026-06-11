@@ -6,6 +6,7 @@ import { cn, formatRelativeTime } from '../../lib/utils';
 import { apiRequest } from '../../utils/api';
 import { useLongPress } from '../../utils/useLongPress';
 import { useToast } from '../ui/Toast';
+import { useProject } from '../../contexts/ProjectContext';
 import ConfirmDialog from '../ui/ConfirmDialog';
 import type { Session } from '../../types/session';
 import Spinner from '../ui/Spinner';
@@ -20,6 +21,7 @@ export default function SessionList({ projectId, onSessionSelect }: SessionListP
   const navigate = useNavigate();
   const { sessionId } = useParams();
   const { showToast } = useToast();
+  const { sessionsRefreshKey } = useProject();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -35,6 +37,9 @@ export default function SessionList({ projectId, onSessionSelect }: SessionListP
   }, [projectId]);
 
   useEffect(() => { fetchSessions(true); }, [fetchSessions]);
+
+  // Refetch when a session is created from outside (e.g. ProjectList + button)
+  useEffect(() => { fetchSessions(false); }, [sessionsRefreshKey, fetchSessions]);
 
   // Poll every 30s to keep relative times accurate and catch new/updated sessions
   useEffect(() => {

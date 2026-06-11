@@ -57,6 +57,7 @@
     "createSessionError": "创建会话失败"
   },
   "project": {
+    "defaultName": "默认空间",
     "create": "创建对话空间",
     "name": "名称",
     "namePlaceholder": "输入 Project 名称",
