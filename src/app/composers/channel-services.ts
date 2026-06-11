@@ -78,10 +78,16 @@ export function createChannelServices(input: {
   agentManagerRef: { current?: AgentManager };
 }): ChannelServices {
   const { config, logger, db, memory, tools, agentManagerRef } = input;
-  const feishuClient = new FeishuClient(
-    { appId: config.feishu.appId, appSecret: config.feishu.appSecret },
-    logger,
-  );
+
+  // Only create FeishuClient when the channel is enabled AND has credentials.
+  // Creating it with empty appId/appSecret triggers lark SDK errors.
+  const feishuEnabled = config.feishu.enabled && config.feishu.appId && config.feishu.appSecret;
+  const feishuClient = feishuEnabled
+    ? new FeishuClient(
+        { appId: config.feishu.appId, appSecret: config.feishu.appSecret },
+        logger,
+      )
+    : undefined as unknown as FeishuClient;
 
   const commandRegistry = new CommandRegistry();
   const channelManager = new ChannelManager();
@@ -90,12 +96,16 @@ export function createChannelServices(input: {
   const servicesMap = new Map<string, unknown>();
   servicesMap.set('db', db);
   servicesMap.set('logger', logger);
-  servicesMap.set('feishuClient', feishuClient);
+  if (feishuEnabled) {
+    servicesMap.set('feishuClient', feishuClient);
+  }
   servicesMap.set('processedMessageRepository', memory.processedMessageRepository);
 
   const cronDeliveryRegistry = new CronDeliveryRegistry();
   servicesMap.set('cronDeliveryRegistry', cronDeliveryRegistry);
-  cronDeliveryRegistry.register('feishu', createFeishuCronDelivery(feishuClient, config.footer));
+  if (feishuEnabled) {
+    cronDeliveryRegistry.register('feishu', createFeishuCronDelivery(feishuClient, config.footer));
+  }
 
   const apiDeps = {
     toolRegistry: tools.toolRegistry,

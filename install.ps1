@@ -187,12 +187,27 @@ if (-not (Test-Path "config.yaml")) {
     Write-OK "config.yaml already exists"
 }
 
-if (-not (Test-Path ".env")) {
+$envExists = Test-Path ".env"
+if (-not $envExists) {
     Copy-Item ".env.example" ".env"
     Write-OK "Created .env from example"
 } else {
     Write-OK ".env already exists"
 }
+
+# Check if minimum config is already satisfied (API key + WebUI token set)
+$envContent = if (Test-Path ".env") { Get-Content ".env" -Raw } else { "" }
+$hasApiKey = $envContent -match '^\s*PI_AI_API_KEY\s*=\s*\S+' -and $envContent -notmatch 'PI_AI_API_KEY\s*=\s*sk-xxx'
+$hasToken = $envContent -match '^\s*WEBUI_TOKEN\s*=\s*\S+' -and $envContent -notmatch 'WEBUI_TOKEN\s*=\s*changeme'
+
+if ($hasApiKey -and $hasToken) {
+    Write-OK "Config appears complete (API key + WebUI token found) -- skipping setup"
+    $skipSetup = $true
+} else {
+    $skipSetup = $false
+}
+
+if (-not $skipSetup) {
 
 Write-Host ""
 Write-Host "  Quick setup -- at minimum you need an LLM API key." -ForegroundColor Yellow
@@ -218,8 +233,8 @@ if ([string]::IsNullOrWhiteSpace($choice)) { $choice = "1" }
 switch ($choice) {
     "1" {
         $PI_AI_PROVIDER = "deepseek"
-        $PI_AI_MODEL = "deepseek-chat"
-        $PI_AI_REASONING_MODEL = "deepseek-reasoner"
+        $PI_AI_MODEL = "deepseek-v4-flash"
+        $PI_AI_REASONING_MODEL = "deepseek-v4-pro"
         $DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
     }
     "2" {
@@ -280,6 +295,7 @@ LOG_LEVEL=info
 "@ | Out-File -FilePath ".env" -Encoding utf8
 
 Write-OK "Configuration saved"
+}
 
 # ── Step 8: Build ───────────────────────────────────────────────────────────────
 Write-Info "Building TypeScript..."

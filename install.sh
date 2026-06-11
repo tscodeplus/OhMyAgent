@@ -240,6 +240,16 @@ setup_config() {
     ok ".env already exists"
   fi
 
+  # Check if minimum config is already satisfied (API key + WebUI token set)
+  if [ -f .env ]; then
+    HAS_API_KEY=$(grep -E '^[[:space:]]*PI_AI_API_KEY[[:space:]]*=[[:space:]]*[^[:space:]]' .env 2>/dev/null | grep -v 'sk-xxx' | wc -l)
+    HAS_TOKEN=$(grep -E '^[[:space:]]*WEBUI_TOKEN[[:space:]]*=[[:space:]]*[^[:space:]]' .env 2>/dev/null | grep -v 'changeme' | wc -l)
+    if [ "$HAS_API_KEY" -gt 0 ] && [ "$HAS_TOKEN" -gt 0 ]; then
+      ok "Config appears complete (API key + WebUI token found) — skipping setup"
+      return 0
+    fi
+  fi
+
   echo ""
   echo -e "  ${YELLOW}${BOLD}Quick setup — at minimum you need an LLM API key.${NC}"
   echo ""
@@ -256,8 +266,8 @@ setup_config() {
   case "$choice" in
     1)
       PI_AI_PROVIDER="deepseek"
-      PI_AI_MODEL="deepseek-chat"
-      PI_AI_REASONING_MODEL="deepseek-reasoner"
+      PI_AI_MODEL="deepseek-v4-flash"
+      PI_AI_REASONING_MODEL="deepseek-v4-pro"
       DEFAULT_BASE_URL="https://api.deepseek.com/v1"
       ;;
     2)
