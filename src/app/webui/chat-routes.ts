@@ -247,7 +247,7 @@ interface ChatRouteConfig {
   agentService: AgentService;
   projectStore: ProjectStore;
   db?: Database.Database;
-  footerConfig?: FooterConfig;
+  getFooterConfig?: () => FooterConfig;
   agentManager?: AgentManager;
   commandDeps?: CommandDeps;
   commandRegistry?: CommandRegistry;
@@ -426,7 +426,7 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
     const agentName = project.agent_id && cfg.agentManager
       ? cfg.agentManager.get(project.agent_id)?.name
       : undefined;
-    const dispatcher = new SSEReplyDispatcher(sendSSE, cfg.footerConfig, cfg.db, sessionId);
+    const dispatcher = new SSEReplyDispatcher(sendSSE, cfg.getFooterConfig?.(), cfg.db, sessionId);
     if (agentName) {
       dispatcher.setAgentName(agentName);
     }

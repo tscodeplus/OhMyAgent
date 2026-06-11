@@ -418,7 +418,7 @@
       "sortLabel": "排序方式"
     },
     "footer": {
-      "title": "消息 Footer",
+      "title": "消息底部",
       "showAgentName": "显示 Agent 名称",
       "showModel": "显示模型",
       "showCompleted": "显示完成状态",

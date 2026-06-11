@@ -67,13 +67,13 @@ export async function registerWebUIRoutes(
     onConfigChanged: cfg.onConfigChanged,
   });
 
-  registerSessionRoutes(app, cfg.db);
+  registerSessionRoutes(app, cfg.db, () => cfg.getConfig().footer);
 
   registerChatRoutes(app, {
     agentService: cfg.services.agentService,
     projectStore,
     db: cfg.db,
-    footerConfig: cfg.getConfig().footer,
+    getFooterConfig: () => cfg.getConfig().footer,
     agentManager: cfg.services.agentManager,
     commandDeps: {
       agentService: cfg.services.agentService,

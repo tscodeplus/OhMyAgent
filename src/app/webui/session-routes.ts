@@ -7,9 +7,14 @@
 
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
+import type { FooterConfig } from '../types.js';
 import { stripXmlTag } from '../../shared/text-extract.js';
 
-export function registerSessionRoutes(app: FastifyInstance, db: Database.Database): void {
+export function registerSessionRoutes(
+  app: FastifyInstance,
+  db: Database.Database,
+  getFooterConfig?: () => FooterConfig,
+): void {
   // Create session
   app.post('/api/projects/:projectId/sessions', async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
@@ -224,18 +229,25 @@ export function registerSessionRoutes(app: FastifyInstance, db: Database.Databas
         }
       }
 
-      // Reconstruct footer from persisted metadata
+      // Reconstruct footer from persisted metadata.
+      // Footer config flags (showUsage, showCacheHitRate, etc.) are read from
+      // the current config so the user's display preferences are respected.
       if (meta && (meta.usage || meta.model || meta.elapsed)) {
+        const fc = getFooterConfig?.() ?? {
+          showAgentName: true,
+          showModel: true,
+          showCompleted: false,
+          showElapsed: true,
+          showUsage: false,
+          showCacheHitRate: false,
+        };
         result.footer = {
-          agentName: meta.agentName,
-          model: meta.model,
-          elapsed: meta.elapsed,
-          usage: meta.usage,
-          // Always show usage and cache hit rate when usage data is present.
-          // Even if cacheRead is 0 (provider doesn't support caching),
-          // the frontend will show "缓存命中 0.0%" for consistency.
-          showUsage: true,
-          showCacheHitRate: true,
+          agentName: fc.showAgentName ? meta.agentName as string | undefined : undefined,
+          model: fc.showModel ? meta.model as string | undefined : undefined,
+          elapsed: fc.showElapsed ? meta.elapsed as number | undefined : undefined,
+          usage: meta.usage as { input?: number; output?: number; cacheRead?: number; cacheWrite?: number },
+          showUsage: fc.showUsage ?? false,
+          showCacheHitRate: fc.showCacheHitRate ?? false,
         };
       }
 
