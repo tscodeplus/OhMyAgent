@@ -323,6 +323,20 @@ setup_config() {
     echo "LOG_LEVEL=info"
   } > .env
 
+  # Also save API key to config.yaml provider_keys so Settings UI shows editable
+  # entries instead of the read-only piAi fallback (same approach as setup wizard).
+  if [ -f config.yaml ]; then
+    node -e "
+const { readFileSync, writeFileSync } = require('fs');
+const { load, dump } = require('js-yaml');
+const cfg = load(readFileSync('config.yaml', 'utf8')) || {};
+cfg.provider_keys = cfg.provider_keys || {};
+cfg.provider_keys['${PI_AI_PROVIDER}'] = { api_key: '${PI_AI_API_KEY}' };
+if ('${DEFAULT_BASE_URL}') cfg.provider_keys['${PI_AI_PROVIDER}'].base_url = '${DEFAULT_BASE_URL}';
+writeFileSync('config.yaml', dump(cfg, { lineWidth: -1, noRefs: true }), 'utf8');
+" 2>/dev/null && ok "API key also saved to config.yaml (provider_keys)"
+  fi
+
   ok "Configuration saved"
 }
 

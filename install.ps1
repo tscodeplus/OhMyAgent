@@ -294,6 +294,24 @@ WEBUI_TOKEN=$WEBUI_TOKEN
 LOG_LEVEL=info
 "@ | Out-File -FilePath ".env" -Encoding utf8
 
+    # Also save API key to config.yaml provider_keys so Settings UI shows editable
+    # entries instead of the read-only piAi fallback (same approach as setup wizard).
+    if (Test-Path "config.yaml") {
+        $nodeScript = @"
+const { readFileSync, writeFileSync } = require('fs');
+const { load, dump } = require('js-yaml');
+const cfg = load(readFileSync('config.yaml', 'utf8')) || {};
+cfg.provider_keys = cfg.provider_keys || {};
+cfg.provider_keys['$PI_AI_PROVIDER'] = { api_key: '$($PI_AI_API_KEY -replace "'", "''")' };
+if ('$DEFAULT_BASE_URL') cfg.provider_keys['$PI_AI_PROVIDER'].base_url = '$DEFAULT_BASE_URL';
+writeFileSync('config.yaml', dump(cfg, { lineWidth: -1, noRefs: true }), 'utf8');
+"@
+        node -e $nodeScript 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Write-OK "API key also saved to config.yaml (provider_keys)"
+        }
+    }
+
 Write-OK "Configuration saved"
 }
 
