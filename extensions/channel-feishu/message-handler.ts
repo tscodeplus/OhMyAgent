@@ -153,6 +153,9 @@ export class MessageHandler {
       if (isSteer) {
         const args = text.split(/\s+/).slice(1).join(' ');
         if (args && this.options.commandDeps.agentService.isRunning(context.sessionKey)) {
+          // Auto-reject pending approvals before swapping card — must happen
+          // before swapCard() so rejections aren't delayed by Feishu API calls
+          this.options.commandDeps.agentService.rejectPendingApprovals(context.sessionKey, 'steered');
           await this.options.commandDeps.agentService.swapCard(context.sessionKey, context.messageId);
         }
       }
@@ -179,6 +182,9 @@ export class MessageHandler {
 
     // ── Normal message → steer if running, otherwise execute ──
     if (this.options.commandDeps.agentService.isRunning(context.sessionKey)) {
+      // Auto-reject pending approvals before swapping card — must happen
+      // before swapCard() so rejections aren't delayed by Feishu API calls
+      this.options.commandDeps.agentService.rejectPendingApprovals(context.sessionKey, 'steered');
       await this.options.commandDeps.agentService.swapCard(context.sessionKey, context.messageId);
       this.options.commandDeps.agentService.steer(context.sessionKey, text);
       return true;

@@ -15,7 +15,7 @@ export interface CommandDeps {
     isRunning(sessionId?: string): boolean;
     reset(sessionId: string): boolean;
     destroyRuntime(sessionId: string): boolean;
-    rejectPendingApprovals(sessionId: string): number;
+    rejectPendingApprovals(sessionId: string, reason?: 'stopped_by_user' | 'steered'): number;
     /** Resolve the first pending approval for a session (used by /approve, /deny). */
     resolveFirstPendingApproval(sessionId: string, decision: string): boolean;
     /** Resolve ALL pending approvals for a session (used by /approve session, /approve always). */
