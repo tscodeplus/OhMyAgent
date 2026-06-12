@@ -500,6 +500,10 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
     // connection. Instead we rely on the agent's natural turn lifecycle:
     // when the steer message is dequeued, agent_start fires → turn_start
     // SSE event → frontend creates a new bubble via beginTurn().
+    //
+    // Auto-reject pending approvals BEFORE steering so the SSE stream
+    // sends approval_resolved events before the new turn starts.
+    cfg.agentService.rejectPendingApprovals(sessionId, 'steered');
     debugLog('/chat/steer — steering agent', { sessionId, msg: rawMessage.trim().slice(0, 40) });
     const ok = cfg.agentService.steer(sessionId, rawMessage.trim());
     return reply.send({ ok });
