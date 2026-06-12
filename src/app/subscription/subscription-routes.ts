@@ -125,6 +125,30 @@ function rejectPendingForProvider(providerId: string): void {
 }
 
 /**
+ * Sanitize an OAuth login error into a concise, user-facing message.
+ * Strips stack traces, URLs, and internal file paths.
+ */
+function sanitizeLoginError(err: Error): string {
+  const raw = err.message;
+
+  // Extract the meaningful part from known error patterns
+  const invalidGrant = raw.match(/error_description":"([^"]+)"/);
+  if (invalidGrant) return `Authorization failed: ${invalidGrant[1]}`;
+
+  const codexError = raw.match(/"message"\s*:\s*"([^"]+)"/);
+  if (codexError) return codexError[1];
+
+  // Strip stack traces and file paths
+  const noStack = raw.split(/\s+at\s+/)[0] ?? raw;
+  // Collapse whitespace
+  const cleaned = noStack.replace(/\s+/g, ' ').trim();
+
+  // Truncate very long messages
+  if (cleaned.length > 300) return cleaned.slice(0, 297) + '...';
+  return cleaned;
+}
+
+/**
  * Push a subscription progress event to WebSocket subscribers on the
  * channel "subscription:{providerId}".
  */
@@ -311,7 +335,7 @@ export function registerSubscriptionRoutes(
         pushProgress(wsManager, {
           type: 'error',
           providerId,
-          data: { message: err.message },
+          data: { message: sanitizeLoginError(err) },
         });
       });
 
