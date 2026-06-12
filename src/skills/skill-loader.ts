@@ -2,6 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
+import { createHash } from 'node:crypto';
 import type { Manifest, ToolsConfig, MemoryPolicy } from './skill-schema.js';
 import type { ApprovalOverride, ToolProfileId } from '../app/types.js';
 
@@ -72,11 +73,26 @@ function stripNulls(obj: Record<string, unknown>): Record<string, unknown> {
   return result;
 }
 
+/** Check if a string contains CJK characters. */
+function hasCJK(s: string): boolean {
+  return /[一-鿿㐀-䶿　-〿＀-￯]/.test(s);
+}
+
+/**
+ * Generate trigger words for a skill.
+ *
+ * Priority:
+ * 1. Explicit triggers in metadata (comma-separated)
+ * 2. Derive from name: full name + individual words + CJK bigrams
+ */
 function generateTriggers(name: string, metadata?: Record<string, unknown>): string[] {
   // Priority 1: explicit triggers in metadata
   if (metadata?.triggers) {
     const raw = String(metadata.triggers);
-    return raw.split(/[,，\s]+/).filter(Boolean);
+    // Split by commas (and Chinese commas) first, then trim each entry.
+    // Previously split by /[,，\s]+/ which broke multi-word triggers like
+    // "todo list" into two separate single-word triggers.
+    return raw.split(/[,，]/).map(s => s.trim()).filter(Boolean);
   }
 
   // Priority 2: derive from name
@@ -84,6 +100,19 @@ function generateTriggers(name: string, metadata?: Record<string, unknown>): str
   triggers.add(name.toLowerCase());
   const parts = name.toLowerCase().replace(/[-_]/g, ' ').split(/\s+/).filter(p => p.length >= 2);
   for (const p of parts) triggers.add(p);
+
+  // For CJK names, add character bigrams as additional triggers.
+  // Without word boundaries, the full CJK name often fails to match in
+  // natural messages (e.g. trigger "日程管理" won't match "帮我管理日程").
+  // Bigrams like "日程" and "管理" catch partial mentions.
+  if (hasCJK(name)) {
+    const cleaned = name.replace(/\s+/g, '');
+    for (let i = 0; i < cleaned.length - 1; i++) {
+      const bigram = cleaned.slice(i, i + 2);
+      if (bigram.length === 2) triggers.add(bigram.toLowerCase());
+    }
+  }
+
   return [...triggers];
 }
 
@@ -133,8 +162,17 @@ function buildMemoryPolicy(oma: Record<string, unknown>): MemoryPolicy {
   };
 }
 
+/**
+ * Convert a name to kebab-case. For names without latin characters (e.g. CJK),
+ * generates a deterministic short hash so the same name always produces the
+ * same slug — essential for skill_create → reload consistency.
+ */
 function toKebabCase(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'untitled';
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  if (slug) return slug;
+  // Deterministic fallback: short hash of the name, prefixed for readability
+  const hash = createHash('sha256').update(name).digest('hex').slice(0, 8);
+  return `sk-${hash}`;
 }
 
 // ── Core ────────────────────────────────────────────────────────────────────
@@ -156,6 +194,8 @@ export async function loadSkill(skillDirPath: string): Promise<LoadedSkill> {
   const meta = fm.metadata ?? {};
 
   // Build manifest
+  // Derive skill ID from frontmatter name using deterministic toKebabCase
+  // (shared with skill-creator.ts — both use the same SHA256 fallback for CJK).
   const id = toKebabCase(fm.name);
   const version = typeof meta.version === 'string' && /^\d+\.\d+\.\d+$/.test(meta.version)
     ? meta.version : '1.0.0';
@@ -163,7 +203,7 @@ export async function loadSkill(skillDirPath: string): Promise<LoadedSkill> {
   const tags = Array.isArray(meta.tags)
     ? meta.tags.map(String)
     : typeof meta.tags === 'string'
-      ? meta.tags.split(/[,，\s]+/).filter(Boolean)
+      ? meta.tags.split(/[,，]/).map(s => s.trim()).filter(Boolean)
       : undefined;
   const priority = typeof meta.priority === 'number' ? meta.priority : 0;
   const triggers = generateTriggers(fm.name, meta);
@@ -225,7 +265,7 @@ export async function loadAllSkills(
 ): Promise<LoadedSkill[]> {
   const absolutePath = resolve(skillsDirPath);
   const entries = await readdir(absolutePath, { withFileTypes: true });
-  const skillDirs = entries.filter((e) => e.isDirectory());
+  const skillDirs = entries.filter((e) => e.isDirectory() && !e.name.startsWith('_'));
 
   const results: LoadedSkill[] = [];
 

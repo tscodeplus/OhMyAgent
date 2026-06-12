@@ -146,4 +146,57 @@ describe('resolveSkillContext', () => {
     expect(results).toHaveLength(1);
     expect(results[0].matchType).toBe('explicit');
   });
+
+  it('matches explicit /skill-id prefix command', () => {
+    const skills = [
+      makeSkill({ id: 'android-operator', manifest: { triggers: ['adb'], priority: 1 } }),
+    ];
+
+    const results = resolveSkillContext('/android-operator do something', skills);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].skill.manifest.id).toBe('android-operator');
+    expect(results[0].matchType).toBe('explicit');
+  });
+
+  it('matches /skill-id at start of message without trailing content', () => {
+    const skills = [
+      makeSkill({ id: 'my-skill', manifest: { triggers: ['test'], priority: 1 } }),
+    ];
+
+    const results = resolveSkillContext('/my-skill', skills);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].matchType).toBe('explicit');
+  });
+
+  it('does not match /skill-id in the middle of a message', () => {
+    const skills = [
+      makeSkill({ id: 'my-skill', manifest: { triggers: ['test'], priority: 1 } }),
+    ];
+
+    const results = resolveSkillContext('try /my-skill in message', skills);
+
+    // /skill-id is only matched at the start; $skill-id matches anywhere
+    expect(results).toHaveLength(0);
+  });
+
+  it('matches CJK trigger as substring', () => {
+    const skills = [
+      makeSkill({ id: 'my-skill', manifest: { triggers: ['日程管理'], priority: 1 } }),
+    ];
+
+    // CJK triggers use substring matching (no word boundaries)
+    const results = resolveSkillContext('帮我管理日程', skills);
+
+    // "日程管理" is not a substring of "帮我管理日程", so no match
+    expect(results).toHaveLength(0);
+
+    // But "日程" bigram WOULD match if added as a trigger
+    const skills2 = [
+      makeSkill({ id: 'my-skill', manifest: { triggers: ['日程'], priority: 1 } }),
+    ];
+    const results2 = resolveSkillContext('帮我管理日程', skills2);
+    expect(results2).toHaveLength(1);
+  });
 });

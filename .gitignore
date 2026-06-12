@@ -18,4 +18,5 @@ CLAUDE.md
 .claude/
 .codegraph/
 coverage/
+MyDocs/
 *.tsbuildinfo

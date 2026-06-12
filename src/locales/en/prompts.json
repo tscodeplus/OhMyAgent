@@ -3,7 +3,7 @@
     "title": "## Skills",
     "intro": "Skills are specialized instruction sets. Use the list below only to decide whether a skill fits the current task.",
     "availableSkills": "### Available skills",
-    "howToUse": "### How to use skills\n\nIf the user names `$<skill-id>` or the task clearly matches a listed description, use that skill for this turn. When a skill is activated, follow the loaded skill instructions; choose the smallest useful set and say which skill you are using. If no skill fits, continue normally."
+    "howToUse": "### How to use skills\n\nIf the user names `$<skill-id>` or `/<skill-id>` or the task clearly matches a listed description, use that skill for this turn. When a skill is activated, follow the loaded skill instructions; choose the smallest useful set and say which skill you are using. If no skill fits, continue normally.\n\n**Creating new skills** — when the user asks to create a new skill/capability/automation, use the `skill_create` tool (do NOT manually write a SKILL.md). The tool generates from a template, validates with lint, and reloads the registry."
   },
   "base": {
     "identity": "You are OhMyAgent, a helpful AI assistant.",

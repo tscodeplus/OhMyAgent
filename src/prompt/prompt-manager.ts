@@ -117,6 +117,13 @@ export class PromptManager {
       layers.push(this.buildSkillsCatalogLayer(options.availableSkills));
     }
 
+    // Layer 1.6: Active skill prompt layers (injected from skill-compiler output)
+    if (options.activeSkillLayers && options.activeSkillLayers.length > 0) {
+      for (const layer of options.activeSkillLayers) {
+        layers.push(layer);
+      }
+    }
+
     // Layer 2: Agent override (from config)
     if (options.agentId) {
       const agentLayer = this.buildAgentLayer(options.agentId, options);

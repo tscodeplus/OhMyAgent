@@ -18,13 +18,16 @@ const explicitCommandCache = new Map<string, RegExp>();
 const triggerCache = new Map<string, RegExp>();
 
 /**
- * Check if a message contains a `$skill-id` token anywhere.
- * Returns true if the skill id is referenced via $ syntax.
+ * Check if a message contains a `$skill-id` token anywhere, or starts with `/skill-id`.
+ * Returns true if the skill id is referenced via $ or / syntax.
  */
-function matchExplicitDollarCommand(message: string, skillId: string): boolean {
+function matchExplicitCommand(message: string, skillId: string): boolean {
   let pattern = explicitCommandCache.get(skillId);
   if (!pattern) {
-    pattern = new RegExp(`\\$${escapeRegex(skillId)}(?:\\s|$)`);
+    // Match $skill-id anywhere OR /skill-id at the start of the message
+    pattern = new RegExp(
+      `(?:^/${escapeRegex(skillId)}(?:\\s|$))|(?:\\$${escapeRegex(skillId)}(?:\\s|$))`,
+    );
     explicitCommandCache.set(skillId, pattern);
   }
   return pattern.test(message);
@@ -70,7 +73,7 @@ function escapeRegex(str: string): string {
  * Resolve which skill(s) to activate based on user message.
  *
  * Resolution logic:
- * 1. Explicit command: message starts with `/skill-id`
+ * 1. Explicit command: message contains `$skill-id` or starts with `/skill-id`
  * 2. Trigger matching: trigger word appears in message (case-insensitive, word boundary)
  * 3. Disabled skills are excluded
  * 4. Results sorted by priority (higher first)
@@ -87,8 +90,8 @@ export function resolveSkillContext(
       continue;
     }
 
-    // Check $ explicit command
-    if (matchExplicitDollarCommand(message, skill.manifest.id)) {
+    // Check explicit command ($skill-id or /skill-id)
+    if (matchExplicitCommand(message, skill.manifest.id)) {
       results.push({
         skill,
         matchType: 'explicit',

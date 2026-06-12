@@ -73,6 +73,44 @@ type ToolCallArgs = Static<typeof ToolCallParams>;
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Known schema keys for tool_search — any other keys are treated as forwarded tool arguments. */
+const TOOL_SEARCH_OWN_KEYS = new Set(['query', 'limit', 'invoke', 'arguments']);
+/** Known schema keys for tool_call. */
+const TOOL_CALL_OWN_KEYS = new Set(['name', 'arguments']);
+
+/**
+ * Resolve forwarded arguments from bridge parameters.
+ * If `arguments` is non-empty, use it directly.
+ * Otherwise, extract any keys that are NOT the bridge's own schema keys
+ * and treat them as the target tool's arguments — this handles the common
+ * LLM pattern of flattening tool args into the bridge call.
+ */
+function resolveForwardedArgs(rawParams: Record<string, unknown>, ownKeys: Set<string>): Record<string, unknown> {
+  const explicitArgs = rawParams.arguments as Record<string, unknown> | undefined;
+  if (explicitArgs && Object.keys(explicitArgs).length > 0) {
+    return explicitArgs;
+  }
+  const extra: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(rawParams)) {
+    if (!ownKeys.has(key) && value !== undefined) {
+      extra[key] = value;
+    }
+  }
+  return extra;
+}
+
+/** Check if a tool has any required (non-optional) parameters. */
+function hasRequiredParams(tool: AgentTool): boolean {
+  try {
+    const props = (tool.parameters as any)?.properties;
+    if (!props || typeof props !== 'object') return false;
+    const required = (tool.parameters as any)?.required as string[] | undefined;
+    return Array.isArray(required) && required.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 function textResult(text: string): AgentToolResult<unknown> {
   return { content: [{ type: 'text', text }], details: {} };
 }
@@ -100,7 +138,7 @@ function createToolSearchTool(deps: BridgeToolDeps): AgentTool {
     name: TOOL_SEARCH_NAME,
     label: 'Tool Search',
     description: deps.activated
-      ? `Discover on-demand capabilities NOT shown in your current tool list. ${deps.deferredCatalog.size} extra tools are available here: ${Array.from(deps.deferredCatalog.keys()).join(', ')}. When you need one of these tools, call tool_search with invoke=true and the exact tool name to run it in one step. You can also search by name substring or regex pattern (e.g. "image.*gen" matches image_generation). These tools can also be called directly by name once you know them.`
+      ? `**Search BEFORE using generic tools** — a specialized tool may already exist for tasks like creating skills, generating images, etc. ${deps.deferredCatalog.size} on-demand tools available: ${Array.from(deps.deferredCatalog.keys()).join(', ')}. Use query=keywords to search, or invoke=true + arguments={...} to call the best match in one step. You can also call these tools directly by name once you know them.`
       : 'Search available tools by name using exact match, substring, or regex pattern.',
     parameters: ToolSearchParams,
     execute: async (toolCallId, rawParams, signal?, onUpdate?) => {
@@ -136,7 +174,16 @@ function createToolSearchTool(deps: BridgeToolDeps): AgentTool {
         const realTool = deps.deferredCatalog.get(bestName);
         if (realTool) {
           try {
-            const result = await realTool.execute(toolCallId, params.arguments ?? {}, signal, onUpdate);
+            const forwardedArgs = resolveForwardedArgs(params as unknown as Record<string, unknown>, TOOL_SEARCH_OWN_KEYS);
+            const hasRequiredArgs = hasRequiredParams(realTool);
+            if (hasRequiredArgs && Object.keys(forwardedArgs).length === 0) {
+              return errorResult(
+                `'${bestName}' requires arguments but none were provided. ` +
+                `Use tool_describe(name="${bestName}") to see the required parameters, ` +
+                `then call tool_call(name="${bestName}", arguments={...}) with the correct values.`,
+              );
+            }
+            const result = await realTool.execute(toolCallId, forwardedArgs, signal, onUpdate);
             return {
               content: [
                 { type: 'text', text: `[invoked ${bestName}] ` },
@@ -258,7 +305,8 @@ function createToolCallTool(deps: BridgeToolDeps): AgentTool {
       // so its execute wrapper contains beforeExecute/afterExecute policy hooks.
       // Those hooks fire for the REAL tool name (not "tool_call").
       try {
-        const result = await realTool.execute(toolCallId, params.arguments ?? {}, signal, onUpdate);
+        const forwardedArgs = resolveForwardedArgs(params as unknown as Record<string, unknown>, TOOL_CALL_OWN_KEYS);
+        const result = await realTool.execute(toolCallId, forwardedArgs, signal, onUpdate);
         return result;
       } catch (err) {
         return errorResult(

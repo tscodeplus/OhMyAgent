@@ -35,6 +35,8 @@ export interface PromptAssemblyOptions {
   isTeamMode?: boolean;
   /** v7: Agent Team mode — max parallel child agents */
   teamModeMaxChildren?: number;
+  /** Active skill prompt layers (from skill-compiler output, injected into system prompt) */
+  activeSkillLayers?: PromptLayer[];
 }
 
 export interface PromptAssemblyResult {

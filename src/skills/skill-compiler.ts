@@ -21,6 +21,81 @@ function deduplicate<T>(arr: T[]): T[] {
   return [...new Set(arr)];
 }
 
+// ── Structured Section Parsing ────────────────────────────────────────────────
+
+/**
+ * Regex patterns for structured SKILL.md body sections.
+ * Priority range 70-100: after agent override(50), before child modifier(200).
+ * Matching order matters: earlier patterns match first, remaining content
+ * (anything not matched by these patterns) becomes the "role" layer.
+ */
+const SECTION_PATTERNS: Array<{
+  regex: RegExp;
+  layerName: string;
+  priority: number;
+  volatile: boolean;
+}> = [
+  { regex: /##\s+MUST\s+DO\s*\n([\s\S]*?)(?=\n##\s|\n*$)/i, layerName: 'must', priority: 75, volatile: false },
+  { regex: /##\s+SHOULD\s+DO\s*\n([\s\S]*?)(?=\n##\s|\n*$)/i, layerName: 'should', priority: 85, volatile: true },
+  { regex: /##\s+WHEN\b[^\n]*\n([\s\S]*?)(?=\n##\s|\n*$)/i, layerName: 'when', priority: 95, volatile: true },
+  { regex: /##\s+Output\s+Format\s*\n([\s\S]*?)(?=\n##\s|\n*$)/i, layerName: 'output-format', priority: 90, volatile: true },
+  { regex: /##\s+Verification\s+Checklist\s*\n([\s\S]*?)(?=\n##\s|\n*$)/i, layerName: 'checklist', priority: 80, volatile: false },
+  { regex: /##\s+Examples?\s*\n([\s\S]*?)(?=\n##\s|\n*$)/i, layerName: 'examples', priority: 100, volatile: true },
+];
+
+/**
+ * Parse a SKILL.md body into structured PromptLayer objects.
+ * Recognizes MUST DO, SHOULD DO, WHEN, Output Format, Verification Checklist,
+ * and Examples sections. Unmatched content becomes a "role" layer.
+ *
+ * Returns empty array when promptContent is empty.
+ */
+function parseStructuredSections(
+  skillId: string,
+  promptContent: string,
+): PromptLayer[] {
+  if (!promptContent || !promptContent.trim()) {
+    return [];
+  }
+
+  const layers: PromptLayer[] = [];
+  let remaining = promptContent;
+
+  // Extract recognized sections
+  for (const pattern of SECTION_PATTERNS) {
+    const match = remaining.match(pattern.regex);
+    if (match && match[1]?.trim()) {
+      layers.push({
+        name: `skill:${skillId}:${pattern.layerName}`,
+        content: match[1].trim(),
+        priority: pattern.priority,
+        volatile: pattern.volatile,
+        cacheKey: pattern.volatile ? '' : `skill:${skillId}:${pattern.layerName}`,
+        blockTag: `skill:${skillId}:${pattern.layerName}`,
+      });
+    }
+  }
+
+  // Strip recognized sections to get remaining "role" content
+  for (const pattern of SECTION_PATTERNS) {
+    remaining = remaining.replace(pattern.regex, '');
+  }
+  remaining = remaining.replace(/\n{3,}/g, '\n\n').trim();
+
+  if (remaining) {
+    layers.push({
+      name: `skill:${skillId}:role`,
+      content: remaining,
+      priority: 70,
+      volatile: false,
+      cacheKey: `skill:${skillId}:role`,
+      blockTag: `skill:${skillId}:role`,
+    });
+  }
+
+  return layers;
+}
+
 // ── Core ──────────────────────────────────────────────────────────────────────
 
 /**
@@ -67,14 +142,20 @@ export function compileSkillContext(resolved: ResolvedSkill[]): CompiledSkillCon
 
     if (skill.promptContent) {
       allPromptParts.push(skill.promptContent);
-      promptLayers.push({
-        name: `skill:${skill.manifest.id}`,
-        content: skill.promptContent,
-        priority: 100 + i,
-        cacheKey: `skill:${skill.manifest.id}`,
-        volatile: true,
-        blockTag: `skill:${skill.manifest.id}`,
-      });
+      const structuredLayers = parseStructuredSections(skill.manifest.id, skill.promptContent);
+      if (structuredLayers.length > 0) {
+        promptLayers.push(...structuredLayers);
+      } else {
+        // Fallback: unstructured body → single layer
+        promptLayers.push({
+          name: `skill:${skill.manifest.id}`,
+          content: skill.promptContent,
+          priority: 70 + i,
+          cacheKey: `skill:${skill.manifest.id}`,
+          volatile: true,
+          blockTag: `skill:${skill.manifest.id}`,
+        });
+      }
     }
 
     if (skill.memoryPolicy?.scopes) {

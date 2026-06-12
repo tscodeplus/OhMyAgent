@@ -45,6 +45,8 @@ import { load as parseYaml, dump as dumpYaml } from 'js-yaml';
 import { generateId } from '../shared/ids.js';
 import { CronService } from '../cron/service.js';
 import { registerWebUIRoutes } from './webui-routes.js';
+import { createSkillLintTool } from '../tools/builtins/skills/skill-lint-definition.js';
+import { createSkillCreateTool } from '../tools/builtins/skills/skill-create-definition.js';
 import { getWebUIToken } from './webui-auth.js';
 import fastifyStatic from '@fastify/static';
 import path from 'node:path';
@@ -791,6 +793,16 @@ export async function bootstrap(): Promise<BootstrapResult> {
     agentFactory,
     orchestrator,
   });
+
+  // ─── Register skill management tools (deferrable via tool_search) ────
+
+  const skillToolsDeps = {
+    skillRegistry,
+    skillsDir: './skills',
+    getToolNames: () => toolRegistry.names(),
+  };
+  toolRegistry.register(createSkillLintTool(skillToolsDeps));
+  toolRegistry.register(createSkillCreateTool(skillToolsDeps));
 
   // ─── Assemble services ───
 

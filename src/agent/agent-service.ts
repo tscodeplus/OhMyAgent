@@ -196,11 +196,7 @@ export class AgentService {
       // The reminder only applies to the current message; turnContext persists
       // across turns for the same session.
       let finalInput = runtime.turnContext.effectiveMessage ?? input;
-      if (runtime.turnContext.skillActivationReminder) {
-        finalInput = `${runtime.turnContext.skillActivationReminder}\n\n${finalInput}`;
-      }
       runtime.turnContext.effectiveMessage = undefined;
-      runtime.turnContext.skillActivationReminder = undefined;
 
       // Vision Bridge: analyze images for text-only models
       // Respects v4 Phase 4 image mode: native_first (default), bridge_only, native_only

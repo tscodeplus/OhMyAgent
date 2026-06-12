@@ -8,6 +8,7 @@
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 import { lintSkill, type LintResult } from './skill-linter.js';
 import type { SkillRegistry } from '../app/types.js';
 
@@ -48,18 +49,20 @@ export interface SkillCreatorDeps {
 
 // ── Kebab-case conversion ──────────────────────────────────────────────────────
 
-/** Generate a short random slug (e.g. "sk-abc123") for names without latin chars. */
-function randomSlug(): string {
-  return `sk-${Math.random().toString(36).slice(2, 8)}`;
-}
-
+/**
+ * Convert a name to kebab-case. For names without latin characters (e.g. CJK),
+ * generates a deterministic short hash so the same name always produces the
+ * same slug — essential for skill_create → reload consistency.
+ */
 function toKebabCase(name: string): string {
   const slug = name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
-  // If name was all CJK/unicode, fall back to random slug
-  return slug || randomSlug();
+  if (slug) return slug;
+  // Deterministic fallback: short hash of the name, prefixed for readability
+  const hash = createHash('sha256').update(name).digest('hex').slice(0, 8);
+  return `sk-${hash}`;
 }
 
 // ── Template rendering ─────────────────────────────────────────────────────────
@@ -67,6 +70,12 @@ function toKebabCase(name: string): string {
 /** Simple {{variable}} template substitution. */
 function renderTemplate(template: string, vars: Record<string, string>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_, name) => vars[name] ?? `{{${name}}}`);
+}
+
+/** YAML-safe quoting for user-supplied strings inserted into frontmatter. */
+function yamlQuote(s: string): string {
+  // Escape backslashes and double quotes, wrap in double quotes
+  return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
 // ── Core ───────────────────────────────────────────────────────────────────────
@@ -119,12 +128,12 @@ export async function createSkill(
     : input.description;
 
   const rendered = renderTemplate(templateContent, {
-    name: input.name,
-    description: input.description,
-    triggers,
+    name: yamlQuote(input.name),
+    description: yamlQuote(input.description),
+    triggers: yamlQuote(triggers),
     tools: allowedTools,
     priority,
-    roleDescription,
+    roleDescription: yamlQuote(roleDescription),
   });
 
   // 3. Create skill directory and write SKILL.md

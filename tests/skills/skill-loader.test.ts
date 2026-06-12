@@ -100,6 +100,64 @@ describe('loadSkill', () => {
     expect(skill.manifest.id).toBe('hello-world-skill');
   });
 
+  it('generates deterministic hash-based id for CJK names', async () => {
+    const content = buildSkillMd({
+      name: '日程管理',
+      description: '管理日程和提醒',
+    });
+
+    const dir = await createSkillDir(content);
+    const skill = await loadSkill(dir);
+
+    // Should produce deterministic hash-based id, not 'untitled'
+    expect(skill.manifest.id).toMatch(/^sk-[a-f0-9]{8}$/);
+    expect(skill.manifest.id).not.toBe('untitled');
+
+    // Same name should produce same id every time
+    const dir2 = await createSkillDir(content);
+    const skill2 = await loadSkill(dir2);
+    expect(skill2.manifest.id).toBe(skill.manifest.id);
+  });
+
+  it('generates bigram triggers for CJK names', async () => {
+    const content = buildSkillMd({
+      name: '日程管理',
+      description: '管理日程',
+    });
+
+    const dir = await createSkillDir(content);
+    const skill = await loadSkill(dir);
+
+    // Full name trigger
+    expect(skill.manifest.triggers).toContain('日程管理');
+    // Bigram triggers — partial matches for natural CJK queries
+    expect(skill.manifest.triggers).toContain('日程');
+    expect(skill.manifest.triggers).toContain('程管');
+    expect(skill.manifest.triggers).toContain('管理');
+  });
+
+  it('preserves multi-word triggers from metadata (comma-split only)', async () => {
+    const content = buildSkillMd({
+      name: 'Research Tool',
+      description: 'Research helper',
+      metadata: { triggers: 'research, look up, find information, 研究, 调查' },
+    });
+
+    const dir = await createSkillDir(content);
+    const skill = await loadSkill(dir);
+
+    // Multi-word phrases preserved
+    expect(skill.manifest.triggers).toContain('research');
+    expect(skill.manifest.triggers).toContain('look up');
+    expect(skill.manifest.triggers).toContain('find information');
+    expect(skill.manifest.triggers).toContain('研究');
+    expect(skill.manifest.triggers).toContain('调查');
+    // Should NOT contain split words
+    expect(skill.manifest.triggers).not.toContain('look');
+    expect(skill.manifest.triggers).not.toContain('up');
+    expect(skill.manifest.triggers).not.toContain('find');
+  });
+
   it('uses default version when metadata.version is invalid', async () => {
     const content = buildSkillMd({
       name: 'Test',

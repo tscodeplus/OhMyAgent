@@ -19,6 +19,10 @@ export const PROFILE_TOOLS: Record<ToolProfileId, string[]> = {
     'brief',
     'ask_user_question',
     'cronjob',
+    'skill_create',
+    'skill-create',
+    'skill_lint',
+    'skill-lint',
   ],
   standard: [
     'shell',
@@ -65,6 +69,10 @@ export const PROFILE_TOOLS: Record<ToolProfileId, string[]> = {
     'telegram_send_media',
     'webui_send_media',
     'cronjob',
+    'skill_create',
+    'skill-create',
+    'skill_lint',
+    'skill-lint',
     'Skill',
   ],
   advanced: [
@@ -127,6 +135,10 @@ export const PROFILE_TOOLS: Record<ToolProfileId, string[]> = {
     'telegram_send_media',
     'webui_send_media',
     'cronjob',
+    'skill_create',
+    'skill-create',
+    'skill_lint',
+    'skill-lint',
     'Skill',
   ],
   full: [], // empty = all tools visible

@@ -172,8 +172,6 @@ export interface AgentTurnContext {
   replyDispatcher?: ReplyDispatcher;
   /** Factory to create a fresh channel-specific dispatcher (used by followUp). */
   replyDispatcherFactory?: () => ReplyDispatcher;
-  /** Skill activation system-reminder to prepend to user message (set by skill fast path). */
-  skillActivationReminder?: string;
   /** Message with $skill-id stripped (set by skill fast path). Falls back to original input. */
   effectiveMessage?: string;
 }
@@ -400,7 +398,6 @@ export function createAgentFactory(
       };
 
       let compiled: ReturnType<SkillRegistry['compile']> | undefined;
-      let skillActivationReminder: string | undefined;
       if (skillRegistry && options?.message) {
         const resolved = skillRegistry.resolve(options.message);
         logger?.debug({ message: options.message, count: resolved.length, skills: resolved.map(r => r.skill.manifest.id) }, 'skill resolution result');
@@ -414,34 +411,15 @@ export function createAgentFactory(
           };
           logger?.debug({ skillId: skill.manifest.id }, 'skill activated via fast path');
 
-          // Strip $skill-id token from the user message
+          // Strip $skill-id and /skill-id tokens from the user message
           const escapedId = skill.manifest.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           let cleanMessage = options.message
-            .replace(new RegExp(`\\$${escapedId}\\s*`, 'gi'), '')
+            .replace(new RegExp(`(?:^/${escapedId}\\s*)|(?:\\$${escapedId}\\s*)`, 'gi'), '')
             .trim();
           if (!cleanMessage) {
             cleanMessage = 'I am ready to help with this skill.';
           }
           options.message = cleanMessage;
-
-          // Build system-reminder for conversation context injection
-          const reminderParts: string[] = [];
-          reminderParts.push('<system-reminder>');
-          reminderParts.push(`The "${skill.manifest.name}" skill is now active. Follow the instructions below when they are relevant to the user\'s task.`);
-          reminderParts.push('');
-          reminderParts.push(skill.promptContent);
-
-          // L3 references (if any)
-          if (skill.resources?.references?.length) {
-            reminderParts.push('');
-            reminderParts.push('## Available References');
-            reminderParts.push('Use file_read to access these when needed:');
-            for (const ref of skill.resources.references) {
-              reminderParts.push(`- ${ref}`);
-            }
-          }
-          reminderParts.push('</system-reminder>');
-          skillActivationReminder = reminderParts.join('\n');
 
           // Skill allowed-tools is declarative ("this skill needs these"),
           // NOT restrictive. Tool filtering is handled by the tools profile.
@@ -494,6 +472,7 @@ export function createAgentFactory(
         promptAssembly = promptManager.assemble({
           agentId: options?.agentId ?? agentConfig?.id,
           availableSkills,
+          activeSkillLayers: compiled?.promptLayers,
           isChildAgent: options?.isChildAgent,
           childTaskDescription: options?.childTaskDescription,
           uiLanguage: configRef.current.uiLanguage,
@@ -517,11 +496,9 @@ export function createAgentFactory(
       // Only set when a skill IS activated — otherwise clear so the next
       // turn falls back to the current input (turnContext is shared across turns).
       if (turnContext) {
-        if (skillActivationReminder) {
-          turnContext.skillActivationReminder = skillActivationReminder;
+        if (compiled) {
           turnContext.effectiveMessage = options?.message;
         } else {
-          turnContext.skillActivationReminder = undefined;
           turnContext.effectiveMessage = undefined;
         }
       }

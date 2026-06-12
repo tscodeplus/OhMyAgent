@@ -28,8 +28,9 @@ describe('Built-in skills', () => {
     const researcher = skills.find((s) => s.manifest.id === 'researcher')!;
     expect(researcher.manifest.triggers).toContain('research');
     expect(researcher.manifest.triggers).toContain('search');
-    expect(researcher.manifest.triggers).toContain('look');
-    expect(researcher.manifest.triggers).toContain('find');
+    // Multi-word triggers are preserved as phrases (comma-split, not whitespace-split)
+    expect(researcher.manifest.triggers).toContain('look up');
+    expect(researcher.manifest.triggers).toContain('find information');
   });
 
   it('researcher limits to read-only tools', async () => {
