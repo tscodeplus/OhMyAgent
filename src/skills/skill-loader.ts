@@ -1,5 +1,5 @@
 import { readdir, readFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
@@ -35,7 +35,7 @@ export const FrontmatterSchema = z.object({
   license: z.string().optional(),
   compatibility: z.string().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
-  'allowed-tools': z.string().optional(),
+  'allowed-tools': z.union([z.string(), z.array(z.string())]).optional(),
 }).passthrough();
 
 // ── Constants ───────────────────────────────────────────────────────────────
@@ -194,9 +194,11 @@ export async function loadSkill(skillDirPath: string): Promise<LoadedSkill> {
   const meta = fm.metadata ?? {};
 
   // Build manifest
-  // Derive skill ID from frontmatter name using deterministic toKebabCase
-  // (shared with skill-creator.ts — both use the same SHA256 fallback for CJK).
-  const id = toKebabCase(fm.name);
+  // Use directory basename as the skill ID — the directory is the source of
+  // truth (named by skill-creator or manual creation). Deriving from fm.name
+  // via toKebabCase is lossy for CJK and produces IDs that don't match the
+  // directory, breaking $skill-id and /skill-id explicit activation.
+  const id = basename(absolutePath);
   const version = typeof meta.version === 'string' && /^\d+\.\d+\.\d+$/.test(meta.version)
     ? meta.version : '1.0.0';
   const author = typeof meta.author === 'string' ? meta.author : undefined;
@@ -215,9 +217,13 @@ export async function loadSkill(skillDirPath: string): Promise<LoadedSkill> {
   };
 
   // Build tools (with optional OhMyAgent extensions)
-  const allowedTools = fm['allowed-tools']
-    ? fm['allowed-tools'].split(/\s+/).filter(Boolean)
-    : [];
+  // Supports both string ("tool1 tool2") and YAML list (["tool1", "tool2"]) formats
+  const rawAllowed = fm['allowed-tools'];
+  const allowedTools = Array.isArray(rawAllowed)
+    ? rawAllowed
+    : typeof rawAllowed === 'string'
+      ? rawAllowed.split(/\s+/).filter(Boolean)
+      : [];
   const oma = (meta['x-ohmyagent'] as Record<string, unknown> | undefined) ?? {};
   const deniedTools = Array.isArray(oma.deniedTools)
     ? oma.deniedTools.map(String)

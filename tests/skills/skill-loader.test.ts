@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { loadSkill, loadAllSkills } from '../../src/skills/skill-loader.js';
 
@@ -48,7 +48,8 @@ describe('loadSkill', () => {
     const dir = await createSkillDir(content);
     const skill = await loadSkill(dir);
 
-    expect(skill.manifest.id).toBe('test-skill');
+    // ID comes from the directory basename (source of truth)
+    expect(skill.manifest.id).toBe(basename(dir));
     expect(skill.manifest.name).toBe('Test Skill');
     expect(skill.manifest.description).toBe('A test skill');
     expect(skill.manifest.version).toBe('2.0.0');
@@ -88,35 +89,37 @@ describe('loadSkill', () => {
     expect(skill.manifest.triggers).toEqual(['adb', 'android', '手机']);
   });
 
-  it('generates kebab-case id from name', async () => {
-    const content = buildSkillMd({
+  it('uses directory basename as skill id', async () => {
+    // Create a skill directory with a meaningful name (like skill-creator does)
+    const parentDir = await createTempDir();
+    const skillDir = join(parentDir, 'hello-world-skill');
+    await mkdir(skillDir);
+    await writeFile(join(skillDir, 'SKILL.md'), buildSkillMd({
       name: 'Hello World Skill',
       description: 'Greets the world',
-    });
+    }));
 
-    const dir = await createSkillDir(content);
-    const skill = await loadSkill(dir);
+    const skill = await loadSkill(skillDir);
 
+    // ID = directory basename, not derived from frontmatter name
     expect(skill.manifest.id).toBe('hello-world-skill');
   });
 
-  it('generates deterministic hash-based id for CJK names', async () => {
-    const content = buildSkillMd({
+  it('uses directory basename as id for CJK-named skills', async () => {
+    // When skill-creator creates a skill with CJK name, the directory gets
+    // a deterministic hash-based name. The ID comes from the directory.
+    const parentDir = await createTempDir();
+    const skillDir = join(parentDir, 'sk-a1b2c3d4');
+    await mkdir(skillDir);
+    await writeFile(join(skillDir, 'SKILL.md'), buildSkillMd({
       name: '日程管理',
       description: '管理日程和提醒',
-    });
+    }));
 
-    const dir = await createSkillDir(content);
-    const skill = await loadSkill(dir);
+    const skill = await loadSkill(skillDir);
 
-    // Should produce deterministic hash-based id, not 'untitled'
-    expect(skill.manifest.id).toMatch(/^sk-[a-f0-9]{8}$/);
-    expect(skill.manifest.id).not.toBe('untitled');
-
-    // Same name should produce same id every time
-    const dir2 = await createSkillDir(content);
-    const skill2 = await loadSkill(dir2);
-    expect(skill2.manifest.id).toBe(skill.manifest.id);
+    // ID = directory basename, not derived from frontmatter name
+    expect(skill.manifest.id).toBe('sk-a1b2c3d4');
   });
 
   it('generates bigram triggers for CJK names', async () => {
