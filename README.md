@@ -153,6 +153,8 @@ OhMyAgent is built on [pi](https://github.com/earendil-works/pi) (formerly pi-mo
 
 Design inspiration from [OpenClaw](https://github.com/openclaw/openclaw) and [Hermes Agent](https://github.com/NousResearch/hermes-agent) — two pioneering open-source AI agent projects.
 
+Agent templates sourced from [agency-agents](https://github.com/msitarzewski/agency-agents) and [agency-agents-zh](https://github.com/jnMetaCode/agency-agents-zh).
+
 ## License
 
 [MIT](https://opensource.org/licenses/MIT) — see [LICENSE](LICENSE).

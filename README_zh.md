@@ -153,6 +153,8 @@ OhMyAgent 基于 [pi](https://github.com/earendil-works/pi)（原名 pi-mono，M
 
 设计灵感来源于 [OpenClaw](https://github.com/openclaw/openclaw) 和 [Hermes Agent](https://github.com/NousResearch/hermes-agent) —— 两个开创性的开源 AI Agent 项目。
 
+Agent 模板来源于 [agency-agents](https://github.com/msitarzewski/agency-agents) 和 [agency-agents-zh](https://github.com/jnMetaCode/agency-agents-zh)。
+
 ## 开源协议
 
 [MIT](https://opensource.org/licenses/MIT) — 详见 [LICENSE](LICENSE)。
