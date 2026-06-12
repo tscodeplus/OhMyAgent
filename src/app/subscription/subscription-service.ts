@@ -38,7 +38,7 @@ export interface SubscriptionStatus {
 
 /** Events emitted during login, delivered via WebSocket channel "subscription:{providerId}". */
 export interface SubscriptionProgressEvent {
-  type: 'auth_url' | 'device_code' | 'progress' | 'success' | 'error';
+  type: 'auth_url' | 'device_code' | 'progress' | 'prompt' | 'select' | 'manual_code_input' | 'success' | 'error';
   providerId: string;
   data: Record<string, unknown>;
 }

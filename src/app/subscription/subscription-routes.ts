@@ -6,25 +6,123 @@
  * show real-time updates during OAuth flows.
  *
  * Routes:
- *   GET    /api/subscriptions               — list all provider statuses
- *   POST   /api/subscriptions/login          — start OAuth login (returns immediately; progress via WS)
- *   DELETE /api/subscriptions/:providerId    — logout / remove credentials
+ *   GET    /api/subscriptions                    — list all provider statuses
+ *   POST   /api/subscriptions/login              — start OAuth login (returns immediately; progress via WS)
+ *   POST   /api/subscriptions/login/respond      — send user response back to a pending interactive prompt
+ *   DELETE /api/subscriptions/:providerId        — logout / remove credentials
  *   POST   /api/subscriptions/:providerId/refresh — force token refresh
  */
 
+import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { SubscriptionService, SubscriptionProgressEvent } from './subscription-service.js';
 import type { WebSocketManager } from '../webui/websocket.js';
 import { getOAuthProvider, getOAuthProviders } from '../../pi-mono/ai/utils/oauth/index.js';
-import type { OAuthLoginCallbacks } from '../../pi-mono/ai/utils/oauth/types.js';
+import type {
+  OAuthLoginCallbacks,
+  OAuthPrompt,
+  OAuthSelectPrompt,
+} from '../../pi-mono/ai/utils/oauth/types.js';
 
 export interface SubscriptionRouteConfig {
   subscriptionService: SubscriptionService;
   wsManager: WebSocketManager;
+  /** Live config ref — mutated in-place after login to inject API keys immediately. */
+  liveConfigRef?: { current: import('../types.js').AppConfig };
 }
 
 /** Track in-progress login flows to prevent duplicate login attempts. */
 const activeLogins = new Map<string, Promise<void>>();
+
+/**
+ * Monotonic generation counter per provider.  Each new login increments it.
+ * .then()/.catch() handlers compare their captured generation against the
+ * current value to detect superseded logins reliably, without relying on
+ * promise-identity timing.
+ */
+const loginGenerations = new Map<string, number>();
+
+/**
+ * Pending interactive request — waiting for the WebUI to send back a response.
+ */
+interface PendingRequest {
+  resolve: (value: string) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+/** Per-provider pending requests: providerId → (requestId → PendingRequest). */
+const pendingRequests = new Map<string, Map<string, PendingRequest>>();
+
+/** Timeout for interactive prompts (5 minutes). */
+const PROMPT_TIMEOUT_MS = 5 * 60 * 1000;
+
+/**
+ * Create a pending request that will be resolved when the WebUI responds
+ * via POST /api/subscriptions/login/respond.
+ */
+function createPendingRequest(providerId: string): { requestId: string; promise: Promise<string> } {
+  const requestId = randomUUID();
+  let resolver!: (value: string) => void;
+  let rejecter!: (err: Error) => void;
+
+  const promise = new Promise<string>((resolve, reject) => {
+    resolver = resolve;
+    rejecter = reject;
+  });
+
+  const timer = setTimeout(() => {
+    // Remove from per-provider map
+    const providerPending = pendingRequests.get(providerId);
+    if (providerPending) {
+      providerPending.delete(requestId);
+      if (providerPending.size === 0) pendingRequests.delete(providerId);
+    }
+    rejecter(new Error(`Login prompt timed out after ${PROMPT_TIMEOUT_MS / 60000} minutes`));
+  }, PROMPT_TIMEOUT_MS);
+
+  let providerPending = pendingRequests.get(providerId);
+  if (!providerPending) {
+    providerPending = new Map();
+    pendingRequests.set(providerId, providerPending);
+  }
+  providerPending.set(requestId, { resolve: resolver, reject: rejecter, timer });
+
+  return { requestId, promise };
+}
+
+/**
+ * Resolve a pending request with the user's response.
+ * Searches all providers since requestId is globally unique.
+ * Returns true if the request was found and resolved.
+ */
+function resolvePendingRequest(requestId: string, response: string): boolean {
+  for (const [providerId, providerPending] of pendingRequests) {
+    const pending = providerPending.get(requestId);
+    if (pending) {
+      clearTimeout(pending.timer);
+      providerPending.delete(requestId);
+      if (providerPending.size === 0) pendingRequests.delete(providerId);
+      pending.resolve(response);
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Reject all pending requests for a given provider (e.g. on logout or error).
+ * Does NOT affect pending requests of other providers.
+ */
+function rejectPendingForProvider(providerId: string): void {
+  const providerPending = pendingRequests.get(providerId);
+  if (!providerPending) return;
+  pendingRequests.delete(providerId);
+  for (const [, pending] of providerPending) {
+    clearTimeout(pending.timer);
+    pending.reject(new Error('Login cancelled'));
+  }
+}
 
 /**
  * Push a subscription progress event to WebSocket subscribers on the
@@ -55,6 +153,30 @@ export function registerSubscriptionRoutes(
     return reply.send({ subscriptions: statuses });
   });
 
+  // ── POST /api/subscriptions/login/respond — answer interactive prompt ─
+
+  app.post('/api/subscriptions/login/respond', async (request, reply) => {
+    const { requestId, response } = (request.body ?? {}) as {
+      requestId?: string;
+      response?: string;
+    };
+
+    if (!requestId || typeof requestId !== 'string') {
+      return reply.status(400).send({ error: 'Missing or invalid requestId' });
+    }
+
+    if (typeof response !== 'string') {
+      return reply.status(400).send({ error: 'Missing or invalid response' });
+    }
+
+    const found = resolvePendingRequest(requestId, response);
+    if (!found) {
+      return reply.status(404).send({ error: 'No pending request found (may have timed out or already been answered)' });
+    }
+
+    return reply.send({ accepted: true });
+  });
+
   // ── POST /api/subscriptions/login — start login flow ─────────────────
 
   app.post('/api/subscriptions/login', async (request, reply) => {
@@ -69,14 +191,19 @@ export function registerSubscriptionRoutes(
       return reply.status(404).send({ error: `Unknown provider: ${providerId}` });
     }
 
-    // Prevent duplicate login flows for the same provider
+    // Cancel any previous login flow for this provider
     if (activeLogins.has(providerId)) {
-      return reply.status(409).send({
-        error: `Login already in progress for ${providerId}`,
-      });
+      activeLogins.delete(providerId);
+      rejectPendingForProvider(providerId);
     }
 
-    // Build callbacks that push progress via WebSocket
+    // Bump generation so .then()/.catch() handlers from superseded logins
+    // know to skip their event pushes.
+    const generation = (loginGenerations.get(providerId) ?? 0) + 1;
+    loginGenerations.set(providerId, generation);
+
+    // Build callbacks that push progress via WebSocket and support
+    // interactive prompts via the /respond endpoint.
     const callbacks: OAuthLoginCallbacks = {
       onAuth: (info) => {
         pushProgress(wsManager, {
@@ -107,32 +234,69 @@ export function registerSubscriptionRoutes(
         });
       },
 
-      onPrompt: async (_prompt) => {
-        // Server-side cannot handle interactive prompts.
-        // If a provider requires one, the CLI is the right interface.
-        throw new Error(
-          'Interactive prompt not supported via WebUI. Use CLI: ohmyagent login ' + providerId,
-        );
+      onPrompt: async (p: OAuthPrompt) => {
+        const { requestId, promise } = createPendingRequest(providerId);
+        pushProgress(wsManager, {
+          type: 'prompt',
+          providerId,
+          data: {
+            requestId,
+            message: p.message,
+            placeholder: p.placeholder,
+            allowEmpty: p.allowEmpty,
+          },
+        });
+        return await promise;
       },
 
-      onSelect: async (_selectPrompt) => {
-        throw new Error(
-          'Interactive selection not supported via WebUI. Use CLI: ohmyagent login ' + providerId,
-        );
+      onSelect: async (p: OAuthSelectPrompt) => {
+        const { requestId, promise } = createPendingRequest(providerId);
+        pushProgress(wsManager, {
+          type: 'select',
+          providerId,
+          data: {
+            requestId,
+            message: p.message,
+            options: p.options,
+          },
+        });
+        const result = await promise;
+        // Empty response means cancelled
+        if (!result) return undefined as unknown as string;
+        return result;
       },
 
       onManualCodeInput: async () => {
-        throw new Error(
-          'Manual code input not supported via WebUI. Use CLI: ohmyagent login ' + providerId,
-        );
+        const { requestId, promise } = createPendingRequest(providerId);
+        pushProgress(wsManager, {
+          type: 'manual_code_input',
+          providerId,
+          data: { requestId },
+        });
+        return await promise;
       },
     };
 
     // Start login in background so we can respond immediately
     const loginPromise = subscriptionService
       .login(providerId, callbacks)
-      .then((credentials) => {
+      .then(async (credentials) => {
+        // Skip if a newer login for this provider has started
+        if (loginGenerations.get(providerId) !== generation) return;
         activeLogins.delete(providerId);
+        rejectPendingForProvider(providerId);
+
+        // Inject the new API key into the live config immediately so the
+        // user doesn't need to restart the server.
+        if (cfg.liveConfigRef?.current) {
+          try {
+            await subscriptionService.applyCredentialsToConfig(cfg.liveConfigRef.current);
+          } catch (err) {
+            // Non-fatal — credentials are already persisted to auth.json.
+            // Next restart will pick them up.
+          }
+        }
+
         pushProgress(wsManager, {
           type: 'success',
           providerId,
@@ -140,7 +304,10 @@ export function registerSubscriptionRoutes(
         });
       })
       .catch((err: Error) => {
+        // Skip if a newer login for this provider has started
+        if (loginGenerations.get(providerId) !== generation) return;
         activeLogins.delete(providerId);
+        rejectPendingForProvider(providerId);
         pushProgress(wsManager, {
           type: 'error',
           providerId,
@@ -160,6 +327,7 @@ export function registerSubscriptionRoutes(
 
     // Abort any in-progress login for this provider
     activeLogins.delete(providerId);
+    rejectPendingForProvider(providerId);
 
     await subscriptionService.logout(providerId);
     return reply.send({ ok: true, providerId });

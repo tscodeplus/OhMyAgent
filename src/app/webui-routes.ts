@@ -37,6 +37,8 @@ export interface WebUIRouteConfig {
   onConfigChanged: () => void;
   /** Called after config is saved via PUT /api/config — triggers hot-reload. */
   onConfigSaved?: (newConfig: AppConfig) => void;
+  /** Live config ref — mutating this updates the in-memory config used by agent factory. */
+  liveConfigRef?: { current: AppConfig };
 }
 
 export async function registerWebUIRoutes(
@@ -148,6 +150,7 @@ export async function registerWebUIRoutes(
     registerSubscriptionRoutes(app, {
       subscriptionService: cfg.services.subscriptionService,
       wsManager,
+      liveConfigRef: cfg.liveConfigRef,
     });
   }
 

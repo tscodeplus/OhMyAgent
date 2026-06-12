@@ -6,6 +6,9 @@ import { apiRequest } from '../../../utils/api';
 import Button from '../../ui/Button';
 import Spinner from '../../ui/Spinner';
 import DeviceCodeModal from '../../subscription/DeviceCodeModal';
+import PromptModal from '../../subscription/PromptModal';
+import SelectModal from '../../subscription/SelectModal';
+import ManualCodeModal from '../../subscription/ManualCodeModal';
 
 interface SubscriptionState {
   providerId: string;
@@ -21,12 +24,20 @@ interface DeviceCodeInfo {
   expiresInSeconds?: number;
 }
 
+interface SelectOption {
+  id: string;
+  label: string;
+}
+
 type LoginStage =
   | { type: 'idle' }
   | { type: 'loading' }
   | { type: 'device_code'; info: DeviceCodeInfo }
   | { type: 'auth_url'; url: string }
   | { type: 'waiting' }
+  | { type: 'prompt'; requestId: string; message: string; placeholder?: string; allowEmpty?: boolean }
+  | { type: 'select'; requestId: string; message: string; options: SelectOption[] }
+  | { type: 'manual_code_input'; requestId: string }
   | { type: 'error'; message: string };
 
 export default function SubscriptionsSettings() {
@@ -47,12 +58,12 @@ export default function SubscriptionsSettings() {
       setSubscriptions(data.subscriptions);
       setError(null);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to load subscriptions';
+      const msg = err instanceof Error ? err.message : t('settings.subscriptions.loadError');
       setError(msg);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     fetchStatuses();
@@ -93,6 +104,38 @@ export default function SubscriptionsSettings() {
             setLoginStage((prev) => ({
               ...prev,
               [providerId]: { type: 'waiting' },
+            }));
+            break;
+          case 'prompt':
+            setLoginStage((prev) => ({
+              ...prev,
+              [providerId]: {
+                type: 'prompt',
+                requestId: innerData.requestId as string,
+                message: innerData.message as string,
+                placeholder: innerData.placeholder as string | undefined,
+                allowEmpty: innerData.allowEmpty as boolean | undefined,
+              },
+            }));
+            break;
+          case 'select':
+            setLoginStage((prev) => ({
+              ...prev,
+              [providerId]: {
+                type: 'select',
+                requestId: innerData.requestId as string,
+                message: innerData.message as string,
+                options: (innerData.options as SelectOption[]) || [],
+              },
+            }));
+            break;
+          case 'manual_code_input':
+            setLoginStage((prev) => ({
+              ...prev,
+              [providerId]: {
+                type: 'manual_code_input',
+                requestId: innerData.requestId as string,
+              },
             }));
             break;
           case 'success':
@@ -140,7 +183,7 @@ export default function SubscriptionsSettings() {
         });
         // Response is { accepted: true } — real progress comes via WebSocket
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : 'Login failed';
+        const msg = err instanceof Error ? err.message : t('settings.subscriptions.loginFailed');
         setLoginStage((prev) => ({
           ...prev,
           [providerId]: { type: 'error', message: msg },
@@ -148,7 +191,7 @@ export default function SubscriptionsSettings() {
         showToast(msg, 'error');
       }
     },
-    [connected, sendMessage, showToast],
+    [connected, sendMessage, showToast, t],
   );
 
   // ── Logout ──────────────────────────────────────────────────────────
@@ -160,7 +203,7 @@ export default function SubscriptionsSettings() {
         showToast(t('settings.subscriptions.logoutSuccess', { provider: providerId }), 'success');
         fetchStatuses();
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : 'Logout failed';
+        const msg = err instanceof Error ? err.message : t('settings.subscriptions.logoutFailed');
         showToast(msg, 'error');
       }
     },
@@ -275,19 +318,59 @@ export default function SubscriptionsSettings() {
         );
       })}
 
-      {/* Device Code Modal */}
-      {Object.entries(loginStage).map(([providerId, stage]) =>
-        stage.type === 'device_code' ? (
-          <DeviceCodeModal
-            key={providerId}
-            providerName={subscriptions.find((s) => s.providerId === providerId)?.providerName ?? providerId}
-            userCode={stage.info.userCode}
-            verificationUri={stage.info.verificationUri}
-            expiresInSeconds={stage.info.expiresInSeconds}
-            onClose={() => dismissStage(providerId)}
-          />
-        ) : null,
-      )}
+      {/* Modals for interactive stages */}
+      {Object.entries(loginStage).map(([providerId, stage]) => {
+        const providerName =
+          subscriptions.find((s) => s.providerId === providerId)?.providerName ?? providerId;
+
+        switch (stage.type) {
+          case 'device_code':
+            return (
+              <DeviceCodeModal
+                key={providerId}
+                providerName={providerName}
+                userCode={stage.info.userCode}
+                verificationUri={stage.info.verificationUri}
+                expiresInSeconds={stage.info.expiresInSeconds}
+                onClose={() => dismissStage(providerId)}
+              />
+            );
+          case 'prompt':
+            return (
+              <PromptModal
+                key={providerId}
+                providerName={providerName}
+                requestId={stage.requestId}
+                message={stage.message}
+                placeholder={stage.placeholder}
+                allowEmpty={stage.allowEmpty}
+                onClose={() => dismissStage(providerId)}
+              />
+            );
+          case 'select':
+            return (
+              <SelectModal
+                key={providerId}
+                providerName={providerName}
+                requestId={stage.requestId}
+                message={stage.message}
+                options={stage.options}
+                onClose={() => dismissStage(providerId)}
+              />
+            );
+          case 'manual_code_input':
+            return (
+              <ManualCodeModal
+                key={providerId}
+                providerName={providerName}
+                requestId={stage.requestId}
+                onClose={() => dismissStage(providerId)}
+              />
+            );
+          default:
+            return null;
+        }
+      })}
     </div>
   );
 }

@@ -845,6 +845,7 @@ export async function bootstrap(): Promise<BootstrapResult> {
     db,
     getConfig: () => loadConfig(),
     services,
+    liveConfigRef: { current: config },
     onConfigSaved: (newConfig) => onConfigSavedRef.current?.(newConfig),
     onConfigChanged: () => {
       // Persist in-memory config mutations (agent CRUD, etc.) to config.yaml.

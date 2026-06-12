@@ -130,7 +130,23 @@
       "deviceCodeTitle": "{{provider}} 设备验证",
       "deviceCodeInstructions": "在浏览器中打开以下链接，输入下方验证码完成登录：",
       "deviceCodeExpires": "验证码将在 {{minutes}} 分钟后过期",
-      "waitingForLogin": "等待登录完成..."
+      "waitingForLogin": "等待登录完成...",
+      "manualCodeInstructions": "在浏览器中完成登录后，将浏览器地址栏中的完整重定向链接粘贴到下方：",
+      "manualCodePlaceholder": "https://localhost:...?code=...",
+      "loadError": "加载订阅列表失败",
+      "loginFailed": "登录失败",
+      "logoutFailed": "登出失败",
+      "oauthPrompt": {
+        "githubEnterprise": "GitHub Enterprise 域名（留空则使用 github.com）",
+        "pasteAuthCode": "粘贴授权码或完整重定向链接："
+      },
+      "oauthSelect": {
+        "codexMethod": "选择 OpenAI Codex 登录方式："
+      },
+      "oauthSelectOption": {
+        "browser": "浏览器登录（默认）",
+        "deviceCode": "设备码登录（无头模式）"
+      }
     },
     "general": {
       "logLevel": "日志级别",
@@ -588,7 +604,11 @@
     "prev_page": "上页",
     "next_page": "下页",
     "copy": "复制",
-    "close": "关闭"
+    "close": "关闭",
+    "required": "必填",
+    "skip": "跳过",
+    "submitting": "提交中...",
+    "submitError": "提交失败"
   },
   "agents": {
     "list": "Agent 列表",

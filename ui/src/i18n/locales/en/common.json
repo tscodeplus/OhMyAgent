@@ -129,7 +129,23 @@
       "deviceCodeTitle": "{{provider}} Device Verification",
       "deviceCodeInstructions": "Open the link below in your browser and enter the verification code:",
       "deviceCodeExpires": "Code expires in {{minutes}} minutes",
-      "waitingForLogin": "Waiting for login..."
+      "waitingForLogin": "Waiting for login...",
+      "manualCodeInstructions": "Complete login in your browser, then paste the full redirect URL from your browser's address bar below:",
+      "manualCodePlaceholder": "https://localhost:...?code=...",
+      "loadError": "Failed to load subscriptions",
+      "loginFailed": "Login failed",
+      "logoutFailed": "Logout failed",
+      "oauthPrompt": {
+        "githubEnterprise": "GitHub Enterprise URL/domain (blank for github.com)",
+        "pasteAuthCode": "Paste the authorization code or full redirect URL:"
+      },
+      "oauthSelect": {
+        "codexMethod": "Select OpenAI Codex login method:"
+      },
+      "oauthSelectOption": {
+        "browser": "Browser login (default)",
+        "deviceCode": "Device code login (headless)"
+      }
     },
     "general": {
       "logLevel": "Log Level",
@@ -647,7 +663,11 @@
     "prev_page": "Prev",
     "next_page": "Next",
     "copy": "Copy",
-    "close": "Close"
+    "close": "Close",
+    "required": "Required",
+    "skip": "Skip",
+    "submitting": "Submitting...",
+    "submitError": "Failed to submit"
   },
   "setupWizard": {
     "title": "Setup Wizard",
