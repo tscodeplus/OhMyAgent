@@ -5,6 +5,7 @@ import { Bot, Send } from 'lucide-react';
 import { apiRequest } from '../../utils/api';
 import { isElectron } from '../../utils/env';
 import { useProject } from '../../contexts/ProjectContext';
+import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useToast } from '../ui/Toast';
 import MessageList from './MessageList';
 import ChatInput from './ChatInput';
@@ -29,6 +30,11 @@ export default function ChatView() {
   // messages when the user sends a new message during an in-flight API fetch.
   const streamGenerationRef = useRef(0);
 
+  // Stable ref for the current session ID — checked in handleMessages to
+  // drop late-arriving SSE events from a previous session after a switch.
+  const currentSessionIdRef = useRef(sessionId);
+  currentSessionIdRef.current = sessionId;
+
   // Clear streaming messages when switching sessions to prevent
   // approval records / tool calls from one session leaking into another.
   useEffect(() => {
@@ -49,6 +55,22 @@ export default function ChatView() {
       api?.bridgeUnregisterSession(sessionId);
     };
   }, [sessionId]);
+
+  // Listen for agent turn completion notifications via WebSocket.
+  // When the SSE connection is lost mid-stream (page refresh, browser close,
+  // navigation away), the agent keeps running on the server and persists
+  // messages on completion. This WebSocket push triggers a refetch so the
+  // UI auto-updates without the user needing to manually refresh.
+  const { subscribe } = useWebSocket();
+  useEffect(() => {
+    return subscribe('agent_turn_complete', (data: any) => {
+      if (data.sessionId === sessionId) {
+        console.log('[ChatView] agent_turn_complete via WS — triggering refetch');
+        setIsStreaming(false);
+        setRefetchKey(k => k + 1);
+      }
+    });
+  }, [subscribe, sessionId]);
 
   const handleTurnDone = useCallback(() => {
     console.log('[ChatView] handleTurnDone — switching to API mode');
@@ -96,6 +118,13 @@ export default function ChatView() {
   }, [projectId, quickInput, navigate, showToast, t]);
 
   const handleMessages = useCallback((msgs: Message[], clearPrevious?: boolean) => {
+    // Drop messages that don't belong to the currently-viewed session.
+    // Guards against stale SSE connections that may fire late after a
+    // session switch (in case the unmount abort hasn't taken effect yet).
+    const curSid = currentSessionIdRef.current;
+    msgs = msgs.filter(m => !m.session_id || m.session_id === curSid);
+    if (msgs.length === 0) return;
+
     setStreamMessages(prev => {
       // When a new user message arrives in a fresh turn (not steer/follow-up),
       // clear non-approval messages from the previous turn. Frontend-generated

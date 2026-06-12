@@ -13,7 +13,7 @@ import { ProjectStore } from './webui/project-store.js';
 import { registerProjectRoutes } from './webui/project-routes.js';
 import { registerAgentRoutes } from './webui/agent-routes.js';
 import { registerSessionRoutes } from './webui/session-routes.js';
-import { registerChatRoutes } from './webui/chat-routes.js';
+import { registerChatRoutes, type ChatRouteConfig } from './webui/chat-routes.js';
 import { registerConfigRoutes } from './webui/config-routes.js';
 import { registerDashboardRoutes } from './webui/dashboard-routes.js';
 import { registerChannelRoutes } from './webui/channel-routes.js';
@@ -72,7 +72,7 @@ export async function registerWebUIRoutes(
 
   registerSessionRoutes(app, cfg.db, () => cfg.getConfig().footer);
 
-  registerChatRoutes(app, {
+  const chatConfig: ChatRouteConfig = {
     agentService: cfg.services.agentService,
     projectStore,
     db: cfg.db,
@@ -95,7 +95,9 @@ export async function registerWebUIRoutes(
       extensionManager: cfg.services.extensionManager,
     },
     commandRegistry: cfg.services.commandRegistry,
-  });
+    wsManager: undefined,
+  };
+  registerChatRoutes(app, chatConfig);
 
   registerConfigRoutes(app, {
     getConfig: cfg.getConfig,
@@ -140,6 +142,7 @@ export async function registerWebUIRoutes(
   // 6. Register WebSocket (Fastify tracks the plugin promise internally;
   //    it will be resolved during server.listen())
   const wsManager = new WebSocketManager();
+  chatConfig.wsManager = wsManager;
   app.register(createWebSocketPlugin(wsManager));
 
   // 7. Register Desktop Bridge WebSocket (for remote tool execution)

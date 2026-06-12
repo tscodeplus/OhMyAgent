@@ -15,6 +15,7 @@ import type { AgentManager } from '../../agent/agent-manager.js';
 import type { ApprovalDecisionType } from '../types.js';
 import type { CommandDeps } from '../../commands/command-handler.js';
 import type { CommandRegistry } from '../../commands/command-registry.js';
+import type { WebSocketManager } from './websocket.js';
 import { handleCommand } from '../../commands/command-handler.js';
 import { computeCacheHitRate } from '../../channel/usage-summary.js';
 import { createWebUIApprovalSender } from './approval-sender.js';
@@ -243,7 +244,7 @@ class SSEReplyDispatcher implements ReplyDispatcher {
 
 // ─── Chat Route Config ───
 
-interface ChatRouteConfig {
+export interface ChatRouteConfig {
   agentService: AgentService;
   projectStore: ProjectStore;
   db?: Database.Database;
@@ -251,6 +252,7 @@ interface ChatRouteConfig {
   agentManager?: AgentManager;
   commandDeps?: CommandDeps;
   commandRegistry?: CommandRegistry;
+  wsManager?: WebSocketManager;
 }
 
 export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): void {
@@ -437,6 +439,8 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
     // so the frontend can render interactive ApprovalCards.
     const approvalSender = createWebUIApprovalSender(sendSSE, cfg.db, sessionId);
 
+    let completionStatus: 'complete' | 'error' = 'complete';
+
     try {
       await cfg.agentService.execute(message, {
         sessionId: sessionId,
@@ -448,9 +452,20 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
         extraTools: [createSendMediaTool()],
       });
     } catch (err: unknown) {
+      completionStatus = 'error';
       const errorMsg = err instanceof Error ? err.message : String(err);
       sendSSE({ type: 'error', error: errorMsg });
     } finally {
+      // Notify all WebSocket clients so the frontend can refetch the
+      // latest messages even if the SSE connection was lost mid-stream
+      // (page refresh, browser close, navigation away).
+      if (cfg.wsManager && sessionId) {
+        cfg.wsManager.broadcast({
+          type: 'agent_turn_complete',
+          sessionId,
+          status: completionStatus,
+        });
+      }
       reply.raw.end();
     }
   });

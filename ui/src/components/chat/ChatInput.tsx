@@ -424,6 +424,17 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
     }
   }, [projectId, sessionId, sendMessage, location.state]);
 
+  // Abort SSE stream on unmount — prevents stale connections from
+  // leaking messages into a different conversation after a session switch.
+  useEffect(() => {
+    return () => {
+      console.log('[ChatInput] unmounting — aborting SSE stream');
+      abortRef.current?.abort();
+      activeTurnsRef.current = 0;
+      setSending(false);
+    };
+  }, []);
+
   // Safety timeout: reset sending state if SSE stream hangs (no events
   // for 60s). Uses a heartbeat ref updated on every SSE event so long-
   // running tools (e.g. image generation) don't trigger a false timeout.
