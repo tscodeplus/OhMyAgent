@@ -295,6 +295,8 @@ async function executeAgent(
     channelApprovalSender: {
       sendApprovalMessage: (chatIdStr, requestId, command, risk, reason) =>
         approvalSender.sendApprovalMessage(chatIdStr, requestId, command, risk, reason),
+      updateApprovalResult: (chatIdStr, messageIdStr, decision, command) =>
+        approvalSender.updateApprovalResult(chatIdStr, messageIdStr, decision, command),
     },
   });
 }

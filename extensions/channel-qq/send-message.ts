@@ -280,6 +280,32 @@ export function createQQApprovalSender(params: {
         throw err;
       }
     },
+
+    /**
+     * Update the approval message after a decision.
+     *
+     * QQ does not support editing sent messages, so we send a short
+     * follow-up message with the result. The original keyboard message
+     * stays visible but its buttons become no-ops (re-clicking a resolved
+     * approval is silently ignored).
+     */
+    async updateApprovalResult(
+      _chatId: string,
+      _messageId: string,
+      decision: string,
+      command: string,
+    ): Promise<void> {
+      const isApproved = decision.startsWith('approve');
+      const key = isApproved ? 'result.approved' : 'result.rejected';
+      const truncated = command.length > 100 ? command.slice(0, 100) + '...' : command;
+      const resultText = i18n.t(`qq-approval:${key}`, { command: truncated });
+      const emoji = isApproved ? '✅' : '❌';
+      try {
+        await sendSingleMessage(gateway, `${emoji} ${resultText}`, target);
+      } catch (err) {
+        console.error('[QQ updateApprovalResult failed]', (err as Error)?.message ?? String(err));
+      }
+    },
   };
 }
 
