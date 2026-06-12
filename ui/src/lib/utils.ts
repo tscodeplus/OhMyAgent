@@ -46,8 +46,10 @@ export function formatRelativeTime(raw: number | string): string {
 
   // Integer milliseconds timestamp (13 digits, e.g. "1749398400000")
   // or integer seconds timestamp (10 digits, e.g. "1749398400")
-  if (/^\d{10,13}$/.test(dateString)) {
-    tsMs = parseInt(dateString, 10);
+  // SQLite TEXT column may append ".0" to JavaScript number values
+  const intString = dateString.replace(/\.0+$/, '');
+  if (/^\d{10,13}$/.test(intString)) {
+    tsMs = parseInt(intString, 10);
     if (tsMs < 1e12) tsMs *= 1000; // seconds → milliseconds
   } else if (dateString.includes('T')) {
     // ISO 8601: "2026-06-08T07:30:00.000Z"

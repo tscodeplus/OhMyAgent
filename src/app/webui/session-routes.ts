@@ -36,8 +36,8 @@ export function registerSessionRoutes(
       project_id: session.project_id,
       chat_id: session.chat_id,
       title: session.metadata ? JSON.parse(String(session.metadata)).title : undefined,
-      created_at: session.created_at,
-      updated_at: session.updated_at,
+      created_at: parseInt(String(session.created_at), 10),
+      updated_at: parseInt(String(session.updated_at), 10),
       metadata: session.metadata ? JSON.parse(String(session.metadata)) : {},
     });
   });
@@ -55,8 +55,8 @@ export function registerSessionRoutes(
       project_id: s.project_id,
       chat_id: s.chat_id,
       title: s.metadata ? JSON.parse(String(s.metadata)).title : undefined,
-      created_at: s.created_at,
-      updated_at: s.updated_at,
+      created_at: parseInt(String(s.created_at), 10),
+      updated_at: parseInt(String(s.updated_at), 10),
       metadata: s.metadata ? JSON.parse(String(s.metadata)) : {},
     }));
 
@@ -260,8 +260,8 @@ export function registerSessionRoutes(
       id: session.id,
       project_id: session.project_id,
       title: session.metadata ? JSON.parse(String(session.metadata)).title : undefined,
-      created_at: session.created_at,
-      updated_at: session.updated_at,
+      created_at: parseInt(String(session.created_at), 10),
+      updated_at: parseInt(String(session.updated_at), 10),
       messages: formattedMessages,
       hasMore,
     });
