@@ -288,12 +288,6 @@ export default function SubscriptionsSettings() {
                   )}
                 </div>
 
-                {/* Error message */}
-                {stage.type === 'error' && (
-                  <p className="mt-0.5 text-[11px] text-red-600 dark:text-red-400">
-                    {stage.message}
-                  </p>
-                )}
               </div>
 
               {/* Actions */}
