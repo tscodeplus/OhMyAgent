@@ -220,7 +220,7 @@ export default function SubscriptionsSettings() {
 
   if (loading) {
     return (
-      <div className="flex justify-center py-8">
+      <div className="flex justify-center py-3">
         <Spinner />
       </div>
     );
@@ -228,8 +228,8 @@ export default function SubscriptionsSettings() {
 
   if (error) {
     return (
-      <div className="py-4">
-        <p className="text-sm text-red-600 dark:text-red-400 mb-3">{error}</p>
+      <div className="py-2">
+        <p className="text-[11px] text-red-600 dark:text-red-400 mb-2">{error}</p>
         <Button variant="secondary" size="sm" onClick={fetchStatuses}>
           {t('common.retry')}
         </Button>
@@ -238,8 +238,8 @@ export default function SubscriptionsSettings() {
   }
 
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-neutral-600 dark:text-neutral-400">
+    <div className="space-y-1.5">
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">
         {t('settings.subscriptions.description')}
       </p>
 
@@ -250,28 +250,28 @@ export default function SubscriptionsSettings() {
         return (
           <div
             key={sub.providerId}
-            className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4"
+            className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2"
           >
             <div className="flex items-center justify-between">
               <div className="flex-1 min-w-0">
                 {/* Provider name */}
-                <h4 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                <h4 className="text-xs font-medium text-neutral-900 dark:text-neutral-100">
                   {sub.providerName}
                 </h4>
 
                 {/* Status */}
-                <div className="mt-1 flex items-center gap-2">
+                <div className="mt-0.5 flex items-center gap-1.5">
                   {sub.loggedIn ? (
                     <>
-                      <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
-                      <span className="text-xs text-green-700 dark:text-green-400">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500" />
+                      <span className="text-[11px] text-green-700 dark:text-green-400">
                         {t('settings.subscriptions.status.loggedIn')}
                       </span>
                     </>
                   ) : (
                     <>
-                      <span className="inline-block w-2 h-2 rounded-full bg-neutral-400" />
-                      <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-neutral-400" />
+                      <span className="text-[11px] text-neutral-500 dark:text-neutral-400">
                         {t('settings.subscriptions.status.loggedOut')}
                       </span>
                     </>
@@ -279,7 +279,7 @@ export default function SubscriptionsSettings() {
 
                   {/* Expiration */}
                   {sub.expiresAt && sub.loggedIn && (
-                    <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                    <span className="text-[11px] text-neutral-500 dark:text-neutral-400">
                       ·{' '}
                       {t('settings.subscriptions.expiresIn', {
                         time: formatRelativeTime(sub.expiresAt),
@@ -290,21 +290,21 @@ export default function SubscriptionsSettings() {
 
                 {/* Error message */}
                 {stage.type === 'error' && (
-                  <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                  <p className="mt-0.5 text-[11px] text-red-600 dark:text-red-400">
                     {stage.message}
                   </p>
                 )}
               </div>
 
               {/* Actions */}
-              <div className="ml-4 flex items-center gap-2 shrink-0">
+              <div className="ml-3 flex items-center gap-1.5 shrink-0">
                 {isBusy ? (
                   <Button variant="secondary" size="sm" disabled>
                     <Spinner className="h-3 w-3 mr-1" />
                     {t('settings.subscriptions.loggingIn')}
                   </Button>
                 ) : sub.loggedIn ? (
-                  <Button variant="secondary" size="sm" onClick={() => handleLogout(sub.providerId)}>
+                  <Button variant="danger" size="sm" onClick={() => handleLogout(sub.providerId)}>
                     {t('settings.subscriptions.logout')}
                   </Button>
                 ) : (

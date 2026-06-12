@@ -110,7 +110,7 @@
       "appearance": "Appearance",
       "desktop": "Desktop",
       "gateway": "Gateway",
-      "subscriptions": "Subscriptions"
+      "subscriptions": "Subscription Login"
     },
     "subscriptions": {
       "description": "Sign in to use Claude Pro/Max, ChatGPT Plus/Pro, or GitHub Copilot models.",

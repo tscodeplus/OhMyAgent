@@ -111,7 +111,7 @@
       "appearance": "外观设置",
       "desktop": "桌面设置",
       "gateway": "网关连接",
-      "subscriptions": "订阅管理"
+      "subscriptions": "订阅登录"
     },
     "subscriptions": {
       "description": "登录 AI 订阅以使用 Claude Pro/Max、ChatGPT Plus/Pro 或 GitHub Copilot 的模型。",
