@@ -787,6 +787,21 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
         afterToolCall: async (context) => {
           const result = context.result;
 
+          // Auto-reload skill registry when a SKILL.md is written via file_write.
+          // Agents may use file_write instead of skill_create, so we detect writes
+          // to skills/*/SKILL.md and reload so the new skill is immediately active.
+          if (skillRegistry && context.toolCall.name === 'file_write' && result && !context.isError) {
+            try {
+              const fp = (context.args as Record<string, unknown>)?.filePath as string | undefined;
+              if (fp && /(?:^|[\\/])skills[\\/][^\\/]+[\\/]SKILL\.md$/i.test(fp)) {
+                await skillRegistry.load('./skills');
+                logger?.info({ filePath: fp }, 'Skill registry auto-reloaded after file_write to SKILL.md');
+              }
+            } catch {
+              // Skill reload failure must not block the tool result
+            }
+          }
+
           // Check if context offloading is enabled
           const offloadCfg = configRef.current.memory.offloading;
           if (offloadCfg?.enabled && offloadStore && sessionId) {
