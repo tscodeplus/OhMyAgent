@@ -51,6 +51,11 @@ export interface AgentServiceOptions {
   agentId?: string;
   /** Cron permission snapshot: false removes Computer Use for this run. */
   computerUseAllowed?: boolean;
+  /** Persist the user message BEFORE starting agent execution. When true,
+   *  the raw input is written to the DB immediately so the frontend can
+   *  display it via API fetch even if the SSE stream is disconnected
+   *  (page refresh, tab switch) before the agent completes. */
+  eagerPersistUserMessage?: boolean;
 }
 
 export interface AgentServicePersistenceOptions {
@@ -190,6 +195,29 @@ export class AgentService {
     try {
       if (this.persistence && sessionId) {
         this.ensureSession(sessionId);
+      }
+
+      // Eagerly persist the user message so the frontend can show it
+      // immediately via API fetch even if the user refreshes or switches
+      // sessions while the agent is still generating a reply.
+      if (this.persistence && sessionId && options?.eagerPersistUserMessage) {
+        try {
+          const now = Date.now();
+          this.persistence.messageRepository.create({
+            id: generateId(),
+            session_id: sessionId,
+            role: 'user',
+            content: input,
+            metadata: null,
+            created_at: now,
+          });
+          // Bump the counter so persistMessages() at turn end skips this
+          // message (which will have been added to agent.state.messages
+          // by agent.prompt() with a different internal ID).
+          runtime.persistedMessageCount++;
+        } catch {
+          // Non-fatal — persistMessages() at turn end will persist it
+        }
       }
 
       // Apply skill activation data for this turn, then clear immediately.

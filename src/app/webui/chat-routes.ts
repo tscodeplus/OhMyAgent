@@ -450,6 +450,7 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
         channel: 'webui',
         channelApprovalSender: approvalSender,
         extraTools: [createSendMediaTool()],
+        eagerPersistUserMessage: true,
       });
     } catch (err: unknown) {
       completionStatus = 'error';
