@@ -18,6 +18,7 @@ import { registerConfigRoutes } from './webui/config-routes.js';
 import { registerDashboardRoutes } from './webui/dashboard-routes.js';
 import { registerChannelRoutes } from './webui/channel-routes.js';
 import { registerSkillsRoutes } from './webui/skills-routes.js';
+import { registerTemplateRoutes } from './webui/templates-routes.js';
 import { registerFilesRoutes } from './webui/files-routes.js';
 import { registerMemoryRoutes } from './webui/memory-routes.js';
 import { registerCronRoutes } from './webui/cron-routes.js';
@@ -110,6 +111,8 @@ export async function registerWebUIRoutes(
   });
 
   registerSkillsRoutes(app, { services: cfg.services });
+
+  registerTemplateRoutes(app);
 
   registerFilesRoutes(app, {
     getConfig: cfg.getConfig,

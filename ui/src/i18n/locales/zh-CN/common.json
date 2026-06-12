@@ -224,7 +224,20 @@
       "namePlaceholder": "Agent 显示名称",
       "promptPlaceholder": "定义 Agent 的行为和角色...",
       "idPlaceholder": "agent-identifier",
-      "cannotDeleteDefault": "默认 Agent 不可删除"
+      "cannotDeleteDefault": "默认 Agent 不可删除",
+      "importFromTemplate": "从模板导入",
+      "templateBrowserTitle": "模板浏览器",
+      "templateEnTab": "English",
+      "templateZhTab": "中文",
+      "templateAllDivisions": "全部分类",
+      "templateSearchPlaceholder": "搜索模板...",
+      "templatePreview": "预览",
+      "templateImport": "导入",
+      "templateNoResults": "未找到模板",
+      "templateLoading": "加载中...",
+      "templateLoadError": "加载模板失败",
+      "templateContentLoadError": "加载模板内容失败",
+      "templateImportSuccess": "模板已导入，请编辑并保存 Agent"
     },
     "memory": {
       "basic": "基础设置",

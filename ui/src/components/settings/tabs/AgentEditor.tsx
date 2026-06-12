@@ -6,8 +6,8 @@ import { type SettingsTabHandle } from '../useConfigDirty';
 import Input from '../../ui/Input';
 import Select from '../../ui/Select';
 import Textarea from '../../ui/Textarea';
-import Toggle from '../../ui/Toggle';
 import type { Agent } from '../../../types/agent';
+import TemplateBrowser from './TemplateBrowser';
 
 const PROFILE_OPTIONS = [
   { value: 'advanced', label: 'Advanced' },
@@ -40,6 +40,7 @@ export default function AgentEditor({ agent, onSave, onCancel, registerHandle, o
   };
 
   const [form, setForm] = useState(initialForm);
+  const [templateModalOpen, setTemplateModalOpen] = useState(false);
 
   const isDirty = useCallback(() => {
     return (
@@ -89,6 +90,18 @@ export default function AgentEditor({ agent, onSave, onCancel, registerHandle, o
     await handleSaveInternal(false);
   }, [handleSaveInternal]);
 
+  const handleImportFromTemplate = useCallback(
+    (template: { name: string; systemPrompt: string; description?: string }) => {
+      setForm((prev) => ({
+        ...prev,
+        name: prev.name || template.name,
+        systemPrompt: template.systemPrompt,
+        description: prev.description || template.description || '',
+      }));
+    },
+    [],
+  );
+
   const handleCancel = useCallback(() => {
     setForm(initialForm);
     onCancel();
@@ -121,19 +134,27 @@ export default function AgentEditor({ agent, onSave, onCancel, registerHandle, o
       <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
         <div className="grid grid-cols-2 gap-4">
           {isNew && (
-            <Input
-              label={t("settings.agents.id")}
-              value={form.id}
-              onChange={(e) => setForm({ ...form, id: e.target.value })}
-              placeholder={t("settings.agents.idPlaceholder")}
-            />
+            <div>
+              <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1.5">
+                {t("settings.agents.id")}<span className="text-red-500 ml-0.5">*</span>
+              </label>
+              <Input
+                value={form.id}
+                onChange={(e) => setForm({ ...form, id: e.target.value })}
+                placeholder={t("settings.agents.idPlaceholder")}
+              />
+            </div>
           )}
-          <Input
-            label={t("settings.agents.name")}
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            placeholder={t("settings.agents.namePlaceholder")}
-          />
+          <div>
+            <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1.5">
+              {t("settings.agents.name")}<span className="text-red-500 ml-0.5">*</span>
+            </label>
+            <Input
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder={t("settings.agents.namePlaceholder")}
+            />
+          </div>
         </div>
         <Textarea
           label={t("settings.agents.description")}
@@ -141,13 +162,29 @@ export default function AgentEditor({ agent, onSave, onCancel, registerHandle, o
           onChange={(e) => setForm({ ...form, description: e.target.value })}
           rows={2}
         />
-        <Textarea
-          label={t("settings.agents.systemPrompt")}
-          value={form.systemPrompt}
-          onChange={(e) => setForm({ ...form, systemPrompt: e.target.value })}
-          rows={4}
-          placeholder={t("settings.agents.promptPlaceholder")}
-        />
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300">
+              {t("settings.agents.systemPrompt")}
+            </label>
+            <button
+              type="button"
+              onClick={() => setTemplateModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 hover:border-blue-400 dark:border-blue-500/30 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/35 dark:hover:text-blue-300 dark:hover:border-blue-500/50 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+              </svg>
+              {t("settings.agents.importFromTemplate")}
+            </button>
+          </div>
+          <Textarea
+            value={form.systemPrompt}
+            onChange={(e) => setForm({ ...form, systemPrompt: e.target.value })}
+            rows={6}
+            placeholder={t("settings.agents.promptPlaceholder")}
+          />
+        </div>
         <div className="grid grid-cols-2 gap-4">
           <Select
             label={t("settings.agents.profile")}
@@ -163,6 +200,12 @@ export default function AgentEditor({ agent, onSave, onCancel, registerHandle, o
           />
         </div>
       </div>
+
+      <TemplateBrowser
+        open={templateModalOpen}
+        onClose={() => setTemplateModalOpen(false)}
+        onImport={handleImportFromTemplate}
+      />
     </div>
   );
 }

@@ -222,7 +222,20 @@
       "namePlaceholder": "Agent display name",
       "promptPlaceholder": "Define the agent's behavior and role...",
       "idPlaceholder": "agent-identifier",
-      "cannotDeleteDefault": "The default agent cannot be deleted"
+      "cannotDeleteDefault": "The default agent cannot be deleted",
+      "importFromTemplate": "Import from Template",
+      "templateBrowserTitle": "Template Browser",
+      "templateEnTab": "English",
+      "templateZhTab": "中文",
+      "templateAllDivisions": "All Departments",
+      "templateSearchPlaceholder": "Search templates...",
+      "templatePreview": "Preview",
+      "templateImport": "Import",
+      "templateNoResults": "No templates found",
+      "templateLoading": "Loading...",
+      "templateLoadError": "Failed to load templates",
+      "templateContentLoadError": "Failed to load template content",
+      "templateImportSuccess": "Template imported. Edit and save the agent."
     },
     "memory": {
       "basic": "Basic",

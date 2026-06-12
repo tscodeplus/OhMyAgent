@@ -14,7 +14,7 @@
     "test:ai": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p ui/tsconfig.json",
     "lint": "pnpm typecheck",
     "eval:memory": "tsx src/memory/eval/eval-runner.ts",
     "eval:memory:build": "tsx src/memory/eval/eval-builder.ts",

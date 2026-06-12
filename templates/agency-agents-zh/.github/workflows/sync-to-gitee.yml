@@ -1,0 +1,20 @@
+name: Sync to Gitee
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 获取完整历史
+
+      - name: Push to Gitee
+        run: |
+          git remote add gitee https://jnMetaCode:${{ secrets.GITEE_TOKEN }}@gitee.com/jnMetaCode/agency-agents-zh.git 2>/dev/null || true
+          git push gitee main --force
