@@ -48,7 +48,7 @@ export default function Modal({ open, onClose, title, children, size = 'md', foo
             </button>
           </div>
         )}
-        <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
+        <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col min-h-0">{children}</div>
         {footer && (
           <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-neutral-200 dark:border-neutral-700 shrink-0">
             {footer}
