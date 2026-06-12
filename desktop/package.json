@@ -1,6 +1,6 @@
 {
   "name": "ohmyagent-desktop",
-  "version": "0.20.2",
+  "version": "0.3.0",
   "description": "OhMyAgent Desktop — Electron desktop client for Feishu/Lark Agent Gateway",
   "homepage": "https://github.com/tscodeplus/OhMyAgent",
   "author": "tscodeplus",
