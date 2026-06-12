@@ -16,14 +16,24 @@ for entry in "${REPOS[@]}"; do
   dir="${entry%%|*}"
   url="${entry##*|}"
   target="$TEMPLATES_DIR/$dir"
+  tmpdir="$TEMPLATES_DIR/.tmp-$dir"
 
-  if [ -d "$target/.git" ]; then
-    echo "[sync] Pulling $dir..."
-    git -C "$target" pull --ff-only
-  else
-    echo "[sync] Cloning $dir..."
-    git clone --depth 1 "$url" "$target"
-  fi
+  echo "[sync] Updating $dir..."
+
+  # Remove previous temp clone if it exists
+  rm -rf "$tmpdir"
+
+  # Clone fresh to temp location
+  git clone --depth 1 "$url" "$tmpdir"
+
+  # Remove .git so it can be committed as plain files
+  rm -rf "$tmpdir/.git"
+
+  # Replace target directory
+  rm -rf "$target"
+  mv "$tmpdir" "$target"
+
+  echo "[sync] $dir updated"
 done
 
 echo "[sync] Generating template index..."
