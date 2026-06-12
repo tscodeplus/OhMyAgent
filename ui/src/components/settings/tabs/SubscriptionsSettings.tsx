@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useWebSocket } from '../../../contexts/WebSocketContext';
 import { useToast } from '../../ui/Toast';
 import { apiRequest } from '../../../utils/api';
@@ -49,6 +50,7 @@ export default function SubscriptionsSettings() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loginStage, setLoginStage] = useState<Record<string, LoginStage>>({});
+  const [collapsed, setCollapsed] = useState(true);
 
   // ── Fetch subscription statuses ─────────────────────────────────────
 
@@ -240,11 +242,22 @@ export default function SubscriptionsSettings() {
 
   return (
     <div className="space-y-1.5">
-      <p className="text-xs text-neutral-500 dark:text-neutral-400">
-        {t('settings.subscriptions.description')}
-      </p>
+      {/* Collapse toggle */}
+      <button
+        onClick={() => setCollapsed((v) => !v)}
+        className="flex items-center gap-1 text-xs font-semibold text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200 transition-colors"
+      >
+        {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+        {t('settings.groups.subscriptions')}
+      </button>
 
-      {subscriptions.map((sub) => {
+      {!collapsed && (
+        <>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">
+            {t('settings.subscriptions.description')}
+          </p>
+
+          {subscriptions.map((sub) => {
         const stage = loginStage[sub.providerId] || { type: 'idle' };
         const isBusy = stage.type !== 'idle' && stage.type !== 'error';
 
@@ -366,6 +379,8 @@ export default function SubscriptionsSettings() {
             return null;
         }
       })}
+        </>
+      )}
     </div>
   );
 }
