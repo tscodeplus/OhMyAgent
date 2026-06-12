@@ -13,7 +13,6 @@ import MultimodalSettings from './tabs/MultimodalSettings';
 import ComputerUseSettings from './tabs/ComputerUseSettings';
 import DesktopSettings from './tabs/DesktopSettings';
 import GatewaySettings from './tabs/GatewaySettings';
-import SubscriptionsSettings from './tabs/SubscriptionsSettings';
 import { isElectron } from '../../utils/env';
 import Button from '../ui/Button';
 import { useToast } from '../ui/Toast';
@@ -60,7 +59,6 @@ export const SETTINGS_GROUPS = [
   { id: 'computer', labelKey: 'settings.groups.computer' },
   { id: 'desktop', labelKey: 'settings.groups.desktop' },
   { id: 'gateway', labelKey: 'settings.groups.gateway' },
-  { id: 'subscriptions', labelKey: 'settings.groups.subscriptions' },
 ] as const;
 
 const COMPONENT_MAP: Record<string, React.ComponentType<any>> = {
@@ -75,7 +73,6 @@ const COMPONENT_MAP: Record<string, React.ComponentType<any>> = {
   computer: ComputerUseSettings,
   desktop: DesktopSettings,
   gateway: GatewaySettings,
-  subscriptions: SubscriptionsSettings,
 };
 
 export default function SettingsModal({ onClose }: SettingsModalProps) {
@@ -311,11 +308,6 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
             {mountedTabs.has('gateway') && (
               <div style={{ display: activeGroup === 'gateway' ? undefined : 'none' }}>
                 <GatewaySettings {...tabProps} />
-              </div>
-            )}
-            {mountedTabs.has('subscriptions') && (
-              <div style={{ display: activeGroup === 'subscriptions' ? undefined : 'none' }}>
-                <SubscriptionsSettings />
               </div>
             )}
           </div>

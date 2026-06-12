@@ -8,6 +8,7 @@ import Input from '../../ui/Input';
 import Select from '../../ui/Select';
 import Toggle from '../../ui/Toggle';
 import Spinner from '../../ui/Spinner';
+import SubscriptionsSettings from './SubscriptionsSettings';
 
 interface ProviderModel {
   id: string;
@@ -324,6 +325,14 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
       {/* 2. Providers (Builtin + Custom) */}
       <AccordionItem title={t('settings.models.providers')}>
         <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('settings.models.providersDesc')}</p>
+
+        {/* ── Subscription logins ── */}
+        <h4 className="text-xs font-semibold text-neutral-600 dark:text-neutral-400 mb-2">
+          {t('settings.groups.subscriptions')}
+        </h4>
+        <div className="mb-4">
+          <SubscriptionsSettings />
+        </div>
 
         {/* ── Builtin Providers ── */}
         <div>
