@@ -157,7 +157,7 @@ export default function SubscriptionsSettings() {
                 error: innerData.message as string,
               }),
               'error',
-              8000,
+              5000,
             );
             break;
         }
@@ -189,7 +189,7 @@ export default function SubscriptionsSettings() {
           ...prev,
           [providerId]: { type: 'error', message: msg },
         }));
-        showToast(msg, 'error', 8000);
+        showToast(msg, 'error', 5000);
       }
     },
     [connected, sendMessage, showToast, t],
