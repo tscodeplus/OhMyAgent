@@ -7,5 +7,7 @@
   "riskHigh": "High",
   "field.risk": "Risk Level",
   "field.reason": "Reason",
-  "instructions": "Use the following commands to approve:\n- /approve — Approve (this time only)\n- /approve session — Approve (this session)\n- /approve always — Always allow\n- /deny — Deny"
+  "instructions": "Use the following commands to approve:\n- /approve — Approve (this time only)\n- /approve session — Approve (this session)\n- /approve always — Always allow\n- /deny — Deny",
+  "result.approved": "Approved: {{command}}",
+  "result.rejected": "Rejected: {{command}}"
 }

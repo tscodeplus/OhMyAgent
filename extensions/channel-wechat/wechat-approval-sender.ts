@@ -74,11 +74,28 @@ export function createWechatApprovalSender(
       return `wechat-approval-${Date.now()}`;
     },
 
-    // updateApprovalResult is a no-op for WeChat — we cannot edit sent
-    // messages. The slash command handler sends its own reply as
-    // acknowledgment.
-    async updateApprovalResult(): Promise<void> {
-      // No-op: WeChat does not support message editing.
+    /**
+     * Send a follow-up message with the approval result.
+     *
+     * WeChat does not support editing sent messages, so we send a short
+     * text message when an approval is resolved (manually or via auto-reject).
+     */
+    async updateApprovalResult(
+      _chatId: string,
+      _messageId: string,
+      decision: string,
+      command: string,
+    ): Promise<void> {
+      const isApproved = decision.startsWith('approve');
+      const key = isApproved ? 'result.approved' : 'result.rejected';
+      const truncated = command.length > 100 ? command.slice(0, 100) + '...' : command;
+      const resultText = i18n.t(`wechat-approval:${key}`, { command: truncated });
+      const emoji = isApproved ? '✅' : '❌';
+      await sendChunkedText(
+        apiBase, botToken, toUserId, contextToken,
+        `${emoji} ${resultText}`,
+        textLimit, logger,
+      ).catch(() => {});
     },
   };
 }
