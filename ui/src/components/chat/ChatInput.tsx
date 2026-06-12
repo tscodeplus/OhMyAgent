@@ -78,8 +78,10 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
     toolCallsRef.current = [];
     segmentsRef.current = [];
     flushedCleanLenRef.current = 0;
-    runningToolsRef.current = new Map();
-    approvalMessagesRef.current = new Map();
+    // NOTE: runningToolsRef and approvalMessagesRef are intentionally NOT
+    // cleared here. beginTurn is called on both the initial SSE and
+    // steer/follow-up, and clearing them would cause tool_call_end and
+    // approval_resolved events arriving after steer to be silently dropped.
     activeTurnsRef.current++;
   };
 
@@ -262,6 +264,7 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
                   ...existing.approval,
                   status: (event.decision || '').startsWith('approve') ? 'approved' : 'rejected',
                   decision: event.decision,
+                  timeoutReason: event.reason || existing.approval.timeoutReason,
                 },
               };
               approvalMessagesRef.current.set(aid, resolved);
@@ -354,8 +357,11 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
     // Signal that a new stream of output is starting (for the steer response).
     onStreamStart?.();
 
-    // Create a new bubble immediately and flag it so the later turn_start
-    // from the agent reuses it instead of creating a duplicate.
+    // The original turn was interrupted by this steer — its 'done' event
+    // may never arrive. Reset the turn counter so the steer turn's 'done'
+    // can properly set sending=false. beginTurn() increments to 1, and
+    // the steer turn's 'done' will decrement it back to 0.
+    activeTurnsRef.current = 0;
     beginTurn();
     steerBubbleRef.current = true;
 

@@ -71,10 +71,27 @@ export function createWebUIApprovalSender(
     },
 
     async updateApprovalResult(_chatId, _messageId, decision, _command) {
+      // Read the rejection reason from the persisted DB record (set by
+      // PendingApprovalStore when auto-rejecting). This lets the frontend
+      // show the correct message ("received new message" vs "timeout").
+      let reason: string | undefined;
+      if (!decision.startsWith('approve') && db && sessionId) {
+        try {
+          const msgId = `approval-${_messageId}`;
+          const row = db.prepare(
+            'SELECT metadata FROM messages WHERE id = ?',
+          ).get(msgId) as { metadata: string | null } | undefined;
+          if (row?.metadata) {
+            const meta = JSON.parse(String(row.metadata));
+            reason = meta?.approval?.timeoutReason as string | undefined;
+          }
+        } catch { /* best-effort */ }
+      }
       sendSSE({
         type: 'approval_resolved',
         approvalId: _messageId,
         decision,
+        reason,
       });
 
       // Update the persisted approval message status

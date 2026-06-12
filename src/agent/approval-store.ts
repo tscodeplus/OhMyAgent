@@ -138,25 +138,20 @@ export class PendingApprovalStore {
 
   rejectAllForSession(sessionKey: string, approvalRepo?: ApprovalRequestRepository, reason: 'stopped_by_user' | 'steered' = 'stopped_by_user'): number {
     let count = 0;
-    console.warn(`[rejectAllForSession] sessionKey=${sessionKey} reason=${reason} pendingSize=${this.pending.size}`);
     for (const [requestId, entry] of this.pending) {
-      console.warn(`[rejectAllForSession] checking entry ${requestId} sessionKey=${entry.sessionKey}`);
       if (entry.sessionKey !== sessionKey) continue;
       clearTimeout(entry.timer);
       this.pending.delete(requestId);
       if (approvalRepo) {
         approvalRepo.update(requestId, { status: 'rejected', reason });
       }
-      console.warn(`[rejectAllForSession] emitting reject_once for ${requestId}`);
       this.events.emit(requestId, 'reject_once');
       // Trigger auto-reject callback so the channel UI (e.g. Feishu approval card) is updated
       if (reason === 'steered') {
-        console.warn(`[rejectAllForSession] calling onAutoReject for ${requestId}`);
         this.onAutoReject?.(requestId, 'steered');
       }
       count++;
     }
-    console.warn(`[rejectAllForSession] rejected ${count} approvals`);
     return count;
   }
 

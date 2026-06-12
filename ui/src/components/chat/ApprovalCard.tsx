@@ -44,20 +44,27 @@ export default function ApprovalCard({
   onResolve,
 }: ApprovalCardProps) {
   const { t } = useTranslation('common');
-  const [status, setStatus] = useState<'pending' | 'approved' | 'rejected'>(initialStatus || 'pending');
+  const [localStatus, setLocalStatus] = useState<'pending' | 'approved' | 'rejected' | null>(null);
+
+  // Derive effective status: initialStatus from props (SSE / page refresh)
+  // takes precedence over local state set by button clicks. This ensures
+  // approval_resolved SSE events update the card immediately.
+  const status = (initialStatus && initialStatus !== 'pending') ? initialStatus : (localStatus || initialStatus || 'pending');
 
   const handleResolve = (decision: ApprovalDecision) => {
     if (decision.startsWith('approve')) {
-      setStatus('approved');
+      setLocalStatus('approved');
     } else {
-      setStatus('rejected');
+      setLocalStatus('rejected');
     }
     onResolve?.(approvalId, decision);
   };
 
   if (status !== 'pending') {
     const rejectedLabel = timeoutReason
-      ? t('chat.timeoutRejected', '超时已自动拒绝')
+      ? (timeoutReason === 'steered'
+          ? t('chat.steeredRejected', '收到新消息，自动拒绝未审批项')
+          : t('chat.timeoutRejected', '超时已自动拒绝'))
       : t('chat.rejected');
     return (
       <div className={`rounded-lg border px-4 py-3 text-sm ${status === 'approved' ? 'bg-success/10 border-success/30' : 'bg-danger/10 border-danger/30'}`}>
