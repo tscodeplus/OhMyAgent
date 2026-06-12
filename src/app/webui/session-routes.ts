@@ -18,16 +18,40 @@ export function registerSessionRoutes(
   // Create session
   app.post('/api/projects/:projectId/sessions', async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
+    const body = request.body as { baseTitle?: string } | undefined;
     const { v4: uuidv4 } = await import('uuid');
 
     const id = uuidv4();
     const chatId = `webui:${projectId}`;
+    const baseTitle = body?.baseTitle || 'New Chat';
+
+    // Generate unique title by appending incrementing number if needed
+    const existing = db.prepare(
+      'SELECT metadata FROM sessions WHERE project_id = ?'
+    ).all(projectId) as Array<{ metadata: string | null }>;
+
+    const titles = new Set<string>();
+    for (const row of existing) {
+      if (!row.metadata) continue;
+      try {
+        const meta = JSON.parse(String(row.metadata));
+        if (meta.title) titles.add(String(meta.title));
+      } catch { /* ignore malformed metadata */ }
+    }
+
+    let title = baseTitle;
+    if (titles.has(baseTitle)) {
+      let n = 1;
+      while (titles.has(`${baseTitle}${n}`)) n++;
+      title = `${baseTitle}${n}`;
+    }
 
     const now = Date.now();
+    const metadata = JSON.stringify({ title });
     db.prepare(`
-      INSERT INTO sessions (id, chat_id, user_id, project_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(id, chatId, 'webui-user', projectId, now, now);
+      INSERT INTO sessions (id, chat_id, user_id, project_id, metadata, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(id, chatId, 'webui-user', projectId, metadata, now, now);
 
     const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as any;
 

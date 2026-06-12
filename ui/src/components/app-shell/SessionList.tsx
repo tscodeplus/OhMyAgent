@@ -56,7 +56,11 @@ export default function SessionList({ projectId, onSessionSelect }: SessionListP
 
   const handleNewSession = async () => {
     try {
-      const s = await apiRequest<Session>(`/api/projects/${projectId}/sessions`, { method: 'POST' });
+      const baseTitle = t('chat.newSession');
+      const s = await apiRequest<Session>(`/api/projects/${projectId}/sessions`, {
+        method: 'POST',
+        body: JSON.stringify({ baseTitle }),
+      });
       setSessions(prev => [s, ...prev]);
       onSessionSelect(s.id);
     } catch { showToast(t('project.createError'), 'error'); }

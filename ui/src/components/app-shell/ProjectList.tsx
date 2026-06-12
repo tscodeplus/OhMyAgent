@@ -115,7 +115,11 @@ export default function ProjectList({ refreshKey, onRefresh, onCreateProject }: 
   const handleNewSession = async (e: React.MouseEvent, proj: Project) => {
     e.stopPropagation();
     try {
-      const s = await apiRequest<Session>(`/api/projects/${proj.id}/sessions`, { method: 'POST' });
+      const baseTitle = t('chat.newSession');
+      const s = await apiRequest<Session>(`/api/projects/${proj.id}/sessions`, {
+        method: 'POST',
+        body: JSON.stringify({ baseTitle }),
+      });
       setSelectedProjectId(proj.id);
       setSelectedSessionId(s.id);
       bumpSessionsRefreshKey();
