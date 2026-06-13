@@ -793,6 +793,8 @@ export interface AppServices {
   toolRunRepository: ToolRunRepository;
   approvalGate: ApprovalGate;
   skillRegistry: SkillRegistry;
+  /** P1-4: Skill metrics service for usage tracking and feedback analysis */
+  skillMetricsService?: import('../skills/skill-evolution/skill-metrics.js').SkillMetricsService;
   agentFactory: AgentFactory;
   agentService: AgentService;
   feishuClient: FeishuClient;

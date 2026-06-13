@@ -47,6 +47,8 @@ import { CronService } from '../cron/service.js';
 import { registerWebUIRoutes } from './webui-routes.js';
 import { createSkillLintTool } from '../tools/builtins/skills/skill-lint-definition.js';
 import { createSkillCreateTool } from '../tools/builtins/skills/skill-create-definition.js';
+import { createSkillTestTool } from '../tools/builtins/skills/skill-test-definition.js';
+import { SkillMetricsService } from '../skills/skill-evolution/skill-metrics.js';
 import { getWebUIToken } from './webui-auth.js';
 import fastifyStatic from '@fastify/static';
 import path from 'node:path';
@@ -249,6 +251,10 @@ export async function bootstrap(): Promise<BootstrapResult> {
   } catch (err) {
     logger.warn({ err }, 'Skill registry load failed — continuing without skills');
   }
+
+  // P1-4: Skill metrics service (tracks usage, success rates, feedback)
+  const skillMetricsService = new SkillMetricsService(db);
+  logger.info('Skill metrics service initialized (P1-4)');
 
   // ── Computer Use ──
 
@@ -803,6 +809,7 @@ export async function bootstrap(): Promise<BootstrapResult> {
   };
   toolRegistry.register(createSkillLintTool(skillToolsDeps));
   toolRegistry.register(createSkillCreateTool(skillToolsDeps));
+  toolRegistry.register(createSkillTestTool(skillToolsDeps));
 
   // ─── Assemble services ───
 
@@ -820,6 +827,7 @@ export async function bootstrap(): Promise<BootstrapResult> {
     toolRunRepository,
     approvalGate,
     skillRegistry,
+    skillMetricsService,
     agentFactory,
     agentService,
     feishuClient,

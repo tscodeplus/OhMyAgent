@@ -53,8 +53,18 @@ import { createDistillerLLM } from '../memory/persona-distiller.js';
 import type { PersonaStore } from '../memory/persona-store.js';
 import type { SummaryLLMConfig } from '../memory/memory-summarizer.js';
 import path from 'node:path';
+import { SkillComplianceTracker } from '../skills/skill-compliance.js';
 
 // ─── Types ───
+
+// P1-3: Skill compliance tracker (session-scoped violation tracking)
+const complianceTracker = new SkillComplianceTracker();
+/** Map of sessionId → reinforcement messages to inject in the next turn */
+const reinforcementMessages = new Map<string, string>();
+/** Map of sessionId → active skill info for compliance tracking */
+const activeSkillForSession = new Map<string, { skillId: string; skill: import('../skills/skill-loader.js').LoadedSkill }>();
+/** Map of sessionId → feedback tracking info for metrics */
+const activeSkillFeedbackIds = new Map<string, { feedbackId: string; startTime: number }>();
 
 function mergeProviderKeys(
   apiKeys: Record<string, string>,
@@ -411,6 +421,22 @@ export function createAgentFactory(
           };
           logger?.debug({ skillId: skill.manifest.id }, 'skill activated via fast path');
 
+          // P1-3: Store active skill for compliance tracking
+          const sessionKey = options?.sessionId ?? 'default';
+          activeSkillForSession.set(sessionKey, { skillId: skill.manifest.id, skill });
+
+          // P1-4: Record skill activation for metrics
+          let skillFeedbackId: string | undefined;
+          if (getServices?.()?.skillMetricsService) {
+            const metricsService = getServices()!.skillMetricsService!;
+            skillFeedbackId = metricsService.recordActivation(
+              skill.manifest.id,
+              sessionKey,
+              options.message,
+            );
+            activeSkillFeedbackIds.set(sessionKey, { feedbackId: skillFeedbackId, startTime: Date.now() });
+          }
+
           // Strip $skill-id and /skill-id tokens from the user message
           const escapedId = skill.manifest.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           let cleanMessage = options.message
@@ -484,6 +510,18 @@ export function createAgentFactory(
       } else if (compiled?.promptContent) {
         // Legacy fallback: string concatenation (when PromptManager not available)
         systemPrompt = `${systemPrompt}\n\n${compiled.promptContent}`;
+      }
+
+      // P1-3: Inject skill compliance reinforcement when needed
+      const sessionKey = options?.sessionId;
+      if (sessionKey) {
+        const reinforcement = reinforcementMessages.get(sessionKey);
+        if (reinforcement) {
+          systemPrompt = `${systemPrompt}\n\n${reinforcement}`;
+          logger?.info({ sessionId: sessionKey }, 'Skill compliance reinforcement injected into system prompt');
+          // Clear after injection (per-turn reinforcement)
+          reinforcementMessages.delete(sessionKey);
+        }
       }
 
       const sessionId = options?.sessionId;
@@ -799,6 +837,28 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
               }
             } catch {
               // Skill reload failure must not block the tool result
+            }
+          }
+
+          // P1-3: Check skill compliance (track unauthorized tool usage against active skill rules)
+          const sessionKey = sessionId ?? 'default';
+          const activeSkill = activeSkillForSession.get(sessionKey);
+          if (activeSkill && context.toolCall.name) {
+            const toolCalls: Array<{ name: string; args: Record<string, unknown> }> = [
+              { name: context.toolCall.name, args: (context.args as Record<string, unknown>) ?? {} },
+            ];
+            const complianceResult = complianceTracker.check(
+              activeSkill.skillId,
+              toolCalls,
+              activeSkill.skill,
+              sessionKey,
+            );
+            if (complianceResult.reinforcementMessage) {
+              reinforcementMessages.set(sessionKey, complianceResult.reinforcementMessage);
+              logger?.warn(
+                { skillId: activeSkill.skillId, violations: complianceResult.violations },
+                'Skill compliance violation — reinforcement queued',
+              );
             }
           }
 

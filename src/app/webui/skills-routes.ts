@@ -223,4 +223,135 @@ export function registerSkillsRoutes(app: FastifyInstance, cfg: SkillsRouteConfi
       return reply.status(500).send({ error: message });
     }
   });
+
+  /** P1-4: Skill usage metrics */
+  app.get<{ Params: { slug: string } }>('/api/skills/:slug/metrics', async (request, reply) => {
+    try {
+      const { slug } = request.params;
+      const metricsService = cfg.services.skillMetricsService;
+      if (!metricsService) {
+        return reply.status(501).send({ error: 'Metrics service not available' });
+      }
+
+      const stats = metricsService.getStats(slug);
+      if (!stats) {
+        return reply.status(404).send({ error: `No metrics data for skill "${slug}"` });
+      }
+
+      return reply.send(stats);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  });
+
+  /** P1-4: Global skill metrics summary */
+  app.get('/api/skills-metrics', async (_request, reply) => {
+    try {
+      const metricsService = cfg.services.skillMetricsService;
+      if (!metricsService) {
+        return reply.status(501).send({ error: 'Metrics service not available' });
+      }
+
+      const stats = metricsService.getGlobalStats();
+      return reply.send(stats);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  });
+
+  /** P2-2: Skill improvement proposals */
+  app.get<{ Params: { slug: string } }>('/api/skills/:slug/proposals', async (request, reply) => {
+    try {
+      const { slug } = request.params;
+      const metricsService = cfg.services.skillMetricsService;
+      if (!metricsService) {
+        return reply.status(501).send({ error: 'Metrics service not available' });
+      }
+
+      const { ProposalGenerator } = await import('../../skills/skill-evolution/proposal-generator.js');
+      const generator = new ProposalGenerator(metricsService, cfg.services.skillRegistry);
+      // Generate fresh proposals based on current metrics
+      generator.generate(slug);
+      const proposals = generator.getProposals(slug);
+
+      return reply.send({ skillId: slug, proposals });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  });
+
+  /** P2-2: Get skill health report */
+  app.get<{ Params: { slug: string } }>('/api/skills/:slug/health', async (request, reply) => {
+    try {
+      const { slug } = request.params;
+      const metricsService = cfg.services.skillMetricsService;
+      if (!metricsService) {
+        return reply.status(501).send({ error: 'Metrics service not available' });
+      }
+
+      const { ProposalGenerator } = await import('../../skills/skill-evolution/proposal-generator.js');
+      const generator = new ProposalGenerator(metricsService, cfg.services.skillRegistry);
+      const report = generator.getHealthReport(slug);
+
+      if (!report) {
+        return reply.status(404).send({ error: `No health data for skill "${slug}"` });
+      }
+
+      return reply.send(report);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  });
+
+  /** P2-2: Apply a proposal (mark as applied, does NOT auto-modify SKILL.md) */
+  app.post<{ Params: { slug: string; proposalId: string } }>('/api/skills/:slug/proposals/:proposalId/apply', async (request, reply) => {
+    try {
+      const { slug, proposalId } = request.params;
+      const metricsService = cfg.services.skillMetricsService;
+      if (!metricsService) {
+        return reply.status(501).send({ error: 'Metrics service not available' });
+      }
+
+      const { ProposalGenerator } = await import('../../skills/skill-evolution/proposal-generator.js');
+      const generator = new ProposalGenerator(metricsService, cfg.services.skillRegistry);
+      const ok = generator.applyProposal(slug, proposalId);
+
+      if (!ok) {
+        return reply.status(404).send({ error: `Proposal "${proposalId}" not found` });
+      }
+
+      return reply.send({ ok: true, skillId: slug, proposalId });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  });
+
+  /** P2-2: Dismiss a proposal */
+  app.post<{ Params: { slug: string; proposalId: string } }>('/api/skills/:slug/proposals/:proposalId/dismiss', async (request, reply) => {
+    try {
+      const { slug, proposalId } = request.params;
+      const metricsService = cfg.services.skillMetricsService;
+      if (!metricsService) {
+        return reply.status(501).send({ error: 'Metrics service not available' });
+      }
+
+      const { ProposalGenerator } = await import('../../skills/skill-evolution/proposal-generator.js');
+      const generator = new ProposalGenerator(metricsService, cfg.services.skillRegistry);
+      const ok = generator.dismissProposal(slug, proposalId);
+
+      if (!ok) {
+        return reply.status(404).send({ error: `Proposal "${proposalId}" not found` });
+      }
+
+      return reply.send({ ok: true, skillId: slug, proposalId });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  });
 }

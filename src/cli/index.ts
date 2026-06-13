@@ -14,6 +14,14 @@ function getHelpText(): string {
   ohmyagent service install    安装系统服务（开机自启）
   ohmyagent service uninstall  卸载系统服务
 
+技能管理:
+  ohmyagent skill list              列出所有技能
+  ohmyagent skill show <id>         显示技能详情
+  ohmyagent skill lint <id>         校验技能
+  ohmyagent skill test <id> --message "..."  测试技能匹配
+  ohmyagent skill create <name>     创建新技能
+  ohmyagent skill list-templates    列出可用模板
+
 订阅管理:
   ohmyagent login [provider]   登录 AI 订阅（Anthropic / GitHub Copilot / ChatGPT）
   ohmyagent logout [provider]  登出订阅
@@ -118,6 +126,11 @@ async function main(): Promise<void> {
     case 'subscription': {
       const { subscriptionCommand } = await import('./commands/subscription.js');
       await subscriptionCommand(subAction ?? 'list', args.slice(2));
+      break;
+    }
+    case 'skill': {
+      const { skillCommand } = await import('./commands/skill.js');
+      await skillCommand(subAction ?? 'help', args.slice(2));
       break;
     }
     default:

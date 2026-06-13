@@ -236,8 +236,24 @@ CREATE TABLE IF NOT EXISTS projects (
   updated_at TEXT NOT NULL DEFAULT (cast(strftime('%s','now') as integer) * 1000)
 )`;
 
+// P1-4: Skill feedback tracking
+const DDL_SKILL_FEEDBACK = `
+CREATE TABLE IF NOT EXISTS skill_feedback (
+  id TEXT PRIMARY KEY,
+  skill_id TEXT NOT NULL,
+  session_id TEXT,
+  task_message TEXT NOT NULL,
+  tool_calls_json TEXT,
+  success INTEGER,
+  duration_ms INTEGER,
+  created_at TEXT NOT NULL DEFAULT (cast(strftime('%s','now') as integer) * 1000)
+)`;
+
 // Indexes
 const INDEXES = [
+  'CREATE INDEX IF NOT EXISTS idx_skill_feedback_skill ON skill_feedback(skill_id)',
+  'CREATE INDEX IF NOT EXISTS idx_skill_feedback_session ON skill_feedback(session_id)',
+  'CREATE INDEX IF NOT EXISTS idx_skill_feedback_created ON skill_feedback(created_at)',
   'CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id)',
   'CREATE INDEX IF NOT EXISTS idx_processed_messages_processed_at ON processed_messages(processed_at)',
   'CREATE INDEX IF NOT EXISTS idx_processed_messages_source_session ON processed_messages(source, session_key)',
@@ -290,6 +306,7 @@ const ALL_DDL = [
   DDL_SCHEMA_VERSION,
   DDL_PROJECTS,
   DDL_MEMORIES_FTS,
+  DDL_SKILL_FEEDBACK,
 ];
 
 const ALL_TRIGGERS = [
