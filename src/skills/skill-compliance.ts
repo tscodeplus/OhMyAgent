@@ -163,6 +163,10 @@ export class SkillComplianceTracker {
         .filter(Boolean);
 
       for (const rule of mustRules) {
+        // Skip prohibitions and negation rules (不要/禁止/never/do not/don't/avoid)
+        if (/不要|禁止|不得|不能|never|do\s*not|don'?t|avoid|禁止|must\s*not|should\s*not/i.test(rule)) {
+          continue;
+        }
         // Check if the rule mentions a tool that must be used
         const toolMention = rule.match(/使用\s*(?:`)?(\w+)(?:`)?|use\s*(?:`)?(\w+)(?:`)?|call\s*(?:`)?(\w+)(?:`)?/i);
         if (toolMention) {
