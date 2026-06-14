@@ -62,21 +62,6 @@ interface SkillsShApiResponse {
   skills?: SkillsShApiSkill[];
 }
 
-// ── Skillhub CLI response types ───────────────────────────────────────────────
-
-interface SkillhubCliItem {
-  namespace?: string;
-  slug?: string;
-  latestVersion?: string;
-  summary?: string;
-}
-
-interface SkillhubCliResponse {
-  ok?: boolean;
-  items?: SkillhubCliItem[];
-  total?: number;
-}
-
 // ── Skillhub.cn API types ────────────────────────────────────────────────────
 
 interface SkillhubApiSkill {
@@ -148,40 +133,37 @@ export class SkillMarketplace {
   }
 
   /**
-   * Search skillhub.cn via the @astron-team/skillhub CLI.
-   * Falls back gracefully if the CLI is not installed or times out.
+   * Search skillhub.cn via its public API.
+   * GET https://api.skillhub.cn/api/skills?keyword=<query>&pageSize=<limit>
    */
   async searchSkillhub(query: string, limit: number = 20): Promise<MarketplaceSkill[]> {
+    const url = `${SKILLHUB_API}/skills?keyword=${encodeURIComponent(query)}&page=1&pageSize=${limit}`;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
+
     try {
-      const { stdout } = await execAsync(
-        `npx --yes @astron-team/skillhub search "${query}" --json 2>/dev/null`,
-        { timeout: 90_000, maxBuffer: 1024 * 1024 },
-      );
+      const res = await fetch(url, { signal: controller.signal });
+      if (!res.ok) throw new Error(`skillhub.cn API returned ${res.status}`);
 
-      const trimmed = stdout.trim();
-      if (!trimmed) return [];
+      const data: SkillhubApiResponse = await res.json();
+      if (data.code !== 0) throw new Error(`skillhub.cn API error: code=${data.code}`);
 
-      const data: SkillhubCliResponse = JSON.parse(trimmed);
-      const items = data.items ?? [];
-
-      return items.slice(0, limit).map((s) => {
-        const slug = s.slug ?? '';
-        const ns = s.namespace ?? 'global';
-        const id = `${ns}/${slug}`;
-        return {
-          id,
-          name: slug,
-          description: s.summary ?? '',
-          package: id,
-          source: 'skillhub' as const,
-          installs: 0,
-          url: `https://skillhub.cn/skill/${ns}/${slug}`,
-          version: s.latestVersion,
-          author: ns !== 'global' ? ns : undefined,
-        };
-      });
+      return (data.data.skills ?? []).map((s) => ({
+        id: `${s.ownerName}/${s.slug}`,
+        name: s.name || s.slug,
+        description: s.description ?? '',
+        package: `${s.ownerName}/${s.slug}`,
+        source: 'skillhub' as const,
+        installs: s.downloads ?? s.installs ?? 0,
+        url: s.homepage || `https://skillhub.cn/skill/${s.ownerName}/${s.slug}`,
+        author: s.ownerName,
+        version: s.version,
+      }));
     } catch {
       return [];
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -279,7 +261,8 @@ export class SkillMarketplace {
 
     if (source === 'all' || source === 'skills.sh') {
       try {
-        const ids = await this.fetchSkillsShHomepageIds(10);
+        const count = source === 'all' ? 10 : limit;
+        const ids = await this.fetchSkillsShHomepageIds(count);
         const sh = await this.enrichSkillsShWithInstalls(ids);
         results.push(...sh);
       } catch {
@@ -289,7 +272,8 @@ export class SkillMarketplace {
 
     if (source === 'all' || source === 'skillhub') {
       try {
-        const hub = await this.fetchSkillhubDownloadRanking(10);
+        const count = source === 'all' ? 10 : limit;
+        const hub = await this.fetchSkillhubDownloadRanking(count);
         results.push(...hub);
       } catch {
         // skillhub API failed — continue

@@ -90,7 +90,9 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
 
   const handlePopular = useCallback(async () => {
     setPopularLoading(true);
-    setSearched(true);
+    // Reset search state so displayList shows popular results, not stale search
+    setSearched(false);
+    setResults([]);
     setSearchError(false);
     setSelected(null);
 
@@ -117,6 +119,7 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
 
     setSearching(true);
     setSearched(true);
+    setPopularLoaded(false);
     setSearchError(false);
     setSelected(null);
 
