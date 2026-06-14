@@ -47,6 +47,9 @@ importers:
       '@smithy/types':
         specifier: ^4.14.1
         version: 4.14.1
+      adm-zip:
+        specifier: ^0.5.17
+        version: 0.5.17
       archiver:
         specifier: ^8.0.0
         version: 8.0.0
@@ -1675,6 +1678,10 @@ packages:
 
   abstract-logging@2.0.1:
     resolution: {integrity: sha512-2BjRTZxTPvheOvGbBslFSYOUkr+SjPtOnrLP33f+VIWLzezQpZcqVg7ja3L4dBXmzzgwT+a029jRx5PCi3JuiA==}
+
+  adm-zip@0.5.17:
+    resolution: {integrity: sha512-+Ut8d9LLqwEvHHJl1+PIHqoyDxFgVN847JTVM3Izi3xHDWPE4UtzzXysMZQs64DMcrJfBeS/uoEP4AD3HQHnQQ==}
+    engines: {node: '>=12.0'}
 
   agent-base@7.1.4:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
@@ -5346,6 +5353,8 @@ snapshots:
       event-target-shim: 5.0.1
 
   abstract-logging@2.0.1: {}
+
+  adm-zip@0.5.17: {}
 
   agent-base@7.1.4: {}
 

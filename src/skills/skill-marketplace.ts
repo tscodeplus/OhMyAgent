@@ -9,8 +9,10 @@
  *   - skillhub.cn API (top 10 by download count)
  */
 
-import { resolve } from 'node:path';
+import { resolve, join } from 'node:path';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { runNpx } from './npx-runner.js';
+import AdmZip from 'adm-zip';
 
 const SKILLS_SH_API = 'https://skills.sh/api';
 const SKILLS_SH_HOME = 'https://www.skills.sh';
@@ -200,18 +202,64 @@ export class SkillMarketplace {
    * Install a skill from the marketplace.
    */
   async install(packageName: string, source: 'skills.sh' | 'skillhub'): Promise<InstallResult> {
-    // skillhub.cn requires CLI authentication (skillhub login) — not automatable.
-    // Direct users to the skill page for manual installation instructions.
     if (source === 'skillhub') {
-      const slug = packageName.split('/').pop() || packageName;
-      return {
-        success: false,
-        error: `skillhub.cn 技能需要手动安装。请访问 https://www.skillhub.cn/skills/${slug} 查看安装说明`,
-      };
+      return this.installFromSkillhub(packageName);
     }
+    return this.installFromSkillsSh(packageName);
+  }
 
-    // skills.sh: use npx skills add via the cross-platform npx runner
-    // Package format: "owner/repo/skill-name" → "owner/repo@skill-name"
+  /**
+   * Install a skill from skillhub.cn by downloading the zip package.
+   * GET https://api.skillhub.cn/api/v1/download?slug=<slug> returns a zip
+   * containing SKILL.md and _meta.json. Extract into skills/<slug>/.
+   */
+  private async installFromSkillhub(packageName: string): Promise<InstallResult> {
+    const slug = packageName.split('/').pop() || packageName;
+    const downloadUrl = `https://api.skillhub.cn/api/v1/download?slug=${encodeURIComponent(slug)}`;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
+
+    try {
+      const res = await fetch(downloadUrl, { signal: controller.signal });
+      if (!res.ok) {
+        return { success: false, error: `skillhub.cn 下载失败 (HTTP ${res.status})` };
+      }
+
+      const arrayBuffer = await res.arrayBuffer();
+      if (arrayBuffer.byteLength < 100) {
+        const text = new TextDecoder().decode(arrayBuffer);
+        return { success: false, error: `skillhub.cn 下载失败: ${text.trim() || 'empty response'}` };
+      }
+
+      // Extract zip into skills/<slug>/
+      const skillDir = join(SKILLS_DIR, slug);
+      const zip = new AdmZip(Buffer.from(arrayBuffer));
+      await mkdir(skillDir, { recursive: true });
+
+      for (const entry of zip.getEntries()) {
+        if (entry.isDirectory) continue;
+        const filePath = join(skillDir, entry.entryName);
+        await mkdir(filePath.replace(/[/\\][^/\\]*$/, ''), { recursive: true });
+        await writeFile(filePath, entry.getData());
+      }
+
+      await this.skillRegistry.load(SKILLS_DIR);
+
+      return { success: true, skillId: slug, skillName: slug };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { success: false, error: message };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Install a skill from skills.sh via npx skills add.
+   * Package format: "owner/repo/skill-name" → "owner/repo@skill-name"
+   */
+  private async installFromSkillsSh(packageName: string): Promise<InstallResult> {
     const lastSlash = packageName.lastIndexOf('/');
     const pkg = lastSlash > 0
       ? `${packageName.slice(0, lastSlash)}@${packageName.slice(lastSlash + 1)}`
