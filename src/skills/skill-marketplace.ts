@@ -9,11 +9,8 @@
  *   - skillhub.cn API (top 10 by download count)
  */
 
-import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
 import { resolve } from 'node:path';
-
-const execAsync = promisify(exec);
+import { runNpx } from './npx-runner.js';
 
 const SKILLS_SH_API = 'https://skills.sh/api';
 const SKILLS_SH_HOME = 'https://www.skills.sh';
@@ -203,25 +200,25 @@ export class SkillMarketplace {
    * Install a skill from the marketplace.
    */
   async install(packageName: string, source: 'skills.sh' | 'skillhub'): Promise<InstallResult> {
-    let cmd: string;
+    let args: string[];
 
     if (source === 'skillhub') {
       // packageName is "owner/slug" — skillhub CLI expects this format
-      cmd = `npx --yes @astron-team/skillhub install "${packageName}" --agent claude-code -y`;
+      args = ['--yes', '@astron-team/skillhub', 'install', packageName, '--agent', 'claude-code', '-y'];
     } else {
       // packageName is "owner/repo/skill-name" — npx skills add expects "owner/repo@skill-name"
       const lastSlash = packageName.lastIndexOf('/');
       const pkg = lastSlash > 0
         ? `${packageName.slice(0, lastSlash)}@${packageName.slice(lastSlash + 1)}`
         : packageName;
-      cmd = `npx --yes skills add "${pkg}" -y --agent pi`;
+      args = ['--yes', 'skills', 'add', pkg, '-y', '--agent', 'pi'];
     }
 
     try {
-      const { stdout, stderr } = await execAsync(cmd, {
+      const { stdout, stderr } = await runNpx(args, {
         timeout: 120_000,
-        maxBuffer: 1024 * 1024,
         cwd: SKILLS_DIR,
+        env: { ...process.env, FORCE_COLOR: '0' },
       });
 
       const output = stdout + stderr;
