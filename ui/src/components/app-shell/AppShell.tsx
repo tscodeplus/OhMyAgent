@@ -3,7 +3,7 @@ import { Outlet, useNavigate, useParams, useLocation, NavLink } from 'react-rout
 import { useTranslation } from 'react-i18next';
 import {
   PanelLeftOpen, PanelLeftClose, Settings as SettingsIcon,
-  Bot, Sparkles, Folder, BarChart3, Database, Clock, MessageSquarePlus, Store,
+  Bot, Sparkles, Folder, BarChart3, Database, Clock, MessageSquarePlus,
 } from 'lucide-react';
 import { useProject } from '../../contexts/ProjectContext';
 import { useSettings } from '../../contexts/SettingsContext';
@@ -24,7 +24,6 @@ type Tab = { id: string; path: string; labelKey: string; icon: typeof Bot };
 const TABS: Tab[] = [
   { id: 'chat', path: '/', labelKey: 'tabs.chat', icon: Bot },
   { id: 'skills', path: '/skills', labelKey: 'tabs.skills', icon: Sparkles },
-  { id: 'marketplace', path: '/marketplace', labelKey: 'tabs.marketplace', icon: Store },
   { id: 'files', path: '/files', labelKey: 'tabs.files', icon: Folder },
   { id: 'memory', path: '/memory', labelKey: 'tabs.memory', icon: Database },
   { id: 'cron', path: '/cron', labelKey: 'tabs.cron', icon: Clock },
@@ -186,7 +185,6 @@ export default function AppShell() {
             ) : (
               <span className="shrink-0 font-medium">
                 {location.pathname.startsWith('/skills') ? t('nav.skills') :
-                 location.pathname.startsWith('/marketplace') ? t('nav.marketplace') :
                  location.pathname.startsWith('/files') ? t('nav.files') :
                  location.pathname.startsWith('/dashboard') ? t('nav.dashboard') :
                  location.pathname.startsWith('/memory') ? t('nav.memory') :

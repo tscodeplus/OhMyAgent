@@ -7,7 +7,6 @@ import LoginPage from './components/auth/LoginPage';
 import ConnectionErrorPage from './components/auth/ConnectionErrorPage';
 import ChatView from './components/chat/ChatView';
 import SkillsView from './components/skills/SkillsView';
-import SkillMarketplace from './components/skills/SkillMarketplace';
 import FilesView from './components/files/FilesView';
 import DashboardView from './components/dashboard/DashboardView';
 import MemoryView from './components/memory/MemoryView';
@@ -96,7 +95,6 @@ export default function App() {
         <Route path="/p/:projectId" element={<ChatView />} />
         <Route path="/p/:projectId/s/:sessionId" element={<ChatView />} />
         <Route path="/skills" element={<SkillsView />} />
-        <Route path="/marketplace" element={<SkillMarketplace />} />
         <Route path="/files" element={<FilesView />} />
         <Route path="/dashboard" element={<DashboardView />} />
         <Route path="/memory" element={<MemoryView />} />

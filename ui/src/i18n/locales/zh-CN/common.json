@@ -638,7 +638,9 @@
     "cancel": "取消"
   },
   "skills": {
-    "title": "技能管理",
+    "title": "技能",
+    "tabManage": "技能管理",
+    "tabMarketplace": "技能市场",
     "empty": "暂无技能，点击「新建」创建",
     "newSkill": "新建",
     "createSkill": "创建技能",

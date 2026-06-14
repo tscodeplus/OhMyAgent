@@ -585,6 +585,8 @@
   },
   "skills": {
     "title": "Skills",
+    "tabManage": "Manage",
+    "tabMarketplace": "Marketplace",
     "empty": "No skills yet. Click \"New\" to create one.",
     "newSkill": "New",
     "createSkill": "Create Skill",

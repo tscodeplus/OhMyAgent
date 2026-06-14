@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Search, Store, ExternalLink, Download, Check, Loader2, Package } from 'lucide-react';
+import { Search, ExternalLink, Download, Check, Loader2, Package } from 'lucide-react';
 import { apiRequest } from '../../utils/api';
 import { useToast } from '../ui/Toast';
 import Button from '../ui/Button';
@@ -32,6 +32,11 @@ interface InstallResult {
   error?: string;
 }
 
+interface SkillMarketplaceProps {
+  /** Called after a successful install so the parent can refresh the skill list */
+  onInstall?: () => void;
+}
+
 type SourceFilter = 'all' | 'skills.sh' | 'skillhub';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -45,7 +50,6 @@ function formatInstalls(n: number): string {
 function getInitials(name: string): string {
   const trimmed = name.trim();
   if (!trimmed) return '?';
-  // Take first character of first two "words" (split by dash, underscore, space)
   const parts = trimmed.split(/[-_\s]+/).filter(Boolean);
   if (parts.length >= 2) return (parts[0]![0] + parts[1]![0]).toUpperCase();
   return trimmed.slice(0, 2).toUpperCase();
@@ -60,7 +64,7 @@ const sourceColors: Record<string, string> = {
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export default function SkillMarketplace() {
+export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
   const { t } = useTranslation('common');
   const { showToast } = useToast();
 
@@ -70,30 +74,30 @@ export default function SkillMarketplace() {
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<MarketplaceSkill[]>([]);
   const [searched, setSearched] = useState(false);
+  const [searchError, setSearchError] = useState(false);
 
-  // Popular / initial load
-  const [popularLoading, setPopularLoading] = useState(true);
+  // Popular / initial load — lazy, no loading indicator
   const [popular, setPopular] = useState<MarketplaceSkill[]>([]);
+  const [popularLoaded, setPopularLoaded] = useState(false);
 
   // Selection & install
   const [selected, setSelected] = useState<MarketplaceSkill | null>(null);
   const [installing, setInstalling] = useState(false);
   const [installedPkgs, setInstalledPkgs] = useState<Set<string>>(new Set());
 
-  // ── Load popular skills on mount ────────────────────────────────────────
+  // ── Lazy-load popular skills (no spinner) ───────────────────────────────
 
   useEffect(() => {
     let cancelled = false;
-    setPopularLoading(true);
     apiRequest<{ results: MarketplaceSkill[] }>('/api/marketplace/popular?limit=12')
       .then((data) => {
-        if (!cancelled) setPopular(data.results ?? []);
+        if (!cancelled) {
+          setPopular(data.results ?? []);
+          setPopularLoaded(true);
+        }
       })
       .catch(() => {
-        // Silently fail — popular is nice-to-have
-      })
-      .finally(() => {
-        if (!cancelled) setPopularLoading(false);
+        if (!cancelled) setPopularLoaded(true);
       });
     return () => { cancelled = true; };
   }, []);
@@ -106,6 +110,7 @@ export default function SkillMarketplace() {
 
     setSearching(true);
     setSearched(true);
+    setSearchError(false);
     setSelected(null);
 
     try {
@@ -113,6 +118,7 @@ export default function SkillMarketplace() {
       const data = await apiRequest<SearchResult>(`/api/marketplace/search?${params.toString()}`);
       setResults(data.results ?? []);
     } catch {
+      setSearchError(true);
       showToast(t('marketplace.loadError'), 'error');
       setResults([]);
     } finally {
@@ -143,6 +149,8 @@ export default function SkillMarketplace() {
       if (result.success) {
         setInstalledPkgs((prev) => new Set(prev).add(selected.package));
         showToast(t('marketplace.installSuccess', { name: result.skillName || selected.name }), 'success');
+        // Notify parent so it can refresh the skill list
+        onInstall?.();
       } else {
         showToast(result.error || t('marketplace.installError'), 'error');
       }
@@ -151,22 +159,14 @@ export default function SkillMarketplace() {
     } finally {
       setInstalling(false);
     }
-  }, [selected, showToast, t]);
+  }, [selected, showToast, t, onInstall]);
 
   // ── Display list ────────────────────────────────────────────────────────
 
-  const displayList = searched ? results : popular;
+  const displayList = searched ? results : (popularLoaded ? popular : []);
 
   return (
-    <div className="flex h-full flex-col bg-white dark:bg-neutral-950">
-      {/* Header */}
-      <div className="flex h-10 shrink-0 items-center justify-between border-b border-neutral-200 px-3 sm:px-6 dark:border-neutral-800">
-        <div className="flex items-center gap-2 text-[13px] text-neutral-700 dark:text-neutral-200">
-          <Store className="h-3.5 w-3.5 text-violet-500" strokeWidth={1.75} />
-          <span className="font-medium">{t('marketplace.title')}</span>
-        </div>
-      </div>
-
+    <div className="flex min-h-0 flex-1 flex-col">
       {/* Search bar */}
       <div className="shrink-0 border-b border-neutral-200 px-3 sm:px-6 py-2.5 dark:border-neutral-800">
         <div className="flex gap-2">
@@ -204,7 +204,7 @@ export default function SkillMarketplace() {
         {/* Left: Skill list */}
         <div className="w-[42%] max-sm:w-full shrink-0 flex flex-col border-r border-neutral-200 dark:border-neutral-800">
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {popularLoading || searching ? (
+            {searching ? (
               <div className="flex items-center justify-center gap-2 py-12 text-neutral-500 dark:text-neutral-400">
                 <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} />
                 <span className="text-xs">{t('marketplace.loading')}</span>
@@ -213,7 +213,9 @@ export default function SkillMarketplace() {
               <div className="flex flex-col items-center justify-center gap-2 py-12 text-neutral-400 dark:text-neutral-500">
                 <Package className="h-8 w-8 opacity-50" strokeWidth={1.5} />
                 <span className="text-xs">
-                  {searched ? t('marketplace.noResults') : t('marketplace.noResults')}
+                  {searched
+                    ? (searchError ? t('marketplace.loadError') : t('marketplace.noResults'))
+                    : t('marketplace.searchPlaceholder')}
                 </span>
               </div>
             ) : (
