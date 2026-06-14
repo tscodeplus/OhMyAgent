@@ -89,7 +89,7 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
 
   useEffect(() => {
     let cancelled = false;
-    apiRequest<{ results: MarketplaceSkill[] }>('/api/marketplace/popular?limit=12')
+    apiRequest<{ results: MarketplaceSkill[] }>('/api/marketplace/popular?limit=12', { timeoutMs: 30_000 })
       .then((data) => {
         if (!cancelled) {
           setPopular(data.results ?? []);
@@ -115,7 +115,7 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
 
     try {
       const params = new URLSearchParams({ q, source, limit: '30' });
-      const data = await apiRequest<SearchResult>(`/api/marketplace/search?${params.toString()}`);
+      const data = await apiRequest<SearchResult>(`/api/marketplace/search?${params.toString()}`, { timeoutMs: 90_000 });
       setResults(data.results ?? []);
     } catch {
       setSearchError(true);

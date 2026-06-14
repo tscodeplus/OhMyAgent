@@ -22,7 +22,7 @@ export interface ApiError {
 
 export async function apiRequest<T>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit & { timeoutMs?: number } = {}
 ): Promise<T> {
   const token = getToken();
   const hasBody = !!options.body;
@@ -36,8 +36,9 @@ export async function apiRequest<T>(
   }
 
   // Apply timeout via AbortController (respects any caller-supplied signal)
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   const originalSignal = options.signal;
   if (originalSignal) {
     originalSignal.addEventListener('abort', () => controller.abort());

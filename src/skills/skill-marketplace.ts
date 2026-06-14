@@ -128,7 +128,7 @@ export class SkillMarketplace {
     try {
       const { stdout } = await execAsync(
         `npx --yes @astron-team/skillhub search "${query}" --json 2>/dev/null`,
-        { timeout: 60_000, maxBuffer: 1024 * 1024 },
+        { timeout: 90_000, maxBuffer: 1024 * 1024 },
       );
 
       const trimmed = stdout.trim();
@@ -257,14 +257,42 @@ export class SkillMarketplace {
   }
 
   /**
-   * Get popular/trending skills from skills.sh.
-   * Uses an empty search which returns top installed skills.
+   * Get popular/trending skills.
+   *
+   * skills.sh empty-query search is rejected, so we use a set of popular
+   * keywords to sample high-install skills from diverse categories, then
+   * merge, deduplicate, and sort by installs.
+   *
    * Skillhub is excluded from popular by default (CLI is too slow for page-load).
    */
   async getPopular(source: 'skills.sh' | 'skillhub' | 'all' = 'all', limit: number = 20): Promise<MarketplaceSkill[]> {
-    // For popular, prefer skills.sh API (fast HTTP) over skillhub CLI (slow npx download)
     const effectiveSource = source === 'all' ? 'skills.sh' : source;
-    const result = await this.search('', effectiveSource, limit);
-    return result.results;
+
+    if (effectiveSource === 'skillhub') {
+      const result = await this.search('agent', 'skillhub', limit);
+      return result.results;
+    }
+
+    // Sample popular keywords across different domains to gather a diverse set
+    const keywords = ['react', 'python', 'testing', 'deploy', 'agent', 'security'];
+    const searches = keywords.map((kw) =>
+      this.searchSkillsSh(kw, 6).catch(() => [] as MarketplaceSkill[]),
+    );
+
+    const allResults = await Promise.all(searches);
+    const seen = new Set<string>();
+    const merged: MarketplaceSkill[] = [];
+
+    for (const batch of allResults) {
+      for (const skill of batch) {
+        if (seen.has(skill.id)) continue;
+        seen.add(skill.id);
+        merged.push(skill);
+      }
+    }
+
+    // Sort by installs descending, take top N
+    merged.sort((a, b) => b.installs - a.installs);
+    return merged.slice(0, limit);
   }
 }
