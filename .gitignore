@@ -20,3 +20,6 @@ CLAUDE.md
 coverage/
 MyDocs/
 *.tsbuildinfo
+.pi/
+skills/skills-lock.json
+skills/.pi/

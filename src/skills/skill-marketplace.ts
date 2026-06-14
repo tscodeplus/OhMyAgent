@@ -206,9 +206,15 @@ export class SkillMarketplace {
     let cmd: string;
 
     if (source === 'skillhub') {
+      // packageName is "owner/slug" — skillhub CLI expects this format
       cmd = `npx --yes @astron-team/skillhub install "${packageName}" --agent claude-code -y`;
     } else {
-      cmd = `npx --yes skills add "${packageName}" -y --agent pi`;
+      // packageName is "owner/repo/skill-name" — npx skills add expects "owner/repo@skill-name"
+      const lastSlash = packageName.lastIndexOf('/');
+      const pkg = lastSlash > 0
+        ? `${packageName.slice(0, lastSlash)}@${packageName.slice(lastSlash + 1)}`
+        : packageName;
+      cmd = `npx --yes skills add "${pkg}" -y --agent pi`;
     }
 
     try {
