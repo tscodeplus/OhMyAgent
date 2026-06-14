@@ -9,8 +9,8 @@
  *   - skillhub.cn API (top 10 by download count)
  */
 
-import { resolve, join } from 'node:path';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { resolve, join, basename } from 'node:path';
+import { mkdir, writeFile, readdir, cp, rm } from 'node:fs/promises';
 import { runNpx } from './npx-runner.js';
 import AdmZip from 'adm-zip';
 
@@ -287,10 +287,29 @@ export class SkillMarketplace {
         return { success: false, error: output.slice(-500) || 'Unknown installation error' };
       }
 
-      await this.skillRegistry.load(SKILLS_DIR);
-
+      // npx skills add installs to .pi/skills/<name>/ — move to skills/<name>/
       const skillName = pkg.split('@').pop() || packageName;
       const skillId = skillName.toLowerCase().replace(/[^a-z0-9._-]/g, '-');
+      const piSkillsDir = join(SKILLS_DIR, '.pi', 'skills');
+      const targetDir = join(SKILLS_DIR, skillId);
+
+      try {
+        const entries = await readdir(piSkillsDir);
+        for (const entry of entries) {
+          if (entry.startsWith('.')) continue;
+          const src = join(piSkillsDir, entry);
+          // Move to skills/<id>/, overwriting any previous version
+          await rm(targetDir, { recursive: true, force: true });
+          await cp(src, targetDir, { recursive: true });
+          await rm(src, { recursive: true, force: true });
+          break; // Only move the first (most recently installed) skill
+        }
+      } catch {
+        // If .pi/skills doesn't exist or is empty, the skill may already be
+        // in the right place — proceed with reload anyway.
+      }
+
+      await this.skillRegistry.load(SKILLS_DIR);
 
       return { success: true, skillId, skillName };
     } catch (err) {
