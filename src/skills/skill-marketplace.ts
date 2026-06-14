@@ -155,9 +155,8 @@ export class SkillMarketplace {
         description: s.description ?? '',
         package: `${s.ownerName}/${s.slug}`,
         source: 'skillhub' as const,
-        // skillhub.cn website shows "installs" (not cumulative downloads)
-        installs: s.installs ?? s.downloads ?? 0,
-        url: s.homepage || `https://skillhub.cn/skill/${s.ownerName}/${s.slug}`,
+        installs: s.downloads ?? s.installs ?? 0,
+        url: `https://www.skillhub.cn/skills/${s.slug}`,
         author: s.ownerName,
         version: s.version,
       }));
@@ -394,9 +393,8 @@ export class SkillMarketplace {
         description: s.description ?? '',
         package: `${s.ownerName}/${s.slug}`,
         source: 'skillhub' as const,
-        // skillhub.cn website shows "installs" (not cumulative downloads)
-        installs: s.installs ?? s.downloads ?? 0,
-        url: s.homepage || `https://skillhub.cn/skill/${s.ownerName}/${s.slug}`,
+        installs: s.downloads ?? s.installs ?? 0,
+        url: `https://www.skillhub.cn/skills/${s.slug}`,
         author: s.ownerName,
         version: s.version,
       }));
