@@ -360,7 +360,12 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
                   {t('marketplace.viewOnMarket')}
                 </a>
 
-                {installedPkgs.has(selected.package) ? (
+                {selected.source === 'skillhub' ? (
+                  <Button variant="primary" size="sm" onClick={() => window.open(selected.url, '_blank')}>
+                    <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.75} />
+                    {t('marketplace.viewOnMarket')}
+                  </Button>
+                ) : installedPkgs.has(selected.package) ? (
                   <Button variant="secondary" size="sm" disabled>
                     <Check className="h-3.5 w-3.5" strokeWidth={2} />
                     {t('marketplace.installed')}

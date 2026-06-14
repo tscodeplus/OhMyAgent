@@ -200,26 +200,32 @@ export class SkillMarketplace {
    * Install a skill from the marketplace.
    */
   async install(packageName: string, source: 'skills.sh' | 'skillhub'): Promise<InstallResult> {
-    let args: string[];
-
+    // skillhub.cn requires CLI authentication (skillhub login) — not automatable.
+    // Direct users to the skill page for manual installation instructions.
     if (source === 'skillhub') {
-      // packageName is "owner/slug" — skillhub CLI expects this format
-      args = ['--yes', '@astron-team/skillhub', 'install', packageName, '--agent', 'claude-code', '-y'];
-    } else {
-      // packageName is "owner/repo/skill-name" — npx skills add expects "owner/repo@skill-name"
-      const lastSlash = packageName.lastIndexOf('/');
-      const pkg = lastSlash > 0
-        ? `${packageName.slice(0, lastSlash)}@${packageName.slice(lastSlash + 1)}`
-        : packageName;
-      args = ['--yes', 'skills', 'add', pkg, '-y', '--agent', 'pi'];
+      const slug = packageName.split('/').pop() || packageName;
+      return {
+        success: false,
+        error: `skillhub.cn 技能需要手动安装。请访问 https://www.skillhub.cn/skills/${slug} 查看安装说明`,
+      };
     }
 
+    // skills.sh: use npx skills add via the cross-platform npx runner
+    // Package format: "owner/repo/skill-name" → "owner/repo@skill-name"
+    const lastSlash = packageName.lastIndexOf('/');
+    const pkg = lastSlash > 0
+      ? `${packageName.slice(0, lastSlash)}@${packageName.slice(lastSlash + 1)}`
+      : packageName;
+
     try {
-      const { stdout, stderr } = await runNpx(args, {
-        timeout: 120_000,
-        cwd: SKILLS_DIR,
-        env: { ...process.env, FORCE_COLOR: '0' },
-      });
+      const { stdout, stderr } = await runNpx(
+        ['--yes', 'skills', 'add', pkg, '-y', '--agent', 'pi'],
+        {
+          timeout: 120_000,
+          cwd: SKILLS_DIR,
+          env: { ...process.env, FORCE_COLOR: '0' },
+        },
+      );
 
       const output = stdout + stderr;
 
@@ -235,7 +241,7 @@ export class SkillMarketplace {
 
       await this.skillRegistry.load(SKILLS_DIR);
 
-      const skillName = packageName.split('@').pop() || packageName.split('/').pop() || packageName;
+      const skillName = pkg.split('@').pop() || packageName;
       const skillId = skillName.toLowerCase().replace(/[^a-z0-9._-]/g, '-');
 
       return { success: true, skillId, skillName };
