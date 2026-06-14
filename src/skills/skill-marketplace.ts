@@ -3,6 +3,10 @@
  *
  * Provides search and install capabilities from skills.sh and skillhub.cn.
  * After installation, reloads the SkillRegistry so new skills are immediately available.
+ *
+ * Popular skills are fetched directly from:
+ *   - skills.sh homepage (top 10 by all-time installs)
+ *   - skillhub.cn API (top 10 by download count)
  */
 
 import { exec } from 'node:child_process';
@@ -12,11 +16,9 @@ import { resolve } from 'node:path';
 const execAsync = promisify(exec);
 
 const SKILLS_SH_API = 'https://skills.sh/api';
-const SKILLS_SH_V1 = 'https://skills.sh/api/v1';
+const SKILLS_SH_HOME = 'https://www.skills.sh';
+const SKILLHUB_API = 'https://api.skillhub.cn/api';
 const SKILLS_DIR = resolve('./skills');
-
-/** Vercel OIDC token for authenticated v1 API access. Set via SKILLS_SH_TOKEN env var. */
-const SKILLS_SH_TOKEN = process.env.SKILLS_SH_TOKEN || '';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -60,39 +62,6 @@ interface SkillsShApiResponse {
   skills?: SkillsShApiSkill[];
 }
 
-// ── Skills.sh v1 API types (authenticated) ───────────────────────────────────
-
-interface SkillsShV1Skill {
-  id: string;
-  slug: string;
-  name: string;
-  source: string;
-  installs: number;
-  sourceType?: string;
-  installUrl?: string;
-  url?: string;
-}
-
-interface SkillsShV1Response {
-  data: SkillsShV1Skill[];
-  pagination?: { page: number; per_page: number; total: number };
-}
-
-// ── Internal helpers ─────────────────────────────────────────────────────────
-
-function mapV1Skill(s: SkillsShV1Skill): MarketplaceSkill {
-  return {
-    id: s.id,
-    name: s.name || s.slug,
-    description: '',
-    package: s.id,
-    source: 'skills.sh' as const,
-    installs: s.installs ?? 0,
-    url: s.url ?? `https://skills.sh/${s.id}`,
-    author: s.source,
-  };
-}
-
 // ── Skillhub CLI response types ───────────────────────────────────────────────
 
 interface SkillhubCliItem {
@@ -106,6 +75,30 @@ interface SkillhubCliResponse {
   ok?: boolean;
   items?: SkillhubCliItem[];
   total?: number;
+}
+
+// ── Skillhub.cn API types ────────────────────────────────────────────────────
+
+interface SkillhubApiSkill {
+  slug: string;
+  name: string;
+  description: string;
+  downloads: number;
+  installs: number;
+  ownerName: string;
+  homepage: string;
+  version?: string;
+  source?: string;
+  category?: string;
+  tags?: string[] | null;
+}
+
+interface SkillhubApiResponse {
+  code: number;
+  data: {
+    skills: SkillhubApiSkill[];
+    total?: number;
+  };
 }
 
 // ── Marketplace class ────────────────────────────────────────────────────────
@@ -157,9 +150,6 @@ export class SkillMarketplace {
   /**
    * Search skillhub.cn via the @astron-team/skillhub CLI.
    * Falls back gracefully if the CLI is not installed or times out.
-   *
-   * NOTE: first run downloads the CLI package via npx, which can take 30-60s.
-   * The CLI response uses `items` (not `skills`) with `slug`/`summary` fields.
    */
   async searchSkillhub(query: string, limit: number = 20): Promise<MarketplaceSkill[]> {
     try {
@@ -191,16 +181,12 @@ export class SkillMarketplace {
         };
       });
     } catch {
-      // CLI not available, timed out, or network error — return empty gracefully
       return [];
     }
   }
 
   /**
    * Unified search — queries selected marketplaces.
-   *
-   * Searches run sequentially to avoid overwhelming slow CLI startups,
-   * but individual source failures never block the other source.
    */
   async search(
     query: string,
@@ -227,23 +213,12 @@ export class SkillMarketplace {
       }
     }
 
-    // Sort by installs descending
     results.sort((a, b) => b.installs - a.installs);
-
-    return {
-      query,
-      source,
-      results: results.slice(0, limit),
-    };
+    return { query, source, results: results.slice(0, limit) };
   }
 
   /**
    * Install a skill from the marketplace.
-   *
-   * - skills.sh: uses `npx skills add <package> -y --agent pi`
-   * - skillhub:  uses `npx @astron-team/skillhub install <package> --agent claude-code -y`
-   *
-   * After installation, reloads the SkillRegistry.
    */
   async install(packageName: string, source: 'skills.sh' | 'skillhub'): Promise<InstallResult> {
     let cmd: string;
@@ -263,7 +238,6 @@ export class SkillMarketplace {
 
       const output = stdout + stderr;
 
-      // Check for success indicators
       const success =
         output.includes('Installation complete') ||
         output.includes('Installed') ||
@@ -274,119 +248,185 @@ export class SkillMarketplace {
         return { success: false, error: output.slice(-500) || 'Unknown installation error' };
       }
 
-      // Reload skills so the new skill is immediately available
       await this.skillRegistry.load(SKILLS_DIR);
 
-      // Try to discover the installed skill's ID from its directory name
-      // The package format is typically "owner/repo@skillname" or "namespace/slug"
       const skillName = packageName.split('@').pop() || packageName.split('/').pop() || packageName;
       const skillId = skillName.toLowerCase().replace(/[^a-z0-9._-]/g, '-');
 
-      return {
-        success: true,
-        skillId,
-        skillName,
-      };
+      return { success: true, skillId, skillName };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return { success: false, error: message };
     }
   }
 
+  // ── Popular skills ──────────────────────────────────────────────────────────
+
   /**
-   * Fetch trending skills from the official skills.sh v1 API.
-   * Requires a Vercel OIDC token (SKILLS_SH_TOKEN env var).
-   * Falls back to bigram sampling on the old unauthenticated /api/search.
+   * Get popular skills from both marketplaces.
+   *
+   * - skills.sh: scrapes the homepage leaderboard (all-time ranking), then
+   *   enriches each skill with its install count via the search API.
+   * - skillhub.cn: calls the API sorted by downloads.
+   *
+   * Results from both sources are merged and deduplicated.
    */
-  async getPopular(source: 'skills.sh' | 'skillhub' | 'all' = 'all', limit: number = 20): Promise<MarketplaceSkill[]> {
-    const effectiveSource = source === 'all' ? 'skills.sh' : source;
+  async getPopular(
+    source: 'skills.sh' | 'skillhub' | 'all' = 'all',
+    limit: number = 20,
+  ): Promise<MarketplaceSkill[]> {
+    const results: MarketplaceSkill[] = [];
 
-    if (effectiveSource === 'skillhub') {
-      const result = await this.search('agent', 'skillhub', limit);
-      return result.results;
-    }
-
-    // 1. Try the authenticated v1 API first (real trending data)
-    if (SKILLS_SH_TOKEN) {
+    if (source === 'all' || source === 'skills.sh') {
       try {
-        const skills = await this.getV1Trending(limit);
-        if (skills.length > 0) return skills;
+        const ids = await this.fetchSkillsShHomepageIds(10);
+        const sh = await this.enrichSkillsShWithInstalls(ids);
+        results.push(...sh);
       } catch {
-        // Fall through to bigram fallback
+        // skills.sh homepage scrape failed — continue
       }
     }
 
-    // 2. Fallback: bigram sampling on the old unauthenticated /api/search
-    return this.getPopularFallback(limit);
+    if (source === 'all' || source === 'skillhub') {
+      try {
+        const hub = await this.fetchSkillhubDownloadRanking(10);
+        results.push(...hub);
+      } catch {
+        // skillhub API failed — continue
+      }
+    }
+
+    // Deduplicate by id, keeping the one with more installs
+    const seen = new Map<string, MarketplaceSkill>();
+    for (const skill of results) {
+      const existing = seen.get(skill.id);
+      if (!existing || skill.installs > existing.installs) {
+        seen.set(skill.id, skill);
+      }
+    }
+
+    const merged = Array.from(seen.values());
+    merged.sort((a, b) => b.installs - a.installs);
+    return merged.slice(0, limit);
   }
 
   /**
-   * Fetch trending skills from the skills.sh v1 API (authenticated).
-   * GET /api/v1/skills?view=trending
+   * Scrape skills.sh homepage for top N skill IDs (in leaderboard order).
    */
-  private async getV1Trending(limit: number): Promise<MarketplaceSkill[]> {
-    const url = `${SKILLS_SH_V1}/skills?view=trending&per_page=${Math.min(limit, 100)}`;
-
+  private async fetchSkillsShHomepageIds(limit: number): Promise<string[]> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15_000);
 
     try {
-      const res = await fetch(url, {
-        signal: controller.signal,
-        headers: { Authorization: `Bearer ${SKILLS_SH_TOKEN}` },
-      });
+      const res = await fetch(SKILLS_SH_HOME, { signal: controller.signal });
+      if (!res.ok) throw new Error(`skills.sh homepage returned ${res.status}`);
 
-      if (!res.ok) {
-        if (res.status === 401 || res.status === 403) {
-          // Token invalid/expired — don't retry, fall through to fallback
-          return [];
-        }
-        throw new Error(`skills.sh v1 API returned ${res.status}`);
-      }
-
-      const data: SkillsShV1Response = await res.json();
-      return (data.data ?? []).map(mapV1Skill);
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        throw new Error('skills.sh v1 trending timed out');
-      }
-      throw err;
+      const html = await res.text();
+      return this.parseSkillsShIds(html, limit);
     } finally {
       clearTimeout(timer);
     }
   }
 
-  /**
-   * Approximate trending via bigram sampling on the old unauthenticated API.
-   *
-   * The top 24 most frequent English bigrams are used as unbiased probes
-   * across the entire skills.sh corpus. Results are merged, deduplicated,
-   * and sorted by install count.
-   */
-  private async getPopularFallback(limit: number): Promise<MarketplaceSkill[]> {
-    const bigrams = [
-      'th', 'he', 'in', 'er', 'an', 're', 'on', 'at',
-      'en', 'nd', 'ti', 'es', 'or', 'te', 'al', 'it',
-      'is', 'ng', 'ar', 'st', 'ed', 'to', 'nt', 'ha',
-    ];
-
-    const searches = bigrams.map((bg) =>
-      this.searchSkillsSh(bg, 15).catch(() => [] as MarketplaceSkill[]),
-    );
-
-    const allResults = await Promise.all(searches);
+  /** Extract skill IDs from skills.sh homepage HTML. */
+  private parseSkillsShIds(html: string, limit: number): string[] {
+    const ids: string[] = [];
     const seen = new Set<string>();
-    const merged: MarketplaceSkill[] = [];
 
-    for (const batch of allResults) {
-      for (const skill of batch) {
-        if (seen.has(skill.id)) continue;
-        seen.add(skill.id);
-        merged.push(skill);
-      }
+    const rowRegex = /href="(\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+)"/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = rowRegex.exec(html)) !== null) {
+      const id = match[1].slice(1); // strip leading /
+      const parts = id.split('/');
+      if (parts.length !== 3) continue;
+
+      const [owner] = parts as [string, string, string];
+      const skip = new Set(['topic', 'trending', 'hot', 'official', 'search', 'docs',
+        'about', 'audit', 'contact', 'privacy', 'terms', 'agent', 'agents', 'api',
+        'icon', 'favicon', 'svg', 'opengraph', 'sitemap']);
+      if (skip.has(owner)) continue;
+
+      if (seen.has(id)) continue;
+      seen.add(id);
+      ids.push(id);
+
+      if (ids.length >= limit) break;
     }
 
-    merged.sort((a, b) => b.installs - a.installs);
-    return merged.slice(0, limit);
+    return ids;
+  }
+
+  /**
+   * Enrich skills.sh skill IDs with install counts via parallel search API lookups.
+   */
+  private async enrichSkillsShWithInstalls(ids: string[]): Promise<MarketplaceSkill[]> {
+    // Search each skill by name (the last segment of the ID) to get its install count
+    const lookups = ids.map(async (id) => {
+      const name = id.split('/').pop() || id;
+      const [owner, repo] = id.split('/');
+      try {
+        const skills = await this.searchSkillsSh(name, 5);
+        const match = skills.find((s) => s.id === id);
+        if (match) return match;
+        // Fallback: build minimal skill without install count
+        return {
+          id,
+          name,
+          description: '',
+          package: id,
+          source: 'skills.sh' as const,
+          installs: 0,
+          url: `https://skills.sh/${id}`,
+          author: `${owner}/${repo}`,
+        };
+      } catch {
+        return {
+          id,
+          name,
+          description: '',
+          package: id,
+          source: 'skills.sh' as const,
+          installs: 0,
+          url: `https://skills.sh/${id}`,
+          author: `${owner}/${repo}`,
+        };
+      }
+    });
+
+    return Promise.all(lookups);
+  }
+
+  /**
+   * Fetch the download ranking from skillhub.cn API.
+   * GET https://api.skillhub.cn/api/skills?sortBy=downloads&order=desc
+   */
+  private async fetchSkillhubDownloadRanking(limit: number): Promise<MarketplaceSkill[]> {
+    const url = `${SKILLHUB_API}/skills?page=1&pageSize=${limit}&sortBy=downloads&order=desc`;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
+
+    try {
+      const res = await fetch(url, { signal: controller.signal });
+      if (!res.ok) throw new Error(`skillhub.cn API returned ${res.status}`);
+
+      const data: SkillhubApiResponse = await res.json();
+      if (data.code !== 0) throw new Error(`skillhub.cn API error: code=${data.code}`);
+
+      return (data.data.skills ?? []).map((s) => ({
+        id: `${s.ownerName}/${s.slug}`,
+        name: s.name || s.slug,
+        description: s.description ?? '',
+        package: `${s.ownerName}/${s.slug}`,
+        source: 'skillhub' as const,
+        installs: s.downloads ?? s.installs ?? 0,
+        url: s.homepage || `https://skillhub.cn/skill/${s.ownerName}/${s.slug}`,
+        author: s.ownerName,
+        version: s.version,
+      }));
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }
