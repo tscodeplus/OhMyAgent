@@ -269,7 +269,7 @@ export class SkillMarketplace {
    *   enriches each skill with its install count via the search API.
    * - skillhub.cn: calls the API sorted by downloads.
    *
-   * Results from both sources are merged and deduplicated.
+   * Results are returned separately per source (no cross-source dedup).
    */
   async getPopular(
     source: 'skills.sh' | 'skillhub' | 'all' = 'all',
@@ -296,18 +296,7 @@ export class SkillMarketplace {
       }
     }
 
-    // Deduplicate by id, keeping the one with more installs
-    const seen = new Map<string, MarketplaceSkill>();
-    for (const skill of results) {
-      const existing = seen.get(skill.id);
-      if (!existing || skill.installs > existing.installs) {
-        seen.set(skill.id, skill);
-      }
-    }
-
-    const merged = Array.from(seen.values());
-    merged.sort((a, b) => b.installs - a.installs);
-    return merged.slice(0, limit);
+    return results;
   }
 
   /**

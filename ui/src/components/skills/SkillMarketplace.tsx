@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Search, ExternalLink, Download, Check, Loader2, Package } from 'lucide-react';
+import { Search, ExternalLink, Download, Check, Loader2, Package, TrendingUp } from 'lucide-react';
 import { apiRequest } from '../../utils/api';
 import { useToast } from '../ui/Toast';
 import Button from '../ui/Button';
@@ -76,8 +76,9 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
   const [searched, setSearched] = useState(false);
   const [searchError, setSearchError] = useState(false);
 
-  // Popular / initial load — lazy, no loading indicator
+  // Popular state — loaded on demand via button click
   const [popular, setPopular] = useState<MarketplaceSkill[]>([]);
+  const [popularLoading, setPopularLoading] = useState(false);
   const [popularLoaded, setPopularLoaded] = useState(false);
 
   // Selection & install
@@ -85,22 +86,28 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
   const [installing, setInstalling] = useState(false);
   const [installedPkgs, setInstalledPkgs] = useState<Set<string>>(new Set());
 
-  // ── Lazy-load popular skills (no spinner) ───────────────────────────────
+  // ── Popular ──────────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    let cancelled = false;
-    apiRequest<{ results: MarketplaceSkill[] }>('/api/marketplace/popular?limit=12', { timeoutMs: 30_000 })
-      .then((data) => {
-        if (!cancelled) {
-          setPopular(data.results ?? []);
-          setPopularLoaded(true);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setPopularLoaded(true);
-      });
-    return () => { cancelled = true; };
-  }, []);
+  const handlePopular = useCallback(async () => {
+    setPopularLoading(true);
+    setSearched(true);
+    setSearchError(false);
+    setSelected(null);
+
+    try {
+      const data = await apiRequest<{ results: MarketplaceSkill[] }>(
+        '/api/marketplace/popular?limit=20',
+        { timeoutMs: 30_000 },
+      );
+      setPopular(data.results ?? []);
+      setPopularLoaded(true);
+    } catch {
+      setSearchError(true);
+      showToast(t('marketplace.loadError'), 'error');
+    } finally {
+      setPopularLoading(false);
+    }
+  }, [showToast, t]);
 
   // ── Search ──────────────────────────────────────────────────────────────
 
@@ -115,7 +122,10 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
 
     try {
       const params = new URLSearchParams({ q, source, limit: '30' });
-      const data = await apiRequest<SearchResult>(`/api/marketplace/search?${params.toString()}`, { timeoutMs: 90_000 });
+      const data = await apiRequest<SearchResult>(
+        `/api/marketplace/search?${params.toString()}`,
+        { timeoutMs: 90_000 },
+      );
       setResults(data.results ?? []);
     } catch {
       setSearchError(true);
@@ -149,7 +159,6 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
       if (result.success) {
         setInstalledPkgs((prev) => new Set(prev).add(selected.package));
         showToast(t('marketplace.installSuccess', { name: result.skillName || selected.name }), 'success');
-        // Notify parent so it can refresh the skill list
         onInstall?.();
       } else {
         showToast(result.error || t('marketplace.installError'), 'error');
@@ -161,9 +170,11 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
     }
   }, [selected, showToast, t, onInstall]);
 
-  // ── Display list ────────────────────────────────────────────────────────
+  // ── Display logic ────────────────────────────────────────────────────────
 
+  // Searching: show search results. Popular: show popular results. Otherwise empty.
   const displayList = searched ? results : (popularLoaded ? popular : []);
+  const isLoading = searching || popularLoading;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -196,6 +207,12 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
           <Button variant="primary" size="sm" onClick={handleSearch} loading={searching}>
             {t('common.search')}
           </Button>
+
+          {/* Popular button — wider gap from search button */}
+          <Button variant="secondary" size="sm" onClick={handlePopular} loading={popularLoading}>
+            <TrendingUp className="h-3.5 w-3.5" strokeWidth={1.75} />
+            {t('marketplace.popular')}
+          </Button>
         </div>
       </div>
 
@@ -204,7 +221,7 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
         {/* Left: Skill list */}
         <div className="w-[42%] max-sm:w-full shrink-0 flex flex-col border-r border-neutral-200 dark:border-neutral-800">
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {searching ? (
+            {isLoading ? (
               <div className="flex items-center justify-center gap-2 py-12 text-neutral-500 dark:text-neutral-400">
                 <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} />
                 <span className="text-xs">{t('marketplace.loading')}</span>
@@ -226,7 +243,7 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
 
                   return (
                     <button
-                      key={skill.id}
+                      key={`${skill.source}:${skill.id}`}
                       type="button"
                       onClick={() => setSelected(skill)}
                       className={`flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors ${
@@ -259,7 +276,7 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
                           </span>
                           {skill.installs > 0 && (
                             <span className="text-[10px] text-neutral-400 dark:text-neutral-500">
-                              {formatInstalls(skill.installs)} {t('marketplace.installs', { count: skill.installs })}
+                              {formatInstalls(skill.installs)}{t('marketplace.installs')}
                             </span>
                           )}
                         </div>
@@ -309,7 +326,7 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
                   )}
                   {selected.installs > 0 && (
                     <span className="inline-block rounded bg-neutral-100 px-2 py-0.5 text-[10px] text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
-                      {formatInstalls(selected.installs)} {t('marketplace.installs', { count: selected.installs })}
+                      {formatInstalls(selected.installs)}{t('marketplace.installs')}
                     </span>
                   )}
                 </div>
