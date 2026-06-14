@@ -24,6 +24,7 @@ import { registerMemoryRoutes } from './webui/memory-routes.js';
 import { registerCronRoutes } from './webui/cron-routes.js';
 import { registerApprovalRoutes } from './webui/approval-routes.js';
 import { registerSubscriptionRoutes } from './subscription/subscription-routes.js';
+import { registerMarketplaceRoutes } from './webui/marketplace-routes.js';
 import multipart from '@fastify/multipart';
 import cors from '@fastify/cors';
 import { WebSocketManager, createWebSocketPlugin } from './webui/websocket.js';
@@ -115,6 +116,8 @@ export async function registerWebUIRoutes(
   });
 
   registerSkillsRoutes(app, { services: cfg.services });
+
+  registerMarketplaceRoutes(app, { services: cfg.services });
 
   registerTemplateRoutes(app);
 

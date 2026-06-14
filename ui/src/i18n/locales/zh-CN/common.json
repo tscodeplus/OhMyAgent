@@ -5,6 +5,7 @@
     "cron": "定时任务",
     "chat": "对话",
     "skills": "技能",
+    "marketplace": "技能市场",
     "files": "文件"
   },
   "tabs": {
@@ -13,6 +14,7 @@
     "memory": "记忆",
     "cron": "定时任务",
     "skills": "技能",
+    "marketplace": "技能市场",
     "files": "文件"
   },
   "sidebar": {
@@ -777,5 +779,25 @@
       "embeddingNotSet": "未配置（建议配置）",
       "edit": "编辑"
     }
+  },
+  "marketplace": {
+    "title": "技能市场",
+    "searchPlaceholder": "搜索技能...",
+    "sourceAll": "全部来源",
+    "sourceSkillsSh": "skills.sh",
+    "sourceSkillhub": "skillhub.cn",
+    "installs": "{{count}} 次安装",
+    "install": "安装",
+    "installing": "安装中...",
+    "installed": "已安装",
+    "installSuccess": "「{{name}}」安装成功",
+    "installError": "安装失败",
+    "viewOnMarket": "在市场查看",
+    "noResults": "未找到技能",
+    "selectHint": "选择一个技能查看详情",
+    "loading": "加载中...",
+    "loadError": "加载技能市场失败",
+    "popularTitle": "热门技能",
+    "refresh": "刷新"
   }
 }

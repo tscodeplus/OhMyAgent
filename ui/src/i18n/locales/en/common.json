@@ -5,6 +5,7 @@
     "cron": "Cron Jobs",
     "chat": "Chat",
     "skills": "Skills",
+    "marketplace": "Marketplace",
     "files": "Files"
   },
   "tabs": {
@@ -13,6 +14,7 @@
     "memory": "Memory",
     "cron": "Cron Jobs",
     "skills": "Skills",
+    "marketplace": "Marketplace",
     "files": "Files"
   },
   "sidebar": {
@@ -746,5 +748,25 @@
       "embeddingNotSet": "Not configured (recommended)",
       "edit": "Edit"
     }
+  },
+  "marketplace": {
+    "title": "Skill Marketplace",
+    "searchPlaceholder": "Search skills...",
+    "sourceAll": "All Sources",
+    "sourceSkillsSh": "skills.sh",
+    "sourceSkillhub": "skillhub.cn",
+    "installs": "installs",
+    "install": "Install",
+    "installing": "Installing...",
+    "installed": "Installed",
+    "installSuccess": "\"{{name}}\" installed successfully",
+    "installError": "Installation failed",
+    "viewOnMarket": "View on marketplace",
+    "noResults": "No skills found",
+    "selectHint": "Select a skill to view details",
+    "loading": "Loading...",
+    "loadError": "Failed to load marketplace",
+    "popularTitle": "Popular Skills",
+    "refresh": "Refresh"
   }
 }
