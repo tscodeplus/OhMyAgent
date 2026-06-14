@@ -600,7 +600,7 @@
     "save": "Save",
     "delete": "Delete",
     "revert": "Revert",
-    "confirmDelete": "Delete this skill? This will remove the entire skill directory.",
+    "confirmDelete": "Delete this skill? This will remove the skill directory.",
     "confirmDiscard": "Discard unsaved changes?",
     "savedSuccess": "Saved",
     "deletedSuccess": "Deleted",

@@ -6,6 +6,8 @@ type ToastType = 'success' | 'error' | 'info';
 interface ToastAction {
   label: string;
   onClick: () => void;
+  /** Render as a danger/confirm button (red) vs neutral (gray) */
+  danger?: boolean;
 }
 
 interface Toast {
@@ -13,11 +15,11 @@ interface Toast {
   message: string;
   type: ToastType;
   duration: number;
-  action?: ToastAction;
+  actions?: ToastAction[];
 }
 
 interface ToastContextValue {
-  showToast: (message: string, type?: ToastType, duration?: number, action?: ToastAction) => void;
+  showToast: (message: string, type?: ToastType, duration?: number, actions?: ToastAction[]) => void;
 }
 
 const ToastContext = createContext<ToastContextValue>({ showToast: () => {} });
@@ -27,9 +29,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const nextIdRef = useRef(1);
 
   const showToast = useCallback(
-    (message: string, type: ToastType = 'info', duration = 1500, action?: ToastAction) => {
+    (message: string, type: ToastType = 'info', duration = 1500, actions?: ToastAction[]) => {
       const id = nextIdRef.current++;
-      setToasts((prev) => [...prev, { id, message, type, duration, action }]);
+      // When actions are present, default to sticky (duration=0) unless explicitly set
+      const effectiveDuration = actions && actions.length > 0 && duration === 1500 ? 0 : duration;
+      setToasts((prev) => [...prev, { id, message, type, duration: effectiveDuration, actions }]);
     },
     [],
   );
@@ -98,16 +102,25 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: () => void }) 
     >
       <Icon size={18} className={`shrink-0 ${ic}`} />
       <span className="text-sm flex-1 whitespace-pre-wrap leading-snug text-neutral-900 dark:text-neutral-100">{toast.message}</span>
-      {toast.action && (
-        <button
-          onClick={() => {
-            toast.action!.onClick();
-            onRemove();
-          }}
-          className="shrink-0 rounded-md bg-blue-600 dark:bg-blue-500 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 dark:hover:bg-blue-400 transition-colors"
-        >
-          {toast.action.label}
-        </button>
+      {toast.actions && toast.actions.length > 0 && (
+        <div className="flex items-center gap-2">
+          {toast.actions.map((act, i) => (
+            <button
+              key={i}
+              onClick={() => {
+                act.onClick();
+                onRemove();
+              }}
+              className={
+                act.danger
+                  ? 'shrink-0 rounded-md bg-red-600 dark:bg-red-500 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 dark:hover:bg-red-400 transition-colors'
+                  : 'shrink-0 rounded-md bg-neutral-200 dark:bg-neutral-700 px-3 py-1 text-xs font-medium text-neutral-700 dark:text-neutral-200 hover:bg-neutral-300 dark:hover:bg-neutral-600 transition-colors'
+              }
+            >
+              {act.label}
+            </button>
+          ))}
+        </div>
       )}
       <button
         onClick={onRemove}

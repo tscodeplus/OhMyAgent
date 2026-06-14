@@ -167,10 +167,9 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
           });
           if (canRestart) {
             // Electron: show toast with restart action button
-            showToast(t('settings.restartNeeded'), 'info', 0, {
-              label: t('settings.restartNow'),
-              onClick: handleRestart,
-            });
+            showToast(t('settings.restartNeeded'), 'info', 0, [
+              { label: t('settings.restartNow'), onClick: handleRestart },
+            ]);
           } else {
             // WebUI: informational only — user restarts manually
             showToast(t('settings.restartNeeded'), 'info', 6000);

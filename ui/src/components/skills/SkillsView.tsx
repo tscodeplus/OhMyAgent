@@ -115,17 +115,29 @@ export default function SkillsView() {
   }, [activeSlug, editorContent, fetchSkills, showToast, t]);
 
   // ---- Delete ----
-  const handleDelete = useCallback(async () => {
+  const handleDelete = useCallback(() => {
     if (!activeSlug) return;
-    if (!window.confirm(t('skills.confirmDelete') as string)) return;
-    try {
-      await apiRequest(`/api/skills/${activeSlug}`, { method: 'DELETE' });
-      setActiveSlug(null);
-      await fetchSkills();
-      showToast(t('skills.deletedSuccess'), 'success');
-    } catch {
-      showToast(t('skills.saveError'), 'error');
-    }
+
+    const performDelete = async () => {
+      try {
+        await apiRequest(`/api/skills/${activeSlug}`, { method: 'DELETE' });
+        setActiveSlug(null);
+        await fetchSkills();
+        showToast(t('skills.deletedSuccess'), 'success');
+      } catch {
+        showToast(t('skills.saveError'), 'error');
+      }
+    };
+
+    showToast(
+      t('skills.confirmDelete') as string,
+      'info',
+      0, // sticky — won't auto-dismiss
+      [
+        { label: t('common.cancel') as string, onClick: () => {} },
+        { label: t('common.confirm') as string, onClick: performDelete, danger: true },
+      ],
+    );
   }, [activeSlug, fetchSkills, showToast, t]);
 
   // ---- Create ----
@@ -187,7 +199,7 @@ export default function SkillsView() {
     <div className="flex h-full flex-col bg-white dark:bg-neutral-950">
       {/* Header with sub-tabs */}
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-neutral-200 px-3 sm:px-6 dark:border-neutral-800">
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-3">
           {subTabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
