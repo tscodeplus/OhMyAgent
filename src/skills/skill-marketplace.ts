@@ -12,7 +12,11 @@ import { resolve } from 'node:path';
 const execAsync = promisify(exec);
 
 const SKILLS_SH_API = 'https://skills.sh/api';
+const SKILLS_SH_V1 = 'https://skills.sh/api/v1';
 const SKILLS_DIR = resolve('./skills');
+
+/** Vercel OIDC token for authenticated v1 API access. Set via SKILLS_SH_TOKEN env var. */
+const SKILLS_SH_TOKEN = process.env.SKILLS_SH_TOKEN || '';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -54,6 +58,39 @@ interface SkillsShApiSkill {
 
 interface SkillsShApiResponse {
   skills?: SkillsShApiSkill[];
+}
+
+// ── Skills.sh v1 API types (authenticated) ───────────────────────────────────
+
+interface SkillsShV1Skill {
+  id: string;
+  slug: string;
+  name: string;
+  source: string;
+  installs: number;
+  sourceType?: string;
+  installUrl?: string;
+  url?: string;
+}
+
+interface SkillsShV1Response {
+  data: SkillsShV1Skill[];
+  pagination?: { page: number; per_page: number; total: number };
+}
+
+// ── Internal helpers ─────────────────────────────────────────────────────────
+
+function mapV1Skill(s: SkillsShV1Skill): MarketplaceSkill {
+  return {
+    id: s.id,
+    name: s.name || s.slug,
+    description: '',
+    package: s.id,
+    source: 'skills.sh' as const,
+    installs: s.installs ?? 0,
+    url: s.url ?? `https://skills.sh/${s.id}`,
+    author: s.source,
+  };
 }
 
 // ── Skillhub CLI response types ───────────────────────────────────────────────
@@ -257,18 +294,9 @@ export class SkillMarketplace {
   }
 
   /**
-   * Get popular/trending skills.
-   *
-   * skills.sh has no public trending JSON API — the /trending page is
-   * server-rendered HTML. Its search API requires a query (≥2 chars) and
-   * returns keyword-matched results sorted by relevance + installs.
-   *
-   * To approximate a global trending list, we probe the index with the
-   * most frequent English bigrams. Unlike hand-picked keywords, bigrams
-   * are unbiased — they appear in words across all domains, so the merged
-   * results reflect the true install distribution of the entire corpus.
-   *
-   * Skillhub is excluded from popular by default (CLI is too slow for page-load).
+   * Fetch trending skills from the official skills.sh v1 API.
+   * Requires a Vercel OIDC token (SKILLS_SH_TOKEN env var).
+   * Falls back to bigram sampling on the old unauthenticated /api/search.
    */
   async getPopular(source: 'skills.sh' | 'skillhub' | 'all' = 'all', limit: number = 20): Promise<MarketplaceSkill[]> {
     const effectiveSource = source === 'all' ? 'skills.sh' : source;
@@ -278,8 +306,64 @@ export class SkillMarketplace {
       return result.results;
     }
 
-    // Top 24 most frequent English bigrams — unbiased probes across the corpus.
-    // Source: https://en.wikipedia.org/wiki/Bigram#Bigram_frequency_in_the_English_language
+    // 1. Try the authenticated v1 API first (real trending data)
+    if (SKILLS_SH_TOKEN) {
+      try {
+        const skills = await this.getV1Trending(limit);
+        if (skills.length > 0) return skills;
+      } catch {
+        // Fall through to bigram fallback
+      }
+    }
+
+    // 2. Fallback: bigram sampling on the old unauthenticated /api/search
+    return this.getPopularFallback(limit);
+  }
+
+  /**
+   * Fetch trending skills from the skills.sh v1 API (authenticated).
+   * GET /api/v1/skills?view=trending
+   */
+  private async getV1Trending(limit: number): Promise<MarketplaceSkill[]> {
+    const url = `${SKILLS_SH_V1}/skills?view=trending&per_page=${Math.min(limit, 100)}`;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
+
+    try {
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: { Authorization: `Bearer ${SKILLS_SH_TOKEN}` },
+      });
+
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          // Token invalid/expired — don't retry, fall through to fallback
+          return [];
+        }
+        throw new Error(`skills.sh v1 API returned ${res.status}`);
+      }
+
+      const data: SkillsShV1Response = await res.json();
+      return (data.data ?? []).map(mapV1Skill);
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new Error('skills.sh v1 trending timed out');
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Approximate trending via bigram sampling on the old unauthenticated API.
+   *
+   * The top 24 most frequent English bigrams are used as unbiased probes
+   * across the entire skills.sh corpus. Results are merged, deduplicated,
+   * and sorted by install count.
+   */
+  private async getPopularFallback(limit: number): Promise<MarketplaceSkill[]> {
     const bigrams = [
       'th', 'he', 'in', 'er', 'an', 're', 'on', 'at',
       'en', 'nd', 'ti', 'es', 'or', 'te', 'al', 'it',
@@ -287,7 +371,7 @@ export class SkillMarketplace {
     ];
 
     const searches = bigrams.map((bg) =>
-      this.searchSkillsSh(bg, 5).catch(() => [] as MarketplaceSkill[]),
+      this.searchSkillsSh(bg, 15).catch(() => [] as MarketplaceSkill[]),
     );
 
     const allResults = await Promise.all(searches);
@@ -302,7 +386,6 @@ export class SkillMarketplace {
       }
     }
 
-    // Sort by installs descending, take top N
     merged.sort((a, b) => b.installs - a.installs);
     return merged.slice(0, limit);
   }
