@@ -259,9 +259,14 @@ export class SkillMarketplace {
   /**
    * Get popular/trending skills.
    *
-   * skills.sh empty-query search is rejected, so we use a set of popular
-   * keywords to sample high-install skills from diverse categories, then
-   * merge, deduplicate, and sort by installs.
+   * skills.sh has no public trending JSON API — the /trending page is
+   * server-rendered HTML. Its search API requires a query (≥2 chars) and
+   * returns keyword-matched results sorted by relevance + installs.
+   *
+   * To approximate a global trending list, we probe the index with the
+   * most frequent English bigrams. Unlike hand-picked keywords, bigrams
+   * are unbiased — they appear in words across all domains, so the merged
+   * results reflect the true install distribution of the entire corpus.
    *
    * Skillhub is excluded from popular by default (CLI is too slow for page-load).
    */
@@ -273,10 +278,16 @@ export class SkillMarketplace {
       return result.results;
     }
 
-    // Sample popular keywords across different domains to gather a diverse set
-    const keywords = ['react', 'python', 'testing', 'deploy', 'agent', 'security'];
-    const searches = keywords.map((kw) =>
-      this.searchSkillsSh(kw, 6).catch(() => [] as MarketplaceSkill[]),
+    // Top 24 most frequent English bigrams — unbiased probes across the corpus.
+    // Source: https://en.wikipedia.org/wiki/Bigram#Bigram_frequency_in_the_English_language
+    const bigrams = [
+      'th', 'he', 'in', 'er', 'an', 're', 'on', 'at',
+      'en', 'nd', 'ti', 'es', 'or', 'te', 'al', 'it',
+      'is', 'ng', 'ar', 'st', 'ed', 'to', 'nt', 'ha',
+    ];
+
+    const searches = bigrams.map((bg) =>
+      this.searchSkillsSh(bg, 5).catch(() => [] as MarketplaceSkill[]),
     );
 
     const allResults = await Promise.all(searches);
