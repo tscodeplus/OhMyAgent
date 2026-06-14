@@ -110,9 +110,7 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
     } finally {
       setPopularLoading(false);
     }
-  }, [showToast, t]);
-
-  // ── Search ──────────────────────────────────────────────────────────────
+  }, [showToast, t, source]);
 
   const handleSearch = useCallback(async () => {
     const q = query.trim();
@@ -158,6 +156,7 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
       const result = await apiRequest<InstallResult>('/api/marketplace/install', {
         method: 'POST',
         body: JSON.stringify({ package: selected.package, source: selected.source }),
+        timeoutMs: 180_000,
       });
 
       if (result.success) {
