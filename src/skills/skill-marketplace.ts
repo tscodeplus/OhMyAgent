@@ -155,7 +155,8 @@ export class SkillMarketplace {
         description: s.description ?? '',
         package: `${s.ownerName}/${s.slug}`,
         source: 'skillhub' as const,
-        installs: s.downloads ?? s.installs ?? 0,
+        // skillhub.cn website shows "installs" (not cumulative downloads)
+        installs: s.installs ?? s.downloads ?? 0,
         url: s.homepage || `https://skillhub.cn/skill/${s.ownerName}/${s.slug}`,
         author: s.ownerName,
         version: s.version,
@@ -393,7 +394,8 @@ export class SkillMarketplace {
         description: s.description ?? '',
         package: `${s.ownerName}/${s.slug}`,
         source: 'skillhub' as const,
-        installs: s.downloads ?? s.installs ?? 0,
+        // skillhub.cn website shows "installs" (not cumulative downloads)
+        installs: s.installs ?? s.downloads ?? 0,
         url: s.homepage || `https://skillhub.cn/skill/${s.ownerName}/${s.slug}`,
         author: s.ownerName,
         version: s.version,

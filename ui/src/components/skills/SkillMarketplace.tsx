@@ -97,8 +97,9 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
     setSelected(null);
 
     try {
+      const params = new URLSearchParams({ source, limit: '20' });
       const data = await apiRequest<{ results: MarketplaceSkill[] }>(
-        '/api/marketplace/popular?limit=20',
+        `/api/marketplace/popular?${params.toString()}`,
         { timeoutMs: 30_000 },
       );
       setPopular(data.results ?? []);
