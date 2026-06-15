@@ -43,10 +43,19 @@ export interface Message {
   files?: MessageFile[];
 }
 
+export interface MediaSegmentItem {
+  url: string;
+  alt?: string;
+  name?: string;
+  type: 'image' | 'video' | 'file';
+  size?: number;
+}
+
 export interface MessageSegment {
-  type: 'text' | 'tool_call';
+  type: 'text' | 'tool_call' | 'media';
   content?: string;
   toolCall?: ToolCall;
+  media?: MediaSegmentItem;
 }
 
 export interface MessageApproval {

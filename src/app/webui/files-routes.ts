@@ -17,7 +17,7 @@ import {
   rename as fsRename,
 } from 'node:fs/promises';
 import { existsSync, readFileSync, writeFileSync, statSync, createReadStream } from 'node:fs';
-import { resolve, join, normalize, sep, relative, extname } from 'node:path';
+import { resolve, join, normalize, sep, relative, extname, basename } from 'node:path';
 import { platform } from 'node:os';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import type { AppConfig } from '../types.js';
@@ -778,17 +778,31 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
         relativePaths = [data.filename];
       }
 
+      // Sanitize filename — use only basename to prevent path traversal
+      const sanitizedFilename = basename(data.filename);
+      const relativePath = relativePaths[0]
+        ? basename(relativePaths[0])
+        : sanitizedFilename;
+
       const root = resolve(readFileRoot(cfg.configPath));
-      const destDir = targetPath ? safeResolve(root, targetPath) : root;
+      let destDir: string;
+
+      if (targetPath) {
+        // File manager upload — use targetPath within file_root
+        destDir = safeResolve(root, targetPath);
+      } else {
+        // Chat attachment upload — use guaranteed-writable directory
+        // (file_root may not be writable, e.g. /home)
+        destDir = resolve(process.cwd(), 'data', 'chat-uploads');
+      }
 
       if (!existsSync(destDir)) {
         await mkdir(destDir, { recursive: true });
       }
 
-      const relativePath = relativePaths[0] || data.filename;
-      const destPath = join(destDir, relativePath.replace(/^[/\\]+/, ''));
+      const destPath = join(destDir, relativePath);
 
-      // Ensure parent directory exists
+      // Ensure parent directory exists (no-op if destDir already created above)
       const destParent = destPath.substring(0, destPath.lastIndexOf(sep));
       if (!existsSync(destParent)) {
         await mkdir(destParent, { recursive: true });

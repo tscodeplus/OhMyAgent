@@ -22,6 +22,7 @@ import { createWebUIApprovalSender } from './approval-sender.js';
 import { safeEqual } from '../../shared/safe-equal.js';
 import { createSendMediaTool } from '../../tools/builtins/multimodal/send-media-tool.js';
 import fs from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -441,6 +442,37 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
 
     let completionStatus: 'complete' | 'error' = 'complete';
 
+    // Extract attached images from markdown in the user message and convert
+    // them to multimodal ImageContent so vision-capable models can "see" them.
+    let images: { type: 'image'; data: string; mimeType: string }[] | undefined;
+    const imageRegex = /!\[([^\]]*)\]\((\/api\/files\/serve\?path=[^)\s]+)\)/g;
+    const imageMatches = [...message.matchAll(imageRegex)];
+    if (imageMatches.length > 0) {
+      images = [];
+      for (const match of imageMatches) {
+        try {
+          const serveUrl = match[2];
+          const urlParams = new URLSearchParams(new URL(serveUrl, 'http://localhost').search);
+          const filePath = urlParams.get('path');
+          if (filePath && fs.existsSync(filePath)) {
+            const ext = path.extname(filePath).toLowerCase();
+            const mimeMap: Record<string, string> = {
+              '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+              '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
+              '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
+            };
+            const mimeType = mimeMap[ext] || 'image/png';
+            const buf = await readFile(filePath);
+            const data = buf.toString('base64');
+            images.push({ type: 'image', data, mimeType });
+          }
+        } catch {
+          // Skip unreadable images — non-fatal
+        }
+      }
+      if (images.length === 0) images = undefined;
+    }
+
     try {
       await cfg.agentService.execute(message, {
         sessionId: sessionId,
@@ -451,6 +483,7 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
         channelApprovalSender: approvalSender,
         extraTools: [createSendMediaTool()],
         eagerPersistUserMessage: true,
+        images,
       });
     } catch (err: unknown) {
       completionStatus = 'error';

@@ -227,22 +227,35 @@ export class AgentService {
       runtime.turnContext.effectiveMessage = undefined;
 
       // Vision Bridge: analyze images for text-only models
-      // Respects v4 Phase 4 image mode: native_first (default), bridge_only, native_only
+      // Respects image mode: native_first (default), bridge_only, native_only
       let finalImages = options?.images;
       if (finalImages?.length) {
-        const model = (agent.state as any)?.model;
+        const model = (agent.state as any)?.model as { input?: string[] } | undefined;
         if (model) {
+          const modelSupportsImages = Array.isArray(model.input) && model.input.includes('image');
+
           if (this.imageMode === 'native_only') {
-            // Pass images through natively — skip any bridging
-          } else {
-            // bridge_only / native_first: bridge config takes priority over model's
-            // declared image capabilities. A model claiming "input: image" doesn't
-            // guarantee it handles them well in practice.
+            // Always pass images through natively — skip any bridging
+          } else if (this.imageMode === 'bridge_only') {
+            // Always bridge — regardless of model capability
             const vb = this.getVisionBridge?.();
             if (vb) {
-              const result = await vb.bridge(input, finalImages, model, { forceBridge: true });
+              const result = await vb.bridge(finalInput, finalImages, model as any, { forceBridge: true });
               finalInput = result.text;
               finalImages = undefined;
+            }
+          } else {
+            // native_first: prefer native, bridge only as fallback for text-only models
+            if (modelSupportsImages) {
+              // Model supports images natively — pass through directly
+            } else {
+              // Text-only model — use vision bridge if available
+              const vb = this.getVisionBridge?.();
+              if (vb) {
+                const result = await vb.bridge(finalInput, finalImages, model as any, { forceBridge: true });
+                finalInput = result.text;
+                finalImages = undefined;
+              }
             }
           }
         }
@@ -600,6 +613,7 @@ export class AgentService {
         blocks: Array<{ type: string; text?: string; id?: string; name?: string; arguments?: Record<string, unknown> }>;
         usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
         model?: string;
+        provider?: string;
       }
 
       let pendingAssistant: PendingAssistant | null = null;
@@ -681,7 +695,11 @@ export class AgentService {
             cacheWrite: pending.usage.cacheWrite ?? 0,
           };
         }
-        if (pending.model) meta.model = pending.model;
+        if (pending.model) {
+          meta.model = pending.provider
+            ? (pending.model.startsWith(`${pending.provider}/`) ? pending.model : `${pending.provider}/${pending.model}`)
+            : pending.model;
+        }
         const agentName = (agent as any).ohmyagent_agentName || runtime.agentName;
         if (agentName) meta.agentName = agentName;
         if (runtime.turnElapsed) meta.elapsed = runtime.turnElapsed;
@@ -762,7 +780,12 @@ export class AgentService {
                   cacheWrite: msg.usage.cacheWrite ?? 0,
                 };
               }
-              if (msg.model) meta.model = msg.model;
+              if (msg.model) {
+                const prov = (msg as any).provider as string | undefined;
+                meta.model = prov
+                  ? (msg.model.startsWith(`${prov}/`) ? msg.model : `${prov}/${msg.model}`)
+                  : msg.model;
+              }
               const agentName = (agent as any).ohmyagent_agentName || runtime.agentName;
               if (agentName) meta.agentName = agentName;
               if (runtime.turnElapsed) meta.elapsed = runtime.turnElapsed;
@@ -811,6 +834,7 @@ export class AgentService {
           // Track usage/model from the latest assistant msg in the group
           if (msg.usage) pendingAssistant.usage = msg.usage;
           if (msg.model) pendingAssistant.model = msg.model;
+          if ((msg as any).provider) pendingAssistant.provider = (msg as any).provider;
         }
       }
 

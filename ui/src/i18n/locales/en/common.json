@@ -32,7 +32,13 @@
   },
   "chat": {
     "input": {
-      "placeholder": "Type a message, Enter to send, Shift+Enter for new line"
+      "placeholder": "Type a message, Enter to send, Shift+Enter for new line",
+      "attachFiles": "Attach files",
+      "uploading": "Uploading...",
+      "uploadFailed": "Upload failed",
+      "retry": "Retry",
+      "remove": "Remove",
+      "dragActive": "Release to upload"
     },
     "thinking": "Thinking...",
     "toolCall": "Tool Call",

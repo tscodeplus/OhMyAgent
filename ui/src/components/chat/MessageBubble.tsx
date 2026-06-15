@@ -50,16 +50,59 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
         }
       }
     } else {
-      // WebUI: use browser download via temporary anchor
+      // WebUI: use browser download via temporary anchor.
+      // Append ?download=1 to serve URLs so the server sends
+      // Content-Disposition: attachment with the real filename.
+      let downloadUrl = url;
+      if (url.includes('/api/files/serve') && !url.includes('download=1')) {
+        downloadUrl = url.includes('?') ? `${url}&download=1` : `${url}?download=1`;
+      }
       const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
+      a.href = downloadUrl;
+      if (filename && !downloadUrl.includes('download=1')) {
+        a.download = filename;
+      }
       a.click();
     }
   }, [showToast]);
 
-  // Custom markdown link rendering: convert desktop-bridge:// links to download buttons
+  // Custom markdown rendering: desktop-bridge links → download buttons, images → constrained size
   const markdownComponents = {
+    img: ({ src, alt, ...props }: any) => {
+      // Extract real filename from serve URL for download
+      const imgFilename = (() => {
+        try {
+          const u = new URL(src, window.location.origin);
+          const pathParam = u.searchParams.get('path');
+          if (pathParam) return pathParam.split('/').pop() || alt || 'image.png';
+        } catch {}
+        return alt || 'image.png';
+      })();
+      return (
+        <div className="relative group max-w-[240px]">
+          <button
+            onClick={() => src && setLightboxUrl(src)}
+            className="block w-full rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 hover:opacity-90 transition-opacity cursor-pointer"
+          >
+            <img
+              src={src}
+              alt={alt || 'Image'}
+              className="w-full h-auto object-cover"
+              loading="lazy"
+              {...props}
+            />
+          </button>
+          {/* Download button — bottom-right corner, visible on hover */}
+          <button
+            onClick={(e) => { e.stopPropagation(); handleDownload(src, imgFilename); }}
+            className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-1 rounded-lg bg-black/60 hover:bg-black/80 text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <Download size={12} />
+            <span>保存</span>
+          </button>
+        </div>
+      );
+    },
     a: ({ href, children, ...props }: any) => {
       if (href && href.startsWith('/desktop-bridge-download')) {
         try {
@@ -76,6 +119,26 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
             </button>
           );
         } catch {}
+      }
+      // Serve/download URLs → render as download button with real filename
+      if (href && (href.includes('/api/files/serve') || href.includes('/api/files/download'))) {
+        const fileName = (() => {
+          try {
+            const u = new URL(href, window.location.origin);
+            const pathParam = u.searchParams.get('path');
+            if (pathParam) return pathParam.split('/').pop() || String(children ?? 'download');
+          } catch {}
+          return String(children ?? 'download');
+        })();
+        return (
+          <button
+            onClick={(e) => { e.preventDefault(); handleDownload(href, fileName); }}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 dark:border-blue-800 px-2.5 py-1 text-sm text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+          >
+            <Download size={14} />
+            <span>{children}</span>
+          </button>
+        );
       }
       return <a href={href} target="_blank" rel="noopener noreferrer" {...props}>{children}</a>;
     },
@@ -164,8 +227,42 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
                     <div key={i} className="markdown-content">
                       <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{seg.content || ''}</ReactMarkdown>
                     </div>
-                  ) : seg.toolCall ? (
+                  ) : seg.type === 'tool_call' && seg.toolCall ? (
                     <ToolCallCard key={seg.toolCall.id} toolCall={seg.toolCall} />
+                  ) : seg.type === 'media' && seg.media ? (
+                    <div key={`media-${i}`} className="my-1">
+                      {seg.media.type === 'image' ? (
+                        <button
+                          onClick={() => setLightboxUrl(seg.media!.url)}
+                          className="block max-w-[240px] rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 hover:opacity-90 transition-opacity cursor-pointer"
+                        >
+                          <img
+                            src={seg.media.url}
+                            alt={seg.media.alt || seg.media.name || 'Image'}
+                            className="w-full h-auto object-cover"
+                            loading="lazy"
+                          />
+                        </button>
+                      ) : seg.media.type === 'video' ? (
+                        <video
+                          src={seg.media.url}
+                          controls
+                          className="max-w-full rounded-lg border border-neutral-200 dark:border-neutral-700"
+                          style={{ maxHeight: '300px' }}
+                        />
+                      ) : (
+                        <button
+                          onClick={() => handleDownload(seg.media!.url, seg.media!.name || 'download')}
+                          className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors group"
+                        >
+                          <Download size={14} className="text-neutral-400 group-hover:text-neutral-600 dark:group-hover:text-neutral-300" />
+                          <span className="text-neutral-700 dark:text-neutral-300">{seg.media.name}</span>
+                          {seg.media.size != null && (
+                            <span className="text-neutral-400 dark:text-neutral-500 text-xs">{formatFileSize(seg.media.size)}</span>
+                          )}
+                        </button>
+                      )}
+                    </div>
                   ) : null,
                 )}
               </div>
@@ -186,12 +283,15 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
               </>
             )
           ) : (
-            <p className="whitespace-pre-wrap">{message.content}</p>
+            <div className="markdown-content">
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{message.content}</ReactMarkdown>
+            </div>
           )}
         </div>
 
-        {/* Generated images — fallback: extract from markdown content at render time */}
-        {(() => {
+        {/* Generated images — fallback: extract from markdown content at render time.
+            Skip for user messages — ReactMarkdown already renders images inline. */}
+        {!isUser && (() => {
           const extracted: { url: string; alt?: string }[] = message.images || [];
           if (extracted.length === 0 && message.content) {
             // Extract images from markdown content as fallback

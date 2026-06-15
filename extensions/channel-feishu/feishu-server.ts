@@ -151,7 +151,7 @@ export function createFeishuServer(
 
   const app = Fastify<http.Server>({
     logger: false,
-    bodyLimit: 1024 * 1024, // 1 MB
+    bodyLimit: 50 * 1024 * 1024, // 50 MB
   });
 
   // Capture the raw request body so we can verify Feishu's SHA-256 signature,

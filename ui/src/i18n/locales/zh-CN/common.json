@@ -33,7 +33,13 @@
   },
   "chat": {
     "input": {
-      "placeholder": "输入消息，Enter 发送，Shift+Enter 换行"
+      "placeholder": "输入消息，Enter 发送，Shift+Enter 换行",
+      "attachFiles": "上传文件",
+      "uploading": "上传中...",
+      "uploadFailed": "上传失败",
+      "retry": "重试",
+      "remove": "删除",
+      "dragActive": "松开以上传"
     },
     "thinking": "思考中...",
     "toolCall": "工具调用",
