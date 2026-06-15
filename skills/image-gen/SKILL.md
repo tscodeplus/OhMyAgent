@@ -4,7 +4,7 @@ description: AI image generation from text prompts using multiple providers (GPT
 metadata:
   version: "2.0.0"
   priority: 4
-  triggers: "生成图片, 画一张, 生图, 生成一张, 画图, generate image, create image, make an image, 插图, 配图, image generation"
+  triggers: "生成图片, 画一张, 生图, 生成一张, 画图, generate image, create image, make an image, 插图, 配图, image generation, 图生图, 以图生图, 参考图片生成, 风格迁移, 图片变体, 修改图片, 改图, image to image, img2img"
   tags: ["image", "generation", "multimodal", "design"]
   x-ohmyagent:
     memoryPolicy:
@@ -56,6 +56,23 @@ You are an AI image generation specialist. Translate user requests into high-qua
 | Product mockup | 1024x1024 | high | low |
 | Logo / icon | 1024x1024 | high | high |
 
+## Image-to-Image (图生图)
+
+Use the `referenceImages` parameter to transform an existing image or use it as a style reference.
+
+- **referenceImages**: Array of image URLs or data URIs. Pass one or more source images.
+- The provider maps this to the appropriate backend field (e.g. Agnes uses `extra_body.image`).
+
+### When to use referenceImages
+- User provides an image and asks to modify/transform it → always pass it as `referenceImages`
+- User wants "风格迁移" (style transfer) → pass the image + describe the target style in `prompt`
+- User wants variations of an existing generated image → pass the previous image as `referenceImages`
+- User asks to "修改这张图" (edit this image), "改成xx风格" (change to xx style), "基于这张图" (based on this image)
+
+### Composition rules
+- When using `referenceImages`, the prompt should describe what CHANGES to make, not describe the image from scratch
+- Keep the original composition description minimal — focus on the transformation
+
 ## Output Format
 - Report the saved file path and key generation parameters used
 - Default to `png` format, use `webp` only when user requests smaller files
@@ -64,18 +81,28 @@ You are an AI image generation specialist. Translate user requests into high-qua
 - [ ] Clarifying questions asked if the user's request was vague
 - [ ] Prompt written in English with specific style and composition details
 - [ ] Appropriate size, quality, and format selected for the use case
+- [ ] If user provided a source image, `referenceImages` parameter included
 - [ ] File path reported clearly after generation
 - [ ] Retry offered if result didn't match expectations
 
 ## Examples
 
-### Good: User wants an image
+### Good: Text-to-Image
 User: 帮我生成一张赛博朋克风格的城市夜景
 Assistant:
 1. [澄清] "你想要什么比例？横版桌面壁纸(16:9)还是竖版手机壁纸(9:16)？色调偏好（蓝紫/红橙/绿色系）？"
 2. User: 横版桌面壁纸，蓝紫色调
 3. [生成] Prompt: "Cyberpunk city at night, neon blue and purple lights, rain-slicked streets, flying cars, towering skyscrapers with holographic billboards, wide shot, cinematic lighting, 4K photorealistic"
 4. [报告] ✅ 已生成并保存至 data/images/cyberpunk-city.png (1536x1024, PNG)
+
+### Good: Image-to-Image (图生图)
+User: 帮我把这张照片改成油画风格
+Assistant:
+1. [澄清] "好的，你想要哪种油画风格？印象派、古典写实还是现代抽象？尺寸保持原样还是调整？"
+2. User: 印象派，保持原尺寸
+3. [生成] Prompt: "Transform into impressionist oil painting style, visible brushstrokes, soft color blending, Monet-inspired palette"
+   → 使用 `referenceImages: [userProvidedImageUrl]`
+4. [报告] ✅ 已生成并保存至 data/images/oil-painting-variant.png (1024x1024, PNG)
 
 ### Bad: Don't do this
 User: 画一张图
