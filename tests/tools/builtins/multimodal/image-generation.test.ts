@@ -212,6 +212,27 @@ describe('image_generation', () => {
     try { unlinkSync(join(tmpDir, genFiles[0])); } catch {}
   });
 
+  it('passes referenceImages to the provider for img2img', async () => {
+    const config = createMockConfig({
+      multimodal: { imageGeneration: { enabled: true, modelRef: 'openai/dall-e-3', outputDir: tmpDir, maxPromptChars: 4000 } },
+    });
+    const ctx = createMockCtx(config, tmpDir);
+
+    let capturedInput: ImageGenerationInput | undefined;
+    const captureProvider: ImageGenerationProvider = {
+      async generate(input: ImageGenerationInput): Promise<ImageGenerationOutput> {
+        capturedInput = input;
+        return { data: Buffer.from('fake-image-data'), mimeType: 'image/png' };
+      },
+    };
+
+    const toolDef = createImageGenerationToolDefinition(captureProvider);
+    const refs = ['https://example.com/ref1.png', 'https://example.com/ref2.png'];
+    await toolDef.execute({ prompt: 'a cat', referenceImages: refs }, ctx);
+
+    expect(capturedInput?.referenceImages).toEqual(refs);
+  });
+
   it('propagates provider failures as error results', async () => {
     const config = createMockConfig({
       multimodal: { imageGeneration: { enabled: true, modelRef: 'openai/dall-e-3', outputDir: tmpDir, maxPromptChars: 4000 } },

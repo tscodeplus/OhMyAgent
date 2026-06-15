@@ -18,6 +18,8 @@ export interface ImageGenerationInput {
   seed?: number;
   /** Background handling (GPT-Image specific: "opaque"). */
   background?: 'auto' | 'opaque' | (string & {});
+  /** Reference image URLs or data URIs for image-to-image generation. */
+  referenceImages?: string[];
   /**
    * Extra provider-specific parameters passed through to the API body.
    * Use for vendor-specific fields not covered by the standard interface.

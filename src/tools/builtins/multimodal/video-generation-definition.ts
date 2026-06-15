@@ -33,7 +33,7 @@ export function createVideoGenerationToolDefinition(
     name: 'video_generation',
     label: 'Video Generation',
     description:
-      'Generate a video from a text prompt.',
+      'Generate a video from a text prompt. Supports image-to-video generation by passing referenceImages.',
     category: 'multimodal',
     parametersSchema: Type.Object({
       prompt: Type.String({
@@ -64,6 +64,11 @@ export function createVideoGenerationToolDefinition(
       outputFileName: Type.Optional(
         Type.String({ description: 'Output file name (without extension)' }),
       ),
+      referenceImages: Type.Optional(
+        Type.Array(Type.String(), {
+          description: 'Reference image URLs or data URIs for image-to-video generation. Pass input images to animate or use as keyframes.',
+        }),
+      ),
     }),
     capability: videoGenerationCapability,
     execute: async (
@@ -74,6 +79,7 @@ export function createVideoGenerationToolDefinition(
         aspectRatio?: string;
         seed?: number;
         outputFileName?: string;
+        referenceImages?: string[];
       },
       ctx,
     ) => {
@@ -128,6 +134,7 @@ export function createVideoGenerationToolDefinition(
           aspectRatio: args.aspectRatio as any,
           seed: args.seed,
           modelRef,
+          referenceImages: args.referenceImages,
         });
 
         const ext = '.mp4';

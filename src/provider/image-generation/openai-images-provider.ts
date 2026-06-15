@@ -10,7 +10,15 @@ import type {
   ImageGenerationInput,
   ImageGenerationOutput,
 } from '../../tools/builtins/multimodal/image-generation-provider.js';
-import { fetchWithTimeout } from './fetch-utils.js';
+import { fetchWithTimeout, setByPath } from './fetch-utils.js';
+
+/** Maps internal field names to provider-specific API field names. */
+export interface ImageParamsMapping {
+  /** Dot-notation path for reference images array. Default: "references.images". */
+  referenceImagesField?: string;
+  /** How to format reference images: "array" (default) or "first" (single URL). */
+  referenceImagesMode?: 'array' | 'first';
+}
 
 export interface OpenAIImageGenConfig {
   baseUrl: string;
@@ -19,9 +27,16 @@ export interface OpenAIImageGenConfig {
   modelId: string;
   /** Request timeout in milliseconds. Default 120s. */
   timeoutMs?: number;
+  /** Custom parameter name mapping. */
+  paramsMapping?: ImageParamsMapping;
 }
 
 const DEFAULT_TIMEOUT_MS = 120_000;
+
+const DEFAULT_PARAMS_MAPPING: Required<ImageParamsMapping> = {
+  referenceImagesField: 'references.images',
+  referenceImagesMode: 'array' as const,
+};
 
 interface OpenAIImageResponse {
   data: Array<{
@@ -31,7 +46,11 @@ interface OpenAIImageResponse {
 }
 
 export class OpenAIImageGenerationProvider implements ImageGenerationProvider {
-  constructor(private config: OpenAIImageGenConfig) {}
+  private paramMap: Required<ImageParamsMapping>;
+
+  constructor(private config: OpenAIImageGenConfig) {
+    this.paramMap = { ...DEFAULT_PARAMS_MAPPING, ...config.paramsMapping };
+  }
 
   async generate(input: ImageGenerationInput): Promise<ImageGenerationOutput> {
     const { baseUrl, apiKey, modelId, timeoutMs = DEFAULT_TIMEOUT_MS } = this.config;
@@ -138,6 +157,14 @@ export class OpenAIImageGenerationProvider implements ImageGenerationProvider {
     if (input.thinking) body['thinking'] = input.thinking;
     if (input.seed !== undefined) body['seed'] = input.seed;
     if (input.background) body['background'] = input.background;
+
+    // Reference images for image-to-image generation
+    if (input.referenceImages && input.referenceImages.length > 0) {
+      const value = this.paramMap.referenceImagesMode === 'first'
+        ? input.referenceImages[0]
+        : input.referenceImages;
+      setByPath(body, this.paramMap.referenceImagesField, value);
+    }
 
     // Merge extraParams (vendor-specific fields)
     if (input.extraParams) {

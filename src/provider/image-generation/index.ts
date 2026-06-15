@@ -10,6 +10,7 @@ import { NoOpVideoGenerationProvider } from '../../tools/builtins/multimodal/vid
 import {
   OpenAIImageGenerationProvider,
   resolveImageGenConfig,
+  type ImageParamsMapping,
 } from './openai-images-provider.js';
 import {
   OpenAIVideoGenerationProvider,
@@ -45,6 +46,8 @@ const VIDEO_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     paramsMapping: {
       durationField: 'seconds',
       sizeField: 'size',
+      referenceImagesField: 'image',
+      referenceImagesMode: 'first',
     },
   },
 
@@ -64,6 +67,7 @@ const VIDEO_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
       durationField: 'duration',
       sizeField: 'size',
       aspectRatioField: 'aspect_ratio',
+      referenceImagesField: 'references.images',
     },
   },
 
@@ -80,9 +84,47 @@ const VIDEO_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     paramsMapping: {
       durationField: 'seconds',
       sizeField: 'size',
+      referenceImagesField: 'references.images',
     },
   },
 };
+
+// ---------------------------------------------------------------------------
+// Image provider presets
+// ---------------------------------------------------------------------------
+
+interface ImageProviderPreset {
+  paramsMapping?: ImageParamsMapping;
+}
+
+/**
+ * Known image generation provider presets. Keyed by provider name.
+ */
+const IMAGE_PROVIDER_PRESETS: Record<string, ImageProviderPreset> = {
+  // Agnes AI — reference images via extra_body.image (array of URLs)
+  agnes: {
+    paramsMapping: {
+      referenceImagesField: 'extra_body.image',
+    },
+  },
+
+  // Generic OpenAI-compatible (default when no preset matches)
+  openai: {
+    paramsMapping: {
+      referenceImagesField: 'references.images',
+    },
+  },
+};
+
+function getImageProviderPreset(providerName: string): ImageProviderPreset | undefined {
+  if (IMAGE_PROVIDER_PRESETS[providerName]) {
+    return IMAGE_PROVIDER_PRESETS[providerName];
+  }
+  for (const [key, preset] of Object.entries(IMAGE_PROVIDER_PRESETS)) {
+    if (providerName.includes(key)) return preset;
+  }
+  return undefined;
+}
 
 function getVideoProviderPreset(providerName: string): ProviderPreset | undefined {
   // Direct match
@@ -125,10 +167,14 @@ export function createImageGenerationProvider(
     return new NoOpImageGenerationProvider();
   }
 
+  // Auto-detect provider preset
+  const preset = getImageProviderPreset(resolved.provider);
+
   return new OpenAIImageGenerationProvider({
     baseUrl: resolved.baseUrl,
     apiKey: resolved.apiKey,
     modelId: resolved.modelId,
+    paramsMapping: preset?.paramsMapping,
   });
 }
 

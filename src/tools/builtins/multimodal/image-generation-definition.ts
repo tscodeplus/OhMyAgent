@@ -33,7 +33,7 @@ export function createImageGenerationToolDefinition(
     name: 'image_generation',
     label: 'Image Generation',
     description:
-      'Generate an image from a text prompt.',
+      'Generate an image from a text prompt. Supports image-to-image generation by passing referenceImages.',
     category: 'multimodal',
     parametersSchema: Type.Object({
       prompt: Type.String({
@@ -80,6 +80,11 @@ export function createImageGenerationToolDefinition(
       outputFileName: Type.Optional(
         Type.String({ description: 'Output file name (without extension)' }),
       ),
+      referenceImages: Type.Optional(
+        Type.Array(Type.String(), {
+          description: 'Reference image URLs or data URIs for image-to-image generation. Pass input images to transform or use as style reference.',
+        }),
+      ),
     }),
     capability: imageGenerationCapability,
     execute: async (
@@ -92,6 +97,7 @@ export function createImageGenerationToolDefinition(
         seed?: number;
         thinking?: string;
         outputFileName?: string;
+        referenceImages?: string[];
       },
       ctx,
     ) => {
@@ -148,6 +154,7 @@ export function createImageGenerationToolDefinition(
           n: args.n,
           seed: args.seed,
           thinking: args.thinking as any,
+          referenceImages: args.referenceImages,
         });
 
         // Determine file extension from mime type

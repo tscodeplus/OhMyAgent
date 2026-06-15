@@ -23,3 +23,32 @@ export async function fetchWithTimeout(
   }
   return fetch(url, fetchInit);
 }
+
+// ---------------------------------------------------------------------------
+// Object path helpers
+// ---------------------------------------------------------------------------
+
+/** Get a nested value from an object by dot-notation path. */
+export function getByPath(obj: any, path: string): any {
+  if (!obj || !path) return undefined;
+  const parts = path.split('.');
+  let current = obj;
+  for (const part of parts) {
+    if (current == null || typeof current !== 'object') return undefined;
+    current = current[part];
+  }
+  return current;
+}
+
+/** Set a nested value on an object by dot-notation path, creating intermediate objects as needed. */
+export function setByPath(obj: Record<string, any>, path: string, value: any): void {
+  const parts = path.split('.');
+  let current = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (!(parts[i] in current) || typeof current[parts[i]] !== 'object') {
+      current[parts[i]] = {};
+    }
+    current = current[parts[i]];
+  }
+  current[parts[parts.length - 1]] = value;
+}

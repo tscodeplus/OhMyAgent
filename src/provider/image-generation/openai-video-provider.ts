@@ -16,7 +16,7 @@ import type {
   VideoGenerationInput,
   VideoGenerationOutput,
 } from '../../tools/builtins/multimodal/video-generation-provider.js';
-import { fetchWithTimeout } from './fetch-utils.js';
+import { fetchWithTimeout, getByPath, setByPath } from './fetch-utils.js';
 
 // ---------------------------------------------------------------------------
 // Config
@@ -53,6 +53,10 @@ export interface VideoParamsMapping {
   sizeField?: string;
   /** If set, add an aspect_ratio field using this API name. */
   aspectRatioField?: string;
+  /** Dot-notation path for reference images array. Default: "references.images". */
+  referenceImagesField?: string;
+  /** How to format reference images: "array" (default) or "first" (single URL). */
+  referenceImagesMode?: 'array' | 'first';
 }
 
 export interface OpenAIVideoGenConfig {
@@ -91,6 +95,8 @@ const DEFAULT_PARAMS_MAPPING: Required<VideoParamsMapping> = {
   durationField: 'seconds',
   sizeField: 'size',
   aspectRatioField: '',
+  referenceImagesField: 'references.images',
+  referenceImagesMode: 'array' as const,
 };
 
 // ---------------------------------------------------------------------------
@@ -186,9 +192,12 @@ export class OpenAIVideoGenerationProvider implements VideoGenerationProvider {
       body['seed'] = input.seed;
     }
 
-    // Reference images for image-to-video (Seedance-style)
+    // Reference images for image-to-video
     if (input.referenceImages && input.referenceImages.length > 0) {
-      body['references'] = { images: input.referenceImages };
+      const value = this.paramMap.referenceImagesMode === 'first'
+        ? input.referenceImages[0]
+        : input.referenceImages;
+      setByPath(body, this.paramMap.referenceImagesField, value);
     }
 
     // Extra vendor-specific params
@@ -294,18 +303,6 @@ export class OpenAIVideoGenerationProvider implements VideoGenerationProvider {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Get a nested value from an object by dot-notation path. */
-function getByPath(obj: any, path: string): any {
-  if (!obj || !path) return undefined;
-  const parts = path.split('.');
-  let current = obj;
-  for (const part of parts) {
-    if (current == null || typeof current !== 'object') return undefined;
-    current = current[part];
-  }
-  return current;
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
