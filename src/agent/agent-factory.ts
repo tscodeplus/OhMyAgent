@@ -7,7 +7,6 @@
  */
 
 import { Agent } from '@earendil-works/pi-agent-core';
-import { getModel } from '@earendil-works/pi-ai';
 import type {
   AppConfig,
   AppServices,
@@ -20,16 +19,12 @@ import type { SkillRegistry } from '../skills/skill-registry.js';
 import { getDefaultModel } from '../provider/pi-ai-setup.js';
 import { createTransformContext } from './context-transform.js';
 import { convertToLlm } from './convert-to-llm.js';
-import { generateId } from '../shared/ids.js';
-import { createCronjobTool } from '../cron/cronjob-tool.js';
 import type { ApprovalDecisionType } from '../app/types.js';
 import type { ApprovalRequestRepository } from '../memory/repositories/approval-request-repository.js';
 import type { ApprovalUiPort } from './approval-ui-port.js';
 import type { AgentManager } from './agent-manager.js';
-import { PROFILE_TOOLS } from './agent-manager.js';
 import type { ResolvedAgentConfig } from './config-types.js';
 import type { ComputerUseHost } from '../computer-use/computer-host.js';
-import { createComputerUseTool } from '../tools/builtins/computer-use-tool.js';
 import { PendingApprovalStore } from './approval-store.js';
 import { i18n } from '../i18n/index.js';
 import type { PromptManager } from '../prompt/prompt-manager.js';
@@ -40,12 +35,8 @@ import type { PolicyCenter } from '../policy/policy-center.js';
 import type { AgentPolicyScope } from '../policy/types.js';
 import type { Orchestrator } from '../orchestrator/orchestrator.js';
 import type { Logger } from 'pino';
-import { AgentToolAdapterImpl } from '../tools/platform/agent-tool-adapter.js';
-import type { DesktopBridgeRegistry } from './desktop-bridge-registry.js';
-import { createSpawnAgentToolDefinition } from '../tools/builtins/agents/spawn-definition.js';
 import { OffloadStore } from '../runtime-artifacts/offload-store.js';
 import { summarizeToolResult } from '../memory/offload-summarizer.js';
-import { loadConfig as loadToolSearchConfig, assembleTools } from '../tools/tool-search/index.js';
 
 import { MermaidCanvas } from '../runtime-artifacts/mermaid-canvas.js';
 import { MermaidPhaseTagger } from '../runtime-artifacts/mermaid-phase-tagger.js';
@@ -55,6 +46,9 @@ import type { PersonaStore } from '../memory/persona-store.js';
 import type { SummaryLLMConfig } from '../memory/memory-summarizer.js';
 import path from 'node:path';
 import { SkillComplianceTracker } from '../skills/skill-compliance.js';
+import { resolveModel } from './model-resolver.js';
+import { assembleAgentTools, shellModeForProfile } from './tool-pipeline.js';
+import type { CreateChildAgent } from './tool-pipeline.js';
 
 // ─── Types ───
 
@@ -105,13 +99,6 @@ function buildSummaryLLMConfig(config: AppConfig): SummaryLLMConfig {
     baseUrls,
     outputLanguage: config.memory.outputLanguage,
   };
-}
-
-function isDeepSeekLikeModel(model: any): boolean {
-  const provider = String(model?.provider ?? '').toLowerCase();
-  const id = String(model?.id ?? '').toLowerCase();
-  const baseUrl = String(model?.baseUrl ?? '').toLowerCase();
-  return provider.includes('deepseek') || id.includes('deepseek') || baseUrl.includes('deepseek');
 }
 
 function textBlockChars(blocks: Array<{ type?: string; text?: string }>): number {
@@ -208,10 +195,6 @@ export interface AgentFactoryOptions {
   promptManager?: PromptManager;
 }
 
-function shellModeForProfile(profile: ToolProfileId): 'full' | 'read-only' {
-  return profile === 'minimal' ? 'read-only' : 'full';
-}
-
 /** Factory that produces configured Agent instances. */
 export interface AgentFactory {
   create(options?: AgentCreateOptions): Agent;
@@ -261,18 +244,7 @@ function buildDefaultSystemPrompt(lang?: string): string {
   ].join('\n');
 }
 
-// ─── Tool Search helper ───
-
-/**
- * Resolve the context window size from the model object.
- * Tries common property names; returns 0 if none found (fallback in threshold.ts).
- */
-function resolveModelContextLength(model: any): number {
-  if (typeof model?.contextWindow === 'number') return model.contextWindow;
-  if (typeof model?.context_length === 'number') return model.context_length;
-  if (typeof model?.maxTokens === 'number') return model.maxTokens;
-  return 0;
-}
+// ─── Tool Search helper (resolveModelContextLength moved to model-resolver.ts) ───
 
 // ─── Factory ───
 
@@ -328,60 +300,28 @@ export function createAgentFactory(
           : agentManager.getDefault(options?.channel);
       }
 
-      let model = options?.model ?? getDefaultModel(configRef.current) ?? defaultModel;
+      // ── Model resolution (extracted to model-resolver.ts) ──
+      const resolvedModel = resolveModel({
+        explicitModel: options?.model,
+        agentConfig,
+        servicesDefaultModel: defaultModel,
+        config: configRef.current,
+      });
+      const {
+        model,
+        modelProvider,
+        modelId,
+        cacheProfile,
+        thinkingLevel,
+        fallbackModels,
+        contextWindow,
+      } = resolvedModel;
 
-      if (agentConfig?.model.primary && !options?.model) {
-        const ref = agentConfig.model.primary;
-        const idx = ref.indexOf('/');
-        if (idx !== -1) {
-          const agentModel = getModel(ref.slice(0, idx) as any, ref.slice(idx + 1) as any) as any;
-          if (agentModel) model = agentModel;
-        }
-      }
-
-      const modelProvider = model?.provider as string | undefined;
-      const modelId = model?.id as string | undefined;
-      const cacheProfile = isDeepSeekLikeModel(model) ? 'deepseek' as const : 'default' as const;
-      const customModelCfg = configRef.current.customProviders
-        ?.find(p => p.provider === modelProvider)
-        ?.models.find(m => m.id === modelId);
-      const thinkingLevel =
-        customModelCfg?.reasoningLevel ??
-        configRef.current.defaultReasoningLevel ??
-        'off';
-
-      const fallbackModels = (configRef.current.fallbackModels ?? [])
-        .map(ref => {
-          const idx = ref.indexOf('/');
-          if (idx === -1) return undefined;
-          const provider = ref.slice(0, idx);
-          const modelId = ref.slice(idx + 1);
-          return getModel(provider as any, modelId as any) as any;
-        })
-        .filter(Boolean);
-
+      // ── Base tools (will be piped through assembleAgentTools below) ──
       let tools = options?.tools ?? toolRegistry.listAsAgentTools();
 
       if (agentConfig && !options?.tools) {
         tools = agentManager!.resolveTools(agentConfig);
-      }
-
-      tools = tools.filter((t: any) => t.name !== 'cronjob');
-      const cronService = factoryOptions.cronServiceFactory?.();
-      if (cronService && options?.chatId) {
-        try {
-          const cronTool = createCronjobTool({
-            cronService,
-            chatId: options.chatId,
-            channel: options.channel ?? 'unknown',
-            agentName: agentConfig?.name,
-            agentId: options.agentId,
-            computerUseAllowed: () => tools.some((t: any) => t.name === 'computer_use'),
-          });
-          tools = [...tools, cronTool];
-        } catch {
-          logger?.debug('Cronjob tool creation failed — continuing without it');
-        }
       }
 
       let systemPrompt = options?.systemPrompt ?? buildDefaultSystemPrompt(configRef.current.uiLanguage);
@@ -576,177 +516,62 @@ export function createAgentFactory(
         computerUseEnabled: options?.computerUseAllowed !== false,
       };
 
-      const profileAllowedTools = PROFILE_TOOLS[effectiveProfile] ?? PROFILE_TOOLS.standard;
-      if (profileAllowedTools[0] !== '*' && !options?.tools) {
-        tools = tools.filter((t: any) => profileAllowedTools.includes(t.name) || t.name === 'computer_use');
-      }
-
-      if (options?.computerUseAllowed === false) {
-        tools = tools.filter((t: any) => t.name !== 'computer_use');
-      }
-
-      const runtimeToolPlatformRegistry = getServices?.()?.toolPlatformRegistry;
+      // ── Tool pipeline (extracted to tool-pipeline.ts) ──
+      // bridgeRegistry is resolved here because the desktop bridge reminder
+      // (in transformContext) also needs it.
       const bridgeRegistry = getServices?.()?.desktopBridgeRegistry;
-      if (runtimeToolPlatformRegistry && policyCenter) {
-        const runtimeAdapter = new AgentToolAdapterImpl({
-          policyCenter,
-          getServices,
-          getContextOverrides: () => {
-            const overrides: Record<string, unknown> = {
-              sessionId,
-              agentId: runtimeAgentId,
-              channel: options?.channel,
-              policyScope: runtimePolicyScope,
-              approvalAlreadyHandled: !!approvalGate,
-            };
 
-            // Inject desktop bridge if one is registered for this session
-            if (bridgeRegistry && sessionId && bridgeRegistry.hasBridge(sessionId)) {
-              overrides.desktopBridge = {
-                callTool: (tool: string, args: unknown, timeoutMs: number) =>
-                  bridgeRegistry.callTool(sessionId, tool, args, timeoutMs),
-              };
-            }
+      const toolPipelineResult = assembleAgentTools({
+        explicitTools: options?.tools,
+        toolRegistry,
+        agentConfig,
+        agentManager,
+        config: configRef.current,
+        chatId,
+        channel: options?.channel,
+        sessionId,
+        runtimeAgentId,
+        effectiveProfile,
+        effectiveShellMode,
+        runtimePolicyScope,
+        computerUseAllowed: options?.computerUseAllowed,
+        modelProvider,
+        modelId,
+        modelInput: Array.isArray(model?.input) ? model.input : ['text'],
+        contextLength: contextWindow,
+        extraTools: options?.extraTools,
+        computerUseHost,
+        computerUseImageSender: options?.computerUseImageSender,
+        feishuClient: feishuClient as any,
+        policyCenter,
+        approvalGate,
+        getServices,
+        orchestratorFactory,
+        createChildAgent: ((cfg, task, childOpts) => {
+          const childTools = agentManager!.resolveTools(cfg)
+            .filter((t: any) => t.name !== 'spawn_agent');
+          return factory.create({
+            agentId: cfg.id,
+            systemPrompt: cfg.system_prompt,
+            tools: childTools,
+            message: task,
+            sessionId: childOpts.sessionId,
+            toolsProfileOverride: cfg.tools.profile,
+            policyScope: childOpts.policyScope,
+            policyAgentId: childOpts.agentId,
+            computerUseAllowed: childOpts.policyScope?.computerUseEnabled,
+            isChildAgent: true,
+            childTaskDescription: task,
+          });
+        }) as CreateChildAgent,
+        cronServiceFactory: factoryOptions.cronServiceFactory,
+        agentName: agentConfig?.name,
+        agentId: options?.agentId,
+        logger,
+      });
 
-            return overrides as any;
-          },
-        });
-        tools = tools.map((tool: any) => {
-          const def = runtimeToolPlatformRegistry.getDefinition(tool.name);
-          return def ? runtimeAdapter.toAgentTool(def) : tool;
-        });
-      }
-
-      // Append extra tools provided by the channel (e.g. feishu_send_media, qq_send_media).
-      // Must run AFTER all filtering so these tools are never removed.
-      if (options?.extraTools && options.extraTools.length > 0) {
-        tools = [...tools, ...options.extraTools];
-      }
-
-      if (computerUseHost && tools.some((t: any) => t.name === 'computer_use')) {
-        const modelInput = Array.isArray(model?.input)
-          ? model.input
-          : ['text'];
-        const sendComputerUseImage = options?.computerUseImageSender
-          ?? (options?.channel === 'feishu' && chatId && feishuClient?.uploadImage && feishuClient?.sendMessage
-          ? async (image: { data: string; mimeType: string }) => {
-              const buffer = Buffer.from(image.data, 'base64');
-              const { imageKey } = await feishuClient.uploadImage!(buffer, 'message');
-              await feishuClient.sendMessage!({
-                receive_id: chatId,
-                receive_id_type: 'chat_id',
-                msg_type: 'image',
-                content: JSON.stringify({ image_key: imageKey }),
-                uuid: generateId(),
-              });
-              return `Sent to Feishu as image ${imageKey}`;
-            }
-          : undefined);
-        tools = tools.map((tool: any) => tool.name === 'computer_use'
-          ? createComputerUseTool(computerUseHost, () => ({
-              sessionPath: sessionId,
-              agentId: runtimeAgentId,
-              accessMode: effectiveShellMode === 'read-only' ? 'read-only' : 'operate',
-              model: {
-                provider: String(model?.provider ?? ''),
-                id: String(model?.id ?? ''),
-                input: modelInput,
-              },
-            }), {
-              sendImage: sendComputerUseImage,
-              policyCenter,
-              policyScope: {
-                ...runtimePolicyScope,
-                computerUseEnabled: runtimePolicyScope.computerUseEnabled && options?.computerUseAllowed !== false,
-              },
-              approvalAlreadyHandled: !!approvalGate,
-              logger,
-            })
-          : tool);
-      }
-
-      const orchestrator = orchestratorFactory?.();
-      if (orchestrator && agentManager && logger && tools.some((t: any) => t.name === 'spawn_agent')) {
-        const spawnDef = createSpawnAgentToolDefinition({
-          agentManager,
-          logger,
-          orchestrator,
-          createAgent: (config, task, childOptions) => {
-            const childTools = agentManager.resolveTools(config)
-              .filter((t: any) => t.name !== 'spawn_agent');
-            return factory.create({
-              agentId: config.id,
-              systemPrompt: config.system_prompt,
-              tools: childTools,
-              message: task,
-              sessionId: childOptions?.sessionId,
-              toolsProfileOverride: config.tools.profile,
-              policyScope: childOptions?.policyScope,
-              policyAgentId: childOptions?.agentId,
-              computerUseAllowed: childOptions?.policyScope?.computerUseEnabled,
-              isChildAgent: true,
-              childTaskDescription: task,
-            });
-          },
-        });
-        const spawnAdapter = new AgentToolAdapterImpl({
-          policyCenter,
-          getServices,
-          getContextOverrides: () => ({
-            sessionId,
-            agentId: runtimeAgentId,
-            policyScope: runtimePolicyScope,
-            approvalAlreadyHandled: !!approvalGate,
-          }),
-        });
-        tools = tools.map((tool: any) => tool.name === 'spawn_agent'
-          ? spawnAdapter.toAgentTool(spawnDef)
-          : tool);
-      }
-
-      // ── Tool Search Assembly ──
-      // Runs LAST — after profile filtering, runtime-adapter wrapping, channel
-      // extraTools, and computer_use/spawn_agent wiring — so that:
-      //   1. the tool_search bridge is created here and is NOT clobbered by the
-      //      adapter remap (which would otherwise replace it with the standalone
-      //      registry-search version, destroying the deferredCatalog + invoke);
-      //   2. the deferredCatalog references the final policy-wrapped tools, so
-      //      direct calls and bridge invoke both run identical policy hooks;
-      //   3. deferred tools (flagged) stay in the tools array → resolvable by
-      //      name for direct invocation, hidden only from the LLM prompt.
-      // extraTools (channel-injected) are forced visible to preserve their
-      // "never removed" contract.
-      // Wrapped in try-catch so any assembly error falls back to the full list.
-      let toolSearchAssembly: ReturnType<typeof assembleTools> | undefined;
-      try {
-        const tsConfig = loadToolSearchConfig(configRef.current);
-
-        if (tsConfig.enabled !== 'off') {
-          const contextLength = resolveModelContextLength(model);
-          const forceVisible = options?.extraTools?.length
-            ? new Set(options.extraTools.map((t: any) => t.name))
-            : undefined;
-          toolSearchAssembly = assembleTools(tools, tsConfig, contextLength, forceVisible);
-
-          logger?.debug({
-            activated: toolSearchAssembly.activated,
-            deferredCount: toolSearchAssembly.deferredCount,
-            deferredTokens: toolSearchAssembly.deferredTokens,
-          }, 'tool_search assembly');
-
-          if (toolSearchAssembly.activated) {
-            logger?.info({
-              deferred: toolSearchAssembly.deferredCount,
-              deferredTokens: toolSearchAssembly.deferredTokens,
-              threshold: toolSearchAssembly.thresholdTokens,
-            }, 'tool_search activated');
-          }
-
-          tools = toolSearchAssembly.tools;
-        }
-      } catch (err) {
-        logger?.warn({ err }, 'tool_search assembly failed, continuing without tool search');
-      }
+      tools = toolPipelineResult.tools;
+      const toolSearchAssembly = toolPipelineResult.toolSearchAssembly;
 
       const agent = new Agent({
         initialState: {
