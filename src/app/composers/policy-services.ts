@@ -9,6 +9,7 @@ import { ToolVisibilityPolicyImpl } from '../../policy/tool-visibility.js';
 import { ApprovalResolutionPolicyImpl } from '../../policy/approval/resolution.js';
 import { AgentInheritancePolicyImpl } from '../../policy/inheritance/scope-merge.js';
 import { PolicyCenterImpl } from '../../policy/policy-center.js';
+import { configEventBus } from '../config-event-bus.js';
 
 export interface PolicyServices {
   policyRepository: ApprovalPolicyRepository;
@@ -57,6 +58,31 @@ export function createPolicyServices(
     shellExecution: shellPolicy,
     approvalResolution,
     agentInheritance,
+  });
+
+  // Register config-reload handlers for approval gate and path policy
+  configEventBus.onReload((c) => {
+    approvalGate.updateConfig({
+      execMode: c.tools.shellExecMode,
+      shellAllowlist: c.tools.shellAllowlist,
+      fileReadAllowedRoots: c.tools.fileRead.allowedRoots,
+      shellApprovalMode: c.tools.shellApprovalMode,
+      shellApprovalWhitelist: c.tools.shellApprovalWhitelist,
+    });
+    approvalGate.createWhitelistPolicies(
+      (c.tools.shellAllowlist?.length ?? 0) > 0
+        ? c.tools.shellAllowlist
+        : c.tools.shellApprovalWhitelist,
+    );
+  });
+  configEventBus.onReload((c) => {
+    pathPolicy.updateConfig({
+      readRoots: c.policy?.path?.readRoots ?? c.tools.fileRead.allowedRoots,
+      writeRoots: c.policy?.path?.writeRoots ?? [],
+      deniedPatterns: c.policy?.path?.deniedPatterns ?? c.tools.fileRead.deniedPatterns,
+      autoInjectCwd: true,
+      autoInjectMediaCache: c.multimodal?.attachments?.cacheDir,
+    });
   });
 
   return {

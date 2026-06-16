@@ -18,6 +18,7 @@ import { JobRunner, type AgentRunner } from '../../cron/job-runner.js';
 import { CronScheduler } from '../../cron/scheduler.js';
 import { CronService } from '../../cron/service.js';
 import { CollectingReplyDispatcher } from '../../cron/collecting-dispatcher.js';
+import { configEventBus } from '../config-event-bus.js';
 import type { MemoryServices } from './memory-services.js';
 
 export interface SchedulerServices {
@@ -128,6 +129,15 @@ export function createSchedulers(input: {
     logger,
   });
   const cronService = new CronService(cronStore, cronScheduler, jobRunner);
+
+  // Cron on/off + footer update on config reload
+  configEventBus.onReload((c) => {
+    if (c.cron.enabled) cronService.start();
+    else cronService.stop();
+  });
+  configEventBus.onReload((c) => {
+    jobRunner.updateConfig({ footer: c.footer });
+  });
 
   return {
     maintenanceScheduler,

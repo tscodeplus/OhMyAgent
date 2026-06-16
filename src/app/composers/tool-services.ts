@@ -4,6 +4,7 @@ import { ToolRegistryImpl } from '../../tools/registry.js';
 import { ToolPlatformRegistryImpl } from '../../tools/platform/registry.js';
 import { AgentToolAdapterImpl } from '../../tools/platform/agent-tool-adapter.js';
 import { PolicyCenterImpl } from '../../policy/policy-center.js';
+import { configEventBus } from '../config-event-bus.js';
 import { createShellTool } from '../../tools/builtins/shell-tool.js';
 import { createFileReadTool } from '../../tools/builtins/file-read-tool.js';
 import { createFileSearchTool } from '../../tools/builtins/file-search-tool.js';
@@ -103,6 +104,14 @@ export function createToolServices(input: {
     getServices: () => servicesRef.current,
   });
   const toolPlatformRegistry = new ToolPlatformRegistryImpl(toolRegistry, agentToolAdapter);
+
+  // Re-register shell tool definition on config reload (timeout/output limits)
+  configEventBus.onReload((c) => {
+    toolPlatformRegistry.registerDefinition(createShellToolDefinition({
+      timeoutMs: c.tools.defaultTimeoutMs,
+      maxOutputLength: c.tools.maxOutputLength,
+    }));
+  });
 
   return {
     toolRegistry,

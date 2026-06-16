@@ -10,6 +10,7 @@ import { createExtensionAPI } from '../../extensions/extension-api.js';
 import { CronDeliveryRegistry, type CronDeliveryClient } from '../../cron/delivery-registry.js';
 import { AgentManager } from '../../agent/agent-manager.js';
 import { setDefaultAgentId } from '../../agent/agent-context.js';
+import { configEventBus } from '../config-event-bus.js';
 import type { MemoryServices } from './memory-services.js';
 import type { ToolServices } from './tool-services.js';
 
@@ -131,6 +132,11 @@ export function createChannelServices(input: {
   if (agentsList.length > 0) {
     setDefaultAgentId(agentsList[0]!.id);
   }
+
+  // Reload agents on config change
+  configEventBus.onReload((c) => {
+    agentManager.reload(c, c.agents ?? []);
+  });
 
   return {
     feishuClient,

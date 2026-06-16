@@ -24,7 +24,6 @@ import { PromptManager } from '../prompt/prompt-manager.js';
 import type { AppConfig, AppServices, CustomModelConfig } from './types.js';
 import { openDatabase } from '../memory/db.js';
 import { registerModel } from '@earendil-works/pi-ai';
-import { createShellToolDefinition } from '../tools/builtins/shell/definition.js';
 import { SkillRegistry } from '../skills/skill-registry.js';
 import { FeishuRouter } from '../../extensions/channel-feishu/feishu-router.js';
 import { createFeishuServer } from '../../extensions/channel-feishu/feishu-server.js';
@@ -66,9 +65,36 @@ export interface BootstrapResult {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Module-level helpers (extracted from bootstrap() to reduce
-// closure nesting and improve readability)
+// Module-level helpers
 // ═══════════════════════════════════════════════════════════════
+
+function registerCustomProviders(config: AppConfig, logger: AppServices['logger']): void {
+  if (!config.customProviders) return;
+  for (const cp of config.customProviders) {
+    logger.info({ provider: cp.provider, modelCount: cp.models.length }, 'Registering custom provider');
+    for (const m of cp.models) {
+      registerModel(cp.provider, m.id, {
+        id: m.id,
+        name: m.name,
+        api: m.api,
+        apiKey: cp.apiKey,
+        provider: cp.provider,
+        baseUrl: cp.baseUrl,
+        reasoning: m.reasoning ?? false,
+        input: m.input ?? ['text'],
+        cost: {
+          input: m.cost?.input ?? 0,
+          output: m.cost?.output ?? 0,
+          cacheRead: m.cost?.cacheRead ?? 0,
+          cacheWrite: m.cost?.cacheWrite ?? 0,
+        },
+        contextWindow: m.contextWindow ?? 128000,
+        maxTokens: m.maxTokens ?? 16000,
+        compat: withCustomProviderCacheCompat(m, cp.provider),
+      } as any);
+    }
+  }
+}
 
 function withCustomProviderCacheCompat(model: CustomModelConfig, providerName?: string): Record<string, unknown> | undefined {
   if (model.api === 'openai-completions') {
@@ -96,14 +122,6 @@ function withCustomProviderCacheCompat(model: CustomModelConfig, providerName?: 
     };
   }
   return model.compat as Record<string, unknown> | undefined;
-}
-
-function formatDisplayModel(provider: string | undefined, model: string | undefined): string {
-  if (!provider && !model) return 'unknown';
-  if (!provider) return model ?? 'unknown';
-  if (!model) return provider;
-  if (model.startsWith(`${provider}/`)) return model;
-  return `${provider}/${model}`;
 }
 
 // ─── Bootstrap ───
@@ -150,32 +168,7 @@ export async function bootstrap(): Promise<BootstrapResult> {
   const db = openDatabase(config.database.path);
 
   // 3. Register custom providers defined in custom_providers.yaml or CUSTOM_PROVIDERS env
-  if (config.customProviders) {
-    for (const cp of config.customProviders) {
-      logger.info({ provider: cp.provider, modelCount: cp.models.length }, 'Registering custom provider');
-      for (const m of cp.models) {
-        registerModel(cp.provider, m.id, {
-          id: m.id,
-          name: m.name,
-          api: m.api,
-          apiKey: cp.apiKey,
-          provider: cp.provider,
-          baseUrl: cp.baseUrl,
-          reasoning: m.reasoning ?? false,
-          input: m.input ?? ['text'],
-          cost: {
-            input: m.cost?.input ?? 0,
-            output: m.cost?.output ?? 0,
-            cacheRead: m.cost?.cacheRead ?? 0,
-            cacheWrite: m.cost?.cacheWrite ?? 0,
-          },
-          contextWindow: m.contextWindow ?? 128000,
-          maxTokens: m.maxTokens ?? 16000,
-          compat: withCustomProviderCacheCompat(m, cp.provider),
-        } as any);
-      }
-    }
-  }
+  registerCustomProviders(config, logger);
 
   // 3a. Initialize subscription service — injects OAuth API keys into providerKeys
   const subscriptionService = new SubscriptionService({
@@ -223,31 +216,6 @@ export async function bootstrap(): Promise<BootstrapResult> {
     policyCenter,
   } = policyServices;
 
-  // Register config-reload handlers for policy services
-  configEventBus.onReload((c) => {
-    approvalGate.updateConfig({
-      execMode: c.tools.shellExecMode,
-      shellAllowlist: c.tools.shellAllowlist,
-      fileReadAllowedRoots: c.tools.fileRead.allowedRoots,
-      shellApprovalMode: c.tools.shellApprovalMode,
-      shellApprovalWhitelist: c.tools.shellApprovalWhitelist,
-    });
-    approvalGate.createWhitelistPolicies(
-      (c.tools.shellAllowlist?.length ?? 0) > 0
-        ? c.tools.shellAllowlist
-        : c.tools.shellApprovalWhitelist,
-    );
-  });
-  configEventBus.onReload((c) => {
-    pathPolicy.updateConfig({
-      readRoots: c.policy?.path?.readRoots ?? c.tools.fileRead.allowedRoots,
-      writeRoots: c.policy?.path?.writeRoots ?? [],
-      deniedPatterns: c.policy?.path?.deniedPatterns ?? c.tools.fileRead.deniedPatterns,
-      autoInjectCwd: true,
-      autoInjectMediaCache: c.multimodal?.attachments?.cacheDir,
-    });
-  });
-
   const servicesRef: { current?: AppServices } = {};
   const toolServices = createToolServices({
     config,
@@ -257,14 +225,6 @@ export async function bootstrap(): Promise<BootstrapResult> {
     servicesRef,
   });
   const { toolRegistry, toolPlatformRegistry } = toolServices;
-
-  // Re-register shell tool definition on config reload (timeout/output limits)
-  configEventBus.onReload((c) => {
-    toolPlatformRegistry.registerDefinition(createShellToolDefinition({
-      timeoutMs: c.tools.defaultTimeoutMs,
-      maxOutputLength: c.tools.maxOutputLength,
-    }));
-  });
 
   // 9. Create skill registry
   const skillRegistry = new SkillRegistry();
@@ -300,11 +260,6 @@ export async function bootstrap(): Promise<BootstrapResult> {
     cronDeliveryRegistry,
     agentManager,
   } = channelServices;
-
-  // Reload agents on config change
-  configEventBus.onReload((c) => {
-    agentManager.reload(c, c.agents ?? []);
-  });
 
   // Load extensions from config directory — deferred to after all services
   // are created so extensions can resolve them via servicesMap.
@@ -364,15 +319,6 @@ export async function bootstrap(): Promise<BootstrapResult> {
   const { maintenanceScheduler, cronService, jobRunner } = schedulerServices;
   cronServiceRef.current = cronService;
   servicesMap.set('cronService', cronService);
-
-  // Cron + footer update on config reload
-  configEventBus.onReload((c) => {
-    if (c.cron.enabled) cronService.start();
-    else cronService.stop();
-  });
-  configEventBus.onReload((c) => {
-    jobRunner.updateConfig({ footer: c.footer });
-  });
 
   // 14. Wire up Feishu event routing (extracted to composers/feishu-services.ts)
   const feishuServices = createFeishuServices({
