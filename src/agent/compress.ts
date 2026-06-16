@@ -10,7 +10,6 @@
 
 import type { Logger } from 'pino';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
-import type { TextContent, ToolCall } from '@earendil-works/pi-ai';
 import { auxLLMCall, type AuxModelConfig } from '../memory/aux-llm-client.js';
 
 // ---------------------------------------------------------------------------
@@ -70,14 +69,14 @@ function formatMessage(m: AgentMessage, index: number): string {
   if (typeof m.content === 'string') {
     content = m.content;
   } else if (Array.isArray(m.content)) {
-    content = m.content
-      .filter((b): b is TextContent => b.type === 'text' && typeof b.text === 'string')
-      .map(b => b.text)
+    content = (m.content as { type: string; text?: string; name?: string }[])
+      .filter(b => b.type === 'text' && typeof b.text === 'string')
+      .map(b => b.text!)
       .join('\n');
   }
   if (!content.trim() && Array.isArray(m.content)) {
-    const parts = m.content
-      .filter((b): b is ToolCall => b.type === 'toolCall')
+    const parts = (m.content as { type: string; name?: string }[])
+      .filter(b => b.type === 'toolCall')
       .map(b => `[调用工具: ${b.name}]`);
     if (parts.length > 0) content = parts.join(', ');
   }

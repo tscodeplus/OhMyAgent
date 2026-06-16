@@ -1004,7 +1004,7 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
           : undefined,
       });
 
-      (agent as any).ohmyagent_agentName = agentConfig?.name;
+      agent.ohmyagent_agentName = agentConfig?.name;
 
       return agent;
     },

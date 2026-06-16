@@ -162,7 +162,7 @@ export class EventBridge {
           const assistantMsg = findLastAssistantMessage(event.messages);
 
           // Update agent name for footer display (all channels)
-          const agentName = (this.agent as any)?.ohmyagent_agentName;
+          const agentName = this.agent?.ohmyagent_agentName;
           if (agentName) {
             this.replyDispatcher.setAgentName(agentName);
           }

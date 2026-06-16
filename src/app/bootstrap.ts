@@ -81,6 +81,7 @@ import { createToolServices, registerV4ToolDefinitions } from './composers/tool-
 import { createChannelServices } from './composers/channel-services.js';
 import { createSchedulers } from './composers/scheduler-services.js';
 import { SubscriptionService } from './subscription/subscription-service.js';
+import { configEventBus } from './config-event-bus.js';
 
 // ─── Types ───
 
@@ -153,6 +154,17 @@ export async function bootstrap(): Promise<BootstrapResult> {
   });
   logger.info({ uiLanguage: config.uiLanguage, localesPath, i18nLocale: i18n.locale }, 'i18n initialized');
 
+  // Register config-reload handlers for simple services (self-contained, no
+  // complex dependency chains). Remaining services are still updated inline
+  // in onConfigReload and will be migrated incrementally.
+  configEventBus.onReload((c) => { logger.level = c.logging.level; });
+  configEventBus.onReload((c) => teamModeStore.updateConfig(c.smart_agent_team));
+  configEventBus.onReload((c) => {
+    if (c.uiLanguage && c.uiLanguage !== i18n.locale) {
+      changeI18nLocale(c.uiLanguage).catch((err) => console.error('[hot-reload] Failed to change locale:', err));
+    }
+  });
+
   // 1.5 Initialize PromptManager (v5: centralized prompt management)
   const promptManager = new PromptManager({
     t: (key, interpolations) => i18n.t(key, interpolations),
@@ -197,6 +209,9 @@ export async function bootstrap(): Promise<BootstrapResult> {
     logger,
   });
   await subscriptionService.applyCredentialsToConfig(config);
+  configEventBus.onReload((c) =>
+    subscriptionService.applyCredentialsToConfig(c).catch((err) => logger.warn({ err }, '[hot-reload] Failed to apply OAuth credentials')),
+  );
 
 
   const memoryServices = await createMemoryServices(config, logger, db);
@@ -474,6 +489,7 @@ export async function bootstrap(): Promise<BootstrapResult> {
     logger,
     promptManager,
   });
+  configEventBus.onReload((c) => agentFactory.updateConfig(c));
 
   // ── v4 Phase 5: Orchestrator ─────────────────────────────────────────
 
@@ -1080,13 +1096,11 @@ export async function bootstrap(): Promise<BootstrapResult> {
     // Update extension API's config ref so channels using api.getConfig() see new values
     apiDeps.config = newConfig;
 
-    // Re-apply OAuth credentials to providerKeys (token may have refreshed)
-    subscriptionService.applyCredentialsToConfig(newConfig).catch(err =>
-      logger.warn({ err }, '[hot-reload] Failed to apply OAuth credentials'),
-    );
+    // ── Services migrated to configEventBus ─────────────────────────────
+    // logger.level, teamModeStore, changeI18nLocale, subscriptionService,
+    // and agentFactory now self-register via configEventBus.onReload().
 
-    // Update agent factory's config ref (fallbackModels, reasoningLevel, tools, memory, etc.)
-    agentFactory.updateConfig(newConfig);
+    // ── Services still updated inline (migration candidates) ────────────
 
     approvalGate.updateConfig({
       execMode: newConfig.tools.shellExecMode,
@@ -1119,21 +1133,8 @@ export async function bootstrap(): Promise<BootstrapResult> {
       cronService.stop();
     }
 
-    // Update logger level immediately (pino supports runtime level change)
-    logger.level = newConfig.logging.level;
-
-    // i18n: switch locale without restart (locale files already loaded)
-    if (newConfig.uiLanguage && newConfig.uiLanguage !== i18n.locale) {
-      changeI18nLocale(newConfig.uiLanguage).catch(err =>
-        console.error('[hot-reload] Failed to change locale:', err),
-      );
-    }
-
     // Computer use: re-compute settings from new config
     cuaSettings = normalizeComputerUseSettings(newConfig.computerUse);
-
-    // Team mode: update default config for new sessions
-    teamModeStore.updateConfig(newConfig.smart_agent_team);
 
     // Rate limiter: update webhook rate limit settings
     (server as any).updateRateLimit?.({
@@ -1149,6 +1150,11 @@ export async function bootstrap(): Promise<BootstrapResult> {
 
     // Footer: update on JobRunner (ReplyDispatcher reads config.footer per-execution)
     jobRunner.updateConfig({ footer: newConfig.footer });
+
+    // ── Fire event bus for self-registered listeners ────────────────────
+    configEventBus.emit(newConfig).catch(err =>
+      logger.warn({ err }, 'Config reload event handler failed'),
+    );
 
     logger.info(
       {

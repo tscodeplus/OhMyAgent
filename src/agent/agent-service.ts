@@ -700,7 +700,7 @@ export class AgentService {
             ? (pending.model.startsWith(`${pending.provider}/`) ? pending.model : `${pending.provider}/${pending.model}`)
             : pending.model;
         }
-        const agentName = (agent as any).ohmyagent_agentName || runtime.agentName;
+        const agentName = agent.ohmyagent_agentName || runtime.agentName;
         if (agentName) meta.agentName = agentName;
         if (runtime.turnElapsed) meta.elapsed = runtime.turnElapsed;
         // Store footer config snapshot so historical messages retain their
@@ -786,7 +786,7 @@ export class AgentService {
                   ? (msg.model.startsWith(`${prov}/`) ? msg.model : `${prov}/${msg.model}`)
                   : msg.model;
               }
-              const agentName = (agent as any).ohmyagent_agentName || runtime.agentName;
+              const agentName = agent.ohmyagent_agentName || runtime.agentName;
               if (agentName) meta.agentName = agentName;
               if (runtime.turnElapsed) meta.elapsed = runtime.turnElapsed;
               if (runtime.footerConfig) meta.footerConfig = runtime.footerConfig;
