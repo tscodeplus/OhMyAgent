@@ -230,7 +230,7 @@ export class AgentService {
       // Respects image mode: native_first (default), bridge_only, native_only
       let finalImages = options?.images;
       if (finalImages?.length) {
-        const model = (agent.state as any)?.model as { input?: string[] } | undefined;
+        const model = agent.state.model as { input?: string[] } | undefined;
         if (model) {
           const modelSupportsImages = Array.isArray(model.input) && model.input.includes('image');
 
@@ -408,7 +408,7 @@ export class AgentService {
     // before finalizing the card. Without this, the footer shows the global
     // default model instead of the agent-specific model (swapCard fires
     // before EventBridge.agent_end, which is where setModel normally runs).
-    const stateModel = (runtime.agent.state as any)?.model;
+    const stateModel = runtime.agent.state.model;
     if (stateModel?.provider && stateModel?.id) {
       try {
         runtime.turnContext.replyDispatcher?.setModel(

@@ -357,7 +357,7 @@ export function createTransformContext(options?: TransformOptions) {
               }
             }
           } catch {
-            // Memory retrieval failure should not block the LLM call
+            options?.logger?.debug('Memory retrieval failed — continuing without memory context');
           }
         }
       }
@@ -542,7 +542,7 @@ export function createTransformContext(options?: TransformOptions) {
             }
           }
         } catch {
-          // Persona injection failure should not block the LLM call
+          options?.logger?.debug('Persona injection failed — continuing without persona context');
         }
       }
     }
@@ -625,9 +625,9 @@ export function createTransformContext(options?: TransformOptions) {
         trimmed = trimmed.slice(1);
       }
       // Drop trailing orphaned tool_calls (their tool results were trimmed)
-      while (trimmed.length > 0 && trimmed[trimmed.length - 1]?.role === 'assistant' &&
-             Array.isArray((trimmed[trimmed.length - 1] as any)?.content) &&
-             (trimmed[trimmed.length - 1] as any).content.some((b: any) => b.type === 'toolCall')) {
+      while (trimmed.length > 0 && trimmed[trimmed.length - 1]?.role === 'assistant') {
+        const lastContent = trimmed[trimmed.length - 1]!.content;
+        if (!Array.isArray(lastContent) || !lastContent.some((b) => b.type === 'toolCall')) break;
         trimmed = trimmed.slice(0, -1);
       }
 
@@ -659,7 +659,7 @@ export function createTransformContext(options?: TransformOptions) {
             }
           }
         } catch {
-          // Offload index injection failure should not block the LLM call
+          options?.logger?.debug('Offload index injection failed — continuing without offload hints');
         }
       }
 

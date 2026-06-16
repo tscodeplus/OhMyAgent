@@ -49,6 +49,7 @@ import { loadConfig as loadToolSearchConfig, assembleTools } from '../tools/tool
 
 import { MermaidCanvas } from '../runtime-artifacts/mermaid-canvas.js';
 import { MermaidPhaseTagger } from '../runtime-artifacts/mermaid-phase-tagger.js';
+import { updateMermaidCanvas } from './mermaid-canvas-updater.js';
 import { createDistillerLLM } from '../memory/persona-distiller.js';
 import type { PersonaStore } from '../memory/persona-store.js';
 import type { SummaryLLMConfig } from '../memory/memory-summarizer.js';
@@ -338,8 +339,8 @@ export function createAgentFactory(
         }
       }
 
-      const modelProvider = (model as any)?.provider as string | undefined;
-      const modelId = (model as any)?.id as string | undefined;
+      const modelProvider = model?.provider as string | undefined;
+      const modelId = model?.id as string | undefined;
       const cacheProfile = isDeepSeekLikeModel(model) ? 'deepseek' as const : 'default' as const;
       const customModelCfg = configRef.current.customProviders
         ?.find(p => p.provider === modelProvider)
@@ -379,7 +380,7 @@ export function createAgentFactory(
           });
           tools = [...tools, cronTool];
         } catch {
-          // Cronjob tool creation failed — continue without it
+          logger?.debug('Cronjob tool creation failed — continuing without it');
         }
       }
 
@@ -623,8 +624,8 @@ export function createAgentFactory(
       }
 
       if (computerUseHost && tools.some((t: any) => t.name === 'computer_use')) {
-        const modelInput = Array.isArray((model as any)?.input)
-          ? (model as any).input
+        const modelInput = Array.isArray(model?.input)
+          ? model.input
           : ['text'];
         const sendComputerUseImage = options?.computerUseImageSender
           ?? (options?.channel === 'feishu' && chatId && feishuClient?.uploadImage && feishuClient?.sendMessage
@@ -647,8 +648,8 @@ export function createAgentFactory(
               agentId: runtimeAgentId,
               accessMode: effectiveShellMode === 'read-only' ? 'read-only' : 'operate',
               model: {
-                provider: String((model as any)?.provider ?? ''),
-                id: String((model as any)?.id ?? ''),
+                provider: String(model?.provider ?? ''),
+                id: String(model?.id ?? ''),
                 input: modelInput,
               },
             }), {
@@ -795,7 +796,7 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
             mergeProviderKeys(apiKeys, baseUrls, configRef.current);
             return {
               config: cc,
-              contextWindow: (model as any)?.contextWindow ?? 128000,
+              contextWindow: model?.contextWindow ?? 128000,
               mainModelRef: `${configRef.current.piAi.provider}/${configRef.current.piAi.model}`,
               globalFallbackRefs: configRef.current.fallbackModels ?? [],
               compressModelRef: cc.model?.primary || undefined,
@@ -836,7 +837,7 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
                 logger?.info({ filePath: fp }, 'Skill registry auto-reloaded after file_write to SKILL.md');
               }
             } catch {
-              // Skill reload failure must not block the tool result
+              logger?.debug('Skill registry auto-reload failed — continuing');
             }
           }
 
@@ -861,6 +862,18 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
               );
             }
           }
+
+          // Shared Mermaid phase-tagger initializer for both offloading branches
+          const ensurePhaseTagger = (): MermaidPhaseTagger | undefined => {
+            if (!logger) return undefined;
+            if (!phaseTagger) {
+              const summaryConfig = buildSummaryLLMConfig(configRef.current);
+              createDistillerLLM(summaryConfig, logger).then(llm => {
+                phaseTagger = new MermaidPhaseTagger(llm, logger);
+              }).catch(() => {});
+            }
+            return phaseTagger;
+          };
 
           // Check if context offloading is enabled
           const offloadCfg = configRef.current.memory.offloading;
@@ -887,39 +900,23 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
               resultChars > 4000 &&
               !shouldKeepFullToolResultInContext(context.toolCall.name);
 
-            // P1: Mermaid canvas update
-            if (mermaidCanvasCfg?.enabled && mermaidCanvas) {
-              try {
-                mermaidCanvas.addNode({
-                  ...record,
-                  summary,
-                  status: record.status as any,
-                } as any);
-                logger?.debug({
-                  sessionId,
-                  nodeId: record.nodeId,
-                  toolName: context.toolCall.name,
-                  status: record.status,
-                  nodeCount: mermaidCanvas.size,
-                }, 'Mermaid canvas node recorded');
-
-                if (mermaidCanvasCfg.phaseTagging === 'llm' && mermaidCanvas.size % 5 === 0 && logger) {
-                  if (!phaseTagger) {
-                    const summaryConfig = buildSummaryLLMConfig(configRef.current);
-                    createDistillerLLM(summaryConfig, logger).then(llm => {
-                      phaseTagger = new MermaidPhaseTagger(llm, logger);
-                    }).catch(() => {});
-                  }
-                  if (phaseTagger) {
-                    phaseTagger.tagPhases(mermaidCanvas.getAllNodes()).then(tagResult => {
-                      if (tagResult) phaseTagger!.applyToCanvas(mermaidCanvas, tagResult);
-                    }).catch(() => {});
-                  }
-                }
-              } catch {
-                // Mermaid canvas update should not block the tool result
-              }
-            }
+            // P1: Mermaid canvas update (via shared helper)
+            updateMermaidCanvas({
+              canvas: mermaidCanvas,
+              config: mermaidCanvasCfg ?? {},
+              node: {
+                nodeId: record.nodeId,
+                toolName: context.toolCall.name,
+                toolArgs: (context.args ?? {}) as Record<string, unknown>,
+                summary,
+                status: record.status,
+                seq: record.seq,
+                refPath: record.refPath,
+              },
+              sessionId,
+              logger,
+              ensurePhaseTagger,
+            });
 
             if (shouldCompactForDeepSeek) {
               const ref = `${offloadStore.getSessionDirPath(sessionId)}/${record.refPath}`;
@@ -951,47 +948,26 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
 
           // P1: Mermaid canvas update (when offloading is disabled)
           if (mermaidCanvasCfg?.enabled && mermaidCanvas && result) {
-            try {
-              const fmt = typeof result.content === 'string'
-                ? [{ type: 'text' as const, text: result.content }]
-                : (Array.isArray(result.content) ? result.content : [{ type: 'text' as const, text: String(result.content ?? '') }]);
-              const toolSummary = summarizeToolResult(context.toolCall.name, context.args, fmt, context.isError);
-              const toolRecord = {
+            const fmt = typeof result.content === 'string'
+              ? [{ type: 'text' as const, text: result.content }]
+              : (Array.isArray(result.content) ? result.content : [{ type: 'text' as const, text: String(result.content ?? '') }]);
+            const toolSummary = summarizeToolResult(context.toolCall.name, context.args, fmt, context.isError);
+            updateMermaidCanvas({
+              canvas: mermaidCanvas,
+              config: mermaidCanvasCfg ?? {},
+              node: {
                 nodeId: `node-${String(mermaidCanvas.size + 1).padStart(3, '0')}`,
                 toolName: context.toolCall.name,
                 toolArgs: (context.args ?? {}) as Record<string, unknown>,
                 summary: toolSummary,
                 status: context.isError ? 'error' : 'success',
                 seq: mermaidCanvas.size + 1,
-                timestamp: Date.now(),
                 refPath: '',
-              };
-              mermaidCanvas.addNode(toolRecord as any);
-              logger?.debug({
-                sessionId,
-                nodeId: toolRecord.nodeId,
-                toolName: context.toolCall.name,
-                status: toolRecord.status,
-                nodeCount: mermaidCanvas.size,
-              }, 'Mermaid canvas node recorded');
-
-              // LLM phase tagging (fire-and-forget, every 5 steps)
-              if (mermaidCanvasCfg.phaseTagging === 'llm' && mermaidCanvas.size % 5 === 0 && logger) {
-                if (!phaseTagger) {
-                  const summaryConfig = buildSummaryLLMConfig(configRef.current);
-                  createDistillerLLM(summaryConfig, logger).then(llm => {
-                    phaseTagger = new MermaidPhaseTagger(llm, logger);
-                  }).catch(() => {});
-                }
-                if (phaseTagger) {
-                  phaseTagger.tagPhases(mermaidCanvas.getAllNodes()).then(tagResult => {
-                    if (tagResult) phaseTagger!.applyToCanvas(mermaidCanvas, tagResult);
-                  }).catch(() => {});
-                }
-              }
-            } catch {
-              // Mermaid canvas update should not block the tool result
-            }
+              },
+              sessionId,
+              logger,
+              ensurePhaseTagger,
+            });
           }
 
           // Offloading disabled: keep original behavior (string → TextBlock)
@@ -1066,7 +1042,7 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
       mergeProviderKeys(apiKeys, baseUrls, configRef.current);
       const compressModel = configRef.current.memory.autoCompress?.model;
       return {
-        contextWindow: (getDefaultModel(configRef.current) as any)?.contextWindow ?? 128000,
+        contextWindow: getDefaultModel(configRef.current)?.contextWindow ?? 128000,
         mainModelRef: `${configRef.current.piAi.provider}/${configRef.current.piAi.model}`,
         globalFallbackRefs: configRef.current.fallbackModels ?? [],
         compressModelRef: compressModel?.primary || undefined,

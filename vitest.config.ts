@@ -30,14 +30,14 @@ export default defineConfig({
         '**/*.d.ts',
         '**/types.ts',
       ],
-      // Baseline set just below measured coverage (stmts 56% / branches 73% /
-      // funcs 67% / lines 56% as of this commit). Ratchet upward over time,
+      // Baseline set just below measured coverage (stmts 54.3% / branches 73.5% /
+      // funcs 66.3% / lines 54.3% as of this commit). Ratchet upward over time,
       // never down. CI fails if coverage regresses below these.
       thresholds: {
-        statements: 52,
-        branches: 70,
-        functions: 63,
-        lines: 52,
+        statements: 54,
+        branches: 73,
+        functions: 66,
+        lines: 54,
       },
     },
   },

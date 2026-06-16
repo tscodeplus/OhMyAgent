@@ -10,6 +10,7 @@
 
 import type { Logger } from 'pino';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
+import type { TextContent, ToolCall } from '@earendil-works/pi-ai';
 import { auxLLMCall, type AuxModelConfig } from '../memory/aux-llm-client.js';
 
 // ---------------------------------------------------------------------------
@@ -22,10 +23,10 @@ function estimateMessageTokens(m: AgentMessage): number {
   if (typeof m.content === 'string') {
     chars = m.content.length;
   } else if (Array.isArray(m.content)) {
-    for (const b of m.content as any[]) {
+    for (const b of m.content) {
       if (b.type === 'text' && typeof b.text === 'string') chars += b.text.length;
-      else if (b.type === 'thinking' && typeof (b as any).thinking === 'string') chars += (b as any).thinking.length;
-      else if (b.type === 'toolCall') chars += (b.name?.length ?? 0) + JSON.stringify((b as any).arguments ?? {}).length;
+      else if (b.type === 'thinking' && typeof b.thinking === 'string') chars += b.thinking.length;
+      else if (b.type === 'toolCall') chars += (b.name.length ?? 0) + JSON.stringify(b.arguments ?? {}).length;
       else if (b.type === 'image') chars += 4800; // image estimate
       else chars += JSON.stringify(b).length;
     }
@@ -69,15 +70,15 @@ function formatMessage(m: AgentMessage, index: number): string {
   if (typeof m.content === 'string') {
     content = m.content;
   } else if (Array.isArray(m.content)) {
-    content = (m.content as any[])
-      .filter((b: any) => b.type === 'text' && typeof b.text === 'string')
-      .map((b: any) => b.text)
+    content = m.content
+      .filter((b): b is TextContent => b.type === 'text' && typeof b.text === 'string')
+      .map(b => b.text)
       .join('\n');
   }
   if (!content.trim() && Array.isArray(m.content)) {
-    const parts = (m.content as any[])
-      .filter((b: any) => b.type === 'toolCall')
-      .map((b: any) => `[调用工具: ${b.name}]`);
+    const parts = m.content
+      .filter((b): b is ToolCall => b.type === 'toolCall')
+      .map(b => `[调用工具: ${b.name}]`);
     if (parts.length > 0) content = parts.join(', ');
   }
   if (!content.trim()) return '';
