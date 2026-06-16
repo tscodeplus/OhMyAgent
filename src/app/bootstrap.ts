@@ -16,34 +16,20 @@
  */
 
 import { i18n, changeI18nLocale } from '../i18n/index.js';
-import { loadConfig, startConfigWatcher, startEnvWatcher, stopConfigWatcher, stopEnvWatcher, resetConfig } from './config.js';
+import { loadConfig, startConfigWatcher, startEnvWatcher, stopConfigWatcher, stopEnvWatcher } from './config.js';
 import { createLogger } from './logger.js';
 import { teamModeStore } from '../agent/team-mode-store.js';
 import { createI18nService } from '../i18n/i18n-service.js';
 import { PromptManager } from '../prompt/prompt-manager.js';
-import { getDefaultModel } from '../provider/pi-ai-setup.js';
-import type { AppConfig, AppServices, ApprovalDecisionType, CustomModelConfig } from './types.js';
+import type { AppConfig, AppServices, CustomModelConfig } from './types.js';
 import { openDatabase } from '../memory/db.js';
 import { registerModel } from '@earendil-works/pi-ai';
-import { createAgentFactory } from '../agent/agent-factory.js';
-import { AgentService } from '../agent/agent-service.js';
-import { loadVisionBridgeConfig } from '../vision-bridge/vision-bridge-config.js';
-import { VisionBridgeService } from '../vision-bridge/vision-bridge-service.js';
 import { createShellToolDefinition } from '../tools/builtins/shell/definition.js';
-import { createSTTProviders, transcribeWithFallback } from '../media-providers/stt/factory.js';
 import { SkillRegistry } from '../skills/skill-registry.js';
 import { FeishuRouter } from '../../extensions/channel-feishu/feishu-router.js';
 import { createFeishuServer } from '../../extensions/channel-feishu/feishu-server.js';
 import { FeishuWSClient } from '../../extensions/channel-feishu/feishu-ws-client.js';
-import { MessageHandler } from '../../extensions/channel-feishu/message-handler.js';
-import { renderApprovalCard, renderApprovalResultCard } from '../../extensions/channel-feishu/render/approval-card-renderer.js';
-import { createFeishuApprovalUiPort } from '../../extensions/channel-feishu/render/approval-ui-port-feishu.js';
 import { ChatQueue } from '../../extensions/channel-feishu/chat-queue.js';
-import { ReplyDispatcher } from '../../extensions/channel-feishu/render/reply-dispatcher.js';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { load as parseYaml, dump as dumpYaml } from 'js-yaml';
-import { generateId } from '../shared/ids.js';
-import { CronService } from '../cron/service.js';
 import { registerWebUIRoutes } from './webui-routes.js';
 import { createSkillLintTool } from '../tools/builtins/skills/skill-lint-definition.js';
 import { createSkillCreateTool } from '../tools/builtins/skills/skill-create-definition.js';
@@ -51,37 +37,25 @@ import { createSkillTestTool } from '../tools/builtins/skills/skill-test-definit
 import { SkillMetricsService } from '../skills/skill-evolution/skill-metrics.js';
 import { getWebUIToken } from './webui-auth.js';
 import { setupWebUIMiddleware } from './webui/setup-vite.js';
+import { createOnConfigChanged } from './webui/config-persist.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Computer Use
+// Computer Use (provider logic extracted to composers/computer-use-services.ts)
 import { normalizeComputerUseSettings } from '../computer-use/settings.js';
-import { ComputerProviderRegistry } from '../computer-use/provider-registry.js';
-import { ComputerLeaseRegistry } from '../computer-use/lease-registry.js';
-import { ComputerUseHost } from '../computer-use/computer-host.js';
-import { SSHComputerUseProvider } from '../computer-use/providers/ssh-provider.js';
-import { LocalWindowsProvider } from '../computer-use/providers/local-windows.js';
-import { NutJSProvider } from '../computer-use/providers/local-nutjs.js';
-import { createMockComputerProvider } from '../computer-use/providers/mock-provider.js';
-import { SSHPool } from '../computer-use/transports/ssh-pool.js';
-
-// V2 imports
-import { AgentManager } from '../agent/agent-manager.js';
 
 // v4 Phase 5: Orchestrator
-import { OrchestratorImpl } from '../orchestrator/orchestrator.js';
-import { InMemoryAgentRunStore } from '../orchestrator/agent-run-store.js';
-import { InMemoryTaskRunStore } from '../orchestrator/task-run-store.js';
-import { PermissionInheritanceServiceImpl } from '../orchestrator/permission-inheritance.js';
-import { ApprovalStateSyncImpl } from '../orchestrator/approval-state-sync.js';
-import { PendingApprovalStore } from '../agent/approval-store.js';
 import { createMemoryServices } from './composers/memory-services.js';
 import { createPolicyServices } from './composers/policy-services.js';
 import { createToolServices, registerV4ToolDefinitions } from './composers/tool-services.js';
 import { createChannelServices } from './composers/channel-services.js';
 import { createSchedulers } from './composers/scheduler-services.js';
+import { createComputerUseServices } from './composers/computer-use-services.js';
+import { createAgentServices } from './composers/agent-services.js';
+import { createFeishuServices } from './composers/feishu-services.js';
 import { SubscriptionService } from './subscription/subscription-service.js';
 import { configEventBus } from './config-event-bus.js';
+import { createWSCardActionHandler } from './feishu/ws-card-action-handler.js';
 
 // ─── Types ───
 
@@ -249,6 +223,31 @@ export async function bootstrap(): Promise<BootstrapResult> {
     policyCenter,
   } = policyServices;
 
+  // Register config-reload handlers for policy services
+  configEventBus.onReload((c) => {
+    approvalGate.updateConfig({
+      execMode: c.tools.shellExecMode,
+      shellAllowlist: c.tools.shellAllowlist,
+      fileReadAllowedRoots: c.tools.fileRead.allowedRoots,
+      shellApprovalMode: c.tools.shellApprovalMode,
+      shellApprovalWhitelist: c.tools.shellApprovalWhitelist,
+    });
+    approvalGate.createWhitelistPolicies(
+      (c.tools.shellAllowlist?.length ?? 0) > 0
+        ? c.tools.shellAllowlist
+        : c.tools.shellApprovalWhitelist,
+    );
+  });
+  configEventBus.onReload((c) => {
+    pathPolicy.updateConfig({
+      readRoots: c.policy?.path?.readRoots ?? c.tools.fileRead.allowedRoots,
+      writeRoots: c.policy?.path?.writeRoots ?? [],
+      deniedPatterns: c.policy?.path?.deniedPatterns ?? c.tools.fileRead.deniedPatterns,
+      autoInjectCwd: true,
+      autoInjectMediaCache: c.multimodal?.attachments?.cacheDir,
+    });
+  });
+
   const servicesRef: { current?: AppServices } = {};
   const toolServices = createToolServices({
     config,
@@ -258,6 +257,14 @@ export async function bootstrap(): Promise<BootstrapResult> {
     servicesRef,
   });
   const { toolRegistry, toolPlatformRegistry } = toolServices;
+
+  // Re-register shell tool definition on config reload (timeout/output limits)
+  configEventBus.onReload((c) => {
+    toolPlatformRegistry.registerDefinition(createShellToolDefinition({
+      timeoutMs: c.tools.defaultTimeoutMs,
+      maxOutputLength: c.tools.maxOutputLength,
+    }));
+  });
 
   // 9. Create skill registry
   const skillRegistry = new SkillRegistry();
@@ -271,124 +278,9 @@ export async function bootstrap(): Promise<BootstrapResult> {
   const skillMetricsService = new SkillMetricsService(db);
   logger.info('Skill metrics service initialized (P1-4)');
 
-  // ── Computer Use ──
-
-  let computerUseHost: ComputerUseHost | undefined;
-  const agentManagerRef: { current?: AgentManager } = {};
-
-  let cuaSettings = normalizeComputerUseSettings(config.computerUse);
-
-  // Detect WSL: Linux kernel but can call powershell.exe to control Windows host
-  const isWSL = process.platform === 'linux' && existsSync('/proc/sys/fs/binfmt_misc/WSLInterop');
-  const isTermux = existsSync('/data/data/com.termux') || !!process.env.PREFIX?.includes('/com.termux/');
-
-  if (cuaSettings.enabled) {
-    const providerRegistry = new ComputerProviderRegistry();
-
-    // Always register mock provider for testing
-    providerRegistry.register(createMockComputerProvider());
-
-    // WSL: register direct Windows provider (no SSH needed)
-    if (isWSL) {
-      providerRegistry.register(new LocalWindowsProvider({ logger }));
-      logger.info('Computer Use: WSL detected, registered Windows local provider (powershell.exe)');
-    }
-
-    // Native desktop control via nut.js (Linux/macOS/Windows, non-WSL only).
-    // Termux cannot load the native desktop addon, so skip registration instead
-    // of logging a native module failure on every service start.
-    if (!isWSL && !isTermux) {
-      try {
-        const nutProvider = new NutJSProvider({ logger });
-        providerRegistry.register(nutProvider);
-        logger.info(`Computer Use: registered NutJS local provider (${process.platform})`);
-      } catch (err) {
-        logger.warn({ err }, 'Computer Use: failed to register NutJS provider');
-      }
-    } else if (isTermux) {
-      logger.info('Computer Use: Termux detected, skipping NutJS local provider');
-    }
-
-    // Register SSH provider if configured
-    if (cuaSettings.ssh.host && cuaSettings.ssh.user && cuaSettings.ssh.keyPath) {
-      const sshPool = new SSHPool({
-        host: cuaSettings.ssh.host,
-        user: cuaSettings.ssh.user,
-        keyPath: cuaSettings.ssh.keyPath,
-        port: cuaSettings.ssh.port,
-        jumpHost: cuaSettings.ssh.jumpHost || undefined,
-        display: cuaSettings.ssh.display,
-        hostKeyChecking: cuaSettings.ssh.hostKeyChecking,
-        knownHostsPath: cuaSettings.ssh.knownHostsPath || undefined,
-      });
-      providerRegistry.register(new SSHComputerUseProvider({
-        sshPool,
-        settings: cuaSettings,
-        logger,
-      }));
-      logger.info('Computer Use: SSH provider registered');
-    }
-
-    // Resolve default provider with fallback chain
-    let defaultProviderId: string;
-    if (isWSL) {
-      defaultProviderId = 'windows:local';
-    } else if (providerRegistry.has('nutjs')) {
-      defaultProviderId = 'nutjs';
-    } else {
-      defaultProviderId = 'mock';
-      if (isTermux) {
-        logger.info('Computer Use: using mock provider on Termux');
-      } else {
-        logger.warn('Computer Use: NutJS unavailable, falling back to mock provider');
-      }
-    }
-
-    // Verify the resolved default provider is actually available at startup.
-    // On platforms where the native addon cannot load (Termux aarch64, headless
-    // Linux without X11), the provider will report available:false and we fall
-    // back to mock to avoid returning unavailable to every computer_use call.
-    const resolvedProvider = providerRegistry.get(defaultProviderId);
-    if (resolvedProvider) {
-      try {
-        const status = await resolvedProvider.getStatus({ sessionPath: '', agentId: '' });
-        if (!status.available) {
-          logger.warn(
-            { defaultProviderId, reason: status.message },
-            `Computer Use: default provider '${defaultProviderId}' reports unavailable, falling back to mock`,
-          );
-          if (providerRegistry.has('mock')) {
-            defaultProviderId = 'mock';
-          }
-        }
-      } catch {
-        // getStatus threw — provider is broken, fall back to mock
-        logger.warn(
-          { defaultProviderId },
-          `Computer Use: default provider '${defaultProviderId}' threw during status check, falling back to mock`,
-        );
-        if (providerRegistry.has('mock')) {
-          defaultProviderId = 'mock';
-        }
-      }
-    }
-
-    const leaseRegistry = new ComputerLeaseRegistry();
-    computerUseHost = new ComputerUseHost({
-      providers: providerRegistry,
-      defaultProviderId,
-      leases: leaseRegistry,
-      platform: process.platform,
-      getSettings: () => cuaSettings,
-      getAccessMode: () => 'operate',
-      getPrimaryAgentId: () => agentManagerRef.current?.list()[0]?.id ?? null,
-      logger,
-    });
-
-    logger.info({ defaultProviderId, providerCount: providerRegistry.list().length }, 'Computer Use initialized');
-  } else {
-    logger.debug('Computer Use disabled');
-  }
+  // ── Computer Use (extracted to composers/computer-use-services.ts) ──
+  const cuServices = await createComputerUseServices(config, logger);
+  const { computerUseHost, agentManagerRef, cuaSettingsRef } = cuServices;
 
   const channelServices = createChannelServices({
     config,
@@ -409,185 +301,53 @@ export async function bootstrap(): Promise<BootstrapResult> {
     agentManager,
   } = channelServices;
 
+  // Reload agents on config change
+  configEventBus.onReload((c) => {
+    agentManager.reload(c, c.agents ?? []);
+  });
+
   // Load extensions from config directory — deferred to after all services
   // are created so extensions can resolve them via servicesMap.
   const extDir = config.extensions?.directory || 'extensions';
 
-  // Lazy ref for CronService (not yet created, needed by agent-factory per-turn)
-  const cronServiceRef: { current: CronService | undefined } = { current: undefined };
-  const orchestratorRef: { current?: OrchestratorImpl } = {};
-
-  // 10. Create agent factory (needs feishuClient for approval cards)
-  const approvalPort = createFeishuApprovalUiPort({
-    feishuClient: feishuClient as { sendApprovalCard(chatId: string, card: Record<string, unknown>): Promise<string>; recallMessage?(messageId: string): Promise<void> },
-    registry: replyApprovalRegistry,
-  });
-  const agentFactory = createAgentFactory({
+  // ── Agent services (extracted to composers/agent-services.ts) ──
+  const agentServicesResult = createAgentServices({
     config,
+    logger,
+    db,
     toolRegistry,
     skillRegistry,
-    defaultModel: undefined,
     memoryRetriever,
     personaStore,
     agentManager,
     computerUseHost,
-  }, {
     approvalGate,
+    policyCenter,
     feishuClient,
-    approvalTimeoutMs: config.tools.shellApprovalTimeoutSec * 1000,
-    approvalTimeoutAction: config.tools.shellApprovalTimeoutAction,
-    shellEnabled: config.tools.shellEnabled,
+    replyApprovalRegistry,
     approvalRequestRepo,
-    approvalPort,
-    defaultToolsProfile: config.tools.toolsProfile,
-    cronServiceFactory: () => cronServiceRef.current,
-    policyCenter,
-    orchestratorFactory: () => orchestratorRef.current,
-    getServices: () => servicesRef.current,
-    onApprovalAutoReject: (requestId, reason) => {
-      // Update the messages table so the WebUI approval card shows
-      // the auto-rejected result after page refresh.
-      try {
-        const msgId = `approval-${requestId}`;
-        const row = db.prepare(
-          'SELECT metadata FROM messages WHERE id = ?',
-        ).get(msgId) as { metadata: string | null } | undefined;
-        if (row) {
-          let meta: Record<string, unknown> = {};
-          try { meta = row.metadata ? JSON.parse(String(row.metadata)) : {}; } catch { /* ignore */ }
-          const approval = (meta.approval || {}) as Record<string, unknown>;
-          approval.status = 'rejected';
-          approval.decision = 'reject_once';
-          approval.timeoutReason = reason;
-          meta.approval = approval;
-          db.prepare(
-            'UPDATE messages SET metadata = ? WHERE id = ?',
-          ).run(JSON.stringify(meta), msgId);
-        }
-      } catch (err) {
-        logger.warn({ err, requestId }, 'Failed to update approval message on auto-reject');
-      }
-
-      if (!feishuClient?.updateMessage || !approvalRequestRepo) return;
-      const req = approvalRequestRepo.findById(requestId);
-      if (!req?.card_message_id || !req.chat_id) return;
-      // Clear the tracker's approvalMessageId so its resolve() won't recall
-      // the card after we've already updated it to show the rejection.
-      const tracker = replyApprovalRegistry.get(req.card_message_id);
-      if (tracker) {
-        tracker.clearApprovalMessageId(requestId);
-      }
-      const resultCard = renderApprovalResultCard('reject_once', {
-        id: requestId,
-        command: req.command_text ?? 'unknown',
-        risk: (req.risk_level as 'low' | 'medium' | 'high') ?? 'low',
-        sessionId: req.session_key,
-        timestamp: Date.now(),
-      }, reason === 'timeout' || reason === 'expired_before_recovery' ? 'timeout' : reason === 'steered' ? 'steered' : 'restart');
-      feishuClient.updateMessage(req.card_message_id, 'interactive', resultCard).catch(() => {});
-    },
-    logger,
-    promptManager,
-  });
-  configEventBus.onReload((c) => agentFactory.updateConfig(c));
-
-  // ── v4 Phase 5: Orchestrator ─────────────────────────────────────────
-
-  const agentRunStore = new InMemoryAgentRunStore();
-  const taskRunStore = new InMemoryTaskRunStore();
-  const permissionInheritance = new PermissionInheritanceServiceImpl(policyCenter);
-
-  const sendApprovalToChat = async (chatId: string, approval: any): Promise<string> => {
-    if (!feishuClient?.sendApprovalCard) {
-      logger.warn({ approvalId: approval.id, chatId }, 'No Feishu approval sender available for routed child approval');
-      return `approval-msg-${Date.now()}`;
-    }
-    const card = renderApprovalCard({
-      id: approval.id,
-      command: approval.subject ?? approval.kind,
-      risk: approval.risk ?? 'medium',
-      reason: approval.reason,
-      sessionId: approval.sessionId ?? chatId,
-      timestamp: Date.now(),
-    });
-    return feishuClient.sendApprovalCard(chatId, card);
-  };
-
-  const orchestratorPendingStore = new PendingApprovalStore();
-
-  const approvalStateSync = new ApprovalStateSyncImpl({
+    approvalDecisionRepository,
     approvalResolution,
-    pendingApprovals: orchestratorPendingStore,
-    sendApprovalToChat,
+    promptManager,
+    sessionRepository,
+    messageRepository,
+    episodeRepository,
+    toolRunRepository,
+    memorySummarizer,
+    servicesRef,
   });
-
-  const orchestrator = new OrchestratorImpl({
-    agentRunStore,
-    taskRunStore,
-    permissionInheritance,
-    approvalStateSync,
-    policyCenter,
+  const {
     agentFactory,
-    agentManager,
-    pendingApprovals: orchestratorPendingStore,
-    logger,
-  });
-  orchestratorRef.current = orchestrator;
+    orchestrator,
+    orchestratorRef,
+    agentService,
+    cronServiceRef,
+    modelName,
+  } = agentServicesResult;
 
   const feishuRouter = new FeishuRouter({ logger, processedMessageRepository });
-  feishuRouter.startCleanup(60_000); // Periodically clean up dedup seen map every 60s
+  feishuRouter.startCleanup(60_000);
   const chatQueue = new ChatQueue();
-
-  // 12. Create agent service with ReplyDispatcher factory
-  // Resolve the effective model for footer display using the same fallback
-  // chain as agent-factory.ts: config model → fallback
-  const resolvedDefault = getDefaultModel(config);
-  const effectiveModel = resolvedDefault;
-  const modelName = formatDisplayModel(
-    effectiveModel?.provider,
-    effectiveModel?.id,
-  );
-  // Vision Bridge: lazy init on first image analysis (saves ~200ms at startup).
-  // Config lives at multimodal.image.bridge (was standalone visionBridge).
-  type VB = import('../vision-bridge/vision-bridge-types.js').VisionBridgeConfig;
-  const imgBridgeCfg = (config.multimodal?.image?.bridge ?? {}) as Partial<VB>;
-  const visionBridgeConfig: VB = {
-    enabled: imgBridgeCfg.enabled ?? config.visionBridge?.enabled ?? false,
-    modelRef: imgBridgeCfg.modelRef ?? config.visionBridge?.modelRef,
-    apiKey: imgBridgeCfg.apiKey ?? config.visionBridge?.apiKey,
-    baseUrl: imgBridgeCfg.baseUrl ?? config.visionBridge?.baseUrl,
-    timeoutMs: imgBridgeCfg.timeoutMs ?? config.visionBridge?.timeoutMs ?? 120_000,
-    maxNoteChars: imgBridgeCfg.maxNoteChars ?? config.visionBridge?.maxNoteChars ?? 3200,
-    maxCacheEntries: imgBridgeCfg.maxCacheEntries ?? config.visionBridge?.maxCacheEntries ?? 256,
-  };
-  let _visionBridge: VisionBridgeService | undefined;
-  const getVisionBridge = (): VisionBridgeService | undefined => {
-    if (!visionBridgeConfig.enabled) return undefined;
-    if (!_visionBridge) {
-      _visionBridge = new VisionBridgeService(visionBridgeConfig, config.customProviders ?? [], logger);
-      logger.info({ modelRef: visionBridgeConfig.modelRef }, 'Vision Bridge enabled (lazy init)');
-    }
-    return _visionBridge;
-  };
-
-  const agentService = new AgentService(
-    agentFactory,
-    (chatId: string, messageId?: string, agentId?: string) => {
-      const agentName = agentId ? agentManager.get(agentId)?.name : undefined;
-      return new ReplyDispatcher({ feishuClient, chatId, messageId, model: modelName, agentName, footerConfig: config.footer, showToolCalls: config.showToolCalls, logger });
-    },
-    {
-      sessionRepository,
-      messageRepository,
-      episodeRepository,
-      toolRunRepository,
-      memorySummarizer,
-      summarizeInterval: config.memory.summarizeInterval,
-      logger,
-    },
-    getVisionBridge,
-    config.multimodal?.image?.mode ?? 'native_first',
-  );
 
   // Register agentService so extensions can resolve it via api.getService()
   servicesMap.set('agentService', agentService);
@@ -605,78 +365,30 @@ export async function bootstrap(): Promise<BootstrapResult> {
   cronServiceRef.current = cronService;
   servicesMap.set('cronService', cronService);
 
-  // 14. Wire up Feishu event routing
+  // Cron + footer update on config reload
+  configEventBus.onReload((c) => {
+    if (c.cron.enabled) cronService.start();
+    else cronService.stop();
+  });
+  configEventBus.onReload((c) => {
+    jobRunner.updateConfig({ footer: c.footer });
+  });
 
-  // v5 P2: STT transcriber — lazy init on first audio message (saves ~500ms at startup).
-  const sttCfg = config.multimodal?.stt;
-  const getSttTranscriber = (): ((path: string, lang?: string) => Promise<string>) | undefined => {
-    if (!sttCfg?.enabled || !sttCfg.providers?.length) return undefined;
-    const sttProviders = createSTTProviders(sttCfg.providers);
-    if (sttProviders.length === 0) return undefined;
-    return async (audioPath: string, language?: string) => {
-      const result = await transcribeWithFallback(sttProviders, {
-        audioPath,
-        language: language ?? sttCfg.language ?? 'auto',
-      });
-      return result.text;
-    };
-  };
-
-  // Assemble shared CommandDeps for slash commands (used by Feishu + other channels)
-  const commandDeps = {
+  // 14. Wire up Feishu event routing (extracted to composers/feishu-services.ts)
+  const feishuServices = createFeishuServices({
+    config,
+    logger,
     agentService,
-    skillRegistry: {
-      getSkills: () => skillRegistry.getSkills(),
-      reload: async () => {
-        await skillRegistry.load('./skills', logger);
-        return skillRegistry.getSkills().length;
-      },
-    },
+    skillRegistry,
     cronService,
     feishuClient,
     agentManager,
     extensionManager,
-  };
-  servicesMap.set('commandDeps', commandDeps);
-
-  const sendTextReply = async (chatId: string, text: string) => {
-    await feishuClient.sendMessage({
-      receive_id: chatId,
-      receive_id_type: 'chat_id',
-      msg_type: 'text',
-      content: JSON.stringify({ text }),
-    });
-  };
-
-  const messageHandler = new MessageHandler({
-    agentService,
     chatQueue,
-    mediaDownloader: feishuClient,
-    feishuClient,
-    mediaAllowedRoots: config.tools.fileRead.allowedRoots.length > 0
-      ? config.tools.fileRead.allowedRoots : undefined,
-    mediaDeniedPatterns: config.tools.fileRead.deniedPatterns.length > 0
-      ? config.tools.fileRead.deniedPatterns : undefined,
-    logger,
-    commandDeps,
-    sendTextReply,
-    addReaction: async (messageId: string, type: string) => {
-      return feishuClient.addReaction(messageId, type);
-    },
-    removeReaction: async (messageId: string, reactionId: string) => {
-      await feishuClient.removeReaction(messageId, reactionId);
-    },
-    getSttTranscriber,
-    sttConfig: sttCfg ? {
-      enabled: sttCfg.enabled ?? false,
-      autoTranscribe: sttCfg.autoTranscribe ?? true,
-      language: sttCfg.language ?? 'zh',
-    } : undefined,
-    botAppId: config.feishu.appId,
+    servicesMap,
   });
+  const { messageHandler } = feishuServices;
 
-  // Register the im.message.receive_v1 event handler — MessageHandler is now
-  // self-contained, handling both slash commands and agent execution.
   feishuRouter.on('im.message.receive_v1', async (context) => {
     await messageHandler.handle(context);
   });
@@ -720,86 +432,12 @@ export async function bootstrap(): Promise<BootstrapResult> {
       eventHandler: async (event: any) => {
         await feishuRouter.route(event);
       },
-      cardActionHandler: async (callback: any) => {
-        const value = callback?.action?.value ?? {};
-        const { action, requestId, command, risk } = value;
-        const approvalTracker = replyApprovalRegistry.get(callback?.context?.open_message_id);
-
-        if (!requestId || !action) {
-          return { code: 0 };
-        }
-
-        const decision = action as 'approve_once' | 'approve_session' | 'approve_always' | 'reject_once' | 'reject_always';
-        const resolved = agentFactory.resolveApproval(requestId, decision);
-
-        if (!resolved) {
-          const existingDecision = approvalDecisionRepository.findLatestByRequestId(requestId);
-          const resultCard = renderApprovalResultCard(
-            (existingDecision?.decision as ApprovalDecisionType) ?? 'reject_once',
-            {
-              id: requestId,
-              command: command ?? 'unknown',
-              risk: (risk as 'low' | 'medium' | 'high') ?? 'low',
-              sessionId: '',
-              timestamp: Date.now(),
-            },
-          );
-          return {
-            toast: {
-              type: 'info',
-              content: i18n.t('bootstrap:toast.alreadyHandled'),
-            },
-            card: {
-              type: 'raw',
-              data: resultCard,
-            },
-          };
-        }
-
-        // Persist the decision to DB for audit trail
-        approvalDecisionRepository.create({
-          id: generateId(),
-          request_id: requestId,
-          decided_by: 'user',
-          decision: decision,
-        });
-        approvalRequestRepo.update(requestId, {
-          status: decision.startsWith('approve') ? 'approved' : 'rejected',
-          decision_mode: decision,
-        });
-
-        if (approvalTracker) {
-          await approvalTracker.resolve(requestId, decision, { skipRecall: true });
-        }
-
-        // Build result card to replace the approval card
-        const resultCard = renderApprovalResultCard(decision, {
-          id: requestId,
-          command: command ?? 'unknown',
-          risk: risk ?? 'low',
-          sessionId: '',
-          timestamp: Date.now(),
-        });
-
-        // Return toast + card replacement (data must be object, not string)
-        const toastContent =
-          decision === 'approve_once' ? i18n.t('bootstrap:toast.approvedOnce') :
-          decision === 'approve_session' ? i18n.t('bootstrap:toast.approvedSession') :
-          decision === 'approve_always' ? i18n.t('bootstrap:toast.approvedAlways') :
-          decision === 'reject_once' ? i18n.t('bootstrap:toast.deniedOnce') :
-          i18n.t('bootstrap:toast.deniedAlways');
-        const response = {
-          toast: {
-            type: decision.startsWith('approve') ? 'success' : 'error',
-            content: toastContent,
-          },
-          card: {
-            type: 'raw',
-            data: resultCard,
-          },
-        };
-        return response;
-      },
+      cardActionHandler: createWSCardActionHandler({
+        agentFactory,
+        replyApprovalRegistry,
+        approvalDecisionRepository,
+        approvalRequestRepo,
+      }),
       logger,
     });
   }
@@ -883,35 +521,7 @@ export async function bootstrap(): Promise<BootstrapResult> {
     services,
     liveConfigRef: { current: config },
     onConfigSaved: (newConfig) => onConfigSavedRef.current?.(newConfig),
-    onConfigChanged: () => {
-      // Persist in-memory config mutations (agent CRUD, etc.) to config.yaml.
-      // The empty callback comment was misleading — the file watcher only detects
-      // filesystem changes, not in-memory mutations.
-      const configPath = process.env.CONFIG_FILE || './config.yaml';
-      if (!existsSync(configPath)) return;
-      try {
-        const raw = readFileSync(configPath, 'utf-8');
-        const yaml = parseYaml(raw) as Record<string, unknown>;
-        const config = loadConfig();
-
-        // Persist agents: JS array → YAML map (id → {name, ...})
-        if (config.agents && config.agents.length > 0) {
-          const agentsMap: Record<string, unknown> = {};
-          for (const agent of config.agents) {
-            const { id, ...rest } = agent as unknown as Record<string, unknown>;
-            agentsMap[id as string] = rest;
-          }
-          yaml.agents = agentsMap;
-        } else {
-          delete yaml.agents;
-        }
-
-        writeFileSync(configPath, dumpYaml(yaml, { indent: 2, lineWidth: 120 }), 'utf-8');
-        resetConfig();
-      } catch (err) {
-        console.error('[onConfigChanged] Failed to persist config:', err);
-      }
-    },
+    onConfigChanged: createOnConfigChanged(),
   });
 
   // Store the Desktop Bridge registry so agent-factory can inject it into tool contexts
@@ -971,59 +581,18 @@ export async function bootstrap(): Promise<BootstrapResult> {
     apiDeps.config = newConfig;
 
     // ── Services migrated to configEventBus ─────────────────────────────
-    // logger.level, teamModeStore, changeI18nLocale, subscriptionService,
-    // and agentFactory now self-register via configEventBus.onReload().
+    // Most services now self-register via configEventBus.onReload() at
+    // their construction sites. Only a few remain inline due to mutable
+    // refs or dynamic API surface.
 
-    // ── Services still updated inline (migration candidates) ────────────
+    // Computer use: re-compute settings from new config (mutable ref)
+    cuaSettingsRef.current = normalizeComputerUseSettings(newConfig.computerUse);
 
-    approvalGate.updateConfig({
-      execMode: newConfig.tools.shellExecMode,
-      shellAllowlist: newConfig.tools.shellAllowlist,
-      fileReadAllowedRoots: newConfig.tools.fileRead.allowedRoots,
-      shellApprovalMode: newConfig.tools.shellApprovalMode,
-      shellApprovalWhitelist: newConfig.tools.shellApprovalWhitelist,
-    });
-    approvalGate.createWhitelistPolicies(
-      (newConfig.tools.shellAllowlist?.length ?? 0) > 0
-        ? newConfig.tools.shellAllowlist
-        : newConfig.tools.shellApprovalWhitelist,
-    );
-    pathPolicy.updateConfig({
-      readRoots: newConfig.policy?.path?.readRoots ?? newConfig.tools.fileRead.allowedRoots,
-      writeRoots: newConfig.policy?.path?.writeRoots ?? [],
-      deniedPatterns: newConfig.policy?.path?.deniedPatterns ?? newConfig.tools.fileRead.deniedPatterns,
-      autoInjectCwd: true,
-      autoInjectMediaCache: newConfig.multimodal?.attachments?.cacheDir,
-    });
-
-    // Re-resolve agents if definitions changed (agent list, profiles, model refs)
-    const newAgents = newConfig.agents ?? [];
-    agentManager.reload(newConfig, newAgents);
-
-    // Start or stop cron scheduler based on new config
-    if (newConfig.cron.enabled) {
-      cronService.start();
-    } else {
-      cronService.stop();
-    }
-
-    // Computer use: re-compute settings from new config
-    cuaSettings = normalizeComputerUseSettings(newConfig.computerUse);
-
-    // Rate limiter: update webhook rate limit settings
+    // Rate limiter: dynamic method on Fastify server (not typed)
     (server as any).updateRateLimit?.({
       maxRequests: newConfig.rateLimit.webhookMaxRequests,
       windowMs: newConfig.rateLimit.webhookWindowMs,
     });
-
-    // Shell tool: re-register with new timeout/output limits
-    toolPlatformRegistry.registerDefinition(createShellToolDefinition({
-      timeoutMs: newConfig.tools.defaultTimeoutMs,
-      maxOutputLength: newConfig.tools.maxOutputLength,
-    }));
-
-    // Footer: update on JobRunner (ReplyDispatcher reads config.footer per-execution)
-    jobRunner.updateConfig({ footer: newConfig.footer });
 
     // ── Fire event bus for self-registered listeners ────────────────────
     configEventBus.emit(newConfig).catch(err =>
@@ -1038,7 +607,7 @@ export async function bootstrap(): Promise<BootstrapResult> {
         toolsProfile: newConfig.tools.toolsProfile,
         memoryAutoRecall: newConfig.memory.autoRecall,
         fallbackModels: newConfig.fallbackModels,
-        agents: newAgents.length,
+        agents: (newConfig.agents ?? []).length,
         cronEnabled: newConfig.cron.enabled,
       },
       'config reloaded (hot-reloaded items applied; channels/embedding/database require restart)',

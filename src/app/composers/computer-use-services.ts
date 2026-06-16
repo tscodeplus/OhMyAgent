@@ -24,8 +24,8 @@ export interface ComputerUseServices {
   computerUseHost?: ComputerUseHost;
   /** Mutable ref populated later by createChannelServices (agentManager). */
   agentManagerRef: { current?: AgentManager };
-  /** Normalized settings, exposed for hot-reload updates. */
-  cuaSettings: ReturnType<typeof normalizeComputerUseSettings>;
+  /** Mutable settings ref — update it on hot-reload; ComputerUseHost reads via getSettings(). */
+  cuaSettingsRef: { current: ReturnType<typeof normalizeComputerUseSettings> };
 }
 
 export async function createComputerUseServices(
@@ -33,7 +33,8 @@ export async function createComputerUseServices(
   logger: Logger,
 ): Promise<ComputerUseServices> {
   const agentManagerRef: { current?: AgentManager } = {};
-  const cuaSettings = normalizeComputerUseSettings(config.computerUse);
+  const cuaSettingsRef = { current: normalizeComputerUseSettings(config.computerUse) };
+  const cuaSettings = cuaSettingsRef.current;
 
   // Detect WSL: Linux kernel but can call powershell.exe to control Windows host
   const isWSL = process.platform === 'linux' && existsSync('/proc/sys/fs/binfmt_misc/WSLInterop');
@@ -41,7 +42,7 @@ export async function createComputerUseServices(
 
   if (!cuaSettings.enabled) {
     logger.debug('Computer Use disabled');
-    return { computerUseHost: undefined, agentManagerRef, cuaSettings };
+    return { computerUseHost: undefined, agentManagerRef, cuaSettingsRef };
   }
 
   const providerRegistry = new ComputerProviderRegistry();
@@ -134,7 +135,7 @@ export async function createComputerUseServices(
     defaultProviderId,
     leases: leaseRegistry,
     platform: process.platform,
-    getSettings: () => cuaSettings,
+    getSettings: () => cuaSettingsRef.current,
     getAccessMode: () => 'operate',
     getPrimaryAgentId: () => agentManagerRef.current?.list()[0]?.id ?? null,
     logger,
@@ -142,5 +143,5 @@ export async function createComputerUseServices(
 
   logger.info({ defaultProviderId, providerCount: providerRegistry.list().length }, 'Computer Use initialized');
 
-  return { computerUseHost, agentManagerRef, cuaSettings };
+  return { computerUseHost, agentManagerRef, cuaSettingsRef };
 }
