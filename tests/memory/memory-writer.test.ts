@@ -76,7 +76,7 @@ function createWriter(embeddingClient?: ReturnType<typeof createMockEmbeddingCli
     get: vi.fn(() => undefined),
     set: vi.fn(),
   } as unknown as EmbeddingCacheRepo;
-  const writer = new MemoryWriter(memoryRepo, embeddingRepo, client, mockCacheRepo, undefined, undefined, undefined, undefined, onMemoryChanged);
+  const writer = new MemoryWriter({ memoryRepository: memoryRepo, embeddingRepository: embeddingRepo, embeddingClient: client, embeddingCacheRepo: mockCacheRepo, onMemoryChanged: onMemoryChanged });
   return { writer, embeddingClient: client };
 }
 

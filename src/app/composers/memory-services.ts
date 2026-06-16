@@ -183,7 +183,7 @@ export async function createMemoryServices(
     mergeCandidateMultiplier: config.memory.recall.mergeCandidateMultiplier,
   };
 
-  const memoryRetriever = new MemoryRetriever(
+  const memoryRetriever = new MemoryRetriever({
     memoryRepository,
     embeddingRepository,
     embeddingClient,
@@ -191,27 +191,25 @@ export async function createMemoryServices(
     db,
     expansionConfig,
     embeddingBreaker,
-    { halfLifeDays: config.memory.decayHalfLifeDays },
-    config.memory.recallMinScore,
+    decayConfig: { halfLifeDays: config.memory.decayHalfLifeDays },
+    defaultMinScore: config.memory.recallMinScore,
     memoryLinkRepo,
-    undefined,
-    config.memory.queryEmbeddingTimeoutMs,
+    queryEmbeddingTimeoutMs: config.memory.queryEmbeddingTimeoutMs,
     plannerConfig,
     recallConfig,
-  );
+  });
   const memoryChangeCallbacks: Array<(event?: MemoryChangeEvent) => void> = [() => memoryRetriever.clearCache()];
-  const memoryWriter = new MemoryWriter(
+  const memoryWriter = new MemoryWriter({
     memoryRepository,
     embeddingRepository,
     embeddingClient,
     embeddingCacheRepo,
     mergeConfig,
     extractionConfig,
-    undefined,
     memoryLinkRepo,
-    (event) => memoryChangeCallbacks.forEach(cb => cb(event)),
+    onMemoryChanged: (event) => memoryChangeCallbacks.forEach(cb => cb(event)),
     memoryTermRepo,
-  );
+  });
 
   const sceneClusterer = config.memory.sceneClustering?.enabled
     ? new SceneClusterer(memoryRepository, config.memory.offloading?.refDir || './data', {

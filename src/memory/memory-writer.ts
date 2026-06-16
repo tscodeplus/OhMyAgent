@@ -60,24 +60,52 @@ export interface MemoryChangeEvent {
   action?: 'write' | 'update' | 'delete';
 }
 
+export interface MemoryWriterOptions {
+  /** Core dependencies (required). */
+  memoryRepository: MemoryRepository;
+  embeddingRepository: EmbeddingRepository;
+  embeddingClient: EmbeddingClient;
+  embeddingCacheRepo: EmbeddingCacheRepo;
+
+  /** Memory merge strategy config. */
+  mergeConfig?: MergeConfig;
+  /** LLM entity extraction config. */
+  extractionConfig?: LLMExtractionConfig;
+  /** Current agent ID for memory tagging. */
+  agentId?: string;
+  /** Repository for entity-based memory links. */
+  memoryLinkRepo?: MemoryLinkRepository;
+  /** Callback fired on memory write/update/delete. */
+  onMemoryChanged?: (event?: MemoryChangeEvent) => void;
+  /** Repository for extracted memory terms. */
+  memoryTermRepo?: MemoryTermRepository;
+}
+
 export class MemoryWriter {
   private _agentId: string | undefined;
+  private readonly memoryRepository: MemoryRepository;
+  private readonly embeddingRepository: EmbeddingRepository;
+  private readonly embeddingClient: EmbeddingClient;
+  private readonly embeddingCacheRepo: EmbeddingCacheRepo;
+  private readonly mergeConfig: MergeConfig | undefined;
+  private readonly extractionConfig: LLMExtractionConfig | undefined;
+  private readonly memoryLinkRepo: MemoryLinkRepository | undefined;
+  private readonly onMemoryChanged: ((event?: MemoryChangeEvent) => void) | undefined;
+  private readonly memoryTermRepo: MemoryTermRepository | undefined;
   private conflictResolver: PreferenceConflictResolver;
 
-  constructor(
-    private memoryRepository: MemoryRepository,
-    private embeddingRepository: EmbeddingRepository,
-    private embeddingClient: EmbeddingClient,
-    private embeddingCacheRepo: EmbeddingCacheRepo,
-    private mergeConfig?: MergeConfig,
-    private extractionConfig?: LLMExtractionConfig,
-    agentId?: string,
-    private memoryLinkRepo?: MemoryLinkRepository,
-    private onMemoryChanged?: (event?: MemoryChangeEvent) => void,
-    private memoryTermRepo?: MemoryTermRepository,
-  ) {
-    this._agentId = agentId;
-    this.conflictResolver = new PreferenceConflictResolver(memoryRepository);
+  constructor(options: MemoryWriterOptions) {
+    this.memoryRepository = options.memoryRepository;
+    this.embeddingRepository = options.embeddingRepository;
+    this.embeddingClient = options.embeddingClient;
+    this.embeddingCacheRepo = options.embeddingCacheRepo;
+    this.mergeConfig = options.mergeConfig;
+    this.extractionConfig = options.extractionConfig;
+    this._agentId = options.agentId;
+    this.memoryLinkRepo = options.memoryLinkRepo;
+    this.onMemoryChanged = options.onMemoryChanged;
+    this.memoryTermRepo = options.memoryTermRepo;
+    this.conflictResolver = new PreferenceConflictResolver(this.memoryRepository);
   }
 
   /** Set the current agent ID for memory tagging. Call before write operations. */

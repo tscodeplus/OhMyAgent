@@ -69,10 +69,10 @@ describe('V2 Memory System', () => {
 
     it('stores agent_id when provided', () => {
       const repo = new MemoryRepository(db);
-      const writer = new MemoryWriter(repo, undefined as any, undefined as any, undefined as any);
+      const writer = new MemoryWriter({ memoryRepository: repo, embeddingRepository: undefined as any, embeddingClient: undefined as any, embeddingCacheRepo: undefined as any });
 
       // Test with agentId
-      const taggedWriter = new MemoryWriter(repo, undefined as any, undefined as any, undefined as any, undefined, undefined, 'test-agent');
+      const taggedWriter = new MemoryWriter({ memoryRepository: repo, embeddingRepository: undefined as any, embeddingClient: undefined as any, embeddingCacheRepo: undefined as any, agentId: 'test-agent' });
 
       // Write a memory through the writer
       const id = 'test-mem-1';

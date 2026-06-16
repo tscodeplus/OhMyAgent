@@ -83,30 +83,70 @@ export const DEFAULT_RECALL_CONFIG: RecallConfig = {
   mergeCandidateMultiplier: 3,
 };
 
+export interface MemoryRetrieverOptions {
+  /** Core dependencies (required). */
+  memoryRepository: MemoryRepository;
+  embeddingRepository: EmbeddingRepository;
+  embeddingClient: EmbeddingClient;
+  embeddingCacheRepo: EmbeddingCacheRepo;
+  db: Database.Database;
+
+  /** LLM query expansion config (default undefined — disabled). */
+  expansionConfig?: LLMExpansionConfig;
+  /** Circuit breaker for embedding API calls. */
+  embeddingBreaker?: CircuitBreaker;
+  /** Temporal decay parameters. */
+  decayConfig?: Partial<DecayConfig>;
+  /** Minimum similarity score for recall (default 0.01). */
+  defaultMinScore?: number;
+  /** Memory link repository for entity-based expansion. */
+  memoryLinkRepo?: MemoryLinkRepository;
+  /** Max embeddings before falling back to full scan (default 5000). */
+  fullScanMaxEmbeddings?: number;
+  /** Timeout for embedding API calls in ms (default 10_000). */
+  queryEmbeddingTimeoutMs?: number;
+  /** Structured query planner config. */
+  plannerConfig?: PlannerConfig;
+  /** Recall tuning knobs. */
+  recallConfig?: RecallConfig;
+}
+
 export class MemoryRetriever {
+  private readonly memoryRepository: MemoryRepository;
+  private readonly embeddingRepository: EmbeddingRepository;
+  private readonly embeddingClient: EmbeddingClient;
+  private readonly embeddingCacheRepo: EmbeddingCacheRepo;
+  private readonly db: Database.Database;
+  private readonly expansionConfig: LLMExpansionConfig | undefined;
+  private readonly embeddingBreaker: CircuitBreaker | undefined;
+  private readonly decayConfig: Partial<DecayConfig> | undefined;
+  private readonly defaultMinScore: number;
+  private readonly memoryLinkRepo: MemoryLinkRepository | undefined;
+  private readonly fullScanMaxEmbeddings: number;
+  private readonly queryEmbeddingTimeoutMs: number;
+  private readonly plannerConfig: PlannerConfig;
+  private readonly recallConfig: RecallConfig;
   private queryCache: QueryResultCache;
-  private defaultMinScore: number;
   private candidateSelector: CandidateSelector;
 
-  constructor(
-    private memoryRepository: MemoryRepository,
-    private embeddingRepository: EmbeddingRepository,
-    private embeddingClient: EmbeddingClient,
-    private embeddingCacheRepo: EmbeddingCacheRepo,
-    private db: Database.Database,
-    private expansionConfig: LLMExpansionConfig,
-    private embeddingBreaker?: CircuitBreaker,
-    private decayConfig?: Partial<DecayConfig>,
-    defaultMinScore?: number,
-    private memoryLinkRepo?: MemoryLinkRepository,
-    private fullScanMaxEmbeddings: number = DEFAULT_FULL_SCAN_MAX_EMBEDDINGS,
-    private queryEmbeddingTimeoutMs: number = 10_000,
-    private plannerConfig: PlannerConfig = DEFAULT_PLANNER_CONFIG,
-    private recallConfig: RecallConfig = DEFAULT_RECALL_CONFIG,
-  ) {
+  constructor(options: MemoryRetrieverOptions) {
+    this.memoryRepository = options.memoryRepository;
+    this.embeddingRepository = options.embeddingRepository;
+    this.embeddingClient = options.embeddingClient;
+    this.embeddingCacheRepo = options.embeddingCacheRepo;
+    this.db = options.db;
+    this.expansionConfig = options.expansionConfig;
+    this.embeddingBreaker = options.embeddingBreaker;
+    this.decayConfig = options.decayConfig;
+    this.defaultMinScore = options.defaultMinScore ?? DEFAULT_MIN_SCORE;
+    this.memoryLinkRepo = options.memoryLinkRepo;
+    this.fullScanMaxEmbeddings = options.fullScanMaxEmbeddings ?? DEFAULT_FULL_SCAN_MAX_EMBEDDINGS;
+    this.queryEmbeddingTimeoutMs = options.queryEmbeddingTimeoutMs ?? 10_000;
+    this.plannerConfig = options.plannerConfig ?? DEFAULT_PLANNER_CONFIG;
+    this.recallConfig = options.recallConfig ?? DEFAULT_RECALL_CONFIG;
+
     this.queryCache = new QueryResultCache();
-    this.defaultMinScore = defaultMinScore ?? DEFAULT_MIN_SCORE;
-    this.candidateSelector = new CandidateSelector(db);
+    this.candidateSelector = new CandidateSelector(this.db);
   }
 
   async retrieve(options: RetrievalOptions): Promise<RetrievedMemory[]> {

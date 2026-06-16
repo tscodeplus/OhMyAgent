@@ -57,8 +57,8 @@ describe('E2E: Memory Flow', () => {
     embeddingRepo = new EmbeddingRepository(db);
     const cacheRepo = new EmbeddingCacheRepo(db);
     embeddingClient = createMockEmbeddingClient();
-    memoryWriter = new MemoryWriter(memoryRepo, embeddingRepo, embeddingClient, cacheRepo);
-    memoryRetriever = new MemoryRetriever(memoryRepo, embeddingRepo, embeddingClient, cacheRepo, db);
+    memoryWriter = new MemoryWriter({ memoryRepository: memoryRepo, embeddingRepository: embeddingRepo, embeddingClient: embeddingClient, embeddingCacheRepo: cacheRepo });
+    memoryRetriever = new MemoryRetriever({ memoryRepository: memoryRepo, embeddingRepository: embeddingRepo, embeddingClient: embeddingClient, embeddingCacheRepo: cacheRepo, db: db });
   });
 
   afterEach(() => {

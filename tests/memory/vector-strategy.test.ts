@@ -27,19 +27,7 @@ describe('MemoryRetriever vector full-scan guard', () => {
       count: vi.fn(() => 5001),
       cosineSearch: vi.fn(() => []),
     };
-    const retriever = new MemoryRetriever(
-      createMemoryRepository() as any,
-      embeddingRepo as any,
-      { model: 'test', isConfigured: vi.fn(() => true), embedOne: vi.fn(async () => new Float32Array([1, 0])) } as any,
-      { get: vi.fn(() => undefined), set: vi.fn() } as any,
-      createDb(),
-      undefined as any,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      5000,
-    );
+    const retriever = new MemoryRetriever({ memoryRepository: createMemoryRepository() as any, embeddingRepository: embeddingRepo as any, embeddingClient: { model: 'test', isConfigured: vi.fn(() => true), embedOne: vi.fn(async () => new Float32Array([1, 0])) } as any, embeddingCacheRepo: { get: vi.fn(() => undefined), set: vi.fn() } as any, db: createDb(), expansionConfig: undefined as any, fullScanMaxEmbeddings: 5000 });
 
     const results = await retriever.retrieve({ query: 'anything' });
 
