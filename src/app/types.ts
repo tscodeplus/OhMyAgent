@@ -780,10 +780,13 @@ export interface FeishuMessageContext {
  * factory functions or construction order.
  */
 export interface AppServices {
+  // ── Core infra ──
   config: AppConfig;
   logger: Logger;
   db: Database.Database;
-  toolRegistry: ToolRegistry;
+  server: FastifyInstance;
+
+  // ── Memory ──
   memoryRetriever: MemoryRetriever;
   memoryWriter: MemoryWriter;
   memorySummarizer: MemorySummarizer;
@@ -791,39 +794,70 @@ export interface AppServices {
   messageRepository: MessageRepository;
   episodeRepository: EpisodeRepository;
   toolRunRepository: ToolRunRepository;
+
+  // ── Agent ──
+  agentFactory: AgentFactory;
+  agentService: AgentService;
+  agentManager: AgentManager;
+
+  // ── Tools ──
+  toolRegistry: ToolRegistry;
+  /** v4: Tool platform registry (Phase 2+). */
+  toolPlatformRegistry?: import('../tools/platform/registry.js').ToolPlatformRegistry;
+  /** Desktop Bridge registry for remote tool execution. */
+  desktopBridgeRegistry?: import('../agent/desktop-bridge-registry.js').DesktopBridgeRegistry;
+
+  // ── Policy / Approval ──
   approvalGate: ApprovalGate;
+  /** v4: Unified policy center (Phase 1+). */
+  policyCenter?: import('../policy/policy-center.js').PolicyCenter;
+
+  // ── Skills ──
   skillRegistry: SkillRegistry;
   /** P1-4: Skill metrics service for usage tracking and feedback analysis */
   skillMetricsService?: import('../skills/skill-evolution/skill-metrics.js').SkillMetricsService;
-  agentFactory: AgentFactory;
-  agentService: AgentService;
+
+  // ── Feishu / Channel ──
   feishuClient: FeishuClient;
   feishuRouter: FeishuRouter;
   chatQueue: ChatQueue;
+  wsClient?: FeishuWSClient;
+  channelManager: ChannelManager;
+  commandRegistry: CommandRegistry;
+
+  // ── Cron ──
   cronService: CronService;
   cronDeliveryRegistry: CronDeliveryRegistry;
-  server: FastifyInstance;
-  wsClient?: FeishuWSClient;
-  computerUseHost?: import('../computer-use/computer-host.js').ComputerUseHost;
-  agentManager: AgentManager;
-  commandRegistry: CommandRegistry;
-  channelManager: ChannelManager;
+
+  // ── Extensions ──
   extensionManager: ExtensionManager;
 
-  // -------------------------------------------------------------------------
-  // v4 services (populated in later phases)
-  // -------------------------------------------------------------------------
-
-  /** v4: Unified policy center (Phase 1+). */
-  policyCenter?: import('../policy/policy-center.js').PolicyCenter;
-  /** v4: Tool platform registry (Phase 2+). */
-  toolPlatformRegistry?: import('../tools/platform/registry.js').ToolPlatformRegistry;
+  // ── Cross-cutting (v4+) ──
+  computerUseHost?: import('../computer-use/computer-host.js').ComputerUseHost;
   /** v4: Agent orchestrator (Phase 5+). */
   orchestrator?: import('../orchestrator/orchestrator.js').Orchestrator;
   /** v4: External message sender for cross-channel delivery (F3). */
   externalMessageSender?: import('../tools/builtins/tasks/send-message-definition.js').ExternalMessageSender;
-  /** Desktop Bridge registry for remote tool execution (file_read/write/shell). */
-  desktopBridgeRegistry?: import('../agent/desktop-bridge-registry.js').DesktopBridgeRegistry;
-  /** Subscription service for OAuth-based provider logins (Claude Pro, ChatGPT Plus, GitHub Copilot). */
+  /** Subscription service for OAuth-based provider logins. */
   subscriptionService?: import('./subscription/subscription-service.js').SubscriptionService;
 }
+
+// ── Domain-specific service subsets (narrower types for consumers) ──
+
+/** Agent-domain: factory, service, and manager. */
+export type AgentSubServices = Pick<AppServices, 'agentFactory' | 'agentService' | 'agentManager'>;
+
+/** Memory-domain: retriever, writer, summarizer, and repositories. */
+export type MemorySubServices = Pick<AppServices,
+  'memoryRetriever' | 'memoryWriter' | 'memorySummarizer' |
+  'sessionRepository' | 'messageRepository' | 'episodeRepository' | 'toolRunRepository'
+>;
+
+/** Skills-domain: registry and metrics. */
+export type SkillsSubServices = Pick<AppServices, 'skillRegistry' | 'skillMetricsService'>;
+
+/** Policy-domain: approval gate and policy center. */
+export type PolicySubServices = Pick<AppServices, 'approvalGate' | 'policyCenter'>;
+
+/** Tool-domain: registries and bridge. */
+export type ToolSubServices = Pick<AppServices, 'toolRegistry' | 'toolPlatformRegistry' | 'desktopBridgeRegistry'>;

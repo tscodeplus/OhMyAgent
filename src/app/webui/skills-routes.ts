@@ -13,12 +13,12 @@ import type { FastifyInstance } from 'fastify';
 import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import type { AppServices } from '../types.js';
+import type { SkillsSubServices } from '../types.js';
 
 const SKILLS_DIR = resolve('./skills');
 
 interface SkillsRouteConfig {
-  services: AppServices;
+  services: SkillsSubServices;
 }
 
 // ---- Routes ----

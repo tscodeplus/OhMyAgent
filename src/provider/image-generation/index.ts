@@ -159,8 +159,8 @@ export function createImageGenerationProvider(
 
   const resolved = resolveImageGenConfig(
     genConfig.modelRef,
-    (config as any).customProviders ?? [],
-    (config as any).providerKeys ?? {},
+    config.customProviders ?? [],
+    config.providerKeys ?? {},
   );
 
   if (!resolved) {
@@ -196,8 +196,8 @@ export function createVideoGenerationProvider(
 
   const resolved = resolveImageGenConfig(
     genConfig.modelRef,
-    (config as any).customProviders ?? [],
-    (config as any).providerKeys ?? {},
+    config.customProviders ?? [],
+    config.providerKeys ?? {},
   );
 
   if (!resolved) {

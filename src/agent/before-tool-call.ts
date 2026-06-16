@@ -254,7 +254,7 @@ async function handleShellApproval(
 
   const evaluation = await approvalGate.evaluate({
     kind: 'shell',
-    command: normalized as any,
+    command: normalized,
     sessionKey: sessionId ?? '',
     scope: resolvedSkillScope.scope,
     scopeKey: resolvedSkillScope.scopeKey,
@@ -761,7 +761,10 @@ export function createBeforeToolCall(deps: BeforeToolCallDeps) {
 
     // ── v4 path: delegate to PolicyCenter ──
     if (deps.policyCenter) {
-      return handleViaPolicyCenter(deps as any, context);
+      return handleViaPolicyCenter(
+        deps as BeforeToolCallDeps & { policyCenter: NonNullable<BeforeToolCallDeps['policyCenter']> },
+        context,
+      );
     }
 
     // ── Legacy fallback path (policyCenter not injected) ──

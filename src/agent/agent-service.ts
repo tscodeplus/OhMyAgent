@@ -240,7 +240,7 @@ export class AgentService {
             // Always bridge — regardless of model capability
             const vb = this.getVisionBridge?.();
             if (vb) {
-              const result = await vb.bridge(finalInput, finalImages, model as any, { forceBridge: true });
+              const result = await vb.bridge(finalInput, finalImages, model as import('@earendil-works/pi-ai').Model<any>, { forceBridge: true });
               finalInput = result.text;
               finalImages = undefined;
             }
@@ -252,7 +252,7 @@ export class AgentService {
               // Text-only model — use vision bridge if available
               const vb = this.getVisionBridge?.();
               if (vb) {
-                const result = await vb.bridge(finalInput, finalImages, model as any, { forceBridge: true });
+                const result = await vb.bridge(finalInput, finalImages, model as import('@earendil-works/pi-ai').Model<any>, { forceBridge: true });
                 finalInput = result.text;
                 finalImages = undefined;
               }
@@ -900,7 +900,7 @@ export class AgentService {
     // Compress context
     try {
       const result = await compressContext({
-        messages: agent.state.messages as any,
+        messages: agent.state.messages,
         contextWindow: compressCfg.contextWindow,
         settings: { reserveTokens: 16384, keepRecentTokens: 20000 },
         sessionKey: sessionId,
@@ -916,7 +916,7 @@ export class AgentService {
 
       if (result.summaryMessage && result.compressedIndex > 0) {
         const recentMessages = agent.state.messages.slice(result.compressedIndex);
-        agent.state.messages = [result.summaryMessage as any, ...recentMessages];
+        agent.state.messages = [result.summaryMessage, ...recentMessages];
         this.persistence?.logger.info({
           sessionId,
           compressedCount: result.compressedIndex,

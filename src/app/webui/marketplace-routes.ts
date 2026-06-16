@@ -9,7 +9,7 @@ import type { AppServices } from '../types.js';
 import { SkillMarketplace } from '../../skills/skill-marketplace.js';
 
 interface MarketplaceRouteConfig {
-  services: AppServices;
+  services: Pick<AppServices, 'skillRegistry'>;
 }
 
 export function registerMarketplaceRoutes(app: FastifyInstance, cfg: MarketplaceRouteConfig): void {

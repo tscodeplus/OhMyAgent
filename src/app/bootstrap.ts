@@ -50,7 +50,7 @@ import { createSkillCreateTool } from '../tools/builtins/skills/skill-create-def
 import { createSkillTestTool } from '../tools/builtins/skills/skill-test-definition.js';
 import { SkillMetricsService } from '../skills/skill-evolution/skill-metrics.js';
 import { getWebUIToken } from './webui-auth.js';
-import fastifyStatic from '@fastify/static';
+import { setupWebUIMiddleware } from './webui/setup-vite.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -544,8 +544,8 @@ export async function bootstrap(): Promise<BootstrapResult> {
   const resolvedDefault = getDefaultModel(config);
   const effectiveModel = resolvedDefault;
   const modelName = formatDisplayModel(
-    (effectiveModel as any)?.provider,
-    (effectiveModel as any)?.id,
+    effectiveModel?.provider,
+    effectiveModel?.id,
   );
   // Vision Bridge: lazy init on first image analysis (saves ~200ms at startup).
   // Config lives at multimodal.image.bridge (was standalone visionBridge).
@@ -946,139 +946,13 @@ export async function bootstrap(): Promise<BootstrapResult> {
   // Both use /webui/ prefix on the SAME Fastify server — no second port.
   // Skip in test environments — the mock server doesn't support these plugins.
 
-  const isTest = process.env.VITEST || process.env.NODE_ENV === 'test';
-
-  // Declare outside the block so the stop() closure can close the Vite server
-  let viteDevServer: Awaited<ReturnType<typeof import('vite').createServer>> | undefined;
-
-  if (!isTest) {
-  const uiRoot = path.join(__dirname, '../../ui');
-  const uiDist = process.env.WEBUI_STATIC_ROOT || path.join(uiRoot, 'dist');
-  const uiSrc = path.join(uiRoot, 'src');
-  const isDevMode = !process.env.WEBUI_STATIC_ROOT && existsSync(uiSrc);
-
-  if (isDevMode) {
-    try {
-      const { createServer: createViteServer } = await import('vite');
-      const reactPlugin = (await import('@vitejs/plugin-react')).default;
-      const tailwindPlugin = (await import('@tailwindcss/vite')).default;
-
-      // configFile: false prevents Vite from auto-loading ui/vite.config.ts,
-      // which would register duplicate plugins and inject the HMR runtime twice.
-      viteDevServer = await createViteServer({
-        configFile: false,
-        server: {
-          middlewareMode: true,
-          hmr: {
-            // Attach Vite's HMR WebSocket to the same HTTP server.
-            // Vite's ws server only handles upgrade requests matching
-            // its HMR path (derived from base), so it won't steal /ws.
-            server: server.server,
-          },
-        },
-        appType: 'custom',
-        base: '/webui/',
-        root: uiRoot,
-        plugins: [reactPlugin(), tailwindPlugin()],
-        resolve: {
-          alias: {
-            '@': path.resolve(uiRoot, 'src'),
-          },
-        },
-      });
-
-      // Root HTML page and SPA fallback: use Vite's transformIndexHtml so
-      // the page gets HMR client injected and asset URLs are correct.
-      const indexHtmlPath = path.join(uiRoot, 'index.html');
-
-      const sendIndexHtml = async (reqUrl: string, reply: any) => {
-        const raw = readFileSync(indexHtmlPath, 'utf-8');
-        const transformed = await viteDevServer!.transformIndexHtml(reqUrl, raw);
-        return reply.type('text/html').send(transformed);
-      };
-
-      server.get('/webui', (_, reply) => sendIndexHtml('/webui', reply));
-      server.get('/webui/', (_, reply) => sendIndexHtml('/webui/', reply));
-
-      // All other /webui/* and /@* paths: delegate to Vite's middlewares
-      // (handles JS/TS/CSS transforms, HMR client, etc.). If Vite can't
-      // find a file, fall back to index.html (SPA routing).
-      const delegateToVite = async (
-        request: { raw: any; url: string },
-        reply: { hijack: () => Promise<void>; raw: any },
-      ) => {
-        await reply.hijack();
-        const url = request.url;
-        viteDevServer!.middlewares(request.raw, reply.raw, () => {
-          // Vite didn't handle this request — serve index.html for SPA routing
-          if (!reply.raw.headersSent) {
-            viteDevServer!.transformIndexHtml(url, readFileSync(indexHtmlPath, 'utf-8'))
-              .then((html) => {
-                if (!reply.raw.headersSent) {
-                  reply.raw.statusCode = 200;
-                  reply.raw.setHeader('Content-Type', 'text/html; charset=utf-8');
-                  reply.raw.end(html);
-                }
-              })
-              .catch(() => {
-                if (!reply.raw.headersSent) {
-                  reply.raw.statusCode = 500;
-                  reply.raw.end('Internal Server Error');
-                }
-              });
-          }
-        });
-      };
-
-      server.route({
-        method: ['GET'],
-        url: '/webui/*',
-        handler: delegateToVite as any,
-      });
-
-      server.route({
-        method: ['GET'],
-        url: '/@*',
-        handler: delegateToVite as any,
-      });
-
-      logger.info({ base: '/webui/' }, 'WebUI dev middleware (Vite) registered on same port');
-    } catch (err) {
-      logger.warn({ err }, 'Vite dev middleware failed — falling back to static files');
-      viteDevServer = undefined;
-    }
-  }
-
-  // Production or fallback (no Vite middleware): serve pre-built static files from ui/dist
-  if (!viteDevServer && existsSync(uiDist)) {
-    await server.register(fastifyStatic, {
-      root: uiDist,
-      prefix: '/webui/',
-      wildcard: false,
-    });
-
-    // SPA fallback: serve index.html for /webui/* routes not matching a static file
-    server.setNotFoundHandler((request, reply) => {
-      const url = request.url.split('?')[0];
-      if (url.startsWith('/webui/') && !url.startsWith('/webui/assets/')) {
-        return reply.sendFile('index.html');
-      }
-      if (url === '/webui' || url === '/webui/') {
-        return reply.sendFile('index.html');
-      }
-      return reply.status(404).send({ error: 'Not Found' });
-    });
-    logger.info({ uiDist, prefix: '/webui/' }, 'WebUI static files registered');
-  } else if (!viteDevServer) {
-    logger.info('WebUI not available — run "cd ui && pnpm build" to build it');
-  }
-
-  // Redirect root to WebUI
-  server.get('/', async (_request, reply) => {
-    return reply.redirect('/webui/');
+  // ─── WebUI middleware (extracted to webui/setup-vite.ts) ───
+  const { viteDevServer } = await setupWebUIMiddleware({
+    server,
+    logger,
+    isTest: !!process.env.VITEST || process.env.NODE_ENV === 'test',
+    uiRoot: path.join(__dirname, '../../ui'),
   });
-
-  } // end if (!isTest)
 
   // ─── Hot reload: watch config.yaml and .env for changes ───
   const yamlPath = process.env.CONFIG_FILE || './config.yaml';

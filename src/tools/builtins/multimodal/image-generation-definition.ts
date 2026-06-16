@@ -147,13 +147,13 @@ export function createImageGenerationToolDefinition(
         // Generate the image
         const result = await imageGenProvider.generate({
           prompt: args.prompt,
-          size: (args.size as any) ?? '1024x1024',
+          size: args.size ?? '1024x1024',
           modelRef,
-          quality: args.quality as any,
-          outputFormat: args.outputFormat as any,
+          quality: args.quality,
+          outputFormat: args.outputFormat,
           n: args.n,
           seed: args.seed,
-          thinking: args.thinking as any,
+          thinking: args.thinking,
           referenceImages: args.referenceImages,
         });
 

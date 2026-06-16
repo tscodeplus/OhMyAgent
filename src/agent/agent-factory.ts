@@ -14,6 +14,8 @@ import type {
   ToolRegistry,
   ReplyDispatcher,
   ToolProfileId,
+  PatternType,
+  PolicyEffect,
 } from '../app/types.js';
 import type { SkillRegistry } from '../skills/skill-registry.js';
 import { getDefaultModel } from '../provider/pi-ai-setup.js';
@@ -400,9 +402,9 @@ export function createAgentFactory(
                 scope: 'skill',
                 scopeKey: '',
                 targetKind: ov.targetKind,
-                patternType: ov.patternType as any,
+                patternType: ov.patternType as PatternType,
                 pattern: ov.pattern,
-                effect: ov.effect as any,
+                effect: ov.effect as PolicyEffect,
               });
             }
           }
@@ -542,7 +544,7 @@ export function createAgentFactory(
         extraTools: options?.extraTools,
         computerUseHost,
         computerUseImageSender: options?.computerUseImageSender,
-        feishuClient: feishuClient as any,
+        feishuClient: feishuClient,
         policyCenter,
         approvalGate,
         getServices,
@@ -578,8 +580,8 @@ export function createAgentFactory(
           systemPrompt,
           model,
           tools,
-          thinkingLevel: thinkingLevel as any,
-          messages: options?.historyMessages as any ?? [],
+          thinkingLevel: thinkingLevel as import('@earendil-works/pi-ai').ThinkingLevel,
+          messages: (options?.historyMessages ?? []) as import('@earendil-works/pi-agent-core').AgentMessage[],
         },
         convertToLlm,
         transformContext: createTransformContext({
