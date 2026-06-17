@@ -62,6 +62,33 @@ export interface RetrievedMemory {
 
 const DEFAULT_TOP_K = 3;
 const DEFAULT_MIN_SCORE = 0.01;
+
+// ── Concurrency limiter ──
+
+/**
+ * Process an array of async tasks with bounded concurrency.
+ * Prevents flooding the embedding API with too many simultaneous requests
+ * when slot × query × source fan-out produces many search tasks.
+ */
+async function concurrentMap<T, R>(
+  items: T[],
+  fn: (item: T, index: number) => Promise<R>,
+  concurrency: number = 8,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const i = nextIndex++;
+      results[i] = await fn(items[i], i);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
+}
 const DEFAULT_FULL_SCAN_MAX_EMBEDDINGS = 5000;
 
 /**
@@ -291,7 +318,7 @@ export class MemoryRetriever {
         this.termSearchWrapper(opts, retrievalPolicy.access, sourcePool),
       ]);
 
-      const allResults = await Promise.all(searchTasks);
+      const allResults = await concurrentMap(searchTasks, task => task, 6);
       merged = rrfMerge(allResults, 60, topK * this.recallConfig.mergeCandidateMultiplier);
     }
 

@@ -6,6 +6,7 @@
 import type { Agent } from '../pi-mono/agent/agent.js';
 import type { AgentEvent } from '../pi-mono/agent/types.js';
 import type { ReplyDispatcher, Usage } from '../app/types.js';
+import type { Logger } from 'pino';
 import { computeCacheHitRate } from '../channel/usage-summary.js';
 
 export class EventBridge {
@@ -18,8 +19,14 @@ export class EventBridge {
   private agent?: Agent;
   /** Called before onComplete/onError/onAborted to persist state. */
   private preCompleteCallback?: () => Promise<void>;
+  private logger?: Logger;
 
-  constructor(private replyDispatcher: ReplyDispatcher) {}
+  constructor(
+    private replyDispatcher: ReplyDispatcher,
+    logger?: Logger,
+  ) {
+    this.logger = logger;
+  }
 
   /**
    * Register a callback that fires before the agent_end completion events
@@ -116,7 +123,7 @@ export class EventBridge {
       const modelStr = `${stateModel.provider}/${stateModel.id}`;
       try {
         this.replyDispatcher.setModel(modelStr);
-      } catch { /* dispatcher may not support setModel */ }
+      } catch { this.logger?.debug('Dispatcher setModel failed — continuing'); }
     }
 
     this.unsubscribe = agent.subscribe(async (event: AgentEvent) => {
@@ -153,8 +160,8 @@ export class EventBridge {
           if (this.preCompleteCallback) {
             try {
               await this.preCompleteCallback();
-            } catch {
-              // Pre-complete failure must not block the completion signal
+            } catch (err) {
+              this.logger?.debug({ err }, 'Pre-complete callback failed — continuing');
             }
           }
 
@@ -221,7 +228,8 @@ export class EventBridge {
         await this.replyDispatcher.onError(
           error instanceof Error ? error : new Error(String(error)),
         );
-      } catch {
+      } catch (dispatchErr) {
+        this.logger?.debug({ err: dispatchErr }, 'onError dispatch failed');
       }
     }
   }

@@ -27,6 +27,19 @@ import { compressContext, estimateTokens } from './compress.js';
 import { truncate } from '../shared/truncation.js';
 import type { VisionBridgeService } from '../vision-bridge/vision-bridge-service.js';
 
+// ── Stream message metadata ──
+
+/**
+ * Runtime metadata attached by pi-mono's streaming infrastructure.
+ * Not exposed on the AgentMessage union type — accessed via type assertion
+ * after checking known role discriminator.
+ */
+interface StreamMessageMeta {
+  provider?: string;
+  usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+  model?: string;
+}
+
 export interface AgentServiceOptions {
   sessionId?: string;
   chatId?: string;
@@ -173,7 +186,7 @@ export class AgentService {
     }
     // Clear cached approval session so each turn gets a fresh tracker
     (runtime.turnContext as Record<string, unknown>).approvalSession = undefined;
-    runtime.bridge = new EventBridge(dispatcher);
+    runtime.bridge = new EventBridge(dispatcher, this.persistence?.logger);
     runtime.bridge.start(runtime.agent);
 
     const agent = runtime.agent;
@@ -439,7 +452,7 @@ export class AgentService {
     await dispatcher.onStart();
 
     // New EventBridge bound to the fresh dispatcher
-    runtime.bridge = new EventBridge(dispatcher);
+    runtime.bridge = new EventBridge(dispatcher, this.persistence?.logger);
     runtime.bridge.start(runtime.agent);
 
     return true;
@@ -493,7 +506,7 @@ export class AgentService {
           agentId,
         );
     runtime.turnContext.replyDispatcher = dispatcher;
-    runtime.bridge = new EventBridge(dispatcher);
+    runtime.bridge = new EventBridge(dispatcher, this.persistence?.logger);
     runtime.bridge.start(runtime.agent);
     runtime.agent.prompt(message).catch(() => {});
   }
@@ -781,7 +794,7 @@ export class AgentService {
                 };
               }
               if (msg.model) {
-                const prov = (msg as any).provider as string | undefined;
+                const prov = (msg as unknown as StreamMessageMeta).provider;
                 meta.model = prov
                   ? (msg.model.startsWith(`${prov}/`) ? msg.model : `${prov}/${msg.model}`)
                   : msg.model;
@@ -834,7 +847,7 @@ export class AgentService {
           // Track usage/model from the latest assistant msg in the group
           if (msg.usage) pendingAssistant.usage = msg.usage;
           if (msg.model) pendingAssistant.model = msg.model;
-          if ((msg as any).provider) pendingAssistant.provider = (msg as any).provider;
+          if ((msg as unknown as StreamMessageMeta).provider) pendingAssistant.provider = (msg as unknown as StreamMessageMeta).provider;
         }
       }
 
@@ -889,7 +902,7 @@ export class AgentService {
     const lastMsg = messages[messages.length - 1];
     if (!lastMsg || lastMsg.role !== 'assistant') return;
 
-    const assistantMsg = lastMsg as any;
+    const assistantMsg = lastMsg as import('@earendil-works/pi-ai').AssistantMessage;
     if (!isContextOverflow(assistantMsg, compressCfg.contextWindow)) return;
 
     this.persistence?.logger.info({ sessionId }, 'Context overflow detected, compacting and retrying');

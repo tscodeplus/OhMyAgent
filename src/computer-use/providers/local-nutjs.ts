@@ -114,7 +114,8 @@ export class NutJSProvider implements ComputerUseProvider {
     let nut;
     try {
       nut = await this._getNut();
-    } catch {
+    } catch (err) {
+      this._logger?.debug({ err }, 'NutJSProvider: _getNut failed — returning empty app list');
       return [];
     }
     const windows = await nut.getWindows();
@@ -126,13 +127,13 @@ export class NutJSProvider implements ComputerUseProvider {
       let region: any = null;
       try {
         title = await w.title;
-      } catch {
-        // Window might not be accessible; use fallback
+      } catch (err) {
+        this._logger?.debug({ err }, 'NutJSProvider: window title inaccessible — using fallback');
       }
       try {
         region = await w.region;
-      } catch {
-        // Window region might not be available
+      } catch (err) {
+        this._logger?.debug({ err }, 'NutJSProvider: window region inaccessible — using fallback');
       }
 
       const appName = (w as any).ownerName || title || 'unknown';
@@ -190,8 +191,8 @@ export class NutJSProvider implements ComputerUseProvider {
         activeTitle = await activeWin.title;
         activeRegion = await activeWin.region;
       }
-    } catch {
-      // getActiveWindow may fail on headless or Wayland; proceed with defaults
+    } catch (err) {
+      this._logger?.debug({ err }, 'NutJSProvider: getActiveWindow failed (headless/Wayland?) — using defaults');
     }
 
     const leaseId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -235,7 +236,8 @@ export class NutJSProvider implements ComputerUseProvider {
     let nut;
     try {
       nut = await this._getNut();
-    } catch {
+    } catch (err) {
+      this._logger?.debug({ err }, 'NutJSProvider: _getNut failed in getScreenState');
       return {
         mode: 'vision-native',
         display: { width: 0, height: 0 },
@@ -302,8 +304,8 @@ export class NutJSProvider implements ComputerUseProvider {
         try {
           winRegion = await windows[i].region;
           winTitle = await windows[i].title;
-        } catch {
-          // Skip inaccessible windows
+        } catch (err) {
+          this._logger?.debug({ err, windowIndex: i }, 'NutJSProvider: skipping inaccessible window');
         }
         if (winRegion && winRegion.width > 0 && winRegion.height > 0) {
           elements.push({
@@ -334,8 +336,8 @@ export class NutJSProvider implements ComputerUseProvider {
       if (activeWin) {
         windowTitle = await activeWin.title;
       }
-    } catch {
-      // Non-fatal — fall back to lease providerState
+    } catch (err) {
+      this._logger?.debug({ err }, 'NutJSProvider: activeWin.title failed — falling back to lease providerState');
       windowTitle = lease.providerState?.windowTitle as string | undefined;
     }
 
@@ -344,8 +346,8 @@ export class NutJSProvider implements ComputerUseProvider {
     try {
       const mousePos = await nut.mouse.getPosition();
       focusedElementId = `cursor:${mousePos.x},${mousePos.y}`;
-    } catch {
-      // Non-fatal
+    } catch (err) {
+      this._logger?.debug({ err }, 'NutJSProvider: mouse.getPosition failed — non-fatal');
     }
 
     return {

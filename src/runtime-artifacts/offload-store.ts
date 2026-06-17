@@ -138,7 +138,16 @@ export class OffloadStore {
 
     const raw = fs.readFileSync(jsonlPath, 'utf-8');
     const lines = raw.split('\n').filter((l) => l.trim().length > 0);
-    return lines.map((line) => JSON.parse(line) as OffloadRecord);
+    const records: OffloadRecord[] = [];
+    for (const line of lines) {
+      try {
+        records.push(JSON.parse(line) as OffloadRecord);
+      } catch {
+        // Skip malformed lines — a single corrupt record should not
+        // prevent loading the rest of the offload index.
+      }
+    }
+    return records;
   }
 
   /**

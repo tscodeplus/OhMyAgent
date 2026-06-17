@@ -4,7 +4,19 @@
 
 import type { ToolDefinition } from '../../platform/tool-definition.js';
 import type { ToolCapabilityDescriptor } from '../../platform/tool-capabilities.js';
+import type { ToolResultContent } from '../../platform/tool-result.js';
 import { createShellTool, type ShellToolOptions } from '../shell-tool.js';
+
+// ── Types ──
+
+interface ShellToolParams {
+  command: string;
+}
+
+type ShellToolResult = {
+  content: Array<{ type: string; text?: string }>;
+  details?: Record<string, unknown>;
+};
 
 export const shellToolCapability: ToolCapabilityDescriptor = {
   category: 'shell',
@@ -46,18 +58,19 @@ export function createShellToolDefinition(options: ShellToolOptions = {}): ToolD
             isError: true,
             metadata: {} as Record<string, unknown>,
           };
-        } catch (err: any) {
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
           return {
-            content: [{ type: 'text' as const, text: `Desktop bridge error: ${err.message}` }],
+            content: [{ type: 'text' as const, text: `Desktop bridge error: ${message}` }],
             isError: true,
             metadata: {} as Record<string, unknown>,
           };
         }
       }
 
-      const result = await legacyTool.execute('' as any, args as any);
+      const result: ShellToolResult = await legacyTool.execute('', args as ShellToolParams);
       return {
-        content: (result.content ?? []) as any,
+        content: (result.content ?? []) as ToolResultContent[],
         isError: !result.content?.length,
         metadata: result.details as Record<string, unknown> | undefined,
       };

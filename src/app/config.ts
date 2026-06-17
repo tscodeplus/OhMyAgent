@@ -473,6 +473,8 @@ const configSchema = z.object({
 });
 
 let cachedConfig: AppConfig | null = null;
+/** Prevent concurrent loadConfig() calls from racing after resetConfig(). */
+let loadInProgress = false;
 
 /**
  * Build raw config object from environment variables.
@@ -819,33 +821,46 @@ function applyEnvOverrides(raw: Record<string, unknown>, env: Record<string, str
 export function loadConfig(env: Record<string, string | undefined> = process.env, configPath?: string): AppConfig {
   if (cachedConfig) return cachedConfig;
 
-  // Determine YAML config path: explicit arg > env > process.env > default
-  // Empty string explicitly disables YAML config loading.
-  const yamlPath = configPath ?? env.CONFIG_FILE ?? process.env.CONFIG_FILE ?? './config.yaml';
-  const yamlConfig = yamlPath ? loadYamlFile(yamlPath, env) : null;
-
-  let raw: Record<string, unknown>;
-
-  if (yamlConfig) {
-    raw = yamlToAppConfigRaw(yamlConfig);
-    applyEnvOverrides(raw, env);
-  } else {
-    raw = buildRawFromEnv(env);
+  // Guard against concurrent loads after resetConfig().
+  // Since loadConfig() is synchronous (no await points), the only way this
+  // could fire is if resetConfig() + loadConfig() were called from within
+  // loadConfig itself (e.g. recursive loadYamlFile → resetConfig → loadConfig).
+  // Still, the explicit guard makes the invariant clear.
+  if (loadInProgress) {
+    throw new ConfigError('Config load already in progress — recursive loadConfig() call detected');
   }
+  loadInProgress = true;
+  try {
+    // Determine YAML config path: explicit arg > env > process.env > default
+    // Empty string explicitly disables YAML config loading.
+    const yamlPath = configPath ?? env.CONFIG_FILE ?? process.env.CONFIG_FILE ?? './config.yaml';
+    const yamlConfig = yamlPath ? loadYamlFile(yamlPath, env) : null;
 
-  const result = configSchema.safeParse(raw);
-  if (!result.success) {
-    const errors = result.error.issues.map(i => `  ${i.path.join('.')}: ${i.message}`).join('\n');
-    throw new ConfigError(`Configuration validation failed:\n${errors}`);
+    let raw: Record<string, unknown>;
+
+    if (yamlConfig) {
+      raw = yamlToAppConfigRaw(yamlConfig);
+      applyEnvOverrides(raw, env);
+    } else {
+      raw = buildRawFromEnv(env);
+    }
+
+    const result = configSchema.safeParse(raw);
+    if (!result.success) {
+      const errors = result.error.issues.map(i => `  ${i.path.join('.')}: ${i.message}`).join('\n');
+      throw new ConfigError(`Configuration validation failed:\n${errors}`);
+    }
+
+    // Resolve Auto → concrete language based on uiLanguage
+    if (result.data.memory.outputLanguage === 'Auto') {
+      result.data.memory.outputLanguage = resolveAutoOutputLanguage(result.data.uiLanguage);
+    }
+
+    cachedConfig = result.data;
+    return cachedConfig;
+  } finally {
+    loadInProgress = false;
   }
-
-  // Resolve Auto → concrete language based on uiLanguage
-  if (result.data.memory.outputLanguage === 'Auto') {
-    result.data.memory.outputLanguage = resolveAutoOutputLanguage(result.data.uiLanguage);
-  }
-
-  cachedConfig = result.data;
-  return cachedConfig;
 }
 
 /**

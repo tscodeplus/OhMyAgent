@@ -5,6 +5,22 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 
+// ── Typed SQL row shapes ──
+
+interface CountRow {
+  count: number;
+}
+
+interface TotalRow {
+  total: number | string;
+}
+
+interface TokenUsageRow {
+  day: string;
+  role: string;
+  count: number;
+}
+
 interface DashboardConfig {
   db: Database.Database;
   getConfig: () => any;
@@ -17,24 +33,24 @@ export function registerDashboardRoutes(app: FastifyInstance, cfg: DashboardConf
     const db = cfg.db;
 
     // Active projects count
-    const projectCount = (db.prepare('SELECT COUNT(*) as count FROM projects').get() as any).count;
+    const projectCount = db.prepare('SELECT COUNT(*) as count FROM projects').get() as CountRow | undefined;
 
     // Today's sessions
-    const todaySessions = (db.prepare(
+    const todaySessions = db.prepare(
       "SELECT COUNT(*) as count FROM sessions WHERE project_id IS NOT NULL AND date(created_at) = date('now')"
-    ).get() as any).count;
+    ).get() as CountRow | undefined;
 
     // Monthly token count (from message metadata)
-    const monthlyTokens = (db.prepare(`
+    const monthlyTokens = db.prepare(`
       SELECT COALESCE(SUM(CAST(COALESCE(json_extract(metadata, '$.usage.total_tokens'), '0') AS INTEGER)), 0) as total
       FROM messages
       WHERE created_at >= datetime('now', '-30 days')
-    `).get() as any).total;
+    `).get() as TotalRow | undefined;
 
     return reply.send({
-      activeProjects: projectCount,
-      todaySessions,
-      monthlyTokens: Number(monthlyTokens),
+      activeProjects: projectCount?.count ?? 0,
+      todaySessions: todaySessions?.count ?? 0,
+      monthlyTokens: Number(monthlyTokens?.total ?? 0),
     });
   });
 
@@ -47,7 +63,7 @@ export function registerDashboardRoutes(app: FastifyInstance, cfg: DashboardConf
       WHERE created_at >= datetime('now', '-30 days')
       GROUP BY date(created_at), role
       ORDER BY day ASC
-    `).all() as any[];
+    `).all() as TokenUsageRow[];
 
     return reply.send(rows);
   });

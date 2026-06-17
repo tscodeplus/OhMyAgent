@@ -102,6 +102,17 @@ export class MemoryRepository {
   }
 
   /**
+   * Batch lookup by IDs. Use to avoid N+1 queries when iterating over
+   * search results (e.g. dedup checks in MemoryWriter).
+   */
+  findByIds(ids: string[]): Memory[] {
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => '?').join(',');
+    const stmt = this.db.prepare(`SELECT * FROM memories WHERE id IN (${placeholders})`);
+    return stmt.all(ids) as Memory[];
+  }
+
+  /**
    * Find active memory by ID. Use for retrieval paths that should not see inactive records.
    */
   findActiveById(id: string): Memory | undefined {

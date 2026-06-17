@@ -401,8 +401,8 @@ export function createTransformContext(options?: TransformOptions) {
                   }
                 }
               }
-            } catch {
-              // Memory retrieval failure should not block the LLM call
+            } catch (err) {
+              options?.logger?.debug({ err }, 'Memory retrieval failed — continuing without memory context');
             }
             recalledSessions.add(sessionKey ?? '');
           }

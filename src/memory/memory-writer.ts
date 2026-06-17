@@ -567,10 +567,16 @@ export class MemoryWriter {
     try {
       const emb = embedding ?? await this.embeddingClient.embedOne(content);
       const results = this.embeddingRepository.searchSimilar(emb, 20);
+      // Batch-fetch to avoid N+1 queries during access policy check
+      const memoryById = accessPolicy
+        ? new Map(
+            this.memoryRepository.findByIds(results.map(r => r.memory_id)).map(m => [m.id, m]),
+          )
+        : null;
       for (const result of results) {
         if (result.score < threshold) continue;
-        if (accessPolicy) {
-          const memory = this.memoryRepository.findById(result.memory_id);
+        if (memoryById) {
+          const memory = memoryById.get(result.memory_id);
           if (!memory || !matchesMemoryAccess(memory, accessPolicy)) continue;
         }
         return { id: result.memory_id, score: result.score };

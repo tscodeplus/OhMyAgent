@@ -28,6 +28,7 @@ import type {
 import type { ResolvedAgentConfig } from './config-types.js';
 import type { AgentManager } from './agent-manager.js';
 import { PROFILE_TOOLS } from './agent-manager.js';
+import type { ToolExecutionContext } from '../tools/platform/tool-context.js';
 import type { ComputerUseHost } from '../computer-use/computer-host.js';
 import type { FeishuApprovalClient } from './agent-factory.js';
 import type { PolicyCenter } from '../policy/policy-center.js';
@@ -177,7 +178,7 @@ export function assembleAgentTools(opts: ToolPipelineOptions): ToolPipelineResul
       policyCenter: opts.policyCenter,
       getServices: opts.getServices,
       getContextOverrides: () => {
-        const overrides: Record<string, unknown> = {
+        const overrides: Partial<ToolExecutionContext> = {
           sessionId: opts.sessionId,
           agentId: opts.runtimeAgentId,
           channel: opts.channel,
@@ -193,7 +194,7 @@ export function assembleAgentTools(opts: ToolPipelineOptions): ToolPipelineResul
           };
         }
 
-        return overrides as any;
+        return overrides;
       },
     });
     tools = tools.map((tool: any) => {

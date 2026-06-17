@@ -71,6 +71,106 @@ function strList(val: unknown, defaultVal: string): string[] {
 
 // ─── YAML → AppConfig raw object ───
 
+// ── Section builders (extracted from yamlToAppConfigRaw) ──
+
+function buildMemorySection(memCfg: YamlNode): Record<string, unknown> {
+  const hygieneCfg = memCfg?.hygiene as YamlNode;
+  const cbCfg = memCfg?.embedding_circuit_breaker as YamlNode;
+  const offloadCfg = memCfg?.offloading as YamlNode;
+  const mermaidCfg = memCfg?.mermaid_canvas as YamlNode;
+  const personaCfg = memCfg?.persona as YamlNode;
+  const sceneCfg = memCfg?.scene_clustering as YamlNode;
+  const compressCfg = memCfg?.auto_compress as YamlNode;
+  const compressModelCfg = compressCfg?.model as YamlNode;
+
+  return {
+    autoRecall: envBool(memCfg?.auto_recall, false),
+    autoRecallFrequency: str(memCfg?.auto_recall_frequency, 'first'),
+    autoCapture: envBool(memCfg?.auto_capture, false),
+    recallTopK: num(memCfg?.recall_top_k, 3),
+    recallMinScore: num(memCfg?.recall_min_score, 0.01),
+    captureMaxChars: num(memCfg?.capture_max_chars, 500),
+    summarizeInterval: num(memCfg?.summarize_interval, 20),
+    outputLanguage: str(memCfg?.output_language, 'Auto'),
+    decayHalfLifeDays: num(memCfg?.decay_half_life_days, 30),
+    embeddingCacheMaxEntries: num(memCfg?.embedding_cache_max_entries, 10000),
+    queryEmbeddingTimeoutMs: num(memCfg?.query_embedding_timeout_ms, 10_000),
+    queryPlanner: {
+      enabled: envBool(memCfg?.query_planner?.enabled, true),
+      commonalityCoverage: envBool(memCfg?.query_planner?.commonality_coverage, true),
+      speakerBoost: num(memCfg?.query_planner?.speaker_boost, 0.05),
+      perSlotFloor: num(memCfg?.query_planner?.per_slot_floor, 2),
+      maxEntities: num(memCfg?.query_planner?.max_entities, 4),
+      llm: { enabled: envBool(memCfg?.query_planner?.llm?.enabled, false) },
+    },
+    recall: {
+      prefilterMultiplier: num(memCfg?.recall?.prefilter_multiplier, 5),
+      prefilterMin: num(memCfg?.recall?.prefilter_min, 20),
+      mergeCandidateMultiplier: num(memCfg?.recall?.merge_candidate_multiplier, 3),
+    },
+    expansion: {
+      enabled: envBool(memCfg?.expansion?.enabled, false),
+      minQueryLength: num(memCfg?.expansion?.min_query_length, 15),
+      minScoreTrigger: num(memCfg?.expansion?.min_score_trigger, 0.3),
+      maxVariants: num(memCfg?.expansion?.max_variants, 4),
+    },
+    hygiene: {
+      enabled: envBool(hygieneCfg?.enabled, true),
+      retentionDays: num(hygieneCfg?.retention_days, 90),
+    },
+    embeddingCircuitBreaker: {
+      failureThreshold: num(cbCfg?.failure_threshold, 5),
+      cooldownSec: num(cbCfg?.cooldown_sec, 30),
+    },
+    offloading: {
+      enabled: envBool(offloadCfg?.enabled, true),
+      maxRefsInContext: num(offloadCfg?.max_refs_in_context, 10),
+      preserveInMessages: num(offloadCfg?.preserve_in_messages, 2),
+      refDir: offloadCfg?.ref_dir ? str(offloadCfg.ref_dir, '') : '',
+      retentionDays: num(offloadCfg?.retention_days, 7),
+    },
+    mermaidCanvas: {
+      enabled: envBool(mermaidCfg?.enabled, false),
+      injectFormat: str(mermaidCfg?.inject_format, 'summary'),
+      phaseTagging: str(mermaidCfg?.phase_tagging, 'auto'),
+      maxNodesInContext: num(mermaidCfg?.max_nodes_in_context, 20),
+    },
+    persona: {
+      enabled: envBool(personaCfg?.enabled, true),
+      distillThreshold: num(personaCfg?.distill_threshold, 3),
+      minDistillIntervalHours: num(personaCfg?.min_distill_interval_hours, 0),
+    },
+    sceneClustering: {
+      enabled: envBool(sceneCfg?.enabled, false),
+      windowDays: num(sceneCfg?.window_days, 7),
+      minMemories: num(sceneCfg?.min_memories, 5),
+    },
+    autoCompress: {
+      enabled: envBool(compressCfg?.enabled, true),
+      reserveTokens: num(compressCfg?.reserve_tokens, 16384),
+      keepRecentTokens: num(compressCfg?.keep_recent_tokens, 20000),
+      model: compressModelCfg ? {
+        primary: compressModelCfg.primary ? str(compressModelCfg.primary, '') : undefined,
+        fallback_models: strList(compressModelCfg.fallback_models, ''),
+      } : undefined,
+    },
+    maintenance: {
+      enabled: envBool(memCfg?.maintenance?.enabled, true),
+      intervalMs: num(memCfg?.maintenance?.interval_ms, 300000),
+      jobs: {
+        memory_hygiene: envBool(memCfg?.maintenance?.jobs?.memory_hygiene, true),
+        embedding_backfill: envBool(memCfg?.maintenance?.jobs?.embedding_backfill, true),
+        embedding_cache_trim: envBool(memCfg?.maintenance?.jobs?.embedding_cache_trim, true),
+        entity_backfill: envBool(memCfg?.maintenance?.jobs?.entity_backfill, true),
+        persona_consistency: envBool(memCfg?.maintenance?.jobs?.persona_consistency, true),
+        offload_hygiene: envBool(memCfg?.maintenance?.jobs?.offload_hygiene, true),
+        scene_cluster: envBool(memCfg?.maintenance?.jobs?.scene_cluster, false),
+        memory_doctor: envBool(memCfg?.maintenance?.jobs?.memory_doctor, false),
+      },
+    },
+  };
+}
+
 /**
  * Convert a parsed config.yaml object into the raw shape expected by configSchema.
  * Defaults are handled by the Zod schema — this function only maps keys.
@@ -95,16 +195,8 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
   const shellCfg = toolsCfg?.shell as YamlNode;
   const fileReadCfg = toolsCfg?.file_read as YamlNode;
 
-  // Memory
+  // Memory (section builder extracted to buildMemorySection)
   const memCfg = root.memory as YamlNode;
-  const hygieneCfg = memCfg?.hygiene as YamlNode;
-  const cbCfg = memCfg?.embedding_circuit_breaker as YamlNode;
-  const offloadCfg = memCfg?.offloading as YamlNode;
-  const mermaidCfg = memCfg?.mermaid_canvas as YamlNode;
-  const personaCfg = memCfg?.persona as YamlNode;
-  const sceneCfg = memCfg?.scene_clustering as YamlNode;
-  const compressCfg = memCfg?.auto_compress as YamlNode;
-  const compressModelCfg = compressCfg?.model as YamlNode;
 
   // Sub-configs
   const vbCfg = root.vision_bridge as YamlNode;
@@ -206,92 +298,7 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
       },
     },
 
-    memory: {
-      autoRecall: envBool(memCfg?.auto_recall, false),
-      autoRecallFrequency: str(memCfg?.auto_recall_frequency, 'first'),
-      autoCapture: envBool(memCfg?.auto_capture, false),
-      recallTopK: num(memCfg?.recall_top_k, 3),
-      recallMinScore: num(memCfg?.recall_min_score, 0.01),
-      captureMaxChars: num(memCfg?.capture_max_chars, 500),
-      summarizeInterval: num(memCfg?.summarize_interval, 20),
-      outputLanguage: str(memCfg?.output_language, 'Auto'),
-      decayHalfLifeDays: num(memCfg?.decay_half_life_days, 30),
-      embeddingCacheMaxEntries: num(memCfg?.embedding_cache_max_entries, 10000),
-      queryEmbeddingTimeoutMs: num(memCfg?.query_embedding_timeout_ms, 10_000),
-      queryPlanner: {
-        enabled: envBool(memCfg?.query_planner?.enabled, true),
-        commonalityCoverage: envBool(memCfg?.query_planner?.commonality_coverage, true),
-        speakerBoost: num(memCfg?.query_planner?.speaker_boost, 0.05),
-        perSlotFloor: num(memCfg?.query_planner?.per_slot_floor, 2),
-        maxEntities: num(memCfg?.query_planner?.max_entities, 4),
-        llm: { enabled: envBool(memCfg?.query_planner?.llm?.enabled, false) },
-      },
-      recall: {
-        prefilterMultiplier: num(memCfg?.recall?.prefilter_multiplier, 5),
-        prefilterMin: num(memCfg?.recall?.prefilter_min, 20),
-        mergeCandidateMultiplier: num(memCfg?.recall?.merge_candidate_multiplier, 3),
-      },
-      expansion: {
-        enabled: envBool(memCfg?.expansion?.enabled, false),
-        minQueryLength: num(memCfg?.expansion?.min_query_length, 15),
-        minScoreTrigger: num(memCfg?.expansion?.min_score_trigger, 0.3),
-        maxVariants: num(memCfg?.expansion?.max_variants, 4),
-      },
-      hygiene: {
-        enabled: envBool(hygieneCfg?.enabled, true),
-        retentionDays: num(hygieneCfg?.retention_days, 90),
-      },
-      embeddingCircuitBreaker: {
-        failureThreshold: num(cbCfg?.failure_threshold, 5),
-        cooldownSec: num(cbCfg?.cooldown_sec, 30),
-      },
-      offloading: {
-        enabled: envBool(offloadCfg?.enabled, true),
-        maxRefsInContext: num(offloadCfg?.max_refs_in_context, 10),
-        preserveInMessages: num(offloadCfg?.preserve_in_messages, 2),
-        refDir: offloadCfg?.ref_dir ? str(offloadCfg.ref_dir, '') : '',
-        retentionDays: num(offloadCfg?.retention_days, 7),
-      },
-      mermaidCanvas: {
-        enabled: envBool(mermaidCfg?.enabled, false),
-        injectFormat: str(mermaidCfg?.inject_format, 'summary'),
-        phaseTagging: str(mermaidCfg?.phase_tagging, 'auto'),
-        maxNodesInContext: num(mermaidCfg?.max_nodes_in_context, 20),
-      },
-      persona: {
-        enabled: envBool(personaCfg?.enabled, true),
-        distillThreshold: num(personaCfg?.distill_threshold, 3),
-        minDistillIntervalHours: num(personaCfg?.min_distill_interval_hours, 0),
-      },
-      sceneClustering: {
-        enabled: envBool(sceneCfg?.enabled, false),
-        windowDays: num(sceneCfg?.window_days, 7),
-        minMemories: num(sceneCfg?.min_memories, 5),
-      },
-      autoCompress: {
-        enabled: envBool(compressCfg?.enabled, true),
-        reserveTokens: num(compressCfg?.reserve_tokens, 16384),
-        keepRecentTokens: num(compressCfg?.keep_recent_tokens, 20000),
-        model: compressModelCfg ? {
-          primary: compressModelCfg.primary ? str(compressModelCfg.primary, '') : undefined,
-          fallback_models: strList(compressModelCfg.fallback_models, ''),
-        } : undefined,
-      },
-      maintenance: {
-        enabled: envBool(memCfg?.maintenance?.enabled, true),
-        intervalMs: num(memCfg?.maintenance?.interval_ms, 300000),
-        jobs: {
-          memory_hygiene: envBool(memCfg?.maintenance?.jobs?.memory_hygiene, true),
-          embedding_backfill: envBool(memCfg?.maintenance?.jobs?.embedding_backfill, true),
-          embedding_cache_trim: envBool(memCfg?.maintenance?.jobs?.embedding_cache_trim, true),
-          entity_backfill: envBool(memCfg?.maintenance?.jobs?.entity_backfill, true),
-          persona_consistency: envBool(memCfg?.maintenance?.jobs?.persona_consistency, true),
-          offload_hygiene: envBool(memCfg?.maintenance?.jobs?.offload_hygiene, true),
-          scene_cluster: envBool(memCfg?.maintenance?.jobs?.scene_cluster, false),
-          memory_doctor: envBool(memCfg?.maintenance?.jobs?.memory_doctor, false),
-        },
-      },
-    },
+    memory: buildMemorySection(memCfg),
 
     cron: {
       enabled: envBool(cronCfg?.enabled, true),

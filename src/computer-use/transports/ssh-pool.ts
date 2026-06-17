@@ -102,7 +102,7 @@ function resolveControlDir(logger?: Logger): string {
       const st = statSync(dir);
       if ((st.mode & 0o077) !== 0) {
         // Best-effort: chmod to 0700.
-        try { chmodSync(dir, 0o700); } catch { /* ignore */ }
+        try { chmodSync(dir, 0o700); } catch { logger?.debug('SSHPool: chmod best-effort failed'); }
       }
       return dir;
     } catch (err) {
@@ -268,7 +268,8 @@ export class SSHPool {
           scrot: stdout.includes('scrot'),
         },
       };
-    } catch {
+    } catch (err) {
+      this.logger?.debug({ err }, 'SSHPool: capability detection failed — host unreachable');
       return {
         reachable: false,
         deps: { xdotool: false, scrot: false },
@@ -295,7 +296,7 @@ export class SSHPool {
       try {
         if (!child.killed) child.kill('SIGTERM');
       } catch {
-        // Process may already be dead
+        this.logger?.debug('SSHPool: SIGTERM failed — process likely already dead');
       }
     }
     this.activeChildren.clear();

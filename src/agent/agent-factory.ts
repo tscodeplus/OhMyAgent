@@ -58,10 +58,7 @@ import type { CreateChildAgent } from './tool-pipeline.js';
 const complianceTracker = new SkillComplianceTracker();
 /** Map of sessionId → reinforcement messages to inject in the next turn */
 const reinforcementMessages = new Map<string, string>();
-/** Map of sessionId → active skill info for compliance tracking */
-const activeSkillForSession = new Map<string, { skillId: string; skill: import('../skills/skill-loader.js').LoadedSkill }>();
-/** Map of sessionId → feedback tracking info for metrics */
-const activeSkillFeedbackIds = new Map<string, { feedbackId: string; startTime: number }>();
+import { activeSkillForSession, activeSkillFeedbackIds, activateSkill } from './skill-activator.js';
 
 function mergeProviderKeys(
   apiKeys: Record<string, string>,
@@ -345,70 +342,20 @@ export function createAgentFactory(
         systemPrompt = renderedAgent;
       }
 
-      let resolvedSkillScope: ResolvedSkillScope = {
-        scope: 'global',
-        scopeKey: '',
-      };
-
-      let compiled: ReturnType<SkillRegistry['compile']> | undefined;
-      if (skillRegistry && options?.message) {
-        const resolved = skillRegistry.resolve(options.message);
-        logger?.debug({ message: options.message, count: resolved.length, skills: resolved.map(r => r.skill.manifest.id) }, 'skill resolution result');
-        if (resolved.length > 0) {
-          compiled = skillRegistry.compile(resolved);
-          const skillCtx = compiled;
-          const skill = resolved[0]!.skill;
-          resolvedSkillScope = {
-            scope: 'skill',
-            scopeKey: resolved[0]!.skill.manifest.id,
-          };
-          logger?.debug({ skillId: skill.manifest.id }, 'skill activated via fast path');
-
-          // P1-3: Store active skill for compliance tracking
-          const sessionKey = options?.sessionId ?? 'default';
-          activeSkillForSession.set(sessionKey, { skillId: skill.manifest.id, skill });
-
-          // P1-4: Record skill activation for metrics
-          let skillFeedbackId: string | undefined;
-          if (getServices?.()?.skillMetricsService) {
-            const metricsService = getServices()!.skillMetricsService!;
-            skillFeedbackId = metricsService.recordActivation(
-              skill.manifest.id,
-              sessionKey,
-              options.message,
-            );
-            activeSkillFeedbackIds.set(sessionKey, { feedbackId: skillFeedbackId, startTime: Date.now() });
-          }
-
-          // Strip $skill-id and /skill-id tokens from the user message
-          const escapedId = skill.manifest.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          let cleanMessage = options.message
-            .replace(new RegExp(`(?:^/${escapedId}\\s*)|(?:\\$${escapedId}\\s*)`, 'gi'), '')
-            .trim();
-          if (!cleanMessage) {
-            cleanMessage = 'I am ready to help with this skill.';
-          }
-          options.message = cleanMessage;
-
-          // Skill allowed-tools is declarative ("this skill needs these"),
-          // NOT restrictive. Tool filtering is handled by the tools profile.
-
-          if (skillCtx.approvalOverrides && approvalGate && approvalGate.createPolicy) {
-            for (const [key, override] of Object.entries(skillCtx.approvalOverrides)) {
-              const ov = override as { targetKind: string; patternType: string; pattern: string; effect: string };
-              const policyId = `skill-${key}`;
-              approvalGate.createPolicy({
-                id: policyId,
-                scope: 'skill',
-                scopeKey: '',
-                targetKind: ov.targetKind,
-                patternType: ov.patternType as PatternType,
-                pattern: ov.pattern,
-                effect: ov.effect as PolicyEffect,
-              });
-            }
-          }
-        }
+      // ── Skill activation (extracted to skill-activator.ts) ──
+      const activation = activateSkill(options?.message ?? '', options?.sessionId ?? 'default', {
+        skillRegistry,
+        approvalGate,
+        logger,
+        getServices: getServices
+          ? () => getServices() ? { skillMetricsService: getServices()!.skillMetricsService } : undefined
+          : undefined,
+      });
+      let { compiled } = activation;
+      const resolvedSkillScope: ResolvedSkillScope = activation.scope;
+      if (options) options.message = activation.cleanMessage;
+      if (compiled) {
+        logger?.info({ skillScope: resolvedSkillScope, hasPromptLayers: !!compiled.promptLayers?.length, allowedTools: compiled.allowedTools }, '[agent-factory] skill context applied to agent');
       }
 
       // Assemble final system prompt via PromptManager (v5)

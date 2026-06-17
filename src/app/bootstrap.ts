@@ -91,7 +91,7 @@ function registerCustomProviders(config: AppConfig, logger: AppServices['logger'
         contextWindow: m.contextWindow ?? 128000,
         maxTokens: m.maxTokens ?? 16000,
         compat: withCustomProviderCacheCompat(m, cp.provider),
-      } as any);
+      } as Parameters<typeof registerModel>[2]);
     }
   }
 }

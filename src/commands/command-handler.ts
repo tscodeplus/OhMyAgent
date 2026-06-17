@@ -24,6 +24,7 @@ export interface CommandDeps {
     followUp(sessionId: string, message: string, replyToMessageId?: string): Promise<boolean>;
     swapCard(sessionId: string, replyToMessageId?: string): Promise<boolean>;
     onNextAgentEnd(sessionId: string, callback: () => void): void;
+    setSessionAgentId(sessionId: string, agentId: string): void;
   };
   skillRegistry?: {
     getSkills(): Array<{ manifest: { id: string; name: string; description: string } }>;
@@ -358,11 +359,9 @@ function handleAgentCommand(args: string, sessionKey: string, deps: CommandDeps)
   }
 
   // Switch session to this agent (via AgentService)
-  if ((deps.agentService as any).setSessionAgentId) {
-    (deps.agentService as any).setSessionAgentId(sessionKey, agent.id);
-    // Destroy old runtime so the next message creates a fresh Agent with new config
-    (deps.agentService as any).destroyRuntime(sessionKey);
-  }
+  deps.agentService.setSessionAgentId(sessionKey, agent.id);
+  // Destroy old runtime so the next message creates a fresh Agent with new config
+  deps.agentService.destroyRuntime(sessionKey);
 
   // If there's a message after the agent ID, forward it to the agent
   return {

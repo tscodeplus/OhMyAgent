@@ -7,22 +7,53 @@
  * level, and builds the fallback model chain.
  */
 
-import { getModel } from '@earendil-works/pi-ai';
+import { getModel, type Model, type KnownProvider } from '@earendil-works/pi-ai';
+import type { Api } from '../pi-mono/ai/types.js';
 import { getDefaultModel } from '../provider/pi-ai-setup.js';
 import type { AppConfig } from '../app/types.js';
 import type { ResolvedAgentConfig } from './config-types.js';
 
+// ── Types ──
+
+/** Opaque model instance returned by getModel / getDefaultModel. */
+type ModelInstance = Model<Api>;
+
 /** Result of model resolution for a single Agent turn. */
 export interface ResolvedModel {
-  model: any;
+  model: ModelInstance | undefined;
   modelProvider?: string;
   modelId?: string;
   /** Cache profile used by context-transform: 'deepseek' triggers prefix-cache-aware compaction. */
   cacheProfile: 'deepseek' | 'default';
   thinkingLevel: string;
-  fallbackModels: any[];
+  fallbackModels: ModelInstance[];
   /** Resolved context window size in tokens (0 if unknown). */
   contextWindow: number;
+}
+
+// ── Helpers ──
+
+/**
+ * Resolve a "provider/modelId" ref string into a ModelInstance.
+ * Encapsulates the runtime string-split + getModel call so callers
+ * don't need their own `as any` casts.
+ */
+function resolveModelRef(ref: string): ModelInstance | undefined {
+  const idx = ref.indexOf('/');
+  if (idx === -1) return undefined;
+  return getModel(
+    ref.slice(0, idx) as KnownProvider,
+    ref.slice(idx + 1) as never,
+  ) as ModelInstance | undefined;
+}
+
+/**
+ * Access a loosely-typed property on a model instance.
+ * pi-mono Model<> carries opaque generics; concrete fields like .provider,
+ * .id, .baseUrl exist at runtime but aren't exposed in the type signature.
+ */
+function modelProp<T>(model: ModelInstance | undefined, prop: string): T | undefined {
+  return (model as unknown as Record<string, unknown>)?.[prop] as T | undefined;
 }
 
 /**
@@ -30,10 +61,10 @@ export interface ResolvedModel {
  * Used to select the cache profile (DeepSeek's automatic prefix-cache
  * benefits from different compaction heuristics).
  */
-export function isDeepSeekLikeModel(model: any): boolean {
-  const provider = String(model?.provider ?? '').toLowerCase();
-  const id = String(model?.id ?? '').toLowerCase();
-  const baseUrl = String(model?.baseUrl ?? '').toLowerCase();
+export function isDeepSeekLikeModel(model: ModelInstance | undefined): boolean {
+  const provider = String(modelProp<string>(model, 'provider') ?? '').toLowerCase();
+  const id = String(modelProp<string>(model, 'id') ?? '').toLowerCase();
+  const baseUrl = String(modelProp<string>(model, 'baseUrl') ?? '').toLowerCase();
   return provider.includes('deepseek') || id.includes('deepseek') || baseUrl.includes('deepseek');
 }
 
@@ -41,10 +72,13 @@ export function isDeepSeekLikeModel(model: any): boolean {
  * Resolve the context window size from the model object.
  * Tries common property names; returns 0 if none found (fallback in threshold.ts).
  */
-export function resolveModelContextLength(model: any): number {
-  if (typeof model?.contextWindow === 'number') return model.contextWindow;
-  if (typeof model?.context_length === 'number') return model.context_length;
-  if (typeof model?.maxTokens === 'number') return model.maxTokens;
+export function resolveModelContextLength(model: ModelInstance | undefined): number {
+  const contextWindow = modelProp<number>(model, 'contextWindow');
+  if (typeof contextWindow === 'number') return contextWindow;
+  const contextLength = modelProp<number>(model, 'context_length');
+  if (typeof contextLength === 'number') return contextLength;
+  const maxTokens = modelProp<number>(model, 'maxTokens');
+  if (typeof maxTokens === 'number') return maxTokens;
   return 0;
 }
 
@@ -58,29 +92,25 @@ export function resolveModelContextLength(model: any): number {
  *   4. Services default model (set at factory creation time)
  */
 export function resolveModel(options: {
-  explicitModel?: any;
+  explicitModel?: ModelInstance;
   agentConfig?: ResolvedAgentConfig;
-  servicesDefaultModel?: any;
+  servicesDefaultModel?: ModelInstance;
   config: AppConfig;
 }): ResolvedModel {
   const { explicitModel, agentConfig, servicesDefaultModel, config } = options;
 
   // 1. Start with explicit override → provider default → services default
-  let model = explicitModel ?? getDefaultModel(config) ?? servicesDefaultModel;
+  let model: ModelInstance | undefined = explicitModel ?? getDefaultModel(config) ?? servicesDefaultModel;
 
   // 2. Agent config model.primary overrides the default (but NOT an explicit override)
   if (agentConfig?.model.primary && !explicitModel) {
-    const ref = agentConfig.model.primary;
-    const idx = ref.indexOf('/');
-    if (idx !== -1) {
-      const agentModel = getModel(ref.slice(0, idx) as any, ref.slice(idx + 1) as any) as any;
-      if (agentModel) model = agentModel;
-    }
+    const agentModel = resolveModelRef(agentConfig.model.primary);
+    if (agentModel) model = agentModel;
   }
 
   // 3. Derive metadata from the resolved model
-  const modelProvider = model?.provider as string | undefined;
-  const modelId = model?.id as string | undefined;
+  const modelProvider = modelProp<string>(model, 'provider');
+  const modelId = modelProp<string>(model, 'id');
   const cacheProfile = isDeepSeekLikeModel(model) ? 'deepseek' as const : 'default' as const;
 
   // 4. Look up custom model config for reasoning / thinking level
@@ -93,15 +123,9 @@ export function resolveModel(options: {
     'off';
 
   // 5. Resolve fallback model chain
-  const fallbackModels = (config.fallbackModels ?? [])
-    .map(ref => {
-      const idx = ref.indexOf('/');
-      if (idx === -1) return undefined;
-      const provider = ref.slice(0, idx);
-      const modelId = ref.slice(idx + 1);
-      return getModel(provider as any, modelId as any) as any;
-    })
-    .filter(Boolean);
+  const fallbackModels: ModelInstance[] = (config.fallbackModels ?? [])
+    .map(ref => resolveModelRef(ref))
+    .filter((m): m is ModelInstance => m !== undefined);
 
   // 6. Resolve context window size
   const contextWindow = resolveModelContextLength(model);
