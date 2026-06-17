@@ -8,6 +8,6 @@
     "imagePlaceholder": "[图片]"
   },
   "skill": {
-    "activated": "⚡️ 技能激活: {{name}}"
+    "activated": "⚡️ 技能激活：{{name}}"
   }
 }

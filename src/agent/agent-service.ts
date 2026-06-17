@@ -176,11 +176,12 @@ export class AgentService {
     runtime.bridge = new EventBridge(dispatcher, this.persistence?.logger);
     runtime.bridge.start(runtime.agent);
 
-    // Dispatch skill activation notification (if a skill was matched server-side)
+    // Defer skill activation dispatch until after agent_start (turn_start SSE),
+    // so the frontend has already created the message bubble before the skill
+    // text_delta arrives. EventBridge dispatches pendingSkillName after onStart.
     const skillName = runtime.turnContext.activatedSkillName;
-    this.persistence?.logger.info({ skillName, hasOnSkillActivated: typeof dispatcher.onSkillActivated === 'function' }, '[agent-service] skill activation dispatch');
     if (skillName) {
-      dispatcher.onSkillActivated?.(skillName);
+      runtime.bridge.pendingSkillName = skillName;
       // Store for persistence so the notification survives page refresh
       runtime.skillActivatedName = skillName;
       // Clear turnContext so it only fires once per turn

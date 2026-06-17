@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Bot, User, Download, X } from 'lucide-react';
+import { Bot, User, Download, X, Zap } from 'lucide-react';
 import type { Message } from '../../types/session';
 import ToolCallCard from './ToolCallCard';
 import ApprovalCard, { type ApprovalDecision } from './ApprovalCard';
@@ -229,6 +229,11 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
                     </div>
                   ) : seg.type === 'tool_call' && seg.toolCall ? (
                     <ToolCallCard key={seg.toolCall.id} toolCall={seg.toolCall} />
+                  ) : seg.type === 'skill' ? (
+                    <div key={`skill-${i}`} className="flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-sm">
+                      <Zap size={14} className="text-amber-500 dark:text-amber-400 shrink-0" />
+                      <span className="text-neutral-700 dark:text-neutral-200">技能激活：<strong>{seg.name}</strong></span>
+                    </div>
                   ) : seg.type === 'media' && seg.media ? (
                     <div key={`media-${i}`} className="my-1">
                       {seg.media.type === 'image' ? (

@@ -41,6 +41,8 @@ export interface Message {
   images?: MessageImage[];
   /** Files generated or referenced by the agent (download links). */
   files?: MessageFile[];
+  /** Skill name that was activated for this message (from metadata). */
+  skill_activated?: string;
 }
 
 export interface MediaSegmentItem {
@@ -52,10 +54,12 @@ export interface MediaSegmentItem {
 }
 
 export interface MessageSegment {
-  type: 'text' | 'tool_call' | 'media';
+  type: 'text' | 'tool_call' | 'media' | 'skill';
   content?: string;
   toolCall?: ToolCall;
   media?: MediaSegmentItem;
+  /** Skill name for 'skill' type segments. */
+  name?: string;
 }
 
 export interface MessageApproval {

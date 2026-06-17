@@ -41,7 +41,7 @@
       "dragActive": "Release to upload"
     },
     "thinking": "Thinking...",
-    "toolCall": "Tool Call",
+    "toolCall": "Tool Call: ",
     "newSession": "New Chat",
     "clearContext": "Clear Context",
     "empty": "No messages yet",

@@ -288,6 +288,22 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
             }
             break;
 
+          case 'skill_activated': {
+            const skillName = event.data || '';
+            if (skillName) {
+              segmentsRef.current.push({ type: 'skill', name: skillName });
+              if (onMessages) {
+                onMessages([{
+                  id: assistantIdRef.current, session_id: sessionId, role: 'assistant',
+                  content: assistantContentRef.current,
+                  segments: [...segmentsRef.current],
+                  created_at: assistantCreatedAtRef.current,
+                }]);
+              }
+            }
+            break;
+          }
+
           case 'text_delta':
             assistantContentRef.current += event.data || '';
             {

@@ -25,7 +25,7 @@ export default function ToolCallCard({ toolCall }: ToolCallCardProps) {
       >
         {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         <Wrench size={14} className="text-neutral-500 dark:text-neutral-400" />
-        <span className="font-medium">{t('chat.toolCall')}: {toolCall.name}</span>
+        <span className="font-medium">{t('chat.toolCall')}{toolCall.name}</span>
         {statusIcon[toolCall.status]}
       </button>
       {expanded && (

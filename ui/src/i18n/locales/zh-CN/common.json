@@ -42,7 +42,7 @@
       "dragActive": "松开以上传"
     },
     "thinking": "思考中...",
-    "toolCall": "工具调用",
+    "toolCall": "工具调用：",
     "newSession": "新对话",
     "clearContext": "清空上下文",
     "empty": "选择一个会话开始对话",

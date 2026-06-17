@@ -120,6 +120,15 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
       }
       let content = textParts.join('\n');
 
+      // Prepend skill activation notification to content so it appears in
+      // history even when rendered without segment support (plain text fallback).
+      const skillPrefix = runtime.skillActivatedName
+        ? `⚡️ 技能激活：**${runtime.skillActivatedName}**\n\n`
+        : '';
+      if (skillPrefix) {
+        content = skillPrefix + content;
+      }
+
       // Strip image markdown already in batchImages
       if (batchImages.length > 0) {
         for (const img of batchImages) {
@@ -145,10 +154,15 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
 
       if (!content.trim() && toolCalls.length === 0) return;
 
-      // 3. Build segments from block order when tool calls are present
-      let segments: Array<{ type: 'text'; content: string } | { type: 'tool_call'; id: string }> | undefined;
-      if (toolCalls.length > 0) {
+      // 3. Build segments from block order when tool calls or skill are present
+      let segments: Array<{ type: 'text'; content: string } | { type: 'tool_call'; id: string } | { type: 'skill'; name: string }> | undefined;
+      const hasSkill = !!runtime.skillActivatedName;
+      if (toolCalls.length > 0 || hasSkill) {
         segments = [];
+        // Skill activation segment goes first (before any text/tool blocks)
+        if (hasSkill) {
+          segments.push({ type: 'skill', name: runtime.skillActivatedName! });
+        }
         for (const block of pending.blocks) {
           if (block.type === 'text' && block.text) {
             segments.push({ type: 'text', content: block.text });
@@ -243,11 +257,20 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
             }
             content = content.trim();
           }
-          if (content.trim()) {
+          // Prepend skill activation text for plain-text fallback rendering
+          const noTcSkillPrefix = runtime.skillActivatedName
+            ? `⚡️ 技能激活：**${runtime.skillActivatedName}**\n\n`
+            : '';
+          if (noTcSkillPrefix && content.trim()) {
+            content = noTcSkillPrefix + content;
+          }
+          if (content.trim() || noTcSkillPrefix) {
             const meta: Record<string, unknown> = {};
             // Skill activation notification — attached to first assistant message, then cleared
             if (runtime.skillActivatedName) {
               meta.skill_activated = runtime.skillActivatedName;
+              // Add a skill segment so the frontend can render it as a card
+              meta.segments = [{ type: 'skill', name: runtime.skillActivatedName }];
               runtime.skillActivatedName = undefined;
             }
             if (msg.usage) {

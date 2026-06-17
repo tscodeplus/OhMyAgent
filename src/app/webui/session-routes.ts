@@ -228,10 +228,12 @@ export function registerSessionRoutes(
           }
         }
 
-        const segments: Array<{ type: 'text' | 'tool_call'; content?: string; toolCall?: Record<string, unknown> }> = [];
-        for (const seg of meta.segments as Array<{ type: string; content?: string; id?: string }>) {
+        const segments: Array<{ type: 'text' | 'tool_call' | 'skill'; content?: string; toolCall?: Record<string, unknown>; name?: string }> = [];
+        for (const seg of meta.segments as Array<{ type: string; content?: string; id?: string; name?: string }>) {
           if (seg.type === 'text') {
             segments.push({ type: 'text', content: seg.content || '' });
+          } else if (seg.type === 'skill') {
+            segments.push({ type: 'skill', name: seg.name || '' });
           } else if (seg.type === 'tool_call' && seg.id) {
             const tc = toolCallsById.get(seg.id);
             if (tc) {

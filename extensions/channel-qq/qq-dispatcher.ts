@@ -114,7 +114,10 @@ export class QQReplyDispatcher implements ReplyDispatcher {
 
   onSkillActivated(skillName: string): void {
     if (!this.showSkillCalls) return;
-    const line = `\n> ⚡️ 技能激活: **${skillName}**`;
+    // No leading \n — onSkillActivated is always the first content after
+    // onStart, so a leading newline would just be trimmed by onComplete.
+    // Trailing \n\n separates the skill line from the response text.
+    const line = `> ⚡️ 技能激活 — **${skillName}**\n\n`;
     this.buffer += line;
     this.hasContent = true;
   }

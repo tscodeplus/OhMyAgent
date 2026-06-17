@@ -20,6 +20,13 @@ export class EventBridge {
   /** Called before onComplete/onError/onAborted to persist state. */
   private preCompleteCallback?: () => Promise<void>;
   private logger?: Logger;
+  /**
+   * Skill name to dispatch after the next agent_start event.
+   * Set before agent.prompt() so that onSkillActivated fires
+   * AFTER onStart (turn_start SSE), ensuring the frontend has
+   * created a message bubble before the skill text_delta arrives.
+   */
+  pendingSkillName?: string;
 
   constructor(
     private replyDispatcher: ReplyDispatcher,
@@ -130,6 +137,13 @@ export class EventBridge {
       switch (event.type) {
         case 'agent_start':
           await this.dispatchSafely(() => this.replyDispatcher.onStart());
+          // Dispatch skill activation AFTER turn_start so the frontend has
+          // already created the message bubble (beginTurn) before the
+          // skill text_delta arrives. order: turn_start → skill text_delta.
+          if (this.pendingSkillName) {
+            await this.dispatchSafely(() => this.replyDispatcher.onSkillActivated?.(this.pendingSkillName!));
+            this.pendingSkillName = undefined;
+          }
           break;
 
         case 'message_update': {
