@@ -270,6 +270,7 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
     // and prevent the done handler from resetting the sending state.
 
     const streamStartTime = Date.now();
+    skillActivatedRef.current = undefined;
     console.log('[ChatInput] SSE stream starting', { sessionId, messagePreview: messageText.slice(0, 40) });
 
     abortRef.current = sseClient.start(
@@ -280,37 +281,21 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
         console.log('[ChatInput] SSE event', { type: event.type, ts: Date.now() - streamStartTime });
         switch (event.type) {
           case 'skill_activated':
+            // Store skill name; inserted as segment in turn_start after beginTurn()
             skillActivatedRef.current = event.data || undefined;
-            // Insert skill activation as first segment so it renders inline
-            segmentsRef.current.unshift({ type: 'skill', content: event.data || undefined });
-            if (onMessages && assistantIdRef.current) {
-              onMessages([{
-                id: assistantIdRef.current,
-                session_id: sessionId,
-                role: 'assistant' as const,
-                content: assistantContentRef.current,
-                tool_calls: toolCallsRef.current.length > 0 ? [...toolCallsRef.current] : undefined,
-                segments: [...segmentsRef.current],
-                skill_activated: skillActivatedRef.current,
-                created_at: assistantCreatedAtRef.current,
-              }]);
-            }
             break;
 
           case 'turn_start':
-            // Clear skill activation from previous turn
-            skillActivatedRef.current = undefined;
             // Reuse the bubble eagerly created by steerMessage.
             if (steerBubbleRef.current) {
               steerBubbleRef.current = false;
-              // Reset active turn counter: the steer turn supersedes any
-              // previous turn (whose 'done' event may never fire). Only
-              // the steer turn (counted in steerMessage's beginTurn) remains.
               activeTurnsRef.current = 1;
-              console.log('[ChatInput] SSE turn_start — reusing steer bubble', { curId: assistantIdRef.current.slice(0, 8), activeTurns: activeTurnsRef.current });
             } else {
-              console.log('[ChatInput] SSE turn_start — creating new bubble');
               beginTurn();
+            }
+            // Inject skill activation segment after beginTurn (which resets segments)
+            if (skillActivatedRef.current) {
+              segmentsRef.current.unshift({ type: 'skill', content: skillActivatedRef.current });
             }
             break;
 
