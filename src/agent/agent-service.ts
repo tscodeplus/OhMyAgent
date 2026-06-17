@@ -18,27 +18,12 @@ import type { ToolRunRepository } from '../memory/repositories/tool-run-reposito
 import type { MemorySummarizer } from '../memory/memory-summarizer.js';
 import type { Logger } from 'pino';
 import { generateId } from '../shared/ids.js';
-import { extractText, extractUserText } from '../shared/text-extract.js';
 import { EventBridge } from './event-bridge.js';
-import type { AgentEvent } from '../pi-mono/agent/types.js';
 import type { ImageContent } from '../pi-mono/ai/types.js';
-import { isContextOverflow } from '@earendil-works/pi-ai';
-import { compressContext, estimateTokens } from './compress.js';
-import { truncate } from '../shared/truncation.js';
 import type { VisionBridgeService } from '../vision-bridge/vision-bridge-service.js';
-
-// ── Stream message metadata ──
-
-/**
- * Runtime metadata attached by pi-mono's streaming infrastructure.
- * Not exposed on the AgentMessage union type — accessed via type assertion
- * after checking known role discriminator.
- */
-interface StreamMessageMeta {
-  provider?: string;
-  usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
-  model?: string;
-}
+import { persistMessages } from './message-persister.js';
+import { recoverFromOverflow } from './overflow-recovery.js';
+import { subscribeToolRunAudit } from './tool-audit.js';
 
 export interface AgentServiceOptions {
   sessionId?: string;
@@ -559,310 +544,14 @@ export class AgentService {
     runtime: { persistedMessageCount: number; turnElapsed?: number; footerConfig?: FooterConfig; agentName?: string },
   ): Promise<void> {
     const { messageRepository, logger } = this.persistence!;
-
-    try {
-      this.ensureSession(sessionKey);
-
-      const agentState = agent.state as {
-        messages?: Array<{
-          role: string;
-          content: string | Array<{ type: string; text?: string; thinking?: string; id?: string; name?: string; arguments?: Record<string, unknown> }>;
-          usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
-          model?: string;
-          timestamp?: number;
-        }>;
-      };
-      const messages = agentState.messages ?? [];
-      const startIndex = runtime.persistedMessageCount > messages.length
-        ? 0
-        : runtime.persistedMessageCount;
-      // Get the full batch slice (includes toolResult messages)
-      const batchMessages = messages.slice(startIndex);
-      // Filter to user/assistant for persistence
-      const newMessages = batchMessages.filter(
-        (msg) => msg.role === 'user' || msg.role === 'assistant',
-      );
-
-      // Pre-scan: extract images/files from toolResult messages in this batch.
-      // Only scan the CURRENT batch to avoid re-extracting old results.
-      const batchImages: Array<{ url: string; alt?: string }> = [];
-      const batchFiles: Array<{ name: string; path: string }> = [];
-      const seenUrls = new Set<string>();
-      for (const m of batchMessages) {
-        if (m.role !== 'toolResult' || !Array.isArray(m.content)) continue;
-        const text = m.content
-          .filter((b: any) => b.type === 'text')
-          .map((b: any) => b.text || '')
-          .join('\n');
-        // Extract markdown image URLs
-        const imgRegex = /!\[([^\]]*)\]\(([^)\s]+)\)/g;
-        let imgMatch: RegExpExecArray | null;
-        while ((imgMatch = imgRegex.exec(text)) !== null) {
-          const url = imgMatch[2];
-          if (!seenUrls.has(url)) {
-            seenUrls.add(url);
-            batchImages.push({ alt: imgMatch[1] || undefined, url });
-          }
-        }
-        // Extract file download links: [name](url) — only serve/download links
-        const linkRegex = /\[([^\]]+)\]\((\/[^)]+)\)/g;
-        let lm: RegExpExecArray | null;
-        while ((lm = linkRegex.exec(text)) !== null) {
-          const linkUrl = lm[2];
-          if (linkUrl.startsWith('/api/files/serve') || linkUrl.startsWith('/api/files/download')) {
-            if (!seenUrls.has(linkUrl)) {
-              seenUrls.add(linkUrl);
-              batchFiles.push({ name: lm[1], path: linkUrl });
-            }
-          }
-        }
-      }
-
-      // Group consecutive assistant messages to preserve block-level
-      // ordering of text and tool calls. This lets the API reconstruct
-      // segments for interleaved rendering instead of showing all tool
-      // cards at the bottom after a page refresh.
-      interface PendingAssistant {
-        blocks: Array<{ type: string; text?: string; id?: string; name?: string; arguments?: Record<string, unknown> }>;
-        usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
-        model?: string;
-        provider?: string;
-      }
-
-      let pendingAssistant: PendingAssistant | null = null;
-
-      const flushPendingAssistant = (isFinal: boolean) => {
-        const pending = pendingAssistant!;
-        if (!pending || pending.blocks.length === 0) return;
-
-        // 1. Join text blocks → flat content string (backward compat)
-        const textParts: string[] = [];
-        for (const block of pending.blocks) {
-          if (block.type === 'text' && block.text) {
-            textParts.push(block.text);
-          }
-        }
-        let content = textParts.join('\n');
-
-        // Strip image markdown that's already in batchImages (prevents
-        // double rendering: once from meta.images thumbnail + once from
-        // ReactMarkdown in the message body).
-        if (batchImages.length > 0) {
-          for (const img of batchImages) {
-            const escaped = img.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            content = content.replace(new RegExp(`!\\[[^\\]]*\\]\\(${escaped}\\)`, 'g'), '');
-          }
-          content = content.trim();
-        }
-
-        // 2. Extract tool calls from blocks (deduplicated by id)
-        const toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }> = [];
-        const toolCallIds = new Set<string>();
-        for (const block of pending.blocks) {
-          if (block.type === 'toolCall' && block.id && block.name && !toolCallIds.has(block.id)) {
-            toolCallIds.add(block.id);
-            toolCalls.push({
-              id: block.id,
-              name: block.name,
-              arguments: (block.arguments || {}) as Record<string, unknown>,
-            });
-          }
-        }
-
-        // Skip empty messages with no tool calls
-        if (!content.trim() && toolCalls.length === 0) return;
-
-        // 3. Build segments from block order when tool calls are present.
-        // Only store segments when there are tool calls — text-only
-        // messages don't need the overhead (legacy rendering is identical).
-        let segments: Array<{ type: 'text'; content: string } | { type: 'tool_call'; id: string }> | undefined;
-        if (toolCalls.length > 0) {
-          segments = [];
-          for (const block of pending.blocks) {
-            if (block.type === 'text' && block.text) {
-              segments.push({ type: 'text', content: block.text });
-            } else if (block.type === 'toolCall' && block.id) {
-              segments.push({ type: 'tool_call', id: block.id });
-            }
-          }
-        }
-
-        // 4. Build metadata
-        const meta: Record<string, unknown> = {};
-        if (segments) {
-          meta.segments = segments;
-        }
-        if (toolCalls.length > 0) {
-          meta.tool_calls = toolCalls;
-        }
-        // Attach images/files only to the final assistant flush in the batch
-        if (isFinal) {
-          if (batchImages.length > 0) meta.images = batchImages;
-          if (batchFiles.length > 0) meta.files = batchFiles;
-        }
-        if (pending.usage) {
-          meta.usage = {
-            input: pending.usage.input ?? 0,
-            output: pending.usage.output ?? 0,
-            cacheRead: pending.usage.cacheRead ?? 0,
-            cacheWrite: pending.usage.cacheWrite ?? 0,
-          };
-        }
-        if (pending.model) {
-          meta.model = pending.provider
-            ? (pending.model.startsWith(`${pending.provider}/`) ? pending.model : `${pending.provider}/${pending.model}`)
-            : pending.model;
-        }
-        const agentName = agent.ohmyagent_agentName || runtime.agentName;
-        if (agentName) meta.agentName = agentName;
-        if (runtime.turnElapsed) meta.elapsed = runtime.turnElapsed;
-        // Store footer config snapshot so historical messages retain their
-        // display settings even after the global config changes.
-        if (runtime.footerConfig) meta.footerConfig = runtime.footerConfig;
-
-        const metadata = Object.keys(meta).length > 0 ? JSON.stringify(meta) : null;
-
-        messageRepository.create({
-          id: generateId(),
-          session_id: sessionKey,
-          role: 'assistant',
-          content,
-          metadata,
-        });
-      };
-
-      for (let mi = 0; mi < newMessages.length; mi++) {
-        const msg = newMessages[mi];
-
-        if (msg.role === 'user') {
-          // Flush any pending assistant group before the user message
-          if (pendingAssistant !== null) {
-            flushPendingAssistant(false);
-            pendingAssistant = null;
-          }
-
-          const content = extractUserText(msg.content);
-          if (content.trim()) {
-            messageRepository.create({
-              id: generateId(),
-              session_id: sessionKey,
-              role: 'user',
-              content,
-              metadata: null,
-              created_at: msg.timestamp,
-            });
-          }
-          continue;
-        }
-
-        // Assistant message — accumulate into pending group only when tool
-        // calls are involved (to preserve block ordering for interleaved
-        // rendering). Text-only assistants without tool calls are persisted
-        // immediately for backward compatibility.
-        if (msg.role === 'assistant') {
-          const hasToolCalls = Array.isArray(msg.content) &&
-            msg.content.some((block: any) => block.type === 'toolCall');
-          const pendingHasToolCalls = pendingAssistant !== null &&
-            pendingAssistant.blocks.some(b => b.type === 'toolCall');
-
-          // Persist immediately when no tool calls are involved — this is
-          // the common case (simple text reply) and keeps the old behavior.
-          if (!hasToolCalls && !pendingHasToolCalls) {
-            // Flush any pending non-tool-call group first (shouldn't exist)
-            if (pendingAssistant !== null) {
-              flushPendingAssistant(false);
-              pendingAssistant = null;
-            }
-
-            let content = extractText(msg.content);
-            // Strip image markdown already in batchImages (avoid double display)
-            if (batchImages.length > 0) {
-              for (const img of batchImages) {
-                const escaped = img.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                content = content.replace(new RegExp(`!\\[[^\\]]*\\]\\(${escaped}\\)`, 'g'), '');
-              }
-              content = content.trim();
-            }
-            if (content.trim()) {
-              const meta: Record<string, unknown> = {};
-              if (msg.usage) {
-                meta.usage = {
-                  input: msg.usage.input ?? 0,
-                  output: msg.usage.output ?? 0,
-                  cacheRead: msg.usage.cacheRead ?? 0,
-                  cacheWrite: msg.usage.cacheWrite ?? 0,
-                };
-              }
-              if (msg.model) {
-                const prov = (msg as unknown as StreamMessageMeta).provider;
-                meta.model = prov
-                  ? (msg.model.startsWith(`${prov}/`) ? msg.model : `${prov}/${msg.model}`)
-                  : msg.model;
-              }
-              const agentName = agent.ohmyagent_agentName || runtime.agentName;
-              if (agentName) meta.agentName = agentName;
-              if (runtime.turnElapsed) meta.elapsed = runtime.turnElapsed;
-              if (runtime.footerConfig) meta.footerConfig = runtime.footerConfig;
-              // Only attach images/files to the last assistant.
-              // Since this is a simple text-only msg in isolation,
-              // determine if it's the last assistant in the batch.
-              const lastAssistantIndex = newMessages.reduce(
-                (last, m, i) => m.role === 'assistant' ? i : last, -1,
-              );
-              if (mi === lastAssistantIndex) {
-                if (batchImages.length > 0) meta.images = batchImages;
-                if (batchFiles.length > 0) meta.files = batchFiles;
-              }
-              const metadata = Object.keys(meta).length > 0 ? JSON.stringify(meta) : null;
-
-              messageRepository.create({
-                id: generateId(),
-                session_id: sessionKey,
-                role: 'assistant',
-                content,
-                metadata,
-              });
-            }
-            continue;
-          }
-
-          // Tool calls involved — accumulate into pending group to preserve
-          // block ordering across consecutive assistant messages.
-          if (pendingAssistant === null) {
-            pendingAssistant = { blocks: [] };
-          }
-
-          if (Array.isArray(msg.content)) {
-            for (const block of msg.content) {
-              // Skip thinking blocks — suppressed in all channels
-              if (block.type !== 'thinking') {
-                pendingAssistant.blocks.push(block);
-              }
-            }
-          } else if (typeof msg.content === 'string' && msg.content.trim()) {
-            // String content (no tool calls) — treat as single text block
-            pendingAssistant.blocks.push({ type: 'text', text: msg.content });
-          }
-
-          // Track usage/model from the latest assistant msg in the group
-          if (msg.usage) pendingAssistant.usage = msg.usage;
-          if (msg.model) pendingAssistant.model = msg.model;
-          if ((msg as unknown as StreamMessageMeta).provider) pendingAssistant.provider = (msg as unknown as StreamMessageMeta).provider;
-        }
-      }
-
-      // Flush final pending assistant group with images/files attached
-      if (pendingAssistant !== null) {
-        flushPendingAssistant(true);
-        pendingAssistant = null;
-      }
-
-      runtime.persistedMessageCount = messages.length;
-
-      logger.info({ sessionKey, messageCount: newMessages.length }, 'Messages persisted');
-    } catch (err) {
-      logger.warn({ err, sessionKey }, 'Failed to persist messages');
-    }
+    await persistMessages({
+      agent,
+      sessionKey,
+      runtime,
+      messageRepository,
+      logger,
+      ensureSession: (key) => this.ensureSession(key),
+    });
   }
 
   /**
@@ -888,69 +577,29 @@ export class AgentService {
   }
 
   /** v9: Check for context overflow and recover via compression + retry. */
+  /** v9: Check for context overflow and recover via compression + retry. */
   private async _recoverFromOverflow(
     agent: Agent,
     runtime: NonNullable<ReturnType<typeof this.runtimes.get>>,
     sessionId?: string,
   ): Promise<void> {
     if (!sessionId) return;
-
     const compressCfg = this.factory.getAutoCompressConfig?.();
     if (!compressCfg) return;
+    const logger = this.persistence?.logger;
+    if (!logger) return;
 
-    const messages = agent.state.messages;
-    const lastMsg = messages[messages.length - 1];
-    if (!lastMsg || lastMsg.role !== 'assistant') return;
-
-    const assistantMsg = lastMsg as import('@earendil-works/pi-ai').AssistantMessage;
-    if (!isContextOverflow(assistantMsg, compressCfg.contextWindow)) return;
-
-    this.persistence?.logger.info({ sessionId }, 'Context overflow detected, compacting and retrying');
-
-    // Remove the overflow error message from state
-    agent.state.messages = messages.slice(0, -1);
-
-    // Compress context
-    try {
-      const result = await compressContext({
-        messages: agent.state.messages,
-        contextWindow: compressCfg.contextWindow,
-        settings: { reserveTokens: 16384, keepRecentTokens: 20000 },
-        sessionKey: sessionId,
-        mainModelRef: compressCfg.mainModelRef,
-        globalFallbackRefs: compressCfg.globalFallbackRefs,
-        compressModelRef: compressCfg.compressModelRef,
-        compressFallbackRefs: compressCfg.compressFallbackRefs,
-        apiKeys: compressCfg.apiKeys,
-        baseUrls: compressCfg.baseUrls,
-        baseUrl: compressCfg.baseUrl,
-        logger: this.persistence?.logger,
-      });
-
-      if (result.summaryMessage && result.compressedIndex > 0) {
-        const recentMessages = agent.state.messages.slice(result.compressedIndex);
-        agent.state.messages = [result.summaryMessage, ...recentMessages];
-        this.persistence?.logger.info({
-          sessionId,
-          compressedCount: result.compressedIndex,
-          keptCount: recentMessages.length,
-        }, 'Context compacted after overflow, retrying');
-      }
-    } catch (err) {
-      this.persistence?.logger.warn({ sessionId, err }, 'Overflow compaction failed, continuing without retry');
-      return;
-    }
-
-    // Retry the turn with compacted context
-    try {
-      await agent.continue();
-      // Re-persist messages after retry
-      if (this.persistence && sessionId) {
-        await this.persistMessages(agent, sessionId, runtime);
-      }
-    } catch (err) {
-      this.persistence?.logger.warn({ sessionId, err }, 'Overflow retry failed');
-    }
+    await recoverFromOverflow({
+      agent,
+      sessionId,
+      compressCfg,
+      logger,
+      onRetryPersist: async () => {
+        if (this.persistence && sessionId) {
+          await this.persistMessages(agent, sessionId, runtime);
+        }
+      },
+    });
   }
 
   private ensureSession(sessionKey: string): void {
@@ -972,60 +621,6 @@ export class AgentService {
     sessionId: string,
     toolRunRepository: ToolRunRepository,
   ): () => void {
-    const startedAt = new Map<string, number>();
-    const toolNames = new Map<string, string>();
-
-    return agent.subscribe((event: AgentEvent) => {
-      if (event.type === 'tool_execution_start') {
-        startedAt.set(event.toolCallId, Date.now());
-        toolNames.set(event.toolCallId, event.toolName);
-        const runId = `${sessionId}:${event.toolCallId}`;
-        toolRunRepository.create({
-          id: runId,
-          session_id: sessionId,
-          tool_name: event.toolName,
-          input: summarizeToolArgs(event.args),
-          status: 'started',
-          metadata: JSON.stringify({ toolCallId: event.toolCallId }),
-        });
-        return;
-      }
-
-      if (event.type === 'tool_execution_end') {
-        const started = startedAt.get(event.toolCallId);
-        const durationMs = started ? Date.now() - started : null;
-        const runId = `${sessionId}:${event.toolCallId}`;
-        toolRunRepository.update(runId, {
-          output: summarizeToolResult(event.result),
-          status: event.isError ? 'error' : 'success',
-          duration_ms: durationMs,
-          error: event.isError ? summarizeToolResult(event.result) : null,
-          metadata: JSON.stringify({
-            toolCallId: event.toolCallId,
-            toolName: toolNames.get(event.toolCallId) ?? event.toolName,
-            isError: event.isError,
-          }),
-        });
-        startedAt.delete(event.toolCallId);
-        toolNames.delete(event.toolCallId);
-      }
-    });
+    return subscribeToolRunAudit(agent, sessionId, toolRunRepository);
   }
-}
-
-function summarizeToolArgs(args: unknown): string {
-  if (!args || typeof args !== 'object') {
-    return truncate(String(args ?? ''), 240);
-  }
-
-  if ('command' in (args as Record<string, unknown>) && typeof (args as Record<string, unknown>).command === 'string') {
-    return truncate((args as Record<string, unknown>).command as string, 240);
-  }
-
-  return truncate(JSON.stringify(args), 240);
-}
-
-function summarizeToolResult(result: unknown): string {
-  const text = extractText((result as { content?: unknown } | null)?.content ?? result);
-  return truncate(text, 500);
 }
