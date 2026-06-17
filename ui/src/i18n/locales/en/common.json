@@ -160,6 +160,8 @@
       "language": "Language",
       "showToolCalls": "Show Tool Calls",
       "showToolCallsDesc": "Display tool call process in conversation",
+      "showSkillCalls": "Show Skill Calls",
+      "showSkillCallsDesc": "Display skill activation notifications in conversation",
       "databasePath": "Database Path",
       "rateLimit": "Rate Limit (max concurrent)",
       "rateLimitWindow": "Rate Limit (window ms)",

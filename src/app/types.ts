@@ -96,6 +96,7 @@ export interface AppConfig {
   uiLanguage: 'zh-CN' | 'en';
   /** Show tool execution indicators in channel replies (🔧 name... / ✓ name). Default: true. */
   showToolCalls: boolean;
+  showSkillCalls: boolean;
   feishu: {
     /** When false, the Feishu channel is disabled even if credentials are configured. Default: true. */
     enabled: boolean;
@@ -735,6 +736,8 @@ export interface ReplyDispatcher {
   setModel(model: string): void;
   /** Update the agent name for footer display. */
   setAgentName(name: string): void;
+  /** Skill activation notification (when showSkillCalls is enabled). */
+  onSkillActivated?(skillName: string): void;
   setApprovalStatus(status: string | null): void;
   setApprovalRecords(records: Array<{
     requestId: string;

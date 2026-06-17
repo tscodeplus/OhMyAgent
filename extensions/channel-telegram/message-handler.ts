@@ -101,7 +101,7 @@ export function setupMessageHandlers(
           logger.info({ sessionKey, forwardText }, 'Forwarding to agent after command');
           const live = api.getConfig();
           chatQueue.enqueue(sessionKey, () =>
-            executeAgent(forwardText, sessionKey, chatId, ctx, config, agentService, logger, bot, live.showToolCalls, live.footer, live.tools.fileRead.allowedRoots, live.tools.fileRead.deniedPatterns).catch(err => logger.error({ err }, 'Telegram queued agent failed')),
+            executeAgent(forwardText, sessionKey, chatId, ctx, config, agentService, logger, bot, live.showToolCalls, live.showSkillCalls, live.footer, live.tools.fileRead.allowedRoots, live.tools.fileRead.deniedPatterns).catch(err => logger.error({ err }, 'Telegram queued agent failed')),
           );
         }
         return;
@@ -116,7 +116,7 @@ export function setupMessageHandlers(
     }
     const live = api.getConfig();
     chatQueue.enqueue(sessionKey, () =>
-      executeAgent(text, sessionKey, chatId, ctx, config, agentService, logger, bot, live.showToolCalls, live.footer, live.tools.fileRead.allowedRoots, live.tools.fileRead.deniedPatterns).catch(err => logger.error({ err }, 'Telegram queued agent failed')),
+      executeAgent(text, sessionKey, chatId, ctx, config, agentService, logger, bot, live.showToolCalls, live.showSkillCalls, live.footer, live.tools.fileRead.allowedRoots, live.tools.fileRead.deniedPatterns).catch(err => logger.error({ err }, 'Telegram queued agent failed')),
     );
   });
 
@@ -185,6 +185,7 @@ export function setupMessageHandlers(
         logger,
         bot,
         live.showToolCalls,
+        live.showSkillCalls,
         live.footer,
         live.tools.fileRead.allowedRoots,
         live.tools.fileRead.deniedPatterns,
@@ -282,6 +283,7 @@ async function executeAgent(
   logger: Logger,
   bot: Bot,
   showToolCalls: boolean,
+  showSkillCalls: boolean,
   footerConfig?: FooterConfig,
   allowedRoots?: string[],
   deniedPatterns?: string[],
@@ -292,7 +294,7 @@ async function executeAgent(
   // StreamControllerImpl expects a Bot-like object (calls this.bot.api.xxx)
   // grammY's ctx.api is the same as bot.api — pass the Bot instance directly.
   const streamCtrl = new StreamControllerImpl(bot, chatIdNum, config.streamIntervalMs, config.textLimit, logger);
-  const dispatcher = new TelegramReplyDispatcher(bot, chatIdNum, streamCtrl, config, showToolCalls, footerConfig);
+  const dispatcher = new TelegramReplyDispatcher(bot, chatIdNum, streamCtrl, config, showToolCalls, showSkillCalls, footerConfig);
 
   try {
     const mediaTool = createTelegramMediaTool({
@@ -311,7 +313,7 @@ async function executeAgent(
       replyDispatcherOverride: dispatcher,
       replyDispatcherFactory: () => {
         const freshStreamCtrl = new StreamControllerImpl(bot, chatIdNum, config.streamIntervalMs, config.textLimit, logger);
-        return new TelegramReplyDispatcher(bot, chatIdNum, freshStreamCtrl, config, showToolCalls, footerConfig);
+        return new TelegramReplyDispatcher(bot, chatIdNum, freshStreamCtrl, config, showToolCalls, showSkillCalls, footerConfig);
       },
       extraTools: [mediaTool],
       channel: 'telegram',

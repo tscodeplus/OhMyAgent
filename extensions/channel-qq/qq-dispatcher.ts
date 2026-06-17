@@ -24,6 +24,7 @@ export class QQReplyDispatcher implements ReplyDispatcher {
   private agentName = '';
   private hasContent = false;
   private showToolCalls: boolean;
+  private showSkillCalls: boolean;
   private footerConfig: FooterConfig;
   private justCompletedTool = false;
   private startTime = 0;
@@ -37,9 +38,11 @@ export class QQReplyDispatcher implements ReplyDispatcher {
     private target: { openid?: string; groupOpenid?: string },
     private config: QQConfig,
     showToolCalls = true,
+    showSkillCalls = true,
     footerConfig?: FooterConfig,
   ) {
     this.showToolCalls = showToolCalls;
+    this.showSkillCalls = showSkillCalls;
     this.footerConfig = footerConfig ?? { showAgentName: true, showModel: true, showCompleted: false, showElapsed: true, showUsage: false, showCacheHitRate: false };
   }
 
@@ -107,6 +110,13 @@ export class QQReplyDispatcher implements ReplyDispatcher {
 
   setAgentName(name: string): void {
     this.agentName = name;
+  }
+
+  onSkillActivated(skillName: string): void {
+    if (!this.showSkillCalls) return;
+    const line = `\n> ⚡️ **${skillName}**`;
+    this.buffer += line;
+    this.hasContent = true;
   }
 
   setApprovalStatus(status: string | null): void {

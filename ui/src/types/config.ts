@@ -2,6 +2,7 @@ export interface AppConfig {
   logging: { level: string };
   uiLanguage: string;
   showToolCalls: boolean;
+  showSkillCalls: boolean;
   footer: Record<string, boolean>;
   piAi: {
     provider: string;

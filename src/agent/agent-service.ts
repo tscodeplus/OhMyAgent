@@ -174,6 +174,14 @@ export class AgentService {
     runtime.bridge = new EventBridge(dispatcher, this.persistence?.logger);
     runtime.bridge.start(runtime.agent);
 
+    // Dispatch skill activation notification (if a skill was matched server-side)
+    const skillName = runtime.turnContext.activatedSkillName;
+    if (skillName) {
+      dispatcher.onSkillActivated?.(skillName);
+      // Clear so it only fires once per turn
+      runtime.turnContext.activatedSkillName = undefined;
+    }
+
     const agent = runtime.agent;
 
     // Capture turn start for elapsed-time computation in the pre-complete

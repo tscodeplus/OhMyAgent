@@ -33,6 +33,8 @@ export interface WechatReplyDispatcherOptions {
   sendPlaceholder?: () => Promise<void>;
   /** Show tool execution indicators. Default: true. */
   showToolCalls?: boolean;
+  /** Show skill activation notifications. Default: true. */
+  showSkillCalls?: boolean;
   /** Footer display configuration. */
   footerConfig?: FooterConfig;
 }
@@ -46,9 +48,11 @@ export class WechatReplyDispatcher implements ReplyDispatcher {
   private typingInterval?: ReturnType<typeof setInterval>;
   private justCompletedTool = false;
   private footerConfig: FooterConfig;
+  private showSkillCalls: boolean;
   private startTime = 0;
 
   constructor(private options: WechatReplyDispatcherOptions) {
+    this.showSkillCalls = options.showSkillCalls !== false;
     this.footerConfig = options.footerConfig ?? { showAgentName: true, showModel: true, showCompleted: false, showElapsed: true, showUsage: false, showCacheHitRate: false };
   }
 
@@ -123,6 +127,11 @@ export class WechatReplyDispatcher implements ReplyDispatcher {
 
   setAgentName(name: string): void {
     this.agentName = name;
+  }
+
+  onSkillActivated(skillName: string): void {
+    if (!this.showSkillCalls) return;
+    this.buffer += `\n> ⚡️ **${skillName}**`;
   }
 
   setApprovalStatus(status: string | null): void {

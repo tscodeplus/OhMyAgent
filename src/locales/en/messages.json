@@ -6,5 +6,8 @@
     "videoSent": "[User sent a video: {{name}}]",
     "stickerSent": "[User sent a sticker]",
     "imagePlaceholder": "[Image]"
+  },
+  "skill": {
+    "activated": "Skill ⚡️ {{name}} activated"
   }
 }

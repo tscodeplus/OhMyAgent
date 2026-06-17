@@ -233,7 +233,7 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
     agentFactory,
     (chatId: string, messageId?: string, agentId?: string) => {
       const agentName = agentId ? agentManager.get(agentId)?.name : undefined;
-      return new ReplyDispatcher({ feishuClient, chatId, messageId, model: modelName, agentName, footerConfig: config.footer, showToolCalls: config.showToolCalls, logger });
+      return new ReplyDispatcher({ feishuClient, chatId, messageId, model: modelName, agentName, footerConfig: config.footer, showToolCalls: config.showToolCalls, showSkillCalls: config.showSkillCalls, logger });
     },
     {
       sessionRepository,

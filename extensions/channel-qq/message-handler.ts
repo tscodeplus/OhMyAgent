@@ -184,7 +184,7 @@ export function setupMessageHandlers(
             logger.info({ sessionKey, forwardText }, 'QQ forwarding to agent after command');
             const live = api.getConfig();
             chatQueue.enqueue(sessionKey, () =>
-              executeAgent(forwardText, sessionKey, chatId, messageId, target, openid, gateway, config, agentService, logger, replyTracker, live.showToolCalls, live.footer, live.tools.fileRead.allowedRoots, live.tools.fileRead.deniedPatterns).catch(err => logger.error({ err, sessionKey }, 'QQ queued agent failed')),
+              executeAgent(forwardText, sessionKey, chatId, messageId, target, openid, gateway, config, agentService, logger, replyTracker, live.showToolCalls, live.showSkillCalls, live.footer, live.tools.fileRead.allowedRoots, live.tools.fileRead.deniedPatterns).catch(err => logger.error({ err, sessionKey }, 'QQ queued agent failed')),
             );
           }
           return;
@@ -199,7 +199,7 @@ export function setupMessageHandlers(
       }
       const liveConfig = api.getConfig();
       chatQueue.enqueue(sessionKey, () =>
-        executeAgent(agentText, sessionKey, chatId, messageId, target, openid, gateway, config, agentService, logger, replyTracker, liveConfig.showToolCalls, liveConfig.footer, liveConfig.tools.fileRead.allowedRoots, liveConfig.tools.fileRead.deniedPatterns).catch(err => logger.error({ err, sessionKey }, 'QQ queued agent failed')),
+        executeAgent(agentText, sessionKey, chatId, messageId, target, openid, gateway, config, agentService, logger, replyTracker, liveConfig.showToolCalls, liveConfig.showSkillCalls, liveConfig.footer, liveConfig.tools.fileRead.allowedRoots, liveConfig.tools.fileRead.deniedPatterns).catch(err => logger.error({ err, sessionKey }, 'QQ queued agent failed')),
       );
     } catch (err) {
       logger.error({ err, t: (payload as any)?.t }, 'QQ message handler error');
@@ -224,6 +224,7 @@ async function executeAgent(
   logger: Logger,
   replyTracker: ReplyTracker,
   showToolCalls: boolean,
+  showSkillCalls: boolean,
   footerConfig?: FooterConfig,
   allowedRoots?: string[],
   deniedPatterns?: string[],
@@ -239,7 +240,7 @@ async function executeAgent(
     return;
   }
 
-  const dispatcher = new QQReplyDispatcher(gateway, target, config, showToolCalls, footerConfig);
+  const dispatcher = new QQReplyDispatcher(gateway, target, config, showToolCalls, showSkillCalls, footerConfig);
   dispatcher.setReplyTracker(replyTracker, openid);
 
   // v4 Phase 4: Media intake hook (skeleton)
@@ -274,7 +275,7 @@ async function executeAgent(
     messageId,
     replyDispatcherOverride: dispatcher,
     replyDispatcherFactory: () => {
-      const d = new QQReplyDispatcher(gateway, target, config, showToolCalls, footerConfig);
+      const d = new QQReplyDispatcher(gateway, target, config, showToolCalls, showSkillCalls, footerConfig);
       d.setReplyTracker(replyTracker, openid);
       return d;
     },

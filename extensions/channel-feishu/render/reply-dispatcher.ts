@@ -27,6 +27,8 @@ export interface ReplyDispatcherOptions {
   flushIntervalMs?: number;
   /** Show tool execution indicators in the card. Default: true. */
   showToolCalls?: boolean;
+  /** Show skill activation notifications. Default: true. */
+  showSkillCalls?: boolean;
   logger?: Logger;
 }
 
@@ -36,9 +38,11 @@ export class ReplyDispatcher {
   private readonly messageId?: string;
   private reactionId: string | null = null;
   private readonly showToolCalls: boolean;
+  private readonly showSkillCalls: boolean;
 
   constructor(options: ReplyDispatcherOptions) {
     this.showToolCalls = options.showToolCalls !== false;
+    this.showSkillCalls = options.showSkillCalls !== false;
     this.feishuClient = options.feishuClient;
     this.messageId = options.messageId;
     this.controller = new StreamingCardControllerImpl({
@@ -121,6 +125,11 @@ export class ReplyDispatcher {
 
   setAgentName(name: string): void {
     this.controller.setAgentName(name);
+  }
+
+  onSkillActivated(skillName: string): void {
+    if (!this.showSkillCalls) return;
+    this.controller.appendDelta(`\n> ⚡️ **${skillName}**\n`);
   }
 
   setApprovalStatus(_status: string | null): void {

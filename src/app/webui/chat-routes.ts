@@ -81,6 +81,9 @@ class SSEReplyDispatcher implements ReplyDispatcher {
   setAgentName(name: string): void {
     this.agentName = name;
   }
+  onSkillActivated(skillName: string): void {
+    this.callback({ type: 'skill_activated', data: skillName });
+  }
   setApprovalStatus(status: string | null): void {
     if (status) {
       this.callback({ type: 'approval_status', data: status });

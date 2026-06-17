@@ -216,6 +216,7 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
     uiLanguage: str(root.ui_language, 'en'),
     setupWizardDone: root.setup_wizard_done === true,
     showToolCalls: envBool(root.show_tool_calls, true),
+    showSkillCalls: envBool(root.show_skill_calls, true),
 
     feishu: {
       enabled: envBool(feishu?.enabled, false),
@@ -591,6 +592,7 @@ export function jsConfigToYaml(
       case 'fallbackModels': yaml.fallback_models = value; break;
       case 'defaultReasoningLevel': yaml.default_reasoning_level = value; break;
       case 'showToolCalls': yaml.show_tool_calls = value; break;
+      case 'showSkillCalls': yaml.show_skill_calls = value; break;
       case 'uiLanguage': yaml.ui_language = value; break;
       case 'setupWizardDone': yaml.setup_wizard_done = value; break;
 

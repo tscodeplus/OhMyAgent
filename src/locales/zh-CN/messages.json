@@ -6,5 +6,8 @@
     "videoSent": "[用户发送了一个视频: {{name}}]",
     "stickerSent": "[用户发送了一个贴纸]",
     "imagePlaceholder": "[图片]"
+  },
+  "skill": {
+    "activated": "技能 ⚡️ {{name}} 已激活"
   }
 }

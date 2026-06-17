@@ -109,6 +109,20 @@ export default function GeneralSettings({ tabId = 'general', registerHandle, onD
         </div>
       </section>
 
+      {/* ── Show Skill Calls ── */}
+      <section className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <label className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{t('settings.general.showSkillCalls')}</label>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('settings.general.showSkillCallsDesc')}</p>
+          </div>
+          <Toggle
+            checked={getField('showSkillCalls', config.showSkillCalls as boolean ?? true) as boolean}
+            onChange={(v) => setField('showSkillCalls', v)}
+          />
+        </div>
+      </section>
+
       {/* ── Footer ── */}
       <section>
         <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.footer.title')}</h3>

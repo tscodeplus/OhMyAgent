@@ -171,6 +171,8 @@ export interface AgentTurnContext {
   replyDispatcherFactory?: () => ReplyDispatcher;
   /** Message with $skill-id stripped (set by skill fast path). Falls back to original input. */
   effectiveMessage?: string;
+  /** Skill name activated for this turn (set when a skill matches via trigger or explicit command). */
+  activatedSkillName?: string;
 }
 
 /** Options for the approval integration. */
@@ -426,8 +428,12 @@ export function createAgentFactory(
       if (turnContext) {
         if (compiled) {
           turnContext.effectiveMessage = options?.message;
+          turnContext.activatedSkillName = activation.scope.scopeKey
+            ? (skillRegistry?.getSkillById(activation.scope.scopeKey)?.manifest.name ?? activation.scope.scopeKey)
+            : undefined;
         } else {
           turnContext.effectiveMessage = undefined;
+          turnContext.activatedSkillName = undefined;
         }
       }
 

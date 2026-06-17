@@ -18,6 +18,7 @@ export class TelegramReplyDispatcher implements ReplyDispatcher {
   private chatId: number;
   private config: TelegramConfig;
   private showToolCalls: boolean;
+  private showSkillCalls: boolean;
   private footerConfig: FooterConfig;
 
   /** Full accumulated text (text deltas + tool annotations) for final rendering. */
@@ -35,6 +36,7 @@ export class TelegramReplyDispatcher implements ReplyDispatcher {
     streamCtrl: StreamController,
     config: TelegramConfig,
     showToolCalls = true,
+    showSkillCalls = true,
     footerConfig?: FooterConfig,
   ) {
     this.bot = bot;
@@ -42,6 +44,7 @@ export class TelegramReplyDispatcher implements ReplyDispatcher {
     this.streamCtrl = streamCtrl;
     this.config = config;
     this.showToolCalls = showToolCalls;
+    this.showSkillCalls = showSkillCalls;
     this.footerConfig = footerConfig ?? { showAgentName: true, showModel: true, showCompleted: false, showElapsed: true, showUsage: false, showCacheHitRate: false };
   }
 
@@ -108,6 +111,13 @@ export class TelegramReplyDispatcher implements ReplyDispatcher {
 
   setAgentName(name: string): void {
     this.agentName = name;
+  }
+
+  onSkillActivated(skillName: string): void {
+    if (!this.showSkillCalls) return;
+    const text = `\n⚡️ **${skillName}**`;
+    this.buffer += text;
+    this.streamCtrl.onDelta(text);
   }
 
   setApprovalStatus(status: string | null): void {

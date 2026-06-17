@@ -161,6 +161,8 @@
       "language": "界面语言",
       "showToolCalls": "显示工具调用",
       "showToolCallsDesc": "在对话中展示工具调用过程",
+      "showSkillCalls": "显示技能调用",
+      "showSkillCallsDesc": "在对话中展示技能激活通知",
       "databasePath": "数据库路径",
       "rateLimit": "速率限制 (最大并发)",
       "rateLimitWindow": "速率限制 (时间窗口 ms)",

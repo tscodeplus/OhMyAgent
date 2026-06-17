@@ -233,6 +233,7 @@ async function executeAgent(
 
   const options: WechatReplyDispatcherOptions = {
     showToolCalls: live.showToolCalls,
+    showSkillCalls: live.showSkillCalls,
     footerConfig: live.footer,
     sendText: async (text: string) => {
       logger.info({ textLen: text.length }, 'WeChat dispatching final text');
@@ -334,6 +335,7 @@ async function executeAgent(
         let freshTypingTicket: string | undefined;
         return new WechatReplyDispatcher({
           showToolCalls: live.showToolCalls,
+          showSkillCalls: live.showSkillCalls,
           footerConfig: live.footer,
           sendText: async (text: string) => {
             await sendChunkedText(

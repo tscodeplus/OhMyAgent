@@ -70,6 +70,7 @@ const configSchema = z.object({
   uiLanguage: z.enum(['zh-CN', 'en']).default('en'),
   setupWizardDone: z.boolean().default(false),
   showToolCalls: z.boolean().default(true),
+  showSkillCalls: z.boolean().default(true),
   feishu: z.object({
     enabled: z.boolean().default(true),
     appId: z.string().default(''),
@@ -487,6 +488,7 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
     },
     uiLanguage: env.UI_LANGUAGE,
     showToolCalls: envBool(env.SHOW_TOOL_CALLS, true),
+    showSkillCalls: envBool(env.SHOW_SKILL_CALLS, true),
     feishu: {
       enabled: envBool(env.FEISHU_ENABLED, true),
       appId: env.FEISHU_APP_ID ?? '',
@@ -799,6 +801,9 @@ function applyEnvOverrides(raw: Record<string, unknown>, env: Record<string, str
   }
   if (env.SHOW_TOOL_CALLS !== undefined) {
     raw.showToolCalls = envRaw.showToolCalls;
+  }
+  if (env.SHOW_SKILL_CALLS !== undefined) {
+    raw.showSkillCalls = envRaw.showSkillCalls;
   }
   if (env.FOOTER_SHOW_AGENT_NAME !== undefined || env.FOOTER_SHOW_MODEL !== undefined ||
       env.FOOTER_SHOW_COMPLETED !== undefined || env.FOOTER_SHOW_ELAPSED !== undefined ||
