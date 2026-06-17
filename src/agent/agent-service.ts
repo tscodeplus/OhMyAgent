@@ -181,9 +181,12 @@ export class AgentService {
     // text_delta arrives. EventBridge dispatches pendingSkillName after onStart.
     const skillName = runtime.turnContext.activatedSkillName;
     if (skillName) {
-      runtime.bridge.pendingSkillName = skillName;
-      // Store for persistence so the notification survives page refresh
-      runtime.skillActivatedName = skillName;
+      // Respect showSkillCalls setting for both SSE dispatch AND persistence.
+      // When off, skip both so the notification doesn't appear on refresh either.
+      if (dispatcherAny.showSkillCalls !== false) {
+        runtime.bridge.pendingSkillName = skillName;
+        runtime.skillActivatedName = skillName;
+      }
       // Clear turnContext so it only fires once per turn
       runtime.turnContext.activatedSkillName = undefined;
     }

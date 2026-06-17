@@ -52,12 +52,14 @@ class SSEReplyDispatcher implements ReplyDispatcher {
   private sessionId: string | undefined;
   /** Maps approvalId → messageId for updates on resolution. */
   private approvalMsgIds = new Map<string, string>();
+  private showSkillCalls: boolean;
 
   constructor(
     callback: SSECallback,
     footerConfig?: FooterConfig,
     db?: Database.Database,
     sessionId?: string,
+    showSkillCalls = true,
   ) {
     this.callback = callback;
     this.footerConfig = footerConfig ?? {
@@ -66,6 +68,7 @@ class SSEReplyDispatcher implements ReplyDispatcher {
     };
     this.db = db;
     this.sessionId = sessionId;
+    this.showSkillCalls = showSkillCalls;
   }
 
   onStart(): void {
@@ -82,6 +85,7 @@ class SSEReplyDispatcher implements ReplyDispatcher {
     this.agentName = name;
   }
   onSkillActivated(skillName: string): void {
+    if (!this.showSkillCalls) return;
     // Send as a dedicated skill_activated event so the frontend can render it
     // as a card-style segment (like tool calls) and persist it in block-order
     // metadata for survival across page refreshes.
@@ -256,6 +260,8 @@ export interface ChatRouteConfig {
   projectStore: ProjectStore;
   db?: Database.Database;
   getFooterConfig?: () => FooterConfig;
+  /** Lazy getter for showSkillCalls — reads current config so setting changes take effect immediately. */
+  getShowSkillCalls?: () => boolean;
   agentManager?: AgentManager;
   commandDeps?: CommandDeps;
   commandRegistry?: CommandRegistry;
@@ -437,7 +443,7 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
           ? cfg.agentManager.get(project.agent_id)?.name
           : undefined) ?? cfg.agentManager.getDefault()?.name)
       : undefined;
-    const dispatcher = new SSEReplyDispatcher(sendSSE, cfg.getFooterConfig?.(), cfg.db, sessionId);
+    const dispatcher = new SSEReplyDispatcher(sendSSE, cfg.getFooterConfig?.(), cfg.db, sessionId, cfg.getShowSkillCalls?.());
     if (agentName) {
       dispatcher.setAgentName(agentName);
     }
