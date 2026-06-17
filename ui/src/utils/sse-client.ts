@@ -10,7 +10,8 @@ export type SSEEventType =
   | 'turn_start'
   | 'approval_required'
   | 'approval_resolved'
-  | 'approval_status';
+  | 'approval_status'
+  | 'skill_activated';
 
 export interface SSEEvent {
   type: SSEEventType;

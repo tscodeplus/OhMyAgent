@@ -30,6 +30,8 @@ export interface PersistMessagesOptions {
     turnElapsed?: number;
     footerConfig?: FooterConfig;
     agentName?: string;
+    /** Skill name activated for this turn (consumed on first assistant message). */
+    skillActivatedName?: string;
   };
   messageRepository: MessageRepository;
   logger: Logger;
@@ -158,6 +160,11 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
 
       // 4. Build metadata
       const meta: Record<string, unknown> = {};
+      // Skill activation notification — attached to first assistant message, then cleared
+      if (runtime.skillActivatedName) {
+        meta.skill_activated = runtime.skillActivatedName;
+        runtime.skillActivatedName = undefined;
+      }
       if (segments) meta.segments = segments;
       if (toolCalls.length > 0) meta.tool_calls = toolCalls;
       if (isFinal) {
@@ -238,6 +245,11 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
           }
           if (content.trim()) {
             const meta: Record<string, unknown> = {};
+            // Skill activation notification — attached to first assistant message, then cleared
+            if (runtime.skillActivatedName) {
+              meta.skill_activated = runtime.skillActivatedName;
+              runtime.skillActivatedName = undefined;
+            }
             if (msg.usage) {
               meta.usage = {
                 input: msg.usage.input ?? 0,

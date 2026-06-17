@@ -69,6 +69,7 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
   const assistantCreatedAtRef = useRef('');
   const toolCallsRef = useRef<ToolCall[]>([]);
   const runningToolsRef = useRef(new Map<string, ToolCall>());
+  const skillActivatedRef = useRef<string | undefined>(undefined);
   /** Chronological timeline of text and tool calls within the current turn. */
   const segmentsRef = useRef<MessageSegment[]>([]);
   /** Length of cleaned assistant text that has already been "flushed" into
@@ -278,7 +279,26 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
         lastSseEventRef.current = Date.now();
         console.log('[ChatInput] SSE event', { type: event.type, ts: Date.now() - streamStartTime });
         switch (event.type) {
+          case 'skill_activated':
+            skillActivatedRef.current = event.data || undefined;
+            if (onMessages && assistantIdRef.current) {
+              const currentMsg = {
+                id: assistantIdRef.current,
+                session_id: sessionId,
+                role: 'assistant' as const,
+                content: assistantContentRef.current,
+                tool_calls: toolCallsRef.current.length > 0 ? [...toolCallsRef.current] : undefined,
+                segments: [...segmentsRef.current],
+                skill_activated: skillActivatedRef.current,
+                created_at: assistantCreatedAtRef.current,
+              };
+              onMessages([currentMsg]);
+            }
+            break;
+
           case 'turn_start':
+            // Clear skill activation from previous turn
+            skillActivatedRef.current = undefined;
             // Reuse the bubble eagerly created by steerMessage.
             if (steerBubbleRef.current) {
               steerBubbleRef.current = false;
@@ -314,6 +334,7 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
                   content: cleaned,
                   tool_calls: toolCallsRef.current.length > 0 ? [...toolCallsRef.current] : undefined,
                   segments: [...segmentsRef.current],
+                  skill_activated: skillActivatedRef.current,
                   created_at: assistantCreatedAtRef.current,
                 }]);
               }

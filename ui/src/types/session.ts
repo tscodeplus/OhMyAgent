@@ -41,6 +41,8 @@ export interface Message {
   images?: MessageImage[];
   /** Files generated or referenced by the agent (download links). */
   files?: MessageFile[];
+  /** Skill activated for this turn (e.g. "Researcher"). */
+  skill_activated?: string;
 }
 
 export interface MediaSegmentItem {

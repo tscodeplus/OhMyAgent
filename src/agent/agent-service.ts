@@ -80,6 +80,8 @@ export class AgentService {
     agentName?: string;
     /** Footer display config captured from the dispatcher for metadata persistence. */
     footerConfig?: FooterConfig;
+    /** Skill name activated for this turn (consumed by persistMessages on first assistant msg). */
+    skillActivatedName?: string;
   }>();
 
   private sessionAgentMap = new Map<string, string>();
@@ -178,7 +180,9 @@ export class AgentService {
     const skillName = runtime.turnContext.activatedSkillName;
     if (skillName) {
       dispatcher.onSkillActivated?.(skillName);
-      // Clear so it only fires once per turn
+      // Store for persistence so the notification survives page refresh
+      runtime.skillActivatedName = skillName;
+      // Clear turnContext so it only fires once per turn
       runtime.turnContext.activatedSkillName = undefined;
     }
 

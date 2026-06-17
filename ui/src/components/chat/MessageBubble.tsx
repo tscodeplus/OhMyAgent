@@ -217,6 +217,12 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
               : 'text-neutral-800 dark:text-neutral-200'
           }`}
         >
+          {isAssistant && message.skill_activated && (
+            <div className="flex items-center gap-1.5 mb-2 text-xs text-amber-600 dark:text-amber-400 font-medium">
+              <span>⚡️</span>
+              <span>{message.skill_activated}</span>
+            </div>
+          )}
           {isAssistant ? (
             message.segments && message.segments.length > 0 ? (
               // Render segments in chronological order so tool calls appear
