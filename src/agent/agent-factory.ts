@@ -428,9 +428,11 @@ export function createAgentFactory(
       if (turnContext) {
         if (compiled) {
           turnContext.effectiveMessage = options?.message;
-          turnContext.activatedSkillName = activation.scope.scopeKey
-            ? (skillRegistry?.getSkillById(activation.scope.scopeKey)?.manifest.name ?? activation.scope.scopeKey)
+          const skillById = activation.scope.scopeKey
+            ? skillRegistry?.getSkillById(activation.scope.scopeKey)
             : undefined;
+          turnContext.activatedSkillName = skillById?.manifest.name ?? activation.scope.scopeKey;
+          logger?.info({ scopeKey: activation.scope.scopeKey, skillFound: !!skillById, skillName: turnContext.activatedSkillName }, '[agent-factory] skill activation name resolved');
         } else {
           turnContext.effectiveMessage = undefined;
           turnContext.activatedSkillName = undefined;

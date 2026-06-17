@@ -223,11 +223,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
               // interleaved with text rather than all at the bottom.
               <div className="space-y-2">
                 {message.segments.map((seg, i) =>
-                  seg.type === 'skill' ? (
-                    <div key={`skill-${i}`} className="text-xs text-neutral-500 dark:text-neutral-400 py-0.5">
-                      ⚡️ 技能激活: <span className="font-medium text-neutral-700 dark:text-neutral-300">{seg.content}</span>
-                    </div>
-                  ) : seg.type === 'text' ? (
+                  seg.type === 'text' ? (
                     <div key={i} className="markdown-content">
                       <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{seg.content || ''}</ReactMarkdown>
                     </div>
@@ -274,11 +270,6 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
               // Legacy rendering: all text first, then tool cards at the bottom.
               // Used for API-fetched history which doesn't have segments.
               <>
-                {message.skill_activated && (
-                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-2">
-                    ⚡️ 技能激活: <span className="font-medium text-neutral-700 dark:text-neutral-300">{message.skill_activated}</span>
-                  </div>
-                )}
                 <div className="markdown-content">
                   <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{message.content}</ReactMarkdown>
                 </div>

@@ -82,7 +82,9 @@ class SSEReplyDispatcher implements ReplyDispatcher {
     this.agentName = name;
   }
   onSkillActivated(skillName: string): void {
-    this.callback({ type: 'skill_activated', data: skillName });
+    // Send as text_delta so it renders inline with the message stream,
+    // persists to DB naturally, and survives page refresh.
+    this.callback({ type: 'text_delta', data: `\n> ⚡️ 技能激活: **${skillName}**\n` });
   }
   setApprovalStatus(status: string | null): void {
     if (status) {

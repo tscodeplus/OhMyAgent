@@ -178,6 +178,7 @@ export class AgentService {
 
     // Dispatch skill activation notification (if a skill was matched server-side)
     const skillName = runtime.turnContext.activatedSkillName;
+    this.persistence?.logger.info({ skillName, hasOnSkillActivated: typeof dispatcher.onSkillActivated === 'function' }, '[agent-service] skill activation dispatch');
     if (skillName) {
       dispatcher.onSkillActivated?.(skillName);
       // Store for persistence so the notification survives page refresh

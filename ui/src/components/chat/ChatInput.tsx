@@ -69,7 +69,6 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
   const assistantCreatedAtRef = useRef('');
   const toolCallsRef = useRef<ToolCall[]>([]);
   const runningToolsRef = useRef(new Map<string, ToolCall>());
-  const skillActivatedRef = useRef<string | undefined>(undefined);
   /** Chronological timeline of text and tool calls within the current turn. */
   const segmentsRef = useRef<MessageSegment[]>([]);
   /** Length of cleaned assistant text that has already been "flushed" into
@@ -270,7 +269,6 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
     // and prevent the done handler from resetting the sending state.
 
     const streamStartTime = Date.now();
-    skillActivatedRef.current = undefined;
     console.log('[ChatInput] SSE stream starting', { sessionId, messagePreview: messageText.slice(0, 40) });
 
     abortRef.current = sseClient.start(
@@ -280,11 +278,6 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
         lastSseEventRef.current = Date.now();
         console.log('[ChatInput] SSE event', { type: event.type, ts: Date.now() - streamStartTime });
         switch (event.type) {
-          case 'skill_activated':
-            // Store skill name; inserted as segment in turn_start after beginTurn()
-            skillActivatedRef.current = event.data || undefined;
-            break;
-
           case 'turn_start':
             // Reuse the bubble eagerly created by steerMessage.
             if (steerBubbleRef.current) {
@@ -292,10 +285,6 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
               activeTurnsRef.current = 1;
             } else {
               beginTurn();
-            }
-            // Inject skill activation segment after beginTurn (which resets segments)
-            if (skillActivatedRef.current) {
-              segmentsRef.current.unshift({ type: 'skill', content: skillActivatedRef.current });
             }
             break;
 
@@ -320,7 +309,6 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
                   content: cleaned,
                   tool_calls: toolCallsRef.current.length > 0 ? [...toolCallsRef.current] : undefined,
                   segments: [...segmentsRef.current],
-                  skill_activated: skillActivatedRef.current,
                   created_at: assistantCreatedAtRef.current,
                 }]);
               }
