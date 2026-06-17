@@ -3,9 +3,30 @@ name: Image Generator
 description: AI image generation from text prompts using multiple providers (GPT-Image-2, Agnes Image, FLUX, etc.)
 metadata:
   version: "2.0.0"
-  priority: 4
-  triggers: "生成图片, 画一张, 生图, 生成一张, 画图, generate image, create image, make an image, 插图, 配图, image generation, 图生图, 以图生图, 参考图片生成, 风格迁移, 图片变体, 修改图片, 改图, image to image, img2img"
   tags: ["image", "generation", "multimodal", "design"]
+  triggers:
+    - 生成图片
+    - 画一张
+    - 生图
+    - 生成一张图片
+    - 画图
+    - 画个图
+    - 来张图
+    - generate image
+    - create image
+    - make an image
+    - 插图
+    - 配图
+    - image generation
+    - 图生图
+    - 以图生图
+    - 参考图片生成
+    - 风格迁移
+    - 图片变体
+    - 修改图片
+    - 改图
+    - image to image
+    - img2img
   x-ohmyagent:
     memoryPolicy:
       scopes:
@@ -17,6 +38,7 @@ metadata:
           writePolicy: never
       captureEnabled: false
       recallEnabled: true
+priority: 4
 allowed-tools: image_generation file_write file_read
 ---
 

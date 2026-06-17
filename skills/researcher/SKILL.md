@@ -3,9 +3,18 @@ name: Researcher
 description: Information retrieval and research assistant
 metadata:
   version: "1.0.0"
-  priority: 5
-  triggers: "research, search, look up, find information, 研究, 调查, 搜索, 收集信息, 调研, 查找"
   tags: ["research", "search", "information"]
+  triggers:
+    - research
+    - search
+    - look up
+    - find information
+    - 研究
+    - 调查
+    - 搜索
+    - 收集信息
+    - 调研
+    - 查找
   x-ohmyagent:
     memoryPolicy:
       scopes:
@@ -17,6 +26,7 @@ metadata:
           writePolicy: never
       captureEnabled: true
       recallEnabled: true
+priority: 5
 allowed-tools: file_read file_search web_search memory-recall memory-store
 ---
 

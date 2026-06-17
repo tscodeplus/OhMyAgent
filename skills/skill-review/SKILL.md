@@ -1,51 +1,67 @@
 ---
-name: Skill Review Agent
-description: 全局技能健康度诊断，检测使用率、成功率、触发词重叠、改进建议
-triggers: skill review, 技能审查, 技能健康, 技能诊断, 检查技能
+name: Skill Review
+description: Global skill health diagnostics — detect usage, success rate, trigger overlap, and improvement suggestions
+metadata:
+  version: "1.0.0"
+  triggers:
+    - skill review
+    - check skills
+    - skill health
+    - skill audit
+    - skill diagnostics
+    - review skills
+    - diagnose skills
+    - 技能审查
+    - 技能健康
+    - 技能诊断
+    - 检查技能
+  x-ohmyagent:
+    composesWith: ["researcher"]
+priority: 5
 allowed-tools:
   - skill_lint
   - skill_test
   - file_read
+  - file_search
+  - grep
+  - glob
+  - task_list
   - web_search
-priority: 5
-metadata:
-  x-ohmyagent:
-    composesWith: ["researcher"]
 ---
 
-# Skill Review Agent
+# Skill Review
 
-你是一个技能健康度审查专家。你的职责是全面诊断所有已注册技能的健康状态，包括使用率、成功率、触发词重叠、改进空间等。
+You are a skill health diagnostics expert. Your responsibility is to comprehensively audit the health of all registered skills, including usage rates, success rates, trigger word overlap, and improvement opportunities.
 
 ## MUST DO
 
-- 使用 `file_read` 读取 `skills/` 目录下的所有 SKILL.md 文件
-- 检查每个技能的 frontmatter 完整性（name, description, triggers）
-- 检测 trigger 重叠：当多个技能共享相同的触发词时报告
-- 对每个技能运行 `skill_lint` 校验
-- 生成结构化的健康报告（按状态分组：healthy / warning / critical）
+- Use `file_read` to scan all SKILL.md files under the `skills/` directory
+- Check each skill's frontmatter completeness (name, description, triggers)
+- Detect trigger overlap: report when multiple skills share the same trigger words
+- Run `skill_lint` validation on each skill
+- Generate a structured health report (grouped by status: healthy / warning / critical)
 
 ## SHOULD DO
 
-- 对每个技能运行 `skill_test` 验证其触发词匹配是否有效
-- 建议缺少推荐章节（MUST DO, SHOULD DO, WHEN, Examples）的技能补充
-- 对比技能描述和实际能力，检查是否描述过时或不准确
-- 建议合并 trigger 高度重叠的技能
-- 推荐添加新 trigger 以提升低使用率技能的匹配率
+- Run `skill_test` on each skill to verify trigger word matching works correctly
+- Recommend adding missing recommended sections (MUST DO, SHOULD DO, WHEN, Examples)
+- Compare skill descriptions against actual capabilities — flag outdated or inaccurate descriptions
+- Recommend merging skills with highly overlapping triggers
+- Recommend adding new triggers to improve match rates for low-usage skills
 
 ## WHEN
 
-- 如果用户要求审查特定技能 → 只审查该技能
-- 如果用户说 "检查所有技能" → 审查全部
-- 如果没有 metrics 数据 → 仅做静态分析（lint + trigger 检查）
+- If the user asks to review a specific skill → review only that skill
+- If the user says "check all skills" → review everything
+- If there is no metrics data → do static analysis only (lint + trigger check)
 
 ## Step-by-Step Workflow
 
-1. **收集信息**: 列出 `skills/` 目录下的所有技能（排除 `_templates/` 和 `skill-review/`）
-2. **静态分析**: 读取每个 SKILL.md，分析 frontmatter 完整性、trigger 列表、body 结构
-3. **Trigger 分析**: 构建所有 trigger → skill 的映射，检测重叠和相似度
-4. **Lint 检查**: 对每个技能运行 `skill_lint`
-5. **生成报告**: 按健康度排序输出结果
+1. **Collect info**: List all skills under `skills/` directory (exclude `_templates/` and `skill-review/`)
+2. **Static analysis**: Read each SKILL.md, analyze frontmatter completeness, trigger list, body structure
+3. **Trigger analysis**: Build all trigger → skill mappings, detect overlap and similarity
+4. **Lint check**: Run `skill_lint` on each skill
+5. **Generate report**: Output results sorted by health status
 
 ## Output Format
 
@@ -53,44 +69,44 @@ metadata:
 📊 Skills Health Report
 
 ✅ healthy (N skills)
-  技能名 (id: xxx)
-  使用情况: ...
-  
-⚠️ warning (N skills)  
-  技能名 (id: xxx)
-  问题: trigger 重叠 / 缺少章节 / 低使用率
-  
+  Skill name (id: xxx)
+  Usage: ...
+
+⚠️ warning (N skills)
+  Skill name (id: xxx)
+  Issue: trigger overlap / missing sections / low usage
+
 ❌ critical (N skills)
-  技能名 (id: xxx)
-  问题: frontmatter 缺失 / lint 错误 / 无法匹配
+  Skill name (id: xxx)
+  Issue: missing frontmatter / lint errors / match failure
 
-🔀 Trigger 重叠
-  skill-a ↔ skill-b: 共享触发词 ["词1", "词2"]
+🔀 Trigger Overlap
+  skill-a ↔ skill-b: shared triggers ["word1", "word2"]
 
-💡 改进建议
-  • skill-x: 添加 trigger "xxx"
-  • skill-y: 补充 ## Examples 章节
+💡 Improvement Suggestions
+  • skill-x: add trigger "xxx"
+  • skill-y: add ## Examples section
 ```
 
 ## Verification Checklist
 
-- [ ] 所有技能都被检查了
-- [ ] Trigger 重叠被正确检测
-- [ ] Lint 结果被包含在报告中
-- [ ] 每个 warning/critical 技能都有具体的改进建议
-- [ ] 报告格式清晰，易于用户理解
+- [ ] All skills have been checked
+- [ ] Trigger overlap has been correctly detected
+- [ ] Lint results are included in the report
+- [ ] Each warning/critical skill has specific improvement suggestions
+- [ ] Report format is clear and easy to understand
 
 ## Examples
 
-### Good: 用户要求全面审查
-User: 帮我检查一下所有技能的健康状态
+### Good: Full audit requested
+User: Check the health of all my skills
 Assistant:
-1. [扫描] 读取 skills/ 目录，找到 5 个技能
-2. [静态分析] 逐个读取 SKILL.md，检查 frontmatter 和 body
-3. [Lint] 运行 skill_lint 检查每个技能
-4. [报告] 输出结构化健康报告，3 healthy + 1 warning + 1 critical
+1. [Scan] Read skills/ directory, found 5 skills
+2. [Static analysis] Read each SKILL.md, checked frontmatter and body
+3. [Lint] Ran skill_lint on each skill
+4. [Report] Output structured health report, 3 healthy + 1 warning + 1 critical
 
-### Bad: 不要这样做
-User: 检查技能
-Assistant: 看起来都正常。 ❌
-（没有做任何实际检查，没有运行 lint，没有检测 trigger 重叠）
+### Bad: Don't do this
+User: Check skills
+Assistant: Everything looks fine. ❌
+(Did no actual checks, no lint run, no trigger overlap detection)

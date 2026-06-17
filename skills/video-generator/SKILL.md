@@ -3,9 +3,27 @@ name: Video Generator
 description: AI video generation from text prompts using Agnes Video, Seedance, and other providers
 metadata:
   version: "2.0.0"
-  priority: 4
-  triggers: "生成视频, 做视频, 生成一段视频, 视频生成, generate video, create video, make a video, 做动画, 生成动画, video generation, 图生视频, 图片转视频, 让图片动起来, 图片生成视频, 图片动画化, image to video, img2vid"
   tags: ["video", "generation", "multimodal", "animation"]
+  triggers:
+    - 生成视频
+    - 做视频
+    - 生成一段视频
+    - 视频生成
+    - generate video
+    - create video
+    - make a video
+    - 做动画
+    - 生成动画
+    - 生成短片
+    - 制作视频
+    - video generation
+    - 图生视频
+    - 图片转视频
+    - 让图片动起来
+    - 图片生成视频
+    - 图片动画化
+    - image to video
+    - img2vid
   x-ohmyagent:
     memoryPolicy:
       scopes:
@@ -17,6 +35,7 @@ metadata:
           writePolicy: never
       captureEnabled: false
       recallEnabled: true
+priority: 4
 allowed-tools: video_generation file_write file_read
 ---
 
