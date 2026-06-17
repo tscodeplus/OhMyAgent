@@ -32,6 +32,8 @@ export interface PersistMessagesOptions {
     agentName?: string;
     /** Skill name activated for this turn (consumed on first assistant message). */
     skillActivatedName?: string;
+    /** Respect showToolCalls setting — skip tool call metadata when false. */
+    showToolCalls?: boolean;
   };
   messageRepository: MessageRepository;
   logger: Logger;
@@ -138,17 +140,22 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
         content = content.trim();
       }
 
-      // 2. Extract tool calls from blocks (deduplicated by id)
+      // 2. Extract tool calls from blocks (deduplicated by id).
+      // Skip when showToolCalls is off — tool metadata must not leak into
+      // persisted messages, otherwise they'd appear on page refresh.
+      const persistTools = runtime.showToolCalls !== false;
       const toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }> = [];
       const toolCallIds = new Set<string>();
-      for (const block of pending.blocks) {
-        if (block.type === 'toolCall' && block.id && block.name && !toolCallIds.has(block.id)) {
-          toolCallIds.add(block.id);
-          toolCalls.push({
-            id: block.id,
-            name: block.name,
-            arguments: (block.arguments || {}) as Record<string, unknown>,
-          });
+      if (persistTools) {
+        for (const block of pending.blocks) {
+          if (block.type === 'toolCall' && block.id && block.name && !toolCallIds.has(block.id)) {
+            toolCallIds.add(block.id);
+            toolCalls.push({
+              id: block.id,
+              name: block.name,
+              arguments: (block.arguments || {}) as Record<string, unknown>,
+            });
+          }
         }
       }
 
@@ -157,7 +164,8 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
       // 3. Build segments from block order when tool calls or skill are present
       let segments: Array<{ type: 'text'; content: string } | { type: 'tool_call'; id: string } | { type: 'skill'; name: string }> | undefined;
       const hasSkill = !!runtime.skillActivatedName;
-      if (toolCalls.length > 0 || hasSkill) {
+      const hasToolSegments = persistTools && toolCalls.length > 0;
+      if (hasToolSegments || hasSkill) {
         segments = [];
         // Skill activation segment goes first (before any text/tool blocks)
         if (hasSkill) {
@@ -166,7 +174,7 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
         for (const block of pending.blocks) {
           if (block.type === 'text' && block.text) {
             segments.push({ type: 'text', content: block.text });
-          } else if (block.type === 'toolCall' && block.id) {
+          } else if (persistTools && block.type === 'toolCall' && block.id) {
             segments.push({ type: 'tool_call', id: block.id });
           }
         }
@@ -180,7 +188,7 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
         runtime.skillActivatedName = undefined;
       }
       if (segments) meta.segments = segments;
-      if (toolCalls.length > 0) meta.tool_calls = toolCalls;
+      if (persistTools && toolCalls.length > 0) meta.tool_calls = toolCalls;
       if (isFinal) {
         if (batchImages.length > 0) meta.images = batchImages;
         if (batchFiles.length > 0) meta.files = batchFiles;

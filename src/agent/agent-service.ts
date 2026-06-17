@@ -82,6 +82,8 @@ export class AgentService {
     footerConfig?: FooterConfig;
     /** Skill name activated for this turn (consumed by persistMessages on first assistant msg). */
     skillActivatedName?: string;
+    /** Whether to persist tool call metadata (respects showToolCalls setting). */
+    showToolCalls?: boolean;
   }>();
 
   private sessionAgentMap = new Map<string, string>();
@@ -171,6 +173,9 @@ export class AgentService {
     if (!runtime.agentName && dispatcherAny.agentName) {
       runtime.agentName = dispatcherAny.agentName as string;
     }
+    // Capture showToolCalls for persistence gating — when off, skip tool
+    // call metadata so tool cards don't appear on page refresh.
+    runtime.showToolCalls = dispatcherAny.showToolCalls !== false;
     // Clear cached approval session so each turn gets a fresh tracker
     (runtime.turnContext as Record<string, unknown>).approvalSession = undefined;
     runtime.bridge = new EventBridge(dispatcher, this.persistence?.logger);

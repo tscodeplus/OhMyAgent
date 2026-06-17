@@ -79,6 +79,7 @@ export async function registerWebUIRoutes(
     db: cfg.db,
     getFooterConfig: () => cfg.getConfig().footer,
     getShowSkillCalls: () => cfg.getConfig().showSkillCalls,
+    getShowToolCalls: () => cfg.getConfig().showToolCalls,
     agentManager: cfg.services.agentManager,
     commandDeps: {
       agentService: cfg.services.agentService,

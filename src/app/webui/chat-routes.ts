@@ -53,6 +53,7 @@ class SSEReplyDispatcher implements ReplyDispatcher {
   /** Maps approvalId → messageId for updates on resolution. */
   private approvalMsgIds = new Map<string, string>();
   private showSkillCalls: boolean;
+  showToolCalls: boolean; // public — read by agent-service for persistence gating
 
   constructor(
     callback: SSECallback,
@@ -60,6 +61,7 @@ class SSEReplyDispatcher implements ReplyDispatcher {
     db?: Database.Database,
     sessionId?: string,
     showSkillCalls = true,
+    showToolCalls = true,
   ) {
     this.callback = callback;
     this.footerConfig = footerConfig ?? {
@@ -69,6 +71,7 @@ class SSEReplyDispatcher implements ReplyDispatcher {
     this.db = db;
     this.sessionId = sessionId;
     this.showSkillCalls = showSkillCalls;
+    this.showToolCalls = showToolCalls;
   }
 
   onStart(): void {
@@ -203,10 +206,12 @@ class SSEReplyDispatcher implements ReplyDispatcher {
   }
 
   onToolStart(name: string, args: unknown, toolCallId?: string): void {
+    if (!this.showToolCalls) return;
     this.callback({ type: 'tool_call_start', toolName: name, data: args, toolCallId });
   }
 
   onToolEnd(name: string, result: unknown, isError?: boolean, toolCallId?: string): void {
+    if (!this.showToolCalls) return;
     this.callback({
       type: 'tool_call_end',
       toolName: name,
@@ -262,6 +267,8 @@ export interface ChatRouteConfig {
   getFooterConfig?: () => FooterConfig;
   /** Lazy getter for showSkillCalls — reads current config so setting changes take effect immediately. */
   getShowSkillCalls?: () => boolean;
+  /** Lazy getter for showToolCalls. */
+  getShowToolCalls?: () => boolean;
   agentManager?: AgentManager;
   commandDeps?: CommandDeps;
   commandRegistry?: CommandRegistry;
@@ -443,7 +450,7 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
           ? cfg.agentManager.get(project.agent_id)?.name
           : undefined) ?? cfg.agentManager.getDefault()?.name)
       : undefined;
-    const dispatcher = new SSEReplyDispatcher(sendSSE, cfg.getFooterConfig?.(), cfg.db, sessionId, cfg.getShowSkillCalls?.());
+    const dispatcher = new SSEReplyDispatcher(sendSSE, cfg.getFooterConfig?.(), cfg.db, sessionId, cfg.getShowSkillCalls?.(), cfg.getShowToolCalls?.());
     if (agentName) {
       dispatcher.setAgentName(agentName);
     }
