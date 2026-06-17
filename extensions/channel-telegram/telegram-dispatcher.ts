@@ -115,7 +115,7 @@ export class TelegramReplyDispatcher implements ReplyDispatcher {
 
   onSkillActivated(skillName: string): void {
     if (!this.showSkillCalls) return;
-    const text = `\n⚡️ **${skillName}**`;
+    const text = `\n⚡️ 技能激活: **${skillName}**`;
     this.buffer += text;
     this.streamCtrl.onDelta(text);
   }

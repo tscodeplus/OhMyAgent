@@ -129,7 +129,7 @@ export class ReplyDispatcher {
 
   onSkillActivated(skillName: string): void {
     if (!this.showSkillCalls) return;
-    this.controller.appendDelta(`\n> ⚡️ **${skillName}**\n`);
+    this.controller.appendDelta(`\n> ⚡️ 技能激活: **${skillName}**\n`);
   }
 
   setApprovalStatus(_status: string | null): void {

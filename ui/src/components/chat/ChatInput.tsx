@@ -281,8 +281,10 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
         switch (event.type) {
           case 'skill_activated':
             skillActivatedRef.current = event.data || undefined;
+            // Insert skill activation as first segment so it renders inline
+            segmentsRef.current.unshift({ type: 'skill', content: event.data || undefined });
             if (onMessages && assistantIdRef.current) {
-              const currentMsg = {
+              onMessages([{
                 id: assistantIdRef.current,
                 session_id: sessionId,
                 role: 'assistant' as const,
@@ -291,8 +293,7 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
                 segments: [...segmentsRef.current],
                 skill_activated: skillActivatedRef.current,
                 created_at: assistantCreatedAtRef.current,
-              };
-              onMessages([currentMsg]);
+              }]);
             }
             break;
 

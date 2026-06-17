@@ -114,7 +114,7 @@ export class QQReplyDispatcher implements ReplyDispatcher {
 
   onSkillActivated(skillName: string): void {
     if (!this.showSkillCalls) return;
-    const line = `\n> ⚡️ **${skillName}**`;
+    const line = `\n> ⚡️ 技能激活: **${skillName}**`;
     this.buffer += line;
     this.hasContent = true;
   }

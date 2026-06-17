@@ -54,7 +54,7 @@ export interface MediaSegmentItem {
 }
 
 export interface MessageSegment {
-  type: 'text' | 'tool_call' | 'media';
+  type: 'text' | 'tool_call' | 'media' | 'skill';
   content?: string;
   toolCall?: ToolCall;
   media?: MediaSegmentItem;

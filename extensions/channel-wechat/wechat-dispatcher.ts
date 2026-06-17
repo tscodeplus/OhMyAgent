@@ -131,7 +131,7 @@ export class WechatReplyDispatcher implements ReplyDispatcher {
 
   onSkillActivated(skillName: string): void {
     if (!this.showSkillCalls) return;
-    this.buffer += `\n> ⚡️ **${skillName}**`;
+    this.buffer += `\n> ⚡️ 技能激活: **${skillName}**`;
   }
 
   setApprovalStatus(status: string | null): void {
