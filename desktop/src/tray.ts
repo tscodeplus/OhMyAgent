@@ -129,7 +129,7 @@ export function createTray(options: TrayOptions): Tray {
       {
         label: '检查更新',
         click: () => {
-          getAppUpdater().checkForUpdates();
+          getAppUpdater().checkForUpdatesFromTray();
         },
       },
       { type: 'separator' },
