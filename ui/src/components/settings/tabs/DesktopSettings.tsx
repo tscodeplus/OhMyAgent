@@ -123,6 +123,7 @@ export default function DesktopSettings() {
 
     api.onUpdateNotAvailable(() => {
       setUpdateStatus('up-to-date');
+      showToast(t('settings.about.upToDate'), 'success', 3000);
     });
 
     api.onUpdateDownloaded((info: any) => {
@@ -138,7 +139,7 @@ export default function DesktopSettings() {
     return () => {
       api.removeUpdateListeners();
     };
-  }, [latestVersion, showUpdateToast, t]);
+  }, [latestVersion, showUpdateToast, showToast, t]);
 
   // ── Check for updates ──
   const handleCheckUpdates = useCallback(async () => {

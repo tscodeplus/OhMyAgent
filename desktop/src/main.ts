@@ -913,6 +913,7 @@ app.whenReady().then(async () => {
 
   // Initialize updater and point it at the main window
   getAppUpdater().setWindow(mainWindow!);
+  getAppUpdater().setLanguage(resolveUILanguage());
 
   const gatewayConfig = getDesktopConfig().getGatewayConfig();
   const firstRunDone = getDesktopConfig().get('firstRunDone');
