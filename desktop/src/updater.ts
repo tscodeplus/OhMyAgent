@@ -1,7 +1,8 @@
 import pkg from 'electron-updater';
 const { autoUpdater } = pkg;
 import type { UpdateInfo } from 'electron-updater';
-import { BrowserWindow, dialog, nativeTheme } from 'electron';
+import { app, BrowserWindow, dialog, nativeTheme } from 'electron';
+import { getDesktopConfig } from './config.js';
 
 // ---------------------------------------------------------------------------
 // i18n — Electron main process doesn't have access to the server i18n
@@ -54,6 +55,19 @@ export class AppUpdater {
 
   setLanguage(lang: Lang): void {
     this.lang = lang;
+  }
+
+  /**
+   * Resolve light/dark mode by checking the desktop config's theme setting.
+   * Falls back to the OS-level nativeTheme when set to 'system'.
+   */
+  private isDarkTheme(): boolean {
+    try {
+      const theme = getDesktopConfig().get('theme');
+      if (theme === 'dark') return true;
+      if (theme === 'light') return false;
+    } catch { /* config store may not be ready yet */ }
+    return nativeTheme.shouldUseDarkColors;
   }
 
   async checkForUpdates(): Promise<void> {
@@ -147,7 +161,7 @@ export class AppUpdater {
   async checkForUpdatesFromTray(): Promise<void> {
     this.suppressEvents = true;
 
-    const isDark = nativeTheme.shouldUseDarkColors;
+    const isDark = this.isDarkTheme();
 
     // Theme-aware colors
     const primaryBg = isDark ? '#1e1e2e' : '#f8fafc';
@@ -204,7 +218,19 @@ export class AppUpdater {
       spinWin.close();
 
       if (result) {
-        this.showUpdateDialogForTray(result.updateInfo);
+        // Safety check: don't show "new version" dialog if the update
+        // version matches the currently-installed version.
+        const currentVer = app.getVersion();
+        if (result.updateInfo.version === currentVer) {
+          dialog.showMessageBox({
+            type: 'info',
+            title: 'OhMyAgent',
+            message: T[this.lang].upToDate,
+            buttons: [T[this.lang].ok],
+          });
+        } else {
+          this.showUpdateDialogForTray(result.updateInfo);
+        }
       } else {
         dialog.showMessageBox({
           type: 'info',
@@ -234,7 +260,7 @@ export class AppUpdater {
   private showUpdateDialogForTray(info: UpdateInfo): void {
     const version = info.version;
     const notesHtml = this.getReleaseNotesHtml(info.releaseNotes);
-    const isDark = nativeTheme.shouldUseDarkColors;
+    const isDark = this.isDarkTheme();
 
     // Theme-aware colors
     const bg = isDark ? '#1e1e2e' : '#ffffff';
@@ -255,12 +281,12 @@ export class AppUpdater {
   *{margin:0;padding:0;box-sizing:border-box}
   body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
        background:${bg};color:${fg};display:flex;flex-direction:column;height:100vh}
-  .header{padding:20px 24px 12px;-webkit-app-region:drag}
-  .header h1{font-size:17px;font-weight:700;color:${fg}}
-  .content{flex:1;overflow-y:auto;padding:0 24px 16px;
+  .header{flex-shrink:0;padding:20px 24px 12px;-webkit-app-region:drag}
+  .header h1{font-size:17px;font-weight:700;color:${fg};margin:0}
+  .content{flex:1;overflow-y:auto;padding:12px 24px 16px;
            font-size:13px;line-height:1.7;color:${fg};
            background:${contentBg};margin:0 12px;border-radius:8px;
-           border:1px solid ${border};max-height:240px}
+           border:1px solid ${border}}
   .content h2{font-size:14px;font-weight:600;margin:12px 0 6px;color:${fg}}
   .content h3{font-size:13px;font-weight:600;margin:10px 0 4px;color:${fg}}
   .content h4{font-size:12px;font-weight:600;margin:8px 0 4px;color:${muted}}
@@ -274,8 +300,9 @@ export class AppUpdater {
   .content pre{background:${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'};
                padding:10px 14px;border-radius:6px;overflow-x:auto;margin:8px 0;
                font-size:12px;line-height:1.5}
-  .footer{padding:16px 24px 20px;display:flex;justify-content:flex-end;gap:10px;
-          border-top:1px solid ${border};margin-top:8px}
+  .footer{flex-shrink:0;padding:16px 24px 20px;display:flex;
+          justify-content:flex-end;gap:10px;
+          border-top:1px solid ${border}}
   button{padding:8px 20px;border-radius:8px;font-size:13px;font-weight:600;
          cursor:pointer;border:none;transition:opacity .15s,background .15s;outline:none}
   .btn-primary{background:${btnPrimary};color:#fff}

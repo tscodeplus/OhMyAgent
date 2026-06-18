@@ -38,6 +38,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const setThemeMode = (mode: ThemeMode) => {
     setMode(mode);
     try { localStorage.setItem(THEME_KEY, mode); } catch {}
+    // Sync to Electron desktop config so tray windows can read it
+    if (window.electronAPI) {
+      window.electronAPI.setConfig('theme', mode).catch(() => {});
+    }
   };
 
   // Apply dark class
