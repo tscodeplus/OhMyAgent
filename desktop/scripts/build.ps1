@@ -457,7 +457,7 @@ function Write-Summary {
         Write-Host "  Portable: release\win-unpacked\  (EXE: ${exeSize} MB)" -ForegroundColor White
     }
 
-    $setupExe = Get-ChildItem "$DesktopDir\release\*Setup*.exe" -Name -ErrorAction SilentlyContinue
+    $setupExe = Get-ChildItem "$DesktopDir\release\*Setup*.exe" -Name -ErrorAction SilentlyContinue | Sort-Object | Select-Object -Last 1
     if ($setupExe) {
         $setupSize = [math]::Round((Get-Item "$DesktopDir\release\$setupExe").Length / 1MB, 1)
         Write-Host "  Installer: release\$setupExe  (${setupSize} MB)" -ForegroundColor White
