@@ -1,4 +1,6 @@
-import { autoUpdater, UpdateInfo } from 'electron-updater';
+import pkg from 'electron-updater';
+const { autoUpdater } = pkg;
+import type { UpdateInfo } from 'electron-updater';
 import { BrowserWindow } from 'electron';
 
 export class AppUpdater {
