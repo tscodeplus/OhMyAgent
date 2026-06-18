@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ServerManager } from './server-manager.js';
 import { getDesktopConfig } from './config.js';
+import { getAppUpdater } from './updater.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -11,8 +12,6 @@ let tray: Tray | null = null;
 export interface TrayOptions {
   mainWindow: BrowserWindow;
   serverManager: ServerManager | null;
-  /** Called when user clicks "Check for Updates" */
-  onCheckUpdates?: () => void;
 }
 
 /**
@@ -129,7 +128,7 @@ export function createTray(options: TrayOptions): Tray {
       { type: 'separator' },
       {
         label: '检查更新',
-        click: () => options.onCheckUpdates?.(),
+        click: () => getAppUpdater().checkForUpdates(),
       },
       { type: 'separator' },
       {
