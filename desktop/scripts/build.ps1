@@ -291,6 +291,13 @@ function Invoke-SyncCode {
 function Invoke-RootBuild {
     Write-Step "Building root project (TypeScript + Locales)"
 
+    # Install dependencies first — new deps may have been added since last sync
+    Write-Info "Installing dependencies..."
+    $installR = Invoke-Cmd "pnpm install --frozen-lockfile" $RootDir
+    if (-not $installR.Success) {
+        Write-Warn "pnpm install had issues (possibly non-fatal)"
+    }
+
     $tscStart = Get-Date
     $r = Invoke-Cmd "pnpm build" $RootDir
 
