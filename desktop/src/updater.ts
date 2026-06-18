@@ -110,12 +110,17 @@ export class AppUpdater {
 
     autoUpdater.on('error', (error) => {
       console.error('[AppUpdater] Error:', error);
-      this.mainWindow?.webContents.send('update-error', {
-        message: error.message,
-      });
+
+      // Show a friendlier message for common cases
+      let message = error.message;
+      if (message.includes('404') || message.includes('latest.yml')) {
+        message = '暂无可用更新（尚未发布新版本或更新服务器不可达）';
+      }
+
+      this.mainWindow?.webContents.send('update-error', { message });
 
       // Show error via dialog so tray-triggered failures are visible
-      dialog.showErrorBox('更新检查失败', error.message);
+      dialog.showErrorBox('更新检查失败', message);
     });
   }
 
