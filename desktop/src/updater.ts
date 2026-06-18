@@ -1,7 +1,9 @@
 import pkg from 'electron-updater';
 const { autoUpdater } = pkg;
 import type { UpdateInfo } from 'electron-updater';
-import { app, BrowserWindow, dialog, nativeTheme } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron';
+import fs from 'node:fs';
+import path from 'node:path';
 import { getDesktopConfig } from './config.js';
 
 // ---------------------------------------------------------------------------
@@ -169,27 +171,23 @@ export class AppUpdater {
     });
 
     autoUpdater.on('error', (error) => {
-      console.error('[AppUpdater] Error:', error);
-
       const rawMessage = error.message || String(error);
+      this.diagLog(`Error (downloading=${this.downloading}): ${rawMessage}`);
+
       let message = rawMessage;
       if (message.includes('ENOENT') && message.includes('app-update.yml')) {
-        // Portable build without publishing — update config not generated
         message = T[this.lang].noUpdateConfig;
       } else if (message.includes('404') || message.includes('latest.yml')) {
-        // Distinguish: during download → download failure; during check → no update
         message = this.downloading
           ? T[this.lang].downloadFailed
           : T[this.lang].noUpdateAvailable;
       }
 
       if (!this.suppressEvents) {
-        // Send both i18n message and raw error for debugging
         this.mainWindow?.webContents.send('update-error', {
           message,
           raw: rawMessage,
         });
-        // Also forward to tray-initiated download progress window
         if (this.progressWin && !this.progressWin.isDestroyed()) {
           this.progressWin.webContents.send('update-error', { message });
         }
@@ -559,8 +557,9 @@ export class AppUpdater {
     <div class="status" id="st"></div>
   </div>
   <div class="footer hidden" id="ftr">
-    <button class="btn-secondary" id="btn-close" onclick="window.location.href='oma://close-progress'">${T[this.lang].cancel}</button>
-    <button class="btn-primary" id="btn-install" onclick="window.location.href='oma://install'">${T[this.lang].installAndRestart}</button>
+    <button class="btn-secondary" id="btn-releases" onclick="ipcRenderer.send('oma-progress-action','releases')" style="display:none">${T[this.lang].githubRelease}</button>
+    <button class="btn-secondary" id="btn-close" onclick="ipcRenderer.send('oma-progress-action','close')">${T[this.lang].cancel}</button>
+    <button class="btn-primary" id="btn-install" onclick="ipcRenderer.send('oma-progress-action','install')">${T[this.lang].installAndRestart}</button>
   </div>
 <script>
   const {ipcRenderer} = require('electron');
@@ -581,6 +580,7 @@ export class AppUpdater {
     document.getElementById('st').textContent=d.message||'${T[this.lang].downloadFailed}';
     document.getElementById('ftr').classList.remove('hidden');
     document.getElementById('btn-install').style.display='none';
+    document.getElementById('btn-releases').style.display='';
   });
 </script>
 </body></html>`;
@@ -606,19 +606,23 @@ export class AppUpdater {
       this.progressWin = null;
     });
 
-    // Intercept navigation for button clicks
-    const handleProgressNav = (event: Electron.Event, url: string) => {
-      event.preventDefault();
-      if (url === 'oma://install') {
+    // IPC-based button handling — more reliable than navigation events on data: URLs
+    const progressIpcChannel = 'oma-progress-action';
+    const handler = (_event: any, action: string) => {
+      if (action === 'install') {
         this.closeProgressWin();
         this.installAndRestart();
-      } else if (url === 'oma://close-progress') {
+      } else if (action === 'close') {
         this.closeProgressWin();
+      } else if (action === 'releases') {
+        shell.openExternal('https://github.com/tscodeplus/OhMyAgent/releases');
       }
     };
+    ipcMain.on(progressIpcChannel, handler);
 
-    win.webContents.on('will-navigate', handleProgressNav);
-    win.webContents.on('will-redirect', handleProgressNav);
+    win.once('closed', () => {
+      ipcMain.removeListener(progressIpcChannel, handler);
+    });
 
     win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 
@@ -632,6 +636,16 @@ export class AppUpdater {
       }
       win.show();
     });
+  }
+
+  /** Write an updater diagnostic message to the Electron diag log. */
+  private diagLog(msg: string): void {
+    try {
+      const logsDir = path.join(app.getPath('userData'), 'logs');
+      fs.mkdirSync(logsDir, { recursive: true });
+      const ts = new Date().toISOString();
+      fs.appendFileSync(path.join(logsDir, 'electron-diag.log'), `[${ts}] [AppUpdater] ${msg}\n`);
+    } catch { /* best effort */ }
   }
 
   /** Safely close the download progress window. */
