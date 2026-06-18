@@ -81,14 +81,66 @@ export function registerSystemRoutes(app: FastifyInstance): void {
       return reply.status(400).send({ ok: false, error: 'not a git repository' });
     }
 
-    // Write update script to a temp file, then spawn it detached.
-    // The script waits 2s for the HTTP response to flush, then kills
-    // the server, pulls, rebuilds, and restarts.
-    const scriptPath = path.join(projectRoot, '.update-script.sh');
     const mainPid = process.pid;
-
-    // Detect package manager
     const hasPnpm = fs.existsSync(path.join(projectRoot, 'pnpm-lock.yaml'));
+    const isWindows = process.platform === 'win32';
+
+    if (isWindows) {
+      // ── Windows: PowerShell script ─────────────────────────────────
+      const scriptPath = path.join(projectRoot, '.update-script.ps1');
+
+      const script = `# OhMyAgent update script (Windows)
+param([int]$MainPid)
+
+Start-Sleep -Seconds 2
+
+# Kill the current server process
+try { Stop-Process -Id $MainPid -Force -ErrorAction Stop } catch {}
+Start-Sleep -Seconds 1
+
+Set-Location -Path '${projectRoot}'
+
+Write-Host "[OhMyAgent] Pulling latest code..."
+git pull origin main
+if ($LASTEXITCODE -ne 0) { Write-Host "git pull failed"; exit 1 }
+
+Write-Host "[OhMyAgent] Installing dependencies..."
+${hasPnpm ? 'pnpm install --frozen-lockfile' : 'npm install'}
+if ($LASTEXITCODE -ne 0) { Write-Host "install failed"; exit 1 }
+
+Write-Host "[OhMyAgent] Building..."
+pnpm build
+if ($LASTEXITCODE -ne 0) { Write-Host "build failed"; exit 1 }
+
+Write-Host "[OhMyAgent] Building WebUI..."
+pnpm build:ui
+if ($LASTEXITCODE -ne 0) { Write-Host "webui build failed"; exit 1 }
+
+Write-Host "[OhMyAgent] Restarting server..."
+Start-Process -NoNewWindow pnpm -ArgumentList "dev"
+
+Write-Host "[OhMyAgent] Update complete!"
+Remove-Item -Force '${scriptPath}'
+`;
+
+      try {
+        fs.writeFileSync(scriptPath, script, { mode: 0o700 });
+      } catch {
+        return reply.status(500).send({ ok: false, error: 'failed to write update script' });
+      }
+
+      const child = spawn(
+        'powershell.exe',
+        ['-ExecutionPolicy', 'Bypass', '-File', scriptPath, '-MainPid', String(mainPid)],
+        { detached: true, stdio: 'ignore', cwd: projectRoot },
+      );
+      child.unref();
+
+      return reply.send({ ok: true, message: 'Update started — server will restart shortly' });
+    }
+
+    // ── Linux / macOS: bash script ───────────────────────────────────
+    const scriptPath = path.join(projectRoot, '.update-script.sh');
 
     const script = `#!/usr/bin/env bash
 set -e
@@ -125,7 +177,6 @@ rm -f "${scriptPath}"
       return reply.status(500).send({ ok: false, error: 'failed to write update script' });
     }
 
-    // Spawn detached — the script will kill us and take over
     const child = spawn('bash', [scriptPath], {
       detached: true,
       stdio: 'ignore',
