@@ -235,10 +235,13 @@ jobs:
           if [[ "${{ needs.detect-release-type.outputs.prerelease }}" == "true" ]]; then
             PRERELEASE_FLAG="--prerelease"
           fi
-          # Collect only installer files
+          # Collect installer and updater files, excluding builder-debug.yml
+          # (same name across platforms causes duplicate asset error)
           ASSETS=()
           for f in release-artifacts/**/*.exe release-artifacts/**/*.dmg release-artifacts/**/*.AppImage release-artifacts/**/*.deb release-artifacts/**/*.yml release-artifacts/**/*.blockmap; do
-            [[ -f "$f" ]] && ASSETS+=("$f")
+            [[ -f "$f" ]] || continue
+            [[ "$(basename "$f")" == "builder-debug.yml" ]] && continue
+            ASSETS+=("$f")
           done
           NOTES_FILE="docs/release-notes/${{ github.ref_name }}.md"
           # Delete existing release if re-running (tag already has one)
