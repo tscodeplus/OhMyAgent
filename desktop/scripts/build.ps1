@@ -40,6 +40,8 @@ $RootDir = Split-Path -Parent $DesktopDir
 # Use npmmirror for Electron binary downloads (GitHub often unreachable from China)
 $env:ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/"
 $env:ELECTRON_BUILDER_BINARIES_MIRROR = "https://npmmirror.com/mirrors/electron-builder-binaries/"
+# Default update channel to 'latest'. CI sets this to 'beta' for pre-releases.
+if (-not $env:PUBLISH_CHANNEL) { $env:PUBLISH_CHANNEL = "latest" }
 
 # If neither flag set, build both
 if (-not $Portable -and -not $Installer) {
