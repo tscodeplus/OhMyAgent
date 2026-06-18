@@ -129,10 +129,6 @@ export function createTray(options: TrayOptions): Tray {
       {
         label: '检查更新',
         click: () => {
-          new Notification({
-            title: 'OhMyAgent',
-            body: '正在检查更新...',
-          }).show();
           getAppUpdater().checkForUpdates();
         },
       },

@@ -1,7 +1,7 @@
 import pkg from 'electron-updater';
 const { autoUpdater } = pkg;
 import type { UpdateInfo } from 'electron-updater';
-import { BrowserWindow, Notification } from 'electron';
+import { BrowserWindow, Notification, dialog } from 'electron';
 
 export class AppUpdater {
   private mainWindow: BrowserWindow | null = null;
@@ -61,24 +61,33 @@ export class AppUpdater {
 
     autoUpdater.on('update-available', (info: UpdateInfo) => {
       console.log('[AppUpdater] Update available:', info.version);
-      new Notification({
-        title: 'OhMyAgent',
-        body: `发现新版本: ${info.version}`,
-      }).show();
+
+      // Always notify the renderer (About page toast UI)
       this.mainWindow?.webContents.send('update-available', {
         version: info.version,
         releaseDate: info.releaseDate,
         releaseNotes: info.releaseNotes,
       });
+
+      // If window is visible, bring it to front — the About page toast handles interaction
+      const winVisible = this.mainWindow?.isVisible() && !this.mainWindow?.isMinimized();
+      if (winVisible) {
+        this.mainWindow?.focus();
+        return;
+      }
+
+      // Window is hidden (e.g. tray trigger) — show a native dialog with buttons
+      this.showUpdateDialog(info);
     });
 
     autoUpdater.on('update-not-available', () => {
       console.log('[AppUpdater] Already up to date.');
+      this.mainWindow?.webContents.send('update-not-available');
+
       new Notification({
         title: 'OhMyAgent',
         body: '已是最新版本',
       }).show();
-      this.mainWindow?.webContents.send('update-not-available');
     });
 
     autoUpdater.on('download-progress', (progress) => {
@@ -101,14 +110,47 @@ export class AppUpdater {
 
     autoUpdater.on('error', (error) => {
       console.error('[AppUpdater] Error:', error);
-      new Notification({
-        title: 'OhMyAgent - 更新检查失败',
-        body: error.message,
-      }).show();
       this.mainWindow?.webContents.send('update-error', {
         message: error.message,
       });
+
+      // Show error via dialog so tray-triggered failures are visible
+      dialog.showErrorBox('更新检查失败', error.message);
     });
+  }
+
+  /** Show a native "update available" dialog (used when window is hidden, e.g. tray trigger). */
+  private showUpdateDialog(info: UpdateInfo): void {
+    const version = info.version;
+    const notes = this.formatReleaseNotes(info.releaseNotes);
+
+    const detail = notes
+      ? `发现新版本: v${version}\n\n${notes}`
+      : `发现新版本: v${version}`;
+
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'OhMyAgent - 发现新版本',
+      message: `发现新版本: v${version}`,
+      detail,
+      buttons: ['升级到最新版', '取消'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    }).then(({ response }) => {
+      if (response === 0) {
+        // User clicked "升级到最新版"
+        this.downloadUpdate();
+      }
+    });
+  }
+
+  /** Truncate release notes to a dialog-friendly length. */
+  private formatReleaseNotes(notes: string | string[] | null | undefined): string {
+    if (!notes) return '';
+    const text = Array.isArray(notes) ? notes.join('\n') : String(notes);
+    // Limit to ~500 chars to avoid huge dialogs
+    return text.length > 500 ? text.slice(0, 500) + '...' : text;
   }
 }
 
