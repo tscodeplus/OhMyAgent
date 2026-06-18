@@ -25,22 +25,18 @@ export class AppUpdater {
       if (!result) {
         this.mainWindow?.webContents.send('update-not-available');
       }
-    } catch (err) {
-      console.error('[AppUpdater] Check for updates failed:', err);
-      this.mainWindow?.webContents.send('update-error', {
-        message: err instanceof Error ? err.message : String(err),
-      });
+    } catch {
+      // Error is handled by autoUpdater.on('error') listener — don't duplicate IPC
+      console.error('[AppUpdater] Check for updates failed');
     }
   }
 
   async downloadUpdate(): Promise<void> {
     try {
       await autoUpdater.downloadUpdate();
-    } catch (err) {
-      console.error('[AppUpdater] Download failed:', err);
-      this.mainWindow?.webContents.send('update-error', {
-        message: err instanceof Error ? err.message : String(err),
-      });
+    } catch {
+      // Error is handled by autoUpdater.on('error') listener — don't duplicate IPC
+      console.error('[AppUpdater] Download failed');
     }
   }
 
@@ -117,10 +113,13 @@ export class AppUpdater {
         message = '暂无可用更新（尚未发布新版本或更新服务器不可达）';
       }
 
-      this.mainWindow?.webContents.send('update-error', { message });
-
-      // Show error via dialog so tray-triggered failures are visible
-      dialog.showErrorBox('更新检查失败', message);
+      // Notify renderer (About page toast) if window is visible
+      if (this.mainWindow?.isVisible() && !this.mainWindow?.isMinimized()) {
+        this.mainWindow.webContents.send('update-error', { message });
+      } else {
+        // Window hidden (tray trigger) — show native dialog instead
+        dialog.showErrorBox('更新检查失败', message);
+      }
     });
   }
 

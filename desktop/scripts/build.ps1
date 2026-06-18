@@ -440,6 +440,48 @@ function Invoke-Package([string]$Target) {
 }
 
 # ---------------------------------------------------------------------------
+# Upload latest.yml to GitHub release
+# ---------------------------------------------------------------------------
+
+function Invoke-UploadLatestYml {
+    Write-Step "Uploading latest.yml to GitHub release"
+
+    $ghExe = Get-Command gh.exe -ErrorAction SilentlyContinue
+    if (-not $ghExe) {
+        Write-Warn "gh CLI not found — skipping upload"
+        Write-Info "Install from https://cli.github.com/ and authenticate with: gh auth login"
+        Write-Info "Then manually upload: desktop\release\latest.yml to the GitHub release"
+        return
+    }
+
+    # Read version from desktop/package.json
+    $pkgJson = Get-Content "$DesktopDir\package.json" -Raw | ConvertFrom-Json
+    $version = $pkgJson.version
+    $tag = "v$version"
+    $latestYml = "$DesktopDir\release\latest.yml"
+
+    if (-not (Test-Path $latestYml)) {
+        Write-Fail "latest.yml not found at $latestYml"
+        return
+    }
+
+    Write-Info "Uploading to release $tag..."
+    $prevEA = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $output = cmd /c "gh release upload $tag `"$latestYml`" --repo tscodeplus/OhMyAgent --clobber 2>&1" 2>&1 | Out-String
+    $success = ($LASTEXITCODE -eq 0)
+    $ErrorActionPreference = $prevEA
+
+    if ($success) {
+        Write-OK "latest.yml uploaded to $tag"
+    } else {
+        Write-Warn "Upload failed — release $tag may not exist yet"
+        Write-Info "Create the release on GitHub first, then manually upload latest.yml"
+        Write-Info $output
+    }
+}
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
@@ -541,6 +583,11 @@ if ($Portable) {
 }
 if ($Installer) {
     Invoke-Package "installer"
+}
+
+# Upload latest.yml to GitHub release (after installer build)
+if ($Installer) {
+    Invoke-UploadLatestYml
 }
 
 Write-Summary
