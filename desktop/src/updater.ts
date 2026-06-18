@@ -21,6 +21,7 @@ const T = {
     ok: '确定',
     checkFailed: '更新检查失败',
     noUpdateAvailable: '暂无可用更新（尚未发布新版本或更新服务器不可达）',
+    noUpdateConfig: '当前为便携版本，不支持在线更新。请前往 GitHub Releases 页面下载最新版本。',
   },
   'en': {
     checking: 'Checking for updates...',
@@ -32,6 +33,7 @@ const T = {
     ok: 'OK',
     checkFailed: 'Update check failed',
     noUpdateAvailable: 'No update available (release not published or server unreachable)',
+    noUpdateConfig: 'Portable build does not support online updates. Please visit GitHub Releases to download the latest version.',
   },
 } as const;
 
@@ -146,6 +148,9 @@ export class AppUpdater {
       let message = error.message;
       if (message.includes('404') || message.includes('latest.yml')) {
         message = T[this.lang].noUpdateAvailable;
+      } else if (message.includes('ENOENT') && message.includes('app-update.yml')) {
+        // Portable build without publishing — update config not generated
+        message = T[this.lang].noUpdateConfig;
       }
 
       if (!this.suppressEvents) {
@@ -246,6 +251,8 @@ export class AppUpdater {
       let message = err.message || String(err);
       if (message.includes('404') || message.includes('latest.yml')) {
         message = T[this.lang].noUpdateAvailable;
+      } else if (message.includes('ENOENT') && message.includes('app-update.yml')) {
+        message = T[this.lang].noUpdateConfig;
       }
 
       dialog.showErrorBox(T[this.lang].checkFailed, message);
