@@ -146,9 +146,11 @@ export class AppUpdater {
   }
 
   /** Truncate release notes to a dialog-friendly length. */
-  private formatReleaseNotes(notes: string | string[] | null | undefined): string {
+  private formatReleaseNotes(notes: string | Array<string | { note: string | null }> | null | undefined): string {
     if (!notes) return '';
-    const text = Array.isArray(notes) ? notes.join('\n') : String(notes);
+    const text = Array.isArray(notes)
+      ? notes.map(n => typeof n === 'string' ? n : (n.note ?? '')).join('\n')
+      : String(notes);
     // Limit to ~500 chars to avoid huge dialogs
     return text.length > 500 ? text.slice(0, 500) + '...' : text;
   }
