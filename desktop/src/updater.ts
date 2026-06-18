@@ -222,22 +222,12 @@ export class AppUpdater {
         // version matches the currently-installed version.
         const currentVer = app.getVersion();
         if (result.updateInfo.version === currentVer) {
-          dialog.showMessageBox({
-            type: 'info',
-            title: 'OhMyAgent',
-            message: T[this.lang].upToDate,
-            buttons: [T[this.lang].ok],
-          });
+          this.showUpToDateDialog();
         } else {
           this.showUpdateDialogForTray(result.updateInfo);
         }
       } else {
-        dialog.showMessageBox({
-          type: 'info',
-          title: 'OhMyAgent',
-          message: T[this.lang].upToDate,
-          buttons: [T[this.lang].ok],
-        });
+        this.showUpToDateDialog();
       }
     } catch (err: any) {
       spinWin.close();
@@ -251,6 +241,80 @@ export class AppUpdater {
     } finally {
       this.suppressEvents = false;
     }
+  }
+
+  /**
+   * Custom window for "already up to date" notification.
+   * Replaces the ugly native dialog with a simple, clean window.
+   */
+  private showUpToDateDialog(): void {
+    const isDark = this.isDarkTheme();
+    const bg = isDark ? '#1e1e2e' : '#ffffff';
+    const fg = isDark ? '#cdd6f4' : '#1e293b';
+    const muted = isDark ? '#94a3b8' : '#64748b';
+    const border = isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0';
+    const btnPrimary = '#6366f1';
+
+    const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+       background:${bg};color:${fg};display:flex;flex-direction:column;
+       align-items:center;justify-content:center;height:100vh}
+  .icon{margin-bottom:16px}
+  .icon svg{width:40px;height:40px;color:#22c55e}
+  .message{font-size:15px;font-weight:600;color:${fg};text-align:center;margin-bottom:24px}
+  .footer{position:absolute;bottom:0;left:0;right:0;padding:14px 20px;
+          display:flex;justify-content:flex-end;
+          border-top:1px solid ${border}}
+  button{padding:7px 18px;border-radius:8px;font-size:13px;font-weight:600;
+         cursor:pointer;border:none;transition:opacity .15s;outline:none}
+  .btn-primary{background:${btnPrimary};color:#fff}
+  .btn-primary:hover{opacity:0.88}
+  .btn-primary:active{opacity:0.76}
+</style></head>
+<body>
+  <div class="icon">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+      <polyline points="22 4 12 14.01 9 11.01"/>
+    </svg>
+  </div>
+  <div class="message">${T[this.lang].upToDate}</div>
+  <div class="footer">
+    <button class="btn-primary" onclick="window.location.href='oma://close-dialog'">${T[this.lang].ok}</button>
+  </div>
+</body></html>`;
+
+    const win = new BrowserWindow({
+      width: 320,
+      height: 220,
+      frame: false,
+      resizable: false,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      show: false,
+      backgroundColor: bg,
+      webPreferences: { nodeIntegration: false, contextIsolation: true },
+    });
+
+    win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+    win.webContents.on('will-navigate', (event, url) => {
+      event.preventDefault();
+      if (url === 'oma://close-dialog') win.close();
+    });
+
+    win.once('ready-to-show', () => {
+      if (this.mainWindow) {
+        const [mx, my] = this.mainWindow.getPosition();
+        const [mw, mh] = this.mainWindow.getSize();
+        win.setPosition(mx + Math.round((mw - 320) / 2), my + Math.round((mh - 220) / 2));
+      } else {
+        win.center();
+      }
+      win.show();
+    });
   }
 
   /**
