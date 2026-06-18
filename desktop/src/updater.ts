@@ -1,7 +1,7 @@
 import pkg from 'electron-updater';
 const { autoUpdater } = pkg;
 import type { UpdateInfo } from 'electron-updater';
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, Notification } from 'electron';
 
 export class AppUpdater {
   private mainWindow: BrowserWindow | null = null;
@@ -61,6 +61,10 @@ export class AppUpdater {
 
     autoUpdater.on('update-available', (info: UpdateInfo) => {
       console.log('[AppUpdater] Update available:', info.version);
+      new Notification({
+        title: 'OhMyAgent',
+        body: `发现新版本: ${info.version}`,
+      }).show();
       this.mainWindow?.webContents.send('update-available', {
         version: info.version,
         releaseDate: info.releaseDate,
@@ -70,6 +74,10 @@ export class AppUpdater {
 
     autoUpdater.on('update-not-available', () => {
       console.log('[AppUpdater] Already up to date.');
+      new Notification({
+        title: 'OhMyAgent',
+        body: '已是最新版本',
+      }).show();
       this.mainWindow?.webContents.send('update-not-available');
     });
 
@@ -93,6 +101,10 @@ export class AppUpdater {
 
     autoUpdater.on('error', (error) => {
       console.error('[AppUpdater] Error:', error);
+      new Notification({
+        title: 'OhMyAgent - 更新检查失败',
+        body: error.message,
+      }).show();
       this.mainWindow?.webContents.send('update-error', {
         message: error.message,
       });

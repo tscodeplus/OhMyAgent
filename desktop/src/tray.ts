@@ -128,7 +128,13 @@ export function createTray(options: TrayOptions): Tray {
       { type: 'separator' },
       {
         label: '检查更新',
-        click: () => getAppUpdater().checkForUpdates(),
+        click: () => {
+          new Notification({
+            title: 'OhMyAgent',
+            body: '正在检查更新...',
+          }).show();
+          getAppUpdater().checkForUpdates();
+        },
       },
       { type: 'separator' },
       {
