@@ -12,11 +12,25 @@ type UpdateStatus = 'idle' | 'checking' | 'up-to-date' | 'available' | 'download
 const GITHUB_REPO_URL = 'https://github.com/tscodeplus/OhMyAgent';
 const GITHUB_ISSUES_URL = 'https://github.com/tscodeplus/OhMyAgent/issues';
 
+/** Strip HTML tags and decode common entities for plain-text display. */
+function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#(\d+);/g, (_m, d) => String.fromCharCode(Number(d)))
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 /** Truncate release notes to a reasonable length for the toast. */
-function truncateReleaseNotes(body: string, maxLen = 600): string {
+function truncateReleaseNotes(body: string, maxLen = 2000): string {
   if (!body) return '';
-  if (body.length <= maxLen) return body;
-  return body.slice(0, maxLen).replace(/\n[^\n]*$/, '') + '\n…';
+  const plain = stripHtml(body);
+  if (plain.length <= maxLen) return plain;
+  return plain.slice(0, maxLen).replace(/\n[^\n]*$/, '') + '\n…';
 }
 
 export default function DesktopSettings() {

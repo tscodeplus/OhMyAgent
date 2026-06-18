@@ -98,12 +98,20 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: () => void }) 
 
   return (
     <div
-      className={`pointer-events-auto flex items-center gap-3 rounded-lg px-4 py-3 min-w-[320px] max-w-[480px] animate-[toast-in_0.2s_ease-out] ${card}`}
+      className={`pointer-events-auto flex flex-col rounded-lg px-4 py-3 min-w-[320px] max-w-[520px] animate-[toast-in_0.2s_ease-out] ${card}`}
     >
-      <Icon size={18} className={`shrink-0 ${ic}`} />
-      <span className="text-sm flex-1 whitespace-pre-wrap leading-snug text-neutral-900 dark:text-neutral-100">{toast.message}</span>
+      <div className="flex items-start gap-3 w-full">
+        <Icon size={18} className={`shrink-0 mt-0.5 ${ic}`} />
+        <span className="text-sm flex-1 whitespace-pre-wrap leading-snug text-neutral-900 dark:text-neutral-100 max-h-[55vh] overflow-y-auto break-words">{toast.message}</span>
+        <button
+          onClick={onRemove}
+          className={`shrink-0 rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors ${ic}`}
+        >
+          <X size={16} strokeWidth={2} />
+        </button>
+      </div>
       {toast.actions && toast.actions.length > 0 && (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 mt-3 justify-end">
           {toast.actions.map((act, i) => (
             <button
               key={i}
@@ -122,12 +130,6 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: () => void }) 
           ))}
         </div>
       )}
-      <button
-        onClick={onRemove}
-        className={`shrink-0 rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors ${ic}`}
-      >
-        <X size={16} strokeWidth={2} />
-      </button>
     </div>
   );
 }
