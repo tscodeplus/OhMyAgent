@@ -472,6 +472,7 @@
       "appVersion": "版本",
       "checkUpdates": "检查更新",
       "checking": "正在检查...",
+      "downloading": "正在下载更新...",
       "upToDate": "已是最新版本",
       "newVersionAvailable": "发现新版本：{{version}}",
       "downloadUpdate": "下载更新",

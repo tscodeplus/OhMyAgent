@@ -43,6 +43,7 @@ export default function DesktopSettings() {
   const [latestVersion, setLatestVersion] = useState('');
   const [updateError, setUpdateError] = useState('');
   const [releaseNotes, setReleaseNotes] = useState('');
+  const [downloadPercent, setDownloadPercent] = useState(0);
 
   // Prevent duplicate toasts for the same version
   const toastedVersionRef = useRef('');
@@ -138,6 +139,10 @@ export default function DesktopSettings() {
     api.onUpdateNotAvailable(() => {
       setUpdateStatus('up-to-date');
       showToast(t('settings.about.upToDate'), 'success', 3000);
+    });
+
+    api.onUpdateDownloadProgress((info: any) => {
+      setDownloadPercent(Math.round(info.percent || 0));
     });
 
     api.onUpdateDownloaded((info: any) => {
@@ -254,6 +259,7 @@ export default function DesktopSettings() {
   }, []);
 
   const isChecking = updateStatus === 'checking';
+  const isDownloading = updateStatus === 'downloading';
 
   if (loading) return <div className="flex justify-center py-8"><Spinner /></div>;
 
@@ -305,17 +311,34 @@ export default function DesktopSettings() {
         </div>
 
         {/* ── Action Buttons ── */}
-        <div className="flex justify-start mt-4">
+        <div className="flex flex-col items-start gap-3 mt-4">
           <Button
             variant="secondary"
             size="sm"
             loading={isChecking}
+            disabled={isDownloading}
             onClick={handleCheckUpdates}
           >
             {isChecking
               ? t('settings.about.checking')
               : t('settings.about.checkUpdates')}
           </Button>
+
+          {/* Download progress bar */}
+          {isDownloading && (
+            <div className="w-full max-w-[320px] space-y-1.5">
+              <div className="flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400">
+                <span>{t('settings.about.downloading')}</span>
+                <span className="font-mono tabular-nums">{downloadPercent}%</span>
+              </div>
+              <div className="w-full h-2 rounded-full bg-neutral-200 dark:bg-neutral-700 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-indigo-500 transition-[width] duration-300 ease-out"
+                  style={{ width: `${downloadPercent}%` }}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </section>
     </div>

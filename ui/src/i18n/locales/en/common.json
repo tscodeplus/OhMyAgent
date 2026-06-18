@@ -468,6 +468,7 @@
       "appVersion": "Version",
       "checkUpdates": "Check for Updates",
       "checking": "Checking...",
+      "downloading": "Downloading update...",
       "upToDate": "You are up to date",
       "newVersionAvailable": "New version available: {{version}}",
       "downloadUpdate": "Download Update",

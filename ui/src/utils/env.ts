@@ -24,6 +24,7 @@ declare global {
       onUpdateDownloaded: (cb: (info: unknown) => void) => void;
       onUpdateNotAvailable: (cb: () => void) => void;
       onUpdateError: (cb: (info: unknown) => void) => void;
+      onUpdateDownloadProgress: (cb: (info: { percent: number }) => void) => void;
       removeUpdateListeners: () => void;
       getAppVersion: () => Promise<string>;
       getPlatform: () => string;
