@@ -29,6 +29,7 @@ import multipart from '@fastify/multipart';
 import cors from '@fastify/cors';
 import { WebSocketManager, createWebSocketPlugin } from './webui/websocket.js';
 import { registerDesktopBridge } from './webui/desktop-bridge-routes.js';
+import { registerSystemRoutes } from './webui/system-routes.js';
 import type { DesktopBridgeRegistry } from '../agent/desktop-bridge-registry.js';
 
 export interface WebUIRouteConfig {
@@ -153,7 +154,10 @@ export async function registerWebUIRoutes(
   // 7. Register Desktop Bridge WebSocket (for remote tool execution)
   const bridgeRegistry = registerDesktopBridge(app);
 
-  // 8. Register subscription routes (depends on WebSocket for login progress)
+  // 8. Register system routes (update check, etc.)
+  registerSystemRoutes(app);
+
+  // 9. Register subscription routes (depends on WebSocket for login progress)
   if (cfg.services.subscriptionService) {
     registerSubscriptionRoutes(app, {
       subscriptionService: cfg.services.subscriptionService,

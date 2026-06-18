@@ -8,6 +8,7 @@ import type { ServerManager } from './server-manager.js';
 import { createTray, destroyTray } from './tray.js';
 import { getDesktopConfig, type DesktopConfig } from './config.js';
 import { DesktopBridge } from './desktop-bridge.js';
+import { getAppUpdater } from './updater.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -383,6 +384,32 @@ function registerIpcHandlers(): void {
   ipcMain.handle('quit-app', () => {
     diagLog('[OhMyAgent] quit-app invoked');
     app.exit(0);
+  });
+
+  // ── Updater IPC ────────────────────────────────────────────────────
+  ipcMain.handle('check-for-updates', async () => {
+    diagLog('[OhMyAgent] check-for-updates IPC invoked');
+    try {
+      await getAppUpdater().checkForUpdates();
+    } catch (err) {
+      diagLog(`[OhMyAgent] check-for-updates error: ${err}`);
+      throw err;
+    }
+  });
+
+  ipcMain.handle('download-update', async () => {
+    diagLog('[OhMyAgent] download-update IPC invoked');
+    try {
+      await getAppUpdater().downloadUpdate();
+    } catch (err) {
+      diagLog(`[OhMyAgent] download-update error: ${err}`);
+      throw err;
+    }
+  });
+
+  ipcMain.handle('install-update', () => {
+    diagLog('[OhMyAgent] install-update IPC invoked');
+    getAppUpdater().installAndRestart();
   });
 
   // ── Desktop Bridge IPC ──────────────────────────────────────────────────
@@ -883,6 +910,9 @@ app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
 
   createWindow();
+
+  // Initialize updater and point it at the main window
+  getAppUpdater().setWindow(mainWindow!);
 
   const gatewayConfig = getDesktopConfig().getGatewayConfig();
   const firstRunDone = getDesktopConfig().get('firstRunDone');

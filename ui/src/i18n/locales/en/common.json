@@ -116,8 +116,8 @@
       "vision": "Vision Bridge",
       "multimodal": "Multimodal",
       "appearance": "Appearance",
-      "desktop": "Desktop",
       "gateway": "Gateway",
+      "about": "About",
       "subscriptions": "Subscription Login"
     },
     "subscriptions": {
@@ -462,16 +462,22 @@
       "showUsage": "Show Token Usage",
       "showCacheHitRate": "Show Cache Hit Rate"
     },
-    "desktop": {
-      "title": "Desktop Settings",
-      "autoStart": "Auto-start",
-      "autoStartDesc": "Automatically launch OhMyAgent on system startup",
-      "closeToTray": "Close to Tray",
-      "closeToTrayDesc": "Minimize to system tray instead of quitting when closing the window",
-      "appVersion": "App Version",
+    "about": {
+      "title": "About",
+      "slogan": "Remembers. Understands. Respects.",
+      "appVersion": "Version",
       "checkUpdates": "Check for Updates",
-      "checkingUpdates": "Checking...",
-      "openDataDir": "Open Data Directory"
+      "checking": "Checking...",
+      "upToDate": "You are up to date",
+      "newVersionAvailable": "New version available: {{version}}",
+      "downloadUpdate": "Download Update",
+      "updateNow": "Update Now",
+      "upgradeToLatest": "Upgrade to Latest",
+      "updateDownloaded": "Update downloaded — click below to install and restart",
+      "installAndRestart": "Install & Restart",
+      "githubUnreachable": "Cannot connect to GitHub — check your network",
+      "githubRepo": "GitHub Repository: ",
+      "submitIssue": "Submit Issues & Suggestions"
     },
     "gateway": {
       "title": "Gateway Connection",

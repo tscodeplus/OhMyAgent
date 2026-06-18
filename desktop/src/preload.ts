@@ -34,9 +34,17 @@ import { contextBridge, ipcRenderer } from 'electron';
       onUpdateDownloaded: (cb: (info: unknown) => void) => {
         ipcRenderer.on('update-downloaded', (_event, info) => cb(info));
       },
+      onUpdateNotAvailable: (cb: () => void) => {
+        ipcRenderer.on('update-not-available', () => cb());
+      },
+      onUpdateError: (cb: (info: unknown) => void) => {
+        ipcRenderer.on('update-error', (_event, info) => cb(info));
+      },
       removeUpdateListeners: () => {
         ipcRenderer.removeAllListeners('update-available');
+        ipcRenderer.removeAllListeners('update-not-available');
         ipcRenderer.removeAllListeners('update-downloaded');
+        ipcRenderer.removeAllListeners('update-error');
       },
 
       // Gateway

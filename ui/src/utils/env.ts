@@ -22,6 +22,8 @@ declare global {
       installUpdate: () => Promise<void>;
       onUpdateAvailable: (cb: (info: unknown) => void) => void;
       onUpdateDownloaded: (cb: (info: unknown) => void) => void;
+      onUpdateNotAvailable: (cb: () => void) => void;
+      onUpdateError: (cb: (info: unknown) => void) => void;
       removeUpdateListeners: () => void;
       getAppVersion: () => Promise<string>;
       getPlatform: () => string;

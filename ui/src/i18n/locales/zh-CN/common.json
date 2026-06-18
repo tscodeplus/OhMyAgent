@@ -117,8 +117,8 @@
       "vision": "视觉桥接",
       "multimodal": "多模态",
       "appearance": "外观设置",
-      "desktop": "桌面设置",
       "gateway": "网关连接",
+      "about": "关于",
       "subscriptions": "订阅登录"
     },
     "subscriptions": {
@@ -466,16 +466,22 @@
       "showUsage": "显示 Token 用量",
       "showCacheHitRate": "显示缓存命中率"
     },
-    "desktop": {
-      "title": "桌面设置",
-      "autoStart": "开机自启",
-      "autoStartDesc": "系统启动时自动运行 OhMyAgent",
-      "closeToTray": "关闭到系统托盘",
-      "closeToTrayDesc": "点击关闭按钮时最小化到系统托盘而非退出",
-      "appVersion": "应用版本",
+    "about": {
+      "title": "关于",
+      "slogan": "长于记忆。精于理解。忠于边界。",
+      "appVersion": "版本",
       "checkUpdates": "检查更新",
-      "checkingUpdates": "正在检查...",
-      "openDataDir": "打开数据目录"
+      "checking": "正在检查...",
+      "upToDate": "已是最新版本",
+      "newVersionAvailable": "发现新版本：{{version}}",
+      "downloadUpdate": "下载更新",
+      "updateNow": "立即更新",
+      "upgradeToLatest": "升级到最新版",
+      "updateDownloaded": "更新已下载，点击下方按钮安装并重启",
+      "installAndRestart": "安装并重启",
+      "githubUnreachable": "无法连接 GitHub，请检查网络连接",
+      "githubRepo": "GitHub 仓库地址：",
+      "submitIssue": "提交问题和建议"
     },
     "gateway": {
       "title": "网关连接",

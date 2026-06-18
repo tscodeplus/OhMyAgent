@@ -1,159 +1,305 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ExternalLink } from 'lucide-react';
 import { isElectron, getElectronAPI } from '../../../utils/env';
-import Toggle from '../../ui/Toggle';
+import { getToken } from '../../../utils/api';
+import { useToast } from '../../ui/Toast';
+import Spinner from '../../ui/Spinner';
 import Button from '../../ui/Button';
+
+type UpdateStatus = 'idle' | 'checking' | 'up-to-date' | 'available' | 'downloading' | 'downloaded' | 'error';
+
+const GITHUB_REPO_URL = 'https://github.com/tscodeplus/OhMyAgent';
+const GITHUB_ISSUES_URL = 'https://github.com/tscodeplus/OhMyAgent/issues';
+
+/** Truncate release notes to a reasonable length for the toast. */
+function truncateReleaseNotes(body: string, maxLen = 600): string {
+  if (!body) return '';
+  if (body.length <= maxLen) return body;
+  return body.slice(0, maxLen).replace(/\n[^\n]*$/, '') + '\n…';
+}
 
 export default function DesktopSettings() {
   const { t } = useTranslation('common');
+  const { showToast } = useToast();
 
-  const [autoStart, setAutoStart] = useState(false);
-  const [closeToTray, setCloseToTray] = useState(false);
   const [appVersion, setAppVersion] = useState('');
   const [loading, setLoading] = useState(true);
-  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle');
+  const [latestVersion, setLatestVersion] = useState('');
+  const [updateError, setUpdateError] = useState('');
+  const [releaseNotes, setReleaseNotes] = useState('');
 
-  const loadSettings = useCallback(async () => {
-    console.log('[OhMyAgent] DesktopSettings loadSettings called, isElectron:', isElectron());
-    if (!isElectron()) return;
+  // Prevent duplicate toasts for the same version
+  const toastedVersionRef = useRef('');
+
+  // ── Load current version ──
+  const loadVersion = useCallback(async () => {
     setLoading(true);
     try {
-      const api = getElectronAPI()!;
-      console.log('[OhMyAgent] DesktopSettings: electronAPI keys:', Object.keys(api));
-      const [as, ct, ver] = await Promise.all([
-        api.getAutoStart(),
-        api.getConfig('closeToTray') as Promise<boolean>,
-        api.getAppVersion(),
-      ]);
-      console.log('[OhMyAgent] DesktopSettings loaded:', { autoStart: as, closeToTray: ct, appVersion: ver });
-      setAutoStart(as);
-      setCloseToTray(!!ct);
-      setAppVersion(ver);
-    } catch (err) {
-      console.error('[OhMyAgent] DesktopSettings loadSettings error:', err);
+      if (isElectron()) {
+        const ver = await getElectronAPI()!.getAppVersion();
+        setAppVersion(ver);
+      } else {
+        const res = await fetch('/api/health');
+        const data = await res.json();
+        setAppVersion(data.version || '');
+      }
+    } catch {
+      // ignore
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadSettings();
-  }, [loadSettings]);
+    loadVersion();
+  }, [loadVersion]);
 
-  const handleAutoStartToggle = useCallback(async (enable: boolean) => {
+  // ── WebUI: trigger server-side update (defined early — referenced by toast) ──
+  const handleWebUIUpdate = useCallback(async () => {
+    setUpdateError('');
     try {
-      await getElectronAPI()!.setAutoStart(enable);
-      setAutoStart(enable);
-    } catch {
-      // ignore
+      const token = getToken();
+      const res = await fetch('/api/system/perform-update', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        throw new Error(data.error || 'Update failed');
+      }
+      setUpdateStatus('downloaded');
+    } catch (err: any) {
+      setUpdateError(err.message || 'Update failed');
+      setUpdateStatus('error');
     }
   }, []);
 
-  const handleCloseToTrayToggle = useCallback(async (value: boolean) => {
-    try {
-      await getElectronAPI()!.setConfig('closeToTray', value);
-      setCloseToTray(value);
-    } catch {
-      // ignore
-    }
-  }, []);
+  // ── Show update-available toast with release notes ──
+  const showUpdateToast = useCallback((version: string, notes: string) => {
+    if (toastedVersionRef.current === version) return;
+    toastedVersionRef.current = version;
 
+    const body = truncateReleaseNotes(notes);
+    const message = body
+      ? `${t('settings.about.newVersionAvailable', { version })}\n\n${body}`
+      : t('settings.about.newVersionAvailable', { version });
+
+    showToast(message, 'info', 0, [
+      {
+        label: t('settings.about.upgradeToLatest'),
+        onClick: () => {
+          if (isElectron()) {
+            setUpdateStatus('downloading');
+            getElectronAPI()!.downloadUpdate();
+          } else {
+            handleWebUIUpdate();
+          }
+        },
+      },
+      {
+        label: t('common.cancel'),
+        onClick: () => {
+          toastedVersionRef.current = '';
+        },
+      },
+    ]);
+  }, [showToast, t, handleWebUIUpdate]);
+
+  // ── Electron update event listeners ──
+  useEffect(() => {
+    if (!isElectron()) return;
+    const api = getElectronAPI()!;
+
+    api.onUpdateAvailable((info: any) => {
+      const ver = info.version || '';
+      const notes = info.releaseNotes || '';
+      setLatestVersion(ver);
+      setReleaseNotes(typeof notes === 'string' ? notes : '');
+      setUpdateStatus('available');
+      showUpdateToast(ver, typeof notes === 'string' ? notes : '');
+    });
+
+    api.onUpdateNotAvailable(() => {
+      setUpdateStatus('up-to-date');
+    });
+
+    api.onUpdateDownloaded((info: any) => {
+      setLatestVersion(info.version || latestVersion);
+      setUpdateStatus('downloaded');
+    });
+
+    api.onUpdateError((info: any) => {
+      setUpdateError(info?.message || t('settings.about.githubUnreachable'));
+      setUpdateStatus('error');
+    });
+
+    return () => {
+      api.removeUpdateListeners();
+    };
+  }, [latestVersion, showUpdateToast, t]);
+
+  // ── Check for updates ──
   const handleCheckUpdates = useCallback(async () => {
-    setCheckingUpdate(true);
+    setUpdateStatus('checking');
+    setUpdateError('');
+
+    if (isElectron()) {
+      try {
+        await getElectronAPI()!.checkForUpdates();
+        // Result comes via event listeners above
+      } catch {
+        setUpdateError(t('settings.about.githubUnreachable'));
+        setUpdateStatus('error');
+      }
+    } else {
+      try {
+        const token = getToken();
+        const res = await fetch('/api/system/check-update', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const data = await res.json();
+
+        if (!data.ok) {
+          if (data.error === 'github_unreachable' || data.error === 'github_error') {
+            setUpdateError(t('settings.about.githubUnreachable'));
+          } else {
+            setUpdateError(data.message || 'Unknown error');
+          }
+          setUpdateStatus('error');
+          return;
+        }
+
+        setLatestVersion(data.latestVersion);
+        setReleaseNotes(data.releaseNotes || '');
+        setAppVersion(data.currentVersion);
+
+        if (data.updateAvailable) {
+          setUpdateStatus('available');
+          showUpdateToast(data.latestVersion, data.releaseNotes || '');
+        } else {
+          setUpdateStatus('up-to-date');
+          showToast(t('settings.about.upToDate'), 'success', 3000);
+        }
+      } catch (err: any) {
+        setUpdateError(t('settings.about.githubUnreachable'));
+        setUpdateStatus('error');
+      }
+    }
+  }, [appVersion, showUpdateToast, showToast, t]);
+
+  // ── Download update (Electron only) ──
+  const handleDownloadUpdate = useCallback(async () => {
+    setUpdateStatus('downloading');
     try {
-      await getElectronAPI()!.checkForUpdates();
+      await getElectronAPI()!.downloadUpdate();
     } catch {
-      // ignore
-    } finally {
-      setCheckingUpdate(false);
+      setUpdateError('Failed to download update');
+      setUpdateStatus('error');
     }
   }, []);
 
-  const handleOpenDataDir = useCallback(async () => {
+  // ── Install & restart (Electron only) ──
+  const handleInstallUpdate = useCallback(async () => {
     try {
-      await getElectronAPI()!.openDataDir();
+      await getElectronAPI()!.installUpdate();
     } catch {
-      // ignore
+      setUpdateError('Failed to install update');
+      setUpdateStatus('error');
     }
   }, []);
 
-  // Only render in Electron
-  if (!isElectron()) return null;
+  // ── Toast on downloaded / error status ──
+  useEffect(() => {
+    if (updateStatus === 'downloaded') {
+      if (isElectron()) {
+        showToast(t('settings.about.updateDownloaded'), 'success', 0, [
+          {
+            label: t('settings.about.installAndRestart'),
+            onClick: () => handleInstallUpdate(),
+          },
+        ]);
+      } else {
+        showToast(t('settings.about.updateDownloaded'), 'success', 3000);
+      }
+      setUpdateStatus('idle');
+    }
+  }, [updateStatus, showToast, t, handleInstallUpdate]);
+
+  useEffect(() => {
+    if (updateStatus === 'error' && updateError) {
+      showToast(updateError, 'error', 5000);
+    }
+  }, [updateStatus, updateError, showToast]);
+
+  // ── Open external links ──
+  const handleOpenUrl = useCallback((url: string) => {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }, []);
+
+  const isChecking = updateStatus === 'checking';
+
+  if (loading) return <div className="flex justify-center py-8"><Spinner /></div>;
 
   return (
     <div className="space-y-6">
-      {/* ── Desktop Settings ── */}
       <section>
-        <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">
-          {t('settings.desktop.title')}
-        </h3>
-
-        {/* Auto-start */}
-        <div className="flex items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 mb-3">
-          <div>
-            <label className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-              {t('settings.desktop.autoStart')}
-            </label>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              {t('settings.desktop.autoStartDesc')}
-            </p>
-          </div>
-          <Toggle
-            checked={autoStart}
-            onChange={handleAutoStartToggle}
-            ariaLabel={t('settings.desktop.autoStart')}
-            disabled={loading}
-          />
+        {/* ── Logo ── */}
+        <div className="flex flex-col items-center mb-6">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" fill="none" className="w-24 h-24">
+            <defs>
+              <linearGradient id="logo-bg" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#6366f1"/>
+                <stop offset="100%" stop-color="#4f46e5"/>
+              </linearGradient>
+            </defs>
+            <rect x="64" y="64" width="896" height="896" rx="224" fill="url(#logo-bg)"/>
+            <text x="50%" y="55%" dominant-baseline="middle" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="580" font-weight="bold" fill="white">O</text>
+          </svg>
+          <p className="mt-3 text-sm font-semibold text-neutral-500 dark:text-neutral-400 text-center">
+            OhMyAgent {appVersion ? `v${appVersion}` : ''}
+          </p>
+          <p className="mt-1 text-lg font-semibold text-neutral-800 dark:text-neutral-200 text-center">
+            {t('settings.about.slogan')}
+          </p>
         </div>
 
-        {/* Close to Tray */}
-        <div className="flex items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 mb-3">
-          <div>
-            <label className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-              {t('settings.desktop.closeToTray')}
-            </label>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              {t('settings.desktop.closeToTrayDesc')}
-            </p>
-          </div>
-          <Toggle
-            checked={closeToTray}
-            onChange={handleCloseToTrayToggle}
-            ariaLabel={t('settings.desktop.closeToTray')}
-            disabled={loading}
-          />
-        </div>
-
-        {/* App Version */}
-        <div className="flex items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 mb-3">
-          <div>
-            <label className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-              {t('settings.desktop.appVersion')}
-            </label>
-          </div>
-          <span className="text-sm text-neutral-600 dark:text-neutral-400">
-            {appVersion || '...'}
+        {/* ── GitHub repo link + Submit Issue button ── */}
+        <div className="flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3 mb-3">
+          <span className="text-xs text-neutral-500 dark:text-neutral-400 shrink-0 font-semibold">
+            {t('settings.about.githubRepo')}
           </span>
-        </div>
-
-        {/* Action buttons */}
-        <div className="flex flex-wrap gap-3">
+          <a
+            href={GITHUB_REPO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-blue-600 dark:text-blue-400 hover:underline truncate flex items-center gap-1"
+          >
+            {GITHUB_REPO_URL}
+          </a>
           <Button
             variant="secondary"
             size="sm"
-            loading={checkingUpdate}
+            onClick={() => handleOpenUrl(GITHUB_ISSUES_URL)}
+            className="ml-auto shrink-0"
+          >
+            <ExternalLink size={14} />
+            {t('settings.about.submitIssue')}
+          </Button>
+        </div>
+
+        {/* ── Action Buttons ── */}
+        <div className="flex justify-start mt-4">
+          <Button
+            variant="secondary"
+            size="sm"
+            loading={isChecking}
             onClick={handleCheckUpdates}
           >
-            {checkingUpdate
-              ? t('settings.desktop.checkingUpdates')
-              : t('settings.desktop.checkUpdates')}
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={handleOpenDataDir}
-          >
-            {t('settings.desktop.openDataDir')}
+            {isChecking
+              ? t('settings.about.checking')
+              : t('settings.about.checkUpdates')}
           </Button>
         </div>
       </section>

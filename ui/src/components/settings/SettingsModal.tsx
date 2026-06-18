@@ -57,8 +57,8 @@ export const SETTINGS_GROUPS = [
   { id: 'memory', labelKey: 'settings.groups.memory' },
   { id: 'multimodal', labelKey: 'settings.groups.multimodal' },
   { id: 'computer', labelKey: 'settings.groups.computer' },
-  { id: 'desktop', labelKey: 'settings.groups.desktop' },
   { id: 'gateway', labelKey: 'settings.groups.gateway' },
+  { id: 'about', labelKey: 'settings.groups.about' },
 ] as const;
 
 const COMPONENT_MAP: Record<string, React.ComponentType<any>> = {
@@ -71,8 +71,8 @@ const COMPONENT_MAP: Record<string, React.ComponentType<any>> = {
   memory: MemorySettings,
   multimodal: MultimodalSettings,
   computer: ComputerUseSettings,
-  desktop: DesktopSettings,
   gateway: GatewaySettings,
+  about: DesktopSettings,
 };
 
 export default function SettingsModal({ onClose }: SettingsModalProps) {
@@ -98,11 +98,11 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
   }, [activeGroup]);
 
   const visibleGroups = SETTINGS_GROUPS.filter(
-    (g) => (g.id !== 'desktop' && g.id !== 'gateway') || isElectron(),
+    (g) => g.id !== 'gateway' || isElectron(),
   );
 
-  // If currently on an Electron-only tab and not in Electron, fall back to general
-  if (!isElectron() && (activeGroup === 'desktop' || activeGroup === 'gateway')) {
+  // If currently on a gateway tab and not in Electron, fall back to general
+  if (!isElectron() && activeGroup === 'gateway') {
     setActiveGroup('general');
   }
 
@@ -299,14 +299,14 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                 <ComputerUseSettings {...tabProps} />
               </div>
             )}
-            {mountedTabs.has('desktop') && (
-              <div style={{ display: activeGroup === 'desktop' ? undefined : 'none' }}>
-                <DesktopSettings />
-              </div>
-            )}
             {mountedTabs.has('gateway') && (
               <div style={{ display: activeGroup === 'gateway' ? undefined : 'none' }}>
                 <GatewaySettings {...tabProps} />
+              </div>
+            )}
+            {mountedTabs.has('about') && (
+              <div style={{ display: activeGroup === 'about' ? undefined : 'none' }}>
+                <DesktopSettings />
               </div>
             )}
           </div>
