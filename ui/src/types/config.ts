@@ -55,7 +55,10 @@ export interface ProviderModel {
   name: string;
   api?: string;
   reasoning?: boolean;
+  reasoningLevel?: string;
   contextWindow?: number;
+  maxTokens?: number;
+  input?: string[];
 }
 
 export interface AgentConfig {

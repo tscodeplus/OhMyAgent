@@ -202,7 +202,7 @@
       "modelMaxTokens": "最大 Token",
       "noProviders": "未配置自定义 Providers",
       "noModels": "该 Provider 尚未添加模型",
-      "providers": "提供商",
+      "providers": "模型供应商",
       "providersDesc": "管理内置和自定义 Provider 的 API Key。所有功能（对话、记忆、向量）共享这些配置。",
       "builtinProviders": "内置提供商",
       "newProvider": "新提供商",

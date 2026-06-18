@@ -198,6 +198,7 @@
       "modelReasoningLevel": "Reasoning Level",
       "modelContextWindow": "Context Window",
       "modelMaxTokens": "Max Tokens",
+      "modelInput": "Input Modalities",
       "noProviders": "No custom providers configured",
       "noModels": "No models for this provider",
       "providers": "Providers",

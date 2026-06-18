@@ -18,6 +18,7 @@ interface ProviderModel {
   reasoningLevel?: string;
   contextWindow?: number;
   maxTokens?: number;
+  input?: string[];
 }
 
 interface CustomProvider {
@@ -85,6 +86,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
   const [providerKeys, setProviderKeys] = useState<Record<string, ProviderKeyEntry>>({});
   const [providerKeysDirty, setProviderKeysDirty] = useState(false);
   const [customProvidersDirty, setCustomProvidersDirty] = useState(false);
+  const [customProvidersNeedsRestart, setCustomProvidersNeedsRestart] = useState(false);
 
   /* ─── UI state (kept as-is) ─── */
   const [expandedCustom, setExpandedCustom] = useState<Set<number>>(new Set());
@@ -150,6 +152,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
     const updated = [...customProviders, { provider, apiKey, baseUrl, models: [] }];
     setCustomProviders(updated);
     setCustomProvidersDirty(true);
+    setCustomProvidersNeedsRestart(true);
     setExpandedCustom(prev => new Set(prev).add(updated.length - 1));
     setShowCustomModal(false);
     setNewCustomForm({ provider: '', apiKey: '', baseUrl: '' });
@@ -159,12 +162,14 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
     const updated = customProviders.filter((_, i) => i !== idx);
     setCustomProviders(updated);
     setCustomProvidersDirty(true);
+    setCustomProvidersNeedsRestart(true);
   };
 
   const updateCustomProvider = (idx: number, field: keyof CustomProvider, value: unknown) => {
     const updated = customProviders.map((p, i) => i === idx ? { ...p, [field]: value } : p);
     setCustomProviders(updated);
     setCustomProvidersDirty(true);
+    setCustomProvidersNeedsRestart(true);
   };
 
   const toggleCustomProvider = (idx: number) => {
@@ -184,6 +189,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
     });
     setCustomProviders(updated);
     setCustomProvidersDirty(true);
+    setCustomProvidersNeedsRestart(true);
   };
 
   const removeModel = (pIdx: number, mIdx: number) => {
@@ -193,6 +199,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
     });
     setCustomProviders(updated);
     setCustomProvidersDirty(true);
+    setCustomProvidersNeedsRestart(true);
   };
 
   const updateModel = (pIdx: number, mIdx: number, field: keyof ProviderModel, value: unknown) => {
@@ -202,6 +209,29 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
     });
     setCustomProviders(updated);
     setCustomProvidersDirty(true);
+    if (field !== 'reasoningLevel') {
+      setCustomProvidersNeedsRestart(true);
+    }
+  };
+
+  const toggleModelInput = (pIdx: number, mIdx: number, inputType: string) => {
+    const updated = customProviders.map((p, i) => {
+      if (i !== pIdx) return p;
+      return {
+        ...p,
+        models: p.models.map((m, mi) => {
+          if (mi !== mIdx) return m;
+          const current = m.input || [];
+          const next = current.includes(inputType)
+            ? current.filter(v => v !== inputType)
+            : [...current, inputType];
+          return { ...m, input: next };
+        }),
+      };
+    });
+    setCustomProviders(updated);
+    setCustomProvidersDirty(true);
+    setCustomProvidersNeedsRestart(true);
   };
 
   /* ─── Combined save / cancel / dirty ─── */
@@ -217,6 +247,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
       await saveSimple(opts);
       setProviderKeysDirty(false);
       setCustomProvidersDirty(false);
+      setCustomProvidersNeedsRestart(false);
     } catch (e) {
       showToast(t('settings.saveError'), 'error');
       throw e;
@@ -227,6 +258,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
     cancelSimple();
     setProviderKeysDirty(false);
     setCustomProvidersDirty(false);
+    setCustomProvidersNeedsRestart(false);
     fetchConfig(false);
   }, [cancelSimple, fetchConfig]);
 
@@ -238,17 +270,19 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
   handleCancelRef.current = handleCancel;
   const customProvidersDirtyRef = useRef(customProvidersDirty);
   customProvidersDirtyRef.current = customProvidersDirty;
+  const customProvidersNeedsRestartRef = useRef(customProvidersNeedsRestart);
+  customProvidersNeedsRestartRef.current = customProvidersNeedsRestart;
 
   useEffect(() => {
     const handle: SettingsTabHandle = {
       save: (opts) => handleSaveRef.current(opts),
       cancel: () => handleCancelRef.current(),
       isDirty: () => dirtyCount > 0 || providerKeysDirty || customProvidersDirty,
-      needsRestart: () => customProvidersDirtyRef.current,
+      needsRestart: () => customProvidersNeedsRestartRef.current,
     };
     registerHandle?.(tabId, handle);
     return () => registerHandle?.(tabId, null);
-  }, [tabId, registerHandle, dirtyCount, providerKeysDirty, customProvidersDirty]);
+  }, [tabId, registerHandle, dirtyCount, providerKeysDirty, customProvidersDirty, customProvidersNeedsRestart]);
 
   /* ─── Report dirty state to parent ─── */
 
@@ -573,6 +607,29 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                                     value={model.maxTokens ? String(model.maxTokens) : ''}
                                     onChange={(e) => updateModel(pIdx, mIdx, 'maxTokens', e.target.value ? Number(e.target.value) : undefined)}
                                     placeholder="e.g. 16384" />
+                                  <div className="col-span-2">
+                                    <label className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300 block mb-1.5">
+                                      {t('settings.models.modelInput')}
+                                    </label>
+                                    <div className="flex items-center gap-4">
+                                      {(['text', 'image', 'video'] as const).map(inputType => {
+                                        const checked = (model.input || []).includes(inputType);
+                                        return (
+                                          <label key={inputType} className="flex items-center gap-1.5 cursor-pointer select-none">
+                                            <input
+                                              type="checkbox"
+                                              checked={checked}
+                                              onChange={() => toggleModelInput(pIdx, mIdx, inputType)}
+                                              className="w-4 h-4 rounded border-neutral-300 dark:border-neutral-600 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                            />
+                                            <span className="text-[13px] text-neutral-700 dark:text-neutral-300">
+                                              {inputType}
+                                            </span>
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
                             ))}

@@ -98,7 +98,7 @@ const configSchema = z.object({
       reasoningLevel: z.string().optional(),
       contextWindow: z.number().int().positive().optional(),
       maxTokens: z.number().int().positive().optional(),
-      input: z.array(z.enum(["text", "image"])).optional(),
+      input: z.array(z.enum(["text", "image", "video"])).optional(),
       compat: z.record(z.string(), z.any()).optional(),
       cost: z.object({
         input: z.number(),

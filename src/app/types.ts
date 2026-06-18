@@ -47,7 +47,7 @@ export interface CustomModelConfig {
   contextWindow?: number;
   maxTokens?: number;
   /** Supported input modalities. Defaults to ["text"] if not set. */
-  input?: ("text" | "image")[];
+  input?: ("text" | "image" | "video")[];
   cost?: {
     input: number;
     output: number;
