@@ -480,6 +480,8 @@
       "upgradeToLatest": "升级到最新版",
       "updateDownloaded": "更新已下载，点击下方按钮安装并重启",
       "installAndRestart": "安装并重启",
+      "downloadFailed": "下载失败，请尝试手动下载。",
+      "openGithubReleases": "打开 GitHub Releases",
       "githubUnreachable": "无法连接 GitHub，请检查网络连接",
       "githubRepo": "GitHub 仓库地址：",
       "submitIssue": "提交问题和建议"

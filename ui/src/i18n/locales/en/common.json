@@ -476,6 +476,8 @@
       "upgradeToLatest": "Upgrade to Latest",
       "updateDownloaded": "Update downloaded — click below to install and restart",
       "installAndRestart": "Install & Restart",
+      "downloadFailed": "Download failed — please try manual download.",
+      "openGithubReleases": "Open GitHub Releases",
       "githubUnreachable": "Cannot connect to GitHub — check your network",
       "githubRepo": "GitHub Repository: ",
       "submitIssue": "Submit Issues & Suggestions"

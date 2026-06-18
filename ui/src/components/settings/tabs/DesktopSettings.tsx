@@ -47,6 +47,8 @@ export default function DesktopSettings() {
 
   // Prevent duplicate toasts for the same version
   const toastedVersionRef = useRef('');
+  // Track whether a download was attempted (to classify errors accurately)
+  const downloadAttemptedRef = useRef(false);
 
   // ── Load current version ──
   const loadVersion = useCallback(async () => {
@@ -103,20 +105,21 @@ export default function DesktopSettings() {
 
     showToast(message, 'info', 0, [
       {
+        label: t('common.cancel'),
+        onClick: () => {
+          toastedVersionRef.current = '';
+        },
+      },
+      {
         label: t('settings.about.upgradeToLatest'),
         onClick: () => {
           if (isElectron()) {
+            downloadAttemptedRef.current = true;
             setUpdateStatus('downloading');
             getElectronAPI()!.downloadUpdate();
           } else {
             handleWebUIUpdate();
           }
-        },
-      },
-      {
-        label: t('common.cancel'),
-        onClick: () => {
-          toastedVersionRef.current = '';
         },
       },
     ]);
@@ -146,13 +149,30 @@ export default function DesktopSettings() {
     });
 
     api.onUpdateDownloaded((info: any) => {
+      downloadAttemptedRef.current = false;
       setLatestVersion(info.version || latestVersion);
       setUpdateStatus('downloaded');
     });
 
     api.onUpdateError((info: any) => {
-      setUpdateError(info?.message || t('settings.about.githubUnreachable'));
+      const msg = info?.message || t('settings.about.githubUnreachable');
+      setUpdateError(msg);
       setUpdateStatus('error');
+
+      // If a download was attempted, offer a fallback to GitHub Releases
+      if (downloadAttemptedRef.current) {
+        downloadAttemptedRef.current = false;
+        showToast(msg, 'error', 0, [
+          {
+            label: t('settings.about.openGithubReleases'),
+            onClick: () => window.open(GITHUB_REPO_URL + '/releases', '_blank', 'noopener,noreferrer'),
+          },
+          {
+            label: t('common.cancel'),
+            onClick: () => {},
+          },
+        ]);
+      }
     });
 
     return () => {
@@ -164,6 +184,8 @@ export default function DesktopSettings() {
   const handleCheckUpdates = useCallback(async () => {
     setUpdateStatus('checking');
     setUpdateError('');
+    setLatestVersion('');
+    setReleaseNotes('');
 
     if (isElectron()) {
       try {
@@ -248,10 +270,12 @@ export default function DesktopSettings() {
   }, [updateStatus, showToast, t, handleInstallUpdate]);
 
   useEffect(() => {
-    if (updateStatus === 'error' && updateError) {
+    // Skip generic error toast when download failed after a successful check —
+    // the onUpdateError callback already shows a toast with fallback actions.
+    if (updateStatus === 'error' && updateError && !latestVersion) {
       showToast(updateError, 'error', 5000);
     }
-  }, [updateStatus, updateError, showToast]);
+  }, [updateStatus, updateError, latestVersion, showToast]);
 
   // ── Open external links ──
   const handleOpenUrl = useCallback((url: string) => {
