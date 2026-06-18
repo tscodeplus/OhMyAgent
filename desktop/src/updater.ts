@@ -23,7 +23,7 @@ const T = {
     noUpdateAvailable: '暂无可用更新（尚未发布新版本或更新服务器不可达）',
     noUpdateConfig: '当前为便携版本，不支持在线更新。请前往 GitHub Releases 页面下载最新版本。',
     downloading: '正在下载...',
-    downloadFailed: '下载失败，请尝试使用 GitHub Releases 手动下载。',
+    downloadFailed: '下载失败，请尝试手动下载。',
     downloaded: '下载完成，点击安装并重启。',
     installAndRestart: '安装并重启',
     speed: (bps: string) => `速度: ${bps}`,
@@ -41,7 +41,7 @@ const T = {
     noUpdateAvailable: 'No update available (release not published or server unreachable)',
     noUpdateConfig: 'Portable build does not support online updates. Please visit GitHub Releases to download the latest version.',
     downloading: 'Downloading...',
-    downloadFailed: 'Download failed — please try GitHub Releases for manual download.',
+    downloadFailed: 'Download failed — please try manual download.',
     downloaded: 'Download complete. Click to install and restart.',
     installAndRestart: 'Install & Restart',
     speed: (bps: string) => `Speed: ${bps}`,
@@ -171,7 +171,8 @@ export class AppUpdater {
     autoUpdater.on('error', (error) => {
       console.error('[AppUpdater] Error:', error);
 
-      let message = error.message;
+      const rawMessage = error.message || String(error);
+      let message = rawMessage;
       if (message.includes('ENOENT') && message.includes('app-update.yml')) {
         // Portable build without publishing — update config not generated
         message = T[this.lang].noUpdateConfig;
@@ -183,7 +184,11 @@ export class AppUpdater {
       }
 
       if (!this.suppressEvents) {
-        this.mainWindow?.webContents.send('update-error', { message });
+        // Send both i18n message and raw error for debugging
+        this.mainWindow?.webContents.send('update-error', {
+          message,
+          raw: rawMessage,
+        });
         // Also forward to tray-initiated download progress window
         if (this.progressWin && !this.progressWin.isDestroyed()) {
           this.progressWin.webContents.send('update-error', { message });
@@ -524,14 +529,15 @@ export class AppUpdater {
        user-select:none;-webkit-app-region:drag}
   .header{position:absolute;top:0;left:0;right:0;padding:16px 24px 0;
           text-align:center;font-size:14px;font-weight:600}
-  .card{display:flex;flex-direction:column;align-items:center;gap:16px;width:280px}
+  .card{display:flex;flex-direction:column;align-items:center;gap:14px;width:320px}
   .label{font-size:13px;color:${muted}}
   .bar-wrap{width:100%;height:6px;border-radius:3px;background:${barBg};overflow:hidden}
   .bar-fill{height:100%;border-radius:3px;background:${barFill};
             width:0%;transition:width .2s ease-out}
   .percent{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums}
   .speed{font-size:12px;color:${muted}}
-  .status{font-size:13px;font-weight:600;text-align:center;line-height:1.5}
+  .status{font-size:13px;font-weight:600;text-align:center;line-height:1.4;
+          max-width:320px;word-break:keep-all;overflow-wrap:break-word}
   .footer{position:absolute;bottom:0;left:0;right:0;padding:14px 20px;
           display:flex;justify-content:flex-end;gap:10px;
           border-top:1px solid ${border}}
@@ -580,7 +586,7 @@ export class AppUpdater {
 </body></html>`;
 
     const win = new BrowserWindow({
-      width: 380,
+      width: 420,
       height: 260,
       frame: false,
       resizable: false,
@@ -600,7 +606,8 @@ export class AppUpdater {
       this.progressWin = null;
     });
 
-    win.webContents.on('will-navigate', (event, url) => {
+    // Intercept navigation for button clicks
+    const handleProgressNav = (event: Electron.Event, url: string) => {
       event.preventDefault();
       if (url === 'oma://install') {
         this.closeProgressWin();
@@ -608,7 +615,10 @@ export class AppUpdater {
       } else if (url === 'oma://close-progress') {
         this.closeProgressWin();
       }
-    });
+    };
+
+    win.webContents.on('will-navigate', handleProgressNav);
+    win.webContents.on('will-redirect', handleProgressNav);
 
     win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 
@@ -616,7 +626,7 @@ export class AppUpdater {
       if (this.mainWindow) {
         const [mx, my] = this.mainWindow.getPosition();
         const [mw, mh] = this.mainWindow.getSize();
-        win.setPosition(mx + Math.round((mw - 380) / 2), my + Math.round((mh - 260) / 2));
+        win.setPosition(mx + Math.round((mw - 420) / 2), my + Math.round((mh - 260) / 2));
       } else {
         win.center();
       }
