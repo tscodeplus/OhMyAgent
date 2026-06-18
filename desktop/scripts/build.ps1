@@ -427,7 +427,7 @@ function Invoke-Package([string]$Target) {
     $desc = if ($Target -eq "portable") { "portable (win-unpacked)" } else { "NSIS installer" }
     Write-Step "Packaging: $desc"
 
-    $flags = if ($Target -eq "portable") { "--win --dir" } else { "--win --publish never" }
+    $flags = if ($Target -eq "portable") { "--win --dir --publish never" } else { "--win --publish never" }
     $r = Invoke-Cmd "npx electron-builder $flags" $DesktopDir
 
     if (-not $r.Success) {
