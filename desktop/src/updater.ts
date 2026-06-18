@@ -175,7 +175,6 @@ export class AppUpdater {
       height: 180,
       frame: false,
       resizable: false,
-      alwaysOnTop: true,
       skipTaskbar: true,
       show: false,
       backgroundColor: primaryBg,
@@ -201,6 +200,16 @@ export class AppUpdater {
 
     spinWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(spinnerHtml)}`);
 
+    // Helper: safely destroy the spinner window
+    const closeSpinWin = () => {
+      try {
+        if (!spinWin.isDestroyed()) spinWin.destroy();
+      } catch { /* window might already be gone */ }
+    };
+
+    // Safety timeout: force-close spinner after 30s no matter what
+    const safetyTimer = setTimeout(closeSpinWin, 30_000);
+
     // Show when content is ready
     spinWin.once('ready-to-show', () => {
       if (this.mainWindow) {
@@ -215,7 +224,8 @@ export class AppUpdater {
 
     try {
       const result = await autoUpdater.checkForUpdates();
-      spinWin.close();
+      clearTimeout(safetyTimer);
+      closeSpinWin();
 
       if (result) {
         // Safety check: don't show "new version" dialog if the update
@@ -230,7 +240,8 @@ export class AppUpdater {
         this.showUpToDateDialog();
       }
     } catch (err: any) {
-      spinWin.close();
+      clearTimeout(safetyTimer);
+      closeSpinWin();
 
       let message = err.message || String(err);
       if (message.includes('404') || message.includes('latest.yml')) {
@@ -291,7 +302,6 @@ export class AppUpdater {
       height: 220,
       frame: false,
       resizable: false,
-      alwaysOnTop: true,
       skipTaskbar: true,
       show: false,
       backgroundColor: bg,
@@ -391,7 +401,6 @@ export class AppUpdater {
       height: 460,
       frame: false,
       resizable: false,
-      alwaysOnTop: true,
       skipTaskbar: true,
       show: false,
       backgroundColor: bg,
