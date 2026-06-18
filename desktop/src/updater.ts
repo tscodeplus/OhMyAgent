@@ -91,23 +91,31 @@ export class AppUpdater {
   }
 
   async checkForUpdates(): Promise<void> {
+    this.diagLog(`checkForUpdates() called — running network diag first`);
+    await this.runNetworkDiagnostic();
     try {
       const result = await autoUpdater.checkForUpdates();
       if (!result) {
+        this.diagLog('checkForUpdates: no update available (null result)');
         this.mainWindow?.webContents.send('update-not-available');
+      } else {
+        this.diagLog(`checkForUpdates: update found version=${result.updateInfo.version} files=${JSON.stringify(result.updateInfo.files?.map((f: any) => f.url))}`);
       }
-    } catch {
-      // Error is handled by autoUpdater.on('error') listener — don't duplicate IPC
+    } catch (err: any) {
+      this.diagLog(`checkForUpdates: error caught — ${err.message || String(err)}`);
       console.error('[AppUpdater] Check for updates failed');
     }
   }
 
   async downloadUpdate(): Promise<void> {
+    this.diagLog(`downloadUpdate() called — running network diag`);
+    await this.runNetworkDiagnostic();
     this.downloading = true;
     try {
       await autoUpdater.downloadUpdate();
-    } catch {
-      // Error is handled by autoUpdater.on('error') listener — don't duplicate IPC
+      this.diagLog('downloadUpdate: completed successfully');
+    } catch (err: any) {
+      this.diagLog(`downloadUpdate: error caught — ${err.message || String(err)}`);
       console.error('[AppUpdater] Download failed');
     } finally {
       this.downloading = false;
@@ -126,12 +134,16 @@ export class AppUpdater {
 
   private registerListeners(): void {
     autoUpdater.on('checking-for-update', () => {
-      console.log('[AppUpdater] Checking for updates...');
+      this.diagLog('event: checking-for-update');
     });
 
     autoUpdater.on('update-available', (info: UpdateInfo) => {
-      if (this.suppressEvents) return;
-      console.log('[AppUpdater] Update available:', info.version);
+      if (this.suppressEvents) {
+        this.diagLog(`event: update-available SUPPRESSED version=${info.version}`);
+        return;
+      }
+      const downloadUrls = info.files?.map((f: any) => f.url).join(', ') || 'none';
+      this.diagLog(`event: update-available version=${info.version} files=[${downloadUrls}]`);
       this.mainWindow?.webContents.send('update-available', {
         version: info.version,
         releaseDate: info.releaseDate,
@@ -140,12 +152,18 @@ export class AppUpdater {
     });
 
     autoUpdater.on('update-not-available', () => {
-      if (this.suppressEvents) return;
-      console.log('[AppUpdater] Already up to date.');
+      if (this.suppressEvents) {
+        this.diagLog('event: update-not-available SUPPRESSED');
+        return;
+      }
+      this.diagLog('event: update-not-available');
       this.mainWindow?.webContents.send('update-not-available');
     });
 
     autoUpdater.on('download-progress', (progress) => {
+      if (Math.round(progress.percent) % 10 === 0) {
+        this.diagLog(`download-progress: ${Math.round(progress.percent)}% (${((progress.bytesPerSecond || 0) / 1024).toFixed(1)} KB/s)`);
+      }
       const data = {
         percent: progress.percent,
         bytesPerSecond: progress.bytesPerSecond,
@@ -153,18 +171,16 @@ export class AppUpdater {
         transferred: progress.transferred,
       };
       this.mainWindow?.webContents.send('update-download-progress', data);
-      // Also forward to tray-initiated download progress window
       if (this.progressWin && !this.progressWin.isDestroyed()) {
         this.progressWin.webContents.send('update-download-progress', data);
       }
     });
 
     autoUpdater.on('update-downloaded', (info: UpdateInfo) => {
-      console.log('[AppUpdater] Update downloaded:', info.version);
+      this.diagLog(`event: update-downloaded version=${info.version}`);
       this.updateDownloaded = true;
       const data = { version: info.version, releaseNotes: info.releaseNotes };
       this.mainWindow?.webContents.send('update-downloaded', data);
-      // Also forward to tray-initiated download progress window
       if (this.progressWin && !this.progressWin.isDestroyed()) {
         this.progressWin.webContents.send('update-downloaded', data);
       }
@@ -646,6 +662,47 @@ export class AppUpdater {
       const ts = new Date().toISOString();
       fs.appendFileSync(path.join(logsDir, 'electron-diag.log'), `[${ts}] [AppUpdater] ${msg}\n`);
     } catch { /* best effort */ }
+  }
+
+  /** Log Electron proxy settings and test network reachability to key GitHub hosts. */
+  private async runNetworkDiagnostic(): Promise<void> {
+    this.diagLog('=== Network Diagnostic ===');
+
+    // ── Proxy settings ──
+    try {
+      const { net } = require('electron');
+      // Log session-level proxy settings
+      const session = this.mainWindow?.webContents?.session;
+      if (session) {
+        const proxySettings = await session.resolveProxy('https://github.com');
+        this.diagLog(`Proxy for github.com: ${proxySettings || '(none/direct)'}`);
+        const proxySettings2 = await session.resolveProxy('https://api.github.com');
+        this.diagLog(`Proxy for api.github.com: ${proxySettings2 || '(none/direct)'}`);
+        const proxySettings3 = await session.resolveProxy('https://release-assets.githubusercontent.com');
+        this.diagLog(`Proxy for release-assets.githubusercontent.com: ${proxySettings3 || '(none/direct)'}`);
+      } else {
+        this.diagLog('No session available for proxy check');
+      }
+    } catch (e: any) {
+      this.diagLog(`Failed to resolve proxy: ${e.message}`);
+    }
+
+    // ── Connectivity test ──
+    const testUrls = [
+      { label: 'GitHub API', url: 'https://api.github.com/repos/tscodeplus/OhMyAgent/releases/latest' },
+      { label: 'GitHub release redirect', url: 'https://github.com/tscodeplus/OhMyAgent/releases/download/v0.5.2/latest.yml' },
+    ];
+    for (const { label, url } of testUrls) {
+      try {
+        const start = Date.now();
+        const resp = await fetch(url, { method: 'HEAD', redirect: 'follow', signal: AbortSignal.timeout(10_000) });
+        const elapsed = Date.now() - start;
+        this.diagLog(`[${label}] HTTP ${resp.status} (${elapsed}ms) finalUrl=${resp.url}`);
+      } catch (e: any) {
+        this.diagLog(`[${label}] FAILED: ${e.message || String(e)}`);
+      }
+    }
+    this.diagLog('=== Network Diagnostic END ===');
   }
 
   /** Safely close the download progress window. */
