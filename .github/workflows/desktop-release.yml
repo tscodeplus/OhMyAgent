@@ -169,7 +169,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ohmyagent-windows-x64
-          path: desktop/release/*.exe
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.yml
+            desktop/release/*.blockmap
           retention-days: 30
 
       - name: Upload macOS artifacts
@@ -177,7 +180,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ohmyagent-macos-universal
-          path: desktop/release/*.dmg
+          path: |
+            desktop/release/*.dmg
+            desktop/release/*.yml
+            desktop/release/*.blockmap
           retention-days: 30
 
       - name: Upload Linux artifacts
@@ -188,6 +194,8 @@ jobs:
           path: |
             desktop/release/*.AppImage
             desktop/release/*.deb
+            desktop/release/*.yml
+            desktop/release/*.blockmap
           retention-days: 30
 
   # ------------------------------------------------------------------
@@ -229,7 +237,7 @@ jobs:
           fi
           # Collect only installer files
           ASSETS=()
-          for f in release-artifacts/**/*.exe release-artifacts/**/*.dmg release-artifacts/**/*.AppImage release-artifacts/**/*.deb; do
+          for f in release-artifacts/**/*.exe release-artifacts/**/*.dmg release-artifacts/**/*.AppImage release-artifacts/**/*.deb release-artifacts/**/*.yml release-artifacts/**/*.blockmap; do
             [[ -f "$f" ]] && ASSETS+=("$f")
           done
           NOTES_FILE="docs/release-notes/${{ github.ref_name }}.md"
