@@ -1,7 +1,7 @@
 import pkg from 'electron-updater';
 const { autoUpdater } = pkg;
 import type { UpdateInfo } from 'electron-updater';
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron';
+import { app, BrowserWindow, dialog, nativeTheme, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getDesktopConfig } from './config.js';
@@ -572,23 +572,13 @@ export class AppUpdater {
     <div class="speed" id="spd">&nbsp;</div>
     <div class="status" id="st"></div>
   </div>
-  <div class="footer hidden" id="ftr">
-    <button class="btn-secondary" id="btn-releases" style="display:none">${T[this.lang].githubRelease}</button>
-    <button class="btn-secondary" id="btn-close">${T[this.lang].cancel}</button>
-    <button class="btn-primary" id="btn-install">${T[this.lang].installAndRestart}</button>
+  <div class="footer" id="ftr">
+    <button class="btn-secondary" id="btn-releases" style="display:none" onclick="window.location.href='oma://releases'">${T[this.lang].githubRelease}</button>
+    <button class="btn-secondary" id="btn-close" onclick="window.location.href='oma://close-progress'">${T[this.lang].cancel}</button>
+    <button class="btn-primary" id="btn-install" style="display:none" onclick="window.location.href='oma://install'">${T[this.lang].installAndRestart}</button>
   </div>
 <script>
   const {ipcRenderer} = require('electron');
-  // Wire up button handlers via addEventListener — more reliable than inline onclick
-  document.getElementById('btn-releases').addEventListener('click', () => {
-    ipcRenderer.send('oma-progress-action', 'releases');
-  });
-  document.getElementById('btn-close').addEventListener('click', () => {
-    ipcRenderer.send('oma-progress-action', 'close');
-  });
-  document.getElementById('btn-install').addEventListener('click', () => {
-    ipcRenderer.send('oma-progress-action', 'install');
-  });
   function fmtSize(b){if(!b||b<=0)return'';const u=['B','KB','MB','GB'];let i=0,v=b;while(v>=1024&&i<u.length-1){v/=1024;i++}return v.toFixed(v<10?1:0)+' '+u[i]}
   ipcRenderer.on('update-download-progress',(_e,d)=>{
     document.getElementById('pct').textContent=Math.round(d.percent)+'%';
@@ -600,12 +590,11 @@ export class AppUpdater {
     document.getElementById('bar').style.width='100%';
     document.getElementById('spd').textContent='';
     document.getElementById('st').textContent='${T[this.lang].downloaded}';
-    document.getElementById('ftr').classList.remove('hidden');
+    document.getElementById('btn-install').style.display='';
+    document.getElementById('btn-releases').style.display='none';
   });
   ipcRenderer.on('update-error',(_e,d)=>{
     document.getElementById('st').textContent=d.message||'${T[this.lang].downloadFailed}';
-    document.getElementById('ftr').classList.remove('hidden');
-    document.getElementById('btn-install').style.display='none';
     document.getElementById('btn-releases').style.display='';
   });
 </script>
@@ -632,23 +621,20 @@ export class AppUpdater {
       this.progressWin = null;
     });
 
-    // IPC-based button handling — more reliable than navigation events on data: URLs
-    const progressIpcChannel = 'oma-progress-action';
-    const handler = (_event: any, action: string) => {
-      if (action === 'install') {
+    // Navigation-based button handling — same pattern as showUpdateDialogForTray
+    const handleNav = (event: Electron.Event, url: string) => {
+      event.preventDefault();
+      if (url === 'oma://install') {
         this.closeProgressWin();
         this.installAndRestart();
-      } else if (action === 'close') {
+      } else if (url === 'oma://close-progress') {
         this.closeProgressWin();
-      } else if (action === 'releases') {
+      } else if (url === 'oma://releases') {
         shell.openExternal('https://github.com/tscodeplus/OhMyAgent/releases');
       }
     };
-    ipcMain.on(progressIpcChannel, handler);
-
-    win.once('closed', () => {
-      ipcMain.removeListener(progressIpcChannel, handler);
-    });
+    win.webContents.on('will-navigate', handleNav);
+    win.webContents.on('will-redirect', handleNav);
 
     win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 
