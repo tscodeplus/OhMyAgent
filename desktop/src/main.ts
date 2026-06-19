@@ -326,9 +326,7 @@ function registerIpcHandlers(): void {
   // Desktop config getter (electron-store backed)
   ipcMain.handle('get-config', (_event, key: string) => {
     try {
-      const val = getDesktopConfig().get(key as keyof DesktopConfig);
-      diagLog(`[OhMyAgent] get-config: ${key} = ${JSON.stringify(val)}`);
-      return val;
+      return getDesktopConfig().get(key as keyof DesktopConfig);
     } catch (err) {
       diagLog(`[OhMyAgent] get-config error for key=${key}: ${err}`);
       throw err;
@@ -339,7 +337,6 @@ function registerIpcHandlers(): void {
   ipcMain.handle('set-config', (_event, key: string, value: unknown) => {
     try {
       getDesktopConfig().set(key as keyof DesktopConfig, value as never);
-      diagLog(`[OhMyAgent] set-config: ${key} = ${JSON.stringify(value)}`);
       return { ok: true };
     } catch (err) {
       diagLog(`[OhMyAgent] set-config error for key=${key}: ${err}`);
@@ -350,9 +347,7 @@ function registerIpcHandlers(): void {
   // Gateway config IPC
   ipcMain.handle('get-gateway-config', () => {
     try {
-      const config = getDesktopConfig().getGatewayConfig();
-      diagLog(`[OhMyAgent] get-gateway-config: ${JSON.stringify(config)}`);
-      return config;
+      return getDesktopConfig().getGatewayConfig();
     } catch (err) {
       diagLog(`[OhMyAgent] get-gateway-config error: ${err}`);
       throw err;
@@ -362,7 +357,6 @@ function registerIpcHandlers(): void {
   ipcMain.handle('set-gateway-config', (_event, config: unknown) => {
     try {
       getDesktopConfig().setGatewayConfig(config as Record<string, unknown>);
-      diagLog(`[OhMyAgent] set-gateway-config: ${JSON.stringify(config)}`);
       return { ok: true };
     } catch (err) {
       diagLog(`[OhMyAgent] set-gateway-config error: ${err}`);
@@ -373,7 +367,6 @@ function registerIpcHandlers(): void {
   ipcMain.handle('reset-gateway-config', () => {
     try {
       getDesktopConfig().setGatewayConfig({ mode: 'local', remoteUrl: '', remoteToken: '' });
-      diagLog('[OhMyAgent] reset-gateway-config');
       return { ok: true };
     } catch (err) {
       diagLog(`[OhMyAgent] reset-gateway-config error: ${err}`);
@@ -419,12 +412,10 @@ function registerIpcHandlers(): void {
 
   // ── Desktop Bridge IPC ──────────────────────────────────────────────────
   ipcMain.handle('bridge-register-session', (_event, sessionId: string) => {
-    diagLog(`[OhMyAgent] bridge-register-session: ${sessionId}`);
     desktopBridge?.registerSession(sessionId);
   });
 
   ipcMain.handle('bridge-unregister-session', (_event, sessionId: string) => {
-    diagLog(`[OhMyAgent] bridge-unregister-session: ${sessionId}`);
     desktopBridge?.unregisterSession(sessionId);
   });
 
@@ -456,7 +447,6 @@ function registerIpcHandlers(): void {
           const data = params.url.split(',')[1] || '';
           await writeFile(result.filePath, Buffer.from(data));
         }
-        diagLog(`[OhMyAgent] save-file-from-url: saved data URL to ${result.filePath}`);
         return { ok: true };
       }
 
@@ -481,7 +471,6 @@ function registerIpcHandlers(): void {
       }
 
       await pipeline(response, createWriteStream(result.filePath));
-      diagLog(`[OhMyAgent] save-file-from-url: saved ${params.filename} to ${result.filePath}`);
       return { ok: true };
     } catch (err: any) {
       diagLog(`[OhMyAgent] save-file-from-url error: ${err.message}`);
@@ -515,7 +504,6 @@ function registerIpcHandlers(): void {
 
     try {
       await fs.promises.copyFile(resolved, result.filePath);
-      diagLog(`[OhMyAgent] save-local-file: copied ${resolved} to ${result.filePath}`);
       return { ok: true };
     } catch (err: any) {
       diagLog(`[OhMyAgent] save-local-file error: ${err.message}`);

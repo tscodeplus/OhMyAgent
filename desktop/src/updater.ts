@@ -73,16 +73,13 @@ export class AppUpdater {
     // IPC handlers for progress window button actions.
     // The progress window renderer sends these via ipcRenderer.send().
     ipcMain.on('oma:progress-cancel', () => {
-      this.diagLog('IPC: oma:progress-cancel received');
       this.cancelDownload();
     });
     ipcMain.on('oma:progress-install', () => {
-      this.diagLog('IPC: oma:progress-install received');
       this.closeProgressWin();
       this.installAndRestart();
     });
     ipcMain.on('oma:progress-releases', () => {
-      this.diagLog('IPC: oma:progress-releases received');
       shell.openExternal('https://github.com/tscodeplus/OhMyAgent/releases');
     });
   }
@@ -166,7 +163,7 @@ export class AppUpdater {
 
   private registerListeners(): void {
     autoUpdater.on('checking-for-update', () => {
-      this.diagLog('event: checking-for-update');
+      // silent — checkForUpdates/downloadUpdate already log entry
     });
 
     autoUpdater.on('update-available', (info: UpdateInfo) => {
@@ -185,7 +182,6 @@ export class AppUpdater {
 
     autoUpdater.on('update-not-available', () => {
       if (this.suppressEvents) {
-        this.diagLog('event: update-not-available SUPPRESSED');
         return;
       }
       this.diagLog('event: update-not-available');
@@ -193,7 +189,7 @@ export class AppUpdater {
     });
 
     autoUpdater.on('download-progress', (progress) => {
-      if (Math.round(progress.percent) % 10 === 0) {
+      if (Math.round(progress.percent) % 25 === 0) {
         this.diagLog(`download-progress: ${Math.round(progress.percent)}% (${((progress.bytesPerSecond || 0) / 1024).toFixed(1)} KB/s)`);
       }
       const data = {
@@ -564,7 +560,6 @@ export class AppUpdater {
    * events from the main process and updates its UI accordingly.
    */
   private showDownloadProgressWindow(): void {
-    this.diagLog('showDownloadProgressWindow() called');
     // Close any previous progress window
     this.closeProgressWin();
 
@@ -625,22 +620,17 @@ export class AppUpdater {
   </div>
 <script>
   var ipc = require('electron').ipcRenderer;
-  console.log('[progress] script loaded, nodeIntegration=' + (typeof require !== 'undefined'));
 
   // ── Button handlers via addEventListener ──
   document.getElementById('btn-close').addEventListener('click', function(e) {
-    console.log('[progress] btn-close clicked');
     ipc.send('oma:progress-cancel');
   });
   document.getElementById('btn-install').addEventListener('click', function(e) {
-    console.log('[progress] btn-install clicked');
     ipc.send('oma:progress-install');
   });
   document.getElementById('btn-releases').addEventListener('click', function(e) {
-    console.log('[progress] btn-releases clicked');
     ipc.send('oma:progress-releases');
   });
-  console.log('[progress] button listeners registered');
 
   // ── Progress events from main process ──
   function fmtSize(b){if(!b||b<=0)return'';const u=['B','KB','MB','GB'];let i=0,v=b;while(v>=1024&&i<u.length-1){v/=1024;i++}return v.toFixed(v<10?1:0)+' '+u[i]}
@@ -649,7 +639,7 @@ export class AppUpdater {
     document.getElementById('bar').style.width=d.percent+'%';
     document.getElementById('spd').textContent=fmtSize(d.bytesPerSecond)+'/s';
   });
-  ipc.on('update-downloaded',function(_e,d){console.log('[progress] update-downloaded received');
+  ipc.on('update-downloaded',function(_e,d){
     document.getElementById('pct').textContent='100%';
     document.getElementById('bar').style.width='100%';
     document.getElementById('spd').textContent='';
@@ -657,11 +647,10 @@ export class AppUpdater {
     document.getElementById('btn-install').style.display='';
     document.getElementById('btn-releases').style.display='none';
   });
-  ipc.on('update-error',function(_e,d){console.log('[progress] update-error received: ' + (d.message||''));
+  ipc.on('update-error',function(_e,d){
     document.getElementById('st').textContent=d.message||'${T[this.lang].downloadFailed}';
     document.getElementById('btn-releases').style.display='';
   });
-  console.log('[progress] ipc listeners registered');
 </script>
 </body></html>`;
 
@@ -691,14 +680,11 @@ export class AppUpdater {
 
     // Prevent double-click maximize on frameless window (caused by -webkit-app-region:drag)
     win.on("maximize", () => {
-      this.diagLog('progressWin: maximize event fired — unmaximizing');
       win.unmaximize();
     });
     win.on("unmaximize", () => {
-      this.diagLog('progressWin: unmaximize event fired');
     });
 
-    this.diagLog("progressWin: window created");
 
     win.once('ready-to-show', () => {
       if (this.mainWindow) {
@@ -724,22 +710,12 @@ export class AppUpdater {
 
   /** Log Electron proxy settings and test network reachability to key GitHub hosts. */
   private async runNetworkDiagnostic(): Promise<void> {
-    this.diagLog('=== Network Diagnostic ===');
-
     // ── Proxy settings ──
     try {
-      const { net } = require('electron');
-      // Log session-level proxy settings
+
       const session = this.mainWindow?.webContents?.session;
       if (session) {
-        const proxySettings = await session.resolveProxy('https://github.com');
-        this.diagLog(`Proxy for github.com: ${proxySettings || '(none/direct)'}`);
-        const proxySettings2 = await session.resolveProxy('https://api.github.com');
-        this.diagLog(`Proxy for api.github.com: ${proxySettings2 || '(none/direct)'}`);
-        const proxySettings3 = await session.resolveProxy('https://release-assets.githubusercontent.com');
-        this.diagLog(`Proxy for release-assets.githubusercontent.com: ${proxySettings3 || '(none/direct)'}`);
-      } else {
-        this.diagLog('No session available for proxy check');
+        await session.resolveProxy('https://github.com');
       }
     } catch (e: any) {
       this.diagLog(`Failed to resolve proxy: ${e.message}`);
@@ -752,20 +728,15 @@ export class AppUpdater {
     ];
     for (const { label, url } of testUrls) {
       try {
-        const start = Date.now();
-        const resp = await fetch(url, { method: 'HEAD', redirect: 'follow', signal: AbortSignal.timeout(10_000) });
-        const elapsed = Date.now() - start;
-        this.diagLog(`[${label}] HTTP ${resp.status} (${elapsed}ms) finalUrl=${resp.url}`);
+        await fetch(url, { method: 'HEAD', redirect: 'follow', signal: AbortSignal.timeout(10_000) });
       } catch (e: any) {
         this.diagLog(`[${label}] FAILED: ${e.message || String(e)}`);
       }
     }
-    this.diagLog('=== Network Diagnostic END ===');
   }
 
   /** Safely close the download progress window. */
   private closeProgressWin(): void {
-    this.diagLog('closeProgressWin() called');
     try {
       if (this.progressWin && !this.progressWin.isDestroyed()) {
         this.progressWin.destroy();
