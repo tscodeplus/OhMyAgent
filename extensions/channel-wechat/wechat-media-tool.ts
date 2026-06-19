@@ -77,9 +77,12 @@ export function createWechatMediaTool(options: WechatMediaToolOptions): AgentToo
 
         const ext = path.extname(filePath).toLowerCase();
         const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+        const videoExts = ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.flv', '.wmv', '.3gp', '.m4v'];
         const mediaType = imageExts.includes(ext)
           ? UploadMediaType.IMAGE
-          : UploadMediaType.FILE;
+          : videoExts.includes(ext)
+            ? UploadMediaType.VIDEO
+            : UploadMediaType.FILE;
 
         const mediaParam = await uploadMedia(
           apiBase,
@@ -93,7 +96,9 @@ export function createWechatMediaTool(options: WechatMediaToolOptions): AgentToo
 
         const msgType = imageExts.includes(ext)
           ? MessageItemType.IMAGE
-          : MessageItemType.FILE;
+          : videoExts.includes(ext)
+            ? MessageItemType.VIDEO
+            : MessageItemType.FILE;
 
         const itemList: unknown[] = msgType === MessageItemType.IMAGE
           ? [{
@@ -103,14 +108,21 @@ export function createWechatMediaTool(options: WechatMediaToolOptions): AgentToo
                 mid_size: mediaParam.fileSizeCiphertext,
               },
             }]
-          : [{
-              type: MessageItemType.FILE,
-              file_item: {
-                media: mediaParam,
-                file_name: path.basename(filePath),
-                len: String(mediaParam.fileSizeCiphertext ?? 0),
-              },
-            }];
+          : msgType === MessageItemType.VIDEO
+            ? [{
+                type: MessageItemType.VIDEO,
+                video_item: {
+                  media: mediaParam,
+                },
+              }]
+            : [{
+                type: MessageItemType.FILE,
+                file_item: {
+                  media: mediaParam,
+                  file_name: path.basename(filePath),
+                  len: String(mediaParam.fileSizeCiphertext ?? 0),
+                },
+              }];
 
         await sendMessage(apiBase, botToken, {
           toUserId,
@@ -141,7 +153,9 @@ export async function sendWechatMediaBuffer(
     await writeFile(filePath, buffer);
     const mediaType = mimeType.startsWith('image/')
       ? UploadMediaType.IMAGE
-      : UploadMediaType.FILE;
+      : mimeType.startsWith('video/')
+        ? UploadMediaType.VIDEO
+        : UploadMediaType.FILE;
     const mediaParam = await uploadMedia(
       options.apiBase,
       options.botToken,
@@ -153,7 +167,9 @@ export async function sendWechatMediaBuffer(
     );
     const msgType = mimeType.startsWith('image/')
       ? MessageItemType.IMAGE
-      : MessageItemType.FILE;
+      : mimeType.startsWith('video/')
+        ? MessageItemType.VIDEO
+        : MessageItemType.FILE;
     const itemList: unknown[] = msgType === MessageItemType.IMAGE
       ? [{
           type: MessageItemType.IMAGE,
@@ -162,14 +178,21 @@ export async function sendWechatMediaBuffer(
             mid_size: mediaParam.fileSizeCiphertext,
           },
         }]
-      : [{
-          type: MessageItemType.FILE,
-          file_item: {
-            media: mediaParam,
-            file_name: fileName,
-            len: String(mediaParam.fileSizeCiphertext ?? 0),
-          },
-        }];
+      : msgType === MessageItemType.VIDEO
+        ? [{
+            type: MessageItemType.VIDEO,
+            video_item: {
+              media: mediaParam,
+            },
+          }]
+        : [{
+            type: MessageItemType.FILE,
+            file_item: {
+              media: mediaParam,
+              file_name: fileName,
+              len: String(mediaParam.fileSizeCiphertext ?? 0),
+            },
+          }];
 
     await sendMessage(options.apiBase, options.botToken, {
       toUserId: options.toUserId,

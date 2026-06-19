@@ -52,6 +52,15 @@ export function isImageExtension(fileName: string): boolean {
 }
 
 /**
+ * Check whether a file name has a known video extension.
+ */
+export function isVideoExtension(fileName: string): boolean {
+  const ext = fileName.split('.').pop()?.toLowerCase();
+  if (!ext) return false;
+  return ['mp4', 'webm', 'mov', 'avi', 'mkv', 'flv', 'wmv', '3gp', 'm4v'].includes(ext);
+}
+
+/**
  * Map a file extension to a Feishu file type for upload.
  */
 export function detectFileType(fileName: string): 'opus' | 'mp4' | 'pdf' | 'doc' | 'xls' | 'ppt' | 'stream' {

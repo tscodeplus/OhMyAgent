@@ -87,7 +87,10 @@ export function createQqMediaTool(options: QqMediaToolOptions): AgentTool<any> {
         const fileName = path.basename(filePath);
         const ext = path.extname(fileName).toLowerCase();
         const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
-        const fileType = imageExts.includes(ext) ? 1 : 4;
+        const videoExts = ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.flv', '.wmv', '.3gp', '.m4v'];
+        const fileType = imageExts.includes(ext) ? 1
+          : videoExts.includes(ext) ? 2
+          : 4;
 
         await sendQQMediaBuffer(gateway, buffer, fileName, fileType, target);
 
@@ -150,8 +153,8 @@ async function uploadQQFileJson(
       srv_send_msg: false,
     };
 
-    // For files (not images), include file_name
-    if (fileType === 4) {
+    // For files and videos (not images), include file_name
+    if (fileType === 4 || fileType === 2) {
       body.file_name = filename;
     }
 

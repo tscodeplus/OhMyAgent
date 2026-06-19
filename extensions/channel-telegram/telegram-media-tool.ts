@@ -81,6 +81,7 @@ export function createTelegramMediaTool(options: TelegramMediaToolOptions): Agen
         const fileName = path.basename(filePath);
         const ext = path.extname(fileName).toLowerCase();
         const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+        const videoExts = ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.flv', '.wmv', '.3gp', '.m4v'];
 
         // grammY supports sending Buffer as InputFile with a filename
         const inputFile = new InputFile(buffer, fileName);
@@ -88,6 +89,11 @@ export function createTelegramMediaTool(options: TelegramMediaToolOptions): Agen
         if (imageExts.includes(ext)) {
           void await bot.api.sendPhoto(chatId, inputFile);
           return { content: [{ type: 'text' as const, text: `Image sent: ${fileName}` }] };
+        }
+
+        if (videoExts.includes(ext)) {
+          void await bot.api.sendVideo(chatId, inputFile);
+          return { content: [{ type: 'text' as const, text: `Video sent: ${fileName}` }] };
         }
 
         void await bot.api.sendDocument(chatId, inputFile);
@@ -109,6 +115,10 @@ export async function sendTelegramMediaBuffer(
   const inputFile = new InputFile(buffer, fileName);
   if (mimeType.startsWith('image/')) {
     await bot.api.sendPhoto(chatId, inputFile);
+    return;
+  }
+  if (mimeType.startsWith('video/')) {
+    await bot.api.sendVideo(chatId, inputFile);
     return;
   }
   await bot.api.sendDocument(chatId, inputFile);
