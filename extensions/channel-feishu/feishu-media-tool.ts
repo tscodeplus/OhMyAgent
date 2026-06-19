@@ -12,7 +12,7 @@ import os from 'os';
 import { Type } from 'typebox';
 import type { AgentTool } from '../../src/pi-mono/agent/types.js';
 import { i18n } from '../../src/i18n/index.js';
-import { isImageExtension, isVideoExtension, detectFileType } from './feishu-media.js';
+import { isImageExtension, isVideoExtension, detectFileType, getVideoDuration } from './feishu-media.js';
 import type { FeishuClient } from './feishu-client.js';
 
 
@@ -125,9 +125,18 @@ export function createFeishuMediaTool(options: FeishuMediaToolOptions) {
         if (isVideoExtension(fileName)) {
           // ─── Video path ───
           const fileType = detectFileType(fileName);
-          const { fileKey } = await feishuClient.uploadFile(buffer, fileName, fileType);
+          const durationMs = getVideoDuration(buffer);
+          const { fileKey } = await feishuClient.uploadFile(buffer, fileName, fileType, durationMs);
 
-          const content = JSON.stringify({ file_key: fileKey });
+          const mediaContent: Record<string, unknown> = {
+            file_key: fileKey,
+            file_name: fileName,
+          };
+          if (durationMs !== undefined) {
+            mediaContent.duration = durationMs;
+          }
+
+          const content = JSON.stringify(mediaContent);
           await feishuClient.sendMessage({
             receive_id: chatId,
             receive_id_type: 'chat_id',

@@ -91,3 +91,82 @@ export function detectFileType(fileName: string): 'opus' | 'mp4' | 'pdf' | 'doc'
       return 'stream';
   }
 }
+
+/**
+ * Extract video duration in milliseconds from an MP4/MOV buffer.
+ *
+ * Parses the ISO Base Media File Format (ISOBMFF) atom tree to find the
+ * `mvhd` (movie header) atom inside the `moov` atom and reads the
+ * timescale + duration fields.
+ *
+ * Returns duration in milliseconds, or undefined if the format is not
+ * recognized or the buffer does not contain a valid moov atom.
+ */
+export function getVideoDuration(buffer: Buffer): number | undefined {
+  try {
+    // Find and parse the moov atom
+    const moov = findAtom(buffer, 'moov', 0, buffer.length);
+    if (!moov) return undefined;
+
+    // Find mvhd inside moov
+    const mvhd = findAtom(buffer, 'mvhd', moov.offset + 8, moov.offset + moov.size);
+    if (!mvhd) return undefined;
+
+    // mvhd is at least 24 bytes after the atom header (version + flags + timescale + duration)
+    const dataStart = mvhd.offset + 8;
+    if (dataStart + 16 > mvhd.offset + mvhd.size) return undefined;
+
+    const version = buffer[dataStart];
+    if (version > 1) return undefined; // unknown mvhd version
+
+    if (version === 0) {
+      // 32-bit fields
+      const timescale = buffer.readUInt32BE(dataStart + 12);
+      const duration = buffer.readUInt32BE(dataStart + 16);
+      if (timescale === 0) return undefined;
+      return Math.round((duration / timescale) * 1000);
+    }
+
+    // version === 1: 64-bit duration
+    const timescale = buffer.readUInt32BE(dataStart + 20);
+    const duration = Number(buffer.readBigUInt64BE(dataStart + 24));
+    if (timescale === 0) return undefined;
+    return Math.round((duration / timescale) * 1000);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Find an ISOBMFF atom by its 4-CC type within a byte range in the buffer.
+ */
+function findAtom(
+  buffer: Buffer,
+  type: string,
+  rangeStart: number,
+  rangeEnd: number,
+): { offset: number; size: number } | undefined {
+  let pos = rangeStart;
+  while (pos + 8 <= rangeEnd) {
+    let size = buffer.readUInt32BE(pos);
+    const atomType = buffer.toString('ascii', pos + 4, pos + 8);
+
+    if (size === 0) {
+      // Atom extends to end of file
+      size = rangeEnd - pos;
+    } else if (size === 1) {
+      // 64-bit extended size
+      if (pos + 16 > rangeEnd) return undefined;
+      size = Number(buffer.readBigUInt64BE(pos + 8));
+    }
+
+    if (size < 8 || pos + size > rangeEnd) return undefined;
+
+    if (atomType === type) {
+      return { offset: pos, size };
+    }
+
+    pos += size;
+  }
+  return undefined;
+}
