@@ -6,9 +6,10 @@
  * as an image or file message.
  */
 
-import { readFile } from 'fs/promises';
+import { readFile, unlink } from 'fs/promises';
 import path from 'path';
 import os from 'os';
+import { execSync } from 'child_process';
 import { Type } from 'typebox';
 import type { AgentTool } from '../../src/pi-mono/agent/types.js';
 import { i18n } from '../../src/i18n/index.js';
@@ -128,12 +129,34 @@ export function createFeishuMediaTool(options: FeishuMediaToolOptions) {
           const durationMs = getVideoDuration(buffer);
           const { fileKey } = await feishuClient.uploadFile(buffer, fileName, fileType, durationMs);
 
+          // Extract first frame as thumbnail for video preview
+          let thumbnailImageKey: string | undefined;
+          const tmpThumb = path.join(os.tmpdir(), `thumb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.jpg`);
+          try {
+            execSync(
+              `ffmpeg -y -i "${filePath}" -vframes 1 -s 320x240 "${tmpThumb}"`,
+              { stdio: 'ignore', timeout: 10000 },
+            );
+            const thumbBuffer = await readFile(tmpThumb);
+            if (thumbBuffer.length > 0) {
+              const { imageKey } = await feishuClient.uploadImage(thumbBuffer, 'message');
+              thumbnailImageKey = imageKey;
+            }
+          } catch {
+            // Thumbnail extraction is optional — video sends fine without it
+          } finally {
+            await unlink(tmpThumb).catch(() => {});
+          }
+
           const mediaContent: Record<string, unknown> = {
             file_key: fileKey,
             file_name: fileName,
           };
           if (durationMs !== undefined) {
             mediaContent.duration = durationMs;
+          }
+          if (thumbnailImageKey) {
+            mediaContent.image_key = thumbnailImageKey;
           }
 
           const content = JSON.stringify(mediaContent);
