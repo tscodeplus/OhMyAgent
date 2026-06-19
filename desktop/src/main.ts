@@ -412,6 +412,11 @@ function registerIpcHandlers(): void {
     getAppUpdater().installAndRestart();
   });
 
+  ipcMain.handle('cancel-download', () => {
+    diagLog('[OhMyAgent] cancel-download IPC invoked');
+    getAppUpdater().cancelDownload();
+  });
+
   // ── Desktop Bridge IPC ──────────────────────────────────────────────────
   ipcMain.handle('bridge-register-session', (_event, sessionId: string) => {
     diagLog(`[OhMyAgent] bridge-register-session: ${sessionId}`);

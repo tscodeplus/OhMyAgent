@@ -242,6 +242,18 @@ export default function DesktopSettings() {
     }
   }, []);
 
+  // ── Cancel download (Electron only) ──
+  const handleCancelDownload = useCallback(async () => {
+    try {
+      await getElectronAPI()!.cancelDownload();
+    } catch {
+      // ignore
+    }
+    setUpdateStatus('idle');
+    setDownloadPercent(0);
+    downloadAttemptedRef.current = false;
+  }, []);
+
   // ── Install & restart (Electron only) ──
   const handleInstallUpdate = useCallback(async () => {
     try {
@@ -350,7 +362,7 @@ export default function DesktopSettings() {
 
           {/* Download progress bar */}
           {isDownloading && (
-            <div className="w-full max-w-[320px] space-y-1.5">
+            <div className="w-full max-w-[320px] space-y-2">
               <div className="flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400">
                 <span>{t('settings.about.downloading')}</span>
                 <span className="font-mono tabular-nums">{downloadPercent}%</span>
@@ -361,6 +373,14 @@ export default function DesktopSettings() {
                   style={{ width: `${downloadPercent}%` }}
                 />
               </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleCancelDownload}
+                className="w-full"
+              >
+                {t('common.cancel')}
+              </Button>
             </div>
           )}
         </div>

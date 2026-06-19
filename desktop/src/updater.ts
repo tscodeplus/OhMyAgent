@@ -1,7 +1,7 @@
 import pkg from 'electron-updater';
 const { autoUpdater } = pkg;
 import type { UpdateInfo } from 'electron-updater';
-import { app, BrowserWindow, dialog, nativeTheme, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getDesktopConfig } from './config.js';
@@ -60,6 +60,8 @@ export class AppUpdater {
   private progressWin: BrowserWindow | null = null;
   /** True while a download is in progress (used to classify errors). */
   private downloading = false;
+  /** True when the user has cancelled an in-progress download. */
+  private downloadCancelled = false;
 
   constructor() {
     // Do NOT auto-download — let the user decide
@@ -67,6 +69,20 @@ export class AppUpdater {
     autoUpdater.autoInstallOnAppQuit = true;
 
     this.registerListeners();
+
+    // IPC handlers for progress window button actions.
+    // The progress window uses nodeIntegration:true so onclick handlers
+    // send ipcRenderer messages that arrive here.
+    ipcMain.on('oma:progress-cancel', () => {
+      this.cancelDownload();
+    });
+    ipcMain.on('oma:progress-install', () => {
+      this.closeProgressWin();
+      this.installAndRestart();
+    });
+    ipcMain.on('oma:progress-releases', () => {
+      shell.openExternal('https://github.com/tscodeplus/OhMyAgent/releases');
+    });
   }
 
   setWindow(win: BrowserWindow): void {
@@ -91,6 +107,7 @@ export class AppUpdater {
   }
 
   async checkForUpdates(): Promise<void> {
+    this.downloadCancelled = false;
     this.diagLog(`checkForUpdates() called — running network diag first`);
     await this.runNetworkDiagnostic();
     try {
@@ -108,6 +125,7 @@ export class AppUpdater {
   }
 
   async downloadUpdate(): Promise<void> {
+    this.downloadCancelled = false;
     this.diagLog(`downloadUpdate() called — running network diag`);
     await this.runNetworkDiagnostic();
     this.downloading = true;
@@ -126,6 +144,18 @@ export class AppUpdater {
     if (this.updateDownloaded) {
       autoUpdater.quitAndInstall(false, true);
     }
+  }
+
+  /**
+   * Cancel an in-progress download (from About page or progress window).
+   * electron-updater doesn't support true cancellation, so we close the
+   * progress window and set a flag to ignore future download events.
+   */
+  cancelDownload(): void {
+    this.diagLog('cancelDownload() called');
+    this.downloadCancelled = true;
+    this.downloading = false;
+    this.closeProgressWin();
   }
 
   isUpdateDownloaded(): boolean {
@@ -177,6 +207,11 @@ export class AppUpdater {
     });
 
     autoUpdater.on('update-downloaded', (info: UpdateInfo) => {
+      if (this.downloadCancelled) {
+        this.diagLog(`event: update-downloaded IGNORED (cancelled) version=${info.version}`);
+        this.downloadCancelled = false;
+        return;
+      }
       this.diagLog(`event: update-downloaded version=${info.version}`);
       this.updateDownloaded = true;
       const data = { version: info.version, releaseNotes: info.releaseNotes };
@@ -187,6 +222,11 @@ export class AppUpdater {
     });
 
     autoUpdater.on('error', (error) => {
+      if (this.downloadCancelled) {
+        this.diagLog(`event: error IGNORED (cancelled)`);
+        this.downloadCancelled = false;
+        return;
+      }
       const rawMessage = error.message || String(error);
       this.diagLog(`Error (downloading=${this.downloading}): ${rawMessage}`);
 
@@ -573,11 +613,23 @@ export class AppUpdater {
     <div class="status" id="st"></div>
   </div>
   <div class="footer" id="ftr">
-    <button class="btn-secondary" id="btn-releases" style="display:none" onclick="window.location.href='oma://releases'">${T[this.lang].githubRelease}</button>
-    <button class="btn-secondary" id="btn-close" onclick="window.location.href='oma://close-progress'">${T[this.lang].cancel}</button>
-    <button class="btn-primary" id="btn-install" style="display:none" onclick="window.location.href='oma://install'">${T[this.lang].installAndRestart}</button>
+    <button class="btn-secondary" id="btn-releases" style="display:none" onclick="_omaReleases()">${T[this.lang].githubRelease}</button>
+    <button class="btn-secondary" id="btn-close" onclick="_omaCancel()">${T[this.lang].cancel}</button>
+    <button class="btn-primary" id="btn-install" style="display:none" onclick="_omaInstall()">${T[this.lang].installAndRestart}</button>
   </div>
 <script>
+  // Expose button actions globally for onclick handlers.
+  // With nodeIntegration:true, require('electron') is available.
+  window._omaCancel = function() {
+    require('electron').ipcRenderer.send('oma:progress-cancel');
+  };
+  window._omaInstall = function() {
+    require('electron').ipcRenderer.send('oma:progress-install');
+  };
+  window._omaReleases = function() {
+    require('electron').ipcRenderer.send('oma:progress-releases');
+  };
+
   const {ipcRenderer} = require('electron');
   function fmtSize(b){if(!b||b<=0)return'';const u=['B','KB','MB','GB'];let i=0,v=b;while(v>=1024&&i<u.length-1){v/=1024;i++}return v.toFixed(v<10?1:0)+' '+u[i]}
   ipcRenderer.on('update-download-progress',(_e,d)=>{
@@ -621,20 +673,6 @@ export class AppUpdater {
       this.progressWin = null;
     });
 
-    // Navigation-based button handling — same pattern as showUpdateDialogForTray
-    const handleNav = (event: Electron.Event, url: string) => {
-      event.preventDefault();
-      if (url === 'oma://install') {
-        this.closeProgressWin();
-        this.installAndRestart();
-      } else if (url === 'oma://close-progress') {
-        this.closeProgressWin();
-      } else if (url === 'oma://releases') {
-        shell.openExternal('https://github.com/tscodeplus/OhMyAgent/releases');
-      }
-    };
-    win.webContents.on('will-navigate', handleNav);
-    win.webContents.on('will-redirect', handleNav);
 
     win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 

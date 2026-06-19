@@ -20,6 +20,7 @@ declare global {
       checkForUpdates: () => Promise<void>;
       downloadUpdate: () => Promise<void>;
       installUpdate: () => Promise<void>;
+      cancelDownload: () => Promise<void>;
       onUpdateAvailable: (cb: (info: unknown) => void) => void;
       onUpdateDownloaded: (cb: (info: unknown) => void) => void;
       onUpdateNotAvailable: (cb: () => void) => void;

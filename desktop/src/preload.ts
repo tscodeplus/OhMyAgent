@@ -28,6 +28,7 @@ import { contextBridge, ipcRenderer } from 'electron';
       checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
       downloadUpdate: () => ipcRenderer.invoke('download-update'),
       installUpdate: () => ipcRenderer.invoke('install-update'),
+      cancelDownload: () => ipcRenderer.invoke('cancel-download'),
       onUpdateAvailable: (cb: (info: unknown) => void) => {
         ipcRenderer.on('update-available', (_event, info) => cb(info));
       },
