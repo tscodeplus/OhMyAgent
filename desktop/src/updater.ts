@@ -29,7 +29,7 @@ const T = {
     downloaded: '下载完成，点击安装并重启。',
     installAndRestart: '安装并重启',
     speed: (bps: string) => `速度: ${bps}`,
-    githubRelease: 'GitHub Releases',
+    githubRelease: '打开 GitHub Releases',
   },
   'en': {
     checking: 'Checking for updates...',
@@ -47,7 +47,7 @@ const T = {
     downloaded: 'Download complete. Click to install and restart.',
     installAndRestart: 'Install & Restart',
     speed: (bps: string) => `Speed: ${bps}`,
-    githubRelease: 'GitHub Releases',
+    githubRelease: 'Open GitHub Releases',
   },
 } as const;
 
@@ -573,12 +573,22 @@ export class AppUpdater {
     <div class="status" id="st"></div>
   </div>
   <div class="footer hidden" id="ftr">
-    <button class="btn-secondary" id="btn-releases" onclick="ipcRenderer.send('oma-progress-action','releases')" style="display:none">${T[this.lang].githubRelease}</button>
-    <button class="btn-secondary" id="btn-close" onclick="ipcRenderer.send('oma-progress-action','close')">${T[this.lang].cancel}</button>
-    <button class="btn-primary" id="btn-install" onclick="ipcRenderer.send('oma-progress-action','install')">${T[this.lang].installAndRestart}</button>
+    <button class="btn-secondary" id="btn-releases" style="display:none">${T[this.lang].githubRelease}</button>
+    <button class="btn-secondary" id="btn-close">${T[this.lang].cancel}</button>
+    <button class="btn-primary" id="btn-install">${T[this.lang].installAndRestart}</button>
   </div>
 <script>
   const {ipcRenderer} = require('electron');
+  // Wire up button handlers via addEventListener — more reliable than inline onclick
+  document.getElementById('btn-releases').addEventListener('click', () => {
+    ipcRenderer.send('oma-progress-action', 'releases');
+  });
+  document.getElementById('btn-close').addEventListener('click', () => {
+    ipcRenderer.send('oma-progress-action', 'close');
+  });
+  document.getElementById('btn-install').addEventListener('click', () => {
+    ipcRenderer.send('oma-progress-action', 'install');
+  });
   function fmtSize(b){if(!b||b<=0)return'';const u=['B','KB','MB','GB'];let i=0,v=b;while(v>=1024&&i<u.length-1){v/=1024;i++}return v.toFixed(v<10?1:0)+' '+u[i]}
   ipcRenderer.on('update-download-progress',(_e,d)=>{
     document.getElementById('pct').textContent=Math.round(d.percent)+'%';

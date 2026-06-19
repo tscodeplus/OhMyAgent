@@ -40,6 +40,10 @@ nsis:
   shortcutName: OhMyAgent
   include: build/nsis-installer.nsh
   differentialPackage: false
+  # Use hyphens consistently so latest.yml matches the uploaded filename.
+  # Without this, electron-builder generates latest.yml with hyphens but
+  # the actual file has dots (spaces → dots on GitHub Releases) → 404.
+  artifactName: "${productName}-Setup-${version}.${ext}"
 
 mac:
   target:
