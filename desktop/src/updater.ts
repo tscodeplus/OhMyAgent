@@ -69,20 +69,6 @@ export class AppUpdater {
     autoUpdater.autoInstallOnAppQuit = true;
 
     this.registerListeners();
-
-    // IPC handlers for progress window button actions.
-    // The progress window uses nodeIntegration:true so onclick handlers
-    // send ipcRenderer messages that arrive here.
-    ipcMain.on('oma:progress-cancel', () => {
-      this.cancelDownload();
-    });
-    ipcMain.on('oma:progress-install', () => {
-      this.closeProgressWin();
-      this.installAndRestart();
-    });
-    ipcMain.on('oma:progress-releases', () => {
-      shell.openExternal('https://github.com/tscodeplus/OhMyAgent/releases');
-    });
   }
 
   setWindow(win: BrowserWindow): void {
@@ -273,6 +259,7 @@ export class AppUpdater {
       frame: false,
       resizable: false,
       skipTaskbar: true,
+      parent: this.mainWindow ?? undefined,
       show: false,
       backgroundColor: primaryBg,
       webPreferences: { nodeIntegration: false, contextIsolation: true },
@@ -402,6 +389,7 @@ export class AppUpdater {
       frame: false,
       resizable: false,
       skipTaskbar: true,
+      parent: this.mainWindow ?? undefined,
       show: false,
       backgroundColor: bg,
       webPreferences: { nodeIntegration: false, contextIsolation: true },
@@ -510,6 +498,7 @@ export class AppUpdater {
       frame: false,
       resizable: false,
       skipTaskbar: true,
+      parent: this.mainWindow ?? undefined,
       show: false,
       backgroundColor: bg,
       webPreferences: { nodeIntegration: false, contextIsolation: true },
@@ -613,23 +602,11 @@ export class AppUpdater {
     <div class="status" id="st"></div>
   </div>
   <div class="footer" id="ftr">
-    <button class="btn-secondary" id="btn-releases" style="display:none" onclick="_omaReleases()">${T[this.lang].githubRelease}</button>
-    <button class="btn-secondary" id="btn-close" onclick="_omaCancel()">${T[this.lang].cancel}</button>
-    <button class="btn-primary" id="btn-install" style="display:none" onclick="_omaInstall()">${T[this.lang].installAndRestart}</button>
+    <button class="btn-secondary" id="btn-releases" style="display:none" onclick="window.location.href='oma://progress-releases'">${T[this.lang].githubRelease}</button>
+    <button class="btn-secondary" id="btn-close" onclick="window.location.href='oma://progress-cancel'">${T[this.lang].cancel}</button>
+    <button class="btn-primary" id="btn-install" style="display:none" onclick="window.location.href='oma://progress-install'">${T[this.lang].installAndRestart}</button>
   </div>
 <script>
-  // Expose button actions globally for onclick handlers.
-  // With nodeIntegration:true, require('electron') is available.
-  window._omaCancel = function() {
-    require('electron').ipcRenderer.send('oma:progress-cancel');
-  };
-  window._omaInstall = function() {
-    require('electron').ipcRenderer.send('oma:progress-install');
-  };
-  window._omaReleases = function() {
-    require('electron').ipcRenderer.send('oma:progress-releases');
-  };
-
   const {ipcRenderer} = require('electron');
   function fmtSize(b){if(!b||b<=0)return'';const u=['B','KB','MB','GB'];let i=0,v=b;while(v>=1024&&i<u.length-1){v/=1024;i++}return v.toFixed(v<10?1:0)+' '+u[i]}
   ipcRenderer.on('update-download-progress',(_e,d)=>{
@@ -658,6 +635,7 @@ export class AppUpdater {
       frame: false,
       resizable: false,
       skipTaskbar: true,
+      parent: this.mainWindow ?? undefined,
       show: false,
       backgroundColor: bg,
       webPreferences: { nodeIntegration: true, contextIsolation: false },
@@ -673,8 +651,20 @@ export class AppUpdater {
       this.progressWin = null;
     });
 
-
     win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+    // Handle button clicks via navigation (consistent with update dialog)
+    win.webContents.on("will-navigate", (event, url) => {
+      event.preventDefault();
+      if (url === "oma://progress-cancel") {
+        this.cancelDownload();
+      } else if (url === "oma://progress-install") {
+        this.closeProgressWin();
+        this.installAndRestart();
+      } else if (url === "oma://progress-releases") {
+        shell.openExternal("https://github.com/tscodeplus/OhMyAgent/releases");
+      }
+    });
 
     win.once('ready-to-show', () => {
       if (this.mainWindow) {
