@@ -69,6 +69,22 @@ export class AppUpdater {
     autoUpdater.autoInstallOnAppQuit = true;
 
     this.registerListeners();
+
+    // IPC handlers for progress window button actions.
+    // The progress window renderer sends these via ipcRenderer.send().
+    ipcMain.on('oma:progress-cancel', () => {
+      this.diagLog('IPC: oma:progress-cancel received');
+      this.cancelDownload();
+    });
+    ipcMain.on('oma:progress-install', () => {
+      this.diagLog('IPC: oma:progress-install received');
+      this.closeProgressWin();
+      this.installAndRestart();
+    });
+    ipcMain.on('oma:progress-releases', () => {
+      this.diagLog('IPC: oma:progress-releases received');
+      shell.openExternal('https://github.com/tscodeplus/OhMyAgent/releases');
+    });
   }
 
   setWindow(win: BrowserWindow): void {
@@ -270,7 +286,7 @@ export class AppUpdater {
   *{margin:0;padding:0;box-sizing:border-box}
   body{display:flex;flex-direction:column;align-items:center;justify-content:center;
        height:100vh;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-       background:${primaryBg};color:${textColor};user-select:none;-webkit-app-region:drag}
+       background:${primaryBg};color:${textColor};user-select:none}
   .spinner{width:36px;height:36px;border:3px solid ${spinnerTrack};
            border-top-color:${spinnerFill};border-radius:50%;
            animation:spin .7s linear infinite;margin-bottom:18px}
@@ -361,10 +377,10 @@ export class AppUpdater {
   .icon{margin-bottom:16px}
   .icon svg{width:40px;height:40px;color:#22c55e}
   .message{font-size:15px;font-weight:600;color:${fg};text-align:center;margin-bottom:24px}
-  .footer{position:absolute;bottom:0;left:0;right:0;padding:14px 20px;
+  .footer{position:absolute;-webkit-app-region:no-drag;bottom:0;left:0;right:0;padding:14px 20px;
           display:flex;justify-content:flex-end;
           border-top:1px solid ${border}}
-  button{padding:7px 18px;border-radius:8px;font-size:13px;font-weight:600;
+  button{padding:7px 18px;-webkit-app-region:no-drag;border-radius:8px;font-size:13px;font-weight:600;
          cursor:pointer;border:none;transition:opacity .15s;outline:none}
   .btn-primary{background:${btnPrimary};color:#fff}
   .btn-primary:hover{opacity:0.88}
@@ -548,6 +564,7 @@ export class AppUpdater {
    * events from the main process and updates its UI accordingly.
    */
   private showDownloadProgressWindow(): void {
+    this.diagLog('showDownloadProgressWindow() called');
     // Close any previous progress window
     this.closeProgressWin();
 
@@ -569,10 +586,10 @@ export class AppUpdater {
   body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
        background:${bg};color:${fg};display:flex;flex-direction:column;
        align-items:center;justify-content:center;height:100vh;
-       user-select:none;-webkit-app-region:drag}
-  .header{position:absolute;top:0;left:0;right:0;padding:16px 24px 0;
+       user-select:none}
+  .header{position:absolute;-webkit-app-region:drag;top:0;left:0;right:0;padding:16px 24px 0;
           text-align:center;font-size:14px;font-weight:600}
-  .card{display:flex;flex-direction:column;align-items:center;gap:14px;width:320px}
+  .card{display:flex;-webkit-app-region:no-drag;flex-direction:column;align-items:center;gap:14px;width:320px}
   .label{font-size:13px;color:${muted}}
   .bar-wrap{width:100%;height:6px;border-radius:3px;background:${barBg};overflow:hidden}
   .bar-fill{height:100%;border-radius:3px;background:${barFill};
@@ -581,11 +598,11 @@ export class AppUpdater {
   .speed{font-size:12px;color:${muted}}
   .status{font-size:13px;font-weight:600;text-align:center;line-height:1.4;
           max-width:320px;word-break:keep-all;overflow-wrap:break-word}
-  .footer{position:absolute;bottom:0;left:0;right:0;padding:14px 20px;
+  .footer{position:absolute;-webkit-app-region:no-drag;bottom:0;left:0;right:0;padding:14px 20px;
           display:flex;justify-content:flex-end;gap:10px;
           border-top:1px solid ${border}}
   .footer.hidden{display:none}
-  button{padding:7px 18px;border-radius:8px;font-size:13px;font-weight:600;
+  button{padding:7px 18px;-webkit-app-region:no-drag;border-radius:8px;font-size:13px;font-weight:600;
          cursor:pointer;border:none;transition:opacity .15s,background .15s;outline:none}
   .btn-primary{background:${btnPrimary};color:#fff}
   .btn-primary:hover{opacity:0.88}
@@ -602,19 +619,37 @@ export class AppUpdater {
     <div class="status" id="st"></div>
   </div>
   <div class="footer" id="ftr">
-    <button class="btn-secondary" id="btn-releases" style="display:none" onclick="window.location.href='oma://progress-releases'">${T[this.lang].githubRelease}</button>
-    <button class="btn-secondary" id="btn-close" onclick="window.location.href='oma://progress-cancel'">${T[this.lang].cancel}</button>
-    <button class="btn-primary" id="btn-install" style="display:none" onclick="window.location.href='oma://progress-install'">${T[this.lang].installAndRestart}</button>
+    <button class="btn-secondary" id="btn-releases" style="display:none">${T[this.lang].githubRelease}</button>
+    <button class="btn-secondary" id="btn-close">${T[this.lang].cancel}</button>
+    <button class="btn-primary" id="btn-install" style="display:none">${T[this.lang].installAndRestart}</button>
   </div>
 <script>
-  const {ipcRenderer} = require('electron');
+  var ipc = require('electron').ipcRenderer;
+  console.log('[progress] script loaded, nodeIntegration=' + (typeof require !== 'undefined'));
+
+  // ── Button handlers via addEventListener ──
+  document.getElementById('btn-close').addEventListener('click', function(e) {
+    console.log('[progress] btn-close clicked');
+    ipc.send('oma:progress-cancel');
+  });
+  document.getElementById('btn-install').addEventListener('click', function(e) {
+    console.log('[progress] btn-install clicked');
+    ipc.send('oma:progress-install');
+  });
+  document.getElementById('btn-releases').addEventListener('click', function(e) {
+    console.log('[progress] btn-releases clicked');
+    ipc.send('oma:progress-releases');
+  });
+  console.log('[progress] button listeners registered');
+
+  // ── Progress events from main process ──
   function fmtSize(b){if(!b||b<=0)return'';const u=['B','KB','MB','GB'];let i=0,v=b;while(v>=1024&&i<u.length-1){v/=1024;i++}return v.toFixed(v<10?1:0)+' '+u[i]}
-  ipcRenderer.on('update-download-progress',(_e,d)=>{
+  ipc.on('update-download-progress',function(_e,d){
     document.getElementById('pct').textContent=Math.round(d.percent)+'%';
     document.getElementById('bar').style.width=d.percent+'%';
     document.getElementById('spd').textContent=fmtSize(d.bytesPerSecond)+'/s';
   });
-  ipcRenderer.on('update-downloaded',(_e,d)=>{
+  ipc.on('update-downloaded',function(_e,d){console.log('[progress] update-downloaded received');
     document.getElementById('pct').textContent='100%';
     document.getElementById('bar').style.width='100%';
     document.getElementById('spd').textContent='';
@@ -622,10 +657,11 @@ export class AppUpdater {
     document.getElementById('btn-install').style.display='';
     document.getElementById('btn-releases').style.display='none';
   });
-  ipcRenderer.on('update-error',(_e,d)=>{
+  ipc.on('update-error',function(_e,d){console.log('[progress] update-error received: ' + (d.message||''));
     document.getElementById('st').textContent=d.message||'${T[this.lang].downloadFailed}';
     document.getElementById('btn-releases').style.display='';
   });
+  console.log('[progress] ipc listeners registered');
 </script>
 </body></html>`;
 
@@ -638,7 +674,7 @@ export class AppUpdater {
       parent: this.mainWindow ?? undefined,
       show: false,
       backgroundColor: bg,
-      webPreferences: { nodeIntegration: true, contextIsolation: false },
+      webPreferences: { nodeIntegration: true, contextIsolation: false, sandbox: false },
     });
 
     this.progressWin = win;
@@ -653,18 +689,16 @@ export class AppUpdater {
 
     win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 
-    // Handle button clicks via navigation (consistent with update dialog)
-    win.webContents.on("will-navigate", (event, url) => {
-      event.preventDefault();
-      if (url === "oma://progress-cancel") {
-        this.cancelDownload();
-      } else if (url === "oma://progress-install") {
-        this.closeProgressWin();
-        this.installAndRestart();
-      } else if (url === "oma://progress-releases") {
-        shell.openExternal("https://github.com/tscodeplus/OhMyAgent/releases");
-      }
+    // Prevent double-click maximize on frameless window (caused by -webkit-app-region:drag)
+    win.on("maximize", () => {
+      this.diagLog('progressWin: maximize event fired — unmaximizing');
+      win.unmaximize();
     });
+    win.on("unmaximize", () => {
+      this.diagLog('progressWin: unmaximize event fired');
+    });
+
+    this.diagLog("progressWin: window created");
 
     win.once('ready-to-show', () => {
       if (this.mainWindow) {
@@ -731,6 +765,7 @@ export class AppUpdater {
 
   /** Safely close the download progress window. */
   private closeProgressWin(): void {
+    this.diagLog('closeProgressWin() called');
     try {
       if (this.progressWin && !this.progressWin.isDestroyed()) {
         this.progressWin.destroy();
