@@ -9,6 +9,7 @@ import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import type { AppConfig, AppServices } from './types.js';
 import { webuiAuthHook } from './webui-auth.js';
+import { loadConfig, resetConfig } from './config.js';
 import { ProjectStore } from './webui/project-store.js';
 import { registerProjectRoutes } from './webui/project-routes.js';
 import { registerAgentRoutes } from './webui/agent-routes.js';
@@ -98,7 +99,11 @@ export async function registerWebUIRoutes(
       agentManager: cfg.services.agentManager,
       extensionManager: cfg.services.extensionManager,
       configPath: process.env.CONFIG_FILE || './config.yaml',
-      // config hot-reload is handled by the file watcher in bootstrap.ts
+      triggerConfigReload: () => {
+        resetConfig();
+        const newConfig = loadConfig();
+        cfg.onConfigSaved?.(newConfig);
+      },
     },
     commandRegistry: cfg.services.commandRegistry,
     wsManager: undefined,

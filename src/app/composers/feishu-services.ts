@@ -7,6 +7,8 @@
 
 import { createSTTProviders, transcribeWithFallback } from '../../media-providers/stt/factory.js';
 import { MessageHandler } from '../../../extensions/channel-feishu/message-handler.js';
+import { loadConfig, resetConfig } from '../config.js';
+import { configEventBus } from '../config-event-bus.js';
 import type { AppConfig } from '../types.js';
 import type { AgentService } from '../../agent/agent-service.js';
 import type { SkillRegistry } from '../../skills/skill-registry.js';
@@ -69,8 +71,13 @@ export function createFeishuServices(options: {
     agentManager,
     extensionManager,
     configPath,
-    // config hot-reload is triggered by the file watcher; no explicit callback needed
-    // because startConfigWatcher in bootstrap.ts watches config.yaml
+    triggerConfigReload: () => {
+      resetConfig();
+      const newConfig = loadConfig();
+      configEventBus.emit(newConfig).catch(err =>
+        logger.error({ err }, 'Config reload via /permission failed'),
+      );
+    },
   };
   servicesMap.set('commandDeps', commandDeps);
 
