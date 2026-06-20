@@ -4,6 +4,7 @@
 
 import type {
   PolicyCenter,
+  PolicyMode,
   ToolPolicyInput,
   ToolPolicyDecision,
   ShellPolicyInput,
@@ -29,6 +30,7 @@ export { type PolicyCenter } from './types.js';
 // ─── Dependencies ───────────────────────────────────────────────────────────
 
 export interface PolicyCenterDeps {
+  mode: PolicyMode;
   toolVisibility: ToolVisibilityPolicy;
   pathAccess: PathAccessPolicy;
   shellExecution: ShellExecutionPolicy;
@@ -39,6 +41,7 @@ export interface PolicyCenterDeps {
 // ─── Implementation ─────────────────────────────────────────────────────────
 
 export class PolicyCenterImpl implements PolicyCenter {
+  private mode: PolicyMode;
   private toolVisibility: ToolVisibilityPolicy;
   private pathAccess: PathAccessPolicy;
   private shellExecution: ShellExecutionPolicy;
@@ -46,6 +49,7 @@ export class PolicyCenterImpl implements PolicyCenter {
   private agentInheritance: AgentInheritancePolicy;
 
   constructor(deps: PolicyCenterDeps) {
+    this.mode = deps.mode;
     this.toolVisibility = deps.toolVisibility;
     this.pathAccess = deps.pathAccess;
     this.shellExecution = deps.shellExecution;
@@ -53,10 +57,20 @@ export class PolicyCenterImpl implements PolicyCenter {
     this.agentInheritance = deps.agentInheritance;
   }
 
+  /** Hot-reload the policy mode without restarting. */
+  updateMode(mode: PolicyMode): void {
+    this.mode = mode;
+  }
+
   // ── evaluateToolCall ────────────────────────────────────────────────────
 
   async evaluateToolCall(input: ToolPolicyInput): Promise<ToolPolicyDecision> {
     let resolvedPath: string | undefined;
+
+    // 0. Bypass mode: skip ALL checks, allow everything
+    if (this.mode === 'bypass') {
+      return { allowed: true, requiresApproval: false };
+    }
 
     // 1. Tool visibility check
     if (!this.toolVisibility.isVisible(input.toolName, input.policyScope)) {
@@ -150,24 +164,38 @@ export class PolicyCenterImpl implements PolicyCenter {
       }
     }
 
-    // 5. Default based on capability
-    if (input.capability.approvalDefault === 'high_risk') {
-      return {
-        allowed: false,
-        requiresApproval: true,
-        approvalKind: input.capability.usesComputerUse ? 'computer_use_action' : 'tool',
-        resolvedPath,
-      };
-    }
+    // 5. Default based on capability AND policy mode
+    if (this.mode === 'safe') {
+      // Safe: all non-readOnly tools require approval (ignore approvalDefault: 'none')
+      if (!input.capability.readOnly) {
+        return {
+          allowed: false,
+          requiresApproval: true,
+          approvalKind: input.capability.usesComputerUse ? 'computer_use_action' : 'tool',
+          resolvedPath,
+        };
+      }
+    } else if (this.mode === 'balanced') {
+      // Balanced: honor approvalDefault (current behavior)
+      if (input.capability.approvalDefault === 'high_risk') {
+        return {
+          allowed: false,
+          requiresApproval: true,
+          approvalKind: input.capability.usesComputerUse ? 'computer_use_action' : 'tool',
+          resolvedPath,
+        };
+      }
 
-    if (input.capability.approvalDefault === 'mutating' && !input.capability.readOnly) {
-      return {
-        allowed: false,
-        requiresApproval: true,
-        approvalKind: 'tool',
-        resolvedPath,
-      };
+      if (input.capability.approvalDefault === 'mutating' && !input.capability.readOnly) {
+        return {
+          allowed: false,
+          requiresApproval: true,
+          approvalKind: 'tool',
+          resolvedPath,
+        };
+      }
     }
+    // Permissive: skip mutating/high_risk checks (path access already handled in step 3)
 
     return { allowed: true, requiresApproval: false, resolvedPath };
   }

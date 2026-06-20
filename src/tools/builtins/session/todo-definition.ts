@@ -16,7 +16,7 @@ export const todoWriteCapability: ToolCapabilityDescriptor = {
   usesNetwork: false,
   usesComputerUse: false,
   pathAccess: 'none',
-  approvalDefault: 'mutating',
+  approvalDefault: 'none',
 };
 
 // ---------------------------------------------------------------------------

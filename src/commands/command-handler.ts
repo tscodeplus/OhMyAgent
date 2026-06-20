@@ -8,6 +8,11 @@
 
 import { i18n } from '../i18n/index.js';
 import { teamModeStore } from '../agent/team-mode-store.js';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { load as parseYaml, dump as dumpYaml } from 'js-yaml';
+
+const VALID_MODES = ['bypass', 'permissive', 'balanced', 'safe'] as const;
+type PolicyMode = typeof VALID_MODES[number];
 
 export interface CommandDeps {
   agentService: {
@@ -50,6 +55,10 @@ export interface CommandDeps {
   extensionManager?: {
     list(): Array<{ manifest: { id: string; name: string; version: string; kind: string }; status: string }>;
   };
+  /** Path to config.yaml for slash commands that modify config (e.g. /permission). */
+  configPath?: string;
+  /** Trigger config hot-reload after config.yaml is modified by a slash command. */
+  triggerConfigReload?: () => void;
 }
 
 export interface CommandResult {
@@ -110,6 +119,8 @@ export async function handleCommand(
       return await handleApprove(args, sessionKey, deps);
     case '/deny':
       return await handleDeny(sessionKey, deps);
+    case '/permission':
+      return await handlePermission(args, deps);
     default:
       return null;
   }
@@ -467,4 +478,80 @@ async function handleDeny(
     return { reply: i18n.t('commands:deny.noPending') };
   }
   return { reply: i18n.t('commands:deny.denied') };
+}
+
+// ── /permission command ───────────────────────────────────────────────────────
+
+function getCurrentMode(configPath?: string): PolicyMode | null {
+  if (!configPath || !existsSync(configPath)) return null;
+  try {
+    const raw = readFileSync(configPath, 'utf-8');
+    const yaml = parseYaml(raw) as Record<string, unknown> | null;
+    const policy = (yaml?.policy as Record<string, unknown> | undefined);
+    const mode = policy?.mode;
+    if (typeof mode === 'string' && (VALID_MODES as readonly string[]).includes(mode)) {
+      return mode as PolicyMode;
+    }
+    return 'balanced'; // default when not set
+  } catch {
+    return null;
+  }
+}
+
+async function setMode(mode: PolicyMode, deps: CommandDeps): Promise<{ ok: boolean; message: string }> {
+  const configPath = deps.configPath;
+  if (!configPath) {
+    return { ok: false, message: i18n.t('commands:permission.noConfigPath') };
+  }
+
+  try {
+    let existing: Record<string, unknown> = {};
+    if (existsSync(configPath)) {
+      const raw = readFileSync(configPath, 'utf-8');
+      existing = (parseYaml(raw) as Record<string, unknown>) || {};
+    }
+
+    // Set policy.mode
+    const policy = (existing.policy as Record<string, unknown>) || {};
+    policy.mode = mode;
+    existing.policy = policy;
+
+    const yamlStr = dumpYaml(existing, { indent: 2, lineWidth: 120 });
+    writeFileSync(configPath, yamlStr, 'utf-8');
+
+    // Trigger config hot-reload
+    deps.triggerConfigReload?.();
+
+    return { ok: true, message: i18n.t('commands:permission.switched', { mode }) };
+  } catch (err) {
+    return { ok: false, message: i18n.t('commands:permission.writeFailed', { error: err instanceof Error ? err.message : String(err) }) };
+  }
+}
+
+async function handlePermission(
+  args: string,
+  deps: CommandDeps,
+): Promise<CommandResult> {
+  const sub = args.trim().toLowerCase();
+
+  // /permission — show current mode
+  if (!sub) {
+    const current = getCurrentMode(deps.configPath);
+    if (current === null) {
+      return { reply: i18n.t('commands:permission.cannotRead') };
+    }
+    const modes = (VALID_MODES as readonly string[]).map(m =>
+      m === current ? `▶ **${m}**` : `  ${m}`
+    ).join('\n');
+    return { reply: i18n.t('commands:permission.current', { current, modes }) };
+  }
+
+  // /permission <mode> — switch to mode
+  if (!(VALID_MODES as readonly string[]).includes(sub)) {
+    const modes = (VALID_MODES as readonly string[]).join(', ');
+    return { reply: i18n.t('commands:permission.invalidMode', { mode: sub, modes }) };
+  }
+
+  const result = await setMode(sub as PolicyMode, deps);
+  return { reply: result.message };
 }

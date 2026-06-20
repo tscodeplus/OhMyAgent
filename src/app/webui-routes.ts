@@ -97,6 +97,8 @@ export async function registerWebUIRoutes(
       feishuClient: cfg.services.feishuClient,
       agentManager: cfg.services.agentManager,
       extensionManager: cfg.services.extensionManager,
+      configPath: process.env.CONFIG_FILE || './config.yaml',
+      // config hot-reload is handled by the file watcher in bootstrap.ts
     },
     commandRegistry: cfg.services.commandRegistry,
     wsManager: undefined,

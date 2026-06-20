@@ -19,7 +19,7 @@ export const fileEditCapability: ToolCapabilityDescriptor = {
   usesNetwork: false,
   usesComputerUse: false,
   pathAccess: 'read_write',
-  approvalDefault: 'mutating',
+  approvalDefault: 'none',
 };
 
 export function createFileEditToolDefinition(): ToolDefinition {

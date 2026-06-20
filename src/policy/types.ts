@@ -11,6 +11,8 @@ import type { ToolCapabilityDescriptor } from '../tools/platform/tool-capabiliti
 export type ToolProfileId = 'minimal' | 'standard' | 'advanced' | 'full';
 export type ExecMode = 'safe' | 'balanced' | 'trusted';
 
+export type PolicyMode = 'bypass' | 'safe' | 'balanced' | 'permissive';
+
 export interface AgentPolicyScope {
   toolsProfile: ToolProfileId;
   readRoots: string[];
@@ -21,6 +23,7 @@ export interface AgentPolicyScope {
   appApprovals: string[];
   readOnly: boolean;
   computerUseEnabled: boolean;
+  policyMode: PolicyMode;
 }
 
 export interface ChildAgentPolicyRequest {
@@ -42,6 +45,7 @@ export const DEFAULT_POLICY_SCOPE: AgentPolicyScope = {
   appApprovals: [],
   readOnly: false,
   computerUseEnabled: true,
+  policyMode: 'balanced',
 };
 
 // ---------------------------------------------------------------------------

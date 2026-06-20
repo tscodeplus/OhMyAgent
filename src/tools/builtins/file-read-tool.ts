@@ -122,6 +122,7 @@ export function createFileReadTool(param?: FileReadToolDeps | FileReadToolOption
               appApprovals: [],
               readOnly: false,
               computerUseEnabled: false,
+              policyMode: 'balanced',
             },
           });
           if (!decision.allowed) {

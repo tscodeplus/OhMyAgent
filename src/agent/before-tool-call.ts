@@ -639,6 +639,7 @@ async function handleViaPolicyCenter(
     appApprovals: [] as string[],
     readOnly: deps.shellMode === 'read-only',
     computerUseEnabled: deps.effectiveProfile !== 'minimal',
+    policyMode: 'balanced',
   };
 
   // Step 2: Build a capability descriptor for the tool

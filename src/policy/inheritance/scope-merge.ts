@@ -54,6 +54,7 @@ export class AgentInheritancePolicyImpl implements AgentInheritancePolicy {
       appApprovals: [...parent.appApprovals],
       readOnly,
       computerUseEnabled,
+      policyMode: parent.policyMode,
     };
   }
 

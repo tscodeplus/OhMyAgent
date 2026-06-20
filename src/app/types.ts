@@ -313,7 +313,7 @@ export interface AppConfig {
 
   /** v4: Unified policy center configuration. */
   policy?: {
-    mode?: 'safe' | 'balanced' | 'permissive';
+    mode?: 'bypass' | 'safe' | 'balanced' | 'permissive';
     path?: {
       readRoots?: string[];
       writeRoots?: string[];

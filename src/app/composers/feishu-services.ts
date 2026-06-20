@@ -51,6 +51,9 @@ export function createFeishuServices(options: {
     };
   };
 
+  // Config path for slash commands that modify config (e.g. /permission)
+  const configPath = process.env.CONFIG_FILE || './config.yaml';
+
   // Shared CommandDeps for slash commands
   const commandDeps = {
     agentService,
@@ -65,6 +68,9 @@ export function createFeishuServices(options: {
     feishuClient,
     agentManager,
     extensionManager,
+    configPath,
+    // config hot-reload is triggered by the file watcher; no explicit callback needed
+    // because startConfigWatcher in bootstrap.ts watches config.yaml
   };
   servicesMap.set('commandDeps', commandDeps);
 

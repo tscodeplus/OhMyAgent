@@ -471,6 +471,7 @@ export function createAgentFactory(
         appApprovals: [],
         readOnly: effectiveShellMode === 'read-only',
         computerUseEnabled: options?.computerUseAllowed !== false,
+        policyMode: configRef.current.policy?.mode ?? 'balanced',
       };
 
       // ── Tool pipeline (extracted to tool-pipeline.ts) ──

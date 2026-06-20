@@ -19,7 +19,7 @@ export const fileWriteCapability: ToolCapabilityDescriptor = {
   usesNetwork: false,
   usesComputerUse: false,
   pathAccess: 'write',
-  approvalDefault: 'mutating',
+  approvalDefault: 'none',
 };
 
 export function createFileWriteToolDefinition(): ToolDefinition {

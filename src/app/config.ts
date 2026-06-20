@@ -347,7 +347,7 @@ const configSchema = z.object({
   // v4 configuration sections (all optional, backward-compatible)
   // -----------------------------------------------------------------------
   policy: z.object({
-    mode: z.enum(['safe', 'balanced', 'permissive']).default('balanced'),
+    mode: z.enum(['bypass', 'safe', 'balanced', 'permissive']).default('balanced'),
     path: z.object({
       readRoots: z.array(z.string()).default([]),
       writeRoots: z.array(z.string()).default([]),

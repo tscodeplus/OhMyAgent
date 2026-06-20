@@ -208,6 +208,7 @@ export function createComputerUseTool(
               appApprovals: [],
               readOnly: false,
               computerUseEnabled: true,
+              policyMode: 'balanced',
             },
           });
 

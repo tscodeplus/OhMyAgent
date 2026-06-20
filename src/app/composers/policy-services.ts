@@ -53,6 +53,7 @@ export function createPolicyServices(
   const agentInheritance = new AgentInheritancePolicyImpl();
 
   const policyCenter = new PolicyCenterImpl({
+    mode: config.policy?.mode ?? 'balanced',
     toolVisibility,
     pathAccess: pathPolicy,
     shellExecution: shellPolicy,
@@ -62,6 +63,7 @@ export function createPolicyServices(
 
   // Register config-reload handlers for approval gate and path policy
   configEventBus.onReload((c) => {
+    policyCenter.updateMode(c.policy?.mode ?? 'balanced');
     approvalGate.updateConfig({
       execMode: c.tools.shellExecMode,
       shellAllowlist: c.tools.shellAllowlist,
