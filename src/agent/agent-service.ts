@@ -70,6 +70,9 @@ export interface AgentServicePersistenceOptions {
 }
 
 export class AgentService {
+  /** Sessions explicitly cleared by /new or /clear — skip history load on next message. */
+  private clearedSessions = new Set<string>();
+
   private runtimes = new Map<string, {
     agent: Agent;
     bridge: EventBridge | null;
@@ -119,10 +122,13 @@ export class AgentService {
 
       // Load recent message history from DB on restart so the agent retains
       // conversation continuity across service restarts. Skip when the caller
-      // already provided historyMessages explicitly or when the feature is
-      // disabled (historyLoadCount: 0).
+      // already provided historyMessages explicitly, when the feature is
+      // disabled (historyLoadCount: 0), or when the session was explicitly
+      // cleared by /new or /clear.
       let historyMessages = options?.historyMessages;
-      if (!historyMessages && this.persistence && sessionId !== 'default') {
+      const wasCleared = this.clearedSessions.has(sessionId);
+      if (wasCleared) this.clearedSessions.delete(sessionId);
+      if (!historyMessages && this.persistence && sessionId !== 'default' && !wasCleared) {
         const limit = this.persistence.historyLoadCount ?? 0;
         if (limit > 0) {
           try {
@@ -559,6 +565,7 @@ export class AgentService {
     runtime.persistedMessageCount = 0;
     this.sessionAgentMap.delete(sessionId);
     clearSessionAgent(sessionId);
+    this.clearedSessions.add(sessionId);
     return true;
   }
 
@@ -572,6 +579,7 @@ export class AgentService {
     runtime.bridge?.stop();
     runtime.auditUnsubscribe?.();
     this.runtimes.delete(sessionId);
+    this.clearedSessions.add(sessionId);
     return true;
   }
 
