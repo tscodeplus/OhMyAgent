@@ -125,7 +125,7 @@ export interface AgentCreateOptions {
   sessionId?: string;
   chatId?: string;
   messageId?: string;
-  historyMessages?: Array<{ role: string; content: string; timestamp: number }>;
+  historyMessages?: Array<{ role: string; content: string | Array<{ type: string; text?: string }>; timestamp: number }>;
   turnContext?: AgentTurnContext;
   channel?: string;
   computerUseAllowed?: boolean;

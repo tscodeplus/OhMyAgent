@@ -31,7 +31,7 @@ export interface AgentServiceOptions {
   messageId?: string;
   systemPrompt?: string;
   tools?: any[];
-  historyMessages?: Array<{ role: string; content: string; timestamp: number }>;
+  historyMessages?: Array<{ role: string; content: string | Array<{ type: string; text?: string }>; timestamp: number }>;
   images?: ImageContent[];
   /** If set, use this dispatcher instead of creating one via the factory. Used by channels. */
   replyDispatcherOverride?: ReplyDispatcher;
@@ -129,7 +129,12 @@ export class AgentService {
             const rows = this.persistence.messageRepository.findBySessionIdDesc(sessionId, limit);
             historyMessages = rows.reverse().map(m => ({
               role: m.role,
-              content: m.content,
+              // Assistant messages in pi-mono use content-block arrays, but the DB
+              // stores plain text. Wrap string content so downstream flatMap()
+              // calls in transformMessages don't crash.
+              content: m.role === 'assistant'
+                ? [{ type: 'text' as const, text: m.content }]
+                : m.content,
               timestamp: new Date(m.created_at).getTime(),
             }));
           } catch {
