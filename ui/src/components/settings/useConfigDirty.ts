@@ -86,6 +86,7 @@ export function useConfigDirty(
         'orchestrator.maxChildAgents', 'smart_agent_team.max_children',
         'memory.recallTopK', 'memory.recallMinScore', 'memory.maxCaptureChars',
         'memory.summarizeInterval', 'memory.decayHalfLife',
+        'memory.historyLoadCount',
         'memory.cacheMaxEntries', 'memory.queryTimeoutMs',
         'memory.retentionDays', 'memory.failureThreshold', 'memory.cooldownSec',
         'memory.maxRefs', 'memory.preserveMsgs',

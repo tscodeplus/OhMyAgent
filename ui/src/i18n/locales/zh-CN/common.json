@@ -273,6 +273,7 @@
       "minScore": "最小分数",
       "maxCaptureChars": "最大捕获字符",
       "summarizeInterval": "摘要间隔 (消息数)",
+      "historyLoadCount": "重启后加载历史消息数",
       "decayHalfLife": "衰减半衰期 (天)",
       "outputLanguage": "输出语言",
       "embedding": "向量与缓存",
@@ -391,6 +392,7 @@
       "opt_safe": "安全",
       "opt_balanced": "平衡",
       "opt_permissive": "宽松",
+      "opt_bypass": "绕过",
       "opt_deny": "拒绝",
       "opt_allow": "允许"
     },

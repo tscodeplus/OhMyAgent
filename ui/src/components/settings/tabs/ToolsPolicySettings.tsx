@@ -47,7 +47,7 @@ export default function ToolsPolicySettings({ tabId = 'tools', registerHandle, o
       <AccordionItem title={t('settings.policy.globalPolicy')}>
         <Select label={t("settings.policy.modeLabel")} value={getField('policy.mode', str(policy.mode, 'balanced')) as string}
           onChange={(e) => setField('policy.mode', e.target.value)}
-          options={[{ value: 'balanced', label: t('settings.policy.opt_balanced') }, { value: 'permissive', label: t('settings.policy.opt_permissive') }, { value: 'safe', label: t('settings.policy.opt_safe') }]} />
+          options={[{ value: 'bypass', label: t('settings.policy.opt_bypass') }, { value: 'permissive', label: t('settings.policy.opt_permissive') }, { value: 'balanced', label: t('settings.policy.opt_balanced') }, { value: 'safe', label: t('settings.policy.opt_safe') }]} />
         <div className="grid grid-cols-2 gap-4">
           <Input label={t("settings.policy.approvalTimeout")} type="number" value={getField('policy.approval.timeoutSec', str(approval.timeoutSec, '')) as string}
             onChange={(e) => setField('policy.approval.timeoutSec', e.target.value)} />

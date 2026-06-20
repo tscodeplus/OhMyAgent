@@ -85,6 +85,10 @@ export default function MemorySettings({
             onChange={(e) => setField('memory.outputLanguage', e.target.value)}
             options={['Auto', 'English', 'Japanese', 'Simplified Chinese', 'Traditional Chinese'].map(v => ({ value: v, label: v }))} />
         </div>
+        <div className="grid grid-cols-3 gap-4">
+          <Input label={t("settings.memory.historyLoadCount")} type="number" value={getField('memory.historyLoadCount', String(mem.historyLoadCount ?? '')) as string}
+            onChange={(e) => setField('memory.historyLoadCount', e.target.value)} />
+        </div>
       </AccordionItem>
 
       {/* 2. Embedding cache */}

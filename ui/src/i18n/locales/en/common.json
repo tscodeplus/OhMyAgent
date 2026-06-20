@@ -272,6 +272,7 @@
       "minScore": "Min Score",
       "maxCaptureChars": "Max Capture Chars",
       "summarizeInterval": "Summarize Interval",
+      "historyLoadCount": "History Msgs on Restart",
       "decayHalfLife": "Decay Half-Life (days)",
       "outputLanguage": "Output Language",
       "embedding": "Embedding & Cache",
@@ -386,6 +387,7 @@
       "opt_safe": "Safe",
       "opt_balanced": "Balanced",
       "opt_permissive": "Permissive",
+      "opt_bypass": "Bypass",
       "opt_deny": "Deny",
       "opt_allow": "Allow",
       "modeLabel": "Mode"

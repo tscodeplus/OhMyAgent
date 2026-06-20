@@ -154,7 +154,14 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
     logger,
     promptManager,
   });
-  configEventBus.onReload((c) => agentFactory.updateConfig(c));
+  configEventBus.onReload((c) => {
+    agentFactory.updateConfig(c);
+    // Keep persistence options in sync so fields like historyLoadCount
+    // take effect immediately without restart.
+    if (persistenceOpts) {
+      persistenceOpts.historyLoadCount = c.memory.historyLoadCount;
+    }
+  });
 
   // ── Orchestrator ──
 
@@ -229,22 +236,26 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
     return _visionBridge;
   };
 
+  // v10: extracted to variable so config-event handler can update fields
+  // (e.g. historyLoadCount) at runtime without restart.
+  const persistenceOpts = {
+    sessionRepository,
+    messageRepository,
+    episodeRepository,
+    toolRunRepository,
+    memorySummarizer,
+    summarizeInterval: config.memory.summarizeInterval,
+    historyLoadCount: config.memory.historyLoadCount,
+    logger,
+  };
+
   const agentService = new AgentService(
     agentFactory,
     (chatId: string, messageId?: string, agentId?: string) => {
       const agentName = agentId ? agentManager.get(agentId)?.name : undefined;
       return new ReplyDispatcher({ feishuClient, chatId, messageId, model: modelName, agentName, footerConfig: config.footer, showToolCalls: config.showToolCalls, showSkillCalls: config.showSkillCalls, logger });
     },
-    {
-      sessionRepository,
-      messageRepository,
-      episodeRepository,
-      toolRunRepository,
-      memorySummarizer,
-      summarizeInterval: config.memory.summarizeInterval,
-      historyLoadCount: config.memory.historyLoadCount,
-      logger,
-    },
+    persistenceOpts,
     getVisionBridge,
     config.multimodal?.image?.mode ?? 'native_first',
   );
