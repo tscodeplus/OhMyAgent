@@ -16,8 +16,8 @@ const RATE_LIMIT_CODE = 99991400;
 const CARD_ID_INVALID_CODE = 230099;
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 1500;
-const CARD_ID_RETRY_ATTEMPTS = 3;
-const CARD_ID_RETRY_BASE_DELAY_MS = 150;
+const CARD_ID_RETRY_ATTEMPTS = 5;
+const CARD_ID_RETRY_BASE_DELAY_MS = 300;
 
 function isRateLimited(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
@@ -426,56 +426,71 @@ export class FeishuClient {
       data: { card_id: cardId },
     });
 
-    let response: { code?: number; msg?: string; data?: { message_id?: string } } | undefined;
+    let lastError: { code?: number; msg?: string } | undefined;
 
     for (let attempt = 0; attempt <= CARD_ID_RETRY_ATTEMPTS; attempt++) {
-      if (replyToMessageId) {
-        response = await this.sdk.im.message.reply({
-          path: { message_id: replyToMessageId },
-          data: {
-            msg_type: 'interactive',
-            content: contentPayload,
-          },
-        }) as { code?: number; msg?: string; data?: { message_id?: string } };
-      } else {
-        response = await this.sdk.im.message.create({
-          params: { receive_id_type: 'chat_id' },
-          data: {
-            receive_id: chatId,
-            msg_type: 'interactive',
-            content: contentPayload,
-          },
-        }) as { code?: number; msg?: string; data?: { message_id?: string } };
+      try {
+        let response: { code?: number; msg?: string; data?: { message_id?: string } } | undefined;
+
+        if (replyToMessageId) {
+          response = await this.sdk.im.message.reply({
+            path: { message_id: replyToMessageId },
+            data: {
+              msg_type: 'interactive',
+              content: contentPayload,
+            },
+          }) as { code?: number; msg?: string; data?: { message_id?: string } };
+        } else {
+          response = await this.sdk.im.message.create({
+            params: { receive_id_type: 'chat_id' },
+            data: {
+              receive_id: chatId,
+              msg_type: 'interactive',
+              content: contentPayload,
+            },
+          }) as { code?: number; msg?: string; data?: { message_id?: string } };
+        }
+
+        // Success: got a valid message_id
+        if (!response?.code || response.code === 0) {
+          const messageId = response?.data?.message_id;
+          if (messageId) {
+            this.logger.debug({ chatId, cardId, messageId, replyToMessageId }, 'CardKit card message sent');
+            return messageId;
+          }
+          throw new Error('sendCardByCardId returned no message_id');
+        }
+
+        // Non-success response code — check if retriable
+        lastError = { code: response.code, msg: response.msg };
+        if (!isInvalidCardIdResponse(response)) break;
+      } catch (err: any) {
+        // Feishu SDK throws on HTTP errors (e.g. 400) instead of returning
+        // an error response object. Extract code/msg from the thrown error.
+        const code = err?.code ?? err?.response?.code;
+        const msg = err?.message ?? err?.msg ?? String(err);
+        lastError = { code, msg };
+
+        if (!isInvalidCardIdResponse({ code, msg })) break;
       }
 
-      if (!isInvalidCardIdResponse(response) || attempt === CARD_ID_RETRY_ATTEMPTS) {
-        break;
+      // Retriable — card_id not yet usable
+      if (attempt < CARD_ID_RETRY_ATTEMPTS) {
+        const delay = CARD_ID_RETRY_BASE_DELAY_MS * (attempt + 1);
+        this.logger.warn({
+          attempt: attempt + 1,
+          delay,
+          cardId,
+          chatId,
+          replyToMessageId,
+          code: lastError?.code,
+          msg: lastError?.msg,
+        }, 'CardKit card_id not yet usable, retrying sendCardByCardId');
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
-
-      const delay = CARD_ID_RETRY_BASE_DELAY_MS * (attempt + 1);
-      this.logger.warn({
-        attempt: attempt + 1,
-        delay,
-        cardId,
-        chatId,
-        replyToMessageId,
-        code: response.code,
-        msg: response.msg,
-      }, 'CardKit card_id not yet usable, retrying sendCardByCardId');
-      await new Promise(resolve => setTimeout(resolve, delay));
     }
 
-    if (response?.code && response.code !== 0) {
-      throw new Error(`sendCardByCardId error ${response.code}: ${response.msg}`);
-    }
-
-    const messageId = response?.data?.message_id;
-    if (!messageId) {
-      throw new Error('sendCardByCardId returned no message_id');
-    }
-
-    this.logger.debug({ chatId, cardId, messageId, replyToMessageId }, 'CardKit card message sent');
-    return messageId;
+    throw new Error(`sendCardByCardId error ${lastError?.code ?? 'unknown'}: ${lastError?.msg ?? 'no response'}`);
   }
 
   // ─── Approval Cards ───

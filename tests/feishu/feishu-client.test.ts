@@ -320,7 +320,7 @@ describe('FeishuClient', () => {
       };
 
       const promise = expect(client.sendCardByCardId('chat-1', 'card-1', 'reply-msg-1')).resolves.toBe('msg-card-1');
-      await vi.advanceTimersByTimeAsync(150);
+      await vi.advanceTimersByTimeAsync(300);
       await promise;
       expect(reply).toHaveBeenCalledTimes(2);
     });
@@ -342,9 +342,10 @@ describe('FeishuClient', () => {
 
       const promise = expect(client.sendCardByCardId('chat-1', 'card-1', 'reply-msg-1'))
         .rejects.toThrow('sendCardByCardId error 230099');
-      await vi.advanceTimersByTimeAsync(150 + 300 + 450);
+      await vi.advanceTimersByTimeAsync(300 + 600 + 900 + 1200 + 1500);
       await promise;
-      expect(reply).toHaveBeenCalledTimes(4);
+      // 6 calls: initial + 5 retries (CARD_ID_RETRY_ATTEMPTS=5)
+      expect(reply).toHaveBeenCalledTimes(6);
     });
   });
 
