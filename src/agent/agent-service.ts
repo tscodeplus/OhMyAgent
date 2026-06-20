@@ -64,6 +64,8 @@ export interface AgentServicePersistenceOptions {
   memorySummarizer: MemorySummarizer;
   /** Summarize every N messages per session (default: 10). */
   summarizeInterval?: number;
+  /** Load up to N recent messages from DB when creating a new runtime after restart. 0 disables. */
+  historyLoadCount?: number;
   logger: Logger;
 }
 
@@ -114,6 +116,28 @@ export class AgentService {
       if (agentIdFromSession) {
         setSessionAgent(sessionId, agentIdFromSession);
       }
+
+      // Load recent message history from DB on restart so the agent retains
+      // conversation continuity across service restarts. Skip when the caller
+      // already provided historyMessages explicitly or when the feature is
+      // disabled (historyLoadCount: 0).
+      let historyMessages = options?.historyMessages;
+      if (!historyMessages && this.persistence && sessionId !== 'default') {
+        const limit = this.persistence.historyLoadCount ?? 0;
+        if (limit > 0) {
+          try {
+            const rows = this.persistence.messageRepository.findBySessionIdDesc(sessionId, limit);
+            historyMessages = rows.reverse().map(m => ({
+              role: m.role,
+              content: m.content,
+              timestamp: new Date(m.created_at).getTime(),
+            }));
+          } catch {
+            // Non-fatal — start with empty history if the DB read fails
+          }
+        }
+      }
+
       const turnContext: AgentTurnContext = {};
       runtime = {
         agent: this.factory.create({
@@ -121,9 +145,10 @@ export class AgentService {
           message: input,
           agentId: agentIdFromSession ?? options?.agentId,
           turnContext,
+          historyMessages,
         }),
         bridge: null,
-        persistedMessageCount: options?.historyMessages?.length ?? 0,
+        persistedMessageCount: historyMessages?.length ?? 0,
         turnContext,
         channel: options?.channel,
       };

@@ -242,6 +242,7 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
       toolRunRepository,
       memorySummarizer,
       summarizeInterval: config.memory.summarizeInterval,
+      historyLoadCount: config.memory.historyLoadCount,
       logger,
     },
     getVisionBridge,

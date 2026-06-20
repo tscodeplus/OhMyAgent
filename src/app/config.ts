@@ -150,6 +150,7 @@ const configSchema = z.object({
     recallTopK: z.coerce.number().int().positive().default(3),
     recallMinScore: z.coerce.number().min(0).default(0.01),
     captureMaxChars: z.coerce.number().int().positive().default(500),
+    historyLoadCount: z.coerce.number().int().nonnegative().default(5),
     summarizeInterval: z.coerce.number().int().positive().default(20),
     outputLanguage: z.string().default('Auto'),
     // Temporal decay: half-life in days. 0 disables decay.
@@ -574,6 +575,7 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
       recallTopK: env.MEMORY_RECALL_TOP_K,
       recallMinScore: env.MEMORY_RECALL_MIN_SCORE,
       captureMaxChars: env.MEMORY_CAPTURE_MAX_CHARS,
+      historyLoadCount: env.MEMORY_HISTORY_LOAD_COUNT,
       summarizeInterval: env.MEMORY_SUMMARIZE_INTERVAL,
       outputLanguage: normalizeMemoryOutputLanguage(env.MEMORY_OUTPUT_LANGUAGE),
       decayHalfLifeDays: env.MEMORY_DECAY_HALF_LIFE_DAYS,
