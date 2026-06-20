@@ -91,7 +91,7 @@ function buildMemorySection(memCfg: YamlNode): Record<string, unknown> {
     recallMinScore: num(memCfg?.recall_min_score, 0.01),
     captureMaxChars: num(memCfg?.capture_max_chars, 500),
     historyLoadCount: num(memCfg?.history_load_count, 5),
-    historyMaxTokens: num(memCfg?.history_max_tokens, 2000),
+    historyMaxTokens: num(memCfg?.history_max_tokens, 1000),
     summarizeInterval: num(memCfg?.summarize_interval, 20),
     outputLanguage: str(memCfg?.output_language, 'Auto'),
     decayHalfLifeDays: num(memCfg?.decay_half_life_days, 30),

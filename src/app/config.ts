@@ -151,8 +151,8 @@ const configSchema = z.object({
     recallMinScore: z.coerce.number().min(0).default(0.01),
     captureMaxChars: z.coerce.number().int().positive().default(500),
     historyLoadCount: z.coerce.number().int().nonnegative().default(5),
-    /** Max estimated tokens for loaded history. 0 = no limit. @default 2000 */
-    historyMaxTokens: z.coerce.number().int().nonnegative().default(2000),
+    /** Max estimated tokens for loaded history. 0 = no limit. @default 1000 */
+    historyMaxTokens: z.coerce.number().int().nonnegative().default(1000),
     summarizeInterval: z.coerce.number().int().positive().default(20),
     outputLanguage: z.string().default('Auto'),
     // Temporal decay: half-life in days. 0 disables decay.
