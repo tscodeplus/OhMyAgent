@@ -66,7 +66,24 @@ export interface AgentServicePersistenceOptions {
   summarizeInterval?: number;
   /** Load up to N recent messages from DB when creating a new runtime after restart. 0 disables. */
   historyLoadCount?: number;
+  /** Max estimated tokens for loaded history messages. 0 = no limit. */
+  historyMaxTokens?: number;
   logger: Logger;
+}
+
+/**
+ * Rough token count estimation. ASCII ≈ char/4, CJK/non-ASCII ≈ char/2.
+ * Overestimates for CJK safety; accuracy ±30% is fine for a soft cap.
+ */
+function estimateTokens(content: string | Array<{ type: string; text?: string }>): number {
+  const text = typeof content === 'string'
+    ? content
+    : content.map(b => b.text ?? '').join('');
+  let tokens = 0;
+  for (const ch of text) {
+    tokens += ch.charCodeAt(0) > 127 ? 0.5 : 0.25;
+  }
+  return Math.ceil(tokens);
 }
 
 export class AgentService {
@@ -130,19 +147,32 @@ export class AgentService {
       if (wasCleared) this.clearedSessions.delete(sessionId);
       if (!historyMessages && this.persistence && sessionId !== 'default' && !wasCleared) {
         const limit = this.persistence.historyLoadCount ?? 0;
+        const maxTokens = this.persistence.historyMaxTokens ?? 0;
         if (limit > 0) {
           try {
             const rows = this.persistence.messageRepository.findBySessionIdDesc(sessionId, limit);
-            historyMessages = rows.reverse().map(m => ({
+            const parsed = rows.reverse().map(m => ({
               role: m.role,
-              // Assistant messages in pi-mono use content-block arrays, but the DB
-              // stores plain text. Wrap string content so downstream flatMap()
-              // calls in transformMessages don't crash.
               content: m.role === 'assistant'
                 ? [{ type: 'text' as const, text: m.content }]
                 : m.content,
               timestamp: new Date(m.created_at).getTime(),
             }));
+            // Apply token cap: keep newest messages that fit within maxTokens.
+            // Walk from newest to oldest, stop when budget is exceeded.
+            if (maxTokens > 0) {
+              let used = 0;
+              const capped: typeof parsed = [];
+              for (let i = parsed.length - 1; i >= 0; i--) {
+                const tokens = estimateTokens(parsed[i].content);
+                if (used + tokens > maxTokens) break;
+                used += tokens;
+                capped.unshift(parsed[i]);
+              }
+              historyMessages = capped;
+            } else {
+              historyMessages = parsed;
+            }
           } catch {
             // Non-fatal — start with empty history if the DB read fails
           }

@@ -87,6 +87,7 @@ export function useConfigDirty(
         'memory.recallTopK', 'memory.recallMinScore', 'memory.maxCaptureChars',
         'memory.summarizeInterval', 'memory.decayHalfLife',
         'memory.historyLoadCount',
+        'memory.historyMaxTokens',
         'memory.cacheMaxEntries', 'memory.queryTimeoutMs',
         'memory.retentionDays', 'memory.failureThreshold', 'memory.cooldownSec',
         'memory.maxRefs', 'memory.preserveMsgs',

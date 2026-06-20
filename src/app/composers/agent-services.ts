@@ -160,6 +160,7 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
     // take effect immediately without restart.
     if (persistenceOpts) {
       persistenceOpts.historyLoadCount = c.memory.historyLoadCount;
+      persistenceOpts.historyMaxTokens = c.memory.historyMaxTokens;
     }
   });
 
@@ -246,6 +247,7 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
     memorySummarizer,
     summarizeInterval: config.memory.summarizeInterval,
     historyLoadCount: config.memory.historyLoadCount,
+    historyMaxTokens: config.memory.historyMaxTokens,
     logger,
   };
 

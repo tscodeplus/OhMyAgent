@@ -274,6 +274,7 @@
       "maxCaptureChars": "最大捕获字符",
       "summarizeInterval": "摘要间隔 (消息数)",
       "historyLoadCount": "重启后加载历史消息数",
+      "historyMaxTokens": "历史消息 Token 上限",
       "decayHalfLife": "衰减半衰期 (天)",
       "outputLanguage": "输出语言",
       "embedding": "向量与缓存",

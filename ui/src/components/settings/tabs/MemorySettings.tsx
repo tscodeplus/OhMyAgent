@@ -88,6 +88,8 @@ export default function MemorySettings({
         <div className="grid grid-cols-3 gap-4">
           <Input label={t("settings.memory.historyLoadCount")} type="number" value={getField('memory.historyLoadCount', String(mem.historyLoadCount ?? '')) as string}
             onChange={(e) => setField('memory.historyLoadCount', e.target.value)} />
+          <Input label={t("settings.memory.historyMaxTokens")} type="number" value={getField('memory.historyMaxTokens', String(mem.historyMaxTokens ?? '')) as string}
+            onChange={(e) => setField('memory.historyMaxTokens', e.target.value)} />
         </div>
       </AccordionItem>
 

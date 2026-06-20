@@ -273,6 +273,7 @@
       "maxCaptureChars": "Max Capture Chars",
       "summarizeInterval": "Summarize Interval",
       "historyLoadCount": "History Msgs on Restart",
+      "historyMaxTokens": "History Max Tokens",
       "decayHalfLife": "Decay Half-Life (days)",
       "outputLanguage": "Output Language",
       "embedding": "Embedding & Cache",
