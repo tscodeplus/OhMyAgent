@@ -112,6 +112,79 @@ export class EventBridge {
   }
 
   /**
+   * Transform <plan>...</plan> blocks into a formatted markdown section.
+   *
+   * Instead of stripping the content, we replace the XML tags with a markdown
+   * fenced block so the plan renders as a nicely-formatted section across all
+   * channels (WebUI, Feishu, Telegram, etc.) while remaining readable as plain
+   * text on channels without markdown support (WeChat, QQ).
+   */
+  private filterPlanDelta(delta: string): string {
+    const fullDelta = this.planPartial + delta;
+    this.planPartial = '';
+
+    let result = '';
+    let i = 0;
+    const OPEN = '<plan>';
+    const CLOSE = '</plan>';
+    const OPEN_LEN = 6;
+    const CLOSE_LEN = 7;
+    const OPEN_MD = '\n```plan\n📋 执行计划\n';
+    const CLOSE_MD = '\n```\n';
+
+    while (i < fullDelta.length) {
+      const openIdx = fullDelta.indexOf(OPEN, i);
+      const closeIdx = fullDelta.indexOf(CLOSE, i);
+
+      if (this.planDepth === 0 && openIdx === -1) {
+        result += fullDelta.slice(i);
+        break;
+      }
+
+      if (this.planDepth > 0 && closeIdx === -1) {
+        // Still inside plan — pass content through unchanged
+        result += fullDelta.slice(i);
+        break;
+      }
+
+      if (this.planDepth === 0 && openIdx !== -1 && (closeIdx === -1 || openIdx < closeIdx)) {
+        result += fullDelta.slice(i, openIdx);
+        result += OPEN_MD;
+        this.planDepth = 1;
+        i = openIdx + OPEN_LEN;
+        continue;
+      }
+
+      if (this.planDepth > 0 && closeIdx !== -1 && (openIdx === -1 || closeIdx < openIdx)) {
+        result += fullDelta.slice(i, closeIdx);
+        result += CLOSE_MD;
+        this.planDepth = 0;
+        i = closeIdx + CLOSE_LEN;
+        continue;
+      }
+
+      // Nested <plan> inside a plan block — treat as literal text
+      if (this.planDepth > 0 && openIdx !== -1) {
+        result += fullDelta.slice(i, openIdx);
+        i = openIdx + OPEN_LEN;
+        continue;
+      }
+    }
+
+    // Buffer tail in case tag is split across deltas (only partial prefixes)
+    const TAG_STARTS = ['<', '</', '<p', '</p', '<pl', '</pl', '<pla', '</pla', '<plan', '</pla'];
+    for (const prefix of TAG_STARTS) {
+      if (fullDelta.endsWith(prefix) && fullDelta.length >= prefix.length) {
+        result = result.slice(0, result.length - prefix.length);
+        this.planPartial = prefix;
+        break;
+      }
+    }
+
+    return result;
+  }
+
+  /**
    * Subscribe to agent events and forward them to the reply dispatcher.
    *
    * Event mapping:
@@ -152,7 +225,7 @@ export class EventBridge {
         case 'message_update': {
           const sub = event.assistantMessageEvent;
           if (sub.type === 'text_delta') {
-            const filtered = this.filterThinkDelta(sub.delta);
+            const filtered = this.filterPlanDelta(this.filterThinkDelta(sub.delta));
             if (filtered) {
               this.replyDispatcher.onTextDelta(filtered);
             }
