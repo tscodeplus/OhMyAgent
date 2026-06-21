@@ -52,8 +52,9 @@ export class ChatQueue {
 
     try {
       await task();
-    } catch {
+    } catch (err) {
       // Error in one task does not block the queue
+      console.warn(`[ChatQueue] task failed for session ${sessionKey}:`, err);
     }
 
     await this.processNext(sessionKey);

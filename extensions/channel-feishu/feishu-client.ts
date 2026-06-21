@@ -34,6 +34,31 @@ function isInvalidCardIdResponse(response: { code?: number; msg?: string } | und
 }
 
 /**
+ * Check whether an error (caught in a catch block) represents a
+ * "cardid is invalid" failure from the Feishu API (code 230099).
+ *
+ * The Feishu SDK throws on HTTP 400 errors with code/msg buried in
+ * different shapes: `err.code`, `err.response.code`, or inside
+ * `err.message`. This function normalises those shapes so callers
+ * can decide whether to recreate the card.
+ */
+export function isCardIdInvalidError(err: unknown): boolean {
+  if (!(err instanceof Error) && typeof err !== 'object') return false;
+  const obj = err as Record<string, unknown>;
+  // Check error code (normally 230099 for cardid-invalid)
+  const code = obj.code as number | undefined
+    ?? (obj.response as Record<string, unknown> | undefined)?.code as number | undefined;
+  if (code === CARD_ID_INVALID_CODE) return true;
+  // Fallback: inspect the message string
+  const msg = String(
+    (obj as { message?: string }).message
+    ?? (obj as { msg?: string }).msg
+    ?? String(err)
+  ).toLowerCase();
+  return msg.includes('cardid is invalid') || msg.includes('errcode: 11310');
+}
+
+/**
  * Normalise the various response formats from the Feishu SDK's binary endpoints
  * into a single Buffer.
  *

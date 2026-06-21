@@ -9,6 +9,7 @@
 
 import type { Logger } from 'pino';
 import { STREAMING_ELEMENT_ID, buildStreamingCard, buildCompletedCard } from './cardkit-builder.js';
+import { isCardIdInvalidError } from '../feishu-client.js';
 import type { FooterConfig, Usage } from '../../../src/app/types.js';
 import { i18n } from '../../../src/i18n/index.js';
 import { fixFeishuBold } from './markdown-sanitizer.js';
@@ -29,6 +30,10 @@ export interface StreamingCardControllerOptions {
     updateCard(cardId: string, cardData: Record<string, unknown>, sequence: number): Promise<void>;
     /** Fallback: update card via im.message.patch (non-CardKit). */
     updateMessage?(messageId: string, msgType: string, card: Record<string, unknown>): Promise<void>;
+    /** Fallback: send a plain-text message when CardKit is unavailable. */
+    sendMessage?(params: { receive_id: string; receive_id_type: string; msg_type: string; content: string }): Promise<unknown>;
+    /** Fallback: reply with a plain-text message. */
+    replyMessage?(messageId: string, params: { msg_type: string; content: string }): Promise<unknown>;
   };
   chatId: string;
   messageId?: string;
@@ -156,11 +161,32 @@ export class StreamingCardController {
       const card = buildStreamingCard();
       this.cardId = await this.feishuClient.createCard(card);
       // Sequence starts at 0; incremented before each stream/set/update call
-      this.messageId = await this.feishuClient.sendCardByCardId(
-        this.chatId,
-        this.cardId,
-        this.messageId,
-      );
+      try {
+        this.messageId = await this.feishuClient.sendCardByCardId(
+          this.chatId,
+          this.cardId,
+          this.messageId,
+        );
+      } catch (sendErr) {
+        // If cardId was invalid, rebuild the card and retry once with a fresh cardId.
+        // Retrying the same cardId is futile — an invalid cardId stays invalid.
+        if (isCardIdInvalidError(sendErr)) {
+          this.logger?.warn(
+            { oldCardId: this.cardId, err: (sendErr as Error).message },
+            'CardKit sendCardByCardId failed with invalid cardId, recreating card',
+          );
+          const newCard = buildStreamingCard();
+          this.cardId = await this.feishuClient.createCard(newCard);
+          this.messageId = await this.feishuClient.sendCardByCardId(
+            this.chatId,
+            this.cardId,
+            this.messageId,
+          );
+          this.logger?.info({ newCardId: this.cardId }, 'CardKit card recreated successfully after cardid-invalid');
+        } else {
+          throw sendErr;
+        }
+      }
       this.lastFlushTime = Date.now();
       this.state = 'streaming';
 
@@ -251,7 +277,22 @@ export class StreamingCardController {
    */
   async complete(usage?: Usage): Promise<void> {
     if (this.state === 'completed') return; // idempotent
-    if (this.state !== 'streaming') return;
+
+    // If the card was never successfully created (state is 'error' or 'creating'
+    // from a failed createPlaceholder), fall back to sending the answer as a
+    // plain-text message so the user still sees the response.
+    if (this.state !== 'streaming') {
+      const answer = this.buildFinalAnswer();
+      if (answer) {
+        this.logger?.info(
+          { state: this.state, answerLen: answer.length },
+          'CardKit unavailable, sending answer as text fallback',
+        );
+        await this.sendTextFallback(answer);
+      }
+      return;
+    }
+
     this.setUsage(usage);
 
     this.cancelScheduledFlush();
@@ -290,6 +331,36 @@ export class StreamingCardController {
       }
     } catch (err) {
       // Error during finalization — state remains 'completed'
+    }
+  }
+
+  /**
+   * Send the accumulated answer as a plain-text message when CardKit is
+   * unavailable (e.g. card creation failed with cardid-invalid).
+   *
+   * Prefers replyMessage (threaded reply) when a messageId is available;
+   * otherwise falls back to sendMessage (new message in the chat).
+   */
+  private async sendTextFallback(answer: string): Promise<void> {
+    const content = JSON.stringify({ text: answer });
+    try {
+      if (this.messageId && this.feishuClient.replyMessage) {
+        await this.feishuClient.replyMessage(this.messageId, {
+          msg_type: 'text',
+          content,
+        });
+        this.logger?.debug({ messageId: this.messageId }, 'Text fallback sent via replyMessage');
+      } else if (this.feishuClient.sendMessage) {
+        await this.feishuClient.sendMessage({
+          receive_id: this.chatId,
+          receive_id_type: 'chat_id',
+          msg_type: 'text',
+          content,
+        });
+        this.logger?.debug({ chatId: this.chatId }, 'Text fallback sent via sendMessage');
+      }
+    } catch (fallbackErr) {
+      this.logger?.warn({ err: fallbackErr }, 'Text fallback also failed');
     }
   }
 

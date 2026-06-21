@@ -16,6 +16,9 @@ export class EventBridge {
   private thinkBuffer = '';
   /** Buffer for partial <think> / </think> tags split across delta boundaries. */
   private thinkPartial = '';
+  /** Track stripping state for <plan>...</plan> blocks (flat, no nesting). */
+  private planDepth = 0;
+  private planPartial = '';
   private agent?: Agent;
   /** Called before onComplete/onError/onAborted to persist state. */
   private preCompleteCallback?: () => Promise<void>;
@@ -238,6 +241,7 @@ export class EventBridge {
     try {
       await operation();
     } catch (error) {
+      this.logger?.warn({ err: error }, 'dispatchSafely: operation failed, routing to onError');
       try {
         await this.replyDispatcher.onError(
           error instanceof Error ? error : new Error(String(error)),
