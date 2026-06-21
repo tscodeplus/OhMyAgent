@@ -112,12 +112,12 @@ export class EventBridge {
   }
 
   /**
-   * Transform <plan>...</plan> blocks into a formatted markdown section.
+   * Transform <plan>...</plan> blocks — strip the XML wrapper tags but keep
+   * the inner content so its markdown (headings, lists, etc.) renders naturally.
    *
-   * Instead of stripping the content, we replace the XML tags with a markdown
-   * fenced block so the plan renders as a nicely-formatted section across all
-   * channels (WebUI, Feishu, Telegram, etc.) while remaining readable as plain
-   * text on channels without markdown support (WeChat, QQ).
+   * Replaces <plan> and </plan> with an empty string, letting the native
+   * markdown inside (### headings, numbered lists, bold, etc.) flow through
+   * to the channel renderer unchanged.
    */
   private filterPlanDelta(delta: string): string {
     const fullDelta = this.planPartial + delta;
@@ -129,41 +129,40 @@ export class EventBridge {
     const CLOSE = '</plan>';
     const OPEN_LEN = 6;
     const CLOSE_LEN = 7;
-    const OPEN_MD = '\n```plan\n📋 执行计划\n';
-    const CLOSE_MD = '\n```\n';
 
     while (i < fullDelta.length) {
       const openIdx = fullDelta.indexOf(OPEN, i);
       const closeIdx = fullDelta.indexOf(CLOSE, i);
 
+      // No tags ahead and not inside plan → pass through
       if (this.planDepth === 0 && openIdx === -1) {
         result += fullDelta.slice(i);
         break;
       }
 
+      // Inside plan, no close tag → pass content through unchanged
       if (this.planDepth > 0 && closeIdx === -1) {
-        // Still inside plan — pass content through unchanged
         result += fullDelta.slice(i);
         break;
       }
 
+      // Entering plan: strip <plan> tag, keep content
       if (this.planDepth === 0 && openIdx !== -1 && (closeIdx === -1 || openIdx < closeIdx)) {
-        result += fullDelta.slice(i, openIdx);
-        result += OPEN_MD;
+        result += fullDelta.slice(i, openIdx); // text before <plan>
         this.planDepth = 1;
         i = openIdx + OPEN_LEN;
         continue;
       }
 
+      // Exiting plan: strip </plan> tag, content before it already passed
       if (this.planDepth > 0 && closeIdx !== -1 && (openIdx === -1 || closeIdx < openIdx)) {
-        result += fullDelta.slice(i, closeIdx);
-        result += CLOSE_MD;
+        result += fullDelta.slice(i, closeIdx); // plan content (kept as-is)
         this.planDepth = 0;
         i = closeIdx + CLOSE_LEN;
         continue;
       }
 
-      // Nested <plan> inside a plan block — treat as literal text
+      // Nested <plan> inside plan body — strip the nested open tag, keep content
       if (this.planDepth > 0 && openIdx !== -1) {
         result += fullDelta.slice(i, openIdx);
         i = openIdx + OPEN_LEN;
@@ -171,7 +170,7 @@ export class EventBridge {
       }
     }
 
-    // Buffer tail in case tag is split across deltas (only partial prefixes)
+    // Buffer partial tag prefix in case it's split across deltas
     const TAG_STARTS = ['<', '</', '<p', '</p', '<pl', '</pl', '<pla', '</pla', '<plan', '</pla'];
     for (const prefix of TAG_STARTS) {
       if (fullDelta.endsWith(prefix) && fullDelta.length >= prefix.length) {
@@ -182,6 +181,12 @@ export class EventBridge {
     }
 
     return result;
+  }
+
+  /** Reset plan filter state at turn boundaries to prevent leakage. */
+  private resetPlanFilter(): void {
+    this.planDepth = 0;
+    this.planPartial = '';
   }
 
   /**
@@ -212,6 +217,7 @@ export class EventBridge {
     this.unsubscribe = agent.subscribe(async (event: AgentEvent) => {
       switch (event.type) {
         case 'agent_start':
+          this.resetPlanFilter(); // Prevent <plan> state leakage across turns
           await this.dispatchSafely(() => this.replyDispatcher.onStart());
           // Dispatch skill activation AFTER turn_start so the frontend has
           // already created the message bubble (beginTurn) before the
