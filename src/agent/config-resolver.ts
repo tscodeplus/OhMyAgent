@@ -32,10 +32,21 @@ function resolveTools(agent: AgentConfig, global: AppConfig): ResolvedAgentConfi
   return { profile, add, deny };
 }
 
-function resolveSpawn(agent: AgentConfig): ResolvedAgentConfig['spawn'] {
+function resolveSpawn(agent: AgentConfig, global: AppConfig): ResolvedAgentConfig['spawn'] {
+  // Migration: if the agent has no explicit `spawn` block (not even as an empty
+  // object) but the global smart_agent_team is enabled, default spawn to enabled.
+  // This avoids breaking existing users who already rely on spawn_agent via the
+  // global team-mode toggle.  Agents that define `spawn:` (even without fields)
+  // are treated as explicit opt-in/out and won't receive the migration default.
+  const hasExplicitSpawnBlock =
+    Object.prototype.hasOwnProperty.call(agent, 'spawn') && agent.spawn !== undefined;
+
   return {
-    enabled: agent.spawn?.enabled ?? false,
-    max_parallel: agent.spawn?.max_parallel ?? 3,
+    enabled: agent.spawn?.enabled
+      ?? (hasExplicitSpawnBlock ? false : (global.smart_agent_team?.enabled ?? false)),
+    max_parallel: agent.spawn?.max_parallel
+      ?? global.smart_agent_team?.max_children
+      ?? 4,
     allowed_personas: agent.spawn?.allowed_personas || [],
   };
 }
@@ -55,7 +66,7 @@ export function resolveAgentConfig(
   const system_prompt = agent.system_prompt || 'You are a helpful AI assistant.';
   const model = resolveModel(agent, global);
   const tools = resolveTools(agent, global);
-  const spawn = resolveSpawn(agent);
+  const spawn = resolveSpawn(agent, global);
   const extensions = resolveExtensions(agent);
   const channels = resolveChannels(agent);
 

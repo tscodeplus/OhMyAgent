@@ -111,6 +111,7 @@ export const PROFILE_TOOLS: Record<ToolProfileId, string[]> = {
     'sleep',
     'config',
     'spawn_agent',
+    'plan_and_spawn',
     'task_create',
     'task_get',
     'task_list',

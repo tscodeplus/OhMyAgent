@@ -20,11 +20,15 @@ export interface SpawnAgentDeps {
   getParentContext?: () => { sessionId: string; agentId: string } | undefined;
   // v4 Phase 5: Orchestrator for child agent lifecycle management
   orchestrator?: import('../../orchestrator/orchestrator.js').Orchestrator;
+  // P0: Maximum concurrent sub-agents (default 4). Injected from resolved config.
+  maxParallel?: number;
 }
 
 // Track active sub-agents per parent session for parallel limit enforcement
 const activeSubAgents = new Map<string, Set<string>>();
-const MAX_PARALLEL = 3;
+// P0: MAX_PARALLEL is now injected via SpawnAgentDeps.maxParallel.
+// This default only applies when no explicit value is provided.
+const DEFAULT_MAX_PARALLEL = 4;
 const DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes
 
 /** @deprecated Use `createSpawnAgentToolDefinition` from `./agents/spawn-definition.js` instead. */
@@ -48,14 +52,15 @@ export function createSpawnAgentTool(deps: SpawnAgentDeps): AgentTool<any> {
       const currentAgentId = parentCtx?.agentId || 'default';
 
       // Parallel limit enforcement
+      const limit = deps.maxParallel ?? DEFAULT_MAX_PARALLEL;
       let sessionSubs = activeSubAgents.get(parentSessionId);
       if (!sessionSubs) {
         sessionSubs = new Set();
         activeSubAgents.set(parentSessionId, sessionSubs);
       }
-      if (sessionSubs.size >= MAX_PARALLEL) {
+      if (sessionSubs.size >= limit) {
         return {
-          content: [{ type: 'text', text: `已达到最大并行子任务数 (${MAX_PARALLEL})。请等待当前子任务完成后再试。` }],
+          content: [{ type: 'text', text: `已达到最大并行子任务数 (${limit})。请等待当前子任务完成后再试。` }],
           details: {},
         };
       }

@@ -32,6 +32,7 @@ import { i18n } from '../i18n/index.js';
 import type { PromptManager } from '../prompt/prompt-manager.js';
 import type { PromptAssemblyOptions } from '../prompt/types.js';
 import { teamModeStore } from './team-mode-store.js';
+import { turnCounter } from './turn-counter.js';
 import { createBeforeToolCall, type BeforeToolCallDeps } from './before-tool-call.js';
 import type { PolicyCenter } from '../policy/policy-center.js';
 import type { AgentPolicyScope } from '../policy/types.js';
@@ -785,6 +786,55 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
               channel: (options?.channel as BeforeToolCallDeps['channel']),
             })
           : undefined,
+
+        // ── P3: prepareNextTurn hook (turn counter + reflection injection) ──
+        prepareNextTurn: async (ctx) => {
+          if (!sessionId) return undefined;
+
+          try {
+            // Count tool calls and spawn activity from this turn
+            const toolCallCount = ctx.toolResults?.length ?? 0;
+            const didSpawn = ctx.toolResults?.some(
+              (tr) => tr.toolName === 'spawn_agent',
+            ) ?? false;
+
+            turnCounter.recordTurn(sessionId, { toolCallCount, didSpawn });
+            logger?.debug({ sessionId, toolCallCount, didSpawn }, '[P3] prepareNextTurn: turn recorded');
+
+            // Only evaluate reflection prompts when team mode is active
+            const teamState = teamModeStore.get(sessionId);
+            const isTeamActive = teamState?.enabled ?? configRef.current.smart_agent_team?.enabled ?? false;
+            if (!isTeamActive) {
+              logger?.debug({ sessionId, isTeamActive }, '[P3] prepareNextTurn: team mode not active, skip');
+              return undefined;
+            }
+
+            const reflection = turnCounter.evaluate(sessionId, toolCallCount);
+            if (!reflection) {
+              const state = turnCounter.get(sessionId);
+              logger?.debug({ sessionId, serialToolCalls: state.serialToolCalls, turnsSinceLastSpawn: state.turnsSinceLastSpawn }, '[P3] prepareNextTurn: no reflection triggered');
+              return undefined;
+            }
+
+            logger?.info({ sessionId, reflectionLen: reflection.length }, '[P3] prepareNextTurn: injecting reflection');
+
+            // Inject reflection as a user message at the END of the context
+            // (not in systemPrompt). This preserves the prefix cache — only the
+            // new trailing message causes a cache miss, not the entire context.
+            return {
+              context: {
+                ...ctx.context,
+                messages: [
+                  ...ctx.context.messages,
+                  { role: 'user', content: [{ type: 'text', text: reflection }], timestamp: Date.now() } as any,
+                ],
+              },
+            };
+          } catch {
+            // Contract: must not throw — prevent hook failure from crashing the agent loop
+            return undefined;
+          }
+        },
       });
 
       agent.ohmyagent_agentName = agentConfig?.name;

@@ -170,6 +170,15 @@ export function assembleAgentTools(opts: ToolPipelineOptions): ToolPipelineResul
     tools = tools.filter((t: any) => t.name !== 'computer_use');
   }
 
+  // ── Stage 3.5: Remove spawn tools when spawn is disabled on this agent ──
+  // Placed AFTER profile filtering so even advanced-profile agents must have
+  // spawn.enabled explicitly set to true (P0: spawn.enabled gate).
+  // Both spawn_agent and plan_and_spawn create child agents — gate them together.
+  const spawnEnabled = opts.agentConfig?.spawn?.enabled ?? false;
+  if (!spawnEnabled) {
+    tools = tools.filter((t: any) => t.name !== 'spawn_agent' && t.name !== 'plan_and_spawn');
+  }
+
   // ── Stage 4: Runtime policy adapter wrapping ──
   const runtimeToolPlatformRegistry = opts.getServices?.()?.toolPlatformRegistry;
   const bridgeRegistry = opts.getServices?.()?.desktopBridgeRegistry;
@@ -256,11 +265,17 @@ export function assembleAgentTools(opts: ToolPipelineOptions): ToolPipelineResul
 
   // ── Stage 7: Spawn agent tool wrapping ──
   const orchestrator = opts.orchestratorFactory?.();
-  if (orchestrator && opts.agentManager && opts.logger && tools.some((t: any) => t.name === 'spawn_agent')) {
+  if (spawnEnabled && orchestrator && opts.agentManager && opts.logger && tools.some((t: any) => t.name === 'spawn_agent')) {
+    // P0: maxParallel unified — reads from resolved agent config first,
+    // falls back to global smart_agent_team.max_children.
+    const maxParallel = opts.agentConfig?.spawn?.max_parallel
+      ?? opts.config.smart_agent_team?.max_children
+      ?? 4;
     const spawnDef = createSpawnAgentToolDefinition({
       agentManager: opts.agentManager,
       logger: opts.logger,
       orchestrator,
+      maxParallel,
       createAgent: (config, task, childOptions) => {
         const childTools = opts.agentManager!.resolveTools(config)
           .filter((t: any) => t.name !== 'spawn_agent');

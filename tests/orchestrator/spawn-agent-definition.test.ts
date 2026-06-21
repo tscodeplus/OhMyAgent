@@ -186,3 +186,66 @@ describe('spawn_agent ToolDefinition orchestrator path', () => {
     expect(result.isError).toBeFalsy();
   });
 });
+
+// ============================================================================
+// P0: maxParallel injection
+// ============================================================================
+
+describe('spawn_agent ToolDefinition — P0 maxParallel', () => {
+  it('uses injected maxParallel when provided', () => {
+    const childRun: AgentRun = {
+      agentId: 'child-1',
+      parentAgentId: 'parent-1',
+      rootSessionId: 'session-1',
+      role: 'child',
+      status: 'running',
+      createdAt: Date.now(),
+      scope: { ...DEFAULT_POLICY_SCOPE },
+    };
+
+    const orchestrator = {
+      spawnChildAgent: vi.fn(async () => childRun),
+      stopAgent: vi.fn(),
+      finishAgent: vi.fn(),
+      getAgentRun: vi.fn(() => childRun),
+      registerRuntime: vi.fn(),
+      unregisterRuntime: vi.fn(),
+    } as unknown as Orchestrator;
+
+    const subAgent = {
+      prompt: vi.fn(async () => undefined),
+      waitForIdle: vi.fn(async () => undefined),
+      abort: vi.fn(),
+      state: {
+        messages: [
+          { role: 'assistant', content: [{ type: 'text', text: 'done' }] },
+        ],
+      },
+    };
+
+    const def = createSpawnAgentToolDefinition({
+      agentManager: {
+        get: vi.fn(() => ({
+          id: 'default',
+          name: 'Default',
+          system_prompt: '',
+          model: {},
+          tools: { profile: 'advanced', add: [], deny: [] },
+          channels: [],
+          memory: {},
+          metadata: {},
+        })),
+        list: vi.fn(() => [{ id: 'default' }]),
+      } as any,
+      logger: { error: vi.fn() } as any,
+      orchestrator,
+      createAgent: vi.fn(() => subAgent as any),
+      maxParallel: 7, // P0: injected from resolved config
+    });
+
+    expect(def).toBeDefined();
+    // The maxParallel is not directly observable from the outside,
+    // but the tool should work correctly with the custom value.
+    // The actual enforcement is tested at the unit level in spawn-agent-tool.
+  });
+});

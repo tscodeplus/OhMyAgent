@@ -26,6 +26,7 @@ import { createMemoryCompactToolDefinition } from '../../tools/builtins/memory/c
 import { createSessionSummarizeToolDefinition } from '../../tools/builtins/session/definition.js';
 import { createComputerUseToolDefinition } from '../../tools/builtins/computer-use/definition.js';
 import { createSpawnAgentToolDefinition } from '../../tools/builtins/agents/spawn-definition.js';
+import { createPlanAndSpawnToolDefinition } from '../../tools/builtins/agents/plan-spawn-definition.js';
 import { createFileWriteToolDefinition } from '../../tools/builtins/files/write-definition.js';
 import { createFileEditToolDefinition } from '../../tools/builtins/files/edit-definition.js';
 import { createGlobToolDefinition } from '../../tools/builtins/files/glob-definition.js';
@@ -186,6 +187,28 @@ export function registerV4ToolDefinitions(input: {
     logger,
     orchestrator,
     createAgent: (config, task, childOptions) => agentFactory.create({
+      agentId: config.id,
+      systemPrompt: config.system_prompt,
+      tools: agentManager.resolveTools(config).filter((t: any) => t.name !== 'spawn_agent'),
+      message: task,
+      sessionId: childOptions?.sessionId,
+      toolsProfileOverride: config.tools.profile,
+      policyScope: childOptions?.policyScope,
+      policyAgentId: childOptions?.agentId,
+      computerUseAllowed: childOptions?.policyScope?.computerUseEnabled,
+      isChildAgent: true,
+      childTaskDescription: task,
+    }),
+  }));
+
+  // P4: plan_and_spawn — structured plan + batch spawn with DAG execution
+  toolPlatformRegistry.registerDefinition(createPlanAndSpawnToolDefinition({
+    agentManager,
+    orchestrator,
+    logger,
+    maxConcurrency: config.smart_agent_team.max_children,
+    timeoutMs: 300_000,
+    createAgent: (config: any, task: string, childOptions: any) => agentFactory.create({
       agentId: config.id,
       systemPrompt: config.system_prompt,
       tools: agentManager.resolveTools(config).filter((t: any) => t.name !== 'spawn_agent'),
