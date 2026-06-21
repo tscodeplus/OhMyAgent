@@ -59,6 +59,7 @@ export { createRemoteTriggerToolDefinition, remoteTriggerCapability } from './we
 
 // v4 File tools (F2)
 export { createNotebookEditToolDefinition, notebookEditCapability } from './files/notebook-edit-definition.js';
+export { createDownloadFileToolDefinition, downloadFileCapability } from './files/download-definition.js';
 
 // v4 Multimodal tools (F2)
 export { createImageGenerationToolDefinition, imageGenerationCapability } from './multimodal/image-generation-definition.js';

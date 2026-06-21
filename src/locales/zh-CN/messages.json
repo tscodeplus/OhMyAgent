@@ -1,7 +1,7 @@
 {
   "media": {
     "imageSent": "[用户发送了图片]",
-    "fileSent": "[用户发送了文件: {{name}}]",
+    "fileSent": "📎 收到文件附件: {{name}}",
     "audioSent": "[用户发送了一条语音消息{{duration}}秒]",
     "videoSent": "[用户发送了一个视频: {{name}}]",
     "stickerSent": "[用户发送了一个贴纸]",

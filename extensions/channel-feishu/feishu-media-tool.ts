@@ -1,12 +1,11 @@
 /**
- * Feishu media sending tool.
+ * Feishu media tools.
  *
- * Allows the agent to upload and send images/files to the current Feishu chat.
- * The tool reads a local file, uploads it to Feishu IM storage, and sends it
- * as an image or file message.
+ * - feishu_send_media: upload and send images/files to Feishu chat
+ * - download_feishu_file: download file attachments from Feishu messages
  */
 
-import { readFile, unlink } from 'fs/promises';
+import { readFile, unlink, writeFile, mkdir } from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import { execSync } from 'child_process';
@@ -203,4 +202,124 @@ export function createFeishuMediaTool(options: FeishuMediaToolOptions) {
       }
     },
   } as AgentTool<any>;
+}
+
+// ---------------------------------------------------------------------------
+// download_feishu_file — on-demand file download from Feishu messages
+// ---------------------------------------------------------------------------
+
+export interface FeishuDownloadToolOptions {
+  feishuClient: FeishuClient;
+  /** The message ID containing the file attachment. */
+  messageId: string;
+  /** Allowed download roots (default: data/downloads/). */
+  allowedRoots?: string[];
+}
+
+/**
+ * Create a tool that downloads a file attachment from a Feishu message.
+ *
+ * This is injected as an extra tool for Feishu sessions so the agent can
+ * download file attachments on-demand, rather than having them downloaded
+ * immediately when the message is received.
+ */
+export function createFeishuDownloadTool(options: FeishuDownloadToolOptions) {
+  const { feishuClient, messageId } = options;
+
+  const downloadDir = path.resolve(process.cwd(), 'data', 'downloads');
+
+  // Ensure download directory exists
+  const ensureDir = async () => {
+    try { await mkdir(downloadDir, { recursive: true }); } catch { /* exists */ }
+  };
+  // Fire and forget — directory will be ready by the time the tool is called
+  ensureDir();
+
+  return {
+    name: 'download_feishu_file',
+    label: 'Download File from Feishu',
+    description:
+      'Download a file attachment from the current Feishu message. ' +
+      'Use this tool when the user has sent a file that you need to read. ' +
+      'The file will be saved locally and you can then use file_read to access its content. ' +
+      'File attachments include PDFs, documents, spreadsheets, archives, source code files, etc.',
+    parameters: Type.Object({
+      fileKey: Type.String({
+        description: 'The file_key of the attachment to download (mentioned in the system message about the incoming file)',
+      }),
+    }),
+    execute: async (_toolCallId: string, params: { fileKey: string }) => {
+      try {
+        const downloader = feishuClient as any;
+        if (!downloader.downloadResource) {
+          return {
+            content: [{ type: 'text' as const, text: '下载功能不可用：缺少 Feishu 客户端配置。' }],
+          };
+        }
+
+        // Download from Feishu
+        const { buffer, fileName: discoveredName, contentType } = await downloader.downloadResource(
+          messageId,
+          params.fileKey,
+          'file',
+        );
+
+        // Determine filename
+        const ext = (discoveredName && path.extname(discoveredName)) || '';
+        const baseName = (discoveredName && path.basename(discoveredName, ext)) || params.fileKey;
+        const fileName = sanitizeFileName(baseName + ext);
+
+        // Ensure unique path
+        let destPath = path.join(downloadDir, fileName);
+        let suffix = 0;
+        const originalDest = destPath;
+        while (true) {
+          try {
+            await writeFile(destPath, buffer, { flag: 'wx' }); // wx = write, exclusive
+            break;
+          } catch (err: any) {
+            if (err.code === 'EEXIST') {
+              suffix++;
+              const nameWithoutExt = baseName;
+              destPath = path.join(downloadDir, `${nameWithoutExt}_${suffix}${ext}`);
+            } else {
+              throw err;
+            }
+          }
+        }
+
+        const sizeStr = buffer.length < 1024
+          ? `${buffer.length} B`
+          : buffer.length < 1024 * 1024
+            ? `${(buffer.length / 1024).toFixed(1)} KB`
+            : `${(buffer.length / (1024 * 1024)).toFixed(1)} MB`;
+
+        return {
+          content: [{
+            type: 'text' as const,
+            text:
+              `✅ 文件下载成功\n` +
+              `- 文件名: ${fileName}\n` +
+              `- 大小: ${sizeStr}\n` +
+              `- 本地路径: ${destPath}\n` +
+              `- 类型: ${contentType || '未知'}\n\n` +
+              `你可以使用 file_read 工具读取此文件的内容。`,
+          }],
+          details: { localPath: destPath, fileName, size: buffer.length },
+        };
+      } catch (err: any) {
+        const message = err.message ?? String(err);
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `从飞书下载文件失败: ${message}`,
+          }],
+        };
+      }
+    },
+  } as AgentTool<any>;
+}
+
+function sanitizeFileName(value: string): string {
+  return path.basename(value).replace(/[<>:"/\\|?*\x00]/g, '_') || 'download';
 }

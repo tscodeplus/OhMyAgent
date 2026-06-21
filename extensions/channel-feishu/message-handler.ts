@@ -32,7 +32,7 @@ import type { MultimodalRuntimeConfig } from '../../src/multimodal/types.js';
 import type { FeishuClient } from './feishu-client.js';
 import { handleCommand } from '../../src/commands/command-handler.js';
 import type { CommandDeps } from '../../src/commands/command-handler.js';
-import { createFeishuMediaTool } from './feishu-media-tool.js';
+import { createFeishuMediaTool, createFeishuDownloadTool } from './feishu-media-tool.js';
 import { i18n } from '../../src/i18n/index.js';
 import { imageBufferToImageContent } from './feishu-media.js';
 import { unlink, writeFile } from 'node:fs/promises';
@@ -230,11 +230,39 @@ export class MessageHandler {
       }
 
       // Standalone file message
+      // On-demand download: tell the agent about the file and inject a
+      // download tool so the agent can decide whether to fetch the content.
       if (context.messageType === 'file' && context.resources.length > 0) {
-        const names = context.resources
-          .map((r) => r.fileName || r.fileKey)
-          .join(', ');
-        await this.options.agentService.execute(i18n.t('messages:media.fileSent', { name: names }), baseOptions);
+        const fileInfos = context.resources.map((r, i) => {
+          const name = r.fileName || 'unknown';
+          const key = r.fileKey || '';
+          return `  ${i + 1}. ${name}${key ? ` (file_key: ${key})` : ''}`;
+        }).join('\n');
+
+        // Create download tool scoped to this message
+        let downloadTool: any = null;
+        if (this.options.feishuClient) {
+          try {
+            downloadTool = createFeishuDownloadTool({
+              feishuClient: this.options.feishuClient,
+              messageId: context.messageId,
+            });
+          } catch { /* tool creation failed — agent can still use generic download_file */ }
+        }
+
+        const extraTools = [...baseOptions.extraTools];
+        if (downloadTool) extraTools.push(downloadTool);
+
+        const input =
+          `📎 收到文件附件：\n${fileInfos}\n\n` +
+          (downloadTool
+            ? `如需读取文件内容，请使用 download_feishu_file 工具并传入对应的 file_key 进行下载。`
+            : `你当前无法直接读取此文件的内容。`);
+
+        await this.options.agentService.execute(input, {
+          ...baseOptions,
+          extraTools,
+        });
         return;
       }
 
@@ -343,7 +371,11 @@ export class MessageHandler {
           // Non-image non-audio (or audio w/o auto-transcribe): generate description
           const typeLabel = resource.type === 'file' ? '文件' : resource.type === 'audio' ? '音频' : '视频';
           const name = resource.fileName || resource.fileKey;
-          descriptions.push(`[已接收${typeLabel}: ${name}, 已缓存至: ${record.localPath}]`);
+          descriptions.push(
+            `📎 已接收${typeLabel}: ${name}\n` +
+            `   本地路径: ${record.localPath}\n` +
+            `   可使用 file_read 工具读取此文件的内容。`
+          );
         }
       } catch (err) {
         this.options.logger?.warn(`Failed to process resource ${resource.fileKey} via multimodal pipeline: ${err}`);

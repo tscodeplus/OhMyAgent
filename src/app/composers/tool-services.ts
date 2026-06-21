@@ -57,6 +57,7 @@ import { createEnterPlanModeToolDefinition } from '../../tools/builtins/session/
 import { createExitPlanModeToolDefinition } from '../../tools/builtins/session/exit-plan-definition.js';
 import { createEnterWorktreeToolDefinition } from '../../tools/builtins/session/enter-worktree-definition.js';
 import { createExitWorktreeToolDefinition } from '../../tools/builtins/session/exit-worktree-definition.js';
+import { createDownloadFileToolDefinition } from '../../tools/builtins/files/download-definition.js';
 import { AgentManager } from '../../agent/agent-manager.js';
 import { OrchestratorImpl } from '../../orchestrator/orchestrator.js';
 import { ComputerUseHost } from '../../computer-use/computer-host.js';
@@ -252,4 +253,5 @@ export function registerV4ToolDefinitions(input: {
   toolPlatformRegistry.registerDefinition(createRemoteTriggerToolDefinition());
   toolPlatformRegistry.registerDefinition(createImageGenerationToolDefinition(createImageGenerationProvider(config)));
   toolPlatformRegistry.registerDefinition(createVideoGenerationToolDefinition(createVideoGenerationProvider(config)));
+  toolPlatformRegistry.registerDefinition(createDownloadFileToolDefinition());
 }

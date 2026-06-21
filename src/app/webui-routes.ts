@@ -21,6 +21,7 @@ import { registerChannelRoutes } from './webui/channel-routes.js';
 import { registerSkillsRoutes } from './webui/skills-routes.js';
 import { registerTemplateRoutes } from './webui/templates-routes.js';
 import { registerFilesRoutes } from './webui/files-routes.js';
+import { registerPublicDownloadRoutes } from './webui/public-download-routes.js';
 import { registerMemoryRoutes } from './webui/memory-routes.js';
 import { registerCronRoutes } from './webui/cron-routes.js';
 import { registerApprovalRoutes } from './webui/approval-routes.js';
@@ -136,6 +137,9 @@ export async function registerWebUIRoutes(
     onConfigChanged: cfg.onConfigChanged,
     configPath: process.env.CONFIG_FILE || './config.yaml',
   });
+
+  // Public download endpoint — serves files to external channels without auth
+  registerPublicDownloadRoutes(app);
 
   registerMemoryRoutes(app, {
     db: cfg.db,
