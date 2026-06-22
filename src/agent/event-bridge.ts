@@ -130,7 +130,7 @@ export class EventBridge {
     const CLOSE = '</plan>';
     const OPEN_LEN = 6;
     const CLOSE_LEN = 7;
-    const OPEN_STYLED = '\n│ <plan>\n';
+    const OPEN_STYLED = '\n> <plan>\n';
     const CLOSE_STYLED = '\n</plan>\n';
 
     while (i < fullDelta.length) {
