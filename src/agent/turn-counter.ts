@@ -35,11 +35,11 @@ function getOrCreate(sessionId: string): TurnCounterState {
 function strongReflection(serialCalls: number, turns: number): string {
   return [
     '<system-reminder>',
-    `你已经连续执行了 ${serialCalls} 个串行工具调用（${turns} 轮未 spawn），这在浪费大量 token 和时间。`,
-    '当前任务明显可以并行。立即执行：',
-    '1. 输出 <plan> 标签拆分可并行的子任务',
-    '2. 调用 spawn_agent 并行分派',
-    '3. 不要继续串行——停止当前方式，改用 team 模式',
+    `You have executed ${serialCalls} serial tool calls over ${turns} turn(s) without spawning — this wastes significant tokens and time.`,
+    'The current task can clearly be parallelized. Act now:',
+    '1. Output a <plan> tag to decompose parallel subtasks',
+    '2. Call spawn_agent to dispatch them in parallel',
+    '3. Stop serial execution — switch to team mode now',
     '</system-reminder>',
   ].join('\n');
 }
@@ -47,9 +47,9 @@ function strongReflection(serialCalls: number, turns: number): string {
 function burstReflection(thisTurnCalls: number): string {
   return [
     '<system-reminder>',
-    `本轮你执行了 ${thisTurnCalls} 次串行工具调用——这完全可以通过 spawn_agent 并行处理。`,
-    '不要在单轮中串行读取大量文件——每个子 Agent 可以独立完成自己的那部分。',
-    '立即输出 <plan> 分解任务，然后用 spawn_agent 并行分派。',
+    `This turn you executed ${thisTurnCalls} serial tool calls — these could all be parallelized via spawn_agent.`,
+    'Do not read many files serially in a single turn — each sub-agent can independently complete its own portion.',
+    'Immediately output a <plan> to decompose the task, then use spawn_agent to dispatch in parallel.',
     '</system-reminder>',
   ].join('\n');
 }
@@ -57,8 +57,8 @@ function burstReflection(thisTurnCalls: number): string {
 function gentleReminder(turns: number): string {
   return [
     '<system-reminder>',
-    `已 ${turns} 轮未使用 spawn。评估是否存在可并行的独立子任务。`,
-    '如果有，输出 <plan> 并用 spawn_agent 分派；如果不需要，忽略此提醒。',
+    `${turns} turns since last spawn. Evaluate whether independent parallel subtasks exist.`,
+    'If yes, output a <plan> and dispatch with spawn_agent. If not needed, ignore this reminder.',
     '</system-reminder>',
   ].join('\n');
 }
@@ -71,12 +71,12 @@ function gentleReminder(turns: number): string {
 export function planOnlyReflection(): string {
   return [
     '<system-reminder>',
-    '你刚刚输出了一个 <plan> 计划，但你没有调用任何工具来执行它。',
-    '光描述计划不等于完成任务——你需要真正执行。立即：',
-    '1. 如果计划中有可并行的独立子任务，调用 spawn_agent 并行分派',
-    '2. 如果任务只能串行，自己依次调用工具执行每个步骤',
-    '3. 不要再输出 <plan> 文本——直接行动',
-    '不要等，现在就开始执行第一个子任务。',
+    'You just output a <plan> block but called zero tools to execute it.',
+    'Describing a plan does not equal completing the task — you need to actually execute. Immediately:',
+    '1. If the plan has parallel independent subtasks, call spawn_agent to dispatch them',
+    '2. If the task is strictly serial, execute each step yourself using tools',
+    '3. Do NOT output another <plan> block — take action now',
+    'Do not wait, start executing the first subtask now.',
     '</system-reminder>',
   ].join('\n');
 }

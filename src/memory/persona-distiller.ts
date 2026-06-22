@@ -121,33 +121,21 @@ export async function createDistillerLLM(
 // ---------------------------------------------------------------------------
 
 function buildSystemPrompt(outputLanguage?: string): string {
-  const isChinese = outputLanguage === 'Simplified Chinese'
-    || outputLanguage === 'Traditional Chinese';
-  if (isChinese) {
-    return '你是一个精确的用户画像分析师。根据用户偏好记忆，提取或更新用户画像。\n'
-      + '只输出 JSON，不要有其他文本。使用中文。';
-  }
-  // Match the summarizer's localized system prompt approach:
-  // for Auto or any non-Chinese language, use English (LLM follows outputLanguage
-  // instruction in the user prompt).
+  const langInstruction = outputLanguage && outputLanguage !== 'Auto'
+    ? `\nOutput all persona content in ${outputLanguage}.`
+    : '';
   return 'You are a precise user persona analyst. Extract or update user persona '
-    + 'from preference memories.\nOutput ONLY JSON, no other text.';
+    + 'from preference memories.\nOutput ONLY valid JSON, no other text.'
+    + langInstruction;
 }
 
-function buildFullDistillExtra(outputLanguage?: string): string {
-  const isChinese = outputLanguage === 'Simplified Chinese'
-    || outputLanguage === 'Traditional Chinese';
-  return isChinese
-    ? '注意：你生成的是完整的用户画像，必须包含所有字段。'
-    : 'Note: You are generating a complete user persona. All fields must be included.';
+function buildFullDistillExtra(_outputLanguage?: string): string {
+  return 'Note: You are generating a COMPLETE user persona. ALL fields must be included in the JSON output.';
 }
 
-function buildIncrementalExtra(outputLanguage?: string): string {
-  const isChinese = outputLanguage === 'Simplified Chinese'
-    || outputLanguage === 'Traditional Chinese';
-  return isChinese
-    ? '注意：这是增量更新，你只需返回有变化的字段。保留现有画像中合理的部分，仅根据新增偏好进行更新。'
-    : 'Note: Incremental update — return only changed fields. Preserve reasonable existing persona parts and only update based on new preferences.';
+function buildIncrementalExtra(_outputLanguage?: string): string {
+  return 'Note: This is an INCREMENTAL update. Return ONLY fields that changed. '
+    + 'Preserve reasonable existing persona values and only update based on new preferences.';
 }
 
 function timestampMs(value: string | undefined): number {
@@ -200,12 +188,12 @@ export class PersonaDistiller {
 
     const schema = personaSchemaForPrompt();
     const userPrompt = [
-      '请根据以下用户偏好记忆，生成完整的用户画像 JSON。',
+      'Generate a complete user persona JSON based on the following preference memories.',
       '',
-      '偏好列表：',
+      'Preference list:',
       prefList,
       '',
-      '请严格按照以下 JSON Schema 输出：',
+      'Output must strictly follow this JSON Schema:',
       schema,
     ].join('\n');
 
@@ -246,12 +234,12 @@ export class PersonaDistiller {
 
     const schema = personaSchemaForPrompt();
     const userPrompt = [
-      '请根据以下当前仍然存在的用户偏好记忆，重新生成完整的用户画像 JSON。',
+      'Regenerate the complete user persona JSON based on the CURRENT active preference memories.',
       '',
-      '偏好列表：',
+      'Preference list:',
       prefList,
       '',
-      '请严格按照以下 JSON Schema 输出：',
+      'Output must strictly follow this JSON Schema:',
       schema,
     ].join('\n');
 
@@ -322,7 +310,7 @@ export class PersonaDistiller {
     const currentPersona = this.personaStore.get();
     const existingJson = currentPersona
       ? personaToJson(currentPersona)
-      : '无现有画像';
+      : 'No existing persona';
 
     const prefList = newPrefs
       .map((p, i) => `${i + 1}. ${p.content}`)
@@ -330,15 +318,15 @@ export class PersonaDistiller {
 
     const schema = partialPersonaSchemaForPrompt();
     const userPrompt = [
-      '请根据现有用户画像和新增偏好记忆，更新用户画像。',
+      'Update the user persona based on the existing persona and new preference memories.',
       '',
-      '现有用户画像：',
+      'Existing persona:',
       existingJson,
       '',
-      '新增偏好：',
+      'New preferences:',
       prefList,
       '',
-      '请严格按照以下 JSON Schema 输出（只需返回有变化的字段）：',
+      'Output must strictly follow this JSON Schema (return only changed fields):',
       schema,
     ].join('\n');
 

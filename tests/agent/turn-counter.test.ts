@@ -42,14 +42,14 @@ describe('P3: TurnCounter — Condition 0 (single-turn burst)', () => {
   it('triggers immediately when turn has 6+ tool calls', () => {
     const result = turnCounter.evaluate(SESSION, 6);
     expect(result).not.toBeNull();
-    expect(result).toContain('6 次串行工具调用');
+    expect(result).toContain('6 serial tool calls');
     expect(result).toContain('spawn_agent');
   });
 
   it('triggers for 10 calls in one turn', () => {
     const result = turnCounter.evaluate(SESSION, 10);
     expect(result).not.toBeNull();
-    expect(result).toContain('10 次串行');
+    expect(result).toContain('10 serial');
   });
 
   it('does NOT trigger when turn has < 6 calls', () => {
@@ -87,8 +87,8 @@ describe('P3: TurnCounter — Condition 1 (accumulated serial)', () => {
     // After 2 turns: serialToolCalls=8, turnsSinceLastSpawn=2
     const result = turnCounter.evaluate(SESSION, 4);
     expect(result).not.toBeNull();
-    expect(result).toContain('8 个串行');
-    expect(result).toContain('2 轮未 spawn');
+    expect(result).toContain('8 serial');
+    expect(result).toContain('2 turn(s) without spawning');
     expect(result).toContain('<plan>');
   });
 
@@ -100,8 +100,8 @@ describe('P3: TurnCounter — Condition 1 (accumulated serial)', () => {
     turnCounter.recordTurn(SESSION, { toolCallCount: 5, didSpawn: false });
     const result = turnCounter.evaluate(SESSION, 5);
     expect(result).not.toBeNull();
-    expect(result).toContain('10 个串行');
-    expect(result).toContain('2 轮未 spawn');
+    expect(result).toContain('10 serial');
+    expect(result).toContain('2 turn(s) without spawning');
   });
 
   it('does NOT accumulate after spawn resets', () => {
@@ -137,7 +137,7 @@ describe('P3: TurnCounter — Condition 2 (gentle reminder)', () => {
     }
     const result = turnCounter.evaluate(SESSION, 0);
     expect(result).not.toBeNull();
-    expect(result).toContain('5 轮未使用 spawn');
+    expect(result).toContain('5 turns since last spawn');
   });
 
   it('does NOT trigger at 4 turns', () => {
@@ -166,14 +166,14 @@ describe('P3: TurnCounter — condition ordering', () => {
     turnCounter.recordTurn(SESSION, { toolCallCount: 4, didSpawn: false });
     turnCounter.recordTurn(SESSION, { toolCallCount: 4, didSpawn: false });
     const result = turnCounter.evaluate(SESSION, 4);
-    expect(result).toContain('12 个串行'); // Condition 1
+    expect(result).toContain('12 serial'); // Condition 1
   });
 
   it('Condition 0 fires when turn has 6+, even with low accumulated serial', () => {
     // First turn: 7 calls → Condition 0 should fire immediately
     const result = turnCounter.evaluate(SESSION, 7);
-    expect(result).toContain('7 次串行工具调用');
-    expect(result).toContain('立即输出 <plan>');
+    expect(result).toContain('7 serial tool calls');
+    expect(result).toContain('output a <plan>');
   });
 });
 
@@ -224,8 +224,8 @@ describe('P3: planOnlyReflection', () => {
     const reflection = planOnlyReflection();
     expect(reflection).toContain('<system-reminder>');
     expect(reflection).toContain('<plan>');
-    expect(reflection).toContain('执行');
+    expect(reflection).toContain('execute');
     expect(reflection).toContain('spawn_agent');
-    expect(reflection).toContain('直接行动');
+    expect(reflection).toContain('take action');
   });
 });

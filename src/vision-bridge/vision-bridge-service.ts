@@ -13,7 +13,7 @@ import {
   getVisionCapabilities,
 } from './vision-primitives.js';
 import { buildNotePrompt, buildPrimitivePrompt } from './vision-bridge-prompts.js';
-import { i18n } from '../i18n/index.js';
+
 import { streamSimple } from '@earendil-works/pi-ai';
 import { createHash } from 'node:crypto';
 
@@ -184,7 +184,7 @@ export class VisionBridgeService {
     const response = await streamSimple(
       model,
       {
-        systemPrompt: i18n.t('prompts:vision.systemNote'),
+        systemPrompt: 'You are a precise image analyst. Respond only with the requested structured note.',
         messages: [message],
         tools: [],
       },
@@ -224,7 +224,7 @@ export class VisionBridgeService {
     const response = await streamSimple(
       model,
       {
-        systemPrompt: i18n.t('prompts:vision.systemJson'),
+        systemPrompt: 'You are a precise image analyst. Respond only with the requested JSON object.',
         messages: [message],
         tools: [],
       },

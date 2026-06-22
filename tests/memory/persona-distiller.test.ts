@@ -144,8 +144,8 @@ describe('PersonaDistiller', () => {
       // Verify LLM was called with correct prompts
       expect(mockLLM.call).toHaveBeenCalledOnce();
       const [systemPrompt, userPrompt] = (mockLLM.call as any).mock.calls[0];
-      expect(systemPrompt).toContain('用户画像分析师');
-      expect(userPrompt).toContain('偏好列表');
+      expect(systemPrompt).toContain('persona analyst');
+      expect(userPrompt).toContain('Preference list');
       expect(userPrompt).toContain('JSON Schema');
       expect(userPrompt).toContain('shell 工具');
       expect(userPrompt).toContain('飞书');
@@ -285,8 +285,8 @@ describe('PersonaDistiller', () => {
       // Verify LLM prompt includes existing persona + new preferences
       expect(mockLLM.call).toHaveBeenCalledOnce();
       const [, userPrompt] = (mockLLM.call as any).mock.calls[0];
-      expect(userPrompt).toContain('现有用户画像');
-      expect(userPrompt).toContain('新增偏好');
+      expect(userPrompt).toContain('Existing persona');
+      expect(userPrompt).toContain('New preferences');
       // Only newT prefs (created_at > since) should appear in prompt
       expect(userPrompt).toContain('pnpm');
       expect(userPrompt).toContain('测试优先');

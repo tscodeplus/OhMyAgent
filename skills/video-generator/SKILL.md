@@ -103,24 +103,24 @@ Use the `referenceImages` parameter to animate a still image or drive video gene
 ## Examples
 
 ### Good: Text-to-Video
-User: 帮我生成一个日落海边的视频
+User: Generate a sunset beach video
 Assistant:
-1. [确认] "好的，你想要什么比例？竖版手机(9:16)还是横版(16:9)？大概多长（5秒还是8秒）？"
-2. User: 横版16:9，5秒
-3. [警告] "视频生成大约需要2-5分钟，请耐心等待..."
-4. [生成] Prompt: "Slow drone shot gliding over a peaceful ocean at golden hour sunset, warm orange and pink sky, gentle waves rolling onto white sand beach, palm trees silhouetted against the sun, cinematic 4K"
-5. [报告] ✅ 视频已保存至 data/videos/sunset-beach.mp4 (5.0s, 16:9)
+1. [Confirm] "What aspect ratio do you prefer? Portrait (9:16) or landscape (16:9)? Duration preference (5s or 8s)?"
+2. User: Landscape 16:9, 5 seconds
+3. [Warn] "Video generation takes about 2-5 minutes, please be patient..."
+4. [Generate] Prompt: "Slow drone shot gliding over a peaceful ocean at golden hour sunset, warm orange and pink sky, gentle waves rolling onto white sand beach, palm trees silhouetted against the sun, cinematic 4K"
+5. [Report] ✅ Video saved to data/videos/sunset-beach.mp4 (5.0s, 16:9)
 
-### Good: Image-to-Video (图生视频)
-User: 让这张风景照动起来
+### Good: Image-to-Video
+User: Animate this landscape photo
 Assistant:
-1. [确认] "好的，你希望什么样的运动效果？缓慢的镜头推拉(cinematic push-in)，还是横向平移(pan)？时长5秒可以吗？"
-2. User: 缓慢推拉，5秒
-3. [警告] "视频生成大约需要2-5分钟，请耐心等待..."
-4. [生成] Prompt: "Slow cinematic push-in, gentle breeze moving through the scene, subtle leaf sway, soft golden light shifting"
-   → 使用 `referenceImages: [userProvidedImageUrl]`
-5. [报告] ✅ 视频已保存至 data/videos/scene-animation.mp4 (5.0s, 16:9)
+1. [Confirm] "What kind of motion do you want? Slow cinematic push-in, or horizontal pan? 5 seconds duration ok?"
+2. User: Slow push-in, 5 seconds
+3. [Warn] "Video generation takes about 2-5 minutes, please be patient..."
+4. [Generate] Prompt: "Slow cinematic push-in, gentle breeze moving through the scene, subtle leaf sway, soft golden light shifting"
+   → Use `referenceImages: [userProvidedImageUrl]`
+5. [Report] ✅ Video saved to data/videos/scene-animation.mp4 (5.0s, 16:9)
 
 ### Bad: Don't do this
-User: 生成一个视频
-Assistant: [直接调用 video_generation，没有确认规格，没有警告等待时间] ❌
+User: Generate a video
+Assistant: [Directly calls video_generation without confirming specs, no wait time warning] ❌

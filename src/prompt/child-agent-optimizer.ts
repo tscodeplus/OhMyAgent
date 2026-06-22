@@ -42,22 +42,14 @@ function estimateTokens(text: string): number {
 
 // ── ChildAgentPromptOptimizer ─────────────────────────────────────────────────
 
-export interface ChildAgentPromptOptimizerDeps {
-  /** i18n translate function */
-  t: (key: string, interpolations?: Record<string, string | number>) => string;
-}
-
 export class ChildAgentPromptOptimizer {
   private stripPatterns: RegExp[];
   private keepBlocks: Set<string>;
-  private t: ChildAgentPromptOptimizerDeps['t'];
 
   constructor(
-    deps: ChildAgentPromptOptimizerDeps,
     stripPatterns?: RegExp[],
     keepBlocks?: string[],
   ) {
-    this.t = deps.t;
     this.stripPatterns = stripPatterns ?? [...STRIP_LAYER_PATTERNS];
     this.keepBlocks = new Set(keepBlocks ?? []);
   }
@@ -128,9 +120,8 @@ export class ChildAgentPromptOptimizer {
   }
 
   private buildChildRoleContent(taskDescription: string): string {
-    const t = this.t;
     return [
-      t('prompts:child.rolePrefix'),
+      'You are a sub-agent spawned by the primary agent. Your only responsibility is to complete the assigned sub-task and return results to the primary agent. Do not attempt to manage long-term memory, create scheduled tasks, or initiate approvals — those are handled by the primary agent.',
       '',
       `## Task\n${taskDescription}`,
     ].join('\n');

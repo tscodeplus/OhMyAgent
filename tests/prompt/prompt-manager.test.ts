@@ -12,35 +12,55 @@ import type {
 function createMockDeps(
   overrides?: Partial<PromptManagerDeps>,
 ): PromptManagerDeps {
-  const t = (key: string, _interp?: Record<string, string | number>) => {
-    const mocks: Record<string, string> = {
-      'prompts:base.identity': 'You are an AI assistant.',
-      'prompts:base.memory.title': '## Memory System',
-      'prompts:base.memory.body':
-        'You have access to a memory system for storing and retrieving information.',
-      'prompts:base.cron.title': '## Scheduled Tasks',
-      'prompts:base.cron.body':
-        'You can schedule tasks to run at specified times.',
-      'prompts:child.defaultTask': 'Complete the assigned sub-task.',
-      'prompts:child.rolePrefix':
-        'You are a sub-agent working on behalf of the primary agent.',
-      'prompts:some.other': 'Other content.',
-    };
-    return mocks[key] ?? key;
-  };
-  return { t, uiLanguage: 'en', contextWindow: 200_000, ...overrides };
+  return { uiLanguage: 'en', contextWindow: 200_000, ...overrides };
 }
 
-/** Return the expected base-layer content given a mock t function and language. */
-function getBaseContent(t: PromptManagerDeps['t'], _lang = 'en'): string {
+/** Return the expected base-layer content (hardcoded English). */
+function getBaseContent(): string {
   return [
-    t('prompts:base.identity'),
+    'You are OhMyAgent, a helpful AI assistant.',
     '',
-    t('prompts:base.memory.title'),
-    t('prompts:base.memory.body'),
+    '## Memory',
+    `You have long-term memory capabilities. Use the memory tools to manage information:
+- **memory-store**: Save user preferences, facts, decisions, or anything worth remembering.
+- **memory-recall**: Search your memory when you need context about the user or past conversations.
+- **summarize-session**: When a discussion topic or task has reached a natural conclusion, call this to summarize the conversation into long-term memory.
+
+**CRITICAL RULES — MUST FOLLOW:**
+1. When the user shares the following, **immediately call memory-store** (do NOT just verbally acknowledge):
+   - Their name or how they want to be addressed (e.g., "call me XX")
+   - Your name or identity (e.g., "your name is XX")
+   - Personal preferences, habits, devices, skills, etc.
+2. Use memory-recall to search memory when you need context about the user or past discussions.
+3. After completing complex tasks or multi-turn discussions, call summarize-session.
+
+Example: User says "My name is Bob, call me Boss. Your name is Helper." → Immediately call memory-store twice: once for the user's name/preference, once for your name. Do not just reply "OK" without calling the tools.`,
     '',
-    t('prompts:base.cron.title'),
-    t('prompts:base.cron.body'),
+    '## Scheduled Tasks (cronjob)',
+    `You can create scheduled/reminder tasks using the **cronjob** tool. Use it when the user:
+- Asks for a reminder (e.g., "remind me to check logs in 30 minutes")
+- Requests periodic reports or messages (e.g., "send me a summary every morning at 9am")
+- Wants delayed execution (e.g., "run this task in 5 minutes")
+
+**CRITICAL: Create the cron job immediately, without asking clarifying questions.**
+
+**The prompt parameter is key — it determines what the user ultimately sees.**
+- prompt must be the final message the user will receive, written in natural language, e.g. "Time to read the news! Check out today's top stories"
+- prompt is NOT an instruction for another agent — it IS the final message itself
+- For pure reminders: write the reminder content directly, not in instruction format like "remind user to XXX"
+- For information-gathering: write what to fetch, e.g. "Search for today's top AI news and summarize"
+
+When the user says something like "remind me in X minutes about YYY":
+  1. Call cronjob with action=create, name="Remind YYY", schedule="Xm", prompt="YYY"
+  2. Then reply: "Reminder set for YYY in X minutes"
+Do NOT ask how/when/frequency.
+
+Schedule format examples:
+- "5m" or "30m" = once after a delay (minutes/hours/days)
+- "every 2h" or "every 1d" = repeat at fixed intervals
+- "0 9 * * *" = cron expression (daily at 9:00)
+
+Results are automatically delivered to this chat — you do NOT need to provide a chat_id.`,
   ].join('\n');
 }
 
@@ -69,7 +89,7 @@ describe('PromptManager', () => {
         volatile: false,
         blockTag: 'base',
       });
-      expect(result.systemPrompt).toBe(getBaseContent(deps.t));
+      expect(result.systemPrompt).toBe(getBaseContent());
       expect(result.tokenCount).toBeGreaterThan(0);
       expect(result.budgetWarnings).toEqual([]);
       expect(result.cacheBreakpoints).toHaveLength(1);
@@ -92,7 +112,7 @@ describe('PromptManager', () => {
       expect(agentLayer.volatile).toBe(false);
       expect(agentLayer.cacheKey).toContain('agent:researcher');
       expect(result.systemPrompt).toContain('You are a research assistant.');
-      expect(result.systemPrompt).toContain(getBaseContent(deps.t));
+      expect(result.systemPrompt).toContain(getBaseContent());
     });
 
     it('returns null-like agent layer when agentId is given but no override registered and resolve returns empty', () => {
@@ -124,7 +144,7 @@ describe('PromptManager', () => {
       const result = pm.assemble({ isChildAgent: true });
 
       const childLayer = result.layers.find(l => l.name === 'child-modifier')!;
-      expect(childLayer.content).toContain(deps.t('prompts:child.defaultTask'));
+      expect(childLayer.content).toContain('Execute the sub-task assigned by the primary agent and return results.');
     });
 
     it('child modifier layer uses rolePrefix as prefix', () => {
@@ -134,7 +154,7 @@ describe('PromptManager', () => {
       });
 
       const content = result.layers.find(l => l.name === 'child-modifier')!.content;
-      expect(content).toContain(deps.t('prompts:child.rolePrefix'));
+      expect(content).toContain('You are a sub-agent spawned by the primary agent. Your only responsibility is to complete the assigned sub-task and return results to the primary agent. Do not attempt to manage long-term memory, create scheduled tasks, or initiate approvals — those are handled by the primary agent.');
       expect(content).toContain('Do the thing.');
     });
 
@@ -421,26 +441,13 @@ describe('PromptManager', () => {
   // ── Token budget trimming ──────────────────────────────────────────────────
 
   describe('budget trimming', () => {
+    /** Override base content with minimal strings for predictable token calculations. */
     function tinyMockDeps(): PromptManagerDeps {
-      const t = (k: string, _interp?: Record<string, string | number>) => {
-        // Extremely short strings to make token calculations predictable
-        const mocks: Record<string, string> = {
-          'prompts:base.identity': 'id',
-          'prompts:base.memory.title': 'mem',
-          'prompts:base.memory.body': 'mb',
-          'prompts:base.cron.title': 'cron',
-          'prompts:base.cron.body': 'cb',
-          'prompts:child.defaultTask': 'task',
-          'prompts:child.rolePrefix': 'role:',
-        };
-        return mocks[k] ?? k;
-      };
-      return { t, uiLanguage: 'en', contextWindow: 200_000 };
+      return { uiLanguage: 'en', contextWindow: 200_000 };
     }
 
     it('trims volatile layers when total exceeds maxTokens', () => {
       const manager = new PromptManager(tinyMockDeps());
-      const baseContent = getBaseContent(manager['deps']['t']);
 
       // Child modifier is volatile; with large task description it overshoots budget
       const result = manager.assemble({
@@ -449,8 +456,9 @@ describe('PromptManager', () => {
         maxTokens: 15,
       });
 
-      // Base + child modifier were present, but volatile child modifier was trimmed
-      expect(result.systemPrompt).toBe(baseContent);
+      // Base survives (stable); child modifier (volatile) was trimmed
+      expect(result.systemPrompt).toContain('You are OhMyAgent');
+      expect(result.systemPrompt).not.toContain('X'.repeat(200));
       expect(result.budgetWarnings.length).toBeGreaterThanOrEqual(1);
       expect(result.budgetWarnings[0]).toContain('exceeds budget');
     });
@@ -488,7 +496,6 @@ describe('PromptManager', () => {
 
     it('budget trimming preserves stable layers', () => {
       const manager = new PromptManager(tinyMockDeps());
-      const baseContent = getBaseContent(manager['deps']['t']);
 
       manager.registerAgentOverride('main', 'agent instructions.');
 
@@ -501,7 +508,7 @@ describe('PromptManager', () => {
       });
 
       // Stable layers (base + agent) still present
-      expect(result.systemPrompt).toContain(baseContent);
+      expect(result.systemPrompt).toContain('You are OhMyAgent');
       expect(result.systemPrompt).toContain('agent instructions.');
       // Volatile layer (child modifier) is trimmed
       expect(result.systemPrompt).not.toContain('X'.repeat(200));
@@ -531,7 +538,7 @@ describe('PromptManager', () => {
         'child-modifier',
       ]);
 
-      expect(result.systemPrompt).toContain(getBaseContent(deps.t));
+      expect(result.systemPrompt).toContain(getBaseContent());
       expect(result.systemPrompt).toContain('You are agent A.');
       expect(result.systemPrompt).toContain('Skill X');
       expect(result.systemPrompt).toContain('$skill-x');
@@ -559,9 +566,9 @@ describe('PromptManager', () => {
 
   describe('default budget calculation', () => {
     it('uses contextWindow * 0.3 as default maxTokens', () => {
-      const smallPm = new PromptManager(createMockDeps({ contextWindow: 1000 }));
-      // Default maxTokens = floor(1000 * 0.3) = 300
-      // Base content is ~200 ASCII chars = ~50 tokens (under 300)
+      const smallPm = new PromptManager(createMockDeps({ contextWindow: 10000 }));
+      // Default maxTokens = floor(10000 * 0.3) = 3000
+      // Base content is ~2700 chars (under 3000 tokens)
       const result = smallPm.assemble();
       // Shouldn't trigger trimming with default budget
       expect(result.budgetWarnings).toEqual([]);
@@ -575,7 +582,7 @@ describe('ChildAgentPromptOptimizer', () => {
   let optimizer: ChildAgentPromptOptimizer;
 
   beforeEach(() => {
-    optimizer = new ChildAgentPromptOptimizer({ t: (k: string) => k });
+    optimizer = new ChildAgentPromptOptimizer();
   });
 
   // ── Layer stripping ────────────────────────────────────────────────────────
@@ -663,15 +670,15 @@ describe('ChildAgentPromptOptimizer', () => {
       expect(remainingBase!.content).toContain('You are an AI assistant');
     });
 
-    it('strips Chinese 记忆系统 and 定时任务 content from base layer', () => {
+    it('strips Chinese 记忆系统 and 定时任务 content from base layer (legacy)', () => {
       const baseContent = [
-        '你是AI助手。',
+        'I am an AI assistant.',
         '',
         '## 记忆系统',
-        '你可以记忆信息。',
+        'Memory content here.',
         '',
         '## 定时任务',
-        '你可以运行定时任务。',
+        'Cron content here.',
       ].join('\n');
 
       const parentAssembly: PromptAssemblyResult = {
@@ -684,14 +691,14 @@ describe('ChildAgentPromptOptimizer', () => {
 
       const result = optimizer.optimize({
         parentAssembly,
-        taskDescription: '执行任务。',
+        taskDescription: 'Execute task.',
       });
 
       const remainingBase = result.layers.find(l => l.name === 'base');
       expect(remainingBase).toBeDefined();
       expect(remainingBase!.content).not.toContain('记忆系统');
       expect(remainingBase!.content).not.toContain('定时任务');
-      expect(remainingBase!.content).toContain('你是AI助手');
+      expect(remainingBase!.content).toContain('I am an AI assistant');
     });
 
     it('drops the base layer entirely when content is empty after stripping', () => {
@@ -758,7 +765,7 @@ describe('ChildAgentPromptOptimizer', () => {
       };
 
       // keepBlocks matches by layer.name or blockTag
-      const opt = new ChildAgentPromptOptimizer({ t: (k: string) => k });
+      const opt = new ChildAgentPromptOptimizer();
       const result = opt.optimize({
         parentAssembly,
         taskDescription: 'task',
@@ -898,7 +905,7 @@ describe('ChildAgentPromptOptimizer', () => {
       expect(childRole.content).toContain('## Task');
       expect(childRole.content).toContain('Analyze the dataset and return insights.');
       // Child role uses i18n; with default mock t, the key appears as-is
-      expect(childRole.content).toContain('prompts:child.rolePrefix');
+      expect(childRole.content).toContain('You are a sub-agent spawned by the primary agent.');
     });
   });
 
@@ -992,7 +999,7 @@ describe('ChildAgentPromptOptimizer', () => {
     });
 
     it('custom strip patterns work via constructor', () => {
-      const customOptimizer = new ChildAgentPromptOptimizer({ t: (k: string) => k }, [/^custom-/]);
+      const customOptimizer = new ChildAgentPromptOptimizer([/^custom-/]);
       const parentAssembly: PromptAssemblyResult = {
         systemPrompt: '',
         layers: [

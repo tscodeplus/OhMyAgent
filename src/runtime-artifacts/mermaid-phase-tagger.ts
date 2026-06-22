@@ -2,7 +2,7 @@
  * MermaidPhaseTagger — LLM-driven semantic phase labeling for MermaidCanvas nodes.
  *
  * Uses a DistillerLLM to group tool-execution nodes into meaningful phases
- * (e.g., "环境准备", "配置分析", "部署") and assigns each node to a phase.
+ * (e.g., "Setup", "Analysis", "Deployment") and assigns each node to a phase.
  *
  * Falls back gracefully: returns `null` when the LLM call fails or when there
  * are fewer than 3 nodes (not enough context for meaningful phase detection).
@@ -17,9 +17,9 @@ import type { MermaidCanvas, MermaidNode } from './mermaid-canvas.js';
 // ---------------------------------------------------------------------------
 
 export interface PhaseTaggingResult {
-  /** Ordered list of unique phase names, e.g. ["环境检查", "配置分析", "部署"]. */
+  /** Ordered list of unique phase names, e.g. ["Environment Check", "Config Analysis", "Deployment"]. */
   phases: string[];
-  /** Mapping from node ID to phase name, e.g. {"node-001": "环境检查", ...}. */
+  /** Mapping from node ID to phase name, e.g. {"node-001": "Environment Check", ...}. */
   mapping: Record<string, string>;
 }
 
@@ -28,7 +28,7 @@ export interface PhaseTaggingResult {
 // ---------------------------------------------------------------------------
 
 const SYSTEM_PROMPT =
-  '你是一个精确的任务阶段分析师。根据工具执行记录，为任务划分语义化阶段并标注每个节点。只输出 JSON，不要有其他文本。';
+  'You are a precise task phase analyst. Based on tool execution records, divide the task into semantic phases and label each node. Output ONLY valid JSON, no other text.';
 
 const MIN_NODES_FOR_LLM = 3;
 const MAX_PHASES = 5;
@@ -98,13 +98,13 @@ export class MermaidPhaseTagger {
    */
   private buildPrompt(nodes: MermaidNode[]): string {
     const lines: string[] = [
-      '基于以下工具执行记录，划分任务阶段（最多5个阶段），并标注每个节点属于哪个阶段：',
+      'Based on the following tool execution records, divide into task phases (max 5 phases) and label each node with its phase:',
       '',
     ];
 
     for (let i = 0; i < nodes.length; i++) {
       const n = nodes[i];
-      const statusLabel = n.status === 'error' ? '失败' : '成功';
+      const statusLabel = n.status === 'error' ? 'failed' : 'success';
       const summaryPart = n.summary ? `: ${n.summary}` : '';
       lines.push(
         `${i + 1}. [${n.id}] ${n.toolName}: ${summaryPart} → ${statusLabel}`,
@@ -113,7 +113,7 @@ export class MermaidPhaseTagger {
 
     lines.push('');
     lines.push(
-      '返回 JSON: {"phases": ["阶段一", "阶段二", ...], "mapping": {"node-xxx": "阶段一", ...}}',
+      'Return JSON: {"phases": ["Phase One", "Phase Two", ...], "mapping": {"node-xxx": "Phase One", ...}}',
     );
 
     return lines.join('\n');

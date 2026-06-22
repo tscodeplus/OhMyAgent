@@ -77,7 +77,7 @@ function formatMessage(m: AgentMessage, index: number): string {
   if (!content.trim() && Array.isArray(m.content)) {
     const parts = (m.content as { type: string; name?: string }[])
       .filter(b => b.type === 'toolCall')
-      .map(b => `[调用工具: ${b.name}]`);
+      .map(b => `[Tool: ${b.name}]`);
     if (parts.length > 0) content = parts.join(', ');
   }
   if (!content.trim()) return '';
@@ -94,43 +94,43 @@ const SUMMARIZATION_PROMPT = `Create a structured context checkpoint summary tha
 
 Use this EXACT format:
 
-## 目标
-[用户想要达成什么？可以有多个目标。]
+## Goals
+[What the user wants to achieve. Can have multiple goals.]
 
-## 约束与偏好
-- [用户提到的约束、偏好、要求]
-- [或 "(无)" 如果没有]
+## Constraints & Preferences
+- [Constraints, preferences, requirements mentioned by the user]
+- [Or "(none)" if absent]
 
-## 进度
-### 已完成
-- [x] [已完成的任务/变更]
+## Progress
+### Completed
+- [x] [Completed tasks/changes]
 
-### 进行中
-- [ ] [当前正在进行的工作]
+### In Progress
+- [ ] [Currently ongoing work]
 
-### 受阻
-- [阻碍进展的问题，如果没有则省略此小节]
+### Blocked
+- [Issues blocking progress; omit this subsection if none]
 
-## 关键决策
-- **[决策]**: [简要理由]
+## Key Decisions
+- **[Decision]**: [Brief rationale]
 
-## 下一步
-1. [接下来应该做什么]
+## Next Steps
+1. [What to do next]
 
-## 关键上下文
-- [继续工作所需的数据、示例、引用]
-- [或 "(无)" 如果没有]
+## Key Context
+- [Data, examples, references needed to continue work]
+- [Or "(none)" if absent]
 
-每个部分保持简洁。`;
+Keep each section concise.`;
 
-const UPDATE_PROMPT = `以上是新的对话消息，需要合并到 <previous-summary> 中的现有摘要。更新摘要，规则：
-- 保留旧摘要中的所有信息
-- 添加新的进度、决策和上下文
-- 更新进度：将"进行中"移到"已完成"
-- 更新"下一步"
-- 保留准确的文件路径、函数名、错误信息
+const UPDATE_PROMPT = `The above are new conversation messages that need to be merged into the existing summary inside <previous-summary>. Update the summary with these rules:
+- Retain ALL existing information from the old summary
+- Add new progress, decisions, and context
+- Update progress: move "In Progress" items to "Completed"
+- Update "Next Steps"
+- Preserve exact file paths, function names, and error messages
 
-使用相同的格式输出。`;
+Output using the same format.`;
 
 // ---------------------------------------------------------------------------
 // Compression entry point
@@ -263,7 +263,7 @@ export async function compressContext(
     return {
       summaryMessage: {
         role: 'user',
-        content: [{ type: 'text', text: `\n\n---\n[上下文压缩 — 早期对话摘要]\n${summary}\n---\n` }],
+        content: [{ type: 'text', text: `\n\n---\n[Context Compression — Earlier Conversation Summary]\n${summary}\n---\n` }],
       } as AgentMessage,
       compressedIndex: cutPoint,
       summary,

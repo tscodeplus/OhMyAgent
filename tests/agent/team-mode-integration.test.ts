@@ -9,27 +9,7 @@ const defaultConfig: SmartAgentTeamConfig = {
 };
 
 function makePromptManager() {
-  const translations: Record<string, string> = {
-    'prompts:base.identity': 'You are a test agent.',
-    'prompts:base.memory.title': '## Memory',
-    'prompts:base.memory.body': 'Memory body.',
-    'prompts:base.cron.title': '## Cron',
-    'prompts:base.cron.body': 'Cron body.',
-    'prompts:child.rolePrefix': 'You are a sub-agent.',
-    'prompts:child.defaultTask': 'Execute task.',
-    'prompts:team.role': '## Agent Team Mode\n\nYou are in team mode. Max children: {{maxChildren}}.',
-  };
-
   return new PromptManager({
-    t: (key: string, interpolations?: Record<string, string | number>) => {
-      let val = translations[key] ?? key;
-      if (interpolations) {
-        for (const [k, v] of Object.entries(interpolations)) {
-          val = val.replace(`{{${k}}}`, String(v));
-        }
-      }
-      return val;
-    },
     uiLanguage: 'zh-CN',
     contextWindow: 200_000,
   });
@@ -47,7 +27,7 @@ describe('Agent Team mode integration', () => {
     const pm = makePromptManager();
     const result = pm.assemble({ isTeamMode: true, teamModeMaxChildren: 4 });
     expect(result.systemPrompt).toContain('Agent Team Mode');
-    expect(result.systemPrompt).toContain('Max children: 4');
+    expect(result.systemPrompt).toContain('up to 4 child agents');
     expect(result.layers.some(l => l.name === 'team-mode')).toBe(true);
   });
 
@@ -103,10 +83,10 @@ describe('Agent Team mode integration', () => {
   it('team mode layer respects maxChildren interpolation', () => {
     const pm = makePromptManager();
     const r1 = pm.assemble({ isTeamMode: true, teamModeMaxChildren: 2 });
-    expect(r1.systemPrompt).toContain('Max children: 2');
+    expect(r1.systemPrompt).toContain('up to 2 child agents');
 
     const r2 = pm.assemble({ isTeamMode: true, teamModeMaxChildren: 8 });
-    expect(r2.systemPrompt).toContain('Max children: 8');
+    expect(r2.systemPrompt).toContain('up to 8 child agents');
   });
 
   // ── Child agent exclusion ──────────────────────────────────────────────────

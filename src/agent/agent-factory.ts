@@ -28,7 +28,7 @@ import type { AgentManager } from './agent-manager.js';
 import type { ResolvedAgentConfig } from './config-types.js';
 import type { ComputerUseHost } from '../computer-use/computer-host.js';
 import { PendingApprovalStore } from './approval-store.js';
-import { i18n } from '../i18n/index.js';
+
 import type { PromptManager } from '../prompt/prompt-manager.js';
 import type { PromptAssemblyOptions } from '../prompt/types.js';
 import { teamModeStore } from './team-mode-store.js';
@@ -108,6 +108,16 @@ function textBlockChars(blocks: Array<{ type?: string; text?: string }>): number
 function currentTimeTemplateValue(): string {
   const now = new Date();
   return now.toISOString().slice(0, 10);
+}
+
+function resolveResponseLanguage(config: AppConfig): string {
+  const outputLang = config.memory?.outputLanguage;
+  if (outputLang && outputLang !== 'Auto') {
+    return outputLang; // Already a full language name, e.g. "Simplified Chinese"
+  }
+  // Fall back from uiLanguage locale code
+  const uiLang = config.uiLanguage ?? 'zh-CN';
+  return uiLang.startsWith('zh') ? 'Simplified Chinese' : 'English';
 }
 
 function shouldKeepFullToolResultInContext(toolName: string): boolean {
@@ -236,13 +246,49 @@ export interface AgentFactoryServices {
 
 function buildDefaultSystemPrompt(lang?: string): string {
   return [
-    i18n.t('prompts:base.identity'),
+    'You are OhMyAgent, a helpful AI assistant.',
     '',
-    i18n.t('prompts:base.memory.title'),
-    i18n.t('prompts:base.memory.body'),
+    '## Memory',
+    `You have long-term memory capabilities. Use the memory tools to manage information:
+- **memory-store**: Save user preferences, facts, decisions, or anything worth remembering.
+- **memory-recall**: Search your memory when you need context about the user or past conversations.
+- **summarize-session**: When a discussion topic or task has reached a natural conclusion, call this to summarize the conversation into long-term memory.
+
+**CRITICAL RULES — MUST FOLLOW:**
+1. When the user shares the following, **immediately call memory-store** (do NOT just verbally acknowledge):
+   - Their name or how they want to be addressed (e.g., "call me XX")
+   - Your name or identity (e.g., "your name is XX")
+   - Personal preferences, habits, devices, skills, etc.
+2. Use memory-recall to search memory when you need context about the user or past discussions.
+3. After completing complex tasks or multi-turn discussions, call summarize-session.
+
+Example: User says "My name is Bob, call me Boss. Your name is Helper." → Immediately call memory-store twice: once for the user's name/preference, once for your name. Do not just reply "OK" without calling the tools.`,
     '',
-    i18n.t('prompts:base.cron.title'),
-    i18n.t('prompts:base.cron.body'),
+    '## Scheduled Tasks (cronjob)',
+    `You can create scheduled/reminder tasks using the **cronjob** tool. Use it when the user:
+- Asks for a reminder (e.g., "remind me to check logs in 30 minutes")
+- Requests periodic reports or messages (e.g., "send me a summary every morning at 9am")
+- Wants delayed execution (e.g., "run this task in 5 minutes")
+
+**CRITICAL: Create the cron job immediately, without asking clarifying questions.**
+
+**The prompt parameter is key — it determines what the user ultimately sees.**
+- prompt must be the final message the user will receive, written in natural language, e.g. "Time to read the news! Check out today's top stories"
+- prompt is NOT an instruction for another agent — it IS the final message itself
+- For pure reminders: write the reminder content directly, not in instruction format like "remind user to XXX"
+- For information-gathering: write what to fetch, e.g. "Search for today's top AI news and summarize"
+
+When the user says something like "remind me in X minutes about YYY":
+  1. Call cronjob with action=create, name="Remind YYY", schedule="Xm", prompt="YYY"
+  2. Then reply: "Reminder set for YYY in X minutes"
+Do NOT ask how/when/frequency.
+
+Schedule format examples:
+- "5m" or "30m" = once after a delay (minutes/hours/days)
+- "every 2h" or "every 1d" = repeat at fixed intervals
+- "0 9 * * *" = cron expression (daily at 9:00)
+
+Results are automatically delivered to this chat — you do NOT need to provide a chat_id.`,
   ].join('\n');
 }
 
@@ -398,6 +444,7 @@ export function createAgentFactory(
           channel: options?.channel,
           isTeamMode,
           teamModeMaxChildren,
+          responseLanguage: resolveResponseLanguage(configRef.current),
         });
         systemPrompt = promptAssembly.systemPrompt;
       } else if (compiled?.promptContent) {
@@ -711,7 +758,7 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
                 ...result,
                 content: [{
                   type: 'text' as const,
-                  text: `[工具结果已压缩]\n${summary}\n\n完整结果已归档: ${ref}\n如需原始输出，请使用 file_read 读取该路径。`,
+                  text: `[Tool result compressed]\n${summary}\n\nFull result archived at: ${ref}\nUse file_read on that path for the original output.`,
                 }],
                 details: {
                   ...(typeof result.details === 'object' && result.details !== null ? result.details : {}),

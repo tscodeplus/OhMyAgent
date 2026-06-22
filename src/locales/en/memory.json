@@ -1,0 +1,14 @@
+{
+  "ruleBasedUserTopics": "User topics",
+  "ruleBasedAssistantConclusions": "Assistant conclusions",
+  "ruleBasedStats": "Stats",
+  "languageNames": {
+    "English": "English",
+    "Simplified Chinese": "Simplified Chinese",
+    "Traditional Chinese": "Traditional Chinese",
+    "Spanish": "Spanish",
+    "Japanese": "Japanese",
+    "French": "French",
+    "German": "German"
+  }
+}

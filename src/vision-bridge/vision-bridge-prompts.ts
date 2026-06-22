@@ -1,5 +1,4 @@
 import type { VisionCapabilities } from './vision-bridge-types.js';
-import { i18n } from '../i18n/index.js';
 
 // ─── Prompt Construction ───
 
@@ -26,10 +25,15 @@ const STRUCTURED_SECTIONS = [
  */
 export function buildNotePrompt(userRequest: string): string {
   const sections = NOTE_ANALYSIS_SECTIONS.map(s => `### ${formatSectionName(s)}`).join('\n');
-  return i18n.t('prompts:vision.noteAnalysisPrompt', {
-    sections,
-    userRequest: userRequest || 'No specific request',
-  });
+  const request = userRequest || 'No specific request';
+  return `Analyze the attached image and return a structured note. Use these sections:
+
+${sections}
+
+For each section, provide concise, factual observations. Do not speculate beyond what is visible.
+User request for context: "${request}"
+
+Return only the note text, no preamble.`;
 }
 
 /**
@@ -41,13 +45,22 @@ export function buildPrimitivePrompt(
 ): string {
   const shape = primitivePromptShape(capabilities);
   const sections = STRUCTURED_SECTIONS.map(s => `"${s}"`).join(', ');
+  const request = userRequest || 'No specific request';
 
-  return i18n.t('prompts:vision.primitivePrompt', {
-    sections,
-    shape,
-    maxCount: '16',
-    userRequest: userRequest || 'No specific request',
-  });
+  return `Analyze the attached image and return a JSON object with these string fields:
+${sections}
+
+${shape}
+
+Rules:
+- All coordinate values must be integers in the 0–1000 range.
+- Include at most 16 visual primitives. Only include primitives that are clearly visible.
+- Provide concise, factual text for each section.
+- Do not include text outside the JSON object.
+
+User request for context: "${request}"
+
+Return ONLY the JSON object, no markdown fences, no preamble.`;
 }
 
 // ─── Primitive Shape Templates ───

@@ -1,4 +1,4 @@
-import { i18n } from '../../i18n/index.js';
+
 import type { AppConfig, AppServices } from '../types.js';
 import type { openDatabase } from '../../memory/db.js';
 import { AgentService } from '../../agent/agent-service.js';
@@ -28,7 +28,14 @@ export interface SchedulerServices {
 }
 
 function getCronSystemPrompt(): string {
-  return i18n.t('prompts:cron.delivery');
+  return `You are a message relay, NOT a chat assistant. Your output will be shown directly to the user.
+
+**Strictly follow:**
+1. Read the prompt in the user message
+2. Strip the "remind user to" / "tell user" prefix, output the rest in a natural tone
+3. Add NOTHING else — no greeting, no closing, no confirmation, no advice, no tips, no questions
+4. If the prompt asks for information, search and present results directly
+5. Two hard limits: (a) Do not output any sentence containing the word "remind" (b) Do not output any question marks`;
 }
 
 function createCronAgentRunner(

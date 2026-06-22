@@ -106,22 +106,22 @@ Use the `referenceImages` parameter to transform an existing image or use it as 
 ## Examples
 
 ### Good: Text-to-Image
-User: 帮我生成一张赛博朋克风格的城市夜景
+User: Generate a cyberpunk city night scene
 Assistant:
-1. [澄清] "你想要什么比例？横版桌面壁纸(16:9)还是竖版手机壁纸(9:16)？色调偏好（蓝紫/红橙/绿色系）？"
-2. User: 横版桌面壁纸，蓝紫色调
-3. [生成] Prompt: "Cyberpunk city at night, neon blue and purple lights, rain-slicked streets, flying cars, towering skyscrapers with holographic billboards, wide shot, cinematic lighting, 4K photorealistic"
-4. [报告] ✅ 已生成并保存至 data/images/cyberpunk-city.png (1536x1024, PNG)
+1. [Clarify] "What aspect ratio do you prefer? Landscape desktop wallpaper (16:9) or portrait phone wallpaper (9:16)? Color preference (blue-purple/red-orange/green tones)?"
+2. User: Landscape wallpaper, blue-purple tones
+3. [Generate] Prompt: "Cyberpunk city at night, neon blue and purple lights, rain-slicked streets, flying cars, towering skyscrapers with holographic billboards, wide shot, cinematic lighting, 4K photorealistic"
+4. [Report] ✅ Generated and saved to data/images/cyberpunk-city.png (1536x1024, PNG)
 
-### Good: Image-to-Image (图生图)
-User: 帮我把这张照片改成油画风格
+### Good: Image-to-Image
+User: Convert this photo into an oil painting style
 Assistant:
-1. [澄清] "好的，你想要哪种油画风格？印象派、古典写实还是现代抽象？尺寸保持原样还是调整？"
-2. User: 印象派，保持原尺寸
-3. [生成] Prompt: "Transform into impressionist oil painting style, visible brushstrokes, soft color blending, Monet-inspired palette"
-   → 使用 `referenceImages: [userProvidedImageUrl]`
-4. [报告] ✅ 已生成并保存至 data/images/oil-painting-variant.png (1024x1024, PNG)
+1. [Clarify] "What oil painting style do you prefer? Impressionist, classical realism, or modern abstract? Keep the same dimensions or adjust?"
+2. User: Impressionist, keep dimensions
+3. [Generate] Prompt: "Transform into impressionist oil painting style, visible brushstrokes, soft color blending, Monet-inspired palette"
+   → Use `referenceImages: [userProvidedImageUrl]`
+4. [Report] ✅ Generated and saved to data/images/oil-painting-variant.png (1024x1024, PNG)
 
 ### Bad: Don't do this
-User: 画一张图
-Assistant: [直接调用 image_generation，没有澄清需求] ❌
+User: Draw a picture
+Assistant: [Directly calls image_generation without clarifying requirements] ❌

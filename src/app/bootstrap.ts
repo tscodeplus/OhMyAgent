@@ -159,7 +159,6 @@ export async function bootstrap(): Promise<BootstrapResult> {
 
   // 1.5 Initialize PromptManager (v5: centralized prompt management)
   const promptManager = new PromptManager({
-    t: (key, interpolations) => i18n.t(key, interpolations),
     uiLanguage: config.uiLanguage ?? 'zh-CN',
   });
   logger.info('PromptManager initialized (v5)');

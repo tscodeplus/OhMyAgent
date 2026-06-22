@@ -22,6 +22,8 @@ export interface PromptAssemblyOptions {
   /** Max tokens allowed for the system prompt. Default: context * 0.3 */
   maxTokens?: number;
   uiLanguage?: string;
+  /** Human-readable language name for LLM output instruction (e.g. "Simplified Chinese") */
+  responseLanguage?: string;
   channel?: string;
   /** L1 metadata for all available skills (always included in system prompt) */
   availableSkills?: Array<{
@@ -62,8 +64,6 @@ export interface CacheAnchor {
 }
 
 export interface PromptManagerDeps {
-  /** i18n translate function */
-  t: (key: string, interpolations?: Record<string, string | number>) => string;
   /** Current UI language */
   uiLanguage: string;
   /** Context window size for token budget calculation (default: 200000) */

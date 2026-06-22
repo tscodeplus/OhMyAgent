@@ -153,15 +153,20 @@ export class MemorySummarizer {
 
     const outputLanguageValue = this.llmConfig?.outputLanguage
       && this.llmConfig.outputLanguage !== 'Auto'
-      ? i18n.t('prompts:memory.summarizeOutputLang', {
-          lang: translateLanguageName(this.llmConfig.outputLanguage),
-        })
-      : i18n.t('prompts:memory.summarizeOutputAuto');
+      ? `Write the summary and extracted preferences in ${translateLanguageName(this.llmConfig.outputLanguage)}.`
+      : 'Use the same language as the conversation.';
 
-    const prompt = i18n.t('prompts:memory.summarizePrompt', {
-      outputLanguage: outputLanguageValue,
-      transcript,
-    });
+    const prompt = `You are a conversation analyst. Review the following conversation and:
+
+1. Write a concise summary (2-5 sentences) of what was discussed and decided.
+2. Extract any user preferences, facts, or personal information the user shared (e.g., "User likes X", "User is a Y", "User prefers Z").
+3. ${outputLanguageValue}
+
+Conversation:
+${transcript}
+
+Output ONLY valid JSON with this shape:
+{"summary":"concise summary","preferences":["extracted preference"]}`;
 
     try {
       const response = await this.callLLM(prompt);
@@ -245,7 +250,7 @@ export class MemorySummarizer {
         const completion = await client.chat.completions.create({
           model: modelId,
           messages: [
-            { role: 'system', content: i18n.t('prompts:memory.summarizeSystemPrompt') },
+            { role: 'system', content: 'You are a precise conversation analyst. Always respond in the requested format.' },
             { role: 'user', content: prompt },
           ],
           temperature: 0.3,
@@ -285,9 +290,9 @@ export class MemorySummarizer {
       .filter(c => c.length > 0 && !userTopics.includes(c));
 
     const summaryText = [
-      userTopics.length > 0 ? `${i18n.t('prompts:memory.ruleBasedUserTopics')}: ${userTopics.join('; ')}` : '',
-      conclusions.length > 0 ? `${i18n.t('prompts:memory.ruleBasedAssistantConclusions')}: ${conclusions.join('; ')}` : '',
-      `${i18n.t('prompts:memory.ruleBasedStats')}: ${messages.length} messages, ${userMessages.length} user / ${assistantMessages.length} assistant`,
+      userTopics.length > 0 ? `${i18n.t('memory:ruleBasedUserTopics')}: ${userTopics.join('; ')}` : '',
+      conclusions.length > 0 ? `${i18n.t('memory:ruleBasedAssistantConclusions')}: ${conclusions.join('; ')}` : '',
+      `${i18n.t('memory:ruleBasedStats')}: ${messages.length} messages, ${userMessages.length} user / ${assistantMessages.length} assistant`,
     ].filter(Boolean).join('\n');
 
     const keyPoints = [...userTopics, ...conclusions];
@@ -384,16 +389,10 @@ function parsePrefixSummaryResponse(response: string): { summary: string; prefer
  */
 // Map English language names to localized names (used in summarizer prompts).
 function translateLanguageName(name: string): string {
-  const localized = i18n.locale === 'zh-CN'
-    ? {
-        'English': '英文', 'Simplified Chinese': '简体中文', 'Traditional Chinese': '繁体中文',
-        'Spanish': '西班牙文', 'Japanese': '日文', 'French': '法文', 'German': '德文',
-      }
-    : {
-        'English': 'English', 'Simplified Chinese': 'Simplified Chinese', 'Traditional Chinese': 'Traditional Chinese',
-        'Spanish': 'Spanish', 'Japanese': 'Japanese', 'French': 'French', 'German': 'German',
-      };
-  return localized[name as keyof typeof localized] || name;
+  const key = `memory:languageNames.${name.replace(/\s+/g, '')}`;
+  const result = i18n.t(key);
+  // i18next returns the key itself when translation is missing
+  return result === key ? name : result;
 }
 
 function cleanContent(content: string): string {
