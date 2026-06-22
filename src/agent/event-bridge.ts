@@ -138,7 +138,7 @@ export class EventBridge {
     const CLOSE_LEN = 7;
     // Open blockquote with the <plan> tag, then "> " for the first content line
     const OPEN_STYLED = '\n> <plan>\n> ';
-    const CLOSE_STYLED = '\n</plan>\n';
+    const CLOSE_STYLED = '\n</plan>\n\n';
 
     /** Prefix every newline with "> " so all lines inside plan get the bar. */
     const blockquoteLines = (s: string) => s.replace(/\n/g, '\n> ');
