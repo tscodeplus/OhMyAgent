@@ -134,7 +134,8 @@ export class WechatReplyDispatcher implements ReplyDispatcher {
     // No leading \n — onSkillActivated is always the first content after
     // onStart, so a leading newline would just be trimmed by onComplete.
     // Trailing \n\n separates the skill line from the response text.
-    this.buffer += `> ⚡️ 技能激活 — **${skillName}**\n\n`;
+    const label = skillName.includes(' | ') ? '技能合并激活' : '技能激活';
+    this.buffer += `> ⚡️ ${label} — **${skillName}**\n\n`;
   }
 
   setApprovalStatus(status: string | null): void {

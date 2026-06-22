@@ -20,6 +20,8 @@ export interface SkillActivationResult {
   scope: { scope: 'global' | 'skill'; scopeKey: string };
   /** The cleaned-up message (skill tokens stripped). */
   cleanMessage: string;
+  /** All activated skill names joined by " | " for display (ordered by priority). */
+  activatedSkillNames?: string;
 }
 
 export interface SkillActivationDeps {
@@ -129,5 +131,7 @@ export function activateSkill(
     }
   }
 
-  return { compiled, scope, cleanMessage };
+  const activatedSkillNames = resolved.map(r => r.skill.manifest.name).join(' | ');
+
+  return { compiled, scope, cleanMessage, activatedSkillNames };
 }

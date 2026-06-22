@@ -118,7 +118,8 @@ export class TelegramReplyDispatcher implements ReplyDispatcher {
     // No leading \n — onSkillActivated is always the first content after
     // onStart, so a leading newline would create an unwanted blank line.
     // Trailing \n\n separates the skill line from the response text.
-    const text = `⚡️ 技能激活 — **${skillName}**\n\n`;
+    const label = skillName.includes(' | ') ? '技能合并激活' : '技能激活';
+    const text = `⚡️ ${label} — **${skillName}**\n\n`;
     this.buffer += text;
     this.streamCtrl.onDelta(text);
   }

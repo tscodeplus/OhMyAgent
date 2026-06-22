@@ -132,7 +132,8 @@ export class ReplyDispatcher {
     // No leading \n — onSkillActivated fires right after onStart (which
     // creates the placeholder card), so it's always the first appendDelta.
     // Trailing \n\n separates the skill line from the response text.
-    this.controller.appendDelta(`> ⚡️ 技能激活 — **${skillName}**\n\n`);
+    const label = skillName.includes(' | ') ? '技能合并激活' : '技能激活';
+    this.controller.appendDelta(`> ⚡️ ${label} — **${skillName}**\n\n`);
   }
 
   setApprovalStatus(_status: string | null): void {
