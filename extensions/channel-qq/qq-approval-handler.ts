@@ -51,10 +51,10 @@ export async function handleApprovalInteraction(
       const isApproved = parsed.decision.startsWith('approve');
       const emoji = isApproved ? '✅' : '❌';
       const labelMap: Record<string, string> = {
-        approve_once: '已批准（仅此次）',
-        approve_session: '已批准（本次会话）',
-        approve_always: '已批准（始终允许）',
-        reject_once: '已拒绝（仅此次）',
+        approve_once: i18n.t('messages:approval.approvedOnce'),
+        approve_session: i18n.t('messages:approval.approvedSession'),
+        approve_always: i18n.t('messages:approval.approvedAlways'),
+        reject_once: i18n.t('messages:approval.rejectedOnce'),
       };
       const label = labelMap[parsed.decision] ?? parsed.decision;
       await sendChunkedText(gateway, `${emoji} ${label}`, target, 2000).catch(() => {});

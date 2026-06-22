@@ -44,7 +44,7 @@ export function buildMessageContext(msg: ILMessage): ChannelContext | null {
           // Handle media in ref_msg
           const refMediaNote = extractRefMsgMedia(ref);
 
-          const quotedPart = quotedText || refMediaNote || refTitle || '[引用消息]';
+          const quotedPart = quotedText || refMediaNote || refTitle || '[Quoted message]';
           const formatted = refText
             ? `[引用: ${quotedPart}]\n${refText}`
             : `[引用: ${quotedPart}]`;
@@ -165,15 +165,15 @@ function extractRefMsgText(ref: ILReferenceMessage): string {
     case MessageItemType.TEXT:
       return (msgItem as Record<string, any>).text_item?.text || '';
     case MessageItemType.IMAGE:
-      return '[图片]';
+      return '[Image]';
     case MessageItemType.VOICE:
-      return '[语音]';
+      return '[Voice]';
     case MessageItemType.FILE: {
       const fileName = (msgItem as Record<string, any>).file_item?.file_name;
-      return fileName ? `[文件: ${fileName}]` : '[文件]';
+      return fileName ? `[File: ${fileName}]` : '[File]';
     }
     case MessageItemType.VIDEO:
-      return '[视频]';
+      return '[Video]';
     default:
       return '';
   }
@@ -188,12 +188,12 @@ function extractRefMsgMedia(ref: ILReferenceMessage): string {
   if (!msgItem) return '';
 
   const type = msgItem.type;
-  if (type === MessageItemType.IMAGE) return '[图片]';
-  if (type === MessageItemType.VOICE) return '[语音]';
-  if (type === MessageItemType.VIDEO) return '[视频]';
+  if (type === MessageItemType.IMAGE) return '[Image]';
+  if (type === MessageItemType.VOICE) return '[Voice]';
+  if (type === MessageItemType.VIDEO) return '[Video]';
   if (type === MessageItemType.FILE) {
     const fileName = (msgItem as Record<string, any>).file_item?.file_name;
-    return fileName ? `[文件: ${fileName}]` : '[文件]';
+    return fileName ? `[File: ${fileName}]` : '[File]';
   }
   return '';
 }

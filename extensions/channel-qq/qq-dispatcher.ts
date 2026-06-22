@@ -199,8 +199,8 @@ export class QQReplyDispatcher implements ReplyDispatcher {
       error.name === 'AbortError';
 
     const errorMsg = isTimeout
-      ? '抱歉，处理消息超时，请稍后重试或简化您的问题。'
-      : `抱歉，处理消息时出现错误: ${error.message}`;
+      ? i18n.t('messages:errors.timeout')
+      : i18n.t('messages:errors.generic', { message: error.message });
 
     await sendChunkedText(this.gateway, errorMsg, this.target, this.config.textLimit).catch(() => {});
 

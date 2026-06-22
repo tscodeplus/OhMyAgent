@@ -5,10 +5,23 @@
     "audioSent": "[用户发送了一条语音消息{{duration}}秒]",
     "videoSent": "[用户发送了一个视频: {{name}}]",
     "stickerSent": "[用户发送了一个贴纸]",
-    "imagePlaceholder": "[图片]"
+    "imagePlaceholder": "[图片]",
+    "downloadUnavailable": "下载功能不可用：缺少 Feishu 客户端配置。",
+    "downloadFailed": "⚠️ 媒体文件下载失败，请检查链接是否可访问。",
+    "uploadFailed": "⚠️ 媒体文件上传失败，请稍后重试。"
   },
   "skill": {
     "activated": "技能激活",
     "merged": "技能合并激活"
+  },
+  "errors": {
+    "timeout": "抱歉，处理消息超时，请稍后重试或简化您的问题。",
+    "generic": "抱歉，处理消息时出现错误: {{message}}"
+  },
+  "approval": {
+    "approvedOnce": "已批准（仅此次）",
+    "approvedSession": "已批准（本次会话）",
+    "approvedAlways": "已批准（始终允许）",
+    "rejectedOnce": "已拒绝（仅此次）"
   }
 }

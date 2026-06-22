@@ -5,10 +5,23 @@
     "audioSent": "[Voice message {{duration}}s]",
     "videoSent": "[User sent a video: {{name}}]",
     "stickerSent": "[User sent a sticker]",
-    "imagePlaceholder": "[Image]"
+    "imagePlaceholder": "[Image]",
+    "downloadUnavailable": "Download unavailable: missing Feishu client configuration.",
+    "downloadFailed": "⚠️ Media download failed. Please check if the link is accessible.",
+    "uploadFailed": "⚠️ Media upload failed. Please try again later."
   },
   "skill": {
     "activated": "Skill activated",
-    "merged": "Skills merged"
+    "merged": "Skills merged & activated"
+  },
+  "errors": {
+    "timeout": "Sorry, the request timed out. Please try again or simplify your question.",
+    "generic": "Sorry, an error occurred: {{message}}"
+  },
+  "approval": {
+    "approvedOnce": "Approved (this time)",
+    "approvedSession": "Approved (this session)",
+    "approvedAlways": "Approved (always)",
+    "rejectedOnce": "Rejected (this time)"
   }
 }

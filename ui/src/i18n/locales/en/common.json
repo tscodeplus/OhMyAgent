@@ -63,7 +63,12 @@
     "sendMessage": "Send a message to start",
     "createSessionError": "Failed to create session",
     "skillActivated": "Skill activated",
-    "skillMerged": "Skills merged"
+    "skillMerged": "Skills merged & activated",
+    "invalidFilePath": "Invalid file path",
+    "fileSaved": "File saved",
+    "saveFailed": "Save failed",
+    "downloadImage": "Download image",
+    "completed": "Completed"
   },
   "project": {
     "defaultName": "Default Space",

@@ -253,7 +253,7 @@ export function createFeishuDownloadTool(options: FeishuDownloadToolOptions) {
         const downloader = feishuClient as any;
         if (!downloader.downloadResource) {
           return {
-            content: [{ type: 'text' as const, text: '下载功能不可用：缺少 Feishu 客户端配置。' }],
+            content: [{ type: 'text' as const, text: i18n.t('messages:media.downloadUnavailable') }],
           };
         }
 

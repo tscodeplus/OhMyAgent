@@ -64,7 +64,12 @@
     "sendMessage": "发送消息开始对话",
     "createSessionError": "创建会话失败",
     "skillActivated": "技能激活",
-    "skillMerged": "技能合并激活"
+    "skillMerged": "技能合并激活",
+    "invalidFilePath": "无效的文件路径",
+    "fileSaved": "文件已保存",
+    "saveFailed": "保存失败",
+    "downloadImage": "下载图片",
+    "completed": "已完成"
   },
   "project": {
     "defaultName": "默认空间",

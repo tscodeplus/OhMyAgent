@@ -36,19 +36,19 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
       if (url.startsWith('/desktop-bridge-download')) {
         const q = new URL(url, window.location.origin).searchParams;
         const filePath = q.get('path') || '';
-        if (!filePath) { showToast('无效的文件路径', 'error'); return; }
+        if (!filePath) { showToast(t('chat.invalidFilePath'), 'error'); return; }
         const result = await api.saveLocalFile(filePath, filename);
         if (result?.ok) {
-          showToast('文件已保存', 'success');
+          showToast(t('chat.fileSaved'), 'success');
         } else if (result?.error !== 'cancelled') {
-          showToast('保存失败', 'error');
+          showToast(t('chat.saveFailed'), 'error');
         }
       } else {
         const result = await api.saveFileFromUrl(url, filename);
         if (result?.ok) {
-          showToast('文件已保存', 'success');
+          showToast(t('chat.fileSaved'), 'success');
         } else if (result?.error !== 'cancelled') {
-          showToast('保存失败', 'error');
+          showToast(t('chat.saveFailed'), 'error');
         }
       }
     } else {
@@ -354,7 +354,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDownload(img.url, imgFilename); }}
                       className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-1 rounded-lg bg-black/60 hover:bg-black/80 text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="下载图片"
+                      title={t('chat.downloadImage')}
                     >
                       <Download size={12} />
                       <span>保存</span>
@@ -465,7 +465,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
             {(() => {
               const parts: string[] = [];
               if (footer?.agentName) parts.push(footer.agentName);
-              if (footer?.completed) parts.push('已完成');
+              if (footer?.completed) parts.push(t('chat.completed'));
               if (footer?.elapsed != null) parts.push(`耗时 ${formatElapsed(footer.elapsed)}`);
               if (footer?.model) parts.push(footer.model);
               if (footer?.showUsage && footer?.usage) {
