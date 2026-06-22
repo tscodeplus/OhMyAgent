@@ -30,6 +30,7 @@ import { ApprovalDecisionRepository } from '../../memory/repositories/approval-d
 import { PersonaStore } from '../../memory/persona-store.js';
 import { PersonaDistiller, createDistillerLLM } from '../../memory/persona-distiller.js';
 import { SceneClusterer } from '../../memory/scene-cluster.js';
+import { rebuildJiebaFts } from '../../memory/fts.js';
 import { PersonaDistillationLog } from '../../memory/persona/persona-distillation-log.js';
 import { PersonaAuditService } from '../../memory/persona/persona-audit-service.js';
 import type { openDatabase } from '../../memory/db.js';
@@ -100,7 +101,42 @@ export async function createMemoryServices(
     logger.warn({ err: err?.message ?? err }, 'sqlite-vec unavailable; memory vector search will use cosine fallback');
   }
 
+  // Check if embedding provider/model/dimensions changed since last run.
+  // If so, drop existing vectors and mark for re-indexing.
+  // The "provider" concept is embedded in the model string for our config
+  // (e.g. "text-embedding-3-small" implies the provider).
+  const embProvider = config.piAi.provider;
+  const embModel = config.embedding.model;
+  const embDim = config.embedding.dimension;
+  const metaCheck = embeddingRepository.checkEmbeddingMeta(embProvider, embModel, embDim);
+  if (metaCheck.needsReindex) {
+    const droppedCount = embeddingRepository.dropVectorsForReindex();
+    logger.warn({
+      reason: metaCheck.reason,
+      droppedCount,
+    }, 'Embedding config changed — vectors dropped, will re-index on next write');
+    // Re-probe vec after dropping to ensure the virtual table is re-created
+    try { embeddingRepository.probeVec(); } catch { /* already logged */ }
+  }
+  embeddingRepository.saveEmbeddingMeta(embProvider, embModel, embDim);
+
   const vecBackfilled = embeddingRepository.backfillVec();
+
+  // Backfill jieba FTS index for memories created before jieba support.
+  // Only runs once: checks if any jieba entries already exist (from a prior
+  // backfill or from real-time sync of new writes). If the table is already
+  // populated, the full-table LEFT JOIN is skipped entirely.
+  try {
+    const jiebaExisting = (db.prepare('SELECT 1 FROM memories_fts_jieba LIMIT 1').get() as unknown) !== undefined;
+    if (!jiebaExisting) {
+      const jiebaIndexed = rebuildJiebaFts(db);
+      if (jiebaIndexed > 0) {
+        logger.info({ jiebaIndexed }, 'Jieba FTS backfill complete (one-time)');
+      }
+    }
+  } catch (err: any) {
+    logger.warn({ err: err?.message ?? err }, 'Jieba FTS backfill failed (non-fatal)');
+  }
   const embeddingCacheRepo = new EmbeddingCacheRepo(db, config.memory.embeddingCacheMaxEntries);
   const memoryLinkRepo = new MemoryLinkRepository(db);
   const memoryTermRepo = new MemoryTermRepository(db);

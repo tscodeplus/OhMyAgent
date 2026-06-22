@@ -57,6 +57,7 @@
     "@google/genai": "^1.40.0",
     "@larksuiteoapi/node-sdk": "^1.62.1",
     "@mistralai/mistralai": "^2.2.0",
+    "@node-rs/jieba": "^2.0.1",
     "@nut-tree-fork/nut-js": "^4.2.6",
     "@nut-tree-fork/shared": "^4.2.6",
     "@sinclair/typebox": "^0.34.49",

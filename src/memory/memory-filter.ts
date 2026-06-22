@@ -1,6 +1,8 @@
 /**
  * Memory capture filter — determines if a message should be stored as memory.
  * Optimized for Chinese + English content.
+ *
+ * Inspired by TencentDB-Agent-Memory's shouldExtractL1() quality gate.
  */
 
 // Trigger patterns (Chinese + English)
@@ -10,6 +12,29 @@ const TRIGGER_PATTERNS = [
   // English
   /\bremember\b|\bnote\s+(?:this|that)\b|\bkeep\s+(?:in\s+)?mind\b|\bdon'?t\s+forget\b/i,
 ];
+
+// ── Quality gate patterns ──────────────────────────────────────────────
+
+// Content that is purely symbols, emojis or formatting characters
+const PURE_SYMBOL_PATTERN = /^[\s\p{S}\p{P}\p{Emoji}]+$/u;
+
+// Heavy code block detection (triple backtick fence)
+const CODE_BLOCK_PATTERN = /```[\s\S]*?```/;
+
+// Only numeric/punctuation content (no meaningful words)
+const NUMERIC_ONLY_PATTERN = /^[\s\d.,;:!?()（）\[\]【】{}，。！？；：""''「」『』、·\-+/=*%^&|@#$~`一-鿿]*$/u;
+
+// Noise ratio: if > 60% of the string is symbols/punctuation/numbers,
+// it's not meaningful natural language
+function symbolRatio(text: string): number {
+  const total = text.length;
+  if (total === 0) return 0;
+  let nonWord = 0;
+  for (const ch of text) {
+    if (/[\s\p{S}\p{P}\p{N}]/u.test(ch)) nonWord++;
+  }
+  return nonWord / total;
+}
 
 // Prompt injection patterns
 const INJECTION_PATTERNS = [
@@ -56,6 +81,41 @@ export function isSafe(text: string): FilterResult {
   }
 
   return { capture: true, category: detectCategory(text) };
+}
+
+/**
+ * Quality gate for L1 memory extraction — filters out content that would
+ * produce poor-quality memories before sending to the LLM.
+ *
+ * Rules (inspired by TencentDB-Agent-Memory):
+ * - Must have at least 2 non-whitespace characters
+ * - Must not be purely symbols/emojis/punctuation
+ * - Must not have > 60% symbol-to-text ratio
+ * - Must not be a code block
+ * - Must pass injection safety check
+ *
+ * @returns true if the content is worth extracting, false if it should be skipped
+ */
+export function shouldExtractL1(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length < 2) return false;
+  if (trimmed.length > 2000) return false;
+
+  // Pure symbols/emojis/punctuation → skip
+  if (PURE_SYMBOL_PATTERN.test(trimmed)) return false;
+
+  // Code blocks → skip (code is rarely a useful memory)
+  if (CODE_BLOCK_PATTERN.test(trimmed)) return false;
+
+  // Too much noise → skip
+  if (symbolRatio(trimmed) > 0.6) return false;
+
+  // Injection detection
+  for (const pattern of INJECTION_PATTERNS) {
+    if (pattern.test(trimmed)) return false;
+  }
+
+  return true;
 }
 
 /**

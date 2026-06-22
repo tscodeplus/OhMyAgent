@@ -82,6 +82,25 @@ export class MemoryHygiene {
         ORDER BY updated_at ASC
       `).all(...tempKinds, cutoffSqlite) as Array<{ id: string; kind: string }>;
 
+      // Safety: refuse to delete > 80% of temp-kind memories in one pass.
+      // Prevents catastrophic data loss from misconfigured retention or clock skew.
+      const totalRow = this.db.prepare(
+        `SELECT COUNT(*) as cnt FROM memories WHERE kind IN (${placeholders})`
+      ).get(...tempKinds) as { cnt: number };
+      const totalCount = totalRow?.cnt ?? 0;
+      const expiredCount = rows.length;
+      if (totalCount > 0 && expiredCount > 0) {
+        const ratio = expiredCount / totalCount;
+        if (ratio > 0.8) {
+          return {
+            cleanedCount: 0,
+            cleanedKinds: {},
+            durationMs: Date.now() - startMs,
+            error: `Safety threshold exceeded: would delete ${expiredCount}/${totalCount} (${(ratio * 100).toFixed(1)}%) temp-kind memories, > 80% limit — refusing`,
+          };
+        }
+      }
+
       const cleanedKinds: Record<string, number> = {};
       const deleteEmbeddings = this.db.prepare('DELETE FROM memory_embeddings WHERE memory_id = ?');
       const deleteMemories = this.db.prepare('DELETE FROM memories WHERE id = ?');

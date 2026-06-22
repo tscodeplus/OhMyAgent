@@ -82,12 +82,36 @@ CREATE TABLE IF NOT EXISTS embedding_cache (
   created_at TEXT NOT NULL DEFAULT (cast(strftime('%s','now') as integer) * 1000)
 )`;
 
+// Tracks the embedding provider/model/dimensions used to generate stored vectors.
+// When the embedding config changes (different provider, model, or dimension),
+// existing vector tables must be rebuilt with the new dimensions.
+const DDL_EMBEDDING_META = `
+CREATE TABLE IF NOT EXISTS embedding_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+)`;
+
 const DDL_MEMORIES_FTS = `
 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
   content,
   content=memories,
   content_rowid=rowid,
   tokenize='unicode61 remove_diacritics 2'
+)`;
+
+// Standalone FTS5 table with jieba-segmented content for Chinese text search.
+// Stores pre-tokenized content (jieba cutForSearch output, space-joined) so the
+// unicode61 tokenizer treats each jieba token as a separate word.
+// Includes UNINDEXED metadata columns for result assembly without JOIN.
+const DDL_MEMORIES_FTS_JIEBA = `
+CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts_jieba USING fts5(
+  content,                        -- jieba-segmented text (for indexing)
+  content_original UNINDEXED,     -- raw original text (for display)
+  memory_id UNINDEXED,            -- FK to memories.id
+  kind UNINDEXED,                 -- memory kind
+  scope UNINDEXED,                -- memory scope
+  scope_key UNINDEXED,            -- memory scope_key
+  created_at UNINDEXED            -- epoch ms timestamp
 )`;
 
 const TRIGGER_MEMORIES_FTS_AI = `
@@ -294,6 +318,7 @@ const ALL_DDL = [
   DDL_MEMORIES,
   DDL_MEMORY_EMBEDDINGS,
   DDL_EMBEDDING_CACHE,
+  DDL_EMBEDDING_META,
   DDL_TOOL_RUNS,
   DDL_APPROVAL_POLICIES,
   DDL_APPROVAL_REQUESTS,
@@ -306,6 +331,7 @@ const ALL_DDL = [
   DDL_SCHEMA_VERSION,
   DDL_PROJECTS,
   DDL_MEMORIES_FTS,
+  DDL_MEMORIES_FTS_JIEBA,
   DDL_SKILL_FEEDBACK,
 ];
 

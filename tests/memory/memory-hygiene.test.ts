@@ -32,9 +32,13 @@ describe('MemoryHygiene', () => {
   }
 
   it('cleans old temporary memories', () => {
+    // Create enough non-expired temp memories so the expired ratio stays < 80%
     insertMemory('m1', 'fact', 100);
     insertMemory('m2', 'task', 95);
     insertMemory('m3', 'device_state', 91);
+    // Fresh temp-kind memories to keep ratio below safety threshold
+    insertMemory('m4', 'fact', 5);
+    insertMemory('m5', 'task', 3);
 
     const report = hygiene.clean();
     expect(report.cleanedCount).toBe(3);
@@ -46,6 +50,9 @@ describe('MemoryHygiene', () => {
   it('preserves preference memories', () => {
     insertMemory('m1', 'preference', 100);
     insertMemory('m2', 'fact', 100);
+    // Add fresh temp memories to keep expired ratio < 80%
+    insertMemory('m3', 'fact', 5);
+    insertMemory('m4', 'task', 3);
 
     const report = hygiene.clean();
     expect(report.cleanedCount).toBe(1);  // only the fact
@@ -56,6 +63,9 @@ describe('MemoryHygiene', () => {
   it('preserves summary memories', () => {
     insertMemory('m1', 'summary', 100);
     insertMemory('m2', 'task', 100);
+    // Add fresh temp memories to keep expired ratio < 80%
+    insertMemory('m3', 'fact', 5);
+    insertMemory('m4', 'device_state', 3);
 
     const report = hygiene.clean();
     expect(repo.findById('m1')).toBeDefined();
@@ -97,6 +107,9 @@ describe('MemoryHygiene', () => {
 
   it('deletes associated embeddings', () => {
     insertMemory('m1', 'fact', 100);
+    // Add fresh temp memories to keep expired ratio < 80%
+    insertMemory('m2', 'fact', 5);
+    insertMemory('m3', 'task', 3);
     const embBefore = db.prepare("SELECT COUNT(*) as cnt FROM memory_embeddings WHERE memory_id = 'm1'").get() as { cnt: number };
     expect(embBefore.cnt).toBe(1);
 
@@ -120,6 +133,8 @@ describe('MemoryHygiene', () => {
 
   it('updates checkpoint after cleaning', () => {
     insertMemory('m1', 'fact', 100);
+    // Add fresh temp memories to keep expired ratio < 80%
+    insertMemory('m2', 'fact', 5);
     hygiene.clean();
 
     // Check that the checkpoint was written

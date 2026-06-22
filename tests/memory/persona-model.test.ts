@@ -337,6 +337,21 @@ describe('serialization round-trip', () => {
         known: ['JavaScript'],
         learning: ['TypeScript'],
       },
+      workHabits: {
+        hours: '9-5',
+        taskStyle: 'incremental',
+        qualityPreferences: ['code review'],
+      },
+      knowledgeDomains: {
+        expert: ['frontend'],
+        proficient: ['backend'],
+        interested: ['AI'],
+      },
+      projectPreferences: {
+        techStacks: ['React'],
+        projectTypes: ['web app'],
+        deploymentTargets: ['Vercel'],
+      },
       context: {
         device: 'Desktop',
         environment: 'Linux',

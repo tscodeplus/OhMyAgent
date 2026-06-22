@@ -206,6 +206,10 @@ vi.mock('../../src/memory/repositories/embedding-repository.js', () => ({
   EmbeddingRepository: vi.fn().mockImplementation(() => ({
     backfillVec: vi.fn(() => 0),
     isVecAvailable: vi.fn(() => false),
+    probeVec: vi.fn(),
+    checkEmbeddingMeta: vi.fn(() => ({ needsReindex: false })),
+    saveEmbeddingMeta: vi.fn(),
+    dropVectorsForReindex: vi.fn(() => 0),
   })),
 }));
 

@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { syncJiebaFts } from '../fts.js';
 
 export interface Memory {
   id: string;
@@ -88,7 +89,16 @@ export class MemoryRepository {
       source_message_id: input.source_message_id ?? null,
       confidence: input.confidence ?? 1.0,
     });
-    return this.findById(input.id)!;
+    const created = this.findById(input.id)!;
+    syncJiebaFts(this.db, 'insert', {
+      id: created.id,
+      content: created.content,
+      kind: created.kind,
+      scope: created.scope,
+      scope_key: created.scope_key,
+      created_at: created.created_at,
+    });
+    return created;
   }
 
   /**
@@ -207,13 +217,35 @@ export class MemoryRepository {
     fields.push('updated_at = cast(strftime(\'%s\',\'now\') as integer) * 1000');
     const sql = `UPDATE memories SET ${fields.join(', ')} WHERE id = @id`;
     this.db.prepare(sql).run(values);
-    return this.findById(id);
+    const updated = this.findById(id);
+    if (updated) {
+      syncJiebaFts(this.db, 'update', {
+        id: updated.id,
+        content: updated.content,
+        kind: updated.kind,
+        scope: updated.scope,
+        scope_key: updated.scope_key,
+        created_at: updated.created_at,
+      });
+    }
+    return updated;
   }
 
   /** Physical delete — only for hygiene purge. */
   delete(id: string): boolean {
+    const memory = this.findById(id);
     const stmt = this.db.prepare('DELETE FROM memories WHERE id = ?');
     const result = stmt.run(id);
+    if (result.changes > 0 && memory) {
+      syncJiebaFts(this.db, 'delete', {
+        id: memory.id,
+        content: memory.content,
+        kind: memory.kind,
+        scope: memory.scope,
+        scope_key: memory.scope_key,
+        created_at: memory.created_at,
+      });
+    }
     return result.changes > 0;
   }
 
@@ -226,10 +258,21 @@ export class MemoryRepository {
    * JOIN with m.status='active' — inactive entries never appear in results.
    */
   softDelete(id: string): boolean {
+    const memory = this.findById(id);
     const stmt = this.db.prepare(
       "UPDATE memories SET status = 'deleted', invalidated_at = cast(strftime('%s','now') as integer) * 1000, updated_at = cast(strftime('%s','now') as integer) * 1000 WHERE id = ? AND status = 'active'"
     );
     const result = stmt.run(id);
+    if (result.changes > 0 && memory) {
+      syncJiebaFts(this.db, 'delete', {
+        id: memory.id,
+        content: memory.content,
+        kind: memory.kind,
+        scope: memory.scope,
+        scope_key: memory.scope_key,
+        created_at: memory.created_at,
+      });
+    }
     return result.changes > 0;
   }
 
@@ -241,6 +284,7 @@ export class MemoryRepository {
    * To find what supersedes a given memory, use findSuperseding().
    */
   supersede(oldId: string, newId: string): boolean {
+    const oldMemory = this.findById(oldId);
     const updated = this.db.prepare(
       "UPDATE memories SET status = 'superseded', supersedes_id = NULL, invalidated_at = cast(strftime('%s','now') as integer) * 1000, updated_at = cast(strftime('%s','now') as integer) * 1000 WHERE id = ? AND status = 'active'"
     ).run(oldId);
@@ -248,6 +292,16 @@ export class MemoryRepository {
       this.db.prepare(
         "UPDATE memories SET supersedes_id = ? WHERE id = ?"
       ).run(oldId, newId);
+      if (oldMemory) {
+        syncJiebaFts(this.db, 'delete', {
+          id: oldMemory.id,
+          content: oldMemory.content,
+          kind: oldMemory.kind,
+          scope: oldMemory.scope,
+          scope_key: oldMemory.scope_key,
+          created_at: oldMemory.created_at,
+        });
+      }
       return true;
     }
     return false;
@@ -276,7 +330,16 @@ export class MemoryRepository {
         UPDATE memories SET content = ?, metadata = ?, status = 'active', invalidated_at = NULL, updated_at = cast(strftime('%s','now') as integer) * 1000
         WHERE id = ?
       `).run(input.content, input.metadata ?? null, input.id);
-      return this.findById(input.id)!;
+      const updated = this.findById(input.id)!;
+      syncJiebaFts(this.db, 'update', {
+        id: updated.id,
+        content: updated.content,
+        kind: updated.kind,
+        scope: updated.scope,
+        scope_key: updated.scope_key,
+        created_at: updated.created_at,
+      });
+      return updated;
     }
     return this.create({
       id: input.id,

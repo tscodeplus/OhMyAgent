@@ -22,6 +22,36 @@ export interface UserPersona {
     learning: string[];
   };
 
+  /** Work habits and task management patterns. */
+  workHabits: {
+    /** Typical working hours description (e.g. "morning person, 9am-6pm"). */
+    hours: string;
+    /** Task management approach (e.g. "incremental", "big-bang", "exploratory"). */
+    taskStyle: string;
+    /** Quality/code review preferences. */
+    qualityPreferences: string[];
+  };
+
+  /** Knowledge domains — areas where the user has demonstrated expertise. */
+  knowledgeDomains: {
+    /** Areas of deep expertise. */
+    expert: string[];
+    /** Areas of working knowledge. */
+    proficient: string[];
+    /** Areas of active learning/interest. */
+    interested: string[];
+  };
+
+  /** Project-level preferences. */
+  projectPreferences: {
+    /** Preferred tech stacks (e.g. "TypeScript + React", "Python + FastAPI"). */
+    techStacks: string[];
+    /** Types of projects the user gravitates toward. */
+    projectTypes: string[];
+    /** Preferred deployment targets. */
+    deploymentTargets: string[];
+  };
+
   context: {
     device: string;
     environment: string;
@@ -75,6 +105,21 @@ export const personaJsonSchema = z.object({
   summary: z.string().default(''),
   preferences: preferencesSchema.default({}),
   skills: skillsSchema.default({}),
+  workHabits: z.object({
+    hours: z.string().default(''),
+    taskStyle: z.string().default(''),
+    qualityPreferences: z.array(z.string()).default([]),
+  }).default({}),
+  knowledgeDomains: z.object({
+    expert: z.array(z.string()).default([]),
+    proficient: z.array(z.string()).default([]),
+    interested: z.array(z.string()).default([]),
+  }).default({}),
+  projectPreferences: z.object({
+    techStacks: z.array(z.string()).default([]),
+    projectTypes: z.array(z.string()).default([]),
+    deploymentTargets: z.array(z.string()).default([]),
+  }).default({}),
   context: contextSchema.default({}),
   stats: statsSchema.default({}),
 });
@@ -99,6 +144,21 @@ export const partialPersonaJsonSchema = z.object({
   skills: z.object({
     known: z.array(z.string()).optional(),
     learning: z.array(z.string()).optional(),
+  }).optional(),
+  workHabits: z.object({
+    hours: z.string().optional(),
+    taskStyle: z.string().optional(),
+    qualityPreferences: z.array(z.string()).optional(),
+  }).optional(),
+  knowledgeDomains: z.object({
+    expert: z.array(z.string()).optional(),
+    proficient: z.array(z.string()).optional(),
+    interested: z.array(z.string()).optional(),
+  }).optional(),
+  projectPreferences: z.object({
+    techStacks: z.array(z.string()).optional(),
+    projectTypes: z.array(z.string()).optional(),
+    deploymentTargets: z.array(z.string()).optional(),
   }).optional(),
   context: z.object({
     device: z.string().optional(),
@@ -142,6 +202,21 @@ export function createEmptyPersona(): UserPersona {
     skills: {
       known: [],
       learning: [],
+    },
+    workHabits: {
+      hours: '',
+      taskStyle: '',
+      qualityPreferences: [],
+    },
+    knowledgeDomains: {
+      expert: [],
+      proficient: [],
+      interested: [],
+    },
+    projectPreferences: {
+      techStacks: [],
+      projectTypes: [],
+      deploymentTargets: [],
     },
     context: {
       device: '',
@@ -192,6 +267,9 @@ export function mergePartialPersona(base: UserPersona, partial: PartialPersona):
     ...base,
     preferences: { ...base.preferences },
     skills: { ...base.skills },
+    workHabits: { ...base.workHabits },
+    knowledgeDomains: { ...base.knowledgeDomains },
+    projectPreferences: { ...base.projectPreferences },
     context: { ...base.context },
     stats: { ...base.stats },
   };
@@ -210,6 +288,24 @@ export function mergePartialPersona(base: UserPersona, partial: PartialPersona):
   if (partial.skills) {
     if (partial.skills.known !== undefined) result.skills.known = [...partial.skills.known];
     if (partial.skills.learning !== undefined) result.skills.learning = [...partial.skills.learning];
+  }
+
+  if (partial.workHabits) {
+    if (partial.workHabits.hours !== undefined) result.workHabits.hours = partial.workHabits.hours;
+    if (partial.workHabits.taskStyle !== undefined) result.workHabits.taskStyle = partial.workHabits.taskStyle;
+    if (partial.workHabits.qualityPreferences !== undefined) result.workHabits.qualityPreferences = [...partial.workHabits.qualityPreferences];
+  }
+
+  if (partial.knowledgeDomains) {
+    if (partial.knowledgeDomains.expert !== undefined) result.knowledgeDomains.expert = [...partial.knowledgeDomains.expert];
+    if (partial.knowledgeDomains.proficient !== undefined) result.knowledgeDomains.proficient = [...partial.knowledgeDomains.proficient];
+    if (partial.knowledgeDomains.interested !== undefined) result.knowledgeDomains.interested = [...partial.knowledgeDomains.interested];
+  }
+
+  if (partial.projectPreferences) {
+    if (partial.projectPreferences.techStacks !== undefined) result.projectPreferences.techStacks = [...partial.projectPreferences.techStacks];
+    if (partial.projectPreferences.projectTypes !== undefined) result.projectPreferences.projectTypes = [...partial.projectPreferences.projectTypes];
+    if (partial.projectPreferences.deploymentTargets !== undefined) result.projectPreferences.deploymentTargets = [...partial.projectPreferences.deploymentTargets];
   }
 
   if (partial.context) {

@@ -222,6 +222,76 @@ export class EmbeddingRepository {
     }
     return result.changes > 0;
   }
+
+  // ── Embedding meta tracking ──────────────────────────────────────────
+
+  /**
+   * Check whether the embedding provider/model/dimensions changed since
+   * vectors were last written. Returns needsReindex=true when the config
+   * changed and the vec table should be rebuilt.
+   */
+  checkEmbeddingMeta(provider: string, model: string, dimension: number): { needsReindex: boolean; reason?: string } {
+    const saved = this.readEmbeddingMeta();
+    if (!saved) {
+      // No saved meta — first run or legacy DB. If there's existing data
+      // in the embedding table, we can't verify compatibility → needs reindex.
+      const count = this.count();
+      if (count > 0) {
+        return {
+          needsReindex: true,
+          reason: `legacy DB without embedding_meta, ${count} existing vectors — cannot verify compatibility`,
+        };
+      }
+      return { needsReindex: false };
+    }
+
+    const reasons: string[] = [];
+    if (saved.provider !== provider) reasons.push(`provider: ${saved.provider} → ${provider}`);
+    if (saved.model !== model) reasons.push(`model: ${saved.model} → ${model}`);
+    if (saved.dimensions !== dimension) reasons.push(`dimensions: ${saved.dimensions} → ${dimension}`);
+
+    if (reasons.length > 0) {
+      return { needsReindex: true, reason: reasons.join(', ') };
+    }
+
+    return { needsReindex: false };
+  }
+
+  /**
+   * Persist the current embedding config as meta so future checks can
+   * detect config changes and trigger re-indexing.
+   */
+  saveEmbeddingMeta(provider: string, model: string, dimension: number): void {
+    const meta = JSON.stringify({ provider, model, dimensions: dimension });
+    this.db.prepare(
+      'INSERT INTO embedding_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+    ).run('embedding_provider_info', meta);
+  }
+
+  /**
+   * Drop vector tables (both legacy memory_embeddings and sqlite-vec virtual table)
+   * so they can be rebuilt with the correct dimensions after embedding config change.
+   * Does NOT delete the metadata rows — only the vectors. Re-indexing will
+   * regenerate them.
+   */
+  dropVectorsForReindex(): number {
+    const count = this.count();
+    this.db.exec('DELETE FROM memory_embeddings');
+    try { this.db.exec('DROP TABLE IF EXISTS vec_memory_embeddings'); } catch { /* may not exist */ }
+    return count;
+  }
+
+  private readEmbeddingMeta(): { provider: string; model: string; dimensions: number } | null {
+    try {
+      const row = this.db.prepare(
+        'SELECT value FROM embedding_meta WHERE key = ?'
+      ).get('embedding_provider_info') as { value: string } | undefined;
+      if (!row) return null;
+      return JSON.parse(row.value) as { provider: string; model: string; dimensions: number };
+    } catch {
+      return null;
+    }
+  }
 }
 
 /**

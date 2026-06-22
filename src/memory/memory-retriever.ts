@@ -8,7 +8,7 @@ import { EmbeddingCacheRepo, hashContent, bufferToFloat32Array } from './reposit
 import { expandQuery } from './query-expansion.js';
 import type { ExpandedQuery } from './query-expansion.js';
 import { withTimeout } from '../shared/with-timeout.js';
-import { ftsSearch } from './fts.js';
+import { ftsSearch, ftsSearchJieba } from './fts.js';
 import type { FtsSearchResult } from './fts.js';
 import { rrfMerge } from './rrf-merge.js';
 import type { SourceResult, MergedResult } from './rrf-merge.js';
@@ -408,10 +408,35 @@ export class MemoryRetriever {
 
       const limit = this.prefilterLimit(options.topK ?? DEFAULT_TOP_K);
       const textScope = options.textScope ?? options.scope;
-      const results = ftsSearch(this.db, expanded.ftsQuery, limit, textScope, options.scopeKey);
+
+      // Prefer jieba FTS for Chinese text recall, fall back to original FTS5
+      const results = ftsSearchJieba(this.db, options.query, limit, textScope, options.scopeKey);
+      const useJieba = results.length > 0;
 
       if (results.length > 0) {
         return results
+          .flatMap(r => {
+            const memory = this.memoryRepository.findById(r.memoryId);
+            if (!memory || !matchesMemoryAccess(memory, policy)) return [];
+            return [{
+              id: r.memoryId,
+              content: r.content,
+              score: r.normalizedScore,
+              source: 'fts5' as const,
+              scope: memory.scope,
+              scopeKey: memory.scope_key,
+              kind: memory.kind,
+              createdAt: new Date(memory.created_at).getTime(),
+              sourcePool,
+              speaker: extractSpeaker(r.content, memory.metadata),
+            }];
+          });
+      }
+
+      // Fallback: original FTS5 with query-expansion tokenization
+      const legacyResults = ftsSearch(this.db, expanded.ftsQuery, limit, textScope, options.scopeKey);
+      if (legacyResults.length > 0) {
+        return legacyResults
           .flatMap(r => {
             const memory = this.memoryRepository.findById(r.memoryId);
             if (!memory || !matchesMemoryAccess(memory, policy)) return [];
