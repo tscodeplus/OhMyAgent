@@ -35,13 +35,13 @@ describe('SkillRegistry', () => {
     expect(skill).toBeUndefined();
   });
 
-  it('resolve() matches researcher by trigger "search"', () => {
-    const resolved = registry.resolve('帮我 search 一下这个话题');
+  it('resolve() matches researcher by trigger "research"', () => {
+    const resolved = registry.resolve('帮我 research 一下这个话题');
     expect(resolved.length).toBeGreaterThanOrEqual(1);
     const match = resolved.find((r) => r.skill.manifest.id === 'researcher');
     expect(match).toBeDefined();
     expect(match!.matchType).toBe('trigger');
-    expect(match!.matchedTrigger).toBe('search');
+    expect(match!.matchedTrigger).toBe('research');
   });
 
   it('resolve() matches explicit command $researcher', () => {
@@ -57,7 +57,7 @@ describe('SkillRegistry', () => {
   });
 
   it('compile() produces correct context from resolved skills', () => {
-    const resolved = registry.resolve('帮我 search 一下');
+    const resolved = registry.resolve('帮我 research 一下');
     const compiled = registry.compile(resolved);
     expect(compiled.allowedTools).toContain('file_read');
     expect(compiled.allowedTools).toContain('file_search');

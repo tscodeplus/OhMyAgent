@@ -44,11 +44,25 @@ function hasCJK(s: string): boolean {
 function triggerPattern(trigger: string): RegExp {
   let pattern = triggerCache.get(trigger);
   if (!pattern) {
-    // CJK triggers: substring match (no \b — word boundaries don't work between hanzi)
-    // ASCII triggers: word-boundary match
-    pattern = hasCJK(trigger)
-      ? new RegExp(escapeRegex(trigger), 'i')
-      : new RegExp(`\\b${escapeRegex(trigger)}\\b`, 'i');
+    if (hasCJK(trigger)) {
+      // CJK triggers: substring match (no \b — word boundaries don't work between hanzi)
+      pattern = new RegExp(escapeRegex(trigger), 'i');
+    } else {
+      // ASCII triggers: word-boundary match.
+      // Multi-word triggers allow 0–3 filler words (articles, determiners,
+      // adjectives) between each pair of consecutive words. So "generate image"
+      // matches "generate an image", "generate a nice image", "create a very
+      // detailed beautiful image", etc.
+      const words = trigger.split(/\s+/);
+      if (words.length === 1) {
+        pattern = new RegExp(`\\b${escapeRegex(words[0]!)}\\b`, 'i');
+      } else {
+        const segments = words.map((w) => `\\b${escapeRegex(w)}\\b`);
+        // 0-3 intervening words per gap, e.g. articles + adjectives
+        const filler = '(?:\\s+\\w+){0,3}';
+        pattern = new RegExp(segments.join(`${filler}\\s+`), 'i');
+      }
+    }
     triggerCache.set(trigger, pattern);
   }
   return pattern;
@@ -76,7 +90,8 @@ function escapeRegex(str: string): string {
  * 1. Explicit command: message contains `$skill-id` or starts with `/skill-id`
  * 2. Trigger matching: trigger word appears in message (case-insensitive, word boundary)
  * 3. Disabled skills are excluded
- * 4. Results sorted by priority (higher first)
+ * 4. If any explicit match exists, trigger-based matches are dropped (explicit = user intent)
+ * 5. Results sorted by priority (higher first)
  */
 export function resolveSkillContext(
   message: string,
@@ -111,8 +126,16 @@ export function resolveSkillContext(
     }
   }
 
-  // Sort by priority descending (higher priority first)
-  results.sort((a, b) => b.skill.manifest.priority - a.skill.manifest.priority);
+  // If any explicit command matched, drop all trigger-based matches.
+  // Explicit commands ($skill-id / /skill-id) represent clear user intent
+  // and should not be diluted by incidental trigger matches.
+  const hasExplicit = results.some(r => r.matchType === 'explicit');
+  const filtered = hasExplicit
+    ? results.filter(r => r.matchType === 'explicit')
+    : results;
 
-  return results;
+  // Sort by priority descending (higher priority first)
+  filtered.sort((a, b) => b.skill.manifest.priority - a.skill.manifest.priority);
+
+  return filtered;
 }

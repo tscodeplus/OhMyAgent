@@ -77,15 +77,15 @@ describe('E2E: Skill Flow', () => {
 
   // ─── Skill triggering ────────────────────────────────────────────────────
 
-  it('message with "search" -> researcher skill triggered', async () => {
+  it('message with "research" -> researcher skill triggered', async () => {
     const skills = await loadAllSkills(SKILLS_DIR);
-    const resolved = resolveSkillContext('search for information about TypeScript', skills);
+    const resolved = resolveSkillContext('research TypeScript generics', skills);
 
     expect(resolved.length).toBeGreaterThanOrEqual(1);
     const match = resolved.find(r => r.skill.manifest.id === 'researcher');
     expect(match).toBeDefined();
     expect(match!.matchType).toBe('trigger');
-    expect(match!.matchedTrigger).toBe('search');
+    expect(match!.matchedTrigger).toBe('research');
   });
 
   // ─── Explicit skill command ──────────────────────────────────────────────
@@ -125,7 +125,7 @@ describe('E2E: Skill Flow', () => {
 
     const agent = factory.create({
       model: makeMockModel(),
-      message: 'search for TypeScript generics',
+      message: 'research TypeScript generics',
     });
 
     const toolNames = agent.state.tools.map((t: any) => t.name);

@@ -15,16 +15,12 @@ metadata:
     - generate image
     - create image
     - make an image
-    - 插图
-    - 配图
     - image generation
     - 图生图
     - 以图生图
     - 参考图片生成
     - 风格迁移
     - 图片变体
-    - 修改图片
-    - 改图
     - image to image
     - img2img
   x-ohmyagent:

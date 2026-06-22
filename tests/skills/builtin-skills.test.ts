@@ -27,10 +27,10 @@ describe('Built-in skills', () => {
     const skills = await loadAllSkills(SKILLS_DIR);
     const researcher = skills.find((s) => s.manifest.id === 'researcher')!;
     expect(researcher.manifest.triggers).toContain('research');
-    expect(researcher.manifest.triggers).toContain('search');
-    // Multi-word triggers are preserved as phrases (comma-split, not whitespace-split)
-    expect(researcher.manifest.triggers).toContain('look up');
-    expect(researcher.manifest.triggers).toContain('find information');
+    expect(researcher.manifest.triggers).toContain('研究');
+    expect(researcher.manifest.triggers).toContain('调查');
+    expect(researcher.manifest.triggers).toContain('收集信息');
+    expect(researcher.manifest.triggers).toContain('调研');
   });
 
   it('researcher limits to read-only tools', async () => {
