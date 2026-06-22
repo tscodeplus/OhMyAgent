@@ -63,6 +63,24 @@ function gentleReminder(turns: number): string {
   ].join('\n');
 }
 
+/**
+ * Reflection for "plan-only" anti-pattern: the model output a <plan>
+ * block as free text but called zero tools — it described what to do
+ * but didn't actually do anything.
+ */
+export function planOnlyReflection(): string {
+  return [
+    '<system-reminder>',
+    '你刚刚输出了一个 <plan> 计划，但你没有调用任何工具来执行它。',
+    '光描述计划不等于完成任务——你需要真正执行。立即：',
+    '1. 如果计划中有可并行的独立子任务，调用 spawn_agent 并行分派',
+    '2. 如果任务只能串行，自己依次调用工具执行每个步骤',
+    '3. 不要再输出 <plan> 文本——直接行动',
+    '不要等，现在就开始执行第一个子任务。',
+    '</system-reminder>',
+  ].join('\n');
+}
+
 export const turnCounter = {
   get(sessionId: string): TurnCounterState {
     return getOrCreate(sessionId);

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { turnCounter } from '../../src/agent/turn-counter.js';
+import { turnCounter, planOnlyReflection } from '../../src/agent/turn-counter.js';
 
 const SESSION = 'test-session';
 
@@ -212,5 +212,20 @@ describe('P3: TurnCounter — delete', () => {
     turnCounter.recordTurn(SESSION, { toolCallCount: 5, didSpawn: false });
     turnCounter.delete(SESSION);
     expect(turnCounter.get(SESSION).serialToolCalls).toBe(0);
+  });
+});
+
+// ============================================================================
+// Plan-only reflection (model output <plan> but called 0 tools)
+// ============================================================================
+
+describe('P3: planOnlyReflection', () => {
+  it('returns a reflection telling the model to execute instead of just describing', () => {
+    const reflection = planOnlyReflection();
+    expect(reflection).toContain('<system-reminder>');
+    expect(reflection).toContain('<plan>');
+    expect(reflection).toContain('执行');
+    expect(reflection).toContain('spawn_agent');
+    expect(reflection).toContain('直接行动');
   });
 });

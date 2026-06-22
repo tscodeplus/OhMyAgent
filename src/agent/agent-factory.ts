@@ -32,7 +32,7 @@ import { i18n } from '../i18n/index.js';
 import type { PromptManager } from '../prompt/prompt-manager.js';
 import type { PromptAssemblyOptions } from '../prompt/types.js';
 import { teamModeStore } from './team-mode-store.js';
-import { turnCounter } from './turn-counter.js';
+import { turnCounter, planOnlyReflection } from './turn-counter.js';
 import { createBeforeToolCall, type BeforeToolCallDeps } from './before-tool-call.js';
 import type { PolicyCenter } from '../policy/policy-center.js';
 import type { AgentPolicyScope } from '../policy/types.js';
@@ -809,7 +809,31 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
               return undefined;
             }
 
-            const reflection = turnCounter.evaluate(sessionId, toolCallCount);
+            // ── Plan-only detection: model output <plan> text but called 0 tools ──
+            // The model described a plan in free text but didn't execute it.
+            // This catches the anti-pattern where the agent outputs <plan>...</plan>
+            // and then stops without taking any action.
+            let reflection = turnCounter.evaluate(sessionId, toolCallCount);
+
+            if (!reflection && toolCallCount === 0) {
+              // Check if the just-completed assistant message contains a <plan> block
+              const assistantText = (ctx.message as any)?.content;
+              const hasPlanText = typeof assistantText === 'string'
+                ? assistantText.includes('<plan>')
+                : Array.isArray(assistantText)
+                  ? assistantText.some((block: any) =>
+                      block?.type === 'text' && typeof block?.text === 'string' && block.text.includes('<plan>'))
+                  : false;
+
+              if (hasPlanText) {
+                logger?.info({ sessionId }, '[P3] prepareNextTurn: plan-only detected (model output plan but no tools called)');
+                reflection = planOnlyReflection();
+                // Update debounce so we don't re-inject immediately
+                const state = turnCounter.get(sessionId);
+                state.lastReflectionAt = Date.now();
+              }
+            }
+
             if (!reflection) {
               const state = turnCounter.get(sessionId);
               logger?.debug({ sessionId, serialToolCalls: state.serialToolCalls, turnsSinceLastSpawn: state.turnsSinceLastSpawn }, '[P3] prepareNextTurn: no reflection triggered');
