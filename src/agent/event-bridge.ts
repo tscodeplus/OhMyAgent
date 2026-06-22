@@ -112,13 +112,19 @@ export class EventBridge {
   }
 
   /**
-   * Style <plan>...</plan> blocks with a visual marker (│) and spacing.
+   * Style <plan>...</plan> blocks with a markdown blockquote bar.
    *
-   * Keeps the tags visible so the user sees the plan structure, but adds:
-   *  - A │ prefix before <plan> as a visual "blue bar" indicator
-   *  - A blank line after </plan> to separate the plan from subsequent content
+   * Every line between <plan> and </plan> (inclusive) gets a "> " prefix so
+   * Feishu/WebUI render a continuous vertical bar alongside the entire plan
+   * block — matching the visual style of tool call indicators.
    *
-   * The plan content between tags passes through unchanged.
+   *   > <plan>
+   *   > ### 子任务分解
+   *   > 1. 搜索相关文件
+   *   > 2. 分析代码结构
+   *   </plan>
+   *
+   * A blank line after </plan> separates the plan from subsequent content.
    */
   private filterPlanDelta(delta: string): string {
     const fullDelta = this.planPartial + delta;
@@ -130,8 +136,12 @@ export class EventBridge {
     const CLOSE = '</plan>';
     const OPEN_LEN = 6;
     const CLOSE_LEN = 7;
-    const OPEN_STYLED = '\n> <plan>\n';
+    // Open blockquote with the <plan> tag, then "> " for the first content line
+    const OPEN_STYLED = '\n> <plan>\n> ';
     const CLOSE_STYLED = '\n</plan>\n';
+
+    /** Prefix every newline with "> " so all lines inside plan get the bar. */
+    const blockquoteLines = (s: string) => s.replace(/\n/g, '\n> ');
 
     while (i < fullDelta.length) {
       const openIdx = fullDelta.indexOf(OPEN, i);
@@ -143,39 +153,47 @@ export class EventBridge {
         break;
       }
 
-      // Inside plan, no close tag → pass content through unchanged
+      // Inside plan, no close tag → prefix every line with "> "
       if (this.planDepth > 0 && closeIdx === -1) {
-        result += fullDelta.slice(i);
+        result += blockquoteLines(fullDelta.slice(i));
         break;
       }
 
-      // Entering plan: add │ marker before the tag
+      // Entering plan: add "> " before the tag and start content blockquote
       if (this.planDepth === 0 && openIdx !== -1 && (closeIdx === -1 || openIdx < closeIdx)) {
         result += fullDelta.slice(i, openIdx); // text before <plan>
         result += OPEN_STYLED;
         this.planDepth = 1;
         i = openIdx + OPEN_LEN;
+        // Skip leading \n after <plan> to keep tag and first content line adjacent
+        if (i < fullDelta.length && fullDelta[i] === '\n') {
+          i++;
+        }
         continue;
       }
 
-      // Exiting plan: add blank line after </plan>
+      // Exiting plan: blockquote the content before </plan>, then close
       if (this.planDepth > 0 && closeIdx !== -1 && (openIdx === -1 || closeIdx < openIdx)) {
-        result += fullDelta.slice(i, closeIdx); // plan content
+        result += blockquoteLines(fullDelta.slice(i, closeIdx));
         result += CLOSE_STYLED;
         this.planDepth = 0;
         i = closeIdx + CLOSE_LEN;
         continue;
       }
 
-      // Nested <plan> inside plan body — keep as literal text
+      // Nested <plan> inside plan body — keep as literal text with bar
       if (this.planDepth > 0 && openIdx !== -1) {
-        result += fullDelta.slice(i, openIdx + OPEN_LEN);
+        result += blockquoteLines(fullDelta.slice(i, openIdx + OPEN_LEN));
         i = openIdx + OPEN_LEN;
         continue;
       }
     }
 
-    // Buffer partial tag prefix in case it's split across deltas
+    // Buffer partial tag prefix in case it's split across deltas.
+    // Check against fullDelta (pre-transformation) but strip from result
+    // (post-transformation) — prefix length is the same either way because
+    // the "\n> " transform only adds bytes before newlines, and tag
+    // prefixes never contain newlines.
     const TAG_STARTS = ['<', '</', '<p', '</p', '<pl', '</pl', '<pla', '</pla', '<plan', '</pla'];
     for (const prefix of TAG_STARTS) {
       if (fullDelta.endsWith(prefix) && fullDelta.length >= prefix.length) {
