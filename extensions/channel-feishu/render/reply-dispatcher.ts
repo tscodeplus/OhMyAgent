@@ -11,6 +11,7 @@ import { StreamingCardController as StreamingCardControllerImpl } from './stream
 import type { Logger } from 'pino';
 import type { FooterConfig, Usage } from '../../../src/app/types.js';
 import { summarizeToolInput } from '../../../src/channel/tool-summary.js';
+import { i18n } from '../../../src/i18n/index.js';
 
 export interface ReplyDispatcherOptions {
   feishuClient: any;
@@ -132,7 +133,8 @@ export class ReplyDispatcher {
     // No leading \n — onSkillActivated fires right after onStart (which
     // creates the placeholder card), so it's always the first appendDelta.
     // Trailing \n\n separates the skill line from the response text.
-    const label = skillName.includes(' | ') ? '技能合并激活' : '技能激活';
+    const key = skillName.includes(' | ') ? 'messages:skill.merged' : 'messages:skill.activated';
+    const label = i18n.t(key);
     this.controller.appendDelta(`> ⚡️ ${label} — **${skillName}**\n\n`);
   }
 

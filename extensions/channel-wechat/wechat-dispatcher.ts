@@ -18,6 +18,7 @@ import type { ReplyDispatcher, Usage, FooterConfig } from '../../src/app/types.j
 import { StreamingMarkdownFilter } from './markdown-filter.js';
 import { summarizeToolInput } from '../../src/channel/tool-summary.js';
 import { formatUsageSummary } from '../../src/channel/usage-summary.js';
+import { i18n } from '../../src/i18n/index.js';
 
 /** Typing keepalive interval in milliseconds. */
 const TYPING_KEEPALIVE_MS = 5000;
@@ -134,7 +135,8 @@ export class WechatReplyDispatcher implements ReplyDispatcher {
     // No leading \n — onSkillActivated is always the first content after
     // onStart, so a leading newline would just be trimmed by onComplete.
     // Trailing \n\n separates the skill line from the response text.
-    const label = skillName.includes(' | ') ? '技能合并激活' : '技能激活';
+    const key = skillName.includes(' | ') ? 'messages:skill.merged' : 'messages:skill.activated';
+    const label = i18n.t(key);
     this.buffer += `> ⚡️ ${label} — **${skillName}**\n\n`;
   }
 

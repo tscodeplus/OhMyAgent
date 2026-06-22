@@ -15,6 +15,7 @@ import type { QQConfig } from './qq-types.js';
 import { sendChunkedText } from './send-message.js';
 import { summarizeToolInput } from '../../src/channel/tool-summary.js';
 import { formatUsageSummary } from '../../src/channel/usage-summary.js';
+import { i18n } from '../../src/i18n/index.js';
 
 export class QQReplyDispatcher implements ReplyDispatcher {
   /** Accumulated text deltas + tool annotations. */
@@ -117,7 +118,8 @@ export class QQReplyDispatcher implements ReplyDispatcher {
     // No leading \n — onSkillActivated is always the first content after
     // onStart, so a leading newline would just be trimmed by onComplete.
     // Trailing \n\n separates the skill line from the response text.
-    const label = skillName.includes(' | ') ? '技能合并激活' : '技能激活';
+    const key = skillName.includes(' | ') ? 'messages:skill.merged' : 'messages:skill.activated';
+    const label = i18n.t(key);
     const line = `> ⚡️ ${label} — **${skillName}**\n\n`;
     this.buffer += line;
     this.hasContent = true;

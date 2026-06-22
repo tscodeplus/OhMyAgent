@@ -8,6 +8,7 @@
     "imagePlaceholder": "[Image]"
   },
   "skill": {
-    "activated": "⚡️ Skill activated: {{name}}"
+    "activated": "Skill activated",
+    "merged": "Skills merged"
   }
 }

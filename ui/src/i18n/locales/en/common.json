@@ -61,7 +61,9 @@
     "alwaysAllow": "Always Allow",
     "reject": "Reject",
     "sendMessage": "Send a message to start",
-    "createSessionError": "Failed to create session"
+    "createSessionError": "Failed to create session",
+    "skillActivated": "Skill activated",
+    "skillMerged": "Skills merged"
   },
   "project": {
     "defaultName": "Default Space",

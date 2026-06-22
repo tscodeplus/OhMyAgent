@@ -12,6 +12,7 @@ import type { Logger } from 'pino';
 import type { FooterConfig } from '../app/types.js';
 import { generateId } from '../shared/ids.js';
 import { extractText, extractUserText } from '../shared/text-extract.js';
+import { i18n } from '../i18n/index.js';
 
 // ── Types ──
 
@@ -124,8 +125,11 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
 
       // Prepend skill activation notification to content so it appears in
       // history even when rendered without segment support (plain text fallback).
-      const skillPrefix = runtime.skillActivatedName
-        ? `⚡️ 技能激活：**${runtime.skillActivatedName}**\n\n`
+      const skillLabel = runtime.skillActivatedName
+        ? i18n.t(runtime.skillActivatedName.includes(' | ') ? 'messages:skill.merged' : 'messages:skill.activated')
+        : '';
+      const skillPrefix = skillLabel
+        ? `⚡️ ${skillLabel}：**${runtime.skillActivatedName}**\n\n`
         : '';
       if (skillPrefix) {
         content = skillPrefix + content;
@@ -266,8 +270,11 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
             content = content.trim();
           }
           // Prepend skill activation text for plain-text fallback rendering
-          const noTcSkillPrefix = runtime.skillActivatedName
-            ? `⚡️ 技能激活：**${runtime.skillActivatedName}**\n\n`
+          const noTcSkillLabel = runtime.skillActivatedName
+            ? i18n.t(runtime.skillActivatedName.includes(' | ') ? 'messages:skill.merged' : 'messages:skill.activated')
+            : '';
+          const noTcSkillPrefix = noTcSkillLabel
+            ? `⚡️ ${noTcSkillLabel}：**${runtime.skillActivatedName}**\n\n`
             : '';
           if (noTcSkillPrefix && content.trim()) {
             content = noTcSkillPrefix + content;

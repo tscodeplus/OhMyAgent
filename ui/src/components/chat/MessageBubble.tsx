@@ -8,6 +8,7 @@ import ApprovalCard, { type ApprovalDecision } from './ApprovalCard';
 import { apiRequest } from '../../utils/api';
 import { isElectron, getElectronAPI } from '../../utils/env';
 import { useToast } from '../ui/Toast';
+import { useTranslation } from 'react-i18next';
 
 interface MessageBubbleProps {
   message: Message;
@@ -18,6 +19,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
   const isAssistant = message.role === 'assistant';
   const footer = message.footer;
   const { showToast } = useToast();
+  const { t } = useTranslation('common');
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   // Track images that need file-access approval
   const [approvalStates, setApprovalStates] = useState<Record<string, {
@@ -232,7 +234,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
                   ) : seg.type === 'skill' ? (
                     <div key={`skill-${i}`} className="flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-sm">
                       <Zap size={14} className="text-amber-500 dark:text-amber-400 shrink-0" />
-                      <span className="text-neutral-700 dark:text-neutral-200">技能激活：<strong>{seg.name}</strong></span>
+                      <span className="text-neutral-700 dark:text-neutral-200">{t(`chat.${(seg.name || '').includes(' | ') ? 'skillMerged' : 'skillActivated'}`)}：<strong>{seg.name}</strong></span>
                     </div>
                   ) : seg.type === 'media' && seg.media ? (
                     <div key={`media-${i}`} className="my-1">

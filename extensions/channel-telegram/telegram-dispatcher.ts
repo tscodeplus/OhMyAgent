@@ -11,6 +11,7 @@ import type { TelegramConfig, StreamController } from './telegram-types.js';
 import type { ReplyContent } from '../../src/channel/types.js';
 import { summarizeToolInput } from '../../src/channel/tool-summary.js';
 import { formatUsageSummary } from '../../src/channel/usage-summary.js';
+import { i18n } from '../../src/i18n/index.js';
 
 export class TelegramReplyDispatcher implements ReplyDispatcher {
   private streamCtrl: StreamController;
@@ -118,7 +119,8 @@ export class TelegramReplyDispatcher implements ReplyDispatcher {
     // No leading \n — onSkillActivated is always the first content after
     // onStart, so a leading newline would create an unwanted blank line.
     // Trailing \n\n separates the skill line from the response text.
-    const label = skillName.includes(' | ') ? '技能合并激活' : '技能激活';
+    const key = skillName.includes(' | ') ? 'messages:skill.merged' : 'messages:skill.activated';
+    const label = i18n.t(key);
     const text = `⚡️ ${label} — **${skillName}**\n\n`;
     this.buffer += text;
     this.streamCtrl.onDelta(text);
