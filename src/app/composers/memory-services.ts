@@ -60,6 +60,7 @@ export interface MemoryServices {
   sceneClusterer?: SceneClusterer;
   memoryChangeCallbacks: Array<(event?: MemoryChangeEvent) => void>;
   offloadDir: string;
+  auxModelConfig: AuxModelConfig;
 }
 
 function buildSummaryLLMConfig(
@@ -368,5 +369,6 @@ export async function createMemoryServices(
     sceneClusterer,
     memoryChangeCallbacks,
     offloadDir,
+    auxModelConfig,
   };
 }

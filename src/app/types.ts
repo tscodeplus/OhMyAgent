@@ -249,6 +249,15 @@ export interface AppConfig {
         memory_doctor: boolean;
       };
     };
+    dreamCycle?: {
+      enabled: boolean;
+      timezone: string;
+      hour: number;
+      minute: number;
+      windowGraceMinutes: number;
+      phaseTimeoutMs: number;
+      synthesizeBatchSize: number;
+    };
   };
   cron: {
     enabled: boolean;

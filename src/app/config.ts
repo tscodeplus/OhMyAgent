@@ -234,6 +234,15 @@ const configSchema = z.object({
         memory_doctor: z.boolean().default(false),
       }).default({}),
     }).default({}),
+    dreamCycle: z.object({
+      enabled: z.boolean().default(true),
+      timezone: z.string().default(''),
+      hour: z.coerce.number().int().min(0).max(23).default(2),
+      minute: z.coerce.number().int().min(0).max(59).default(0),
+      windowGraceMinutes: z.coerce.number().int().positive().default(120),
+      phaseTimeoutMs: z.coerce.number().int().positive().default(1_800_000),
+      synthesizeBatchSize: z.coerce.number().int().positive().default(50),
+    }).default({}),
     // v9: Auto context compression
     autoCompress: z.object({
       enabled: z.boolean().default(true),

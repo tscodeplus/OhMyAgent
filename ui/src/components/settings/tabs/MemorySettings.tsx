@@ -37,6 +37,7 @@ const BOOT_FIELD_PREFIXES = [
   'memory.persona.',
   'memory.sceneClustering.',
   'memory.maintenance.',
+  'memory.dreamCycle.',
 ];
 
 export default function MemorySettings({
@@ -182,6 +183,31 @@ export default function MemorySettings({
         </div>
       </AccordionItem>
 
+      {/* 8a. DreamCycle (nightly maintenance) */}
+      <AccordionItem title={t("settings.memory.dreamCycle")}>
+        <FieldRow label={t("settings.memory.enabled")}>
+          <Toggle checked={getField('memory.dreamCycle.enabled', (mem.dreamCycle as Record<string, unknown>)?.enabled !== false) as boolean} onChange={(v) => setField('memory.dreamCycle.enabled', v)} />
+        </FieldRow>
+        <Input label={t("settings.memory.dreamCycle.timezone")} placeholder={t("settings.memory.dreamCycle.timezonePlaceholder")} value={getField('memory.dreamCycle.timezone', String((mem.dreamCycle as Record<string, unknown>)?.timezone ?? '')) as string}
+          onChange={(e) => setField('memory.dreamCycle.timezone', e.target.value)} />
+        <div className="grid grid-cols-2 gap-4">
+          <Select label={t("settings.memory.dreamCycle.hour")} value={getField('memory.dreamCycle.hour', String((mem.dreamCycle as Record<string, unknown>)?.hour ?? 2)) as string}
+            onChange={(e) => setField('memory.dreamCycle.hour', e.target.value)}
+            options={Array.from({ length: 24 }, (_, i) => ({ value: String(i), label: `${i}:00` }))} />
+          <Select label={t("settings.memory.dreamCycle.minute")} value={getField('memory.dreamCycle.minute', String((mem.dreamCycle as Record<string, unknown>)?.minute ?? 0)) as string}
+            onChange={(e) => setField('memory.dreamCycle.minute', e.target.value)}
+            options={[0, 15, 30, 45].map(v => ({ value: String(v), label: String(v).padStart(2, '0') }))} />
+        </div>
+        <div className="grid grid-cols-3 gap-4">
+          <Input label={t("settings.memory.dreamCycle.windowGraceMinutes")} type="number" value={getField('memory.dreamCycle.windowGraceMinutes', String((mem.dreamCycle as Record<string, unknown>)?.windowGraceMinutes ?? '')) as string}
+            onChange={(e) => setField('memory.dreamCycle.windowGraceMinutes', e.target.value)} />
+          <Input label={t("settings.memory.dreamCycle.phaseTimeoutMs")} type="number" value={getField('memory.dreamCycle.phaseTimeoutMs', String((mem.dreamCycle as Record<string, unknown>)?.phaseTimeoutMs ?? '')) as string}
+            onChange={(e) => setField('memory.dreamCycle.phaseTimeoutMs', e.target.value)} />
+          <Input label={t("settings.memory.dreamCycle.synthesizeBatchSize")} type="number" value={getField('memory.dreamCycle.synthesizeBatchSize', String((mem.dreamCycle as Record<string, unknown>)?.synthesizeBatchSize ?? '')) as string}
+            onChange={(e) => setField('memory.dreamCycle.synthesizeBatchSize', e.target.value)} />
+        </div>
+      </AccordionItem>
+
       {/* 9. Maintenance */}
       <AccordionItem title={t("settings.memory.maintenance")}>
         <FieldRow label={t("settings.memory.enabled")}>
@@ -190,8 +216,8 @@ export default function MemorySettings({
         <Input label={t("settings.memory.interval")} type="number" value={getField('memory.maintenance.intervalMs', String((mem.maintenance as Record<string, unknown>)?.intervalMs ?? '')) as string}
           onChange={(e) => setField('memory.maintenance.intervalMs', e.target.value)} />
         <div className="grid grid-cols-4 gap-x-4 gap-y-1.5">
-          {['memory_hygiene', 'embedding_backfill', 'embedding_cache_trim', 'entity_backfill',
-            'persona_consistency', 'offload_hygiene', 'scene_cluster', 'memory_doctor'].map(job => {
+          {['embedding_backfill', 'embedding_cache_trim', 'entity_backfill',
+            'persona_consistency', 'offload_hygiene', 'memory_doctor'].map(job => {
               const jobs = ((mem.maintenance as Record<string, unknown>)?.jobs as Record<string, boolean>) || {};
               return (
                 <label key={job} className="flex items-center gap-2 text-sm cursor-pointer">

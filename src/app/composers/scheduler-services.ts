@@ -4,14 +4,15 @@ import type { openDatabase } from '../../memory/db.js';
 import { AgentService } from '../../agent/agent-service.js';
 import { MaintenanceScheduler } from '../../memory/maintenance/maintenance-scheduler.js';
 import { MaintenanceRunRepository } from '../../memory/maintenance/maintenance-run-repository.js';
-import { createMemoryHygieneJob } from '../../memory/maintenance/jobs/memory-hygiene-job.js';
 import { createEmbeddingBackfillJob } from '../../memory/maintenance/jobs/embedding-backfill-job.js';
 import { createEmbeddingCacheTrimJob } from '../../memory/maintenance/jobs/embedding-cache-trim-job.js';
 import { createEntityBackfillJob } from '../../memory/maintenance/jobs/entity-backfill-job.js';
 import { createOffloadHygieneJob } from '../../memory/maintenance/jobs/offload-hygiene-job.js';
 import { createPersonaConsistencyJob } from '../../memory/maintenance/jobs/persona-consistency-job.js';
-import { createSceneClusterJob } from '../../memory/maintenance/jobs/scene-cluster-job.js';
+// scene_cluster and memory_hygiene are now handled by DreamCycle (nightly)
 import { createMemoryDoctorJob } from '../../memory/maintenance/jobs/memory-doctor-job.js';
+import { DreamCycle } from '../../memory/dream-cycle.js';
+import type { MergeConfig } from '../../memory/memory-merge.js';
 import { CronDeliveryRegistry } from '../../cron/delivery-registry.js';
 import { CronStore } from '../../cron/store.js';
 import { JobRunner, type AgentRunner } from '../../cron/job-runner.js';
@@ -23,6 +24,7 @@ import type { MemoryServices } from './memory-services.js';
 
 export interface SchedulerServices {
   maintenanceScheduler: MaintenanceScheduler;
+  dreamCycle: DreamCycle;
   cronService: CronService;
   jobRunner: JobRunner;
 }
@@ -95,9 +97,8 @@ export function createSchedulers(input: {
   );
 
   const jobConfigs = maintenanceConfig.jobs;
-  if (jobConfigs.memory_hygiene !== false) {
-    maintenanceScheduler.register(createMemoryHygieneJob(memory.memoryHygiene));
-  }
+  // memory_hygiene and scene_cluster are handled by DreamCycle (nightly),
+  // not registered as MaintenanceScheduler jobs
   if (jobConfigs.embedding_backfill !== false) {
     maintenanceScheduler.register(createEmbeddingBackfillJob(db, memory.embeddingRepository, memory.embeddingClient));
   }
@@ -115,13 +116,42 @@ export function createSchedulers(input: {
   if (jobConfigs.offload_hygiene !== false) {
     maintenanceScheduler.register(createOffloadHygieneJob(memory.offloadDir));
   }
-  if (jobConfigs.scene_cluster === true) {
-    maintenanceScheduler.register(createSceneClusterJob(memory.sceneClusterer));
-  }
+  // scene_cluster is now handled by DreamCycle (nightly)
   if (jobConfigs.memory_doctor === true) {
     maintenanceScheduler.register(createMemoryDoctorJob(memory.memoryDoctor));
   }
   logger.info({ jobCount: maintenanceScheduler.listJobs().length }, 'MaintenanceScheduler initialized');
+
+  // ── DreamCycle (nightly maintenance orchestrator) ─────────────────────
+  const dreamCycleConfig = config.memory?.dreamCycle ?? {
+    enabled: true,
+    timezone: '',
+    hour: 2,
+    minute: 0,
+    windowGraceMinutes: 120,
+    phaseTimeoutMs: 1_800_000,
+    synthesizeBatchSize: 50,
+  };
+
+  const mergeConfig: MergeConfig = {
+    auxConfig: memory.auxModelConfig,
+    mergeThreshold: 0.85,
+    logger,
+  };
+
+  const dreamCycle = new DreamCycle(
+    dreamCycleConfig,
+    db,
+    maintenanceRunRepo,
+    memory.memoryRepository,
+    memory.memoryLinkRepo,
+    memory.embeddingRepository,
+    memory.embeddingClient,
+    memory.memoryHygiene,
+    memory.sceneClusterer,
+    mergeConfig,
+    logger,
+  );
 
   const cronStore = new CronStore(config.cron.dataDir);
   const cronAgentRunner = createCronAgentRunner(agentService, modelName);
@@ -148,6 +178,7 @@ export function createSchedulers(input: {
 
   return {
     maintenanceScheduler,
+    dreamCycle,
     cronService,
     jobRunner,
   };

@@ -315,7 +315,7 @@ export async function bootstrap(): Promise<BootstrapResult> {
     agentService,
     modelName,
   });
-  const { maintenanceScheduler, cronService, jobRunner } = schedulerServices;
+  const { maintenanceScheduler, dreamCycle, cronService, jobRunner } = schedulerServices;
   cronServiceRef.current = cronService;
   servicesMap.set('cronService', cronService);
 
@@ -568,8 +568,6 @@ export async function bootstrap(): Promise<BootstrapResult> {
   const envPath = './.env';
   startEnvWatcher(envPath, yamlPath, onConfigReload);
 
-  let hygieneTimer: ReturnType<typeof setTimeout> | undefined;
-
   return {
     services,
 
@@ -591,9 +589,13 @@ export async function bootstrap(): Promise<BootstrapResult> {
         logger.info('Cron scheduler started');
       }
 
-      // Start maintenance scheduler (replaces DreamCycle)
+      // Start maintenance scheduler (day-time interval jobs)
       maintenanceScheduler.start();
       logger.info('MaintenanceScheduler started');
+
+      // Start DreamCycle (nightly heavy orchestration)
+      dreamCycle.start();
+      logger.info('DreamCycle started');
 
       // Start WebSocket client if enabled
       if (wsClient) {
@@ -605,27 +607,6 @@ export async function bootstrap(): Promise<BootstrapResult> {
       const bindHost = process.env.OHMYAGENT_BIND_ADDRESS || '0.0.0.0';
       await server.listen({ port: serverPort, host: bindHost });
       logger.info(`Server started on port ${serverPort}`);
-
-      // Fire-and-forget: run memory hygiene 5 seconds after startup (non-blocking)
-      if (config.memory.hygiene.enabled) {
-        hygieneTimer = setTimeout(() => {
-          try {
-            const report = memoryHygiene.runIfDue();
-            if (report.cleanedCount > 0) {
-              logger.info(
-                { cleanedCount: report.cleanedCount, kinds: report.cleanedKinds, durationMs: report.durationMs },
-                'Memory hygiene completed',
-              );
-            }
-            if (report.error) {
-              logger.warn({ error: report.error }, 'Memory hygiene error (non-fatal)');
-            }
-          } catch (e) {
-            logger.warn({ error: e }, 'Memory hygiene error (non-fatal)');
-          }
-        }, 5000);
-        hygieneTimer.unref?.();
-      }
     },
 
     stop: async () => {
@@ -635,12 +616,9 @@ export async function bootstrap(): Promise<BootstrapResult> {
       // Stop cron scheduler
       cronService.stop();
 
-      // Stop maintenance scheduler and delayed startup jobs before closing DB
+      // Stop maintenance scheduler and DreamCycle
       maintenanceScheduler.stop();
-      if (hygieneTimer) {
-        clearTimeout(hygieneTimer);
-        hygieneTimer = undefined;
-      }
+      await dreamCycle.stop();
 
       // Stop hot-reload watchers
       stopConfigWatcher();

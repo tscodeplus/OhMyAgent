@@ -324,7 +324,15 @@
       "job_persona_consistency": "Persona Consistency",
       "job_offload_hygiene": "Offload Hygiene",
       "job_scene_cluster": "Scene Cluster",
-      "job_memory_doctor": "Memory Doctor"
+      "job_memory_doctor": "Memory Doctor",
+      "dreamCycle": "Nightly Maintenance (DreamCycle)",
+      "dreamCycle.timezone": "Timezone",
+      "dreamCycle.timezonePlaceholder": "System local timezone",
+      "dreamCycle.hour": "Trigger Hour",
+      "dreamCycle.minute": "Minute",
+      "dreamCycle.windowGraceMinutes": "Grace Window (min)",
+      "dreamCycle.phaseTimeoutMs": "Phase Timeout (ms)",
+      "dreamCycle.synthesizeBatchSize": "Merge Batch Size"
     },
     "tools": {
       "shell": "Shell Tool",

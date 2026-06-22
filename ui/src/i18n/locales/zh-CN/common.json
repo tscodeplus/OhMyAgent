@@ -325,7 +325,15 @@
       "job_persona_consistency": "人格一致性",
       "job_offload_hygiene": "卸载清理",
       "job_scene_cluster": "场景聚类",
-      "job_memory_doctor": "记忆诊断"
+      "job_memory_doctor": "记忆诊断",
+      "dreamCycle": "夜间维护 (DreamCycle)",
+      "dreamCycle.timezone": "时区",
+      "dreamCycle.timezonePlaceholder": "系统本地时区",
+      "dreamCycle.hour": "触发时间 (时)",
+      "dreamCycle.minute": "分钟",
+      "dreamCycle.windowGraceMinutes": "宽限期 (分钟)",
+      "dreamCycle.phaseTimeoutMs": "阶段超时 (毫秒)",
+      "dreamCycle.synthesizeBatchSize": "合并批次数"
     },
     "tools": {
       "shell": "Shell 工具",
