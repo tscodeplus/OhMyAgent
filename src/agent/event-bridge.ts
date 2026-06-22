@@ -112,12 +112,13 @@ export class EventBridge {
   }
 
   /**
-   * Transform <plan>...</plan> blocks — strip the XML wrapper tags but keep
-   * the inner content so its markdown (headings, lists, etc.) renders naturally.
+   * Style <plan>...</plan> blocks with a visual marker (│) and spacing.
    *
-   * Replaces <plan> and </plan> with an empty string, letting the native
-   * markdown inside (### headings, numbered lists, bold, etc.) flow through
-   * to the channel renderer unchanged.
+   * Keeps the tags visible so the user sees the plan structure, but adds:
+   *  - A │ prefix before <plan> as a visual "blue bar" indicator
+   *  - A blank line after </plan> to separate the plan from subsequent content
+   *
+   * The plan content between tags passes through unchanged.
    */
   private filterPlanDelta(delta: string): string {
     const fullDelta = this.planPartial + delta;
@@ -129,6 +130,8 @@ export class EventBridge {
     const CLOSE = '</plan>';
     const OPEN_LEN = 6;
     const CLOSE_LEN = 7;
+    const OPEN_STYLED = '\n│ <plan>\n';
+    const CLOSE_STYLED = '\n</plan>\n';
 
     while (i < fullDelta.length) {
       const openIdx = fullDelta.indexOf(OPEN, i);
@@ -146,25 +149,27 @@ export class EventBridge {
         break;
       }
 
-      // Entering plan: strip <plan> tag, keep content
+      // Entering plan: add │ marker before the tag
       if (this.planDepth === 0 && openIdx !== -1 && (closeIdx === -1 || openIdx < closeIdx)) {
         result += fullDelta.slice(i, openIdx); // text before <plan>
+        result += OPEN_STYLED;
         this.planDepth = 1;
         i = openIdx + OPEN_LEN;
         continue;
       }
 
-      // Exiting plan: strip </plan> tag, content before it already passed
+      // Exiting plan: add blank line after </plan>
       if (this.planDepth > 0 && closeIdx !== -1 && (openIdx === -1 || closeIdx < openIdx)) {
-        result += fullDelta.slice(i, closeIdx); // plan content (kept as-is)
+        result += fullDelta.slice(i, closeIdx); // plan content
+        result += CLOSE_STYLED;
         this.planDepth = 0;
         i = closeIdx + CLOSE_LEN;
         continue;
       }
 
-      // Nested <plan> inside plan body — strip the nested open tag, keep content
+      // Nested <plan> inside plan body — keep as literal text
       if (this.planDepth > 0 && openIdx !== -1) {
-        result += fullDelta.slice(i, openIdx);
+        result += fullDelta.slice(i, openIdx + OPEN_LEN);
         i = openIdx + OPEN_LEN;
         continue;
       }
