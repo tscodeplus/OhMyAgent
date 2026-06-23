@@ -359,7 +359,10 @@
       "enabled": "Enabled"
     },
     "channels": {
-      "feishu": "Feishu",
+      "feishu": "Lark",
+      "region": "Region",
+      "regionFeishu": "Feishu (China)",
+      "regionLark": "Lark (International)",
       "telegram": "Telegram",
       "wechat": "WeChat",
       "qq": "QQ",
@@ -373,7 +376,25 @@
       "streamMode": "Stream Mode",
       "opt_edit": "Edit Message",
       "opt_send": "Send Multiple",
-      "enabled": "Enabled"
+      "enabled": "Enabled",
+      "scanQrToConfigure": "Scan QR to Configure",
+      "qrTitle": "Scan QR Code to Connect",
+      "qrInstructions": "Scan the QR code with your phone to configure your bot credentials.",
+      "qrAwaitingScan": "Waiting for scan...",
+      "qrScanned": "Scanned! Please confirm on your device...",
+      "qrConfirmed": "Configuration complete!",
+      "qrExpired": "QR code expired, please generate a new one",
+      "qrError": "Something went wrong, please try again",
+      "qrRetry": "Retry",
+      "qrCancel": "Cancel",
+      "qrManualTokenPlaceholder": "Paste your bot token here",
+      "qrConfirmToken": "Confirm",
+      "feishuQrInstructions": "Scan with the Lark / Feishu app to auto-create your bot",
+      "qqQrInstructions": "Scan with your phone browser, then paste your QQ App ID and Client Secret",
+      "telegramQrInstructions": "Scan to open BotFather, create a bot with /newbot, then paste the token below:",
+      "wechatQrInstructions": "Scan with WeChat to auto-configure your bot",
+      "qrReconfigureTitle": "Overwrite Configuration",
+      "qrReconfigureMessage": "Doing this will overwrite existing {{channel}} configuration. Continue?"
     },
     "websearch": {
       "provider": "Search Provider",

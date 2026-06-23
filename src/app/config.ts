@@ -78,6 +78,8 @@ const configSchema = z.object({
     verificationToken: z.string().default(''),
     encryptKey: z.string().default(''),
     wsEnabled: z.boolean().default(true),
+    /** Region: 'feishu' for domestic (open.feishu.cn), 'lark' for international (open.larksuite.com). */
+    region: z.enum(['feishu', 'lark']).default('feishu'),
   }),
   piAi: z.object({
     provider: z.string().default(''),

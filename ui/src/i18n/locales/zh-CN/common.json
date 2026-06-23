@@ -360,7 +360,10 @@
       "opt_relaxed": "宽松"
     },
     "channels": {
-      "feishu": "飞书 (Feishu)",
+      "feishu": "飞书",
+      "region": "版本区域",
+      "regionFeishu": "飞书 (国内版)",
+      "regionLark": "Lark (国际版)",
       "telegram": "Telegram",
       "wechat": "微信 (WeChat)",
       "qq": "QQ",
@@ -374,7 +377,25 @@
       "streamMode": "流式模式",
       "enabled": "启用",
       "opt_edit": "编辑消息",
-      "opt_send": "发送多条"
+      "opt_send": "发送多条",
+      "scanQrToConfigure": "扫码配置",
+      "qrTitle": "扫码连接",
+      "qrInstructions": "使用手机扫描二维码以配置机器人凭证。",
+      "qrAwaitingScan": "等待扫码...",
+      "qrScanned": "已扫码，请在手机上确认...",
+      "qrConfirmed": "配置完成！",
+      "qrExpired": "二维码已过期，请重新生成",
+      "qrError": "出错了，请重试",
+      "qrRetry": "重试",
+      "qrCancel": "取消",
+      "qrManualTokenPlaceholder": "在此粘贴 Bot Token",
+      "qrConfirmToken": "确认",
+      "feishuQrInstructions": "使用飞书 / Lark App 扫码即可自动创建机器人",
+      "qqQrInstructions": "用手机浏览器扫描，然后粘贴 QQ App ID 和 Client Secret",
+      "telegramQrInstructions": "扫码打开 BotFather，用 /newbot 创建机器人，然后在下方粘贴 Token：",
+      "wechatQrInstructions": "使用微信扫码自动配置机器人",
+      "qrReconfigureTitle": "覆盖配置",
+      "qrReconfigureMessage": "扫码将覆盖现有{{channel}}配置，确定要继续吗？"
     },
     "websearch": {
       "provider": "搜索提供商",

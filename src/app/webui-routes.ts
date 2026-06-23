@@ -32,7 +32,9 @@ import cors from '@fastify/cors';
 import { WebSocketManager, createWebSocketPlugin } from './webui/websocket.js';
 import { registerDesktopBridge } from './webui/desktop-bridge-routes.js';
 import { registerSystemRoutes } from './webui/system-routes.js';
+import { registerQRExchangeRoutes } from './webui/qr-exchange-routes.js';
 import type { DesktopBridgeRegistry } from '../agent/desktop-bridge-registry.js';
+import type { QrSessionStore } from '../channel/qr-session-store.js';
 
 export interface WebUIRouteConfig {
   db: Database.Database;
@@ -43,6 +45,8 @@ export interface WebUIRouteConfig {
   onConfigSaved?: (newConfig: AppConfig) => void;
   /** Live config ref — mutating this updates the in-memory config used by agent factory. */
   liveConfigRef?: { current: AppConfig };
+  /** QR session store for channel QR-based configuration flows. */
+  qrSessionStore?: QrSessionStore;
 }
 
 export async function registerWebUIRoutes(
@@ -168,7 +172,12 @@ export async function registerWebUIRoutes(
   // 8. Register system routes (update check, etc.)
   registerSystemRoutes(app);
 
-  // 9. Register subscription routes (depends on WebSocket for login progress)
+  // 9. Register QR exchange routes (credential submission pages for channel setup)
+  if (cfg.qrSessionStore) {
+    registerQRExchangeRoutes(app, cfg.qrSessionStore);
+  }
+
+  // 10. Register subscription routes (depends on WebSocket for login progress)
   if (cfg.services.subscriptionService) {
     registerSubscriptionRoutes(app, {
       subscriptionService: cfg.services.subscriptionService,

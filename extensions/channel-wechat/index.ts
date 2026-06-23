@@ -327,6 +327,89 @@ setTimeout(poll, 1000);
     }
   });
 
+  // POST /api/channels/wechat/qr — API-friendly wrapper for QR code generation
+  server.post('/api/channels/wechat/qr', async (_req, reply) => {
+    try {
+      const result = await getQrcode(wechatConfig.apiBase);
+      return reply.send({
+        ok: true,
+        sessionId: result.qrcodeId,
+        qrcodeImageDataUrl: result.qrcodeImageDataUrl,
+        instructions: 'Use WeChat to scan the QR code and confirm the login on your device.',
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error({ err }, 'Failed to get WeChat QR code via API');
+      return reply.status(500).send({ ok: false, error: message });
+    }
+  });
+
+  // POST /api/channels/wechat/qr/poll — API-friendly wrapper for QR status polling
+  server.post('/api/channels/wechat/qr/poll', async (req, reply) => {
+    try {
+      const body = req.body as { sessionId?: string };
+      if (!body.sessionId) {
+        return reply.status(400).send({ ok: false, error: 'sessionId required' });
+      }
+      const controller = new AbortController();
+      req.raw.on('close', () => controller.abort());
+      const result = await pollQrcodeStatus(
+        wechatConfig.apiBase,
+        body.sessionId,
+        controller.signal,
+      );
+      return reply.send(result);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error({ err }, 'Failed to poll WeChat QR status via API');
+      return reply.status(500).send({ ok: false, error: message });
+    }
+  });
+
+  // POST /api/channels/wechat/qr/start — API-friendly wrapper for bot activation
+  server.post('/api/channels/wechat/qr/start', async (req, reply) => {
+    try {
+      const body = req.body as { botToken?: string };
+      if (!body.botToken) {
+        return reply.status(400).send({ ok: false, error: 'botToken required' });
+      }
+
+      // Store token in config AND persist to .env
+      wechatConfig.botToken = body.botToken;
+      try {
+        const fs = await import('node:fs/promises');
+        const envPath = '.env';
+        let envContent = '';
+        try { envContent = await fs.readFile(envPath, 'utf-8'); } catch {}
+        const newLine = `WECHAT_BOT_TOKEN=${body.botToken}`;
+        if (envContent.includes('WECHAT_BOT_TOKEN=')) {
+          envContent = envContent.replace(/WECHAT_BOT_TOKEN=.*/g, newLine);
+        } else {
+          envContent += '\n' + newLine + '\n';
+        }
+        await fs.writeFile(envPath, envContent, 'utf-8');
+        logger.info('WeChat bot token persisted to .env via API');
+      } catch (e) {
+        logger.warn({ err: e }, 'Failed to persist WeChat token to .env');
+      }
+
+      // Stop old poller if running, then start fresh
+      const old = getPoller();
+      if (old) {
+        try { old.stop(); } catch {}
+        setPoller(null);
+      }
+      const p = await startWechatBot(wechatConfig, agentService, deps, logger, api);
+      setPoller(p);
+
+      return reply.send({ ok: true });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error({ err }, 'Failed to start WeChat bot from API');
+      return reply.status(500).send({ ok: false, error: message });
+    }
+  });
+
   logger.info('WeChat QR login routes registered at /wechat/login*');
 }
 

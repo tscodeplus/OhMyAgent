@@ -55,6 +55,7 @@ import { createFeishuServices } from './composers/feishu-services.js';
 import { SubscriptionService } from './subscription/subscription-service.js';
 import { configEventBus } from './config-event-bus.js';
 import { createWSCardActionHandler } from './feishu/ws-card-action-handler.js';
+import { QrSessionStore } from '../channel/qr-session-store.js';
 
 // ─── Types ───
 
@@ -358,6 +359,10 @@ export async function bootstrap(): Promise<BootstrapResult> {
   servicesMap.set('server', server);
   servicesMap.set('subscriptionService', subscriptionService);
 
+  // QR session store for channel QR-based auto-configuration
+  const qrSessionStore = new QrSessionStore();
+  servicesMap.set('qrSessionStore', qrSessionStore);
+
   // Now that all services are created, load extensions
   await extensionManager.loadAll([extDir]);
   logger.info({ extCount: extensionManager.list().length }, 'V2 extensions loaded');
@@ -467,6 +472,7 @@ export async function bootstrap(): Promise<BootstrapResult> {
     liveConfigRef: { current: config },
     onConfigSaved: (newConfig) => onConfigSavedRef.current?.(newConfig),
     onConfigChanged: createOnConfigChanged(),
+    qrSessionStore,
   });
 
   // Store the Desktop Bridge registry so agent-factory can inject it into tool contexts

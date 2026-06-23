@@ -16,10 +16,17 @@ import { setupMessageHandlers } from './message-handler.js';
 import { sendReply } from './send-message.js';
 import { SlidingWindowRateLimiter } from './rate-limiter.js';
 import { registerWebhookHandler } from './webhook-handler.js';
+import { registerTelegramQrRoute } from './telegram-qr.js';
 
 export default function (api: ExtensionAPI) {
   const config = api.getConfig();
   const logger = api.getLogger();
+
+  // Always register QR config route (even if disabled/unconfigured)
+  const server = api.getService<FastifyInstance>('server');
+  if (server) {
+    registerTelegramQrRoute(server, logger);
+  }
 
   // Skip if Telegram is not enabled
   if (!config.telegram?.enabled) {
@@ -42,7 +49,6 @@ export default function (api: ExtensionAPI) {
     return;
   }
 
-  const server = api.getService<FastifyInstance>('server');
   const commandDeps = api.getService<CommandDeps>('commandDeps');
 
   // Create the grammY Bot instance

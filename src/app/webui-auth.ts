@@ -25,6 +25,7 @@ const EXCLUDED_PREFIXES = [
   '/api/files/serve',
   '/api/files/download',
   '/api/subscriptions',
+  '/qr-exchange/',
 ];
 
 let configuredToken: string;

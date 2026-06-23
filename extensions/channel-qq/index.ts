@@ -25,16 +25,26 @@ import type { CommandDeps } from '../../src/commands/command-handler.js';
 import type { ChannelAdapter, ChannelContext, ReplyContent } from '../../src/channel/types.js';
 import type { AgentService } from '../../src/agent/agent-service.js';
 import type { CronDeliveryRegistry } from '../../src/cron/delivery-registry.js';
+import type { FastifyInstance } from 'fastify';
+import type { QrSessionStore } from '../../src/channel/qr-session-store.js';
 import { resolveQQConfig } from './qq-config.js';
 import { QQAuth } from './qq-auth.js';
 import { QQGateway } from './qq-gateway.js';
 import { setupMessageHandlers } from './message-handler.js';
 import { sendReply, sendChunkedText } from './send-message.js';
 import type { QQConfig } from './qq-types.js';
+import { registerQqQrRoutes } from './qq-qr.js';
 
 export default function (api: ExtensionAPI): void {
   const config = api.getConfig();
   const logger = api.getLogger();
+
+  // Always register QR config routes (even if disabled/unconfigured)
+  const server = api.getService<FastifyInstance>('server');
+  const sessionStore = api.getService<QrSessionStore>('qrSessionStore');
+  if (server && sessionStore) {
+    registerQqQrRoutes(server, sessionStore, logger);
+  }
 
   // Skip if QQ is not enabled / not configured
   if (!config.qq?.enabled || !config.qq?.appId) {

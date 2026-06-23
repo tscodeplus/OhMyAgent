@@ -105,6 +105,8 @@ export interface AppConfig {
     verificationToken: string;
     encryptKey: string;
     wsEnabled: boolean;
+    /** Region: 'feishu' for domestic (open.feishu.cn), 'lark' for international (open.larksuite.com). */
+    region: 'feishu' | 'lark';
   };
   piAi: {
     provider: string;

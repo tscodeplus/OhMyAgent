@@ -1,10 +1,18 @@
 import type { ExtensionAPI } from '../../src/extensions/types.js';
 import type { ChannelAdapter } from '../../src/channel/types.js';
 import type { FeishuClient } from './feishu-client.js';
+import type { FastifyInstance } from 'fastify';
+import { registerFeishuQrRoutes } from './feishu-qr.js';
 
 export default function (api: ExtensionAPI) {
   const config = api.getConfig();
   const logger = api.getLogger();
+
+  // Always register QR config routes (even if disabled/unconfigured)
+  const server = api.getService<FastifyInstance>('server');
+  if (server) {
+    registerFeishuQrRoutes(server, logger);
+  }
 
   if (!config.feishu.enabled) {
     logger.info('Feishu channel disabled in config, skipping channel-feishu');
