@@ -71,6 +71,9 @@ import { contextBridge, ipcRenderer } from 'electron';
       saveLocalFile: (filePath: string, fileName: string) =>
         ipcRenderer.invoke('save-local-file', { filePath, fileName }),
 
+      // Language
+      setDesktopLanguage: (lang: string) => ipcRenderer.invoke('set-desktop-language', lang),
+
       // App info
       getAppVersion: () => ipcRenderer.invoke('get-app-version'),
       getPlatform: () => process.platform,

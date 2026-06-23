@@ -34,6 +34,8 @@ declare global {
       getGatewayConfig: () => Promise<{ mode: string; remoteUrl: string; remoteToken: string }>;
       setGatewayConfig: (config: unknown) => Promise<{ ok: boolean }>;
       resetGatewayConfig: () => Promise<{ ok: boolean }>;
+      // Language
+      setDesktopLanguage: (lang: string) => Promise<boolean>;
       // File operations
       saveFileFromUrl: (url: string, filename: string) => Promise<{ ok: boolean; error?: string }>;
       saveLocalFile: (filePath: string, fileName: string) => Promise<{ ok: boolean; error?: string }>;

@@ -7,6 +7,7 @@ import Input from '../../ui/Input';
 import Select from '../../ui/Select';
 import Toggle from '../../ui/Toggle';
 import Spinner from '../../ui/Spinner';
+import { getElectronAPI } from '../../../utils/env';
 
 interface GeneralSettingsProps {
   tabId?: string;
@@ -65,7 +66,7 @@ export default function GeneralSettings({ tabId = 'general', registerHandle, onD
             value={i18n.language}
             onChange={(e) => {
               i18n.changeLanguage(e.target.value).then(() => {
-                // Language change is immediate (client-side only)
+                getElectronAPI()?.setDesktopLanguage(e.target.value);
               });
             }}
             options={[

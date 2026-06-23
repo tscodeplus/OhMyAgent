@@ -87,12 +87,34 @@ export interface DesktopLocales {
 // ── Language resolution ──
 
 /**
+ * Try to read the uiLanguage from the server config file.
+ * Returns the language if found and supported, null otherwise.
+ */
+function readUiLanguageFromConfig(): SupportedLocale | null {
+  try {
+    const configPath = path.join(app.getPath('userData'), 'config.yaml');
+    if (!fs.existsSync(configPath)) return null;
+    const content = fs.readFileSync(configPath, 'utf-8');
+    const match = content.match(/^uiLanguage:\s*['"]?(\S+?)['"]?\s*$/m);
+    if (!match?.[1]) return null;
+    const lang = match[1];
+    if (SUPPORTED_LOCALES.includes(lang as SupportedLocale)) {
+      return lang as SupportedLocale;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Determine the UI language for the application.
  *
  * Priority:
  *  1. Explicitly set UI_LANGUAGE env var
- *  2. System locale (if it matches a supported language)
- *  3. Fallback to "en"
+ *  2. Server config uiLanguage (user's saved preference)
+ *  3. System locale (if it matches a supported language)
+ *  4. Fallback to "en"
  */
 export function resolveUILanguage(): SupportedLocale {
   // If user explicitly set it, respect that
@@ -102,6 +124,10 @@ export function resolveUILanguage(): SupportedLocale {
       return explicit as SupportedLocale;
     }
   }
+
+  // Check server config for user's saved language preference
+  const configLang = readUiLanguageFromConfig();
+  if (configLang) return configLang;
 
   const sysLocale = app.getLocale(); // e.g. "zh-CN", "en-US", "ja"
   // Exact match
@@ -165,20 +191,22 @@ function loadDesktopLocale(lang: SupportedLocale): DesktopLocales {
 
 // ── Singleton accessor ──
 
+let currentLang: SupportedLocale | null = null;
 let cachedT: DesktopLocales | null = null;
 
-/** Get the current desktop locale strings. Lazy-loads and caches on first call. */
+/** Get the current desktop locale strings. Re-resolves language on each call. */
 export function getT(): DesktopLocales {
-  if (!cachedT) {
-    cachedT = loadDesktopLocale(resolveUILanguage());
+  const lang = resolveUILanguage();
+  if (currentLang !== lang || !cachedT) {
+    currentLang = lang;
+    cachedT = loadDesktopLocale(lang);
   }
   return cachedT;
 }
 
-/** Switch to a different language at runtime (invalidates cache). */
+/** Switch to a different language at runtime (invalidates cache immediately). */
 export function setDesktopLanguage(lang: SupportedLocale): void {
-  cachedT = null;
-  // Pre-load to validate the locale file exists
+  currentLang = lang;
   cachedT = loadDesktopLocale(lang);
 }
 

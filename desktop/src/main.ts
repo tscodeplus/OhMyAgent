@@ -9,7 +9,7 @@ import { createTray, destroyTray } from './tray.js';
 import { getDesktopConfig, type DesktopConfig } from './config.js';
 import { DesktopBridge } from './desktop-bridge.js';
 import { getAppUpdater } from './updater.js';
-import { getT, interpolate, resolveUILanguage, type SupportedLocale } from './i18n.js';
+import { getT, interpolate, resolveUILanguage, setDesktopLanguage, type SupportedLocale } from './i18n.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -489,6 +489,15 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('get-auto-start', () => {
     return app.getLoginItemSettings().openAtLogin;
+  });
+
+  // Desktop language change (from WebUI settings)
+  ipcMain.handle('set-desktop-language', (_event, lang: string) => {
+    if (lang === 'zh-CN' || lang === 'en') {
+      setDesktopLanguage(lang);
+      return true;
+    }
+    return false;
   });
 }
 

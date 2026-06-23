@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import i18n from '../../../i18n/config';
 import { useTheme } from '../../../contexts/ThemeContext';
 import Select from '../../ui/Select';
+import { getElectronAPI } from '../../../utils/env';
 import { useToast } from '../../ui/Toast';
 
 export default function AppearanceSettings() {
@@ -14,6 +15,7 @@ export default function AppearanceSettings() {
   const handleLanguageChange = useCallback((lang: string) => {
     i18n.changeLanguage(lang).then(() => {
       showToast(i18n.t('common:settings.appearance.languageChanged'), 'success');
+      getElectronAPI()?.setDesktopLanguage(lang);
     });
   }, [showToast]);
 
