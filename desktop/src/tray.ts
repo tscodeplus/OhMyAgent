@@ -9,6 +9,7 @@ import { getT, interpolate } from './i18n.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 let tray: Tray | null = null;
+let currentUpdateMenu: (() => void) | null = null;
 
 export interface TrayOptions {
   mainWindow: BrowserWindow;
@@ -156,6 +157,9 @@ export function createTray(options: TrayOptions): Tray {
     tray!.setContextMenu(contextMenu);
   };
 
+  // Save a reference so external code can trigger a rebuild (e.g., language change)
+  currentUpdateMenu = updateMenu;
+
   // Build initial menu
   updateMenu();
 
@@ -177,6 +181,16 @@ export function createTray(options: TrayOptions): Tray {
 }
 
 /**
+ * Rebuild the tray context menu immediately (e.g., after language change).
+ * Safe to call before the tray is created — does nothing.
+ */
+export function rebuildTrayMenu(): void {
+  if (currentUpdateMenu) {
+    currentUpdateMenu();
+  }
+}
+
+/**
  * Destroy the tray (called on app quit).
  */
 export function destroyTray(): void {
@@ -184,4 +198,5 @@ export function destroyTray(): void {
     tray.destroy();
     tray = null;
   }
+  currentUpdateMenu = null;
 }

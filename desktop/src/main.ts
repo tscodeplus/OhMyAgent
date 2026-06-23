@@ -5,7 +5,7 @@ import https from 'node:https';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ServerManager } from './server-manager.js';
-import { createTray, destroyTray } from './tray.js';
+import { createTray, destroyTray, rebuildTrayMenu } from './tray.js';
 import { getDesktopConfig, type DesktopConfig } from './config.js';
 import { DesktopBridge } from './desktop-bridge.js';
 import { getAppUpdater } from './updater.js';
@@ -499,6 +499,8 @@ function registerIpcHandlers(): void {
       try {
         getDesktopConfig().set('language', lang as 'en' | 'zh-CN');
       } catch { /* config store may not be writable */ }
+      // Rebuild tray menu immediately so labels reflect the new language
+      rebuildTrayMenu();
       return true;
     }
     return false;
