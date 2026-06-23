@@ -155,6 +155,8 @@ Design inspiration from [OpenClaw](https://github.com/openclaw/openclaw) and [He
 
 Agent templates sourced from [agency-agents](https://github.com/msitarzewski/agency-agents) and [agency-agents-zh](https://github.com/jnMetaCode/agency-agents-zh).
 
+Memory system architecture partially inspired by [TencentDB-Agent-Memory](https://github.com/TencentCloudBase/TencentDB-Agent-Memory).
+
 ## License
 
 [MIT](https://opensource.org/licenses/MIT) — see [LICENSE](LICENSE).

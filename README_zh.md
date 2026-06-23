@@ -155,6 +155,8 @@ OhMyAgent 基于 [pi](https://github.com/earendil-works/pi)（原名 pi-mono，M
 
 Agent 模板来源于 [agency-agents](https://github.com/msitarzewski/agency-agents) 和 [agency-agents-zh](https://github.com/jnMetaCode/agency-agents-zh)。
 
+记忆系统架构部分借鉴自 [TencentDB-Agent-Memory](https://github.com/TencentCloudBase/TencentDB-Agent-Memory)。
+
 ## 开源协议
 
 [MIT](https://opensource.org/licenses/MIT) — 详见 [LICENSE](LICENSE)。
