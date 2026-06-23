@@ -1,6 +1,7 @@
 import { app } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
+import { getDesktopConfig } from './config.js';
 
 // ── Supported locales ──
 
@@ -87,32 +88,11 @@ export interface DesktopLocales {
 // ── Language resolution ──
 
 /**
- * Try to read the uiLanguage from the server config file.
- * Returns the language if found and supported, null otherwise.
- */
-function readUiLanguageFromConfig(): SupportedLocale | null {
-  try {
-    const configPath = path.join(app.getPath('userData'), 'config.yaml');
-    if (!fs.existsSync(configPath)) return null;
-    const content = fs.readFileSync(configPath, 'utf-8');
-    const match = content.match(/^uiLanguage:\s*['"]?(\S+?)['"]?\s*$/m);
-    if (!match?.[1]) return null;
-    const lang = match[1];
-    if (SUPPORTED_LOCALES.includes(lang as SupportedLocale)) {
-      return lang as SupportedLocale;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Determine the UI language for the application.
  *
  * Priority:
  *  1. Explicitly set UI_LANGUAGE env var
- *  2. Server config uiLanguage (user's saved preference)
+ *  2. Desktop config language (persisted from user's last WebUI choice)
  *  3. System locale (if it matches a supported language)
  *  4. Fallback to "en"
  */
@@ -125,9 +105,13 @@ export function resolveUILanguage(): SupportedLocale {
     }
   }
 
-  // Check server config for user's saved language preference
-  const configLang = readUiLanguageFromConfig();
-  if (configLang) return configLang;
+  // Check desktop config for user's persisted language preference
+  try {
+    const lang = getDesktopConfig().get('language');
+    if (lang && SUPPORTED_LOCALES.includes(lang as SupportedLocale)) {
+      return lang as SupportedLocale;
+    }
+  } catch { /* config store may not be ready yet; fall through */ }
 
   const sysLocale = app.getLocale(); // e.g. "zh-CN", "en-US", "ja"
   // Exact match

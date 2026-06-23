@@ -27,6 +27,8 @@ export interface DesktopConfig {
   autoStartMinimized: boolean;
   serverPort: number;
   theme: 'system' | 'light' | 'dark';
+  /** UI language ('en' or 'zh-CN'), persisted across restarts */
+  language: 'en' | 'zh-CN';
   firstRunDone: boolean;
   lastVersion?: string;
   /** Gateway connection config */
@@ -55,6 +57,7 @@ const schema = {
   autoStartMinimized: { type: 'boolean', default: false },
   serverPort: { type: 'number', default: 9191 },
   theme: { type: 'string', enum: ['system', 'light', 'dark'], default: 'system' },
+  language: { type: 'string', enum: ['en', 'zh-CN'], default: 'en' },
   firstRunDone: { type: 'boolean', default: false },
   lastVersion: { type: 'string' },
   gateway: {

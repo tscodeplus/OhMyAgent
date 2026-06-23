@@ -495,6 +495,10 @@ function registerIpcHandlers(): void {
   ipcMain.handle('set-desktop-language', (_event, lang: string) => {
     if (lang === 'zh-CN' || lang === 'en') {
       setDesktopLanguage(lang);
+      // Persist to desktop config so it survives restarts
+      try {
+        getDesktopConfig().set('language', lang as 'en' | 'zh-CN');
+      } catch { /* config store may not be writable */ }
       return true;
     }
     return false;
