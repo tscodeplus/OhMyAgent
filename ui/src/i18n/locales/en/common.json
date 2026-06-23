@@ -497,6 +497,7 @@
       "downloadFailed": "Download failed — please try manual download.",
       "openGithubReleases": "Open GitHub Releases",
       "githubUnreachable": "Cannot connect to GitHub — check your network",
+      "networkTimeout": "Network timeout, unable to connect to GitHub",
       "githubRepo": "GitHub Repository: ",
       "submitIssue": "Submit Issues & Suggestions"
     },

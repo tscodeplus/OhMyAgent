@@ -1,0 +1,64 @@
+{
+  "updater": {
+    "checking": "Checking for updates...",
+    "upToDate": "Already up to date",
+    "newVersion": "New version available: v{{version}}",
+    "noReleaseNotes": "No release notes",
+    "upgrade": "Upgrade to latest",
+    "cancel": "Cancel",
+    "ok": "OK",
+    "checkFailed": "Update check failed",
+    "networkTimeout": "Network timeout, unable to connect to GitHub",
+    "noUpdateAvailable": "No update available (release not published or server unreachable)",
+    "noUpdateConfig": "Portable build does not support online updates. Please visit GitHub Releases to download the latest version.",
+    "downloading": "Downloading...",
+    "downloadFailed": "Download failed — please try manual download.",
+    "downloaded": "Download complete. Click to install and restart.",
+    "installAndRestart": "Install & Restart",
+    "speed": "Speed: {{bps}}",
+    "githubRelease": "Open GitHub Releases"
+  },
+  "tray": {
+    "showHide": "Show/Hide Window",
+    "restartService": "Restart Service",
+    "restarting": "Restarting service...",
+    "checkUpdates": "Check for Updates",
+    "openDataDir": "Open Data Directory",
+    "openLogs": "Open Logs",
+    "autoStart": "Auto-start on Boot",
+    "closeToTray": "Close to Tray",
+    "restartApp": "Restart App",
+    "quit": "Quit",
+    "serviceStatusRunning": "Service: ● Running",
+    "serviceStatusError": "Service: ● Error",
+    "serviceStatusStopped": "Service: ● Stopped",
+    "remoteGateway": "Remote Gateway: {{url}}"
+  },
+  "gateway": {
+    "title": "Choose Gateway Mode",
+    "local": "Local Gateway",
+    "localDesc": "Run the embedded OhMyAgent server on this computer",
+    "remote": "Remote Gateway",
+    "remoteDesc": "Connect to an OhMyAgent instance on another device",
+    "urlPlaceholder": "http://192.168.1.100:9191",
+    "tokenPlaceholder": "Look up token from remote .env file or startup log",
+    "testBtn": "Test Connection",
+    "saveBtn": "Save & Start",
+    "testing": "Testing...",
+    "exitBtn": "Exit",
+    "connected": "Connected",
+    "serverOnlineTokenInvalid": "Server online but token invalid",
+    "gatewayUnreachable": "Cannot connect to gateway"
+  },
+  "splash": {
+    "starting": "OhMyAgent is starting..."
+  },
+  "error": {
+    "startupFailed": "Startup Failed",
+    "portInUse": "Port {{port}} is already in use. Please stop the process using this port and try again.",
+    "connectionFailed": "Cannot reach remote gateway. Check the address and network connection.",
+    "tokenInvalid": "Token invalid or expired. Please re-enter your auth token.",
+    "pageLoadTimeout": "Page load timed out — remote gateway is responding too slowly.",
+    "pageLoadFailed": "Page load failed: {{error}}"
+  }
+}

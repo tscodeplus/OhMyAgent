@@ -5,57 +5,12 @@ import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electro
 import fs from 'node:fs';
 import path from 'node:path';
 import { getDesktopConfig } from './config.js';
-
-// ---------------------------------------------------------------------------
-// i18n — Electron main process doesn't have access to the server i18n
-// service, so we maintain a minimal set of UI strings here.
-// ---------------------------------------------------------------------------
-type Lang = 'zh-CN' | 'en';
-
-const T = {
-  'zh-CN': {
-    checking: '检查更新中...',
-    upToDate: '已是最新版本',
-    newVersion: (v: string) => `发现新版本: v${v}`,
-    noReleaseNotes: '暂无更新说明',
-    upgrade: '升级到最新版',
-    cancel: '取消',
-    ok: '确定',
-    checkFailed: '更新检查失败',
-    noUpdateAvailable: '暂无可用更新（尚未发布新版本或更新服务器不可达）',
-    noUpdateConfig: '当前为便携版本，不支持在线更新。请前往 GitHub Releases 页面下载最新版本。',
-    downloading: '正在下载...',
-    downloadFailed: '下载失败，请尝试手动下载。',
-    downloaded: '下载完成，点击安装并重启。',
-    installAndRestart: '安装并重启',
-    speed: (bps: string) => `速度: ${bps}`,
-    githubRelease: '打开 GitHub Releases',
-  },
-  'en': {
-    checking: 'Checking for updates...',
-    upToDate: 'Already up to date',
-    newVersion: (v: string) => `New version available: v${v}`,
-    noReleaseNotes: 'No release notes',
-    upgrade: 'Upgrade to latest',
-    cancel: 'Cancel',
-    ok: 'OK',
-    checkFailed: 'Update check failed',
-    noUpdateAvailable: 'No update available (release not published or server unreachable)',
-    noUpdateConfig: 'Portable build does not support online updates. Please visit GitHub Releases to download the latest version.',
-    downloading: 'Downloading...',
-    downloadFailed: 'Download failed — please try manual download.',
-    downloaded: 'Download complete. Click to install and restart.',
-    installAndRestart: 'Install & Restart',
-    speed: (bps: string) => `Speed: ${bps}`,
-    githubRelease: 'Open GitHub Releases',
-  },
-} as const;
+import { getT, interpolate, type SupportedLocale } from './i18n.js';
 
 export class AppUpdater {
   private mainWindow: BrowserWindow | null = null;
   private updateDownloaded = false;
   private suppressEvents = false;
-  private lang: Lang = 'en';
   /** Progress window shown during tray-initiated downloads. */
   private progressWin: BrowserWindow | null = null;
   /** True while a download is in progress (used to classify errors). */
@@ -86,10 +41,6 @@ export class AppUpdater {
 
   setWindow(win: BrowserWindow): void {
     this.mainWindow = win;
-  }
-
-  setLanguage(lang: Lang): void {
-    this.lang = lang;
   }
 
   /**
@@ -230,11 +181,20 @@ export class AppUpdater {
 
       let message = rawMessage;
       if (message.includes('ENOENT') && message.includes('app-update.yml')) {
-        message = T[this.lang].noUpdateConfig;
+        message = getT().updater.noUpdateConfig;
       } else if (message.includes('404') || message.includes('latest.yml')) {
         message = this.downloading
-          ? T[this.lang].downloadFailed
-          : T[this.lang].noUpdateAvailable;
+          ? getT().updater.downloadFailed
+          : getT().updater.noUpdateAvailable;
+      } else if (
+        message.includes('ERR_CONNECTION_TIMED_OUT') ||
+        message.includes('ETIMEDOUT') ||
+        message.includes('ENOTFOUND') ||
+        message.includes('ECONNREFUSED') ||
+        message.includes('ERR_INTERNET_DISCONNECTED') ||
+        message.includes('ERR_NETWORK_CHANGED')
+      ) {
+        message = getT().updater.networkTimeout;
       }
 
       if (!this.suppressEvents) {
@@ -291,7 +251,7 @@ export class AppUpdater {
 </style></head>
 <body>
   <div class="spinner"></div>
-  <div class="label">${T[this.lang].checking}</div>
+  <div class="label">${getT().updater.checking}</div>
 </body></html>`;
 
     spinWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(spinnerHtml)}`);
@@ -341,12 +301,27 @@ export class AppUpdater {
 
       let message = err.message || String(err);
       if (message.includes('404') || message.includes('latest.yml')) {
-        message = T[this.lang].noUpdateAvailable;
+        message = getT().updater.noUpdateAvailable;
       } else if (message.includes('ENOENT') && message.includes('app-update.yml')) {
-        message = T[this.lang].noUpdateConfig;
+        message = getT().updater.noUpdateConfig;
+      } else if (
+        message.includes('ERR_CONNECTION_TIMED_OUT') ||
+        message.includes('ETIMEDOUT') ||
+        message.includes('ENOTFOUND') ||
+        message.includes('ECONNREFUSED') ||
+        message.includes('ERR_INTERNET_DISCONNECTED') ||
+        message.includes('ERR_NETWORK_CHANGED')
+      ) {
+        message = getT().updater.networkTimeout;
       }
 
-      dialog.showErrorBox(T[this.lang].checkFailed, message);
+      dialog.showMessageBox({
+        type: 'error',
+        title: getT().updater.checkFailed,
+        message: getT().updater.checkFailed,
+        detail: message,
+        buttons: [getT().updater.ok],
+      });
     } finally {
       this.suppressEvents = false;
     }
@@ -389,9 +364,9 @@ export class AppUpdater {
       <polyline points="22 4 12 14.01 9 11.01"/>
     </svg>
   </div>
-  <div class="message">${T[this.lang].upToDate}</div>
+  <div class="message">${getT().updater.upToDate}</div>
   <div class="footer">
-    <button class="btn-primary" onclick="window.location.href='oma://close-dialog'">${T[this.lang].ok}</button>
+    <button class="btn-primary" onclick="window.location.href='oma://close-dialog'">${getT().updater.ok}</button>
   </div>
 </body></html>`;
 
@@ -425,7 +400,6 @@ export class AppUpdater {
       win.show();
     });
   }
-
   /**
    * Custom window for tray-triggered update available notification.
    * Renders HTML release notes with proper scrollbar and theme support.
@@ -451,7 +425,7 @@ export class AppUpdater {
     const scrollThumbHover = isDark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.28)';
 
     const notesBody = notesHtml
-      || `<p style="color:${muted}">${T[this.lang].noReleaseNotes}</p>`;
+      || `<p style="color:${muted}">${getT().updater.noReleaseNotes}</p>`;
 
     const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
@@ -495,12 +469,12 @@ export class AppUpdater {
 </style></head>
 <body>
   <div class="header">
-    <h1>${T[this.lang].newVersion(version)}</h1>
+    <h1>${interpolate(getT().updater.newVersion, { version })}</h1>
   </div>
   <div class="content">${notesBody}</div>
   <div class="footer">
-    <button class="btn-secondary" onclick="window.location.href='oma://close-dialog'">${T[this.lang].cancel}</button>
-    <button class="btn-primary" onclick="window.location.href='oma://upgrade'">${T[this.lang].upgrade}</button>
+    <button class="btn-secondary" onclick="window.location.href='oma://close-dialog'">${getT().updater.cancel}</button>
+    <button class="btn-primary" onclick="window.location.href='oma://upgrade'">${getT().updater.upgrade}</button>
   </div>
 </body></html>`;
 
@@ -606,7 +580,7 @@ export class AppUpdater {
   .btn-secondary:hover{background:${btnSecondaryHover}}
 </style></head>
 <body>
-  <div class="header">${T[this.lang].downloading}</div>
+  <div class="header">${getT().updater.downloading}</div>
   <div class="card">
     <div class="percent" id="pct">0%</div>
     <div class="bar-wrap"><div class="bar-fill" id="bar"></div></div>
@@ -614,9 +588,9 @@ export class AppUpdater {
     <div class="status" id="st"></div>
   </div>
   <div class="footer" id="ftr">
-    <button class="btn-secondary" id="btn-releases" style="display:none">${T[this.lang].githubRelease}</button>
-    <button class="btn-secondary" id="btn-close">${T[this.lang].cancel}</button>
-    <button class="btn-primary" id="btn-install" style="display:none">${T[this.lang].installAndRestart}</button>
+    <button class="btn-secondary" id="btn-releases" style="display:none">${getT().updater.githubRelease}</button>
+    <button class="btn-secondary" id="btn-close">${getT().updater.cancel}</button>
+    <button class="btn-primary" id="btn-install" style="display:none">${getT().updater.installAndRestart}</button>
   </div>
 <script>
   var ipc = require('electron').ipcRenderer;
@@ -643,12 +617,12 @@ export class AppUpdater {
     document.getElementById('pct').textContent='100%';
     document.getElementById('bar').style.width='100%';
     document.getElementById('spd').textContent='';
-    document.getElementById('st').textContent='${T[this.lang].downloaded}';
+    document.getElementById('st').textContent='${getT().updater.downloaded}';
     document.getElementById('btn-install').style.display='';
     document.getElementById('btn-releases').style.display='none';
   });
   ipc.on('update-error',function(_e,d){
-    document.getElementById('st').textContent=d.message||'${T[this.lang].downloadFailed}';
+    document.getElementById('st').textContent=d.message||'${getT().updater.downloadFailed}';
     document.getElementById('btn-releases').style.display='';
   });
 </script>

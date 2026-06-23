@@ -1,0 +1,64 @@
+{
+  "updater": {
+    "checking": "检查更新中...",
+    "upToDate": "已是最新版本",
+    "newVersion": "发现新版本: v{{version}}",
+    "noReleaseNotes": "暂无更新说明",
+    "upgrade": "升级到最新版",
+    "cancel": "取消",
+    "ok": "确定",
+    "checkFailed": "更新检查失败",
+    "networkTimeout": "网络超时，无法连接 Github",
+    "noUpdateAvailable": "暂无可用更新（尚未发布新版本或更新服务器不可达）",
+    "noUpdateConfig": "当前为便携版本，不支持在线更新。请前往 GitHub Releases 页面下载最新版本。",
+    "downloading": "正在下载...",
+    "downloadFailed": "下载失败，请尝试手动下载。",
+    "downloaded": "下载完成，点击安装并重启。",
+    "installAndRestart": "安装并重启",
+    "speed": "速度: {{bps}}",
+    "githubRelease": "打开 GitHub Releases"
+  },
+  "tray": {
+    "showHide": "显示/隐藏窗口",
+    "restartService": "重启服务",
+    "restarting": "正在重启服务...",
+    "checkUpdates": "检查更新",
+    "openDataDir": "打开数据目录",
+    "openLogs": "打开日志",
+    "autoStart": "开机自启",
+    "closeToTray": "关闭到托盘",
+    "restartApp": "重启应用",
+    "quit": "退出",
+    "serviceStatusRunning": "服务状态: ● 运行中",
+    "serviceStatusError": "服务状态: ● 异常",
+    "serviceStatusStopped": "服务状态: ● 已停止",
+    "remoteGateway": "远程网关: {{url}}"
+  },
+  "gateway": {
+    "title": "选择网关模式",
+    "local": "本地网关",
+    "localDesc": "在此电脑上运行嵌入式 OhMyAgent 服务",
+    "remote": "远程网关",
+    "remoteDesc": "连接到网络中另一台设备上运行的 OhMyAgent",
+    "urlPlaceholder": "http://192.168.1.100:9191",
+    "tokenPlaceholder": "从远程网关.env文件或启动日志中获取令牌",
+    "testBtn": "测试连接",
+    "saveBtn": "保存并启动",
+    "testing": "测试中...",
+    "exitBtn": "退出",
+    "connected": "连接成功",
+    "serverOnlineTokenInvalid": "网关在线但令牌无效",
+    "gatewayUnreachable": "网关无法连接或不在线"
+  },
+  "splash": {
+    "starting": "OhMyAgent 启动中..."
+  },
+  "error": {
+    "startupFailed": "启动失败",
+    "portInUse": "端口 {{port}} 已被占用，请先停止占用该端口的进程再重试。",
+    "connectionFailed": "无法连接到远程网关，请检查地址和网络连接。",
+    "tokenInvalid": "令牌无效或已过期，请重新输入认证令牌。",
+    "pageLoadTimeout": "页面加载超时，远程网关响应过慢。",
+    "pageLoadFailed": "页面加载失败：{{error}}"
+  }
+}

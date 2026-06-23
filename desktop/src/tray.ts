@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import type { ServerManager } from './server-manager.js';
 import { getDesktopConfig } from './config.js';
 import { getAppUpdater } from './updater.js';
+import { getT, interpolate } from './i18n.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -39,21 +40,21 @@ export function createTray(options: TrayOptions): Tray {
 
     let statusLabel: string;
     if (isRemote) {
-      statusLabel = `远程网关: ${gatewayConfig.remoteUrl}`;
+      statusLabel = interpolate(getT().tray.remoteGateway, { url: gatewayConfig.remoteUrl });
     } else if (options.serverManager) {
       const status = options.serverManager.getStatus();
       statusLabel = status === 'running'
-        ? '服务状态: ● 运行中'
+        ? getT().tray.serviceStatusRunning
         : status === 'error'
-          ? '服务状态: ● 异常'
-          : '服务状态: ● 已停止';
+          ? getT().tray.serviceStatusError
+          : getT().tray.serviceStatusStopped;
     } else {
-      statusLabel = '服务状态: ● 已停止';
+      statusLabel = getT().tray.serviceStatusStopped;
     }
 
     const menuTemplate: Electron.MenuItemConstructorOptions[] = [
       {
-        label: '显示/隐藏窗口',
+        label: getT().tray.showHide,
         click: () => {
           const win = options.mainWindow;
           if (win.isVisible() && !win.isMinimized()) {
@@ -74,11 +75,11 @@ export function createTray(options: TrayOptions): Tray {
     // Only show restart service in local mode (restarts embedded server)
     if (!isRemote) {
       menuTemplate.push({
-        label: '重启服务',
+        label: getT().tray.restartService,
         click: () => {
           const n = new Notification({
             title: 'OhMyAgent',
-            body: '正在重启服务...',
+            body: getT().tray.restarting,
           });
           n.show();
           setTimeout(() => {
@@ -92,11 +93,11 @@ export function createTray(options: TrayOptions): Tray {
     menuTemplate.push(
       { type: 'separator' },
       {
-        label: '打开数据目录',
+        label: getT().tray.openDataDir,
         click: () => shell.openPath(app.getPath('userData')),
       },
       {
-        label: '打开日志',
+        label: getT().tray.openLogs,
         click: () => {
           const logDir = path.join(app.getPath('userData'), 'logs');
           shell.openPath(logDir);
@@ -104,7 +105,7 @@ export function createTray(options: TrayOptions): Tray {
       },
       { type: 'separator' },
       {
-        label: '开机自启',
+        label: getT().tray.autoStart,
         type: 'checkbox',
         checked: config.get('autoStart'),
         click: (menuItem) => {
@@ -118,7 +119,7 @@ export function createTray(options: TrayOptions): Tray {
         },
       },
       {
-        label: '关闭到托盘',
+        label: getT().tray.closeToTray,
         type: 'checkbox',
         checked: config.get('closeToTray'),
         click: (menuItem) => {
@@ -127,14 +128,14 @@ export function createTray(options: TrayOptions): Tray {
       },
       { type: 'separator' },
       {
-        label: '检查更新',
+        label: getT().tray.checkUpdates,
         click: () => {
           getAppUpdater().checkForUpdatesFromTray();
         },
       },
       { type: 'separator' },
       {
-        label: '重启应用',
+        label: getT().tray.restartApp,
         click: () => {
           setTimeout(() => {
             app.relaunch();
@@ -143,7 +144,7 @@ export function createTray(options: TrayOptions): Tray {
         },
       },
       {
-        label: '退出',
+        label: getT().tray.quit,
         click: () => {
           app.quit();
         },

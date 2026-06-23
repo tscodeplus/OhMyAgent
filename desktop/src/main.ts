@@ -9,6 +9,7 @@ import { createTray, destroyTray } from './tray.js';
 import { getDesktopConfig, type DesktopConfig } from './config.js';
 import { DesktopBridge } from './desktop-bridge.js';
 import { getAppUpdater } from './updater.js';
+import { getT, interpolate, resolveUILanguage, type SupportedLocale } from './i18n.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -64,8 +65,8 @@ function getPreloadPath(): string {
   return p;
 }
 
-function createSplashHtml(lang: 'zh-CN' | 'en'): string {
-  const text = lang === 'zh-CN' ? 'OhMyAgent 启动中...' : 'OhMyAgent is starting...';
+function createSplashHtml(): string {
+  const text = getT().splash.starting;
   const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
   *{margin:0;padding:0;box-sizing:border-box}
@@ -89,7 +90,7 @@ function createSplashHtml(lang: 'zh-CN' | 'en'): string {
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }
 
-function createSplashWindow(lang: 'zh-CN' | 'en'): BrowserWindow {
+function createSplashWindow(): BrowserWindow {
   const splash = new BrowserWindow({
     width: 340,
     height: 240,
@@ -105,7 +106,7 @@ function createSplashWindow(lang: 'zh-CN' | 'en'): BrowserWindow {
       nodeIntegration: false,
     },
   });
-  splash.loadURL(createSplashHtml(lang));
+  splash.loadURL(createSplashHtml());
   splash.once('ready-to-show', () => splash.show());
   return splash;
 }
@@ -163,39 +164,6 @@ function createWindow(): BrowserWindow {
   return mainWindow;
 }
 
-// Supported UI languages. Must match the locale directories under src/locales/.
-const SUPPORTED_LOCALES = ['en', 'zh-CN'] as const;
-type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
-
-/**
- * Determine the UI language for the application.
- *
- * Priority:
- *  1. Explicitly set UI_LANGUAGE env var
- *  2. System locale (if it matches a supported language)
- *  3. Fallback to "en"
- */
-function resolveUILanguage(): SupportedLocale {
-  // If user explicitly set it, respect that
-  if (process.env.UI_LANGUAGE) {
-    const explicit = process.env.UI_LANGUAGE;
-    if (SUPPORTED_LOCALES.includes(explicit as SupportedLocale)) {
-      return explicit as SupportedLocale;
-    }
-  }
-
-  const sysLocale = app.getLocale(); // e.g. "zh-CN", "en-US", "ja"
-  // Exact match
-  if (SUPPORTED_LOCALES.includes(sysLocale as SupportedLocale)) {
-    return sysLocale as SupportedLocale;
-  }
-  // Language-only match (e.g. "zh" → "zh-CN", "en-US" → "en")
-  const langPart = sysLocale.split('-')[0].toLowerCase();
-  const matched = SUPPORTED_LOCALES.find((s) => s.toLowerCase().startsWith(langPart));
-  if (matched) return matched;
-  // Fallback
-  return 'en';
-}
 
 // ---------------------------------------------------------------------------
 // Remote gateway health check result.
@@ -527,40 +495,8 @@ function registerIpcHandlers(): void {
 // ---------------------------------------------------------------------------
 // Gateway chooser — shown on first launch and when remote connection fails.
 // ---------------------------------------------------------------------------
-function createGatewayChooserHtml(lang: 'zh-CN' | 'en', initialMode: 'local' | 'remote' = 'local', initialUrl = '', initialToken = '', errorMessage = ''): string {
-  const texts = lang === 'zh-CN'
-    ? {
-        title: '选择网关模式',
-        local: '本地网关',
-        localDesc: '在此电脑上运行嵌入式 OhMyAgent 服务',
-        remote: '远程网关',
-        remoteDesc: '连接到网络中另一台设备上运行的 OhMyAgent',
-        urlPlaceholder: 'http://192.168.1.100:9191',
-        tokenPlaceholder: '从远程网关.env文件或启动日志中获取令牌',
-        testBtn: '测试连接',
-        saveBtn: '保存并启动',
-        testing: '测试中...',
-        exitBtn: '退出',
-        connected: '连接成功',
-        serverOnlineTokenInvalid: '网关在线但令牌无效',
-        gatewayUnreachable: '网关无法连接或不在线',
-      }
-    : {
-        title: 'Choose Gateway Mode',
-        local: 'Local Gateway',
-        localDesc: 'Run the embedded OhMyAgent server on this computer',
-        remote: 'Remote Gateway',
-        remoteDesc: 'Connect to an OhMyAgent instance on another device',
-        urlPlaceholder: 'http://192.168.1.100:9191',
-        tokenPlaceholder: 'Look up token from remote .env file or startup log',
-        testBtn: 'Test Connection',
-        saveBtn: 'Save & Start',
-        testing: 'Testing...',
-        exitBtn: 'Exit',
-        connected: 'Connected',
-        serverOnlineTokenInvalid: 'Server online but token invalid',
-        gatewayUnreachable: 'Cannot connect to gateway',
-      };
+function createGatewayChooserHtml(initialMode: 'local' | 'remote' = 'local', initialUrl = '', initialToken = '', errorMessage = ''): string {
+  const t = getT().gateway;
 
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
@@ -625,39 +561,39 @@ function createGatewayChooserHtml(lang: 'zh-CN' | 'en', initialMode: 'local' | '
   .pwd-toggle:hover{color:#e2e8f0}
 </style></head><body>
 <div class="card">
-  <h1>${texts.title}</h1>
+  <h1>${t.title}</h1>
   <div id="error-banner" class="error-banner err"></div>
   <div id="opt-local" class="option active" onclick="selectMode('local')">
     <div class="radio"></div>
     <div>
-      <div class="opt-title">${texts.local}</div>
-      <div class="opt-desc">${texts.localDesc}</div>
+      <div class="opt-title">${t.local}</div>
+      <div class="opt-desc">${t.localDesc}</div>
     </div>
   </div>
   <div id="opt-remote" class="option" onclick="selectMode('remote')">
     <div class="radio"></div>
     <div>
-      <div class="opt-title">${texts.remote}</div>
-      <div class="opt-desc">${texts.remoteDesc}</div>
+      <div class="opt-title">${t.remote}</div>
+      <div class="opt-desc">${t.remoteDesc}</div>
     </div>
   </div>
   <div id="remote-config" class="remote-config">
-    <input id="remote-url" type="text" placeholder="${texts.urlPlaceholder}">
+    <input id="remote-url" type="text" placeholder="${t.urlPlaceholder}">
     <div class="pwd-wrap">
-      <input id="remote-token" type="password" placeholder="${texts.tokenPlaceholder}">
+      <input id="remote-token" type="password" placeholder="${t.tokenPlaceholder}">
       <button class="pwd-toggle" onclick="toggleTokenVisibility()" title="Show/hide token">
         <svg id="eye-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>
         <svg id="eye-off-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/></svg>
       </button>
     </div>
     <div style="display:flex;align-items:center;gap:12px">
-      <button class="btn-secondary" onclick="testConnection()">${texts.testBtn}</button>
+      <button class="btn-secondary" onclick="testConnection()">${t.testBtn}</button>
       <span id="test-result" class="test-result"></span>
     </div>
   </div>
   <div class="actions">
-    <button class="btn-secondary" onclick="window.electronAPI.quitApp()">${texts.exitBtn}</button>
-    <button class="btn-primary" id="btn-save" onclick="save()">${texts.saveBtn}</button>
+    <button class="btn-secondary" onclick="window.electronAPI.quitApp()">${t.exitBtn}</button>
+    <button class="btn-primary" id="btn-save" onclick="save()">${t.saveBtn}</button>
   </div>
 </div>
 <script>
@@ -699,7 +635,7 @@ function createGatewayChooserHtml(lang: 'zh-CN' | 'en', initialMode: 'local' | '
     const btn = event.target;
     const resultEl = document.getElementById('test-result');
     btn.disabled = true;
-    btn.textContent = '${texts.testing}';
+    btn.textContent = '${t.testing}';
     resultEl.textContent = '';
     resultEl.className = 'test-result';
     try {
@@ -712,17 +648,17 @@ function createGatewayChooserHtml(lang: 'zh-CN' | 'en', initialMode: 'local' | '
       });
       clearTimeout(t);
       if (!res.ok) {
-        resultEl.textContent = '${texts.gatewayUnreachable}';
+        resultEl.textContent = '${t.gatewayUnreachable}';
         resultEl.className = 'test-result err';
         btn.disabled = false;
-        btn.textContent = '${texts.testBtn}';
+        btn.textContent = '${t.testBtn}';
         return;
       }
       var v = '?';
       try { var d = await res.json(); v = d.version || '?'; } catch {}
       // Step 2: verify token (required for remote gateway)
       if (!token) {
-        resultEl.textContent = '${texts.serverOnlineTokenInvalid} (v'+v+')';
+        resultEl.textContent = '${t.serverOnlineTokenInvalid} (v'+v+')';
         resultEl.className = 'test-result err';
       } else {
         var ctrl2 = new AbortController();
@@ -734,29 +670,29 @@ function createGatewayChooserHtml(lang: 'zh-CN' | 'en', initialMode: 'local' | '
           });
           clearTimeout(t2);
           if (vres.ok) {
-            resultEl.textContent = '${texts.connected} (v'+v+')';
+            resultEl.textContent = '${t.connected} (v'+v+')';
             resultEl.className = 'test-result ok';
           } else {
-            resultEl.textContent = '${texts.serverOnlineTokenInvalid} (v'+v+')';
+            resultEl.textContent = '${t.serverOnlineTokenInvalid} (v'+v+')';
             resultEl.className = 'test-result err';
           }
         } catch(ve) {
           clearTimeout(t2);
-          resultEl.textContent = '${texts.serverOnlineTokenInvalid} (v'+v+')';
+          resultEl.textContent = '${t.serverOnlineTokenInvalid} (v'+v+')';
           resultEl.className = 'test-result err';
         }
       }
     } catch(e) {
       var msg = e.message || '';
       if (msg && msg.indexOf('aborted') !== -1) {
-        resultEl.textContent = '${texts.gatewayUnreachable}';
+        resultEl.textContent = '${t.gatewayUnreachable}';
       } else {
-        resultEl.textContent = '${texts.gatewayUnreachable}';
+        resultEl.textContent = '${t.gatewayUnreachable}';
       }
       resultEl.className = 'test-result err';
     } finally {
       btn.disabled = false;
-      btn.textContent = '${texts.testBtn}';
+      btn.textContent = '${t.testBtn}';
     }
   }
   function save() {
@@ -787,7 +723,7 @@ function showGatewayChooser(initialMode: 'local' | 'remote' = 'local', initialUr
         nodeIntegration: false,
       },
     });
-    chooser.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(createGatewayChooserHtml(resolveUILanguage(), initialMode, initialUrl, initialToken, errorMessage))}`);
+    chooser.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(createGatewayChooserHtml(initialMode, initialUrl, initialToken, errorMessage))}`);
     chooser.once('ready-to-show', () => chooser.show());
     chooser.on('closed', () => resolve());
   });
@@ -906,7 +842,6 @@ app.whenReady().then(async () => {
 
   // Initialize updater and point it at the main window
   getAppUpdater().setWindow(mainWindow!);
-  getAppUpdater().setLanguage(resolveUILanguage());
 
   const gatewayConfig = getDesktopConfig().getGatewayConfig();
   const firstRunDone = getDesktopConfig().get('firstRunDone');
@@ -929,21 +864,16 @@ app.whenReady().then(async () => {
     const remoteWebuiUrl = `${remoteBase}/webui/?electron=1`;
 
     // Show splash while checking / loading
-    const splashWindow = createSplashWindow(resolveUILanguage());
+    const splashWindow = createSplashWindow();
 
     // Pre-flight health + token check: avoid hanging on a dead remote for 30+ seconds
     // and distinguish "server offline" from "token invalid".
     diagLog(`[OhMyAgent] Pre-flight check to ${remoteBase} ...`);
     const healthResult = await checkRemoteHealth(remoteBase, finalGatewayConfig.remoteToken);
     if (healthResult !== 'ok') {
-      const lang = resolveUILanguage();
       const errorMsg = healthResult === 'unreachable'
-        ? (lang === 'zh-CN'
-          ? '无法连接到远程网关，请检查地址和网络连接。'
-          : 'Cannot reach remote gateway. Check the address and network connection.')
-        : (lang === 'zh-CN'
-          ? '令牌无效或已过期，请重新输入认证令牌。'
-          : 'Token invalid or expired. Please re-enter your auth token.');
+        ? getT().error.connectionFailed
+        : getT().error.tokenInvalid;
       diagLog(`[OhMyAgent] Pre-flight check result: ${healthResult} — showing gateway chooser`);
       splashWindow.close();
       mainWindow?.hide();
@@ -958,9 +888,7 @@ app.whenReady().then(async () => {
 
     // Safety-net timeout: if loadURL somehow hangs despite the health check
     // passing, show the gateway chooser after 15 seconds.
-    const loadTimeoutMsg = resolveUILanguage() === 'zh-CN'
-      ? '页面加载超时，远程网关响应过慢。'
-      : 'Page load timed out — remote gateway is responding too slowly.';
+    const loadTimeoutMsg = getT().error.pageLoadTimeout;
     let timedOut = false;
     const loadTimer = setTimeout(() => {
       if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1009,9 +937,7 @@ app.whenReady().then(async () => {
       clearTimeout(loadTimer);
       splashWindow.close();
       diagLog(`[OhMyAgent] Remote gateway load failed: ${errorDescription} (${errorCode}) url=${validatedURL}`);
-      const failMsg = resolveUILanguage() === 'zh-CN'
-        ? `页面加载失败：${errorDescription}`
-        : `Page load failed: ${errorDescription}`;
+      const failMsg = interpolate(getT().error.pageLoadFailed, { error: errorDescription });
       mainWindow?.hide();
       showGatewayChooser('remote', finalGatewayConfig.remoteUrl, finalGatewayConfig.remoteToken, failMsg).then(() => {
         setTimeout(() => { app.relaunch(); app.exit(0); }, 200);
@@ -1032,7 +958,7 @@ app.whenReady().then(async () => {
     // ── Local Gateway Mode ───────────────────────────────────────
     diagLog('[OhMyAgent] Local gateway mode — starting embedded server');
 
-    const splashWindow = createSplashWindow(resolveUILanguage());
+    const splashWindow = createSplashWindow();
 
     try {
       const { ServerManager } = await import('./server-manager.js');
@@ -1079,12 +1005,9 @@ app.whenReady().then(async () => {
       diagLog(`[OhMyAgent] Server startup FAILED: ${errorMsg}`);
       if (errorStack) diagLog(`[OhMyAgent] Server startup stack: ${errorStack}`);
       console.error('Failed to start OhMyAgent server:', err);
-      const lang = resolveUILanguage();
-      const title = lang === 'zh-CN' ? '启动失败' : 'Startup Failed';
+      const title = getT().error.startupFailed;
       const portHint = errorMsg.includes('EADDRINUSE')
-        ? (lang === 'zh-CN'
-          ? `<p style="color:#e53e3e;margin-top:1rem">端口 ${port} 已被占用，请先停止占用该端口的进程再重试。</p>`
-          : `<p style="color:#e53e3e;margin-top:1rem">Port ${port} is already in use. Please stop the process using this port and try again.</p>`)
+        ? `<p style="color:#e53e3e;margin-top:1rem">${interpolate(getT().error.portInUse, { port })}</p>`
         : '';
       mainWindow?.loadURL(`data:text/html;charset=utf-8,
         <html><head><meta charset="utf-8"></head><body style="font-family:sans-serif;padding:2rem">
