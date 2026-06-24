@@ -389,6 +389,7 @@
       "qrError": "Something went wrong, please try again",
       "qrRetry": "Retry",
       "qrCancel": "Cancel",
+      "qrBotNameLabel": "Bot Name:",
       "qrManualTokenPlaceholder": "Paste your bot token here",
       "qrConfirmToken": "Confirm",
       "feishuQrInstructions": "Scan with the Lark / Feishu app to auto-create your bot",

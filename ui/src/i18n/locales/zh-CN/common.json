@@ -390,6 +390,7 @@
       "qrError": "出错了，请重试",
       "qrRetry": "重试",
       "qrCancel": "取消",
+      "qrBotNameLabel": "机器人名称：",
       "qrManualTokenPlaceholder": "在此粘贴 Bot Token",
       "qrConfirmToken": "确认",
       "feishuQrInstructions": "使用飞书 / Lark App 扫码即可自动创建机器人",

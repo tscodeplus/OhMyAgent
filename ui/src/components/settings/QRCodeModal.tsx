@@ -275,23 +275,24 @@ export default function QRCodeModal({
         </div>
       }
     >
-      <div className="flex flex-col items-center gap-4 py-2">
+      <div className="flex flex-col items-center gap-2 py-1">
         {/* Feishu: custom bot name (pre-fills creation form) */}
         {channel === 'feishu' && phase !== 'confirmed' && (
-          <div className="w-full">
+          <div className="w-full flex items-center gap-2">
+            <label className="text-sm whitespace-nowrap text-neutral-700 dark:text-neutral-200">{t('settings.channels.qrBotNameLabel')}</label>
             <input
               type="text"
               value={botName}
               onChange={(e) => setBotName(e.target.value)}
               placeholder={t('settings.channels.botNamePlaceholder')}
-              className="w-full px-3 py-2 text-sm border border-neutral-300 dark:border-neutral-600 rounded-md bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 px-2 py-1.5 text-sm border border-neutral-300 dark:border-neutral-600 rounded-md bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
         )}
 
         {/* Loading */}
         {phase === 'loading' && (
-          <div className="flex flex-col items-center gap-3 py-8">
+          <div className="flex flex-col items-center gap-2 py-4">
             <Spinner />
             <p className="text-sm text-neutral-500">{t('settings.channels.qrAwaitingScan')}</p>
           </div>
@@ -304,7 +305,7 @@ export default function QRCodeModal({
               <img
                 src={qrcodeDataUrl}
                 alt="QR Code"
-                className={`w-64 h-64 rounded-lg border-2 ${
+                className={`w-52 h-52 rounded-lg border-2 ${
                   phase === 'expired'
                     ? 'border-red-300 opacity-40'
                     : phase === 'confirmed'
@@ -334,7 +335,7 @@ export default function QRCodeModal({
 
             {/* Telegram: BotFather deep link with inline token input */}
             {channel === 'telegram' && (
-              <div className="w-full space-y-3 mt-2">
+              <div className="w-full space-y-2 mt-1">
                 {directUrl && (
                   <a
                     href={directUrl}
@@ -350,12 +351,12 @@ export default function QRCodeModal({
                   value={manualToken}
                   onChange={(e) => setManualToken(e.target.value)}
                   placeholder={t('settings.channels.qrManualTokenPlaceholder')}
-                  className="w-full px-3 py-2 text-sm border border-neutral-300 dark:border-neutral-600 rounded-md bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-2 py-1.5 text-sm border border-neutral-300 dark:border-neutral-600 rounded-md bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <button
                   onClick={handleInlineConfirm}
                   disabled={!manualToken.trim()}
-                  className="w-full px-4 py-2 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="w-full px-3 py-1.5 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {t('settings.channels.qrConfirmToken')}
                 </button>
@@ -364,7 +365,7 @@ export default function QRCodeModal({
 
             {/* QQ: QQ Open Platform deep link with inline App ID + Client Secret input */}
             {channel === 'qq' && (
-              <div className="w-full space-y-3 mt-2">
+              <div className="w-full space-y-2 mt-1">
                 {directUrl && (
                   <a
                     href={directUrl}
@@ -380,19 +381,19 @@ export default function QRCodeModal({
                   value={manualAppId}
                   onChange={(e) => setManualAppId(e.target.value)}
                   placeholder={t('settings.channels.qqAppIdPlaceholder')}
-                  className="w-full px-3 py-2 text-sm border border-neutral-300 dark:border-neutral-600 rounded-md bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-2 py-1.5 text-sm border border-neutral-300 dark:border-neutral-600 rounded-md bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <input
                   type="password"
                   value={manualAppSecret}
                   onChange={(e) => setManualAppSecret(e.target.value)}
                   placeholder={t('settings.channels.qqClientSecretPlaceholder')}
-                  className="w-full px-3 py-2 text-sm border border-neutral-300 dark:border-neutral-600 rounded-md bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-2 py-1.5 text-sm border border-neutral-300 dark:border-neutral-600 rounded-md bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <button
                   onClick={handleInlineConfirm}
                   disabled={!manualAppId.trim() || !manualAppSecret.trim()}
-                  className="w-full px-4 py-2 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="w-full px-3 py-1.5 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {t('settings.channels.qrConfirmToken')}
                 </button>
@@ -403,7 +404,7 @@ export default function QRCodeModal({
 
         {/* Error */}
         {phase === 'error' && (
-          <div className="flex flex-col items-center gap-3 py-4">
+          <div className="flex flex-col items-center gap-2 py-2">
             <p className="text-sm text-red-600 dark:text-red-400">{t('settings.channels.qrError')}</p>
             {errMsg && (
               <p className="text-xs text-neutral-500 dark:text-neutral-400 font-mono break-all text-center max-w-xs">
