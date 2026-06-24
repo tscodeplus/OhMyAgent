@@ -42,6 +42,11 @@ export default function QRCodeModal({
   const [errMsg, setErrMsg] = useState<string>('');
   const [pollStatus, setPollStatus] = useState<string>('waiting');
   const [manualToken, setManualToken] = useState<string>('');
+  const [manualAppId, setManualAppId] = useState<string>('');
+  const [manualAppSecret, setManualAppSecret] = useState<string>('');
+
+  /** Channels that use inline credential input instead of server-side polling */
+  const isInlineChannel = channel === 'telegram' || channel === 'qq';
 
   // Refs to avoid stale closures in async callbacks
   const sessionIdRef = useRef<string>('');
@@ -168,8 +173,8 @@ export default function QRCodeModal({
       // Store sessionId in ref for polling
       sessionIdRef.current = data.sessionId;
 
-      // Telegram: show QR + inline input, no polling
-      if (channel === 'telegram') {
+      // Telegram / QQ: show QR + inline input, no polling
+      if (isInlineChannel) {
         setPhase('show-qr');
         return;
       }
@@ -193,11 +198,16 @@ export default function QRCodeModal({
     generateQr();
   }, [generateQr]);
 
-  // ── Telegram: confirm manual token ──
-  const handleTelegramConfirm = useCallback(() => {
-    if (!manualToken.trim()) return;
-    onComplete({ botToken: manualToken.trim() });
-  }, [manualToken, onComplete]);
+  // ── Telegram / QQ: confirm manual credentials ──
+  const handleInlineConfirm = useCallback(() => {
+    if (channel === 'qq') {
+      if (!manualAppId.trim() || !manualAppSecret.trim()) return;
+      onComplete({ appId: manualAppId.trim(), clientSecret: manualAppSecret.trim() });
+    } else {
+      if (!manualToken.trim()) return;
+      onComplete({ botToken: manualToken.trim() });
+    }
+  }, [channel, manualToken, manualAppId, manualAppSecret, onComplete]);
 
   // ── Render helpers ──
   const statusBadge = () => {
@@ -306,7 +316,7 @@ export default function QRCodeModal({
               {getInstructions()}
             </p>
 
-            {/* Telegram: inline token input */}
+            {/* Telegram: BotFather deep link with inline token input */}
             {channel === 'telegram' && (
               <div className="w-full space-y-3 mt-2">
                 {directUrl && (
@@ -327,8 +337,45 @@ export default function QRCodeModal({
                   className="w-full px-3 py-2 text-sm border border-neutral-300 dark:border-neutral-600 rounded-md bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <button
-                  onClick={handleTelegramConfirm}
+                  onClick={handleInlineConfirm}
                   disabled={!manualToken.trim()}
+                  className="w-full px-4 py-2 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {t('settings.channels.qrConfirmToken')}
+                </button>
+              </div>
+            )}
+
+            {/* QQ: QQ Open Platform deep link with inline App ID + Client Secret input */}
+            {channel === 'qq' && (
+              <div className="w-full space-y-3 mt-2">
+                {directUrl && (
+                  <a
+                    href={directUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-600 dark:text-blue-400 underline block text-center"
+                  >
+                    {t('settings.channels.qqOpenPlatform')}
+                  </a>
+                )}
+                <input
+                  type="text"
+                  value={manualAppId}
+                  onChange={(e) => setManualAppId(e.target.value)}
+                  placeholder={t('settings.channels.qqAppIdPlaceholder')}
+                  className="w-full px-3 py-2 text-sm border border-neutral-300 dark:border-neutral-600 rounded-md bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="password"
+                  value={manualAppSecret}
+                  onChange={(e) => setManualAppSecret(e.target.value)}
+                  placeholder={t('settings.channels.qqClientSecretPlaceholder')}
+                  className="w-full px-3 py-2 text-sm border border-neutral-300 dark:border-neutral-600 rounded-md bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  onClick={handleInlineConfirm}
+                  disabled={!manualAppId.trim() || !manualAppSecret.trim()}
                   className="w-full px-4 py-2 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {t('settings.channels.qrConfirmToken')}

@@ -53,7 +53,7 @@ export async function apiRequest<T>(
 
     if (!response.ok) {
       const body = await response.json().catch(() => ({ message: response.statusText }));
-      throw { status: response.status, message: body.message || 'Request failed' } as ApiError;
+      throw { status: response.status, message: body.message || body.error || response.statusText } as ApiError;
     }
 
     if (response.status === 204) {

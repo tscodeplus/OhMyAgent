@@ -44,6 +44,11 @@ export default function ChannelsSettings({ tabId = 'channels', registerHandle, o
   const wechat = (config?.wechat as Record<string, unknown>) || {};
   const qq = (config?.qq as Record<string, unknown>) || {};
 
+  const feishuEnabled = getField('feishu.enabled', !!feishu.enabled);
+  const telegramEnabled = getField('telegram.enabled', !!telegram.enabled);
+  const wechatEnabled = getField('wechat.enabled', !!wechat.enabled);
+  const qqEnabled = getField('qq.enabled', !!qq.enabled);
+
   const feishuRegion = getField('feishu.region', String(feishu.region || 'feishu'));
 
   const handleQrComplete = (channel: ChannelType, credentials: Record<string, string>) => {
@@ -68,10 +73,27 @@ export default function ChannelsSettings({ tabId = 'channels', registerHandle, o
     setQrModal(null);
   };
 
+  // Detect existing credentials: appId is non-secret and always returned by API;
+  // botToken may be redacted but still non-empty when configured. Use getField
+  // to respect dirty state (user-typed values not yet saved).
+  const hasFeishuConfig = getField('feishu.appId', String(feishu.appId || '')).length > 0;
+  const hasQQConfig = getField('qq.appId', String(qq.appId || '')).length > 0;
+  const hasWechatConfig = getField('wechat.botToken', String(wechat.botToken || '')).length > 0;
+  const hasTelegramConfig = getField('telegram.botToken', String(telegram.botToken || '')).length > 0;
+
   const handleScanClick = (channel: ChannelType) => {
-    // Always show confirmation — API redacts secrets (botToken/appSecret),
-    // so we can't reliably detect whether a channel is already configured.
-    setConfirmChannel(channel);
+    const hasConfig: Record<ChannelType, boolean> = {
+      feishu: hasFeishuConfig,
+      qq: hasQQConfig,
+      wechat: hasWechatConfig,
+      telegram: hasTelegramConfig,
+    };
+    // Only warn about overwriting when there ARE existing credentials
+    if (hasConfig[channel]) {
+      setConfirmChannel(channel);
+    } else {
+      setQrModal(channel);
+    }
   };
 
   const scanButton = (channel: ChannelType) => (
@@ -92,7 +114,7 @@ export default function ChannelsSettings({ tabId = 'channels', registerHandle, o
           <label className="text-sm">{t("settings.channels.enabled")}</label>
           <Toggle checked={getField('feishu.enabled', !!feishu.enabled)} onChange={(v) => setField('feishu.enabled', v)} />
         </div>
-        {feishu.enabled ? (<>
+        {feishuEnabled ? (<>
           {scanButton('feishu')}
           <Select
             label={t("settings.channels.region")}
@@ -118,7 +140,7 @@ export default function ChannelsSettings({ tabId = 'channels', registerHandle, o
           <label className="text-sm">{t("settings.channels.enabled")}</label>
           <Toggle checked={getField('telegram.enabled', !!telegram.enabled)} onChange={(v) => setField('telegram.enabled', v)} />
         </div>
-        {telegram.enabled ? (<>
+        {telegramEnabled ? (<>
           {scanButton('telegram')}
           <Input label={t("settings.channels.botToken")} type="password" value={getField('telegram.botToken', String(telegram.botToken || ''))} onChange={(e) => setField('telegram.botToken', e.target.value)} placeholder={getField('telegram.botToken', String(telegram.botToken || '')) ? undefined : ''} />
           <Select label={t("settings.channels.mode")} value={getField('telegram.mode', String(telegram.mode || 'polling'))} onChange={(e) => setField('telegram.mode', e.target.value)} options={[{ value: 'polling', label: 'Polling' }, { value: 'webhook', label: 'Webhook' }]} />
@@ -132,7 +154,7 @@ export default function ChannelsSettings({ tabId = 'channels', registerHandle, o
           <label className="text-sm">{t("settings.channels.enabled")}</label>
           <Toggle checked={getField('wechat.enabled', !!wechat.enabled)} onChange={(v) => setField('wechat.enabled', v)} />
         </div>
-        {wechat.enabled ? (<>
+        {wechatEnabled ? (<>
           {scanButton('wechat')}
           <Input label={t("settings.channels.botToken")} type="password" value={getField('wechat.botToken', String(wechat.botToken || ''))} onChange={(e) => setField('wechat.botToken', e.target.value)} placeholder={getField('wechat.botToken', String(wechat.botToken || '')) ? undefined : ''} />
           <Input label={t("settings.channels.apiBase")} value={getField('wechat.apiBase', String(wechat.apiBase || ''))} onChange={(e) => setField('wechat.apiBase', e.target.value)} />
@@ -145,7 +167,7 @@ export default function ChannelsSettings({ tabId = 'channels', registerHandle, o
           <label className="text-sm">{t("settings.channels.enabled")}</label>
           <Toggle checked={getField('qq.enabled', !!qq.enabled)} onChange={(v) => setField('qq.enabled', v)} />
         </div>
-        {qq.enabled ? (<>
+        {qqEnabled ? (<>
           {scanButton('qq')}
           <Input label="App ID" value={getField('qq.appId', String(qq.appId || ''))} onChange={(e) => setField('qq.appId', e.target.value)} />
           <Input label={t("settings.channels.clientSecret")} type="password" value={getField('qq.clientSecret', String(qq.clientSecret || ''))} onChange={(e) => setField('qq.clientSecret', e.target.value)} placeholder={getField('qq.clientSecret', String(qq.clientSecret || '')) ? undefined : ''} />
