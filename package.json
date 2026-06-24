@@ -31,20 +31,6 @@
     "dist:desktop:mac": "cd desktop && npm run dist:mac",
     "bundle:electron-deps": "cd desktop && npm run bundle-deps"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "better-sqlite3",
-      "sqlite-vec",
-      "sqlite-vec-windows-x64",
-      "sqlite-vec-linux-x64",
-      "sqlite-vec-darwin-x64",
-      "sqlite-vec-darwin-arm64",
-      "sqlite-vec-linux-arm64",
-      "sharp",
-      "@nut-tree-fork/nut-js",
-      "electron"
-    ]
-  },
   "engines": {
     "node": ">=20"
   },
