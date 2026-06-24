@@ -33,7 +33,7 @@ export function getModel<TProvider extends KnownProvider, TModelId extends keyof
 	if (providerModels && providerModels.size > 0) {
 		const template = providerModels.values().next().value as Model<Api> | undefined;
 		if (template) {
-			const dynamic = { ...template, id: modelId as string } as Model<ModelApi<TProvider, TModelId>>;
+			const dynamic = { ...template, id: modelId as string, name: modelId as string } as Model<ModelApi<TProvider, TModelId>>;
 			providerModels.set(modelId as string, dynamic as Model<Api>);
 			return dynamic;
 		}

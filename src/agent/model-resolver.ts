@@ -130,5 +130,37 @@ export function resolveModel(options: {
   // 6. Resolve context window size
   const contextWindow = resolveModelContextLength(model);
 
+  // 7. Apply config overrides to the resolved model.
+  if (model) {
+    // 7a. baseUrl override — priority mirrors getApiKey in agent-factory.ts.
+    //    Dynamically-cloned models (from getModel's fallback path) inherit the
+    //    template's built-in baseUrl, which may differ from the user's gateway.
+    const cp = config.customProviders?.find(p => p.provider === modelProvider);
+    if (cp?.baseUrl) {
+      // 1. Custom provider baseUrl
+      (model as any).baseUrl = cp.baseUrl;
+    } else {
+      const pk = config.providerKeys?.[modelProvider ?? ''];
+      if (pk?.baseUrl) {
+        // 2. Built-in provider_keys baseUrl
+        (model as any).baseUrl = pk.baseUrl;
+      } else if (modelProvider === config.piAi.provider && config.piAi.baseUrl) {
+        // 3. piAi.baseUrl (only for the primary provider)
+        (model as any).baseUrl = config.piAi.baseUrl;
+      }
+    }
+
+    // 7b. Strip NVCF-POLL-SECONDS header inherited from the template model.
+    //    This header triggers NVIDIA NIM async long-polling, which is NOT
+    //    supported by many models on the standard API catalog endpoint
+    //    (e.g. minimaxai/minimax-m3). Models that need it have it set
+    //    explicitly in models.generated.ts. Dynamic clones should not
+    //    inherit it because their support for async inference is unknown.
+    const headers = (model as any).headers as Record<string, string> | undefined;
+    if (headers && 'NVCF-POLL-SECONDS' in headers) {
+      delete headers['NVCF-POLL-SECONDS'];
+    }
+  }
+
   return { model, modelProvider, modelId, cacheProfile, thinkingLevel, fallbackModels, contextWindow };
 }
