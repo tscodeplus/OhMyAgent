@@ -87,6 +87,16 @@ export default function (api: ExtensionAPI) {
     id: 'telegram',
 
     async start(): Promise<void> {
+      // Apply custom bot name if configured
+      if (tgConfig.botName) {
+        try {
+          await bot.api.setMyName(tgConfig.botName);
+          logger.info({ botName: tgConfig.botName }, 'Telegram bot name updated');
+        } catch (err) {
+          logger.warn({ err, botName: tgConfig.botName }, 'Failed to set Telegram bot name');
+        }
+      }
+
       // Wire message handlers BEFORE starting the bot
       // (grammY handlers must be registered before polling/webhook starts)
       if (!commandDeps) {

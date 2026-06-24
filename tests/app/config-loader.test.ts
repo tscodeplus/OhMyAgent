@@ -41,6 +41,7 @@ describe('yamlToAppConfigRaw', () => {
       enabled: true,
       appId: 'cli_test',
       appSecret: 'test-secret',
+      botName: '',
       region: 'feishu',
       verificationToken: '',
       encryptKey: '',

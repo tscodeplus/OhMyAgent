@@ -5,6 +5,7 @@
 /** Telegram channel configuration. Mirrors the telegram section of AppConfig. */
 export interface TelegramConfig {
   botToken: string;
+  botName: string;
   mode: 'polling' | 'webhook';
   webhookUrl?: string;
   webhookPort: number;

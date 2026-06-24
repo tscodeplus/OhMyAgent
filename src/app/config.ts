@@ -75,6 +75,7 @@ const configSchema = z.object({
     enabled: z.boolean().default(true),
     appId: z.string().default(''),
     appSecret: z.string().default(''),
+    botName: z.string().default(''),
     verificationToken: z.string().default(''),
     encryptKey: z.string().default(''),
     wsEnabled: z.boolean().default(true),
@@ -275,6 +276,7 @@ const configSchema = z.object({
   telegram: z.object({
     enabled: z.boolean().default(false),
     botToken: z.string().min(1),
+    botName: z.string().default(''),
     mode: z.enum(['polling', 'webhook']).default('polling'),
     webhookUrl: z.string().optional(),
     webhookPort: z.coerce.number().int().positive().default(8443),
@@ -507,6 +509,7 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
       enabled: envBool(env.FEISHU_ENABLED, true),
       appId: env.FEISHU_APP_ID ?? '',
       appSecret: env.FEISHU_APP_SECRET ?? '',
+      botName: env.FEISHU_BOT_NAME ?? '',
       verificationToken: env.FEISHU_VERIFICATION_TOKEN ?? '',
       encryptKey: env.FEISHU_ENCRYPT_KEY ?? '',
       wsEnabled: env.FEISHU_CONNECTION_MODE !== 'webhook',
@@ -663,6 +666,7 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
     telegram: envBool(env.TELEGRAM_ENABLED, false) && env.TELEGRAM_BOT_TOKEN ? {
       enabled: true,
       botToken: env.TELEGRAM_BOT_TOKEN,
+      botName: env.TELEGRAM_BOT_NAME ?? '',
       mode: (env.TELEGRAM_MODE as 'polling' | 'webhook') ?? undefined,
       webhookUrl: env.TELEGRAM_WEBHOOK_URL || undefined,
       webhookPort: env.TELEGRAM_WEBHOOK_PORT,

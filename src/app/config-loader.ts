@@ -225,6 +225,7 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
       // Accept both camelCase (from WebUI save) and snake_case (from manual YAML edit)
       appId: str(feishu?.appId ?? feishu?.app_id, ''),
       appSecret: str(feishu?.appSecret ?? feishu?.app_secret, ''),
+      botName: str(feishu?.botName ?? feishu?.bot_name, ''),
       region: str(feishu?.region, 'feishu'),
       verificationToken: str(feishu?.verificationToken ?? feishu?.verification_token, ''),
       encryptKey: str(feishu?.encryptKey ?? feishu?.encrypt_key, ''),
@@ -327,6 +328,7 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
       enabled: true,
       // Accept both camelCase (from WebUI) and snake_case (manual YAML)
       botToken: str(telegram?.botToken ?? telegram?.bot_token, ''),
+      botName: str(telegram?.botName ?? telegram?.bot_name, ''),
       mode: str(telegram?.mode, 'polling'),
       webhookUrl: telegram?.webhookUrl ?? telegram?.webhook_url ? str(telegram?.webhookUrl ?? telegram?.webhook_url, '') : undefined,
       webhookPort: num(telegram?.webhookPort ?? telegram?.webhook_port, 8443),

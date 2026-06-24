@@ -102,6 +102,8 @@ export interface AppConfig {
     enabled: boolean;
     appId: string;
     appSecret: string;
+    /** Custom bot display name. Applied during QR registration (app_name) and on config save. */
+    botName: string;
     verificationToken: string;
     encryptKey: string;
     wsEnabled: boolean;
@@ -284,6 +286,8 @@ export interface AppConfig {
     /** When false, the Telegram channel is disabled even if a bot token is configured. Default: false. */
     enabled: boolean;
     botToken: string;
+    /** Custom bot display name. Applied via Telegram Bot API setMyName on config save. */
+    botName: string;
     mode: 'polling' | 'webhook';
     webhookUrl?: string;
     webhookPort: number;

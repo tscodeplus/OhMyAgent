@@ -369,6 +369,8 @@
       "qq": "QQ",
       "appId": "App ID",
       "appSecret": "App Secret",
+      "botName": "机器人名称",
+      "botNamePlaceholder": "留空使用默认名称",
       "botToken": "Bot Token",
       "clientSecret": "Client Secret",
       "apiBase": "API Base",

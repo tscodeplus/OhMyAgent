@@ -7,6 +7,7 @@ import type { TelegramConfig } from './telegram-types.js';
 export function resolveTelegramConfig(raw: TelegramConfig): TelegramConfig {
   return {
     botToken: raw.botToken,
+    botName: raw.botName ?? '',
     mode: raw.mode ?? 'polling',
     webhookUrl: raw.webhookUrl,
     webhookPort: raw.webhookPort ?? 8443,

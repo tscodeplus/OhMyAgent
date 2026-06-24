@@ -127,6 +127,7 @@ export default function ChannelsSettings({ tabId = 'channels', registerHandle, o
           />
           <Input label="App ID" value={getField('feishu.appId', String(feishu.appId || ''))} onChange={(e) => setField('feishu.appId', e.target.value)} />
           <Input label={t("settings.channels.appSecret")} type="password" value={getField('feishu.appSecret', String(feishu.appSecret || ''))} onChange={(e) => setField('feishu.appSecret', e.target.value)} placeholder={getField('feishu.appSecret', String(feishu.appSecret || '')) ? undefined : ''} />
+          <Input label={t("settings.channels.botName")} value={getField('feishu.botName', String(feishu.botName || ''))} onChange={(e) => setField('feishu.botName', e.target.value)} placeholder={t('settings.channels.botNamePlaceholder')} />
           <div className="flex items-center justify-between">
             <label className="text-sm">{t("settings.channels.wsEnabled")}</label>
             <Toggle checked={getField('feishu.wsEnabled', !!feishu.wsEnabled)} onChange={(v) => setField('feishu.wsEnabled', v)} />
@@ -143,6 +144,7 @@ export default function ChannelsSettings({ tabId = 'channels', registerHandle, o
         {telegramEnabled ? (<>
           {scanButton('telegram')}
           <Input label={t("settings.channels.botToken")} type="password" value={getField('telegram.botToken', String(telegram.botToken || ''))} onChange={(e) => setField('telegram.botToken', e.target.value)} placeholder={getField('telegram.botToken', String(telegram.botToken || '')) ? undefined : ''} />
+          <Input label={t("settings.channels.botName")} value={getField('telegram.botName', String(telegram.botName || ''))} onChange={(e) => setField('telegram.botName', e.target.value)} placeholder={t('settings.channels.botNamePlaceholder')} />
           <Select label={t("settings.channels.mode")} value={getField('telegram.mode', String(telegram.mode || 'polling'))} onChange={(e) => setField('telegram.mode', e.target.value)} options={[{ value: 'polling', label: 'Polling' }, { value: 'webhook', label: 'Webhook' }]} />
           <Select label={t("settings.channels.streamMode")} value={getField('telegram.streamMode', String(telegram.streamMode || 'edit'))} onChange={(e) => setField('telegram.streamMode', e.target.value)} options={[{ value: 'edit', label: t('settings.channels.opt_edit') }, { value: 'send', label: t('settings.channels.opt_send') }]} />
         </>) : null}

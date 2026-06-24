@@ -37,6 +37,10 @@ const ACCOUNTS_BASE: Record<string, string> = {
 
 const REGISTRATION_PATH = '/oauth/v1/app/registration';
 
+/** Default bot display name. Passed as app_name during the begin request to
+ *  pre-fill the creation form (same mechanism as the node-sdk's appPreset). */
+const DEFAULT_BOT_NAME = 'OhMyAgent智能助手';
+
 // In-memory store for active device-code sessions
 interface DeviceSession {
   deviceCode: string;
@@ -107,11 +111,15 @@ export function registerFeishuQrRoutes(
       // Matches @larksuiteoapi/node-sdk v1.67.0 registerApp() exactly:
       //   action=begin, archetype=PersonalAgent, auth_method=client_secret,
       //   request_user_info=open_id
+      //
+      // app_name pre-fills the bot display name (supported by accounts API even
+      // though not yet in the node-sdk's RegisterAppOptions type).
       const result = await postRegistration(baseUrl, {
         action: 'begin',
         archetype: 'PersonalAgent',
         auth_method: 'client_secret',
         request_user_info: 'open_id',
+        app_name: DEFAULT_BOT_NAME,
       });
 
       const deviceCode = result['device_code'] as string;

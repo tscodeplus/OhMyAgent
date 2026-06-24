@@ -368,6 +368,8 @@
       "qq": "QQ",
       "appId": "App ID",
       "appSecret": "App Secret",
+      "botName": "Bot Name",
+      "botNamePlaceholder": "Leave empty for default name",
       "botToken": "Bot Token",
       "clientSecret": "Client Secret",
       "apiBase": "API Base",
