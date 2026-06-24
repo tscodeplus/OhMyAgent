@@ -393,7 +393,7 @@
       "feishuQrInstructions": "使用飞书 / Lark App 扫码即可自动创建机器人",
       "qqQrInstructions": "扫码打开 QQ 开放平台，创建机器人后，在下方粘贴 App ID 和 Client Secret",
       "qqOpenPlatform": "打开 QQ 开放平台",
-      "qqAppIdPlaceholder": "Bot App ID",
+      "qqAppIdPlaceholder": "App ID",
       "qqClientSecretPlaceholder": "Client Secret",
       "telegramQrInstructions": "扫码打开 BotFather，用 /newbot 创建机器人，然后在下方粘贴 Token：",
       "wechatQrInstructions": "使用微信扫码自动配置机器人",

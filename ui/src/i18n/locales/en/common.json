@@ -392,7 +392,7 @@
       "feishuQrInstructions": "Scan with the Lark / Feishu app to auto-create your bot",
       "qqQrInstructions": "Scan to open the QQ Open Platform. Create a bot, then paste the App ID and Client Secret below.",
       "qqOpenPlatform": "Open QQ Open Platform",
-      "qqAppIdPlaceholder": "Bot App ID",
+      "qqAppIdPlaceholder": "App ID",
       "qqClientSecretPlaceholder": "Client Secret",
       "telegramQrInstructions": "Scan to open BotFather, create a bot with /newbot, then paste the token below:",
       "wechatQrInstructions": "Scan with WeChat to auto-configure your bot",

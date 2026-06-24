@@ -90,7 +90,7 @@ export function registerFeishuQrRoutes(
       const result = await postRegistration(baseUrl, {
         action: 'begin',
         archetype: 'PersonalAgent',
-        auth_method: 'client_secret',
+        auth_method: 'device_code',
         request_user_info: 'open_id',
       });
 
