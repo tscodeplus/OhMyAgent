@@ -1,29 +1,68 @@
 import type Database from 'better-sqlite3';
 import { createRequire } from 'node:module';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+/**
+ * Resolve the path to the locally compiled vec0 binary.
+ *
+ * When running from source: src/memory/  → ../../native/vec0
+ * When running compiled:  dist/src/memory/ → ../../../native/vec0
+ */
+function resolveNativeVec0Path(): string {
+  // Try compiled path first (dist/src/memory/ → project root)
+  const compiledPath = join(__dirname, '..', '..', '..', 'native', 'vec0');
+  if (existsSync(compiledPath)) return compiledPath;
+  // Fall back to source path (src/memory/ → project root)
+  return join(__dirname, '..', '..', 'native', 'vec0');
+}
 
 const dbsWithExtension = new WeakSet<Database.Database>();
 const dbsWithFailedExtension = new WeakSet<Database.Database>();
 
 /**
  * Load the sqlite-vec native extension into the given database.
+ *
+ * Tries three paths in order:
+ * 1. Standard sqlite-vec npm package (works on darwin-x64, linux-x64, etc.)
+ * 2. Locally compiled native/vec0 binary (e.g., on android-arm64 / Termux)
+ *
  * Safe to call multiple times — subsequent calls are no-ops.
- * Once loading fails for a database, further calls are also no-ops
- * (without retrying or re-logging) to avoid repeated require() and
- * console.warn overhead on unsupported platforms like android-arm64.
+ * Once loading fails for a database, further calls are also no-ops.
  * Returns true on success, false on failure.
  */
 export function loadSqliteVecExtension(db: Database.Database): boolean {
   if (dbsWithExtension.has(db)) return true;
   if (dbsWithFailedExtension.has(db)) return false;
 
+  // Path 1: Standard sqlite-vec npm package
   try {
     const sqliteVec = require('sqlite-vec') as { load: (db: Database.Database) => void };
     sqliteVec.load(db);
     dbsWithExtension.add(db);
     return true;
   } catch (err: any) {
+    // Path 2: Locally compiled binary (e.g., Termux/android-arm64)
+    const nativePath = resolveNativeVec0Path();
+    if (existsSync(nativePath)) {
+      try {
+        // better-sqlite3 loadExtension appends platform suffix automatically.
+        // Pass the path WITHOUT the extension — it adds .so on linux/android.
+        const stemPath = nativePath.replace(/\.so$/, '');
+        db.loadExtension(stemPath);
+        dbsWithExtension.add(db);
+        console.log('[sqlite-vec] Loaded native extension from', nativePath);
+        return true;
+      } catch (nativeErr: any) {
+        console.warn('[sqlite-vec] Failed to load native extension:', nativeErr?.message ?? nativeErr);
+      }
+    }
     console.warn('[sqlite-vec] Failed to load extension:', err?.message ?? err);
     dbsWithFailedExtension.add(db);
     return false;
