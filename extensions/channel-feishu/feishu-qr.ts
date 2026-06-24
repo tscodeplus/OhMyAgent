@@ -60,7 +60,10 @@ async function postRegistration(baseUrl: string, body: Record<string, unknown>):
   const url = `${baseUrl}${REGISTRATION_PATH}`;
   const resp = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': 'Lark-oapi-Sdk/1.0 node-sdk/1.67.0',
+    },
     body: JSON.stringify(body),
   });
   const text = await resp.text();
@@ -87,12 +90,13 @@ export function registerFeishuQrRoutes(
       const baseUrl = accountsBase(region);
 
       // Begin device-code registration.
-      // Matches the @larksuite/channel SDK's `registerApp()` parameters:
-      // uses `source` instead of `archetype`, no `auth_method` (the SDK
-      // handles auth internally via the Feishu device-code OAuth flow).
+      // Matches @larksuiteoapi/node-sdk v1.67.0 registerApp() exactly:
+      //   action=begin, archetype=PersonalAgent, auth_method=client_secret,
+      //   request_user_info=open_id
       const result = await postRegistration(baseUrl, {
         action: 'begin',
-        source: 'ohmyagent',
+        archetype: 'PersonalAgent',
+        auth_method: 'client_secret',
         request_user_info: 'open_id',
       });
 
