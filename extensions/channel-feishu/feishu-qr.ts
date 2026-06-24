@@ -102,8 +102,9 @@ export function registerFeishuQrRoutes(
   // ── Generate QR code (begin device flow) ──
   server.post('/api/channels/feishu/qr', async (req, reply) => {
     try {
-      const body = (req.body || {}) as { region?: string };
+      const body = (req.body || {}) as { region?: string; botName?: string };
       const region = body.region === 'lark' ? 'lark' : 'feishu';
+      const botName = body.botName?.trim() || DEFAULT_BOT_NAME;
 
       const baseUrl = accountsBase(region);
 
@@ -119,7 +120,7 @@ export function registerFeishuQrRoutes(
         archetype: 'PersonalAgent',
         auth_method: 'client_secret',
         request_user_info: 'open_id',
-        app_name: DEFAULT_BOT_NAME,
+        app_name: botName,
       });
 
       const deviceCode = result['device_code'] as string;

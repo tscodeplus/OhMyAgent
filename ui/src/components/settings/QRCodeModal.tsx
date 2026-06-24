@@ -44,6 +44,8 @@ export default function QRCodeModal({
   const [manualToken, setManualToken] = useState<string>('');
   const [manualAppId, setManualAppId] = useState<string>('');
   const [manualAppSecret, setManualAppSecret] = useState<string>('');
+  /** Feishu: custom bot name (pre-fills the creation form). */
+  const [botName, setBotName] = useState<string>('OhMyAgent');
 
   /** Channels that use inline credential input instead of server-side polling */
   const isInlineChannel = channel === 'telegram' || channel === 'qq';
@@ -156,6 +158,7 @@ export default function QRCodeModal({
         method: 'POST',
         body: JSON.stringify({
           region: feishuRegion || 'feishu',
+          ...(channel === 'feishu' && botName ? { botName } : {}),
         }),
       });
 
@@ -273,6 +276,19 @@ export default function QRCodeModal({
       }
     >
       <div className="flex flex-col items-center gap-4 py-2">
+        {/* Feishu: custom bot name (pre-fills creation form) */}
+        {channel === 'feishu' && phase !== 'confirmed' && (
+          <div className="w-full">
+            <input
+              type="text"
+              value={botName}
+              onChange={(e) => setBotName(e.target.value)}
+              placeholder={t('settings.channels.botNamePlaceholder')}
+              className="w-full px-3 py-2 text-sm border border-neutral-300 dark:border-neutral-600 rounded-md bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        )}
+
         {/* Loading */}
         {phase === 'loading' && (
           <div className="flex flex-col items-center gap-3 py-8">

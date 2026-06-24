@@ -127,7 +127,6 @@ export default function ChannelsSettings({ tabId = 'channels', registerHandle, o
           />
           <Input label="App ID" value={getField('feishu.appId', String(feishu.appId || ''))} onChange={(e) => setField('feishu.appId', e.target.value)} />
           <Input label={t("settings.channels.appSecret")} type="password" value={getField('feishu.appSecret', String(feishu.appSecret || ''))} onChange={(e) => setField('feishu.appSecret', e.target.value)} placeholder={getField('feishu.appSecret', String(feishu.appSecret || '')) ? undefined : ''} />
-          <Input label={t("settings.channels.botName")} value={getField('feishu.botName', String(feishu.botName || ''))} onChange={(e) => setField('feishu.botName', e.target.value)} placeholder={t('settings.channels.botNamePlaceholder')} />
           <div className="flex items-center justify-between">
             <label className="text-sm">{t("settings.channels.wsEnabled")}</label>
             <Toggle checked={getField('feishu.wsEnabled', !!feishu.wsEnabled)} onChange={(v) => setField('feishu.wsEnabled', v)} />
