@@ -56,19 +56,33 @@ function accountsBase(region: string): string {
   return ACCOUNTS_BASE[region] || ACCOUNTS_BASE['feishu']!;
 }
 
-async function postRegistration(baseUrl: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+/**
+ * Call the Feishu / Lark app registration API.
+ *
+ * IMPORTANT: The API expects `application/x-www-form-urlencoded`, NOT JSON.
+ * The @larksuiteoapi/node-sdk v1.67.0 sends params via URLSearchParams and
+ * handles HTTP 400 as a valid response (RFC 8628 device-flow errors like
+ * `authorization_pending` are returned that way).
+ */
+async function postRegistration(
+  baseUrl: string,
+  params: Record<string, string>,
+): Promise<Record<string, unknown>> {
   const url = `${baseUrl}${REGISTRATION_PATH}`;
   const resp = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'User-Agent': 'Lark-oapi-Sdk/1.0 node-sdk/1.67.0',
-    },
-    body: JSON.stringify(body),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(params).toString(),
   });
   const text = await resp.text();
+  // RFC 8628: poll errors (authorization_pending, slow_down, etc.) come as
+  // HTTP 400 with a JSON body — let the caller handle them gracefully.
   if (!resp.ok) {
-    throw new Error(`Registration API HTTP ${resp.status}: ${text.slice(0, 300)}`);
+    try {
+      return JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      throw new Error(`Registration API HTTP ${resp.status}: ${text.slice(0, 300)}`);
+    }
   }
   return JSON.parse(text) as Record<string, unknown>;
 }
@@ -176,7 +190,6 @@ export function registerFeishuQrRoutes(
         result = await postRegistration(baseUrl, {
           action: 'poll',
           device_code: session.deviceCode,
-          tp: 'ob_app',
         });
       } catch {
         return reply.send({ status: 'waiting' });
