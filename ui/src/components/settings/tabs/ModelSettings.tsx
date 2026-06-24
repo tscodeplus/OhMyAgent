@@ -73,12 +73,18 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
   const { config, loading, getField, setField, save: saveSimple, cancel: cancelSimple, fetchConfig, dirtyCount } = useConfigDirty(tabId, undefined, undefined);
 
   /* ─── Built-in providers fetched from pi-mono (avoids drift) ─── */
-  const [builtinProviders, setBuiltinProviders] = useState<string[]>([]);
+  const [builtinProviders, setBuiltinProviders] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    apiRequest<{ providers: Array<{ id: string; name: string }> }>('/api/providers')
-      .then(data => setBuiltinProviders(data.providers.map(p => p.id)))
-      .catch(() => setBuiltinProviders([]));
+    apiRequest<{ providers: Array<{ id: string; name: string; baseUrl?: string }> }>('/api/providers')
+      .then(data => {
+        const map: Record<string, string> = {};
+        for (const p of data.providers) {
+          if (p.baseUrl) map[p.id] = p.baseUrl;
+        }
+        setBuiltinProviders(map);
+      })
+      .catch(() => setBuiltinProviders({}));
   }, []);
 
   /* ─── Complex object state (deferred save via global Save button) ─── */
@@ -307,8 +313,8 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
   const hasProviderKey = !!selectedPkEntry || !!selectedCustom;
 
   const providerOptions = [
-    ...builtinProviders.map(v => ({ value: v, label: v })),
-    ...customProviders.filter(cp => cp.provider && !builtinProviders.includes(cp.provider)).map(cp => ({
+    ...Object.keys(builtinProviders).map(v => ({ value: v, label: v })),
+    ...customProviders.filter(cp => cp.provider && !builtinProviders[cp.provider]).map(cp => ({
       value: cp.provider,
       label: `custom/${cp.provider}`,
     })),
@@ -324,7 +330,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
 
   // 2. Primary model's provider (piAi) — if has apiKey, is a builtin, and not already in providerKeys
   const piAiProvider = piAi.provider;
-  if (piAiProvider && piAi.apiKey && !providerKeys[piAiProvider] && builtinProviders.includes(piAiProvider)) {
+  if (piAiProvider && piAi.apiKey && !providerKeys[piAiProvider] && piAiProvider in builtinProviders) {
     builtinEntries.push({
       name: piAiProvider,
       entry: { apiKey: piAi.apiKey, baseUrl: piAi.baseUrl || undefined },
@@ -429,40 +435,44 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                   {/* Expanded body */}
                   {isExpanded && (
                     <div className="px-3 py-3 space-y-3 border-t border-neutral-100 dark:border-neutral-800">
-                      {source === 'providerKeys' ? (
-                        <div className="grid grid-cols-3 gap-3">
-                          <Input label={t('settings.models.providerName')} value={name}
-                            onChange={(e) => updateProviderKeyName(name, e.target.value)}
-                            placeholder="e.g. deepseek" />
-                          <Input label="API Key" type="password" value={entry.apiKey || ''}
-                            onChange={(e) => updateProviderKey(name, 'apiKey', e.target.value)} />
-                          <div>
-                            <label className="text-[11px] font-medium text-neutral-500">Base URL</label>
-                            <p className="text-sm text-neutral-700 dark:text-neutral-200 mt-1 truncate" title={entry.baseUrl || undefined}>
-                              {entry.baseUrl || '—'}
-                            </p>
+                      {(() => {
+                        const defaultBaseUrl = builtinProviders[name] || undefined;
+                        const resolvedBaseUrl = entry.baseUrl || defaultBaseUrl;
+                        return source === 'providerKeys' ? (
+                          <div className="grid grid-cols-3 gap-3">
+                            <Input label={t('settings.models.providerName')} value={name}
+                              onChange={(e) => updateProviderKeyName(name, e.target.value)}
+                              placeholder="e.g. deepseek" />
+                            <Input label="API Key" type="password" value={entry.apiKey || ''}
+                              onChange={(e) => updateProviderKey(name, 'apiKey', e.target.value)} />
+                            <div>
+                              <label className="text-[11px] font-medium text-neutral-500">Base URL</label>
+                              <p className="text-sm text-neutral-700 dark:text-neutral-200 mt-1 truncate" title={resolvedBaseUrl}>
+                                {resolvedBaseUrl || '—'}
+                              </p>
+                            </div>
                           </div>
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-3 gap-3">
-                          <div>
-                            <label className="text-[11px] font-medium text-neutral-500">{t('settings.models.providerName')}</label>
-                            <p className="text-sm text-neutral-700 dark:text-neutral-200 mt-1">{name}</p>
+                        ) : (
+                          <div className="grid grid-cols-3 gap-3">
+                            <div>
+                              <label className="text-[11px] font-medium text-neutral-500">{t('settings.models.providerName')}</label>
+                              <p className="text-sm text-neutral-700 dark:text-neutral-200 mt-1">{name}</p>
+                            </div>
+                            <div>
+                              <label className="text-[11px] font-medium text-neutral-500">API Key</label>
+                              <p className="text-sm text-neutral-700 dark:text-neutral-200 mt-1 font-mono">
+                                {entry.apiKey ? '••••••••' : '—'}
+                              </p>
+                            </div>
+                            <div>
+                              <label className="text-[11px] font-medium text-neutral-500">Base URL</label>
+                              <p className="text-sm text-neutral-700 dark:text-neutral-200 mt-1 truncate" title={resolvedBaseUrl}>
+                                {resolvedBaseUrl || '—'}
+                              </p>
+                            </div>
                           </div>
-                          <div>
-                            <label className="text-[11px] font-medium text-neutral-500">API Key</label>
-                            <p className="text-sm text-neutral-700 dark:text-neutral-200 mt-1 font-mono">
-                              {entry.apiKey ? '••••••••' : '—'}
-                            </p>
-                          </div>
-                          <div>
-                            <label className="text-[11px] font-medium text-neutral-500">Base URL</label>
-                            <p className="text-sm text-neutral-700 dark:text-neutral-200 mt-1 truncate" title={entry.baseUrl || undefined}>
-                              {entry.baseUrl || '—'}
-                            </p>
-                          </div>
-                        </div>
-                      )}
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
@@ -747,13 +757,17 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                 onChange={(e) => setNewBuiltinForm({ ...newBuiltinForm, provider: e.target.value })}
                 options={[
                   { value: '', label: `— ${t('settings.models.selectProvider')} —` },
-                  ...builtinProviders.filter(p => p !== 'custom' && !providerKeys[p]).map(p => ({ value: p, label: p })),
+                  ...Object.keys(builtinProviders).filter(p => p !== 'custom' && !providerKeys[p]).map(p => ({ value: p, label: p })),
                 ]} />
               <Input label="API Key" type="password" value={newBuiltinForm.apiKey}
                 onChange={(e) => setNewBuiltinForm({ ...newBuiltinForm, apiKey: e.target.value })} />
-              <Input label="Base URL" value={newBuiltinForm.baseUrl}
-                onChange={(e) => setNewBuiltinForm({ ...newBuiltinForm, baseUrl: e.target.value })}
-                placeholder={t('settings.models.baseUrlOptional')} />
+              <div>
+                <label className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300">Base URL</label>
+                <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1.5 truncate"
+                  title={newBuiltinForm.provider ? builtinProviders[newBuiltinForm.provider] || undefined : undefined}>
+                  {newBuiltinForm.provider ? builtinProviders[newBuiltinForm.provider] || '—' : '—'}
+                </p>
+              </div>
             </div>
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={() => setShowBuiltinModal(false)}
