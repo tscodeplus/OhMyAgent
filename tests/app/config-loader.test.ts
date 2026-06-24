@@ -41,6 +41,7 @@ describe('yamlToAppConfigRaw', () => {
       enabled: true,
       appId: 'cli_test',
       appSecret: 'test-secret',
+      region: 'feishu',
       verificationToken: '',
       encryptKey: '',
       wsEnabled: true,

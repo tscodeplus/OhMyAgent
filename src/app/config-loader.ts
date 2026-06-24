@@ -222,11 +222,13 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
 
     feishu: {
       enabled: envBool(feishu?.enabled, false),
-      appId: str(feishu?.app_id, ''),
-      appSecret: str(feishu?.app_secret, ''),
-      verificationToken: str(feishu?.verification_token, ''),
-      encryptKey: str(feishu?.encrypt_key, ''),
-      wsEnabled: str(feishu?.connection_mode, 'websocket') !== 'webhook',
+      // Accept both camelCase (from WebUI save) and snake_case (from manual YAML edit)
+      appId: str(feishu?.appId ?? feishu?.app_id, ''),
+      appSecret: str(feishu?.appSecret ?? feishu?.app_secret, ''),
+      region: str(feishu?.region, 'feishu'),
+      verificationToken: str(feishu?.verificationToken ?? feishu?.verification_token, ''),
+      encryptKey: str(feishu?.encryptKey ?? feishu?.encrypt_key, ''),
+      wsEnabled: str(feishu?.wsEnabled ?? feishu?.connection_mode ?? 'websocket', 'websocket') !== 'webhook',
     },
 
     piAi: {
@@ -321,39 +323,42 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
       maxResults: num(wsCfg?.max_results, 5),
     },
 
-    telegram: envBool(telegram?.enabled, false) && telegram?.bot_token ? {
+    telegram: envBool(telegram?.enabled, false) && (telegram?.botToken || telegram?.bot_token) ? {
       enabled: true,
-      botToken: str(telegram.bot_token, ''),
-      mode: str(telegram.mode, 'polling'),
-      webhookUrl: telegram.webhook_url ? str(telegram.webhook_url, '') : undefined,
-      webhookPort: num(telegram.webhook_port, 8443),
-      webhookSecret: telegram.webhook_secret ? str(telegram.webhook_secret, '') : undefined,
-      allowedUsers: strList(telegram.allowed_users, ''),
-      allowedGroups: strList(telegram.allowed_groups, ''),
-      proxyUrl: telegram.proxy_url ? str(telegram.proxy_url, '') : undefined,
-      streamMode: str(telegram.stream_mode, 'edit'),
-      textLimit: num(telegram.text_limit, 4096),
-      streamIntervalMs: num(telegram.stream_interval, 500),
+      // Accept both camelCase (from WebUI) and snake_case (manual YAML)
+      botToken: str(telegram?.botToken ?? telegram?.bot_token, ''),
+      mode: str(telegram?.mode, 'polling'),
+      webhookUrl: telegram?.webhookUrl ?? telegram?.webhook_url ? str(telegram?.webhookUrl ?? telegram?.webhook_url, '') : undefined,
+      webhookPort: num(telegram?.webhookPort ?? telegram?.webhook_port, 8443),
+      webhookSecret: telegram?.webhookSecret ?? telegram?.webhook_secret ? str(telegram?.webhookSecret ?? telegram?.webhook_secret, '') : undefined,
+      allowedUsers: strList(telegram?.allowedUsers ?? telegram?.allowed_users, ''),
+      allowedGroups: strList(telegram?.allowedGroups ?? telegram?.allowed_groups, ''),
+      proxyUrl: telegram?.proxyUrl ?? telegram?.proxy_url ? str(telegram?.proxyUrl ?? telegram?.proxy_url, '') : undefined,
+      streamMode: str(telegram?.streamMode ?? telegram?.stream_mode, 'edit'),
+      textLimit: num(telegram?.textLimit ?? telegram?.text_limit, 4096),
+      streamIntervalMs: num(telegram?.streamIntervalMs ?? telegram?.stream_interval, 500),
     } : undefined,
 
     wechat: envBool(wechat?.enabled, false) ? {
       enabled: true,
-      botToken: wechat?.bot_token ? str(wechat.bot_token, '') : undefined,
-      apiBase: str(wechat?.api_base, 'https://ilinkai.weixin.qq.com'),
-      cursorDir: str(wechat?.cursor_dir, './data/wechat'),
-      textLimit: num(wechat?.text_limit, 2048),
-      aesKey: wechat?.aes_key ? str(wechat.aes_key, '') : undefined,
-      allowedUsers: strList(wechat?.allowed_users, ''),
+      // Accept both camelCase (from WebUI) and snake_case (manual YAML)
+      botToken: wechat?.botToken ?? wechat?.bot_token ? str(wechat?.botToken ?? wechat?.bot_token, '') : undefined,
+      apiBase: str(wechat?.apiBase ?? wechat?.api_base, 'https://ilinkai.weixin.qq.com'),
+      cursorDir: str(wechat?.cursorDir ?? wechat?.cursor_dir, './data/wechat'),
+      textLimit: num(wechat?.textLimit ?? wechat?.text_limit, 2048),
+      aesKey: wechat?.aesKey ?? wechat?.aes_key ? str(wechat?.aesKey ?? wechat?.aes_key, '') : undefined,
+      allowedUsers: strList(wechat?.allowedUsers ?? wechat?.allowed_users, ''),
     } : undefined,
 
-    qq: envBool(qq?.enabled, false) && qq?.app_id && qq?.client_secret ? {
+    qq: envBool(qq?.enabled, false) && (qq?.appId || qq?.app_id) && (qq?.clientSecret || qq?.client_secret) ? {
       enabled: true,
-      appId: str(qq!.app_id, ''),
-      clientSecret: str(qq!.client_secret, ''),
-      sandbox: envBool(qq!.sandbox, false),
-      allowedUsers: strList(qq?.allowed_users, ''),
-      allowedGroups: strList(qq?.allowed_groups, ''),
-      textLimit: num(qq?.text_limit, 1500),
+      // Accept both camelCase (from WebUI) and snake_case (manual YAML)
+      appId: str(qq?.appId ?? qq?.app_id, ''),
+      clientSecret: str(qq?.clientSecret ?? qq?.client_secret, ''),
+      sandbox: envBool(qq?.sandbox, false),
+      allowedUsers: strList(qq?.allowedUsers ?? qq?.allowed_users, ''),
+      allowedGroups: strList(qq?.allowedGroups ?? qq?.allowed_groups, ''),
+      textLimit: num(qq?.textLimit ?? qq?.text_limit, 1500),
     } : undefined,
 
     extensions: {
