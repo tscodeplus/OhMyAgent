@@ -22,7 +22,24 @@ export function getModel<TProvider extends KnownProvider, TModelId extends keyof
 	modelId: TModelId,
 ): Model<ModelApi<TProvider, TModelId>> {
 	const providerModels = modelRegistry.get(provider);
-	return providerModels?.get(modelId as string) as Model<ModelApi<TProvider, TModelId>>;
+	const exact = providerModels?.get(modelId as string) as Model<ModelApi<TProvider, TModelId>> | undefined;
+	if (exact) return exact;
+
+	// Dynamic model: provider is known but this model ID isn't registered.
+	// Clone the first registered model of this provider to inherit headers /
+	// baseUrl / compat, then substitute the caller's model ID. API gateways
+	// (NVIDIA NIM, OpenRouter, etc.) proxy arbitrary model IDs through their
+	// OpenAI-compatible endpoint.
+	if (providerModels && providerModels.size > 0) {
+		const template = providerModels.values().next().value as Model<Api> | undefined;
+		if (template) {
+			const dynamic = { ...template, id: modelId as string } as Model<ModelApi<TProvider, TModelId>>;
+			providerModels.set(modelId as string, dynamic as Model<Api>);
+			return dynamic;
+		}
+	}
+
+	return undefined as any;
 }
 
 export function getProviders(): KnownProvider[] {
@@ -99,10 +116,7 @@ export function clampThinkingLevel<TApi extends Api>(
  * Check if two models are equal by comparing both their id and provider.
  * Returns false if either model is null or undefined.
  */
-export function modelsAreEqual<TApi extends Api>(
-	a: Model<TApi> | null | undefined,
-	b: Model<TApi> | null | undefined,
-): boolean {
+export function isSameModel(a?: Model<Api> | null, b?: Model<Api> | null): boolean {
 	if (!a || !b) return false;
-	return a.id === b.id && a.provider === b.provider;
+	return a.provider === b.provider && a.id === b.id;
 }

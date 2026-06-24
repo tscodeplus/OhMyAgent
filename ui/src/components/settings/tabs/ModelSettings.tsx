@@ -61,15 +61,6 @@ function AccordionItem({ title, defaultOpen = false, children }: {
 
 /* ───────── Main component ───────── */
 
-const BUILTIN_PROVIDERS = [
-  'anthropic', 'azure', 'bedrock', 'cerebras',
-  'cloudflare-ai-gateway', 'cloudflare-workers-ai', 'custom',
-  'deepseek', 'fireworks', 'github-copilot', 'google', 'groq',
-  'huggingface', 'kimi-coding', 'minimax', 'mistral', 'moonshotai',
-  'opencode', 'openai', 'openrouter', 'together', 'vertex',
-  'xai', 'xiaomi', 'zai',
-];
-
 interface ModelSettingsProps {
   tabId?: string;
   registerHandle?: (tabId: string, handle: SettingsTabHandle | null) => void;
@@ -80,6 +71,15 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
   const { t } = useTranslation('common');
   const { showToast } = useToast();
   const { config, loading, getField, setField, save: saveSimple, cancel: cancelSimple, fetchConfig, dirtyCount } = useConfigDirty(tabId, undefined, undefined);
+
+  /* ─── Built-in providers fetched from pi-mono (avoids drift) ─── */
+  const [builtinProviders, setBuiltinProviders] = useState<string[]>([]);
+
+  useEffect(() => {
+    apiRequest<{ providers: Array<{ id: string; name: string }> }>('/api/providers')
+      .then(data => setBuiltinProviders(data.providers.map(p => p.id)))
+      .catch(() => setBuiltinProviders([]));
+  }, []);
 
   /* ─── Complex object state (deferred save via global Save button) ─── */
   const [customProviders, setCustomProviders] = useState<CustomProvider[]>([]);
@@ -307,8 +307,8 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
   const hasProviderKey = !!selectedPkEntry || !!selectedCustom;
 
   const providerOptions = [
-    ...BUILTIN_PROVIDERS.map(v => ({ value: v, label: v })),
-    ...customProviders.filter(cp => cp.provider && !BUILTIN_PROVIDERS.includes(cp.provider)).map(cp => ({
+    ...builtinProviders.map(v => ({ value: v, label: v })),
+    ...customProviders.filter(cp => cp.provider && !builtinProviders.includes(cp.provider)).map(cp => ({
       value: cp.provider,
       label: `custom/${cp.provider}`,
     })),
@@ -324,7 +324,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
 
   // 2. Primary model's provider (piAi) — if has apiKey, is a builtin, and not already in providerKeys
   const piAiProvider = piAi.provider;
-  if (piAiProvider && piAi.apiKey && !providerKeys[piAiProvider] && BUILTIN_PROVIDERS.includes(piAiProvider)) {
+  if (piAiProvider && piAi.apiKey && !providerKeys[piAiProvider] && builtinProviders.includes(piAiProvider)) {
     builtinEntries.push({
       name: piAiProvider,
       entry: { apiKey: piAi.apiKey, baseUrl: piAi.baseUrl || undefined },
@@ -747,7 +747,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                 onChange={(e) => setNewBuiltinForm({ ...newBuiltinForm, provider: e.target.value })}
                 options={[
                   { value: '', label: `— ${t('settings.models.selectProvider')} —` },
-                  ...BUILTIN_PROVIDERS.filter(p => p !== 'custom' && !providerKeys[p]).map(p => ({ value: p, label: p })),
+                  ...builtinProviders.filter(p => p !== 'custom' && !providerKeys[p]).map(p => ({ value: p, label: p })),
                 ]} />
               <Input label="API Key" type="password" value={newBuiltinForm.apiKey}
                 onChange={(e) => setNewBuiltinForm({ ...newBuiltinForm, apiKey: e.target.value })} />

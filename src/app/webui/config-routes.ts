@@ -151,6 +151,13 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
     return reply.send(config);
   });
 
+  // Return the list of built-in pi-mono providers so the frontend never
+  // needs a hardcoded copy that drifts out of sync.
+  app.get('/api/providers', async (_request, reply) => {
+    const providers = getProviders().map(p => ({ id: p, name: p }));
+    return reply.send({ providers });
+  });
+
   // Check if first-run setup wizard should be shown
   app.get('/api/config/minimal-check', async (_request, reply) => {
     const config = cfg.getConfig();
