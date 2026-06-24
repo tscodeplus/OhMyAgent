@@ -39,7 +39,7 @@ const REGISTRATION_PATH = '/oauth/v1/app/registration';
 
 /** Default bot display name. Passed as app_name during the begin request to
  *  pre-fill the creation form (same mechanism as the node-sdk's appPreset). */
-const DEFAULT_BOT_NAME = 'OhMyAgent智能助手';
+const DEFAULT_BOT_NAME = 'OhMyAgent';
 
 // In-memory store for active device-code sessions
 interface DeviceSession {
