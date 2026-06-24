@@ -4,14 +4,19 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 
 const dbsWithExtension = new WeakSet<Database.Database>();
+const dbsWithFailedExtension = new WeakSet<Database.Database>();
 
 /**
  * Load the sqlite-vec native extension into the given database.
  * Safe to call multiple times — subsequent calls are no-ops.
- * Returns true on success, false with a console.warn on failure.
+ * Once loading fails for a database, further calls are also no-ops
+ * (without retrying or re-logging) to avoid repeated require() and
+ * console.warn overhead on unsupported platforms like android-arm64.
+ * Returns true on success, false on failure.
  */
 export function loadSqliteVecExtension(db: Database.Database): boolean {
   if (dbsWithExtension.has(db)) return true;
+  if (dbsWithFailedExtension.has(db)) return false;
 
   try {
     const sqliteVec = require('sqlite-vec') as { load: (db: Database.Database) => void };
@@ -20,6 +25,7 @@ export function loadSqliteVecExtension(db: Database.Database): boolean {
     return true;
   } catch (err: any) {
     console.warn('[sqlite-vec] Failed to load extension:', err?.message ?? err);
+    dbsWithFailedExtension.add(db);
     return false;
   }
 }
