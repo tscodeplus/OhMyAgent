@@ -160,6 +160,28 @@ export function resolveModel(options: {
     if (headers && 'NVCF-POLL-SECONDS' in headers) {
       delete headers['NVCF-POLL-SECONDS'];
     }
+
+    // 7c. Patch NVIDIA model reasoning and compat.
+    //    Dynamic model clones (from getModel's fallback path) inherit
+    //    reasoning:false from the first registered template model
+    //    (meta/llama-3.1-70b-instruct). Use custom provider config as
+    //    the authoritative source for reasoning support.
+    //    Also, all NVIDIA models have supportsReasoningEffort:false by
+    //    default in compat — but models with reasoning:true need it set
+    //    to actually send reasoning_effort via the OpenAI-compatible API.
+    if (modelProvider === 'nvidia') {
+      // reasoning override from custom provider model config
+      if (customModelCfg?.reasoning !== undefined) {
+        (model as any).reasoning = customModelCfg.reasoning;
+      }
+      // Enable reasoning_effort in compat for models that support reasoning
+      if ((model as any).reasoning) {
+        const currentCompat = (model as any).compat || {};
+        if (!currentCompat.supportsReasoningEffort) {
+          (model as any).compat = { ...currentCompat, supportsReasoningEffort: true };
+        }
+      }
+    }
   }
 
   return { model, modelProvider, modelId, cacheProfile, thinkingLevel, fallbackModels, contextWindow };
