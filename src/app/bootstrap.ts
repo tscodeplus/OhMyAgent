@@ -519,6 +519,29 @@ export async function bootstrap(): Promise<BootstrapResult> {
   const yamlPath = process.env.CONFIG_FILE || './config.yaml';
 
   const onConfigReload = (newConfig: AppConfig) => {
+    // ── Detect which sections changed (before overwriting old config) ──
+    const oldConfig = config;
+    const restartReasons: string[] = [];
+
+    // Channel configs (feishu, telegram, wechat, qq) require restart
+    const channelKeys = ['feishu', 'telegram', 'wechat', 'qq'] as const;
+    for (const key of channelKeys) {
+      if (JSON.stringify(oldConfig[key]) !== JSON.stringify(newConfig[key])) {
+        restartReasons.push('channels');
+        break; // one channel change is enough
+      }
+    }
+
+    // Embedding config requires restart
+    if (JSON.stringify(oldConfig.embedding) !== JSON.stringify(newConfig.embedding)) {
+      restartReasons.push('embedding');
+    }
+
+    // Database path requires restart
+    if (oldConfig.database?.path !== newConfig.database?.path) {
+      restartReasons.push('database');
+    }
+
     // Replace the closure-level config reference so all downstream callbacks
     // (ReplyDispatcher, cron delivery, etc.) pick up the new values.
     config = newConfig;
@@ -550,6 +573,11 @@ export async function bootstrap(): Promise<BootstrapResult> {
       logger.warn({ err }, 'Config reload event handler failed'),
     );
 
+    // ── Log and notify ──────────────────────────────────────────────────
+    const restartMsg = restartReasons.length > 0
+      ? `; ${restartReasons.join('/')} require restart`
+      : '';
+
     logger.info(
       {
         logLevel: newConfig.logging.level,
@@ -560,9 +588,24 @@ export async function bootstrap(): Promise<BootstrapResult> {
         fallbackModels: newConfig.fallbackModels,
         agents: (newConfig.agents ?? []).length,
         cronEnabled: newConfig.cron.enabled,
+        restartReasons: restartReasons.length > 0 ? restartReasons : undefined,
       },
-      'config reloaded (hot-reloaded items applied; channels/embedding/database require restart)',
+      `config reloaded (hot-reloaded items applied${restartMsg})`,
     );
+
+    // Push restart notification to WebUI when channels/embedding/database changed
+    if (restartReasons.length > 0) {
+      try {
+        wsManager.broadcast({
+          type: 'config_changed',
+          restartRequired: true,
+          restartReasons,
+          timestamp: Date.now(),
+        });
+      } catch {
+        // wsManager might not be ready yet (first-run setup wizard)
+      }
+    }
   };
 
   // Wire up the onConfigReload callback so PUT /api/config can trigger hot-reload

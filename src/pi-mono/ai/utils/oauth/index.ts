@@ -130,7 +130,8 @@ export async function refreshOAuthToken(
  * Automatically refreshes expired tokens.
  *
  * @returns API key string and updated credentials, or null if no credentials
- * @throws Error if refresh fails
+ * or if token refresh fails (network error, revoked token, etc.).
+ * @throws Error only for programming errors (unknown provider id).
  */
 export async function getOAuthApiKey(
 	providerId: OAuthProviderId,
@@ -151,7 +152,10 @@ export async function getOAuthApiKey(
 		try {
 			creds = await provider.refreshToken(creds);
 		} catch (_error) {
-			throw new Error(`Failed to refresh OAuth token for ${providerId}`);
+			// Refresh failed (network error, revoked token, etc.) —
+			// return null so callers treat it as "no valid credentials"
+			// instead of crashing on an unhandled Error.
+			return null;
 		}
 	}
 

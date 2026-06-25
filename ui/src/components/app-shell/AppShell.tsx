@@ -47,6 +47,18 @@ export default function AppShell() {
     });
   }, [subscribe, showToast]);
 
+  // Listen for config change notifications (e.g. from file watcher hot-reload).
+  // Skip when SettingsModal is open — the modal shows its own restart toast.
+  useEffect(() => {
+    return subscribe('config_changed', (data: any) => {
+      if (settingsOpen) return; // SettingsModal handles its own notification
+      if (data.restartRequired && Array.isArray(data.restartReasons) && data.restartReasons.length > 0) {
+        const reasonsText = data.restartReasons.join(', ');
+        showToast(`Config updated — restart required for: ${reasonsText}`, 'info', 8000);
+      }
+    });
+  }, [subscribe, showToast, settingsOpen]);
+
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     try { const n = Number(localStorage.getItem('oma-sidebar-width')); if (Number.isFinite(n)) return Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, n)); } catch {}
     return SIDEBAR_DEFAULT;

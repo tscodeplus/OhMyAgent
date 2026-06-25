@@ -207,8 +207,9 @@ export class SubscriptionService {
   /**
    * Get the API key for a provider from stored OAuth credentials.
    *
-   * Returns `null` if no credentials are stored.  Automatically refreshes
-   * expired tokens and persists the updated credentials.
+   * Returns `null` if no credentials are stored or if the token is expired
+   * and cannot be refreshed.  Automatically refreshes expired tokens and
+   * persists the updated credentials.
    */
   async getApiKey(providerId: string): Promise<string | null> {
     const auth = this.loadCredentials();
@@ -216,7 +217,12 @@ export class SubscriptionService {
 
     try {
       const result = await getOAuthApiKey(providerId, auth);
-      if (!result) return null;
+      if (!result) {
+        // Credentials exist but we couldn't get a valid API key
+        // (token expired and refresh failed — network, revoked, etc.)
+        this.logger.debug({ providerId }, '[subscription] OAuth token expired and refresh failed, skipping');
+        return null;
+      }
 
       // Persist refreshed credentials
       auth[providerId] = { type: 'oauth', ...result.newCredentials };
@@ -224,6 +230,7 @@ export class SubscriptionService {
 
       return result.apiKey;
     } catch (err) {
+      // Only programming errors reach here (e.g. unknown provider id)
       this.logger.warn({ providerId, err }, '[subscription] Failed to get API key');
       return null;
     }
