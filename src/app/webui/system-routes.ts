@@ -206,11 +206,16 @@ write_status "pulling" "" 10
 # Use fetch+reset to get a clean copy of the latest release.
 # This discards local changes to tracked files but preserves
 # untracked files (data/, .env, etc.).
+# timeout 120: prevent hanging forever when GitHub is unreachable
 GIT_ERR=""
 set +e
-GIT_ERR=$(git fetch https://github.com/tscodeplus/OhMyAgent.git main 2>&1 1>/dev/null)
+GIT_ERR=$(timeout 120 git fetch https://github.com/tscodeplus/OhMyAgent.git main 2>&1 1>/dev/null)
 GIT_EXIT=$?
 set -e
+if [ $GIT_EXIT -eq 124 ]; then
+  write_status "error" "git fetch timed out after 120s" 10
+  exit 1
+fi
 if [ $GIT_EXIT -ne 0 ]; then
   write_status "error" "git fetch failed: \${GIT_ERR}" 10
   exit 1

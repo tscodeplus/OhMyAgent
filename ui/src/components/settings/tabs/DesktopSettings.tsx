@@ -96,7 +96,16 @@ export default function DesktopSettings() {
 
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
 
+      let pollCount = 0;
+      const MAX_POLLS = 18; // 3 minutes with 10s interval
       pollIntervalRef.current = setInterval(async () => {
+        pollCount++;
+        if (pollCount > MAX_POLLS) {
+          if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
+          setUpdateError(t('settings.about.updateTimeout'));
+          setUpdateStatus('error');
+          return;
+        }
         try {
           const statusRes = await fetch('/api/system/update-status');
           const statusData = await statusRes.json();
@@ -223,6 +232,11 @@ export default function DesktopSettings() {
 
   // ── Check for updates ──
   const handleCheckUpdates = useCallback(async () => {
+    // Clear any ongoing polling from a previous upgrade attempt
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
     setUpdateStatus('checking');
     setUpdateError('');
     setLatestVersion('');
@@ -323,10 +337,14 @@ export default function DesktopSettings() {
   }, [updateStatus, showToast, t, handleInstallUpdate]);
 
   useEffect(() => {
-    // Skip generic error toast when download failed after a successful check —
-    // the onUpdateError callback already shows a toast with fallback actions.
-    if (updateStatus === 'error' && updateError && !latestVersion) {
-      showToast(updateError, 'error', 5000);
+    // Show error toast. For Electron download errors, onUpdateError callback
+    // already shows a toast with fallback actions — skip the duplicate here.
+    // For WebUI, always show the error toast (including upgrade failures).
+    if (updateStatus === 'error' && updateError) {
+      const isElectronDownloadError = isElectron() && !!latestVersion;
+      if (!isElectronDownloadError) {
+        showToast(updateError, 'error', 5000);
+      }
     }
   }, [updateStatus, updateError, latestVersion, showToast]);
 

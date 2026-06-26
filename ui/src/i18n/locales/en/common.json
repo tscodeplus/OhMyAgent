@@ -534,6 +534,7 @@
         "building_ui": "Building WebUI...",
         "restarting": "Restarting service..."
       },
+      "updateTimeout": "Update timed out, please check network and retry",
       "updateComplete": "Update complete — service restarting"
     },
     "gateway": {

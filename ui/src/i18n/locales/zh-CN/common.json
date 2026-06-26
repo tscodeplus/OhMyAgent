@@ -538,6 +538,7 @@
         "building_ui": "正在编译 WebUI...",
         "restarting": "正在重启服务..."
       },
+      "updateTimeout": "升级超时，请检查网络后重试",
       "updateComplete": "升级完成，服务正在重启"
     },
     "gateway": {
