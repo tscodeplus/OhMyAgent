@@ -183,9 +183,9 @@
       "apiKey": "API Key",
       "baseUrl": "Base URL",
       "apiKeyFromCustom": "API key from \"{{provider}}\" (managed in Custom Providers). Enter a value below to override.",
-      "apiKeyOverrideHint": "Leave blank to use Custom Provider key",
+      "apiKeyOverrideHint": "Leave blank to use provider-configured key",
       "baseUrlFromCustom": "Base URL from \"{{provider}}\"",
-      "baseUrlOverrideHint": "Leave blank to use Custom Provider base URL",
+      "baseUrlOverrideHint": "Leave blank to use provider-configured URL",
       "globalDefaults": "Global Defaults",
       "globalDefaultsDesc": "These defaults apply to all Agents unless overridden by per-agent settings.",
       "defaultReasoningLevel": "Default Reasoning Level",
@@ -229,8 +229,6 @@
       "baseUrlFromBuiltin": "Using URL from Builtin Providers",
       "baseUrlFromCustom2": "Using URL from Custom Providers",
       "apiKeyInherited": "API key inherited from Providers section. Enter a value here to override.",
-      "apiKeyOverrideHint": "Leave blank to use provider-configured key",
-      "baseUrlOverrideHint": "Leave blank to use provider-configured URL",
       "embeddingTitle": "Embedding Model",
       "embeddingModel": "Model",
       "embeddingDimension": "Dimension"
@@ -526,7 +524,17 @@
       "githubUnreachable": "Cannot connect to GitHub — check your network",
       "networkTimeout": "Network timeout, unable to connect to GitHub",
       "githubRepo": "GitHub Repository: ",
-      "submitIssue": "Submit Issues & Suggestions"
+      "submitIssue": "Submit Issues & Suggestions",
+      "updateProgress": {
+        "starting": "Preparing update...",
+        "preparing": "Preparing update...",
+        "pulling": "Pulling latest code...",
+        "installing": "Installing dependencies...",
+        "building": "Building TypeScript...",
+        "building_ui": "Building WebUI...",
+        "restarting": "Restarting service..."
+      },
+      "updateComplete": "Update complete — service restarting"
     },
     "gateway": {
       "title": "Gateway Connection",

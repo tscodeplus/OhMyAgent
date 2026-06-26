@@ -117,39 +117,40 @@ function Write-Status($status, $step, $percent) {
   $obj | Out-File -FilePath '${statusFile.replace(/'/g, "''")}' -Encoding utf8
 }
 
-Write-Status "preparing" "Preparing update..." 5
+Write-Status "preparing" "" 5
 
 Set-Location -Path '${projectRoot.replace(/'/g, "''")}'
 
-Write-Status "pulling" "Pulling latest code..." 10
+Write-Status "pulling" "" 10
 
-# Stash local changes so git pull can fast-forward cleanly
-git stash --include-untracked 2>$null
-
-$gitOutput = git pull https://github.com/tscodeplus/OhMyAgent.git main 2>&1
+# Use fetch+reset to get a clean copy of the latest release
+$gitOutput = git fetch https://github.com/tscodeplus/OhMyAgent.git main 2>&1
 if ($LASTEXITCODE -ne 0) {
-  $errMsg = "git pull failed: " + ($gitOutput -join ' ').Substring(0, [Math]::Min(200, ($gitOutput -join ' ').Length))
+  $errMsg = "git fetch failed: " + ($gitOutput -join ' ').Substring(0, [Math]::Min(200, ($gitOutput -join ' ').Length))
   Write-Status "error" $errMsg 10
-  git stash pop 2>$null
   exit 1
 }
 
-# Restore local changes on top of pulled code
-git stash pop 2>$null
+$gitOutput = git reset --hard FETCH_HEAD 2>&1
+if ($LASTEXITCODE -ne 0) {
+  $errMsg = "git reset failed: " + ($gitOutput -join ' ').Substring(0, [Math]::Min(200, ($gitOutput -join ' ').Length))
+  Write-Status "error" $errMsg 10
+  exit 1
+}
 
-Write-Status "installing" "Installing dependencies..." 30
+Write-Status "installing" "" 30
 ${hasPnpm ? 'pnpm install' : 'npm install'}
 if ($LASTEXITCODE -ne 0) { Write-Status "error" "pnpm install failed" 30; exit 1 }
 
-Write-Status "building" "Building TypeScript..." 60
+Write-Status "building" "" 60
 pnpm build
 if ($LASTEXITCODE -ne 0) { Write-Status "error" "pnpm build failed" 60; exit 1 }
 
-Write-Status "building_ui" "Building WebUI..." 80
+Write-Status "building_ui" "" 80
 pnpm build:ui
 if ($LASTEXITCODE -ne 0) { Write-Status "error" "WebUI build failed" 80; exit 1 }
 
-Write-Status "restarting" "Restarting service..." 95
+Write-Status "restarting" "" 95
 
 # Kill the current server process
 try { Stop-Process -Id $MainPid -Force -ErrorAction Stop } catch {}
@@ -157,7 +158,7 @@ Start-Sleep -Seconds 1
 
 Start-Process -NoNewWindow pnpm -ArgumentList "dev"
 
-Write-Status "complete" "Update complete — server restarting" 100
+Write-Status "complete" "" 100
 Remove-Item -Force '${scriptPath.replace(/'/g, "''")}'
 `;
 
@@ -187,37 +188,42 @@ Remove-Item -Force '${scriptPath.replace(/'/g, "''")}'
     const escScriptPath = scriptPath.replace(/'/g, "'\\''");
 
     const script = `#!/usr/bin/env bash
-set -e
 sleep 2
 
-# ── Helper: write progress ──
+# ── Helper: write progress (status codes for frontend i18n) ──
 write_status() {
   mkdir -p "$(dirname '${escStatusFile}')" 2>/dev/null || true
   printf '{"status":"%s","step":"%s","percent":%s}\\n' "$1" "$2" "$3" > '${escStatusFile}'
 }
 
-write_status "preparing" "Preparing update..." 5
+write_status "preparing" "" 5
 
 cd '${escProjectRoot}'
 
-# ── Pull latest code via HTTPS (works without SSH keys) ──
-write_status "pulling" "Pulling latest code..." 10
+# ── Pull latest code via HTTPS ──
+write_status "pulling" "" 10
 
-# Stash local changes so git pull can fast-forward cleanly
-git stash --include-untracked 2>/dev/null || true
-
-set +e  # allow capturing git output without triggering exit-on-error
-GIT_ERR=$(git pull https://github.com/tscodeplus/OhMyAgent.git main 2>&1 1>/dev/null)
+# Use fetch+reset to get a clean copy of the latest release.
+# This discards local changes to tracked files but preserves
+# untracked files (data/, .env, etc.).
+GIT_ERR=""
+set +e
+GIT_ERR=$(git fetch https://github.com/tscodeplus/OhMyAgent.git main 2>&1 1>/dev/null)
 GIT_EXIT=$?
 set -e
 if [ $GIT_EXIT -ne 0 ]; then
-  write_status "error" "git pull failed: \${GIT_ERR}" 10
-  git stash pop 2>/dev/null || true
+  write_status "error" "git fetch failed: \${GIT_ERR}" 10
   exit 1
 fi
 
-# Restore local changes on top of pulled code
-git stash pop 2>/dev/null || true
+set +e
+GIT_ERR=$(git reset --hard FETCH_HEAD 2>&1)
+GIT_EXIT=$?
+set -e
+if [ $GIT_EXIT -ne 0 ]; then
+  write_status "error" "git reset failed: \${GIT_ERR}" 10
+  exit 1
+fi
 
 # ── Termux / Android environment ──
 unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY 2>/dev/null || true
@@ -227,45 +233,55 @@ if [ -n "\${ANDROID_ROOT:-}" ] || [ -n "\${PREFIX:-}" ]; then
 fi
 
 # ── Install dependencies ──
-write_status "installing" "Installing dependencies..." 30
+write_status "installing" "" 30
 ${hasPnpm ? 'pnpm install' : 'npm install'} 2>&1 || { write_status "error" "pnpm install failed" 30; exit 1; }
 
 # ── Rebuild better-sqlite3 if on Android ──
 if [ -n "\${ANDROID_ROOT:-}" ]; then
   if [ -z "$(find node_modules -name better_sqlite3.node -path '*/better-sqlite3/*' 2>/dev/null | head -1)" ]; then
-    write_status "installing" "Rebuilding better-sqlite3..." 40
+    write_status "installing" "" 40
     pnpm rebuild better-sqlite3 2>&1 || true
   fi
 fi
 
 # ── Build TypeScript ──
-write_status "building" "Building TypeScript..." 60
+write_status "building" "" 60
 pnpm build 2>&1 || { write_status "error" "pnpm build failed" 60; exit 1; }
 
 # ── Build WebUI ──
-write_status "building_ui" "Building WebUI..." 80
+write_status "building_ui" "" 80
 if [ -f ui/package.json ]; then
   cd ui && pnpm install 2>&1 && pnpm build 2>&1 && cd ..
 else
   pnpm build:ui 2>&1
-fi || { write_status "error" "WebUI build failed" 80; exit 1; }
+fi
+if [ $? -ne 0 ]; then
+  write_status "error" "WebUI build failed" 80
+  exit 1
+fi
 
 # ── Restart service ──
-write_status "restarting" "Restarting service..." 95
+write_status "restarting" "" 95
 
 # Try sv (runit) first, fall back to kill + nohup
-if command -v sv >/dev/null 2>&1 && [ -d "\${PREFIX:-}/var/service/ohmyagent" ]; then
-  sv restart ohmyagent 2>&1 || true
-elif command -v sv >/dev/null 2>&1; then
-  export SVDIR="\$PREFIX/var/service" 2>/dev/null || true
-  sv restart ohmyagent 2>&1 || true
-else
+SV_RESTART_OK=0
+if command -v sv >/dev/null 2>&1; then
+  if [ -d "\${PREFIX:-}/var/service/ohmyagent" ]; then
+    sv force-restart ohmyagent 2>&1 && SV_RESTART_OK=1 || true
+  else
+    export SVDIR="\$PREFIX/var/service" 2>/dev/null || true
+    sv force-restart ohmyagent 2>&1 && SV_RESTART_OK=1 || true
+  fi
+fi
+
+if [ \$SV_RESTART_OK -eq 0 ]; then
+  # sv not available or failed — direct process restart
   kill ${mainPid} 2>/dev/null || true
-  sleep 1
+  sleep 2
   nohup pnpm dev > /dev/null 2>&1 &
 fi
 
-write_status "complete" "Update complete — server restarting" 100
+write_status "complete" "" 100
 rm -f '${escScriptPath}'
 `;
 

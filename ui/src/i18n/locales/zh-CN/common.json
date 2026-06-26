@@ -185,9 +185,9 @@
       "apiKey": "API Key",
       "baseUrl": "Base URL",
       "apiKeyFromCustom": "API Key 来自「{{provider}}」（在自定义 Providers 中管理），可在下方输入覆盖值。",
-      "apiKeyOverrideHint": "留空则使用自定义 Provider 的 Key",
+      "apiKeyOverrideHint": "留空则使用 Provider 配置的 Key",
       "baseUrlFromCustom": "Base URL 来自「{{provider}}」",
-      "baseUrlOverrideHint": "留空则使用自定义 Provider 的 Base URL",
+      "baseUrlOverrideHint": "留空则使用 Provider 配置的 URL",
       "globalDefaults": "全局默认值",
       "globalDefaultsDesc": "这些默认值对所有 Agent 生效，可被单个 Agent 的设置覆盖。",
       "defaultReasoningLevel": "默认推理等级",
@@ -230,8 +230,6 @@
       "baseUrlFromBuiltin": "使用内置 Provider 的 URL",
       "baseUrlFromCustom2": "使用自定义 Provider 的 URL",
       "apiKeyInherited": "API Key 继承自 Providers 配置。在此输入可覆盖。",
-      "apiKeyOverrideHint": "留空则使用 Provider 配置的 Key",
-      "baseUrlOverrideHint": "留空则使用 Provider 配置的 URL",
       "embeddingTitle": "向量模型",
       "embeddingModel": "模型",
       "embeddingDimension": "维度"
@@ -530,7 +528,17 @@
       "githubUnreachable": "无法连接 GitHub，请检查网络连接",
       "networkTimeout": "网络超时，无法连接 Github",
       "githubRepo": "GitHub 仓库地址：",
-      "submitIssue": "提交问题和建议"
+      "submitIssue": "提交问题和建议",
+      "updateProgress": {
+        "starting": "正在准备升级...",
+        "preparing": "正在准备更新...",
+        "pulling": "正在拉取最新代码...",
+        "installing": "正在安装依赖...",
+        "building": "正在编译 TypeScript...",
+        "building_ui": "正在编译 WebUI...",
+        "restarting": "正在重启服务..."
+      },
+      "updateComplete": "升级完成，服务正在重启"
     },
     "gateway": {
       "title": "网关连接",

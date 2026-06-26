@@ -91,7 +91,7 @@ export default function DesktopSettings() {
       }
       // Show progress bar and start polling for status
       setDownloadPercent(0);
-      setUpdateStep('Starting update...');
+      setUpdateStep(t('settings.about.updateProgress.starting'));
       setUpdateStatus('downloading');
 
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
@@ -101,12 +101,18 @@ export default function DesktopSettings() {
           const statusRes = await fetch('/api/system/update-status');
           const statusData = await statusRes.json();
           setDownloadPercent(statusData.percent ?? 0);
-          setUpdateStep(statusData.step ?? '');
 
-          if (statusData.status === 'complete') {
+          // Map status code to i18n text; use raw step for error messages
+          const code = statusData.status;
+          const progressKey = (code && code !== 'complete' && code !== 'error')
+            ? t(`settings.about.updateProgress.${code}`, statusData.step || '')
+            : (statusData.step || '');
+          setUpdateStep(progressKey);
+
+          if (code === 'complete') {
             if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
             setUpdateStatus('downloaded');
-          } else if (statusData.status === 'error') {
+          } else if (code === 'error') {
             if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
             setUpdateError(statusData.step || 'Update failed');
             setUpdateStatus('error');
@@ -310,7 +316,7 @@ export default function DesktopSettings() {
           },
         ]);
       } else {
-        showToast(t('settings.about.updateDownloaded'), 'success', 3000);
+        showToast(t('settings.about.updateComplete'), 'success', 3000);
       }
       setUpdateStatus('idle');
     }
