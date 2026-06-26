@@ -32,53 +32,54 @@ describe('CircuitBreaker', () => {
     expect(breaker.allow()).toBe(false);
   });
 
-  it('transitions to HALF_OPEN after cooldown', async () => {
-    // Trip the breaker
-    for (let i = 0; i < defaultThreshold; i++) {
-      breaker.recordFailure();
-    }
-    expect(breaker.currentState).toBe('OPEN');
+  it('transitions to HALF_OPEN after cooldown', () => {
+    let now = 0;
+    const cb = new CircuitBreaker({ failureThreshold: defaultThreshold, cooldownMs: 1000, nowFn: () => now });
+    for (let i = 0; i < defaultThreshold; i++) cb.recordFailure();
+    expect(cb.currentState).toBe('OPEN');
 
-    // Wait for cooldown
-    await new Promise(resolve => setTimeout(resolve, cooldownMs + 10));
+    // Still open before cooldown
+    now = 500;
+    expect(cb.allow()).toBe(false);
 
-    // Should allow one probe
-    expect(breaker.allow()).toBe(true);
-    expect(breaker.currentState).toBe('HALF_OPEN');
+    // Half-open at cooldown
+    now = 1000;
+    expect(cb.allow()).toBe(true);
+    expect(cb.currentState).toBe('HALF_OPEN');
   });
 
-  it('only allows one probe in HALF_OPEN', async () => {
-    for (let i = 0; i < defaultThreshold; i++) {
-      breaker.recordFailure();
-    }
-    await new Promise(resolve => setTimeout(resolve, cooldownMs + 10));
+  it('only allows one probe in HALF_OPEN', () => {
+    let now = 0;
+    const cb = new CircuitBreaker({ failureThreshold: defaultThreshold, cooldownMs: 1000, nowFn: () => now });
+    for (let i = 0; i < defaultThreshold; i++) cb.recordFailure();
+    now = 1000;
 
-    expect(breaker.allow()).toBe(true);   // first probe OK
-    expect(breaker.allow()).toBe(false);  // second blocked
-    expect(breaker.allow()).toBe(false);  // still blocked
+    expect(cb.allow()).toBe(true);   // first probe OK
+    expect(cb.allow()).toBe(false);  // second blocked
+    expect(cb.allow()).toBe(false);  // still blocked
   });
 
-  it('resets to CLOSED on success in HALF_OPEN', async () => {
-    for (let i = 0; i < defaultThreshold; i++) {
-      breaker.recordFailure();
-    }
-    await new Promise(resolve => setTimeout(resolve, cooldownMs + 10));
+  it('resets to CLOSED on success in HALF_OPEN', () => {
+    let now = 0;
+    const cb = new CircuitBreaker({ failureThreshold: defaultThreshold, cooldownMs: 1000, nowFn: () => now });
+    for (let i = 0; i < defaultThreshold; i++) cb.recordFailure();
+    now = 1000;
 
-    breaker.allow();  // sends probe
-    breaker.recordSuccess();
-    expect(breaker.currentState).toBe('CLOSED');
-    expect(breaker.failures).toBe(0);
+    cb.allow();  // sends probe
+    cb.recordSuccess();
+    expect(cb.currentState).toBe('CLOSED');
+    expect(cb.failures).toBe(0);
   });
 
-  it('returns to OPEN on failure in HALF_OPEN', async () => {
-    for (let i = 0; i < defaultThreshold; i++) {
-      breaker.recordFailure();
-    }
-    await new Promise(resolve => setTimeout(resolve, cooldownMs + 10));
+  it('returns to OPEN on failure in HALF_OPEN', () => {
+    let now = 0;
+    const cb = new CircuitBreaker({ failureThreshold: defaultThreshold, cooldownMs: 1000, nowFn: () => now });
+    for (let i = 0; i < defaultThreshold; i++) cb.recordFailure();
+    now = 1000;
 
-    breaker.allow();  // sends probe
-    breaker.recordFailure();
-    expect(breaker.currentState).toBe('OPEN');
+    cb.allow();  // sends probe
+    cb.recordFailure();
+    expect(cb.currentState).toBe('OPEN');
   });
 
   it('trips on first failure when threshold is 0', () => {
