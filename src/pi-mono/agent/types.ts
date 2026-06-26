@@ -1,11 +1,13 @@
 import type {
+	Api,
 	AssistantMessage,
 	AssistantMessageEvent,
+	AssistantMessageEventStream,
+	Context,
 	ImageContent,
 	Message,
 	Model,
 	SimpleStreamOptions,
-	streamSimple,
 	TextContent,
 	Tool,
 	ToolResultMessage,
@@ -13,7 +15,8 @@ import type {
 import type { Static, TSchema } from "typebox";
 
 /**
- * Stream function used by the agent loop.
+ * Stream function used by the agent loop. `Models.streamSimple` satisfies
+ * this shape.
  *
  * Contract:
  * - Must not throw or return a rejected promise for request/model/runtime failures.
@@ -22,8 +25,10 @@ import type { Static, TSchema } from "typebox";
  *   final AssistantMessage with stopReason "error" or "aborted" and errorMessage.
  */
 export type StreamFn = (
-	...args: Parameters<typeof streamSimple>
-) => ReturnType<typeof streamSimple> | Promise<ReturnType<typeof streamSimple>>;
+	model: Model<Api>,
+	context: Context,
+	options?: SimpleStreamOptions,
+) => AssistantMessageEventStream | Promise<AssistantMessageEventStream>;
 
 /**
  * Configuration for how tool calls from a single assistant message are executed.
@@ -134,7 +139,8 @@ export interface PrepareNextTurnContext extends ShouldStopAfterTurnContext {}
 
 export interface AgentLoopConfig extends SimpleStreamOptions {
 	model: Model<any>;
-	/** Fallback models tried in order when the primary model returns an error. */
+
+	/** Fallback models to try in sequence when the primary model fails. */
 	fallbackModels?: Model<any>[];
 
 	/**
@@ -388,16 +394,15 @@ export interface AgentTool<TParameters extends TSchema = TSchema, TDetails = any
 	 * If omitted, the default execution mode applies.
 	 */
 	executionMode?: ToolExecutionMode;
-	/**
-	 * Deferred (on-demand) tool marker — OhMyAgent Tool Search extension.
-	 *
-	 * When `true`, the tool stays resolvable in `AgentContext.tools` (so the
-	 * model can call it directly by name and the loop can find it) but is
-	 * EXCLUDED from the tool list serialized into the LLM prompt by
-	 * `compactToolsForPrompt`. This is how Tool Search hides low-value tools
-	 * to save prompt tokens without breaking direct invocation.
-	 */
-	deferred?: boolean;
+		/**
+		 * Deferred (on-demand) tool marker — OhMyAgent Tool Search extension.
+		 *
+		 * When `true`, the tool stays resolvable in `AgentContext.tools` (so tool
+		 * search, skill-level resolution, and direct invocation all function
+		 * normally) but is EXCLUDED from the tool list serialized into the LLM
+		 * prompt by `compactToolsForPrompt`.
+		 */
+		deferred?: boolean;
 }
 
 /** Context snapshot passed into the low-level agent loop. */

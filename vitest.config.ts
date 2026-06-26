@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [tsconfigPaths()],
   resolve: {
     alias: {
-      '@earendil-works/pi-ai': path.resolve(__dirname, 'src/pi-mono/ai/index.ts'),
+      '@earendil-works/pi-ai': path.resolve(__dirname, 'src/pi-mono/ai/compat.ts'),
       '@earendil-works/pi-agent-core': path.resolve(__dirname, 'src/pi-mono/agent/index.ts'),
     },
   },

@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import Fastify from 'fastify';
 
-// ─── Mock pi-mono models before importing the routes ───
+// ─── Mock pi-mono compat before importing the routes ───
 
 const mockGetProviders = vi.fn(() => ['openai', 'deepseek', 'nvidia']);
 const mockGetModels = vi.fn((provider: string) => {
@@ -19,10 +19,14 @@ const mockGetModels = vi.fn((provider: string) => {
   return models[provider] ?? [];
 });
 
-vi.mock('../../src/pi-mono/ai/models.js', () => ({
-  getProviders: (...args: any[]) => mockGetProviders(...args),
-  getModels: (...args: any[]) => mockGetModels(...args),
-}));
+vi.mock('../../src/pi-mono/ai/compat.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/pi-mono/ai/compat.js')>();
+  return {
+    ...actual,
+    getProviders: (...args: any[]) => mockGetProviders(...args),
+    getModels: (...args: any[]) => mockGetModels(...args),
+  };
+});
 
 // ─── Import routes after mocks ───
 

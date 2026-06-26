@@ -15,7 +15,7 @@
     "sourceMap": true,
     "baseUrl": ".",
     "paths": {
-      "@earendil-works/pi-ai": ["./src/pi-mono/ai/index.ts"],
+      "@earendil-works/pi-ai": ["./src/pi-mono/ai/compat.ts"],
       "@earendil-works/pi-agent-core": ["./src/pi-mono/agent/index.ts"]
     }
   },

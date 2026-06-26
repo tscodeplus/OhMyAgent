@@ -10,7 +10,7 @@ import type { FastifyInstance } from 'fastify';
 import type { AppConfig } from '../types.js';
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { load as parseYaml, dump as dumpYaml } from 'js-yaml';
-import { getModels, getProviders } from '../../pi-mono/ai/models.js';
+import { getModels, getProviders } from '@earendil-works/pi-ai';
 import { resetConfig, loadConfig, startConfigWatcher } from '../config.js';
 import { jsConfigToYaml } from '../config-loader.js';
 

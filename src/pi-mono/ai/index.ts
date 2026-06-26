@@ -1,30 +1,30 @@
 export type { Static, TSchema } from "typebox";
 export { Type } from "typebox";
 
-export * from "./api-registry.js";
-export * from "./env-api-keys.js";
-export * from "./image-models.js";
-export * from "./images.js";
-export * from "./images-api-registry.js";
+// Core only, side-effect free: no generated catalogs, no provider factories,
+// no api-registry, no OAuth implementations, no compat. Provider factories
+// live under "@earendil-works/pi-ai/providers/*", API implementations under
+// "@earendil-works/pi-ai/api/*", the old global API under
+// "@earendil-works/pi-ai/compat".
+export type { AnthropicEffort, AnthropicOptions, AnthropicThinkingDisplay } from "./api/anthropic-messages.js";
+export type { AzureOpenAIResponsesOptions } from "./api/azure-openai-responses.js";
+export type { BedrockOptions, BedrockThinkingDisplay } from "./api/bedrock-converse-stream.js";
+export type { GoogleOptions } from "./api/google-generative-ai.js";
+export type { GoogleThinkingLevel } from "./api/google-shared.js";
+export type { GoogleVertexOptions } from "./api/google-vertex.js";
+export * from "./api/lazy.js";
+export type { MistralOptions } from "./api/mistral-conversations.js";
+export type { OpenAICodexResponsesOptions, OpenAICodexWebSocketDebugStats } from "./api/openai-codex-responses.js";
+export type { OpenAICompletionsOptions } from "./api/openai-completions.js";
+export type { OpenAIResponsesOptions } from "./api/openai-responses.js";
+export * from "./auth/context.js";
+export * from "./auth/credential-store.js";
+export * from "./auth/helpers.js";
+export * from "./auth/types.js";
+export * from "./images-models.js";
 export * from "./models.js";
-export type { BedrockOptions, BedrockThinkingDisplay } from "./providers/amazon-bedrock.js";
-export type { AnthropicEffort, AnthropicOptions, AnthropicThinkingDisplay } from "./providers/anthropic.js";
-export type { AzureOpenAIResponsesOptions } from "./providers/azure-openai-responses.js";
 export * from "./providers/faux.js";
-export type { GoogleOptions } from "./providers/google.js";
-export type { GoogleThinkingLevel } from "./providers/google-shared.js";
-export type { GoogleVertexOptions } from "./providers/google-vertex.js";
-export * from "./providers/images/register-builtins.js";
-export type { MistralOptions } from "./providers/mistral.js";
-export type {
-	OpenAICodexResponsesOptions,
-	OpenAICodexWebSocketDebugStats,
-} from "./providers/openai-codex-responses.js";
-export type { OpenAICompletionsOptions } from "./providers/openai-completions.js";
-export type { OpenAIResponsesOptions } from "./providers/openai-responses.js";
-export * from "./providers/register-builtins.js";
 export * from "./session-resources.js";
-export * from "./stream.js";
 export * from "./types.js";
 export * from "./utils/diagnostics.js";
 export * from "./utils/event-stream.js";
