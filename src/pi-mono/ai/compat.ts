@@ -41,7 +41,6 @@ import { builtinModels, getBuiltinModel, getBuiltinModels, getBuiltinProviders }
 import { createFauxCore, type FauxProviderRegistration, type RegisterFauxProviderOptions } from "./providers/faux.js";
 import type {
 		Api,
-		KnownProvider,
 	ApiStreamOptions,
 	AssistantMessage,
 	AssistantMessageEventStream,
@@ -55,7 +54,7 @@ import type {
 } from "./types.js";
 
 /** @deprecated Static catalog read. Use `getBuiltinModel` from "@earendil-works/pi-ai/providers/all" or `Models.getModel()`. */
-export function getModel<TProvider extends KnownProvider, TModelId extends string>(
+export function getModel<TProvider extends string, TModelId extends string>(
 	provider: TProvider,
 	modelId: TModelId,
 ): Model<Api> | undefined {
@@ -68,7 +67,7 @@ export function getModel<TProvider extends KnownProvider, TModelId extends strin
 	// Clone the first registered model of this provider to inherit headers/baseUrl/compat,
 	// then substitute the caller's model ID. API gateways (NVIDIA NIM, OpenRouter, etc.)
 	// proxy arbitrary model IDs through their OpenAI-compatible endpoint.
-	const builtin = getBuiltinModel(provider, modelId as any);
+	const builtin = getBuiltinModel(provider as any, modelId as any);
 	if (builtin) return builtin;
 
 	// Dynamic model fallback for custom-registered providers (API gateways like NVIDIA NIM)
@@ -319,15 +318,13 @@ export async function completeSimple<TApi extends Api>(
 }
 
 // ---------------------------------------------------------------------------
-// OhMyAgent custom extensions: model registration, comparison, and cost
+// OhMyAgent custom extensions: model registration and comparison
+// (calculateCost, getSupportedThinkingLevels, clampThinkingLevel are
+// re-exported from models.ts via index.ts — do not duplicate here)
 // ---------------------------------------------------------------------------
-
-import type { ModelThinkingLevel, Usage } from "./types.js";
 
 // Custom model registry for runtime-registered models (e.g., MiMo via faux provider)
 const customModelRegistry = new Map<string, Map<string, Model<Api>>>();
-
-const EXTENDED_THINKING_LEVELS: ModelThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
 
 /**
  * Register a model at runtime. Models registered this way take precedence over
@@ -353,51 +350,4 @@ export function registerModel<TApi extends Api>(
 export function isSameModel(a?: Model<Api> | null, b?: Model<Api> | null): boolean {
 	if (!a || !b) return false;
 	return a.provider === b.provider && a.id === b.id;
-}
-
-/**
- * Calculate usage cost from a model's pricing and usage data.
- * Handles Anthropic 1h cache write pricing (2x base input price).
- */
-export function calculateCost<TApi extends Api>(model: Model<TApi>, usage: Usage): Usage["cost"] {
-	const longWrite = usage.cacheWrite1h ?? 0;
-	const shortWrite = usage.cacheWrite - longWrite;
-	usage.cost.input = (model.cost.input / 1000000) * usage.input;
-	usage.cost.output = (model.cost.output / 1000000) * usage.output;
-	usage.cost.cacheRead = (model.cost.cacheRead / 1000000) * usage.cacheRead;
-	usage.cost.cacheWrite = (model.cost.cacheWrite * shortWrite + model.cost.input * 2 * longWrite) / 1000000;
-	usage.cost.total = usage.cost.input + usage.cost.output + usage.cost.cacheRead + usage.cost.cacheWrite;
-	return usage.cost;
-}
-
-export function getSupportedThinkingLevels<TApi extends Api>(model: Model<TApi>): ModelThinkingLevel[] {
-	if (!model.reasoning) return ["off"];
-
-	return EXTENDED_THINKING_LEVELS.filter((level) => {
-		const mapped = model.thinkingLevelMap?.[level];
-		if (mapped === null) return false;
-		if (level === "xhigh") return mapped !== undefined;
-		return true;
-	});
-}
-
-export function clampThinkingLevel<TApi extends Api>(
-	model: Model<TApi>,
-	level: ModelThinkingLevel,
-): ModelThinkingLevel {
-	const availableLevels = getSupportedThinkingLevels(model);
-	if (availableLevels.includes(level)) return level;
-
-	const requestedIndex = EXTENDED_THINKING_LEVELS.indexOf(level);
-	if (requestedIndex === -1) return availableLevels[0] ?? "off";
-
-	for (let i = requestedIndex; i < EXTENDED_THINKING_LEVELS.length; i++) {
-		const candidate = EXTENDED_THINKING_LEVELS[i];
-		if (availableLevels.includes(candidate)) return candidate;
-	}
-	for (let i = requestedIndex - 1; i >= 0; i--) {
-		const candidate = EXTENDED_THINKING_LEVELS[i];
-		if (availableLevels.includes(candidate)) return candidate;
-	}
-	return availableLevels[0] ?? "off";
 }

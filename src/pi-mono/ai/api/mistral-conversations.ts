@@ -255,7 +255,9 @@ function buildChatPayload(
 	if (options?.toolChoice) payload.toolChoice = mapToolChoice(options.toolChoice);
 	if (options?.promptMode) payload.promptMode = options.promptMode;
 	if (options?.reasoningEffort) payload.reasoningEffort = options.reasoningEffort;
-	if (shouldUsePromptCaching(options)) (payload as any).promptCacheKey = options.sessionId;
+	// Note: Mistral prompt caching is handled via the x-affinity header in
+	// buildRequestOptions, not via a payload field — the SDK Zod schema strips
+	// unknown keys like promptCacheKey before transmission.
 
 	if (context.systemPrompt) {
 		payload.messages.unshift({

@@ -44,9 +44,7 @@ describe('GET /api/providers', () => {
 
     registerConfigRoutes(app, {
       getConfig: () => ({ piAi: { provider: 'openai', model: 'gpt-4' } } as any),
-      saveConfig: vi.fn(),
-      onConfigReload: vi.fn(),
-      log: { info: vi.fn(), warn: vi.fn() } as any,
+      configPath: '/tmp/test-config.yaml',
     });
 
     await app.ready();
