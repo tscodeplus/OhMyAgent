@@ -66,7 +66,7 @@ package_source() {
   tar -czf "$DEPLOY_TARBALL" \
     --exclude='node_modules' \
     --exclude='dist' \
-    --exclude='data' \
+    --exclude='./data' \
     --exclude='coverage' \
     --exclude='.env' \
     --exclude='*.log' \
@@ -77,6 +77,8 @@ package_source() {
     --exclude='.claude' \
     --exclude='desktop/node_modules' \
     --exclude='desktop/release' \
+    --exclude='.codegraph/daemon.sock' \
+    --exclude='.codegraph' \
     .
 
   local size
