@@ -22,6 +22,7 @@ import type { MemoryRetriever, RetrievedMemory } from '../memory/memory-retrieve
 import type { MermaidCanvas } from '../runtime-artifacts/mermaid-canvas.js';
 import type { AutoCompressConfig } from '../app/types.js';
 import { compressContext, estimateTokens } from './compress.js';
+import { extractPreferredName } from '../memory/persona-store.js';
 import type { Logger } from 'pino';
 
 function formatCurrentDatePrefix(lang?: string, granularity: 'minute' | 'day' = 'minute'): string | null {
@@ -112,7 +113,6 @@ const INJECTED_BLOCK_PREFIXES = [
 ];
 
 const deepseekMemorySignatureBySession = new Map<string, string>();
-const deepseekPersonaSignatureBySession = new Map<string, string>();
 const deepseekCanvasSignatureBySession = new Map<string, string>();
 
 function isMemoryRelevantRequest(text: string): boolean {
@@ -144,11 +144,22 @@ function getUserQueryText(content: string | any[]): string {
     .join('\n');
 }
 
+/**
+ * Check whether a memory content contains a preferred-name expression.
+ * These memories are stale by definition: the persona already provides
+ * the authoritative current name, so injecting old name preferences
+ * only confuses the LLM.
+ */
+function containsPreferredNameExpression(content: string): boolean {
+  return extractPreferredName(content) !== null;
+}
+
 function buildMemoryLines(memories: RetrievedMemory[], query: string): string[] {
   const allowStaleTime = allowsHistoricalTimeMemory(query);
   return memories
     .filter(m => m.content?.trim())
     .filter(m => allowStaleTime || !isStaleCurrentTimeMemory(m.content))
+    .filter(m => !containsPreferredNameExpression(m.content))
     .map(m => `- ${m.content}`)
     .slice(0, 5);
 }
@@ -519,13 +530,10 @@ export function createTransformContext(options?: TransformOptions) {
           const personaText = options.personaContextProvider();
           if (personaText?.trim()) {
             const previousPersonaText = personaTextBySession.get(personaKey);
-            const previousDeepSeekPersonaText = deepseekPersonaSignatureBySession.get(personaKey);
             const shouldInjectPersona =
-              cacheProfile === 'deepseek'
-                ? previousDeepSeekPersonaText !== personaText || isMemoryRelevantRequest(getUserQueryText(lastUserMsg.content))
-                : autoRecallFrequency === 'every' ||
-                  !personaInjectedSessions.has(personaKey) ||
-                  previousPersonaText !== personaText;
+              autoRecallFrequency === 'every' ||
+              !personaInjectedSessions.has(personaKey) ||
+              previousPersonaText !== personaText;
 
             if (shouldInjectPersona) {
               options?.logger?.debug({ personaText: personaText.slice(0, 120) }, 'Persona injected into context');
@@ -536,9 +544,6 @@ export function createTransformContext(options?: TransformOptions) {
               result[idx] = { ...lastUserMsg, content: nextBlocks };
               personaInjectedSessions.add(personaKey);
               personaTextBySession.set(personaKey, personaText);
-              if (cacheProfile === 'deepseek') deepseekPersonaSignatureBySession.set(personaKey, personaText);
-            } else if (cacheProfile === 'deepseek') {
-              options?.logger?.debug({ sessionKey: personaKey }, 'Repeated persona context skipped for DeepSeek cache profile');
             }
           }
         } catch {

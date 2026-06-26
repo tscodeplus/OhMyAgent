@@ -58,7 +58,7 @@ function cleanName(name: string): string {
  *          "call me X", with or without quotes and optional whitespace
  *          between the verb and the name.
  */
-function extractPreferredName(content: string): string | null {
+export function extractPreferredName(content: string): string | null {
   const Q = /[""'']?/; // optional quote: ", ", ', '
   const N = /([^"'""''\s，,;。.]{1,24})/; // name capture (no quotes, whitespace, CJK punctuation)
 
@@ -207,7 +207,7 @@ export class PersonaStore {
 
     if (!hasAnyData && latestPreferences.length === 0) return '';
 
-    const lines: string[] = ['[当前用户画像 — 称呼以这里为准，忽略对话历史中的旧称呼]'];
+    const lines: string[] = ['[当前用户画像 — 称呼以这里为准，忽略所有记忆和对话历史中的其他称呼]'];
 
     if (latestPreferences.length > 0) {
       lines.push('[最新用户偏好，优先于用户画像]');
