@@ -241,6 +241,8 @@ export default function DesktopSettings() {
     setUpdateError('');
     setLatestVersion('');
     setReleaseNotes('');
+    // Allow re-showing toast for the same version after cancel
+    toastedVersionRef.current = '';
 
     if (isElectron()) {
       try {
@@ -315,6 +317,7 @@ export default function DesktopSettings() {
     setDownloadPercent(0);
     setUpdateStep('');
     setUpdateError('');
+    toastedVersionRef.current = '';
     downloadAttemptedRef.current = false;
   }, []);
 
