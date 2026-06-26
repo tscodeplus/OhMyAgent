@@ -342,7 +342,7 @@ export default function DesktopSettings() {
           },
         ]);
       } else {
-        showToast(t('settings.about.updateComplete'), 'success', 3000);
+        showToast(t('settings.about.updateComplete'), 'success', 0);
       }
       setUpdateStatus('idle');
     }
@@ -355,7 +355,9 @@ export default function DesktopSettings() {
     if (updateStatus === 'error' && updateError) {
       const isElectronDownloadError = isElectron() && !!latestVersion;
       if (!isElectronDownloadError) {
-        showToast(updateError, 'error', 5000);
+        showToast(updateError, 'error', 0, [
+          { label: t('common.close'), onClick: () => {} },
+        ]);
       }
     }
   }, [updateStatus, updateError, latestVersion, showToast]);
