@@ -644,7 +644,7 @@ export async function bootstrap(): Promise<BootstrapResult> {
 
       // Start DreamCycle (nightly heavy orchestration)
       dreamCycle.start();
-      logger.info('DreamCycle started');
+      logger.info('DreamCycle scheduler started');
 
       // Start WebSocket client if enabled
       if (wsClient) {
