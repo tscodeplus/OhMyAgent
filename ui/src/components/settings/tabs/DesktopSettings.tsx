@@ -297,15 +297,24 @@ export default function DesktopSettings() {
     }
   }, []);
 
-  // ── Cancel download (Electron only) ──
+  // ── Cancel download / upgrade ──
   const handleCancelDownload = useCallback(async () => {
-    try {
-      await getElectronAPI()!.cancelDownload();
-    } catch {
-      // ignore
+    if (isElectron()) {
+      try {
+        await getElectronAPI()!.cancelDownload();
+      } catch {
+        // ignore
+      }
+    }
+    // Clear polling interval (WebUI) and reset all state
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
     }
     setUpdateStatus('idle');
     setDownloadPercent(0);
+    setUpdateStep('');
+    setUpdateError('');
     downloadAttemptedRef.current = false;
   }, []);
 
