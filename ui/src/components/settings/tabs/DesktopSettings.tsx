@@ -44,11 +44,14 @@ export default function DesktopSettings() {
   const [updateError, setUpdateError] = useState('');
   const [releaseNotes, setReleaseNotes] = useState('');
   const [downloadPercent, setDownloadPercent] = useState(0);
+  const [updateStep, setUpdateStep] = useState('');
 
   // Prevent duplicate toasts for the same version
   const toastedVersionRef = useRef('');
   // Track whether a download was attempted (to classify errors accurately)
   const downloadAttemptedRef = useRef(false);
+  // Polling interval ref for WebUI update progress
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Load current version ──
   const loadVersion = useCallback(async () => {
@@ -86,7 +89,32 @@ export default function DesktopSettings() {
       if (!data.ok) {
         throw new Error(data.error || 'Update failed');
       }
-      setUpdateStatus('downloaded');
+      // Show progress bar and start polling for status
+      setDownloadPercent(0);
+      setUpdateStep('Starting update...');
+      setUpdateStatus('downloading');
+
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+
+      pollIntervalRef.current = setInterval(async () => {
+        try {
+          const statusRes = await fetch('/api/system/update-status');
+          const statusData = await statusRes.json();
+          setDownloadPercent(statusData.percent ?? 0);
+          setUpdateStep(statusData.step ?? '');
+
+          if (statusData.status === 'complete') {
+            if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
+            setUpdateStatus('downloaded');
+          } else if (statusData.status === 'error') {
+            if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
+            setUpdateError(statusData.step || 'Update failed');
+            setUpdateStatus('error');
+          }
+        } catch {
+          // Server may be restarting — keep polling
+        }
+      }, 10_000);
     } catch (err: any) {
       setUpdateError(err.message || 'Update failed');
       setUpdateStatus('error');
@@ -179,6 +207,13 @@ export default function DesktopSettings() {
       api.removeUpdateListeners();
     };
   }, [latestVersion, showUpdateToast, showToast, t]);
+
+  // ── Cleanup polling interval on unmount ──
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
+  }, []);
 
   // ── Check for updates ──
   const handleCheckUpdates = useCallback(async () => {
@@ -364,7 +399,7 @@ export default function DesktopSettings() {
           {isDownloading && (
             <div className="w-full max-w-[320px] space-y-2">
               <div className="flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400">
-                <span>{t('settings.about.downloading')}</span>
+                <span>{updateStep || t('settings.about.downloading')}</span>
                 <span className="font-mono tabular-nums">{downloadPercent}%</span>
               </div>
               <div className="w-full h-2 rounded-full bg-neutral-200 dark:bg-neutral-700 overflow-hidden">

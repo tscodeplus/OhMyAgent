@@ -58,12 +58,26 @@ ssh_cmd() {
   ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p "$TERMUX_PORT" "${TERMUX_USER}@${TERMUX_HOST}" "$@"
 }
 
-# ─── Package source (git-tracked files only) ───
+# ─── Package source (include .git so git pull works on remote) ───
 package_source() {
-  info "Packaging project source (git-tracked files only)..."
+  info "Packaging project source (including .git)..."
   cd "$PROJECT_DIR"
 
-  git ls-files -z | tar -czf "$DEPLOY_TARBALL" --null -T -
+  tar -czf "$DEPLOY_TARBALL" \
+    --exclude='node_modules' \
+    --exclude='dist' \
+    --exclude='data' \
+    --exclude='coverage' \
+    --exclude='.env' \
+    --exclude='*.log' \
+    --exclude='ui/dist' \
+    --exclude='ui/node_modules' \
+    --exclude='release' \
+    --exclude='.electron-deps' \
+    --exclude='.claude' \
+    --exclude='desktop/node_modules' \
+    --exclude='desktop/release' \
+    .
 
   local size
   size=$(du -h "$DEPLOY_TARBALL" | cut -f1)
@@ -106,7 +120,7 @@ else
 fi
 
 # Step 2: Extract source
-echo "[2/7] Extracting source..."
+echo "[2/8] Extracting source..."
 # Clean stale compiled output and source directories. extensions/ must also
 # be cleaned — stale .js files from previous builds are NOT in the git tarball
 # and would be copied by copy-extension-resources.js over fresh tsc output.
@@ -114,8 +128,14 @@ rm -rf dist src extensions
 tar xzf ~/ohmyagent-deploy.tar.gz
 rm ~/ohmyagent-deploy.tar.gz
 
+# Make git remote use HTTPS so git pull works without SSH keys
+if [ -d .git ]; then
+  git remote set-url origin https://github.com/tscodeplus/OhMyAgent.git 2>/dev/null || true
+  echo "  Git remote set to HTTPS"
+fi
+
 # Step 3: Configure pnpm
-echo "[3/7] Configuring pnpm..."
+echo "[3/8] Configuring pnpm..."
 node -e "
   const fs = require('fs');
   const pkg = JSON.parse(fs.readFileSync('package.json','utf8'));
@@ -125,18 +145,18 @@ node -e "
 "
 
 # Step 4: Install dependencies (full output — don't hide errors with tail)
-echo "[4/7] Installing dependencies..."
+echo "[4/8] Installing dependencies..."
 unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY 2>/dev/null || true
 pnpm install 2>&1
 
 # Step 5: Compile better-sqlite3
-echo "[5/7] Checking better-sqlite3..."
+echo "[5/8] Checking better-sqlite3..."
 export ANDROID_NDK_HOME="$PREFIX"
 export npm_config_nodedir="$PREFIX"
 if [ -n "$(find node_modules -name better_sqlite3.node -path '*/better-sqlite3/*' 2>/dev/null | head -1)" ]; then echo "  Skipping rebuild (binary exists)"; else echo "  Rebuilding better-sqlite3..."; pnpm rebuild better-sqlite3 2>&1; fi
 
 # Step 6: Compile TypeScript + copy locales + copy extension resources
-echo "[6/7] Compiling TypeScript..."
+echo "[6/8] Compiling TypeScript..."
 pnpm build
 
 # Verify build output exists before proceeding
@@ -147,7 +167,7 @@ fi
 echo "  Build OK: dist/src/index.js exists"
 
 # Step 7: Build WebUI (ui/dist)
-echo "[7/7] Building WebUI frontend..."
+echo "[8/8] Building WebUI frontend..."
 if [ -f ui/package.json ]; then
   cd ui && pnpm install 2>&1 && pnpm build 2>&1 && cd ..
   echo "  WebUI built to ui/dist/"

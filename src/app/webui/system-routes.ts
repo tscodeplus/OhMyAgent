@@ -72,6 +72,21 @@ export function registerSystemRoutes(app: FastifyInstance): void {
     }
   });
 
+  // ── Poll update progress (no auth needed — just reads a local file) ──
+  app.get('/api/system/update-status', async (_request, reply) => {
+    const projectRoot = findProjectRoot();
+    const statusPath = path.join(projectRoot, 'data', 'update-status.json');
+    try {
+      if (fs.existsSync(statusPath)) {
+        const content = fs.readFileSync(statusPath, 'utf-8');
+        return reply.send(JSON.parse(content));
+      }
+      return reply.send({ status: 'idle', step: '', percent: 0 });
+    } catch {
+      return reply.send({ status: 'idle', step: '', percent: 0 });
+    }
+  });
+
   // ── Perform update (WebUI only) ───────────────────────────────────────
   app.post('/api/system/perform-update', async (_request, reply) => {
     const projectRoot = findProjectRoot();
@@ -88,39 +103,50 @@ export function registerSystemRoutes(app: FastifyInstance): void {
     if (isWindows) {
       // ── Windows: PowerShell script ─────────────────────────────────
       const scriptPath = path.join(projectRoot, '.update-script.ps1');
+      const statusFile = path.join(projectRoot, 'data', 'update-status.json');
 
       const script = `# OhMyAgent update script (Windows)
 param([int]$MainPid)
 
 Start-Sleep -Seconds 2
 
+function Write-Status($status, $step, $percent) {
+  $obj = @{ status = $status; step = $step; percent = $percent } | ConvertTo-Json -Compress
+  $dir = Split-Path -Parent '${statusFile.replace(/'/g, "''")}'
+  if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+  $obj | Out-File -FilePath '${statusFile.replace(/'/g, "''")}' -Encoding utf8
+}
+
+Write-Status "preparing" "Preparing update..." 5
+
+Set-Location -Path '${projectRoot.replace(/'/g, "''")}'
+
+Write-Status "pulling" "Pulling latest code..." 10
+git pull https://github.com/tscodeplus/OhMyAgent.git main
+if ($LASTEXITCODE -ne 0) { Write-Status "error" "git pull failed" 10; exit 1 }
+
+Write-Status "installing" "Installing dependencies..." 30
+${hasPnpm ? 'pnpm install' : 'npm install'}
+if ($LASTEXITCODE -ne 0) { Write-Status "error" "pnpm install failed" 30; exit 1 }
+
+Write-Status "building" "Building TypeScript..." 60
+pnpm build
+if ($LASTEXITCODE -ne 0) { Write-Status "error" "pnpm build failed" 60; exit 1 }
+
+Write-Status "building_ui" "Building WebUI..." 80
+pnpm build:ui
+if ($LASTEXITCODE -ne 0) { Write-Status "error" "WebUI build failed" 80; exit 1 }
+
+Write-Status "restarting" "Restarting service..." 95
+
 # Kill the current server process
 try { Stop-Process -Id $MainPid -Force -ErrorAction Stop } catch {}
 Start-Sleep -Seconds 1
 
-Set-Location -Path '${projectRoot}'
-
-Write-Host "[OhMyAgent] Pulling latest code..."
-git pull origin main
-if ($LASTEXITCODE -ne 0) { Write-Host "git pull failed"; exit 1 }
-
-Write-Host "[OhMyAgent] Installing dependencies..."
-${hasPnpm ? 'pnpm install --frozen-lockfile' : 'npm install'}
-if ($LASTEXITCODE -ne 0) { Write-Host "install failed"; exit 1 }
-
-Write-Host "[OhMyAgent] Building..."
-pnpm build
-if ($LASTEXITCODE -ne 0) { Write-Host "build failed"; exit 1 }
-
-Write-Host "[OhMyAgent] Building WebUI..."
-pnpm build:ui
-if ($LASTEXITCODE -ne 0) { Write-Host "webui build failed"; exit 1 }
-
-Write-Host "[OhMyAgent] Restarting server..."
 Start-Process -NoNewWindow pnpm -ArgumentList "dev"
 
-Write-Host "[OhMyAgent] Update complete!"
-Remove-Item -Force '${scriptPath}'
+Write-Status "complete" "Update complete — server restarting" 100
+Remove-Item -Force '${scriptPath.replace(/'/g, "''")}'
 `;
 
       try {
@@ -139,36 +165,81 @@ Remove-Item -Force '${scriptPath}'
       return reply.send({ ok: true, message: 'Update started — server will restart shortly' });
     }
 
-    // ── Linux / macOS: bash script ───────────────────────────────────
+    // ── Linux / macOS / Termux: bash script ──────────────────────────
     const scriptPath = path.join(projectRoot, '.update-script.sh');
+    const statusFile = path.join(projectRoot, 'data', 'update-status.json');
+
+    // Escape paths for safe interpolation into the bash script
+    const escProjectRoot = projectRoot.replace(/'/g, "'\\''");
+    const escStatusFile = statusFile.replace(/'/g, "'\\''");
+    const escScriptPath = scriptPath.replace(/'/g, "'\\''");
 
     const script = `#!/usr/bin/env bash
 set -e
 sleep 2
 
-# Kill the current server process
-kill ${mainPid} 2>/dev/null || true
-sleep 1
+# ── Helper: write progress ──
+write_status() {
+  mkdir -p "$(dirname '${escStatusFile}')" 2>/dev/null || true
+  printf '{"status":"%s","step":"%s","percent":%s}\\n' "$1" "$2" "$3" > '${escStatusFile}'
+}
 
-cd "${projectRoot}"
+write_status "preparing" "Preparing update..." 5
 
-echo "[OhMyAgent] Pulling latest code..."
-git pull origin main 2>&1 || { echo "git pull failed"; exit 1; }
+cd '${escProjectRoot}'
 
-echo "[OhMyAgent] Installing dependencies..."
-${hasPnpm ? 'pnpm install --frozen-lockfile' : 'npm install'} 2>&1 || { echo "install failed"; exit 1; }
+# ── Pull latest code via HTTPS (works without SSH keys) ──
+write_status "pulling" "Pulling latest code..." 10
+git pull https://github.com/tscodeplus/OhMyAgent.git main 2>&1 || { write_status "error" "git pull failed" 10; exit 1; }
 
-echo "[OhMyAgent] Building..."
-pnpm build 2>&1 || { echo "build failed"; exit 1; }
+# ── Termux / Android environment ──
+unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY 2>/dev/null || true
+if [ -n "\${ANDROID_ROOT:-}" ] || [ -n "\${PREFIX:-}" ]; then
+  export ANDROID_NDK_HOME="\${PREFIX:-/data/data/com.termux/files/usr}"
+  export npm_config_nodedir="\${PREFIX:-/data/data/com.termux/files/usr}"
+fi
 
-echo "[OhMyAgent] Building WebUI..."
-pnpm build:ui 2>&1 || { echo "webui build failed"; exit 1; }
+# ── Install dependencies ──
+write_status "installing" "Installing dependencies..." 30
+${hasPnpm ? 'pnpm install' : 'npm install'} 2>&1 || { write_status "error" "pnpm install failed" 30; exit 1; }
 
-echo "[OhMyAgent] Restarting server..."
-nohup pnpm dev > /tmp/ohmyagent-restart.log 2>&1 &
+# ── Rebuild better-sqlite3 if on Android ──
+if [ -n "\${ANDROID_ROOT:-}" ]; then
+  if [ -z "$(find node_modules -name better_sqlite3.node -path '*/better-sqlite3/*' 2>/dev/null | head -1)" ]; then
+    write_status "installing" "Rebuilding better-sqlite3..." 40
+    pnpm rebuild better-sqlite3 2>&1 || true
+  fi
+fi
 
-echo "[OhMyAgent] Update complete!"
-rm -f "${scriptPath}"
+# ── Build TypeScript ──
+write_status "building" "Building TypeScript..." 60
+pnpm build 2>&1 || { write_status "error" "pnpm build failed" 60; exit 1; }
+
+# ── Build WebUI ──
+write_status "building_ui" "Building WebUI..." 80
+if [ -f ui/package.json ]; then
+  cd ui && pnpm install 2>&1 && pnpm build 2>&1 && cd ..
+else
+  pnpm build:ui 2>&1
+fi || { write_status "error" "WebUI build failed" 80; exit 1; }
+
+# ── Restart service ──
+write_status "restarting" "Restarting service..." 95
+
+# Try sv (runit) first, fall back to kill + nohup
+if command -v sv >/dev/null 2>&1 && [ -d "\${PREFIX:-}/var/service/ohmyagent" ]; then
+  sv restart ohmyagent 2>&1 || true
+elif command -v sv >/dev/null 2>&1; then
+  export SVDIR="\$PREFIX/var/service" 2>/dev/null || true
+  sv restart ohmyagent 2>&1 || true
+else
+  kill ${mainPid} 2>/dev/null || true
+  sleep 1
+  nohup pnpm dev > /dev/null 2>&1 &
+fi
+
+write_status "complete" "Update complete — server restarting" 100
+rm -f '${escScriptPath}'
 `;
 
     try {
