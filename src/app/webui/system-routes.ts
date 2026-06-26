@@ -6,6 +6,7 @@ import { execSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getAppVersion } from '../version.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -55,9 +56,9 @@ export function registerSystemRoutes(app: FastifyInstance): void {
       const release = await res.json();
       const latestVersion = (release.tag_name || '').replace(/^v/, '');
 
-      // Read current version from package.json
-      const pkgPath = path.join(findProjectRoot(), 'package.json');
-      const currentVersion = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')).version as string;
+      // Use cached version — reflects the running code, not whatever
+      // git may have written to package.json during an in-flight update.
+      const currentVersion = getAppVersion() || '0.0.0';
 
       return reply.send({
         ok: true,

@@ -25,6 +25,7 @@ import fs from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getAppVersion } from '../version.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -297,27 +298,12 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
     return reply.send({ valid: safeEqual(token, getWebUIToken()) });
   });
 
-  // Health check
+  // Health check — uses cached version so in-flight git updates
+  // don't change the reported version before restart.
   app.get('/api/health', async (_request, reply) => {
-    let version: string | undefined;
-    try {
-      // Walk up from __dirname to find the project root package.json.
-      // Works in both dev (tsx from src/) and production (node from dist/).
-      let dir = __dirname;
-      for (let i = 0; i < 10; i++) {
-        const pkgPath = path.join(dir, 'package.json');
-        if (fs.existsSync(pkgPath)) {
-          version = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')).version;
-          break;
-        }
-        const parent = path.dirname(dir);
-        if (parent === dir) break;
-        dir = parent;
-      }
-    } catch { /* best effort */ }
     return reply.send({
       ok: true,
-      version,
+      version: getAppVersion(),
       timestamp: new Date().toISOString(),
     });
   });
