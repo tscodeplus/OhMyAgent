@@ -271,7 +271,7 @@ export async function loadAllSkills(
 ): Promise<LoadedSkill[]> {
   const absolutePath = resolve(skillsDirPath);
   const entries = await readdir(absolutePath, { withFileTypes: true });
-  const skillDirs = entries.filter((e) => e.isDirectory() && !e.name.startsWith('_'));
+  const skillDirs = entries.filter((e) => e.isDirectory() && !e.name.startsWith('_') && !e.name.startsWith('.'));
 
   const results: LoadedSkill[] = [];
 
