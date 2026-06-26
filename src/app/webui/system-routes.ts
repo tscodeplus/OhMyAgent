@@ -122,8 +122,20 @@ Write-Status "preparing" "Preparing update..." 5
 Set-Location -Path '${projectRoot.replace(/'/g, "''")}'
 
 Write-Status "pulling" "Pulling latest code..." 10
-git pull https://github.com/tscodeplus/OhMyAgent.git main
-if ($LASTEXITCODE -ne 0) { Write-Status "error" "git pull failed" 10; exit 1 }
+
+# Stash local changes so git pull can fast-forward cleanly
+git stash --include-untracked 2>$null
+
+$gitOutput = git pull https://github.com/tscodeplus/OhMyAgent.git main 2>&1
+if ($LASTEXITCODE -ne 0) {
+  $errMsg = "git pull failed: " + ($gitOutput -join ' ').Substring(0, [Math]::Min(200, ($gitOutput -join ' ').Length))
+  Write-Status "error" $errMsg 10
+  git stash pop 2>$null
+  exit 1
+}
+
+# Restore local changes on top of pulled code
+git stash pop 2>$null
 
 Write-Status "installing" "Installing dependencies..." 30
 ${hasPnpm ? 'pnpm install' : 'npm install'}
@@ -190,7 +202,22 @@ cd '${escProjectRoot}'
 
 # ── Pull latest code via HTTPS (works without SSH keys) ──
 write_status "pulling" "Pulling latest code..." 10
-git pull https://github.com/tscodeplus/OhMyAgent.git main 2>&1 || { write_status "error" "git pull failed" 10; exit 1; }
+
+# Stash local changes so git pull can fast-forward cleanly
+git stash --include-untracked 2>/dev/null || true
+
+set +e  # allow capturing git output without triggering exit-on-error
+GIT_ERR=$(git pull https://github.com/tscodeplus/OhMyAgent.git main 2>&1 1>/dev/null)
+GIT_EXIT=$?
+set -e
+if [ $GIT_EXIT -ne 0 ]; then
+  write_status "error" "git pull failed: \${GIT_ERR}" 10
+  git stash pop 2>/dev/null || true
+  exit 1
+fi
+
+# Restore local changes on top of pulled code
+git stash pop 2>/dev/null || true
 
 # ── Termux / Android environment ──
 unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY 2>/dev/null || true
