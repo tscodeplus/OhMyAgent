@@ -78,6 +78,9 @@ export default function DesktopSettings() {
 
   // ── WebUI: trigger server-side update (defined early — referenced by toast) ──
   const handleWebUIUpdate = useCallback(async () => {
+    // Prevent concurrent updates — the upgrade toast is persistent
+    // and the user could click "Upgrade" again while one is already running
+    if (updateStatus === 'downloading') return;
     setUpdateError('');
     try {
       const token = getToken();
@@ -134,7 +137,7 @@ export default function DesktopSettings() {
       setUpdateError(err.message || 'Update failed');
       setUpdateStatus('error');
     }
-  }, []);
+  }, [updateStatus]);
 
   // ── Show update-available toast with release notes ──
   const showUpdateToast = useCallback((version: string, notes: string) => {

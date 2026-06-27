@@ -97,6 +97,18 @@ export function registerSystemRoutes(app: FastifyInstance): void {
       return reply.status(400).send({ ok: false, error: 'not a git repository' });
     }
 
+    // Guard against concurrent updates: check if an update script is
+    // already running by reading the status file.
+    const statusPath = path.join(projectRoot, 'data', 'update-status.json');
+    if (fs.existsSync(statusPath)) {
+      try {
+        const cur = JSON.parse(fs.readFileSync(statusPath, 'utf-8'));
+        if (cur.status && cur.status !== 'complete' && cur.status !== 'error') {
+          return reply.status(409).send({ ok: false, error: 'Update already in progress' });
+        }
+      } catch { /* corrupt file — allow retry */ }
+    }
+
     const mainPid = process.pid;
     const hasPnpm = fs.existsSync(path.join(projectRoot, 'pnpm-lock.yaml'));
     const isWindows = process.platform === 'win32';
