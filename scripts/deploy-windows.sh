@@ -40,12 +40,25 @@ check_path() {
   info "Deploy target: $WIN_DEPLOY_PATH"
 }
 
-# ─── Package source (git-tracked files only) ───
+# ─── Package source (respects .gitignore) ───
 package_source() {
-  step 1 "Packaging source (git-tracked files only)..."
+  step 1 "Packaging source (respecting .gitignore)..."
   cd "$PROJECT_DIR"
 
-  git ls-files -z | tar -czf /tmp/ohmyagent-win-deploy.tar.gz --null -T -
+  # Collect git-aware file list (same approach as deploy-termux.sh)
+  local filelist
+  filelist=$(mktemp)
+  {
+    # Tracked files
+    git ls-files -z --cached
+    # Untracked files not ignored
+    git ls-files -z --others --exclude-standard
+  } > "$filelist"
+
+  # No .git — Windows uses schtasks, not git pull
+  tar -czf /tmp/ohmyagent-win-deploy.tar.gz --null -T "$filelist"
+
+  rm -f "$filelist"
 
   local size
   size=$(du -h /tmp/ohmyagent-win-deploy.tar.gz | cut -f1)

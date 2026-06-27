@@ -59,27 +59,29 @@ ssh_cmd() {
 }
 
 # ─── Package source (include .git so git pull works on remote) ───
+# Uses git ls-files to respect .gitignore, then appends .git directory for
+# remote git pull support. Untracked files not covered by .gitignore are also
+# included (--others --exclude-standard) so local dev changes deploy correctly.
 package_source() {
-  info "Packaging project source (including .git)..."
+  info "Packaging project source (respecting .gitignore)..."
   cd "$PROJECT_DIR"
 
+  # Collect git-aware file list (respects .gitignore + .git/info/exclude)
+  local filelist
+  filelist=$(mktemp)
+  {
+    # Tracked files
+    git ls-files -z --cached
+    # Untracked files not ignored
+    git ls-files -z --others --exclude-standard
+  } > "$filelist"
+
+  # Package file list + .git directory (needed for git pull on remote)
   tar -czf "$DEPLOY_TARBALL" \
-    --exclude='node_modules' \
-    --exclude='dist' \
-    --exclude='./data' \
-    --exclude='coverage' \
-    --exclude='.env' \
-    --exclude='*.log' \
-    --exclude='ui/dist' \
-    --exclude='ui/node_modules' \
-    --exclude='release' \
-    --exclude='.electron-deps' \
-    --exclude='.claude' \
-    --exclude='desktop/node_modules' \
-    --exclude='desktop/release' \
-    --exclude='.codegraph/daemon.sock' \
-    --exclude='.codegraph' \
-    .
+    --null -T "$filelist" \
+    .git
+
+  rm -f "$filelist"
 
   local size
   size=$(du -h "$DEPLOY_TARBALL" | cut -f1)

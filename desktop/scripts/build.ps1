@@ -219,21 +219,6 @@ function Invoke-KillStaleProcesses {
 $WslSourcePath = if ($env:OHMYAGENT_WSL_SRC) { $env:OHMYAGENT_WSL_SRC } else { "/home/iwapu/projects/OhMyAgent/" }
 $WinTargetPath  = if ($env:OHMYAGENT_WIN_TARGET) { $env:OHMYAGENT_WIN_TARGET } else { $RootDir }
 
-# Directories/files excluded from rsync. Socket files and build artifacts can't
-# be stored on NTFS and are harmless to skip.
-$RsyncExcludes = @(
-    "node_modules",
-    "dist",
-    ".electron-deps",
-    "release",
-    "data",
-    "coverage",
-    ".env",
-    "*.log",
-    ".git",
-    ".codegraph/.daemon.sock"
-)
-
 function Invoke-SyncCode {
     Write-Step "Syncing code from WSL"
 
@@ -250,20 +235,18 @@ function Invoke-SyncCode {
     $winDrive = ($WinTargetPath -replace '^([A-Za-z]):.*', '$1').ToLower()
     $wslTarget = $WinTargetPath -replace '^[A-Za-z]:', "/mnt/$winDrive" -replace '\\', '/'
 
-    # Build rsync exclude arguments
-    $excludeArgs = ($RsyncExcludes | ForEach-Object { "--exclude='$_'" }) -join " "
-
     Write-Info "Source: $WslSourcePath"
     Write-Info "Target: $WinTargetPath (WSL: $wslTarget)"
 
-    # Run rsync inside WSL so paths are native. Use Start-Process to avoid
-    # UNC-path interpretation issues when called from within WSL.
-    $rsyncArgs = "rsync -av --delete $excludeArgs $WslSourcePath $wslTarget"
-    Write-Info "Running: wsl rsync -av --delete [excludes] <src> <target>"
+    # Use git ls-files (respects .gitignore) to build the file list, then rsync.
+    # All exclusions are now in .gitignore — no manual exclude list to maintain.
+    # .git directory is intentionally excluded (not needed for desktop builds).
+    $rsyncCmd = "cd '$WslSourcePath' && git ls-files -z --cached --others --exclude-standard | rsync -av --delete --files-from=- --from0 --exclude='.git' ./ '$wslTarget'"
+    Write-Info "Running: wsl bash -c 'git ls-files ... | rsync --files-from ...'"
 
     $prevEA = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
-    $proc = Start-Process -FilePath "wsl.exe" -ArgumentList $rsyncArgs -NoNewWindow -Wait -PassThru -RedirectStandardOutput "$env:TEMP\ohmyagent-rsync-stdout.txt" -RedirectStandardError "$env:TEMP\ohmyagent-rsync-stderr.txt"
+    $proc = Start-Process -FilePath "wsl.exe" -ArgumentList "bash", "-c", $rsyncCmd -NoNewWindow -Wait -PassThru -RedirectStandardOutput "$env:TEMP\ohmyagent-rsync-stdout.txt" -RedirectStandardError "$env:TEMP\ohmyagent-rsync-stderr.txt"
     $success = ($proc.ExitCode -eq 0)
     $ErrorActionPreference = $prevEA
 

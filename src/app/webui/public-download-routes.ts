@@ -140,10 +140,16 @@ export function registerPublicDownloadRoutes(app: FastifyInstance): void {
       const stream = createReadStream(filePath);
       const displayName = decodeURIComponent(filename || basename(filePath));
 
+      // Images and videos: serve inline so they render in <img>/<video> tags.
+      // Other files: force download with Content-Disposition: attachment.
+      const isInline = isImage || ['.mp4', '.webm', '.mov', '.avi', '.mkv'].includes(ext);
+
       return reply
         .header('Content-Type', contentType)
         .header('Content-Length', stat.size.toString())
-        .header('Content-Disposition', `attachment; filename="${encodeURIComponent(displayName)}"`)
+        .header('Content-Disposition', isInline
+          ? `inline; filename="${encodeURIComponent(displayName)}"`
+          : `attachment; filename="${encodeURIComponent(displayName)}"`)
         .header('Cache-Control', 'public, max-age=3600')
         .send(stream);
     } catch (err) {

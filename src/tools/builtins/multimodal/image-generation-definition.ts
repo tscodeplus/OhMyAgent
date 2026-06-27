@@ -185,9 +185,7 @@ export function createImageGenerationToolDefinition(
         fs.writeFileSync(outputPath, result.data);
 
         const serveUrl = `/api/files/serve?path=${encodeURIComponent(outputPath)}`;
-        return textResult(`Image saved to ${outputPath}
-
-![Generated image](${serveUrl})`);
+        return textResult(`Image saved to ${outputPath} (serve: ${serveUrl})`);
       } catch (err: any) {
         return errorResult(
           `Image generation failed: ${err.message ?? String(err)}`,

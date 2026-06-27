@@ -377,14 +377,18 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
                   // Immediately extract media from webui_send_media output for inline display
                   if (existing.name === 'webui_send_media' && existing.status === 'success' && existing.output) {
                     const output = existing.output;
-                    const imgMatch = output.match(/!\[([^\]]*)\]\((\/api\/files\/serve\?path=[^)\s]+)\)/);
-                    const linkMatch = !imgMatch && output.match(/\[([^\]]+)\]\((\/api\/files\/serve\?path=[^)\s]+)\)/);
+                    // Match both /api/files/serve?path=... and /dl/<token>/<filename> URLs
+                    const imgMatch = output.match(/!\[([^\]]*)\]\((\/(?:api\/files\/serve\?path=[^)\s]+|dl\/[^)\s]+))\)/);
+                    const linkMatch = !imgMatch && output.match(/\[([^\]]+)\]\((\/(?:api\/files\/serve\?path=[^)\s]+|dl\/[^)\s]+))\)/);
                     const match = imgMatch || linkMatch;
                     if (match) {
                       const alt = match[1] || '';
                       const serveUrl = match[2];
                       const fileName = (() => {
                         try {
+                          if (serveUrl.startsWith('/dl/')) {
+                            return decodeURIComponent(serveUrl.split('/').pop() || alt);
+                          }
                           const params = new URLSearchParams(new URL(serveUrl, window.location.origin).search);
                           const p = params.get('path') || '';
                           return decodeURIComponent(p).split('/').pop() || alt;
