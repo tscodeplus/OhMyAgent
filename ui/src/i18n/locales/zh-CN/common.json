@@ -539,7 +539,7 @@
         "restarting": "正在重启服务..."
       },
       "updateTimeout": "升级超时，请检查网络后重试",
-      "updateComplete": "升级完成，服务正在重启"
+      "updateComplete": "升级完成，服务正在重启，请过10秒钟左右刷新页面"
     },
     "gateway": {
       "title": "网关连接",

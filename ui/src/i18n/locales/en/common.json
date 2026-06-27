@@ -535,7 +535,7 @@
         "restarting": "Restarting service..."
       },
       "updateTimeout": "Update timed out, please check network and retry",
-      "updateComplete": "Update complete — service restarting"
+      "updateComplete": "Update complete — service restarting, please refresh the page in about 10 seconds"
     },
     "gateway": {
       "title": "Gateway Connection",
