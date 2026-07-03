@@ -32,7 +32,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install UI dependencies
-        run: cd ui && pnpm install --frozen-lockfile
+        run: |
+          # pnpm-workspace.yaml forces workspace mode, which hoists ui/ deps
+          # to the root. Temporarily hide it so ui/ gets its own node_modules.
+          tmp=$(mktemp)
+          mv pnpm-workspace.yaml "$tmp"
+          cd ui && pnpm install --frozen-lockfile
+          mv "$tmp" pnpm-workspace.yaml
 
       - name: Typecheck
         run: pnpm typecheck
@@ -58,7 +64,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install desktop dependencies
-        run: cd desktop && pnpm install --frozen-lockfile
+        run: |
+          tmp=$(mktemp)
+          mv pnpm-workspace.yaml "$tmp"
+          cd desktop && pnpm install --frozen-lockfile
+          mv "$tmp" pnpm-workspace.yaml
 
       - name: Build desktop
         run: cd desktop && pnpm build
