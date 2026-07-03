@@ -68,7 +68,10 @@ const SKIP_PATTERNS = [
   /\.cpp$/,             // C++ source
   /\.c$/,               // C source
   /\.h(pp)?$/,          // C/C++ headers
-  /^deps\//,            // SQLite amalgamation / native library sources
+  // NOTE: Do NOT add a blanket /^deps\// rule here.
+  // Some packages (e.g. @fastify/busboy) vendor runtime JS inside deps/
+  // (like deps/dicer/). Skipping deps/ would break those at runtime.
+  // C/C++ sources inside deps/ are already caught by the extension rules below.
 ];
 
 // Well-known dev-only packages that should NEVER appear in production bundles.

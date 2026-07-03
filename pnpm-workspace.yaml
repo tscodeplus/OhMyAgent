@@ -1,0 +1,17 @@
+# pnpm workspace configuration
+# pnpm v10+ reads onlyBuiltDependencies from here (no longer from package.json "pnpm" field)
+
+onlyBuiltDependencies:
+  - better-sqlite3
+  - sqlite-vec
+  - sqlite-vec-windows-x64
+  - sqlite-vec-linux-x64
+  - sqlite-vec-darwin-x64
+  - sqlite-vec-darwin-arm64
+  - sqlite-vec-linux-arm64
+  - sharp
+  - esbuild
+  - protobufjs
+  - "@google/genai"
+  - "@nut-tree-fork/nut-js"
+  - electron

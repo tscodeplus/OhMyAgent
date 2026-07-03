@@ -46,6 +46,55 @@ PLATFORM=$(detect_platform)
 info "Detected platform: ${PLATFORM}"
 
 # ── Step 1: Node.js ─────────────────────────────────────────────────────────────
+install_nodejs() {
+  info "Installing Node.js >= 20..."
+  case "$PLATFORM" in
+    termux)
+      pkg install nodejs -y 2>/dev/null && return 0
+      ;;
+    linux)
+      # Try n (simple Node version manager) — no sudo, no shell integration needed
+      if command -v n &>/dev/null; then
+        sudo -n n lts 2>/dev/null && return 0
+      fi
+      # Try to install n if curl is available
+      if command -v curl &>/dev/null; then
+        curl -fsSL https://raw.githubusercontent.com/tj/n/master/bin/n | sudo -E bash - lts 2>/dev/null && return 0
+      fi
+      # Fallback: nodesource
+      if command -v curl &>/dev/null; then
+        curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - 2>/dev/null && \
+          sudo apt-get install -y nodejs 2>/dev/null && return 0
+      fi
+      ;;
+    macos)
+      # Try brew first
+      if command -v brew &>/dev/null; then
+        brew install node 2>/dev/null && return 0
+      fi
+      # Try n (simple, no shell integration needed)
+      if command -v n &>/dev/null; then
+        sudo -n n lts 2>/dev/null && return 0
+      fi
+      # Install n and use it
+      if command -v curl &>/dev/null; then
+        curl -fsSL https://raw.githubusercontent.com/tj/n/master/bin/n | sudo -E bash - lts 2>/dev/null && return 0
+      fi
+      # Fallback: download Node.js pkg
+      if command -v curl &>/dev/null; then
+        local arch
+        arch=$(uname -m)
+        [ "$arch" = "arm64" ] && arch="arm64" || arch="x64"
+        local pkg="node-v22.17.0-darwin-${arch}.tar.gz"
+        curl -fsSL "https://nodejs.org/dist/v22.17.0/${pkg}" -o "/tmp/${pkg}" 2>/dev/null && \
+          sudo tar -xzf "/tmp/${pkg}" -C /usr/local --strip-components=1 2>/dev/null && \
+          rm -f "/tmp/${pkg}" && return 0
+      fi
+      ;;
+  esac
+  return 1
+}
+
 check_node() {
   if command -v node &>/dev/null; then
     local ver
@@ -59,8 +108,16 @@ check_node() {
     warn "Node.js not found"
   fi
 
+  # Try auto-install
+  info "Attempting to install/upgrade Node.js automatically..."
+  if install_nodejs; then
+    ok "Node.js $(node -v) installed successfully"
+    return 0
+  fi
+
+  # Manual instructions as fallback
   echo ""
-  echo -e "  ${YELLOW}Install Node.js >= 20:${NC}"
+  echo -e "  ${YELLOW}Automatic install failed. Please install manually:${NC}"
   case "$PLATFORM" in
     termux)
       echo "    pkg install nodejs"
@@ -84,16 +141,29 @@ check_node() {
 # ── Step 2: pnpm ────────────────────────────────────────────────────────────────
 check_pnpm() {
   if command -v pnpm &>/dev/null; then
-    ok "pnpm $(pnpm -v)"
-    return 0
+    local ver
+    ver=$(pnpm -v | cut -d. -f1)
+    if [ "$ver" -ge 9 ]; then
+      ok "pnpm $(pnpm -v)"
+      return 0
+    fi
+    warn "pnpm $(pnpm -v) found, but >= 9 required"
+  else
+    warn "pnpm not found"
   fi
 
-  info "Installing pnpm..."
-  if command -v npm &>/dev/null; then
-    npm install -g pnpm 2>/dev/null && ok "pnpm installed" && return 0
-  fi
+  info "Installing/upgrading pnpm..."
+
+  # Use corepack (ships with Node.js >= 16)
   if command -v corepack &>/dev/null; then
-    corepack enable && corepack prepare pnpm@latest --activate 2>/dev/null && ok "pnpm installed via corepack" && return 0
+    corepack enable 2>/dev/null && \
+      corepack prepare pnpm@latest --activate 2>/dev/null && \
+      ok "pnpm $(pnpm -v) installed via corepack" && return 0
+  fi
+
+  # Use npm to install/upgrade
+  if command -v npm &>/dev/null; then
+    npm install -g pnpm@latest 2>/dev/null && ok "pnpm $(pnpm -v) installed" && return 0
   fi
 
   # Fallback: standalone install
@@ -101,7 +171,7 @@ check_pnpm() {
   export PNPM_HOME="$HOME/.local/share/pnpm"
   export PATH="$PNPM_HOME:$PATH"
   if command -v pnpm &>/dev/null; then
-    ok "pnpm installed via standalone script"
+    ok "pnpm $(pnpm -v) installed via standalone script"
     return 0
   fi
 
@@ -111,7 +181,7 @@ check_pnpm() {
 # ── Step 3: Git ─────────────────────────────────────────────────────────────────
 check_git() {
   if command -v git &>/dev/null; then
-    ok "git $(git --version | grep -oP '\d+\.\d+\.\d+' | head -1)"
+    ok "git $(git --version | awk '{print $3}')"
     return 0
   fi
 
@@ -150,12 +220,43 @@ install_deps() {
   info "Installing dependencies..."
   cd "$INSTALL_DIR"
 
-  # better-sqlite3 and sqlite-vec ship prebuilt binaries for all common platforms.
-  # A C++ toolchain is only needed if prebuilds fail (rare architectures).
-  if pnpm install --prefer-offline 2>&1; then
+  # Ensure build scripts are approved (pnpm v10+ requires explicit approval).
+  # The repo ships .npmrc with onlyBuiltDependencies[] entries, but pnpm may
+  # still block builds on some versions. Run approve-builds non-interactively.
+  if command -v pnpm &>/dev/null && pnpm approve-builds --help 2>/dev/null | grep -q 'global' 2>/dev/null; then
+    # pnpm v10.4+ supports --global
+    pnpm approve-builds --global 2>/dev/null || true
+  fi
+
+  if pnpm install --prefer-offline 2>&1 | tee /tmp/ohmyagent-pnpm-install.log; then
     ok "Dependencies installed (prebuilt binaries)"
+    rm -f /tmp/ohmyagent-pnpm-install.log
     return 0
   fi
+
+  # Check for SSL certificate errors (common on corporate networks with TLS inspection)
+  if grep -qi 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY\|CERT_HAS_EXPIRED\|self.signed' /tmp/ohmyagent-pnpm-install.log 2>/dev/null; then
+    warn "SSL certificate error detected (common on corporate networks)."
+    warn "Retrying with NODE_TLS_REJECT_UNAUTHORIZED=0..."
+    if NODE_TLS_REJECT_UNAUTHORIZED=0 pnpm install --prefer-offline 2>&1; then
+      ok "Dependencies installed (SSL workaround)"
+      rm -f /tmp/ohmyagent-pnpm-install.log
+      return 0
+    fi
+  fi
+
+  # If lockfile is incompatible (old pnpm vs new lockfile), regenerate and retry
+  if grep -qi 'not compatible with current pnpm\|Ignoring broken lockfile' /tmp/ohmyagent-pnpm-install.log 2>/dev/null; then
+    warn "Lockfile incompatible with current pnpm. Regenerating..."
+    rm -f pnpm-lock.yaml
+    if pnpm install --prefer-offline 2>&1; then
+      ok "Dependencies installed (lockfile regenerated)"
+      rm -f /tmp/ohmyagent-pnpm-install.log
+      return 0
+    fi
+  fi
+
+  rm -f /tmp/ohmyagent-pnpm-install.log
 
   # Prebuilds failed — need to compile from source
   warn "Prebuilt binaries unavailable for this platform. Need C++ toolchain to compile."
