@@ -125,21 +125,21 @@ jobs:
           echo '{ "type": "module" }' > dist/package.json
 
       - name: Install WebUI dependencies
+        shell: bash
         run: |
-          tmp=$(mktemp)
-          mv pnpm-workspace.yaml "$tmp"
-          cd ui && pnpm install --frozen-lockfile
-          mv "$tmp" pnpm-workspace.yaml
+          mv pnpm-workspace.yaml pnpm-workspace.yaml.bak
+          (cd ui && pnpm install --frozen-lockfile)
+          mv pnpm-workspace.yaml.bak pnpm-workspace.yaml
 
       - name: Build WebUI
         run: pnpm build:ui
 
       - name: Install desktop dependencies
+        shell: bash
         run: |
-          tmp=$(mktemp)
-          mv pnpm-workspace.yaml "$tmp"
-          cd desktop && pnpm install --frozen-lockfile
-          mv "$tmp" pnpm-workspace.yaml
+          mv pnpm-workspace.yaml pnpm-workspace.yaml.bak
+          (cd desktop && pnpm install --frozen-lockfile)
+          mv pnpm-workspace.yaml.bak pnpm-workspace.yaml
 
       - name: Determine electron-builder platform flag
         id: platform_flag
