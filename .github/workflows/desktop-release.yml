@@ -152,7 +152,11 @@ jobs:
           esac
 
       - name: Bundle Electron dependencies
-        run: cd desktop && npm run bundle-deps
+        shell: bash
+        run: |
+          mv pnpm-workspace.yaml pnpm-workspace.yaml.bak
+          (cd desktop && npm run bundle-deps)
+          mv pnpm-workspace.yaml.bak pnpm-workspace.yaml
 
       - name: Build desktop TypeScript
         run: cd desktop && npm run build
