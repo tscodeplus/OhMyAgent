@@ -175,6 +175,18 @@ function copyDir(src, dest, basePath) {
 function collectPnpmDeps(projectDir) {
   log(`Scanning pnpm dependency tree in ${projectDir}...`);
 
+  // pnpm-workspace.yaml forces workspace mode, which changes how
+  // `pnpm list` resolves deps from subdirectories (e.g. desktop/).
+  // When in workspace mode, subdirectory deps like electron-store are
+  // not listed. Temporarily hide the config to get non-workspace behavior.
+  const rootWsYaml = path.resolve(projectDir, 'pnpm-workspace.yaml');
+  const parentWsYaml = path.resolve(projectDir, '..', 'pnpm-workspace.yaml');
+  const wsYaml = fs.existsSync(rootWsYaml) ? rootWsYaml :
+                 fs.existsSync(parentWsYaml) ? parentWsYaml : null;
+  if (wsYaml) {
+    fs.renameSync(wsYaml, wsYaml + '.bak');
+  }
+
   let output;
   try {
     // depth=20 is sufficient for any realistic dependency tree.
@@ -189,8 +201,17 @@ function collectPnpmDeps(projectDir) {
     // pnpm list may exit non-zero but still output valid JSON
     output = err.stdout || '';
     if (!output.trim()) {
+      // Restore workspace config before throwing
+      if (wsYaml) {
+        try { fs.renameSync(wsYaml + '.bak', wsYaml); } catch {}
+      }
       throw new Error(`pnpm list failed: ${err.message}`);
     }
+  }
+
+  // Restore workspace config after pnpm list completes
+  if (wsYaml) {
+    try { fs.renameSync(wsYaml + '.bak', wsYaml); } catch {}
   }
 
   let tree;
