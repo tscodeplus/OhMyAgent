@@ -429,6 +429,35 @@ function main() {
   log(`Found ${desktopDeps.size} unique packages in desktop dependency tree`);
   log('');
 
+  // 3b. Backfill desktop deps that were hoisted to root node_modules by workspace.
+  // When workspace mode is disabled during pnpm list, packages that pnpm hoisted
+  // to the root (e.g. ws) are invisible to the desktop collectPnpmDeps call.
+  // Walk desktop's package.json dependencies and check root node_modules for any
+  // that are missing from the collected set.
+  log('Backfilling workspace-hoisted desktop deps from root node_modules...');
+  const rootNm = path.join(ROOT, 'node_modules');
+  const desktopPkgJsonPath = path.join(DESKTOP, 'package.json');
+  if (fs.existsSync(desktopPkgJsonPath) && fs.existsSync(rootNm)) {
+    let desktopPkg;
+    try { desktopPkg = JSON.parse(fs.readFileSync(desktopPkgJsonPath, 'utf8')); } catch { desktopPkg = {}; }
+    const desktopProdDeps = { ...desktopPkg.dependencies };
+    let backfilled = 0;
+    for (const depName of Object.keys(desktopProdDeps)) {
+      // Check if already collected
+      const alreadyCollected = [...desktopDeps.values()].some(d => d.name === depName)
+        || [...rootDeps.values()].some(d => d.name === depName);
+      if (alreadyCollected) continue;
+      // Look in root node_modules (workspace-hoisted location)
+      const rootDepPath = path.join(rootNm, depName);
+      if (fs.existsSync(path.join(rootDepPath, 'package.json'))) {
+        desktopDeps.set(rootDepPath, { name: depName, version: desktopProdDeps[depName] });
+        backfilled++;
+        log(`  ✓ ${depName} (from root node_modules)`);
+      }
+    }
+    if (backfilled > 0) log(`Backfilled ${backfilled} hoisted desktop dep(s)`);
+  }
+
   // Merge both (desktop wins on conflict — has Electron-ABI versions of native addons)
   const allDeps = new Map(rootDeps);
   for (const [pkgPath, info] of desktopDeps) {
