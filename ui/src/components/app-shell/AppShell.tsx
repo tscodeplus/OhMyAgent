@@ -166,19 +166,24 @@ export default function AppShell() {
 
       {/* Main */}
       <main className="flex min-w-0 flex-1 flex-col">
-        {/* Header bar — matches PilotDeck: h-12 px-6 */}
-        <header className="flex h-10 sm:h-12 shrink-0 items-center border-b border-neutral-200 px-3 sm:px-6 dark:border-neutral-800">
+        {/* Header bar — draggable region for Electron (titleBarStyle: hidden).
+            -webkit-app-region: drag allows the user to move the window by
+            dragging this area, replacing the hidden native title bar. */}
+        <header className="flex h-10 sm:h-12 shrink-0 items-center border-b border-neutral-200 px-3 sm:px-6 dark:border-neutral-800"
+          style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
           {/* Sidebar toggle when collapsed */}
           {!sidebarOpen && (
             <button type="button" onClick={toggleSidebar}
-              className="mr-2 sm:mr-4 hidden md:inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100">
+              className="mr-2 sm:mr-4 hidden md:inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
               <PanelLeftOpen className="h-4 w-4" strokeWidth={1.75} />
             </button>
           )}
 
           {/* Mobile toggle — always visible on small screens for sidebar access */}
           <button type="button" onClick={() => setMobileSidebar(true)}
-            className="mr-2 sm:mr-4 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 md:hidden">
+            className="mr-2 sm:mr-4 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 md:hidden"
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
             <PanelLeftOpen className="h-4 w-4" strokeWidth={1.75} />
           </button>
 
@@ -213,6 +218,7 @@ export default function AppShell() {
               const isActive = tab.path === '/' ? isChatArea || location.pathname === '/' : location.pathname.startsWith(tab.path);
               return (
                 <button key={tab.id} type="button" role="tab" aria-selected={isActive}
+                  style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
                   onClick={async () => {
                     if (tab.path === '/') {
                       const pid = selectedProjectId;

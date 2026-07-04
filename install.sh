@@ -897,20 +897,27 @@ setup_config() {
     ok ".env already exists"
   fi
 
-  # Check if minimum config is already satisfied (API key in config.yaml + WebUI token in .env)
+  # Check if minimum config is already satisfied (API key + WebUI token).
+  # API key can be in config.yaml OR .env (both are valid config paths).
   HAS_API_KEY=0
   if [ -f config.yaml ]; then
     HAS_API_KEY=$(grep -c 'api_key:' config.yaml 2>/dev/null | head -1)
-    # Still count as 0 if it's the placeholder
     grep -q 'api_key: sk-xxx' config.yaml 2>/dev/null && HAS_API_KEY=0
+  fi
+  # Also check .env for PI_AI_API_KEY (older setups may only use .env)
+  if [ "$HAS_API_KEY" -eq 0 ] && [ -f .env ]; then
+    HAS_API_KEY=$(grep -c '^PI_AI_API_KEY=' .env 2>/dev/null | head -1)
+    grep -q 'PI_AI_API_KEY=sk-xxx' .env 2>/dev/null && HAS_API_KEY=0
+    grep -q 'PI_AI_API_KEY=$' .env 2>/dev/null && HAS_API_KEY=0   # empty value
   fi
   HAS_TOKEN=0
   if [ -f .env ]; then
     HAS_TOKEN=$(grep -c '^WEBUI_TOKEN=' .env 2>/dev/null | head -1)
     grep -q 'WEBUI_TOKEN=changeme' .env 2>/dev/null && HAS_TOKEN=0
+    grep -q 'WEBUI_TOKEN=$' .env 2>/dev/null && HAS_TOKEN=0         # empty value
   fi
   if [ "$HAS_API_KEY" -gt 0 ] && [ "$HAS_TOKEN" -gt 0 ]; then
-    ok "Config appears complete (API key in config.yaml, WebUI token in .env) — skipping setup"
+    ok "Config appears complete (API key + WebUI token) — skipping setup"
     return 0
   fi
 
@@ -924,7 +931,7 @@ setup_config() {
   echo -e "    ${CYAN}4${NC}) Other     — enter provider/model/URL/key manually"
   echo ""
 
-  read -r -p "  Choose [1-4] (default: 1): " choice < /dev/tty 2>/dev/null || true
+  read -r -p "  Choose [1-4] (default: 1): " choice < /dev/tty || true
   choice="${choice:-1}"
 
   case "$choice" in
@@ -947,18 +954,18 @@ setup_config() {
       DEFAULT_BASE_URL=""
       ;;
     4)
-      read -r -p "  Provider ID: " PI_AI_PROVIDER < /dev/tty 2>/dev/null || true
-      read -r -p "  Model name: " PI_AI_MODEL < /dev/tty 2>/dev/null || true
-      read -r -p "  Reasoning model (or same as above): " PI_AI_REASONING_MODEL < /dev/tty 2>/dev/null || true
+      read -r -p "  Provider ID: " PI_AI_PROVIDER < /dev/tty || true
+      read -r -p "  Model name: " PI_AI_MODEL < /dev/tty || true
+      read -r -p "  Reasoning model (or same as above): " PI_AI_REASONING_MODEL < /dev/tty || true
       PI_AI_REASONING_MODEL="${PI_AI_REASONING_MODEL:-$PI_AI_MODEL}"
-      read -r -p "  Base URL (or leave empty): " DEFAULT_BASE_URL < /dev/tty 2>/dev/null || true
+      read -r -p "  Base URL (or leave empty): " DEFAULT_BASE_URL < /dev/tty || true
       ;;
     *)
       abort "Invalid choice"
       ;;
   esac
 
-  read -r -s -p "  API Key: " PI_AI_API_KEY < /dev/tty 2>/dev/null || true
+  read -r -s -p "  API Key: " PI_AI_API_KEY < /dev/tty || true
   echo ""
 
   if [ -z "$PI_AI_API_KEY" ]; then
@@ -967,7 +974,7 @@ setup_config() {
 
   # Generate a random WEBUI_TOKEN or let user set one
   WEBUI_TOKEN=""
-  read -r -s -p "  WebUI password (leave empty to auto-generate): " WEBUI_TOKEN < /dev/tty 2>/dev/null || true
+  read -r -s -p "  WebUI password (leave empty to auto-generate): " WEBUI_TOKEN < /dev/tty || true
   echo ""
   if [ -z "$WEBUI_TOKEN" ]; then
     WEBUI_TOKEN=$(openssl rand -hex 16 2>/dev/null || python3 -c "import secrets; print(secrets.token_hex(16))" 2>/dev/null || cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32)
@@ -1018,7 +1025,7 @@ build_project() {
 # ── Step 9: Service ─────────────────────────────────────────────────────────────
 install_service() {
   echo ""
-  read -r -p "  Install as system service (auto-start on boot)? [y/N] " svc < /dev/tty 2>/dev/null || true
+  read -r -p "  Install as system service (auto-start on boot)? [y/N] " svc < /dev/tty || true
   if [ "${svc:-n}" = "y" ] || [ "${svc:-n}" = "Y" ]; then
     cd "$INSTALL_DIR"
     if node dist/src/cli/index.js service install 2>/dev/null; then
@@ -1057,7 +1064,7 @@ finish() {
   echo -e "  ${BOLD}Desktop app:${NC} https://github.com/tscodeplus/OhMyAgent/releases"
   echo ""
 
-  read -r -p "  Start now? [Y/n] " start < /dev/tty 2>/dev/null || true
+  read -r -p "  Start now? [Y/n] " start < /dev/tty || true
   if [ "${start:-y}" = "y" ] || [ "${start:-y}" = "Y" ]; then
     cd "$INSTALL_DIR"
     pnpm dev
