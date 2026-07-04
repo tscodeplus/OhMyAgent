@@ -378,6 +378,13 @@ ALLOWBUILDS_NPMRC
       rm -f /tmp/ohmyagent-pnpm-install.log
       return 0
     fi
+    # TLS bypass didn't help — network might be blocking npmjs.org entirely
+    warn "Still failing — trying npmmirror.com registry mirror..."
+    if pnpm install --prefer-offline --fetch-retries=0 --registry=https://registry.npmmirror.com 2>&1; then
+      ok "Dependencies installed (npmmirror mirror)"
+      rm -f /tmp/ohmyagent-pnpm-install.log
+      return 0
+    fi
   fi
 
   # If lockfile is incompatible (old pnpm vs new lockfile), regenerate and retry
@@ -552,26 +559,30 @@ install_ui_deps() {
     return 0
   fi
 
-  # Run pnpm install in the ui/ subdirectory with SSL fallback (same as root).
+  # Run pnpm install in the ui/ subdirectory with network fallbacks.
   # ui/ is NOT part of the root workspace — it has its own lockfile and deps.
   # --ignore-workspace is required because pnpm detects the parent directory's
   # pnpm-workspace.yaml and silently skips install (exit 0, no node_modules).
-  # --fetch-retries=0 avoids pnpm's internal 30s retry delays on SSL errors;
-  # the script's own SSL fallback handles it faster.
+  # --fetch-retries=0 avoids pnpm's internal 30s retry delays on network errors.
   if (cd ui && pnpm install --prefer-offline --ignore-workspace --fetch-retries=0 2>&1 | tee /tmp/ohmyagent-ui-install.log); then
     ok "WebUI dependencies installed"
     rm -f /tmp/ohmyagent-ui-install.log
   else
-    # Any network error (SSL cert, fetch failure, etc.) → retry with TLS off.
-    # Corporate networks with TLS inspection cause all of these.
     warn "WebUI install failed — retrying with NODE_TLS_REJECT_UNAUTHORIZED=0..."
     rm -f /tmp/ohmyagent-ui-install.log
     if (cd ui && NODE_TLS_REJECT_UNAUTHORIZED=0 pnpm install --prefer-offline --ignore-workspace --fetch-retries=0 2>&1); then
       ok "WebUI dependencies installed (SSL workaround)"
     else
-      warn "WebUI dependency installation failed"
-      warn "Skipping WebUI build — server will serve UI in dev mode"
-      return 0
+      # TLS bypass didn't help — likely network unreachable to npmjs.org.
+      # Try npmmirror (Chinese npm mirror) as a final fallback.
+      warn "Still failed — trying npmmirror.com registry mirror..."
+      if (cd ui && pnpm install --prefer-offline --ignore-workspace --fetch-retries=0 --registry=https://registry.npmmirror.com 2>&1); then
+        ok "WebUI dependencies installed (npmmirror mirror)"
+      else
+        warn "WebUI dependency installation failed"
+        warn "Skipping WebUI build — server will serve UI in dev mode"
+        return 0
+      fi
     fi
   fi
 
