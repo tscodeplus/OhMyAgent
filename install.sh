@@ -254,6 +254,45 @@ clone_repo() {
   ok "Repository cloned"
 }
 
+# ── Proxy detection ──────────────────────────────────────────────────────────
+# Detects local HTTP proxy servers (INCY/Clash/V2Ray/etc.) and sets
+# https_proxy / http_proxy env vars so that Node.js/pnpm can route through
+# the proxy directly. This is more reliable than relying on TUN-mode virtual
+# network interfaces, which can have DNS and connection-tracking issues on macOS.
+_detect_and_set_proxy() {
+  # Respect user's explicit proxy settings
+  if [ -n "${https_proxy:-}" ] || [ -n "${HTTPS_PROXY:-}" ] || \
+     [ -n "${http_proxy:-}" ]  || [ -n "${HTTP_PROXY:-}" ]; then
+    export https_proxy="${https_proxy:-${HTTPS_PROXY:-}}"
+    export http_proxy="${http_proxy:-${HTTP_PROXY:-${https_proxy}}}"
+    return 0
+  fi
+
+  # Common local HTTP proxy ports:
+  #   7890  — Clash / INCY / Stash (HTTP)
+  #   10808 — V2Ray / Xray (HTTP inbound)
+  #   6152  — Surge (HTTP)
+  #   8118  — Privoxy
+  #   8080  — Generic / CNTLM
+  local proxy_ports="7890 10808 6152 8118 8080"
+
+  for port in $proxy_ports; do
+    # Use Node.js to test TCP connectivity (Node is already installed by now)
+    if node -e "
+var net = require('net');
+var s = net.createConnection({host:'127.0.0.1',port:$port}, function(){ s.end(); });
+s.on('error', function(){ process.exit(1); });
+s.setTimeout(1000, function(){ s.destroy(); process.exit(1); });
+" 2>/dev/null; then
+      export https_proxy="http://127.0.0.1:$port"
+      export http_proxy="http://127.0.0.1:$port"
+      info "Detected local proxy at 127.0.0.1:$port — routing pnpm through it"
+      return 0
+    fi
+  done
+  return 1
+}
+
 # ── Step 5: Install dependencies ────────────────────────────────────────────────
 install_deps() {
   info "Installing dependencies..."

@@ -14,6 +14,28 @@ interface MessageBubbleProps {
   message: Message;
 }
 
+/**
+ * Convert <plan>...</plan> tags emitted by the LLM into standard markdown
+ * blockquotes so ReactMarkdown can parse them correctly.
+ *
+ * The <plan> tag is not a known HTML element, so ReactMarkdown treats it as
+ * a raw inline tag, which (a) shows the tag text inline instead of on its
+ * own line, and (b) suppresses markdown parsing of the content inside it.
+ *
+ * By converting to blockquote syntax with a header, the plan content renders
+ * as a visually-distinct block with full markdown support (headings, lists,
+ * code fences, etc.).
+ */
+function formatPlanBlocks(content: string): string {
+  if (!content) return content;
+  return content.replace(/<plan>([\s\S]*?)<\/plan>/g, (_: string, inner: string) => {
+    const trimmed = inner.trim();
+    if (!trimmed) return '';
+    const lines = trimmed.split('\n').map(line => `> ${line}`).join('\n');
+    return `\n\n> 📋 **规划**\n> \n${lines}\n\n`;
+  });
+}
+
 export default function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isAssistant = message.role === 'assistant';
@@ -227,7 +249,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
                 {message.segments.map((seg, i) =>
                   seg.type === 'text' ? (
                     <div key={i} className="markdown-content">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{seg.content || ''}</ReactMarkdown>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{formatPlanBlocks(seg.content || '')}</ReactMarkdown>
                     </div>
                   ) : seg.type === 'tool_call' && seg.toolCall ? (
                     <ToolCallCard key={seg.toolCall.id} toolCall={seg.toolCall} />
@@ -278,7 +300,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
               // Used for API-fetched history which doesn't have segments.
               <>
                 <div className="markdown-content">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{message.content}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{formatPlanBlocks(message.content)}</ReactMarkdown>
                 </div>
                 {message.tool_calls && message.tool_calls.length > 0 && (
                   <div className="mt-2 space-y-2 w-full">
