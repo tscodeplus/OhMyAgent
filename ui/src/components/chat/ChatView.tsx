@@ -193,12 +193,7 @@ export default function ChatView() {
   if (sessionId) {
     return (
       <div className="flex h-full flex-col">
-        <MessageList projectId={projectId} sessionId={sessionId} streamingMessages={streamMessages} isStreaming={isStreaming} refetchKey={refetchKey} onRefetched={handleRefetched} />
-        {isThinking && (
-          <div className="shrink-0 flex items-center justify-center gap-1.5 py-2 text-sm text-neutral-500 dark:text-neutral-400">
-            <span className="thinking-dots">{t('chat.thinking')}</span>
-          </div>
-        )}
+        <MessageList projectId={projectId} sessionId={sessionId} streamingMessages={streamMessages} isStreaming={isStreaming} isThinking={isThinking} refetchKey={refetchKey} onRefetched={handleRefetched} />
         <ChatInput projectId={projectId} sessionId={sessionId} onMessages={handleMessagesWithReset} onStreamStart={() => { setIsStreaming(true); streamGenerationRef.current++; }} onThinkingChange={handleThinkingChange} onDone={handleTurnDone} />
       </div>
     );
@@ -219,7 +214,7 @@ export default function ChatView() {
       </div>
 
       {/* Input at bottom — same position/size as ChatInput */}
-      <div className="shrink-0 border-t border-neutral-200 bg-white px-3 sm:px-4 py-4 sm:py-6 dark:border-neutral-800 dark:bg-neutral-950">
+      <div className="shrink-0 border-t border-neutral-200 bg-white px-3 sm:px-4 py-2 sm:py-3 dark:border-neutral-800 dark:bg-neutral-950">
         <div className="mx-auto flex max-w-3xl items-end gap-2 sm:gap-3">
           <textarea
             value={quickInput}

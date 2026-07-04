@@ -11,6 +11,8 @@ interface MessageListProps {
   streamingMessages?: Message[];
   /** True while an SSE stream is active. */
   isStreaming?: boolean;
+  /** True while the gateway is thinking (turn_start received, no response yet). */
+  isThinking?: boolean;
   /** Increment after each turn completes to refetch from API. */
   refetchKey?: number;
   /** Called after a refetch completes successfully — signals ChatView to clean up streaming messages. */
@@ -19,7 +21,7 @@ interface MessageListProps {
 
 const PAGE_SIZE = 50;
 
-export default function MessageList({ projectId: _projectId, sessionId, streamingMessages: externalMessages, isStreaming, refetchKey, onRefetched }: MessageListProps) {
+export default function MessageList({ projectId: _projectId, sessionId, streamingMessages: externalMessages, isStreaming, isThinking, refetchKey, onRefetched }: MessageListProps) {
   const { t } = useTranslation('common');
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
@@ -197,7 +199,7 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
   }, [messages, externalMessages]);
 
   return (
-    <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 sm:py-6">
+    <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-3 sm:px-4 py-2 sm:py-3">
       {/* Top sentinel for infinite scroll — IntersectionObserver watches this */}
       <div ref={topSentinelRef} className="h-px" />
 
@@ -216,7 +218,7 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
       )}
 
       {/* Empty state */}
-      {!loading && displayMessages.length === 0 && (
+      {!loading && displayMessages.length === 0 && !isThinking && (
         <div className="flex items-center justify-center h-full text-neutral-500 dark:text-neutral-400 text-sm">
           {t("chat.sendMessage")}
         </div>
@@ -226,6 +228,19 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
         {displayMessages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} />
         ))}
+        {/* Thinking indicator — shown in message flow like Feishu/Lark */}
+        {isThinking && (
+          <div className="flex gap-3">
+            <div className="shrink-0 flex h-7 w-7 items-center justify-center rounded-full bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14l2 2 3-3"/></svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 text-sm text-neutral-800 dark:text-neutral-200">
+                <span className="thinking-dots">{t('chat.thinking')}</span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       <div ref={bottomRef} />
     </div>

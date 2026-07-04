@@ -40,7 +40,7 @@
       "remove": "Remove",
       "dragActive": "Release to upload"
     },
-    "thinking": "Thinking...",
+    "thinking": "Thinking",
     "toolCall": "Tool Call: ",
     "newSession": "New Chat",
     "clearContext": "Clear Context",

@@ -242,6 +242,12 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
     // Abort any running SSE stream before starting a new one
     abortRef.current?.abort();
     setSending(true);
+    // Don't clear existing streaming content when sending slash commands
+    // during an active stream (e.g. /steer, /btw). Regular sends always reset.
+    if (!opts?.preserveContent) {
+      onStreamStart?.();
+    }
+
     // Append uploaded file references to the message
     const doneUploads = fileUploads.filter(u => u.status === 'done' && u.path);
     const fileRefs = buildFileRefs(doneUploads);
@@ -275,8 +281,7 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
         console.log('[ChatInput] SSE event', { type: event.type, ts: Date.now() - streamStartTime });
         switch (event.type) {
           case 'turn_start':
-            // Gateway received the message — notify parent for "thinking" indicator.
-            onStreamStart?.();
+            // Gateway received the message — start "thinking" indicator.
             onThinkingChange?.(true);
             // Reuse the bubble eagerly created by steerMessage.
             if (steerBubbleRef.current) {
@@ -677,7 +682,7 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
 
   return (
     <div
-      className={`shrink-0 border-t border-neutral-200 bg-white px-3 sm:px-4 py-4 sm:py-6 dark:border-neutral-800 dark:bg-neutral-950 relative ${
+      className={`shrink-0 border-t border-neutral-200 bg-white px-3 sm:px-4 py-2 sm:py-3 dark:border-neutral-800 dark:bg-neutral-950 relative ${
         isDragOver ? 'ring-2 ring-blue-400 dark:ring-blue-500' : ''
       }`}
       onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
