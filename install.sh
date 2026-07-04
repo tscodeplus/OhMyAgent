@@ -314,7 +314,7 @@ ALLOWBUILDS_NPMRC
   fi
 
   # Check for SSL certificate errors (common on corporate networks with TLS inspection)
-  if grep -qi 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY\|CERT_HAS_EXPIRED\|self.signed' /tmp/ohmyagent-pnpm-install.log 2>/dev/null; then
+  if grep -qi 'unable to get local issuer certificate\|UNABLE_TO_GET_ISSUER_CERT_LOCALLY\|CERT_HAS_EXPIRED\|self.signed\|certificate' /tmp/ohmyagent-pnpm-install.log 2>/dev/null; then
     warn "SSL certificate error detected (common on corporate networks)."
     warn "Retrying with NODE_TLS_REJECT_UNAUTHORIZED=0..."
     if NODE_TLS_REJECT_UNAUTHORIZED=0 pnpm install --prefer-offline 2>&1; then
@@ -346,11 +346,21 @@ ALLOWBUILDS_NPMRC
       rm -f .npmrc.bak
     fi
     _ensure_builds_approved
-    if pnpm install --prefer-offline 2>&1; then
+    if pnpm install --prefer-offline 2>&1 | tee /tmp/ohmyagent-pnpm-retry2.log; then
       ok "Dependencies installed (builds approved)"
-      rm -f /tmp/ohmyagent-pnpm-install.log
+      rm -f /tmp/ohmyagent-pnpm-install.log /tmp/ohmyagent-pnpm-retry2.log
       return 0
     fi
+    # Native builds may hit SSL cert errors even after approval
+    if grep -qi 'unable to get local issuer certificate\|CERT_HAS_EXPIRED\|self.signed' /tmp/ohmyagent-pnpm-retry2.log 2>/dev/null; then
+      warn "SSL certificate error. Retrying with NODE_TLS_REJECT_UNAUTHORIZED=0..."
+      if NODE_TLS_REJECT_UNAUTHORIZED=0 pnpm install --prefer-offline 2>&1; then
+        ok "Dependencies installed (SSL workaround)"
+        rm -f /tmp/ohmyagent-pnpm-install.log /tmp/ohmyagent-pnpm-retry2.log
+        return 0
+      fi
+    fi
+    rm -f /tmp/ohmyagent-pnpm-retry2.log
   fi
 
   rm -f /tmp/ohmyagent-pnpm-install.log
@@ -383,10 +393,25 @@ ALLOWBUILDS_NPMRC
   _ensure_builds_approved
 
   info "Retrying with source compilation..."
-  if pnpm install --prefer-offline 2>&1; then
+  if pnpm install --prefer-offline 2>&1 | tee /tmp/ohmyagent-pnpm-retry.log; then
     ok "Dependencies installed (compiled from source)"
+    rm -f /tmp/ohmyagent-pnpm-retry.log
     return 0
   fi
+
+  # Source compilation may also fail due to SSL cert issues (node-gyp downloads
+  # Node headers from nodejs.org during native module compilation).
+  if grep -qi 'unable to get local issuer certificate\|UNABLE_TO_GET_ISSUER_CERT_LOCALLY\|CERT_HAS_EXPIRED\|self.signed\|certificate' /tmp/ohmyagent-pnpm-retry.log 2>/dev/null; then
+    warn "SSL certificate error during source compilation."
+    warn "Retrying with NODE_TLS_REJECT_UNAUTHORIZED=0..."
+    if NODE_TLS_REJECT_UNAUTHORIZED=0 pnpm install --prefer-offline 2>&1; then
+      ok "Dependencies installed (SSL workaround)"
+      rm -f /tmp/ohmyagent-pnpm-retry.log
+      return 0
+    fi
+  fi
+
+  rm -f /tmp/ohmyagent-pnpm-retry.log
 
   abort "Dependency installation failed. Check the output above."
 }
