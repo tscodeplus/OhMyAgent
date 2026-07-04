@@ -1,3 +1,4 @@
+import React from 'react';
 import { useTranslation } from 'react-i18next';
 import AccordionItem from '../../ui/AccordionItem';
 import Input from '../../ui/Input';

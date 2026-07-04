@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, useRef } from 'react';
+import React, { useCallback, useMemo, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { GripVertical, X } from 'lucide-react';
 import { useConfigDirty, type SettingsTabHandle } from '../useConfigDirty';

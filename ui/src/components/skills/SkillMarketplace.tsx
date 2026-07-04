@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Search, ExternalLink, Download, Check, Loader2, Package, TrendingUp } from 'lucide-react';
 import { apiRequest } from '../../utils/api';
