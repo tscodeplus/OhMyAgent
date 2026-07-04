@@ -1024,64 +1024,72 @@ build_project() {
 }
 
 # ── Step 9: CLI launcher ────────────────────────────────────────────────────────
-# Creates a symlink so the user can run "ohmyagent <command>" from any directory.
+# Creates a wrapper script so the user can run "ohmyagent <command>" from any
+# directory. pnpm workspaces do NOT create bin symlinks for the root package,
+# so we write a small shell wrapper that calls node on the compiled CLI directly.
 setup_cli() {
   cd "$INSTALL_DIR"
 
-  local cli_bin="node_modules/.bin/ohmyagent"
-  if [ ! -f "$cli_bin" ]; then
-    warn "CLI entry not found (expected at ${cli_bin})"
+  local cli_js="dist/src/cli/index.js"
+  if [ ! -f "$cli_js" ]; then
+    warn "CLI entry not found (expected at ${cli_js}) — build may have failed"
     return 1
   fi
 
   local target_dir=""
+  local use_sudo=false
 
   # /usr/local/bin is the standard location for user-installed CLI tools on macOS
   # and Linux. If it's writable, use it. Otherwise fall back to ~/.local/bin.
   if [ -d /usr/local/bin ] && [ -w /usr/local/bin ]; then
     target_dir="/usr/local/bin"
-  elif [ -d /usr/local/bin ] && command -v sudo &>/dev/null; then
-    # Try sudo — if the user has passwordless sudo this Just Works
-    if sudo -n ln -sf "$(pwd)/${cli_bin}" /usr/local/bin/ohmyagent 2>/dev/null; then
-      ok "CLI installed to /usr/local/bin/ohmyagent"
-      return 0
-    fi
-  fi
-
-  # Fallback: ~/.local/bin (user-writable, no sudo needed)
-  if [ -z "$target_dir" ]; then
+  elif [ -d /usr/local/bin ] && command -v sudo &>/dev/null && sudo -n true 2>/dev/null; then
+    target_dir="/usr/local/bin"
+    use_sudo=true
+  else
     target_dir="$HOME/.local/bin"
   fi
 
-  mkdir -p "$target_dir"
-  ln -sf "$(pwd)/${cli_bin}" "${target_dir}/ohmyagent" 2>/dev/null && {
-    ok "CLI installed to ${target_dir}/ohmyagent"
+  local wrapper="${target_dir}/ohmyagent"
 
-    # Ensure ~/.local/bin is in PATH for the current session and future shells
-    if [ "$target_dir" = "$HOME/.local/bin" ]; then
-      case "${SHELL:-}" in
-        */zsh)
-          if ! grep -qF 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.zshrc" 2>/dev/null; then
-            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.zshrc"
-            info "Added ~/.local/bin to PATH in ~/.zshrc"
-          fi
-          ;;
-        */bash)
-          if ! grep -qF 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.bash_profile" 2>/dev/null && \
-             ! grep -qF 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.bashrc" 2>/dev/null; then
-            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bash_profile"
-            info "Added ~/.local/bin to PATH in ~/.bash_profile"
-          fi
-          ;;
-      esac
-      export PATH="$HOME/.local/bin:$PATH"
-    fi
-    return 0
-  }
+  if [ "$use_sudo" = true ]; then
+    sudo tee "$wrapper" > /dev/null <<WRAPPER
+#!/usr/bin/env bash
+exec node "${INSTALL_DIR}/dist/src/cli/index.js" "\$@"
+WRAPPER
+    sudo chmod +x "$wrapper"
+  else
+    mkdir -p "$target_dir"
+    cat > "$wrapper" <<WRAPPER
+#!/usr/bin/env bash
+exec node "${INSTALL_DIR}/dist/src/cli/index.js" "\$@"
+WRAPPER
+    chmod +x "$wrapper"
+  fi
 
-  warn "Could not create ohmyagent CLI symlink."
-  warn "You can run: ln -sf $(pwd)/${cli_bin} /usr/local/bin/ohmyagent"
-  return 1
+  ok "CLI installed to ${wrapper}"
+
+  # Ensure ~/.local/bin is in PATH for the current session and future shells
+  if [ "$target_dir" = "$HOME/.local/bin" ]; then
+    case "${SHELL:-}" in
+      */zsh)
+        if ! grep -qF 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.zshrc" 2>/dev/null; then
+          echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.zshrc"
+          info "Added ~/.local/bin to PATH in ~/.zshrc"
+        fi
+        ;;
+      */bash)
+        if ! grep -qF 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.bash_profile" 2>/dev/null && \
+           ! grep -qF 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.bashrc" 2>/dev/null; then
+          echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bash_profile"
+          info "Added ~/.local/bin to PATH in ~/.bash_profile"
+        fi
+        ;;
+    esac
+    export PATH="$HOME/.local/bin:$PATH"
+  fi
+
+  return 0
 }
 
 # ── Step 10: Service ─────────────────────────────────────────────────────────────
