@@ -290,9 +290,11 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
               </>
             )
           ) : (
-            <div className="markdown-content">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{message.content}</ReactMarkdown>
-            </div>
+            // User messages: render as plain text with preserved line breaks.
+            // ReactMarkdown would collapse single \n to spaces per the CommonMark
+            // spec, but users expect copy-pasted multi-line text to keep its
+            // line breaks (e.g. pasting from tmux/macOS into the chat input).
+            <div className="whitespace-pre-wrap text-sm">{message.content}</div>
           )}
         </div>
 
