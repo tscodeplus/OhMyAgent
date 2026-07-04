@@ -235,8 +235,11 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14l2 2 3-3"/></svg>
             </div>
             <div className="flex-1 min-w-0">
-              <div className="rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 text-sm text-neutral-800 dark:text-neutral-200">
-                <span className="thinking-dots">{t('chat.thinking')}</span>
+              <div className="rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 text-sm text-neutral-500 dark:text-neutral-400">
+                {t('chat.thinking')}
+                <span className="thinking-dot" style={{ animationDelay: '0s' }}>.</span>
+                <span className="thinking-dot" style={{ animationDelay: '0.3s' }}>.</span>
+                <span className="thinking-dot" style={{ animationDelay: '0.6s' }}>.</span>
               </div>
             </div>
           </div>
