@@ -561,9 +561,10 @@ install_ui_deps() {
   if (cd ui && pnpm install --prefer-offline --ignore-workspace --fetch-retries=0 2>&1 | tee /tmp/ohmyagent-ui-install.log); then
     ok "WebUI dependencies installed"
     rm -f /tmp/ohmyagent-ui-install.log
-  elif grep -qi 'unable to get local issuer certificate\|CERT_HAS_EXPIRED\|self.signed\|certificate' /tmp/ohmyagent-ui-install.log 2>/dev/null; then
-    warn "SSL certificate error during WebUI install."
-    warn "Retrying with NODE_TLS_REJECT_UNAUTHORIZED=0..."
+  else
+    # Any network error (SSL cert, fetch failure, etc.) → retry with TLS off.
+    # Corporate networks with TLS inspection cause all of these.
+    warn "WebUI install failed — retrying with NODE_TLS_REJECT_UNAUTHORIZED=0..."
     rm -f /tmp/ohmyagent-ui-install.log
     if (cd ui && NODE_TLS_REJECT_UNAUTHORIZED=0 pnpm install --prefer-offline --ignore-workspace --fetch-retries=0 2>&1); then
       ok "WebUI dependencies installed (SSL workaround)"
@@ -572,11 +573,6 @@ install_ui_deps() {
       warn "Skipping WebUI build — server will serve UI in dev mode"
       return 0
     fi
-  else
-    warn "WebUI dependency installation failed"
-    warn "Skipping WebUI build — server will serve UI in dev mode"
-    rm -f /tmp/ohmyagent-ui-install.log
-    return 0
   fi
 
   info "Building WebUI frontend..."
