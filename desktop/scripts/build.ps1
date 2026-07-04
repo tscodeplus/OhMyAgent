@@ -498,6 +498,15 @@ if (-not $SkipRootBuild) {
     if (-not (Test-Path $bootstrap)) {
         Write-Warn "$bootstrap not found - server-dist will be incomplete!"
     }
+    # Ensure dist/package.json exists so Node.js treats .js files as ESM.
+    # Invoke-RootBuild normally creates this; when skipped we must create it
+    # here, otherwise the packaged server-dist/ lacks "type":"module" and
+    # Node.js fails with "Cannot use import statement outside a module".
+    $distPkgJson = "$RootDir\dist\package.json"
+    if (-not (Test-Path $distPkgJson)) {
+        Set-Content -Path $distPkgJson -Value '{ "type": "module" }'
+        Write-OK "Created dist/package.json (type: module for ESM resolution)"
+    }
 }
 
 if (-not $SkipWebUI) {
