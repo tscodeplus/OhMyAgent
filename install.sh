@@ -977,7 +977,7 @@ setup_config() {
   read -r -s -p "  WebUI password (leave empty to auto-generate): " WEBUI_TOKEN < /dev/tty || true
   echo ""
   if [ -z "$WEBUI_TOKEN" ]; then
-    WEBUI_TOKEN=$(openssl rand -hex 16 2>/dev/null || python3 -c "import secrets; print(secrets.token_hex(16))" 2>/dev/null || cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32)
+    WEBUI_TOKEN=$(cat /dev/urandom 2>/dev/null | LC_ALL=C tr -dc 'a-zA-Z0-9' | head -c 32 || python3 -c "import secrets,string;print(''.join(secrets.choice(string.ascii_letters+string.digits) for _ in range(32)))" 2>/dev/null)
     TOKEN_WAS_GENERATED=true
   fi
 
