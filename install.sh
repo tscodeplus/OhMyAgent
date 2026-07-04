@@ -19,6 +19,7 @@ echo ""
 
 INSTALL_DIR="${OHMYAGENT_INSTALL_DIR:-$HOME/OhMyAgent}"
 REPO_URL="https://github.com/tscodeplus/OhMyAgent.git"
+SERVICE_WAS_STARTED=false
 
 # ── Helpers ─────────────────────────────────────────────────────────────────────
 info()  { echo -e "  ${CYAN}[•]${NC} $1"; }
@@ -1022,21 +1023,83 @@ build_project() {
   ok "Build complete"
 }
 
-# ── Step 9: Service ─────────────────────────────────────────────────────────────
+# ── Step 9: CLI launcher ────────────────────────────────────────────────────────
+# Creates a symlink so the user can run "ohmyagent <command>" from any directory.
+setup_cli() {
+  cd "$INSTALL_DIR"
+
+  local cli_bin="node_modules/.bin/ohmyagent"
+  if [ ! -f "$cli_bin" ]; then
+    warn "CLI entry not found (expected at ${cli_bin})"
+    return 1
+  fi
+
+  local target_dir=""
+
+  # /usr/local/bin is the standard location for user-installed CLI tools on macOS
+  # and Linux. If it's writable, use it. Otherwise fall back to ~/.local/bin.
+  if [ -d /usr/local/bin ] && [ -w /usr/local/bin ]; then
+    target_dir="/usr/local/bin"
+  elif [ -d /usr/local/bin ] && command -v sudo &>/dev/null; then
+    # Try sudo — if the user has passwordless sudo this Just Works
+    if sudo -n ln -sf "$(pwd)/${cli_bin}" /usr/local/bin/ohmyagent 2>/dev/null; then
+      ok "CLI installed to /usr/local/bin/ohmyagent"
+      return 0
+    fi
+  fi
+
+  # Fallback: ~/.local/bin (user-writable, no sudo needed)
+  if [ -z "$target_dir" ]; then
+    target_dir="$HOME/.local/bin"
+  fi
+
+  mkdir -p "$target_dir"
+  ln -sf "$(pwd)/${cli_bin}" "${target_dir}/ohmyagent" 2>/dev/null && {
+    ok "CLI installed to ${target_dir}/ohmyagent"
+
+    # Ensure ~/.local/bin is in PATH for the current session and future shells
+    if [ "$target_dir" = "$HOME/.local/bin" ]; then
+      case "${SHELL:-}" in
+        */zsh)
+          if ! grep -qF 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.zshrc" 2>/dev/null; then
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.zshrc"
+            info "Added ~/.local/bin to PATH in ~/.zshrc"
+          fi
+          ;;
+        */bash)
+          if ! grep -qF 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.bash_profile" 2>/dev/null && \
+             ! grep -qF 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.bashrc" 2>/dev/null; then
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bash_profile"
+            info "Added ~/.local/bin to PATH in ~/.bash_profile"
+          fi
+          ;;
+      esac
+      export PATH="$HOME/.local/bin:$PATH"
+    fi
+    return 0
+  }
+
+  warn "Could not create ohmyagent CLI symlink."
+  warn "You can run: ln -sf $(pwd)/${cli_bin} /usr/local/bin/ohmyagent"
+  return 1
+}
+
+# ── Step 10: Service ─────────────────────────────────────────────────────────────
 install_service() {
   echo ""
   read -r -p "  Install as system service (auto-start on boot)? [y/N] " svc < /dev/tty || true
   if [ "${svc:-n}" = "y" ] || [ "${svc:-n}" = "Y" ]; then
     cd "$INSTALL_DIR"
     if node dist/src/cli/index.js service install 2>/dev/null; then
-      ok "Service installed — OhMyAgent will start automatically on boot"
+      SERVICE_WAS_STARTED=true
+      ok "Service installed and started — OhMyAgent will auto-start on boot"
     else
       warn "Service installation failed. You can try manually later: ohmyagent service install"
     fi
   fi
 }
 
-# ── Step 10: Ready ───────────────────────────────────────────────────────────────
+# ── Step 11: Ready ───────────────────────────────────────────────────────────────
 finish() {
   echo ""
   echo -e "${GREEN}${BOLD}╔══════════════════════════════════════╗${NC}"
@@ -1053,21 +1116,52 @@ finish() {
     echo -e "  ${BOLD}Token:${NC}  ${YELLOW}Set WEBUI_TOKEN in .env before starting${NC}"
   fi
   echo ""
-  echo -e "  ${BOLD}Start the server:${NC}"
-  echo -e "    cd ${INSTALL_DIR} && pnpm dev"
-  echo ""
-  echo -e "  ${BOLD}Or use the CLI:${NC}"
-  echo -e "    ohmyagent start     # Start in background"
-  echo -e "    ohmyagent status    # Check if running"
-  echo -e "    ohmyagent doctor    # System diagnostics"
-  echo ""
-  echo -e "  ${BOLD}Desktop app:${NC} https://github.com/tscodeplus/OhMyAgent/releases"
-  echo ""
 
-  read -r -p "  Start now? [Y/n] " start < /dev/tty || true
-  if [ "${start:-y}" = "y" ] || [ "${start:-y}" = "Y" ]; then
-    cd "$INSTALL_DIR"
-    pnpm dev
+  if [ "$SERVICE_WAS_STARTED" = true ]; then
+    # Service is already running — don't offer to start again
+    echo -e "  ${GREEN}${BOLD}✓ Server is already running on port 9191${NC}"
+    echo ""
+    echo -e "  ${BOLD}Manage with CLI:${NC}"
+    echo -e "    ohmyagent status    # Check server status"
+    echo -e "    ohmyagent stop      # Stop the server"
+    echo -e "    ohmyagent restart   # Restart the server"
+    echo -e "    ohmyagent doctor    # Run system diagnostics"
+    echo ""
+    echo -e "  ${BOLD}Or use native commands:${NC}"
+    case "$PLATFORM" in
+      macos)
+        echo -e "    launchctl list | grep ohmyagent"
+        echo -e "    launchctl unload ~/Library/LaunchAgents/com.ohmyagent.plist"
+        echo -e "    launchctl load ~/Library/LaunchAgents/com.ohmyagent.plist"
+        ;;
+      termux)
+        echo -e "    sv status ohmyagent"
+        echo -e "    sv down ohmyagent"
+        echo -e "    sv up ohmyagent"
+        ;;
+      linux)
+        echo -e "    systemctl --user status ohmyagent"
+        echo -e "    systemctl --user stop ohmyagent"
+        echo -e "    systemctl --user restart ohmyagent"
+        ;;
+    esac
+  else
+    echo -e "  ${BOLD}Start the server:${NC}"
+    echo -e "    cd ${INSTALL_DIR} && pnpm dev"
+    echo ""
+    echo -e "  ${BOLD}Or use the CLI:${NC}"
+    echo -e "    ohmyagent start     # Start in background"
+    echo -e "    ohmyagent status    # Check if running"
+    echo -e "    ohmyagent doctor    # Run system diagnostics"
+    echo ""
+    echo -e "  ${BOLD}Desktop app:${NC} https://github.com/tscodeplus/OhMyAgent/releases"
+    echo ""
+
+    read -r -p "  Start now? [Y/n] " start < /dev/tty || true
+    if [ "${start:-y}" = "y" ] || [ "${start:-y}" = "Y" ]; then
+      cd "$INSTALL_DIR"
+      pnpm dev
+    fi
   fi
 }
 
@@ -1081,5 +1175,6 @@ verify_sqlite_vec
 install_ui_deps
 setup_config
 build_project
+setup_cli
 install_service
 finish
