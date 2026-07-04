@@ -12,8 +12,8 @@ NC='\033[0m'
 # ── Banner ──────────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${CYAN}${BOLD}╔══════════════════════════════════════╗${NC}"
-echo -e "${CYAN}${BOLD}║       OhMyAgent Installer           ║${NC}"
-echo -e "${CYAN}${BOLD}║   Remembers. Understands. Respects. ║${NC}"
+echo -e "${CYAN}${BOLD}║       OhMyAgent Installer            ║${NC}"
+echo -e "${CYAN}${BOLD}║   Remembers. Understands. Respects.  ║${NC}"
 echo -e "${CYAN}${BOLD}╚══════════════════════════════════════╝${NC}"
 echo ""
 
@@ -200,7 +200,7 @@ clone_repo() {
   if [ -d "$INSTALL_DIR/.git" ]; then
     ok "Repository already exists: $INSTALL_DIR"
     info "Pulling latest changes..."
-    git -C "$INSTALL_DIR" pull --ff-only 2>/dev/null || warn "Could not pull (ignored)"
+    PULL_OUTPUT=$(git -C "$INSTALL_DIR" pull --ff-only 2>&1) || warn "Could not pull: ${PULL_OUTPUT}"
     return 0
   fi
 
@@ -220,13 +220,43 @@ install_deps() {
   info "Installing dependencies..."
   cd "$INSTALL_DIR"
 
-  # Ensure build scripts are approved (pnpm v10+ requires explicit approval).
-  # The repo ships .npmrc with onlyBuiltDependencies[] entries, but pnpm may
-  # still block builds on some versions. Run approve-builds non-interactively.
-  if command -v pnpm &>/dev/null && pnpm approve-builds --help 2>/dev/null | grep -q 'global' 2>/dev/null; then
-    # pnpm v10.4+ supports --global
-    pnpm approve-builds --global 2>/dev/null || true
-  fi
+  # ── Ensure build scripts are approved ─────────────────────────────────────
+  # pnpm v11 replaced onlyBuiltDependencies (array) with allowBuilds (map).
+  # The repo ships pnpm-workspace.yaml with both keys for cross-version compat,
+  # but if the clone/pull is stale the file may lack allowBuilds.
+  # This block ensures builds are approved regardless of pnpm version.
+  _ensure_builds_approved() {
+    local pnpm_ver
+    pnpm_ver=$(pnpm -v 2>/dev/null | cut -d. -f1)
+
+    if [ "${pnpm_ver:-0}" -ge 11 ]; then
+      # pnpm 11+: allowBuilds is already in the repo's pnpm-workspace.yaml.
+      # If missing (stale clone), inject it so pnpm won't block builds.
+      if ! grep -q 'allowBuilds' pnpm-workspace.yaml 2>/dev/null; then
+        cat >> pnpm-workspace.yaml <<'ALLOWBUILDS'
+
+allowBuilds:
+  better-sqlite3: true
+  sqlite-vec: true
+  sqlite-vec-windows-x64: true
+  sqlite-vec-linux-x64: true
+  sqlite-vec-darwin-x64: true
+  sqlite-vec-darwin-arm64: true
+  sqlite-vec-linux-arm64: true
+  sharp: true
+  esbuild: true
+  protobufjs: true
+  "@google/genai": true
+  "@nut-tree-fork/nut-js": true
+  electron: true
+ALLOWBUILDS
+      fi
+    elif command -v pnpm &>/dev/null && pnpm approve-builds --help 2>/dev/null | grep -q 'global' 2>/dev/null; then
+      # pnpm v10.4+
+      pnpm approve-builds --global 2>/dev/null || true
+    fi
+  }
+  _ensure_builds_approved
 
   if pnpm install --prefer-offline 2>&1 | tee /tmp/ohmyagent-pnpm-install.log; then
     ok "Dependencies installed (prebuilt binaries)"
@@ -251,6 +281,18 @@ install_deps() {
     rm -f pnpm-lock.yaml
     if pnpm install --prefer-offline 2>&1; then
       ok "Dependencies installed (lockfile regenerated)"
+      rm -f /tmp/ohmyagent-pnpm-install.log
+      return 0
+    fi
+  fi
+
+  # If pnpm blocked builds (ERR_PNPM_IGNORED_BUILDS), ensure they're approved
+  # and retry before falling through to the C++ toolchain path.
+  if grep -qi 'ERR_PNPM_IGNORED_BUILDS\|Ignored build scripts' /tmp/ohmyagent-pnpm-install.log 2>/dev/null; then
+    warn "Build scripts were blocked. Approving builds and retrying..."
+    _ensure_builds_approved
+    if pnpm install --prefer-offline 2>&1; then
+      ok "Dependencies installed (builds approved)"
       rm -f /tmp/ohmyagent-pnpm-install.log
       return 0
     fi
@@ -281,6 +323,9 @@ install_deps() {
       fi
       ;;
   esac
+
+  # Re-approve builds before retry — toolchain install may have reset state
+  _ensure_builds_approved
 
   info "Retrying with source compilation..."
   if pnpm install --prefer-offline 2>&1; then

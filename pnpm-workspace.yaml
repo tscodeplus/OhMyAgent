@@ -1,5 +1,9 @@
 # pnpm workspace configuration
-# pnpm v10+ reads onlyBuiltDependencies from here (no longer from package.json "pnpm" field)
+#
+# Build-dependency settings:
+#   pnpm v10: reads `onlyBuiltDependencies` (array)
+#   pnpm v11: reads `allowBuilds` (map of {pkg: true/false}) — the array form is ignored
+# Both keys are kept for cross-version compatibility.
 
 onlyBuiltDependencies:
   - better-sqlite3
@@ -15,3 +19,18 @@ onlyBuiltDependencies:
   - "@google/genai"
   - "@nut-tree-fork/nut-js"
   - electron
+
+allowBuilds:
+  better-sqlite3: true
+  sqlite-vec: true
+  sqlite-vec-windows-x64: true
+  sqlite-vec-linux-x64: true
+  sqlite-vec-darwin-x64: true
+  sqlite-vec-darwin-arm64: true
+  sqlite-vec-linux-arm64: true
+  sharp: true
+  esbuild: true
+  protobufjs: true
+  "@google/genai": true
+  "@nut-tree-fork/nut-js": true
+  electron: true
