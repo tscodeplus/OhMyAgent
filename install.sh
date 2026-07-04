@@ -746,6 +746,26 @@ install_ui_deps() {
     return 0
   fi
 
+  # ── Ensure esbuild build scripts are approved for the ui/ subdirectory ──
+  # pnpm 11+ blocks post-install build scripts by default (ERR_PNPM_IGNORED_BUILDS).
+  # Without this, pnpm exits non-zero even though all packages are installed,
+  # which triggers unnecessary network fallback retries.
+  _ensure_ui_builds_approved() {
+    local pnpm_ver
+    pnpm_ver=$(pnpm -v 2>/dev/null | cut -d. -f1)
+
+    if [ "${pnpm_ver:-0}" -ge 11 ]; then
+      if ! grep -q 'allowBuilds\[esbuild\]' ui/.npmrc 2>/dev/null; then
+        mkdir -p ui
+        echo 'allowBuilds[esbuild]=true' >> ui/.npmrc
+        info "Approved build scripts for ui/ (esbuild)"
+      fi
+    elif command -v pnpm &>/dev/null && pnpm approve-builds --help 2>/dev/null | grep -q 'global' 2>/dev/null; then
+      (cd ui && pnpm approve-builds esbuild 2>/dev/null) || true
+    fi
+  }
+  _ensure_ui_builds_approved
+
   # Ensure Node.js can verify TLS certificates (esp. npmjs.org which uses
   # Google Trust Services — not always in Node's bundled CA store).
   _ensure_node_ca_certs || true
@@ -765,6 +785,30 @@ install_ui_deps() {
     ok "WebUI dependencies installed"
     rm -f /tmp/ohmyagent-ui-install.log
   else
+    # ── ERR_PNPM_IGNORED_BUILDS is NOT a network error ──────────────────
+    # pnpm 11+ exits non-zero when build scripts are blocked, even though
+    # all packages installed successfully. Don't cycle network fallbacks.
+    if grep -qi 'ERR_PNPM_IGNORED_BUILDS\|Ignored build scripts' /tmp/ohmyagent-ui-install.log 2>/dev/null; then
+      warn "Build scripts were blocked — approving and retrying..."
+      rm -f /tmp/ohmyagent-ui-install.log
+      # Force-approve esbuild (may have been missed by pre-check)
+      mkdir -p ui
+      if ! grep -q 'allowBuilds\[esbuild\]' ui/.npmrc 2>/dev/null; then
+        echo 'allowBuilds[esbuild]=true' >> ui/.npmrc
+      fi
+      if (cd ui && pnpm install --prefer-offline --ignore-workspace 2>&1 | tee /tmp/ohmyagent-ui-install.log); then
+        ok "WebUI dependencies installed (builds approved)"
+        rm -f /tmp/ohmyagent-ui-install.log
+        return 0
+      fi
+      # Still blocked — packages are installed, just build scripts skipped
+      if grep -qi 'ERR_PNPM_IGNORED_BUILDS\|Ignored build scripts' /tmp/ohmyagent-ui-install.log 2>/dev/null; then
+        warn "Build scripts still blocked — packages are installed, continuing"
+        rm -f /tmp/ohmyagent-ui-install.log
+        return 0
+      fi
+    fi
+
     # If we had a proxy set but it failed, the "proxy" may be a SOCKS port
     # or a non-HTTP service. Unset proxy and retry (rely on TUN directly).
     if [ "$had_proxy" -eq 1 ]; then
