@@ -15,6 +15,7 @@
     "build": "tsc",
     "start": "electron .",
     "bundle-deps": "node scripts/bundle-deps.cjs",
+    "make-universal-addons": "node scripts/make-universal-addons.cjs",
     "dist": "npm run bundle-deps && npm run build && electron-builder",
     "dist:win": "npm run bundle-deps && npm run build && electron-builder --win",
     "dist:mac": "npm run bundle-deps && npm run build && electron-builder --mac",

@@ -141,6 +141,13 @@ jobs:
           (cd desktop && pnpm install --frozen-lockfile)
           mv pnpm-workspace.yaml.bak pnpm-workspace.yaml
 
+      - name: Make native addons universal (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          echo "Creating universal (arm64+x64) native addons..."
+          cd desktop && node scripts/make-universal-addons.cjs
+
       - name: Determine electron-builder platform flag
         id: platform_flag
         shell: bash
