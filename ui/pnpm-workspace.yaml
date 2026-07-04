@@ -1,0 +1,7 @@
+# ui/ is a standalone Vite + React project, not part of the root monorepo.
+# This file prevents pnpm from walking up to the root pnpm-workspace.yaml
+# (which would silently skip install since ui/ is not listed there).
+# It also approves esbuild build scripts — pnpm 11 only reads allowBuilds
+# from pnpm-workspace.yaml, not from .npmrc or package.json.
+allowBuilds:
+  esbuild: true

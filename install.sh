@@ -746,20 +746,25 @@ install_ui_deps() {
     return 0
   fi
 
-  # ── Ensure esbuild build scripts are approved for the ui/ subdirectory ──
-  # pnpm 11+ blocks post-install build scripts by default (ERR_PNPM_IGNORED_BUILDS).
-  # Without this, pnpm exits non-zero even though all packages are installed,
-  # which triggers unnecessary network fallback retries.
+  # ── Ensure esbuild build scripts are approved for ui/ ─────────────────
+  # pnpm 11+ only reads allowBuilds from pnpm-workspace.yaml.
+  # .npmrc and package.json pnpm field are NOT read for this setting.
+  # The repo ships ui/pnpm-workspace.yaml, but on existing installations
+  # upgraded via git pull before this file was added, create it on the fly.
   _ensure_ui_builds_approved() {
+    if [ -f ui/pnpm-workspace.yaml ]; then
+      return 0  # shipped with the repo — already configured
+    fi
     local pnpm_ver
     pnpm_ver=$(pnpm -v 2>/dev/null | cut -d. -f1)
 
     if [ "${pnpm_ver:-0}" -ge 11 ]; then
-      if ! grep -q 'allowBuilds\[esbuild\]' ui/.npmrc 2>/dev/null; then
-        mkdir -p ui
-        echo 'allowBuilds[esbuild]=true' >> ui/.npmrc
-        info "Approved build scripts for ui/ (esbuild)"
-      fi
+      mkdir -p ui
+      cat > ui/pnpm-workspace.yaml <<'ALLOWBUILDS_UI'
+allowBuilds:
+  esbuild: true
+ALLOWBUILDS_UI
+      info "Created ui/pnpm-workspace.yaml (esbuild build approval)"
     elif command -v pnpm &>/dev/null && pnpm approve-builds --help 2>/dev/null | grep -q 'global' 2>/dev/null; then
       (cd ui && pnpm approve-builds esbuild 2>/dev/null) || true
     fi
@@ -778,10 +783,10 @@ install_ui_deps() {
   [ -n "${https_proxy:-}" ] && had_proxy=1
 
   # Run pnpm install in the ui/ subdirectory with network fallbacks.
-  # ui/ is NOT part of the root workspace — it has its own lockfile and deps.
-  # --ignore-workspace is required because pnpm detects the parent directory's
-  # pnpm-workspace.yaml and silently skips install (exit 0, no node_modules).
-  if (cd ui && pnpm install --prefer-offline --ignore-workspace 2>&1 | tee /tmp/ohmyagent-ui-install.log); then
+  # ui/ ships its own pnpm-workspace.yaml (with allowBuilds for esbuild),
+  # which takes precedence over the parent directory's workspace config.
+  # No --ignore-workspace needed — the local workspace file isolates ui/.
+  if (cd ui && pnpm install --prefer-offline 2>&1 | tee /tmp/ohmyagent-ui-install.log); then
     ok "WebUI dependencies installed"
     rm -f /tmp/ohmyagent-ui-install.log
   else
@@ -791,12 +796,15 @@ install_ui_deps() {
     if grep -qi 'ERR_PNPM_IGNORED_BUILDS\|Ignored build scripts' /tmp/ohmyagent-ui-install.log 2>/dev/null; then
       warn "Build scripts were blocked — approving and retrying..."
       rm -f /tmp/ohmyagent-ui-install.log
-      # Force-approve esbuild (may have been missed by pre-check)
+      # Force-create ui/pnpm-workspace.yaml (pnpm 11 only reads allowBuilds from here)
       mkdir -p ui
-      if ! grep -q 'allowBuilds\[esbuild\]' ui/.npmrc 2>/dev/null; then
-        echo 'allowBuilds[esbuild]=true' >> ui/.npmrc
+      if [ ! -f ui/pnpm-workspace.yaml ]; then
+        cat > ui/pnpm-workspace.yaml <<'ALLOWBUILDS_UI'
+allowBuilds:
+  esbuild: true
+ALLOWBUILDS_UI
       fi
-      if (cd ui && pnpm install --prefer-offline --ignore-workspace 2>&1 | tee /tmp/ohmyagent-ui-install.log); then
+      if (cd ui && pnpm install --prefer-offline 2>&1 | tee /tmp/ohmyagent-ui-install.log); then
         ok "WebUI dependencies installed (builds approved)"
         rm -f /tmp/ohmyagent-ui-install.log
         return 0
@@ -819,7 +827,7 @@ install_ui_deps() {
         export NODE_OPTIONS="${NODE_OPTIONS:-} --dns-result-order=ipv4first"
         export NODE_TLS_REJECT_UNAUTHORIZED="${NODE_TLS_REJECT_UNAUTHORIZED:-0}"
       fi
-      if (cd ui && pnpm install --prefer-offline --ignore-workspace 2>&1 | tee /tmp/ohmyagent-ui-install.log); then
+      if (cd ui && pnpm install --prefer-offline 2>&1 | tee /tmp/ohmyagent-ui-install.log); then
         ok "WebUI dependencies installed (TUN direct)"
         rm -f /tmp/ohmyagent-ui-install.log
         return 0
@@ -828,13 +836,13 @@ install_ui_deps() {
 
     warn "WebUI install failed — retrying with NODE_TLS_REJECT_UNAUTHORIZED=0..."
     rm -f /tmp/ohmyagent-ui-install.log
-    if (cd ui && NODE_TLS_REJECT_UNAUTHORIZED=0 pnpm install --prefer-offline --ignore-workspace 2>&1); then
+    if (cd ui && NODE_TLS_REJECT_UNAUTHORIZED=0 pnpm install --prefer-offline 2>&1); then
       ok "WebUI dependencies installed (SSL workaround)"
     else
       # TLS bypass didn't help — likely network unreachable to npmjs.org.
       # Try npmmirror (Chinese npm mirror) as a final fallback.
       warn "Still failed — trying npmmirror.com registry mirror..."
-      if (cd ui && pnpm install --prefer-offline --ignore-workspace --registry=https://registry.npmmirror.com 2>&1); then
+      if (cd ui && pnpm install --prefer-offline --registry=https://registry.npmmirror.com 2>&1); then
         ok "WebUI dependencies installed (npmmirror mirror)"
       else
         warn "WebUI dependency installation failed"
