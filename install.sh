@@ -307,6 +307,35 @@ ALLOWBUILDS_NPMRC
   }
   _ensure_builds_approved
 
+  # ── Locate a Python >= 3.8 for potential native compilation ──────────────
+  # node-gyp 12+ (bundled with pnpm >= 10) uses the walrus operator (:=) which
+  # requires Python >= 3.8. macOS Xcode CLT ships Python 3.7 — far too old.
+  # Try brew or python.org Python first; set npm_config_python so node-gyp uses
+  # it instead of the system python3.
+  _find_python() {
+    local candidates=()
+    # macOS: prefer brew / python.org over Xcode CLT python3
+    if [ "$PLATFORM" = "macos" ]; then
+      [ -x "/opt/homebrew/bin/python3" ] && candidates+=("/opt/homebrew/bin/python3")
+      [ -x "/usr/local/bin/python3" ] && candidates+=("/usr/local/bin/python3")
+      [ -x "/Library/Frameworks/Python.framework/Versions/3/bin/python3" ] && candidates+=("/Library/Frameworks/Python.framework/Versions/3/bin/python3")
+    fi
+    candidates+=("python3")
+    for py in "${candidates[@]}"; do
+      if command -v "$py" &>/dev/null; then
+        local ver
+        ver=$("$py" -c 'import sys; print(sys.version_info[:2] >= (3, 8))' 2>/dev/null) || continue
+        [ "$ver" = "True" ] && { echo "$py"; return 0; }
+      fi
+    done
+    return 1
+  }
+  PYTHON_BIN=$(_find_python) || true
+  if [ -n "${PYTHON_BIN:-}" ] && [ "$PYTHON_BIN" != "python3" ]; then
+    export npm_config_python="$PYTHON_BIN"
+    info "Using Python: ${PYTHON_BIN} (for native compilation)"
+  fi
+
   if pnpm install --prefer-offline 2>&1 | tee /tmp/ohmyagent-pnpm-install.log; then
     ok "Dependencies installed (prebuilt binaries)"
     rm -f /tmp/ohmyagent-pnpm-install.log
@@ -365,7 +394,36 @@ ALLOWBUILDS_NPMRC
 
   rm -f /tmp/ohmyagent-pnpm-install.log
 
-  # Prebuilds failed — need to compile from source
+  # Prebuilds failed — need to compile from source.
+  # At this point PYTHON_BIN / npm_config_python was already resolved above
+  # (before the first install attempt). If not, try again now.
+  if [ -z "${PYTHON_BIN:-}" ]; then
+    PYTHON_BIN=$(_find_python) || true
+    [ -n "${PYTHON_BIN:-}" ] && export npm_config_python="$PYTHON_BIN"
+  fi
+
+  if [ -z "${PYTHON_BIN:-}" ]; then
+    echo ""
+    err "Python 3.8+ is required for native module compilation."
+    err "Your system Python is too old."
+    echo ""
+    case "$PLATFORM" in
+      macos)
+        echo -e "  ${CYAN}Fix:${NC} brew install python"
+        echo ""
+        echo -e "  Then re-run this script."
+        ;;
+      linux)
+        echo -e "  ${CYAN}Fix:${NC} sudo apt-get install python3  (or: sudo dnf install python3)"
+        ;;
+      termux)
+        echo -e "  ${CYAN}Fix:${NC} pkg install python"
+        ;;
+    esac
+    echo ""
+    exit 1
+  fi
+
   warn "Prebuilt binaries unavailable for this platform. Need C++ toolchain to compile."
 
   case "$PLATFORM" in
@@ -401,7 +459,10 @@ ALLOWBUILDS_NPMRC
 
   # Source compilation may also fail due to SSL cert issues (node-gyp downloads
   # Node headers from nodejs.org during native module compilation).
-  if grep -qi 'unable to get local issuer certificate\|UNABLE_TO_GET_ISSUER_CERT_LOCALLY\|CERT_HAS_EXPIRED\|self.signed\|certificate' /tmp/ohmyagent-pnpm-retry.log 2>/dev/null; then
+  # Only trigger SSL retry if the log contains TLS errors AND does NOT contain
+  # Python SyntaxError (which means Python is too old — TLS isn't the problem).
+  if grep -qi 'unable to get local issuer certificate\|UNABLE_TO_GET_ISSUER_CERT_LOCALLY\|CERT_HAS_EXPIRED\|self.signed' /tmp/ohmyagent-pnpm-retry.log 2>/dev/null && \
+     ! grep -qi 'SyntaxError\|\.py.*line.*syntax\|gyp ERR.*configure' /tmp/ohmyagent-pnpm-retry.log 2>/dev/null; then
     warn "SSL certificate error during source compilation."
     warn "Retrying with NODE_TLS_REJECT_UNAUTHORIZED=0..."
     if NODE_TLS_REJECT_UNAUTHORIZED=0 pnpm install --prefer-offline 2>&1; then
@@ -409,6 +470,29 @@ ALLOWBUILDS_NPMRC
       rm -f /tmp/ohmyagent-pnpm-retry.log
       return 0
     fi
+  fi
+
+  # If node-gyp failed due to an old Python (SyntaxError on walrus operator),
+  # surface an actionable message instead of a generic "failed" error.
+  if grep -qi 'SyntaxError' /tmp/ohmyagent-pnpm-retry.log 2>/dev/null && \
+     grep -qi 'gyp ERR!' /tmp/ohmyagent-pnpm-retry.log 2>/dev/null; then
+    echo ""
+    err "node-gyp failed: incompatible Python version detected."
+    err "node-gyp 12+ requires Python >= 3.8 — your system Python is too old."
+    echo ""
+    case "$PLATFORM" in
+      macos)
+        echo -e "  ${CYAN}Fix:${NC} brew install python"
+        echo -e "       (brew's python3 is 3.13+ and won't break system tools)"
+        ;;
+      linux)
+        echo -e "  ${CYAN}Fix:${NC} Install Python >= 3.8 via your package manager"
+        ;;
+      termux)
+        echo -e "  ${CYAN}Fix:${NC} pkg install python"
+        ;;
+    esac
+    echo ""
   fi
 
   rm -f /tmp/ohmyagent-pnpm-retry.log
