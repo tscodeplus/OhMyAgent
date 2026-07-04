@@ -238,8 +238,8 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
               <div className="rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 text-sm text-neutral-500 dark:text-neutral-400">
                 {t('chat.thinking')}
                 <span className="thinking-dot" style={{ animationDelay: '0s' }}>.</span>
-                <span className="thinking-dot" style={{ animationDelay: '0.3s' }}>.</span>
                 <span className="thinking-dot" style={{ animationDelay: '0.6s' }}>.</span>
+                <span className="thinking-dot" style={{ animationDelay: '1.2s' }}>.</span>
               </div>
             </div>
           </div>

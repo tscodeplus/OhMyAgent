@@ -115,6 +115,19 @@ function createWindow(): BrowserWindow {
   const preloadPath = getPreloadPath();
   diagLog(`[OhMyAgent] createWindow: preloadPath=${preloadPath} isPackaged=${app.isPackaged} __dirname=${__dirname}`);
 
+  // Get saved theme to apply matching window chrome from the start.
+  // This prevents a bright title-bar flash before the WebUI loads and
+  // keeps the native window frame in harmony with the page background.
+  const savedTheme = getDesktopConfig().get('theme');
+  // For 'system' theme, follow the OS preference; otherwise use the explicit choice.
+  const isDark = savedTheme === 'dark'
+    || (savedTheme === 'system' && nativeTheme.shouldUseDarkColors);
+  // neutral-950 (#0a0a0a) — same as WebUI Tailwind bg-neutral-950
+  const DARK_BG = '#0a0a0a';
+  const DARK_SYMBOL = '#9ca3af'; // neutral-400 — readable on dark bg
+  const LIGHT_BG = '#ffffff';
+  const LIGHT_SYMBOL = '#525252'; // neutral-600
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -122,6 +135,10 @@ function createWindow(): BrowserWindow {
     minHeight: 600,
     show: false,
     title: 'OhMyAgent',
+    backgroundColor: isDark ? DARK_BG : LIGHT_BG,
+    titleBarOverlay: isDark
+      ? { color: DARK_BG, symbolColor: DARK_SYMBOL }
+      : { color: LIGHT_BG, symbolColor: LIGHT_SYMBOL },
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -311,6 +328,22 @@ function registerIpcHandlers(): void {
         if (themeVal === 'dark' || themeVal === 'light' || themeVal === 'system') {
           nativeTheme.themeSource = themeVal;
           diagLog(`[OhMyAgent] nativeTheme.themeSource updated to "${themeVal}" from WebUI`);
+
+          // Update window chrome to match — backgroundColor for flash
+          // prevention, titleBarOverlay for Windows 11 caption buttons.
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            const isDarkNow = themeVal === 'dark'
+              || (themeVal === 'system' && nativeTheme.shouldUseDarkColors);
+            const DARK_BG = '#0a0a0a';
+            const LIGHT_BG = '#ffffff';
+            const bg = isDarkNow ? DARK_BG : LIGHT_BG;
+            mainWindow.setBackgroundColor(bg);
+            mainWindow.setTitleBarOverlay({
+              color: bg,
+              symbolColor: isDarkNow ? '#9ca3af' : '#525252',
+            });
+            diagLog(`[OhMyAgent] Window chrome updated — bg=${bg}`);
+          }
         }
       }
       return { ok: true };
@@ -866,6 +899,22 @@ app.whenReady().then(async () => {
     nativeTheme.themeSource = savedTheme;
     diagLog(`[OhMyAgent] nativeTheme.themeSource set to "${savedTheme}" from saved config`);
   }
+
+  // Keep window chrome in sync when the OS theme changes (matters for
+  // themeSource='system' or when the user toggles dark mode in Windows).
+  nativeTheme.on('updated', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const shouldUseDark = nativeTheme.shouldUseDarkColors;
+    const DARK_BG = '#0a0a0a';
+    const LIGHT_BG = '#ffffff';
+    const bg = shouldUseDark ? DARK_BG : LIGHT_BG;
+    mainWindow.setBackgroundColor(bg);
+    mainWindow.setTitleBarOverlay({
+      color: bg,
+      symbolColor: shouldUseDark ? '#9ca3af' : '#525252',
+    });
+    diagLog(`[OhMyAgent] nativeTheme.updated — window chrome sync (dark=${shouldUseDark})`);
+  });
 
   // Hide the default Electron menu bar (Windows/Linux).
   Menu.setApplicationMenu(null);
