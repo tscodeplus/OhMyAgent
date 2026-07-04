@@ -914,6 +914,18 @@ setup_config() {
     return 0
   fi
 
+  # Non-interactive mode (e.g. curl | bash) — skip the prompt, let the user
+  # configure manually after install. Otherwise `read` blocks forever.
+  if [ ! -t 0 ]; then
+    echo ""
+    echo -e "  ${YELLOW}${BOLD}Non-interactive mode — skipping configuration.${NC}"
+    echo -e "  ${YELLOW}Edit these files before starting:${NC}"
+    echo -e "  ${CYAN}  ${INSTALL_DIR}/config.yaml${NC}"
+    echo -e "  ${CYAN}  ${INSTALL_DIR}/.env${NC}"
+    echo ""
+    return 0
+  fi
+
   echo ""
   echo -e "  ${YELLOW}${BOLD}Quick setup — at minimum you need an LLM API key.${NC}"
   echo ""
@@ -1018,6 +1030,13 @@ build_project() {
 # ── Step 9: Service ─────────────────────────────────────────────────────────────
 install_service() {
   echo ""
+  # Non-interactive mode — skip service install (user can run manually later)
+  if [ ! -t 0 ]; then
+    echo -e "  ${YELLOW}Non-interactive mode — skipping service installation.${NC}"
+    echo -e "  ${YELLOW}To install manually: cd ${INSTALL_DIR} && node dist/src/cli/index.js service install${NC}"
+    return 0
+  fi
+
   read -r -p "  Install as system service (auto-start on boot)? [y/N] " svc
   if [ "${svc:-n}" = "y" ] || [ "${svc:-n}" = "Y" ]; then
     cd "$INSTALL_DIR"
@@ -1037,9 +1056,13 @@ finish() {
   echo -e "${GREEN}${BOLD}╚══════════════════════════════════════╝${NC}"
   echo ""
   echo -e "  ${BOLD}WebUI:${NC}  http://localhost:9191/webui"
-  echo -e "  ${BOLD}Token:${NC}  ${WEBUI_TOKEN}"
-  if [ "${TOKEN_WAS_GENERATED:-false}" = true ]; then
-    echo -e "           ${YELLOW}(auto-generated — saved in .env, change with WEBUI_TOKEN)${NC}"
+  if [ -n "${WEBUI_TOKEN:-}" ]; then
+    echo -e "  ${BOLD}Token:${NC}  ${WEBUI_TOKEN}"
+    if [ "${TOKEN_WAS_GENERATED:-false}" = true ]; then
+      echo -e "           ${YELLOW}(auto-generated — saved in .env, change with WEBUI_TOKEN)${NC}"
+    fi
+  else
+    echo -e "  ${BOLD}Token:${NC}  ${YELLOW}Set WEBUI_TOKEN in .env before starting${NC}"
   fi
   echo ""
   echo -e "  ${BOLD}Start the server:${NC}"
@@ -1052,6 +1075,10 @@ finish() {
   echo ""
   echo -e "  ${BOLD}Desktop app:${NC} https://github.com/tscodeplus/OhMyAgent/releases"
   echo ""
+
+  if [ ! -t 0 ]; then
+    return 0
+  fi
 
   read -r -p "  Start now? [Y/n] " start
   if [ "${start:-y}" = "y" ] || [ "${start:-y}" = "Y" ]; then
