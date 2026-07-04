@@ -305,6 +305,14 @@ function registerIpcHandlers(): void {
   ipcMain.handle('set-config', (_event, key: string, value: unknown) => {
     try {
       getDesktopConfig().set(key as keyof DesktopConfig, value as never);
+      // Sync theme changes to native title bar (Windows/Linux)
+      if (key === 'theme') {
+        const themeVal = value as string;
+        if (themeVal === 'dark' || themeVal === 'light' || themeVal === 'system') {
+          nativeTheme.themeSource = themeVal;
+          diagLog(`[OhMyAgent] nativeTheme.themeSource updated to "${themeVal}" from WebUI`);
+        }
+      }
       return { ok: true };
     } catch (err) {
       diagLog(`[OhMyAgent] set-config error for key=${key}: ${err}`);
@@ -851,6 +859,13 @@ app.whenReady().then(async () => {
 
   const { port } = setupEnvironment();
   registerIpcHandlers();
+
+  // Sync native theme (title bar) with saved user preference
+  const savedTheme = getDesktopConfig().get('theme');
+  if (savedTheme === 'dark' || savedTheme === 'light' || savedTheme === 'system') {
+    nativeTheme.themeSource = savedTheme;
+    diagLog(`[OhMyAgent] nativeTheme.themeSource set to "${savedTheme}" from saved config`);
+  }
 
   // Hide the default Electron menu bar (Windows/Linux).
   Menu.setApplicationMenu(null);

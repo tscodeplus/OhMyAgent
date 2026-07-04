@@ -23,6 +23,7 @@ export default function ChatView() {
   const [creating, setCreating] = useState(false);
   const [streamMessages, setStreamMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isThinking, setIsThinking] = useState(false);
   const [refetchKey, setRefetchKey] = useState(0);
 
   // Tracks whether a new SSE stream has started since the last refetch was
@@ -39,6 +40,7 @@ export default function ChatView() {
   // approval records / tool calls from one session leaking into another.
   useEffect(() => {
     setStreamMessages([]);
+    setIsThinking(false);
   }, [sessionId]);
 
   // Register/unregister with Desktop Bridge for remote tool execution.
@@ -72,9 +74,14 @@ export default function ChatView() {
     });
   }, [subscribe, sessionId]);
 
+  const handleThinkingChange = useCallback((thinking: boolean) => {
+    setIsThinking(thinking);
+  }, []);
+
   const handleTurnDone = useCallback(() => {
     console.log('[ChatView] handleTurnDone — switching to API mode');
     setIsStreaming(false);
+    setIsThinking(false);
     setRefetchKey(k => k + 1);
     // Don't clear streamMessages here — MessageList.onRefetched will do it
     // after the API fetch succeeds, preventing message flash/disappearance.
@@ -187,7 +194,12 @@ export default function ChatView() {
     return (
       <div className="flex h-full flex-col">
         <MessageList projectId={projectId} sessionId={sessionId} streamingMessages={streamMessages} isStreaming={isStreaming} refetchKey={refetchKey} onRefetched={handleRefetched} />
-        <ChatInput projectId={projectId} sessionId={sessionId} onMessages={handleMessagesWithReset} onStreamStart={() => { setIsStreaming(true); streamGenerationRef.current++; }} onDone={handleTurnDone} />
+        {isThinking && (
+          <div className="shrink-0 flex items-center justify-center gap-1.5 py-2 text-sm text-neutral-500 dark:text-neutral-400">
+            <span className="thinking-dots">{t('chat.thinking')}</span>
+          </div>
+        )}
+        <ChatInput projectId={projectId} sessionId={sessionId} onMessages={handleMessagesWithReset} onStreamStart={() => { setIsStreaming(true); streamGenerationRef.current++; }} onThinkingChange={handleThinkingChange} onDone={handleTurnDone} />
       </div>
     );
   }
@@ -207,7 +219,7 @@ export default function ChatView() {
       </div>
 
       {/* Input at bottom — same position/size as ChatInput */}
-      <div className="shrink-0 border-t border-neutral-200 bg-white px-3 sm:px-4 py-3 sm:py-4 pb-6 sm:pb-8 dark:border-neutral-800 dark:bg-neutral-950">
+      <div className="shrink-0 border-t border-neutral-200 bg-white px-3 sm:px-4 py-4 sm:py-6 dark:border-neutral-800 dark:bg-neutral-950">
         <div className="mx-auto flex max-w-3xl items-end gap-2 sm:gap-3">
           <textarea
             value={quickInput}

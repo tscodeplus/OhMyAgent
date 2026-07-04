@@ -16,6 +16,8 @@ interface ChatInputProps {
   onMessages?: (messages: Message[], clearPrevious?: boolean) => void;
   /** Called when a new SSE stream starts (to switch to streaming mode). */
   onStreamStart?: () => void;
+  /** Called when the gateway starts thinking (turn_start) / stops (first response content). */
+  onThinkingChange?: (thinking: boolean) => void;
   /** Called when the SSE stream completes (done or error). */
   onDone?: () => void;
 }
@@ -53,7 +55,7 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export default function ChatInput({ projectId, sessionId, onMessages, onStreamStart, onDone }: ChatInputProps) {
+export default function ChatInput({ projectId, sessionId, onMessages, onStreamStart, onThinkingChange, onDone }: ChatInputProps) {
   const { t } = useTranslation('common');
   const location = useLocation();
   const [input, setInput] = useState('');
@@ -240,12 +242,6 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
     // Abort any running SSE stream before starting a new one
     abortRef.current?.abort();
     setSending(true);
-    // Don't clear existing streaming content when sending slash commands
-    // during an active stream (e.g. /steer, /btw). Regular sends always reset.
-    if (!opts?.preserveContent) {
-      onStreamStart?.();
-    }
-
     // Append uploaded file references to the message
     const doneUploads = fileUploads.filter(u => u.status === 'done' && u.path);
     const fileRefs = buildFileRefs(doneUploads);
@@ -279,6 +275,9 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
         console.log('[ChatInput] SSE event', { type: event.type, ts: Date.now() - streamStartTime });
         switch (event.type) {
           case 'turn_start':
+            // Gateway received the message — notify parent for "thinking" indicator.
+            onStreamStart?.();
+            onThinkingChange?.(true);
             // Reuse the bubble eagerly created by steerMessage.
             if (steerBubbleRef.current) {
               steerBubbleRef.current = false;
@@ -289,6 +288,8 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
             break;
 
           case 'skill_activated': {
+            // Stop the "thinking" indicator — skill activation is a response
+            onThinkingChange?.(false);
             const skillName = event.data || '';
             if (skillName) {
               segmentsRef.current.push({ type: 'skill', name: skillName });
@@ -306,6 +307,8 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
 
           case 'text_delta':
             assistantContentRef.current += event.data || '';
+            // Stop the "thinking" indicator once the assistant starts responding
+            onThinkingChange?.(false);
             {
               const cleaned = assistantContentRef.current
                 .replace(/<思考>[^]*?<\/思考>/g, '')
@@ -332,6 +335,8 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
             break;
 
           case 'tool_call_start': {
+            // Stop the "thinking" indicator since the assistant is now acting
+            onThinkingChange?.(false);
             const tc: ToolCall = {
               id: event.toolCallId || uid(),
               name: event.toolName || 'unknown',
@@ -672,7 +677,7 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
 
   return (
     <div
-      className={`shrink-0 border-t border-neutral-200 bg-white px-3 sm:px-4 py-3 sm:py-4 pb-6 sm:pb-8 dark:border-neutral-800 dark:bg-neutral-950 relative ${
+      className={`shrink-0 border-t border-neutral-200 bg-white px-3 sm:px-4 py-4 sm:py-6 dark:border-neutral-800 dark:bg-neutral-950 relative ${
         isDragOver ? 'ring-2 ring-blue-400 dark:ring-blue-500' : ''
       }`}
       onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}

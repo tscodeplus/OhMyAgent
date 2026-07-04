@@ -38,6 +38,7 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: OhMyAgent
+  menuCategory: OhMyAgent
   include: build/nsis-installer.nsh
   differentialPackage: false
   # Use hyphens consistently so latest.yml matches the uploaded filename.
