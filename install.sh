@@ -914,15 +914,86 @@ setup_config() {
     return 0
   fi
 
-  # Non-interactive mode (e.g. curl | bash) — skip the prompt, let the user
-  # configure manually after install. Otherwise `read` blocks forever.
+  # Non-interactive mode (e.g. curl | bash) — try env vars / CLI args first.
+  # Supported env vars:
+  #   OHMYAGENT_PROVIDER        Provider ID (deepseek, anthropic, openai, or custom)
+  #   OHMYAGENT_API_KEY         LLM API key (required)
+  #   OHMYAGENT_MODEL           Model name (optional, uses default if omitted)
+  #   OHMYAGENT_REASONING_MODEL Reasoning model (optional, uses default if omitted)
+  #   OHMYAGENT_BASE_URL        API base URL (optional)
+  #   OHMYAGENT_WEBUI_TOKEN     WebUI password (optional, auto-generates if omitted)
+  #   OHMYAGENT_INSTALL_SERVICE Set to any value to install as system service
+  #
+  # CLI positional args (takes precedence over env vars):
+  #   bash install.sh <provider> <api_key> [model] [reasoning_model] [base_url]
   if [ ! -t 0 ]; then
-    echo ""
-    echo -e "  ${YELLOW}${BOLD}Non-interactive mode — skipping configuration.${NC}"
-    echo -e "  ${YELLOW}Edit these files before starting:${NC}"
-    echo -e "  ${CYAN}  ${INSTALL_DIR}/config.yaml${NC}"
-    echo -e "  ${CYAN}  ${INSTALL_DIR}/.env${NC}"
-    echo ""
+    # Collect config from env vars / CLI args
+    PI_AI_PROVIDER="${1:-${OHMYAGENT_PROVIDER:-}}"
+    PI_AI_API_KEY="${2:-${OHMYAGENT_API_KEY:-}}"
+    PI_AI_MODEL="${3:-${OHMYAGENT_MODEL:-}}"
+    PI_AI_REASONING_MODEL="${4:-${OHMYAGENT_REASONING_MODEL:-}}"
+    DEFAULT_BASE_URL="${5:-${OHMYAGENT_BASE_URL:-}}"
+    WEBUI_TOKEN="${OHMYAGENT_WEBUI_TOKEN:-}"
+    AUTO_INSTALL_SERVICE="${OHMYAGENT_INSTALL_SERVICE:-}"
+
+    if [ -z "$PI_AI_PROVIDER" ] || [ -z "$PI_AI_API_KEY" ]; then
+      # Can't auto-configure — still need manual intervention
+      echo ""
+      echo -e "  ${YELLOW}${BOLD}Non-interactive mode — skipping configuration.${NC}"
+      echo -e "  ${YELLOW}Edit these files before starting:${NC}"
+      echo -e "  ${CYAN}  ${INSTALL_DIR}/config.yaml${NC}"
+      echo -e "  ${CYAN}  ${INSTALL_DIR}/.env${NC}"
+      echo ""
+      echo -e "  ${YELLOW}Or re-run with env vars:${NC}"
+      echo -e "  ${CYAN}  OHMYAGENT_PROVIDER=deepseek OHMYAGENT_API_KEY=sk-xxx bash install.sh${NC}"
+      echo ""
+      return 0
+    fi
+
+    # Set defaults based on provider if model not specified
+    if [ -z "$PI_AI_MODEL" ]; then
+      case "$PI_AI_PROVIDER" in
+        deepseek)  PI_AI_MODEL="deepseek-v4-flash"
+                   PI_AI_REASONING_MODEL="${PI_AI_REASONING_MODEL:-deepseek-v4-pro}"
+                   DEFAULT_BASE_URL="${DEFAULT_BASE_URL:-https://api.deepseek.com/v1}" ;;
+        anthropic) PI_AI_MODEL="claude-sonnet-4-6"
+                   PI_AI_REASONING_MODEL="${PI_AI_REASONING_MODEL:-claude-opus-4-8}" ;;
+        openai)    PI_AI_MODEL="gpt-4o"
+                   PI_AI_REASONING_MODEL="${PI_AI_REASONING_MODEL:-gpt-5.4}" ;;
+      esac
+    fi
+    PI_AI_REASONING_MODEL="${PI_AI_REASONING_MODEL:-$PI_AI_MODEL}"
+
+    # Generate WebUI token if not provided
+    if [ -z "$WEBUI_TOKEN" ]; then
+      WEBUI_TOKEN=$(openssl rand -hex 16 2>/dev/null || python3 -c "import secrets; print(secrets.token_hex(16))" 2>/dev/null || cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32)
+      TOKEN_WAS_GENERATED=true
+    fi
+
+    # Write config
+    BASE_URL_LINE=""
+    [ -n "$DEFAULT_BASE_URL" ] && BASE_URL_LINE="cfg.provider.base_url = '${DEFAULT_BASE_URL}';"
+    if [ -f config.yaml ]; then
+      node -e "
+const { readFileSync, writeFileSync } = require('fs');
+const { load, dump } = require('js-yaml');
+const cfg = load(readFileSync('config.yaml', 'utf8')) || {};
+cfg.provider = cfg.provider || {};
+cfg.provider.primary = '${PI_AI_PROVIDER}/${PI_AI_MODEL}';
+cfg.provider.reasoning = '${PI_AI_PROVIDER}/${PI_AI_REASONING_MODEL}';
+cfg.provider.api_key = '${PI_AI_API_KEY}';
+${BASE_URL_LINE}
+cfg.provider_keys = cfg.provider_keys || {};
+cfg.provider_keys['${PI_AI_PROVIDER}'] = { api_key: '${PI_AI_API_KEY}' };
+if ('${DEFAULT_BASE_URL}') cfg.provider_keys['${PI_AI_PROVIDER}'].base_url = '${DEFAULT_BASE_URL}';
+writeFileSync('config.yaml', dump(cfg, { lineWidth: -1, noRefs: true }), 'utf8');
+" 2>/dev/null
+    fi
+    {
+      echo "WEBUI_TOKEN=${WEBUI_TOKEN}"
+      echo "LOG_LEVEL=info"
+    } > .env
+    ok "Configuration saved (${PI_AI_PROVIDER}/${PI_AI_MODEL})"
     return 0
   fi
 
@@ -1030,10 +1101,19 @@ build_project() {
 # ── Step 9: Service ─────────────────────────────────────────────────────────────
 install_service() {
   echo ""
-  # Non-interactive mode — skip service install (user can run manually later)
+  # Non-interactive mode — install if OHMYAGENT_INSTALL_SERVICE is set, else skip
   if [ ! -t 0 ]; then
-    echo -e "  ${YELLOW}Non-interactive mode — skipping service installation.${NC}"
-    echo -e "  ${YELLOW}To install manually: cd ${INSTALL_DIR} && node dist/src/cli/index.js service install${NC}"
+    if [ -n "${OHMYAGENT_INSTALL_SERVICE:-}" ] || [ -n "${AUTO_INSTALL_SERVICE:-}" ]; then
+      cd "$INSTALL_DIR"
+      if node dist/src/cli/index.js service install 2>/dev/null; then
+        ok "Service installed — OhMyAgent will start automatically on boot"
+      else
+        warn "Service installation failed. Try manually: cd ${INSTALL_DIR} && node dist/src/cli/index.js service install"
+      fi
+    else
+      echo -e "  ${YELLOW}Non-interactive mode — skipping service installation.${NC}"
+      echo -e "  ${YELLOW}To install manually: cd ${INSTALL_DIR} && node dist/src/cli/index.js service install${NC}"
+    fi
     return 0
   fi
 
