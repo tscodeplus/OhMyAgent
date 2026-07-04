@@ -26,13 +26,13 @@ interface MessageBubbleProps {
  * as a visually-distinct block with full markdown support (headings, lists,
  * code fences, etc.).
  */
-function formatPlanBlocks(content: string): string {
+function formatPlanBlocks(content: string, label: string): string {
   if (!content) return content;
   return content.replace(/<plan>([\s\S]*?)<\/plan>/g, (_: string, inner: string) => {
     const trimmed = inner.trim();
     if (!trimmed) return '';
     const lines = trimmed.split('\n').map(line => `> ${line}`).join('\n');
-    return `\n\n> 📋 **规划**\n> \n${lines}\n\n`;
+    return `\n\n> 📋 **${label}**\n> \n${lines}\n\n`;
   });
 }
 
@@ -249,7 +249,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
                 {message.segments.map((seg, i) =>
                   seg.type === 'text' ? (
                     <div key={i} className="markdown-content">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{formatPlanBlocks(seg.content || '')}</ReactMarkdown>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{formatPlanBlocks(seg.content || '', t('chat.taskPlan'))}</ReactMarkdown>
                     </div>
                   ) : seg.type === 'tool_call' && seg.toolCall ? (
                     <ToolCallCard key={seg.toolCall.id} toolCall={seg.toolCall} />
@@ -300,7 +300,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
               // Used for API-fetched history which doesn't have segments.
               <>
                 <div className="markdown-content">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{formatPlanBlocks(message.content)}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{formatPlanBlocks(message.content, t('chat.taskPlan'))}</ReactMarkdown>
                 </div>
                 {message.tool_calls && message.tool_calls.length > 0 && (
                   <div className="mt-2 space-y-2 w-full">

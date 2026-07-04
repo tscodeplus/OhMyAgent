@@ -69,6 +69,7 @@
     "fileSaved": "文件已保存",
     "saveFailed": "保存失败",
     "downloadImage": "下载图片",
+    "taskPlan": "任务规划",
     "completed": "已完成"
   },
   "project": {
