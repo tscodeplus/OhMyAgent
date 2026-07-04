@@ -254,6 +254,41 @@ clone_repo() {
   ok "Repository cloned"
 }
 
+# ── CA Certificates ─────────────────────────────────────────────────────────
+# Some Node.js installations (especially Homebrew on macOS) ship with an
+# incomplete CA bundle that doesn't include Google Trust Services — which
+# npmjs.org uses. The macOS system keychain has a more complete set.
+# Setting NODE_EXTRA_CA_CERTS to the system CA file fixes this.
+_ensure_node_ca_certs() {
+  # Already set by user — trust it
+  if [ -n "${NODE_EXTRA_CA_CERTS:-}" ]; then
+    return 0
+  fi
+
+  local sys_ca=""
+  if [ "$PLATFORM" = "macos" ] && [ -f /etc/ssl/cert.pem ]; then
+    sys_ca="/etc/ssl/cert.pem"
+  elif [ -f /etc/ssl/certs/ca-certificates.crt ]; then
+    sys_ca="/etc/ssl/certs/ca-certificates.crt"   # Linux (Debian/Ubuntu)
+  elif [ -f /etc/pki/tls/certs/ca-bundle.crt ]; then
+    sys_ca="/etc/pki/tls/certs/ca-bundle.crt"       # Linux (RHEL/Fedora)
+  fi
+
+  if [ -n "$sys_ca" ]; then
+    # Quick smoke test: does Node.js trust npmjs.org with our CA?
+    if NODE_EXTRA_CA_CERTS="$sys_ca" node -e "
+var https = require('https');
+https.get('https://registry.npmjs.org/', function(res) { process.exit(res.statusCode === 200 ? 0 : 1); })
+  .on('error', function() { process.exit(1); });
+" 2>/dev/null; then
+      export NODE_EXTRA_CA_CERTS="$sys_ca"
+      info "Using system CA certificates (${sys_ca})"
+      return 0
+    fi
+  fi
+  return 1
+}
+
 # ── Proxy detection ──────────────────────────────────────────────────────────
 # Detects local HTTP proxy servers (INCY/Clash/V2Ray/etc.) and sets
 # https_proxy / http_proxy env vars so that Node.js/pnpm can route through
@@ -335,12 +370,13 @@ _detect_and_set_proxy() {
   fi
 
   # --- Strategy 2: scan common local HTTP proxy ports ---
-  #   7890  — Clash / INCY / Stash (HTTP)
-  #   10808 — V2Ray / Xray (HTTP inbound)
+  #   7890  — Clash / Stash (HTTP)
+  #   10809 — INCY / Xray (HTTP inbound, Clash uses 7890 but INCY uses 10809)
+  #   10808 — V2Ray / Xray (SOCKS inbound — often paired with 10809 HTTP)
   #   6152  — Surge (HTTP)
   #   8118  — Privoxy
   #   8080  — Generic / CNTLM
-  local proxy_ports="7890 10808 6152 8118 8080"
+  local proxy_ports="7890 10809 10808 6152 8118 8080"
 
   for port in $proxy_ports; do
     if _probe_http_proxy "127.0.0.1" "$port"; then
@@ -353,16 +389,19 @@ _detect_and_set_proxy() {
 
   # --- No explicit proxy found ---
   # If we're on macOS, the user may be using TUN-only mode (no HTTP proxy port).
-  # TUN virtual interfaces often break Node.js DNS resolution.
-  # Set NODE_OPTIONS to prefer IPv4 and use Node's built-in DNS order hint.
+  # TUN virtual interfaces can cause two problems for Node.js:
+  #   1. DNS resolution issues (IPv6 vs IPv4)
+  #   2. SSL certificate errors (TUN proxies often inspect/re-encrypt TLS)
+  # Pre-configure both workarounds so pnpm can connect.
   if [ "$PLATFORM" = "macos" ]; then
     # Check if any utun (TUN) interfaces are up — strong signal of TUN-mode proxy
     if ifconfig 2>/dev/null | grep -q '^utun.*RUNNING'; then
       warn "TUN interface detected but no HTTP proxy found"
-      warn "For best results, enable the HTTP proxy in your proxy app (usually port 7890)"
-      # Help Node.js cope with TUN DNS quirks
+      warn "For best results, enable the HTTP proxy in your proxy app (usually port 7890 or 10809)"
+      # Help Node.js cope with TUN DNS + SSL-inspection quirks
       export NODE_OPTIONS="${NODE_OPTIONS:-} --dns-result-order=ipv4first"
-      info "Set NODE_OPTIONS=--dns-result-order=ipv4first (TUN compatibility)"
+      export NODE_TLS_REJECT_UNAUTHORIZED="${NODE_TLS_REJECT_UNAUTHORIZED:-0}"
+      info "Set NODE_OPTIONS=--dns-result-order=ipv4first + NODE_TLS_REJECT_UNAUTHORIZED=0 (TUN compatibility)"
       return 2
     fi
   fi
@@ -479,6 +518,10 @@ ALLOWBUILDS_NPMRC
     info "Using Python: ${PYTHON_BIN} (for native compilation)"
   fi
 
+  # Ensure Node.js can verify TLS certificates (esp. npmjs.org which uses
+  # Google Trust Services — not always in Node's bundled CA store).
+  _ensure_node_ca_certs || true
+
   # Detect local proxy (INCY/Clash/V2Ray) — explicit proxy is more reliable
   # than TUN-mode virtual interfaces for Node.js processes.
   _detect_and_set_proxy || true
@@ -499,6 +542,7 @@ ALLOWBUILDS_NPMRC
     unset https_proxy http_proxy HTTPS_PROXY HTTP_PROXY
     if [ "$PLATFORM" = "macos" ]; then
       export NODE_OPTIONS="${NODE_OPTIONS:-} --dns-result-order=ipv4first"
+      export NODE_TLS_REJECT_UNAUTHORIZED="${NODE_TLS_REJECT_UNAUTHORIZED:-0}"
     fi
     if pnpm install --prefer-offline 2>&1 | tee /tmp/ohmyagent-pnpm-install.log; then
       ok "Dependencies installed (TUN direct)"
@@ -507,9 +551,14 @@ ALLOWBUILDS_NPMRC
     fi
   fi
 
-  # Check for SSL certificate errors (common on corporate networks with TLS inspection)
-  if grep -qi 'unable to get local issuer certificate\|UNABLE_TO_GET_ISSUER_CERT_LOCALLY\|CERT_HAS_EXPIRED\|self.signed\|certificate' /tmp/ohmyagent-pnpm-install.log 2>/dev/null; then
-    warn "SSL certificate error detected (common on corporate networks)."
+  # Check for network errors that are likely caused by proxy SSL/TLS inspection.
+  # TUN-mode proxies (INCY/Clash/Surge) intercept HTTPS and re-encrypt with a
+  # self-signed certificate — Node.js (correctly) rejects this, but the error
+  # format varies by HTTP client:
+  #   Node.js built-in https: "unable to get local issuer certificate"
+  #   undici (pnpm ≥9):     "fetch failed" / "error (0)" / ERR_PNPM_*_FETCH_FAIL
+  if grep -qi 'unable to get local issuer certificate\|UNABLE_TO_GET_ISSUER_CERT_LOCALLY\|CERT_HAS_EXPIRED\|self.signed\|certificate\|ERR_PNPM_.*FETCH\|fetch failed\|error.*(0)' /tmp/ohmyagent-pnpm-install.log 2>/dev/null; then
+    warn "Network error detected (likely proxy SSL inspection)."
     warn "Retrying with NODE_TLS_REJECT_UNAUTHORIZED=0..."
     if NODE_TLS_REJECT_UNAUTHORIZED=0 pnpm install --prefer-offline 2>&1; then
       ok "Dependencies installed (SSL workaround)"
@@ -553,8 +602,8 @@ ALLOWBUILDS_NPMRC
       return 0
     fi
     # Native builds may hit SSL cert errors even after approval
-    if grep -qi 'unable to get local issuer certificate\|CERT_HAS_EXPIRED\|self.signed' /tmp/ohmyagent-pnpm-retry2.log 2>/dev/null; then
-      warn "SSL certificate error. Retrying with NODE_TLS_REJECT_UNAUTHORIZED=0..."
+    if grep -qi 'unable to get local issuer certificate\|CERT_HAS_EXPIRED\|self.signed\|ERR_PNPM_.*FETCH\|fetch failed\|error.*(0)' /tmp/ohmyagent-pnpm-retry2.log 2>/dev/null; then
+      warn "Network error (likely proxy SSL). Retrying with NODE_TLS_REJECT_UNAUTHORIZED=0..."
       if NODE_TLS_REJECT_UNAUTHORIZED=0 pnpm install --prefer-offline 2>&1; then
         ok "Dependencies installed (SSL workaround)"
         rm -f /tmp/ohmyagent-pnpm-install.log /tmp/ohmyagent-pnpm-retry2.log
@@ -633,9 +682,9 @@ ALLOWBUILDS_NPMRC
   # Node headers from nodejs.org during native module compilation).
   # Only trigger SSL retry if the log contains TLS errors AND does NOT contain
   # Python SyntaxError (which means Python is too old — TLS isn't the problem).
-  if grep -qi 'unable to get local issuer certificate\|UNABLE_TO_GET_ISSUER_CERT_LOCALLY\|CERT_HAS_EXPIRED\|self.signed' /tmp/ohmyagent-pnpm-retry.log 2>/dev/null && \
+  if grep -qi 'unable to get local issuer certificate\|UNABLE_TO_GET_ISSUER_CERT_LOCALLY\|CERT_HAS_EXPIRED\|self.signed\|ERR_PNPM_.*FETCH\|fetch failed\|error.*(0)' /tmp/ohmyagent-pnpm-retry.log 2>/dev/null && \
      ! grep -qi 'SyntaxError\|\.py.*line.*syntax\|gyp ERR.*configure' /tmp/ohmyagent-pnpm-retry.log 2>/dev/null; then
-    warn "SSL certificate error during source compilation."
+    warn "Network error (likely proxy SSL) during source compilation."
     warn "Retrying with NODE_TLS_REJECT_UNAUTHORIZED=0..."
     if NODE_TLS_REJECT_UNAUTHORIZED=0 pnpm install --prefer-offline 2>&1; then
       ok "Dependencies installed (SSL workaround)"
@@ -697,6 +746,10 @@ install_ui_deps() {
     return 0
   fi
 
+  # Ensure Node.js can verify TLS certificates (esp. npmjs.org which uses
+  # Google Trust Services — not always in Node's bundled CA store).
+  _ensure_node_ca_certs || true
+
   # Detect local proxy (INCY/Clash/V2Ray) — explicit proxy is more reliable
   # than TUN-mode virtual interfaces for Node.js processes.
   local proxy_result
@@ -720,6 +773,7 @@ install_ui_deps() {
       unset https_proxy http_proxy HTTPS_PROXY HTTP_PROXY
       if [ "$PLATFORM" = "macos" ]; then
         export NODE_OPTIONS="${NODE_OPTIONS:-} --dns-result-order=ipv4first"
+        export NODE_TLS_REJECT_UNAUTHORIZED="${NODE_TLS_REJECT_UNAUTHORIZED:-0}"
       fi
       if (cd ui && pnpm install --prefer-offline --ignore-workspace 2>&1 | tee /tmp/ohmyagent-ui-install.log); then
         ok "WebUI dependencies installed (TUN direct)"
