@@ -135,16 +135,10 @@ function createWindow(): BrowserWindow {
     minHeight: 600,
     show: false,
     title: 'OhMyAgent',
-    // Hide the native title bar but keep the window frame (resizable
-    // borders). Web content extends to the top of the window; caption
-    // buttons (min/max/close) are overlaid via titleBarOverlay. This
-    // gives full control over the title-bar area background color so
-    // it always matches the app theme (neutral-950 dark / #fff light).
-    titleBarStyle: 'hidden',
+    backgroundColor: isDark ? DARK_BG : LIGHT_BG,
     titleBarOverlay: isDark
       ? { color: DARK_BG, symbolColor: DARK_SYMBOL, height: 40 }
       : { color: LIGHT_BG, symbolColor: LIGHT_SYMBOL, height: 40 },
-    backgroundColor: isDark ? DARK_BG : LIGHT_BG,
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
