@@ -402,6 +402,10 @@ ALLOWBUILDS_NPMRC
     info "Using Python: ${PYTHON_BIN} (for native compilation)"
   fi
 
+  # Detect local proxy (INCY/Clash/V2Ray) — explicit proxy is more reliable
+  # than TUN-mode virtual interfaces for Node.js processes.
+  _detect_and_set_proxy || true
+
   if pnpm install --prefer-offline 2>&1 | tee /tmp/ohmyagent-pnpm-install.log; then
     ok "Dependencies installed (prebuilt binaries)"
     rm -f /tmp/ohmyagent-pnpm-install.log
@@ -598,24 +602,27 @@ install_ui_deps() {
     return 0
   fi
 
+  # Detect local proxy (INCY/Clash/V2Ray) — explicit proxy is more reliable
+  # than TUN-mode virtual interfaces for Node.js processes.
+  _detect_and_set_proxy || true
+
   # Run pnpm install in the ui/ subdirectory with network fallbacks.
   # ui/ is NOT part of the root workspace — it has its own lockfile and deps.
   # --ignore-workspace is required because pnpm detects the parent directory's
   # pnpm-workspace.yaml and silently skips install (exit 0, no node_modules).
-  # --fetch-retries=0 avoids pnpm's internal 30s retry delays on network errors.
-  if (cd ui && pnpm install --prefer-offline --ignore-workspace --fetch-retries=0 2>&1 | tee /tmp/ohmyagent-ui-install.log); then
+  if (cd ui && pnpm install --prefer-offline --ignore-workspace 2>&1 | tee /tmp/ohmyagent-ui-install.log); then
     ok "WebUI dependencies installed"
     rm -f /tmp/ohmyagent-ui-install.log
   else
     warn "WebUI install failed — retrying with NODE_TLS_REJECT_UNAUTHORIZED=0..."
     rm -f /tmp/ohmyagent-ui-install.log
-    if (cd ui && NODE_TLS_REJECT_UNAUTHORIZED=0 pnpm install --prefer-offline --ignore-workspace --fetch-retries=0 2>&1); then
+    if (cd ui && NODE_TLS_REJECT_UNAUTHORIZED=0 pnpm install --prefer-offline --ignore-workspace 2>&1); then
       ok "WebUI dependencies installed (SSL workaround)"
     else
       # TLS bypass didn't help — likely network unreachable to npmjs.org.
       # Try npmmirror (Chinese npm mirror) as a final fallback.
       warn "Still failed — trying npmmirror.com registry mirror..."
-      if (cd ui && pnpm install --prefer-offline --ignore-workspace --fetch-retries=0 --registry=https://registry.npmmirror.com 2>&1); then
+      if (cd ui && pnpm install --prefer-offline --ignore-workspace --registry=https://registry.npmmirror.com 2>&1); then
         ok "WebUI dependencies installed (npmmirror mirror)"
       else
         warn "WebUI dependency installation failed"
