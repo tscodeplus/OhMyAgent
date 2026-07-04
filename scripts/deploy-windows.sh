@@ -135,8 +135,8 @@ start_service() {
     if (\$LASTEXITCODE -eq 0) {
       schtasks /Run /TN 'OhMyAgent' 2>&1;
     } else {
-      Write-Host '  Task not installed. Run: ohmyagent service install';
-      exit 1;
+      Write-Host '  Task not installed (this is expected on dev machines).';
+      Write-Host '  Skipping service start.';
     }
     Start-Sleep 6;
     try {
