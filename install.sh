@@ -259,6 +259,57 @@ clone_repo() {
 # https_proxy / http_proxy env vars so that Node.js/pnpm can route through
 # the proxy directly. This is more reliable than relying on TUN-mode virtual
 # network interfaces, which can have DNS and connection-tracking issues on macOS.
+
+# Test whether a given host:port is a working HTTP forward proxy.
+# Returns 0 if the proxy successfully tunnels to registry.npmjs.org.
+_probe_http_proxy() {
+  local host="$1" port="$2"
+  node -e "
+var http = require('http');
+var opts = {
+  hostname: '$host', port: $port,
+  method: 'CONNECT', path: 'registry.npmjs.org:443',
+  timeout: 5000
+};
+var req = http.request(opts);
+req.on('connect', function(res, socket) {
+  // Got a 2xx response — proxy is working
+  socket.end();
+  process.exit(0);
+});
+req.on('error', function() { process.exit(1); });
+req.on('timeout', function() { req.destroy(); process.exit(1); });
+req.end();
+" 2>/dev/null
+}
+
+# Fetch macOS system proxy settings (set by GUI or proxy apps like INCY/Clash).
+# Uses scutil --proxy which reads from the System Configuration dynamic store,
+# so it works regardless of which network service (Wi-Fi/Ethernet/etc.) is active.
+_get_macos_system_proxy() {
+  [ "$PLATFORM" = "macos" ] || return 1
+
+  local out https_enabled http_enabled host port
+  out=$(scutil --proxy 2>/dev/null) || return 1
+
+  # Prefer HTTPS proxy, fall back to HTTP proxy
+  https_enabled=$(echo "$out" | grep "HTTPSEnable" | awk '{print $3}')
+  http_enabled=$(echo "$out"  | grep "HTTPEnable"  | awk '{print $3}')
+
+  if [ "$https_enabled" = "1" ]; then
+    host=$(echo "$out" | grep "HTTPSProxy" | awk '{print $3}')
+    port=$(echo "$out" | grep "HTTPSPort"  | awk '{print $3}')
+  elif [ "$http_enabled" = "1" ]; then
+    host=$(echo "$out" | grep "HTTPProxy"  | awk '{print $3}')
+    port=$(echo "$out" | grep "HTTPPort"   | awk '{print $3}')
+  else
+    return 1
+  fi
+
+  [ -n "$host" ] && [ -n "$port" ] && echo "${host}:${port}" && return 0
+  return 1
+}
+
 _detect_and_set_proxy() {
   # Respect user's explicit proxy settings
   if [ -n "${https_proxy:-}" ] || [ -n "${HTTPS_PROXY:-}" ] || \
@@ -268,7 +319,22 @@ _detect_and_set_proxy() {
     return 0
   fi
 
-  # Common local HTTP proxy ports:
+  # --- Strategy 1: macOS system proxy (set by INCY/Clash GUI) ---
+  local sys_proxy
+  sys_proxy=$(_get_macos_system_proxy) || true
+  if [ -n "${sys_proxy:-}" ]; then
+    local sys_host="${sys_proxy%%:*}" sys_port="${sys_proxy##*:}"
+    if _probe_http_proxy "$sys_host" "$sys_port"; then
+      export https_proxy="http://${sys_proxy}"
+      export http_proxy="http://${sys_proxy}"
+      info "Using macOS system proxy at ${sys_proxy}"
+      return 0
+    fi
+    warn "System proxy ${sys_proxy} is configured but does not respond as an HTTP forward proxy"
+    warn "It may be a SOCKS proxy or TUN-only — falling back to port scan"
+  fi
+
+  # --- Strategy 2: scan common local HTTP proxy ports ---
   #   7890  — Clash / INCY / Stash (HTTP)
   #   10808 — V2Ray / Xray (HTTP inbound)
   #   6152  — Surge (HTTP)
@@ -277,19 +343,30 @@ _detect_and_set_proxy() {
   local proxy_ports="7890 10808 6152 8118 8080"
 
   for port in $proxy_ports; do
-    # Use Node.js to test TCP connectivity (Node is already installed by now)
-    if node -e "
-var net = require('net');
-var s = net.createConnection({host:'127.0.0.1',port:$port}, function(){ s.end(); });
-s.on('error', function(){ process.exit(1); });
-s.setTimeout(1000, function(){ s.destroy(); process.exit(1); });
-" 2>/dev/null; then
+    if _probe_http_proxy "127.0.0.1" "$port"; then
       export https_proxy="http://127.0.0.1:$port"
       export http_proxy="http://127.0.0.1:$port"
-      info "Detected local proxy at 127.0.0.1:$port — routing pnpm through it"
+      info "Detected HTTP proxy at 127.0.0.1:$port — routing pnpm through it"
       return 0
     fi
   done
+
+  # --- No explicit proxy found ---
+  # If we're on macOS, the user may be using TUN-only mode (no HTTP proxy port).
+  # TUN virtual interfaces often break Node.js DNS resolution.
+  # Set NODE_OPTIONS to prefer IPv4 and use Node's built-in DNS order hint.
+  if [ "$PLATFORM" = "macos" ]; then
+    # Check if any utun (TUN) interfaces are up — strong signal of TUN-mode proxy
+    if ifconfig 2>/dev/null | grep -q '^utun.*RUNNING'; then
+      warn "TUN interface detected but no HTTP proxy found"
+      warn "For best results, enable the HTTP proxy in your proxy app (usually port 7890)"
+      # Help Node.js cope with TUN DNS quirks
+      export NODE_OPTIONS="${NODE_OPTIONS:-} --dns-result-order=ipv4first"
+      info "Set NODE_OPTIONS=--dns-result-order=ipv4first (TUN compatibility)"
+      return 2
+    fi
+  fi
+
   return 1
 }
 
@@ -405,11 +482,29 @@ ALLOWBUILDS_NPMRC
   # Detect local proxy (INCY/Clash/V2Ray) — explicit proxy is more reliable
   # than TUN-mode virtual interfaces for Node.js processes.
   _detect_and_set_proxy || true
+  local root_had_proxy=0
+  [ -n "${https_proxy:-}" ] && root_had_proxy=1
 
   if pnpm install --prefer-offline 2>&1 | tee /tmp/ohmyagent-pnpm-install.log; then
     ok "Dependencies installed (prebuilt binaries)"
     rm -f /tmp/ohmyagent-pnpm-install.log
     return 0
+  fi
+
+  # If a proxy was set but install failed, the "proxy" may be a SOCKS port or
+  # non-HTTP service. Unset proxy and retry (rely on TUN directly).
+  if [ "$root_had_proxy" -eq 1 ]; then
+    warn "Install with proxy failed — retrying without proxy (TUN direct)..."
+    rm -f /tmp/ohmyagent-pnpm-install.log
+    unset https_proxy http_proxy HTTPS_PROXY HTTP_PROXY
+    if [ "$PLATFORM" = "macos" ]; then
+      export NODE_OPTIONS="${NODE_OPTIONS:-} --dns-result-order=ipv4first"
+    fi
+    if pnpm install --prefer-offline 2>&1 | tee /tmp/ohmyagent-pnpm-install.log; then
+      ok "Dependencies installed (TUN direct)"
+      rm -f /tmp/ohmyagent-pnpm-install.log
+      return 0
+    fi
   fi
 
   # Check for SSL certificate errors (common on corporate networks with TLS inspection)
@@ -604,7 +699,10 @@ install_ui_deps() {
 
   # Detect local proxy (INCY/Clash/V2Ray) — explicit proxy is more reliable
   # than TUN-mode virtual interfaces for Node.js processes.
-  _detect_and_set_proxy || true
+  local proxy_result
+  _detect_and_set_proxy && proxy_result=0 || proxy_result=$?
+  local had_proxy=0
+  [ -n "${https_proxy:-}" ] && had_proxy=1
 
   # Run pnpm install in the ui/ subdirectory with network fallbacks.
   # ui/ is NOT part of the root workspace — it has its own lockfile and deps.
@@ -614,6 +712,22 @@ install_ui_deps() {
     ok "WebUI dependencies installed"
     rm -f /tmp/ohmyagent-ui-install.log
   else
+    # If we had a proxy set but it failed, the "proxy" may be a SOCKS port
+    # or a non-HTTP service. Unset proxy and retry (rely on TUN directly).
+    if [ "$had_proxy" -eq 1 ]; then
+      warn "Install with proxy failed — retrying without proxy (TUN direct)..."
+      rm -f /tmp/ohmyagent-ui-install.log
+      unset https_proxy http_proxy HTTPS_PROXY HTTP_PROXY
+      if [ "$PLATFORM" = "macos" ]; then
+        export NODE_OPTIONS="${NODE_OPTIONS:-} --dns-result-order=ipv4first"
+      fi
+      if (cd ui && pnpm install --prefer-offline --ignore-workspace 2>&1 | tee /tmp/ohmyagent-ui-install.log); then
+        ok "WebUI dependencies installed (TUN direct)"
+        rm -f /tmp/ohmyagent-ui-install.log
+        return 0
+      fi
+    fi
+
     warn "WebUI install failed — retrying with NODE_TLS_REJECT_UNAUTHORIZED=0..."
     rm -f /tmp/ohmyagent-ui-install.log
     if (cd ui && NODE_TLS_REJECT_UNAUTHORIZED=0 pnpm install --prefer-offline --ignore-workspace 2>&1); then
@@ -626,6 +740,22 @@ install_ui_deps() {
         ok "WebUI dependencies installed (npmmirror mirror)"
       else
         warn "WebUI dependency installation failed"
+        echo ""
+        echo -e "  ${YELLOW}All network strategies exhausted:${NC}"
+        echo -e "  ${YELLOW}  1. Direct connection${had_proxy:+ (with proxy)}${NC}"
+        echo -e "  ${YELLOW}  2. NODE_TLS_REJECT_UNAUTHORIZED=0${NC}"
+        echo -e "  ${YELLOW}  3. npmmirror.com registry mirror${NC}"
+        if [ "$had_proxy" -eq 1 ]; then
+          echo -e "  ${YELLOW}  4. TUN direct (without proxy)${NC}"
+        fi
+        if [ "$proxy_result" -eq 2 ]; then
+          echo ""
+          echo -e "  ${CYAN}${BOLD}Troubleshooting TUN mode:${NC}"
+          echo -e "  ${CYAN}• Enable HTTP proxy in your proxy app (usually port 7890)${NC}"
+          echo -e "  ${CYAN}• Or run: export https_proxy=http://127.0.0.1:7890${NC}"
+          echo -e "  ${CYAN}  before re-running this script${NC}"
+        fi
+        echo ""
         warn "Skipping WebUI build — server will serve UI in dev mode"
         return 0
       fi
