@@ -512,7 +512,7 @@ export async function bootstrap(): Promise<BootstrapResult> {
     server,
     logger,
     isTest: !!process.env.VITEST || process.env.NODE_ENV === 'test',
-    uiRoot: path.join(__dirname, '../../ui'),
+    uiRoot: path.join(__dirname, '../../../ui'),
   });
 
   // ─── Hot reload: watch config.yaml and .env for changes ───

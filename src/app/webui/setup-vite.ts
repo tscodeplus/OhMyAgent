@@ -30,7 +30,11 @@ export async function setupWebUIMiddleware(options: {
 
   const uiDist = process.env.WEBUI_STATIC_ROOT || path.join(uiRoot, 'dist');
   const uiSrc = path.join(uiRoot, 'src');
-  const isDevMode = !process.env.WEBUI_STATIC_ROOT && existsSync(uiSrc);
+  // Prefer pre-built static files when available (production mode).
+  // Only use Vite dev middleware when there are NO pre-built files AND
+  // source files exist (actual development with "pnpm dev").
+  const hasPrebuilt = existsSync(path.join(uiDist, 'index.html'));
+  const isDevMode = !hasPrebuilt && !process.env.WEBUI_STATIC_ROOT && existsSync(uiSrc);
   let viteDevServer: Awaited<ReturnType<typeof import('vite').createServer>> | undefined;
 
   if (isDevMode) {
