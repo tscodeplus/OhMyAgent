@@ -901,18 +901,18 @@ setup_config() {
   # API key can be in config.yaml OR .env (both are valid config paths).
   HAS_API_KEY=0
   if [ -f config.yaml ]; then
-    HAS_API_KEY=$(grep -c 'api_key:' config.yaml 2>/dev/null | head -1)
+    HAS_API_KEY=$(grep -c 'api_key:' config.yaml 2>/dev/null | head -1) || true
     grep -q 'api_key: sk-xxx' config.yaml 2>/dev/null && HAS_API_KEY=0
   fi
   # Also check .env for PI_AI_API_KEY (older setups may only use .env)
   if [ "$HAS_API_KEY" -eq 0 ] && [ -f .env ]; then
-    HAS_API_KEY=$(grep -c '^PI_AI_API_KEY=' .env 2>/dev/null | head -1)
+    HAS_API_KEY=$(grep -c '^PI_AI_API_KEY=' .env 2>/dev/null | head -1) || true
     grep -q 'PI_AI_API_KEY=sk-xxx' .env 2>/dev/null && HAS_API_KEY=0
     grep -q 'PI_AI_API_KEY=$' .env 2>/dev/null && HAS_API_KEY=0   # empty value
   fi
   HAS_TOKEN=0
   if [ -f .env ]; then
-    HAS_TOKEN=$(grep -c '^WEBUI_TOKEN=' .env 2>/dev/null | head -1)
+    HAS_TOKEN=$(grep -c '^WEBUI_TOKEN=' .env 2>/dev/null | head -1) || true
     grep -q 'WEBUI_TOKEN=changeme' .env 2>/dev/null && HAS_TOKEN=0
     grep -q 'WEBUI_TOKEN=$' .env 2>/dev/null && HAS_TOKEN=0         # empty value
   fi
