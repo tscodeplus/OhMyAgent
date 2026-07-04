@@ -499,6 +499,8 @@ function registerIpcHandlers(): void {
       try {
         getDesktopConfig().set('language', lang as 'en' | 'zh-CN');
       } catch { /* config store may not be writable */ }
+      // Keep UI_LANGUAGE env var in sync — the server also reads it
+      process.env.UI_LANGUAGE = lang;
       // Rebuild tray menu immediately so labels reflect the new language
       rebuildTrayMenu();
       return true;

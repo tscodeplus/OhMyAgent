@@ -91,27 +91,31 @@ export interface DesktopLocales {
  * Determine the UI language for the application.
  *
  * Priority:
- *  1. Explicitly set UI_LANGUAGE env var
- *  2. Desktop config language (persisted from user's last WebUI choice)
+ *  1. Desktop config language (persisted from user's last WebUI choice)
+ *  2. Explicitly set UI_LANGUAGE env var
  *  3. System locale (if it matches a supported language)
  *  4. Fallback to "en"
+ *
+ * Desktop config takes priority over env var because the env var is set
+ * once at first launch (based on system locale) and never updated, while
+ * the desktop config reflects the user's explicit choice in WebUI settings.
  */
 export function resolveUILanguage(): SupportedLocale {
-  // If user explicitly set it, respect that
-  if (process.env.UI_LANGUAGE) {
-    const explicit = process.env.UI_LANGUAGE;
-    if (SUPPORTED_LOCALES.includes(explicit as SupportedLocale)) {
-      return explicit as SupportedLocale;
-    }
-  }
-
-  // Check desktop config for user's persisted language preference
+  // 1. Check desktop config for user's persisted language preference (takes priority)
   try {
     const lang = getDesktopConfig().get('language');
     if (lang && SUPPORTED_LOCALES.includes(lang as SupportedLocale)) {
       return lang as SupportedLocale;
     }
   } catch { /* config store may not be ready yet; fall through */ }
+
+  // 2. If user explicitly set UI_LANGUAGE env var, respect that
+  if (process.env.UI_LANGUAGE) {
+    const explicit = process.env.UI_LANGUAGE;
+    if (SUPPORTED_LOCALES.includes(explicit as SupportedLocale)) {
+      return explicit as SupportedLocale;
+    }
+  }
 
   const sysLocale = app.getLocale(); // e.g. "zh-CN", "en-US", "ja"
   // Exact match
