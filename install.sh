@@ -200,7 +200,18 @@ clone_repo() {
   if [ -d "$INSTALL_DIR/.git" ]; then
     ok "Repository already exists: $INSTALL_DIR"
     info "Pulling latest changes..."
-    PULL_OUTPUT=$(git -C "$INSTALL_DIR" pull --ff-only 2>&1) || warn "Could not pull: ${PULL_OUTPUT}"
+    PULL_OUTPUT=$(git -C "$INSTALL_DIR" pull --ff-only 2>&1) || {
+      warn "Could not pull: ${PULL_OUTPUT}"
+      # If the failure is due to untracked files that would be overwritten,
+      # stash them and retry so the user gets the latest installer fixes.
+      if echo "$PULL_OUTPUT" | grep -qi 'would be overwritten\|untracked working tree'; then
+        warn "Local files conflict with incoming changes. Stashing and retrying..."
+        git -C "$INSTALL_DIR" stash --include-untracked 2>/dev/null || true
+        PULL_OUTPUT2=$(git -C "$INSTALL_DIR" pull --ff-only 2>&1) && \
+          ok "Pulled latest changes (local changes stashed)" || \
+          warn "Pull still failed: ${PULL_OUTPUT2}"
+      fi
+    }
     return 0
   fi
 
@@ -230,9 +241,24 @@ install_deps() {
     pnpm_ver=$(pnpm -v 2>/dev/null | cut -d. -f1)
 
     if [ "${pnpm_ver:-0}" -ge 11 ]; then
-      # pnpm 11+: allowBuilds is already in the repo's pnpm-workspace.yaml.
-      # If missing (stale clone), inject it so pnpm won't block builds.
-      if ! grep -q 'allowBuilds' pnpm-workspace.yaml 2>/dev/null; then
+      # pnpm 11+: onlyBuiltDependencies is removed; allowBuilds (a map) replaces it.
+      #
+      # Remove pnpm.onlyBuiltDependencies from package.json to suppress the
+      # "no longer read" warning and avoid confusion.
+      if [ -f package.json ] && grep -q 'onlyBuiltDependencies' package.json 2>/dev/null; then
+        node -e "
+const { readFileSync, writeFileSync } = require('fs');
+const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+if (pkg.pnpm) {
+  delete pkg.pnpm.onlyBuiltDependencies;
+  if (!Object.keys(pkg.pnpm).length) delete pkg.pnpm;
+}
+writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+" 2>/dev/null || true
+      fi
+
+      # Write allowBuilds into pnpm-workspace.yaml if missing.
+      if ! grep -q '^allowBuilds:' pnpm-workspace.yaml 2>/dev/null; then
         cat >> pnpm-workspace.yaml <<'ALLOWBUILDS'
 
 allowBuilds:
@@ -250,6 +276,29 @@ allowBuilds:
   "@nut-tree-fork/nut-js": true
   electron: true
 ALLOWBUILDS
+      fi
+
+      # Belt and suspenders: also write allowBuilds into .npmrc.
+      # pnpm 11 says .npmrc is auth-only, but in practice some 11.x releases
+      # still read allowBuilds from .npmrc as a fallback.
+      if ! grep -q '^allowBuilds' .npmrc 2>/dev/null; then
+        cat >> .npmrc <<'ALLOWBUILDS_NPMRC'
+
+# allowBuilds (pnpm 11+) — also configured in pnpm-workspace.yaml
+allowBuilds[better-sqlite3]=true
+allowBuilds[sqlite-vec]=true
+allowBuilds[sqlite-vec-windows-x64]=true
+allowBuilds[sqlite-vec-linux-x64]=true
+allowBuilds[sqlite-vec-darwin-x64]=true
+allowBuilds[sqlite-vec-darwin-arm64]=true
+allowBuilds[sqlite-vec-linux-arm64]=true
+allowBuilds[sharp]=true
+allowBuilds[esbuild]=true
+allowBuilds[protobufjs]=true
+allowBuilds[@google/genai]=true
+allowBuilds[@nut-tree-fork/nut-js]=true
+allowBuilds[electron]=true
+ALLOWBUILDS_NPMRC
       fi
     elif command -v pnpm &>/dev/null && pnpm approve-builds --help 2>/dev/null | grep -q 'global' 2>/dev/null; then
       # pnpm v10.4+
@@ -290,6 +339,12 @@ ALLOWBUILDS
   # and retry before falling through to the C++ toolchain path.
   if grep -qi 'ERR_PNPM_IGNORED_BUILDS\|Ignored build scripts' /tmp/ohmyagent-pnpm-install.log 2>/dev/null; then
     warn "Build scripts were blocked. Approving builds and retrying..."
+    # Force-remove stale onlyBuiltDependencies from .npmrc (pnpm 11 ignores them,
+    # but their presence may confuse users). Then re-apply allowBuilds.
+    if [ -f .npmrc ]; then
+      sed -i.bak '/^onlyBuiltDependencies/d' .npmrc 2>/dev/null || true
+      rm -f .npmrc.bak
+    fi
     _ensure_builds_approved
     if pnpm install --prefer-offline 2>&1; then
       ok "Dependencies installed (builds approved)"
