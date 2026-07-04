@@ -32,9 +32,17 @@ body {
 
 html {
   color-scheme: light;
+  /* Thin separator between native title bar and app content
+     (visible in Electron; sits at viewport edge in browsers). */
+  border-top: 1px solid #e5e5e5; /* neutral-200 */
 }
 html.dark {
   color-scheme: dark;
+  /* Thin separator between native title bar and app content.
+     In Electron the content area starts below the OS title bar;
+     this line creates a clean visual boundary that matches the
+     header border in AppShell (border-neutral-800). */
+  border-top: 1px solid #262626;
 }
 
 body {
