@@ -337,12 +337,16 @@ function registerIpcHandlers(): void {
             const DARK_BG = '#0a0a0a';
             const LIGHT_BG = '#ffffff';
             const bg = isDarkNow ? DARK_BG : LIGHT_BG;
-            mainWindow.setBackgroundColor(bg);
-            mainWindow.setTitleBarOverlay({
-              color: bg,
-              symbolColor: isDarkNow ? '#9ca3af' : '#525252',
-            });
-            diagLog(`[OhMyAgent] Window chrome updated — bg=${bg}`);
+            try {
+              mainWindow.setBackgroundColor(bg);
+              mainWindow.setTitleBarOverlay({
+                color: bg,
+                symbolColor: isDarkNow ? '#9ca3af' : '#525252',
+              });
+              diagLog(`[OhMyAgent] Window chrome updated — bg=${bg}`);
+            } catch (err) {
+              diagLog(`[OhMyAgent] Window chrome update error: ${err}`);
+            }
           }
         }
       }
@@ -900,26 +904,31 @@ app.whenReady().then(async () => {
     diagLog(`[OhMyAgent] nativeTheme.themeSource set to "${savedTheme}" from saved config`);
   }
 
-  // Keep window chrome in sync when the OS theme changes (matters for
-  // themeSource='system' or when the user toggles dark mode in Windows).
-  nativeTheme.on('updated', () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    const shouldUseDark = nativeTheme.shouldUseDarkColors;
-    const DARK_BG = '#0a0a0a';
-    const LIGHT_BG = '#ffffff';
-    const bg = shouldUseDark ? DARK_BG : LIGHT_BG;
-    mainWindow.setBackgroundColor(bg);
-    mainWindow.setTitleBarOverlay({
-      color: bg,
-      symbolColor: shouldUseDark ? '#9ca3af' : '#525252',
-    });
-    diagLog(`[OhMyAgent] nativeTheme.updated — window chrome sync (dark=${shouldUseDark})`);
-  });
-
   // Hide the default Electron menu bar (Windows/Linux).
   Menu.setApplicationMenu(null);
 
   createWindow();
+
+  // Keep window chrome in sync when the OS theme changes (matters for
+  // themeSource='system' or when the user toggles dark mode in Windows).
+  // Must be registered AFTER createWindow() so mainWindow exists.
+  nativeTheme.on('updated', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    try {
+      const shouldUseDark = nativeTheme.shouldUseDarkColors;
+      const DARK_BG = '#0a0a0a';
+      const LIGHT_BG = '#ffffff';
+      const bg = shouldUseDark ? DARK_BG : LIGHT_BG;
+      mainWindow.setBackgroundColor(bg);
+      mainWindow.setTitleBarOverlay({
+        color: bg,
+        symbolColor: shouldUseDark ? '#9ca3af' : '#525252',
+      });
+      diagLog(`[OhMyAgent] nativeTheme.updated — window chrome sync (dark=${shouldUseDark})`);
+    } catch (err) {
+      diagLog(`[OhMyAgent] nativeTheme.updated — chrome sync error: ${err}`);
+    }
+  });
 
   // Initialize updater and point it at the main window
   getAppUpdater().setWindow(mainWindow!);
