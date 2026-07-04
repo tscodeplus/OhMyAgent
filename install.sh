@@ -547,12 +547,44 @@ install_ui_deps() {
 
   cd "$INSTALL_DIR"
 
-  if [ -f ui/package.json ]; then
-    (cd ui && pnpm install --prefer-offline 2>&1) && ok "WebUI dependencies installed" || warn "WebUI dependency installation failed"
-    info "Building WebUI frontend..."
-    (cd ui && pnpm build 2>&1) && ok "WebUI built to ui/dist/" || warn "WebUI build had issues (server can still serve UI in dev mode)"
-  else
+  if [ ! -f ui/package.json ]; then
     warn "ui/package.json not found, skipping WebUI"
+    return 0
+  fi
+
+  # Run pnpm install in the ui/ subdirectory with SSL fallback (same as root).
+  # ui/ is NOT part of the root workspace — it has its own lockfile and deps.
+  if (cd ui && pnpm install --prefer-offline 2>&1 | tee /tmp/ohmyagent-ui-install.log); then
+    ok "WebUI dependencies installed"
+    rm -f /tmp/ohmyagent-ui-install.log
+  elif grep -qi 'unable to get local issuer certificate\|CERT_HAS_EXPIRED\|self.signed\|certificate' /tmp/ohmyagent-ui-install.log 2>/dev/null; then
+    warn "SSL certificate error during WebUI install."
+    warn "Retrying with NODE_TLS_REJECT_UNAUTHORIZED=0..."
+    rm -f /tmp/ohmyagent-ui-install.log
+    if (cd ui && NODE_TLS_REJECT_UNAUTHORIZED=0 pnpm install --prefer-offline 2>&1); then
+      ok "WebUI dependencies installed (SSL workaround)"
+    else
+      warn "WebUI dependency installation failed"
+      warn "Skipping WebUI build — server will serve UI in dev mode"
+      return 0
+    fi
+  else
+    warn "WebUI dependency installation failed"
+    warn "Skipping WebUI build — server will serve UI in dev mode"
+    rm -f /tmp/ohmyagent-ui-install.log
+    return 0
+  fi
+
+  # Only attempt build if node_modules exists (install succeeded)
+  if [ -d ui/node_modules ]; then
+    info "Building WebUI frontend..."
+    if (cd ui && pnpm build 2>&1); then
+      ok "WebUI built to ui/dist/"
+    else
+      warn "WebUI build had issues (server can still serve UI in dev mode)"
+    fi
+  else
+    warn "WebUI node_modules not found — skipping build"
   fi
 }
 
