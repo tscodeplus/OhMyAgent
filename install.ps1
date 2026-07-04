@@ -36,27 +36,65 @@ if ($nodePath) {
     if ($majorVer -ge 20) {
         Write-OK "Node.js v$nodeVer"
     } else {
+        # Exists but too old — do NOT auto-upgrade
         Write-Warn "Node.js v$nodeVer found, but >= 20 required"
         Write-Host ""
-        Write-Host "  Download Node.js >= 20 from: https://nodejs.org" -ForegroundColor Yellow
-        Write-Host "  Or use fnm (fast Node Manager):" -ForegroundColor Yellow
-        Write-Host "    winget install Schniz.fnm" -ForegroundColor Yellow
-        Write-Host "    fnm install 22" -ForegroundColor Yellow
-        Write-Host "    fnm use 22" -ForegroundColor Yellow
-        Abort "Please install Node.js >= 20 and re-run this script."
+        Write-Host "  Please upgrade Node.js manually:" -ForegroundColor Yellow
+        Write-Host "    Download from: https://nodejs.org" -ForegroundColor Yellow
+        Write-Host "    Or: winget upgrade OpenJS.NodeJS.LTS" -ForegroundColor Yellow
+        Write-Host "    Or use fnm (fast Node Manager):" -ForegroundColor Yellow
+        Write-Host "      winget install Schniz.fnm" -ForegroundColor Yellow
+        Write-Host "      fnm install 22" -ForegroundColor Yellow
+        Write-Host "      fnm use 22" -ForegroundColor Yellow
+        Abort "Please upgrade Node.js to >= 20 and re-run this script."
     }
 } else {
-    Write-Host ""
-    Write-Host "  Download Node.js LTS from: https://nodejs.org" -ForegroundColor Yellow
-    Write-Host "  Or via winget: winget install OpenJS.NodeJS.LTS" -ForegroundColor Yellow
-    Abort "Node.js not found. Install it and re-run."
+    # Not installed at all — auto-install via winget
+    Write-Warn "Node.js not found"
+    Write-Info "Installing Node.js LTS via winget..."
+    $wingetPath = Get-Command winget -ErrorAction SilentlyContinue
+    if ($wingetPath) {
+        winget install OpenJS.NodeJS.LTS --silent --accept-source-agreements 2>$null
+        # Refresh PATH after winget install
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+        $nodePath = Get-Command node -ErrorAction SilentlyContinue
+        if ($nodePath) {
+            Write-OK "Node.js $(node -v) installed via winget"
+        } else {
+            Write-Warn "winget install completed, but node not found in PATH yet."
+            Write-Host "  Please restart your terminal and re-run this script." -ForegroundColor Yellow
+            exit 1
+        }
+    } else {
+        # No winget — fall back to manual instructions
+        Write-Host ""
+        Write-Host "  Download Node.js LTS from: https://nodejs.org" -ForegroundColor Yellow
+        Write-Host "  (Install the LTS version and re-run this script)" -ForegroundColor Yellow
+        Abort "Node.js not found. Please install it and re-run."
+    }
 }
 
 # ── Step 2: pnpm ────────────────────────────────────────────────────────────────
 Write-Info "Checking pnpm..."
 
 $pnpmPath = Get-Command pnpm -ErrorAction SilentlyContinue
-if (-not $pnpmPath) {
+if ($pnpmPath) {
+    $pnpmVer = (pnpm -v) -split '\.' | Select-Object -First 1
+    if ([int]$pnpmVer -ge 9) {
+        Write-OK "pnpm $(pnpm -v)"
+    } else {
+        # Exists but too old — do NOT auto-upgrade
+        Write-Warn "pnpm $(pnpm -v) found, but >= 9 required"
+        Write-Host ""
+        Write-Host "  Please upgrade pnpm manually:" -ForegroundColor Yellow
+        Write-Host "    npm install -g pnpm@latest" -ForegroundColor Yellow
+        Write-Host "    corepack prepare pnpm@latest --activate" -ForegroundColor Yellow
+        Write-Host ""
+        Abort "Please upgrade pnpm to >= 9 and re-run this script."
+    }
+} else {
+    # Not installed at all — auto-install
+    Write-Warn "pnpm not found"
     Write-Info "Installing pnpm..."
     npm install -g pnpm 2>$null
     if ($LASTEXITCODE -ne 0) {
@@ -68,8 +106,8 @@ if (-not $pnpmPath) {
     if (-not $pnpmPath) {
         Abort "Failed to install pnpm. Install it from: https://pnpm.io/installation"
     }
+    Write-OK "pnpm $(pnpm -v) installed"
 }
-Write-OK "pnpm $(pnpm -v)"
 
 # ── Step 3: Git ─────────────────────────────────────────────────────────────────
 Write-Info "Checking git..."

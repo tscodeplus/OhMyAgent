@@ -103,13 +103,34 @@ check_node() {
       ok "Node.js $(node -v)"
       return 0
     fi
+    # Exists but too old — do NOT auto-upgrade (user may have intentional version)
     warn "Node.js $(node -v) found, but >= 20 required"
-  else
-    warn "Node.js not found"
+    echo ""
+    echo -e "  ${YELLOW}Your Node.js is too old. Please upgrade manually:${NC}"
+    case "$PLATFORM" in
+      termux)
+        echo "    pkg install nodejs"
+        ;;
+      linux)
+        echo "    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -"
+        echo "    sudo apt-get install -y nodejs"
+        echo ""
+        echo "  Or use nvm / fnm / n to manage Node.js versions."
+        ;;
+      macos)
+        echo "    brew upgrade node"
+        echo ""
+        echo "  Or: curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash"
+        echo "      nvm install 22"
+        ;;
+    esac
+    abort "Please upgrade Node.js to >= 20 and re-run this script."
   fi
 
-  # Try auto-install
-  info "Attempting to install/upgrade Node.js automatically..."
+  # Not installed at all — auto-install the recommended version
+  warn "Node.js not found"
+  info "Installing Node.js LTS automatically..."
+
   if install_nodejs; then
     ok "Node.js $(node -v) installed successfully"
     return 0
@@ -147,12 +168,19 @@ check_pnpm() {
       ok "pnpm $(pnpm -v)"
       return 0
     fi
+    # Exists but too old — do NOT auto-upgrade
     warn "pnpm $(pnpm -v) found, but >= 9 required"
-  else
-    warn "pnpm not found"
+    echo ""
+    echo -e "  ${YELLOW}Your pnpm is too old. Please upgrade manually:${NC}"
+    echo "    npm install -g pnpm@latest"
+    echo "    corepack prepare pnpm@latest --activate"
+    echo ""
+    abort "Please upgrade pnpm to >= 9 and re-run this script."
   fi
 
-  info "Installing/upgrading pnpm..."
+  # Not installed at all — auto-install
+  warn "pnpm not found"
+  info "Installing pnpm..."
 
   # Use corepack (ships with Node.js >= 16)
   if command -v corepack &>/dev/null; then
@@ -161,7 +189,7 @@ check_pnpm() {
       ok "pnpm $(pnpm -v) installed via corepack" && return 0
   fi
 
-  # Use npm to install/upgrade
+  # Use npm to install
   if command -v npm &>/dev/null; then
     npm install -g pnpm@latest 2>/dev/null && ok "pnpm $(pnpm -v) installed" && return 0
   fi
@@ -308,13 +336,10 @@ ALLOWBUILDS_NPMRC
   _ensure_builds_approved
 
   # ── Locate a Python >= 3.8 for potential native compilation ──────────────
-  # node-gyp 12+ (bundled with pnpm >= 10) uses the walrus operator (:=) which
-  # requires Python >= 3.8. macOS Xcode CLT ships Python 3.7 — far too old.
-  # Try brew or python.org Python first; set npm_config_python so node-gyp uses
-  # it instead of the system python3.
+  # check_python() already ran above and may have set PYTHON_BIN. If the system
+  # python3 is too old (e.g. macOS Xcode CLT 3.7), try brew / python.org paths.
   _find_python() {
     local candidates=()
-    # macOS: prefer brew / python.org over Xcode CLT python3
     if [ "$PLATFORM" = "macos" ]; then
       [ -x "/opt/homebrew/bin/python3" ] && candidates+=("/opt/homebrew/bin/python3")
       [ -x "/usr/local/bin/python3" ] && candidates+=("/usr/local/bin/python3")
@@ -330,6 +355,8 @@ ALLOWBUILDS_NPMRC
     done
     return 1
   }
+  # Run _find_python to locate a suitable Python (>= 3.8) for node-gyp 12+.
+  # On macOS this prefers brew/python.org Python over Xcode CLT's Python 3.7.
   PYTHON_BIN=$(_find_python) || true
   if [ -n "${PYTHON_BIN:-}" ] && [ "$PYTHON_BIN" != "python3" ]; then
     export npm_config_python="$PYTHON_BIN"
