@@ -44,6 +44,8 @@ async function linuxService(action: 'install' | 'uninstall'): Promise<void> {
     if (!checkDep('systemctl', 'systemd (included in most Linux distros)')) return;
     mkdirSync(serviceDir, { recursive: true });
 
+    const proxyEnvLines = collectProxyEnvLines();
+
     const unit = `[Unit]
 Description=OhMyAgent
 After=network-online.target
@@ -56,7 +58,7 @@ WorkingDirectory=${PROJECT_DIR}
 Restart=always
 RestartSec=3
 Environment=NODE_ENV=production
-
+${proxyEnvLines}
 [Install]
 WantedBy=default.target
 `;
@@ -92,6 +94,43 @@ WantedBy=default.target
   }
 }
 
+// ─── Helper: collect proxy/network env vars to pass through to the service ─────
+// Node.js undici (used by fetch()) does not use macOS system proxy settings.
+// The install script detects the proxy and sets https_proxy/http_proxy — pass
+// these through so the server's fetch() calls can reach the internet.
+function collectProxyEnv(): string {
+  const vars: string[] = [];
+  const keys = ['https_proxy', 'HTTPS_PROXY', 'http_proxy', 'HTTP_PROXY',
+                'NODE_EXTRA_CA_CERTS', 'NODE_TLS_REJECT_UNAUTHORIZED',
+                'NODE_OPTIONS'];
+  const seen = new Set<string>();
+  for (const key of keys) {
+    const val = process.env[key];
+    if (val && !seen.has(key.toLowerCase())) {
+      seen.add(key.toLowerCase());
+      vars.push(`<key>${key}</key><string>${val.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</string>`);
+    }
+  }
+  return vars.join('');
+}
+
+/** Same as collectProxyEnv but produces systemd Environment= lines. */
+function collectProxyEnvLines(): string {
+  const lines: string[] = [];
+  const keys = ['https_proxy', 'HTTPS_PROXY', 'http_proxy', 'HTTP_PROXY',
+                'NODE_EXTRA_CA_CERTS', 'NODE_TLS_REJECT_UNAUTHORIZED',
+                'NODE_OPTIONS'];
+  const seen = new Set<string>();
+  for (const key of keys) {
+    const val = process.env[key];
+    if (val && !seen.has(key.toLowerCase())) {
+      seen.add(key.toLowerCase());
+      lines.push(`Environment=${key}=${val}`);
+    }
+  }
+  return lines.join('\n');
+}
+
 // ─── macOS launchd ───
 
 async function darwinService(action: 'install' | 'uninstall'): Promise<void> {
@@ -103,6 +142,8 @@ async function darwinService(action: 'install' | 'uninstall'): Promise<void> {
     if (!checkDep('launchctl', 'launchd (built into macOS)')) return;
     mkdirSync(plistDir, { recursive: true });
 
+    const proxyEnvVars = collectProxyEnv();
+
     const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -113,7 +154,7 @@ async function darwinService(action: 'install' | 'uninstall'): Promise<void> {
     <key>KeepAlive</key><true/>
     <key>StandardOutPath</key><string>${join(homedir(), '.ohmyagent', 'data', 'logs', 'stdout.log')}</string>
     <key>StandardErrorPath</key><string>${join(homedir(), '.ohmyagent', 'data', 'logs', 'stderr.log')}</string>
-    <key>EnvironmentVariables</key><dict><key>NODE_ENV</key><string>production</string></dict>
+    <key>EnvironmentVariables</key><dict><key>NODE_ENV</key><string>production</string>${proxyEnvVars}</dict>
 </dict></plist>`;
     writeFileSync(plistFile, plist);
     console.log(t('service.launchdWrote', { path: plistFile }));

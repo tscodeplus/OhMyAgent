@@ -24,30 +24,115 @@ function findProjectRoot(): string {
   return process.cwd();
 }
 
+// ── macOS proxy detection ──────────────────────────────────────────────────────
+// Node.js undici (used by fetch()) does NOT read macOS system proxy settings.
+// It only respects https_proxy / http_proxy env vars. When these aren't set
+// (e.g. server started outside the install script), fetch() tries a direct
+// connection which may fail through TUN-mode proxies or due to DNS quirks.
+// Detect the macOS proxy from System Configuration so fetch() can reach the
+// internet regardless of how the server was started.
+
+interface ProxyConfig {
+  httpsProxy?: string;
+  httpProxy?: string;
+}
+
+let cachedMacOSProxy: ProxyConfig | null = null;
+let cachedMacOSProxyAt = 0;
+
+function detectMacOSProxy(): ProxyConfig {
+  // Cache for 5 minutes — proxy settings don't change often
+  const now = Date.now();
+  if (cachedMacOSProxy && (now - cachedMacOSProxyAt) < 300_000) {
+    return cachedMacOSProxy;
+  }
+
+  try {
+    if (process.platform !== 'darwin') {
+      cachedMacOSProxy = {};
+      cachedMacOSProxyAt = now;
+      return {};
+    }
+
+    const out = execSync('scutil --proxy', { encoding: 'utf8', timeout: 3000 });
+    const config: ProxyConfig = {};
+
+    // Prefer HTTPS proxy, fall back to HTTP proxy
+    const httpsEnabled = /HTTPSEnable\s*:\s*1/.test(out);
+    const httpEnabled = /HTTPEnable\s*:\s*1/.test(out);
+
+    if (httpsEnabled) {
+      const host = out.match(/HTTPSProxy\s*:\s*(\S+)/)?.[1];
+      const port = out.match(/HTTPSPort\s*:\s*(\d+)/)?.[1];
+      if (host && port) config.httpsProxy = `http://${host}:${port}`;
+    } else if (httpEnabled) {
+      const host = out.match(/HTTPProxy\s*:\s*(\S+)/)?.[1];
+      const port = out.match(/HTTPPort\s*:\s*(\d+)/)?.[1];
+      if (host && port) config.httpsProxy = `http://${host}:${port}`;
+    }
+
+    if (config.httpsProxy) {
+      config.httpProxy = config.httpsProxy;
+    }
+
+    cachedMacOSProxy = config;
+    cachedMacOSProxyAt = now;
+    return config;
+  } catch {
+    return cachedMacOSProxy ?? {};
+  }
+}
+
 export function registerSystemRoutes(app: FastifyInstance): void {
   // ── Check for updates from GitHub ──────────────────────────────────────
   app.get('/api/system/check-update', async (_request, reply) => {
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15_000);
+      let res: Response | null = null;
+      let lastErr: any = null;
 
-      let res: Response;
-      try {
-        res = await fetch(
-          'https://api.github.com/repos/tscodeplus/OhMyAgent/releases/latest',
-          {
-            headers: { 'Accept': 'application/vnd.github.v3+json' },
-            signal: controller.signal,
-          },
-        );
-      } catch (err: any) {
-        clearTimeout(timeout);
-        if (err.name === 'AbortError') {
+      // Try up to 2 strategies: current env, then macOS system proxy
+      for (const attempt of [1, 2]) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), attempt === 1 ? 10_000 : 8_000);
+
+        try {
+          // On the second attempt, detect macOS system proxy if no env proxy is set
+          if (attempt === 2) {
+            const macProxy = detectMacOSProxy();
+            if (macProxy.httpsProxy) {
+              // Set for undici — it checks these env vars at fetch() call time
+              process.env.https_proxy = process.env.https_proxy || macProxy.httpsProxy;
+              process.env.http_proxy = process.env.http_proxy || macProxy.httpProxy || macProxy.httpsProxy;
+              app.log.info({ proxy: macProxy.httpsProxy }, 'check-update: using macOS system proxy');
+            } else {
+              break; // No proxy found — don't retry
+            }
+          }
+
+          res = await fetch(
+            'https://api.github.com/repos/tscodeplus/OhMyAgent/releases/latest',
+            {
+              headers: { 'Accept': 'application/vnd.github.v3+json' },
+              signal: controller.signal,
+            },
+          );
+          clearTimeout(timeout);
+          if (res.ok) break; // Success — exit retry loop
+          lastErr = new Error(`GitHub API returned ${res.status}`);
+        } catch (err: any) {
+          clearTimeout(timeout);
+          lastErr = err;
+          // Only retry if first attempt failed and we haven't tried with proxy
+        }
+      }
+
+      if (!res || !res.ok) {
+        if (lastErr?.name === 'AbortError') {
           return reply.status(504).send({ ok: false, error: 'github_unreachable', message: 'Cannot connect to GitHub — request timed out' });
         }
+        app.log.warn({ err: lastErr?.message }, 'check-update: GitHub unreachable');
         return reply.status(502).send({ ok: false, error: 'github_unreachable', message: 'Cannot connect to GitHub — network error' });
       }
-      clearTimeout(timeout);
 
       if (!res.ok) {
         return reply.status(502).send({ ok: false, error: 'github_error', message: `GitHub API returned ${res.status}` });
