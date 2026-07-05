@@ -391,8 +391,8 @@ export async function bootstrap(): Promise<BootstrapResult> {
     userQuestionSenderRegistry.set('feishu', createFeishuUserQuestionSender({
       sendCard: (chatId: string, card: Record<string, unknown>) =>
         feishuClient.sendApprovalCard(chatId, card),
-      recallMessage: (messageId: string) =>
-        feishuClient.recallMessage?.(messageId) ?? Promise.resolve(),
+      updateCard: (messageId: string, card: Record<string, unknown>) =>
+        feishuClient.updateMessage(messageId, 'interactive', card),
     }));
   }
 

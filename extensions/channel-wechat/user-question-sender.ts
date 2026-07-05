@@ -69,21 +69,11 @@ export function createWechatUserQuestionSender(
     async closeQuestion(
       _chatId: string,
       _cardMessageId: string | undefined,
-      answer: string,
+      _answer: string,
     ): Promise<void> {
-      try {
-        await sendChunkedText(
-          apiBase,
-          botToken,
-          toUserId,
-          contextToken,
-          `✅ 回答已收到: ${answer}`,
-          textLimit,
-          logger,
-        );
-      } catch {
-        // Best-effort
-      }
+      // WeChat does not support editing messages. The message handler already
+      // sent "✅ 已收到回答" when the user typed their answer, so we don't
+      // send a duplicate here.
     },
   };
 }

@@ -72,15 +72,12 @@ export function createQQUserQuestionSender(
     async closeQuestion(
       _chatId: string,
       _cardMessageId: string | undefined,
-      answer: string,
+      _answer: string,
     ): Promise<void> {
-      // QQ does not support editing messages — send a follow-up
-      try {
-        const target = parseChatId(_chatId);
-        await sendChunkedText(gateway, `✅ 回答: ${answer}`, target, 2000);
-      } catch {
-        // Best-effort
-      }
+      // QQ does not support editing messages. The interaction handler already
+      // sent a follow-up result message when the button was clicked, so we
+      // don't send another one here. For text replies, the message handler
+      // also sends an acknowledgment.
     },
   };
 }

@@ -73,9 +73,11 @@ export function createAskUserQuestionToolDefinition(): ToolDefinition {
       const getUserQuestionSender = ctx.services?.getUserQuestionSender;
 
       // Convert string options to UserQuestionOption[]
-      const opts: UserQuestionOption[] | undefined = options?.map((label, i) => ({
+      // Use the label as the value so answers are human-readable
+      // (e.g. "中餐" instead of "opt_0")
+      const opts: UserQuestionOption[] | undefined = options?.map((label) => ({
         label,
-        value: `opt_${i}`,
+        value: label,
       }));
 
       // Try to get a channel sender

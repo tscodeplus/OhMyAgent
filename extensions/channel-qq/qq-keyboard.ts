@@ -76,7 +76,8 @@ export function parseApprovalCallback(
 
 /**
  * Build a QQ Keyboard for user question options.
- * Button data format: "question:<requestId>:<value>"
+ * Button data format: "question|<requestId>|<value>"
+ * Using | as delimiter avoids issues when option labels contain ':'.
  */
 export function buildQuestionKeyboard(
   requestId: string,
@@ -88,7 +89,7 @@ export function buildQuestionKeyboard(
     action: {
       type: 1 as const,
       permission: { type: 2 as const },
-      data: `question:${requestId}:${opt.value}`,
+      data: `question|${requestId}|${opt.value}`,
       click_limit: 1,
     },
     group_id: 'question',
@@ -105,12 +106,16 @@ export function buildQuestionKeyboard(
 
 /**
  * Parse a question answer from button data.
+ * Format: "question|<requestId>|<value>"
  * Returns null if the data is not a question answer.
  */
 export function parseQuestionCallback(
   buttonData: string,
 ): { requestId: string; answer: string } | null {
-  const m = buttonData.match(/^question:(.+):(.+)$/);
-  if (!m) return null;
-  return { requestId: m[1], answer: m[2] };
+  // Format: question|<requestId>|<answer>
+  if (!buttonData.startsWith('question|')) return null;
+  const rest = buttonData.slice('question|'.length);
+  const sepIdx = rest.indexOf('|');
+  if (sepIdx < 0) return null;
+  return { requestId: rest.slice(0, sepIdx), answer: rest.slice(sepIdx + 1) };
 }
