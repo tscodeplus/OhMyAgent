@@ -456,7 +456,6 @@ export async function bootstrap(): Promise<BootstrapResult> {
   servicesRef.current = services;
 
   // ─── Register WebUI routes (after services are assembled) ───
-  const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
   // Mutable ref for onConfigReload callback — assigned later after all services
   // are created. Passed to config routes so PUT /api/config can trigger a full
@@ -512,7 +511,7 @@ export async function bootstrap(): Promise<BootstrapResult> {
     server,
     logger,
     isTest: !!process.env.VITEST || process.env.NODE_ENV === 'test',
-    uiRoot: path.join(__dirname, '../../../ui'),
+    uiRoot: path.join(process.cwd(), 'ui'),
   });
 
   // ─── Hot reload: watch config.yaml and .env for changes ───
