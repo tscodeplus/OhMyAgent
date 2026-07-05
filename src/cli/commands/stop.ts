@@ -60,19 +60,52 @@ function hasTaskScheduler(): boolean {
   }
 }
 
+function stopLaunchdService(): boolean {
+  try {
+    execSync('launchctl unload ~/Library/LaunchAgents/com.ohmyagent.plist 2>/dev/null', { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function hasLaunchdService(): boolean {
+  if (process.platform !== 'darwin') return false;
+  try {
+    execSync('launchctl list com.ohmyagent 2>/dev/null', { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function stopCommand(): Promise<void> {
+  let stoppedByManager = false;
+
   // Stop Task Scheduler first (before killing the process)
   if (process.platform === 'win32' && hasTaskScheduler()) {
     console.log('Scheduled task detected, stopping...');
     if (!stopTaskScheduler()) {
       console.log('  (may need Administrator privileges)');
     }
+    stoppedByManager = true;
   }
 
-  // Stop systemd first
+  // Stop launchd — otherwise KeepAlive will respawn the process immediately
+  if (hasLaunchdService()) {
+    console.log('launchd service detected, unloading...');
+    if (stopLaunchdService()) {
+      stoppedByManager = true;
+      console.log('LaunchAgent unloaded. To re-enable auto-start:');
+      console.log('  launchctl load ~/Library/LaunchAgents/com.ohmyagent.plist');
+    }
+  }
+
+  // Stop systemd
   if (hasSystemdService()) {
     console.log('systemd service detected, stopping...');
     stopSystemdService();
+    stoppedByManager = true;
   }
 
   // Stop runit (sv) on Termux
@@ -81,12 +114,26 @@ export async function stopCommand(): Promise<void> {
       execSync('sv force-stop ohmyagent 2>/dev/null', { stdio: 'ignore' });
       console.log('runit service stopped');
     } catch {}
+    stoppedByManager = true;
   }
 
   // Kill tmux session to prevent auto-restart
   if (hasTmuxSession()) {
     killTmuxSession();
     console.log(t('stop.tmuxCleared'));
+    stoppedByManager = true;
+  }
+
+  // If a service manager handled the stop, verify the process is actually
+  // dead before reporting success (give it a moment to exit).
+  if (stoppedByManager) {
+    await sleep(1500);
+    const stillAlive = findProcessByPort();
+    if (!stillAlive) {
+      if (existsSync(PID_FILE)) unlinkSync(PID_FILE);
+      console.log(t('stop.stopped'));
+      return;
+    }
   }
 
   let pid = readPidFile();
