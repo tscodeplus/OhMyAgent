@@ -126,6 +126,17 @@ export function encodeCallbackAction(action: CallbackAction): string {
     if (compact.length <= MAX_CALLBACK_DATA) return compact;
   }
 
+  // Abbreviate question_answer actions: requestId → r, answer → a
+  if (action.type === 'question_answer') {
+    const compact = JSON.stringify({
+      type: 'question_answer',
+      r: action.requestId,
+      a: action.answer,
+    });
+
+    if (compact.length <= MAX_CALLBACK_DATA) return compact;
+  }
+
   // Fallback: truncate to the byte limit (last resort).
   return json.slice(0, MAX_CALLBACK_DATA);
 }
@@ -157,8 +168,9 @@ export function parseCallbackAction(data: string): CallbackAction | null {
     }
 
     if (record.type === 'question_answer') {
-      const requestId = record.requestId as string | undefined;
-      const answer = record.answer as string | undefined;
+      // Accept both full (requestId, answer) and abbreviated (r, a) keys.
+      const requestId = (record.requestId ?? record.r) as string | undefined;
+      const answer = (record.answer ?? record.a) as string | undefined;
       if (!requestId || answer === undefined) return null;
       return { type: 'question_answer', requestId, answer };
     }
