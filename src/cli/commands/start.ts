@@ -1,5 +1,7 @@
 import { spawn, execSync } from 'node:child_process';
 import { existsSync, writeFileSync, unlinkSync, mkdirSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { PROJECT_DIR, DIST_INDEX, PID_FILE, LOG_FILE, LOG_DIR, PORT } from '../config.js';
 import { isProcessAlive, readPidFile, checkPortInUse, quickPreflight, sleep } from '../utils.js';
 import { t } from '../i18n.js';
@@ -26,6 +28,11 @@ function hasServiceInstalled(): boolean {
   const platform = process.platform;
   const isTermux = existsSync('/data/data/com.termux') || !!process.env.PREFIX;
   if (platform === 'darwin') {
+    // Check plist file — launchctl list fails when the service is unloaded
+    // (e.g. after `ohmyagent stop`), but the file still exists and we
+    // should use launchctl load to start it.
+    const plistFile = join(homedir(), 'Library', 'LaunchAgents', 'com.ohmyagent.plist');
+    if (existsSync(plistFile)) return true;
     try { execSync('launchctl list com.ohmyagent 2>/dev/null', { stdio: 'ignore' }); return true; } catch { return false; }
   }
   if (isTermux) {
@@ -49,8 +56,17 @@ export async function startCommand(): Promise<void> {
   if (hasServiceInstalled()) {
     console.log('System service detected, starting via service manager...');
     if (startViaService()) {
-      await sleep(3000);
-      const healthy = await checkPortInUse();
+      // macOS/Linux services need more time to initialize (sqlite-vec, config
+      // loading, etc.). Wait up to 30s checking every 3s.
+      let healthy = false;
+      for (let attempt = 1; attempt <= 10; attempt++) {
+        await sleep(3000);
+        healthy = await checkPortInUse();
+        if (healthy) break;
+        if (attempt < 10) {
+          console.log(`  ${t('start.waitingPort', { elapsed: attempt * 3 })}`);
+        }
+      }
       if (healthy) {
         console.log(`\x1b[32m[INFO]\x1b[0m Service started (port ${PORT})`);
       } else {
@@ -97,7 +113,7 @@ export async function startCommand(): Promise<void> {
   console.log(t('start.starting', { pid }));
 
   let healthy = false;
-  for (let attempt = 1; attempt <= 5; attempt++) {
+  for (let attempt = 1; attempt <= 10; attempt++) {
     await sleep(3000);
     if (!isProcessAlive(pid)) {
       console.error('\x1b[31m[ERROR]\x1b[0m ' + t('start.failedExited'));
@@ -107,7 +123,7 @@ export async function startCommand(): Promise<void> {
     }
     healthy = await checkPortInUse();
     if (healthy) break;
-    if (attempt < 5) {
+    if (attempt < 10) {
       console.log('  ' + t('start.waitingPort', { elapsed: attempt * 3 }));
     }
   }
