@@ -90,9 +90,17 @@ export class AppUpdater {
     }
   }
 
+  /** Set to true before quitAndInstall so the main window close handler
+   *  knows to allow the close (bypassing closeToTray on macOS). */
+  forceQuitting = false;
+
   installAndRestart(): void {
     if (this.updateDownloaded) {
+      this.forceQuitting = true;
+      this.diagLog('installAndRestart: calling quitAndInstall');
       autoUpdater.quitAndInstall(false, true);
+    } else {
+      this.diagLog('installAndRestart: updateDownloaded is false — no-op');
     }
   }
 
