@@ -209,6 +209,7 @@ export function registerSessionRoutes(
         tool_calls: meta?.tool_calls,
         created_at: m.created_at,
         ...(meta?.approval ? { approval: meta.approval } : {}),
+        ...(meta?.userQuestion ? { userQuestion: meta.userQuestion } : {}),
         ...(meta?.skill_activated ? { skill_activated: meta?.skill_activated } : {}),
         ...(images.length > 0 ? { images } : {}),
         ...(files.length > 0 ? { files } : {}),

@@ -69,7 +69,9 @@
     "saveFailed": "Save failed",
     "downloadImage": "Download image",
     "taskPlan": "Task Plan",
-    "completed": "Completed"
+    "completed": "Completed",
+    "questionAnswered": "Answer received",
+    "questionPlaceholder": "Type your answer..."
   },
   "project": {
     "defaultName": "Default Space",

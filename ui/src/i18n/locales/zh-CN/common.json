@@ -70,7 +70,9 @@
     "saveFailed": "保存失败",
     "downloadImage": "下载图片",
     "taskPlan": "任务规划",
-    "completed": "已完成"
+    "completed": "已完成",
+    "questionAnswered": "收到回答",
+    "questionPlaceholder": "输入你的回答..."
   },
   "project": {
     "defaultName": "默认空间",

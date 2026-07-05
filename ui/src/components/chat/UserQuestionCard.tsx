@@ -71,7 +71,7 @@ export default function UserQuestionCard({
   if (status === 'answered') {
     return (
       <div className="rounded-lg border px-4 py-3 text-sm bg-success/10 border-success/30">
-        ✅ {t('chat.questionAnswered', '问题已回答')}: {initialAnswer || '—'}
+        ✅ {t('chat.questionAnswered', '收到回答')}: {initialAnswer || '—'}
       </div>
     );
   }

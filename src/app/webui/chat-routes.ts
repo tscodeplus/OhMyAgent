@@ -450,7 +450,7 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
     const approvalSender = createWebUIApprovalSender(sendSSE, cfg.db, sessionId);
 
     // WebUI user question sender — sends ask_user_question prompts via SSE
-    const userQuestionSender = createWebUIUserQuestionSender(sendSSE);
+    const userQuestionSender = createWebUIUserQuestionSender(sendSSE, cfg.db, sessionId);
     const questionSessionKey = `webui:${sessionId}`;
     cfg.userQuestionSenderRegistry?.set(questionSessionKey, userQuestionSender);
 
