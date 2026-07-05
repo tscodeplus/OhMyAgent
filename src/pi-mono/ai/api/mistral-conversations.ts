@@ -117,7 +117,7 @@ export const streamSimple: StreamFunction<"mistral-conversations", SimpleStreamO
 		throw new Error(`No API key for provider: ${model.provider}`);
 	}
 
-	const base = buildBaseOptions(model, options, apiKey);
+	const base = buildBaseOptions(model, context, options, apiKey);
 	const clampedReasoning = options?.reasoning ? clampThinkingLevel(model, options.reasoning) : undefined;
 	const reasoning = clampedReasoning === "off" ? undefined : clampedReasoning;
 	const shouldUseReasoning = model.reasoning && reasoning !== undefined;
@@ -255,9 +255,7 @@ function buildChatPayload(
 	if (options?.toolChoice) payload.toolChoice = mapToolChoice(options.toolChoice);
 	if (options?.promptMode) payload.promptMode = options.promptMode;
 	if (options?.reasoningEffort) payload.reasoningEffort = options.reasoningEffort;
-	// Note: Mistral prompt caching is handled via the x-affinity header in
-	// buildRequestOptions, not via a payload field — the SDK Zod schema strips
-	// unknown keys like promptCacheKey before transmission.
+	if (shouldUsePromptCaching(options)) (payload as any).promptCacheKey = options.sessionId;
 
 	if (context.systemPrompt) {
 		payload.messages.unshift({
