@@ -84,7 +84,7 @@ export default function UserQuestionCard({
       </div>
 
       {data.options && data.options.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-3">
+        <div className="flex flex-col gap-1.5 mb-3">
           {data.options.map((opt, i) => (
             <Button
               key={i}
@@ -92,6 +92,7 @@ export default function UserQuestionCard({
               variant="primary"
               onClick={() => handleOptionClick(opt.value)}
               disabled={submitting}
+              className="w-full text-left justify-start"
             >
               {opt.label}
             </Button>

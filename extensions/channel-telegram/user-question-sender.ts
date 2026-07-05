@@ -30,17 +30,16 @@ export function createTelegramUserQuestionSender(bot: Bot): UserQuestionSender {
       if (options && options.length > 0) {
         text += '\n\n_你也可以直接回复文字回答_';
 
+        // Each option in its own row to avoid horizontal truncation
         const keyboard = {
-          inline_keyboard: [
-            options.map((opt) => ({
-              text: opt.label,
-              callback_data: encodeCallbackAction({
-                type: 'question_answer',
-                requestId,
-                answer: opt.value,
-              }),
-            })),
-          ],
+          inline_keyboard: options.map((opt) => ([{
+            text: opt.label,
+            callback_data: encodeCallbackAction({
+              type: 'question_answer',
+              requestId,
+              answer: opt.value,
+            }),
+          }])),
         };
 
         const msg = await bot.api.sendMessage(chatIdNum, text, {

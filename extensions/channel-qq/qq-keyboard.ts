@@ -83,23 +83,24 @@ export function buildQuestionKeyboard(
   requestId: string,
   options: Array<{ label: string; value: string }>,
 ): QQKeyboard {
-  const buttons = options.map((opt, i) => ({
-    id: `q_${i}`,
-    render_data: { label: opt.label, visited_label: opt.label, style: 1 as const },
-    action: {
-      type: 1 as const,
-      permission: { type: 2 as const },
-      data: `question|${requestId}|${opt.value}`,
-      click_limit: 1,
-    },
-    group_id: 'question',
+  // Each option gets its own row to avoid horizontal truncation ("...")
+  const rows = options.map((opt, i) => ({
+    buttons: [{
+      id: `q_${i}`,
+      render_data: { label: opt.label, visited_label: opt.label, style: 1 as const },
+      action: {
+        type: 1 as const,
+        permission: { type: 2 as const },
+        data: `question|${requestId}|${opt.value}`,
+        click_limit: 1,
+      },
+      group_id: 'question',
+    }],
   }));
 
   return {
     content: {
-      rows: [{
-        buttons,
-      }],
+      rows,
     },
   };
 }

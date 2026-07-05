@@ -116,9 +116,8 @@ export function setupMessageHandlers(
       // as the answer instead of steering.
       const resolved = agentService.resolveFirstPendingQuestion(sessionKey, text);
       if (resolved) {
-        try {
-          await (ctx as any).reply('✅ 已收到回答', { reply_to_message_id: (ctx as any).message?.message_id });
-        } catch { /* best-effort ack */ }
+        // The question message is updated via closeQuestion() → editMessageText —
+        // no need for an extra text reply.
         return;
       }
 

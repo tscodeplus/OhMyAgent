@@ -190,9 +190,8 @@ export class MessageHandler {
         text,
       );
       if (resolved) {
-        if (this.options.sendTextReply) {
-          await this.options.sendTextReply(context.chatId, `✅ 已收到回答`);
-        }
+        // The question card is updated to "✅ 回答已收到" via closeQuestion() —
+        // no need for an extra text reply.
         return true;
       }
 
