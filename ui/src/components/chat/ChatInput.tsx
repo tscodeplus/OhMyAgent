@@ -4,7 +4,7 @@ import { useLocation } from 'react-router-dom';
 import { Send, Paperclip, X, Loader2 } from 'lucide-react';
 import { createSSEClient, type SSEEvent } from '../../utils/sse-client';
 import { getToken } from '../../utils/api';
-import type { Message, MessageApproval, ToolCall, MessageFooter, MessageSegment, MediaSegmentItem } from '../../types/session';
+import type { Message, MessageApproval, UserQuestion, ToolCall, MessageFooter, MessageSegment, MediaSegmentItem } from '../../types/session';
 
 interface ChatInputProps {
   projectId?: string;
@@ -81,6 +81,7 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
    *  turn_start from the agent reuses it instead of creating a duplicate. */
   const steerBubbleRef = useRef(false);
   const approvalMessagesRef = useRef(new Map<string, Message>());
+  const questionMessagesRef = useRef(new Map<string, Message>());
   // Count active turns: incremented on turn_start, decremented on done.
   // sending resets to false only when all turns have completed.
   const activeTurnsRef = useRef(0);
@@ -470,6 +471,44 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
                 },
               };
               approvalMessagesRef.current.set(aid, resolved);
+              if (onMessages) onMessages([resolved]);
+            }
+            break;
+          }
+
+          case 'user_question': {
+            const questionData: UserQuestion = {
+              requestId: event.requestId || '',
+              question: event.question || '',
+              options: event.options || [],
+              status: 'pending',
+            };
+            const questionMsg: Message = {
+              id: `question-${questionData.requestId}`,
+              session_id: sessionId,
+              role: 'assistant',
+              content: '',
+              userQuestion: questionData,
+              created_at: new Date().toISOString(),
+            };
+            questionMessagesRef.current.set(questionData.requestId, questionMsg);
+            if (onMessages) onMessages([questionMsg]);
+            break;
+          }
+
+          case 'user_question_resolved': {
+            const qid = event.requestId || '';
+            const existing = questionMessagesRef.current.get(qid);
+            if (existing && existing.userQuestion) {
+              const resolved: Message = {
+                ...existing,
+                userQuestion: {
+                  ...existing.userQuestion,
+                  status: 'answered',
+                  answer: event.answer,
+                },
+              };
+              questionMessagesRef.current.set(qid, resolved);
               if (onMessages) onMessages([resolved]);
             }
             break;

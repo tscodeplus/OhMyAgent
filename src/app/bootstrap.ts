@@ -298,6 +298,7 @@ export async function bootstrap(): Promise<BootstrapResult> {
     agentService,
     cronServiceRef,
     modelName,
+    userQuestionStore,
   } = agentServicesResult;
 
   const feishuRouter = new FeishuRouter({ logger, processedMessageRepository });
@@ -363,6 +364,38 @@ export async function bootstrap(): Promise<BootstrapResult> {
   const qrSessionStore = new QrSessionStore();
   servicesMap.set('qrSessionStore', qrSessionStore);
 
+  // ── User Question Sender registry ──
+  // Channels register their UserQuestionSender implementations here during
+  // extension startup. The ask_user_question tool looks up the sender via
+  // getUserQuestionSender() in AppServices.
+  const userQuestionSenderRegistry = new Map<string, import('../agent/user-question-port.js').UserQuestionSender>();
+  function getUserQuestionSender(channel: string, _chatId: string, sessionId?: string): import('../agent/user-question-port.js').UserQuestionSender | undefined {
+    // Session-specific lookup first (e.g. WebUI SSE connections)
+    if (sessionId) {
+      const sessionKey = `${channel}:${sessionId}`;
+      if (userQuestionSenderRegistry.has(sessionKey)) {
+        return userQuestionSenderRegistry.get(sessionKey);
+      }
+    }
+    // Fall back to channel-wide sender (e.g. Feishu, Telegram, QQ)
+    return userQuestionSenderRegistry.get(channel);
+  }
+
+  // Make the user question sender registry available to all channel extensions
+  servicesMap.set('userQuestionSenderRegistry', userQuestionSenderRegistry);
+  servicesMap.set('userQuestionStore', userQuestionStore);
+
+  // ── Register Feishu UserQuestionSender ──
+  if (feishuClient) {
+    const { createFeishuUserQuestionSender } = await import('../../extensions/channel-feishu/render/user-question-sender.js');
+    userQuestionSenderRegistry.set('feishu', createFeishuUserQuestionSender({
+      sendCard: (chatId: string, card: Record<string, unknown>) =>
+        feishuClient.sendApprovalCard(chatId, card),
+      recallMessage: (messageId: string) =>
+        feishuClient.recallMessage?.(messageId) ?? Promise.resolve(),
+    }));
+  }
+
   // Now that all services are created, load extensions
   await extensionManager.loadAll([extDir]);
   logger.info({ extCount: extensionManager.list().length }, 'V2 extensions loaded');
@@ -387,6 +420,7 @@ export async function bootstrap(): Promise<BootstrapResult> {
         replyApprovalRegistry,
         approvalDecisionRepository,
         approvalRequestRepo,
+        userQuestionStore,
       }),
       logger,
     });
@@ -452,6 +486,10 @@ export async function bootstrap(): Promise<BootstrapResult> {
     orchestrator,
     // Subscription
     subscriptionService,
+    // User question
+    userQuestionStore,
+    getUserQuestionSender,
+    userQuestionSenderRegistry,
   };
   servicesRef.current = services;
 

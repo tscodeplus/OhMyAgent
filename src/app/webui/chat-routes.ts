@@ -19,6 +19,8 @@ import type { WebSocketManager } from './websocket.js';
 import { handleCommand } from '../../commands/command-handler.js';
 import { computeCacheHitRate } from '../../channel/usage-summary.js';
 import { createWebUIApprovalSender } from './approval-sender.js';
+import { createWebUIUserQuestionSender } from './user-question-sender.js';
+import type { UserQuestionSender } from '../../agent/user-question-port.js';
 import { safeEqual } from '../../shared/safe-equal.js';
 import { createSendMediaTool } from '../../tools/builtins/multimodal/send-media-tool.js';
 import fs from 'node:fs';
@@ -274,6 +276,8 @@ export interface ChatRouteConfig {
   commandDeps?: CommandDeps;
   commandRegistry?: CommandRegistry;
   wsManager?: WebSocketManager;
+  /** Registry for per-session UserQuestionSender instances (ask_user_question tool). */
+  userQuestionSenderRegistry?: Map<string, UserQuestionSender>;
 }
 
 export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): void {
@@ -445,6 +449,11 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
     // so the frontend can render interactive ApprovalCards.
     const approvalSender = createWebUIApprovalSender(sendSSE, cfg.db, sessionId);
 
+    // WebUI user question sender — sends ask_user_question prompts via SSE
+    const userQuestionSender = createWebUIUserQuestionSender(sendSSE);
+    const questionSessionKey = `webui:${sessionId}`;
+    cfg.userQuestionSenderRegistry?.set(questionSessionKey, userQuestionSender);
+
     let completionStatus: 'complete' | 'error' = 'complete';
 
     // Extract attached images from markdown in the user message and convert
@@ -495,6 +504,9 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
       const errorMsg = err instanceof Error ? err.message : String(err);
       sendSSE({ type: 'error', error: errorMsg });
     } finally {
+      // Clean up the per-session user question sender
+      cfg.userQuestionSenderRegistry?.delete(questionSessionKey);
+
       // Notify all WebSocket clients so the frontend can refetch the
       // latest messages even if the SSE connection was lost mid-stream
       // (page refresh, browser close, navigation away).
@@ -507,6 +519,28 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
       }
       reply.raw.end();
     }
+  });
+
+  // ── User Question Answer endpoint ──
+  // Frontend calls this when the user selects an option or types an answer
+  // in response to an ask_user_question prompt.
+  app.post('/api/questions/:id/answer', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { answer } = request.body as { answer?: string };
+
+    if (!answer) {
+      return reply.status(400).send({ error: 'answer is required' });
+    }
+
+    const resolved = cfg.agentService.resolveUserQuestion(id, answer);
+
+    if (!resolved) {
+      return reply.status(404).send({
+        error: 'Question not found or already answered',
+      });
+    }
+
+    return reply.send({ ok: true, requestId: id, answer });
   });
 
   // Steer/FollowUp endpoint — injects a message into the running agent

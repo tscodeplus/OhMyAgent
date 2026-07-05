@@ -5,6 +5,7 @@ import { Bot, User, Download, X, Zap } from 'lucide-react';
 import type { Message } from '../../types/session';
 import ToolCallCard from './ToolCallCard';
 import ApprovalCard, { type ApprovalDecision } from './ApprovalCard';
+import UserQuestionCard from './UserQuestionCard';
 import { apiRequest } from '../../utils/api';
 import { isElectron, getElectronAPI } from '../../utils/env';
 import { useToast } from '../ui/Toast';
@@ -456,6 +457,23 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
                 } catch (err) {
                   console.error('Failed to resolve approval:', err);
                 }
+              }}
+            />
+          </div>
+        )}
+
+        {message.userQuestion && (
+          <div className="mt-2 w-full">
+            <UserQuestionCard
+              data={{
+                requestId: message.userQuestion.requestId,
+                question: message.userQuestion.question,
+                options: message.userQuestion.options,
+              }}
+              initialStatus={message.userQuestion.status}
+              initialAnswer={message.userQuestion.answer}
+              onResolve={(_id: string, _answer: string) => {
+                // Answer already submitted via REST API in the component
               }}
             />
           </div>

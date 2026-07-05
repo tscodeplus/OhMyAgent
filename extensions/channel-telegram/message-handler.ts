@@ -109,8 +109,19 @@ export function setupMessageHandlers(
       // Unrecognized command — let the agent handle it
     }
 
-    // ── Normal message → steer if running, otherwise execute ──
+    // ── Normal message → check pending question first, then steer or execute ──
     if (agentService.isRunning(sessionKey)) {
+      // Check for pending user question (ask_user_question tool).
+      // If the agent is waiting for an answer, route this message
+      // as the answer instead of steering.
+      const resolved = agentService.resolveFirstPendingQuestion(sessionKey, text);
+      if (resolved) {
+        try {
+          await (ctx as any).reply('✅ 已收到回答', { reply_to_message_id: (ctx as any).message?.message_id });
+        } catch { /* best-effort ack */ }
+        return;
+      }
+
       agentService.steer(sessionKey, text);
       return;
     }
@@ -267,6 +278,35 @@ export function setupMessageHandlers(
           );
         }
       } catch { /* ignore */ }
+    }
+
+    if (action.type === 'question_answer') {
+      const resolved = agentService.resolveUserQuestion(action.requestId, action.answer);
+      logger.info({ requestId: action.requestId, answer: action.answer, resolved }, 'Telegram question answer resolved');
+
+      if (resolved) {
+        try {
+          const msg = cb.message;
+          if (msg) {
+            await bot.api.editMessageText(msg.chat.id, msg.message_id,
+              `🤔 问题已解决\n\n✅ 回答: ${action.answer}`,
+              { reply_markup: undefined },
+            );
+          }
+        } catch (err) {
+          logger.warn({ err }, 'Telegram question_answer: failed to edit message');
+        }
+      } else {
+        try {
+          const msg = cb.message;
+          if (msg) {
+            await bot.api.editMessageText(msg.chat.id, msg.message_id,
+              '该问题已被回答或已超时。',
+              { reply_markup: undefined },
+            );
+          }
+        } catch { /* ignore */ }
+      }
     }
   });
 }

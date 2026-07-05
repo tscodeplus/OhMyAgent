@@ -13,12 +13,14 @@ import type { ApprovalDecisionType } from '../types.js';
 import type { ApprovalDecisionRepository } from '../../memory/repositories/approval-decision-repository.js';
 import type { ApprovalRequestRepository } from '../../memory/repositories/approval-request-repository.js';
 import type { ReplyApprovalRegistry } from '../../../extensions/channel-feishu/render/reply-approval-registry.js';
+import type { UserQuestionStore } from '../../agent/user-question-store.js';
 
 export interface WSCardActionHandlerOptions {
   agentFactory: AgentFactory;
   replyApprovalRegistry: ReplyApprovalRegistry;
   approvalDecisionRepository: ApprovalDecisionRepository;
   approvalRequestRepo: ApprovalRequestRepository;
+  userQuestionStore?: UserQuestionStore;
 }
 
 /** Create the cardActionHandler callback for FeishuWSClient. */
@@ -32,6 +34,21 @@ export function createWSCardActionHandler(
 
     if (!requestId || !action) {
       return { code: 0 };
+    }
+
+    // ── answer_question: handle ask_user_question option click ──
+    if (action === 'answer_question' && value.answer) {
+      const resolved = opts.userQuestionStore?.resolve(requestId, String(value.answer));
+      if (!resolved) {
+        return {
+          toast: { type: 'info', content: i18n.t('bootstrap:toast.alreadyHandled') },
+          card: { type: 'raw', data: { header: { title: { tag: 'plain_text', content: '✅ 已回答' }, template: 'green' }, elements: [{ tag: 'div', text: { tag: 'lark_md', content: '你的回答已收到。' } }] } },
+        };
+      }
+      return {
+        toast: { type: 'success', content: '回答已提交' },
+        card: { type: 'raw', data: { header: { title: { tag: 'plain_text', content: '✅ 回答已收到' }, template: 'green' }, elements: [{ tag: 'div', text: { tag: 'lark_md', content: `**你的回答**: ${String(value.answer)}` } }] } },
+      };
     }
 
     const decision = action as 'approve_once' | 'approve_session' | 'approve_always' | 'reject_once' | 'reject_always';

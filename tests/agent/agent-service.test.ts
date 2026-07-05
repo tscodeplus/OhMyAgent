@@ -55,6 +55,14 @@ function createMockFactory(agentOverride?: ReturnType<typeof createMockAgent>) {
   return {
     create: vi.fn().mockReturnValue(agent),
     rejectPendingApprovals: vi.fn().mockReturnValue(0),
+    rejectPendingQuestions: vi.fn().mockReturnValue(0),
+    resolveApproval: vi.fn().mockReturnValue(true),
+    resolveUserQuestion: vi.fn().mockReturnValue(true),
+    resolveFirstPendingQuestion: vi.fn().mockReturnValue(true),
+    resolveFirstPendingApproval: vi.fn().mockReturnValue(true),
+    resolveAllPendingApprovals: vi.fn().mockReturnValue(0),
+    getAutoCompressConfig: vi.fn().mockReturnValue(undefined),
+    updateConfig: vi.fn(),
     agent,
   };
 }
@@ -69,6 +77,14 @@ function createFactoryWithPerSessionAgents() {
       return agent;
     }),
     rejectPendingApprovals: vi.fn().mockReturnValue(0),
+    rejectPendingQuestions: vi.fn().mockReturnValue(0),
+    resolveApproval: vi.fn().mockReturnValue(true),
+    resolveUserQuestion: vi.fn().mockReturnValue(true),
+    resolveFirstPendingQuestion: vi.fn().mockReturnValue(true),
+    resolveFirstPendingApproval: vi.fn().mockReturnValue(true),
+    resolveAllPendingApprovals: vi.fn().mockReturnValue(0),
+    getAutoCompressConfig: vi.fn().mockReturnValue(undefined),
+    updateConfig: vi.fn(),
     agents,
   };
 }

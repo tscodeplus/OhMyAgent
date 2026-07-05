@@ -205,6 +205,7 @@ export interface AgentFactoryOptions {
   onApprovalAutoApprove?: (requestId: string) => void;
   logger?: Logger;
   promptManager?: PromptManager;
+  userQuestionStore?: import('./user-question-store.js').UserQuestionStore;
 }
 
 /** Factory that produces configured Agent instances. */
@@ -217,6 +218,12 @@ export interface AgentFactory {
   resolveFirstPendingApproval(sessionKey: string, decision: ApprovalDecisionType): boolean;
   /** Resolve all pending approvals for a session. Returns count. */
   resolveAllPendingApprovals(sessionKey: string, decision: ApprovalDecisionType): number;
+  /** Resolve a pending user question. Returns false if not found. */
+  resolveUserQuestion(requestId: string, answer: string): boolean;
+  /** Resolve the first pending user question for a session. Returns false if none. */
+  resolveFirstPendingQuestion(sessionKey: string, answer: string): boolean;
+  /** Reject all pending user questions for a session. Returns count. */
+  rejectPendingQuestions(sessionKey: string): number;
   /** v9: Get compression model config for overflow recovery. */
   getAutoCompressConfig(): {
     contextWindow: number;
@@ -933,6 +940,22 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
 
     rejectPendingApprovals(sessionKey: string, reason?: 'stopped_by_user' | 'steered'): number {
       return pendingApprovals.rejectAllForSession(sessionKey, approvalRequestRepo, reason);
+    },
+
+    resolveUserQuestion(requestId: string, answer: string): boolean {
+      return factoryOptions.userQuestionStore?.resolve(requestId, answer) ?? false;
+    },
+
+    resolveFirstPendingQuestion(sessionKey: string, answer: string): boolean {
+      const store = factoryOptions.userQuestionStore;
+      if (!store) return false;
+      const requestId = store.findPendingForSession(sessionKey);
+      if (!requestId) return false;
+      return store.resolve(requestId, answer);
+    },
+
+    rejectPendingQuestions(sessionKey: string): number {
+      return factoryOptions.userQuestionStore?.rejectAllForSession(sessionKey, 'User sent a new message') ?? 0;
     },
 
     getAutoCompressConfig() {

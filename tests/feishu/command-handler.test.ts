@@ -11,8 +11,16 @@ function makeDeps(overrides?: Partial<CommandDeps>): CommandDeps {
       reset: vi.fn(() => true),
       destroyRuntime: vi.fn(() => true),
       rejectPendingApprovals: vi.fn(() => 0),
+      resolveFirstPendingApproval: vi.fn(() => false),
+      resolveAllPendingApprovals: vi.fn(() => 0),
+      rejectPendingQuestions: vi.fn(() => 0),
+      resolveUserQuestion: vi.fn(() => false),
+      resolveFirstPendingQuestion: vi.fn(() => false),
       steer: vi.fn(() => true),
       followUp: vi.fn(async (_sessionId: string, _message: string, _replyToMessageId?: string) => true),
+      swapCard: vi.fn(async () => true),
+      onNextAgentEnd: vi.fn(),
+      setSessionAgentId: vi.fn(),
     },
     skillRegistry: {
       getSkills: vi.fn(() => [

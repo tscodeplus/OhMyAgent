@@ -25,6 +25,12 @@ export interface CommandDeps {
     resolveFirstPendingApproval(sessionId: string, decision: string): boolean;
     /** Resolve ALL pending approvals for a session (used by /approve session, /approve always). */
     resolveAllPendingApprovals(sessionId: string, decision: string): number;
+    /** Reject all pending user questions for a session. */
+    rejectPendingQuestions(sessionId: string): number;
+    /** Resolve a pending user question by requestId. */
+    resolveUserQuestion(requestId: string, answer: string): boolean;
+    /** Resolve the first pending user question for a session (used by /answer). */
+    resolveFirstPendingQuestion(sessionId: string, answer: string): boolean;
     steer(sessionId: string, message: string): boolean;
     followUp(sessionId: string, message: string, replyToMessageId?: string): Promise<boolean>;
     swapCard(sessionId: string, replyToMessageId?: string): Promise<boolean>;
@@ -119,6 +125,8 @@ export async function handleCommand(
       return await handleApprove(args, sessionKey, deps);
     case '/deny':
       return await handleDeny(sessionKey, deps);
+    case '/answer':
+      return handleAnswer(args, sessionKey, deps);
     case '/permission':
       return await handlePermission(args, deps);
     default:
@@ -129,8 +137,9 @@ export async function handleCommand(
 async function handleStop(sessionKey: string, deps: CommandDeps): Promise<CommandResult> {
   const isRunning = deps.agentService.isRunning(sessionKey);
 
-  // Reject any pending approvals for this session first
+  // Reject any pending approvals and user questions for this session first
   const rejected = deps.agentService.rejectPendingApprovals(sessionKey);
+  deps.agentService.rejectPendingQuestions(sessionKey);
 
   if (!isRunning && rejected === 0) {
     return { reply: i18n.t('commands:stop.noTask') };
@@ -149,6 +158,7 @@ async function handleStop(sessionKey: string, deps: CommandDeps): Promise<Comman
 
 async function handleClear(sessionKey: string, deps: CommandDeps): Promise<CommandResult> {
   deps.agentService.rejectPendingApprovals(sessionKey);
+  deps.agentService.rejectPendingQuestions(sessionKey);
   if (deps.agentService.isRunning(sessionKey)) {
     await deps.agentService.abort(sessionKey);
   }
@@ -158,6 +168,7 @@ async function handleClear(sessionKey: string, deps: CommandDeps): Promise<Comma
 
 async function handleNew(sessionKey: string, deps: CommandDeps): Promise<CommandResult> {
   deps.agentService.rejectPendingApprovals(sessionKey);
+  deps.agentService.rejectPendingQuestions(sessionKey);
   if (deps.agentService.isRunning(sessionKey)) {
     await deps.agentService.abort(sessionKey);
   }
@@ -478,6 +489,24 @@ async function handleDeny(
     return { reply: i18n.t('commands:deny.noPending') };
   }
   return { reply: i18n.t('commands:deny.denied') };
+}
+
+// ── /answer command ────────────────────────────────────────────────────────────
+
+function handleAnswer(
+  args: string,
+  sessionKey: string,
+  deps: CommandDeps,
+): CommandResult {
+  const answer = args.trim();
+  if (!answer) {
+    return { reply: i18n.t('commands:answer.usage') || 'Usage: /answer <your answer>' };
+  }
+  const resolved = deps.agentService.resolveFirstPendingQuestion(sessionKey, answer);
+  if (!resolved) {
+    return { reply: i18n.t('commands:answer.noPending') || 'No pending questions to answer.' };
+  }
+  return { reply: i18n.t('commands:answer.answered') || `Answered: ${answer}` };
 }
 
 // ── /permission command ───────────────────────────────────────────────────────

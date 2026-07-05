@@ -862,6 +862,15 @@ export interface AppServices {
   externalMessageSender?: import('../tools/builtins/tasks/send-message-definition.js').ExternalMessageSender;
   /** Subscription service for OAuth-based provider logins. */
   subscriptionService?: import('./subscription/subscription-service.js').SubscriptionService;
+  /** v4: User question store for ask_user_question tool interactive flow. */
+  userQuestionStore: import('../agent/user-question-store.js').UserQuestionStore;
+  /**
+   * Resolve a channel-specific UserQuestionSender.
+   * Returns undefined if the channel doesn't support interactive questions.
+   */
+  getUserQuestionSender?: (channel: string, chatId: string, sessionId?: string) => import('../agent/user-question-port.js').UserQuestionSender | undefined;
+  /** Registry for channel UserQuestionSender instances (add/remove senders). */
+  userQuestionSenderRegistry?: Map<string, import('../agent/user-question-port.js').UserQuestionSender>;
 }
 
 // ── Domain-specific service subsets (narrower types for consumers) ──

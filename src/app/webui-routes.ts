@@ -112,6 +112,7 @@ export async function registerWebUIRoutes(
     },
     commandRegistry: cfg.services.commandRegistry,
     wsManager: undefined,
+    userQuestionSenderRegistry: cfg.services.userQuestionSenderRegistry,
   };
   registerChatRoutes(app, chatConfig);
 

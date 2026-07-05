@@ -18,6 +18,7 @@ import { InMemoryTaskRunStore } from '../../orchestrator/task-run-store.js';
 import { PermissionInheritanceServiceImpl } from '../../orchestrator/permission-inheritance.js';
 import { ApprovalStateSyncImpl } from '../../orchestrator/approval-state-sync.js';
 import { PendingApprovalStore } from '../../agent/approval-store.js';
+import { UserQuestionStore } from '../../agent/user-question-store.js';
 import { configEventBus } from '../config-event-bus.js';
 import type { AppServices } from '../types.js';
 import type { Logger } from 'pino';
@@ -31,6 +32,7 @@ export interface AgentServicesResult {
   agentService: AgentService;
   cronServiceRef: { current: import('../../cron/service.js').CronService | undefined };
   modelName: string;
+  userQuestionStore: UserQuestionStore;
 }
 
 export interface AgentServicesInput {
@@ -89,6 +91,11 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
   const approvalPort = createFeishuApprovalUiPort({
     feishuClient: feishuClient as { sendApprovalCard(chatId: string, card: Record<string, unknown>): Promise<string>; recallMessage?(messageId: string): Promise<void> },
     registry: replyApprovalRegistry,
+  });
+
+  // ── User Question Store (shared across all channels for ask_user_question tool) ──
+  const userQuestionStore = new UserQuestionStore({
+    defaultTimeoutMs: 300_000, // 5 minutes
   });
 
   const agentFactory = createAgentFactory({
@@ -153,6 +160,7 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
     },
     logger,
     promptManager,
+    userQuestionStore,
   });
   configEventBus.onReload((c) => {
     agentFactory.updateConfig(c);
@@ -269,5 +277,6 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
     agentService,
     cronServiceRef,
     modelName,
+    userQuestionStore,
   };
 }

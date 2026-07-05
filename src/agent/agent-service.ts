@@ -450,6 +450,30 @@ export class AgentService {
     );
   }
 
+  /**
+   * Resolve a pending user question with the given answer.
+   * Returns false if the request was already handled (duplicate callback).
+   */
+  resolveUserQuestion(requestId: string, answer: string): boolean {
+    return this.factory.resolveUserQuestion(requestId, answer);
+  }
+
+  /**
+   * Resolve the first pending user question for a session.
+   * Returns false if no pending questions exist.
+   */
+  resolveFirstPendingQuestion(sessionId: string, answer: string): boolean {
+    return this.factory.resolveFirstPendingQuestion(sessionId, answer);
+  }
+
+  /**
+   * Reject all pending user questions for a session.
+   * Called when a new message arrives (steer) or the agent is stopped.
+   */
+  rejectPendingQuestions(sessionId: string): number {
+    return this.factory.rejectPendingQuestions(sessionId);
+  }
+
   setSessionAgentId(sessionId: string, agentId: string): void {
     this.sessionAgentMap.set(sessionId, agentId);
     setSessionAgent(sessionId, agentId);
@@ -475,6 +499,8 @@ export class AgentService {
     // 3. Now resolve pending approvals — the message is already in the
     //    steering queue, so the agent loop will find it when it resumes
     this.rejectPendingApprovals(sessionId, 'steered');
+    // 4. Also reject any pending user questions (ask_user_question tool)
+    this.rejectPendingQuestions(sessionId);
     return true;
   }
 

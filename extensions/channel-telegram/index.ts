@@ -17,6 +17,8 @@ import { sendReply } from './send-message.js';
 import { SlidingWindowRateLimiter } from './rate-limiter.js';
 import { registerWebhookHandler } from './webhook-handler.js';
 import { registerTelegramQrRoute } from './telegram-qr.js';
+import { createTelegramUserQuestionSender } from './user-question-sender.js';
+import type { UserQuestionSender } from '../../src/agent/user-question-port.js';
 
 export default function (api: ExtensionAPI) {
   const config = api.getConfig();
@@ -87,6 +89,13 @@ export default function (api: ExtensionAPI) {
     id: 'telegram',
 
     async start(): Promise<void> {
+      // Register UserQuestionSender so ask_user_question tool works in Telegram
+      const senderRegistry = api.getService<Map<string, UserQuestionSender>>('userQuestionSenderRegistry');
+      if (senderRegistry) {
+        senderRegistry.set('telegram', createTelegramUserQuestionSender(bot));
+        logger.info('Telegram UserQuestionSender registered');
+      }
+
       // Apply custom bot name if configured
       if (tgConfig.botName) {
         try {

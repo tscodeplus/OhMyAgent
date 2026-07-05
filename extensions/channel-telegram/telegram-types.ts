@@ -31,7 +31,8 @@ export type CallbackAction =
         | 'reject_always';
     }
   | { type: 'agent_switch'; agentId: string }
-  | { type: 'stop' };
+  | { type: 'stop' }
+  | { type: 'question_answer'; requestId: string; answer: string };
 
 /**
  * Controls streaming of LLM responses back to a Telegram chat.

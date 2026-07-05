@@ -191,6 +191,7 @@ export function assembleAgentTools(opts: ToolPipelineOptions): ToolPipelineResul
           sessionId: opts.sessionId,
           agentId: opts.runtimeAgentId,
           channel: opts.channel,
+          chatId: opts.chatId,
           policyScope: opts.runtimePolicyScope,
           approvalAlreadyHandled: !!opts.approvalGate,
         };

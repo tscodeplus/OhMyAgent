@@ -14,6 +14,7 @@ export interface ToolExecutionContext {
   parentAgentId?: string;
   skillId?: string;
   channel?: string;
+  chatId?: string;
   /**
    * Set by the Agent runtime when beforeToolCall approval handling is installed
    * for this invocation path. Tool adapters must not infer approval from the

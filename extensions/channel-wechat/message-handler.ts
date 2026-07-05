@@ -28,6 +28,8 @@ import { sendTyping, getConfig } from './wechat-api.js';
 import { downloadInboundMedia, ILINK_CDN_HOST } from './wechat-media.js';
 import { createWechatMediaTool, sendWechatMediaBuffer } from './wechat-media-tool.js';
 import { createWechatApprovalSender } from './wechat-approval-sender.js';
+import { createWechatUserQuestionSender } from './user-question-sender.js';
+import type { UserQuestionSender } from '../../src/agent/user-question-port.js';
 import { resolveWechatErrorNotice } from './wechat-error.js';
 import { ChatQueue } from '../channel-feishu/chat-queue.js';
 
@@ -177,8 +179,22 @@ export function setupMessageHandlers(
     const { finalText, images } = await processMessageMedia(msg, config, logger, sttTranscriber, sttConfig);
     const agentText = finalText || text;
 
-    // ── Normal message → steer if running, otherwise execute ──
+    // ── Normal message → check pending question first, then steer or execute ──
     if (agentService.isRunning(sessionKey)) {
+      const resolved = agentService.resolveFirstPendingQuestion(sessionKey, agentText);
+      if (resolved) {
+        const tokenEntry2 = tokenMap.get(senderId);
+        if (tokenEntry2) {
+          await sendChunkedText(
+            sender.apiBase, sender.botToken,
+            tokenEntry2.toUserId, tokenEntry2.token,
+            '✅ 已收到回答',
+            config.textLimit, logger,
+          ).catch(() => {});
+        }
+        return;
+      }
+
       agentService.steer(sessionKey, agentText);
       return;
     }
@@ -278,6 +294,10 @@ async function executeAgent(
 
   const dispatcher = new WechatReplyDispatcher(options);
 
+  // Register per-session UserQuestionSender for WeChat (declared outside try for finally access)
+  const senderRegistry = api.getService<Map<string, UserQuestionSender>>('userQuestionSenderRegistry');
+  const questionSenderKey = `wechat:${sessionKey}`;
+
   try {
     const mediaTool = createWechatMediaTool({
       apiBase: sender.apiBase,
@@ -312,6 +332,17 @@ async function executeAgent(
       textLimit: config.textLimit,
       logger,
     });
+
+    // Register per-session UserQuestionSender
+    const wechatQuestionSender = createWechatUserQuestionSender({
+      apiBase: sender.apiBase,
+      botToken: sender.botToken,
+      toUserId: tokenEntry.toUserId,
+      contextToken: tokenEntry.token,
+      textLimit: config.textLimit,
+      logger,
+    });
+    senderRegistry?.set(questionSenderKey, wechatQuestionSender);
 
     const execOptions: Record<string, unknown> = {
       sessionId: sessionKey,
@@ -393,6 +424,9 @@ async function executeAgent(
     } catch {
       // Ignore error sending error message
     }
+  } finally {
+    // Clean up per-session UserQuestionSender
+    senderRegistry?.delete(questionSenderKey);
   }
 }
 

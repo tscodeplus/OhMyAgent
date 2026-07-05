@@ -34,6 +34,8 @@ import { setupMessageHandlers } from './message-handler.js';
 import { sendReply, sendChunkedText } from './send-message.js';
 import type { QQConfig } from './qq-types.js';
 import { registerQqQrRoutes } from './qq-qr.js';
+import { createQQUserQuestionSender } from './user-question-sender.js';
+import type { UserQuestionSender } from '../../src/agent/user-question-port.js';
 
 export default function (api: ExtensionAPI): void {
   const config = api.getConfig();
@@ -110,6 +112,13 @@ export default function (api: ExtensionAPI): void {
 
     async start(): Promise<void> {
       logger.info({ appId: qqConfig.appId, sandbox: qqConfig.sandbox }, 'QQ channel starting');
+
+      // Register UserQuestionSender so ask_user_question tool works in QQ
+      const senderRegistry = api.getService<Map<string, UserQuestionSender>>('userQuestionSenderRegistry');
+      if (senderRegistry) {
+        senderRegistry.set('qq', createQQUserQuestionSender({ gateway }));
+        logger.info('QQ UserQuestionSender registered');
+      }
 
       // Build a fallback CommandDeps if the DI container did not provide one
       const deps: CommandDeps | undefined = commandDeps ?? ({

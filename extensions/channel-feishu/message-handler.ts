@@ -180,8 +180,23 @@ export class MessageHandler {
       // Unrecognized command — fall through to agent execution
     }
 
-    // ── Normal message → steer if running, otherwise execute ──
+    // ── Normal message → check pending question first, then steer or execute ──
     if (this.options.commandDeps.agentService.isRunning(context.sessionKey)) {
+      // Check for pending user question (ask_user_question tool).
+      // If the agent is waiting for an answer, route this message
+      // as the answer instead of steering.
+      const resolved = this.options.commandDeps.agentService.resolveFirstPendingQuestion(
+        context.sessionKey,
+        text,
+      );
+      if (resolved) {
+        if (this.options.sendTextReply) {
+          await this.options.sendTextReply(context.chatId, `✅ 已收到回答`);
+        }
+        return true;
+      }
+
+      // No pending question — normal steer
       // Steer MUST happen before swapCard: steer() synchronously rejects
       // pending approvals and queues the new message. swapCard() is async
       // (Feishu API calls) — if reject ran before steer, the agent loop

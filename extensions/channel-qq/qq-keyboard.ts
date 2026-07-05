@@ -69,3 +69,48 @@ export function parseApprovalCallback(
   if (!m) return null;
   return { requestId: m[1], decision: LABEL_DECISION[m[2]] ?? m[2] };
 }
+
+// ---------------------------------------------------------------------------
+// Question keyboard (for ask_user_question tool)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a QQ Keyboard for user question options.
+ * Button data format: "question:<requestId>:<value>"
+ */
+export function buildQuestionKeyboard(
+  requestId: string,
+  options: Array<{ label: string; value: string }>,
+): QQKeyboard {
+  const buttons = options.map((opt, i) => ({
+    id: `q_${i}`,
+    render_data: { label: opt.label, visited_label: opt.label, style: 1 as const },
+    action: {
+      type: 1 as const,
+      permission: { type: 2 as const },
+      data: `question:${requestId}:${opt.value}`,
+      click_limit: 1,
+    },
+    group_id: 'question',
+  }));
+
+  return {
+    content: {
+      rows: [{
+        buttons,
+      }],
+    },
+  };
+}
+
+/**
+ * Parse a question answer from button data.
+ * Returns null if the data is not a question answer.
+ */
+export function parseQuestionCallback(
+  buttonData: string,
+): { requestId: string; answer: string } | null {
+  const m = buttonData.match(/^question:(.+):(.+)$/);
+  if (!m) return null;
+  return { requestId: m[1], answer: m[2] };
+}

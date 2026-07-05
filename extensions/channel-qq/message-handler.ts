@@ -26,6 +26,7 @@ import { createReplyTracker } from './qq-gateway.js';
 import { isMessageEvent, isInteractionEvent, type QQInteractionEvent } from './qq-types.js';
 import { createQQApprovalSender } from './send-message.js';
 import { handleApprovalInteraction } from './qq-approval-handler.js';
+import { parseQuestionCallback } from './qq-keyboard.js';
 import { writeFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -47,7 +48,7 @@ export function setupMessageHandlers(
   // Create a per-session task queue to serialize agent executions
   const chatQueue = new ChatQueue();
 
-  // Wire approval button callbacks via INTERACTION_CREATE
+  // Wire approval AND question button callbacks via INTERACTION_CREATE
   gateway.setApprovalHandler(async (event: QQInteractionEvent) => {
     const target: { openid?: string; groupOpenid?: string } = {};
     if (event.group_openid) {
@@ -55,6 +56,18 @@ export function setupMessageHandlers(
     } else if (event.user_openid) {
       target.openid = event.user_openid;
     }
+
+    const buttonData = event.data?.resolved?.button_data;
+    if (buttonData) {
+      // Check for question answer first
+      const questionParsed = parseQuestionCallback(buttonData);
+      if (questionParsed) {
+        await handleQuestionInteraction(event, questionParsed, target, agentService, gateway, logger);
+        return;
+      }
+      // Fall through to approval handler
+    }
+
     await handleApprovalInteraction(event, {
       agentService,
       gateway,
@@ -192,8 +205,13 @@ export function setupMessageHandlers(
         // Unrecognized command — fall through to agent
       }
 
-      // ── Stage 7: Steer if running, otherwise execute ──
+      // ── Stage 7: Check pending question, then steer if running, otherwise execute ──
       if (agentService.isRunning(sessionKey)) {
+        const resolved = agentService.resolveFirstPendingQuestion(sessionKey, agentText);
+        if (resolved) {
+          await sendChunkedText(gateway, '✅ 已收到回答', target, config.textLimit).catch(() => {});
+          return;
+        }
         agentService.steer(sessionKey, agentText);
         return;
       }
@@ -207,6 +225,40 @@ export function setupMessageHandlers(
   });
 
   logger.info({ appId: config.appId }, 'QQ message handlers registered');
+}
+
+// ── Question interaction handler ──
+
+async function handleQuestionInteraction(
+  event: import('./qq-types.js').QQInteractionEvent,
+  parsed: { requestId: string; answer: string },
+  target: { openid?: string; groupOpenid?: string },
+  agentService: AgentService,
+  gateway: QQGateway,
+  logger: Logger,
+): Promise<{ code: number; message: string }> {
+  try {
+    // Acknowledge the interaction so QQ disables the button group
+    try {
+      await gateway.sendRestApi('PUT', `/interactions/${event.id}`, { code: 0 });
+    } catch (err) {
+      logger.warn({ err, interactionId: event.id }, 'QQ question interaction acknowledge failed');
+    }
+
+    const resolved = agentService.resolveUserQuestion(parsed.requestId, parsed.answer);
+    logger.info({ requestId: parsed.requestId, answer: parsed.answer, resolved }, 'QQ question answer resolved');
+
+    if (resolved) {
+      await sendChunkedText(gateway, `✅ 回答: ${parsed.answer}`, target, 2000).catch(() => {});
+      return { code: 0, message: 'ok' };
+    }
+
+    await sendChunkedText(gateway, '该问题已被回答或已超时。', target, 2000).catch(() => {});
+    return { code: 2, message: 'already resolved' };
+  } catch (err) {
+    logger.error({ err }, 'QQ question interaction error');
+    return { code: -1, message: String(err) };
+  }
 }
 
 // ── Agent execution ──

@@ -37,6 +37,8 @@ export interface Message {
   created_at: number | string;
   /** Approval request data (shown as ApprovalCard in the message list). */
   approval?: MessageApproval;
+  /** User question data (shown as UserQuestionCard in the message list). */
+  userQuestion?: UserQuestion;
   /** Images generated or referenced by the agent. */
   images?: MessageImage[];
   /** Files generated or referenced by the agent (download links). */
@@ -71,6 +73,15 @@ export interface MessageApproval {
   decision?: string;
   /** Set when auto-rejected by timeout/expiry (e.g. 'timeout', 'expired_before_recovery'). */
   timeoutReason?: string;
+}
+
+export interface UserQuestion {
+  requestId: string;
+  question: string;
+  options: Array<{ label: string; value: string }>;
+  /** 'pending' | 'answered' */
+  status: 'pending' | 'answered';
+  answer?: string;
 }
 
 export interface MessageFooter {

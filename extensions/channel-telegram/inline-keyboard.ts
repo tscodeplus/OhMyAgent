@@ -156,6 +156,13 @@ export function parseCallbackAction(data: string): CallbackAction | null {
       return { type: 'stop' };
     }
 
+    if (record.type === 'question_answer') {
+      const requestId = record.requestId as string | undefined;
+      const answer = record.answer as string | undefined;
+      if (!requestId || answer === undefined) return null;
+      return { type: 'question_answer', requestId, answer };
+    }
+
     return null;
   } catch {
     return null;

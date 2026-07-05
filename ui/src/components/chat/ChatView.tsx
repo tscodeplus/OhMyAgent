@@ -97,8 +97,8 @@ export default function ChatView() {
         console.log('[ChatView] handleRefetched — skipped clear, new stream active (count=', streamGenerationRef.current, ')');
         return prev;
       }
-      // Only keep approval messages (streaming-only, not persisted by API)
-      const kept = prev.filter(m => m.approval);
+      // Only keep approval and userQuestion messages (streaming-only, not persisted by API)
+      const kept = prev.filter(m => m.approval || m.userQuestion);
       streamGenerationRef.current = 0;
       if (kept.length > 0) console.log('[ChatView] keeping approval messages after refetch', kept.map(m => m.id.slice(0, 12)));
       return kept;
@@ -142,7 +142,7 @@ export default function ChatView() {
       const shouldClear = clearPrevious !== false;
       const hasNewUser = msgs.some(m => m.role === 'user');
       const base = (hasNewUser && shouldClear)
-        ? prev.filter(m => m.approval)
+        ? prev.filter(m => m.approval || m.userQuestion)
         : prev;
       const existing = new Map(base.map(m => [m.id, m]));
       for (const msg of msgs) {

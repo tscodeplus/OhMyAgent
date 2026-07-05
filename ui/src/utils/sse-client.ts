@@ -11,7 +11,9 @@ export type SSEEventType =
   | 'approval_required'
   | 'approval_resolved'
   | 'approval_status'
-  | 'skill_activated';
+  | 'skill_activated'
+  | 'user_question'
+  | 'user_question_resolved';
 
 export interface SSEEvent {
   type: SSEEventType;
@@ -28,6 +30,11 @@ export interface SSEEvent {
   reason?: string;
   decision?: string;
   footer?: Record<string, unknown>;
+  // User question fields
+  requestId?: string;
+  question?: string;
+  options?: Array<{ label: string; value: string }>;
+  answer?: string;
 }
 
 export interface SSEClient {
