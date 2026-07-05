@@ -16,7 +16,8 @@
     "downloaded": "下载完成，点击安装并重启。",
     "installAndRestart": "安装并重启",
     "speed": "速度: {{bps}}",
-    "githubRelease": "打开 GitHub Releases"
+    "githubRelease": "打开 GitHub Releases",
+    "unsignedMacBuild": "当前 macOS 版本未签名，不支持自动更新。请前往 GitHub Releases 下载最新版本并手动替换。"
   },
   "tray": {
     "showHide": "显示/隐藏窗口",

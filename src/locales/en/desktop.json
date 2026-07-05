@@ -16,7 +16,8 @@
     "downloaded": "Download complete. Click to install and restart.",
     "installAndRestart": "Install & Restart",
     "speed": "Speed: {{bps}}",
-    "githubRelease": "Open GitHub Releases"
+    "githubRelease": "Open GitHub Releases",
+    "unsignedMacBuild": "Auto-update is not available on unsigned macOS builds. Please download the latest version from GitHub Releases and manually replace the app."
   },
   "tray": {
     "showHide": "Show/Hide Window",

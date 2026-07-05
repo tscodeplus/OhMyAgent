@@ -166,6 +166,12 @@ function createWindow(): BrowserWindow {
   // Main window stays hidden until WebUI loads (splash handles the wait).
 
   mainWindow.on('close', (event) => {
+    // Allow close when updater is about to quitAndInstall — on macOS
+    // app.quit() tries to close all windows first, and preventDefault
+    // here would cancel the quit (and the update install).
+    if (getAppUpdater().forceQuitting) {
+      return; // let the window close so the app can quit
+    }
     // If tray exists and closeToTray is enabled, hide instead of close
     const config = getDesktopConfig();
     if (trayCreated && config.get('closeToTray') !== false) {

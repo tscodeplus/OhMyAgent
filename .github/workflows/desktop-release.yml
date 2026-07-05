@@ -201,6 +201,7 @@ jobs:
           name: ohmyagent-macos-universal
           path: |
             desktop/release/*.dmg
+            desktop/release/*.zip
             desktop/release/*.yml
             desktop/release/*.blockmap
           retention-days: 30
@@ -257,7 +258,7 @@ jobs:
           # Collect installer and updater files, excluding builder-debug.yml
           # (same name across platforms causes duplicate asset error)
           ASSETS=()
-          for f in release-artifacts/**/*.exe release-artifacts/**/*.dmg release-artifacts/**/*.AppImage release-artifacts/**/*.deb release-artifacts/**/*.yml release-artifacts/**/*.blockmap; do
+          for f in release-artifacts/**/*.exe release-artifacts/**/*.dmg release-artifacts/**/*.zip release-artifacts/**/*.AppImage release-artifacts/**/*.deb release-artifacts/**/*.yml release-artifacts/**/*.blockmap; do
             [[ -f "$f" ]] || continue
             [[ "$(basename "$f")" == "builder-debug.yml" ]] && continue
             ASSETS+=("$f")

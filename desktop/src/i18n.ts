@@ -28,6 +28,7 @@ interface UpdaterLocale {
   installAndRestart: string;
   speed: string;
   githubRelease: string;
+  unsignedMacBuild: string;
 }
 
 interface TrayLocale {

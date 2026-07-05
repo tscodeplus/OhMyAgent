@@ -2,6 +2,7 @@ import pkg from 'electron-updater';
 const { autoUpdater } = pkg;
 import type { UpdateInfo } from 'electron-updater';
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getDesktopConfig } from './config.js';
@@ -17,6 +18,8 @@ export class AppUpdater {
   private downloading = false;
   /** True when the user has cancelled an in-progress download. */
   private downloadCancelled = false;
+  /** Cached result of macOS code-signature check. null = not yet checked. */
+  private _macOSUnsigned: boolean | null = null;
 
   constructor() {
     // Do NOT auto-download — let the user decide
@@ -31,7 +34,6 @@ export class AppUpdater {
       this.cancelDownload();
     });
     ipcMain.on('oma:progress-install', () => {
-      this.closeProgressWin();
       this.installAndRestart();
     });
     ipcMain.on('oma:progress-releases', () => {
@@ -90,10 +92,55 @@ export class AppUpdater {
     }
   }
 
-  installAndRestart(): void {
-    if (this.updateDownloaded) {
-      autoUpdater.quitAndInstall(false, true);
+  /** Set to true before quitAndInstall so the main window close handler
+   *  knows to allow the close (bypassing closeToTray on macOS). */
+  forceQuitting = false;
+
+  /**
+   * Check whether the current macOS build lacks a valid Apple code signature.
+   * Squirrel.Mac (the Electron update framework on macOS) requires a properly
+   * signed app bundle to verify and apply updates.  Unsigned / ad-hoc signed
+   * builds can still download updates but cannot auto-install them — users
+   * must manually replace the .app bundle from GitHub Releases.
+   *
+   * The check only runs on darwin and caches the result for the lifetime of
+   * the process (the signature cannot change without a reinstall).
+   */
+  isMacOSUnsigned(): boolean {
+    if (this._macOSUnsigned !== null) return this._macOSUnsigned;
+    if (process.platform !== 'darwin') {
+      this._macOSUnsigned = false;
+      return false;
     }
+    try {
+      // codesign -dv succeeds only when a valid signature is present.
+      execFileSync('codesign', ['-dv', process.execPath], {
+        stdio: 'ignore',
+        timeout: 5_000,
+      });
+      this._macOSUnsigned = false;
+    } catch {
+      this._macOSUnsigned = true;
+    }
+    this.diagLog(`macOS code-signature check: unsigned=${this._macOSUnsigned} (path=${process.execPath})`);
+    return this._macOSUnsigned;
+  }
+
+  installAndRestart(): void {
+    if (!this.updateDownloaded) {
+      this.diagLog('installAndRestart: updateDownloaded is false — no-op');
+      return;
+    }
+    // Unsigned macOS builds cannot use Squirrel.Mac — direct the user to
+    // GitHub Releases for a manual update instead of silently failing.
+    if (this.isMacOSUnsigned()) {
+      this.diagLog('installAndRestart: unsigned macOS build — opening GitHub Releases');
+      shell.openExternal('https://github.com/tscodeplus/OhMyAgent/releases');
+      return;
+    }
+    this.forceQuitting = true;
+    this.diagLog('installAndRestart: calling quitAndInstall');
+    autoUpdater.quitAndInstall(false, true);
   }
 
   /**
@@ -163,7 +210,8 @@ export class AppUpdater {
       }
       this.diagLog(`event: update-downloaded version=${info.version}`);
       this.updateDownloaded = true;
-      const data = { version: info.version, releaseNotes: info.releaseNotes };
+      const unsigned = this.isMacOSUnsigned();
+      const data = { version: info.version, releaseNotes: info.releaseNotes, unsigned };
       this.mainWindow?.webContents.send('update-downloaded', data);
       if (this.progressWin && !this.progressWin.isDestroyed()) {
         this.progressWin.webContents.send('update-downloaded', data);
@@ -195,6 +243,14 @@ export class AppUpdater {
         message.includes('ERR_NETWORK_CHANGED')
       ) {
         message = getT().updater.networkTimeout;
+      } else if (
+        message.includes('code signature') ||
+        message.includes('Code sign') ||
+        message.includes('codesign')
+      ) {
+        // macOS unsigned builds: Squirrel.Mac cannot verify or apply updates
+        // without a valid Apple Developer ID code signature.
+        message = getT().updater.unsignedMacBuild;
       }
 
       if (!this.suppressEvents) {
@@ -313,6 +369,12 @@ export class AppUpdater {
         message.includes('ERR_NETWORK_CHANGED')
       ) {
         message = getT().updater.networkTimeout;
+      } else if (
+        message.includes('code signature') ||
+        message.includes('Code sign') ||
+        message.includes('codesign')
+      ) {
+        message = getT().updater.unsignedMacBuild;
       }
 
       dialog.showMessageBox({
@@ -497,8 +559,12 @@ export class AppUpdater {
       event.preventDefault();
       if (url === 'oma://upgrade') {
         win.close();
-        this.showDownloadProgressWindow();
-        this.downloadUpdate();
+        if (this.isMacOSUnsigned()) {
+          shell.openExternal('https://github.com/tscodeplus/OhMyAgent/releases');
+        } else {
+          this.showDownloadProgressWindow();
+          this.downloadUpdate();
+        }
       } else if (url === 'oma://close-dialog') {
         win.close();
       }
@@ -509,8 +575,12 @@ export class AppUpdater {
       event.preventDefault();
       if (url === 'oma://upgrade') {
         win.close();
-        this.showDownloadProgressWindow();
-        this.downloadUpdate();
+        if (this.isMacOSUnsigned()) {
+          shell.openExternal('https://github.com/tscodeplus/OhMyAgent/releases');
+        } else {
+          this.showDownloadProgressWindow();
+          this.downloadUpdate();
+        }
       } else if (url === 'oma://close-dialog') {
         win.close();
       }
@@ -617,9 +687,15 @@ export class AppUpdater {
     document.getElementById('pct').textContent='100%';
     document.getElementById('bar').style.width='100%';
     document.getElementById('spd').textContent='';
-    document.getElementById('st').textContent='${getT().updater.downloaded}';
-    document.getElementById('btn-install').style.display='';
-    document.getElementById('btn-releases').style.display='none';
+    if (d && d.unsigned) {
+      document.getElementById('st').textContent='${getT().updater.unsignedMacBuild.replace(/'/g, "\\'")}';
+      document.getElementById('btn-releases').style.display='';
+      document.getElementById('btn-install').style.display='none';
+    } else {
+      document.getElementById('st').textContent='${getT().updater.downloaded}';
+      document.getElementById('btn-install').style.display='';
+      document.getElementById('btn-releases').style.display='none';
+    }
   });
   ipc.on('update-error',function(_e,d){
     document.getElementById('st').textContent=d.message||'${getT().updater.downloadFailed}';
