@@ -208,6 +208,10 @@ param([int]$MainPid)
 
 Start-Sleep -Seconds 2
 
+# pnpm needs CI=true in non-TTY environments to skip the interactive
+# confirmation before purging node_modules.
+$env:CI = "true"
+
 function Write-Status($status, $step, $percent) {
   $obj = @{ status = $status; step = $step; percent = $percent } | ConvertTo-Json -Compress
   $dir = Split-Path -Parent '${statusFile.replace(/'/g, "''")}'
@@ -287,6 +291,10 @@ Remove-Item -Force '${scriptPath.replace(/'/g, "''")}'
 
     const script = `#!/usr/bin/env bash
 sleep 2
+
+# pnpm needs CI=true in non-TTY environments (e.g. detached script, crontab,
+# systemd) to skip the interactive confirmation before purging node_modules.
+export CI=true
 
 # ── Helper: write progress (status codes for frontend i18n) ──
 write_status() {
