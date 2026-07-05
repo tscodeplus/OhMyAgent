@@ -19,7 +19,7 @@ function makeCtx(overrides?: Partial<ToolExecutionContext>): ToolExecutionContex
       config: {
         remoteTriggers: {
           targets: [
-            { id: 'deploy-webhook', name: 'Deploy Webhook', url: 'https://api.example.com/deploy', method: 'POST' },
+            { id: 'deploy-webhook', name: 'Deploy Webhook', url: 'https://127.0.0.1:19999/deploy', method: 'POST' },
             { id: 'status-update', name: 'Status Update', url: 'https://api.example.com/status', method: 'PUT', headers: { 'X-Api-Key': 'secret123' } },
           ],
         },
@@ -107,7 +107,7 @@ describe('remote_trigger', () => {
     expectToolResultContains(result, 'not found');
   });
 
-  it('only allows configured target IDs', { timeout: 15000 }, async () => {
+  it('only allows configured target IDs', async () => {
     const ctx = makeCtx();
     const result = await triggerDef.execute({ targetId: 'deploy-webhook' }, ctx);
     // Should fail with a connection error, not a "not found" error
