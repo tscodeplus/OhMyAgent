@@ -107,7 +107,7 @@ describe('remote_trigger', () => {
     expectToolResultContains(result, 'not found');
   });
 
-  it('only allows configured target IDs', async () => {
+  it('only allows configured target IDs', { timeout: 15000 }, async () => {
     const ctx = makeCtx();
     const result = await triggerDef.execute({ targetId: 'deploy-webhook' }, ctx);
     // Should fail with a connection error, not a "not found" error

@@ -77,9 +77,11 @@ function isInternalHostname(hostname: string): boolean {
 
 interface ResolvedAddress { address: string; family: 4 | 6 }
 
-function dnsLookup(hostname: string): Promise<ResolvedAddress> {
+function dnsLookup(hostname: string, timeoutMs = 5000): Promise<ResolvedAddress> {
   return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`DNS lookup timed out after ${timeoutMs}ms`)), timeoutMs);
     dns.lookup(hostname, (err, address, family) => {
+      clearTimeout(timer);
       if (err) reject(err);
       else resolve({ address, family: family as 4 | 6 });
     });
