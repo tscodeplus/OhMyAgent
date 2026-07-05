@@ -3,7 +3,7 @@ import { existsSync, writeFileSync, unlinkSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { PROJECT_DIR, DIST_INDEX, PID_FILE, LOG_FILE, LOG_DIR, PORT } from '../config.js';
-import { isProcessAlive, readPidFile, checkPortInUse, quickPreflight, sleep } from '../utils.js';
+import { isProcessAlive, readPidFile, checkPortInUse, checkHealthEndpoint, quickPreflight, sleep } from '../utils.js';
 import { t } from '../i18n.js';
 
 function killTmuxSession(): void {
@@ -14,7 +14,7 @@ function killTmuxSession(): void {
 
 function startViaService(): boolean {
   // macOS launchd
-  try { execSync('launchctl load ~/Library/LaunchAgents/com.ohmyagent.plist 2>/dev/null', { stdio: 'ignore' }); return true; } catch {}
+  try { execSync(`launchctl load ${join(homedir(), 'Library', 'LaunchAgents', 'com.ohmyagent.plist')} 2>/dev/null`, { stdio: 'ignore' }); return true; } catch {}
   // Linux systemd
   try { execSync('systemctl --user start ohmyagent 2>/dev/null', { stdio: 'ignore' }); return true; } catch {}
   // Windows Task Scheduler
@@ -56,12 +56,13 @@ export async function startCommand(): Promise<void> {
   if (hasServiceInstalled()) {
     console.log('System service detected, starting via service manager...');
     if (startViaService()) {
-      // macOS/Linux services need more time to initialize (sqlite-vec, config
-      // loading, etc.). Wait up to 30s checking every 3s.
+      // macOS/Linux services need time to initialize (sqlite-vec, config
+      // loading, etc.). Wait up to 30s, checking the real /health endpoint
+      // instead of port-binding (which can be unreliable on macOS).
       let healthy = false;
       for (let attempt = 1; attempt <= 10; attempt++) {
         await sleep(3000);
-        healthy = await checkPortInUse();
+        healthy = await checkHealthEndpoint();
         if (healthy) break;
         if (attempt < 10) {
           console.log(`  ${t('start.waitingPort', { elapsed: attempt * 3 })}`);
@@ -121,7 +122,7 @@ export async function startCommand(): Promise<void> {
       if (existsSync(PID_FILE)) unlinkSync(PID_FILE);
       process.exit(1);
     }
-    healthy = await checkPortInUse();
+    healthy = await checkHealthEndpoint();
     if (healthy) break;
     if (attempt < 10) {
       console.log('  ' + t('start.waitingPort', { elapsed: attempt * 3 }));
