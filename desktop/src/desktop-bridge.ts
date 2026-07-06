@@ -191,7 +191,7 @@ export class DesktopBridge {
   /** Register a session so tool calls for it are forwarded here. */
   registerSession(sessionId: string): void {
     this.sessions.add(sessionId);
-    this.logger?.info(`[DesktopBridge] Session registered: ${sessionId}`);
+    this.logger?.debug(`[DesktopBridge] Session registered: ${sessionId}`);
     if (this.status === 'connected' && this.ws) {
       this.send({ type: 'register', sessionId, capabilities: ['file_read', 'file_write', 'shell'] });
     }
@@ -200,7 +200,7 @@ export class DesktopBridge {
   /** Unregister a session (e.g. chat closed). */
   unregisterSession(sessionId: string): void {
     this.sessions.delete(sessionId);
-    this.logger?.info(`[DesktopBridge] Session unregistered: ${sessionId}`);
+    this.logger?.debug(`[DesktopBridge] Session unregistered: ${sessionId}`);
     if (this.status === 'connected' && this.ws) {
       this.send({ type: 'unregister', sessionId });
     }
@@ -351,7 +351,7 @@ export class DesktopBridge {
       return;
     }
     const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30_000);
-    this.logger?.info(`[DesktopBridge] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`);
+    this.logger?.warn(`[DesktopBridge] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`);
     this.reconnectTimer = setTimeout(() => this.connect(), delay);
   }
 }

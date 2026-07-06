@@ -16,6 +16,7 @@ export interface FeishuRouterOptions {
   staleMessageWindowMs?: number;
   processedMessageRepository?: ProcessedMessageRepository;
   logger?: {
+    debug?: (obj: Record<string, unknown>, msg?: string) => void;
     warn?: (obj: Record<string, unknown>, msg?: string) => void;
   };
 }
@@ -94,7 +95,7 @@ export class FeishuRouter {
       return false;
     }
 
-    this.logger?.warn?.({
+    this.logger?.debug?.({
       messageId: context.messageId,
       sessionKey: context.sessionKey,
       eventType,
@@ -130,7 +131,7 @@ export class FeishuRouter {
       return false;
     }
 
-    this.logger?.warn?.({
+    this.logger?.debug?.({
       messageId: context.messageId,
       sessionKey: context.sessionKey,
       ageMs,

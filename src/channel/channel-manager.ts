@@ -5,6 +5,11 @@ type MessageHandler = (ctx: ChannelContext, reply: (content: ReplyContent) => Pr
 export class ChannelManager {
   private channels = new Map<string, ChannelAdapter>();
   private handler: MessageHandler | null = null;
+  private logger?: { error: (...args: any[]) => void };
+
+  setLogger(logger: { error: (...args: any[]) => void }): void {
+    this.logger = logger;
+  }
 
   register(adapter: ChannelAdapter): void {
     this.channels.set(adapter.id, adapter);
@@ -50,7 +55,7 @@ export class ChannelManager {
     for (const result of results) {
       if (result.status === 'rejected') {
         // Log but don't crash — one channel failing shouldn't stop others
-        console.error('Channel start failed:', result.reason);
+        this.logger?.error('Channel start failed:', result.reason);
       }
     }
   }

@@ -57,6 +57,7 @@ class SSEReplyDispatcher implements ReplyDispatcher {
   private approvalMsgIds = new Map<string, string>();
   private showSkillCalls: boolean;
   showToolCalls: boolean; // public — read by agent-service for persistence gating
+  private logger?: { warn: (...args: any[]) => void };
 
   constructor(
     callback: SSECallback,
@@ -65,6 +66,7 @@ class SSEReplyDispatcher implements ReplyDispatcher {
     sessionId?: string,
     showSkillCalls = true,
     showToolCalls = true,
+    logger?: { warn: (...args: any[]) => void },
   ) {
     this.callback = callback;
     this.footerConfig = footerConfig ?? {
@@ -75,6 +77,7 @@ class SSEReplyDispatcher implements ReplyDispatcher {
     this.sessionId = sessionId;
     this.showSkillCalls = showSkillCalls;
     this.showToolCalls = showToolCalls;
+    this.logger = logger;
   }
 
   onStart(): void {
@@ -162,7 +165,7 @@ class SSEReplyDispatcher implements ReplyDispatcher {
       ).run(msgId, this.sessionId, '', Date.now(), meta);
       this.approvalMsgIds.set(approvalId, msgId);
     } catch (err) {
-      console.warn('[chat] Failed to persist approval message:', err);
+      this.logger?.warn('[chat] Failed to persist approval message:', err);
     }
   }
 
@@ -371,7 +374,7 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
                 ).run(now, sessionId);
               } catch (dbErr) {
                 // FK may fail if session doesn't exist — non-fatal
-                console.warn('[chat] Failed to persist command message:', dbErr);
+                app.log.warn({ err: dbErr }, '[chat] Failed to persist command message');
               }
             }
             if (result.reply) {
@@ -413,7 +416,7 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
                   "UPDATE sessions SET updated_at = ? WHERE id = ?",
                 ).run(now, sessionId);
               } catch (dbErr) {
-                console.warn('[chat] Failed to persist ext command message:', dbErr);
+                app.log.warn({ err: dbErr }, '[chat] Failed to persist ext command message');
               }
             }
             if (extResult.reply) {
@@ -440,17 +443,17 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
           ? cfg.agentManager.get(project.agent_id)?.name
           : undefined) ?? cfg.agentManager.getDefault()?.name)
       : undefined;
-    const dispatcher = new SSEReplyDispatcher(sendSSE, cfg.getFooterConfig?.(), cfg.db, sessionId, cfg.getShowSkillCalls?.(), cfg.getShowToolCalls?.());
+    const dispatcher = new SSEReplyDispatcher(sendSSE, cfg.getFooterConfig?.(), cfg.db, sessionId, cfg.getShowSkillCalls?.(), cfg.getShowToolCalls?.(), app.log);
     if (agentName) {
       dispatcher.setAgentName(agentName);
     }
 
     // WebUI approval sender — sends approval requests via the SSE stream
     // so the frontend can render interactive ApprovalCards.
-    const approvalSender = createWebUIApprovalSender(sendSSE, cfg.db, sessionId);
+    const approvalSender = createWebUIApprovalSender(sendSSE, cfg.db, sessionId, app.log);
 
     // WebUI user question sender — sends ask_user_question prompts via SSE
-    const userQuestionSender = createWebUIUserQuestionSender(sendSSE, cfg.db, sessionId);
+    const userQuestionSender = createWebUIUserQuestionSender(sendSSE, cfg.db, sessionId, app.log);
     const questionSessionKey = `webui:${sessionId}`;
     cfg.userQuestionSenderRegistry?.set(questionSessionKey, userQuestionSender);
 

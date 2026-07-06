@@ -18,6 +18,7 @@ import { buildQuestionKeyboard } from './qq-keyboard.js';
 
 export interface QQUserQuestionDeps {
   gateway: QQGateway;
+  logger?: { error: (...args: any[]) => void; warn: (...args: any[]) => void };
 }
 
 /**
@@ -28,7 +29,7 @@ export interface QQUserQuestionDeps {
 export function createQQUserQuestionSender(
   deps: QQUserQuestionDeps,
 ): UserQuestionSender {
-  const { gateway } = deps;
+  const { gateway, logger } = deps;
 
   return {
     async sendQuestion(
@@ -51,10 +52,11 @@ export function createQQUserQuestionSender(
             markdown,
             keyboard,
             target,
+            logger,
           });
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          console.error('[QQ sendQuestion failed]', msg);
+          logger?.error('[QQ sendQuestion failed]', msg);
           throw err;
         }
       } else {

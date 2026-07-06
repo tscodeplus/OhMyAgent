@@ -33,7 +33,7 @@ interface SearchResult {
 
 interface SearchProvider {
   name: string;
-  search(params: SearchParams, timeoutMs: number, signal?: AbortSignal): Promise<SearchResult>;
+  search(params: SearchParams, timeoutMs: number, signal?: AbortSignal, logger?: { warn: (...args: any[]) => void; info: (...args: any[]) => void }): Promise<SearchResult>;
 }
 
 // Options are read from ctx.services.config.webSearch at execution time.
@@ -69,7 +69,7 @@ class TavilyProvider implements SearchProvider {
 
   constructor(private apiKey: string) {}
 
-  async search(params: SearchParams, timeoutMs: number, signal?: AbortSignal): Promise<SearchResult> {
+  async search(params: SearchParams, timeoutMs: number, signal?: AbortSignal, _logger?: unknown): Promise<SearchResult> {
     const startedAt = Date.now();
 
     const body: Record<string, unknown> = {
@@ -141,7 +141,7 @@ class ExaProvider implements SearchProvider {
 
   constructor(private apiKey?: string) {}
 
-  async search(params: SearchParams, timeoutMs: number, signal?: AbortSignal): Promise<SearchResult> {
+  async search(params: SearchParams, timeoutMs: number, signal?: AbortSignal, _logger?: unknown): Promise<SearchResult> {
     const startedAt = Date.now();
 
     if (this.apiKey) {
@@ -247,7 +247,7 @@ class BaiduProvider implements SearchProvider {
 
   constructor(private apiKey: string) {}
 
-  async search(params: SearchParams, timeoutMs: number, signal?: AbortSignal): Promise<SearchResult> {
+  async search(params: SearchParams, timeoutMs: number, signal?: AbortSignal, _logger?: unknown): Promise<SearchResult> {
     const startedAt = Date.now();
 
     const body: Record<string, unknown> = {
@@ -328,7 +328,7 @@ class AnySearchProvider implements SearchProvider {
 
   constructor(private apiKey?: string) {}
 
-  async search(params: SearchParams, timeoutMs: number, signal?: AbortSignal): Promise<SearchResult> {
+  async search(params: SearchParams, timeoutMs: number, signal?: AbortSignal, logger?: { warn: (...args: any[]) => void }): Promise<SearchResult> {
     const startedAt = Date.now();
 
     if (this.apiKey) {
@@ -336,7 +336,7 @@ class AnySearchProvider implements SearchProvider {
         return await this.doSearch(params, timeoutMs, signal, startedAt, this.apiKey);
       } catch (err: any) {
         if (err.statusCode && ANYSEARCH_AUTH_FAIL_CODES.has(err.statusCode)) {
-          console.warn(`[web_search] AnySearch authenticated mode failed (${err.statusCode}), falling back to anonymous mode`);
+          logger?.warn(`[web_search] AnySearch authenticated mode failed (${err.statusCode}), falling back to anonymous mode`);
           return this.doSearch(params, timeoutMs, signal, startedAt, undefined);
         }
         throw err;
@@ -634,6 +634,7 @@ export function createWebSearchTool(options?: WebSearchToolOptions): ToolDefinit
     }),
     capability: webSearchToolCapability,
     execute: async (args, ctx) => {
+      const log = ctx.services.logger;
       const wsConfig = ctx.services.config.webSearch;
       const timeoutMs = wsConfig.searchTimeoutMs ?? defaults.timeoutMs;
       const providers = buildProviders({
@@ -661,15 +662,15 @@ export function createWebSearchTool(options?: WebSearchToolOptions): ToolDefinit
       try {
         for (const provider of providers) {
           try {
-            const result = await provider.search(searchParams, timeoutMs, controller.signal);
+            const result = await provider.search(searchParams, timeoutMs, controller.signal, log);
 
             if (result.results.length === 0 && provider !== providers[providers.length - 1]) {
-              console.warn(`[web_search] ${provider.name} returned empty results, trying next provider`);
+              log?.warn(`[web_search] ${provider.name} returned empty results, trying next provider`);
               errors.push(`${provider.name}: empty results`);
               continue;
             }
 
-            console.log(`[web_search] ${provider.name} succeeded (${result.results.length} results, ${result.responseTimeMs}ms)`);
+            log?.debug(`[web_search] ${provider.name} succeeded (${result.results.length} results, ${result.responseTimeMs}ms)`);
             return textResult(formatSearchResult(result), result as unknown as Record<string, unknown>);
           } catch (err: any) {
             const msg = err.name === 'AbortError' ? 'timeout' : (err.message ?? String(err));
@@ -680,7 +681,7 @@ export function createWebSearchTool(options?: WebSearchToolOptions): ToolDefinit
             }
 
             if (provider !== providers[providers.length - 1]) {
-              console.warn(`[web_search] ${provider.name} failed (${msg}), trying next provider`);
+              log?.warn(`[web_search] ${provider.name} failed (${msg}), trying next provider`);
             }
           }
         }

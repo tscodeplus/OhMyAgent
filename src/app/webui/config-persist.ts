@@ -10,7 +10,9 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { load as parseYaml, dump as dumpYaml } from 'js-yaml';
 import { loadConfig, resetConfig } from '../config.js';
 
-export function createOnConfigChanged(): () => void {
+export function createOnConfigChanged(
+  logger?: { error: (...args: any[]) => void },
+): () => void {
   return () => {
     const configPath = process.env.CONFIG_FILE || './config.yaml';
     if (!existsSync(configPath)) return;
@@ -34,7 +36,7 @@ export function createOnConfigChanged(): () => void {
       writeFileSync(configPath, dumpYaml(yaml, { indent: 2, lineWidth: 120 }), 'utf-8');
       resetConfig();
     } catch (err) {
-      console.error('[onConfigChanged] Failed to persist config:', err);
+      logger?.error('[onConfigChanged] Failed to persist config:', err);
     }
   };
 }

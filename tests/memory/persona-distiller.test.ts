@@ -194,7 +194,7 @@ describe('PersonaDistiller', () => {
 
       expect(result.version).toBe(1);
       expect(result.summary).toBe('');
-      expect(mockLogger.warn).toHaveBeenCalled();
+      expect(mockLogger.info).toHaveBeenCalled();
     });
 
     it('parses LLM response with additional surrounding text', async () => {
@@ -352,7 +352,7 @@ describe('PersonaDistiller', () => {
       const result = await distiller.distillIncremental(oldT);
 
       expect(result).toEqual({});
-      expect(mockLogger.warn).toHaveBeenCalled();
+      expect(mockLogger.info).toHaveBeenCalled();
     });
 
     it('returns {} when LLM returns invalid JSON', async () => {

@@ -300,7 +300,7 @@ export class MemoryWriter {
           agentId: agentId ?? undefined,
           error: errorForObservation(err),
         });
-        this.mergeConfig?.logger.warn({ err }, 'Conflict resolver failed (non-fatal)');
+        this.mergeConfig?.logger.info({ err }, 'Conflict resolver failed (non-fatal)');
       }
     }
 

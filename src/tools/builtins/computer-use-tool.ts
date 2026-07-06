@@ -35,17 +35,18 @@ export interface ComputerUseToolOptions {
 async function getStateOrCreateDesktopLease(
   computerUseHost: ComputerUseHost,
   ctx: Ctx,
+  log?: { error: (...args: any[]) => void },
 ): Promise<ScreenState> {
   try {
     return await computerUseHost.getAppState(ctx, null);
   } catch (err: unknown) {
     const typedErr = err as { code?: string; message?: string; stack?: string };
     if (typedErr?.code !== 'LEASE_NOT_FOUND') {
-      console.error('[CU:getStateOrCreateDesktopLease]', {
+      log?.error({
         code: typedErr?.code,
         message: typedErr?.message,
         stack: typedErr?.stack,
-      });
+      }, '[CU:getStateOrCreateDesktopLease]');
       throw err;
     }
     await computerUseHost.createLease(ctx, { appId: 'desktop' });
@@ -293,7 +294,7 @@ export function createComputerUseTool(
 
           case 'view_screen': {
             const viewStart = Date.now();
-            const state = await getStateOrCreateDesktopLease(computerUseHost, ctx);
+            const state = await getStateOrCreateDesktopLease(computerUseHost, ctx, options.logger);
             activeLeaseId = state.leaseId;
             options.logger?.info({
               leaseId: state.leaseId,
@@ -317,7 +318,7 @@ export function createComputerUseTool(
 
           case 'send_screenshot': {
             const ssStart = Date.now();
-            const state = await getStateOrCreateDesktopLease(computerUseHost, ctx);
+            const state = await getStateOrCreateDesktopLease(computerUseHost, ctx, options.logger);
             activeLeaseId = state.leaseId;
             options.logger?.info({
               leaseId: state.leaseId,
@@ -513,12 +514,6 @@ export function createComputerUseTool(
           message: typedErr?.message,
           stack: typedErr?.stack,
         }, 'computer_use tool failed');
-        console.error('[CU:execute]', {
-          action: params.action,
-          code: typedErr?.code,
-          message: typedErr?.message,
-          stack: typedErr?.stack,
-        });
 
         // APP_APPROVAL_REQUIRED: return a model-friendly message so the model
         // tells the user to approve the app instead of trying shell workarounds.

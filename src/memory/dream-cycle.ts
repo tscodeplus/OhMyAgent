@@ -217,7 +217,7 @@ export class DreamCycle {
    */
   async runAll(): Promise<PhaseResult[]> {
     if (this.running) {
-      this.logger.warn('DreamCycle runAll already in progress, skipping');
+      this.logger.debug('DreamCycle runAll already in progress, skipping');
       return [];
     }
     this.running = true;
@@ -226,7 +226,7 @@ export class DreamCycle {
       const withinGrace = this.isWithinGraceWindow();
 
       if (!withinGrace) {
-        this.logger.warn(
+        this.logger.info(
           'DreamCycle started outside grace window — heavy phases will be skipped',
         );
       }
@@ -538,7 +538,7 @@ export class DreamCycle {
       return clusters.length;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.logger.warn({ err: msg }, 'DreamCycle sceneCluster failed');
+      this.logger.info({ err: msg }, 'DreamCycle sceneCluster failed');
       throw err;
     }
   }

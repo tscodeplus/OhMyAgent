@@ -79,7 +79,7 @@ describe('planQueriesLLM — robustness', () => {
     auxLLMCall.mockRejectedValue(new Error('network down'));
     const plan = await planQueriesLLM('What does John like?', cfg());
     expect(plan.flatQueries.length).toBeGreaterThan(0);
-    expect(logger.warn).toHaveBeenCalled();
+    expect(logger.info).toHaveBeenCalled();
   });
 
   it('coerces an unknown intent to generic', async () => {

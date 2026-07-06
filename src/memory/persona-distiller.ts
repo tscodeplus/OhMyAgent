@@ -105,7 +105,7 @@ export async function createDistillerLLM(
           return content;
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          logger.warn({ modelRef, err: msg.slice(0, 100) }, 'Distiller LLM attempt failed');
+          logger.debug({ modelRef, err: msg.slice(0, 100) }, 'Distiller LLM attempt failed');
           lastError = msg;
           // Continue to next fallback
         }
@@ -204,7 +204,7 @@ export class PersonaDistiller {
       );
       return this.parseFullResponse(response) ?? createEmptyPersona();
     } catch (err) {
-      this.logger.warn({ err }, 'Full distillation LLM failed, returning empty persona');
+      this.logger.info({ err }, 'Full distillation LLM failed, returning empty persona');
       return createEmptyPersona();
     }
   }
@@ -255,10 +255,10 @@ export class PersonaDistiller {
         this.logger.info('Persona rebuilt from current active preferences');
         rebuildSucceeded = true;
       } else {
-        this.logger.warn('Full distillation returned invalid JSON, keeping existing persona');
+        this.logger.info('Full distillation returned invalid JSON, keeping existing persona');
       }
     } catch (err) {
-      this.logger.warn({ err }, 'Full persona rebuild LLM failed, preserving existing persona');
+      this.logger.info({ err }, 'Full persona rebuild LLM failed, preserving existing persona');
     }
 
     // Safety net: always run after rebuild attempt, success or failure.
@@ -349,7 +349,7 @@ export class PersonaDistiller {
       return partial;
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
-      this.logger.warn({ err }, 'Incremental distillation LLM failed, returning empty update');
+      this.logger.info({ err }, 'Incremental distillation LLM failed, returning empty update');
       this.distillationLog?.finishRun(runId!, errorMsg);
       return {};
     }
@@ -388,7 +388,7 @@ export class PersonaDistiller {
   private parseFullResponse(response: string): UserPersona | null {
     const cleaned = extractJson(response);
     if (!cleaned) {
-      this.logger.warn('No valid JSON found in LLM response for full distillation');
+      this.logger.info('No valid JSON found in LLM response for full distillation');
       return null;
     }
     try {
@@ -397,13 +397,13 @@ export class PersonaDistiller {
       if (result.success) {
         return result.data as UserPersona;
       }
-      this.logger.warn(
+      this.logger.info(
         { errors: result.error.format() },
         'Full distillation JSON validation failed',
       );
       return null;
     } catch {
-      this.logger.warn('Failed to parse LLM response JSON for full distillation');
+      this.logger.info('Failed to parse LLM response JSON for full distillation');
       return null;
     }
   }
@@ -411,7 +411,7 @@ export class PersonaDistiller {
   private parsePartialResponse(response: string): PartialPersona {
     const cleaned = extractJson(response);
     if (!cleaned) {
-      this.logger.warn('No valid JSON found in LLM response for incremental distillation');
+      this.logger.info('No valid JSON found in LLM response for incremental distillation');
       return {};
     }
     try {
@@ -420,13 +420,13 @@ export class PersonaDistiller {
       if (result.success) {
         return result.data as PartialPersona;
       }
-      this.logger.warn(
+      this.logger.info(
         { errors: result.error.format() },
         'Incremental distillation JSON validation failed',
       );
       return {};
     } catch {
-      this.logger.warn('Failed to parse LLM response JSON for incremental distillation');
+      this.logger.info('Failed to parse LLM response JSON for incremental distillation');
       return {};
     }
   }

@@ -211,6 +211,7 @@ export async function sendKeyboardMessage(
     keyboard: QQKeyboard;
     target: { openid?: string; groupOpenid?: string };
     replyToMessageId?: string;
+    logger?: { error: (...args: any[]) => void };
   },
 ): Promise<string> {
   const { markdown, keyboard, target, replyToMessageId } = params;
@@ -236,7 +237,7 @@ export async function sendKeyboardMessage(
     }
     throw new Error('QQ send target must specify either openid or groupOpenid');
   } catch (err) {
-    console.error('[QQ sendKeyboardMessage failed]', (err as Error)?.message ?? String(err));
+    params.logger?.error('[QQ sendKeyboardMessage failed]', (err as Error)?.message ?? String(err));
     throw err;
   }
 }
@@ -249,6 +250,7 @@ export function createQQApprovalSender(params: {
   gateway: QQGateway;
   target: { openid?: string; groupOpenid?: string };
   triggerMessageId: string;
+  logger?: { error: (...args: any[]) => void };
 }) {
   const { gateway, target, triggerMessageId } = params;
 
@@ -276,7 +278,7 @@ export function createQQApprovalSender(params: {
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error('[QQ sendApprovalMessage failed]', msg);
+        params.logger?.error('[QQ sendApprovalMessage failed]', msg);
         throw err;
       }
     },
@@ -303,7 +305,7 @@ export function createQQApprovalSender(params: {
       try {
         await sendSingleMessage(gateway, `${emoji} ${resultText}`, target);
       } catch (err) {
-        console.error('[QQ updateApprovalResult failed]', (err as Error)?.message ?? String(err));
+        params.logger?.error('[QQ updateApprovalResult failed]', (err as Error)?.message ?? String(err));
       }
     },
   };

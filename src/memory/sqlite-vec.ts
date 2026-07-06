@@ -26,6 +26,12 @@ function resolveNativeVec0Path(): string {
 const dbsWithExtension = new WeakSet<Database.Database>();
 const dbsWithFailedExtension = new WeakSet<Database.Database>();
 
+let _vecLogger: { info: (...args: any[]) => void; warn: (...args: any[]) => void } | undefined;
+
+export function setVecLogger(logger: { info: (...args: any[]) => void; warn: (...args: any[]) => void }): void {
+  _vecLogger = logger;
+}
+
 /**
  * Load the sqlite-vec native extension into the given database.
  *
@@ -57,13 +63,13 @@ export function loadSqliteVecExtension(db: Database.Database): boolean {
         const stemPath = nativePath.replace(/\.so$/, '');
         db.loadExtension(stemPath);
         dbsWithExtension.add(db);
-        console.log('[sqlite-vec] Loaded native extension from', nativePath);
+        _vecLogger?.info('[sqlite-vec] Loaded native extension from', nativePath);
         return true;
       } catch (nativeErr: any) {
-        console.warn('[sqlite-vec] Failed to load native extension:', nativeErr?.message ?? nativeErr);
+        _vecLogger?.warn('[sqlite-vec] Failed to load native extension:', nativeErr?.message ?? nativeErr);
       }
     }
-    console.warn('[sqlite-vec] Failed to load extension:', err?.message ?? err);
+    _vecLogger?.warn('[sqlite-vec] Failed to load extension:', err?.message ?? err);
     dbsWithFailedExtension.add(db);
     return false;
   }
@@ -87,7 +93,7 @@ export function loadSqliteVec(db: Database.Database, dimension: number): boolean
     `);
     return true;
   } catch (err: any) {
-    console.warn('[sqlite-vec] Failed to create virtual table:', err?.message ?? err);
+    _vecLogger?.warn('[sqlite-vec] Failed to create virtual table:', err?.message ?? err);
     return false;
   }
 }

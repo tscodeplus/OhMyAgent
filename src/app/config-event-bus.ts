@@ -17,9 +17,14 @@ const CONFIG_RELOAD_EVENT = 'config:reload';
 
 class ConfigEventBus {
   private emitter = new EventEmitter();
+  private logger?: { error: (...args: any[]) => void };
 
   constructor() {
     this.emitter.setMaxListeners(50);
+  }
+
+  setLogger(logger: { error: (...args: any[]) => void }): void {
+    this.logger = logger;
   }
 
   /**
@@ -50,7 +55,7 @@ class ConfigEventBus {
     );
     for (const r of results) {
       if (r.status === 'rejected') {
-        console.error('[config-event-bus] handler failed:', r.reason);
+        this.logger?.error('[config-event-bus] handler failed:', r.reason);
       }
     }
   }

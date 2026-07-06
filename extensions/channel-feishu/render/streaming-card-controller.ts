@@ -168,21 +168,57 @@ export class StreamingCardController {
           this.messageId,
         );
       } catch (sendErr) {
+        // Debug: log the raw error shape to help diagnose unrecognised variants.
+        const errAny = sendErr as Record<string, unknown>;
+        this.logger?.debug(
+          {
+            cardId: this.cardId,
+            chatId: this.chatId,
+            errMessage: (sendErr as Error)?.message ?? String(sendErr),
+            errCode: errAny?.code,
+            errDataCode: (errAny?.data as Record<string, unknown>)?.code,
+            errResponseCode: (errAny?.response as Record<string, unknown>)?.code,
+            errResponseDataCode: ((errAny?.response as Record<string, unknown>)?.data as Record<string, unknown>)?.code,
+            errKeys: Object.keys(sendErr as object).slice(0, 20),
+            isCardIdInvalid: isCardIdInvalidError(sendErr),
+          },
+          'CardKit sendCardByCardId failed — error diagnostics',
+        );
+
         // If cardId was invalid, rebuild the card and retry once with a fresh cardId.
         // Retrying the same cardId is futile — an invalid cardId stays invalid.
         if (isCardIdInvalidError(sendErr)) {
-          this.logger?.warn(
-            { oldCardId: this.cardId, err: (sendErr as Error).message },
+          this.logger?.debug(
+            { oldCardId: this.cardId },
             'CardKit sendCardByCardId failed with invalid cardId, recreating card',
           );
-          const newCard = buildStreamingCard();
-          this.cardId = await this.feishuClient.createCard(newCard);
-          this.messageId = await this.feishuClient.sendCardByCardId(
-            this.chatId,
-            this.cardId,
-            this.messageId,
-          );
-          this.logger?.info({ newCardId: this.cardId }, 'CardKit card recreated successfully after cardid-invalid');
+          try {
+            const newCard = buildStreamingCard();
+            this.cardId = await this.feishuClient.createCard(newCard);
+            this.messageId = await this.feishuClient.sendCardByCardId(
+              this.chatId,
+              this.cardId,
+              this.messageId,
+            );
+            this.logger?.debug(
+              { newCardId: this.cardId },
+              'CardKit card recreated successfully after cardid-invalid',
+            );
+          } catch (retryErr) {
+            // Retry also failed — log and throw so the caller can fall back to text.
+            const rErr = retryErr as Record<string, unknown>;
+            this.logger?.debug(
+              {
+                newCardId: this.cardId,
+                retryErrMessage: (retryErr as Error)?.message ?? String(retryErr),
+                retryErrCode: rErr?.code,
+                retryErrDataCode: (rErr?.data as Record<string, unknown>)?.code,
+                retryErrResponseCode: (rErr?.response as Record<string, unknown>)?.code,
+              },
+              'CardKit sendCardByCardId retry with fresh card also failed',
+            );
+            throw retryErr;
+          }
         } else {
           throw sendErr;
         }

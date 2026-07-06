@@ -122,7 +122,7 @@ export class MemoryPipeline {
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        this.deps.logger.warn({ err: msg }, 'MemoryPipeline L2 scene clustering failed');
+        this.deps.logger.info({ err: msg }, 'MemoryPipeline L2 scene clustering failed');
         errors.push(`L2: ${msg}`);
         layers.push({
           layer: 'L2',
@@ -159,7 +159,7 @@ export class MemoryPipeline {
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        this.deps.logger.warn({ err: msg }, 'MemoryPipeline L3 persona distillation failed');
+        this.deps.logger.info({ err: msg }, 'MemoryPipeline L3 persona distillation failed');
         errors.push(`L3: ${msg}`);
         layers.push({
           layer: 'L3',

@@ -281,9 +281,9 @@ export async function loadAllSkills(
       results.push(skill);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      try {
-        (logger?.warn ?? console.warn)(`[skill-loader] Skipping skill "${dir.name}": ${message}`);
-      } catch {
+      if (logger?.warn) {
+        logger.warn(`[skill-loader] Skipping skill "${dir.name}": ${message}`);
+      } else {
         console.warn(`[skill-loader] Skipping skill "${dir.name}": ${message}`);
       }
     }

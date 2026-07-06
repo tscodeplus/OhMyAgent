@@ -16,13 +16,14 @@
  */
 
 import { i18n, changeI18nLocale } from '../i18n/index.js';
-import { loadConfig, startConfigWatcher, startEnvWatcher, stopConfigWatcher, stopEnvWatcher } from './config.js';
+import { loadConfig, setWatcherLogger, startConfigWatcher, startEnvWatcher, stopConfigWatcher, stopEnvWatcher } from './config.js';
 import { createLogger } from './logger.js';
 import { teamModeStore } from '../agent/team-mode-store.js';
 import { createI18nService } from '../i18n/i18n-service.js';
 import { PromptManager } from '../prompt/prompt-manager.js';
 import type { AppConfig, AppServices, CustomModelConfig } from './types.js';
 import { openDatabase } from '../memory/db.js';
+import { setVecLogger } from '../memory/sqlite-vec.js';
 import { registerModel } from '@earendil-works/pi-ai';
 import { SkillRegistry } from '../skills/skill-registry.js';
 import { FeishuRouter } from '../../extensions/channel-feishu/feishu-router.js';
@@ -150,11 +151,12 @@ export async function bootstrap(): Promise<BootstrapResult> {
   // Register config-reload handlers for simple services (self-contained, no
   // complex dependency chains). Remaining services are still updated inline
   // in onConfigReload and will be migrated incrementally.
+  configEventBus.setLogger(logger);
   configEventBus.onReload((c) => { logger.level = c.logging.level; });
   configEventBus.onReload((c) => teamModeStore.updateConfig(c.smart_agent_team));
   configEventBus.onReload((c) => {
     if (c.uiLanguage && c.uiLanguage !== i18n.locale) {
-      changeI18nLocale(c.uiLanguage).catch((err) => console.error('[hot-reload] Failed to change locale:', err));
+      changeI18nLocale(c.uiLanguage).catch((err) => logger.error({ err }, '[hot-reload] Failed to change locale'));
     }
   });
 
@@ -181,6 +183,7 @@ export async function bootstrap(): Promise<BootstrapResult> {
   );
 
 
+  setVecLogger(logger);
   const memoryServices = await createMemoryServices(config, logger, db);
   const {
     embeddingClient,
@@ -304,6 +307,7 @@ export async function bootstrap(): Promise<BootstrapResult> {
   const feishuRouter = new FeishuRouter({ logger, processedMessageRepository });
   feishuRouter.startCleanup(60_000);
   const chatQueue = new ChatQueue();
+  chatQueue.setLogger(logger);
 
   // Register agentService so extensions can resolve it via api.getService()
   servicesMap.set('agentService', agentService);
@@ -508,7 +512,7 @@ export async function bootstrap(): Promise<BootstrapResult> {
     services,
     liveConfigRef: { current: config },
     onConfigSaved: (newConfig) => onConfigSavedRef.current?.(newConfig),
-    onConfigChanged: createOnConfigChanged(),
+    onConfigChanged: createOnConfigChanged(logger),
     qrSessionStore,
   });
 
@@ -648,6 +652,7 @@ export async function bootstrap(): Promise<BootstrapResult> {
   // Wire up the onConfigReload callback so PUT /api/config can trigger hot-reload
   onConfigSavedRef.current = onConfigReload;
 
+  setWatcherLogger(logger);
   startConfigWatcher(yamlPath, onConfigReload);
 
   // Also watch .env so API keys and env-only settings take effect without restart

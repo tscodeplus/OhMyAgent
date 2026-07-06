@@ -144,6 +144,7 @@ const mockConfig = {
 
 vi.mock('../../src/app/config.js', () => ({
   loadConfig: vi.fn(() => mockConfig),
+  setWatcherLogger: vi.fn(),
   startConfigWatcher: vi.fn(),
   startEnvWatcher: vi.fn(),
   stopConfigWatcher: vi.fn(),
@@ -370,6 +371,7 @@ vi.mock('../../extensions/channel-feishu/chat-queue.js', () => ({
     enqueue: vi.fn(),
     getQueueSize: vi.fn(() => 0),
     isProcessing: vi.fn(() => false),
+    setLogger: vi.fn(),
   })),
 }));
 

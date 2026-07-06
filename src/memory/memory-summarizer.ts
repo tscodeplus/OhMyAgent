@@ -135,7 +135,7 @@ export class MemorySummarizer {
           this.logger.info({ sessionKey }, 'User persona updated via incremental distillation');
         }
       } catch (err) {
-        this.logger.warn({ err, sessionKey }, 'Persona distillation failed (non-fatal)');
+        this.logger.info({ err, sessionKey }, 'Persona distillation failed (non-fatal)');
       }
     }
   }
@@ -203,7 +203,7 @@ Output ONLY valid JSON with this shape:
         'LLM session summarized',
       );
     } catch (err) {
-      this.logger.warn({ err, sessionKey }, 'LLM summarization failed, falling back to rule-based');
+      this.logger.info({ err, sessionKey }, 'LLM summarization failed, falling back to rule-based');
       await this.ruleBasedSummarize(sessionKey, messages, channel);
     }
   }
@@ -260,7 +260,7 @@ Output ONLY valid JSON with this shape:
         return completion.choices[0]?.message?.content ?? '';
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        this.logger.warn({ modelRef, err: msg.slice(0, 100) }, 'Summary LLM attempt failed');
+        this.logger.debug({ modelRef, err: msg.slice(0, 100) }, 'Summary LLM attempt failed');
         lastError = msg;
         // Continue to next fallback
       }

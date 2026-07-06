@@ -18,6 +18,7 @@ export function createWebUIUserQuestionSender(
   sendSSE: (data: Record<string, unknown>) => void,
   db?: Database.Database,
   sessionId?: string,
+  logger?: { warn: (...args: any[]) => void },
 ): UserQuestionSender {
   return {
     async sendQuestion(
@@ -47,7 +48,7 @@ export function createWebUIUserQuestionSender(
             "INSERT OR REPLACE INTO messages (id, session_id, role, content, created_at, metadata) VALUES (?, ?, 'assistant', ?, ?, ?)",
           ).run(msgId, sessionId, '', Date.now(), meta);
         } catch (err) {
-          console.warn('[user-question-sender] Failed to persist question message:', err);
+          logger?.warn('[user-question-sender] Failed to persist question message:', err);
         }
       }
 

@@ -38,24 +38,56 @@ function isInvalidCardIdResponse(response: { code?: number; msg?: string } | und
  * "cardid is invalid" failure from the Feishu API (code 230099).
  *
  * The Feishu SDK throws on HTTP 400 errors with code/msg buried in
- * different shapes: `err.code`, `err.response.code`, or inside
- * `err.message`. This function normalises those shapes so callers
- * can decide whether to recreate the card.
+ * different shapes depending on the SDK version and error path:
+ *   - `err.code` / `err.msg`                   (direct properties)
+ *   - `err.response.code` / `err.response.msg` (axios-style)
+ *   - `err.data.code` / `err.data.msg`         (SDK data wrapper)
+ *   - `err.response.data.code` / …             (nested axios)
+ *   - inside `err.message` string               (fallback)
+ *
+ * This function normalises ALL known shapes so callers can reliably
+ * decide whether to recreate the card.
  */
 export function isCardIdInvalidError(err: unknown): boolean {
   if (!(err instanceof Error) && typeof err !== 'object') return false;
+  if (err === null) return false;
+
   const obj = err as Record<string, unknown>;
-  // Check error code (normally 230099 for cardid-invalid)
-  const code = obj.code as number | undefined
-    ?? (obj.response as Record<string, unknown> | undefined)?.code as number | undefined;
+
+  // ── Extract code from every known nesting shape ──
+  const response = obj.response as Record<string, unknown> | undefined;
+  const data = obj.data as Record<string, unknown> | undefined;
+  const respData = response?.data as Record<string, unknown> | undefined;
+
+  const code: number | undefined =
+    (obj.code as number | undefined)
+    ?? (data?.code as number | undefined)
+    ?? (response?.code as number | undefined)
+    ?? (respData?.code as number | undefined);
+
   if (code === CARD_ID_INVALID_CODE) return true;
-  // Fallback: inspect the message string
-  const msg = String(
+
+  // ── Extract msg from every known nesting shape ──
+  const msg: string | undefined =
+    (obj.msg as string | undefined)
+    ?? (data?.msg as string | undefined)
+    ?? (response?.msg as string | undefined)
+    ?? (respData?.msg as string | undefined);
+
+  if (msg) {
+    const lower = msg.toLowerCase();
+    if (lower.includes('cardid is invalid') || lower.includes('errcode: 11310')) {
+      return true;
+    }
+  }
+
+  // ── Fallback: inspect the message string ──
+  const message = String(
     (obj as { message?: string }).message
-    ?? (obj as { msg?: string }).msg
+    ?? msg
     ?? String(err)
   ).toLowerCase();
-  return msg.includes('cardid is invalid') || msg.includes('errcode: 11310');
+  return message.includes('cardid is invalid') || message.includes('errcode: 11310');
 }
 
 /**
@@ -158,7 +190,7 @@ export class FeishuClient {
         lastErr = err;
         if (!isRateLimited(err) || attempt === MAX_RETRIES) throw err;
         const delay = BASE_DELAY_MS * (2 ** attempt);
-        this.logger.warn({ attempt: attempt + 1, delay, label }, 'Rate limited, retrying');
+        this.logger.info({ attempt: attempt + 1, delay, label }, 'Rate limited, retrying');
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
@@ -392,7 +424,7 @@ export class FeishuClient {
       const r = resp as { code?: number; msg?: string };
       if (r.code && r.code !== 0) {
         const err = new Error(`CardKit card.update error ${r.code}: ${r.msg}`);
-        this.logger.warn({ code: r.code, msg: r.msg, cardId, sequence }, err.message);
+        this.logger.debug({ code: r.code, msg: r.msg, cardId, sequence }, err.message);
         throw err;
       }
     }, 'updateCard');
@@ -411,7 +443,7 @@ export class FeishuClient {
 
       if (resp.code && resp.code !== 0) {
         const err = new Error(`CardKit streamCardContent error ${resp.code}: ${resp.msg}`);
-        this.logger.warn({ code: resp.code, msg: resp.msg, cardId, sequence }, err.message);
+        this.logger.debug({ code: resp.code, msg: resp.msg, cardId, sequence }, err.message);
         throw err;
       }
     }, 'streamCardContent');
@@ -434,7 +466,7 @@ export class FeishuClient {
 
       if (resp.code && resp.code !== 0) {
         const err = new Error(`CardKit setStreamingMode error ${resp.code}: ${resp.msg}`);
-        this.logger.warn({ code: resp.code, msg: resp.msg, cardId, streamingMode, sequence }, err.message);
+        this.logger.debug({ code: resp.code, msg: resp.msg, cardId, streamingMode, sequence }, err.message);
         throw err;
       }
       this.logger.debug({ cardId, streamingMode, sequence }, 'CardKit setCardStreamingMode success');
@@ -491,9 +523,21 @@ export class FeishuClient {
         if (!isInvalidCardIdResponse(response)) break;
       } catch (err: any) {
         // Feishu SDK throws on HTTP errors (e.g. 400) instead of returning
-        // an error response object. Extract code/msg from the thrown error.
-        const code = err?.code ?? err?.response?.code;
-        const msg = err?.message ?? err?.msg ?? String(err);
+        // an error response object. Extract code/msg from every known shape:
+        //   err.code / err.msg             — direct SDK error properties
+        //   err.data.code / err.data.msg   — SDK data wrapper
+        //   err.response.code / …          — axios-style nesting
+        //   err.response.data.code / …     — nested axios
+        const code = err?.code
+          ?? err?.data?.code
+          ?? err?.response?.code
+          ?? err?.response?.data?.code;
+        const msg = err?.msg
+          ?? err?.data?.msg
+          ?? err?.response?.msg
+          ?? err?.response?.data?.msg
+          ?? err?.message
+          ?? String(err);
         lastError = { code, msg };
 
         if (!isInvalidCardIdResponse({ code, msg })) break;
@@ -502,7 +546,7 @@ export class FeishuClient {
       // Retriable — card_id not yet usable
       if (attempt < CARD_ID_RETRY_ATTEMPTS) {
         const delay = CARD_ID_RETRY_BASE_DELAY_MS * (attempt + 1);
-        this.logger.warn({
+        this.logger.info({
           attempt: attempt + 1,
           delay,
           cardId,
@@ -554,7 +598,7 @@ export class FeishuClient {
         { action: 'typing' },
       );
     } catch (error) {
-      this.logger.warn({ error, chatId }, 'Failed to set typing state (non-critical)');
+      this.logger.info({ error, chatId }, 'Failed to set typing state (non-critical)');
     }
   }
 
@@ -569,7 +613,7 @@ export class FeishuClient {
         { action: 'cancel' },
       );
     } catch (error) {
-      this.logger.warn({ error, chatId }, 'Failed to clear typing state (non-critical)');
+      this.logger.info({ error, chatId }, 'Failed to clear typing state (non-critical)');
     }
   }
 
@@ -588,13 +632,13 @@ export class FeishuClient {
       );
 
       if (result.code !== 0) {
-        this.logger.warn({ code: result.code, messageId }, 'Failed to add reaction (non-critical)');
+        this.logger.info({ code: result.code, messageId }, 'Failed to add reaction (non-critical)');
         return null;
       }
 
       return result?.data?.reaction_id ?? null;
     } catch (error) {
-      this.logger.warn({ error, messageId }, 'Failed to add reaction (non-critical)');
+      this.logger.info({ error, messageId }, 'Failed to add reaction (non-critical)');
       return null;
     }
   }
@@ -616,10 +660,10 @@ export class FeishuClient {
       );
 
       if (!response.ok) {
-        this.logger.warn({ status: response.status }, 'Failed to remove reaction (non-critical)');
+        this.logger.info({ status: response.status }, 'Failed to remove reaction (non-critical)');
       }
     } catch (error) {
-      this.logger.warn({ error, messageId }, 'Failed to remove reaction (non-critical)');
+      this.logger.info({ error, messageId }, 'Failed to remove reaction (non-critical)');
     }
   }
 

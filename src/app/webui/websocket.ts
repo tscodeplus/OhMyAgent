@@ -33,6 +33,11 @@ interface WSClient {
 export class WebSocketManager {
   private clients: Map<WebSocket, WSClient> = new Map();
   private channelSubscribers: Map<string, Set<WebSocket>> = new Map();
+  private logger?: { debug: (...args: any[]) => void };
+
+  setLogger(logger: { debug: (...args: any[]) => void }): void {
+    this.logger = logger;
+  }
 
   /**
    * Register a new WebSocket connection.
@@ -67,7 +72,7 @@ export class WebSocketManager {
 
     // Send welcome message
     this.sendToClient(socket, { type: 'connected', message: 'WebSocket connected' });
-    console.log(`[ws] client connected, total=${this.clients.size}`);
+    this.logger?.debug(`[ws] client connected, total=${this.clients.size}`);
 
     return true;
   }
@@ -79,7 +84,7 @@ export class WebSocketManager {
         this.channelSubscribers.get(channel)?.delete(socket);
       }
       this.clients.delete(socket);
-      console.log(`[ws] client disconnected, total=${this.clients.size}`);
+      this.logger?.debug(`[ws] client disconnected, total=${this.clients.size}`);
     }
   }
 

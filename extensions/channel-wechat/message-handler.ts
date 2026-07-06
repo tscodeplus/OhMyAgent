@@ -84,6 +84,7 @@ export function setupMessageHandlers(
   sttConfig?: { autoTranscribe?: boolean; enabled?: boolean; language?: string },
 ): void {
   const chatQueue = new ChatQueue();
+  chatQueue.setLogger(logger);
 
   poller.start(async (msg: ILMessage) => {
     // Build ChannelContext

@@ -248,7 +248,7 @@ export async function extractEntitiesLLM(
       contentLength: text.length,
       error: errorForObservation(err),
     });
-    config.logger.warn({ err }, 'LLM entity extraction failed, falling back to regex');
+    config.logger.info({ err }, 'LLM entity extraction failed, falling back to regex');
     return extractEntities(text, options);
   }
 }

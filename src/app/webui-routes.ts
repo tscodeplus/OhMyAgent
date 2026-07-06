@@ -164,6 +164,7 @@ export async function registerWebUIRoutes(
   // 6. Register WebSocket (Fastify tracks the plugin promise internally;
   //    it will be resolved during server.listen())
   const wsManager = new WebSocketManager();
+  wsManager.setLogger(app.log);
   chatConfig.wsManager = wsManager;
   app.register(createWebSocketPlugin(wsManager));
 

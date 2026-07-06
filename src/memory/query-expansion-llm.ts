@@ -95,7 +95,7 @@ export async function expandQueryLLM(
     return { baseline, variants: deduped };
   } catch {
     // LLM expansion failed — fall back to rule-based only
-    config.logger.warn('LLM query expansion failed, using rule-based only');
+    config.logger.info('LLM query expansion failed, using rule-based only');
     return { baseline, variants: [] };
   }
 }

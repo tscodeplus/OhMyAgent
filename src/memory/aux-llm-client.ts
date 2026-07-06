@@ -122,11 +122,11 @@ export async function auxLLMCall(
       const content = (msg?.content || (msg as any)?.reasoning_content)?.trim();
       if (content) return content;
 
-      options.logger.warn({ modelRef }, 'Model %s returned empty response', modelRef);
+      options.logger.debug({ modelRef }, 'Model %s returned empty response', modelRef);
       lastError = `Model ${modelRef} returned empty response`;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      options.logger.warn({ modelRef, err: msg.slice(0, 100) }, 'Aux LLM attempt failed');
+      options.logger.debug({ modelRef, err: msg.slice(0, 100) }, 'Aux LLM attempt failed');
       lastError = msg;
     }
   }

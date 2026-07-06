@@ -81,7 +81,7 @@ export function registerCronRoutes(
       );
     }
 
-    console.log(`[cron] list jobs: count=${jobs.length} status=${query.status} q=${query.q}`);
+    app.log.debug(`[cron] list jobs: count=${jobs.length} status=${query.status} q=${query.q}`);
     return reply.send(jobs.map(jobToDTO));
   });
 
@@ -111,7 +111,7 @@ export function registerCronRoutes(
     }
 
     try {
-      console.log(`[cron] creating job: name=${body.name} expr=${body.expression}`);
+      app.log.info(`[cron] creating job: name=${body.name} expr=${body.expression}`);
       const job = cronService.add({
         name: body.name.trim(),
         schedule: body.expression.trim(),
@@ -121,7 +121,7 @@ export function registerCronRoutes(
         agentName: undefined,
         agentId: body.agent_id,
       });
-      console.log(`[cron] job created: id=${job.id} channel=${job.channel} chatId=${job.chatId}`);
+      app.log.info(`[cron] job created: id=${job.id} channel=${job.channel} chatId=${job.chatId}`);
 
       if (body.enabled === false) {
         cronService.pause(job.id);
@@ -130,7 +130,7 @@ export function registerCronRoutes(
       return reply.status(201).send(jobToDTO(job));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.warn(`[cron] create job failed: ${message}`);
+      app.log.warn(`[cron] create job failed: ${message}`);
       return reply.status(400).send({ error: 'Bad Request', message });
     }
   });
@@ -226,13 +226,13 @@ export function registerCronRoutes(
   app.post('/api/cron/jobs/:id/run', async (request, reply) => {
     const { id } = request.params as { id: string };
     try {
-      console.log(`[cron] running job now: id=${id}`);
+      app.log.info(`[cron] running job now: id=${id}`);
       const result = await cronService.runOnce(id);
-      console.log(`[cron] run result: status=${result.status} delivered=${result.deliveredToChat}`);
+      app.log.debug(`[cron] run result: status=${result.status} delivered=${result.deliveredToChat}`);
       return reply.send({ ok: true, result });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.warn(`[cron] run failed: id=${id} err=${message}`);
+      app.log.warn(`[cron] run failed: id=${id} err=${message}`);
       return reply.status(400).send({ error: 'Run failed', message });
     }
   });

@@ -37,6 +37,7 @@ export function createWebUIApprovalSender(
   sendSSE: (data: Record<string, unknown>) => void,
   db?: Database.Database,
   sessionId?: string,
+  logger?: { warn: (...args: any[]) => void },
 ): WebUIApprovalSender {
   return {
     async sendApprovalMessage(_chatId, requestId, command, risk, reason) {
@@ -62,7 +63,7 @@ export function createWebUIApprovalSender(
             "INSERT OR REPLACE INTO messages (id, session_id, role, content, created_at, metadata) VALUES (?, ?, 'assistant', ?, ?, ?)",
           ).run(msgId, sessionId, '', Date.now(), meta);
         } catch (err) {
-          console.warn('[approval-sender] Failed to persist approval message:', err);
+          logger?.warn('[approval-sender] Failed to persist approval message:', err);
         }
       }
 
@@ -114,7 +115,7 @@ export function createWebUIApprovalSender(
             ).run(JSON.stringify(meta), msgId);
           }
         } catch (err) {
-          console.warn('[approval-sender] Failed to update approval message:', err);
+          logger?.warn('[approval-sender] Failed to update approval message:', err);
         }
       }
     },

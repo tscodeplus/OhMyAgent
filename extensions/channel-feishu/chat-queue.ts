@@ -12,6 +12,11 @@ export type TaskFn = () => Promise<void>;
 export class ChatQueue {
   private queues: Map<string, TaskFn[]> = new Map();
   private running: Map<string, boolean> = new Map();
+  private logger?: { warn: (...args: any[]) => void };
+
+  setLogger(logger: { warn: (...args: any[]) => void }): void {
+    this.logger = logger;
+  }
 
   /**
    * Enqueue a task for a given session.
@@ -54,7 +59,7 @@ export class ChatQueue {
       await task();
     } catch (err) {
       // Error in one task does not block the queue
-      console.warn(`[ChatQueue] task failed for session ${sessionKey}:`, err);
+      this.logger?.warn(`[ChatQueue] task failed for session ${sessionKey}:`, err);
     }
 
     await this.processNext(sessionKey);

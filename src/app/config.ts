@@ -901,6 +901,11 @@ export type ConfigReloadFn = (newConfig: AppConfig) => void | Promise<void>;
 
 let configWatcher: FSWatcher | null = null;
 let reloadTimer: ReturnType<typeof setTimeout> | undefined;
+let _watcherLogger: { error: (...args: any[]) => void } | undefined;
+
+export function setWatcherLogger(logger: { error: (...args: any[]) => void }): void {
+  _watcherLogger = logger;
+}
 
 /**
  * Watch config.yaml for changes and invoke `onReload` with the new config.
@@ -924,7 +929,7 @@ export function startConfigWatcher(
       } catch (err: unknown) {
         // Log but don't crash — keep running with old config
         const msg = err instanceof Error ? err.message : String(err);
-        console.error('[config-watcher] Failed to reload config:', msg);
+        _watcherLogger?.error('[config-watcher] Failed to reload config:', msg);
       }
     }, 500);
   });
@@ -975,7 +980,7 @@ export function startEnvWatcher(
         void onReload(newConfig);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error('[env-watcher] Failed to reload config:', msg);
+        _watcherLogger?.error('[env-watcher] Failed to reload config:', msg);
       }
     }, 500);
   });

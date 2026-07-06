@@ -12,7 +12,7 @@ export function createMemoryRecallTool(options: {
   topK?: number;
   agentId?: string;
   getAgentId?: () => string | undefined;
-  logger?: Pick<Logger, 'info' | 'warn'>;
+  logger?: Pick<Logger, 'debug' | 'info' | 'warn'>;
 }): AgentTool<any> {
   const schema = z.object({
     query: z.string().describe('Search query for finding relevant memories'),
@@ -46,7 +46,7 @@ export function createMemoryRecallTool(options: {
           });
         }
 
-        options.logger?.info({
+        options.logger?.debug({
           query: args.query,
           resultCount: results.length,
           top3: results.slice(0, 3).map(r => ({ score: r.score.toFixed(3), content: r.content.slice(0, 80) })),

@@ -40,6 +40,7 @@ export function setupMessageHandlers(
   sttConfig?: { autoTranscribe?: boolean; enabled?: boolean; language?: string },
 ): void {
   const chatQueue = new ChatQueue();
+  chatQueue.setLogger(logger);
 
   // Log every non-message update to catch callback_query
   bot.use(async (ctx, next) => {

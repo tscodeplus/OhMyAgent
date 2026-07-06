@@ -18,6 +18,7 @@ export interface QqMediaToolOptions {
   openid?: string;
   groupOpenid?: string;
   allowedRoots?: string[];
+  logger?: { error: (...args: any[]) => void };
   deniedPatterns?: string[];
 }
 
@@ -92,7 +93,7 @@ export function createQqMediaTool(options: QqMediaToolOptions): AgentTool<any> {
           : videoExts.includes(ext) ? 2
           : 4;
 
-        await sendQQMediaBuffer(gateway, buffer, fileName, fileType, target);
+        await sendQQMediaBuffer(gateway, buffer, fileName, fileType, target, options.logger);
 
         return { content: [{ type: 'text' as const, text: `File sent: ${fileName}` }] };
       } catch (err: any) {
@@ -108,8 +109,9 @@ export async function sendQQMediaBuffer(
   filename: string,
   fileType: 1 | 2 | 3 | 4,
   target: { openid?: string; groupOpenid?: string },
+  logger?: { error: (...args: any[]) => void },
 ): Promise<void> {
-  const uploadResult = await uploadQQFileJson(gateway, buffer, filename, fileType, target);
+  const uploadResult = await uploadQQFileJson(gateway, buffer, filename, fileType, target, logger);
   if (!uploadResult) {
     throw new Error('Failed to upload file to QQ');
   }
@@ -138,6 +140,7 @@ async function uploadQQFileJson(
   filename: string,
   fileType: number,
   target: { openid?: string; groupOpenid?: string },
+  log?: { error: (...args: any[]) => void },
 ): Promise<{ file_uuid: string; file_info: string; ttl: number } | null> {
   try {
     const token = await (gateway as any).auth.getAccessToken() as string;
@@ -170,13 +173,13 @@ async function uploadQQFileJson(
 
     if (!response.ok) {
       const text = await response.text();
-      console.error('QQ file upload failed:', text);
+      log?.error('QQ file upload failed:', text);
       return null;
     }
 
     const result = await response.json() as any;
     if (!result.file_info) {
-      console.error('QQ file upload: no file_info in response:', JSON.stringify(result));
+      log?.error('QQ file upload: no file_info in response:', JSON.stringify(result));
       return null;
     }
     return {
@@ -185,7 +188,7 @@ async function uploadQQFileJson(
       ttl: result.ttl ?? 0,
     };
   } catch (err) {
-    console.error('QQ file upload error:', err);
+    log?.error('QQ file upload error:', err);
     return null;
   }
 }

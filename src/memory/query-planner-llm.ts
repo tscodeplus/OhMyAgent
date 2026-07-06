@@ -119,7 +119,7 @@ export async function planQueriesLLM(
 
     const parsed = parsePlannerResponse(response, config.maxEntities);
     if (!parsed) {
-      config.logger.warn('LLM planner returned unparseable output, using rule-based plan');
+      config.logger.info('LLM planner returned unparseable output, using rule-based plan');
       return rulePlan;
     }
 
@@ -127,7 +127,7 @@ export async function planQueriesLLM(
     // Reuse the rule plan's flatQueries so the non-coverage path is identical.
     return buildQueryPlan(normalized, parsed.intent, parsed.entities, rulePlan.flatQueries ?? planMemoryQueries(normalized));
   } catch {
-    config.logger.warn('LLM planner failed, using rule-based plan');
+    config.logger.info('LLM planner failed, using rule-based plan');
     return rulePlan;
   }
 }

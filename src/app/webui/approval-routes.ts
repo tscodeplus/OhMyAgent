@@ -95,7 +95,7 @@ export function registerApprovalRoutes(
           ).run(JSON.stringify(meta), msgId);
         }
       } catch (err) {
-        console.warn('[approval-routes] Failed to update approval message:', err);
+        app.log.warn({ err }, '[approval-routes] Failed to update approval message');
       }
     }
 

@@ -92,6 +92,7 @@ export function createChannelServices(input: {
 
   const commandRegistry = new CommandRegistry();
   const channelManager = new ChannelManager();
+  channelManager.setLogger(logger);
   const extensionLoader = new ExtensionLoader();
   const extensionHooks: import('../../extensions/types.js').ExtensionHooks[] = [];
   const servicesMap = new Map<string, unknown>();

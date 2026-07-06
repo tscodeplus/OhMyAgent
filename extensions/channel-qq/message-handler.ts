@@ -47,6 +47,7 @@ export function setupMessageHandlers(
 
   // Create a per-session task queue to serialize agent executions
   const chatQueue = new ChatQueue();
+  chatQueue.setLogger(logger);
 
   // Wire approval AND question button callbacks via INTERACTION_CREATE
   gateway.setApprovalHandler(async (event: QQInteractionEvent) => {
@@ -317,6 +318,7 @@ async function executeAgent(
     gateway,
     target,
     triggerMessageId: messageId,
+    logger,
   });
 
   // ChatQueue serializes execution per session, so it's safe to await here.
@@ -342,6 +344,7 @@ async function executeAgent(
         fileName,
         1,
         target,
+        logger,
       );
       return `Sent to QQ as ${fileName}`;
     },

@@ -92,6 +92,9 @@ function dnsLookup(hostname: string, timeoutMs = 5000): Promise<ResolvedAddress>
 // HTTP request helper (no redirect following)
 // ---------------------------------------------------------------------------
 
+/** Socket timeout covering TCP connect + TLS handshake (generous). */
+const CONNECT_TIMEOUT_MS = 5000;
+
 function httpRequest(
   urlStr: string,
   method: string,
@@ -116,6 +119,14 @@ function httpRequest(
       reqHeaders['Content-Length'] = Buffer.byteLength(body).toString();
     }
 
+    let settled = false;
+    const fail = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      req.destroy();
+      reject(err);
+    };
+
     const req = mod.request(
       {
         protocol: parsedUrl.protocol,
@@ -138,8 +149,22 @@ function httpRequest(
       },
     );
 
-    req.on('error', (err) => reject(err));
-    req.on('timeout', () => { req.destroy(); reject(new Error('Request timeout')); });
+    req.on('error', (err) => fail(err));
+    req.on('timeout', () => fail(new Error('Request timeout')));
+
+    // Cover TCP connect + TLS handshake with a short timeout.
+    // Node's `timeout` option only takes effect after the socket is connected,
+    // so a hung connect (e.g. firewall DROP) would otherwise hang indefinitely.
+    req.on('socket', (socket) => {
+      socket.setTimeout(CONNECT_TIMEOUT_MS);
+      socket.once('timeout', () => {
+        fail(new Error(`Connection timed out after ${CONNECT_TIMEOUT_MS}ms`));
+      });
+      socket.once('connect', () => {
+        // Connected — switch to the full request timeout for body transfer.
+        socket.setTimeout(timeoutMs);
+      });
+    });
 
     if (body) req.write(body);
     req.end();

@@ -75,7 +75,7 @@ export async function recoverFromOverflow(opts: OverflowRecoveryOptions): Promis
       }, 'Context compacted after overflow, retrying');
     }
   } catch (err) {
-    logger.warn({ sessionId, err }, 'Overflow compaction failed, continuing without retry');
+    logger.info({ sessionId, err }, 'Overflow compaction failed, continuing without retry');
     return false;
   }
 
@@ -85,7 +85,7 @@ export async function recoverFromOverflow(opts: OverflowRecoveryOptions): Promis
     await onRetryPersist();
     return true;
   } catch (err) {
-    logger.warn({ sessionId, err }, 'Overflow retry failed');
+    logger.info({ sessionId, err }, 'Overflow retry failed');
     return false;
   }
 }

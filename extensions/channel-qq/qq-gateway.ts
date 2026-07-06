@@ -341,7 +341,7 @@ export class QQGateway {
         break;
 
       case 9: // Invalid Session
-        this.logger.warn('Received op 9 Invalid Session — clearing session and re-identifying');
+        this.logger.info('Received op 9 Invalid Session — clearing session and re-identifying');
         this.sessionId = null;
         this.scheduleReconnect(true /* immediate */);
         break;
@@ -529,7 +529,7 @@ export class QQGateway {
   /** Send a JSON payload over the WebSocket. */
   private sendWs(payload: unknown): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      this.logger.warn('Cannot send — WebSocket not open');
+      this.logger.debug('Cannot send — WebSocket not open');
       return;
     }
     try {

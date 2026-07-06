@@ -105,7 +105,7 @@ export async function mergeMemory(
       newContentHash: hashForObservation(newContent),
       error: errorForObservation(err),
     });
-    config.logger.warn({ err, memoryId: existing.id }, 'LLM merge failed, falling back to dedup');
+    config.logger.info({ err, memoryId: existing.id }, 'LLM merge failed, falling back to dedup');
     return null; // Fall back to existing dedup behavior
   }
 }
