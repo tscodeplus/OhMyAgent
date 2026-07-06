@@ -1019,7 +1019,7 @@ app.whenReady().then(async () => {
         desktopBridge = new DesktopBridge({
           gatewayUrl: wsUrl,
           token: finalGatewayConfig.remoteToken || '',
-          logger: { info: diagLog, warn: diagLog, error: diagLog },
+          logger: { debug: diagLog, info: diagLog, warn: diagLog, error: diagLog },
         });
         desktopBridge.start().catch((err: Error) => {
           diagLog(`[OhMyAgent] DesktopBridge start failed: ${err.message}`);
