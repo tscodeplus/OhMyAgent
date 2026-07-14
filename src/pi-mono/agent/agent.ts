@@ -115,8 +115,8 @@ export interface AgentOptions {
 	transport?: Transport;
 	maxRetryDelayMs?: number;
 	toolExecution?: ToolExecutionMode;
-		/** Fallback models tried in order when the primary model returns an error. */
-		fallbackModels?: Model<any>[];
+	/** Fallback models tried in order when the primary model returns an error. */
+	fallbackModels?: Model<any>[];
 }
 
 class PendingMessageQueue {
@@ -204,8 +204,8 @@ export class Agent {
 	public maxRetryDelayMs?: number;
 	/** Tool execution strategy for assistant messages that contain multiple tool calls. */
 	public toolExecution: ToolExecutionMode;
-		/** Fallback models tried in order when the primary model returns an error. */
-		public fallbackModels?: Model<any>[];
+	/** Fallback models tried in order when the primary model returns an error. */
+	public fallbackModels?: Model<any>[];
 
 	constructor(options: AgentOptions = {}) {
 		this._state = createMutableAgentState(options.initialState);
@@ -441,10 +441,12 @@ export class Agent {
 			thinkingBudgets: this.thinkingBudgets,
 			maxRetryDelayMs: this.maxRetryDelayMs,
 			toolExecution: this.toolExecution,
-				fallbackModels: this.fallbackModels,
 			beforeToolCall: this.beforeToolCall,
 			afterToolCall: this.afterToolCall,
-			prepareNextTurn: this.prepareNextTurn ? (ctx: PrepareNextTurnContext) => this.prepareNextTurn?.(ctx, this.signal) : undefined,
+			fallbackModels: this.fallbackModels,
+				prepareNextTurn: this.prepareNextTurn
+					? (ctx: PrepareNextTurnContext) => this.prepareNextTurn?.(ctx, this.signal)
+					: undefined,
 			convertToLlm: this.convertToLlm,
 			transformContext: this.transformContext,
 			getApiKey: this.getApiKey,

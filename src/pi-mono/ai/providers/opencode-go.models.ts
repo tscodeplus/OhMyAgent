@@ -12,7 +12,7 @@ export const OPENCODE_GO_MODELS = {
 		baseUrl: "https://opencode.ai/zen/go/v1",
 		compat: {"supportsStore":false,"supportsDeveloperRole":false,"maxTokensField":"max_tokens","requiresReasoningContentOnAssistantMessages":true,"thinkingFormat":"deepseek"},
 		reasoning: true,
-		thinkingLevelMap: {"minimal":null,"low":null,"medium":null,"high":"high","xhigh":"max"},
+		thinkingLevelMap: {"minimal":null,"low":null,"medium":null,"high":"high","max":"max"},
 		input: ["text"],
 		cost: {
 			input: 0.14,
@@ -31,7 +31,7 @@ export const OPENCODE_GO_MODELS = {
 		baseUrl: "https://opencode.ai/zen/go/v1",
 		compat: {"supportsStore":false,"supportsDeveloperRole":false,"maxTokensField":"max_tokens","requiresReasoningContentOnAssistantMessages":true,"thinkingFormat":"deepseek"},
 		reasoning: true,
-		thinkingLevelMap: {"minimal":null,"low":null,"medium":null,"high":"high","xhigh":"max"},
+		thinkingLevelMap: {"minimal":null,"low":null,"medium":null,"high":"high","max":"max"},
 		input: ["text"],
 		cost: {
 			input: 1.74,
@@ -68,7 +68,7 @@ export const OPENCODE_GO_MODELS = {
 		baseUrl: "https://opencode.ai/zen/go/v1",
 		compat: {"supportsStore":false,"supportsDeveloperRole":false,"maxTokensField":"max_tokens"},
 		reasoning: true,
-		thinkingLevelMap: {"off":null,"minimal":null,"low":null,"medium":null,"high":"high","xhigh":"max"},
+		thinkingLevelMap: {"off":null,"minimal":null,"low":null,"medium":null,"high":"high","max":"max"},
 		input: ["text"],
 		cost: {
 			input: 1.4,
@@ -154,7 +154,7 @@ export const OPENCODE_GO_MODELS = {
 	} satisfies Model<"openai-completions">,
 	"minimax-m2.7": {
 		id: "minimax-m2.7",
-		name: "MiniMax M2.7",
+		name: "MiniMax-M2.7",
 		api: "openai-completions",
 		provider: "opencode-go",
 		baseUrl: "https://opencode.ai/zen/go/v1",
@@ -172,7 +172,7 @@ export const OPENCODE_GO_MODELS = {
 	} satisfies Model<"openai-completions">,
 	"minimax-m3": {
 		id: "minimax-m3",
-		name: "MiniMax M3 (3x usage)",
+		name: "MiniMax-M3",
 		api: "anthropic-messages",
 		provider: "opencode-go",
 		baseUrl: "https://opencode.ai/zen/go",

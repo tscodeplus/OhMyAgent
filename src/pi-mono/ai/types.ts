@@ -71,7 +71,7 @@ export type KnownImagesProvider = "openrouter";
 
 export type ImagesProviderId = KnownImagesProvider | string;
 
-export type ThinkingLevel = "minimal" | "low" | "medium" | "high" | "xhigh";
+export type ThinkingLevel = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 export type ModelThinkingLevel = "off" | ThinkingLevel;
 export type ThinkingLevelMap = Partial<Record<ModelThinkingLevel, string | null>>;
 export type ChatTemplateKwargValue =
@@ -681,6 +681,13 @@ export interface Model<TApi extends Api> {
 		output: number; // $/million tokens
 		cacheRead: number; // $/million tokens
 		cacheWrite: number; // $/million tokens
+		tiers?: {
+			inputTokensAbove: number;
+			input: number;
+			output: number;
+			cacheRead: number;
+			cacheWrite: number;
+		}[];
 	};
 	contextWindow: number;
 	maxTokens: number;

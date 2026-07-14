@@ -301,191 +301,107 @@ async function streamAssistantResponse(
 		tools: compactToolsForPrompt(context.tools),
 	};
 
-		const streamFunction = streamFn || streamSimple;
+	const streamFunction = streamFn || streamSimple;
 
-		// Build model list: primary + fallbacks
-		const models = [config.model, ...(config.fallbackModels ?? [])];
-		const baseLen = context.messages.length;
-		let lastError: AssistantMessage | null = null;
+	// Build model list: primary + fallbacks
+	const models = [config.model, ...(config.fallbackModels ?? [])];
+	const baseLen = context.messages.length;
+	let lastError: AssistantMessage | null = null;
 
-		for (let attempt = 0; attempt < models.length; attempt++) {
-			const model = models[attempt];
+	for (let attempt = 0; attempt < models.length; attempt++) {
+		const model = models[attempt];
 
-			// Restore context.messages to state before attempt
-			context.messages.length = baseLen;
+		// Restore context.messages to state before attempt
+		context.messages.length = baseLen;
 
-			// Resolve API key per model (fallback may use different provider)
-			const resolvedApiKey =
-				(config.getApiKey ? await config.getApiKey(model.provider) : undefined) || config.apiKey;
+		// Resolve API key per model (fallback may use different provider)
+		const resolvedApiKey =
+			(config.getApiKey ? await config.getApiKey(model.provider) : undefined) || config.apiKey;
 
-			const response = await streamFunction(model, llmContext, {
-				...config,
-				apiKey: resolvedApiKey,
-				signal,
-			});
+		const response = await streamFunction(model, llmContext, {
+			...config,
+			apiKey: resolvedApiKey,
+			signal,
+		});
 
-			let partialMessage: AssistantMessage | null = null;
-			let addedPartial = false;
+		let partialMessage: AssistantMessage | null = null;
+		let addedPartial = false;
 
-			for await (const event of response) {
-				switch (event.type) {
-					case "start":
+		for await (const event of response) {
+			switch (event.type) {
+				case "start":
+					partialMessage = event.partial;
+					context.messages.push(partialMessage);
+					addedPartial = true;
+					await emit({ type: "message_start", message: { ...partialMessage } });
+					break;
+
+				case "text_start":
+				case "text_delta":
+				case "text_end":
+				case "thinking_start":
+				case "thinking_delta":
+				case "thinking_end":
+				case "toolcall_start":
+				case "toolcall_delta":
+				case "toolcall_end":
+					if (partialMessage) {
 						partialMessage = event.partial;
-						context.messages.push(partialMessage);
-						addedPartial = true;
-						await emit({ type: "message_start", message: { ...partialMessage } });
-						break;
-
-					case "text_start":
-					case "text_delta":
-					case "text_end":
-					case "thinking_start":
-					case "thinking_delta":
-					case "thinking_end":
-					case "toolcall_start":
-					case "toolcall_delta":
-					case "toolcall_end":
-						if (partialMessage) {
-							partialMessage = event.partial;
-							context.messages[context.messages.length - 1] = partialMessage;
-							await emit({
-								type: "message_update",
-								assistantMessageEvent: event,
-								message: { ...partialMessage },
-							});
-						}
-						break;
-
-					case "done": {
-						const finalMessage = await response.result();
-						if (addedPartial) {
-							context.messages[context.messages.length - 1] = finalMessage;
-						} else {
-							context.messages.push(finalMessage);
-						}
-						if (!addedPartial) {
-							await emit({ type: "message_start", message: { ...finalMessage } });
-						}
-						await emit({ type: "message_end", message: finalMessage });
-						do {
-							const u = finalMessage.usage;
-							if (u && true) {
-								cacheTotalInput += u.input;
-								cacheTotalRead += u.cacheRead;
-								cacheTotalWrite += u.cacheWrite;
-								const promptTokens = u.input + u.cacheRead + u.cacheWrite;
-								const totalPromptTokens = cacheTotalInput + cacheTotalRead + cacheTotalWrite;
-								const parts = [
-									`model=${finalMessage.model}`,
-									`total_prompt_tokens=${promptTokens}`,
-									`input_uncached_tokens=${u.input}`,
-									`cache_read_tokens=${u.cacheRead}`,
-									`cache_write_tokens=${u.cacheWrite}`,
-									`output_tokens=${u.output}`,
-								];
-								if (promptTokens > 0 && u.cacheRead > 0) {
-									parts.push(`hitRate=${((u.cacheRead / promptTokens) * 100).toFixed(1)}%`);
-								}
-								if (totalPromptTokens > 0 && cacheTotalRead > 0) {
-									const rate = ((cacheTotalRead / totalPromptTokens) * 100).toFixed(1);
-									parts.push(`cumulHitRate=${rate}%`);
-								}
-								parts.push(
-									`cumul_prompt_tokens=${totalPromptTokens}`,
-									`cumul_cache_read_tokens=${cacheTotalRead}`,
-									`cumul_cache_write_tokens=${cacheTotalWrite}`,
-								);
-								console.log(`[cache] ${parts.join(" ")}`);
-							}
-						} while (false);
-						return finalMessage;
+						context.messages[context.messages.length - 1] = partialMessage;
+						await emit({
+							type: "message_update",
+							assistantMessageEvent: event,
+							message: { ...partialMessage },
+						});
 					}
+					break;
 
-					case "error": {
-						const finalMessage = await response.result();
-						console.error(`[agent-loop] attempt ${attempt + 1} FAILED: stopReason=${finalMessage.stopReason} error=${finalMessage.errorMessage?.slice(0, 200)}`);
-						if (addedPartial) {
-							context.messages[context.messages.length - 1] = finalMessage;
-						} else {
-							context.messages.push(finalMessage);
-						}
+				case "done":
+				case "error": {
+					const finalMessage = await response.result();
+					if (addedPartial) {
+						context.messages[context.messages.length - 1] = finalMessage;
+					} else {
+						context.messages.push(finalMessage);
+					}
+					if (!addedPartial) {
+						await emit({ type: "message_start", message: { ...finalMessage } });
+					}
+					await emit({ type: "message_end", message: finalMessage });
 
-						// Aborted — never fallback, emit immediately
-						if (signal?.aborted || finalMessage.stopReason === "aborted") {
-							await emit({ type: "message_start", message: { ...finalMessage } });
-							await emit({ type: "message_end", message: finalMessage });
-							return finalMessage;
-						}
-
-						// Record error, try next fallback
+					// On error with fallback available, try next model
+					if ((finalMessage.stopReason === "error" || finalMessage.stopReason === "aborted")
+						&& !signal?.aborted
+						&& attempt < models.length - 1) {
 						lastError = finalMessage;
-						break; // break from switch, continue outer for loop
+						break; // exit switch, continue outer for loop
 					}
+					return finalMessage;
 				}
 			}
-
-			// Stream ended without done/error event (should not normally happen)
-			const finalMessage = await response.result();
-			if (addedPartial) {
-				context.messages[context.messages.length - 1] = finalMessage;
-			} else {
-				context.messages.push(finalMessage);
-			}
-			if (finalMessage.stopReason !== "error" && finalMessage.stopReason !== "aborted") {
-				if (!addedPartial) {
-					await emit({ type: "message_start", message: { ...finalMessage } });
-				}
-				await emit({ type: "message_end", message: finalMessage });
-				return finalMessage;
-			}
-			lastError = finalMessage;
 		}
 
-		// All models exhausted — emit the last error
-		const errorMessage = lastError!;
-		await emit({ type: "message_start", message: { ...errorMessage } });
-		await emit({ type: "message_end", message: errorMessage });
-		return errorMessage;
-}
+		const finalMessage = await response.result();
+		if (addedPartial) {
+			context.messages[context.messages.length - 1] = finalMessage;
+		} else {
+			context.messages.push(finalMessage);
+			await emit({ type: "message_start", message: { ...finalMessage } });
+		}
+		await emit({ type: "message_end", message: finalMessage });
 
-const TOOL_SCHEMA_ANNOTATION_KEYS = new Set([
-	"$id",
-	"$schema",
-	"title",
-	"default",
-	"examples",
-	"readOnly",
-	"writeOnly",
-	"deprecated",
-]);
-
-function compactToolsForPrompt(tools: AgentTool[] | undefined): Tool[] | undefined {
-	if (!tools?.length) return tools;
-	// Deferred tools (OhMyAgent Tool Search) stay in context.tools for direct
-	// resolution but are hidden from the LLM-facing tool list to save tokens.
-	return tools
-		.filter((tool) => tool.deferred !== true)
-		.map((tool) => ({
-			name: tool.name,
-			description: tool.description,
-			parameters: compactSchemaForPrompt(tool.parameters) as Tool["parameters"],
-		}));
-}
-
-function compactSchemaForPrompt(value: unknown): unknown {
-	if (Array.isArray(value)) {
-		return value.map(compactSchemaForPrompt);
-	}
-	if (!value || typeof value !== "object") {
-		return value;
+		// On error with fallback available, try next model
+		if ((finalMessage.stopReason === "error" || finalMessage.stopReason === "aborted")
+			&& !signal?.aborted
+			&& attempt < models.length - 1) {
+			lastError = finalMessage;
+			continue;
+		}
+		return finalMessage;
 	}
 
-	const result: Record<string, unknown> = {};
-	for (const [key, nested] of Object.entries(value)) {
-		if (TOOL_SCHEMA_ANNOTATION_KEYS.has(key)) continue;
-		result[key] = compactSchemaForPrompt(nested);
-	}
-	return result;
+	// Should never reach here, but return the last error if all models fail
+	return lastError!;
 }
 
 /**
@@ -856,7 +772,9 @@ function createToolResultMessage(finalized: FinalizedToolCallOutcome): ToolResul
 		role: "toolResult",
 		toolCallId: finalized.toolCall.id,
 		toolName: finalized.toolCall.name,
-		content: finalized.result.content,
+		// Untyped tools (JS extensions) can return results without content; normalize
+		// so the null never enters session history or provider payloads.
+		content: finalized.result.content ?? [],
 		details: finalized.result.details,
 		isError: finalized.isError,
 		timestamp: Date.now(),
@@ -866,4 +784,15 @@ function createToolResultMessage(finalized: FinalizedToolCallOutcome): ToolResul
 async function emitToolResultMessage(toolResultMessage: ToolResultMessage, emit: AgentEventSink): Promise<void> {
 	await emit({ type: "message_start", message: toolResultMessage });
 	await emit({ type: "message_end", message: toolResultMessage });
+}
+
+/**
+ * Filter out deferred tools from the tool list before serializing into the
+ * LLM prompt. Deferred tools remain resolvable via tool search/direct
+ * invocation but are not sent to the model in the prompt.
+ */
+function compactToolsForPrompt(tools?: AgentTool<any>[]): Tool[] | undefined {
+	if (!tools || tools.length === 0) return undefined;
+	const filtered = tools.filter((t) => !(t as AgentTool<any>).deferred) as Tool[];
+	return filtered.length > 0 ? filtered : undefined;
 }

@@ -16,10 +16,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.12,
 			output: 0.24,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 40960,
-		maxTokens: 16384,
+		maxTokens: 16384
 	} satisfies Model<"anthropic-messages">,
 	"alibaba/qwen-3-235b": {
 		id: "alibaba/qwen-3-235b",
@@ -33,10 +33,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.22,
 			output: 0.88,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 262144,
-		maxTokens: 16384,
+		maxTokens: 16384
 	} satisfies Model<"anthropic-messages">,
 	"alibaba/qwen-3-30b": {
 		id: "alibaba/qwen-3-30b",
@@ -50,10 +50,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.12,
 			output: 0.5,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 40960,
-		maxTokens: 16384,
+		maxTokens: 16384
 	} satisfies Model<"anthropic-messages">,
 	"alibaba/qwen-3-32b": {
 		id: "alibaba/qwen-3-32b",
@@ -67,10 +67,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.16,
 			output: 0.64,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 8192,
+		maxTokens: 8192
 	} satisfies Model<"anthropic-messages">,
 	"alibaba/qwen-3.6-max-preview": {
 		id: "alibaba/qwen-3.6-max-preview",
@@ -84,10 +84,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.3,
 			output: 7.8,
 			cacheRead: 0.26,
-			cacheWrite: 1.625,
+			cacheWrite: 1.625
 		},
 		contextWindow: 240000,
-		maxTokens: 64000,
+		maxTokens: 64000
 	} satisfies Model<"anthropic-messages">,
 	"alibaba/qwen3-235b-a22b-thinking": {
 		id: "alibaba/qwen3-235b-a22b-thinking",
@@ -101,10 +101,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.4,
 			output: 4,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 131072,
-		maxTokens: 32768,
+		maxTokens: 32768
 	} satisfies Model<"anthropic-messages">,
 	"alibaba/qwen3-coder": {
 		id: "alibaba/qwen3-coder",
@@ -118,10 +118,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.5,
 			output: 7.5,
 			cacheRead: 0.3,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 262144,
-		maxTokens: 65536,
+		maxTokens: 65536
 	} satisfies Model<"anthropic-messages">,
 	"alibaba/qwen3-coder-30b-a3b": {
 		id: "alibaba/qwen3-coder-30b-a3b",
@@ -135,10 +135,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.15,
 			output: 0.6,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 262144,
-		maxTokens: 8192,
+		maxTokens: 8192
 	} satisfies Model<"anthropic-messages">,
 	"alibaba/qwen3-coder-next": {
 		id: "alibaba/qwen3-coder-next",
@@ -152,10 +152,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.5,
 			output: 1.2,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 256000,
-		maxTokens: 256000,
+		maxTokens: 256000
 	} satisfies Model<"anthropic-messages">,
 	"alibaba/qwen3-coder-plus": {
 		id: "alibaba/qwen3-coder-plus",
@@ -169,10 +169,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1,
 			output: 5,
 			cacheRead: 0.2,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1000000,
-		maxTokens: 65536,
+		maxTokens: 65536
 	} satisfies Model<"anthropic-messages">,
 	"alibaba/qwen3-max": {
 		id: "alibaba/qwen3-max",
@@ -186,10 +186,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.2,
 			output: 6,
 			cacheRead: 0.24,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 262144,
-		maxTokens: 32768,
+		maxTokens: 32768
 	} satisfies Model<"anthropic-messages">,
 	"alibaba/qwen3-max-preview": {
 		id: "alibaba/qwen3-max-preview",
@@ -203,10 +203,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.2,
 			output: 6,
 			cacheRead: 0.24,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 262144,
-		maxTokens: 32768,
+		maxTokens: 32768
 	} satisfies Model<"anthropic-messages">,
 	"alibaba/qwen3-max-thinking": {
 		id: "alibaba/qwen3-max-thinking",
@@ -220,10 +220,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.2,
 			output: 6,
 			cacheRead: 0.24,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 256000,
-		maxTokens: 65536,
+		maxTokens: 65536
 	} satisfies Model<"anthropic-messages">,
 	"alibaba/qwen3-next-80b-a3b-instruct": {
 		id: "alibaba/qwen3-next-80b-a3b-instruct",
@@ -237,10 +237,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.15,
 			output: 1.2,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 131072,
-		maxTokens: 32768,
+		maxTokens: 32768
 	} satisfies Model<"anthropic-messages">,
 	"alibaba/qwen3-next-80b-a3b-thinking": {
 		id: "alibaba/qwen3-next-80b-a3b-thinking",
@@ -254,10 +254,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.15,
 			output: 1.2,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 131072,
-		maxTokens: 32768,
+		maxTokens: 32768
 	} satisfies Model<"anthropic-messages">,
 	"alibaba/qwen3-vl-235b-a22b-instruct": {
 		id: "alibaba/qwen3-vl-235b-a22b-instruct",
@@ -271,10 +271,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.4,
 			output: 1.6,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 131072,
-		maxTokens: 129024,
+		maxTokens: 129024
 	} satisfies Model<"anthropic-messages">,
 	"alibaba/qwen3-vl-instruct": {
 		id: "alibaba/qwen3-vl-instruct",
@@ -288,10 +288,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.4,
 			output: 1.6,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 131072,
-		maxTokens: 129024,
+		maxTokens: 129024
 	} satisfies Model<"anthropic-messages">,
 	"alibaba/qwen3-vl-thinking": {
 		id: "alibaba/qwen3-vl-thinking",
@@ -305,10 +305,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.4,
 			output: 4,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 131072,
-		maxTokens: 32768,
+		maxTokens: 32768
 	} satisfies Model<"anthropic-messages">,
 	"alibaba/qwen3.5-flash": {
 		id: "alibaba/qwen3.5-flash",
@@ -322,10 +322,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.1,
 			output: 0.4,
 			cacheRead: 0.001,
-			cacheWrite: 0.125,
+			cacheWrite: 0.125
 		},
 		contextWindow: 1000000,
-		maxTokens: 64000,
+		maxTokens: 64000
 	} satisfies Model<"anthropic-messages">,
 	"alibaba/qwen3.5-plus": {
 		id: "alibaba/qwen3.5-plus",
@@ -339,10 +339,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.4,
 			output: 2.4,
 			cacheRead: 0.04,
-			cacheWrite: 0.5,
+			cacheWrite: 0.5
 		},
 		contextWindow: 1000000,
-		maxTokens: 64000,
+		maxTokens: 64000
 	} satisfies Model<"anthropic-messages">,
 	"alibaba/qwen3.6-27b": {
 		id: "alibaba/qwen3.6-27b",
@@ -356,10 +356,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.6,
 			output: 3.6,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 256000,
-		maxTokens: 256000,
+		maxTokens: 256000
 	} satisfies Model<"anthropic-messages">,
 	"alibaba/qwen3.6-plus": {
 		id: "alibaba/qwen3.6-plus",
@@ -373,10 +373,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.5,
 			output: 3,
 			cacheRead: 0.1,
-			cacheWrite: 0.625,
+			cacheWrite: 0.625
 		},
 		contextWindow: 1000000,
-		maxTokens: 64000,
+		maxTokens: 64000
 	} satisfies Model<"anthropic-messages">,
 	"alibaba/qwen3.7-max": {
 		id: "alibaba/qwen3.7-max",
@@ -390,10 +390,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.25,
 			output: 3.75,
 			cacheRead: 0.25,
-			cacheWrite: 1.5625,
+			cacheWrite: 1.5625
 		},
 		contextWindow: 991000,
-		maxTokens: 64000,
+		maxTokens: 64000
 	} satisfies Model<"anthropic-messages">,
 	"alibaba/qwen3.7-plus": {
 		id: "alibaba/qwen3.7-plus",
@@ -407,10 +407,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.4,
 			output: 1.6,
 			cacheRead: 0.08,
-			cacheWrite: 0.5,
+			cacheWrite: 0.5
 		},
 		contextWindow: 1000000,
-		maxTokens: 64000,
+		maxTokens: 64000
 	} satisfies Model<"anthropic-messages">,
 	"amazon/nova-2-lite": {
 		id: "amazon/nova-2-lite",
@@ -424,10 +424,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.3,
 			output: 2.5,
 			cacheRead: 0.075,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1000000,
-		maxTokens: 1000000,
+		maxTokens: 1000000
 	} satisfies Model<"anthropic-messages">,
 	"amazon/nova-lite": {
 		id: "amazon/nova-lite",
@@ -441,10 +441,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.06,
 			output: 0.24,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 300000,
-		maxTokens: 8192,
+		maxTokens: 8192
 	} satisfies Model<"anthropic-messages">,
 	"amazon/nova-micro": {
 		id: "amazon/nova-micro",
@@ -458,10 +458,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.035,
 			output: 0.14,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 8192,
+		maxTokens: 8192
 	} satisfies Model<"anthropic-messages">,
 	"amazon/nova-pro": {
 		id: "amazon/nova-pro",
@@ -475,10 +475,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.8,
 			output: 3.2,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 300000,
-		maxTokens: 8192,
+		maxTokens: 8192
 	} satisfies Model<"anthropic-messages">,
 	"anthropic/claude-3-haiku": {
 		id: "anthropic/claude-3-haiku",
@@ -492,10 +492,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.25,
 			output: 1.25,
 			cacheRead: 0.03,
-			cacheWrite: 0.3,
+			cacheWrite: 0.3
 		},
 		contextWindow: 200000,
-		maxTokens: 4096,
+		maxTokens: 4096
 	} satisfies Model<"anthropic-messages">,
 	"anthropic/claude-3.5-haiku": {
 		id: "anthropic/claude-3.5-haiku",
@@ -509,10 +509,29 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.8,
 			output: 4,
 			cacheRead: 0.08,
-			cacheWrite: 1,
+			cacheWrite: 1
 		},
 		contextWindow: 200000,
-		maxTokens: 8192,
+		maxTokens: 8192
+	} satisfies Model<"anthropic-messages">,
+	"anthropic/claude-fable-5": {
+		id: "anthropic/claude-fable-5",
+		name: "Claude Fable 5",
+		api: "anthropic-messages",
+		provider: "vercel-ai-gateway",
+		baseUrl: "https://ai-gateway.vercel.sh",
+		compat: {"forceAdaptiveThinking":true},
+		reasoning: true,
+		thinkingLevelMap: {"off":null,"xhigh":"xhigh"},
+		input: ["text", "image"],
+		cost: {
+			input: 10,
+			output: 50,
+			cacheRead: 1,
+			cacheWrite: 12.5
+		},
+		contextWindow: 1000000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"anthropic/claude-haiku-4.5": {
 		id: "anthropic/claude-haiku-4.5",
@@ -526,10 +545,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1,
 			output: 5,
 			cacheRead: 0.1,
-			cacheWrite: 1.25,
+			cacheWrite: 1.25
 		},
 		contextWindow: 200000,
-		maxTokens: 64000,
+		maxTokens: 64000
 	} satisfies Model<"anthropic-messages">,
 	"anthropic/claude-opus-4": {
 		id: "anthropic/claude-opus-4",
@@ -543,10 +562,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 15,
 			output: 75,
 			cacheRead: 1.5,
-			cacheWrite: 18.75,
+			cacheWrite: 18.75
 		},
 		contextWindow: 200000,
-		maxTokens: 32000,
+		maxTokens: 32000
 	} satisfies Model<"anthropic-messages">,
 	"anthropic/claude-opus-4.1": {
 		id: "anthropic/claude-opus-4.1",
@@ -560,10 +579,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 15,
 			output: 75,
 			cacheRead: 1.5,
-			cacheWrite: 18.75,
+			cacheWrite: 18.75
 		},
 		contextWindow: 200000,
-		maxTokens: 32000,
+		maxTokens: 32000
 	} satisfies Model<"anthropic-messages">,
 	"anthropic/claude-opus-4.5": {
 		id: "anthropic/claude-opus-4.5",
@@ -577,10 +596,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 5,
 			output: 25,
 			cacheRead: 0.5,
-			cacheWrite: 6.25,
+			cacheWrite: 6.25
 		},
 		contextWindow: 200000,
-		maxTokens: 64000,
+		maxTokens: 64000
 	} satisfies Model<"anthropic-messages">,
 	"anthropic/claude-opus-4.6": {
 		id: "anthropic/claude-opus-4.6",
@@ -590,16 +609,15 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 		baseUrl: "https://ai-gateway.vercel.sh",
 		compat: {"forceAdaptiveThinking":true},
 		reasoning: true,
-		thinkingLevelMap: {"xhigh":"max"},
 		input: ["text", "image"],
 		cost: {
 			input: 5,
 			output: 25,
 			cacheRead: 0.5,
-			cacheWrite: 6.25,
+			cacheWrite: 6.25
 		},
 		contextWindow: 1000000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"anthropic/claude-opus-4.7": {
 		id: "anthropic/claude-opus-4.7",
@@ -615,10 +633,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 5,
 			output: 25,
 			cacheRead: 0.5,
-			cacheWrite: 6.25,
+			cacheWrite: 6.25
 		},
 		contextWindow: 1000000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"anthropic/claude-opus-4.8": {
 		id: "anthropic/claude-opus-4.8",
@@ -634,10 +652,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 5,
 			output: 25,
 			cacheRead: 0.5,
-			cacheWrite: 6.25,
+			cacheWrite: 6.25
 		},
 		contextWindow: 1000000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"anthropic/claude-sonnet-4": {
 		id: "anthropic/claude-sonnet-4",
@@ -651,10 +669,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 3,
 			output: 15,
 			cacheRead: 0.3,
-			cacheWrite: 3.75,
+			cacheWrite: 3.75
 		},
 		contextWindow: 1000000,
-		maxTokens: 64000,
+		maxTokens: 64000
 	} satisfies Model<"anthropic-messages">,
 	"anthropic/claude-sonnet-4.5": {
 		id: "anthropic/claude-sonnet-4.5",
@@ -668,10 +686,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 3,
 			output: 15,
 			cacheRead: 0.3,
-			cacheWrite: 3.75,
+			cacheWrite: 3.75
 		},
 		contextWindow: 1000000,
-		maxTokens: 64000,
+		maxTokens: 64000
 	} satisfies Model<"anthropic-messages">,
 	"anthropic/claude-sonnet-4.6": {
 		id: "anthropic/claude-sonnet-4.6",
@@ -686,10 +704,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 3,
 			output: 15,
 			cacheRead: 0.3,
-			cacheWrite: 3.75,
+			cacheWrite: 3.75
 		},
 		contextWindow: 1000000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"anthropic/claude-sonnet-5": {
 		id: "anthropic/claude-sonnet-5",
@@ -699,15 +717,16 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 		baseUrl: "https://ai-gateway.vercel.sh",
 		compat: {"forceAdaptiveThinking":true},
 		reasoning: true,
+		thinkingLevelMap: {"xhigh":"xhigh"},
 		input: ["text", "image"],
 		cost: {
 			input: 2,
 			output: 10,
 			cacheRead: 0.2,
-			cacheWrite: 2.5,
+			cacheWrite: 2.5
 		},
 		contextWindow: 1000000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"arcee-ai/trinity-large-preview": {
 		id: "arcee-ai/trinity-large-preview",
@@ -721,10 +740,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.25,
 			output: 1,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 131000,
-		maxTokens: 131000,
+		maxTokens: 131000
 	} satisfies Model<"anthropic-messages">,
 	"arcee-ai/trinity-large-thinking": {
 		id: "arcee-ai/trinity-large-thinking",
@@ -738,10 +757,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.25,
 			output: 0.9,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 262100,
-		maxTokens: 80000,
+		maxTokens: 80000
 	} satisfies Model<"anthropic-messages">,
 	"arcee-ai/trinity-mini": {
 		id: "arcee-ai/trinity-mini",
@@ -755,10 +774,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.045,
 			output: 0.15,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 131072,
-		maxTokens: 131072,
+		maxTokens: 131072
 	} satisfies Model<"anthropic-messages">,
 	"bytedance/seed-1.6": {
 		id: "bytedance/seed-1.6",
@@ -772,10 +791,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.25,
 			output: 2,
 			cacheRead: 0.05,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 256000,
-		maxTokens: 32000,
+		maxTokens: 32000
 	} satisfies Model<"anthropic-messages">,
 	"bytedance/seed-1.8": {
 		id: "bytedance/seed-1.8",
@@ -789,10 +808,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.25,
 			output: 2,
 			cacheRead: 0.05,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 256000,
-		maxTokens: 64000,
+		maxTokens: 64000
 	} satisfies Model<"anthropic-messages">,
 	"cohere/command-a": {
 		id: "cohere/command-a",
@@ -806,10 +825,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 2.5,
 			output: 10,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 256000,
-		maxTokens: 8000,
+		maxTokens: 8000
 	} satisfies Model<"anthropic-messages">,
 	"deepseek/deepseek-r1": {
 		id: "deepseek/deepseek-r1",
@@ -823,10 +842,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.35,
 			output: 5.4,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 8192,
+		maxTokens: 8192
 	} satisfies Model<"anthropic-messages">,
 	"deepseek/deepseek-v3": {
 		id: "deepseek/deepseek-v3",
@@ -840,10 +859,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.27,
 			output: 1.12,
 			cacheRead: 0.135,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 163840,
-		maxTokens: 163840,
+		maxTokens: 163840
 	} satisfies Model<"anthropic-messages">,
 	"deepseek/deepseek-v3.1": {
 		id: "deepseek/deepseek-v3.1",
@@ -857,10 +876,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.6,
 			output: 1.7,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"deepseek/deepseek-v3.1-terminus": {
 		id: "deepseek/deepseek-v3.1-terminus",
@@ -874,10 +893,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.27,
 			output: 1,
 			cacheRead: 0.135,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 131072,
-		maxTokens: 65536,
+		maxTokens: 65536
 	} satisfies Model<"anthropic-messages">,
 	"deepseek/deepseek-v3.2": {
 		id: "deepseek/deepseek-v3.2",
@@ -891,10 +910,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.28,
 			output: 0.42,
 			cacheRead: 0.028,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 8000,
+		maxTokens: 8000
 	} satisfies Model<"anthropic-messages">,
 	"deepseek/deepseek-v3.2-thinking": {
 		id: "deepseek/deepseek-v3.2-thinking",
@@ -908,10 +927,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.62,
 			output: 1.85,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 8000,
+		maxTokens: 8000
 	} satisfies Model<"anthropic-messages">,
 	"deepseek/deepseek-v4-flash": {
 		id: "deepseek/deepseek-v4-flash",
@@ -924,11 +943,11 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 		cost: {
 			input: 0.14,
 			output: 0.28,
-			cacheRead: 0.0028,
-			cacheWrite: 0,
+			cacheRead: 0.028,
+			cacheWrite: 0
 		},
 		contextWindow: 1000000,
-		maxTokens: 384000,
+		maxTokens: 384000
 	} satisfies Model<"anthropic-messages">,
 	"deepseek/deepseek-v4-pro": {
 		id: "deepseek/deepseek-v4-pro",
@@ -942,10 +961,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.435,
 			output: 0.87,
 			cacheRead: 0.0036,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1000000,
-		maxTokens: 384000,
+		maxTokens: 384000
 	} satisfies Model<"anthropic-messages">,
 	"google/gemini-2.5-flash": {
 		id: "google/gemini-2.5-flash",
@@ -959,10 +978,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.3,
 			output: 2.5,
 			cacheRead: 0.03,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1000000,
-		maxTokens: 65536,
+		maxTokens: 65536
 	} satisfies Model<"anthropic-messages">,
 	"google/gemini-2.5-flash-lite": {
 		id: "google/gemini-2.5-flash-lite",
@@ -976,10 +995,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.1,
 			output: 0.4,
 			cacheRead: 0.01,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1048576,
-		maxTokens: 65536,
+		maxTokens: 65536
 	} satisfies Model<"anthropic-messages">,
 	"google/gemini-2.5-pro": {
 		id: "google/gemini-2.5-pro",
@@ -993,10 +1012,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.25,
 			output: 10,
 			cacheRead: 0.125,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1048576,
-		maxTokens: 65536,
+		maxTokens: 65536
 	} satisfies Model<"anthropic-messages">,
 	"google/gemini-3-flash": {
 		id: "google/gemini-3-flash",
@@ -1010,10 +1029,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.5,
 			output: 3,
 			cacheRead: 0.05,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1000000,
-		maxTokens: 65000,
+		maxTokens: 65000
 	} satisfies Model<"anthropic-messages">,
 	"google/gemini-3-pro-preview": {
 		id: "google/gemini-3-pro-preview",
@@ -1027,10 +1046,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 2,
 			output: 12,
 			cacheRead: 0.2,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1000000,
-		maxTokens: 64000,
+		maxTokens: 64000
 	} satisfies Model<"anthropic-messages">,
 	"google/gemini-3.1-flash-lite": {
 		id: "google/gemini-3.1-flash-lite",
@@ -1044,10 +1063,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.25,
 			output: 1.5,
 			cacheRead: 0.03,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1000000,
-		maxTokens: 65000,
+		maxTokens: 65000
 	} satisfies Model<"anthropic-messages">,
 	"google/gemini-3.1-flash-lite-preview": {
 		id: "google/gemini-3.1-flash-lite-preview",
@@ -1061,10 +1080,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.25,
 			output: 1.5,
 			cacheRead: 0.03,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1000000,
-		maxTokens: 65000,
+		maxTokens: 65000
 	} satisfies Model<"anthropic-messages">,
 	"google/gemini-3.1-pro-preview": {
 		id: "google/gemini-3.1-pro-preview",
@@ -1078,10 +1097,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 2,
 			output: 12,
 			cacheRead: 0.2,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1000000,
-		maxTokens: 64000,
+		maxTokens: 64000
 	} satisfies Model<"anthropic-messages">,
 	"google/gemini-3.5-flash": {
 		id: "google/gemini-3.5-flash",
@@ -1095,10 +1114,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.5,
 			output: 9,
 			cacheRead: 0.15,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1000000,
-		maxTokens: 64000,
+		maxTokens: 64000
 	} satisfies Model<"anthropic-messages">,
 	"google/gemma-4-26b-a4b-it": {
 		id: "google/gemma-4-26b-a4b-it",
@@ -1112,10 +1131,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.15,
 			output: 0.6,
 			cacheRead: 0.015,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 262144,
-		maxTokens: 131072,
+		maxTokens: 131072
 	} satisfies Model<"anthropic-messages">,
 	"google/gemma-4-31b-it": {
 		id: "google/gemma-4-31b-it",
@@ -1129,10 +1148,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.14,
 			output: 0.4,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 262144,
-		maxTokens: 131072,
+		maxTokens: 131072
 	} satisfies Model<"anthropic-messages">,
 	"inception/mercury-2": {
 		id: "inception/mercury-2",
@@ -1146,10 +1165,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.25,
 			output: 0.75,
 			cacheRead: 0.025,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"inception/mercury-coder-small": {
 		id: "inception/mercury-coder-small",
@@ -1163,10 +1182,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.25,
 			output: 1,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 32000,
-		maxTokens: 16384,
+		maxTokens: 16384
 	} satisfies Model<"anthropic-messages">,
 	"interfaze/interfaze-beta": {
 		id: "interfaze/interfaze-beta",
@@ -1180,10 +1199,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.5,
 			output: 3.5,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1000000,
-		maxTokens: 32000,
+		maxTokens: 32000
 	} satisfies Model<"anthropic-messages">,
 	"kwaipilot/kat-coder-pro-v1": {
 		id: "kwaipilot/kat-coder-pro-v1",
@@ -1197,10 +1216,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.3,
 			output: 1.2,
 			cacheRead: 0.06,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 256000,
-		maxTokens: 32000,
+		maxTokens: 32000
 	} satisfies Model<"anthropic-messages">,
 	"kwaipilot/kat-coder-pro-v2": {
 		id: "kwaipilot/kat-coder-pro-v2",
@@ -1214,10 +1233,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.3,
 			output: 1.2,
 			cacheRead: 0.06,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 256000,
-		maxTokens: 256000,
+		maxTokens: 256000
 	} satisfies Model<"anthropic-messages">,
 	"meituan/longcat-flash-chat": {
 		id: "meituan/longcat-flash-chat",
@@ -1231,10 +1250,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0,
 			output: 0,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 100000,
+		maxTokens: 100000
 	} satisfies Model<"anthropic-messages">,
 	"meituan/longcat-flash-thinking-2601": {
 		id: "meituan/longcat-flash-thinking-2601",
@@ -1248,10 +1267,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0,
 			output: 0,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 32768,
-		maxTokens: 32768,
+		maxTokens: 32768
 	} satisfies Model<"anthropic-messages">,
 	"meta/llama-3.1-70b": {
 		id: "meta/llama-3.1-70b",
@@ -1265,10 +1284,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.72,
 			output: 0.72,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 8192,
+		maxTokens: 8192
 	} satisfies Model<"anthropic-messages">,
 	"meta/llama-3.1-8b": {
 		id: "meta/llama-3.1-8b",
@@ -1282,10 +1301,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.22,
 			output: 0.22,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 8192,
+		maxTokens: 8192
 	} satisfies Model<"anthropic-messages">,
 	"meta/llama-3.2-11b": {
 		id: "meta/llama-3.2-11b",
@@ -1299,10 +1318,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.16,
 			output: 0.16,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 8192,
+		maxTokens: 8192
 	} satisfies Model<"anthropic-messages">,
 	"meta/llama-3.2-90b": {
 		id: "meta/llama-3.2-90b",
@@ -1316,10 +1335,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.72,
 			output: 0.72,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 8192,
+		maxTokens: 8192
 	} satisfies Model<"anthropic-messages">,
 	"meta/llama-3.3-70b": {
 		id: "meta/llama-3.3-70b",
@@ -1333,10 +1352,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.72,
 			output: 0.72,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 8192,
+		maxTokens: 8192
 	} satisfies Model<"anthropic-messages">,
 	"meta/llama-4-maverick": {
 		id: "meta/llama-4-maverick",
@@ -1350,10 +1369,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.24,
 			output: 0.97,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 8192,
+		maxTokens: 8192
 	} satisfies Model<"anthropic-messages">,
 	"meta/llama-4-scout": {
 		id: "meta/llama-4-scout",
@@ -1367,10 +1386,27 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.17,
 			output: 0.66,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 8192,
+		maxTokens: 8192
+	} satisfies Model<"anthropic-messages">,
+	"meta/muse-spark-1.1": {
+		id: "meta/muse-spark-1.1",
+		name: "Muse Spark 1.1",
+		api: "anthropic-messages",
+		provider: "vercel-ai-gateway",
+		baseUrl: "https://ai-gateway.vercel.sh",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: {
+			input: 1.25,
+			output: 4.25,
+			cacheRead: 0.15,
+			cacheWrite: 0
+		},
+		contextWindow: 1048576,
+		maxTokens: 1048576
 	} satisfies Model<"anthropic-messages">,
 	"minimax/minimax-m2": {
 		id: "minimax/minimax-m2",
@@ -1384,10 +1420,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.3,
 			output: 1.2,
 			cacheRead: 0.03,
-			cacheWrite: 0.375,
+			cacheWrite: 0.375
 		},
 		contextWindow: 205000,
-		maxTokens: 205000,
+		maxTokens: 205000
 	} satisfies Model<"anthropic-messages">,
 	"minimax/minimax-m2.1": {
 		id: "minimax/minimax-m2.1",
@@ -1401,10 +1437,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.3,
 			output: 1.2,
 			cacheRead: 0.03,
-			cacheWrite: 0.375,
+			cacheWrite: 0.375
 		},
 		contextWindow: 204800,
-		maxTokens: 131072,
+		maxTokens: 131072
 	} satisfies Model<"anthropic-messages">,
 	"minimax/minimax-m2.1-lightning": {
 		id: "minimax/minimax-m2.1-lightning",
@@ -1418,10 +1454,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.3,
 			output: 2.4,
 			cacheRead: 0.03,
-			cacheWrite: 0.375,
+			cacheWrite: 0.375
 		},
 		contextWindow: 204800,
-		maxTokens: 131072,
+		maxTokens: 131072
 	} satisfies Model<"anthropic-messages">,
 	"minimax/minimax-m2.5": {
 		id: "minimax/minimax-m2.5",
@@ -1435,10 +1471,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.3,
 			output: 1.2,
 			cacheRead: 0.03,
-			cacheWrite: 0.375,
+			cacheWrite: 0.375
 		},
 		contextWindow: 204800,
-		maxTokens: 131000,
+		maxTokens: 131000
 	} satisfies Model<"anthropic-messages">,
 	"minimax/minimax-m2.5-highspeed": {
 		id: "minimax/minimax-m2.5-highspeed",
@@ -1452,10 +1488,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.6,
 			output: 2.4,
 			cacheRead: 0.03,
-			cacheWrite: 0.375,
+			cacheWrite: 0.375
 		},
 		contextWindow: 204800,
-		maxTokens: 131000,
+		maxTokens: 131000
 	} satisfies Model<"anthropic-messages">,
 	"minimax/minimax-m2.7": {
 		id: "minimax/minimax-m2.7",
@@ -1469,10 +1505,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.3,
 			output: 1.2,
 			cacheRead: 0.06,
-			cacheWrite: 0.375,
+			cacheWrite: 0.375
 		},
 		contextWindow: 204800,
-		maxTokens: 131000,
+		maxTokens: 131000
 	} satisfies Model<"anthropic-messages">,
 	"minimax/minimax-m2.7-highspeed": {
 		id: "minimax/minimax-m2.7-highspeed",
@@ -1486,10 +1522,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.6,
 			output: 2.4,
 			cacheRead: 0.06,
-			cacheWrite: 0.375,
+			cacheWrite: 0.375
 		},
 		contextWindow: 204800,
-		maxTokens: 131100,
+		maxTokens: 131100
 	} satisfies Model<"anthropic-messages">,
 	"minimax/minimax-m3": {
 		id: "minimax/minimax-m3",
@@ -1503,10 +1539,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.3,
 			output: 1.2,
 			cacheRead: 0.06,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1000000,
-		maxTokens: 1000000,
+		maxTokens: 1000000
 	} satisfies Model<"anthropic-messages">,
 	"mistral/codestral": {
 		id: "mistral/codestral",
@@ -1520,10 +1556,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.3,
 			output: 0.9,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 4000,
+		maxTokens: 4000
 	} satisfies Model<"anthropic-messages">,
 	"mistral/devstral-2": {
 		id: "mistral/devstral-2",
@@ -1537,10 +1573,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.4,
 			output: 2,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 256000,
-		maxTokens: 256000,
+		maxTokens: 256000
 	} satisfies Model<"anthropic-messages">,
 	"mistral/devstral-small": {
 		id: "mistral/devstral-small",
@@ -1554,10 +1590,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.1,
 			output: 0.3,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 64000,
+		maxTokens: 64000
 	} satisfies Model<"anthropic-messages">,
 	"mistral/devstral-small-2": {
 		id: "mistral/devstral-small-2",
@@ -1571,10 +1607,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.1,
 			output: 0.3,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 256000,
-		maxTokens: 256000,
+		maxTokens: 256000
 	} satisfies Model<"anthropic-messages">,
 	"mistral/magistral-medium": {
 		id: "mistral/magistral-medium",
@@ -1588,10 +1624,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 2,
 			output: 5,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 64000,
+		maxTokens: 64000
 	} satisfies Model<"anthropic-messages">,
 	"mistral/magistral-small": {
 		id: "mistral/magistral-small",
@@ -1605,10 +1641,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.5,
 			output: 1.5,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 64000,
+		maxTokens: 64000
 	} satisfies Model<"anthropic-messages">,
 	"mistral/ministral-14b": {
 		id: "mistral/ministral-14b",
@@ -1622,10 +1658,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.2,
 			output: 0.2,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 256000,
-		maxTokens: 256000,
+		maxTokens: 256000
 	} satisfies Model<"anthropic-messages">,
 	"mistral/ministral-3b": {
 		id: "mistral/ministral-3b",
@@ -1639,10 +1675,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.1,
 			output: 0.1,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 4000,
+		maxTokens: 4000
 	} satisfies Model<"anthropic-messages">,
 	"mistral/ministral-8b": {
 		id: "mistral/ministral-8b",
@@ -1656,10 +1692,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.15,
 			output: 0.15,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 4000,
+		maxTokens: 4000
 	} satisfies Model<"anthropic-messages">,
 	"mistral/mistral-large-3": {
 		id: "mistral/mistral-large-3",
@@ -1673,10 +1709,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.5,
 			output: 1.5,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 256000,
-		maxTokens: 256000,
+		maxTokens: 256000
 	} satisfies Model<"anthropic-messages">,
 	"mistral/mistral-medium": {
 		id: "mistral/mistral-medium",
@@ -1690,10 +1726,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.4,
 			output: 2,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 64000,
+		maxTokens: 64000
 	} satisfies Model<"anthropic-messages">,
 	"mistral/mistral-medium-3.5": {
 		id: "mistral/mistral-medium-3.5",
@@ -1707,10 +1743,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.5,
 			output: 7.5,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 256000,
-		maxTokens: 256000,
+		maxTokens: 256000
 	} satisfies Model<"anthropic-messages">,
 	"mistral/mistral-nemo": {
 		id: "mistral/mistral-nemo",
@@ -1724,10 +1760,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.15,
 			output: 0.15,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"mistral/mistral-small": {
 		id: "mistral/mistral-small",
@@ -1741,10 +1777,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.1,
 			output: 0.3,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 32000,
-		maxTokens: 4000,
+		maxTokens: 4000
 	} satisfies Model<"anthropic-messages">,
 	"mistral/pixtral-12b": {
 		id: "mistral/pixtral-12b",
@@ -1758,10 +1794,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.15,
 			output: 0.15,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 4000,
+		maxTokens: 4000
 	} satisfies Model<"anthropic-messages">,
 	"mistral/pixtral-large": {
 		id: "mistral/pixtral-large",
@@ -1775,10 +1811,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 2,
 			output: 6,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 4000,
+		maxTokens: 4000
 	} satisfies Model<"anthropic-messages">,
 	"moonshotai/kimi-k2": {
 		id: "moonshotai/kimi-k2",
@@ -1792,10 +1828,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.57,
 			output: 2.3,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 131072,
-		maxTokens: 131072,
+		maxTokens: 131072
 	} satisfies Model<"anthropic-messages">,
 	"moonshotai/kimi-k2-thinking": {
 		id: "moonshotai/kimi-k2-thinking",
@@ -1809,10 +1845,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.47,
 			output: 2,
 			cacheRead: 0.141,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 216144,
-		maxTokens: 216144,
+		maxTokens: 216144
 	} satisfies Model<"anthropic-messages">,
 	"moonshotai/kimi-k2.5": {
 		id: "moonshotai/kimi-k2.5",
@@ -1826,10 +1862,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.6,
 			output: 3,
 			cacheRead: 0.1,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 262114,
-		maxTokens: 262114,
+		maxTokens: 262114
 	} satisfies Model<"anthropic-messages">,
 	"moonshotai/kimi-k2.6": {
 		id: "moonshotai/kimi-k2.6",
@@ -1843,10 +1879,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.95,
 			output: 4,
 			cacheRead: 0.16,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 262000,
-		maxTokens: 262000,
+		maxTokens: 262000
 	} satisfies Model<"anthropic-messages">,
 	"moonshotai/kimi-k2.7-code": {
 		id: "moonshotai/kimi-k2.7-code",
@@ -1860,10 +1896,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.95,
 			output: 4,
 			cacheRead: 0.19,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 256000,
-		maxTokens: 32768,
+		maxTokens: 32768
 	} satisfies Model<"anthropic-messages">,
 	"moonshotai/kimi-k2.7-code-highspeed": {
 		id: "moonshotai/kimi-k2.7-code-highspeed",
@@ -1877,10 +1913,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.9,
 			output: 8,
 			cacheRead: 0.38,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 262144,
-		maxTokens: 32768,
+		maxTokens: 32768
 	} satisfies Model<"anthropic-messages">,
 	"nvidia/nemotron-3-nano-30b-a3b": {
 		id: "nvidia/nemotron-3-nano-30b-a3b",
@@ -1894,10 +1930,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.05,
 			output: 0.24,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 262144,
-		maxTokens: 262144,
+		maxTokens: 262144
 	} satisfies Model<"anthropic-messages">,
 	"nvidia/nemotron-3-super-120b-a12b": {
 		id: "nvidia/nemotron-3-super-120b-a12b",
@@ -1911,10 +1947,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.15,
 			output: 0.65,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 256000,
-		maxTokens: 32000,
+		maxTokens: 32000
 	} satisfies Model<"anthropic-messages">,
 	"nvidia/nemotron-3-ultra-550b-a55b": {
 		id: "nvidia/nemotron-3-ultra-550b-a55b",
@@ -1928,10 +1964,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.6,
 			output: 2.4,
 			cacheRead: 0.12,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1000000,
-		maxTokens: 65000,
+		maxTokens: 65000
 	} satisfies Model<"anthropic-messages">,
 	"nvidia/nemotron-nano-12b-v2-vl": {
 		id: "nvidia/nemotron-nano-12b-v2-vl",
@@ -1945,10 +1981,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.2,
 			output: 0.6,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 131072,
-		maxTokens: 131072,
+		maxTokens: 131072
 	} satisfies Model<"anthropic-messages">,
 	"nvidia/nemotron-nano-9b-v2": {
 		id: "nvidia/nemotron-nano-9b-v2",
@@ -1962,10 +1998,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.06,
 			output: 0.23,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 131072,
-		maxTokens: 131072,
+		maxTokens: 131072
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-3.5-turbo": {
 		id: "openai/gpt-3.5-turbo",
@@ -1979,10 +2015,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.5,
 			output: 1.5,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 16385,
-		maxTokens: 4096,
+		maxTokens: 4096
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-4-turbo": {
 		id: "openai/gpt-4-turbo",
@@ -1996,10 +2032,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 10,
 			output: 30,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 4096,
+		maxTokens: 4096
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-4.1": {
 		id: "openai/gpt-4.1",
@@ -2013,10 +2049,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 2,
 			output: 8,
 			cacheRead: 0.5,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1047576,
-		maxTokens: 32768,
+		maxTokens: 32768
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-4.1-mini": {
 		id: "openai/gpt-4.1-mini",
@@ -2030,10 +2066,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.4,
 			output: 1.6,
 			cacheRead: 0.1,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1047576,
-		maxTokens: 32768,
+		maxTokens: 32768
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-4.1-nano": {
 		id: "openai/gpt-4.1-nano",
@@ -2047,10 +2083,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.1,
 			output: 0.4,
 			cacheRead: 0.025,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1047576,
-		maxTokens: 32768,
+		maxTokens: 32768
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-4o": {
 		id: "openai/gpt-4o",
@@ -2064,10 +2100,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 2.5,
 			output: 10,
 			cacheRead: 1.25,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 16384,
+		maxTokens: 16384
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-4o-mini": {
 		id: "openai/gpt-4o-mini",
@@ -2081,10 +2117,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.15,
 			output: 0.6,
 			cacheRead: 0.075,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 16384,
+		maxTokens: 16384
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-5": {
 		id: "openai/gpt-5",
@@ -2098,10 +2134,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.25,
 			output: 10,
 			cacheRead: 0.125,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 400000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-5-chat": {
 		id: "openai/gpt-5-chat",
@@ -2115,10 +2151,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.25,
 			output: 10,
 			cacheRead: 0.125,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 16384,
+		maxTokens: 16384
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-5-codex": {
 		id: "openai/gpt-5-codex",
@@ -2132,10 +2168,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.25,
 			output: 10,
 			cacheRead: 0.125,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 400000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-5-mini": {
 		id: "openai/gpt-5-mini",
@@ -2149,10 +2185,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.25,
 			output: 2,
 			cacheRead: 0.025,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 400000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-5-nano": {
 		id: "openai/gpt-5-nano",
@@ -2166,10 +2202,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.05,
 			output: 0.4,
 			cacheRead: 0.005,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 400000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-5-pro": {
 		id: "openai/gpt-5-pro",
@@ -2183,10 +2219,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 15,
 			output: 120,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 400000,
-		maxTokens: 272000,
+		maxTokens: 272000
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-5.1-codex": {
 		id: "openai/gpt-5.1-codex",
@@ -2200,10 +2236,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.25,
 			output: 10,
 			cacheRead: 0.125,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 400000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-5.1-codex-max": {
 		id: "openai/gpt-5.1-codex-max",
@@ -2217,10 +2253,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.25,
 			output: 10,
 			cacheRead: 0.125,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 400000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-5.1-codex-mini": {
 		id: "openai/gpt-5.1-codex-mini",
@@ -2234,10 +2270,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.25,
 			output: 2,
 			cacheRead: 0.025,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 400000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-5.1-instant": {
 		id: "openai/gpt-5.1-instant",
@@ -2251,10 +2287,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.25,
 			output: 10,
 			cacheRead: 0.125,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 16384,
+		maxTokens: 16384
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-5.1-thinking": {
 		id: "openai/gpt-5.1-thinking",
@@ -2268,10 +2304,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.25,
 			output: 10,
 			cacheRead: 0.125,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 400000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-5.2": {
 		id: "openai/gpt-5.2",
@@ -2286,10 +2322,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.75,
 			output: 14,
 			cacheRead: 0.175,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 400000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-5.2-chat": {
 		id: "openai/gpt-5.2-chat",
@@ -2304,10 +2340,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.75,
 			output: 14,
 			cacheRead: 0.175,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 16384,
+		maxTokens: 16384
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-5.2-codex": {
 		id: "openai/gpt-5.2-codex",
@@ -2322,10 +2358,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.75,
 			output: 14,
 			cacheRead: 0.175,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 400000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-5.2-pro": {
 		id: "openai/gpt-5.2-pro",
@@ -2340,10 +2376,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 21,
 			output: 168,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 400000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-5.3-chat": {
 		id: "openai/gpt-5.3-chat",
@@ -2358,10 +2394,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.75,
 			output: 14,
 			cacheRead: 0.175,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 16384,
+		maxTokens: 16384
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-5.3-codex": {
 		id: "openai/gpt-5.3-codex",
@@ -2376,10 +2412,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.75,
 			output: 14,
 			cacheRead: 0.175,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 400000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-5.4": {
 		id: "openai/gpt-5.4",
@@ -2394,10 +2430,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 2.5,
 			output: 15,
 			cacheRead: 0.25,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1050000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-5.4-mini": {
 		id: "openai/gpt-5.4-mini",
@@ -2412,10 +2448,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.75,
 			output: 4.5,
 			cacheRead: 0.075,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 400000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-5.4-nano": {
 		id: "openai/gpt-5.4-nano",
@@ -2430,10 +2466,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.2,
 			output: 1.25,
 			cacheRead: 0.02,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 400000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-5.4-pro": {
 		id: "openai/gpt-5.4-pro",
@@ -2448,10 +2484,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 30,
 			output: 180,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1050000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-5.5": {
 		id: "openai/gpt-5.5",
@@ -2466,10 +2502,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 5,
 			output: 30,
 			cacheRead: 0.5,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1000000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-5.5-pro": {
 		id: "openai/gpt-5.5-pro",
@@ -2484,10 +2520,64 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 30,
 			output: 180,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1000000,
-		maxTokens: 128000,
+		maxTokens: 128000
+	} satisfies Model<"anthropic-messages">,
+	"openai/gpt-5.6-luna": {
+		id: "openai/gpt-5.6-luna",
+		name: "GPT 5.6 Luna",
+		api: "anthropic-messages",
+		provider: "vercel-ai-gateway",
+		baseUrl: "https://ai-gateway.vercel.sh",
+		reasoning: true,
+		thinkingLevelMap: {"xhigh":"xhigh"},
+		input: ["text", "image"],
+		cost: {
+			input: 1,
+			output: 6,
+			cacheRead: 0.1,
+			cacheWrite: 1.25
+		},
+		contextWindow: 1050000,
+		maxTokens: 128000
+	} satisfies Model<"anthropic-messages">,
+	"openai/gpt-5.6-sol": {
+		id: "openai/gpt-5.6-sol",
+		name: "GPT 5.6 Sol",
+		api: "anthropic-messages",
+		provider: "vercel-ai-gateway",
+		baseUrl: "https://ai-gateway.vercel.sh",
+		reasoning: true,
+		thinkingLevelMap: {"xhigh":"xhigh"},
+		input: ["text", "image"],
+		cost: {
+			input: 5,
+			output: 30,
+			cacheRead: 0.5,
+			cacheWrite: 6.25
+		},
+		contextWindow: 1050000,
+		maxTokens: 128000
+	} satisfies Model<"anthropic-messages">,
+	"openai/gpt-5.6-terra": {
+		id: "openai/gpt-5.6-terra",
+		name: "GPT 5.6 Terra",
+		api: "anthropic-messages",
+		provider: "vercel-ai-gateway",
+		baseUrl: "https://ai-gateway.vercel.sh",
+		reasoning: true,
+		thinkingLevelMap: {"xhigh":"xhigh"},
+		input: ["text", "image"],
+		cost: {
+			input: 2.5,
+			output: 15,
+			cacheRead: 0.25,
+			cacheWrite: 3.125
+		},
+		contextWindow: 1050000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-oss-120b": {
 		id: "openai/gpt-oss-120b",
@@ -2501,10 +2591,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.1,
 			output: 0.5,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 131072,
-		maxTokens: 131072,
+		maxTokens: 131072
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-oss-20b": {
 		id: "openai/gpt-oss-20b",
@@ -2518,10 +2608,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.05,
 			output: 0.2,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 131072,
-		maxTokens: 8192,
+		maxTokens: 8192
 	} satisfies Model<"anthropic-messages">,
 	"openai/gpt-oss-safeguard-20b": {
 		id: "openai/gpt-oss-safeguard-20b",
@@ -2535,10 +2625,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.075,
 			output: 0.3,
 			cacheRead: 0.037,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 131072,
-		maxTokens: 65536,
+		maxTokens: 65536
 	} satisfies Model<"anthropic-messages">,
 	"openai/o1": {
 		id: "openai/o1",
@@ -2552,10 +2642,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 15,
 			output: 60,
 			cacheRead: 7.5,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 200000,
-		maxTokens: 100000,
+		maxTokens: 100000
 	} satisfies Model<"anthropic-messages">,
 	"openai/o3": {
 		id: "openai/o3",
@@ -2569,10 +2659,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 2,
 			output: 8,
 			cacheRead: 0.5,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 200000,
-		maxTokens: 100000,
+		maxTokens: 100000
 	} satisfies Model<"anthropic-messages">,
 	"openai/o3-deep-research": {
 		id: "openai/o3-deep-research",
@@ -2586,10 +2676,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 10,
 			output: 40,
 			cacheRead: 2.5,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 200000,
-		maxTokens: 100000,
+		maxTokens: 100000
 	} satisfies Model<"anthropic-messages">,
 	"openai/o3-mini": {
 		id: "openai/o3-mini",
@@ -2603,10 +2693,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.1,
 			output: 4.4,
 			cacheRead: 0.55,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 200000,
-		maxTokens: 100000,
+		maxTokens: 100000
 	} satisfies Model<"anthropic-messages">,
 	"openai/o3-pro": {
 		id: "openai/o3-pro",
@@ -2620,10 +2710,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 20,
 			output: 80,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 200000,
-		maxTokens: 100000,
+		maxTokens: 100000
 	} satisfies Model<"anthropic-messages">,
 	"openai/o4-mini": {
 		id: "openai/o4-mini",
@@ -2637,10 +2727,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.1,
 			output: 4.4,
 			cacheRead: 0.275,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 200000,
-		maxTokens: 100000,
+		maxTokens: 100000
 	} satisfies Model<"anthropic-messages">,
 	"sakana/fugu-ultra": {
 		id: "sakana/fugu-ultra",
@@ -2654,10 +2744,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 5,
 			output: 30,
 			cacheRead: 0.5,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1000000,
-		maxTokens: 1000000,
+		maxTokens: 1000000
 	} satisfies Model<"anthropic-messages">,
 	"stepfun/step-3.5-flash": {
 		id: "stepfun/step-3.5-flash",
@@ -2671,10 +2761,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.09,
 			output: 0.3,
 			cacheRead: 0.02,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 262114,
-		maxTokens: 262114,
+		maxTokens: 262114
 	} satisfies Model<"anthropic-messages">,
 	"stepfun/step-3.7-flash": {
 		id: "stepfun/step-3.7-flash",
@@ -2688,10 +2778,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.2,
 			output: 1.15,
 			cacheRead: 0.04,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 256000,
-		maxTokens: 256000,
+		maxTokens: 256000
 	} satisfies Model<"anthropic-messages">,
 	"xai/grok-4.1-fast-non-reasoning": {
 		id: "xai/grok-4.1-fast-non-reasoning",
@@ -2705,10 +2795,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.2,
 			output: 0.5,
 			cacheRead: 0.05,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1000000,
-		maxTokens: 1000000,
+		maxTokens: 1000000
 	} satisfies Model<"anthropic-messages">,
 	"xai/grok-4.1-fast-reasoning": {
 		id: "xai/grok-4.1-fast-reasoning",
@@ -2722,10 +2812,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.2,
 			output: 0.5,
 			cacheRead: 0.05,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1000000,
-		maxTokens: 1000000,
+		maxTokens: 1000000
 	} satisfies Model<"anthropic-messages">,
 	"xai/grok-4.20-multi-agent": {
 		id: "xai/grok-4.20-multi-agent",
@@ -2739,10 +2829,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.25,
 			output: 2.5,
 			cacheRead: 0.2,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 2000000,
-		maxTokens: 2000000,
+		maxTokens: 2000000
 	} satisfies Model<"anthropic-messages">,
 	"xai/grok-4.20-multi-agent-beta": {
 		id: "xai/grok-4.20-multi-agent-beta",
@@ -2756,10 +2846,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.25,
 			output: 2.5,
 			cacheRead: 0.2,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 2000000,
-		maxTokens: 2000000,
+		maxTokens: 2000000
 	} satisfies Model<"anthropic-messages">,
 	"xai/grok-4.20-non-reasoning": {
 		id: "xai/grok-4.20-non-reasoning",
@@ -2773,10 +2863,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.25,
 			output: 2.5,
 			cacheRead: 0.2,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 2000000,
-		maxTokens: 2000000,
+		maxTokens: 2000000
 	} satisfies Model<"anthropic-messages">,
 	"xai/grok-4.20-non-reasoning-beta": {
 		id: "xai/grok-4.20-non-reasoning-beta",
@@ -2790,10 +2880,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.25,
 			output: 2.5,
 			cacheRead: 0.2,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 2000000,
-		maxTokens: 2000000,
+		maxTokens: 2000000
 	} satisfies Model<"anthropic-messages">,
 	"xai/grok-4.20-reasoning": {
 		id: "xai/grok-4.20-reasoning",
@@ -2807,10 +2897,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.25,
 			output: 2.5,
 			cacheRead: 0.2,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 2000000,
-		maxTokens: 2000000,
+		maxTokens: 2000000
 	} satisfies Model<"anthropic-messages">,
 	"xai/grok-4.20-reasoning-beta": {
 		id: "xai/grok-4.20-reasoning-beta",
@@ -2824,10 +2914,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.25,
 			output: 2.5,
 			cacheRead: 0.2,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 2000000,
-		maxTokens: 2000000,
+		maxTokens: 2000000
 	} satisfies Model<"anthropic-messages">,
 	"xai/grok-4.3": {
 		id: "xai/grok-4.3",
@@ -2841,10 +2931,27 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.25,
 			output: 2.5,
 			cacheRead: 0.2,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1000000,
-		maxTokens: 1000000,
+		maxTokens: 1000000
+	} satisfies Model<"anthropic-messages">,
+	"xai/grok-4.5": {
+		id: "xai/grok-4.5",
+		name: "Grok 4.5",
+		api: "anthropic-messages",
+		provider: "vercel-ai-gateway",
+		baseUrl: "https://ai-gateway.vercel.sh",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: {
+			input: 2,
+			output: 6,
+			cacheRead: 0.5,
+			cacheWrite: 0
+		},
+		contextWindow: 500000,
+		maxTokens: 500000
 	} satisfies Model<"anthropic-messages">,
 	"xai/grok-build-0.1": {
 		id: "xai/grok-build-0.1",
@@ -2858,10 +2965,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1,
 			output: 2,
 			cacheRead: 0.2,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 256000,
-		maxTokens: 256000,
+		maxTokens: 256000
 	} satisfies Model<"anthropic-messages">,
 	"xiaomi/mimo-v2-flash": {
 		id: "xiaomi/mimo-v2-flash",
@@ -2875,10 +2982,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.1,
 			output: 0.3,
 			cacheRead: 0.01,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 262144,
-		maxTokens: 32000,
+		maxTokens: 32000
 	} satisfies Model<"anthropic-messages">,
 	"xiaomi/mimo-v2-pro": {
 		id: "xiaomi/mimo-v2-pro",
@@ -2892,10 +2999,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1,
 			output: 3,
 			cacheRead: 0.2,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1000000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"xiaomi/mimo-v2.5": {
 		id: "xiaomi/mimo-v2.5",
@@ -2909,10 +3016,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.14,
 			output: 0.28,
 			cacheRead: 0.0028,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1050000,
-		maxTokens: 131100,
+		maxTokens: 131100
 	} satisfies Model<"anthropic-messages">,
 	"xiaomi/mimo-v2.5-pro": {
 		id: "xiaomi/mimo-v2.5-pro",
@@ -2926,10 +3033,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.435,
 			output: 0.87,
 			cacheRead: 0.0036,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1050000,
-		maxTokens: 131000,
+		maxTokens: 131000
 	} satisfies Model<"anthropic-messages">,
 	"zai/glm-4.5": {
 		id: "zai/glm-4.5",
@@ -2943,10 +3050,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.6,
 			output: 2.2,
 			cacheRead: 0.11,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 96000,
+		maxTokens: 96000
 	} satisfies Model<"anthropic-messages">,
 	"zai/glm-4.5-air": {
 		id: "zai/glm-4.5-air",
@@ -2960,10 +3067,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.2,
 			output: 1.1,
 			cacheRead: 0.03,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 96000,
+		maxTokens: 96000
 	} satisfies Model<"anthropic-messages">,
 	"zai/glm-4.5v": {
 		id: "zai/glm-4.5v",
@@ -2977,10 +3084,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.6,
 			output: 1.8,
 			cacheRead: 0.11,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 66000,
-		maxTokens: 16000,
+		maxTokens: 16000
 	} satisfies Model<"anthropic-messages">,
 	"zai/glm-4.6": {
 		id: "zai/glm-4.6",
@@ -2994,10 +3101,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.6,
 			output: 2.2,
 			cacheRead: 0.11,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 200000,
-		maxTokens: 96000,
+		maxTokens: 96000
 	} satisfies Model<"anthropic-messages">,
 	"zai/glm-4.6v": {
 		id: "zai/glm-4.6v",
@@ -3011,10 +3118,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.3,
 			output: 0.9,
 			cacheRead: 0.05,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 24000,
+		maxTokens: 24000
 	} satisfies Model<"anthropic-messages">,
 	"zai/glm-4.6v-flash": {
 		id: "zai/glm-4.6v-flash",
@@ -3028,10 +3135,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0,
 			output: 0,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 128000,
-		maxTokens: 24000,
+		maxTokens: 24000
 	} satisfies Model<"anthropic-messages">,
 	"zai/glm-4.7": {
 		id: "zai/glm-4.7",
@@ -3045,10 +3152,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.6,
 			output: 2.2,
 			cacheRead: 0.12,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 200000,
-		maxTokens: 120000,
+		maxTokens: 120000
 	} satisfies Model<"anthropic-messages">,
 	"zai/glm-4.7-flash": {
 		id: "zai/glm-4.7-flash",
@@ -3062,10 +3169,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.07,
 			output: 0.4,
 			cacheRead: 0,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 200000,
-		maxTokens: 131000,
+		maxTokens: 131000
 	} satisfies Model<"anthropic-messages">,
 	"zai/glm-4.7-flashx": {
 		id: "zai/glm-4.7-flashx",
@@ -3079,10 +3186,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.06,
 			output: 0.4,
 			cacheRead: 0.01,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 200000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"zai/glm-5": {
 		id: "zai/glm-5",
@@ -3096,10 +3203,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 0.95,
 			output: 3.15,
 			cacheRead: 0.2,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 202800,
-		maxTokens: 131100,
+		maxTokens: 131100
 	} satisfies Model<"anthropic-messages">,
 	"zai/glm-5-turbo": {
 		id: "zai/glm-5-turbo",
@@ -3113,10 +3220,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.2,
 			output: 4,
 			cacheRead: 0.24,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 202800,
-		maxTokens: 131100,
+		maxTokens: 131100
 	} satisfies Model<"anthropic-messages">,
 	"zai/glm-5.1": {
 		id: "zai/glm-5.1",
@@ -3130,10 +3237,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.3,
 			output: 4.3,
 			cacheRead: 0.26,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 202000,
-		maxTokens: 202000,
+		maxTokens: 202000
 	} satisfies Model<"anthropic-messages">,
 	"zai/glm-5.2": {
 		id: "zai/glm-5.2",
@@ -3144,13 +3251,13 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 		reasoning: true,
 		input: ["text"],
 		cost: {
-			input: 1.5,
-			output: 4.5,
-			cacheRead: 0.3,
-			cacheWrite: 0,
+			input: 1.4,
+			output: 4.4,
+			cacheRead: 0.26,
+			cacheWrite: 0
 		},
-		contextWindow: 1000000,
-		maxTokens: 128000,
+		contextWindow: 1040000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"zai/glm-5.2-fast": {
 		id: "zai/glm-5.2-fast",
@@ -3164,10 +3271,10 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 3,
 			output: 10.25,
 			cacheRead: 0.5,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 1000000,
-		maxTokens: 128000,
+		maxTokens: 128000
 	} satisfies Model<"anthropic-messages">,
 	"zai/glm-5v-turbo": {
 		id: "zai/glm-5v-turbo",
@@ -3181,9 +3288,9 @@ export const VERCEL_AI_GATEWAY_MODELS = {
 			input: 1.2,
 			output: 4,
 			cacheRead: 0.24,
-			cacheWrite: 0,
+			cacheWrite: 0
 		},
 		contextWindow: 200000,
-		maxTokens: 128000,
-	} satisfies Model<"anthropic-messages">,
+		maxTokens: 128000
+	} satisfies Model<"anthropic-messages">
 } as const;

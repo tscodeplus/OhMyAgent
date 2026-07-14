@@ -40,7 +40,7 @@ import { getEnvApiKey } from "./env-api-keys.js";
 import { builtinModels, getBuiltinModel, getBuiltinModels, getBuiltinProviders } from "./providers/all.js";
 import { createFauxCore, type FauxProviderRegistration, type RegisterFauxProviderOptions } from "./providers/faux.js";
 import type {
-		Api,
+	Api,
 	ApiStreamOptions,
 	AssistantMessage,
 	AssistantMessageEventStream,
