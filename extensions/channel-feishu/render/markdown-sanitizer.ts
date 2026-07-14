@@ -16,6 +16,48 @@ const LATIN_WORD = /[a-zA-Z0-9]/;
 /** Non-ASCII, non-space, non-ZWSP — CJK and other scripts that break parsing. */
 const NON_LATIN_ADJACENT = /([^\x00-\x7F\s​])/;
 
+// ─── HTML tag stripping ───
+
+/**
+ * Strip HTML tags that Feishu's lark_md parser doesn't support.
+ * Feishu CardKit markdown only supports a subset of markdown syntax
+ * (bold, italic, strikethrough, links, code, lists, quotes, tables).
+ * Any HTML tag in the output renders as raw text, so we strip them.
+ *
+ * Converts <br> / <br/> to newlines, strips all other tags while
+ * preserving their inner text content.
+ */
+function stripHtmlTags(text: string): string {
+  // Convert <br> variants to newlines
+  let result = text.replace(/<br\s*\/?>/gi, '\n');
+  // Strip closing tags: </tag>
+  result = result.replace(/<\/[a-zA-Z][a-zA-Z0-9]*\s*>/g, '');
+  // Strip opening / self-closing tags with optional attributes: <tag ...> or <tag/>
+  result = result.replace(/<[a-zA-Z][a-zA-Z0-9]*(?:\s[^>]*)?\s*\/?>/g, '');
+  return result;
+}
+
+// ─── Table alignment fix ───
+
+/**
+ * Fix common markdown table alignment syntax errors that LLMs produce.
+ * Example: |::---:| → |:---:| (double colon)
+ */
+function fixTableAlignment(text: string): string {
+  // Fix double-colon alignment markers like ::---: or :---:: or ::---::
+  // Match table separator lines and replace repeated colons
+  return text.replace(
+    /^(\|?\s*):{2,}(-{3,}):{2,}(\s*\|?\s*)$/gm,
+    (_m, before, dashes, after) => `${before}:${dashes}:${after}`,
+  ).replace(
+    /^(\|?\s*):{2,}(-{3,})(\s*\|?\s*)$/gm,
+    (_m, before, dashes, after) => `${before}:${dashes}${after}`,
+  ).replace(
+    /^(\|?\s*)(-{3,}):{2,}(\s*\|?\s*)$/gm,
+    (_m, before, dashes, after) => `${before}${dashes}:${after}`,
+  );
+}
+
 // ─── Per-marker Pass 1 (inner-side ZWSP) ───
 
 /** Regex for **bold** — double asterisks, non-greedy content. */
@@ -103,17 +145,26 @@ export function fixFeishuBold(text: string): string {
 }
 
 /**
- * Fix markdown formatting markers in Feishu markdown by inserting
- * zero-width spaces around them when adjacent to non-Latin characters.
+ * Fix markdown for Feishu CardKit rendering.
  *
- * Handles **bold**, *italic*, and ~~strikethrough~~.
+ * Processing order:
+ *   1. Strip HTML tags — Feishu lark_md does not support HTML.
+ *   2. Fix common table alignment syntax errors (e.g. double colons).
+ *   3. Insert ZWSP between formatting markers and non-Latin characters,
+ *      so **bold**, *italic*, and ~~strikethrough~~ are parsed correctly.
  *
  * Two-pass per marker:
- *   1. Inner-side: ZWSP between marker and content char.
- *   2. Outer-side: ZWSP between marker and surrounding non-ASCII char.
+ *   a. Inner-side: ZWSP between marker and content char.
+ *   b. Outer-side: ZWSP between marker and surrounding non-ASCII char.
  */
 export function fixFeishuMarkdown(text: string): string {
   let result = text;
+
+  // Pass 0: strip HTML tags (Feishu doesn't support HTML)
+  result = stripHtmlTags(result);
+
+  // Pass 0.5: fix common table alignment errors (e.g. ::---:)
+  result = fixTableAlignment(result);
 
   // Pass 1: inner-side ZWSP for all markers
   for (const { marker, regex } of MARKERS) {

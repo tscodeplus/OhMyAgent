@@ -198,7 +198,7 @@ export class EventBridge {
     // (post-transformation) — prefix length is the same either way because
     // the "\n> " transform only adds bytes before newlines, and tag
     // prefixes never contain newlines.
-    const TAG_STARTS = ['<', '</', '<p', '</p', '<pl', '</pl', '<pla', '</pla', '<plan', '</pla'];
+    const TAG_STARTS = ['<', '</', '<p', '</p', '<pl', '</pl', '<pla', '</pla', '<plan', '</plan'];
     for (const prefix of TAG_STARTS) {
       if (fullDelta.endsWith(prefix) && fullDelta.length >= prefix.length) {
         result = result.slice(0, result.length - prefix.length);
