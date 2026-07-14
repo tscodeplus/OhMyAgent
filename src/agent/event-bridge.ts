@@ -8,6 +8,7 @@ import type { AgentEvent } from '../pi-mono/agent/types.js';
 import type { ReplyDispatcher, Usage } from '../app/types.js';
 import type { Logger } from 'pino';
 import { computeCacheHitRate } from '../channel/usage-summary.js';
+import { i18n } from '../i18n/index.js';
 
 export class EventBridge {
   private unsubscribe?: () => void;
@@ -114,17 +115,18 @@ export class EventBridge {
   /**
    * Style <plan>...</plan> blocks with a markdown blockquote bar.
    *
-   * Every line between <plan> and </plan> (inclusive) gets a "> " prefix so
-   * Feishu/WebUI render a continuous vertical bar alongside the entire plan
-   * block — matching the visual style of tool call indicators.
+   * Replaces the <plan> tag with a 📋 header and blockquotes all content
+   * lines — matching the WebUI's formatPlanBlocks behavior. The raw
+   * <plan> and </plan> tags are stripped; only the inner content is shown
+   * with a "> " prefix on every line.
    *
-   *   > <plan>
+   *   > 📋 **Plan**
+   *   >
    *   > ### 子任务分解
    *   > 1. 搜索相关文件
    *   > 2. 分析代码结构
-   *   </plan>
    *
-   * A blank line after </plan> separates the plan from subsequent content.
+   * A blank line after the block separates the plan from subsequent content.
    */
   private filterPlanDelta(delta: string): string {
     const fullDelta = this.planPartial + delta;
@@ -136,9 +138,11 @@ export class EventBridge {
     const CLOSE = '</plan>';
     const OPEN_LEN = 6;
     const CLOSE_LEN = 7;
-    // Open blockquote with the <plan> tag, then "> " for the first content line
-    const OPEN_STYLED = '\n> <plan>\n> ';
-    const CLOSE_STYLED = '\n</plan>\n\n';
+    const planLabel = i18n.t('messages:plan.label');
+    // Replace <plan> tag with a 📋 header, add a blank blockquote line for spacing
+    const OPEN_STYLED = `\n> 📋 **${planLabel}**\n> \n> `;
+    // Strip </plan> — just add blank line separation
+    const CLOSE_STYLED = '\n\n';
 
     /** Prefix every newline with "> " so all lines inside plan get the bar. */
     const blockquoteLines = (s: string) => s.replace(/\n/g, '\n> ');
@@ -159,13 +163,13 @@ export class EventBridge {
         break;
       }
 
-      // Entering plan: add "> " before the tag and start content blockquote
+      // Entering plan: add header + blank blockquote line, then start content
       if (this.planDepth === 0 && openIdx !== -1 && (closeIdx === -1 || openIdx < closeIdx)) {
         result += fullDelta.slice(i, openIdx); // text before <plan>
         result += OPEN_STYLED;
         this.planDepth = 1;
         i = openIdx + OPEN_LEN;
-        // Skip leading \n after <plan> to keep tag and first content line adjacent
+        // Skip leading \n after <plan> so content starts on the "> " line
         if (i < fullDelta.length && fullDelta[i] === '\n') {
           i++;
         }

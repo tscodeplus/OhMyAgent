@@ -3,6 +3,8 @@ import type { ChannelAdapter } from '../../src/channel/types.js';
 import type { FeishuClient } from './feishu-client.js';
 import type { FastifyInstance } from 'fastify';
 import { registerFeishuQrRoutes } from './feishu-qr.js';
+import { fixFeishuMarkdown } from './render/markdown-sanitizer.js';
+import { buildSimpleMarkdownCard } from './render/cardkit-builder.js';
 
 export default function (api: ExtensionAPI) {
   const config = api.getConfig();
@@ -47,11 +49,12 @@ export default function (api: ExtensionAPI) {
     },
     sendReply: async (ctx, reply) => {
       if (reply.text) {
+        const card = buildSimpleMarkdownCard(fixFeishuMarkdown(reply.text));
         await feishuClient.sendMessage({
           receive_id: ctx.message.replyMeta?.chatId as string,
           receive_id_type: 'chat_id',
-          msg_type: 'text',
-          content: JSON.stringify({ text: reply.text }),
+          msg_type: 'interactive',
+          content: JSON.stringify(card),
         });
       }
     },

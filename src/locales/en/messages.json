@@ -18,6 +18,9 @@
     "timeout": "Sorry, the request timed out. Please try again or simplify your question.",
     "generic": "Sorry, an error occurred: {{message}}"
   },
+  "plan": {
+    "label": "Plan"
+  },
   "approval": {
     "approvedOnce": "Approved (this time)",
     "approvedSession": "Approved (this session)",

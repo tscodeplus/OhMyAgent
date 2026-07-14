@@ -12,7 +12,7 @@ import { STREAMING_ELEMENT_ID, buildStreamingCard, buildCompletedCard } from './
 import { isCardIdInvalidError } from '../feishu-client.js';
 import type { FooterConfig, Usage } from '../../../src/app/types.js';
 import { i18n } from '../../../src/i18n/index.js';
-import { fixFeishuBold } from './markdown-sanitizer.js';
+import { fixFeishuMarkdown } from './markdown-sanitizer.js';
 import { summarizeToolInput } from '../../../src/channel/tool-summary.js';
 
 // ─── Types ───
@@ -631,7 +631,7 @@ export class StreamingCardController {
 
     // Show completed tool lines + answer text first (older content on top)
     if (this.pendingContent.trim()) {
-      sections.push(fixFeishuBold(this.pendingContent.trimEnd()));
+      sections.push(fixFeishuMarkdown(this.pendingContent.trimEnd()));
     }
 
     // Show running tools below completed content
@@ -675,7 +675,7 @@ export class StreamingCardController {
     // Strip any incomplete/partial think tags from the answer
     answer = answer.replace(/<\s*think(?:ing)?\s*>$/i, '').trim();
 
-    return fixFeishuBold(answer);
+    return fixFeishuMarkdown(answer);
   }
 
   private buildTerminalCard(): Record<string, unknown> {

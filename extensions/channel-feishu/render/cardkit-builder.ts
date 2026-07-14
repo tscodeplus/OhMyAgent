@@ -186,3 +186,28 @@ export function buildCardUpdate(content: string, elementId: string): Record<stri
     element_id: elementId,
   };
 }
+
+// ─── Simple Markdown Card ───
+
+/**
+ * Build a minimal CardKit 2.0 card containing a single markdown element.
+ * Used for command responses (e.g. /permission, /agent) so that **bold**,
+ * *italic*, and ~~strikethrough~~ formatting is rendered by Feishu's lark_md
+ * parser — unlike `msg_type: "text"` which is plain text only.
+ */
+export function buildSimpleMarkdownCard(text: string): Record<string, unknown> {
+  return {
+    schema: '2.0',
+    config: {
+      streaming_mode: false,
+    },
+    body: {
+      elements: [
+        {
+          tag: 'markdown',
+          content: text,
+        },
+      ],
+    },
+  };
+}

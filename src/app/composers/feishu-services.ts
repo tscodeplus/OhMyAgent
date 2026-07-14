@@ -7,6 +7,8 @@
 
 import { createSTTProviders, transcribeWithFallback } from '../../media-providers/stt/factory.js';
 import { MessageHandler } from '../../../extensions/channel-feishu/message-handler.js';
+import { fixFeishuMarkdown } from '../../../extensions/channel-feishu/render/markdown-sanitizer.js';
+import { buildSimpleMarkdownCard } from '../../../extensions/channel-feishu/render/cardkit-builder.js';
 import { loadConfig, resetConfig } from '../config.js';
 import { configEventBus } from '../config-event-bus.js';
 import type { AppConfig } from '../types.js';
@@ -82,11 +84,14 @@ export function createFeishuServices(options: {
   servicesMap.set('commandDeps', commandDeps);
 
   const sendTextReply = async (chatId: string, text: string) => {
+    // Send as an interactive card so **bold**, *italic*, ~~strikethrough~~
+    // are rendered via lark_md. ZWSP insertion fixes CJK-adjacent marker issues.
+    const card = buildSimpleMarkdownCard(fixFeishuMarkdown(text));
     await feishuClient.sendMessage({
       receive_id: chatId,
       receive_id_type: 'chat_id',
-      msg_type: 'text',
-      content: JSON.stringify({ text }),
+      msg_type: 'interactive',
+      content: JSON.stringify(card),
     });
   };
 
