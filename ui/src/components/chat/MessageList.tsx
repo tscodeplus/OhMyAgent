@@ -168,13 +168,13 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
     }
   }, [messages]);
 
-  // Auto-scroll to bottom when new messages arrive (streaming or fresh fetch).
-  // Skip when loading older history to avoid jumping away from the loaded content.
+  // Auto-scroll to bottom when new messages arrive, thinking indicator shows,
+  // or streaming content changes. Skip when loading older history.
   useEffect(() => {
     if (!isLoadingMoreRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, externalMessages]);
+  }, [messages, externalMessages, isThinking]);
 
   // Merge API history with live streaming messages, deduplicating by ID.
   const displayMessages = useMemo(() => {
@@ -237,9 +237,9 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
             <div className="flex-1 min-w-0">
               <div className="rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 text-sm text-neutral-500 dark:text-neutral-400">
                 {t('chat.thinking')}
-                <span className="thinking-dot" style={{ animationDelay: '0s' }}>.</span>
-                <span className="thinking-dot" style={{ animationDelay: '0.6s' }}>.</span>
-                <span className="thinking-dot" style={{ animationDelay: '1.2s' }}>.</span>
+                <span className="thinking-dot">.</span>
+                <span className="thinking-dot">.</span>
+                <span className="thinking-dot">.</span>
               </div>
             </div>
           </div>

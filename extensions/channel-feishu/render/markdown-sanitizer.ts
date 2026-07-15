@@ -42,20 +42,20 @@ function stripHtmlTags(text: string): string {
 /**
  * Fix common markdown table alignment syntax errors that LLMs produce.
  * Example: |::---:| → |:---:| (double colon)
+ *
+ * Uses per-cell replacements so multi-column table separators like
+ * |:---:|::---| are handled correctly — the previous line-anchored
+ * approach would only match single-column separator lines.
  */
 function fixTableAlignment(text: string): string {
-  // Fix double-colon alignment markers like ::---: or :---:: or ::---::
-  // Match table separator lines and replace repeated colons
-  return text.replace(
-    /^(\|?\s*):{2,}(-{3,}):{2,}(\s*\|?\s*)$/gm,
-    (_m, before, dashes, after) => `${before}:${dashes}:${after}`,
-  ).replace(
-    /^(\|?\s*):{2,}(-{3,})(\s*\|?\s*)$/gm,
-    (_m, before, dashes, after) => `${before}:${dashes}${after}`,
-  ).replace(
-    /^(\|?\s*)(-{3,}):{2,}(\s*\|?\s*)$/gm,
-    (_m, before, dashes, after) => `${before}${dashes}:${after}`,
-  );
+  // Fix double-colon alignment markers like ::--- or :---:: or ::---::
+  // Reduce ::--- → :--- (left-align with doubled colon on left)
+  // Preceded by | or whitespace or start-of-line
+  let result = text.replace(/(\||\s|^):{2,}(-{3,})/gm, '$1:$2');
+  // Reduce ---:: → ---: (right-align with doubled colon on right)
+  // Followed by | or whitespace or end-of-line
+  result = result.replace(/(-{3,}):{2,}(\||\s|$)/gm, '$1:$2');
+  return result;
 }
 
 // ─── Per-marker Pass 1 (inner-side ZWSP) ───

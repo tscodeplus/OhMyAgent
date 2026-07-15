@@ -145,6 +145,43 @@ describe('fixFeishuMarkdown', () => {
   it('does not modify text without any markers', () => {
     expect(fixFeishuMarkdown('plain text 普通文本')).toBe('plain text 普通文本');
   });
+
+  // ─── Table alignment fixes ───
+
+  it('fixes double-colon left alignment in multi-column table', () => {
+    const input = '| 优势 | 说明 |\n|:---:|::---|\n| a | b |';
+    const expected = '| 优势 | 说明 |\n|:---:|:---|\n| a | b |';
+    expect(fixFeishuMarkdown(input)).toBe(expected);
+  });
+
+  it('fixes double-colon alignment in single-column table', () => {
+    expect(fixFeishuMarkdown('|::---|')).toBe('|:---|');
+  });
+
+  it('fixes double-colon on right side', () => {
+    expect(fixFeishuMarkdown('|---::|')).toBe('|---:|');
+  });
+
+  it('fixes double-colon on both sides to center alignment', () => {
+    expect(fixFeishuMarkdown('|::---::|')).toBe('|:---:|');
+  });
+
+  it('fixes double-colon alignment with surrounding spaces', () => {
+    expect(fixFeishuMarkdown('| ::--- |')).toBe('| :--- |');
+  });
+
+  it('fixes mixed columns — first center, second double-left-colon', () => {
+    expect(fixFeishuMarkdown('|:---:|::---|')).toBe('|:---:|:---|');
+  });
+
+  it('fixes mixed columns — first double-left-colon center, second valid', () => {
+    expect(fixFeishuMarkdown('|::---:|:---:|')).toBe('|:---:|:---:|');
+  });
+
+  it('leaves valid table alignment unchanged', () => {
+    const input = '|:---|:---:|---:|';
+    expect(fixFeishuMarkdown(input)).toBe(input);
+  });
 });
 
 // ─── Backward compatibility: fixFeishuBold ───

@@ -79,6 +79,8 @@ export class StreamingCardController {
   private toolIndicators: Map<string, { name: string; status: 'running' | 'done' | 'error'; args?: unknown }> = new Map();
   // Thinking dot animation cycle (0, 1, 2 → '.', '..', '...')
   private thinkingDotCycle = 0;
+  // Fast animation timer for thinking dots (~600ms vs normal 2000ms flush)
+  private thinkingAnimationTimer?: ReturnType<typeof setTimeout>;
   private finalCardSnapshot?: {
     thinking?: string;
     answer: string;
@@ -227,6 +229,7 @@ export class StreamingCardController {
       this.state = 'streaming';
 
       // Immediately show initial status so the card isn't blank
+      this.logger?.debug('[thinking-dots] createPlaceholder done, calling flushNow');
       void this.flushNow();
     } catch (err) {
       this.state = 'error';
@@ -241,11 +244,24 @@ export class StreamingCardController {
   appendDelta(delta: string): void {
     if (this.state !== 'streaming') return;
 
+    // Track whether we already had answer content before processing
+    const hadContent = this.pendingContent.trim().length > 0;
+
     // Process delta through think tag parser
     this.processDelta(delta);
 
-    // Schedule throttled flush
-    this.scheduleFlush();
+    // When the first answer content arrives (transition from thinking →
+    // content), stop the dots animation and flush immediately to show the
+    // real text. Don't use cancelScheduledFlush() here — it also kills the
+    // flushTimer which may still be needed for subsequent delta flushes.
+    if (!hadContent && this.pendingContent.trim().length > 0) {
+      this.logger?.debug({ pendingLen: this.pendingContent.length }, '[thinking-dots] first content arrived, stopping animation + flushing');
+      this.stopThinkingAnimation();
+      this.requestFlush();
+    } else {
+      // Schedule throttled flush
+      this.scheduleFlush();
+    }
   }
 
   /**
@@ -580,6 +596,7 @@ export class StreamingCardController {
       clearTimeout(this.flushTimer);
       this.flushTimer = undefined;
     }
+    this.stopThinkingAnimation();
   }
 
   private requestFlush(): void {
@@ -596,8 +613,10 @@ export class StreamingCardController {
       while (this.flushRequested && this.state === 'streaming' && this.cardId) {
         this.flushRequested = false;
 
+        let flushSucceeded = false;
         try {
           const content = this.buildStreamContent();
+          this.logger?.debug({ content: content.slice(0, 80), cycle: this.thinkingDotCycle }, '[thinking-dots] flush');
           await this.enqueueCardOperation(async () => {
             const seq = this.nextSeq();
             await this.feishuClient.streamCardContent(
@@ -608,10 +627,26 @@ export class StreamingCardController {
             );
           });
           this.lastFlushTime = Date.now();
+          flushSucceeded = true;
         } catch (err) {
           if (this.logger) {
             const msg = err instanceof Error ? err.message : String(err);
-            this.logger.warn({ err: msg.slice(0, 100) }, 'flush skipped due to error');
+            this.logger.warn({ err: msg.slice(0, 100) }, '[thinking-dots] flush error');
+          }
+        }
+
+        // Always evaluate animation state after each flush attempt,
+        // even if the flush failed. This prevents the card from
+        // getting stuck showing thinking dots when content is ready.
+        if (this.isThinkingOnly()) {
+          this.logger?.debug('[thinking-dots] isThinkingOnly=true, starting animation timer');
+          this.startThinkingAnimation();
+        } else {
+          this.logger?.debug('[thinking-dots] isThinkingOnly=false, stopping animation timer');
+          this.stopThinkingAnimation();
+          // If we have content but the flush failed, ensure a retry
+          if (!flushSucceeded && this.pendingContent.trim()) {
+            this.scheduleFlush();
           }
         }
       }
@@ -642,16 +677,52 @@ export class StreamingCardController {
       }
     }
 
-    // If nothing at all → show thinking with cycling dots
+    // If nothing at all → show thinking with cycling dots (1→2→3→0→1)
     if (sections.length === 0) {
-      if (this.thinkingTagOpen || this.pendingThinking) {
-        const dots = '.'.repeat((this.thinkingDotCycle % 3) + 1);
-        this.thinkingDotCycle++;
-        sections.push(`🧠 ${i18n.t('feishu-cards:stream.thinkingShort')}${dots}`);
-      }
+      // Cycle: 0→1, 1→2, 2→3, 3→0, 4→1, ...
+      const dotCount = ((this.thinkingDotCycle % 4) + 1) % 4;
+      const dots = '.'.repeat(dotCount);
+      this.thinkingDotCycle++;
+      sections.push(`🧠 ${i18n.t('feishu-cards:stream.thinkingShort')}${dots}`);
     }
 
-    return sections.join('\n') || i18n.t('feishu-cards:stream.thinking');
+    return sections.join('\n');
+  }
+
+  /**
+   * Whether the card is currently showing only the thinking indicator
+   * (no answer content, no running tools).
+   */
+  private isThinkingOnly(): boolean {
+    const hasContent = this.pendingContent.trim().length > 0;
+    const hasRunningTools = [...this.toolIndicators.values()].some(i => i.status === 'running');
+    const result = !hasContent && !hasRunningTools;
+    this.logger?.debug({ hasContent, hasRunningTools, result }, '[thinking-dots] isThinkingOnly');
+    return result;
+  }
+
+  /** Start a faster flush cycle to animate the thinking dots (1→2→3→1). */
+  private startThinkingAnimation(): void {
+    if (this.thinkingAnimationTimer) return; // already running
+    this.logger?.debug({ cycle: this.thinkingDotCycle }, '[thinking-dots] startThinkingAnimation');
+    this.thinkingAnimationTimer = setTimeout(() => {
+      this.thinkingAnimationTimer = undefined;
+      if (this.state === 'streaming' && this.isThinkingOnly()) {
+        this.logger?.debug('[thinking-dots] animation timer fired, requesting flush');
+        this.requestFlush();
+      } else {
+        this.logger?.debug({ state: this.state }, '[thinking-dots] animation timer fired but conditions not met');
+      }
+    }, 600);
+  }
+
+  /** Stop the thinking dots animation timer. */
+  private stopThinkingAnimation(): void {
+    if (this.thinkingAnimationTimer) {
+      this.logger?.debug('[thinking-dots] stopThinkingAnimation');
+      clearTimeout(this.thinkingAnimationTimer);
+      this.thinkingAnimationTimer = undefined;
+    }
   }
 
   /**
