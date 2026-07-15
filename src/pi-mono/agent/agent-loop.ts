@@ -324,80 +324,80 @@ async function streamAssistantResponse(
 			signal,
 		});
 
-		let partialMessage: AssistantMessage | null = null;
-		let addedPartial = false;
+	let partialMessage: AssistantMessage | null = null;
+	let addedPartial = false;
 
-		for await (const event of response) {
-			switch (event.type) {
-				case "start":
+	for await (const event of response) {
+		switch (event.type) {
+			case "start":
+				partialMessage = event.partial;
+				context.messages.push(partialMessage);
+				addedPartial = true;
+				await emit({ type: "message_start", message: { ...partialMessage } });
+				break;
+
+			case "text_start":
+			case "text_delta":
+			case "text_end":
+			case "thinking_start":
+			case "thinking_delta":
+			case "thinking_end":
+			case "toolcall_start":
+			case "toolcall_delta":
+			case "toolcall_end":
+				if (partialMessage) {
 					partialMessage = event.partial;
-					context.messages.push(partialMessage);
-					addedPartial = true;
-					await emit({ type: "message_start", message: { ...partialMessage } });
-					break;
-
-				case "text_start":
-				case "text_delta":
-				case "text_end":
-				case "thinking_start":
-				case "thinking_delta":
-				case "thinking_end":
-				case "toolcall_start":
-				case "toolcall_delta":
-				case "toolcall_end":
-					if (partialMessage) {
-						partialMessage = event.partial;
-						context.messages[context.messages.length - 1] = partialMessage;
-						await emit({
-							type: "message_update",
-							assistantMessageEvent: event,
-							message: { ...partialMessage },
-						});
-					}
-					break;
-
-				case "done":
-				case "error": {
-					const finalMessage = await response.result();
-					if (addedPartial) {
-						context.messages[context.messages.length - 1] = finalMessage;
-					} else {
-						context.messages.push(finalMessage);
-					}
-					if (!addedPartial) {
-						await emit({ type: "message_start", message: { ...finalMessage } });
-					}
-					await emit({ type: "message_end", message: finalMessage });
-
-					// On error with fallback available, try next model
-					if ((finalMessage.stopReason === "error" || finalMessage.stopReason === "aborted")
-						&& !signal?.aborted
-						&& attempt < models.length - 1) {
-						lastError = finalMessage;
-						break; // exit switch, continue outer for loop
-					}
-					return finalMessage;
+					context.messages[context.messages.length - 1] = partialMessage;
+					await emit({
+						type: "message_update",
+						assistantMessageEvent: event,
+						message: { ...partialMessage },
+					});
 				}
+				break;
+
+			case "done":
+			case "error": {
+				const finalMessage = await response.result();
+				if (addedPartial) {
+					context.messages[context.messages.length - 1] = finalMessage;
+				} else {
+					context.messages.push(finalMessage);
+				}
+				if (!addedPartial) {
+					await emit({ type: "message_start", message: { ...finalMessage } });
+				}
+				await emit({ type: "message_end", message: finalMessage });
+
+				// On error with fallback available, try next model
+				if ((finalMessage.stopReason === "error" || finalMessage.stopReason === "aborted")
+					&& !signal?.aborted
+					&& attempt < models.length - 1) {
+					lastError = finalMessage;
+					break; // exit switch, continue outer for loop
+				}
+				return finalMessage;
 			}
 		}
+	}
 
-		const finalMessage = await response.result();
-		if (addedPartial) {
-			context.messages[context.messages.length - 1] = finalMessage;
-		} else {
-			context.messages.push(finalMessage);
-			await emit({ type: "message_start", message: { ...finalMessage } });
-		}
-		await emit({ type: "message_end", message: finalMessage });
+	const finalMessage = await response.result();
+	if (addedPartial) {
+		context.messages[context.messages.length - 1] = finalMessage;
+	} else {
+		context.messages.push(finalMessage);
+		await emit({ type: "message_start", message: { ...finalMessage } });
+	}
+	await emit({ type: "message_end", message: finalMessage });
 
-		// On error with fallback available, try next model
-		if ((finalMessage.stopReason === "error" || finalMessage.stopReason === "aborted")
-			&& !signal?.aborted
-			&& attempt < models.length - 1) {
-			lastError = finalMessage;
-			continue;
-		}
-		return finalMessage;
+	// On error with fallback available, try next model
+	if ((finalMessage.stopReason === "error" || finalMessage.stopReason === "aborted")
+		&& !signal?.aborted
+		&& attempt < models.length - 1) {
+		lastError = finalMessage;
+		continue;
+	}
+	return finalMessage;
 	}
 
 	// Should never reach here, but return the last error if all models fail
@@ -731,6 +731,7 @@ async function finalizeExecutedToolCall(
 			);
 			if (afterResult) {
 				result = {
+					...result,
 					content: afterResult.content ?? result.content,
 					details: afterResult.details ?? result.details,
 					terminate: afterResult.terminate ?? result.terminate,
@@ -776,6 +777,7 @@ function createToolResultMessage(finalized: FinalizedToolCallOutcome): ToolResul
 		// so the null never enters session history or provider payloads.
 		content: finalized.result.content ?? [],
 		details: finalized.result.details,
+		...(finalized.result.addedToolNames?.length ? { addedToolNames: finalized.result.addedToolNames } : {}),
 		isError: finalized.isError,
 		timestamp: Date.now(),
 	};

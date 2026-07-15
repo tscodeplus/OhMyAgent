@@ -19,6 +19,7 @@ export * from "./api/mistral-conversations.lazy.js";
 export * from "./api/openai-codex-responses.lazy.js";
 export * from "./api/openai-completions.lazy.js";
 export * from "./api/openai-responses.lazy.js";
+export * from "./api/pi-messages.lazy.js";
 export * from "./env-api-keys.js";
 export * from "./image-models.js";
 export * from "./images.js";
@@ -36,8 +37,12 @@ import { mistralConversationsApi } from "./api/mistral-conversations.lazy.js";
 import { openAICodexResponsesApi } from "./api/openai-codex-responses.lazy.js";
 import { openAICompletionsApi } from "./api/openai-completions.lazy.js";
 import { openAIResponsesApi } from "./api/openai-responses.lazy.js";
+import { piMessagesApi } from "./api/pi-messages.lazy.js";
 import { getEnvApiKey } from "./env-api-keys.js";
 import { builtinModels, getBuiltinModel, getBuiltinModels, getBuiltinProviders } from "./providers/all.js";
+
+export type { BuiltinProvider } from "./providers/all.js";
+
 import { createFauxCore, type FauxProviderRegistration, type RegisterFauxProviderOptions } from "./providers/faux.js";
 import type {
 	Api,
@@ -220,6 +225,7 @@ const BUILTIN_APIS: [Api, ProviderStreams][] = [
 	["google-vertex", googleVertexApi()],
 	["mistral-conversations", mistralConversationsApi()],
 	["bedrock-converse-stream", bedrockConverseStreamApi()],
+	["pi-messages", piMessagesApi()],
 ];
 
 const builtinApiProviderInstances = new Map<Api, ReturnType<typeof getApiProvider>>();
@@ -247,6 +253,7 @@ export function resetApiProviders(): void {
 registerBuiltInApiProviders();
 
 const compatModels = builtinModels();
+const AMBIENT_AUTH_MARKER = "<authenticated>";
 
 function hasExplicitApiKey(apiKey: string | undefined): apiKey is string {
 	return typeof apiKey === "string" && apiKey.trim().length > 0;
@@ -258,7 +265,7 @@ function withEnvApiKey<TOptions extends StreamOptions>(
 ): TOptions | undefined {
 	if (hasExplicitApiKey(options?.apiKey)) return options;
 	const apiKey = getEnvApiKey(model.provider, options?.env);
-	if (!apiKey) return options;
+	if (!apiKey || apiKey === AMBIENT_AUTH_MARKER) return options;
 	return { ...options, apiKey } as TOptions;
 }
 

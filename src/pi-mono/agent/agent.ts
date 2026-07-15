@@ -444,9 +444,9 @@ export class Agent {
 			beforeToolCall: this.beforeToolCall,
 			afterToolCall: this.afterToolCall,
 			fallbackModels: this.fallbackModels,
-				prepareNextTurn: this.prepareNextTurn
-					? (ctx: PrepareNextTurnContext) => this.prepareNextTurn?.(ctx, this.signal)
-					: undefined,
+			prepareNextTurn: this.prepareNextTurn
+				? (ctx: PrepareNextTurnContext) => this.prepareNextTurn?.(ctx, this.signal)
+				: undefined,
 			convertToLlm: this.convertToLlm,
 			transformContext: this.transformContext,
 			getApiKey: this.getApiKey,

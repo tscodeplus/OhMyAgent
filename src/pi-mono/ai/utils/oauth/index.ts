@@ -28,21 +28,37 @@ export {
 	refreshOpenAICodexToken,
 } from "./openai-codex.js";
 
+// Radius (pi-messages gateway)
+export {
+	createRadiusOAuthProvider,
+	DEFAULT_RADIUS_GATEWAY,
+	type RadiusGatewayConfig,
+	type RadiusGatewayModel,
+	type RadiusOAuthCredentials,
+	type RadiusOAuthProviderOptions,
+} from "./radius.js";
 export * from "./types.js";
 
 // ============================================================================
 // Provider Registry
 // ============================================================================
 
+import { getProviderEnvValue } from "../provider-env.js";
 import { anthropicOAuthProvider } from "./anthropic.js";
 import { githubCopilotOAuthProvider } from "./github-copilot.js";
 import { openaiCodexOAuthProvider } from "./openai-codex.js";
+import { createRadiusOAuthProvider, DEFAULT_RADIUS_GATEWAY } from "./radius.js";
 import type { OAuthCredentials, OAuthProviderId, OAuthProviderInfo, OAuthProviderInterface } from "./types.js";
 
 const BUILT_IN_OAUTH_PROVIDERS: OAuthProviderInterface[] = [
 	anthropicOAuthProvider,
 	githubCopilotOAuthProvider,
 	openaiCodexOAuthProvider,
+	createRadiusOAuthProvider({
+		id: "radius",
+		name: "Radius",
+		gateway: getProviderEnvValue("PI_GATEWAY") || DEFAULT_RADIUS_GATEWAY,
+	}),
 ];
 
 const oauthProviderRegistry = new Map<string, OAuthProviderInterface>(
