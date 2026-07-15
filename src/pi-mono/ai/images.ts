@@ -1,4 +1,4 @@
-import "./providers/images/register-builtins.ts";
+import "./providers/images/register-builtins.js";
 
 import { getImagesApiProvider } from "./images-api-registry.js";
 import type { AssistantImages, ImagesApi, ImagesContext, ImagesModel, ProviderImagesOptions } from "./types.js";
