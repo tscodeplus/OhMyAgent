@@ -46,10 +46,23 @@
 
 ### 仍需删除的 Harness 文件
 
+与 v0.80.6 处理方式完全相同：
+
 ```bash
 rm -rf src/pi-mono/agent/harness
 rm -f src/pi-mono/agent/node.ts
 ```
+
+**原因不变**：harness `messages.ts` 通过 `declare module` 向 `CustomAgentMessages` 注册 `BashExecutionMessage`（无 `content` 字段），会导致 `src/agent/compress.ts` 等访问 `message.content` 的代码出现 TypeScript 类型错误。OhMyAgent 未使用 `CustomAgentMessages` 扩展机制，因此直接移除最安全。
+
+> **注意**：本次升级未对 v0.80.6 和 v0.80.7 的 harness 做差异对比。harness 的删除是整体策略决定，与版本间变化无关。如果未来需要引入 harness 的部分组件，应当从当前最新版源码独立评估。
+
+### 破坏性变更适配
+
+v0.80.7 有一个 Breaking Change：`sendSessionIdHeader` → `sessionAffinityFormat`。需要同步修改项目文件：
+
+- `src/app/bootstrap.ts`：`sendSessionIdHeader: true` → `sessionAffinityFormat: 'openai'`
+- `src/app/config-loader.ts`：`send_session_id_header` 映射 → `session_affinity_format`
 
 ## 值得关注的 upstream 新增功能
 
