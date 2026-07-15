@@ -502,7 +502,7 @@ function mapCompat(yamlVal: unknown): Record<string, unknown> | undefined {
   assign('cache_control_format', 'cacheControlFormat');
   assign('send_session_affinity_headers', 'sendSessionAffinityHeaders');
   assign('supports_long_cache_retention', 'supportsLongCacheRetention');
-  assign('send_session_id_header', 'sendSessionIdHeader');
+  assign('session_affinity_format', 'sessionAffinityFormat');
   assign('zai_tool_stream', 'zaiToolStream');
   assign('supports_strict_mode', 'supportsStrictMode');
 

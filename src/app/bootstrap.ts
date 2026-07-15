@@ -119,7 +119,7 @@ function withCustomProviderCacheCompat(model: CustomModelConfig, providerName?: 
   }
   if (model.api === 'openai-responses') {
     return {
-      sendSessionIdHeader: true,
+      sessionAffinityFormat: 'openai' as const,
       ...model.compat,
     };
   }
