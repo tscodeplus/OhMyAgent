@@ -8,10 +8,9 @@ import {
 	type Context,
 	EventStream,
 	streamSimple,
-	type Tool,
 	type ToolResultMessage,
 	validateToolArguments,
-} from "@earendil-works/pi-ai";
+} from "@earendil-works/pi-ai/compat";
 import type {
 	AgentContext,
 	AgentEvent,
@@ -24,11 +23,6 @@ import type {
 } from "./types.js";
 
 export type AgentEventSink = (event: AgentEvent) => Promise<void> | void;
-
-// Cumulative cache stats for observability across the agent process lifetime
-let cacheTotalInput = 0;
-let cacheTotalRead = 0;
-let cacheTotalWrite = 0;
 
 /**
  * Start an agent loop with a new prompt message.
@@ -206,12 +200,18 @@ async function runLoop(
 			}
 
 			// Check for tool calls
-			const toolCalls = message.content.filter((c) => c.type === "toolCall");
+			const toolCalls = message.content.filter((c: any) => c.type === "toolCall") as AgentToolCall[];
 
 			const toolResults: ToolResultMessage[] = [];
 			hasMoreToolCalls = false;
 			if (toolCalls.length > 0) {
-				const executedToolBatch = await executeToolCalls(currentContext, message, config, signal, emit);
+				// A "length" stop means the output was cut off by the token limit, so
+				// every tool call in the message may carry truncated arguments. Fail
+				// them all instead of executing potentially borked calls.
+				const executedToolBatch =
+					message.stopReason === "length"
+						? await failToolCallsFromTruncatedMessage(toolCalls, emit)
+						: await executeToolCalls(currentContext, message, config, signal, emit);
 				toolResults.push(...executedToolBatch.messages);
 				hasMoreToolCalls = !executedToolBatch.terminate;
 
@@ -294,6 +294,12 @@ async function streamAssistantResponse(
 	// Convert to LLM-compatible messages (AgentMessage[] → Message[])
 	const llmMessages = await config.convertToLlm(messages);
 
+/** Filter out deferred tools before sending to the LLM. (OhMyAgent extension.) */
+function compactToolsForPrompt(tools?: AgentTool<any>[]): any[] | undefined {
+	if (!tools) return undefined;
+	return tools.filter((t) => !(t as any).deferred) as any[];
+}
+
 	// Build LLM context
 	const llmContext: Context = {
 		systemPrompt: context.systemPrompt,
@@ -303,26 +309,15 @@ async function streamAssistantResponse(
 
 	const streamFunction = streamFn || streamSimple;
 
-	// Build model list: primary + fallbacks
-	const models = [config.model, ...(config.fallbackModels ?? [])];
-	const baseLen = context.messages.length;
-	let lastError: AssistantMessage | null = null;
+	// Resolve API key (important for expiring tokens)
+	const resolvedApiKey =
+		(config.getApiKey ? await config.getApiKey(config.model.provider) : undefined) || config.apiKey;
 
-	for (let attempt = 0; attempt < models.length; attempt++) {
-		const model = models[attempt];
-
-		// Restore context.messages to state before attempt
-		context.messages.length = baseLen;
-
-		// Resolve API key per model (fallback may use different provider)
-		const resolvedApiKey =
-			(config.getApiKey ? await config.getApiKey(model.provider) : undefined) || config.apiKey;
-
-		const response = await streamFunction(model, llmContext, {
-			...config,
-			apiKey: resolvedApiKey,
-			signal,
-		});
+	const response = await streamFunction(config.model, llmContext, {
+		...config,
+		apiKey: resolvedApiKey,
+		signal,
+	});
 
 	let partialMessage: AssistantMessage | null = null;
 	let addedPartial = false;
@@ -368,14 +363,6 @@ async function streamAssistantResponse(
 					await emit({ type: "message_start", message: { ...finalMessage } });
 				}
 				await emit({ type: "message_end", message: finalMessage });
-
-				// On error with fallback available, try next model
-				if ((finalMessage.stopReason === "error" || finalMessage.stopReason === "aborted")
-					&& !signal?.aborted
-					&& attempt < models.length - 1) {
-					lastError = finalMessage;
-					break; // exit switch, continue outer for loop
-				}
 				return finalMessage;
 			}
 		}
@@ -389,19 +376,41 @@ async function streamAssistantResponse(
 		await emit({ type: "message_start", message: { ...finalMessage } });
 	}
 	await emit({ type: "message_end", message: finalMessage });
-
-	// On error with fallback available, try next model
-	if ((finalMessage.stopReason === "error" || finalMessage.stopReason === "aborted")
-		&& !signal?.aborted
-		&& attempt < models.length - 1) {
-		lastError = finalMessage;
-		continue;
-	}
 	return finalMessage;
-	}
+}
 
-	// Should never reach here, but return the last error if all models fail
-	return lastError!;
+/**
+ * Fail all tool calls from an assistant message that was truncated by the
+ * output token limit. Streamed tool-call arguments are finalized with a
+ * best-effort JSON salvage parser, so a truncated message can yield tool calls
+ * whose arguments parse and validate but are silently incomplete. None of them
+ * are safe to execute; report each as an error so the model can re-issue them.
+ */
+async function failToolCallsFromTruncatedMessage(
+	toolCalls: AgentToolCall[],
+	emit: AgentEventSink,
+): Promise<ExecutedToolCallBatch> {
+	const messages: ToolResultMessage[] = [];
+	for (const toolCall of toolCalls) {
+		await emit({
+			type: "tool_execution_start",
+			toolCallId: toolCall.id,
+			toolName: toolCall.name,
+			args: toolCall.arguments,
+		});
+		const finalized: FinalizedToolCallOutcome = {
+			toolCall,
+			result: createErrorToolResult(
+				`Tool call "${toolCall.name}" was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments.`,
+			),
+			isError: true,
+		};
+		await emitToolExecutionEnd(finalized, emit);
+		const toolResultMessage = createToolResultMessage(finalized);
+		await emitToolResultMessage(toolResultMessage, emit);
+		messages.push(toolResultMessage);
+	}
+	return { messages, terminate: false };
 }
 
 /**
@@ -414,9 +423,9 @@ async function executeToolCalls(
 	signal: AbortSignal | undefined,
 	emit: AgentEventSink,
 ): Promise<ExecutedToolCallBatch> {
-	const toolCalls = assistantMessage.content.filter((c) => c.type === "toolCall");
+	const toolCalls = assistantMessage.content.filter((c: any) => c.type === "toolCall") as AgentToolCall[];
 	const hasSequentialToolCall = toolCalls.some(
-		(tc) => currentContext.tools?.find((t) => t.name === tc.name)?.executionMode === "sequential",
+		(tc: any) => currentContext.tools?.find((t) => t.name === tc.name)?.executionMode === "sequential",
 	);
 	if (config.toolExecution === "sequential" || hasSequentialToolCall) {
 		return executeToolCallsSequential(currentContext, assistantMessage, toolCalls, config, signal, emit);
@@ -786,15 +795,4 @@ function createToolResultMessage(finalized: FinalizedToolCallOutcome): ToolResul
 async function emitToolResultMessage(toolResultMessage: ToolResultMessage, emit: AgentEventSink): Promise<void> {
 	await emit({ type: "message_start", message: toolResultMessage });
 	await emit({ type: "message_end", message: toolResultMessage });
-}
-
-/**
- * Filter out deferred tools from the tool list before serializing into the
- * LLM prompt. Deferred tools remain resolvable via tool search/direct
- * invocation but are not sent to the model in the prompt.
- */
-function compactToolsForPrompt(tools?: AgentTool<any>[]): Tool[] | undefined {
-	if (!tools || tools.length === 0) return undefined;
-	const filtered = tools.filter((t) => !(t as AgentTool<any>).deferred) as Tool[];
-	return filtered.length > 0 ? filtered : undefined;
 }

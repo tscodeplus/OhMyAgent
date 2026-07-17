@@ -29,6 +29,7 @@ import { opencodeProvider } from "./opencode.js";
 import { opencodeGoProvider } from "./opencode-go.js";
 import { openrouterProvider } from "./openrouter.js";
 import { openrouterImagesProvider } from "./openrouter-images.js";
+import { radiusProvider } from "./radius.js";
 import { togetherProvider } from "./together.js";
 import { vercelAIGatewayProvider } from "./vercel-ai-gateway.js";
 import { xaiProvider } from "./xai.js";
@@ -38,6 +39,8 @@ import { xiaomiTokenPlanCnProvider } from "./xiaomi-token-plan-cn.js";
 import { xiaomiTokenPlanSgpProvider } from "./xiaomi-token-plan-sgp.js";
 import { zaiProvider } from "./zai.js";
 import { zaiCodingCnProvider } from "./zai-coding-cn.js";
+
+export { radiusProvider };
 
 /** Providers present in the generated catalog. `KnownProvider` additionally
  * includes purely dynamic providers (e.g. "radius") that have no static
@@ -100,6 +103,7 @@ export function builtinProviders(): Provider[] {
 		opencodeProvider(),
 		opencodeGoProvider(),
 		openrouterProvider(),
+		radiusProvider(),
 		togetherProvider(),
 		vercelAIGatewayProvider(),
 		xaiProvider(),

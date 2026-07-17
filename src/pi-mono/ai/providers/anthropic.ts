@@ -1,7 +1,7 @@
 import { anthropicMessagesApi } from "../api/anthropic-messages.lazy.js";
 import { envApiKeyAuth, lazyOAuth } from "../auth/helpers.js";
+import { loadAnthropicOAuth } from "../auth/oauth/load.js";
 import { createProvider, type Provider } from "../models.js";
-import { loadAnthropicOAuth } from "../utils/oauth/load.js";
 import { ANTHROPIC_MODELS } from "./anthropic.models.js";
 
 export function anthropicProvider(): Provider<"anthropic-messages"> {

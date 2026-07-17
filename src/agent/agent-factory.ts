@@ -838,8 +838,8 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
             })
           : undefined,
 
-        // ── P3: prepareNextTurn hook (turn counter + reflection injection) ──
-        prepareNextTurn: async (ctx) => {
+        // ── P3: prepareNextTurnWithContext hook (turn counter + reflection injection) ──
+        prepareNextTurnWithContext: async (ctx, _signal) => {
           if (!sessionId) return undefined;
 
           try {

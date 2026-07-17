@@ -39,6 +39,8 @@ import { openAICompletionsApi } from "./api/openai-completions.lazy.js";
 import { openAIResponsesApi } from "./api/openai-responses.lazy.js";
 import { piMessagesApi } from "./api/pi-messages.lazy.js";
 import { getEnvApiKey } from "./env-api-keys.js";
+import type { ModelsApiStreamOptions } from "./models.js";
+import { createModels, createProvider, type MutableModels } from "./models.js";
 import { builtinModels, getBuiltinModel, getBuiltinModels, getBuiltinProviders } from "./providers/all.js";
 
 export type { BuiltinProvider } from "./providers/all.js";
@@ -59,54 +61,89 @@ import type {
 } from "./types.js";
 
 /** @deprecated Static catalog read. Use `getBuiltinModel` from "@earendil-works/pi-ai/providers/all" or `Models.getModel()`. */
-export function getModel<TProvider extends string, TModelId extends string>(
-	provider: TProvider,
-	modelId: TModelId,
-): Model<Api> | undefined {
-	// Check custom registry first (OhMyAgent: runtime-registered models)
-	const customModels = customModelRegistry.get(provider);
-	const custom = customModels?.get(modelId);
-	if (custom) return custom;
-
-	// Dynamic model fallback: provider is known but model ID isn't in builtin catalog.
-	// Clone the first registered model of this provider to inherit headers/baseUrl/compat,
-	// then substitute the caller's model ID. API gateways (NVIDIA NIM, OpenRouter, etc.)
-	// proxy arbitrary model IDs through their OpenAI-compatible endpoint.
-	const builtin = getBuiltinModel(provider as any, modelId as any);
-	if (builtin) return builtin;
-
-	// Dynamic model fallback for custom-registered providers (API gateways like NVIDIA NIM)
-	if (customModels && customModels.size > 0) {
-		const template = customModels.values().next().value;
-		if (template) {
-			const dynamic = { ...template, id: modelId, name: modelId } as Model<Api>;
-			customModels.set(modelId, dynamic);
-			return dynamic;
-		}
-	}
-
-	// Also try dynamic resolution from builtin models for this provider
-	const builtinModels = getBuiltinModels(provider as any);
-	if (builtinModels && builtinModels.length > 0) {
-		const template = builtinModels[0] as Model<Api>;
-		if (template) {
-			const dynamic = { ...template, id: modelId, name: modelId } as Model<Api>;
-			// Cache the dynamic model in the custom registry
-			let pm = customModelRegistry.get(provider);
-			if (!pm) { pm = new Map(); customModelRegistry.set(provider, pm); }
-			pm.set(modelId, dynamic);
-			return dynamic;
-		}
-	}
-
-	return undefined;
-}
+export const getBuiltinModelOnly = getBuiltinModel;
 
 /** @deprecated Static catalog read. Use `getBuiltinModels` from "@earendil-works/pi-ai/providers/all" or `Models.getModels()`. */
-export const getModels = getBuiltinModels;
+export const getBuiltinModelsOnly = getBuiltinModels;
 
 /** @deprecated Static catalog read. Use `getBuiltinProviders` from "@earendil-works/pi-ai/providers/all" or `Models.getProviders()`. */
-export const getProviders = getBuiltinProviders;
+export const getBuiltinProvidersOnly = getBuiltinProviders;
+
+/**
+ * Merged model lookup: checks custom-registered models first, then builtins.
+ */
+export function getModel(providerId: string, modelId: string): Model<Api> | undefined {
+  const custom = pendingCustomModels.get(providerId)?.find((m) => m.id === modelId);
+  if (custom) return custom;
+  return getBuiltinModel(providerId as any, modelId as any) as Model<Api> | undefined;
+}
+
+/** Merged models list: custom + builtin. */
+export function getModels(providerId: string): Model<Api>[] {
+  const custom = pendingCustomModels.get(providerId) ?? [];
+  try {
+    const builtin = getBuiltinModels(providerId as any) as Model<Api>[];
+    return [...custom, ...builtin];
+  } catch {
+    return custom;
+  }
+}
+
+/** Merged providers list: custom + builtin. */
+export function getProviders(): string[] {
+  const builtin = getBuiltinProviders();
+  const custom = Array.from(pendingCustomModels.keys());
+  return [...new Set([...custom, ...builtin])];
+}
+
+// ── Custom model registration (compat for pre-v0.80.8 registerModel API) ──
+
+const pendingCustomModels = new Map<string, Model<Api>[]>();
+
+/**
+ * Register a custom model under the given provider and model id.
+ *
+ * In v0.80.10, models are grouped by provider via `createProvider`. This
+ * compat wrapper stores models per provider so `getModel`/`getModels`
+ * can find them, without requiring callers to migrate to `createProvider`
+ * immediately.
+ */
+export function registerModel(providerId: string, modelId: string, model: Model<Api>): void {
+  if (!pendingCustomModels.has(providerId)) {
+    pendingCustomModels.set(providerId, []);
+  }
+  pendingCustomModels.get(providerId)!.push(model);
+}
+
+/**
+ * Wrap a Models-compatible getModel lookup that checks custom models first,
+ * then falls back to the builtin catalog.
+ */
+export function resolveModel(providerId: string, modelId: string): Model<Api> | undefined {
+  // Check custom models first
+  const custom = pendingCustomModels.get(providerId)?.find((m) => m.id === modelId);
+  if (custom) return custom;
+  // Fall back to builtin
+  return getBuiltinModel(providerId as any, modelId as any) as Model<Api> | undefined;
+}
+
+/** List all models for a provider (custom + builtin). */
+export function resolveModels(providerId: string): Model<Api>[] {
+  const custom = pendingCustomModels.get(providerId) ?? [];
+  try {
+    const builtin = getBuiltinModels(providerId as any) as Model<Api>[];
+    return [...custom, ...builtin];
+  } catch {
+    return custom;
+  }
+}
+
+/** List all provider ids (custom + builtin). */
+export function resolveProviders(): string[] {
+  const builtin = getBuiltinProviders();
+  const custom = Array.from(pendingCustomModels.keys());
+  return [...new Set([...custom, ...builtin])];
+}
 
 export type ApiStreamFunction = (
 	model: Model<Api>,
@@ -269,9 +306,14 @@ function withEnvApiKey<TOptions extends StreamOptions>(
 	return { ...options, apiKey } as TOptions;
 }
 
-function shouldUseBuiltinModels(model: Model<Api>): boolean {
-	const builtin = compatModels.getModel(model.provider, model.id);
-	return builtin?.api === model.api && getApiProvider(model.api) === builtinApiProviderInstances.get(model.api);
+function hasResolvedCloudflareAuth(options: StreamOptions | undefined): boolean {
+	return hasExplicitApiKey(options?.apiKey) || typeof options?.headers?.["cf-aig-authorization"] === "string";
+}
+
+function getBuiltinProviderForModel(model: Model<Api>) {
+	if (getApiProvider(model.api) !== builtinApiProviderInstances.get(model.api)) return undefined;
+	const provider = compatModels.getProvider(model.provider);
+	return provider?.getModels().some((candidate) => candidate.api === model.api) ? provider : undefined;
 }
 
 function resolveApiProvider(api: Api) {
@@ -287,8 +329,12 @@ export function stream<TApi extends Api>(
 	context: Context,
 	options?: ProviderStreamOptions,
 ): AssistantMessageEventStream {
-	if (shouldUseBuiltinModels(model)) {
-		return compatModels.stream(model, context, options as ApiStreamOptions<TApi> | undefined);
+	const builtinProvider = getBuiltinProviderForModel(model);
+	if (builtinProvider) {
+		if (model.provider.startsWith("cloudflare-") && !hasResolvedCloudflareAuth(options)) {
+			return compatModels.stream(model, context, options as ModelsApiStreamOptions<TApi> | undefined);
+		}
+		return builtinProvider.stream(model, context, withEnvApiKey(model, options) as ApiStreamOptions<TApi>);
 	}
 	const provider = resolveApiProvider(model.api);
 	return provider.stream(model, context, withEnvApiKey(model, options) as StreamOptions);
@@ -308,8 +354,12 @@ export function streamSimple<TApi extends Api>(
 	context: Context,
 	options?: SimpleStreamOptions,
 ): AssistantMessageEventStream {
-	if (shouldUseBuiltinModels(model)) {
-		return compatModels.streamSimple(model, context, options);
+	const builtinProvider = getBuiltinProviderForModel(model);
+	if (builtinProvider) {
+		if (model.provider.startsWith("cloudflare-") && !hasResolvedCloudflareAuth(options)) {
+			return compatModels.streamSimple(model, context, options);
+		}
+		return builtinProvider.streamSimple(model, context, withEnvApiKey(model, options));
 	}
 	const provider = resolveApiProvider(model.api);
 	return provider.streamSimple(model, context, withEnvApiKey(model, options));
@@ -322,39 +372,4 @@ export async function completeSimple<TApi extends Api>(
 ): Promise<AssistantMessage> {
 	const s = streamSimple(model, context, options);
 	return s.result();
-}
-
-// ---------------------------------------------------------------------------
-// OhMyAgent custom extensions: model registration and comparison
-// (calculateCost, getSupportedThinkingLevels, clampThinkingLevel are
-// re-exported from models.ts via index.ts — do not duplicate here)
-// ---------------------------------------------------------------------------
-
-// Custom model registry for runtime-registered models (e.g., MiMo via faux provider)
-const customModelRegistry = new Map<string, Map<string, Model<Api>>>();
-
-/**
- * Register a model at runtime. Models registered this way take precedence over
- * builtin catalog entries in `getModel`.
- */
-export function registerModel<TApi extends Api>(
-	provider: string,
-	modelId: string,
-	model: Model<TApi>,
-): void {
-	let providerModels = customModelRegistry.get(provider);
-	if (!providerModels) {
-		providerModels = new Map<string, Model<Api>>();
-		customModelRegistry.set(provider, providerModels);
-	}
-	providerModels.set(modelId, model as Model<Api>);
-}
-
-/**
- * Check if two models are equal by comparing both their id and provider.
- * Returns false if either model is null or undefined.
- */
-export function isSameModel(a?: Model<Api> | null, b?: Model<Api> | null): boolean {
-	if (!a || !b) return false;
-	return a.provider === b.provider && a.id === b.id;
 }

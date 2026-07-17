@@ -5,10 +5,11 @@ import tsconfigPaths from 'vite-tsconfig-paths';
 export default defineConfig({
   plugins: [tsconfigPaths()],
   resolve: {
-    alias: {
-      '@earendil-works/pi-ai': path.resolve(__dirname, 'src/pi-mono/ai/compat.ts'),
-      '@earendil-works/pi-agent-core': path.resolve(__dirname, 'src/pi-mono/agent/index.ts'),
-    },
+    alias: [
+      { find: '@earendil-works/pi-ai/compat', replacement: path.resolve(__dirname, 'src/pi-mono/ai/compat.ts') },
+      { find: '@earendil-works/pi-ai', replacement: path.resolve(__dirname, 'src/pi-mono/ai/compat.ts') },
+      { find: '@earendil-works/pi-agent-core', replacement: path.resolve(__dirname, 'src/pi-mono/agent/index.ts') },
+    ],
   },
   test: {
     globals: true,

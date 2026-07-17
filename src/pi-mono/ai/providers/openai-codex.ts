@@ -1,7 +1,7 @@
 import { openAICodexResponsesApi } from "../api/openai-codex-responses.lazy.js";
 import { lazyOAuth } from "../auth/helpers.js";
+import { loadOpenAICodexOAuth } from "../auth/oauth/load.js";
 import { createProvider, type Provider } from "../models.js";
-import { loadOpenAICodexOAuth } from "../utils/oauth/load.js";
 import { OPENAI_CODEX_MODELS } from "./openai-codex.models.js";
 
 export function openaiCodexProvider(): Provider<"openai-codex-responses"> {

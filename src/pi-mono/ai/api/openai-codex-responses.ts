@@ -258,8 +258,9 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			if (nextBody !== undefined) {
 				body = nextBody as RequestBody;
 			}
-			const websocketRequestId = options?.sessionId || createCodexRequestId();
-			const sseHeaders = buildSSEHeaders(model.headers, options?.headers, accountId, apiKey, options?.sessionId);
+			const codexSessionId = clampOpenAIPromptCacheKey(options?.sessionId);
+			const websocketRequestId = codexSessionId || createCodexRequestId();
+			const sseHeaders = buildSSEHeaders(model.headers, options?.headers, accountId, apiKey, codexSessionId);
 			const websocketHeaders = buildWebSocketHeaders(
 				model.headers,
 				options?.headers,
@@ -344,7 +345,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			if (compressedBody) {
 				sseHeaders.set("content-encoding", "zstd");
 			}
-			const sseBody: string | Uint8Array = compressedBody ?? bodyJson;
+			const sseBody: Uint8Array | string = compressedBody ?? bodyJson;
 
 			// Fetch with retry logic for rate limits and transient errors
 			let response: Response | undefined;
@@ -364,7 +365,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 						response = await fetch(resolveCodexUrl(model.baseUrl), {
 							method: "POST",
 							headers: sseHeaders,
-							body: sseBody as any,
+							body: sseBody as BodyInit,
 							signal: combinedSignal.signal,
 						});
 					} catch (error) {

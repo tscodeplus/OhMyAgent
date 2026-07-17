@@ -2,8 +2,8 @@ import { anthropicMessagesApi } from "../api/anthropic-messages.lazy.js";
 import { openAICompletionsApi } from "../api/openai-completions.lazy.js";
 import { openAIResponsesApi } from "../api/openai-responses.lazy.js";
 import { envApiKeyAuth, lazyOAuth } from "../auth/helpers.js";
+import { loadGitHubCopilotOAuth } from "../auth/oauth/load.js";
 import { createProvider, type Provider } from "../models.js";
-import { loadGitHubCopilotOAuth } from "../utils/oauth/load.js";
 import { GITHUB_COPILOT_MODELS } from "./github-copilot.models.js";
 
 export function githubCopilotProvider(): Provider<"anthropic-messages" | "openai-completions" | "openai-responses"> {
@@ -16,6 +16,15 @@ export function githubCopilotProvider(): Provider<"anthropic-messages" | "openai
 			oauth: lazyOAuth({ name: "GitHub Copilot", load: loadGitHubCopilotOAuth }),
 		},
 		models: Object.values(GITHUB_COPILOT_MODELS),
+		filterModels: (models, credential) => {
+			if (credential?.type !== "oauth") return models;
+			const availableModelIds = credential.availableModelIds;
+			if (!Array.isArray(availableModelIds) || !availableModelIds.every((id) => typeof id === "string")) {
+				return models;
+			}
+			const available = new Set(availableModelIds);
+			return models.filter((model) => available.has(model.id));
+		},
 		api: {
 			"anthropic-messages": anthropicMessagesApi(),
 			"openai-completions": openAICompletionsApi(),
