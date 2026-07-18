@@ -140,14 +140,27 @@ export default function DesktopSettings() {
   }, [updateStatus]);
 
   // ── Show update-available toast with release notes ──
-  const showUpdateToast = useCallback((version: string, notes: string) => {
+  const showUpdateToast = useCallback((version: string, notes: string, isMarkdown = false) => {
     if (toastedVersionRef.current === version) return;
     toastedVersionRef.current = version;
 
-    const body = truncateReleaseNotes(notes);
-    const message = body
-      ? `${t('settings.about.newVersionAvailable', { version })}\n\n${body}`
-      : t('settings.about.newVersionAvailable', { version });
+    let message: string;
+    if (isMarkdown) {
+      // Preserve raw markdown formatting; truncate to a reasonable length
+      const maxLen = 3000;
+      const body = notes && notes.length > maxLen
+        ? notes.slice(0, maxLen).replace(/\n[^\n]*$/, '') + '\n\n…'
+        : notes;
+      message = body
+        ? `${t('settings.about.newVersionAvailable', { version })}\n\n${body}`
+        : t('settings.about.newVersionAvailable', { version });
+    } else {
+      // Electron path: release notes are HTML — strip to plain text
+      const body = truncateReleaseNotes(notes);
+      message = body
+        ? `${t('settings.about.newVersionAvailable', { version })}\n\n${body}`
+        : t('settings.about.newVersionAvailable', { version });
+    }
 
     showToast(message, 'info', 0, [
       {
@@ -168,7 +181,7 @@ export default function DesktopSettings() {
           }
         },
       },
-    ]);
+    ], isMarkdown);
   }, [showToast, t, handleWebUIUpdate]);
 
   // ── Electron update event listeners ──
@@ -279,7 +292,7 @@ export default function DesktopSettings() {
 
         if (data.updateAvailable) {
           setUpdateStatus('available');
-          showUpdateToast(data.latestVersion, data.releaseNotes || '');
+          showUpdateToast(data.latestVersion, data.releaseNotes || '', true);
         } else {
           setUpdateStatus('up-to-date');
           showToast(t('settings.about.upToDate'), 'success', 3000);

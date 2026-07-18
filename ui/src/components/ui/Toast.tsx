@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, createContext, useContext, useRef, type ReactNode } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { X, CheckCircle, AlertCircle, Info } from 'lucide-react';
 
 type ToastType = 'success' | 'error' | 'info';
@@ -16,10 +18,12 @@ interface Toast {
   type: ToastType;
   duration: number;
   actions?: ToastAction[];
+  /** Render message as Markdown (using react-markdown + remark-gfm). */
+  markdown?: boolean;
 }
 
 interface ToastContextValue {
-  showToast: (message: string, type?: ToastType, duration?: number, actions?: ToastAction[]) => void;
+  showToast: (message: string, type?: ToastType, duration?: number, actions?: ToastAction[], markdown?: boolean) => void;
 }
 
 const ToastContext = createContext<ToastContextValue>({ showToast: () => {} });
@@ -29,11 +33,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const nextIdRef = useRef(1);
 
   const showToast = useCallback(
-    (message: string, type: ToastType = 'info', duration = 1500, actions?: ToastAction[]) => {
+    (message: string, type: ToastType = 'info', duration = 1500, actions?: ToastAction[], markdown?: boolean) => {
       const id = nextIdRef.current++;
       // When actions are present, default to sticky (duration=0) unless explicitly set
       const effectiveDuration = actions && actions.length > 0 && duration === 1500 ? 0 : duration;
-      setToasts((prev) => [...prev, { id, message, type, duration: effectiveDuration, actions }]);
+      setToasts((prev) => [...prev, { id, message, type, duration: effectiveDuration, actions, markdown }]);
     },
     [],
   );
@@ -102,7 +106,13 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: () => void }) 
     >
       <div className="flex items-start gap-3 w-full">
         <Icon size={18} className={`shrink-0 mt-0.5 ${ic}`} />
-        <span className="text-sm flex-1 whitespace-pre-wrap leading-snug text-neutral-900 dark:text-neutral-100 max-h-[55vh] overflow-y-auto break-words">{toast.message}</span>
+        {toast.markdown ? (
+          <div className="text-sm flex-1 leading-snug text-neutral-900 dark:text-neutral-100 max-h-[55vh] overflow-y-auto break-words markdown-content">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{toast.message}</ReactMarkdown>
+          </div>
+        ) : (
+          <span className="text-sm flex-1 whitespace-pre-wrap leading-snug text-neutral-900 dark:text-neutral-100 max-h-[55vh] overflow-y-auto break-words">{toast.message}</span>
+        )}
         <button
           onClick={onRemove}
           className={`shrink-0 rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors ${ic}`}
