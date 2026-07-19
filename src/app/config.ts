@@ -514,47 +514,20 @@ const configSchema = z.object({
     proposal: z.object({
       model: z.string().default('default'),
       maxEditsPerProposal: z.number().int().positive().default(5),
+      minConfidence: z.number().min(0).max(1).default(0.5),
+      allowedMechanisms: z.array(z.string()).default([
+        'prompt_instruction', 'subagent', 'skill_procedure',
+        'tool_configuration', 'middleware', 'runtime_control',
+      ]),
     }).default({}),
     interactive: z.object({
+      enabled: z.boolean().default(true),
       approval: z.object({
         mode: z.enum(['always_ask', 'smart_approve', 'low_risk_auto']).default('always_ask'),
       }).optional(),
     }).optional(),
     rules: z.array(z.any()).optional(),
-  }).optional().default({}).transform((val): HarnessConfig => {
-    if (!val) return { enabled: false, trigger: { minIdenticalRetries: 3, minExplorationSteps: 8, minConsecutiveErrors: 3 }, rateLimit: { cooldownMs: 1800000, maxAnalyses: 2, maxAutoApplyAnalyses: 5 }, channels: { webui: true, feishu: true, telegram: true, wechat: false, qq: false }, proposal: { model: 'default', maxEditsPerProposal: 5, minConfidence: 0.5, allowedMechanisms: ['prompt_instruction', 'subagent', 'skill_procedure', 'tool_configuration', 'middleware', 'runtime_control'] }, interactive: { enabled: false }, approvalRules: [] };
-    return {
-      enabled: val.enabled,
-      trigger: {
-        minIdenticalRetries: val.trigger.minIdenticalRetries,
-        minExplorationSteps: val.trigger.minExplorationSteps,
-        minConsecutiveErrors: val.trigger.minConsecutiveErrors,
-      },
-      rateLimit: {
-        cooldownMs: val.rateLimit.cooldownMinutes * 60000,
-        maxAnalyses: val.rateLimit.maxPerHour,
-        maxAutoApplyAnalyses: val.rateLimit.maxAutoApplyPerDay,
-      },
-      channels: {
-        webui: val.channels.webui,
-        feishu: val.channels.feishu,
-        telegram: val.channels.telegram,
-        wechat: val.channels.wechat,
-        qq: val.channels.qq,
-      },
-      proposal: {
-        model: val.proposal.model,
-        maxEditsPerProposal: val.proposal.maxEditsPerProposal,
-        minConfidence: 0.5,
-        allowedMechanisms: ['prompt_instruction', 'subagent', 'skill_procedure', 'tool_configuration', 'middleware', 'runtime_control'],
-      },
-      interactive: {
-        enabled: val.enabled,
-        ...(val.interactive?.approval ? { approval: val.interactive.approval } : {}),
-      },
-      approvalRules: (val.rules ?? []) as ApprovalRule[],
-    };
-  }),
+  }).optional().default({}),
 });
 
 let cachedConfig: AppConfig | null = null;

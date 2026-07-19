@@ -19,21 +19,21 @@ export class HarnessRateLimiter {
     // 1. Build cooldown key from (skillId ?? "_") + "/" + (agentId ?? "_") + "/" + pattern
     const key = (skillId ?? '_') + '/' + (agentId ?? '_') + '/' + pattern;
 
-    // 2. Check cooldown
+    // 2. Check cooldown (config.cooldownMinutes → ms)
     const lastCooldown = this.cooldownMap.get(key);
-    if (lastCooldown !== undefined && Date.now() - lastCooldown < this.config.cooldownMs) {
+    if (lastCooldown !== undefined && Date.now() - lastCooldown < this.config.cooldownMinutes * 60000) {
       return false;
     }
 
-    // 3. Prune old hourly timestamps (> 3600000 ms old) and check count < maxAnalyses
+    // 3. Prune old hourly timestamps (> 3600000 ms old) and check count < maxPerHour
     this.hourlyTimestamps = this.hourlyTimestamps.filter(ts => Date.now() - ts < 3600000);
-    if (this.hourlyTimestamps.length >= this.config.maxAnalyses) {
+    if (this.hourlyTimestamps.length >= this.config.maxPerHour) {
       return false;
     }
 
-    // 4. Prune old daily timestamps (> 86400000 ms old) and check count < maxAnalyses
+    // 4. Prune old daily timestamps (> 86400000 ms old) and check count < maxPerDay
     this.dailyTimestamps = this.dailyTimestamps.filter(ts => Date.now() - ts < 86400000);
-    if (this.dailyTimestamps.length >= this.config.maxAnalyses) {
+    if (this.dailyTimestamps.length >= this.config.maxPerDay) {
       return false;
     }
 

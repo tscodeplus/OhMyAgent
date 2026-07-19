@@ -384,12 +384,14 @@ export interface HarnessTriggerConfig {
  * Rate-limiting configuration to prevent the harness from running too often.
  */
 export interface HarnessRateLimitConfig {
-  /** Cooldown in milliseconds between successive triggers of the same pattern. */
-  cooldownMs: number;
-  /** Maximum number of triggers per hour (also used as daily limit). */
-  maxAnalyses: number;
+  /** Cooldown in minutes between successive triggers of the same pattern. */
+  cooldownMinutes: number;
+  /** Maximum number of triggers per hour. */
+  maxPerHour: number;
+  /** Maximum number of triggers per day. */
+  maxPerDay: number;
   /** Maximum number of auto-applied proposals per day. */
-  maxAutoApplyAnalyses: number;
+  maxAutoApplyPerDay: number;
 }
 
 /**
@@ -414,7 +416,7 @@ export interface HarnessProposalConfig {
   /** Minimum confidence threshold (0-1) for a proposal to be emitted. */
   minConfidence: number;
   /** Mechanism families the optimizer is allowed to touch. */
-  allowedMechanisms: MechanismFamily[];
+  allowedMechanisms: string[];
 }
 
 /**
@@ -445,9 +447,9 @@ export interface HarnessConfig {
   /** Proposal generation configuration. */
   proposal: HarnessProposalConfig;
   /** Interactive prompt configuration. */
-  interactive: HarnessInteractiveConfig;
+  interactive?: HarnessInteractiveConfig;
   /** Ordered list of approval rules. */
-  approvalRules: ApprovalRule[];
+  rules?: ApprovalRule[];
 }
 
 // ---------------------------------------------------------------------------

@@ -179,8 +179,8 @@ export async function bootstrap(): Promise<BootstrapResult> {
   // Harness config hot-reload
   if (harnessServices) {
     configEventBus.onReload((newConfig) => {
-      if (newConfig.harness?.approvalRules) {
-        harnessServices?.approvalPolicy.reload(newConfig.harness.approvalRules);
+      if (newConfig.harness?.rules) {
+        harnessServices?.approvalPolicy.reload(newConfig.harness.rules);
       }
     });
   }

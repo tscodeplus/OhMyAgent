@@ -225,11 +225,12 @@ describe('FailureDetector', () => {
 // ── RateLimiter Tests ────────────────────────────────────────────────────────────
 
 describe('HarnessRateLimiter', () => {
-  // The actual implementation uses cooldownMs and maxAnalyses
+  // cooldownMinutes in minutes, maxPerHour for hourly limit, maxPerDay for daily limit
   const config = {
-    cooldownMs: 30 * 60 * 1000, // 30 minutes in ms
-    maxAnalyses: 2,              // both hourly and daily limit use maxAnalyses
-    maxAutoApplyAnalyses: 5,
+    cooldownMinutes: 30,
+    maxPerHour: 2,
+    maxPerDay: 10,
+    maxAutoApplyPerDay: 5,
   };
 
   it('should allow first trigger', () => {
@@ -256,11 +257,11 @@ describe('HarnessRateLimiter', () => {
   });
 
   it('should enforce analysis limit', () => {
-    const limiter = new HarnessRateLimiter({ cooldownMs: 0, maxAnalyses: 2, maxAutoApplyAnalyses: 5 });
+    const limiter = new HarnessRateLimiter({ cooldownMinutes: 0, maxPerHour: 2, maxPerDay: 10, maxAutoApplyPerDay: 5 });
     // First 2 should succeed (no cooldown)
     expect(limiter.canTrigger('skill-a', 'agent-1', 'identical_retry_loop')).toBe(true);
     expect(limiter.canTrigger('skill-b', 'agent-1', 'tool_error_cascade')).toBe(true);
-    // 3rd should be blocked by maxAnalyses limit
+    // 3rd should be blocked by maxPerHour limit
     expect(limiter.canTrigger('skill-c', 'agent-1', 'exploration_without_output')).toBe(false);
   });
 

@@ -14,7 +14,7 @@ import type { FailureContext, FailureSignal, ImprovementProposal, ToolCallRecord
 
 const CONFIG = {
   trigger: { minIdenticalRetries: 3, minExplorationSteps: 8, minConsecutiveErrors: 3 },
-  rateLimit: { cooldownMs: 0, maxAnalyses: 100, maxAutoApplyAnalyses: 20 },
+  rateLimit: { cooldownMinutes: 0, maxPerHour: 100, maxPerDay: 200, maxAutoApplyPerDay: 20 },
   proposal: { model: 'default', maxEditsPerProposal: 5, minConfidence: 0.5, allowedMechanisms: ['prompt_instruction', 'subagent', 'skill_procedure', 'tool_configuration', 'middleware', 'runtime_control'] },
 };
 

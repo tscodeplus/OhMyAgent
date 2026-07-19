@@ -33,7 +33,7 @@ import type { FailureContext, ImprovementProposal } from '../../src/harness/type
 
 const LIVE_CONFIG = {
   trigger: { minIdenticalRetries: 3, minExplorationSteps: 8, minConsecutiveErrors: 3 },
-  rateLimit: { cooldownMs: 1800000, maxAnalyses: 2, maxAutoApplyAnalyses: 5 },
+  rateLimit: { cooldownMinutes: 30, maxPerHour: 2, maxPerDay: 10, maxAutoApplyPerDay: 5 },
   proposal: { model: 'default', maxEditsPerProposal: 5, minConfidence: 0.5, allowedMechanisms: ['prompt_instruction', 'subagent', 'skill_procedure', 'tool_configuration', 'middleware', 'runtime_control'] },
 };
 
@@ -68,7 +68,7 @@ describe('Self-Harness Runtime E2E', () => {
     });
 
     it('passes rate limiting for the first trigger', () => {
-      const rl = new HarnessRateLimiter({ cooldownMs: 0, maxAnalyses: 100, maxAutoApplyAnalyses: 20 });
+      const rl = new HarnessRateLimiter({ cooldownMinutes: 0, maxPerHour: 100, maxPerDay: 200, maxAutoApplyPerDay: 20 });
       expect(rl.canTrigger('android-operator', 'default', 'identical_retry_loop')).toBe(true);
     });
 
@@ -295,15 +295,15 @@ describe('Self-Harness Runtime E2E', () => {
 
   describe('Scenario: Rate limiting edge cases', () => {
     it('different patterns do not share cooldown', () => {
-      const rl = new HarnessRateLimiter({ cooldownMs: 1000, maxAnalyses: 100, maxAutoApplyAnalyses: 50 });
+      const rl = new HarnessRateLimiter({ cooldownMinutes: 1, maxPerHour: 100, maxPerDay: 200, maxAutoApplyPerDay: 50 });
 
       expect(rl.canTrigger('s1', 'a1', 'identical_retry_loop')).toBe(true);
       expect(rl.canTrigger('s1', 'a1', 'tool_error_cascade')).toBe(true); // Different pattern
       expect(rl.canTrigger('s2', 'a1', 'identical_retry_loop')).toBe(true); // Different skill
     });
 
-    it('enforces maxAnalyses limit', () => {
-      const rl = new HarnessRateLimiter({ cooldownMs: 0, maxAnalyses: 3, maxAutoApplyAnalyses: 5 });
+    it('enforces maxPerHour limit', () => {
+      const rl = new HarnessRateLimiter({ cooldownMinutes: 0, maxPerHour: 3, maxPerDay: 10, maxAutoApplyPerDay: 5 });
 
       expect(rl.canTrigger('s1', 'a1', 'identical_retry_loop')).toBe(true);
       expect(rl.canTrigger('s2', 'a1', 'tool_error_cascade')).toBe(true);
@@ -313,7 +313,7 @@ describe('Self-Harness Runtime E2E', () => {
     });
 
     it('tracks auto-apply separately from regular triggers', () => {
-      const rl = new HarnessRateLimiter({ cooldownMs: 0, maxAnalyses: 100, maxAutoApplyAnalyses: 1 });
+      const rl = new HarnessRateLimiter({ cooldownMinutes: 0, maxPerHour: 100, maxPerDay: 200, maxAutoApplyPerDay: 1 });
 
       expect(rl.getAutoApplyCount()).toBe(0);
       rl.recordAutoApply();
@@ -485,7 +485,7 @@ describe('Self-Harness Runtime E2E', () => {
       expect(signal!.pattern).toBe('identical_retry_loop');
 
       // Step 2: Rate limit
-      const rl = new HarnessRateLimiter({ cooldownMs: 0, maxAnalyses: 100, maxAutoApplyAnalyses: 20 });
+      const rl = new HarnessRateLimiter({ cooldownMinutes: 0, maxPerHour: 100, maxPerDay: 200, maxAutoApplyPerDay: 20 });
       const canTrigger = rl.canTrigger(ctx.skillId, ctx.agentId, signal!.pattern);
       expect(canTrigger).toBe(true);
 

@@ -44,7 +44,15 @@ export function createHarnessServices(config: HarnessConfig): HarnessServices | 
   // Placeholder LLM caller — the agent system must wire a real caller
   // before the optimizer is exercised.
   const optimizer = new HarnessOptimizer(
-    config.proposal,
+    {
+      model: config.proposal.model,
+      maxEditsPerProposal: config.proposal.maxEditsPerProposal,
+      minConfidence: (config.proposal as any).minConfidence ?? 0.5,
+      allowedMechanisms: (config.proposal as any).allowedMechanisms ?? [
+        'prompt_instruction', 'subagent', 'skill_procedure',
+        'tool_configuration', 'middleware', 'runtime_control',
+      ],
+    },
     surfaceProvider,
     async (_systemPrompt: string, _userMessage: string, _model?: string) => {
       throw new Error(
@@ -59,7 +67,7 @@ export function createHarnessServices(config: HarnessConfig): HarnessServices | 
     rateLimiter: new HarnessRateLimiter(config.rateLimit),
     optimizer,
     surfaceProvider,
-    approvalPolicy: new ApprovalPolicy(config.approvalRules),
+    approvalPolicy: new ApprovalPolicy(config.rules ?? []),
     autoApplyMonitor: new AutoApplyMonitor(),
     skillEditor: new SkillEditor(),
   };
