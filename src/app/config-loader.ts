@@ -424,6 +424,9 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
         timeoutAction: str(((root.policy as YamlNode)?.approval as YamlNode)?.timeout_action, 'deny'),
       } : undefined,
     } : undefined,
+
+    // Pass through harness config as-is (stored under the same key in YAML)
+    harness: root.harness,
   };
 
   return raw;
