@@ -515,6 +515,11 @@ const configSchema = z.object({
       model: z.string().default('default'),
       maxEditsPerProposal: z.number().int().positive().default(5),
     }).default({}),
+    interactive: z.object({
+      approval: z.object({
+        mode: z.enum(['always_ask', 'smart_approve', 'low_risk_auto']).default('always_ask'),
+      }).optional(),
+    }).optional(),
     rules: z.array(z.any()).optional(),
   }).optional().default({}).transform((val): HarnessConfig => {
     if (!val) return { enabled: false, trigger: { minIdenticalRetries: 3, minExplorationSteps: 8, minConsecutiveErrors: 3 }, rateLimit: { cooldownMs: 1800000, maxAnalyses: 2, maxAutoApplyAnalyses: 5 }, channels: { webui: true, feishu: true, telegram: true, wechat: false, qq: false }, proposal: { model: 'default', maxEditsPerProposal: 5, minConfidence: 0.5, allowedMechanisms: ['prompt_instruction', 'subagent', 'skill_procedure', 'tool_configuration', 'middleware', 'runtime_control'] }, interactive: { enabled: false }, approvalRules: [] };
@@ -545,6 +550,7 @@ const configSchema = z.object({
       },
       interactive: {
         enabled: val.enabled,
+        ...(val.interactive?.approval ? { approval: val.interactive.approval } : {}),
       },
       approvalRules: (val.rules ?? []) as ApprovalRule[],
     };

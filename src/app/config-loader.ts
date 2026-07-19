@@ -425,8 +425,39 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
       } : undefined,
     } : undefined,
 
-    // Pass through harness config as-is (stored under the same key in YAML)
-    harness: root.harness,
+    // Harness: map snake_case YAML → camelCase for Zod schema
+    harness: (() => {
+      const hc = root.harness as YamlNode;
+      if (!hc) return undefined;
+      const ht = hc.trigger as YamlNode;
+      const hr = hc.rate_limit as YamlNode;
+      const hp = hc.proposal as YamlNode;
+      const hi = hc.interactive as YamlNode;
+      return {
+        enabled: hc.enabled !== undefined ? Boolean(hc.enabled) : undefined,
+        channels: hc.channels,
+        trigger: ht ? {
+          minIdenticalRetries: num(ht.min_identical_retries, 3),
+          minExplorationSteps: num(ht.min_exploration_steps, 8),
+          minConsecutiveErrors: num(ht.min_consecutive_errors, 3),
+        } : undefined,
+        rateLimit: hr ? {
+          cooldownMinutes: num(hr.cooldown_minutes, 30),
+          maxPerHour: num(hr.max_per_hour, 2),
+          maxPerDay: num(hr.max_per_day, 10),
+          maxAutoApplyPerDay: num(hr.max_auto_apply_per_day, 5),
+        } : undefined,
+        proposal: hp ? {
+          model: str(hp.model, 'default'),
+          maxEditsPerProposal: num(hp.max_edits_per_proposal, 5),
+        } : undefined,
+        interactive: {
+          enabled: hc.enabled !== undefined ? Boolean(hc.enabled) : true,
+          ...(hi?.approval ? { approval: hi.approval } : {}),
+        },
+        rules: hc.rules,
+      };
+    })(),
   };
 
   return raw;
@@ -926,6 +957,53 @@ export function jsConfigToYaml(
           if (fr.allowedRoots !== undefined) f.allowed_roots = fr.allowedRoots;
           if (fr.deniedPatterns !== undefined) f.denied_patterns = fr.deniedPatterns;
         }
+        break;
+      }
+
+      // ─── harness → harness (camelCase JS → snake_case YAML) ───
+      case 'harness': {
+        const h = value as Record<string, unknown>;
+        const yh: Record<string, unknown> = {};
+
+        if (h.enabled !== undefined) yh.enabled = h.enabled;
+
+        // channels: same keys (webui, feishu, telegram, wechat, qq)
+        if (h.channels) yh.channels = h.channels;
+
+        // trigger: camelCase → snake_case
+        if (h.trigger) {
+          const t = h.trigger as Record<string, unknown>;
+          yh.trigger = {};
+          const yt = yh.trigger as Record<string, unknown>;
+          if (t.minIdenticalRetries !== undefined) yt.min_identical_retries = t.minIdenticalRetries;
+          if (t.minExplorationSteps !== undefined) yt.min_exploration_steps = t.minExplorationSteps;
+          if (t.minConsecutiveErrors !== undefined) yt.min_consecutive_errors = t.minConsecutiveErrors;
+        }
+
+        // rateLimit → rate_limit (camelCase → snake_case)
+        if (h.rateLimit) {
+          const rl = h.rateLimit as Record<string, unknown>;
+          yh.rate_limit = {};
+          const yr = yh.rate_limit as Record<string, unknown>;
+          if (rl.cooldownMinutes !== undefined) yr.cooldown_minutes = rl.cooldownMinutes;
+          if (rl.maxPerHour !== undefined) yr.max_per_hour = rl.maxPerHour;
+          if (rl.maxPerDay !== undefined) yr.max_per_day = rl.maxPerDay;
+          if (rl.maxAutoApplyPerDay !== undefined) yr.max_auto_apply_per_day = rl.maxAutoApplyPerDay;
+        }
+
+        // proposal: same keys
+        if (h.proposal) yh.proposal = h.proposal;
+
+        // interactive.enabled → harness-level enabled; interactive.approval kept as-is
+        if (h.interactive) {
+          const inter = h.interactive as Record<string, unknown>;
+          if (inter.enabled !== undefined) yh.enabled = inter.enabled;
+          if (inter.approval) yh.interactive = { approval: inter.approval };
+        }
+
+        if (h.rules !== undefined) yh.rules = h.rules;
+
+        yaml.harness = yh;
         break;
       }
 

@@ -423,6 +423,11 @@ export interface HarnessProposalConfig {
 export interface HarnessInteractiveConfig {
   /** Whether interactive mode is enabled. */
   enabled: boolean;
+  /** Approval strategy configuration. */
+  approval?: {
+    /** Approval mode: always_ask, smart_approve, or low_risk_auto. */
+    mode: 'always_ask' | 'smart_approve' | 'low_risk_auto';
+  };
 }
 
 /**
