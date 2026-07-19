@@ -33,6 +33,22 @@ function truncateReleaseNotes(body: string, maxLen = 2000): string {
   return plain.slice(0, maxLen).replace(/\n[^\n]*$/, '') + '\n…';
 }
 
+const INCLUDE_BETA_KEY = 'ohmyagent:includeBeta';
+
+function loadIncludeBeta(): boolean {
+  try {
+    return localStorage.getItem(INCLUDE_BETA_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function saveIncludeBeta(v: boolean): void {
+  try {
+    localStorage.setItem(INCLUDE_BETA_KEY, String(v));
+  } catch { /* ignore */ }
+}
+
 export default function DesktopSettings() {
   const { t } = useTranslation('common');
   const { showToast } = useToast();
@@ -45,7 +61,7 @@ export default function DesktopSettings() {
   const [releaseNotes, setReleaseNotes] = useState('');
   const [downloadPercent, setDownloadPercent] = useState(0);
   const [updateStep, setUpdateStep] = useState('');
-  const [includeBeta, setIncludeBeta] = useState(false);
+  const [includeBeta, setIncludeBeta] = useState(loadIncludeBeta);
 
   // Prevent duplicate toasts for the same version
   const toastedVersionRef = useRef('');
@@ -455,7 +471,7 @@ export default function DesktopSettings() {
               <input
                 type="checkbox"
                 checked={includeBeta}
-                onChange={(e) => setIncludeBeta(e.target.checked)}
+                onChange={(e) => { setIncludeBeta(e.target.checked); saveIncludeBeta(e.target.checked); }}
                 disabled={isChecking || isDownloading}
                 className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-indigo-500 focus:ring-indigo-500 cursor-pointer"
               />
