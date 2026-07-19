@@ -85,8 +85,16 @@ function detectMacOSProxy(): ProxyConfig {
 
 export function registerSystemRoutes(app: FastifyInstance): void {
   // ── Check for updates from GitHub ──────────────────────────────────────
-  app.get('/api/system/check-update', async (_request, reply) => {
+  app.get('/api/system/check-update', async (request, reply) => {
     try {
+      // Support includeBeta query param: when true, include releases whose
+      // tag_name contains "beta"; when false, skip them and pick the first
+      // non-beta release.
+      const query = request.query as { includeBeta?: string };
+      const includeBeta = query.includeBeta === 'true' || query.includeBeta === '1';
+      // Always fetch the releases list so we can filter by beta string
+      // client-side. Use per_page=30 to cover recent releases.
+      const apiPath = 'https://api.github.com/repos/tscodeplus/OhMyAgent/releases?per_page=30';
       let res: Response | null = null;
       let lastErr: any = null;
 
@@ -110,7 +118,7 @@ export function registerSystemRoutes(app: FastifyInstance): void {
           }
 
           res = await fetch(
-            'https://api.github.com/repos/tscodeplus/OhMyAgent/releases/latest',
+            apiPath,
             {
               headers: { 'Accept': 'application/vnd.github.v3+json' },
               signal: controller.signal,
@@ -138,7 +146,21 @@ export function registerSystemRoutes(app: FastifyInstance): void {
         return reply.status(502).send({ ok: false, error: 'github_error', message: `GitHub API returned ${res.status}` });
       }
 
-      const release = await res.json();
+      const releases: any[] = await res.json();
+      if (!Array.isArray(releases) || releases.length === 0) {
+        return reply.send({ ok: true, currentVersion: getAppVersion() || '0.0.0', latestVersion: '', updateAvailable: false, releaseUrl: '', releaseNotes: '' });
+      }
+
+      // Pick the right release: when includeBeta is true, use the first
+      // (latest) release; otherwise skip releases whose tag_name contains
+      // "beta" (case-insensitive) and pick the first non-beta one.
+      const release = includeBeta
+        ? releases[0]
+        : releases.find((r: any) => !/beta/i.test(r.tag_name || ''));
+      if (!release) {
+        return reply.send({ ok: true, currentVersion: getAppVersion() || '0.0.0', latestVersion: '', updateAvailable: false, releaseUrl: '', releaseNotes: '' });
+      }
+
       const latestVersion = (release.tag_name || '').replace(/^v/, '');
 
       // Use cached version — reflects the running code, not whatever

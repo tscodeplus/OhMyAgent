@@ -17,7 +17,7 @@ declare global {
       openDataDir: () => Promise<void>;
       getAutoStart: () => Promise<boolean>;
       setAutoStart: (enable: boolean) => Promise<void>;
-      checkForUpdates: () => Promise<void>;
+      checkForUpdates: (includeBeta?: boolean) => Promise<void>;
       downloadUpdate: () => Promise<void>;
       installUpdate: () => Promise<void>;
       cancelDownload: () => Promise<void>;

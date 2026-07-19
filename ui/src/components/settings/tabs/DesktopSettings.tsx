@@ -45,6 +45,7 @@ export default function DesktopSettings() {
   const [releaseNotes, setReleaseNotes] = useState('');
   const [downloadPercent, setDownloadPercent] = useState(0);
   const [updateStep, setUpdateStep] = useState('');
+  const [includeBeta, setIncludeBeta] = useState(false);
 
   // Prevent duplicate toasts for the same version
   const toastedVersionRef = useRef('');
@@ -262,7 +263,7 @@ export default function DesktopSettings() {
 
     if (isElectron()) {
       try {
-        await getElectronAPI()!.checkForUpdates();
+        await getElectronAPI()!.checkForUpdates(includeBeta);
         // Result comes via event listeners above
       } catch {
         setUpdateError(t('settings.about.githubUnreachable'));
@@ -271,7 +272,7 @@ export default function DesktopSettings() {
     } else {
       try {
         const token = getToken();
-        const res = await fetch('/api/system/check-update', {
+        const res = await fetch(`/api/system/check-update?includeBeta=${includeBeta}`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         const data = await res.json();
@@ -302,7 +303,7 @@ export default function DesktopSettings() {
         setUpdateStatus('error');
       }
     }
-  }, [appVersion, showUpdateToast, showToast, t]);
+  }, [appVersion, showUpdateToast, showToast, t, includeBeta]);
 
   // ── Download update (Electron only) ──
   const handleDownloadUpdate = useCallback(async () => {
@@ -437,17 +438,32 @@ export default function DesktopSettings() {
 
         {/* ── Action Buttons ── */}
         <div className="flex flex-col items-start gap-3 mt-4">
-          <Button
-            variant="secondary"
-            size="sm"
-            loading={isChecking}
-            disabled={isDownloading}
-            onClick={handleCheckUpdates}
-          >
-            {isChecking
-              ? t('settings.about.checking')
-              : t('settings.about.checkUpdates')}
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={isChecking}
+              disabled={isDownloading}
+              onClick={handleCheckUpdates}
+            >
+              {isChecking
+                ? t('settings.about.checking')
+                : t('settings.about.checkUpdates')}
+            </Button>
+
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={includeBeta}
+                onChange={(e) => setIncludeBeta(e.target.checked)}
+                disabled={isChecking || isDownloading}
+                className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-indigo-500 focus:ring-indigo-500 cursor-pointer"
+              />
+              <span className="text-xs text-neutral-600 dark:text-neutral-400">
+                {t('settings.about.includeBeta')}
+              </span>
+            </label>
+          </div>
 
           {/* Download progress bar */}
           {isDownloading && (

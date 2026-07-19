@@ -25,7 +25,7 @@ import { contextBridge, ipcRenderer } from 'electron';
       setAutoStart: (enable: boolean) => ipcRenderer.invoke('set-auto-start', enable),
 
       // Updates
-      checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+      checkForUpdates: (includeBeta?: boolean) => ipcRenderer.invoke('check-for-updates', includeBeta),
       downloadUpdate: () => ipcRenderer.invoke('download-update'),
       installUpdate: () => ipcRenderer.invoke('install-update'),
       cancelDownload: () => ipcRenderer.invoke('cancel-download'),

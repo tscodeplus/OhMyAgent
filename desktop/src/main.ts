@@ -400,10 +400,10 @@ function registerIpcHandlers(): void {
   });
 
   // ── Updater IPC ────────────────────────────────────────────────────
-  ipcMain.handle('check-for-updates', async () => {
-    diagLog('[OhMyAgent] check-for-updates IPC invoked');
+  ipcMain.handle('check-for-updates', async (_event, includeBeta?: boolean) => {
+    diagLog(`[OhMyAgent] check-for-updates IPC invoked, includeBeta=${includeBeta}`);
     try {
-      await getAppUpdater().checkForUpdates();
+      await getAppUpdater().checkForUpdates(includeBeta);
     } catch (err) {
       diagLog(`[OhMyAgent] check-for-updates error: ${err}`);
       throw err;

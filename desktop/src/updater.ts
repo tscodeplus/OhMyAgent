@@ -58,11 +58,12 @@ export class AppUpdater {
     return nativeTheme.shouldUseDarkColors;
   }
 
-  async checkForUpdates(): Promise<void> {
+  async checkForUpdates(includeBeta = false): Promise<void> {
     this.downloadCancelled = false;
-    this.diagLog(`checkForUpdates() called — running network diag first`);
+    this.diagLog(`checkForUpdates() called includeBeta=${includeBeta} — running network diag first`);
     await this.runNetworkDiagnostic();
     try {
+      autoUpdater.allowPrerelease = includeBeta;
       const result = await autoUpdater.checkForUpdates();
       if (!result) {
         this.diagLog('checkForUpdates: no update available (null result)');
