@@ -40,11 +40,14 @@ export class ReplyDispatcher {
   private reactionId: string | null = null;
   private readonly showToolCalls: boolean;
   private readonly showSkillCalls: boolean;
+  private readonly chatId: string;
+  private harnessResolvers = new Map<string, (decision: string) => void>();
 
   constructor(options: ReplyDispatcherOptions) {
     this.showToolCalls = options.showToolCalls !== false;
     this.showSkillCalls = options.showSkillCalls !== false;
     this.feishuClient = options.feishuClient;
+    this.chatId = options.chatId;
     this.messageId = options.messageId;
     this.controller = new StreamingCardControllerImpl({
       feishuClient: options.feishuClient,
@@ -175,6 +178,110 @@ export class ReplyDispatcher {
 
   getState(): string {
     return this.controller.getState();
+  }
+
+  /**
+   * Display a harness improvement proposal as an interactive card and wait
+   * for the user to approve, reject, or dismiss it via button click.
+   *
+   * The returned promise resolves when:
+   *   - the user clicks a button on the card (via resolveHarnessApproval)
+   *   - or the timeout expires (default 120s)
+   *
+   * Button clicks are expected to arrive via Feishu's card.action.trigger
+   * callback, which should call resolveHarnessApproval(proposalId, decision).
+   */
+  async requestHarnessApproval(
+    prompt: import('../../../src/harness/types.js').HarnessImprovementPrompt,
+    timeoutMs?: number,
+  ): Promise<import('../../../src/harness/types.js').ApprovalDecision> {
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        this.harnessResolvers.delete(prompt.id);
+        resolve('timeout');
+      }, timeoutMs ?? 120_000);
+
+      this.harnessResolvers.set(prompt.id, (decision: string) => {
+        clearTimeout(timeout);
+        resolve(decision as import('../../../src/harness/types.js').ApprovalDecision);
+      });
+
+      // Build a standalone interactive card (v1.0 format for msg_type:interactive)
+      const card: Record<string, unknown> = {
+        config: { wide_screen_mode: true },
+        header: {
+          title: { tag: 'plain_text', content: '🔧 任务失败分析' },
+          template: 'wathet',
+        },
+        elements: [
+          { tag: 'markdown', content: `**问题**：${prompt.failureSummary}` },
+          { tag: 'hr' },
+          { tag: 'markdown', content: prompt.detail.slice(0, 500) },
+          { tag: 'hr' },
+          {
+            tag: 'markdown',
+            content: `**影响范围**：${prompt.impact.scope}\n**风险等级**：${prompt.impact.riskLevel}\n**预期效果**：${prompt.impact.expectedEffect}`,
+          },
+          { tag: 'hr' },
+          {
+            tag: 'action',
+            actions: [
+              {
+                tag: 'button',
+                text: { tag: 'plain_text', content: '✅ 批准并应用' },
+                type: 'primary',
+                value: { proposalId: prompt.id, action: 'approve' },
+              },
+              {
+                tag: 'button',
+                text: { tag: 'plain_text', content: '❌ 拒绝' },
+                type: 'danger',
+                value: { proposalId: prompt.id, action: 'reject' },
+              },
+              {
+                tag: 'button',
+                text: { tag: 'plain_text', content: '忽略' },
+                type: 'default',
+                value: { proposalId: prompt.id, action: 'dismiss' },
+              },
+            ],
+          },
+        ],
+      };
+
+      // Send the card via feishuClient.sendMessage (msg_type: interactive)
+      this.feishuClient.sendMessage({
+        receive_id: this.chatId,
+        receive_id_type: 'chat_id',
+        msg_type: 'interactive',
+        content: JSON.stringify(card),
+      }).catch(() => {
+        // If sending fails, clean up and resolve as timeout
+        this.harnessResolvers.delete(prompt.id);
+        clearTimeout(timeout);
+        resolve('timeout');
+      });
+    });
+  }
+
+  /**
+   * Resolve a pending harness approval prompt with the user's decision.
+   *
+   * Called from the card action handler when a user clicks a button on the
+   * harness improvement card (card.action.trigger callback).
+   *
+   * @param proposalId - The id of the HarnessImprovementPrompt to resolve.
+   * @param decision - User's decision: 'approve', 'reject', or 'dismiss'.
+   * @returns true if a pending resolver was found and called, false otherwise.
+   */
+  resolveHarnessApproval(proposalId: string, decision: string): boolean {
+    const resolver = this.harnessResolvers.get(proposalId);
+    if (resolver) {
+      this.harnessResolvers.delete(proposalId);
+      resolver(decision);
+      return true;
+    }
+    return false;
   }
 
   private async removeReaction(): Promise<void> {

@@ -30,6 +30,10 @@ export interface AgentConfig {
     disable?: string[];
   };
   channels?: string[];
+  /** Whether Self-Harness auto-optimization is enabled for this agent. Default true. */
+  harness?: {
+    enabled: boolean;
+  };
 }
 
 export interface ResolvedAgentConfig {
@@ -58,6 +62,10 @@ export interface ResolvedAgentConfig {
     disable: string[];
   };
   channels: string[];
+  /** Whether Self-Harness auto-optimization is enabled for this agent. Default true. */
+  harness?: {
+    enabled: boolean;
+  };
   _source: {
     systemPromptFrom: 'agent' | 'global';
     modelPrimaryFrom: 'agent' | 'global';

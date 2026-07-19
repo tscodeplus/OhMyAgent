@@ -106,6 +106,13 @@ export function useConfigDirty(
         'multimodal.imageGeneration.maxPromptChars', 'multimodal.videoGeneration.maxPromptChars', 'multimodal.stt.maxDurationSec',
         'computerUse.ssh.port',
         'feishu.webhookMaxRequests', 'feishu.webhookWindowMs', // legacy rate limit
+        // Harness interactive settings
+        'harness.interactive.trigger.minIdenticalRetries',
+        'harness.interactive.trigger.minExplorationSteps',
+        'harness.interactive.trigger.minConsecutiveErrors',
+        'harness.interactive.rateLimit.cooldownMinutes',
+        'harness.interactive.rateLimit.maxPerDay',
+        'harness.interactive.rateLimit.maxPerHour',
       ]);
       const payload: Record<string, unknown> = {};
       for (const [path, value] of Object.entries(current)) {

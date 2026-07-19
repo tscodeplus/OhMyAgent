@@ -9,6 +9,7 @@
 import type { ReplyDispatcher, Usage, FooterConfig } from '../../src/app/types.js';
 import type { TelegramConfig, StreamController } from './telegram-types.js';
 import type { ReplyContent } from '../../src/channel/types.js';
+import type { HarnessImprovementPrompt, ApprovalDecision } from '../../src/harness/types.js';
 import { summarizeToolInput } from '../../src/channel/tool-summary.js';
 import { formatUsageSummary } from '../../src/channel/usage-summary.js';
 import { i18n } from '../../src/i18n/index.js';
@@ -30,6 +31,9 @@ export class TelegramReplyDispatcher implements ReplyDispatcher {
   private approvalStatus: string | null = null;
   private justCompletedTool = false;
   private startTime = 0;
+
+  /** Resolver map for harness approval prompts, keyed by prompt id. */
+  private _harnessResolvers = new Map<string, (decision: ApprovalDecision) => void>();
 
   constructor(
     bot: any,
@@ -180,6 +184,74 @@ export class TelegramReplyDispatcher implements ReplyDispatcher {
 
   async onAborted(): Promise<void> {
     this.streamCtrl.abort();
+  }
+
+  // ------------------------------------------------------------------
+  // Harness approval
+  // ------------------------------------------------------------------
+
+  async requestHarnessApproval(
+    prompt: HarnessImprovementPrompt,
+    timeoutMs?: number,
+  ): Promise<ApprovalDecision> {
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        this._harnessResolvers.delete(prompt.id);
+        resolve('timeout');
+      }, timeoutMs ?? 120_000);
+
+      this._harnessResolvers.set(prompt.id, (decision: ApprovalDecision) => {
+        clearTimeout(timeout);
+        resolve(decision);
+      });
+
+      // Send text message with inline keyboard
+      const text = [
+        '🔧 *任务失败分析*',
+        '',
+        `*问题*：${prompt.failureSummary}`,
+        '',
+        prompt.detail.slice(0, 500),
+        '',
+        `*影响*：${prompt.impact.scope} | 风险：${prompt.impact.riskLevel}`,
+        '',
+        '请选择操作：',
+      ].join('\n');
+
+      const inlineKeyboard = {
+        inline_keyboard: [
+          [
+            { text: '✅ 批准', callback_data: `harness:${prompt.id}:approve` },
+            { text: '❌ 拒绝', callback_data: `harness:${prompt.id}:reject` },
+            { text: '忽略', callback_data: `harness:${prompt.id}:dismiss` },
+          ],
+        ],
+      };
+
+      this.bot.api.sendMessage(this.chatId, text, {
+        parse_mode: 'Markdown',
+        reply_markup: inlineKeyboard,
+      });
+    });
+  }
+
+  /**
+   * Handle a callback query from a harness approval inline keyboard.
+   * Returns true if the callback data was recognised and resolved.
+   */
+  handleHarnessCallback(callbackData: string): boolean {
+    const match = callbackData.match(/^harness:(.+):(.+)$/);
+    if (!match) return false;
+    const [, proposalId, action] = match;
+    const resolver = this._harnessResolvers.get(proposalId);
+    if (resolver) {
+      this._harnessResolvers.delete(proposalId);
+      // Telegram has no native 'edit' flow — map 'dismiss' to 'timeout'
+      const decision: ApprovalDecision = action === 'dismiss' ? 'timeout' : action as ApprovalDecision;
+      resolver(decision);
+      return true;
+    }
+    return false;
   }
 
   // ------------------------------------------------------------------

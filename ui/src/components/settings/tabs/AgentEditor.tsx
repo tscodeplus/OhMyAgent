@@ -6,6 +6,7 @@ import { type SettingsTabHandle } from '../useConfigDirty';
 import Input from '../../ui/Input';
 import Select from '../../ui/Select';
 import Textarea from '../../ui/Textarea';
+import Toggle from '../../ui/Toggle';
 import type { Agent } from '../../../types/agent';
 import TemplateBrowser from './TemplateBrowser';
 
@@ -37,6 +38,7 @@ export default function AgentEditor({ agent, onSave, onCancel, registerHandle, o
     systemPrompt: agent?.systemPrompt || '',
     model: agent?.model || '',
     profile: agent?.profile || 'advanced',
+    harness: { enabled: agent?.harness?.enabled !== false },
   };
 
   const [form, setForm] = useState(initialForm);
@@ -49,7 +51,8 @@ export default function AgentEditor({ agent, onSave, onCancel, registerHandle, o
       form.description !== initialForm.description ||
       form.systemPrompt !== initialForm.systemPrompt ||
       form.model !== initialForm.model ||
-      form.profile !== initialForm.profile
+      form.profile !== initialForm.profile ||
+      form.harness?.enabled !== initialForm.harness?.enabled
     );
   }, [form, initialForm]);
 
@@ -184,6 +187,22 @@ export default function AgentEditor({ agent, onSave, onCancel, registerHandle, o
             rows={6}
             placeholder={t("settings.agents.promptPlaceholder")}
           />
+        </div>
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300">
+                {t('settings.harness.agentOptIn')}
+              </label>
+              <p className="text-xs text-neutral-500 mt-0.5">
+                {t('settings.harness.agentOptInDesc')}
+              </p>
+            </div>
+            <Toggle
+              checked={form.harness?.enabled !== false}
+              onChange={(checked) => setForm({ ...form, harness: { enabled: checked } })}
+            />
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-4">
           <Select

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { existsSync, watch, type FSWatcher } from 'node:fs';
 import { config as dotenvConfig } from 'dotenv';
 import type { AppConfig } from './types.js';
+import type { HarnessConfig, ApprovalRule } from '../harness/types.js';
 import { loadYamlFile, yamlToAppConfigRaw } from './config-loader.js';
 import { envBool } from '../shared/env.js';
 import { ConfigError } from '../shared/errors.js';
@@ -487,6 +488,67 @@ const configSchema = z.object({
     /** Maximum results the model can request via limit parameter */
     maxSearchLimit: z.number().min(1).max(50).default(20),
   }).default({}),
+  // -----------------------------------------------------------------------
+  // Self-Harness configuration (all optional, backward-compatible)
+  // -----------------------------------------------------------------------
+  harness: z.object({
+    enabled: z.boolean().default(true),
+    channels: z.object({
+      webui: z.boolean().default(true),
+      feishu: z.boolean().default(true),
+      telegram: z.boolean().default(true),
+      wechat: z.boolean().default(false),
+      qq: z.boolean().default(false),
+    }).default({}),
+    trigger: z.object({
+      minIdenticalRetries: z.number().int().positive().default(3),
+      minExplorationSteps: z.number().int().positive().default(8),
+      minConsecutiveErrors: z.number().int().positive().default(3),
+    }).default({}),
+    rateLimit: z.object({
+      cooldownMinutes: z.number().int().positive().default(30),
+      maxPerHour: z.number().int().positive().default(2),
+      maxPerDay: z.number().int().positive().default(10),
+      maxAutoApplyPerDay: z.number().int().positive().default(5),
+    }).default({}),
+    proposal: z.object({
+      model: z.string().default('default'),
+      maxEditsPerProposal: z.number().int().positive().default(5),
+    }).default({}),
+    rules: z.array(z.any()).optional(),
+  }).optional().default({}).transform((val): HarnessConfig => {
+    if (!val) return { enabled: false, trigger: { minIdenticalRetries: 3, minExplorationSteps: 8, minConsecutiveErrors: 3 }, rateLimit: { cooldownMs: 1800000, maxAnalyses: 2, maxAutoApplyAnalyses: 5 }, channels: { webui: true, feishu: true, telegram: true, wechat: false, qq: false }, proposal: { model: 'default', maxEditsPerProposal: 5, minConfidence: 0.5, allowedMechanisms: ['prompt_instruction', 'subagent', 'skill_procedure', 'tool_configuration', 'middleware', 'runtime_control'] }, interactive: { enabled: false }, approvalRules: [] };
+    return {
+      enabled: val.enabled,
+      trigger: {
+        minIdenticalRetries: val.trigger.minIdenticalRetries,
+        minExplorationSteps: val.trigger.minExplorationSteps,
+        minConsecutiveErrors: val.trigger.minConsecutiveErrors,
+      },
+      rateLimit: {
+        cooldownMs: val.rateLimit.cooldownMinutes * 60000,
+        maxAnalyses: val.rateLimit.maxPerHour,
+        maxAutoApplyAnalyses: val.rateLimit.maxAutoApplyPerDay,
+      },
+      channels: {
+        webui: val.channels.webui,
+        feishu: val.channels.feishu,
+        telegram: val.channels.telegram,
+        wechat: val.channels.wechat,
+        qq: val.channels.qq,
+      },
+      proposal: {
+        model: val.proposal.model,
+        maxEditsPerProposal: val.proposal.maxEditsPerProposal,
+        minConfidence: 0.5,
+        allowedMechanisms: ['prompt_instruction', 'subagent', 'skill_procedure', 'tool_configuration', 'middleware', 'runtime_control'],
+      },
+      interactive: {
+        enabled: val.enabled,
+      },
+      approvalRules: (val.rules ?? []) as ApprovalRule[],
+    };
+  }),
 });
 
 let cachedConfig: AppConfig | null = null;

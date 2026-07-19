@@ -439,6 +439,8 @@ export interface AppConfig {
   };
   /** Whether the first-run setup wizard has been completed. */
   setupWizardDone?: boolean;
+  /** Interactive Self-Harness: automatic failure analysis and harness optimization. */
+  harness?: import('../harness/types.js').HarnessConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -772,6 +774,15 @@ export interface ReplyDispatcher {
   onError(error: Error): void | Promise<void>;
   /** Called when agent execution is aborted (e.g. via /stop). */
   onAborted(): void | Promise<void>;
+  /**
+   * Display a harness improvement proposal and request user approval.
+   * Optional -- channels that do not support this simply skip implementation.
+   * @returns The user decision, or "timeout" if no response within timeoutMs.
+   */
+  requestHarnessApproval?: (
+    prompt: import('../harness/types.js').HarnessImprovementPrompt,
+    timeoutMs?: number,
+  ) => Promise<import('../harness/types.js').ApprovalDecision>;
 }
 
 // ---------------------------------------------------------------------------
@@ -871,6 +882,8 @@ export interface AppServices {
   getUserQuestionSender?: (channel: string, chatId: string, sessionId?: string) => import('../agent/user-question-port.js').UserQuestionSender | undefined;
   /** Registry for channel UserQuestionSender instances (add/remove senders). */
   userQuestionSenderRegistry?: Map<string, import('../agent/user-question-port.js').UserQuestionSender>;
+  /** Self-Harness: automatic failure analysis and harness optimization services. */
+  harness?: import('../harness/factory.js').HarnessServices;
 }
 
 // ── Domain-specific service subsets (narrower types for consumers) ──

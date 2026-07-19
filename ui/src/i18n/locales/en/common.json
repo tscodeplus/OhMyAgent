@@ -71,7 +71,23 @@
     "taskPlan": "Task Plan",
     "completed": "Completed",
     "questionAnswered": "Answer received",
-    "questionPlaceholder": "Type your answer..."
+    "questionPlaceholder": "Type your answer...",
+    "harnessImprovement": {
+      "title": "Task Failure Analysis",
+      "diff": "Diff",
+      "impact": "Impact",
+      "risk": "Risk",
+      "scope": "Scope",
+      "approveAction": "Approve & Apply",
+      "editAction": "Edit & Apply",
+      "rejectAction": "Reject",
+      "ignoreAction": "Ignore",
+      "applied": "Applied",
+      "rejected": "Rejected",
+      "editLabel": "Modified Value",
+      "editCancel": "Cancel",
+      "editSubmit": "Submit Changes"
+    }
   },
   "project": {
     "defaultName": "Default Space",
@@ -117,6 +133,7 @@
     "groups": {
       "general": "General",
       "agents": "Agents",
+      "harness": "Auto Optimization",
       "models": "AI Models",
       "memory": "Memory",
       "toolsPolicy": "Tools & Policy",
@@ -271,6 +288,44 @@
       "templateLoadError": "Failed to load templates",
       "templateContentLoadError": "Failed to load template content",
       "templateImportSuccess": "Template imported. Edit and save the agent."
+    },
+    "harness": {
+      "interactive": {
+        "enabled": "Interactive Mode",
+        "enabledLabel": "Enable Interactive Harness",
+        "enabledDesc": "Enable the interactive agent harness for step-by-step approval, feedback and intervention",
+        "channels": {
+          "title": "Notification Channels",
+          "webui": "Web UI",
+          "feishu": "Lark",
+          "telegram": "Telegram",
+          "wechat": "WeChat",
+          "qq": "QQ"
+        },
+        "trigger": {
+          "title": "Trigger Conditions",
+          "minIdenticalRetries": "Min Identical Retries",
+          "minExplorationSteps": "Min Exploration Steps",
+          "minConsecutiveErrors": "Min Consecutive Errors",
+          "cooldownMinutes": "Cooldown (min)"
+        },
+        "approval": {
+          "title": "Approval Strategy",
+          "alwaysAsk": "Always Ask",
+          "smartApprove": "Smart Approval",
+          "lowRiskAuto": "Auto-approve Low Risk",
+          "customRules": "Manage Custom Rules"
+        },
+        "rateLimit": {
+          "title": "Rate Limits",
+          "maxPerDay": "Max Per Day",
+          "maxPerHour": "Max Per Hour"
+        },
+        "proposal": {
+          "model": "Proposal Model",
+          "modelDefault": "System default"
+        }
+      }
     },
     "memory": {
       "basic": "Basic",

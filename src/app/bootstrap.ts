@@ -58,6 +58,10 @@ import { configEventBus } from './config-event-bus.js';
 import { createWSCardActionHandler } from './feishu/ws-card-action-handler.js';
 import { QrSessionStore } from '../channel/qr-session-store.js';
 
+// Harness: Self-Harness optimization services
+import { createHarnessServices } from '../harness/factory.js';
+import type { HarnessServices } from '../harness/factory.js';
+
 // ─── Types ───
 
 export interface BootstrapResult {
@@ -159,6 +163,27 @@ export async function bootstrap(): Promise<BootstrapResult> {
       changeI18nLocale(c.uiLanguage).catch((err) => logger.error({ err }, '[hot-reload] Failed to change locale'));
     }
   });
+
+  // ── Harness: Self-Harness optimization services ──
+  let harnessServices: HarnessServices | undefined;
+  if (config.harness && config.harness.interactive?.enabled !== false) {
+    try {
+      harnessServices = createHarnessServices(config.harness!);
+      logger.info('Harness services initialized');
+    } catch (err) {
+      logger.warn({ err }, 'Failed to initialize harness services, continuing without');
+      harnessServices = undefined;
+    }
+  }
+
+  // Harness config hot-reload
+  if (harnessServices) {
+    configEventBus.onReload((newConfig) => {
+      if (newConfig.harness?.approvalRules) {
+        harnessServices?.approvalPolicy.reload(newConfig.harness.approvalRules);
+      }
+    });
+  }
 
   // 1.5 Initialize PromptManager (v5: centralized prompt management)
   const promptManager = new PromptManager({
@@ -494,6 +519,8 @@ export async function bootstrap(): Promise<BootstrapResult> {
     userQuestionStore,
     getUserQuestionSender,
     userQuestionSenderRegistry,
+    // Harness
+    harness: harnessServices,
   };
   servicesRef.current = services;
 

@@ -19,6 +19,7 @@ import { StreamingMarkdownFilter } from './markdown-filter.js';
 import { summarizeToolInput } from '../../src/channel/tool-summary.js';
 import { formatUsageSummary } from '../../src/channel/usage-summary.js';
 import { i18n } from '../../src/i18n/index.js';
+import type { HarnessImprovementPrompt, ApprovalDecision } from '../../src/harness/types.js';
 
 /** Typing keepalive interval in milliseconds. */
 const TYPING_KEEPALIVE_MS = 5000;
@@ -51,6 +52,8 @@ export class WechatReplyDispatcher implements ReplyDispatcher {
   private footerConfig: FooterConfig;
   private showSkillCalls: boolean;
   private startTime = 0;
+  /** Map of pending harness proposal IDs to their resolvers. */
+  private _harnessResolvers = new Map<string, (decision: ApprovalDecision) => void>();
 
   constructor(private options: WechatReplyDispatcherOptions) {
     this.showSkillCalls = options.showSkillCalls !== false;
@@ -158,6 +161,41 @@ export class WechatReplyDispatcher implements ReplyDispatcher {
     // Approval records not rendered in WeChat.
   }
 
+  async requestHarnessApproval(
+    prompt: HarnessImprovementPrompt,
+    timeoutMs?: number,
+  ): Promise<ApprovalDecision> {
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        this._harnessResolvers.delete(prompt.id);
+        resolve('timeout');
+      }, timeoutMs ?? 120_000);
+
+      this._harnessResolvers.set(prompt.id, (decision: ApprovalDecision) => {
+        clearTimeout(timeout);
+        resolve(decision);
+      });
+
+      const text = [
+        '🔧 任务失败分析',
+        '',
+        `问题：${prompt.failureSummary}`,
+        '',
+        `建议：${prompt.title}`,
+        prompt.detail.slice(0, 300),
+        '',
+        `影响：${prompt.impact.scope} | 风险：${prompt.impact.riskLevel}`,
+        '',
+        '回复操作（输入数字）：',
+        '1. ✅ 批准并应用',
+        '2. ❌ 拒绝',
+        '3. 忽略',
+      ].join('\n');
+
+      void this.options.sendText(text);
+    });
+  }
+
   getReplyMessageId(): string | undefined {
     // WeChat does not return a message ID for sent messages.
     return undefined;
@@ -217,5 +255,36 @@ export class WechatReplyDispatcher implements ReplyDispatcher {
       clearInterval(this.typingInterval);
       this.typingInterval = undefined;
     }
+  }
+
+  /**
+   * Handle a text reply that may contain a harness approval decision.
+   * Returns true if the text matched a pending harness request.
+   */
+  tryHandleHarnessReply(text: string): boolean {
+    if (this._harnessResolvers.size === 0) return false;
+
+    const trimmed = text.trim();
+    let action: ApprovalDecision | null = null;
+
+    if (trimmed === '1' || trimmed.includes('批准')) {
+      action = 'approve';
+    } else if (trimmed === '2' || trimmed.includes('拒绝')) {
+      action = 'reject';
+    } else if (trimmed === '3' || trimmed.includes('忽略')) {
+      action = 'reject';
+    }
+
+    if (action) {
+      // Resolve the oldest pending harness request
+      const [proposalId, resolver] = [...this._harnessResolvers.entries()][0] || [];
+      if (resolver) {
+        this._harnessResolvers.delete(proposalId);
+        resolver(action);
+        return true;
+      }
+    }
+
+    return false;
   }
 }

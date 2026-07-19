@@ -72,7 +72,23 @@
     "taskPlan": "任务规划",
     "completed": "已完成",
     "questionAnswered": "收到回答",
-    "questionPlaceholder": "输入你的回答..."
+    "questionPlaceholder": "输入你的回答...",
+    "harnessImprovement": {
+      "title": "任务失败分析",
+      "diff": "差异",
+      "impact": "影响",
+      "risk": "风险",
+      "scope": "影响范围",
+      "approveAction": "批准并应用",
+      "editAction": "修改后应用",
+      "rejectAction": "拒绝",
+      "ignoreAction": "忽略",
+      "applied": "已应用",
+      "rejected": "已拒绝",
+      "editLabel": "修改后的值",
+      "editCancel": "取消",
+      "editSubmit": "提交修改"
+    }
   },
   "project": {
     "defaultName": "默认空间",
@@ -118,6 +134,7 @@
     "groups": {
       "general": "通用设置",
       "agents": "Agent 管理",
+      "harness": "自动优化",
       "models": "模型和路由",
       "memory": "记忆系统",
       "toolsPolicy": "工具和审批策略",
@@ -272,6 +289,44 @@
       "templateLoadError": "加载模板失败",
       "templateContentLoadError": "加载模板内容失败",
       "templateImportSuccess": "模板已导入，请编辑并保存 Agent"
+    },
+    "harness": {
+      "interactive": {
+        "enabled": "交互模式",
+        "enabledLabel": "启用交互式执行",
+        "enabledDesc": "启用交互式 Harness，支持逐步审批、反馈和人工干预",
+        "channels": {
+          "title": "通知渠道",
+          "webui": "Web UI",
+          "feishu": "飞书",
+          "telegram": "Telegram",
+          "wechat": "微信",
+          "qq": "QQ"
+        },
+        "trigger": {
+          "title": "触发条件",
+          "minIdenticalRetries": "最小重复尝试次数",
+          "minExplorationSteps": "最小探索步数",
+          "minConsecutiveErrors": "最小连续错误数",
+          "cooldownMinutes": "冷却时间（分）"
+        },
+        "approval": {
+          "title": "审批策略",
+          "alwaysAsk": "总是询问",
+          "smartApprove": "智能审批",
+          "lowRiskAuto": "低风险自动通过",
+          "customRules": "管理自定义规则"
+        },
+        "rateLimit": {
+          "title": "速率限制",
+          "maxPerDay": "每日上限",
+          "maxPerHour": "每小时上限"
+        },
+        "proposal": {
+          "model": "提案模型",
+          "modelDefault": "系统默认"
+        }
+      }
     },
     "memory": {
       "basic": "基础设置",

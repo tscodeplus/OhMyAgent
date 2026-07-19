@@ -24,6 +24,8 @@ import type { VisionBridgeService } from '../vision-bridge/vision-bridge-service
 import { persistMessages } from './message-persister.js';
 import { recoverFromOverflow } from './overflow-recovery.js';
 import { subscribeToolRunAudit } from './tool-audit.js';
+import type { HarnessServices } from '../harness/factory.js';
+import type { FailureContext, ToolCallRecord } from '../harness/types.js';
 
 export interface AgentServiceOptions {
   sessionId?: string;
@@ -117,6 +119,7 @@ export class AgentService {
     /** Lazy factory — VisionBridgeService is only created on first image analysis. */
     private getVisionBridge?: () => VisionBridgeService | undefined,
     private imageMode: 'native_first' | 'bridge_only' | 'native_only' = 'native_first',
+    private harness?: HarnessServices,
   ) {}
 
   /**
@@ -362,12 +365,27 @@ export class AgentService {
         });
       }
 
+      // ---- Self-Harness: failure detection and optimization ----
+      if (this.harness) {
+        this.detectAndOptimize(runtime, sessionId, null).catch(err => {
+          this.persistence?.logger.warn({ err }, 'Harness optimization failed');
+        });
+      }
+
       return agent;
     } catch (error) {
       runtime.bridge?.stop();
       runtime.auditUnsubscribe?.();
       this.runtimes.delete(sessionId);
       this.persistence?.logger.error({ err: error }, 'agent execute error');
+
+      // ---- Self-Harness: detect failure from error ----
+      if (this.harness) {
+        this.detectAndOptimize(runtime, sessionId, error).catch(err => {
+          this.persistence?.logger.warn({ err }, 'Harness optimization failed');
+        });
+      }
+
       throw error;
     }
   }
@@ -738,5 +756,135 @@ export class AgentService {
     toolRunRepository: ToolRunRepository,
   ): () => void {
     return subscribeToolRunAudit(agent, sessionId, toolRunRepository);
+  }
+
+  private async detectAndOptimize(
+    runtime: NonNullable<ReturnType<typeof this.runtimes.get>>,
+    sessionId: string,
+    error: unknown,
+  ): Promise<void> {
+    const harness = this.harness!;
+
+    // Build FailureContext from runtime state
+    const toolCalls: ToolCallRecord[] = [];
+    const errors: Array<{ toolName: string; message: string; timestamp: number }> = [];
+
+    // Extract tool calls from agent state messages
+    const messages = runtime.agent.state.messages;
+    for (const msg of messages) {
+      if ((msg as any).role === 'toolResult') {
+        const contentArr = Array.isArray((msg as any).content)
+          ? (msg as any).content.filter((b: any) => b.type === 'text').map((b: any) => b.text || '').join('\n')
+          : typeof (msg as any).content === 'string'
+            ? (msg as any).content
+            : '';
+        const isError = (msg as any).isError === true;
+        toolCalls.push({
+          name: (msg as any).toolName ?? 'unknown',
+          args: (msg as any).details ?? {},
+          result: contentArr,
+          isError,
+          errorMessage: isError ? contentArr.slice(0, 200) : undefined,
+          timestamp: (msg as any).timestamp ?? Date.now(),
+        });
+        if (isError) {
+          errors.push({
+            toolName: (msg as any).toolName ?? 'unknown',
+            message: contentArr.slice(0, 200),
+            timestamp: (msg as any).timestamp ?? Date.now(),
+          });
+        }
+      }
+    }
+
+    const failureContext: FailureContext = {
+      sessionId,
+      skillId: runtime.turnContext?.activatedSkillName,
+      agentId: (runtime.agent as any).state?.agentId || 'default',
+      taskMessage: '',
+      toolCalls,
+      errors,
+      userFeedback: null,
+      durationMs: runtime.turnElapsed ?? 0,
+      terminatedEarly: error !== null,
+      agentEndReason: error ? 'error' : 'complete',
+    };
+
+    // Step 1: Detect failure
+    const signal = harness.failureDetector.detect(failureContext);
+    if (!signal || !signal.detected) return;
+
+    // Step 2: Check rate limits + cooldown
+    if (!harness.rateLimiter.canTrigger(
+      failureContext.skillId,
+      failureContext.agentId,
+      signal.pattern,
+    )) return;
+
+    // Step 3: Optimize (async, non-blocking)
+    try {
+      const proposal = await harness.optimizer.optimize(failureContext);
+      if (!proposal) return;
+
+      // Step 4: Evaluate approval policy
+      const { action, autoRollback } = harness.approvalPolicy.evaluate(proposal, {
+        skillId: failureContext.skillId,
+        agentId: failureContext.agentId,
+        pattern: signal.pattern,
+      });
+
+      // Step 5: Act based on policy
+      if (action === 'skip') return;
+
+      if (action === 'auto_apply') {
+        const result = await harness.skillEditor.apply(proposal);
+        if (result.success && result.commitHash && autoRollback) {
+          harness.autoApplyMonitor.watch(
+            proposal.id,
+            failureContext.skillId ?? null,
+            failureContext.agentId ?? null,
+            autoRollback,
+            result.commitHash,
+          );
+        }
+        return;
+      }
+
+      // require_approval: notify via ReplyDispatcher
+      const dispatcher = runtime.turnContext.replyDispatcher;
+      if (dispatcher?.requestHarnessApproval) {
+        const interaction = {
+          id: proposal.id,
+          type: 'harness_improvement' as const,
+          title: proposal.title,
+          failureSummary: signal.reason,
+          detail: proposal.summary,
+          diff: proposal.diff,
+          impact: {
+            scope: proposal.affectedScope,
+            riskLevel: proposal.regressionRisk,
+            expectedEffect: proposal.expectedEffect,
+          },
+          actions: [
+            { id: 'approve', label: '批准并应用', style: 'primary' as const },
+            { id: 'edit', label: '修改后应用', style: 'default' as const, inputField: { placeholder: '输入修改后的内容...', multiline: true, defaultValue: proposal.diff.after } },
+            { id: 'reject', label: '拒绝', style: 'danger' as const },
+            { id: 'dismiss', label: '忽略', style: 'default' as const },
+          ],
+        };
+
+        const decision = await dispatcher.requestHarnessApproval(interaction, 120_000);
+
+        if (decision === 'approve') {
+          await harness.skillEditor.apply(proposal);
+        } else if (decision === 'edit') {
+          // Edit handled by the channel — for now, apply the original proposal
+          await harness.skillEditor.apply(proposal);
+        }
+      }
+    } catch (optErr) {
+      // Optimization failed — log but never throw (non-blocking)
+      this.persistence?.logger.warn({ err: optErr }, 'Harness optimization step failed');
+    }
   }
 }

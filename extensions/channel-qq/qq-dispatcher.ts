@@ -16,6 +16,7 @@ import { sendChunkedText } from './send-message.js';
 import { summarizeToolInput } from '../../src/channel/tool-summary.js';
 import { formatUsageSummary } from '../../src/channel/usage-summary.js';
 import { i18n } from '../../src/i18n/index.js';
+import type { HarnessImprovementPrompt, ApprovalDecision } from '../../src/harness/types.js';
 
 export class QQReplyDispatcher implements ReplyDispatcher {
   /** Accumulated text deltas + tool annotations. */
@@ -29,6 +30,9 @@ export class QQReplyDispatcher implements ReplyDispatcher {
   private footerConfig: FooterConfig;
   private justCompletedTool = false;
   private startTime = 0;
+
+  /** Resolver map for harness approval prompts keyed by proposal ID. */
+  private _harnessResolvers = new Map<string, (decision: ApprovalDecision) => void>();
 
   /** Optional reply tracker for rate-limit recording. */
   private replyTracker: ReplyTracker | null = null;
@@ -152,6 +156,63 @@ export class QQReplyDispatcher implements ReplyDispatcher {
     return undefined;
   }
 
+  requestHarnessApproval(
+    prompt: HarnessImprovementPrompt,
+    timeoutMs?: number,
+  ): Promise<ApprovalDecision> {
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        this._harnessResolvers.delete(prompt.id);
+        resolve('timeout');
+      }, timeoutMs ?? 120_000);
+
+      this._harnessResolvers.set(prompt.id, (decision: ApprovalDecision) => {
+        clearTimeout(timeout);
+        resolve(decision);
+      });
+
+      const text = [
+        '🔧 任务失败分析',
+        '',
+        `问题：${prompt.failureSummary}`,
+        '',
+        `建议：${prompt.title}`,
+        prompt.detail.slice(0, 300),
+        '',
+        `影响：${prompt.impact.scope} | 风险：${prompt.impact.riskLevel}`,
+        '',
+        '请回复数字选择：',
+        '1. 批准并应用',
+        '2. 拒绝',
+        '3. 忽略',
+      ].join('\n');
+
+      this.sendText(text);
+    });
+  }
+
+  tryHandleHarnessReply(text: string): boolean {
+    if (this._harnessResolvers.size === 0) return false;
+
+    const trimmed = text.trim();
+    let action: ApprovalDecision | null = null;
+
+    if (trimmed === '1') action = 'approve';
+    else if (trimmed === '2') action = 'reject';
+    else if (trimmed === '3') action = 'reject';
+
+    if (action) {
+      const [proposalId, resolver] = [...this._harnessResolvers.entries()][0] || [];
+      if (resolver) {
+        this._harnessResolvers.delete(proposalId);
+        resolver(action);
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   /** Attach a ReplyTracker to record replies after sending. */
   setReplyTracker(tracker: ReplyTracker, openid: string): void {
     this.replyTracker = tracker;
@@ -220,5 +281,10 @@ export class QQReplyDispatcher implements ReplyDispatcher {
     if (this.replyTracker && this.replyTrackerOpenid) {
       this.replyTracker.recordMessageReply(this.replyTrackerOpenid);
     }
+  }
+
+  /** Send a text message to the target via the QQ gateway. */
+  private sendText(text: string): void {
+    sendChunkedText(this.gateway, text, this.target, this.config.textLimit).catch(() => {});
   }
 }

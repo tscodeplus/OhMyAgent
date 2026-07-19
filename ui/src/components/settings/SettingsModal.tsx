@@ -13,6 +13,7 @@ import MultimodalSettings from './tabs/MultimodalSettings';
 import ComputerUseSettings from './tabs/ComputerUseSettings';
 import DesktopSettings from './tabs/DesktopSettings';
 import GatewaySettings from './tabs/GatewaySettings';
+import HarnessSettings from './tabs/HarnessSettings';
 import { isElectron } from '../../utils/env';
 import Button from '../ui/Button';
 import { useToast } from '../ui/Toast';
@@ -51,6 +52,7 @@ export const SETTINGS_GROUPS = [
   { id: 'general', labelKey: 'settings.groups.general' },
   { id: 'models', labelKey: 'settings.groups.models' },
   { id: 'agents', labelKey: 'settings.groups.agents' },
+  { id: 'harness', labelKey: 'settings.groups.harness' },
   { id: 'channels', labelKey: 'settings.groups.channels' },
   { id: 'tools', labelKey: 'settings.groups.toolsPolicy' },
   { id: 'websearch', labelKey: 'settings.groups.websearch' },
@@ -66,6 +68,7 @@ const COMPONENT_MAP: Record<string, React.ComponentType<any>> = {
   models: ModelSettings,
   channels: ChannelsSettings,
   agents: AgentSettings,
+  harness: HarnessSettings,
   tools: ToolsPolicySettings,
   websearch: WebSearchSettings,
   memory: MemorySettings,
@@ -272,6 +275,11 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
             {mountedTabs.has('agents') && (
               <div style={{ display: activeGroup === 'agents' ? undefined : 'none' }}>
                 <AgentSettings {...tabProps} />
+              </div>
+            )}
+            {mountedTabs.has('harness') && (
+              <div style={{ display: activeGroup === 'harness' ? undefined : 'none' }}>
+                <HarnessSettings {...tabProps} />
               </div>
             )}
             {mountedTabs.has('tools') && (

@@ -24,6 +24,10 @@ export interface Agent {
     allowedPersonas?: string[];
   };
   disabled?: string[];
+  /** Whether Self-Harness auto-optimization is enabled for this agent. Default true. */
+  harness?: {
+    enabled: boolean;
+  };
 }
 
 export interface CreateAgentPayload {

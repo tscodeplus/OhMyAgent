@@ -41,6 +41,7 @@ export interface AppConfig {
   agents: AgentConfig[];
   remoteTriggers: unknown[];
   extensions: Record<string, boolean>;
+  harness?: Record<string, unknown>;
 }
 
 export interface CustomProvider {
@@ -74,4 +75,8 @@ export interface AgentConfig {
   subAgent?: { enabled: boolean; maxParallel?: number };
   channelBindings?: Record<string, unknown>;
   disabled?: string[];
+  /** Whether Self-Harness auto-optimization is enabled for this agent. Default true. */
+  harness?: {
+    enabled: boolean;
+  };
 }

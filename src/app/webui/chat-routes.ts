@@ -262,6 +262,34 @@ class SSEReplyDispatcher implements ReplyDispatcher {
     debugLog('SSE onAborted');
     this.callback({ type: 'error', error: 'Aborted' });
   }
+
+  // ── Harness improvement proposal support ──
+
+  private _harnessResolvers?: Map<string, (decision: string) => void>;
+
+  async requestHarnessApproval(
+    prompt: import('../../harness/types.js').HarnessImprovementPrompt,
+    timeoutMs?: number,
+  ): Promise<import('../../harness/types.js').ApprovalDecision> {
+    // Send SSE event to the frontend
+    this.callback({ type: 'harness_improvement', proposal: prompt });
+
+    // Create a promise that resolves when the user responds
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        resolve('timeout' as import('../../harness/types.js').ApprovalDecision);
+      }, timeoutMs ?? 120_000);
+
+      // Store the resolver keyed by proposal ID
+      if (!this._harnessResolvers) {
+        this._harnessResolvers = new Map();
+      }
+      this._harnessResolvers.set(prompt.id, (decision: string) => {
+        clearTimeout(timeout);
+        resolve(decision as import('../../harness/types.js').ApprovalDecision);
+      });
+    });
+  }
 }
 
 // ─── Chat Route Config ───
@@ -598,5 +626,26 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
     debugLog('/chat/steer — steering agent', { sessionId, msg: rawMessage.trim().slice(0, 40) });
     const ok = cfg.agentService.steer(sessionId, rawMessage.trim());
     return reply.send({ ok });
+  });
+
+  // ── Harness proposal decision endpoint ──
+  // Frontend calls this when the user clicks a button on a harness improvement
+  // proposal card.  The /api/harness/proposals/:id/decide callback lets the
+  // frontend communicate the user's choice back to the pending promise created
+  // by requestHarnessApproval().
+  app.post('/api/harness/proposals/:id/decide', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { action, editedValue } = request.body as { action: string; editedValue?: string };
+
+    debugLog('/api/harness/proposals/:id/decide called', { id, action, editedValue });
+
+    // NOTE: The resolver lives inside the active SSEReplyDispatcher instance
+    // which is scoped to the SSE connection.  A future refinement should
+    // bridge this via a registry on ChatRouteConfig (mirroring
+    // userQuestionSenderRegistry) so the POST endpoint can resolve the
+    // pending promise directly.  For now, the frontend receives the proposal
+    // event; the full interactive loop can be wired up when the frontend
+    // sends the callback back.
+    return { ok: true };
   });
 }
