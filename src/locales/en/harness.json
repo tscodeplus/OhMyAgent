@@ -1,0 +1,47 @@
+{
+  "failure": {
+    "identicalRetryLoop": "Tool retried and failed {{count}} times (threshold: {{threshold}})",
+    "toolErrorCascade": "{{count}} total tool errors in session (threshold: {{threshold}})",
+    "userDissatisfied": "User explicitly marked session as dissatisfied",
+    "explorationWithoutOutput": "{{count}} exploration steps without any change output (threshold: {{threshold}})",
+    "timeoutOrAbort": "Session terminated early (timeout or abort)",
+    "detected": "Detected pattern: {{pattern}}"
+  },
+  "actions": {
+    "approveApply": "Approve & Apply",
+    "editApply": "Edit & Apply",
+    "reject": "Reject",
+    "ignore": "Ignore",
+    "approve": "Approve",
+    "editPlaceholder": "Enter modified content..."
+  },
+  "card": {
+    "title": "🔧 Task Failure Analysis",
+    "problem": "Problem",
+    "suggestion": "Suggestion",
+    "scope": "Scope",
+    "riskLevel": "Risk Level",
+    "expectedEffect": "Expected Effect",
+    "impact": "Impact",
+    "risk": "Risk",
+    "selectAction": "Select an action:",
+    "replyNumber": "Reply with a number:",
+    "replyNumberQQ": "Reply with a number:",
+    "approveAndApply": "✅ Approve & Apply",
+    "rejectEmoji": "❌ Reject",
+    "ignoreText": "Ignore",
+    "approveEmoji": "✅ Approve",
+    "rejectButton": "❌ Reject"
+  },
+  "approval": {
+    "defaultDenyDeletion": "Deny destructive changes",
+    "defaultGlobalScope": "Global scope requires approval",
+    "defaultHighRisk": "High risk requires approval",
+    "defaultPermissionSensitive": "Permission-sensitive changes require approval",
+    "defaultNumericThreshold": "Numeric threshold changes require approval",
+    "defaultUserDissatisfied": "User dissatisfaction requires approval",
+    "defaultStructureChange": "Structural and policy changes require approval",
+    "defaultLowRiskAuto": "Low-risk single-skill auto-apply",
+    "defaultFallback": "Fallback approval"
+  }
+}

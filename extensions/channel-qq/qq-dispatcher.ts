@@ -172,19 +172,19 @@ export class QQReplyDispatcher implements ReplyDispatcher {
       });
 
       const text = [
-        '🔧 任务失败分析',
+        i18n.t('harness:card.title'),
         '',
-        `问题：${prompt.failureSummary}`,
+        `${i18n.t('harness:card.problem')}：${prompt.failureSummary}`,
         '',
-        `建议：${prompt.title}`,
+        `${i18n.t('harness:card.suggestion')}：${prompt.title}`,
         prompt.detail.slice(0, 300),
         '',
-        `影响：${prompt.impact.scope} | 风险：${prompt.impact.riskLevel}`,
+        `${i18n.t('harness:card.impact')}：${prompt.impact.scope} | ${i18n.t('harness:card.risk')}：${prompt.impact.riskLevel}`,
         '',
-        '请回复数字选择：',
-        '1. 批准并应用',
-        '2. 拒绝',
-        '3. 忽略',
+        i18n.t('harness:card.replyNumberQQ'),
+        `1. ${i18n.t('harness:actions.approveApply')}`,
+        `2. ${i18n.t('harness:actions.reject')}`,
+        `3. ${i18n.t('harness:actions.ignore')}`,
       ].join('\n');
 
       this.sendText(text);

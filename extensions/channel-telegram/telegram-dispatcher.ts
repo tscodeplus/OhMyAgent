@@ -207,23 +207,23 @@ export class TelegramReplyDispatcher implements ReplyDispatcher {
 
       // Send text message with inline keyboard
       const text = [
-        '🔧 *任务失败分析*',
+        i18n.t('harness:card.title'),
         '',
-        `*问题*：${prompt.failureSummary}`,
+        `*${i18n.t('harness:card.problem')}*：${prompt.failureSummary}`,
         '',
         prompt.detail.slice(0, 500),
         '',
-        `*影响*：${prompt.impact.scope} | 风险：${prompt.impact.riskLevel}`,
+        `*${i18n.t('harness:card.impact')}*：${prompt.impact.scope} | ${i18n.t('harness:card.risk')}：${prompt.impact.riskLevel}`,
         '',
-        '请选择操作：',
+        i18n.t('harness:card.selectAction'),
       ].join('\n');
 
       const inlineKeyboard = {
         inline_keyboard: [
           [
-            { text: '✅ 批准', callback_data: `harness:${prompt.id}:approve` },
-            { text: '❌ 拒绝', callback_data: `harness:${prompt.id}:reject` },
-            { text: '忽略', callback_data: `harness:${prompt.id}:dismiss` },
+            { text: i18n.t('harness:card.approveEmoji'), callback_data: `harness:${prompt.id}:approve` },
+            { text: i18n.t('harness:card.rejectButton'), callback_data: `harness:${prompt.id}:reject` },
+            { text: i18n.t('harness:card.ignoreText'), callback_data: `harness:${prompt.id}:dismiss` },
           ],
         ],
       };

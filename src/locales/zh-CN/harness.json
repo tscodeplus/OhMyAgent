@@ -1,0 +1,47 @@
+{
+  "failure": {
+    "identicalRetryLoop": "工具重复执行并失败 {{count}} 次（阈值: {{threshold}}）",
+    "toolErrorCascade": "会话中发生 {{count}} 个工具错误（阈值: {{threshold}}）",
+    "userDissatisfied": "用户明确标记会话为不满意",
+    "explorationWithoutOutput": "{{count}} 次探索操作未产生任何修改输出（阈值: {{threshold}}）",
+    "timeoutOrAbort": "会话提前终止（超时或中断）",
+    "detected": "检测到模式: {{pattern}}"
+  },
+  "actions": {
+    "approveApply": "批准并应用",
+    "editApply": "修改后应用",
+    "reject": "拒绝",
+    "ignore": "忽略",
+    "approve": "批准",
+    "editPlaceholder": "输入修改后的内容..."
+  },
+  "card": {
+    "title": "🔧 任务失败分析",
+    "problem": "问题",
+    "suggestion": "建议",
+    "scope": "影响范围",
+    "riskLevel": "风险等级",
+    "expectedEffect": "预期效果",
+    "impact": "影响",
+    "risk": "风险",
+    "selectAction": "请选择操作：",
+    "replyNumber": "回复操作（输入数字）：",
+    "replyNumberQQ": "请回复数字选择：",
+    "approveAndApply": "✅ 批准并应用",
+    "rejectEmoji": "❌ 拒绝",
+    "ignoreText": "忽略",
+    "approveEmoji": "✅ 批准",
+    "rejectButton": "❌ 拒绝"
+  },
+  "approval": {
+    "defaultDenyDeletion": "拒绝破坏性变更",
+    "defaultGlobalScope": "全局范围需要审批",
+    "defaultHighRisk": "高风险变更需要审批",
+    "defaultPermissionSensitive": "权限相关变更需要审批",
+    "defaultNumericThreshold": "数值阈值变更需要审批",
+    "defaultUserDissatisfied": "用户不满触发审批",
+    "defaultStructureChange": "结构和策略变更需要审批",
+    "defaultLowRiskAuto": "低风险单技能自动应用",
+    "defaultFallback": "兜底审批规则"
+  }
+}

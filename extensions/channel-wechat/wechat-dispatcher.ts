@@ -177,19 +177,19 @@ export class WechatReplyDispatcher implements ReplyDispatcher {
       });
 
       const text = [
-        '🔧 任务失败分析',
+        i18n.t('harness:card.title'),
         '',
-        `问题：${prompt.failureSummary}`,
+        `${i18n.t('harness:card.problem')}：${prompt.failureSummary}`,
         '',
-        `建议：${prompt.title}`,
+        `${i18n.t('harness:card.suggestion')}：${prompt.title}`,
         prompt.detail.slice(0, 300),
         '',
-        `影响：${prompt.impact.scope} | 风险：${prompt.impact.riskLevel}`,
+        `${i18n.t('harness:card.impact')}：${prompt.impact.scope} | ${i18n.t('harness:card.risk')}：${prompt.impact.riskLevel}`,
         '',
-        '回复操作（输入数字）：',
-        '1. ✅ 批准并应用',
-        '2. ❌ 拒绝',
-        '3. 忽略',
+        i18n.t('harness:card.replyNumber'),
+        `1. ${i18n.t('harness:card.approveAndApply')}`,
+        `2. ${i18n.t('harness:card.rejectEmoji')}`,
+        `3. ${i18n.t('harness:card.ignoreText')}`,
       ].join('\n');
 
       void this.options.sendText(text);

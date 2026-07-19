@@ -8,6 +8,7 @@
 
 import type { AgentFactory } from './agent-factory.js';
 import type { AgentTurnContext } from './agent-factory.js';
+import { i18n } from '../i18n/i18n-service.js';
 import type { Agent } from '../pi-mono/agent/agent.js';
 import { setSessionAgent, clearSessionAgent } from './agent-context.js';
 import type { ReplyDispatcher, FooterConfig } from '../app/types.js';
@@ -866,10 +867,10 @@ export class AgentService {
             expectedEffect: proposal.expectedEffect,
           },
           actions: [
-            { id: 'approve', label: '批准并应用', style: 'primary' as const },
-            { id: 'edit', label: '修改后应用', style: 'default' as const, inputField: { placeholder: '输入修改后的内容...', multiline: true, defaultValue: proposal.diff.after } },
-            { id: 'reject', label: '拒绝', style: 'danger' as const },
-            { id: 'dismiss', label: '忽略', style: 'default' as const },
+            { id: 'approve', label: i18n.t('harness:actions.approveApply'), style: 'primary' as const },
+            { id: 'edit', label: i18n.t('harness:actions.editApply'), style: 'default' as const, inputField: { placeholder: i18n.t('harness:actions.editPlaceholder'), multiline: true, defaultValue: proposal.diff.after } },
+            { id: 'reject', label: i18n.t('harness:actions.reject'), style: 'danger' as const },
+            { id: 'dismiss', label: i18n.t('harness:actions.ignore'), style: 'default' as const },
           ],
         };
 

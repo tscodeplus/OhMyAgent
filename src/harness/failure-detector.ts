@@ -13,6 +13,7 @@ import {
   ToolCallRecord,
   HarnessTriggerConfig,
 } from './types.js';
+import { i18n } from '../i18n/i18n-service.js';
 
 // ---------------------------------------------------------------------------
 // Tool classification constants
@@ -231,17 +232,17 @@ export class FailureDetector {
   ): string {
     switch (pattern) {
       case 'identical_retry_loop':
-        return `Tool retried and failed ${details!.count} times (threshold: ${details!.threshold})`;
+        return i18n.t('harness:failure.identicalRetryLoop', { count: details!.count as number, threshold: details!.threshold as number });
       case 'tool_error_cascade':
-        return `${details!.count} total tool errors in session (threshold: ${details!.threshold})`;
+        return i18n.t('harness:failure.toolErrorCascade', { count: details!.count as number, threshold: details!.threshold as number });
       case 'user_explicit_dissatisfied':
-        return 'User explicitly marked session as dissatisfied';
+        return i18n.t('harness:failure.userDissatisfied');
       case 'exploration_without_output':
-        return `${details!.exploreCount} exploration steps without any change output (threshold: ${details!.threshold})`;
+        return i18n.t('harness:failure.explorationWithoutOutput', { count: details!.exploreCount as number, threshold: details!.threshold as number });
       case 'timeout_or_abort':
-        return 'Session terminated early (timeout or abort)';
+        return i18n.t('harness:failure.timeoutOrAbort');
       default:
-        return `Detected pattern: ${pattern}`;
+        return i18n.t('harness:failure.detected', { pattern });
     }
   }
 }

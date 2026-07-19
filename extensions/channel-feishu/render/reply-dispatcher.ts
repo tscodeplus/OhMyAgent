@@ -210,17 +210,17 @@ export class ReplyDispatcher {
       const card: Record<string, unknown> = {
         config: { wide_screen_mode: true },
         header: {
-          title: { tag: 'plain_text', content: '🔧 任务失败分析' },
+          title: { tag: 'plain_text', content: i18n.t('harness:card.title') },
           template: 'wathet',
         },
         elements: [
-          { tag: 'markdown', content: `**问题**：${prompt.failureSummary}` },
+          { tag: 'markdown', content: `**${i18n.t('harness:card.problem')}**：${prompt.failureSummary}` },
           { tag: 'hr' },
           { tag: 'markdown', content: prompt.detail.slice(0, 500) },
           { tag: 'hr' },
           {
             tag: 'markdown',
-            content: `**影响范围**：${prompt.impact.scope}\n**风险等级**：${prompt.impact.riskLevel}\n**预期效果**：${prompt.impact.expectedEffect}`,
+            content: `**${i18n.t('harness:card.scope')}**：${prompt.impact.scope}\n**${i18n.t('harness:card.riskLevel')}**：${prompt.impact.riskLevel}\n**${i18n.t('harness:card.expectedEffect')}**：${prompt.impact.expectedEffect}`,
           },
           { tag: 'hr' },
           {
@@ -228,19 +228,19 @@ export class ReplyDispatcher {
             actions: [
               {
                 tag: 'button',
-                text: { tag: 'plain_text', content: '✅ 批准并应用' },
+                text: { tag: 'plain_text', content: i18n.t('harness:card.approveAndApply') },
                 type: 'primary',
                 value: { proposalId: prompt.id, action: 'approve' },
               },
               {
                 tag: 'button',
-                text: { tag: 'plain_text', content: '❌ 拒绝' },
+                text: { tag: 'plain_text', content: i18n.t('harness:card.rejectEmoji') },
                 type: 'danger',
                 value: { proposalId: prompt.id, action: 'reject' },
               },
               {
                 tag: 'button',
-                text: { tag: 'plain_text', content: '忽略' },
+                text: { tag: 'plain_text', content: i18n.t('harness:card.ignoreText') },
                 type: 'default',
                 value: { proposalId: prompt.id, action: 'dismiss' },
               },
