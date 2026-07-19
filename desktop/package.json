@@ -1,6 +1,6 @@
 {
   "name": "ohmyagent-desktop",
-  "version": "1.2.3",
+  "version": "2.0.0-beta",
   "description": "OhMyAgent Desktop — Electron desktop client for local and remote Agent Gateway",
   "homepage": "https://github.com/tscodeplus/OhMyAgent",
   "author": "tscodeplus",
