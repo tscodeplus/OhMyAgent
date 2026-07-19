@@ -46,7 +46,7 @@ export function createHarnessServices(config: HarnessConfig): HarnessServices | 
   const optimizer = new HarnessOptimizer(
     config.proposal,
     surfaceProvider,
-    async (_systemPrompt: string, _userMessage: string) => {
+    async (_systemPrompt: string, _userMessage: string, _model?: string) => {
       throw new Error(
         'HarnessOptimizer LLM caller not wired. The agent system must provide ' +
         'a real LLM invocation via optimizer construction before use.',

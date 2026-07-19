@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useConfigDirty, type SettingsTabHandle } from '../useConfigDirty';
 import Toggle from '../../ui/Toggle';
@@ -6,14 +6,13 @@ import Input from '../../ui/Input';
 import Select from '../../ui/Select';
 import Spinner from '../../ui/Spinner';
 import Button from '../../ui/Button';
+import { useToast } from '../../ui/Toast';
 
 interface HarnessSettingsProps {
   tabId?: string;
   registerHandle?: (tabId: string, handle: SettingsTabHandle | null) => void;
   onDirtyChange?: (tabId: string, dirty: boolean) => void;
 }
-
-const CHANNEL_KEYS = ['webui', 'feishu', 'telegram', 'wechat', 'qq'] as const;
 
 const APPROVAL_PRESETS = [
   { value: 'always_ask', labelKey: 'settings.harness.interactive.approval.alwaysAsk' },
@@ -23,7 +22,34 @@ const APPROVAL_PRESETS = [
 
 export default function HarnessSettings({ tabId = 'harness', registerHandle, onDirtyChange }: HarnessSettingsProps) {
   const { t } = useTranslation('common');
+  const { showToast } = useToast();
   const { config, loading, dirtyCount, getField, setField, save, cancel } = useConfigDirty(tabId, registerHandle, onDirtyChange);
+
+  // Proposal model mode — use a flag to remember user's explicit dropdown choice,
+  // avoiding the bug where setField('') causes derived mode to flip back to 'default'.
+  const getConfigModel = () => {
+    if (!config) return '';
+    return (((config.harness as Record<string, unknown>)?.proposal as Record<string, string>)?.model || '');
+  };
+  const [userSelectedCustom, setUserSelectedCustom] = useState(() => {
+    const m = getConfigModel();
+    return !!(m && m !== 'default');
+  });
+  // Reset flag on config change (save / initial load)
+  useEffect(() => {
+    const m = getConfigModel();
+    setUserSelectedCustom(!!(m && m !== 'default'));
+  }, [config]);
+  // Reset flag on cancel (dirtyFields cleared while config unchanged)
+  const prevDirtyCount = useRef(dirtyCount);
+  useEffect(() => {
+    if (dirtyCount === 0 && prevDirtyCount.current > 0) {
+      const m = getConfigModel();
+      setUserSelectedCustom(!!(m && m !== 'default'));
+    }
+    prevDirtyCount.current = dirtyCount;
+  }, [dirtyCount]);
+  const proposalModelMode: 'default' | 'custom' = userSelectedCustom ? 'custom' : 'default';
 
   // Warn before leaving the page if there are unsaved changes
   useEffect(() => {
@@ -38,10 +64,9 @@ export default function HarnessSettings({ tabId = 'harness', registerHandle, onD
 
   const harness = (config.harness as Record<string, unknown>) || {};
   const interactive = (harness.interactive as Record<string, unknown>) || {};
-  const channels = (interactive.channels as Record<string, boolean>) || {};
-  const trigger = (interactive.trigger as Record<string, number>) || {};
-  const rateLimit = (interactive.rateLimit as Record<string, number>) || {};
-  const proposal = (interactive.proposal as Record<string, string>) || {};
+  const trigger = (harness.trigger as Record<string, number>) || {};
+  const rateLimit = (harness.rateLimit as Record<string, number>) || {};
+  const proposal = (harness.proposal as Record<string, string>) || {};
 
   const sectionCardClass = 'rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4';
   const sectionTitleClass = 'text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3';
@@ -69,57 +94,38 @@ export default function HarnessSettings({ tabId = 'harness', registerHandle, onD
         </div>
       </section>
 
-      {/* ── Section 2: Notification Channels ── */}
-      <section>
-        <h3 className={sectionTitleClass}>{t('settings.harness.interactive.channels.title')}</h3>
-        <div className={`${sectionCardClass} space-y-3`}>
-          {CHANNEL_KEYS.map((ch) => (
-            <div key={ch} className="flex items-center justify-between">
-              <span className="text-sm text-neutral-700 dark:text-neutral-300">
-                {t(`settings.harness.interactive.channels.${ch}`)}
-              </span>
-              <Toggle
-                checked={getField(`harness.interactive.channels.${ch}`, !!channels[ch]) as boolean}
-                onChange={(v) => setField(`harness.interactive.channels.${ch}`, v)}
-                ariaLabel={t(`settings.harness.interactive.channels.${ch}`)}
-              />
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── Section 3: Trigger Conditions ── */}
+      {/* ── Section 2: Trigger Conditions ── */}
       <section>
         <h3 className={sectionTitleClass}>{t('settings.harness.interactive.trigger.title')}</h3>
         <div className={`${sectionCardClass} grid grid-cols-2 gap-4`}>
           <Input
             label={t('settings.harness.interactive.trigger.minIdenticalRetries')}
             type="number"
-            value={getField('harness.interactive.trigger.minIdenticalRetries', String(trigger.minIdenticalRetries ?? '')) as string}
-            onChange={(e) => setField('harness.interactive.trigger.minIdenticalRetries', e.target.value)}
+            value={getField('harness.trigger.minIdenticalRetries', String(trigger.minIdenticalRetries ?? 3)) as string}
+            onChange={(e) => setField('harness.trigger.minIdenticalRetries', e.target.value)}
           />
           <Input
             label={t('settings.harness.interactive.trigger.minExplorationSteps')}
             type="number"
-            value={getField('harness.interactive.trigger.minExplorationSteps', String(trigger.minExplorationSteps ?? '')) as string}
-            onChange={(e) => setField('harness.interactive.trigger.minExplorationSteps', e.target.value)}
+            value={getField('harness.trigger.minExplorationSteps', String(trigger.minExplorationSteps ?? 8)) as string}
+            onChange={(e) => setField('harness.trigger.minExplorationSteps', e.target.value)}
           />
           <Input
             label={t('settings.harness.interactive.trigger.minConsecutiveErrors')}
             type="number"
-            value={getField('harness.interactive.trigger.minConsecutiveErrors', String(trigger.minConsecutiveErrors ?? '')) as string}
-            onChange={(e) => setField('harness.interactive.trigger.minConsecutiveErrors', e.target.value)}
+            value={getField('harness.trigger.minConsecutiveErrors', String(trigger.minConsecutiveErrors ?? 3)) as string}
+            onChange={(e) => setField('harness.trigger.minConsecutiveErrors', e.target.value)}
           />
           <Input
             label={t('settings.harness.interactive.trigger.cooldownMinutes')}
             type="number"
-            value={getField('harness.interactive.rateLimit.cooldownMinutes', String(rateLimit.cooldownMinutes ?? '')) as string}
-            onChange={(e) => setField('harness.interactive.rateLimit.cooldownMinutes', e.target.value)}
+            value={getField('harness.rateLimit.cooldownMinutes', String(rateLimit.cooldownMinutes ?? 30)) as string}
+            onChange={(e) => setField('harness.rateLimit.cooldownMinutes', e.target.value)}
           />
         </div>
       </section>
 
-      {/* ── Section 4: Approval Strategy ── */}
+      {/* ── Section 3: Approval Strategy ── */}
       <section>
         <h3 className={sectionTitleClass}>{t('settings.harness.interactive.approval.title')}</h3>
         <div className={`${sectionCardClass} space-y-3`}>
@@ -133,7 +139,7 @@ export default function HarnessSettings({ tabId = 'harness', registerHandle, onD
                   value={preset.value}
                   checked={currentMode === preset.value}
                   onChange={(e) => setField('harness.interactive.approval.mode', e.target.value)}
-                  className="h-4 w-4 text-blue-500 border-neutral-300 focus:ring-blue-500/30 dark:border-neutral-600 dark:bg-neutral-800"
+                  className="h-4 w-4 accent-blue-500 dark:accent-blue-400 border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-700 text-blue-500 dark:text-blue-400 focus:ring-blue-500/30 dark:focus:ring-blue-400/30"
                 />
                 <span className="text-sm text-neutral-700 dark:text-neutral-300">
                   {t(preset.labelKey)}
@@ -141,12 +147,11 @@ export default function HarnessSettings({ tabId = 'harness', registerHandle, onD
               </label>
             );
           })}
-          {/* Placeholder: "Manage Custom Rules" button — will be replaced later */}
           <div className="pt-2">
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => {}}
+              onClick={() => showToast(t('settings.harness.interactive.approval.comingSoon'), 'info')}
             >
               {t('settings.harness.interactive.approval.customRules')}
             </Button>
@@ -154,7 +159,7 @@ export default function HarnessSettings({ tabId = 'harness', registerHandle, onD
         </div>
       </section>
 
-      {/* ── Section 5: Rate Limits ── */}
+      {/* ── Section 4: Rate Limits ── */}
       <section>
         <h3 className={sectionTitleClass}>{t('settings.harness.interactive.rateLimit.title')}</h3>
         <div className={`${sectionCardClass} space-y-4`}>
@@ -162,25 +167,44 @@ export default function HarnessSettings({ tabId = 'harness', registerHandle, onD
             <Input
               label={t('settings.harness.interactive.rateLimit.maxPerDay')}
               type="number"
-              value={getField('harness.interactive.rateLimit.maxPerDay', String(rateLimit.maxPerDay ?? '')) as string}
-              onChange={(e) => setField('harness.interactive.rateLimit.maxPerDay', e.target.value)}
+              value={getField('harness.rateLimit.maxPerDay', String(rateLimit.maxPerDay ?? 10)) as string}
+              onChange={(e) => setField('harness.rateLimit.maxPerDay', e.target.value)}
             />
             <Input
               label={t('settings.harness.interactive.rateLimit.maxPerHour')}
               type="number"
-              value={getField('harness.interactive.rateLimit.maxPerHour', String(rateLimit.maxPerHour ?? '')) as string}
-              onChange={(e) => setField('harness.interactive.rateLimit.maxPerHour', e.target.value)}
+              value={getField('harness.rateLimit.maxPerHour', String(rateLimit.maxPerHour ?? 2)) as string}
+              onChange={(e) => setField('harness.rateLimit.maxPerHour', e.target.value)}
             />
           </div>
           <Select
             label={t('settings.harness.interactive.proposal.model')}
-            value={getField('harness.interactive.proposal.model', (proposal.model || '') as string) as string}
-            onChange={(e) => setField('harness.interactive.proposal.model', e.target.value)}
             options={[
-              { value: '', label: t('settings.harness.interactive.proposal.modelDefault') },
-              { value: 'auto', label: 'Auto' },
+              { value: 'default', label: t('settings.harness.interactive.proposal.modelDefault') },
+              { value: 'custom', label: t('settings.harness.interactive.proposal.modelCustom') },
             ]}
+            value={proposalModelMode}
+            onChange={(e) => {
+              const mode = e.target.value as 'default' | 'custom';
+              if (mode === 'default') {
+                setUserSelectedCustom(false);
+                setField('harness.proposal.model', 'default');
+              } else {
+                setUserSelectedCustom(true);
+                const cur = getField('harness.proposal.model', proposal.model || '') as string;
+                if (!cur || cur === 'default') {
+                  setField('harness.proposal.model', '');
+                }
+              }
+            }}
           />
+          {proposalModelMode === 'custom' && (
+            <Input
+              value={getField('harness.proposal.model', (proposal.model || '') as string) as string}
+              onChange={(e) => setField('harness.proposal.model', e.target.value)}
+              placeholder={t('settings.harness.interactive.proposal.modelPlaceholder')}
+            />
+          )}
         </div>
       </section>
     </div>

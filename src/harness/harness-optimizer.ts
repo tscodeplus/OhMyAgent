@@ -32,16 +32,26 @@ interface SurfaceDescriptor {
 export class HarnessOptimizer {
   private readonly config: HarnessProposalConfig;
   private readonly surfaceProvider: EditableSurfaceProvider;
-  private readonly llmCaller: (systemPrompt: string, userMessage: string) => Promise<string>;
+  private readonly llmCaller: (systemPrompt: string, userMessage: string, model?: string) => Promise<string>;
 
   constructor(
     config: HarnessProposalConfig,
     surfaceProvider: EditableSurfaceProvider,
-    llmCaller: (systemPrompt: string, userMessage: string) => Promise<string>,
+    llmCaller: (systemPrompt: string, userMessage: string, model?: string) => Promise<string>,
   ) {
     this.config = config;
     this.surfaceProvider = surfaceProvider;
     this.llmCaller = llmCaller;
+  }
+
+  /**
+   * Replace the LLM caller after construction.
+   *
+   * The factory creates a placeholder that throws; the agent system must
+   * inject a real LLM caller before the optimizer is exercised.
+   */
+  setLlmCaller(caller: (systemPrompt: string, userMessage: string, model?: string) => Promise<string>): void {
+    (this as unknown as { llmCaller: typeof caller }).llmCaller = caller;
   }
 
   // ---------------------------------------------------------------------------
@@ -286,7 +296,10 @@ export class HarnessOptimizer {
    * in tests a mock function is passed via the constructor.
    */
   private async callLLM(systemPrompt: string, userMessage: string): Promise<string> {
-    return this.llmCaller(systemPrompt, userMessage);
+    // Resolve the model to use: empty or 'default' → undefined (caller uses system default)
+    const configuredModel = this.config.model;
+    const model = (!configuredModel || configuredModel === 'default') ? undefined : configuredModel;
+    return this.llmCaller(systemPrompt, userMessage, model);
   }
 
   // ---------------------------------------------------------------------------

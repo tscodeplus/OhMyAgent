@@ -1281,17 +1281,13 @@ Harness 设置页采用五个功能区段，从总到分，从常用到高级：
 │     [启用自动优化]  ● 开启  ○ 关闭                         │
 │     Agent 任务失败时，自动分析原因并建议优化方案              │
 │                                                         │
-│  ② 通知渠道                                               │
-│     ☑ WebUI     ☑ 飞书     ☑ Telegram                   │
-│     ☐ 微信      ☐ QQ                                    │
-│                                                         │
-│  ③ 触发条件                                               │
+│  ② 触发条件                                               │
 │     重复相同失败命令 ≥ [3] 次                               │
 │     连续探索无产出   ≥ [8] 步                               │
 │     连续工具执行错误 ≥ [3] 次                               │
 │     冷却期: 同一问题 [30] 分钟内不重复询问                    │
 │                                                         │
-│  ④ 审批策略                                    ┌─ 预设 ─┐ │
+│  ③ 审批策略                                    ┌─ 预设 ─┐ │
 │     ○ 总是询问（每次弹窗确认）                      │        │
 │     ● 智能审批（按规则自动决定）← 默认              │        │
 │     ○ 低风险自动（激进的自动应用）                   └────────┘ │
@@ -1303,7 +1299,7 @@ Harness 设置页采用五个功能区段，从总到分，从常用到高级：
 │                                                         │
 │     [管理自定义规则 →]  点击展开规则编辑面板                   │
 │                                                         │
-│  ⑤ 速率限制                                               │
+│  ④ 速率限制                                               │
 │     每日最多 [10] 次    每小时最多 [2] 次                    │
 │     提案生成模型: [默认模型 ▾]                               │
 │                                                         │
@@ -1405,17 +1401,20 @@ Harness 设置页采用五个功能区段，从总到分，从常用到高级：
 
 #### 8.2.6 字段 → config 路径映射
 
+> **注意**：通知渠道区域已在实施中移除。Harness 通知通过 `ReplyDispatcher` 自动路由到任务发起渠道，无需手动配置。
+
 | WebUI 控件 | config.yaml 路径 |
 |-----------|-----------------|
 | 总开关 | `harness.interactive.enabled` |
-| 渠道 ☑ | `harness.interactive.channels.<name>` |
-| 触发阈值 | `harness.interactive.trigger.*` |
-| 冷却期 | `harness.interactive.rateLimit.cooldownMinutes` |
-| 每日上限 | `harness.interactive.rateLimit.maxPerDay` |
-| 每小时上限 | `harness.interactive.rateLimit.maxPerHour` |
-| 提案模型 | `harness.interactive.proposal.model` |
+| 触发阈值 | `harness.trigger.minIdenticalRetries` |
+| 触发阈值 | `harness.trigger.minExplorationSteps` |
+| 触发阈值 | `harness.trigger.minConsecutiveErrors` |
+| 冷却期 | `harness.rateLimit.cooldownMinutes` |
+| 每日上限 | `harness.rateLimit.maxPerDay` |
+| 每小时上限 | `harness.rateLimit.maxPerHour` |
+| 提案模型 | `harness.proposal.model`（自由文本 Input，留空=系统默认，或输入 `provider/modelId`） |
 | 审批预设 | UI 层映射到 rules 数组的操作 |
-| 自定义规则 | `harness.interactive.rules[]` |
+| 自定义规则 | 点击弹出"即将上线" Toast |
 | Agent 级开关 | 转换为一组 `agentIds` 规则 |
 
 #### 8.2.7 设置页实现要点

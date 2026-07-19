@@ -318,6 +318,7 @@ export async function bootstrap(): Promise<BootstrapResult> {
     toolRunRepository,
     memorySummarizer,
     servicesRef,
+    harnessServices,
   });
   const {
     agentFactory,

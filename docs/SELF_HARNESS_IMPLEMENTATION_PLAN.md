@@ -127,7 +127,7 @@ harness?: {
 - `harness.interactive.channels` 默认 `{ webui: true, feishu: true, telegram: true, wechat: false, qq: false }`
 - `harness.interactive.trigger` 默认 `{ minIdenticalRetries: 3, minExplorationSteps: 8, minConsecutiveErrors: 3 }`
 - `harness.interactive.rateLimit` 默认 `{ cooldownMinutes: 30, maxPerHour: 2, maxPerDay: 10, maxAutoApplyPerDay: 5 }`
-- `harness.interactive.proposal.model` 默认 `"default"`
+- `harness.proposal.model` 默认 `"default"`（空字符串表示使用系统默认模型）
 - `harness.interactive.rules` 默认出厂规则数组（设计文档 5.3 节）
 
 **验收**：
@@ -273,7 +273,7 @@ export class HarnessRateLimiter {
 export class HarnessOptimizer {
   constructor(
     private config: HarnessProposalConfig,
-    private llmCaller: (systemPrompt: string, messages: any[], tools?: any[]) => AsyncIterable<any>,
+    private llmCaller: (systemPrompt: string, userMessage: string, model?: string) => Promise<string>,
     private surfaceProvider: EditableSurfaceProvider,
   ) {}
 
@@ -534,6 +534,8 @@ export class SkillEditor {
 **工期**：2-3 天
 **目标**：将 Phase 1 引擎嵌入 AgentService 执行流程，端到端跑通。
 
+> **2026-07-19 更新**：LLM 调用链路已接通。`createAgentServices` 在创建 `AgentService` 时通过 `HarnessOptimizer.setLlmCaller()` 注入真实 LLM caller。调用方使用 `completeSimple` + `getModel` from `@earendil-works/pi-ai`。系统默认时使用主模型（`getDefaultModel(config)`），指定模型时解析 `provider/modelId` 格式。
+
 ### Task 2.1：在 bootstrap 中创建 Harness 服务
 
 **文件**：`src/app/bootstrap.ts`
@@ -689,16 +691,21 @@ harness: HarnessSettings,   // 懒加载
 
 ```
 ① 总开关: Toggle (enabled)
-② 通知渠道: Checkbox × 5 (webui/feishu/telegram/wechat/qq)
-③ 触发条件: NumberInput × 3 + cooldown
-④ 审批策略: RadioGroup × 3 预设 + "管理自定义规则"展开按钮
-⑤ 速率限制: NumberInput × 2 + ModelSelect
+② 触发条件: NumberInput × 3 + cooldown
+③ 审批策略: RadioGroup × 3 预设 + "管理自定义规则"展开按钮
+④ 速率限制: NumberInput × 2 + Model Input（自由文本，留空=系统默认）
 ```
 
 **技术要点**：
 - 使用 `useConfigDirty('harness')` hook 管理脏状态
 - 预设模式：选择"总是询问"/"智能审批"/"低风险自动"后，前端计算对应的 rules 数组发送给后端
 - NumberInput 路径加入 `useConfigDirty` 的 numericPaths
+
+> **2026-07-19 实施更新**：
+> - 通知渠道区域已移除 — Harness 通知通过 `ReplyDispatcher` 自动路由到任务发起渠道
+> - 所有 config 路径已修正：触发条件 `harness.trigger.*`、速率限制 `harness.rateLimit.*`、提案模型 `harness.proposal.model`
+> - 提案模型改为自由文本 `Input`（遵循项目现有模式），placeholder 为 "留空使用系统默认，或输入 provider/modelId"
+> - "管理自定义规则"按钮暂时显示"即将上线" Toast
 
 **验收**：
 - [ ] 所有控件正确渲染

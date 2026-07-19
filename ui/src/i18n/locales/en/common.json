@@ -133,7 +133,7 @@
     "groups": {
       "general": "General",
       "agents": "Agents",
-      "harness": "Auto Optimization",
+      "harness": "Auto Evolution",
       "models": "AI Models",
       "memory": "Memory",
       "toolsPolicy": "Tools & Policy",
@@ -314,7 +314,8 @@
           "alwaysAsk": "Always Ask",
           "smartApprove": "Smart Approval",
           "lowRiskAuto": "Auto-approve Low Risk",
-          "customRules": "Manage Custom Rules"
+          "customRules": "Manage Custom Rules",
+          "comingSoon": "Custom rules management coming soon"
         },
         "rateLimit": {
           "title": "Rate Limits",
@@ -322,8 +323,11 @@
           "maxPerHour": "Max Per Hour"
         },
         "proposal": {
-          "model": "Proposal Model",
-          "modelDefault": "System default"
+          "title": "Proposal Model",
+          "model": "Model Selection",
+          "modelDefault": "System Default",
+          "modelCustom": "Specify Model",
+          "modelPlaceholder": "Enter provider/modelId (e.g. deepseek/deepseek-v4-pro)"
         }
       }
     },

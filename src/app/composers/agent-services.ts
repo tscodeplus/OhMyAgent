@@ -6,6 +6,7 @@
  */
 
 import { getDefaultModel } from '../../provider/pi-ai-setup.js';
+import { getModel, completeSimple } from '@earendil-works/pi-ai';
 import { createAgentFactory } from '../../agent/agent-factory.js';
 import { AgentService } from '../../agent/agent-service.js';
 import { VisionBridgeService } from '../../vision-bridge/vision-bridge-service.js';
@@ -59,6 +60,7 @@ export interface AgentServicesInput {
   toolRunRepository: import('../../memory/repositories/tool-run-repository.js').ToolRunRepository;
   memorySummarizer: import('../../memory/memory-summarizer.js').MemorySummarizer;
   servicesRef: { current?: AppServices };
+  harnessServices?: import('../../harness/factory.js').HarnessServices;
 }
 
 // ─── Helpers ───
@@ -81,6 +83,7 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
     approvalDecisionRepository, approvalResolution, promptManager,
     sessionRepository, messageRepository, episodeRepository,
     toolRunRepository, memorySummarizer, servicesRef,
+    harnessServices,
   } = input;
 
   const cronServiceRef: { current: import('../../cron/service.js').CronService | undefined } = { current: undefined };
@@ -259,6 +262,60 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
     logger,
   };
 
+  // ── Wire harness LLM caller if harness services are available ──
+  if (harnessServices) {
+    const mainModel = getDefaultModel(config);
+    harnessServices.optimizer.setLlmCaller(
+      async (systemPrompt: string, userMessage: string, model?: string) => {
+        let resolvedModel: ReturnType<typeof getModel> | undefined;
+
+        if (!model) {
+          // System default: use the main agent model
+          resolvedModel = mainModel;
+        } else {
+          // Specific model: parse provider/modelId
+          const slashIdx = model.indexOf('/');
+          if (slashIdx > 0) {
+            const provider = model.slice(0, slashIdx);
+            const modelId = model.slice(slashIdx + 1);
+            resolvedModel = getModel(provider, modelId);
+          }
+        }
+
+        if (!resolvedModel) {
+          throw new Error(
+            `HarnessOptimizer: unable to resolve model "${model || 'default'}". ` +
+            'Check that the provider and model ID are correct.',
+          );
+        }
+
+        const response = await completeSimple(
+          resolvedModel as any,
+          {
+            systemPrompt,
+            messages: [
+              {
+                role: 'user' as const,
+                content: [{ type: 'text' as const, text: userMessage }],
+                timestamp: Date.now(),
+              },
+            ],
+          },
+          {
+            maxTokens: 1024,
+            signal: AbortSignal.timeout(30_000),
+          },
+        );
+
+        return response.content
+          .filter((c: any) => c.type === 'text')
+          .map((c: any) => c.text)
+          .join('');
+      },
+    );
+    logger.info('Harness LLM caller wired');
+  }
+
   const agentService = new AgentService(
     agentFactory,
     (chatId: string, messageId?: string, agentId?: string) => {
@@ -268,6 +325,7 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
     persistenceOpts,
     getVisionBridge,
     config.multimodal?.image?.mode ?? 'native_first',
+    harnessServices,
   );
 
   return {
