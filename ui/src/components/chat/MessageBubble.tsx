@@ -317,7 +317,9 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
             // ReactMarkdown would collapse single \n to spaces per the CommonMark
             // spec, but users expect copy-pasted multi-line text to keep its
             // line breaks (e.g. pasting from tmux/macOS into the chat input).
-            <div className="whitespace-pre-wrap text-sm">{message.content}</div>
+            // break-words (overflow-wrap: break-word) prevents long unbroken
+            // strings like URLs with query params from overflowing the bubble.
+            <div className="whitespace-pre-wrap break-words text-sm">{message.content}</div>
           )}
         </div>
 
