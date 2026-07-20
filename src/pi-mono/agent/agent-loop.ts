@@ -300,7 +300,7 @@ function compactToolsForPrompt(tools?: AgentTool<any>[]): any[] | undefined {
 	return tools.filter((t) => !(t as any).deferred) as any[];
 }
 
-	// Build LLM context
+	// Build LLM context (shared across fallback attempts)
 	const llmContext: Context = {
 		systemPrompt: context.systemPrompt,
 		messages: llmMessages,
@@ -309,74 +309,105 @@ function compactToolsForPrompt(tools?: AgentTool<any>[]): any[] | undefined {
 
 	const streamFunction = streamFn || streamSimple;
 
-	// Resolve API key (important for expiring tokens)
-	const resolvedApiKey =
-		(config.getApiKey ? await config.getApiKey(config.model.provider) : undefined) || config.apiKey;
+	// Build model list: primary + fallbacks (OhMyAgent extension)
+	const models = [config.model, ...(config.fallbackModels ?? [])];
+	const baseLen = context.messages.length;
+	let lastError: AssistantMessage | null = null;
 
-	const response = await streamFunction(config.model, llmContext, {
-		...config,
-		apiKey: resolvedApiKey,
-		signal,
-	});
+	for (let attempt = 0; attempt < models.length; attempt++) {
+		const model = models[attempt];
 
-	let partialMessage: AssistantMessage | null = null;
-	let addedPartial = false;
+		// Restore context.messages to state before attempt
+		context.messages.length = baseLen;
 
-	for await (const event of response) {
-		switch (event.type) {
-			case "start":
-				partialMessage = event.partial;
-				context.messages.push(partialMessage);
-				addedPartial = true;
-				await emit({ type: "message_start", message: { ...partialMessage } });
-				break;
+		// Resolve API key per model (fallback may use different provider)
+		const resolvedApiKey =
+			(config.getApiKey ? await config.getApiKey(model.provider) : undefined) || config.apiKey;
 
-			case "text_start":
-			case "text_delta":
-			case "text_end":
-			case "thinking_start":
-			case "thinking_delta":
-			case "thinking_end":
-			case "toolcall_start":
-			case "toolcall_delta":
-			case "toolcall_end":
-				if (partialMessage) {
+		const response = await streamFunction(model, llmContext, {
+			...config,
+			apiKey: resolvedApiKey,
+			signal,
+		});
+
+		let partialMessage: AssistantMessage | null = null;
+		let addedPartial = false;
+
+		for await (const event of response) {
+			switch (event.type) {
+				case "start":
 					partialMessage = event.partial;
-					context.messages[context.messages.length - 1] = partialMessage;
-					await emit({
-						type: "message_update",
-						assistantMessageEvent: event,
-						message: { ...partialMessage },
-					});
-				}
-				break;
+					context.messages.push(partialMessage);
+					addedPartial = true;
+					await emit({ type: "message_start", message: { ...partialMessage } });
+					break;
 
-			case "done":
-			case "error": {
-				const finalMessage = await response.result();
-				if (addedPartial) {
-					context.messages[context.messages.length - 1] = finalMessage;
-				} else {
-					context.messages.push(finalMessage);
+				case "text_start":
+				case "text_delta":
+				case "text_end":
+				case "thinking_start":
+				case "thinking_delta":
+				case "thinking_end":
+				case "toolcall_start":
+				case "toolcall_delta":
+				case "toolcall_end":
+					if (partialMessage) {
+						partialMessage = event.partial;
+						context.messages[context.messages.length - 1] = partialMessage;
+						await emit({
+							type: "message_update",
+							assistantMessageEvent: event,
+							message: { ...partialMessage },
+						});
+					}
+					break;
+
+				case "done":
+				case "error": {
+					const finalMessage = await response.result();
+					if (addedPartial) {
+						context.messages[context.messages.length - 1] = finalMessage;
+					} else {
+						context.messages.push(finalMessage);
+					}
+					if (!addedPartial) {
+						await emit({ type: "message_start", message: { ...finalMessage } });
+					}
+					await emit({ type: "message_end", message: finalMessage });
+
+					// On error with fallback available, try next model
+					if ((finalMessage.stopReason === "error" || finalMessage.stopReason === "aborted")
+						&& !signal?.aborted
+						&& attempt < models.length - 1) {
+						lastError = finalMessage;
+						break; // exit switch, continue outer for loop
+					}
+					return finalMessage;
 				}
-				if (!addedPartial) {
-					await emit({ type: "message_start", message: { ...finalMessage } });
-				}
-				await emit({ type: "message_end", message: finalMessage });
-				return finalMessage;
 			}
 		}
+
+		const finalMessage = await response.result();
+		if (addedPartial) {
+			context.messages[context.messages.length - 1] = finalMessage;
+		} else {
+			context.messages.push(finalMessage);
+			await emit({ type: "message_start", message: { ...finalMessage } });
+		}
+		await emit({ type: "message_end", message: finalMessage });
+
+		// On error with fallback available, try next model
+		if ((finalMessage.stopReason === "error" || finalMessage.stopReason === "aborted")
+			&& !signal?.aborted
+			&& attempt < models.length - 1) {
+			lastError = finalMessage;
+			continue;
+		}
+		return finalMessage;
 	}
 
-	const finalMessage = await response.result();
-	if (addedPartial) {
-		context.messages[context.messages.length - 1] = finalMessage;
-	} else {
-		context.messages.push(finalMessage);
-		await emit({ type: "message_start", message: { ...finalMessage } });
-	}
-	await emit({ type: "message_end", message: finalMessage });
-	return finalMessage;
+	// Should never reach here, but return the last error if all models fail
+	return lastError!;
 }
 
 /**
