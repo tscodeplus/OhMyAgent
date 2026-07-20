@@ -6,7 +6,7 @@ import { execSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getAppVersion } from '../version.js';
+import { getAppVersion, isNewerVersion } from '../version.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -171,7 +171,7 @@ export function registerSystemRoutes(app: FastifyInstance): void {
         ok: true,
         currentVersion,
         latestVersion,
-        updateAvailable: latestVersion !== currentVersion,
+        updateAvailable: isNewerVersion(currentVersion, latestVersion),
         releaseUrl: release.html_url || '',
         releaseNotes: release.body || '',
       });
