@@ -55,6 +55,7 @@
     "chalk": "^5.6.2",
     "cron-parser": "^5.5.0",
     "cronstrue": "^3.14.0",
+    "docxmlater": "^12.1.0",
     "dotenv": "^16.4.7",
     "fastify": "^5.8.5",
     "grammy": "^1.42.0",
