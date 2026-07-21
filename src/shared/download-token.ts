@@ -7,6 +7,7 @@
  */
 
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 
 const DEFAULT_TTL_MS = 60 * 60 * 1000; // 1 hour
 const TOKEN_VERSION = 1;
@@ -104,6 +105,60 @@ export function verifyDownloadToken(token: string): TokenPayload | null {
   if (Date.now() > payload.e) return null;
 
   return { filePath: payload.p, expiry: payload.e };
+}
+
+/**
+ * Extract the file path from a /dl/ download URL (even if the token is expired).
+ * This allows regenerating fresh tokens for persisted file links.
+ *
+ * @param dlUrl  A /dl/<token>/<filename> URL.
+ * @returns      The absolute file path, or null if the URL is malformed.
+ */
+export function extractFilePathFromDownloadUrl(dlUrl: string): string | null {
+  // URL format: /dl/<payloadB64>.<sig>/<filename>
+  const prefix = '/dl/';
+  if (!dlUrl.startsWith(prefix)) return null;
+
+  const tokenPart = dlUrl.slice(prefix.length).split('/')[0];
+  if (!tokenPart) return null;
+
+  const dotIndex = tokenPart.lastIndexOf('.');
+  if (dotIndex < 0) return null;
+
+  const payloadB64 = tokenPart.slice(0, dotIndex);
+  // Re-pad for base64url decode
+  const padded = payloadB64 + '='.repeat((4 - (payloadB64.length % 4)) % 4);
+
+  try {
+    const json = Buffer.from(padded, 'base64url').toString('utf-8');
+    const payload = JSON.parse(json);
+    if (typeof payload.p === 'string') return payload.p;
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+/**
+ * Refresh a /dl/ download URL by generating a new token for the same file path.
+ *
+ * @param dlUrl     An existing /dl/<token>/<filename> URL (can be expired).
+ * @param baseUrl   Server base URL (e.g., "http://localhost:9191").
+ * @param ttlMs     Token TTL in ms (default: 1 hour).
+ * @returns         A new /dl/<token>/<filename> URL, or null if extraction fails.
+ */
+export function refreshDownloadUrl(dlUrl: string, baseUrl?: string, ttlMs?: number): string | null {
+  const filePath = extractFilePathFromDownloadUrl(dlUrl);
+  if (!filePath) return null;
+
+  if (!fs.existsSync(filePath)) return null;
+
+  // Extract the original filename from the URL path
+  const parts = dlUrl.split('/');
+  const encodedName = parts[parts.length - 1];
+  const fileName = decodeURIComponent(encodedName);
+
+  return createDownloadUrl(filePath, fileName, baseUrl, ttlMs);
 }
 
 /**

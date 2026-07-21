@@ -77,7 +77,9 @@ export function createSendMediaTool(): AgentTool<any> {
 
         // ── Desktop Bridge path (check BEFORE path.resolve — Windows paths
         //     like E:\test.txt get mangled by path.resolve on Linux) ──
-        if (shouldRouteToDesktopBridge(rawPath)) {
+        // Only route to desktop bridge if the file does NOT exist locally.
+        // On WSL, /home/ paths are local and should be served directly via /dl/ URLs.
+        if (shouldRouteToDesktopBridge(rawPath) && !fs.existsSync(rawPath)) {
           const fileName = path.basename(rawPath);
           const serveUrl = `/desktop-bridge-download?path=${encodeURIComponent(rawPath)}&name=${encodeURIComponent(fileName)}`;
 

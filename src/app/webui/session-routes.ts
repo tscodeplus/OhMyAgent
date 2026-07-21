@@ -9,6 +9,7 @@ import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import type { FooterConfig } from '../types.js';
 import { stripXmlTag } from '../../shared/text-extract.js';
+import { refreshDownloadUrl } from '../../shared/download-token.js';
 
 export function registerSessionRoutes(
   app: FastifyInstance,
@@ -179,7 +180,7 @@ export function registerSessionRoutes(
       }
 
       const extractImagesFrom = (text: string) => {
-        const imgRegex = /!\[([^\]]*)\]\(([^)\s]+)\)/g;
+        const imgRegex = /!\[([^\[\]]*)\]\(([^)\s]+)\)/g;
         let m: RegExpExecArray | null;
         while ((m = imgRegex.exec(text)) !== null) {
           const url = m[2];
@@ -190,13 +191,38 @@ export function registerSessionRoutes(
         }
       };
 
+      const extractFilesFrom = (text: string) => {
+        // Match [name](url) for serve/download/dl URLs (webui_send_media output)
+        const linkRegex = /\[([^\]]+)\]\((\/(?:api\/files\/(?:serve|download)\?[^)\s]+|dl\/[^)\s]+|desktop-bridge-download\?[^)\s]+))\)/g;
+        let m: RegExpExecArray | null;
+        while ((m = linkRegex.exec(text)) !== null) {
+          const url = m[2];
+          if (!seenUrls.has(url)) {
+            seenUrls.add(url);
+            files.push({ name: m[1], path: url });
+          }
+        }
+      };
+
       // Source 2+3: content + tool call outputs
       if (m.role === 'assistant') {
         extractImagesFrom(content);
+        extractFilesFrom(content);
         const toolCalls = meta?.tool_calls as Array<{ output?: string }> | undefined;
         if (toolCalls) {
           for (const tc of toolCalls) {
-            if (tc.output) extractImagesFrom(tc.output);
+            if (tc.output) { extractImagesFrom(tc.output); extractFilesFrom(tc.output); }
+          }
+        }
+      }
+
+      // Refresh expired /dl/ tokens for persisted file links so downloads
+      // remain functional across page refreshes and long-lived sessions.
+      if (files.length > 0) {
+        for (const f of files) {
+          if (f.path.startsWith('/dl/')) {
+            const refreshed = refreshDownloadUrl(f.path);
+            if (refreshed) f.path = refreshed;
           }
         }
       }

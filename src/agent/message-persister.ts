@@ -72,13 +72,15 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
     const batchImages: Array<{ url: string; alt?: string }> = [];
     const batchFiles: Array<{ name: string; path: string }> = [];
     const seenUrls = new Set<string>();
+    let toolResultCount = 0;
     for (const m of batchMessages) {
       if (m.role !== 'toolResult' || !Array.isArray(m.content)) continue;
+      toolResultCount++;
       const text = m.content
         .filter((b: any) => b.type === 'text')
         .map((b: any) => b.text || '')
         .join('\n');
-      const imgRegex = /!\[([^\]]*)\]\(([^)\s]+)\)/g;
+      const imgRegex = /!\[([^\[\]]*)\]\(([^)\s]+)\)/g;
       let imgMatch: RegExpExecArray | null;
       while ((imgMatch = imgRegex.exec(text)) !== null) {
         const url = imgMatch[2];
@@ -87,11 +89,11 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
           batchImages.push({ alt: imgMatch[1] || undefined, url });
         }
       }
-      const linkRegex = /\[([^\]]+)\]\((\/[^)]+)\)/g;
+      const linkRegex = /\[([^\[\]]+)\]\((\/(?:api\/files\/(?:serve|download)\?[^)\s]+|dl\/[^)\s]+|desktop-bridge-download\?[^)\s]+))\)/g;
       let lm: RegExpExecArray | null;
       while ((lm = linkRegex.exec(text)) !== null) {
         const linkUrl = lm[2];
-        if (linkUrl.startsWith('/api/files/serve') || linkUrl.startsWith('/api/files/download')) {
+        if (linkUrl.startsWith('/api/files/serve') || linkUrl.startsWith('/api/files/download') || linkUrl.startsWith('/dl/') || linkUrl.startsWith('/desktop-bridge-download')) {
           if (!seenUrls.has(linkUrl)) {
             seenUrls.add(linkUrl);
             batchFiles.push({ name: lm[1], path: linkUrl });
@@ -99,6 +101,9 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
         }
       }
     }
+    logger.info({ toolResultCount, batchImages: batchImages.length, batchFiles: batchFiles.length, batchMessageCount: batchMessages.length, startIndex }, 'Pre-scan complete');
+    if (batchImages.length > 0) logger.info({ urls: batchImages.map(i => i.url.slice(0, 80)) }, 'Pre-scan images found');
+    if (batchFiles.length > 0) logger.info({ paths: batchFiles.map(f => f.path.slice(0, 80)) }, 'Pre-scan files found');
 
     // Group consecutive assistant messages to preserve block-level ordering
     interface PendingAssistant {

@@ -37,6 +37,17 @@ function formatPlanBlocks(content: string, label: string): string {
   });
 }
 
+/** Strip file/image reference markdown from user message content so raw
+ *  `[filename](url)` and `![alt](url)` syntax doesn't appear alongside
+ *  the download buttons rendered from the `files` array. */
+function stripFileRefs(content: string): string {
+  // Strip image refs: ![alt](url)
+  let cleaned = content.replace(/!\[[^\]]*\]\([^)]+\)/g, '');
+  // Strip file link refs: [name](/api/files/serve?path=...) and [name](/dl/...)
+  cleaned = cleaned.replace(/\[([^\]]+)\]\((\/(?:api\/files\/(?:serve|download)\?[^)\s]+|dl\/[^)\s]+))\)/g, '');
+  return cleaned.trim();
+}
+
 export default function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isAssistant = message.role === 'assistant';
@@ -319,9 +330,36 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
             // line breaks (e.g. pasting from tmux/macOS into the chat input).
             // break-words (overflow-wrap: break-word) prevents long unbroken
             // strings like URLs with query params from overflowing the bubble.
-            <div className="whitespace-pre-wrap break-words text-sm">{message.content}</div>
+            // Strip file reference markdown so raw `[filename](url)` doesn't show
+            // alongside the download buttons rendered from the `files` array.
+            <div className="whitespace-pre-wrap break-words text-sm">{stripFileRefs(message.content)}</div>
           )}
         </div>
+
+        {/* User-uploaded file attachments — render as download buttons */}
+        {isUser && message.files && message.files.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {message.files.map((file, i) => {
+              const isServeUrl = file.path.startsWith('/api/files/');
+              const href = isServeUrl
+                ? (file.path.includes('?') ? `${file.path}&download=1` : `${file.path}?download=1`)
+                : `/api/files/download?path=${encodeURIComponent(file.path)}`;
+              return (
+              <button
+                key={i}
+                onClick={() => handleDownload(href, file.name)}
+                className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors group"
+              >
+                <Download size={14} className="text-neutral-400 group-hover:text-neutral-600 dark:group-hover:text-neutral-300" />
+                <span className="text-neutral-700 dark:text-neutral-300">{file.name}</span>
+                {file.size != null && (
+                  <span className="text-neutral-400 dark:text-neutral-500 text-xs">{formatFileSize(file.size)}</span>
+                )}
+              </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* Generated images — fallback: extract from markdown content at render time.
             Skip for user messages — ReactMarkdown already renders images inline. */}
@@ -410,16 +448,17 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
           );
         })()}
 
-        {/* Generated files */}
-        {message.files && message.files.length > 0 && (
+        {/* Generated files (assistant only — user files rendered above) */}
+        {!isUser && message.files && message.files.length > 0 && (
           <div className="mt-2 space-y-1">
             {message.files.map((file, i) => {
-              // If path is already a URL (e.g. /api/files/serve?path=...), use it directly
-              // with ?download=1 to force download with original filename.
-              // Otherwise wrap it in /api/files/download.
-              const isServeUrl = file.path.startsWith('/api/files/');
+              // If path is already a serve/download URL, use it directly.
+              // /api/files/serve URLs need ?download=1 for attachment mode.
+              // /dl/ URLs already serve with Content-Disposition: attachment for files.
+              const isServeUrl = file.path.startsWith('/api/files/') || file.path.startsWith('/dl/') || file.path.startsWith('/desktop-bridge-download');
               const href = isServeUrl
-                ? (file.path.includes('?') ? `${file.path}&download=1` : `${file.path}?download=1`)
+                ? (file.path.startsWith('/dl/') || file.path.startsWith('/desktop-bridge-download') ? file.path
+                  : (file.path.includes('?') ? `${file.path}&download=1` : `${file.path}?download=1`))
                 : `/api/files/download?path=${encodeURIComponent(file.path)}`;
               return (
               <button

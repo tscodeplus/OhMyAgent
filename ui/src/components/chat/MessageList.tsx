@@ -45,7 +45,7 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
   const formatResponse = useCallback((data: { messages: Message[]; hasMore: boolean }) => {
     // Re-extract images from markdown content AND tool call outputs
     // (frontend-only fields, not persisted by the API).
-    const imgRegex = /!\[([^\]]*)\]\(([^)\s]+)\)/g;
+    const imgRegex = /!\[([^\[\]]*)\]\(([^)\s]+)\)/g;
     for (const msg of (data.messages || [])) {
       if (msg.role === 'assistant') {
         const images: { url: string; alt?: string }[] = [];

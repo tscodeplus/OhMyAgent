@@ -4,7 +4,7 @@ import { useLocation } from 'react-router-dom';
 import { Send, Paperclip, X, Loader2 } from 'lucide-react';
 import { createSSEClient, type SSEEvent } from '../../utils/sse-client';
 import { getToken } from '../../utils/api';
-import type { Message, MessageApproval, UserQuestion, ToolCall, MessageFooter, MessageSegment, MediaSegmentItem } from '../../types/session';
+import type { Message, MessageApproval, UserQuestion, ToolCall, MessageFooter, MessageSegment, MediaSegmentItem, MessageFile } from '../../types/session';
 
 interface ChatInputProps {
   projectId?: string;
@@ -123,6 +123,16 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
     }
   }, [fileUploads, sessionId]);
 
+  // Keep the per-session input cache up to date on every keystroke.
+  // Complement to the session-switch effect above: ensures the cache is
+  // always current so switching back restores the exact typed text even if
+  // the session-switch effect's closure captured a stale value.
+  useEffect(() => {
+    if (sessionId) {
+      inputCacheRef.current.set(sessionId, input);
+    }
+  }, [input, sessionId]);
+
   /** Start a fresh turn — new assistant message bubble for this response. */
   const beginTurn = () => {
     const newId = uid();
@@ -222,9 +232,11 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
     });
   }, [uploadFile]);
 
-  /** Build file reference text from uploaded files for the message content. */
-  const buildFileRefs = useCallback((uploads: FileUploadItem[]): string => {
+  /** Build file reference text and files array from uploaded files for the message.
+   *  Returns markdown refs (for the agent) and a structured files array (for the UI). */
+  const buildFileRefs = useCallback((uploads: FileUploadItem[]): { refs: string; files: MessageFile[] } => {
     let refs = '';
+    const files: MessageFile[] = [];
     for (const f of uploads) {
       if (f.status !== 'done' || !f.path) continue;
       const serveUrl = `/api/files/serve?path=${encodeURIComponent(f.path)}`;
@@ -234,8 +246,9 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
       } else {
         refs += `\n[${f.file.name}](${serveUrl})`;
       }
+      files.push({ name: f.file.name, path: serveUrl, size: f.size ?? f.file.size });
     }
-    return refs;
+    return { refs, files };
   }, []);
 
   const sendMessage = useCallback((messageText: string, opts?: { preserveContent?: boolean }) => {
@@ -251,7 +264,7 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
 
     // Append uploaded file references to the message
     const doneUploads = fileUploads.filter(u => u.status === 'done' && u.path);
-    const fileRefs = buildFileRefs(doneUploads);
+    const { refs: fileRefs, files: uploadedFiles } = buildFileRefs(doneUploads);
     const fullContent = (messageText.trim() + fileRefs).trim();
 
     // Clear input and file uploads FIRST
@@ -263,6 +276,7 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
       session_id: sessionId,
       role: 'user',
       content: fullContent,
+      ...(uploadedFiles.length > 0 ? { files: uploadedFiles } : {}),
       created_at: new Date().toISOString(),
     };
     if (onMessages) onMessages([userMessage], true); // clearPrevious: new SSE connection
@@ -389,8 +403,10 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
                   if (existing.name === 'webui_send_media' && existing.status === 'success' && existing.output) {
                     const output = existing.output;
                     // Match both /api/files/serve?path=... and /dl/<token>/<filename> URLs
-                    const imgMatch = output.match(/!\[([^\]]*)\]\((\/(?:api\/files\/serve\?path=[^)\s]+|dl\/[^)\s]+))\)/);
-                    const linkMatch = !imgMatch && output.match(/\[([^\]]+)\]\((\/(?:api\/files\/serve\?path=[^)\s]+|dl\/[^)\s]+))\)/);
+                    // Use [^\[\]] (exclude both [ and ]) instead of [^\]] to prevent
+                    // greedy matching from JSON array brackets like [{...}] in the output.
+                    const imgMatch = output.match(/!\[([^\[\]]*)\]\((\/(?:api\/files\/serve\?path=[^)\s]+|dl\/[^)\s]+|desktop-bridge-download\?[^)\s]+))\)/);
+                    const linkMatch = !imgMatch && output.match(/\[([^\[\]]+)\]\((\/(?:api\/files\/serve\?path=[^)\s]+|dl\/[^)\s]+|desktop-bridge-download\?[^)\s]+))\)/);
                     const match = imgMatch || linkMatch;
                     if (match) {
                       const alt = match[1] || '';
@@ -522,7 +538,7 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
             const footer = (event as any).footer as MessageFooter | undefined;
             // Extract images from markdown in content and tool outputs
             const images: { url: string; alt?: string }[] = [];
-            const imgRegex = /!\[([^\]]*)\]\(([^)\s]+)\)/g;
+            const imgRegex = /!\[([^\[\]]*)\]\(([^)\s]+)\)/g;
             let imgMatch: RegExpExecArray | null;
             const extractImages = (text: string) => {
               imgRegex.lastIndex = 0;
@@ -538,14 +554,28 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
             // Extract file download links
             const files: { name: string; path: string; size?: number }[] = [];
             const seenFiles = new Set<string>();
-            const linkRegex = /\[([^\]]+)\]\((\/[^)]+)\)/g;
+            // Use [^\[\]]+ to avoid greedy match from JSON array brackets in tool output
+            const linkRegex = /\[([^\[\]]+)\]\((\/(?:api\/files\/(?:serve|download)\?[^)\s]+|dl\/[^)\s]+|desktop-bridge-download\?[^)\s]+))\)/g;
             let linkMatch: RegExpExecArray | null;
             while ((linkMatch = linkRegex.exec(assistantContentRef.current)) !== null) {
               const label = linkMatch[1].trim();
               const url = linkMatch[2];
-              if ((url.includes('/api/files/serve') || url.includes('/api/files/download')) && !seenFiles.has(url)) {
+              if (!seenFiles.has(url)) {
                 seenFiles.add(url);
                 files.push({ name: label, path: url });
+              }
+            }
+            // Also scan tool call outputs for file links
+            for (const tc of toolCallsRef.current) {
+              if (tc.status === 'success' && tc.output) {
+                linkRegex.lastIndex = 0;
+                while ((linkMatch = linkRegex.exec(tc.output)) !== null) {
+                  const url = linkMatch[2];
+                  if (!seenFiles.has(url)) {
+                    seenFiles.add(url);
+                    files.push({ name: linkMatch[1].trim(), path: url });
+                  }
+                }
               }
             }
             // Deduplicate: remove images/files already shown as inline media segments
@@ -621,7 +651,7 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
 
     // Append uploaded file references and clear input / uploads
     const doneUploads = fileUploads.filter(u => u.status === 'done' && u.path);
-    const fileRefs = buildFileRefs(doneUploads);
+    const { refs: fileRefs, files: uploadedFiles } = buildFileRefs(doneUploads);
     const fullContent = (messageText.trim() + fileRefs).trim();
     setInput('');
     setFileUploads([]);
@@ -631,6 +661,7 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
       session_id: sessionId,
       role: 'user',
       content: fullContent,
+      ...(uploadedFiles.length > 0 ? { files: uploadedFiles } : {}),
       created_at: new Date().toISOString(),
     };
     if (onMessages) onMessages([userMessage], false); // clearPrevious: false — keep current-turn messages
