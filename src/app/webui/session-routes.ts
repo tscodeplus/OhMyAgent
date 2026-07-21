@@ -214,6 +214,9 @@ export function registerSessionRoutes(
             if (tc.output) { extractImagesFrom(tc.output); extractFilesFrom(tc.output); }
           }
         }
+      } else if (m.role === 'user') {
+        // User-uploaded attachments are stored as markdown [name](url) links
+        extractFilesFrom(content);
       }
 
       // Refresh expired /dl/ tokens for persisted file links so downloads

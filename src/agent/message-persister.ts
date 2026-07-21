@@ -241,12 +241,25 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
         }
         const content = extractUserText(msg.content);
         if (content.trim()) {
+          // Extract file links from user message content (e.g. uploaded attachments)
+          const userFiles: Array<{ name: string; path: string }> = [];
+          const userFileLinkRegex = /\[([^\[\]]+)\]\((\/(?:api\/files\/(?:serve|download)\?[^)\s]+))\)/g;
+          let ufMatch: RegExpExecArray | null;
+          const ufSeen = new Set<string>();
+          while ((ufMatch = userFileLinkRegex.exec(content)) !== null) {
+            const linkUrl = ufMatch[2];
+            if (!ufSeen.has(linkUrl)) {
+              ufSeen.add(linkUrl);
+              userFiles.push({ name: ufMatch[1], path: linkUrl });
+            }
+          }
+          const userMeta = userFiles.length > 0 ? JSON.stringify({ files: userFiles }) : null;
           messageRepository.create({
             id: generateId(),
             session_id: sessionKey,
             role: 'user',
             content,
-            metadata: null,
+            metadata: userMeta,
             created_at: msg.timestamp,
           });
         }

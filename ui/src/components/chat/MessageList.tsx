@@ -46,6 +46,7 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
     // Re-extract images from markdown content AND tool call outputs
     // (frontend-only fields, not persisted by the API).
     const imgRegex = /!\[([^\[\]]*)\]\(([^)\s]+)\)/g;
+    const fileLinkRegex = /\[([^\[\]]+)\]\((\/(?:api\/files\/(?:serve|download)\?[^)\s]+|dl\/[^)\s]+|desktop-bridge-download\?[^)\s]+))\)/g;
     for (const msg of (data.messages || [])) {
       if (msg.role === 'assistant') {
         const images: { url: string; alt?: string }[] = [];
@@ -69,6 +70,22 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
           }
         }
         if (images.length > 0) { msg.images = images; console.log('[MessageList] extracted images for msg', msg.id.slice(0, 8), images); }
+      }
+      // Fallback: extract file links from user message content (uploaded attachments)
+      // in case the API response doesn't include them in msg.files
+      if (msg.role === 'user' && !msg.files) {
+        const userFiles: { name: string; path: string }[] = [];
+        const ufSeen = new Set<string>();
+        fileLinkRegex.lastIndex = 0;
+        let ufm: RegExpExecArray | null;
+        while ((ufm = fileLinkRegex.exec(msg.content)) !== null) {
+          const url = ufm[2];
+          if (!ufSeen.has(url)) {
+            ufSeen.add(url);
+            userFiles.push({ name: ufm[1], path: url });
+          }
+        }
+        if (userFiles.length > 0) { msg.files = userFiles; console.log('[MessageList] extracted files for user msg', msg.id.slice(0, 8), userFiles.length); }
       }
     }
     return data;
