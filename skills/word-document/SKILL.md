@@ -309,7 +309,19 @@ doc.setAllRunsColor('333333');
 ```
 
 ```
-// Add heading
+// [⚠️ RECOMMENDED] Bold heading — uses { bold: true } for guaranteed rendering
+function addBoldHeading(text) {
+  var p = doc.createParagraph();
+  p.addText(text, { bold: true, fontSize: 13, fontName: "Calibri" });
+  return p;
+}
+addBoldHeading("Professional Summary");
+```
+
+> ⚠️ **Avoid `doc.addHeading()`** — it applies Word's built-in heading style, which may **not** render as bold because the `styles.xml` in generated docx files may lack proper heading style definitions. Always use `createParagraph()` with `{ bold: true }` for headings to ensure bold renders correctly in Word.
+
+```
+// ❌ NOT recommended — bold may not render
 doc.addHeading('Chapter 1 Overview', 1);  // Heading levels 1–6
 ```
 
