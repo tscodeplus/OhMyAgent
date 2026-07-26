@@ -14,6 +14,9 @@
  */
 
 import type Database from 'better-sqlite3';
+import { createLogger } from '../app/logger.js';
+
+const logger = createLogger();
 
 /**
  * Convert a TEXT timestamp column to INTEGER milliseconds in-place.
@@ -117,5 +120,5 @@ export function migrateV5(db: Database.Database): void {
   total += convertColumn(db, 'projects', 'created_at', false);
   total += convertColumn(db, 'projects', 'updated_at', false);
 
-  console.log(`[migration-v5] Converted ${total} TEXT timestamps to INTEGER milliseconds`);
+  logger.info(`[migration-v5] Converted ${total} TEXT timestamps to INTEGER milliseconds`);
 }

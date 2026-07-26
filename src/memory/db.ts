@@ -4,10 +4,14 @@ import { runV2Migrations } from './migration-v2.js';
 import { runV3Migrations } from './migration-v3.js';
 import { migrateV4 } from './migration-v4.js';
 import { migrateV5 } from './migration-v5.js';
+import { migrateV6 } from './migration-v6.js';
 import { attachMemoryObservabilityDb } from './observability.js';
+import { createLogger } from '../app/logger.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+
+const logger = createLogger();
 
 let cachedDb: Database.Database | null = null;
 
@@ -78,17 +82,20 @@ export function openDatabase(dbPath: string): Database.Database {
   // V2 migration: add agent_id and visibility columns (idempotent)
   const v2Result = runV2Migrations(db);
   if (v2Result.added.length > 0) {
-    console.log(`[V2] Memory migration: added columns: ${v2Result.added.join(', ')}`);
+    logger.info(`[V2] Memory migration: added columns: ${v2Result.added.join(', ')}`);
   }
 
   // V3 migration: add lifecycle fields, persona/maintenance run tables (idempotent)
   const v3Result = runV3Migrations(db);
   if (v3Result.added.length > 0) {
-    console.log(`[V3] Memory migration: added columns: ${v3Result.added.join(', ')}`);
+    logger.info(`[V3] Memory migration: added columns: ${v3Result.added.join(', ')}`);
   }
 
   // V5 migration: convert TEXT timestamps to INTEGER milliseconds (idempotent)
   migrateV5(db);
+
+  // V6 migration: add performance-optimizing composite indexes (idempotent)
+  migrateV6(db);
 
   return db;
 }

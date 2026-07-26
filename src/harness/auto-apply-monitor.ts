@@ -9,6 +9,9 @@
 
 import { AutoRollbackConfig } from './types.js';
 import { execSync } from 'node:child_process';
+import pino from 'pino';
+
+const logger = pino();
 
 // ---------------------------------------------------------------------------
 // Internal data structures
@@ -142,13 +145,13 @@ export class AutoApplyMonitor {
       execSync(`git revert ${monitor.commitHash} --no-edit`, {
         cwd: process.cwd(),
       });
-      console.log(
+      logger.info(
         `[AutoApplyMonitor] Rolled back proposal ${proposalId}: ${reason}`,
       );
     } catch (err) {
-      console.error(
-        `[AutoApplyMonitor] Failed to rollback proposal ${proposalId}:`,
-        err,
+      logger.error(
+        { err },
+        `[AutoApplyMonitor] Failed to rollback proposal ${proposalId}`,
       );
     }
 

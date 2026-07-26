@@ -179,6 +179,7 @@ export class AgentService {
             }
           } catch {
             // Non-fatal — start with empty history if the DB read fails
+            this.persistence?.logger?.debug({ sessionId }, 'History load failed — starting with empty history');
           }
         }
       }
@@ -307,6 +308,7 @@ export class AgentService {
           runtime.persistedMessageCount++;
         } catch {
           // Non-fatal — persistMessages() at turn end will persist it
+          this.persistence?.logger?.debug({ sessionId }, 'Pre-persist user message failed — will be persisted at turn end');
         }
       }
 
@@ -407,7 +409,7 @@ export class AgentService {
       runtime.agent.abort();
       // waitForIdle resolves after all agent_end listeners (including
       // the pre-complete persistMessages callback) have settled.
-      await runtime.agent.waitForIdle().catch(() => {});
+      await runtime.agent.waitForIdle().catch((err) => { this.persistence?.logger?.warn({ err, sessionId }, 'waitForIdle failed during abort'); });
       return;
     }
 
@@ -417,7 +419,7 @@ export class AgentService {
     // Wait for all runtimes to settle
     await Promise.allSettled(
       Array.from(this.runtimes.values()).map(r =>
-        r.agent.waitForIdle().catch(() => {}),
+        r.agent.waitForIdle().catch((err) => { this.persistence?.logger?.warn({ err }, 'waitForIdle failed during bulk abort'); }),
       ),
     );
   }
@@ -545,13 +547,17 @@ export class AgentService {
         runtime.turnContext.replyDispatcher?.setModel(
           `${stateModel.provider}/${stateModel.id}`,
         );
-      } catch { /* dispatcher may not support setModel */ }
+      } catch {
+        this.persistence?.logger?.debug({ sessionId }, 'swapCard: setModel not supported by dispatcher');
+      }
     }
 
     // Finalize old card so generated content is preserved
     try {
       await runtime.turnContext.replyDispatcher?.onComplete();
-    } catch { /* ignore — best-effort finalization */ }
+    } catch {
+      this.persistence?.logger?.debug({ sessionId }, 'swapCard: best-effort finalization failed');
+    }
 
     // Stop old EventBridge
     runtime.bridge?.stop();
@@ -600,7 +606,7 @@ export class AgentService {
     const runtime = this.runtimes.get(sessionId);
     if (!runtime) return false;
     const agentId = this.sessionAgentMap.get(sessionId);
-    this.runOnIdleCard(runtime, message, replyToMessageId, agentId);
+    this.runOnIdleCard(runtime, message, replyToMessageId, agentId, sessionId);
     return true;
   }
 
@@ -609,10 +615,12 @@ export class AgentService {
     message: string,
     replyToMessageId?: string,
     agentId?: string,
+    sessionId?: string,
   ): Promise<void> {
     try {
       await runtime.agent.waitForIdle();
     } catch {
+      this.persistence?.logger?.debug({ sessionId }, 'waitForIdle failed in followUp');
       return;
     }
     runtime.bridge?.stop();
@@ -626,7 +634,9 @@ export class AgentService {
     runtime.turnContext.replyDispatcher = dispatcher;
     runtime.bridge = new EventBridge(dispatcher, this.persistence?.logger);
     runtime.bridge.start(runtime.agent);
-    runtime.agent.prompt(message).catch(() => {});
+    runtime.agent.prompt(message).catch(() => {
+      this.persistence?.logger?.debug({ sessionId }, 'followUp prompt completed with error');
+    });
   }
 
   /**

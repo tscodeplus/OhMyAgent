@@ -63,7 +63,7 @@ export class ChannelManager {
   async stopAll(): Promise<void> {
     await Promise.allSettled(
       Array.from(this.channels.values()).map(async (channel) => {
-        try { await channel.stop(); } catch {}
+        try { await channel.stop(); } catch { this.logger?.error('Failed to stop channel:', (channel as any).id ?? 'unknown'); }
       })
     );
   }

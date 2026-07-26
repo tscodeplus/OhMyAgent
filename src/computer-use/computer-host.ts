@@ -68,6 +68,20 @@ const ALLOWED_CAP_VALUES = new Set<string | boolean>([
 // ComputerUseHost
 // ---------------------------------------------------------------------------
 
+/**
+ * Debug tracing for Computer Use approval decisions.
+ * Enabled only when OHMYAGENT_CU_DEBUG is set.
+ */
+const CU_DEBUG = !!process.env.OHMYAGENT_CU_DEBUG;
+function cuDebugLog(msg: string): void {
+  if (!CU_DEBUG) return;
+  try {
+    require('node:fs').appendFileSync('/tmp/cu-debug.log', `[${new Date().toISOString()}] ${msg}\n`);
+  } catch {
+    // Best-effort debug logging — ignore write failures
+  }
+}
+
 export class ComputerUseHost {
   private readonly _providers: ComputerProviderRegistry;
   private readonly _defaultProviderId: string;
@@ -219,11 +233,11 @@ export class ComputerUseHost {
     const allowedApps = this._getSettings().allowedApps;
     const canonicalAllowedApps = allowedApps.map(app => canonicalComputerUseAppTarget(app));
     if (allowedApps.includes('*') || canonicalAllowedApps.includes(canonicalAppId)) {
-      try { require('node:fs').appendFileSync('/tmp/cu-debug.log', `[${new Date().toISOString()}] isAppApproved: ${appId} -> ${canonicalAppId} ALLOWED by allowedApps [${allowedApps.join(',')}]\n`); } catch {}
+      cuDebugLog(`isAppApproved: ${appId} -> ${canonicalAppId} ALLOWED by allowedApps [${allowedApps.join(',')}]`);
       return true;
     }
     if (this._approvedAppsGlobal.has(canonicalAppId)) {
-      try { require('node:fs').appendFileSync('/tmp/cu-debug.log', `[${new Date().toISOString()}] isAppApproved: ${appId} -> ${canonicalAppId} ALLOWED by global set\n`); } catch {}
+      cuDebugLog(`isAppApproved: ${appId} -> ${canonicalAppId} ALLOWED by global set`);
       return true;
     }
 
@@ -232,12 +246,12 @@ export class ComputerUseHost {
     // Check one-shot approvals (consumed on use)
     const onceSet = this._approvedAppsOnce.get(sessionKey);
     if (onceSet?.has(canonicalAppId)) {
-      try { require('node:fs').appendFileSync('/tmp/cu-debug.log', `[${new Date().toISOString()}] isAppApproved: ${appId} -> ${canonicalAppId} ALLOWED by once\n`); } catch {}
+      cuDebugLog(`isAppApproved: ${appId} -> ${canonicalAppId} ALLOWED by once`);
       return true;
     }
 
     const result = this._approvedAppsBySession.get(sessionKey)?.has(canonicalAppId) === true;
-    try { require('node:fs').appendFileSync('/tmp/cu-debug.log', `[${new Date().toISOString()}] isAppApproved: ${appId} -> ${canonicalAppId} result=${result} allowedApps=[${allowedApps.join(',')}] sessionKey="${sessionKey}" globalSize=${this._approvedAppsGlobal.size} sessionSize=${this._approvedAppsBySession.get(sessionKey)?.size ?? 0} onceSize=${onceSet?.size ?? 0}\n`); } catch {}
+    cuDebugLog(`isAppApproved: ${appId} -> ${canonicalAppId} result=${result} allowedApps=[${allowedApps.join(',')}] sessionKey="${sessionKey}" globalSize=${this._approvedAppsGlobal.size} sessionSize=${this._approvedAppsBySession.get(sessionKey)?.size ?? 0} onceSize=${onceSet?.size ?? 0}`);
     return result;
   }
 
@@ -358,8 +372,8 @@ export class ComputerUseHost {
       // Fire-and-forget: provider errors should never block takeover
       provider.stop(ctx, lease).catch(() => {});
       provider.releaseLease(ctx, lease).catch(() => {});
-    } catch {
-      // Fail-open — the lease record is already marked released
+    } catch (err) {
+      this._logger?.warn({ err, leaseId: lease.leaseId }, 'Error releasing lease for takeover — lease record already released');
     }
   }
 

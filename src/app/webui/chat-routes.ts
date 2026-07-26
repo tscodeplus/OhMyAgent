@@ -196,7 +196,7 @@ class SSEReplyDispatcher implements ReplyDispatcher {
         this.approvalMsgIds.set(approvalId, msgId);
       }
     } catch (err) {
-      console.warn('[chat] Failed to update approval message:', err);
+      this.logger?.warn({ err }, '[chat] Failed to update approval message');
     }
   }
   getReplyMessageId(): string | undefined {

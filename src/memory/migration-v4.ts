@@ -7,6 +7,9 @@
  */
 
 import type Database from 'better-sqlite3';
+import { createLogger } from '../app/logger.js';
+
+const logger = createLogger();
 
 export function migrateV4(db: Database.Database): void {
   // Check if sessions table exists first (fresh DB may not have it yet)
@@ -21,7 +24,7 @@ export function migrateV4(db: Database.Database): void {
 
     if (!hasProjectId) {
       db.exec('ALTER TABLE sessions ADD COLUMN project_id TEXT');
-      console.log('[migration-v4] Added project_id column to existing sessions table');
+      logger.info('[migration-v4] Added project_id column to existing sessions table');
     }
 
     // Ensure index exists on existing tables (idempotent). On a fresh DB the
@@ -43,5 +46,5 @@ export function migrateV4(db: Database.Database): void {
     )
   `);
 
-  console.log('[migration-v4] Projects table and sessions index ready');
+  logger.info('[migration-v4] Projects table and sessions index ready');
 }

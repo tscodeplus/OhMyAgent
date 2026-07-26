@@ -129,6 +129,36 @@ export class EmbeddingClient {
     }
   }
 
+  /**
+   * Generate embeddings for multiple texts in a single API call.
+   *
+   * Batching multiple texts into one request is significantly more efficient
+   * than calling `embedOne()` repeatedly, as it reduces HTTP overhead and
+   * allows the embedding provider to process inputs in parallel.
+   *
+   * When the circuit breaker is OPEN, this method throws immediately to
+   * avoid wasting resources on guaranteed-to-fail requests.
+   *
+   * @param texts - Array of text strings to embed.
+   * @returns An array of Float32Array embeddings, one per input text, in the
+   *          same order as the input.
+   * @throws {Error} If the circuit breaker is OPEN or the embedding API fails.
+   */
+  async embedBatch(texts: string[]): Promise<Float32Array[]> {
+    if (texts.length === 0) return [];
+    if (!this.breaker.allow()) {
+      throw new Error('Circuit breaker is OPEN');
+    }
+    try {
+      const results = await this.embed(texts);
+      this.breaker.recordSuccess();
+      return results;
+    } catch (e) {
+      this.breaker.recordFailure();
+      throw e;
+    }
+  }
+
   private buildUrl(path: string): string {
     const base = this.config.baseUrl.replace(/\/+$/, '');
     // Auto-deduplicate /v1

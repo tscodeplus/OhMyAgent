@@ -82,6 +82,8 @@ export interface BeforeToolCallDeps {
   policyScope?: AgentPolicyScope;
   /** Runtime policy agent id, used by orchestrated child agents. */
   policyAgentId?: string;
+  /** Diagnostic logger (pino-compatible). */
+  logger?: { warn: (...args: any[]) => void; info: (...args: any[]) => void; error: (...args: any[]) => void };
 }
 
 /**
@@ -139,13 +141,10 @@ async function handleComputerUseApproval(
   }
 
   if (!activeChatId) {
-    console.warn('[CU:beforeToolCall]', {
-      appId,
-      channel: deps.channel,
-      hasTurnContext: !!deps.turnContext,
-      turnContextChatId: deps.turnContext?.chatId,
-      fallbackChatId: deps.chatId,
-    }, 'Computer Use app approval blocked: no activeChatId');
+    deps.logger?.warn(
+      { appId, channel: deps.channel, hasTurnContext: !!deps.turnContext, turnContextChatId: deps.turnContext?.chatId, fallbackChatId: deps.chatId },
+      '[CU:beforeToolCall] Computer Use app approval blocked: no activeChatId',
+    );
     cuLog('handleComputerUseApproval: BLOCK no chatId', { appId });
     return {
       block: true,
@@ -155,11 +154,10 @@ async function handleComputerUseApproval(
 
   const session = resolveApprovalSession(deps, activeChatId, activeDispatcher);
   if (!session) {
-    console.warn('[CU:beforeToolCall]', {
-      appId,
-      channel: deps.channel,
-      hasChannelApprovalSender: !!deps.channelApprovalSender,
-    }, 'Computer Use app approval blocked: no approval channel available');
+    deps.logger?.warn(
+      { appId, channel: deps.channel, hasChannelApprovalSender: !!deps.channelApprovalSender },
+      '[CU:beforeToolCall] Computer Use app approval blocked: no approval channel available',
+    );
     cuLog('handleComputerUseApproval: BLOCK no channel', { appId, channel: deps.channel });
     return {
       block: true,
@@ -512,7 +510,7 @@ async function recordPolicyApprovalDecision(
     sessionId: deps.sessionId,
     subject: input.subject,
     recordedAt: Date.now(),
-  }).catch(() => {});
+  }).catch((err) => { deps.logger?.warn({ err }, 'Failed to record approval decision — non-critical'); });
 }
 
 function pathApprovalSubject(toolName: string, path: string): string {

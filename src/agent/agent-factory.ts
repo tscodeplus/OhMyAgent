@@ -705,7 +705,7 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
               const summaryConfig = buildSummaryLLMConfig(configRef.current);
               createDistillerLLM(summaryConfig, logger).then(llm => {
                 phaseTagger = new MermaidPhaseTagger(llm, logger);
-              }).catch(() => {});
+              }).catch((err) => { logger.warn({ err }, 'Failed to create Mermaid phase-tagger LLM — phase tagging will be unavailable'); });
             }
             return phaseTagger;
           };
@@ -835,6 +835,7 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
               policyAgentId: options?.policyAgentId,
               channelApprovalSender: options?.channelApprovalSender,
               channel: (options?.channel as BeforeToolCallDeps['channel']),
+              logger,
             })
           : undefined,
 
@@ -907,6 +908,7 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
             };
           } catch {
             // Contract: must not throw — prevent hook failure from crashing the agent loop
+            logger?.debug('Transform context failed in afterToolCall — returning undefined');
             return undefined;
           }
         },

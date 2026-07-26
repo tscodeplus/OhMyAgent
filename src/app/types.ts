@@ -437,6 +437,8 @@ export interface AppConfig {
     searchDefaultLimit: number;
     maxSearchLimit: number;
   };
+  /** Performance tuning knobs for concurrency and parallelism. */
+  performance?: PerformanceConfig;
   /** Whether the first-run setup wizard has been completed. */
   setupWizardDone?: boolean;
   /** Interactive Self-Harness: automatic failure analysis and harness optimization. */
@@ -495,6 +497,19 @@ export interface FooterConfig {
   showUsage?: boolean;
   /** Show prompt cache hit rate in footer. Default: true. */
   showCacheHitRate?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Performance tuning configuration
+// ---------------------------------------------------------------------------
+
+export interface PerformanceConfig {
+  /** Max concurrency for embedding API calls (memory retrieval). Default 8. */
+  embeddingApiConcurrency?: number;
+  /** Max concurrency for LLM API calls (query expansion, etc.). Default 4. */
+  llmApiConcurrency?: number;
+  /** Max concurrency for database queries. Default 16. */
+  dbQueryConcurrency?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -664,6 +679,15 @@ export interface MemoryStore {
 // 5. SkillRegistry and related types
 // ---------------------------------------------------------------------------
 
+export interface SkillDependencies {
+  /** IDs of other skills this skill depends on */
+  skills?: string[];
+  /** Names of tools that must be available */
+  tools?: string[];
+  /** Minimum system/engine version required (semver string) */
+  minVersion?: string;
+}
+
 export interface SkillManifest {
   id: string;
   name: string;
@@ -674,6 +698,10 @@ export interface SkillManifest {
   enabled: boolean;
   author?: string;
   tags?: string[];
+  /** Dependencies this skill requires to function properly */
+  dependencies?: SkillDependencies;
+  /** IDs of skills this skill conflicts with */
+  conflicts?: string[];
 }
 
 export interface ApprovalOverride {

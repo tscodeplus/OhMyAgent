@@ -159,7 +159,7 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
         sessionId: req.session_key,
         timestamp: Date.now(),
       }, reason === 'timeout' || reason === 'expired_before_recovery' ? 'timeout' : reason === 'steered' ? 'steered' : 'restart');
-      feishuClient.updateMessage(req.card_message_id, 'interactive', resultCard).catch(() => {});
+      feishuClient.updateMessage(req.card_message_id, 'interactive', resultCard).catch((err: unknown) => { logger.warn({ err, requestId }, 'Failed to update approval result card — non-critical'); });
     },
     logger,
     promptManager,

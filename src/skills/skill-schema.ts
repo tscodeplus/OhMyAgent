@@ -1,5 +1,14 @@
 // ── Manifest ────────────────────────────────────────────────────────────────
 
+export interface SkillDependencies {
+  /** IDs of other skills this skill depends on */
+  skills?: string[];
+  /** Names of tools that must be available */
+  tools?: string[];
+  /** Minimum system/engine version required (semver string) */
+  minVersion?: string;
+}
+
 export interface Manifest {
   id: string;
   name: string;
@@ -10,6 +19,10 @@ export interface Manifest {
   enabled: boolean;
   author?: string;
   tags?: string[];
+  /** Dependencies this skill requires to function properly */
+  dependencies?: SkillDependencies;
+  /** IDs of skills this skill conflicts with */
+  conflicts?: string[];
 }
 
 // ── Tools Config ────────────────────────────────────────────────────────────

@@ -22,6 +22,7 @@ import { teamModeStore } from '../agent/team-mode-store.js';
 import { createI18nService } from '../i18n/i18n-service.js';
 import { PromptManager } from '../prompt/prompt-manager.js';
 import type { AppConfig, AppServices, CustomModelConfig } from './types.js';
+import type { FastifyInstance } from 'fastify';
 import { openDatabase } from '../memory/db.js';
 import { setVecLogger } from '../memory/sqlite-vec.js';
 import { registerModel } from '@earendil-works/pi-ai';
@@ -55,6 +56,7 @@ import { createAgentServices } from './composers/agent-services.js';
 import { createFeishuServices } from './composers/feishu-services.js';
 import { SubscriptionService } from './subscription/subscription-service.js';
 import { configEventBus } from './config-event-bus.js';
+import { configManager } from './config-manager.js';
 import { createWSCardActionHandler } from './feishu/ws-card-action-handler.js';
 import { QrSessionStore } from '../channel/qr-session-store.js';
 
@@ -68,6 +70,22 @@ export interface BootstrapResult {
   services: AppServices;
   start: () => Promise<void>;
   stop: () => Promise<void>;
+}
+
+/** Parameters for the rate limiter's dynamic update method (injected by feishu-server). */
+export interface RateLimitConfig {
+  maxRequests: number;
+  windowMs: number;
+}
+
+/** Fastify instance that has been decorated with an updateRateLimit method by feishu-server. */
+export interface FastifyWithRateLimit extends FastifyInstance {
+  updateRateLimit?: (config: RateLimitConfig) => void;
+}
+
+/** Type guard to check whether the Fastify server has the rate-limit plugin attached. */
+function hasRateLimitPlugin(server: FastifyInstance): server is FastifyWithRateLimit {
+  return typeof (server as FastifyWithRateLimit).updateRateLimit === 'function';
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -152,16 +170,30 @@ export async function bootstrap(): Promise<BootstrapResult> {
   });
   logger.info({ uiLanguage: config.uiLanguage, localesPath, i18nLocale: i18n.locale }, 'i18n initialized');
 
-  // Register config-reload handlers for simple services (self-contained, no
-  // complex dependency chains). Remaining services are still updated inline
-  // in onConfigReload and will be migrated incrementally.
+  // Initialize ConfigManager with two-phase hot-reload protocol.
+  // Register self-contained services here; composer-level services register
+  // at their construction sites via configManager.registerService() or the
+  // backward-compat configEventBus.onReload().
+  configManager.setLogger(logger);
   configEventBus.setLogger(logger);
-  configEventBus.onReload((c) => { logger.level = c.logging.level; });
-  configEventBus.onReload((c) => teamModeStore.updateConfig(c.smart_agent_team));
-  configEventBus.onReload((c) => {
-    if (c.uiLanguage && c.uiLanguage !== i18n.locale) {
-      changeI18nLocale(c.uiLanguage).catch((err) => logger.error({ err }, '[hot-reload] Failed to change locale'));
-    }
+
+  // ── Logger level ──
+  configManager.registerService('logger', {
+    apply: async (c) => { logger.level = c.logging.level; },
+  });
+
+  // ── Agent Team mode store ──
+  configManager.registerService('teamMode', {
+    apply: async (c) => { teamModeStore.updateConfig(c.smart_agent_team); },
+  });
+
+  // ── i18n locale ──
+  configManager.registerService('i18n', {
+    apply: async (c) => {
+      if (c.uiLanguage && c.uiLanguage !== i18n.locale) {
+        await changeI18nLocale(c.uiLanguage);
+      }
+    },
   });
 
   // ── Harness: Self-Harness optimization services ──
@@ -176,12 +208,14 @@ export async function bootstrap(): Promise<BootstrapResult> {
     }
   }
 
-  // Harness config hot-reload
+  // Harness config hot-reload (via ConfigManager)
   if (harnessServices) {
-    configEventBus.onReload((newConfig) => {
-      if (newConfig.harness?.rules) {
-        harnessServices?.approvalPolicy.reload(newConfig.harness.rules);
-      }
+    configManager.registerService('harness', {
+      apply: async (newConfig) => {
+        if (newConfig.harness?.rules) {
+          harnessServices!.approvalPolicy.reload(newConfig.harness.rules);
+        }
+      },
     });
   }
 
@@ -203,9 +237,11 @@ export async function bootstrap(): Promise<BootstrapResult> {
     logger,
   });
   await subscriptionService.applyCredentialsToConfig(config);
-  configEventBus.onReload((c) =>
-    subscriptionService.applyCredentialsToConfig(c).catch((err) => logger.warn({ err }, '[hot-reload] Failed to apply OAuth credentials')),
-  );
+  configManager.registerService('subscription', {
+    apply: async (c) => {
+      await subscriptionService.applyCredentialsToConfig(c);
+    },
+  });
 
 
   setVecLogger(logger);
@@ -631,16 +667,25 @@ export async function bootstrap(): Promise<BootstrapResult> {
     // Computer use: re-compute settings from new config (mutable ref)
     cuaSettingsRef.current = normalizeComputerUseSettings(newConfig.computerUse);
 
-    // Rate limiter: dynamic method on Fastify server (not typed)
-    (server as any).updateRateLimit?.({
-      maxRequests: newConfig.rateLimit.webhookMaxRequests,
-      windowMs: newConfig.rateLimit.webhookWindowMs,
-    });
+    // Rate limiter: dynamic method on Fastify server (typed via FastifyWithRateLimit)
+    if (hasRateLimitPlugin(server)) {
+      server.updateRateLimit?.({
+        maxRequests: newConfig.rateLimit.webhookMaxRequests,
+        windowMs: newConfig.rateLimit.webhookWindowMs,
+      });
+    }
 
-    // ── Fire event bus for self-registered listeners ────────────────────
-    configEventBus.emit(newConfig).catch(err =>
-      logger.warn({ err }, 'Config reload event handler failed'),
-    );
+    // ── Fire ConfigManager two-phase reload ──────────────────────────
+    // Validates all registered services, applies them in order, then
+    // fires configEventBus for backward-compat listeners. Individual
+    // apply failures are logged but do not block other services.
+    configManager.reload(newConfig).then(result => {
+      if (!result.success && result.errors.length > 0) {
+        logger.warn({ errors: result.errors }, 'Config reload completed with errors');
+      }
+    }).catch(err => {
+      logger.warn({ err }, 'Config reload unexpected failure');
+    });
 
     // ── Log and notify ──────────────────────────────────────────────────
     const restartMsg = restartReasons.length > 0
@@ -746,28 +791,28 @@ export async function bootstrap(): Promise<BootstrapResult> {
       // Stop WebSocket client
       if (wsClient) {
         wsClient.stop();
-        console.log('[OhMyAgent] WebSocket client stopped');
+        logger.info('[OhMyAgent] WebSocket client stopped');
       }
 
       // Stop periodic dedup cleanup timer
       feishuRouter.stopCleanup();
-      console.log('[OhMyAgent] Dedup cleanup timer stopped');
+      logger.info('[OhMyAgent] Dedup cleanup timer stopped');
 
       // Close Vite dev server if active
       if (viteDevServer) {
         await viteDevServer.close();
-        console.log('[OhMyAgent] Vite dev server stopped');
+        logger.info('[OhMyAgent] Vite dev server stopped');
       }
 
       // Close HTTP server
       await server.close();
-      console.log('[OhMyAgent] HTTP server stopped');
+      logger.info('[OhMyAgent] HTTP server stopped');
 
       // Close database
       db.close();
-      console.log('[OhMyAgent] Database closed');
+      logger.info('[OhMyAgent] Database closed');
 
-      console.log('[OhMyAgent] Shutdown complete');
+      logger.info('[OhMyAgent] Shutdown complete');
     },
   };
 }

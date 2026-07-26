@@ -234,6 +234,7 @@ export async function createMemoryServices(
     queryEmbeddingTimeoutMs: config.memory.queryEmbeddingTimeoutMs,
     plannerConfig,
     recallConfig,
+    searchConcurrency: config.performance?.embeddingApiConcurrency ?? 8,
   });
   const memoryChangeCallbacks: Array<(event?: MemoryChangeEvent) => void> = [() => memoryRetriever.clearCache()];
   const memoryWriter = new MemoryWriter({

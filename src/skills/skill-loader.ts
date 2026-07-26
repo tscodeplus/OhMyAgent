@@ -3,8 +3,11 @@ import { basename, join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
-import type { Manifest, ToolsConfig, MemoryPolicy } from './skill-schema.js';
+import pino from 'pino';
+import type { Manifest, SkillDependencies, ToolsConfig, MemoryPolicy } from './skill-schema.js';
 import type { ApprovalOverride, ToolProfileId } from '../app/types.js';
+
+const fallbackLogger = pino();
 
 // ── LoadedSkill type ────────────────────────────────────────────────────────
 
@@ -175,6 +178,115 @@ function toKebabCase(name: string): string {
   return `sk-${hash}`;
 }
 
+// ── Dependency Validation ────────────────────────────────────────────────────
+
+export interface DependencyValidationResult {
+  valid: boolean;
+  /** Human-readable reasons for any validation failures */
+  errors: string[];
+}
+
+/**
+ * Validate a skill's dependencies against the current environment.
+ *
+ * Checks:
+ * - Required skill dependencies exist in the loaded skill set
+ * - Required tools are available
+ * - Minimum system version is met (if specified)
+ * - No conflicting skills are simultaneously active
+ *
+ * All checks are optional — only declared constraints are evaluated.
+ */
+export function validateSkillDependencies(
+  skill: LoadedSkill,
+  context: {
+    availableSkills?: LoadedSkill[];
+    availableTools?: string[];
+    systemVersion?: string;
+  },
+): DependencyValidationResult {
+  const errors: string[] = [];
+  const deps = skill.manifest.dependencies;
+
+  if (!deps) {
+    return { valid: true, errors: [] };
+  }
+
+  // Check required skill dependencies
+  if (deps.skills && deps.skills.length > 0) {
+    const loadedIds = new Set(
+      (context.availableSkills ?? []).map(s => s.manifest.id),
+    );
+    const configuredEnabled = new Set(
+      (context.availableSkills ?? [])
+        .filter(s => s.manifest.enabled)
+        .map(s => s.manifest.id),
+    );
+    for (const depId of deps.skills) {
+      if (!loadedIds.has(depId)) {
+        errors.push(`Missing required skill dependency: "${depId}" is not loaded`);
+      } else if (!configuredEnabled.has(depId)) {
+        errors.push(`Required skill dependency "${depId}" is loaded but disabled`);
+      }
+    }
+  }
+
+  // Check required tools
+  if (deps.tools && deps.tools.length > 0 && context.availableTools) {
+    const toolSet = new Set(context.availableTools);
+    for (const tool of deps.tools) {
+      if (!toolSet.has(tool)) {
+        errors.push(`Missing required tool: "${tool}" is not available`);
+      }
+    }
+  }
+
+  // Check minimum system version (simple semver prefix comparison)
+  if (deps.minVersion && context.systemVersion) {
+    if (!satisfiesMinVersion(context.systemVersion, deps.minVersion)) {
+      errors.push(
+        `System version ${context.systemVersion} does not meet minimum requirement ${deps.minVersion}`,
+      );
+    }
+  }
+
+  // Check conflicting skills
+  if (skill.manifest.conflicts && skill.manifest.conflicts.length > 0) {
+    const activeIds = new Set(
+      (context.availableSkills ?? [])
+        .filter(s => s.manifest.enabled && s.manifest.id !== skill.manifest.id)
+        .map(s => s.manifest.id),
+    );
+    for (const conflictId of skill.manifest.conflicts) {
+      if (activeIds.has(conflictId)) {
+        errors.push(`Conflict: skill "${conflictId}" is already active and conflicts with "${skill.manifest.id}"`);
+      }
+    }
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+/**
+ * Simple semver prefix comparison. Checks that `actual` >= `required`.
+ * Accepts "MAJOR.MINOR.PATCH" format; non-semver strings fall back
+ * to exact string comparison.
+ */
+function satisfiesMinVersion(actual: string, required: string): boolean {
+  const aParts = actual.split('.').map(Number);
+  const rParts = required.split('.').map(Number);
+  if (aParts.length !== 3 || rParts.length !== 3) {
+    return actual.localeCompare(required, undefined, { numeric: true }) >= 0;
+  }
+  for (let i = 0; i < 3; i++) {
+    const a = aParts[i] ?? 0;
+    const r = rParts[i] ?? 0;
+    if (a > r) return true;
+    if (a < r) return false;
+  }
+  return true; // equal
+}
+
 // ── Core ────────────────────────────────────────────────────────────────────
 
 /**
@@ -210,10 +322,24 @@ export async function loadSkill(skillDirPath: string): Promise<LoadedSkill> {
   const priority = typeof meta.priority === 'number' ? meta.priority : 0;
   const triggers = generateTriggers(fm.name, meta);
 
+  // Extract x-ohmyagent metadata (used for dependencies, conflicts, tools, memory)
+  const oma = (meta['x-ohmyagent'] as Record<string, unknown> | undefined) ?? {};
+
+  // Extract dependencies and conflicts from x-ohmyagent metadata
+  const depsRaw = oma.dependencies as Record<string, unknown> | undefined;
+  const dependencies: SkillDependencies | undefined = depsRaw ? {
+    ...(Array.isArray(depsRaw.skills) ? { skills: depsRaw.skills.map(String) } : {}),
+    ...(Array.isArray(depsRaw.tools) ? { tools: depsRaw.tools.map(String) } : {}),
+    ...(typeof depsRaw.minVersion === 'string' && depsRaw.minVersion ? { minVersion: depsRaw.minVersion } : {}),
+  } : undefined;
+  const conflicts = Array.isArray(oma.conflicts)
+    ? oma.conflicts.map(String)
+    : undefined;
+
   const manifest: Manifest = {
     id, name: fm.name, description: fm.description,
     version, triggers, priority, enabled: true,
-    author, tags,
+    author, tags, dependencies, conflicts,
   };
 
   // Build tools (with optional OhMyAgent extensions)
@@ -224,7 +350,6 @@ export async function loadSkill(skillDirPath: string): Promise<LoadedSkill> {
     : typeof rawAllowed === 'string'
       ? rawAllowed.split(/\s+/).filter(Boolean)
       : [];
-  const oma = (meta['x-ohmyagent'] as Record<string, unknown> | undefined) ?? {};
   const deniedTools = Array.isArray(oma.deniedTools)
     ? oma.deniedTools.map(String)
     : [];
@@ -284,7 +409,7 @@ export async function loadAllSkills(
       if (logger?.warn) {
         logger.warn(`[skill-loader] Skipping skill "${dir.name}": ${message}`);
       } else {
-        console.warn(`[skill-loader] Skipping skill "${dir.name}": ${message}`);
+        fallbackLogger.warn(`[skill-loader] Skipping skill "${dir.name}": ${message}`);
       }
     }
   }

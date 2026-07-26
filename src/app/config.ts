@@ -489,6 +489,14 @@ const configSchema = z.object({
     maxSearchLimit: z.number().min(1).max(50).default(20),
   }).default({}),
   // -----------------------------------------------------------------------
+  // Performance tuning (concurrency knobs, all optional)
+  // -----------------------------------------------------------------------
+  performance: z.object({
+    embeddingApiConcurrency: z.coerce.number().int().positive().default(8),
+    llmApiConcurrency: z.coerce.number().int().positive().default(4),
+    dbQueryConcurrency: z.coerce.number().int().positive().default(16),
+  }).default({}),
+  // -----------------------------------------------------------------------
   // Self-Harness configuration (all optional, backward-compatible)
   // -----------------------------------------------------------------------
   harness: z.object({
@@ -748,6 +756,11 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
       showUsage: envBool(env.FOOTER_SHOW_USAGE, false),
       showCacheHitRate: envBool(env.FOOTER_SHOW_CACHE_HIT_RATE, false),
     },
+    performance: {
+      embeddingApiConcurrency: env.PERFORMANCE_EMBEDDING_API_CONCURRENCY,
+      llmApiConcurrency: env.PERFORMANCE_LLM_API_CONCURRENCY,
+      dbQueryConcurrency: env.PERFORMANCE_DB_QUERY_CONCURRENCY,
+    },
   };
 }
 
@@ -871,8 +884,14 @@ function applyEnvOverrides(raw: Record<string, unknown>, env: Record<string, str
       env.FOOTER_SHOW_USAGE !== undefined || env.FOOTER_SHOW_CACHE_HIT_RATE !== undefined) {
     raw.footer = envRaw.footer;
   }
-}
 
+  // Performance — merge if any performance env var is explicitly set
+  if (env.PERFORMANCE_EMBEDDING_API_CONCURRENCY !== undefined ||
+      env.PERFORMANCE_LLM_API_CONCURRENCY !== undefined ||
+      env.PERFORMANCE_DB_QUERY_CONCURRENCY !== undefined) {
+    raw.performance = envRaw.performance;
+  }
+}
 /**
  * Load and validate configuration.
  *

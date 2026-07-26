@@ -8,6 +8,7 @@
 
 import type { WebSocket } from 'ws';
 import { randomUUID } from 'node:crypto';
+import pino from 'pino';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -41,6 +42,8 @@ interface BridgeConnection {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_TOOL_TIMEOUT_MS = 30_000;
+
+const log = pino({ name: 'desktop-bridge-registry', level: process.env.LOG_LEVEL ?? 'info' });
 
 export class DesktopBridgeRegistry {
   /** connectionId → BridgeConnection */
@@ -190,7 +193,8 @@ export class DesktopBridgeRegistry {
     try {
       msg = JSON.parse(raw.toString());
     } catch {
-      return; // silently drop malformed messages
+      log.debug({ raw: raw.toString().slice(0, 200) }, 'DesktopBridge: dropping malformed message');
+      return;
     }
 
     switch (msg.type) {
@@ -236,7 +240,9 @@ export class DesktopBridgeRegistry {
         if (conn && conn.ws.readyState === 1) { // WebSocket.OPEN = 1
           try {
             conn.ws.send(JSON.stringify({ type: 'pong' }));
-          } catch { /* best effort */ }
+          } catch {
+            log.debug('DesktopBridge: ping/pong send failed (best effort)');
+          }
         }
         break;
       }

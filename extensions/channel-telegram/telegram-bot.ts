@@ -36,7 +36,7 @@ export async function startBot(bot: Bot, config: TelegramConfig, logger: Logger)
 }
 
 export async function stopBot(bot: Bot, config: TelegramConfig, logger: Logger): Promise<void> {
-  try { if (config.mode === 'webhook') await bot.api.deleteWebhook(); await bot.stop(); } catch {}
+  try { if (config.mode === 'webhook') await bot.api.deleteWebhook(); await bot.stop(); } catch { logger.warn('Failed to stop Telegram bot gracefully'); }
 }
 
 export async function setupWebhook(bot: Bot, config: TelegramConfig, logger: Logger): Promise<void> {

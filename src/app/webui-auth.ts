@@ -13,6 +13,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import crypto from 'node:crypto';
 import { safeEqual } from '../shared/safe-equal.js';
+import { createLogger } from './logger.js';
 
 const EXCLUDED_PREFIXES = [
   '/api/feishu',
@@ -46,11 +47,10 @@ export function getWebUIToken(): string {
       // than stdout, which is more likely to be captured into searchable,
       // long-lived application logs. It is also regenerated every restart —
       // set WEBUI_TOKEN in .env for a stable, non-logged secret.
-      console.warn(
-        `[webui-auth] SECURITY: no WEBUI_TOKEN configured; generated an ephemeral token for this run.`,
-      );
-      console.warn(`[webui-auth] Generated token: ${configuredToken}`);
-      console.warn('[webui-auth] Set WEBUI_TOKEN in .env to persist it and keep it out of logs.');
+      const authLogger = createLogger();
+      authLogger.warn('[webui-auth] SECURITY: no WEBUI_TOKEN configured; generated an ephemeral token for this run.');
+      authLogger.warn(`[webui-auth] Generated token: ${configuredToken}`);
+      authLogger.warn('[webui-auth] Set WEBUI_TOKEN in .env to persist it and keep it out of logs.');
     }
   }
   return configuredToken;

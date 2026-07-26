@@ -10,7 +10,10 @@
 
 import crypto from 'node:crypto';
 import QRCode from 'qrcode';
+import pino from 'pino';
 import type { ILQrcodeResponse, ILQrcodeStatusResponse } from './wechat-types.js';
+
+const logger = pino();
 
 const QR_POLL_TIMEOUT_MS = 40_000;
 
@@ -86,17 +89,17 @@ export async function pollQrcodeStatus(
 
     if (!res.ok) {
       const msg = await res.text().catch(() => '');
-      console.error('QR poll HTTP error:', res.status, msg.slice(0, 200));
+      logger.error({ status: res.status, response: msg.slice(0, 200) }, 'QR poll HTTP error');
       return { status: 'error' };
     }
 
     const raw = await res.text();
-    console.error('QR poll raw response:', raw.slice(0, 300));
+    logger.error({ response: raw.slice(0, 300) }, 'QR poll raw response');
     let data: ILQrcodeStatusResponse;
     try {
       data = JSON.parse(raw) as ILQrcodeStatusResponse;
     } catch {
-      console.error('QR poll: JSON parse failed');
+      logger.error('QR poll: JSON parse failed');
       return { status: 'error' };
     }
 
@@ -123,7 +126,7 @@ export async function pollQrcodeStatus(
         return { status: 'waiting' };
     }
   } catch (err: unknown) {
-    console.error('QR poll exception:', err instanceof Error ? `${err.name}: ${err.message}` : String(err));
+    logger.error({ err }, 'QR poll exception');
     if (err instanceof Error && err.name === 'AbortError') {
       if (signal.aborted) {
         return { status: 'error' };

@@ -7,6 +7,9 @@
 
 import 'dotenv/config';
 import { bootstrap } from './app/bootstrap.js';
+import { createLogger } from './app/logger.js';
+
+const logger = createLogger();
 
 async function main() {
   const { services, start, stop } = await bootstrap();
@@ -32,6 +35,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error('Fatal error:', error);
+  logger.error({ err: error }, 'Fatal error');
   process.exit(1);
 });

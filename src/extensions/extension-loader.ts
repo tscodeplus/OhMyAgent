@@ -44,6 +44,9 @@ function resolveModulePath(baseDir: string, manifestId: string, mainFile: string
 }
 
 import type { ExtensionManifest, ExtensionAPI } from './types.js';
+import pino from 'pino';
+
+const logger = pino({ name: 'extension-loader', level: process.env.LOG_LEVEL ?? 'info' });
 
 export class ExtensionLoader {
   async scan(dir: string): Promise<ExtensionManifest[]> {
@@ -64,11 +67,11 @@ export class ExtensionLoader {
             manifests.push(manifest);
           }
         } catch {
-          // skip invalid extension directories
+          logger.debug({ entry }, 'ExtensionLoader: skipping invalid extension directory');
         }
       }
     } catch {
-      // directory read failed
+      logger.debug('ExtensionLoader: directory scan failed');
     }
     return manifests;
   }

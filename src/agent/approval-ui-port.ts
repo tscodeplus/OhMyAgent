@@ -15,6 +15,9 @@
  */
 
 import type { ApprovalDecisionType, ReplyDispatcher } from '../app/types.js';
+import pino from 'pino';
+
+const logger = pino();
 
 export type ApprovalRisk = 'low' | 'medium' | 'high';
 
@@ -111,7 +114,7 @@ export function channelSenderToSession(
       if (!sender.updateApprovalResult || !res.cardMessageId) return;
       await sender
         .updateApprovalResult(res.chatId, res.cardMessageId, res.decision, res.command)
-        .catch(() => {});
+        .catch(() => { logger.warn('Failed to update approval result — non-critical'); });
     },
   };
 }

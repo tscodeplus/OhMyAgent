@@ -73,7 +73,7 @@ const DEFAULT_MIN_SCORE = 0.01;
 async function concurrentMap<T, R>(
   items: T[],
   fn: (item: T, index: number) => Promise<R>,
-  concurrency: number = 8,
+  concurrency: number,
 ): Promise<R[]> {
   if (items.length === 0) return [];
   const results: R[] = new Array(items.length);
@@ -136,6 +136,8 @@ export interface MemoryRetrieverOptions {
   plannerConfig?: PlannerConfig;
   /** Recall tuning knobs. */
   recallConfig?: RecallConfig;
+  /** Max concurrency for memory search tasks (vector, FTS, term). Default 8. */
+  searchConcurrency?: number;
 }
 
 export class MemoryRetriever {
@@ -153,6 +155,7 @@ export class MemoryRetriever {
   private readonly queryEmbeddingTimeoutMs: number;
   private readonly plannerConfig: PlannerConfig;
   private readonly recallConfig: RecallConfig;
+  private readonly searchConcurrency: number;
   private queryCache: QueryResultCache;
   private candidateSelector: CandidateSelector;
 
@@ -171,6 +174,7 @@ export class MemoryRetriever {
     this.queryEmbeddingTimeoutMs = options.queryEmbeddingTimeoutMs ?? 10_000;
     this.plannerConfig = options.plannerConfig ?? DEFAULT_PLANNER_CONFIG;
     this.recallConfig = options.recallConfig ?? DEFAULT_RECALL_CONFIG;
+    this.searchConcurrency = options.searchConcurrency ?? 8;
 
     this.queryCache = new QueryResultCache();
     this.candidateSelector = new CandidateSelector(this.db);
@@ -318,7 +322,7 @@ export class MemoryRetriever {
         this.termSearchWrapper(opts, retrievalPolicy.access, sourcePool),
       ]);
 
-      const allResults = await concurrentMap(searchTasks, task => task, 6);
+      const allResults = await concurrentMap(searchTasks, task => task, this.searchConcurrency);
       merged = rrfMerge(allResults, 60, topK * this.recallConfig.mergeCandidateMultiplier);
     }
 

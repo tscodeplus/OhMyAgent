@@ -1,3 +1,4 @@
+import { LRUCache } from 'lru-cache';
 import type { LoadedSkill } from './skill-loader.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -14,8 +15,8 @@ export interface ResolvedSkill {
 // previously called `new RegExp(...)` for every trigger of every skill each
 // time. Triggers are a small, stable set, so cache the compiled patterns keyed
 // by their source string and reuse them across messages.
-const explicitCommandCache = new Map<string, RegExp>();
-const triggerCache = new Map<string, RegExp>();
+const explicitCommandCache = new LRUCache<string, RegExp>({ max: 500, ttl: 1000 * 60 * 60 });
+const triggerCache = new LRUCache<string, RegExp>({ max: 1000, ttl: 1000 * 60 * 60 });
 
 /**
  * Check if a message contains a `$skill-id` token anywhere, or starts with `/skill-id`.

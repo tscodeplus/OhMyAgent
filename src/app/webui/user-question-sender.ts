@@ -12,7 +12,10 @@
  */
 
 import type Database from 'better-sqlite3';
+import pino from 'pino';
 import type { UserQuestionSender, UserQuestionOption } from '../../agent/user-question-port.js';
+
+const fallbackLogger = pino();
 
 export function createWebUIUserQuestionSender(
   sendSSE: (data: Record<string, unknown>) => void,
@@ -48,7 +51,7 @@ export function createWebUIUserQuestionSender(
             "INSERT OR REPLACE INTO messages (id, session_id, role, content, created_at, metadata) VALUES (?, ?, 'assistant', ?, ?, ?)",
           ).run(msgId, sessionId, '', Date.now(), meta);
         } catch (err) {
-          logger?.warn('[user-question-sender] Failed to persist question message:', err);
+          (logger ?? fallbackLogger).warn({ err }, '[user-question-sender] Failed to persist question message');
         }
       }
 
@@ -85,7 +88,7 @@ export function createWebUIUserQuestionSender(
             ).run(JSON.stringify(meta), msgId);
           }
         } catch (err) {
-          console.warn('[user-question-sender] Failed to update question message:', err);
+          (logger ?? fallbackLogger).warn({ err }, '[user-question-sender] Failed to update question message');
         }
       }
     },

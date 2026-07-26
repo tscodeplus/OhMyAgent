@@ -403,9 +403,68 @@ export class MemoryWriter {
   }
 
   /**
-   * Write multiple memories in sequence.
+   * Write multiple memories in sequence, with batch embedding pre-computation.
+   *
+   * Before processing individual writes, this method collects all unique content
+   * strings that require embeddings and computes them in a single batched API call
+   * (`embeddingClient.embedBatch`). The results are cached in the embedding cache
+   * repository so that each subsequent `write()` call hits the cache instead of
+   * making N individual embedding API calls.
+   *
+   * For content that does not require embeddings (generateEmbedding: false),
+   * no embedding API call is made.
+   *
+   * @param options - Array of write options to process.
+   * @returns Array of write results, one per input option.
    */
   async writeBatch(options: WriteOptions[]): Promise<WriteResult[]> {
+    if (options.length === 0) return [];
+
+    // 1. Pre-compute all required embeddings in a single batched API call.
+    //    Collect unique content strings to avoid redundant embedding computation.
+    const embedCandidates = new Map<string, string>(); // contentHash -> content
+    const needsEmbedding = new Map<number, boolean>();  // index -> needsEmbedding
+    for (let i = 0; i < options.length; i++) {
+      const opt = options[i];
+      if (opt.generateEmbedding !== false && this.embeddingClient.isConfigured()) {
+        const hash = hashContent(opt.content, this.embeddingClient.model);
+        // Check if already cached
+        const cached = this.embeddingCacheRepo.get(hash);
+        if (!cached) {
+          embedCandidates.set(hash, opt.content);
+        }
+        needsEmbedding.set(i, true);
+      } else {
+        needsEmbedding.set(i, false);
+      }
+    }
+
+    // Batch-call the embedding API for all uncached content
+    if (embedCandidates.size > 0 && this.embeddingClient.isConfigured()) {
+      try {
+        const contents = Array.from(embedCandidates.values());
+        const embeddings = await this.embeddingClient.embedBatch(contents);
+        // Cache each result
+        for (let i = 0; i < contents.length; i++) {
+          try {
+            this.embeddingCacheRepo.set({
+              content_hash: hashContent(contents[i], this.embeddingClient.model),
+              embedding: Buffer.from(embeddings[i].buffer, embeddings[i].byteOffset, embeddings[i].byteLength),
+              model: this.embeddingClient.model,
+              dimension: embeddings[i].length,
+              created_at: new Date().toISOString(),
+            });
+          } catch {
+            // Cache write failure is non-fatal — individual write will retry
+          }
+        }
+      } catch {
+        // Batch embedding failure is non-fatal — individual writes will each
+        // try getOrCreateEmbedding() and handle their own fallback/degradation.
+      }
+    }
+
+    // 2. Process each write sequentially — embeddings will hit the cache.
     const results: WriteResult[] = [];
     for (const opt of options) {
       results.push(await this.write(opt));

@@ -1,14 +1,19 @@
 // ── Types ──────────────────────────────────────────────────────────────────────
 export type {
   Manifest,
+  SkillDependencies,
   ToolsConfig,
   MemoryScope,
   MemoryPolicy,
 } from './skill-schema.js';
 
 // ── Loader ─────────────────────────────────────────────────────────────────────
-export { loadSkill, loadAllSkills, FrontmatterSchema } from './skill-loader.js';
-export type { LoadedSkill } from './skill-loader.js';
+export { loadSkill, loadAllSkills, FrontmatterSchema, validateSkillDependencies } from './skill-loader.js';
+export type {
+  LoadedSkill,
+  SkillResources,
+  DependencyValidationResult,
+} from './skill-loader.js';
 
 // ── Router ─────────────────────────────────────────────────────────────────────
 export { resolveSkillContext } from './skill-router.js';
@@ -20,3 +25,7 @@ export type { CompiledSkillContext } from './skill-compiler.js';
 
 // ── Registry ───────────────────────────────────────────────────────────────────
 export { SkillRegistry } from './skill-registry.js';
+
+// ── Metrics ────────────────────────────────────────────────────────────────────
+export { SkillMetricsService } from './skill-metrics.js';
+export type { SkillMetrics } from './skill-metrics.js';

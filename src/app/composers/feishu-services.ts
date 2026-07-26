@@ -10,7 +10,7 @@ import { MessageHandler } from '../../../extensions/channel-feishu/message-handl
 import { fixFeishuMarkdown } from '../../../extensions/channel-feishu/render/markdown-sanitizer.js';
 import { buildSimpleMarkdownCard } from '../../../extensions/channel-feishu/render/cardkit-builder.js';
 import { loadConfig, resetConfig } from '../config.js';
-import { configEventBus } from '../config-event-bus.js';
+import { configManager } from '../config-manager.js';
 import type { AppConfig } from '../types.js';
 import type { AgentService } from '../../agent/agent-service.js';
 import type { SkillRegistry } from '../../skills/skill-registry.js';
@@ -74,9 +74,7 @@ export function createFeishuServices(options: {
     extensionManager,
     configPath,
     triggerConfigReload: () => {
-      resetConfig();
-      const newConfig = loadConfig();
-      configEventBus.emit(newConfig).catch(err =>
+      configManager.reloadFromFile().catch(err =>
         logger.error({ err }, 'Config reload via /permission failed'),
       );
     },

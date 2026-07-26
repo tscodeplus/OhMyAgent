@@ -297,7 +297,7 @@ setTimeout(poll, 1000);
         const fs = await import('node:fs/promises');
         const envPath = '.env';
         let envContent = '';
-        try { envContent = await fs.readFile(envPath, 'utf-8'); } catch {}
+        try { envContent = await fs.readFile(envPath, 'utf-8'); } catch { logger.warn('No existing .env file to read for WeChat token update'); }
         const newLine = `WECHAT_BOT_TOKEN=${body.botToken}`;
         if (envContent.includes('WECHAT_BOT_TOKEN=')) {
           envContent = envContent.replace(/WECHAT_BOT_TOKEN=.*/g, newLine);
@@ -313,7 +313,7 @@ setTimeout(poll, 1000);
       // Stop old poller if running (token might have expired), then start fresh
       const old = getPoller();
       if (old) {
-        try { old.stop(); } catch {}
+        try { old.stop(); } catch { logger.warn('Failed to stop old WeChat poller during restart'); }
         setPoller(null);
       }
       const p = await startWechatBot(wechatConfig, agentService, deps, logger, api);
@@ -380,7 +380,7 @@ setTimeout(poll, 1000);
         const fs = await import('node:fs/promises');
         const envPath = '.env';
         let envContent = '';
-        try { envContent = await fs.readFile(envPath, 'utf-8'); } catch {}
+        try { envContent = await fs.readFile(envPath, 'utf-8'); } catch { logger.warn('No existing .env file to read for WeChat token update'); }
         const newLine = `WECHAT_BOT_TOKEN=${body.botToken}`;
         if (envContent.includes('WECHAT_BOT_TOKEN=')) {
           envContent = envContent.replace(/WECHAT_BOT_TOKEN=.*/g, newLine);
@@ -396,7 +396,7 @@ setTimeout(poll, 1000);
       // Stop old poller if running, then start fresh
       const old = getPoller();
       if (old) {
-        try { old.stop(); } catch {}
+        try { old.stop(); } catch { logger.warn('Failed to stop old WeChat poller during restart'); }
         setPoller(null);
       }
       const p = await startWechatBot(wechatConfig, agentService, deps, logger, api);
