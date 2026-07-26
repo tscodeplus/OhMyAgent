@@ -179,7 +179,6 @@ jobs:
       - name: Package Electron app
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PUBLISH_CHANNEL: ${{ needs.detect-release-type.outputs.channel }}
         run: cd desktop && npx electron-builder ${{ steps.platform_flag.outputs.flag }} --publish never
 
       # --- Upload artifacts ---

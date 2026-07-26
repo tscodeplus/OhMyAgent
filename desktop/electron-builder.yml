@@ -85,6 +85,5 @@ publish:
   provider: github
   owner: tscodeplus
   repo: OhMyAgent
-  # Auto-update channel is set via PUBLISH_CHANNEL env var in CI
-  # (beta for pre-releases, latest for stable releases)
-  channel: ${env.PUBLISH_CHANNEL}
+  # Use default "latest" channel — beta/stable filtering is handled by
+  # GitHub Release prerelease flag + autoUpdater.allowPrerelease option.

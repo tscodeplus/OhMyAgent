@@ -172,7 +172,7 @@ export default function DesktopSettings() {
         ? `${t('settings.about.newVersionAvailable', { version })}\n\n${body}`
         : t('settings.about.newVersionAvailable', { version });
     } else {
-      // Electron path: release notes are HTML — strip to plain text
+      // Strip HTML tags to plain text (needed if notes contain raw HTML)
       const body = truncateReleaseNotes(notes);
       message = body
         ? `${t('settings.about.newVersionAvailable', { version })}\n\n${body}`
@@ -212,7 +212,8 @@ export default function DesktopSettings() {
       setLatestVersion(ver);
       setReleaseNotes(typeof notes === 'string' ? notes : '');
       setUpdateStatus('available');
-      showUpdateToast(ver, typeof notes === 'string' ? notes : '');
+      // Release notes from our REST API are Markdown (not HTML)
+      showUpdateToast(ver, typeof notes === 'string' ? notes : '', true);
     });
 
     api.onUpdateNotAvailable(() => {
