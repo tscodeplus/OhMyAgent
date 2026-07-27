@@ -159,6 +159,7 @@ vi.mock('../../src/app/logger.js', () => ({
     debug: vi.fn(),
     child: vi.fn().mockReturnThis(),
   })),
+  safeLogWrapper: vi.fn((logger: any) => logger),
 }));
 
 // ─── Mock: Database ───

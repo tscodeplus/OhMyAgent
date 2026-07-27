@@ -17,7 +17,7 @@
 
 import { i18n, changeI18nLocale } from '../i18n/index.js';
 import { loadConfig, setWatcherLogger, startConfigWatcher, startEnvWatcher, stopConfigWatcher, stopEnvWatcher } from './config.js';
-import { createLogger } from './logger.js';
+import { createLogger, safeLogWrapper } from './logger.js';
 import { teamModeStore } from '../agent/team-mode-store.js';
 import { createI18nService } from '../i18n/i18n-service.js';
 import { PromptManager } from '../prompt/prompt-manager.js';
@@ -774,43 +774,51 @@ export async function bootstrap(): Promise<BootstrapResult> {
     },
 
     stop: async () => {
-      // V2: Stop all channels
-      await channelManager.stopAll();
+      // During app shutdown (especially on Windows Electron), pino's transport
+      // worker thread may exit before we finish logging. Patch the logger in-place
+      // so ALL services holding a reference (wsClient, channels, etc.) are safe.
+      safeLogWrapper(logger);
 
-      // Stop cron scheduler
-      cronService.stop();
+      try {
+        // V2: Stop all channels
+        await channelManager.stopAll();
 
-      // Stop maintenance scheduler and DreamCycle
-      maintenanceScheduler.stop();
-      await dreamCycle.stop();
+        // Stop cron scheduler
+        cronService.stop();
 
-      // Stop hot-reload watchers
-      stopConfigWatcher();
-      stopEnvWatcher();
+        // Stop maintenance scheduler and DreamCycle
+        maintenanceScheduler.stop();
+        await dreamCycle.stop();
 
-      // Stop WebSocket client
-      if (wsClient) {
-        wsClient.stop();
-        logger.info('[OhMyAgent] WebSocket client stopped');
+        // Stop hot-reload watchers
+        stopConfigWatcher();
+        stopEnvWatcher();
+
+        // Stop WebSocket client
+        if (wsClient) {
+          wsClient.stop();
+          logger.info('[OhMyAgent] WebSocket client stopped');
+        }
+
+        // Stop periodic dedup cleanup timer
+        feishuRouter.stopCleanup();
+        logger.info('[OhMyAgent] Dedup cleanup timer stopped');
+
+        // Close Vite dev server if active
+        if (viteDevServer) {
+          await viteDevServer.close();
+          logger.info('[OhMyAgent] Vite dev server stopped');
+        }
+      } catch (err) {
+        // Worker threads or other resources may have exited — not actionable
+        console.error('[OhMyAgent] Error during shutdown:', err);
       }
 
-      // Stop periodic dedup cleanup timer
-      feishuRouter.stopCleanup();
-      logger.info('[OhMyAgent] Dedup cleanup timer stopped');
-
-      // Close Vite dev server if active
-      if (viteDevServer) {
-        await viteDevServer.close();
-        logger.info('[OhMyAgent] Vite dev server stopped');
-      }
-
-      // Close HTTP server
-      await server.close();
-      logger.info('[OhMyAgent] HTTP server stopped');
-
-      // Close database
-      db.close();
-      logger.info('[OhMyAgent] Database closed');
+      // Critical cleanup: always attempt to close server and DB,
+      // even if the sequence above errored partway through.
+      try { await server.close(); } catch { /* already closed */ }
+      try { db.close(); } catch { /* already closed or unreachable */ }
+      logger.info('[OhMyAgent] HTTP server + database closed');
 
       logger.info('[OhMyAgent] Shutdown complete');
     },

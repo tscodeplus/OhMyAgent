@@ -1125,6 +1125,22 @@ app.whenReady().then(async () => {
   }
 });
 
+// Safety net: during shutdown, pino's transport worker thread may exit before
+// our stop sequence finishes logging, causing "the worker has exited" errors.
+// The bootstrap stop function patches the logger to be safe, and both
+// ServerManager.stop() and the before-quit handler wrap calls in try-catch,
+// but this handler catches anything that slips through as a last resort.
+let isShuttingDown = false;
+process.on('uncaughtException', (error) => {
+  if (isShuttingDown && error?.message?.includes('worker has exited')) {
+    // pino transport worker exited during shutdown — not actionable
+    console.error('[OhMyAgent] UncaughtException during shutdown (non-fatal):', error.message);
+    return;
+  }
+  // Re-throw for any other uncaught exception — Electron will show the error dialog
+  throw error;
+});
+
 app.on('window-all-closed', () => {
   // On macOS, apps typically stay active until Cmd+Q.
   // On other platforms, keep running if tray exists.
@@ -1142,6 +1158,7 @@ app.on('activate', () => {
 });
 
 app.on('before-quit', async () => {
+  isShuttingDown = true;
   destroyTray();
   trayCreated = false;
   if (desktopBridge) {

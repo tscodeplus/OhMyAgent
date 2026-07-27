@@ -84,6 +84,40 @@ export function createLogger(level?: string): pino.Logger {
 }
 
 /**
+ * Patch a pino logger in-place so calls never throw when the worker thread
+ * has exited (common during Electron app shutdown on Windows).
+ *
+ * All log methods (trace/debug/info/warn/error/fatal) are replaced with
+ * versions that silently swallow "worker has exited" errors. Other errors
+ * still propagate. Safe to call multiple times on the same logger.
+ *
+ * Returns the same logger instance for chaining convenience.
+ */
+export function safeLogWrapper(logger: pino.Logger): pino.Logger {
+  const levels = ['fatal', 'error', 'warn', 'info', 'debug', 'trace'];
+
+  for (const level of levels) {
+    const original = (logger as any)[level];
+    if (typeof original === 'function' && !(original as any).__safeWrapped) {
+      (logger as any)[level] = (...args: any[]) => {
+        try {
+          return original.apply(logger, args);
+        } catch (err: any) {
+          if (err?.message?.includes('worker has exited')) {
+            // pino transport worker already dead — not actionable during shutdown
+            return;
+          }
+          throw err;
+        }
+      };
+      (logger as any)[level].__safeWrapped = true;
+    }
+  }
+
+  return logger;
+}
+
+/**
  * Reset cached logger (for testing).
  */
 export function resetLogger(): void {
