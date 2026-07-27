@@ -33,7 +33,7 @@ export function createVideoGenerationToolDefinition(
     name: 'video_generation',
     label: 'Video Generation',
     description:
-      'Generate a video from a text prompt. Supports image-to-video generation by passing referenceImages.',
+      'Generate a video from a text prompt. Supports text-to-video, image-to-video (referenceImages), and keyframe animation (mode: keyframes). Agnes V2.0 provides cinematic quality with native audio-video sync.',
     category: 'multimodal',
     parametersSchema: Type.Object({
       prompt: Type.String({
@@ -69,6 +69,30 @@ export function createVideoGenerationToolDefinition(
           description: 'Reference image URLs or data URIs for image-to-video generation. Pass input images to animate or use as keyframes.',
         }),
       ),
+      mode: Type.Optional(
+        Type.Union(
+          [Type.Literal('ti2vid'), Type.Literal('keyframes')],
+          { description: 'Generation mode: ti2vid (text/image-to-video, default) or keyframes (multi-frame animation with smooth transitions)' },
+        ),
+      ),
+      height: Type.Optional(
+        Type.Number({ description: 'Output height in pixels (e.g. 768). Provider-dependent.' }),
+      ),
+      width: Type.Optional(
+        Type.Number({ description: 'Output width in pixels (e.g. 1152). Provider-dependent.' }),
+      ),
+      numFrames: Type.Optional(
+        Type.Number({ description: 'Number of frames to generate. Must follow 8n+1 rule (e.g. 81, 121, 161). Max 441.', minimum: 1, maximum: 441 }),
+      ),
+      frameRate: Type.Optional(
+        Type.Number({ description: 'Frame rate in FPS (1-60). Provider-dependent.', minimum: 1, maximum: 60 }),
+      ),
+      numInferenceSteps: Type.Optional(
+        Type.Number({ description: 'Number of inference/denoising steps. Higher = better quality but slower.' }),
+      ),
+      negativePrompt: Type.Optional(
+        Type.String({ description: 'What to avoid in the generated video. Provider-dependent.' }),
+      ),
     }),
     capability: videoGenerationCapability,
     execute: async (
@@ -80,6 +104,13 @@ export function createVideoGenerationToolDefinition(
         seed?: number;
         outputFileName?: string;
         referenceImages?: string[];
+        mode?: 'ti2vid' | 'keyframes';
+        height?: number;
+        width?: number;
+        numFrames?: number;
+        frameRate?: number;
+        numInferenceSteps?: number;
+        negativePrompt?: string;
       },
       ctx,
     ) => {
@@ -135,6 +166,13 @@ export function createVideoGenerationToolDefinition(
           seed: args.seed,
           modelRef,
           referenceImages: args.referenceImages,
+          mode: args.mode,
+          height: args.height,
+          width: args.width,
+          numFrames: args.numFrames,
+          frameRate: args.frameRate,
+          numInferenceSteps: args.numInferenceSteps,
+          negativePrompt: args.negativePrompt,
         });
 
         const ext = '.mp4';

@@ -33,21 +33,31 @@ interface ProviderPreset {
  * modelRef). Add new providers here as needed.
  */
 const VIDEO_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
-  // Agnes AI — standard /v1/video/generations with wrapped response
+  // Agnes AI V2.0 — POST /v1/videos, poll via /agnesapi?video_id={id}
+  // Response is flat (not wrapped): { status: "completed", url: "https://...", progress: 100 }
   agnes: {
     responseMapping: {
-      statusField: 'data.status',
-      successValue: 'SUCCESS',
-      failureValues: ['FAILED', 'ERROR'],
-      videoUrlPaths: ['data.data.remixed_from_video_id', 'data.result_url'],
-      progressField: 'data.data.progress',
-      endpointPath: '/v1/video/generations',
+      taskIdField: 'video_id',
+      statusField: 'status',
+      successValue: 'completed',
+      failureValues: ['failed'],
+      videoUrlPaths: ['url', 'video_url'],
+      progressField: 'progress',
+      endpointPath: '/v1/videos',
+      statusUrlTemplate: '/agnesapi?video_id={taskId}',
     },
     paramsMapping: {
       durationField: 'seconds',
       sizeField: 'size',
       referenceImagesField: 'image',
       referenceImagesMode: 'first',
+      modeField: 'mode',
+      heightField: 'height',
+      widthField: 'width',
+      numFramesField: 'num_frames',
+      frameRateField: 'frame_rate',
+      numInferenceStepsField: 'num_inference_steps',
+      negativePromptField: 'negative_prompt',
     },
   },
 

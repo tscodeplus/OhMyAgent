@@ -419,6 +419,10 @@ const configSchema = z.object({
       maxPromptChars: z.number().default(4000),
       defaultSeconds: z.string().default('5.0'),
       defaultSize: z.string().default('1280x768'),
+      defaultMode: z.enum(['ti2vid', 'keyframes']).optional(),
+      defaultHeight: z.number().int().positive().optional(),
+      defaultWidth: z.number().int().positive().optional(),
+      defaultFrameRate: z.number().min(1).max(60).optional(),
     }).optional(),
     stt: z.object({
       enabled: z.boolean().default(false),

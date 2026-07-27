@@ -7,7 +7,7 @@
 //
 // Typical flow:
 //   POST {endpointPath}  →  submit generation, get task_id
-//   GET  {endpointPath}/{task_id}  →  poll until complete
+//   GET  {statusUrlTemplate} or {endpointPath}/{task_id}  →  poll until complete
 //   Download video from resolved URL
 // ---------------------------------------------------------------------------
 
@@ -43,6 +43,12 @@ export interface VideoResponseMapping {
   endpointPath?: string;
   /** If submit response wraps result in a field, unwrap it. */
   submitEnvelopeField?: string;
+  /**
+   * Custom status polling URL template. Supports `{taskId}` placeholder.
+   * Example: "/agnesapi?video_id={taskId}"
+   * When not set, falls back to `{submitUrl}/{taskId}`.
+   */
+  statusUrlTemplate?: string;
 }
 
 /** Maps internal field names to provider-specific API field names. */
@@ -57,6 +63,20 @@ export interface VideoParamsMapping {
   referenceImagesField?: string;
   /** How to format reference images: "array" (default) or "first" (single URL). */
   referenceImagesMode?: 'array' | 'first';
+  /** API field name for generation mode (e.g. "ti2vid", "keyframes"). */
+  modeField?: string;
+  /** API field name for output height in pixels. */
+  heightField?: string;
+  /** API field name for output width in pixels. */
+  widthField?: string;
+  /** API field name for number of frames. */
+  numFramesField?: string;
+  /** API field name for frame rate. */
+  frameRateField?: string;
+  /** API field name for number of inference steps. */
+  numInferenceStepsField?: string;
+  /** API field name for negative prompt. */
+  negativePromptField?: string;
 }
 
 export interface OpenAIVideoGenConfig {
@@ -89,6 +109,7 @@ const DEFAULT_RESPONSE_MAPPING: Required<VideoResponseMapping> = {
   progressField: 'data.progress',
   endpointPath: '/v1/video/generations',
   submitEnvelopeField: '',
+  statusUrlTemplate: '',
 };
 
 const DEFAULT_PARAMS_MAPPING: Required<VideoParamsMapping> = {
@@ -97,6 +118,13 @@ const DEFAULT_PARAMS_MAPPING: Required<VideoParamsMapping> = {
   aspectRatioField: '',
   referenceImagesField: 'references.images',
   referenceImagesMode: 'array' as const,
+  modeField: '',
+  heightField: '',
+  widthField: '',
+  numFramesField: '',
+  frameRateField: '',
+  numInferenceStepsField: '',
+  negativePromptField: '',
 };
 
 // ---------------------------------------------------------------------------
@@ -147,7 +175,9 @@ export class OpenAIVideoGenerationProvider implements VideoGenerationProvider {
     }
 
     // 2. Poll for completion
-    const statusUrl = `${submitUrl}/${taskId}`;
+    const statusUrl = this.respMap.statusUrlTemplate
+      ? this.buildUrl(baseUrl, this.respMap.statusUrlTemplate.replace('{taskId}', String(taskId)))
+      : `${submitUrl}/${taskId}`;
     const videoUrl = await this.pollForCompletion(statusUrl, apiKey, timeoutMs, pollIntervalMs, maxWaitMs);
     if (!videoUrl) {
       throw new Error(`Video generation timed out after ${maxWaitMs}ms. Task ID: ${taskId}`);
@@ -198,6 +228,37 @@ export class OpenAIVideoGenerationProvider implements VideoGenerationProvider {
         ? input.referenceImages[0]
         : input.referenceImages;
       setByPath(body, this.paramMap.referenceImagesField, value);
+    }
+
+    // Generation mode (ti2vid / keyframes)
+    if (input.mode && this.paramMap.modeField) {
+      body[this.paramMap.modeField] = input.mode;
+    }
+
+    // Output dimensions
+    if (input.height !== undefined && this.paramMap.heightField) {
+      body[this.paramMap.heightField] = input.height;
+    }
+    if (input.width !== undefined && this.paramMap.widthField) {
+      body[this.paramMap.widthField] = input.width;
+    }
+
+    // Frame control
+    if (input.numFrames !== undefined && this.paramMap.numFramesField) {
+      body[this.paramMap.numFramesField] = input.numFrames;
+    }
+    if (input.frameRate !== undefined && this.paramMap.frameRateField) {
+      body[this.paramMap.frameRateField] = input.frameRate;
+    }
+
+    // Inference steps
+    if (input.numInferenceSteps !== undefined && this.paramMap.numInferenceStepsField) {
+      body[this.paramMap.numInferenceStepsField] = input.numInferenceSteps;
+    }
+
+    // Negative prompt
+    if (input.negativePrompt && this.paramMap.negativePromptField) {
+      body[this.paramMap.negativePromptField] = input.negativePrompt;
     }
 
     // Extra vendor-specific params

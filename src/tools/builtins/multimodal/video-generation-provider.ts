@@ -20,6 +20,20 @@ export interface VideoGenerationInput {
    * Use for vendor-specific fields not covered by the standard interface.
    */
   extraParams?: Record<string, unknown>;
+  /** Generation mode: 'ti2vid' (text/image-to-video) or 'keyframes' (multi-frame animation). */
+  mode?: 'ti2vid' | 'keyframes';
+  /** Output height in pixels (e.g. 768). */
+  height?: number;
+  /** Output width in pixels (e.g. 1152). */
+  width?: number;
+  /** Number of frames to generate. Must follow 8n+1 rule, max 441. */
+  numFrames?: number;
+  /** Frame rate (1-60). */
+  frameRate?: number;
+  /** Number of inference steps. Higher = better quality, slower. */
+  numInferenceSteps?: number;
+  /** What to avoid in the generated video. */
+  negativePrompt?: string;
 }
 
 export interface VideoGenerationOutput {

@@ -396,6 +396,14 @@ export interface AppConfig {
       maxPromptChars: number;
       defaultSeconds?: string;
       defaultSize?: string;
+      /** Default generation mode for V2.0 providers (ti2vid or keyframes). */
+      defaultMode?: 'ti2vid' | 'keyframes';
+      /** Default output height in pixels. */
+      defaultHeight?: number;
+      /** Default output width in pixels. */
+      defaultWidth?: number;
+      /** Default frame rate in FPS. */
+      defaultFrameRate?: number;
     };
     /** v5 P2: Speech-to-text configuration. */
     stt?: {
