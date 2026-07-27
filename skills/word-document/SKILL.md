@@ -107,11 +107,31 @@ doc.setUpdateFields(false);
 
 > **Note**: English-only documents need no extra setup — the default `en-US` is sufficient. East Asian language documents should use the manual `w:eastAsia` fix above.
 
+### Font & Color Recommendations
+
+Use these as defaults for professional-looking documents. Match the font family to the document language.
+
+| Context | Font (Latin) | Font (CJK) | Size (pt) | Color |
+|---------|-------------|------------|-----------|-------|
+| Body text | Calibri | SimSun (宋体) | 11 | `#333333` |
+| Heading 1 | Calibri | SimHei (黑体) | 14–16 | `#1F3864` |
+| Heading 2 | Calibri | SimHei (黑体) | 12–13 | `#2E75B6` |
+| Heading 3 | Calibri | SimHei (黑体) | 11–12 | `#2E75B6` |
+| Table header | Calibri Bold | SimHei Bold | 10–11 | `#FFFFFF` on dark bg |
+| Footer | Calibri | SimSun | 9 | `#999999` |
+| Hyperlink | (inherited) | (inherited) | – | `#0563C1` |
+| Caption | Calibri Italic | SimSun Italic | 9–10 | `#666666` |
+
+> **Rule of thumb**: Body text at 11pt with `#333333` (not pure black) reduces eye strain. Keep headings 2–5pt larger than body text for clear hierarchy.
+
 ## SHOULD DO
 - Test on a small scope first, then expand once confirmed correct
 - For large documents, work in stages, focusing on one section at a time
 - Verify results with `--read` after editing
 - When an operation fails, analyze the error stack, correct the code, then retry
+- **For new documents**: ALWAYS start with the "Create a Polished Document" template to get proper styles, margins, and metadata
+- **Before saving any document**: run the Pre-Save Polish Checklist (normalizeSpacing, normalizeTableBorders, etc.)
+- **For Chinese/Japanese/Korean documents**: include the manual `w:eastAsia` fix from the Language section above
 
 ## WHEN
 - If the operation you need is NOT in "Common Patterns" → use `--api` to discover available methods first, then write code
@@ -147,6 +167,257 @@ When "Common Patterns" below doesn't cover your operation, use `--api` to intros
 - `--api TableCell` — list all TableCell methods
 
 Discover first, then write code. Never guess method names.
+
+## 🎨 Create a Polished Document (START HERE for new documents)
+
+When creating a new document from scratch, use this complete template as the base. Copy the ENTIRE block into `-c` and customize the content section.
+
+```javascript
+// ═══════════════════════════════════════════════
+// 1) Page Setup
+// ═══════════════════════════════════════════════
+doc.setPageSize(12240, 15840);  // A4 (width, height in twips)
+doc.setMargins({ top: 1440, bottom: 1440, left: 1440, right: 1440 });  // 1 inch all sides
+
+// ═══════════════════════════════════════════════
+// 2) Document Metadata
+// ═══════════════════════════════════════════════
+doc.setLanguage("zh-CN");
+doc.setUpdateFields(false);
+doc.setTitle("Document Title");
+doc.setSubject("Subject");
+doc.setCreator("OhMyAgent");
+
+// ═══════════════════════════════════════════════
+// 3) Apply Professional Styles
+// ═══════════════════════════════════════════════
+// ⚠️ IMPORTANT: doc.applyStyles() sets up the named Word styles (Heading 1/2/3, Normal)
+// so all subsequent doc.addHeading() and doc.createParagraph() calls inherit these defaults.
+// addHeading() IS safe to use AFTER applyStyles() is called.
+doc.applyStyles({
+  heading1: {
+    run: { font: "Calibri", size: 28, bold: true, color: "1F3864" },
+    paragraph: { spacing: { before: 480, after: 240 }, alignment: "left" }
+  },
+  heading2: {
+    run: { font: "Calibri", size: 20, bold: true, color: "2E75B6" },
+    paragraph: { spacing: { before: 360, after: 180 }, alignment: "left" }
+  },
+  heading3: {
+    run: { font: "Calibri", size: 16, bold: true, color: "2E75B6" },
+    paragraph: { spacing: { before: 240, after: 120 }, alignment: "left" }
+  },
+  normal: {
+    run: { font: "Calibri", size: 22, color: "333333" },
+    paragraph: { spacing: { after: 120 }, alignment: "left" }
+  }
+});
+
+// ═══════════════════════════════════════════════
+// 4) Default Font & Size (fallback for all text)
+// ═══════════════════════════════════════════════
+doc.setDefaultFont("Calibri");
+doc.setDefaultFontSize(22);  // 11pt in half-points
+
+// ═══════════════════════════════════════════════
+// 5) Document Content — CUSTOMIZE BELOW
+// ═══════════════════════════════════════════════
+doc.addHeading("Document Title", 1);
+
+doc.addHeading("Section 1", 2);
+doc.createParagraph().addText("Body text goes here. Customize with your actual content.");
+
+// ═══════════════════════════════════════════════
+// 6) Pre-Save Polish
+// ═══════════════════════════════════════════════
+doc.normalizeSpacing();
+doc.normalizeTableBorders();
+doc.applyBordersToAllTables();
+doc.upgradeToModernFormat();
+```
+
+### Style Presets
+
+Replace the `applyStyles()` block with one of these color presets to match your document type:
+
+| Preset | Use Case | Primary Color | Accent Color | Body Font |
+|--------|----------|---------------|-------------|-----------|
+| `professional-blue` | Business reports, weekly reports | `#1F3864` | `#2E75B6` | Calibri |
+| `modern-dark` | Proposals, plans | `#2D3436` | `#636E72` | Calibri |
+| `academic` | Papers, academic documents | `#333333` | `#555555` | Times New Roman |
+| `warm` | Notices, announcements | `#8B4513` | `#A0522D` | Calibri |
+
+Example for academic preset:
+```javascript
+doc.applyStyles({
+  heading1: {
+    run: { font: "Times New Roman", size: 28, bold: true, color: "333333" },
+    paragraph: { spacing: { before: 480, after: 240 }, alignment: "left" }
+  },
+  heading2: {
+    run: { font: "Times New Roman", size: 20, bold: true, color: "555555" },
+    paragraph: { spacing: { before: 360, after: 180 }, alignment: "left" }
+  },
+  normal: {
+    run: { font: "Times New Roman", size: 24, color: "333333" },
+    paragraph: { spacing: { after: 160 }, alignment: "justify" }
+  }
+});
+```
+
+### Resume / CV Template
+
+Use this template for creating professional resumes. Customize content sections marked with `<-- TODO -->`.
+
+```javascript
+// ═══════════════════════════════════════════════
+// 1) Page Setup — tighter margins for resumes
+// ═══════════════════════════════════════════════
+doc.setPageSize(12240, 15840);  // A4 (width, height in twips)
+doc.setMargins({ top: 720, bottom: 720, left: 1080, right: 1080 });  // 0.75" left/right, 0.5" top/bottom
+doc.setLanguage("en-US");
+doc.setUpdateFields(false);
+doc.setTitle("Resume - [Name]");
+doc.setCreator("OhMyAgent");
+
+// ═══════════════════════════════════════════════
+// 2) Styles — resume-optimized with smaller font sizes
+// ═══════════════════════════════════════════════
+doc.applyStyles({
+  heading1: {
+    run: { font: "Calibri", size: 24, bold: true, color: "1F3864" },
+    paragraph: { spacing: { before: 0, after: 60 }, alignment: "left" }
+  },
+  heading2: {
+    run: { font: "Calibri", size: 20, bold: true, color: "2E75B6" },
+    paragraph: { spacing: { before: 200, after: 60 }, alignment: "left" }
+  },
+  normal: {
+    run: { font: "Calibri", size: 21, color: "333333" },
+    paragraph: { spacing: { before: 0, after: 40 }, alignment: "left" }
+  }
+});
+
+// ═══════════════════════════════════════════════
+// 3) Header — Name & Contact
+// ═══════════════════════════════════════════════
+var header = doc.createParagraph();
+header.setAlignment("center");
+header.setSpaceAfter(40);
+header.addText("YOUR NAME", { bold: true, fontSize: 28, fontName: "Calibri", color: "1F3864" });
+
+var contact = doc.createParagraph();
+contact.setAlignment("center");
+contact.setSpaceAfter(80);
+contact.addText("[City, State]  |  [Phone]  |  [Email]  |  [LinkedIn]", { fontSize: 10, color: "666666" });
+
+// Horizontal rule separator
+doc.addHorizontalRule();
+
+// ═══════════════════════════════════════════════
+// 4) Professional Summary — <-- TODO: customize -->
+// ═══════════════════════════════════════════════
+doc.addHeading("Professional Summary", 2);
+doc.createParagraph().addText("[A results-oriented professional with X years of experience in...]");
+
+// ═══════════════════════════════════════════════
+// 5) Work Experience — <-- TODO: add each role -->
+// ═══════════════════════════════════════════════
+doc.addHeading("Work Experience", 2);
+
+// Helper: add one work experience entry
+function addExperience(title, company, dates, bullets) {
+  var titleP = doc.createParagraph();
+  titleP.addText(title, { bold: true, fontSize: 11 });
+  titleP.addText("  |  " + company + "  |  " + dates, { fontSize: 10, color: "666666" });
+  bullets.forEach(function(b) {
+    var bp = doc.createParagraph();
+    bp.setLeftIndent(360);
+    bp.setSpaceAfter(20);
+    bp.addText("•  " + b, { fontSize: 10 });
+  });
+}
+
+addExperience("Senior Developer", "ABC Corp", "2023 – Present", [
+  "Led migration to microservices architecture, reducing deployment time by 60%",
+  "Mentored team of 5 junior developers on best practices and code review",
+  "Implemented CI/CD pipeline using GitHub Actions and Docker"
+]);
+
+addExperience("Junior Developer", "XYZ Inc", "2020 – 2023", [
+  "Built RESTful APIs serving 1M+ daily requests",
+  "Contributed to open-source projects in the Node.js ecosystem"
+]);
+
+// ═══════════════════════════════════════════════
+// 6) Education — <-- TODO: customize -->
+// ═══════════════════════════════════════════════
+doc.addHeading("Education", 2);
+
+var eduP = doc.createParagraph();
+eduP.addText("Bachelor of Science in Computer Science", { bold: true, fontSize: 11 });
+eduP.addText("  |  University of Example, 2023", { fontSize: 10, color: "666666" });
+
+// ═══════════════════════════════════════════════
+// 7) Skills — compact borderless table layout
+// ═══════════════════════════════════════════════
+doc.addHeading("Skills", 2);
+
+var skills = ["Python", "JavaScript", "TypeScript", "React", "Node.js", "Docker", "AWS", "SQL", "Git", "CI/CD"];
+var cols = 4;
+var rows = Math.ceil(skills.length / cols);
+var t = doc.createTable(rows, cols);
+
+for (var i = 0; i < skills.length; i++) {
+  var r = Math.floor(i / cols);
+  var c = i % cols;
+  t.getRow(r).getCell(c).createParagraph().addText(skills[i], { fontSize: 10 });
+}
+
+// ═══════════════════════════════════════════════
+// 8) Pre-Save Polish
+// ═══════════════════════════════════════════════
+doc.normalizeSpacing();
+doc.normalizeTableBorders();
+doc.upgradeToModernFormat();
+```
+
+### Resume Design Rules
+
+- **One page only** — keep content concise; use 10-11pt body text
+- **Consistent styling** — reuse the `addExperience()` helper for each work entry
+- **Bullet points** — use Unicode `•` (•) with hanging indent for achievement bullets
+- **Skills table** — borderless multi-column table keeps skills compact; set borders to `{ style: "none", size: 0, color: "FFFFFF" }` for zero-width borders
+- **ATS compatible** — keep it text-based; no images or photos
+- **Font sizing**: Name 14-16pt bold, Section headings 12-13pt bold, Body 10-11pt, Dates/contact 9-10pt gray
+
+## Pre-Save Polish Checklist
+
+Before finalizing any document, run these cleanup calls near the end of your `-c` code:
+
+```javascript
+// Normalize inconsistent paragraph spacing
+doc.normalizeSpacing();
+
+// Ensure table borders look consistent
+doc.normalizeTableBorders();
+doc.applyBordersToAllTables();
+
+// Center and border large images
+doc.centerLargeImages();
+doc.borderAndCenterLargeImages();
+
+// Make hyperlinks look consistent (blue underline)
+doc.updateAllHyperlinkColors();
+
+// Set all tables to auto-fit layout
+doc.setAllTablesLayout("autofit");
+
+// Upgrade to modern format compatibility
+doc.upgradeToModernFormat();
+```
+
+> **Note**: These are safe to call even on documents that don't have tables, images, or hyperlinks — each method is a no-op when nothing applies.
 
 ## Common Patterns
 
@@ -284,6 +555,33 @@ t.setBorders({
 });
 ```
 
+```
+// Create a professional table with styled header row
+const t = doc.createTable(4, 3);
+// Header row — white text on colored background
+t.getRow(0).getCell(0).createParagraph().addText('Name', { bold: true, color: 'FFFFFF', fontSize: 11 });
+t.getRow(0).getCell(1).createParagraph().addText('Role', { bold: true, color: 'FFFFFF', fontSize: 11 });
+t.getRow(0).getCell(2).createParagraph().addText('Status', { bold: true, color: 'FFFFFF', fontSize: 11 });
+// Data rows
+t.getRow(1).getCell(0).createParagraph().addText('Alice');
+t.getRow(1).getCell(1).createParagraph().addText('Engineer');
+t.getRow(1).getCell(2).createParagraph().addText('Active');
+// Border — light gray for a clean look
+t.setBorders({
+  top: { style: 'single', size: 4, color: 'CCCCCC' },
+  bottom: { style: 'single', size: 4, color: 'CCCCCC' },
+  left: { style: 'single', size: 4, color: 'CCCCCC' },
+  right: { style: 'single', size: 4, color: 'CCCCCC' },
+});
+```
+
+```
+// Post-process all tables near end of script
+doc.normalizeTableBorders();
+doc.applyBordersToAllTables();
+doc.setAllTablesLayout('autofit');
+```
+
 ### Formatting
 
 ```
@@ -318,11 +616,19 @@ function addBoldHeading(text) {
 addBoldHeading("Professional Summary");
 ```
 
-> ⚠️ **Avoid `doc.addHeading()`** — it applies Word's built-in heading style, which may **not** render as bold because the `styles.xml` in generated docx files may lack proper heading style definitions. Always use `createParagraph()` with `{ bold: true }` for headings to ensure bold renders correctly in Word.
+> ⚠️ **`doc.addHeading()` is ONLY safe after `doc.applyStyles()`.** Without `applyStyles()`, heading styles may not render bold because generated `styles.xml` lacks heading style definitions. If you used the "Create a Polished Document" template above, `addHeading()` works correctly. If you did NOT call `applyStyles()`, use `createParagraph()` with `{ bold: true }` instead.
 
 ```
-// ❌ NOT recommended — bold may not render
-doc.addHeading('Chapter 1 Overview', 1);  // Heading levels 1–6
+// ✅ Safe — when applyStyles() was called earlier
+doc.addHeading('Chapter 1 Overview', 1);
+
+// ✅ Fallback — works without applyStyles()
+function addBoldHeading(text) {
+  var p = doc.createParagraph();
+  p.addText(text, { bold: true, fontSize: 13, fontName: 'Calibri' });
+  return p;
+}
+addBoldHeading('Chapter 1 Overview');
 ```
 
 ### Lists
@@ -373,11 +679,46 @@ doc.fillTemplate({ name: 'John Doe', date: '2026-07-21', amount: '10,000' });
 // Replaces all {{name}}, {{date}}, {{amount}} placeholders in the document
 ```
 
-### Page Layout
+### Page Setup
 
 ```
-// For page layout APIs not listed above → use --api Document to discover
-// then call them directly in your -c code
+// A4 portrait (default, 210x297mm in twips)
+doc.setPageSize(12240, 15840);
+
+// A4 landscape
+doc.setPageSize(15840, 12240, 'landscape');
+
+// Margins (1440 twips = 1 inch, 720 = 0.5 inch)
+doc.setMargins({ top: 1440, bottom: 1440, left: 1440, right: 1440 });  // 1" all sides
+doc.setMargins({ top: 720, bottom: 720, left: 1440, right: 1440 });     // 0.5" top/bottom
+
+// Page break between sections
+doc.addPageBreak();
+```
+
+### Paragraph Formatting
+
+```
+// Centered text
+var p = doc.createParagraph();
+p.setAlignment('center');  // or: 'left', 'right', 'justify'
+p.addText('Centered Title');
+
+// Paragraph with extra spacing (in twips: 240 = 12pt)
+var p = doc.createParagraph();
+p.setSpaceBefore(240);
+p.setSpaceAfter(120);
+p.addText('Paragraph with spacing above and below');
+
+// Indented paragraph (720 twips = 0.5 inch)
+var p = doc.createParagraph();
+p.setLeftIndent(720);
+p.addText('Indented paragraph');
+
+// First-line indent (480 twips ≈ 0.33 inch)
+var p = doc.createParagraph();
+p.setFirstLineIndent(480);
+p.addText('Paragraph with first-line indent');
 ```
 
 ## Injected Variables
