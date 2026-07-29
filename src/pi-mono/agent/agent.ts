@@ -453,6 +453,7 @@ export class Agent {
 			thinkingBudgets: this.thinkingBudgets,
 			maxRetryDelayMs: this.maxRetryDelayMs,
 			toolExecution: this.toolExecution,
+			fallbackModels: this.fallbackModels,
 			beforeToolCall: this.beforeToolCall,
 			afterToolCall: this.afterToolCall,
 			prepareNextTurn:
