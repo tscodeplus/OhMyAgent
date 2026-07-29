@@ -7,6 +7,7 @@
  */
 
 import { Agent } from '@earendil-works/pi-agent-core';
+import { streamSimple } from '@earendil-works/pi-ai';
 import type {
   AppConfig,
   AppServices,
@@ -591,6 +592,7 @@ export function createAgentFactory(
           thinkingLevel: thinkingLevel as import('@earendil-works/pi-ai').ThinkingLevel,
           messages: (options?.historyMessages ?? []) as import('@earendil-works/pi-agent-core').AgentMessage[],
         },
+        streamFn: streamSimple as any,
         convertToLlm,
         transformContext: createTransformContext({
           memoryRetriever,

@@ -41,5 +41,7 @@ export * from "./utils/event-stream.js";
 export * from "./utils/json-parse.js";
 export * from "./utils/overflow.js";
 export * from "./utils/retry.js";
+export { contentText } from "./utils/text.js";
 export * from "./utils/typebox-helpers.js";
+export { uuidv7 } from "./utils/uuid.js";
 export * from "./utils/validation.js";

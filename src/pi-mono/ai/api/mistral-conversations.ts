@@ -25,6 +25,7 @@ import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { shortHash } from "../utils/hash.js";
 import { parseStreamingJson } from "../utils/json-parse.js";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
+import { resolveJsonSchemaStrictSampling } from "./constrained-sampling.js";
 import { buildBaseOptions } from "./simple-options.js";
 import { transformMessages } from "./transform-messages.js";
 
@@ -483,15 +484,18 @@ async function consumeChatStream(
 }
 
 function toFunctionTools(tools: Tool[]): Array<FunctionTool & { type: "function" }> {
-	return tools.map((tool) => ({
-		type: "function",
-		function: {
-			name: tool.name,
-			description: tool.description,
-			parameters: stripSymbolKeys(tool.parameters) as Record<string, unknown>,
-			strict: false,
-		},
-	}));
+	return tools.map((tool) => {
+		const strict = resolveJsonSchemaStrictSampling(tool, true);
+		return {
+			type: "function",
+			function: {
+				name: tool.name,
+				description: tool.description,
+				parameters: stripSymbolKeys(tool.parameters) as Record<string, unknown>,
+				strict: strict ?? false,
+			},
+		};
+	});
 }
 
 function stripSymbolKeys(value: unknown): unknown {

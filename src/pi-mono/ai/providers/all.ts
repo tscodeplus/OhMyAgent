@@ -9,6 +9,7 @@ import { azureOpenAIResponsesProvider } from "./azure-openai-responses.js";
 import { cerebrasProvider } from "./cerebras.js";
 import { cloudflareAIGatewayProvider } from "./cloudflare-ai-gateway.js";
 import { cloudflareWorkersAIProvider } from "./cloudflare-workers-ai.js";
+import modelDataManifest from "./data/.manifest.json" with { type: "json" };
 import { deepseekProvider } from "./deepseek.js";
 import { fireworksProvider } from "./fireworks.js";
 import { githubCopilotProvider } from "./github-copilot.js";
@@ -29,6 +30,8 @@ import { opencodeProvider } from "./opencode.js";
 import { opencodeGoProvider } from "./opencode-go.js";
 import { openrouterProvider } from "./openrouter.js";
 import { openrouterImagesProvider } from "./openrouter-images.js";
+import { qwenTokenPlanProvider } from "./qwen-token-plan.js";
+import { qwenTokenPlanCnProvider } from "./qwen-token-plan-cn.js";
 import { radiusProvider } from "./radius.js";
 import { togetherProvider } from "./together.js";
 import { vercelAIGatewayProvider } from "./vercel-ai-gateway.js";
@@ -63,6 +66,12 @@ export function getBuiltinModel<TProvider extends BuiltinProvider, TModelId exte
 
 export function getBuiltinProviders(): BuiltinProvider[] {
 	return Object.keys(MODELS) as BuiltinProvider[];
+}
+
+/** Generation timestamp shared by all built-in provider catalogs. */
+export function getBuiltinModelDataGeneratedAt(): number | undefined {
+	const generatedAt = Date.parse(modelDataManifest.generatedAt);
+	return Number.isNaN(generatedAt) ? undefined : generatedAt;
 }
 
 export function getBuiltinModels<TProvider extends BuiltinProvider>(
@@ -103,6 +112,8 @@ export function builtinProviders(): Provider[] {
 		opencodeProvider(),
 		opencodeGoProvider(),
 		openrouterProvider(),
+		qwenTokenPlanProvider(),
+		qwenTokenPlanCnProvider(),
 		radiusProvider(),
 		togetherProvider(),
 		vercelAIGatewayProvider(),

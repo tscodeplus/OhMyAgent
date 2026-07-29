@@ -7,10 +7,10 @@ import {
 	type AssistantMessage,
 	type Context,
 	EventStream,
-	streamSimple,
 	type ToolResultMessage,
 	validateToolArguments,
-} from "@earendil-works/pi-ai/compat";
+} from "@earendil-works/pi-ai";
+import { getDefaultStreamFn } from "./stream-fn.js";
 import type {
 	AgentContext,
 	AgentEvent,
@@ -32,8 +32,8 @@ export function agentLoop(
 	prompts: AgentMessage[],
 	context: AgentContext,
 	config: AgentLoopConfig,
-	signal?: AbortSignal,
-	streamFn?: StreamFn,
+	signal: AbortSignal | undefined,
+	streamFn: StreamFn,
 ): EventStream<AgentEvent, AgentMessage[]> {
 	const stream = createAgentStream();
 
@@ -64,8 +64,8 @@ export function agentLoop(
 export function agentLoopContinue(
 	context: AgentContext,
 	config: AgentLoopConfig,
-	signal?: AbortSignal,
-	streamFn?: StreamFn,
+	signal: AbortSignal | undefined,
+	streamFn: StreamFn,
 ): EventStream<AgentEvent, AgentMessage[]> {
 	if (context.messages.length === 0) {
 		throw new Error("Cannot continue: no messages in context");
@@ -97,8 +97,8 @@ export async function runAgentLoop(
 	context: AgentContext,
 	config: AgentLoopConfig,
 	emit: AgentEventSink,
-	signal?: AbortSignal,
-	streamFn?: StreamFn,
+	signal: AbortSignal | undefined,
+	streamFn: StreamFn,
 ): Promise<AgentMessage[]> {
 	const newMessages: AgentMessage[] = [...prompts];
 	const currentContext: AgentContext = {
@@ -113,7 +113,7 @@ export async function runAgentLoop(
 		await emit({ type: "message_end", message: prompt });
 	}
 
-	await runLoop(currentContext, newMessages, config, signal, emit, streamFn);
+	await runLoop(currentContext, newMessages, config, signal, emit, streamFn ?? getDefaultStreamFn());
 	return newMessages;
 }
 
@@ -121,8 +121,8 @@ export async function runAgentLoopContinue(
 	context: AgentContext,
 	config: AgentLoopConfig,
 	emit: AgentEventSink,
-	signal?: AbortSignal,
-	streamFn?: StreamFn,
+	signal: AbortSignal | undefined,
+	streamFn: StreamFn,
 ): Promise<AgentMessage[]> {
 	if (context.messages.length === 0) {
 		throw new Error("Cannot continue: no messages in context");
@@ -138,7 +138,7 @@ export async function runAgentLoopContinue(
 	await emit({ type: "agent_start" });
 	await emit({ type: "turn_start" });
 
-	await runLoop(currentContext, newMessages, config, signal, emit, streamFn);
+	await runLoop(currentContext, newMessages, config, signal, emit, streamFn ?? getDefaultStreamFn());
 	return newMessages;
 }
 
@@ -158,7 +158,7 @@ async function runLoop(
 	initialConfig: AgentLoopConfig,
 	signal: AbortSignal | undefined,
 	emit: AgentEventSink,
-	streamFn?: StreamFn,
+	streamFunction: StreamFn,
 ): Promise<void> {
 	let currentContext = initialContext;
 	let config = initialConfig;
@@ -190,7 +190,7 @@ async function runLoop(
 			}
 
 			// Stream assistant response
-			const message = await streamAssistantResponse(currentContext, config, signal, emit, streamFn);
+			const message = await streamAssistantResponse(currentContext, config, signal, emit, streamFunction);
 			newMessages.push(message);
 
 			if (message.stopReason === "error" || message.stopReason === "aborted") {
@@ -200,7 +200,7 @@ async function runLoop(
 			}
 
 			// Check for tool calls
-			const toolCalls = message.content.filter((c: any) => c.type === "toolCall") as AgentToolCall[];
+			const toolCalls = message.content.filter((c) => c.type === "toolCall");
 
 			const toolResults: ToolResultMessage[] = [];
 			hasMoreToolCalls = false;
@@ -283,7 +283,7 @@ async function streamAssistantResponse(
 	config: AgentLoopConfig,
 	signal: AbortSignal | undefined,
 	emit: AgentEventSink,
-	streamFn?: StreamFn,
+	streamFunction: StreamFn,
 ): Promise<AssistantMessage> {
 	// Apply context transform if configured (AgentMessage[] → AgentMessage[])
 	let messages = context.messages;
@@ -294,20 +294,12 @@ async function streamAssistantResponse(
 	// Convert to LLM-compatible messages (AgentMessage[] → Message[])
 	const llmMessages = await config.convertToLlm(messages);
 
-/** Filter out deferred tools before sending to the LLM. (OhMyAgent extension.) */
-function compactToolsForPrompt(tools?: AgentTool<any>[]): any[] | undefined {
-	if (!tools) return undefined;
-	return tools.filter((t) => !(t as any).deferred) as any[];
-}
-
-	// Build LLM context (shared across fallback attempts)
+	// Build LLM context (OhMyAgent: filter out deferred tools)
 	const llmContext: Context = {
 		systemPrompt: context.systemPrompt,
 		messages: llmMessages,
 		tools: compactToolsForPrompt(context.tools),
 	};
-
-	const streamFunction = streamFn || streamSimple;
 
 	// Build model list: primary + fallbacks (OhMyAgent extension)
 	const models = [config.model, ...(config.fallbackModels ?? [])];
@@ -374,13 +366,11 @@ function compactToolsForPrompt(tools?: AgentTool<any>[]): any[] | undefined {
 						await emit({ type: "message_start", message: { ...finalMessage } });
 					}
 					await emit({ type: "message_end", message: finalMessage });
-
-					// On error with fallback available, try next model
-					if ((finalMessage.stopReason === "error" || finalMessage.stopReason === "aborted")
-						&& !signal?.aborted
-						&& attempt < models.length - 1) {
+					if (finalMessage.stopReason === "error") {
 						lastError = finalMessage;
-						break; // exit switch, continue outer for loop
+						if (attempt < models.length - 1) {
+							continue; // try next fallback model
+						}
 					}
 					return finalMessage;
 				}
@@ -395,19 +385,24 @@ function compactToolsForPrompt(tools?: AgentTool<any>[]): any[] | undefined {
 			await emit({ type: "message_start", message: { ...finalMessage } });
 		}
 		await emit({ type: "message_end", message: finalMessage });
-
-		// On error with fallback available, try next model
-		if ((finalMessage.stopReason === "error" || finalMessage.stopReason === "aborted")
-			&& !signal?.aborted
-			&& attempt < models.length - 1) {
+		if (finalMessage.stopReason === "error") {
 			lastError = finalMessage;
-			continue;
+			if (attempt < models.length - 1) {
+				continue; // try next fallback
+			}
 		}
 		return finalMessage;
 	}
 
-	// Should never reach here, but return the last error if all models fail
-	return lastError!;
+	// Should not reach here, but return last error as fallback
+	if (lastError) return lastError;
+	throw new Error("Unexpected: fallback loop exhausted");
+}
+
+/** Filter out deferred tools before sending to the LLM. (OhMyAgent extension.) */
+function compactToolsForPrompt(tools?: AgentTool<any>[]): any[] | undefined {
+	if (!tools) return undefined;
+	return tools.filter((t) => !(t as any).deferred) as any[];
 }
 
 /**
@@ -454,9 +449,9 @@ async function executeToolCalls(
 	signal: AbortSignal | undefined,
 	emit: AgentEventSink,
 ): Promise<ExecutedToolCallBatch> {
-	const toolCalls = assistantMessage.content.filter((c: any) => c.type === "toolCall") as AgentToolCall[];
+	const toolCalls = assistantMessage.content.filter((c) => c.type === "toolCall");
 	const hasSequentialToolCall = toolCalls.some(
-		(tc: any) => currentContext.tools?.find((t) => t.name === tc.name)?.executionMode === "sequential",
+		(tc) => currentContext.tools?.find((t) => t.name === tc.name)?.executionMode === "sequential",
 	);
 	if (config.toolExecution === "sequential" || hasSequentialToolCall) {
 		return executeToolCallsSequential(currentContext, assistantMessage, toolCalls, config, signal, emit);
@@ -774,6 +769,7 @@ async function finalizeExecutedToolCall(
 					...result,
 					content: afterResult.content ?? result.content,
 					details: afterResult.details ?? result.details,
+					usage: afterResult.usage ?? result.usage,
 					terminate: afterResult.terminate ?? result.terminate,
 				};
 				isError = afterResult.isError ?? isError;
@@ -817,6 +813,7 @@ function createToolResultMessage(finalized: FinalizedToolCallOutcome): ToolResul
 		// so the null never enters session history or provider payloads.
 		content: finalized.result.content ?? [],
 		details: finalized.result.details,
+		usage: finalized.result.usage,
 		...(finalized.result.addedToolNames?.length ? { addedToolNames: finalized.result.addedToolNames } : {}),
 		isError: finalized.isError,
 		timestamp: Date.now(),

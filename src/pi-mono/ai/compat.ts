@@ -40,7 +40,6 @@ import { openAIResponsesApi } from "./api/openai-responses.lazy.js";
 import { piMessagesApi } from "./api/pi-messages.lazy.js";
 import { getEnvApiKey } from "./env-api-keys.js";
 import type { ModelsApiStreamOptions } from "./models.js";
-import { createModels, createProvider, type MutableModels } from "./models.js";
 import { builtinModels, getBuiltinModel, getBuiltinModels, getBuiltinProviders } from "./providers/all.js";
 
 export type { BuiltinProvider } from "./providers/all.js";
@@ -61,89 +60,46 @@ import type {
 } from "./types.js";
 
 /** @deprecated Static catalog read. Use `getBuiltinModel` from "@earendil-works/pi-ai/providers/all" or `Models.getModel()`. */
-export const getBuiltinModelOnly = getBuiltinModel;
 
-/** @deprecated Static catalog read. Use `getBuiltinModels` from "@earendil-works/pi-ai/providers/all" or `Models.getModels()`. */
-export const getBuiltinModelsOnly = getBuiltinModels;
-
-/** @deprecated Static catalog read. Use `getBuiltinProviders` from "@earendil-works/pi-ai/providers/all" or `Models.getProviders()`. */
-export const getBuiltinProvidersOnly = getBuiltinProviders;
-
-/**
- * Merged model lookup: checks custom-registered models first, then builtins.
- */
-export function getModel(providerId: string, modelId: string): Model<Api> | undefined {
-  const custom = pendingCustomModels.get(providerId)?.find((m) => m.id === modelId);
-  if (custom) return custom;
-  return getBuiltinModel(providerId as any, modelId as any) as Model<Api> | undefined;
-}
-
-/** Merged models list: custom + builtin. */
-export function getModels(providerId: string): Model<Api>[] {
-  const custom = pendingCustomModels.get(providerId) ?? [];
-  try {
-    const builtin = getBuiltinModels(providerId as any) as Model<Api>[];
-    return [...custom, ...builtin];
-  } catch {
-    return custom;
-  }
-}
-
-/** Merged providers list: custom + builtin. */
-export function getProviders(): string[] {
-  const builtin = getBuiltinProviders();
-  const custom = Array.from(pendingCustomModels.keys());
-  return [...new Set([...custom, ...builtin])];
-}
-
-// ── Custom model registration (compat for pre-v0.80.8 registerModel API) ──
+// ── Custom model registry (OhMyAgent extension) ────────────────────────
 
 const pendingCustomModels = new Map<string, Model<Api>[]>();
 
 /**
- * Register a custom model under the given provider and model id.
- *
- * In v0.80.10, models are grouped by provider via `createProvider`. This
- * compat wrapper stores models per provider so `getModel`/`getModels`
+ * Register a custom model for a provider so `getModel` and `getModels`
  * can find them, without requiring callers to migrate to `createProvider`
  * immediately.
  */
 export function registerModel(providerId: string, modelId: string, model: Model<Api>): void {
-  if (!pendingCustomModels.has(providerId)) {
-    pendingCustomModels.set(providerId, []);
-  }
-  pendingCustomModels.get(providerId)!.push(model);
+	if (!pendingCustomModels.has(providerId)) {
+		pendingCustomModels.set(providerId, []);
+	}
+	pendingCustomModels.get(providerId)!.push(model);
 }
 
-/**
- * Wrap a Models-compatible getModel lookup that checks custom models first,
- * then falls back to the builtin catalog.
- */
-export function resolveModel(providerId: string, modelId: string): Model<Api> | undefined {
-  // Check custom models first
-  const custom = pendingCustomModels.get(providerId)?.find((m) => m.id === modelId);
-  if (custom) return custom;
-  // Fall back to builtin
-  return getBuiltinModel(providerId as any, modelId as any) as Model<Api> | undefined;
-}
+export const getModel = (providerId: string, modelId: string): Model<Api> | undefined => {
+	// Check custom models first
+	const custom = pendingCustomModels.get(providerId)?.find((m) => m.id === modelId);
+	if (custom) return custom;
+	// Fall back to builtin
+	return getBuiltinModel(providerId as any, modelId as any) as Model<Api> | undefined;
+};
 
-/** List all models for a provider (custom + builtin). */
-export function resolveModels(providerId: string): Model<Api>[] {
-  const custom = pendingCustomModels.get(providerId) ?? [];
-  try {
-    const builtin = getBuiltinModels(providerId as any) as Model<Api>[];
-    return [...custom, ...builtin];
-  } catch {
-    return custom;
-  }
-}
+export const getModels = (providerId: string): Model<Api>[] => {
+	const custom = pendingCustomModels.get(providerId) ?? [];
+	try {
+		const builtin = getBuiltinModels(providerId as any) as Model<Api>[];
+		return [...custom, ...builtin];
+	} catch {
+		return custom;
+	}
+};
 
-/** List all provider ids (custom + builtin). */
-export function resolveProviders(): string[] {
-  const builtin = getBuiltinProviders();
-  const custom = Array.from(pendingCustomModels.keys());
-  return [...new Set([...custom, ...builtin])];
-}
+export const getProviders = (): string[] => {
+	const builtin = getBuiltinProviders();
+	const custom = Array.from(pendingCustomModels.keys());
+	return [...new Set([...custom, ...builtin])];
+};
 
 export type ApiStreamFunction = (
 	model: Model<Api>,
