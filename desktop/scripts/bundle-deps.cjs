@@ -102,8 +102,11 @@ function log(msg) {
 function shouldSkip(relativePath) {
   // Always keep .node files (native addon binaries)
   if (relativePath.endsWith('.node')) return false;
+  // Normalize to forward slashes — on Windows, path.join produces backslashes
+  // but our SKIP_PATTERNS use forward slashes (cross-platform compatibility).
+  const normalized = relativePath.replace(/\\/g, '/');
   for (const pattern of SKIP_PATTERNS) {
-    if (pattern.test(relativePath)) return true;
+    if (pattern.test(normalized)) return true;
   }
   return false;
 }
