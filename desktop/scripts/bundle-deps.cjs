@@ -99,6 +99,23 @@ function log(msg) {
   process.stdout.write(`  ${msg}\n`);
 }
 
+/**
+ * Check if a package is a platform-specific native binary for the WRONG platform.
+ * Many packages (e.g. sharp via @img/sharp-*) ship optional dependencies for
+ * every OS+arch combination. We only need the current target platform's binaries
+ * — the rest are dead weight that can easily add 200+ MB to the installer.
+ */
+function isWrongPlatformBinary(pkgName) {
+  // @img/sharp-* packages: only keep colour (shared) and win32-x64 (Electron target)
+  if (pkgName.startsWith('@img/sharp-') || pkgName.startsWith('@img/sharp-libvips-')) {
+    if (pkgName === '@img/colour') return false;
+    if (!pkgName.startsWith('@img/sharp-win32-')) return true;
+    // Keep only x64 variant (skip arm64, ia32 for win32)
+    if (!pkgName.includes('-x64')) return true;
+  }
+  return false;
+}
+
 function shouldSkip(relativePath) {
   // Always keep .node files (native addon binaries)
   if (relativePath.endsWith('.node')) return false;
@@ -281,6 +298,12 @@ function copyPnpmPkg(pkgPath, destBase, isNativeOverride = false) {
   // Skip well-known dev-only packages
   if (SKIP_PACKAGES.has(pkgName)) {
     log(`  SKIP ${pkgName}@${pkgJson.version || '?'} (dev-only)`);
+    return;
+  }
+
+  // Skip platform-specific native binaries for the wrong platform
+  if (isWrongPlatformBinary(pkgName)) {
+    log(`  SKIP ${pkgName}@${pkgJson.version || '?'} (wrong-platform native binary)`);
     return;
   }
 
