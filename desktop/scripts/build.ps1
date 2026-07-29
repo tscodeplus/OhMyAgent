@@ -4,9 +4,9 @@
 # Automates: WSL sync → root TS build → WebUI build → dep flattening → packaging
 #
 # Usage (Windows PowerShell, run from desktop/ directory):
-#   .\scripts\build.ps1                  # Sync + build portable + NSIS installer
+#   .\scripts\build.ps1                  # Build portable + NSIS installer (default)
 #   .\scripts\build.ps1 -Portable        # Build portable only (win-unpacked)
-#   .\scripts\build.ps1 -Installer       # Build NSIS installer only
+#   .\scripts\build.ps1 -Nsis            # Build NSIS installer only
 #   .\scripts\build.ps1 -Clean           # Clean before building
 #   .\scripts\build.ps1 -NoSync          # Skip WSL code sync
 #   .\scripts\build.ps1 -SyncOnly        # Only sync code from WSL, no build
@@ -19,7 +19,7 @@
 
 param(
     [switch]$Portable,
-    [switch]$Installer,
+    [switch]$Nsis,
     [switch]$Clean,
     [switch]$NoSync,
     [switch]$SyncOnly,
@@ -41,10 +41,12 @@ $RootDir = Split-Path -Parent $DesktopDir
 $env:ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/"
 $env:ELECTRON_BUILDER_BINARIES_MIRROR = "https://npmmirror.com/mirrors/electron-builder-binaries/"
 
-# If neither flag set, build both
-if (-not $Portable -and -not $Installer) {
+# Default: build all targets (portable + NSIS)
+# -Portable: only portable
+# -Nsis: only NSIS
+if (-not $Portable -and -not $Nsis) {
     $Portable = $true
-    $Installer = $true
+    $Nsis = $true
 }
 
 # ---------------------------------------------------------------------------
@@ -405,19 +407,25 @@ function Invoke-DesktopBuild {
 # ---------------------------------------------------------------------------
 
 function Invoke-Package([string]$Target) {
-    $desc = if ($Target -eq "portable") { "portable (win-unpacked)" } else { "NSIS installer" }
+    $desc = switch ($Target) {
+        "portable" { "portable (win-unpacked)" }
+        "nsis"     { "NSIS installer" }
+    }
+    $flags = switch ($Target) {
+        "portable" { "--win --dir --publish never" }
+        "nsis"     { "--win nsis --publish never" }
+    }
     Write-Step "Packaging: $desc"
 
-    $flags = if ($Target -eq "portable") { "--win --dir --publish never" } else { "--win --publish never" }
     $r = Invoke-Cmd "npx electron-builder $flags" $DesktopDir
 
     if (-not $r.Success) {
-        Write-Fail "electron-builder failed"
+        Write-Fail "electron-builder failed ($Target)"
         Write-Host $r.Output
-        throw "electron-builder failed"
+        throw "electron-builder failed ($Target)"
     }
 
-    Write-OK "Packaging complete"
+    Write-OK "Packaging complete ($desc)"
 }
 
 # ---------------------------------------------------------------------------
@@ -441,7 +449,7 @@ function Write-Summary {
     $setupExe = Get-ChildItem "$DesktopDir\release\*Setup*.exe" -Name -ErrorAction SilentlyContinue | Sort-Object | Select-Object -Last 1
     if ($setupExe) {
         $setupSize = [math]::Round((Get-Item "$DesktopDir\release\$setupExe").Length / 1MB, 1)
-        Write-Host "  Installer: release\$setupExe  (${setupSize} MB)" -ForegroundColor White
+        Write-Host "  NSIS:     release\$setupExe  (${setupSize} MB)" -ForegroundColor White
     }
 
     Write-Host ""
@@ -456,7 +464,7 @@ Write-Host "========================================" -ForegroundColor Magenta
 Write-Host " OhMyAgent Desktop Builder" -ForegroundColor Magenta
 Write-Host "========================================" -ForegroundColor Magenta
 Write-Host "  Portable : $Portable" -ForegroundColor Gray
-Write-Host "  Installer: $Installer" -ForegroundColor Gray
+Write-Host "  NSIS     : $Nsis" -ForegroundColor Gray
 Write-Host "  Clean    : $Clean" -ForegroundColor Gray
 Write-Host "  Sync     : $(-not $NoSync)" -ForegroundColor Gray
 Write-Host ""
@@ -497,9 +505,6 @@ if (-not $SkipRootBuild) {
         Write-Warn "$bootstrap not found - server-dist will be incomplete!"
     }
     # Ensure dist/package.json exists so Node.js treats .js files as ESM.
-    # Invoke-RootBuild normally creates this; when skipped we must create it
-    # here, otherwise the packaged server-dist/ lacks "type":"module" and
-    # Node.js fails with "Cannot use import statement outside a module".
     $distPkgJson = "$RootDir\dist\package.json"
     if (-not (Test-Path $distPkgJson)) {
         Set-Content -Path $distPkgJson -Value '{ "type": "module" }'
@@ -526,11 +531,13 @@ if (-not $iconResult.Success) {
     Write-Warn "Icon generation had warnings (non-fatal)"
 }
 Write-Info $iconResult.Output
+
 if ($Portable) {
     Invoke-Package "portable"
 }
-if ($Installer) {
-    Invoke-Package "installer"
+
+if ($Nsis) {
+    Invoke-Package "nsis"
 }
 
 Write-Summary

@@ -3,6 +3,13 @@
 ; Included by electron-builder via nsis.include in electron-builder.yml
 ; ------------------------------------------------------------------
 
+; NOTE: Do NOT use SetCompressor here — electron-builder pre-compresses the
+; app payload into app-64.${COMPRESSION_METHOD} before embedding it. The
+; SetCompressor directive only affects the NSIS installer stub, not the payload.
+;
+; Use nsis.useZip in electron-builder.yml to switch between 7z (LZMA, smaller
+; but slower to install) and zip (deflate, faster but ~15-20% larger).
+
 ; --- Install hooks ---
 !macro customInstall
   ; Create data directory skeleton in user's AppData

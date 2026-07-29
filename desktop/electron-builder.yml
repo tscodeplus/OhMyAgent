@@ -41,6 +41,10 @@ nsis:
   menuCategory: OhMyAgent
   include: build/nsis-installer.nsh
   differentialPackage: false
+  # Use zip instead of 7z for app payload compression.
+  # 7z (LZMA) decompression is CPU-heavy and slow — zip (deflate) is 5-10× faster
+  # at install time with only ~15-20% larger installer size.
+  useZip: true
   # Use hyphens consistently so latest.yml matches the uploaded filename.
   # Without this, electron-builder generates latest.yml with hyphens but
   # the actual file has dots (spaces → dots on GitHub Releases) → 404.
