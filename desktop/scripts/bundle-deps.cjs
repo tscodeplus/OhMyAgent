@@ -89,6 +89,16 @@ const SKIP_PACKAGES = new Set([
   'eslint',
   'prettier',
   '@types/node',
+  // WASM fallback runtimes — only needed when native .node binaries are
+  // unavailable. On Windows x64 (our target), all native addons compile
+  // and work fine, making these dead weight.
+  '@emnapi/core',
+  '@emnapi/runtime',
+  '@napi-rs/wasm-runtime',
+  '@tybys/wasm-util',
+  // Build-time C++ headers — required for node-gyp compilation only.
+  // Not needed at runtime once native modules are compiled.
+  'node-addon-api',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -113,6 +123,15 @@ function isWrongPlatformBinary(pkgName) {
     // Keep only x64 variant (skip arm64, ia32 for win32)
     if (!pkgName.includes('-x64')) return true;
   }
+
+  // @node-rs/jieba-*: Chinese text segmentation with per-platform native binaries.
+  // Only keep win32-x64 (and the base jieba package). See isWrongPlatformBinary
+  // comment above for rationale.
+  if (pkgName.startsWith('@node-rs/jieba-')) {
+    // Skip all non-win32-x64 platform variants
+    if (!pkgName.startsWith('@node-rs/jieba-win32-x64-')) return true;
+  }
+
   return false;
 }
 
