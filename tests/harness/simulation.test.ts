@@ -124,7 +124,7 @@ describe('Self-Harness Simulation', () => {
         diff: { surface: 'skills/android-operator/SKILL.md', before: '使用adb连接', after: '先检查授权再连接' },
         impact: { scope: '仅 android-operator skill', riskLevel: 'low', expectedEffect: '减少错误85%' },
         expectedEffect: '减少错误85%', regressionRisk: 'low',
-        affectedScope: '仅 android-operator skill', mechanismFamily: 'prompt_instruction',
+        affectedScope: 'single_skill', mechanismFamily: 'prompt_instruction',
         confidence: 0.85, createdAt: Date.now(),
       };
       const result = ap.evaluate(proposal, { skillId: 'android-operator', currentTime: new Date() });
@@ -133,7 +133,10 @@ describe('Self-Harness Simulation', () => {
     });
 
     it('completes observation window → monitor cleared', () => {
-      const monitor = new AutoApplyMonitor();
+      // Temp state path so the test never touches data/harness-monitors.json
+      const monitor = new AutoApplyMonitor(
+        `/tmp/harness-monitors-${Math.random().toString(36).slice(2)}.json`,
+      );
       monitor.watch('prop-sim-001', 'android-operator', null, {
         satisfactionThreshold: 0.6, observationWindow: 3, errorRateMultiplier: 2.0,
       }, 'commitsim001');
@@ -190,6 +193,49 @@ describe('Self-Harness Simulation', () => {
       const signal = fd.detect(ctx);
       expect(signal).not.toBeNull();
       expect(signal!.pattern).toBe('tool_error_cascade'); // 4 consecutive different tool errors
+    });
+  });
+
+  // ── Scenario 3b: Missing dependency errors ───────────────────────────────
+
+  describe('Scenario 3b: Missing Dependency Errors', () => {
+    it('detects dependency_not_checked for 2 consecutive not-found errors', () => {
+      const fd = new FailureDetector(CONFIG.trigger);
+      const ctx: FailureContext = {
+        sessionId: 'sim-003b', taskMessage: '运行工具',
+        toolCalls: [
+          { name: 'shell', args: { cmd: 'adb' }, isError: true, errorMessage: 'adb: command not found', timestamp: 1000 },
+          { name: 'shell', args: { cmd: 'adb' }, isError: true, errorMessage: 'adb: command not found', timestamp: 2000 },
+        ],
+        errors: [
+          { toolName: 'shell', message: 'adb: command not found', timestamp: 1000 },
+          { toolName: 'shell', message: 'adb: command not found', timestamp: 2000 },
+        ],
+        durationMs: 2000, terminatedEarly: false, agentEndReason: 'error',
+      };
+      const signal = fd.detect(ctx);
+      expect(signal).not.toBeNull();
+      expect(signal!.pattern).toBe('dependency_not_checked');
+      expect(signal!.severity).toBe('medium');
+    });
+
+    it('does NOT fire dependency_not_checked for non-dependency errors', () => {
+      const fd = new FailureDetector(CONFIG.trigger);
+      const ctx: FailureContext = {
+        sessionId: 'sim-003c', taskMessage: '运行命令',
+        toolCalls: [
+          { name: 'shell', args: { cmd: 'a' }, isError: true, errorMessage: 'permission denied', timestamp: 1000 },
+          { name: 'shell', args: { cmd: 'b' }, isError: true, errorMessage: 'permission denied', timestamp: 2000 },
+        ],
+        errors: [
+          { toolName: 'shell', message: 'permission denied', timestamp: 1000 },
+          { toolName: 'shell', message: 'permission denied', timestamp: 2000 },
+        ],
+        durationMs: 2000, terminatedEarly: false, agentEndReason: 'error',
+      };
+      // Not a dependency error, and 2 consecutive failures is below the
+      // cascade threshold (3) → no pattern at all.
+      expect(fd.detect(ctx)).toBeNull();
     });
   });
 

@@ -121,7 +121,7 @@ export interface EditableSurface {
   id: string;
   /** The kind of surface this represents. */
   kind: EditableSurfaceKind;
-  /** Filesystem- or descriptor-style path (e.g. "skills/foo/skill.yaml:prompt"). */
+  /** Filesystem- or descriptor-style path (e.g. "skills/foo/SKILL.md"). */
   path: string;
   /** Short human-readable label. */
   label: string;
@@ -129,6 +129,11 @@ export interface EditableSurface {
   currentValue: string;
   /** Which mechanism family this surface belongs to. */
   mechanismFamily: MechanismFamily;
+  /**
+   * Alternative identifiers for this surface (e.g. the human-readable skill
+   * name found in SKILL.md frontmatter) used during context matching.
+   */
+  aliases?: string[];
 }
 
 /**
@@ -193,8 +198,8 @@ export interface ImprovementProposal {
   skillId: string | null;
   /** Target agent identifier, or null if not agent-specific. */
   agentId: string | null;
-  /** The nature of the change being proposed. */
-  type: string;
+  /** The nature of the change being proposed (maps onto ApprovalRule.changeTypes). */
+  type: ChangeType;
   /** Short title for the proposal. */
   title: string;
   /** One-sentence summary of the proposal. */
@@ -279,6 +284,22 @@ export interface HarnessImprovementPrompt {
  * Possible outcomes when a user (or timeout) decides on an approval request.
  */
 export type ApprovalDecision = 'approve' | 'edit' | 'reject' | 'timeout';
+
+/**
+ * Result of a harness approval request — carries the decision plus any
+ * user-edited value when the decision is 'edit'.
+ */
+export interface HarnessApprovalResult {
+  /** The user's (or timeout) decision. */
+  decision: ApprovalDecision;
+  /** User-provided replacement value, present when decision is 'edit'. */
+  editedValue?: string;
+}
+
+/**
+ * User-facing approval strategy presets that map onto the rule table.
+ */
+export type ApprovalMode = 'always_ask' | 'smart_approve' | 'low_risk_auto';
 
 /**
  * How strictly the harness enforces approval for a matching rule.
@@ -378,6 +399,8 @@ export interface HarnessTriggerConfig {
   minExplorationSteps: number;
   /** Minimum consecutive tool errors to trigger tool_error_cascade. */
   minConsecutiveErrors: number;
+  /** Minimum consecutive dependency-style errors to trigger dependency_not_checked. */
+  minDependencyErrors: number;
 }
 
 /**

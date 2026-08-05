@@ -819,12 +819,13 @@ export interface ReplyDispatcher {
   /**
    * Display a harness improvement proposal and request user approval.
    * Optional -- channels that do not support this simply skip implementation.
-   * @returns The user decision, or "timeout" if no response within timeoutMs.
+   * @returns The user decision (plus any user-edited value for "edit"),
+   *          or "timeout" if no response within timeoutMs.
    */
   requestHarnessApproval?: (
     prompt: import('../harness/types.js').HarnessImprovementPrompt,
     timeoutMs?: number,
-  ) => Promise<import('../harness/types.js').ApprovalDecision>;
+  ) => Promise<import('../harness/types.js').HarnessApprovalResult>;
 }
 
 // ---------------------------------------------------------------------------
@@ -924,6 +925,8 @@ export interface AppServices {
   getUserQuestionSender?: (channel: string, chatId: string, sessionId?: string) => import('../agent/user-question-port.js').UserQuestionSender | undefined;
   /** Registry for channel UserQuestionSender instances (add/remove senders). */
   userQuestionSenderRegistry?: Map<string, import('../agent/user-question-port.js').UserQuestionSender>;
+  /** Registry bridging harness approval prompts (SSE) to the decide endpoint. */
+  harnessApprovalRegistry?: Map<string, (result: import('../harness/types.js').HarnessApprovalResult) => void>;
   /** Self-Harness: automatic failure analysis and harness optimization services. */
   harness?: import('../harness/factory.js').HarnessServices;
 }

@@ -1,3 +1,5 @@
+import type { HarnessImprovementProposal } from '../components/chat/HarnessImprovementCard';
+
 export interface Session {
   id: string;
   project_id: string;
@@ -39,6 +41,8 @@ export interface Message {
   approval?: MessageApproval;
   /** User question data (shown as UserQuestionCard in the message list). */
   userQuestion?: UserQuestion;
+  /** Self-Harness improvement proposal (shown as HarnessImprovementCard in the message list). */
+  harnessImprovement?: HarnessImprovementProposal;
   /** Images generated or referenced by the agent. */
   images?: MessageImage[];
   /** Files generated or referenced by the agent (download links). */

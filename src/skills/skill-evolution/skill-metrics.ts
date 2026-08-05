@@ -71,8 +71,10 @@ export function inferSatisfaction(followUpMessage: string | null): number | null
   const satisfiedPattern = /谢谢|太好了|不错|很好|很棒|OK|好的|完美|搞定|可以了|thanks|great|nice|perfect|awesome|thank you|works/i;
   const unsatisfiedPattern = /不对|重新|错了|不行|不是|不要|取消|wrong|incorrect|redo|again|not working|bad|error/i;
 
-  if (satisfiedPattern.test(followUpMessage)) return 1;
+  // Check dissatisfaction first: "not OK", "不对" etc. contain substrings
+  // that the satisfied pattern would also match ("OK", "对").
   if (unsatisfiedPattern.test(followUpMessage)) return 0;
+  if (satisfiedPattern.test(followUpMessage)) return 1;
   return null;
 }
 
@@ -137,7 +139,7 @@ export class SkillMetricsService {
       SELECT
         COUNT(*) as total,
         COUNT(CASE WHEN success IS NOT NULL THEN 1 END) as completed,
-        ROUND(AVG(CASE WHEN success = 1 THEN 100.0 ELSE 0.0 END)) as success_rate,
+        ROUND(AVG(CASE WHEN success = 1 THEN 100.0 WHEN success = 0 THEN 0.0 END)) as success_rate,
         ROUND(AVG(duration_ms)) as avg_duration
       FROM skill_feedback
       WHERE skill_id = ?

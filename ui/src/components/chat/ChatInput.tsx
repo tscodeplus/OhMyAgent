@@ -530,6 +530,20 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
             break;
           }
 
+          case 'harness_improvement': {
+            if (!event.proposal) break;
+            const proposalMsg: Message = {
+              id: `harness-${event.proposal.id}`,
+              session_id: sessionId,
+              role: 'assistant',
+              content: '',
+              harnessImprovement: event.proposal,
+              created_at: new Date().toISOString(),
+            };
+            if (onMessages) onMessages([proposalMsg]);
+            break;
+          }
+
           case 'thinking':
             // Reasoning content is deliberately suppressed in WebUI.
             break;

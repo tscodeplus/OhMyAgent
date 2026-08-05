@@ -67,7 +67,9 @@ class SSEReplyDispatcher implements ReplyDispatcher {
     showSkillCalls = true,
     showToolCalls = true,
     logger?: { warn: (...args: any[]) => void },
+    harnessRegistry?: Map<string, (result: import('../../harness/types.js').HarnessApprovalResult) => void>,
   ) {
+    this._harnessRegistry = harnessRegistry;
     this.callback = callback;
     this.footerConfig = footerConfig ?? {
       showAgentName: true, showModel: true, showCompleted: false,
@@ -265,28 +267,34 @@ class SSEReplyDispatcher implements ReplyDispatcher {
 
   // ── Harness improvement proposal support ──
 
-  private _harnessResolvers?: Map<string, (decision: string) => void>;
+  /** Shared registry (per ChatRouteConfig) that the decide endpoint uses to
+   *  resolve a user's button click back to the pending promise. */
+  private _harnessRegistry?: Map<string, (result: import('../../harness/types.js').HarnessApprovalResult) => void>;
 
   async requestHarnessApproval(
     prompt: import('../../harness/types.js').HarnessImprovementPrompt,
     timeoutMs?: number,
-  ): Promise<import('../../harness/types.js').ApprovalDecision> {
+  ): Promise<import('../../harness/types.js').HarnessApprovalResult> {
     // Send SSE event to the frontend
     this.callback({ type: 'harness_improvement', proposal: prompt });
 
-    // Create a promise that resolves when the user responds
+    // Create a promise that resolves when the user responds (or times out)
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
-        resolve('timeout' as import('../../harness/types.js').ApprovalDecision);
+        this._harnessRegistry?.delete(prompt.id);
+        resolve({ decision: 'timeout' as import('../../harness/types.js').ApprovalDecision });
       }, timeoutMs ?? 120_000);
 
-      // Store the resolver keyed by proposal ID
-      if (!this._harnessResolvers) {
-        this._harnessResolvers = new Map();
+      // Store the resolver keyed by proposal ID in the shared registry so
+      // POST /api/harness/proposals/:id/decide can resolve it.
+      if (!this._harnessRegistry) {
+        // No registry wired (e.g. tests): resolve on timeout only.
+        return;
       }
-      this._harnessResolvers.set(prompt.id, (decision: string) => {
+      this._harnessRegistry.set(prompt.id, (result) => {
+        this._harnessRegistry?.delete(prompt.id);
         clearTimeout(timeout);
-        resolve(decision as import('../../harness/types.js').ApprovalDecision);
+        resolve(result);
       });
     });
   }
@@ -309,6 +317,8 @@ export interface ChatRouteConfig {
   wsManager?: WebSocketManager;
   /** Registry for per-session UserQuestionSender instances (ask_user_question tool). */
   userQuestionSenderRegistry?: Map<string, UserQuestionSender>;
+  /** Registry for pending harness approval promises (SSE → decide endpoint). */
+  harnessApprovalRegistry?: Map<string, (result: import('../../harness/types.js').HarnessApprovalResult) => void>;
 }
 
 export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): void {
@@ -471,7 +481,7 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
           ? cfg.agentManager.get(project.agent_id)?.name
           : undefined) ?? cfg.agentManager.getDefault()?.name)
       : undefined;
-    const dispatcher = new SSEReplyDispatcher(sendSSE, cfg.getFooterConfig?.(), cfg.db, sessionId, cfg.getShowSkillCalls?.(), cfg.getShowToolCalls?.(), app.log);
+    const dispatcher = new SSEReplyDispatcher(sendSSE, cfg.getFooterConfig?.(), cfg.db, sessionId, cfg.getShowSkillCalls?.(), cfg.getShowToolCalls?.(), app.log, cfg.harnessApprovalRegistry);
     if (agentName) {
       dispatcher.setAgentName(agentName);
     }
@@ -630,22 +640,34 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
 
   // ── Harness proposal decision endpoint ──
   // Frontend calls this when the user clicks a button on a harness improvement
-  // proposal card.  The /api/harness/proposals/:id/decide callback lets the
-  // frontend communicate the user's choice back to the pending promise created
-  // by requestHarnessApproval().
+  // proposal card.  The resolver was registered in the shared
+  // harnessApprovalRegistry by requestHarnessApproval() when the SSE event
+  // was emitted; this endpoint resolves the pending promise with the user's
+  // decision (and edited value for edit_submit).
   app.post('/api/harness/proposals/:id/decide', async (request, reply) => {
     const { id } = request.params as { id: string };
     const { action, editedValue } = request.body as { action: string; editedValue?: string };
 
     debugLog('/api/harness/proposals/:id/decide called', { id, action, editedValue });
 
-    // NOTE: The resolver lives inside the active SSEReplyDispatcher instance
-    // which is scoped to the SSE connection.  A future refinement should
-    // bridge this via a registry on ChatRouteConfig (mirroring
-    // userQuestionSenderRegistry) so the POST endpoint can resolve the
-    // pending promise directly.  For now, the frontend receives the proposal
-    // event; the full interactive loop can be wired up when the frontend
-    // sends the callback back.
+    // Map frontend actions onto backend decisions.
+    let decision: import('../../harness/types.js').ApprovalDecision;
+    if (action === 'approve') {
+      decision = 'approve';
+    } else if (action === 'reject' || action === 'ignore') {
+      decision = 'reject';
+    } else if (action === 'edit_submit') {
+      decision = 'edit';
+    } else {
+      return reply.status(400).send({ ok: false, error: `unknown action: ${action}` });
+    }
+
+    const resolver = cfg.harnessApprovalRegistry?.get(id);
+    if (!resolver) {
+      return reply.status(404).send({ ok: false, error: 'unknown or expired proposal' });
+    }
+    cfg.harnessApprovalRegistry?.delete(id);
+    resolver({ decision, editedValue });
     return { ok: true };
   });
 }

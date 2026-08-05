@@ -1,6 +1,7 @@
 {
   "failure": {
     "identicalRetryLoop": "Tool retried and failed {{count}} times (threshold: {{threshold}})",
+    "dependencyNotChecked": "{{count}} consecutive dependency-missing errors (file/command not found; threshold: {{threshold}})",
     "toolErrorCascade": "{{count}} total tool errors in session (threshold: {{threshold}})",
     "userDissatisfied": "User explicitly marked session as dissatisfied",
     "explorationWithoutOutput": "{{count}} exploration steps without any change output (threshold: {{threshold}})",

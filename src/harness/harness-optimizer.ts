@@ -5,10 +5,15 @@ import {
   EditableSurface,
   HarnessProposalConfig,
   MechanismFamily,
+  ChangeType,
+  EditableSurfaceKind,
   ProposalDiff,
   ProposalImpact,
 } from './types.js';
 import { EditableSurfaceProvider } from './editable-surfaces.js';
+import pino from 'pino';
+
+const logger = pino();
 
 /**
  * Configuration passed to the LLM describing available editable surfaces.
@@ -30,9 +35,9 @@ interface SurfaceDescriptor {
  * The LLM caller is injectable via constructor for easy testing with mocks.
  */
 export class HarnessOptimizer {
-  private readonly config: HarnessProposalConfig;
+  private config: HarnessProposalConfig;
   private readonly surfaceProvider: EditableSurfaceProvider;
-  private readonly llmCaller: (systemPrompt: string, userMessage: string, model?: string) => Promise<string>;
+  private llmCaller: (systemPrompt: string, userMessage: string, model?: string) => Promise<string>;
 
   constructor(
     config: HarnessProposalConfig,
@@ -51,7 +56,7 @@ export class HarnessOptimizer {
    * inject a real LLM caller before the optimizer is exercised.
    */
   setLlmCaller(caller: (systemPrompt: string, userMessage: string, model?: string) => Promise<string>): void {
-    (this as unknown as { llmCaller: typeof caller }).llmCaller = caller;
+    this.llmCaller = caller;
   }
 
   // ---------------------------------------------------------------------------
@@ -175,7 +180,8 @@ export class HarnessOptimizer {
     let raw: string;
     try {
       raw = await this.callLLM(systemPrompt, userMessage);
-    } catch {
+    } catch (err) {
+      logger.warn({ err, sessionId: context.sessionId }, 'HarnessOptimizer: diagnosis LLM call failed');
       return null;
     }
 
@@ -223,16 +229,23 @@ export class HarnessOptimizer {
       '  - "before": string — the current value (excerpt) being replaced',
       '  - "after": string — the proposed replacement value',
       '  - "expected_effect": string — what the change should improve',
-      '  - "regression_risk": string — what could break as a side effect',
+      '  - "regression_risk": "none" | "low" | "medium" — risk of breaking other behaviour',
       '  - "confidence": number between 0 and 1',
       '  - "mechanism_family": string — the mechanism family being changed',
-      '  - "affected_scope": string — what scope the change affects (e.g. "session", "skill", "global")',
+      '  - "change_type": one of the allowed change types listed below',
+      '  - "affected_scope": "single_skill" | "multi_skill" | "global" | "session"',
+      '',
+      'Allowed change types:',
+      '  prompt_text, prompt_structure, trigger_add, trigger_remove, tool_allow_add,',
+      '  tool_allow_remove, tool_desc_edit, execution_policy, approval_policy,',
+      '  numeric_threshold, spawn_policy_edit, memory_policy_edit',
       '',
       'Constraints:',
       '  - Do NOT propose changes outside these allowed mechanism families:',
       `    ${allowedMechanisms.length > 0 ? allowedMechanisms.join(', ') : 'all'}`,
       '  - Keep the edit minimal — change only what is necessary',
       '  - The "before" value must be a substring found in the current surface value',
+      '  - "affected_scope" must be exactly one of the four enum values (use "single_skill" when only one skill is affected)',
     ].join('\n');
 
     const userMessage = [
@@ -256,7 +269,8 @@ export class HarnessOptimizer {
     let raw: string;
     try {
       raw = await this.callLLM(systemPrompt, userMessage);
-    } catch {
+    } catch (err) {
+      logger.warn({ err, sessionId: context.sessionId }, 'HarnessOptimizer: proposal LLM call failed');
       return null;
     }
 
@@ -325,7 +339,7 @@ export class HarnessOptimizer {
         confidence: Number(parsed.confidence ?? 0),
       };
 
-      if (diagnosis.confidence < 0.6) {
+      if (diagnosis.confidence < this.config.minConfidence) {
         return null;
       }
 
@@ -350,9 +364,13 @@ export class HarnessOptimizer {
       const parsed = JSON.parse(cleaned);
 
       const confidence = Number(parsed.confidence ?? 0);
-      if (confidence < 0.6) {
+      if (confidence < this.config.minConfidence) {
         return null;
       }
+
+      const regressionRisk = this.validateRiskLevel(parsed.regression_risk);
+      const affectedScope = this.validateScope(parsed.affected_scope);
+      const changeType = this.validateChangeType(parsed.change_type, targetSurface.kind);
 
       const diff: ProposalDiff = {
         surface: targetSurface.id,
@@ -361,8 +379,8 @@ export class HarnessOptimizer {
       };
 
       const impact: ProposalImpact = {
-        scope: String(parsed.affected_scope ?? 'unknown'),
-        riskLevel: this.validateRiskLevel(parsed.regression_risk),
+        scope: affectedScope,
+        riskLevel: regressionRisk,
         expectedEffect: String(parsed.expected_effect ?? ''),
       };
 
@@ -370,14 +388,14 @@ export class HarnessOptimizer {
         id: this.generateId(),
         skillId: null,
         agentId: null,
-        type: 'surface_edit',
+        type: changeType,
         title: String(parsed.title ?? ''),
         summary: String(parsed.summary ?? ''),
         diff,
         impact,
         expectedEffect: String(parsed.expected_effect ?? ''),
-        regressionRisk: String(parsed.regression_risk ?? ''),
-        affectedScope: String(parsed.affected_scope ?? 'unknown'),
+        regressionRisk,
+        affectedScope,
         mechanismFamily: diagnosis.agent_mechanism,
         confidence,
         createdAt: Date.now(),
@@ -454,4 +472,83 @@ export class HarnessOptimizer {
     }
     return 'prompt_instruction';
   }
+
+  /**
+   * Validates a change type from the LLM response against the ChangeType
+   * enum. Falls back to a deterministic mapping from the target surface's
+   * kind when the LLM value is missing or invalid.
+   */
+  private validateChangeType(value: unknown, surfaceKind: EditableSurfaceKind): ChangeType {
+    const valid: ChangeType[] = [
+      'prompt_text',
+      'prompt_structure',
+      'trigger_add',
+      'trigger_remove',
+      'tool_allow_add',
+      'tool_allow_remove',
+      'tool_desc_edit',
+      'execution_policy',
+      'approval_policy',
+      'numeric_threshold',
+      'spawn_policy_edit',
+      'memory_policy_edit',
+    ];
+    if (typeof value === 'string' && (valid as readonly string[]).includes(value)) {
+      return value as ChangeType;
+    }
+    return SURFACE_KIND_TO_CHANGE_TYPE[surfaceKind] ?? 'prompt_text';
+  }
+
+  /**
+   * Normalises the LLM's affected_scope into one of the enum values used by
+   * approval rules. Accepts both the canonical enum values and the looser
+   * descriptive strings the model may produce.
+   */
+  private validateScope(value: unknown): 'single_skill' | 'multi_skill' | 'global' | 'session' | 'unknown' {
+    if (typeof value !== 'string') return 'unknown';
+    const lower = value.toLowerCase();
+    if (lower === 'single_skill' || lower.includes('single') || lower.includes('仅') || lower.includes('单个')) {
+      return 'single_skill';
+    }
+    if (lower === 'multi_skill' || lower.includes('multi') || lower.includes('多')) {
+      return 'multi_skill';
+    }
+    if (lower === 'global' || lower.includes('全局')) {
+      return 'global';
+    }
+    if (lower === 'session') {
+      return 'session';
+    }
+    return 'unknown';
+  }
 }
+
+/**
+ * Deterministic fallback mapping from editable-surface kind to the change
+ * type used for approval-rule matching, applied when the LLM does not
+ * supply a valid change_type.
+ */
+const SURFACE_KIND_TO_CHANGE_TYPE: Partial<Record<EditableSurfaceKind, ChangeType>> = {
+  skill_prompt: 'prompt_text',
+  skill_triggers: 'trigger_add',
+  skill_allowed_tools: 'tool_allow_add',
+  skill_memory_policy: 'memory_policy_edit',
+  agent_system_prompt: 'prompt_text',
+  agent_role_description: 'prompt_text',
+  base_system_prompt: 'prompt_text',
+  execution_instruction: 'prompt_text',
+  failure_recovery_instruction: 'prompt_text',
+  verification_instruction: 'prompt_text',
+  tool_description: 'tool_desc_edit',
+  tool_parameter_description: 'tool_desc_edit',
+  tool_defer_strategy: 'execution_policy',
+  spawn_policy: 'spawn_policy_edit',
+  child_agent_optimizer_rules: 'prompt_structure',
+  turn_counter_rules: 'numeric_threshold',
+  prompt_layer_priority: 'prompt_structure',
+  tool_execution_mode: 'execution_policy',
+  max_retry_delay: 'numeric_threshold',
+  thinking_budget: 'numeric_threshold',
+  shell_approval_mode: 'approval_policy',
+  approval_policy_rule: 'approval_policy',
+};

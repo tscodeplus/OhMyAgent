@@ -39,7 +39,9 @@ import { SkillMetricsService } from '../skills/skill-evolution/skill-metrics.js'
 import { getWebUIToken } from './webui-auth.js';
 import { setupWebUIMiddleware } from './webui/setup-vite.js';
 import { createOnConfigChanged } from './webui/config-persist.js';
+import { registerSkillFileSurfaces } from '../harness/editable-surfaces.js';
 import path from 'node:path';
+import { readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 // Computer Use (provider logic extracted to composers/computer-use-services.ts)
@@ -200,7 +202,43 @@ export async function bootstrap(): Promise<BootstrapResult> {
   let harnessServices: HarnessServices | undefined;
   if (config.harness && config.harness.interactive?.enabled !== false) {
     try {
-      harnessServices = createHarnessServices(config.harness!);
+      const created = createHarnessServices(config.harness!);
+      if (!created) throw new Error('harness disabled by config');
+      harnessServices = created;
+
+      // Register the editable surfaces backed by skill files — this is the
+      // allow-list of everything the harness may propose changes to. Any
+      // surface not registered here is off-limits to SkillEditor.
+      try {
+        const skillsDir = path.resolve(process.cwd(), 'skills');
+        const entries = await readdir(skillsDir, { withFileTypes: true });
+        let registered = 0;
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue;
+          registered += await registerSkillFileSurfaces(
+            created.surfaceProvider,
+            entry.name,
+            path.join(skillsDir, entry.name, 'SKILL.md'),
+          );
+        }
+        if (registered > 0) {
+          logger.info({ registered }, 'Harness skill surfaces registered');
+        } else {
+          logger.warn('No harness skill surfaces registered — check the skills/ directory');
+        }
+      } catch (err) {
+        logger.warn({ err }, 'Failed to register harness skill surfaces');
+      }
+
+      // Apply the approval preset from config (always_ask / smart_approve / low_risk_auto).
+      created.approvalPolicy.setMode(
+        config.harness?.interactive?.approval?.mode ?? 'smart_approve',
+      );
+
+      // Restore auto-apply monitors persisted by a previous process so
+      // auto-applied changes stay supervised across restarts.
+      await created.autoApplyMonitor.loadState();
+
       logger.info('Harness services initialized');
     } catch (err) {
       logger.warn({ err }, 'Failed to initialize harness services, continuing without');
@@ -451,6 +489,11 @@ export async function bootstrap(): Promise<BootstrapResult> {
   servicesMap.set('userQuestionSenderRegistry', userQuestionSenderRegistry);
   servicesMap.set('userQuestionStore', userQuestionStore);
 
+  // Registry bridging harness approval prompts (SSE) to the decide endpoint
+  // (POST /api/harness/proposals/:id/decide).
+  const harnessApprovalRegistry = new Map<string, (result: import('../harness/types.js').HarnessApprovalResult) => void>();
+  servicesMap.set('harnessApprovalRegistry', harnessApprovalRegistry);
+
   // ── Register Feishu UserQuestionSender ──
   if (feishuClient) {
     const { createFeishuUserQuestionSender } = await import('../../extensions/channel-feishu/render/user-question-sender.js');
@@ -558,6 +601,7 @@ export async function bootstrap(): Promise<BootstrapResult> {
     userQuestionSenderRegistry,
     // Harness
     harness: harnessServices,
+    harnessApprovalRegistry,
   };
   servicesRef.current = services;
 

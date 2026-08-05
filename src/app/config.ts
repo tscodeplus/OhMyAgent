@@ -517,6 +517,7 @@ const configSchema = z.object({
       minIdenticalRetries: z.number().int().positive().default(3),
       minExplorationSteps: z.number().int().positive().default(8),
       minConsecutiveErrors: z.number().int().positive().default(3),
+      minDependencyErrors: z.number().int().positive().default(2),
     }).default({}),
     rateLimit: z.object({
       cooldownMinutes: z.number().int().positive().default(30),
@@ -536,7 +537,7 @@ const configSchema = z.object({
     interactive: z.object({
       enabled: z.boolean().default(true),
       approval: z.object({
-        mode: z.enum(['always_ask', 'smart_approve', 'low_risk_auto']).default('always_ask'),
+        mode: z.enum(['always_ask', 'smart_approve', 'low_risk_auto']).default('smart_approve'),
       }).optional(),
     }).optional(),
     rules: z.array(z.any()).optional(),

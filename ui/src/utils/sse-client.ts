@@ -1,4 +1,5 @@
 import { getToken } from './api';
+import type { HarnessImprovementProposal } from '../components/chat/HarnessImprovementCard';
 
 export type SSEEventType =
   | 'text_delta'
@@ -13,7 +14,8 @@ export type SSEEventType =
   | 'approval_status'
   | 'skill_activated'
   | 'user_question'
-  | 'user_question_resolved';
+  | 'user_question_resolved'
+  | 'harness_improvement';
 
 export interface SSEEvent {
   type: SSEEventType;
@@ -35,6 +37,8 @@ export interface SSEEvent {
   question?: string;
   options?: Array<{ label: string; value: string }>;
   answer?: string;
+  // Self-Harness improvement proposal fields
+  proposal?: HarnessImprovementProposal;
 }
 
 export interface SSEClient {

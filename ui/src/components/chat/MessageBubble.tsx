@@ -6,6 +6,7 @@ import type { Message } from '../../types/session';
 import ToolCallCard from './ToolCallCard';
 import ApprovalCard, { type ApprovalDecision } from './ApprovalCard';
 import UserQuestionCard from './UserQuestionCard';
+import HarnessImprovementCard from './HarnessImprovementCard';
 import { apiRequest } from '../../utils/api';
 import { isElectron, getElectronAPI } from '../../utils/env';
 import { useToast } from '../ui/Toast';
@@ -515,6 +516,24 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
               initialAnswer={message.userQuestion.answer}
               onResolve={(_id: string, _answer: string) => {
                 // Answer already submitted via REST API in the component
+              }}
+            />
+          </div>
+        )}
+
+        {message.harnessImprovement && (
+          <div className="mt-2 w-full">
+            <HarnessImprovementCard
+              proposal={message.harnessImprovement}
+              onDecision={async (action: string, editedValue?: string) => {
+                try {
+                  await apiRequest(`/api/harness/proposals/${message.harnessImprovement!.id}/decide`, {
+                    method: 'POST',
+                    body: JSON.stringify({ action, editedValue }),
+                  });
+                } catch (err) {
+                  console.error('Failed to submit harness improvement decision:', err);
+                }
               }}
             />
           </div>

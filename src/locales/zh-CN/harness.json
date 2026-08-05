@@ -1,6 +1,7 @@
 {
   "failure": {
     "identicalRetryLoop": "工具重复执行并失败 {{count}} 次（阈值: {{threshold}}）",
+    "dependencyNotChecked": "连续 {{count}} 次错误为依赖缺失类（文件/命令不存在，阈值: {{threshold}}）",
     "toolErrorCascade": "会话中发生 {{count}} 个工具错误（阈值: {{threshold}}）",
     "userDissatisfied": "用户明确标记会话为不满意",
     "explorationWithoutOutput": "{{count}} 次探索操作未产生任何修改输出（阈值: {{threshold}}）",

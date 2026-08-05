@@ -53,13 +53,30 @@ const CHANGE_TOOLS = new Set([
   'file_create',
 ]);
 
+/**
+ * Error-message patterns indicating a missing dependency / precondition
+ * (file not found, command not found, device unavailable, …).
+ */
+const DEPENDENCY_ERROR_PATTERNS = [
+  /not found/i,
+  /no such file/i,
+  /command not found/i,
+  /enoent/i,
+  /does not exist/i,
+  /找不到/i,
+  /不存在/i,
+  /未找到/i,
+  /无法找到/i,
+];
+
 // ---------------------------------------------------------------------------
 // Threshold defaults (used when config does not supply explicit values)
 // ---------------------------------------------------------------------------
 
 const DEFAULT_MIN_IDENTICAL_RETRIES = 3;
 const DEFAULT_MIN_CONSECUTIVE_ERRORS = 3;
-const DEFAULT_MIN_EXPLORATION_STEPS = 5;
+const DEFAULT_MIN_EXPLORATION_STEPS = 8;
+const DEFAULT_MIN_DEPENDENCY_ERRORS = 2;
 
 // ---------------------------------------------------------------------------
 // Helper functions  (module-level, pure)
@@ -74,17 +91,30 @@ function isChangeTool(name: string): boolean {
 }
 
 /**
- * Count how many times the single most-retried tool name was called with
- * isError === true across the entire session.
+ * Serialise a tool call's identity for retry counting — the tool name plus
+ * its arguments, so that *different* invocations of the same tool do not
+ * count as repeated failures of the same command.
  */
-function countIdenticalFailedCommands(
-  toolCalls: ToolCallRecord[],
-  _errors: Array<{ toolName: string; message: string; timestamp: number }>,
-): number {
+function callIdentity(call: ToolCallRecord): string {
+  let argsKey: string;
+  try {
+    argsKey = JSON.stringify(call.args ?? {});
+  } catch {
+    argsKey = String(call.args);
+  }
+  return `${call.name}\u0000${argsKey}`;
+}
+
+/**
+ * Count how many times the single most-retried *identical* command
+ * (same tool name + same args) failed across the entire session.
+ */
+function countIdenticalFailedCommands(toolCalls: ToolCallRecord[]): number {
   const counts = new Map<string, number>();
   for (const call of toolCalls) {
     if (call.isError) {
-      counts.set(call.name, (counts.get(call.name) ?? 0) + 1);
+      const key = callIdentity(call);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
     }
   }
   let max = 0;
@@ -95,26 +125,73 @@ function countIdenticalFailedCommands(
 }
 
 /**
- * Return the number of entries in the flat errors list.
- *
- * Because the errors array is extracted from tool calls in occurrence
- * order, every entry represents one failed tool call.  The returned
- * value is the total error count for the session.
+ * Return the length of the longest run of *consecutive* failed tool calls
+ * in the session (interleaved successful calls break the run).
  */
-function maxConsecutiveErrors(
-  errors: Array<{ toolName: string; message: string; timestamp: number }>,
-): number {
-  return errors.length;
+function maxConsecutiveErrors(toolCalls: ToolCallRecord[]): number {
+  let longest = 0;
+  let current = 0;
+  for (const call of toolCalls) {
+    if (call.isError) {
+      current++;
+      if (current > longest) longest = current;
+    } else {
+      current = 0;
+    }
+  }
+  return longest;
 }
 
 /**
- * Count how many tool calls in the session are classified as exploration
- * (read-only) tools.
+ * Return the length of the longest run of *consecutive* exploration
+ * (read-only) tool calls in the session.
  */
-function countConsecutiveExploration(toolCalls: ToolCallRecord[]): number {
+function maxConsecutiveExploration(toolCalls: ToolCallRecord[]): number {
+  let longest = 0;
+  let current = 0;
+  for (const call of toolCalls) {
+    if (isExploreTool(call.name)) {
+      current++;
+      if (current > longest) longest = current;
+    } else {
+      current = 0;
+    }
+  }
+  return longest;
+}
+
+/** Count how many tool calls in the session are classified as change tools. */
+function countChangeTools(toolCalls: ToolCallRecord[]): number {
   let count = 0;
   for (const call of toolCalls) {
-    if (isExploreTool(call.name)) count++;
+    if (isChangeTool(call.name)) count++;
+  }
+  return count;
+}
+
+/**
+ * Whether a failure matches the "missing dependency / precondition" pattern,
+ * i.e. its error message indicates something was not found / not available.
+ */
+function isDependencyError(message: string): boolean {
+  return DEPENDENCY_ERROR_PATTERNS.some((re) => re.test(message));
+}
+
+/**
+ * Count how many consecutive failed tool calls (in the errors list, which is
+ * in occurrence order) have dependency-style error messages, ending at the
+ * last error of the session.
+ */
+function countConsecutiveDependencyErrors(
+  errors: Array<{ toolName: string; message: string; timestamp: number }>,
+): number {
+  let count = 0;
+  for (let i = errors.length - 1; i >= 0; i--) {
+    if (isDependencyError(errors[i]!.message)) {
+      count++;
+    } else {
+      break;
+    }
   }
   return count;
 }
@@ -124,9 +201,9 @@ function countConsecutiveExploration(toolCalls: ToolCallRecord[]): number {
 // ---------------------------------------------------------------------------
 
 export class FailureDetector {
-  private config: HarnessTriggerConfig;
+  private config: Partial<HarnessTriggerConfig>;
 
-  constructor(config: HarnessTriggerConfig) {
+  constructor(config: Partial<HarnessTriggerConfig> = {}) {
     this.config = config;
   }
 
@@ -145,15 +222,18 @@ export class FailureDetector {
     // ── Guard: user is satisfied → no failure ──────────────────────────
     if (context.userFeedback === 'satisfied') return null;
 
-    // ── 1. identical_retry_loop ────────────────────────────────────────
-    const minIdenticalRetries: number =
-      (this.config as unknown as Record<string, unknown>).minIdenticalRetries as number ??
-      DEFAULT_MIN_IDENTICAL_RETRIES;
+    const minIdenticalRetries =
+      this.config.minIdenticalRetries ?? DEFAULT_MIN_IDENTICAL_RETRIES;
+    const minConsecutiveErrors =
+      this.config.minConsecutiveErrors ?? DEFAULT_MIN_CONSECUTIVE_ERRORS;
+    const minExplorationSteps =
+      this.config.minExplorationSteps ?? DEFAULT_MIN_EXPLORATION_STEPS;
+    const minDependencyErrors =
+      this.config.minDependencyErrors ?? DEFAULT_MIN_DEPENDENCY_ERRORS;
 
-    const identicalRetries = countIdenticalFailedCommands(
-      context.toolCalls,
-      context.errors,
-    );
+    // ── 1. identical_retry_loop ────────────────────────────────────────
+    // Same command (name + args) failed repeatedly.
+    const identicalRetries = countIdenticalFailedCommands(context.toolCalls);
     if (identicalRetries >= minIdenticalRetries) {
       return this.buildSignal('identical_retry_loop', 'high', {
         count: identicalRetries,
@@ -161,12 +241,20 @@ export class FailureDetector {
       });
     }
 
-    // ── 2. tool_error_cascade ──────────────────────────────────────────
-    const minConsecutiveErrors: number =
-      (this.config as unknown as Record<string, unknown>).minConsecutiveErrors as number ??
-      DEFAULT_MIN_CONSECUTIVE_ERRORS;
+    // ── 2. dependency_not_checked ──────────────────────────────────────
+    // Consecutive failures with "not found" style errors — the agent did not
+    // verify a precondition before acting.
+    const dependencyErrors = countConsecutiveDependencyErrors(context.errors);
+    if (dependencyErrors >= minDependencyErrors) {
+      return this.buildSignal('dependency_not_checked', 'medium', {
+        count: dependencyErrors,
+        threshold: minDependencyErrors,
+      });
+    }
 
-    const consecutiveErrors = maxConsecutiveErrors(context.errors);
+    // ── 3. tool_error_cascade ──────────────────────────────────────────
+    // Consecutive failed tool calls (any cause) back to back.
+    const consecutiveErrors = maxConsecutiveErrors(context.toolCalls);
     if (consecutiveErrors >= minConsecutiveErrors) {
       return this.buildSignal('tool_error_cascade', 'high', {
         count: consecutiveErrors,
@@ -174,22 +262,15 @@ export class FailureDetector {
       });
     }
 
-    // ── 3. user_explicit_dissatisfied ──────────────────────────────────
+    // ── 4. user_explicit_dissatisfied ──────────────────────────────────
     if (context.userFeedback === 'dissatisfied') {
       return this.buildSignal('user_explicit_dissatisfied', 'high');
     }
 
-    // ── 4. exploration_without_output ──────────────────────────────────
-    const minExplorationSteps: number =
-      (this.config as unknown as Record<string, unknown>).minExplorationSteps as number ??
-      DEFAULT_MIN_EXPLORATION_STEPS;
-
-    const exploreCount = countConsecutiveExploration(context.toolCalls);
-    let changeCount = 0;
-    for (const call of context.toolCalls) {
-      if (isChangeTool(call.name)) changeCount++;
-    }
-
+    // ── 5. exploration_without_output ──────────────────────────────────
+    // Long run of consecutive read-only steps and no change tools at all.
+    const exploreCount = maxConsecutiveExploration(context.toolCalls);
+    const changeCount = countChangeTools(context.toolCalls);
     if (exploreCount >= minExplorationSteps && changeCount === 0) {
       return this.buildSignal('exploration_without_output', 'medium', {
         exploreCount,
@@ -197,7 +278,7 @@ export class FailureDetector {
       });
     }
 
-    // ── 5. timeout_or_abort ────────────────────────────────────────────
+    // ── 6. timeout_or_abort ────────────────────────────────────────────
     if (context.terminatedEarly) {
       return this.buildSignal('timeout_or_abort', 'medium');
     }
@@ -233,6 +314,8 @@ export class FailureDetector {
     switch (pattern) {
       case 'identical_retry_loop':
         return i18n.t('harness:failure.identicalRetryLoop', { count: details!.count as number, threshold: details!.threshold as number });
+      case 'dependency_not_checked':
+        return i18n.t('harness:failure.dependencyNotChecked', { count: details!.count as number, threshold: details!.threshold as number });
       case 'tool_error_cascade':
         return i18n.t('harness:failure.toolErrorCascade', { count: details!.count as number, threshold: details!.threshold as number });
       case 'user_explicit_dissatisfied':

@@ -85,7 +85,7 @@ describe('Self-Harness Runtime E2E', () => {
         impact: { scope: '仅 android-operator skill', riskLevel: 'low', expectedEffect: 'Reduce adb connection failures by 80%' },
         expectedEffect: 'Reduce failures',
         regressionRisk: 'low',
-        affectedScope: '仅 android-operator skill',
+        affectedScope: 'single_skill',
         mechanismFamily: 'prompt_instruction',
         confidence: 0.85,
         createdAt: Date.now(),
@@ -146,6 +146,29 @@ describe('Self-Harness Runtime E2E', () => {
       const signal = fd.detect(ctx);
       expect(signal).not.toBeNull();
       expect(signal!.pattern).toBe('tool_error_cascade');
+    });
+
+    it('detects dependency_not_checked (2 consecutive not-found errors)', () => {
+      const ctx: FailureContext = {
+        sessionId: 's3-dependency',
+        taskMessage: 'Run the tool',
+        toolCalls: [
+          { name: 'shell', args: { cmd: 'adb' }, isError: true, errorMessage: 'adb: command not found', timestamp: 1 },
+          { name: 'shell', args: { cmd: 'adb' }, isError: true, errorMessage: 'adb: command not found', timestamp: 2 },
+        ],
+        errors: [
+          { toolName: 'shell', message: 'adb: command not found', timestamp: 1 },
+          { toolName: 'shell', message: 'adb: command not found', timestamp: 2 },
+        ],
+        durationMs: 5000,
+        terminatedEarly: false,
+        agentEndReason: 'complete',
+      };
+
+      const signal = fd.detect(ctx);
+      expect(signal).not.toBeNull();
+      expect(signal!.pattern).toBe('dependency_not_checked');
+      expect(signal!.severity).toBe('medium');
     });
 
     it('detects exploration_without_output (8+ reads, no change tools)', () => {
@@ -226,13 +249,16 @@ describe('Self-Harness Runtime E2E', () => {
   // ── Scenario 5: SkillEditor validation ────────────────────────────────────
 
   describe('Scenario: SkillEditor validation', () => {
-    const editor = new SkillEditor();
+    // Allow-list resolver: only registered surface ids map to paths.
+    const editor = new SkillEditor(
+      (id) => (id === 'skill:test:prompt' ? '/tmp/test.md' : undefined),
+    );
 
     it('validates a correct proposal', () => {
       const proposal: ImprovementProposal = {
         id: 'prop-ok', skillId: null, agentId: null, type: 'prompt_text', title: 'Test',
         summary: 'Test',
-        diff: { surface: '/tmp/test.md', before: 'old instruction', after: 'new instruction with more detail' },
+        diff: { surface: 'skill:test:prompt', before: 'old instruction', after: 'new instruction with more detail' },
         impact: { scope: '仅 test', riskLevel: 'low', expectedEffect: 'better' },
         expectedEffect: 'better', regressionRisk: 'low', affectedScope: '仅 test',
         mechanismFamily: 'prompt_instruction', confidence: 0.8, createdAt: Date.now(),
@@ -240,7 +266,7 @@ describe('Self-Harness Runtime E2E', () => {
       expect(editor.validate(proposal).valid).toBe(true);
     });
 
-    it('rejects path traversal', () => {
+    it('rejects unregistered surface (path traversal attempt)', () => {
       const proposal: ImprovementProposal = {
         id: 'prop-bad', skillId: null, agentId: null, type: 'prompt_text', title: 'Bad',
         summary: 'Test',
@@ -251,20 +277,25 @@ describe('Self-Harness Runtime E2E', () => {
       };
       const result = editor.validate(proposal);
       expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes('..'))).toBe(true);
+      // The allow-list rejects any surface id the resolver does not know.
+      expect(result.errors.some(e => e.includes('not a registered'))).toBe(true);
     });
 
-    it('fails to apply to non-existent file', async () => {
+    it('fails to apply when a registered surface points at a non-existent file', async () => {
+      const missingEditor = new SkillEditor(
+        (id) => (id === 'skill:missing:prompt' ? '/nonexistent/path/skill.md' : undefined),
+      );
       const proposal: ImprovementProposal = {
         id: 'prop-no-file', skillId: null, agentId: null, type: 'prompt_text', title: 'No File',
         summary: 'Test',
-        diff: { surface: '/nonexistent/path/skill.md', before: 'x', after: 'y' },
+        diff: { surface: 'skill:missing:prompt', before: 'x', after: 'y' },
         impact: { scope: '仅 test', riskLevel: 'low', expectedEffect: 'none' },
         expectedEffect: 'none', regressionRisk: 'low', affectedScope: '仅 test',
         mechanismFamily: 'prompt_instruction', confidence: 0.8, createdAt: Date.now(),
       };
-      const result = await editor.apply(proposal);
+      const result = await missingEditor.apply(proposal);
       expect(result.success).toBe(false);
+      expect(result.error).toContain('failed to read');
     });
   });
 
@@ -272,7 +303,10 @@ describe('Self-Harness Runtime E2E', () => {
 
   describe('Scenario: AutoApplyMonitor lifecycle', () => {
     it('completes full lifecycle: watch → activate → pass → remove', () => {
-      const monitor = new AutoApplyMonitor();
+      // Temp state path so the test never touches data/harness-monitors.json
+      const monitor = new AutoApplyMonitor(
+        `/tmp/harness-monitors-${Math.random().toString(36).slice(2)}.json`,
+      );
       const config = { satisfactionThreshold: 0.6, observationWindow: 3, errorRateMultiplier: 2.0 };
 
       monitor.watch('prop-lifecycle', 'test-skill', null, config, 'abc123');
@@ -320,6 +354,14 @@ describe('Self-Harness Runtime E2E', () => {
       expect(rl.getAutoApplyCount()).toBe(1);
       rl.recordAutoApply();
       expect(rl.getAutoApplyCount()).toBe(2);
+    });
+
+    it('canAutoApply respects maxAutoApplyPerDay', () => {
+      const rl = new HarnessRateLimiter({ cooldownMinutes: 0, maxPerHour: 100, maxPerDay: 200, maxAutoApplyPerDay: 1 });
+
+      expect(rl.canAutoApply()).toBe(true);
+      rl.recordAutoApply();
+      expect(rl.canAutoApply()).toBe(false);
     });
   });
 
@@ -499,21 +541,25 @@ describe('Self-Harness Runtime E2E', () => {
         diff: { surface: 'skills/my-skill/SKILL.md', before: 'Run shell command', after: 'Check prerequisites, then run shell command. On failure, try alternative approach.' },
         impact: { scope: '仅 my-skill', riskLevel: 'low', expectedEffect: 'Reduce failures' },
         expectedEffect: 'Reduce failures',
-        regressionRisk: 'low', affectedScope: '仅 my-skill',
+        regressionRisk: 'low', affectedScope: 'single_skill',
         mechanismFamily: 'prompt_instruction', confidence: 0.9, createdAt: Date.now(),
       };
       const decision = ap.evaluate(prop, { skillId: 'my-skill', currentTime: new Date() });
       expect(decision.action).toBe('auto_apply');
       expect(decision.autoRollback).toBeDefined();
 
-      // Step 4: Validate proposal
-      const editor = new SkillEditor();
+      // Step 4: Validate proposal (the surface id must be allow-listed)
+      const editor = new SkillEditor(
+        (id) => (id === 'skills/my-skill/SKILL.md' ? 'skills/my-skill/SKILL.md' : undefined),
+      );
       const validation = editor.validate(prop);
       expect(validation.valid).toBe(true);
 
       // Step 5: Verify monitoring would work
       if (decision.autoRollback) {
-        const monitor = new AutoApplyMonitor();
+        const monitor = new AutoApplyMonitor(
+          `/tmp/harness-monitors-${Math.random().toString(36).slice(2)}.json`,
+        );
         monitor.watch(prop.id, ctx.skillId ?? null, null, decision.autoRollback, 'commit123');
         expect(monitor.getActiveMonitors().length).toBe(1);
       }

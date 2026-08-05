@@ -26,7 +26,7 @@ import { persistMessages } from './message-persister.js';
 import { recoverFromOverflow } from './overflow-recovery.js';
 import { subscribeToolRunAudit } from './tool-audit.js';
 import type { HarnessServices } from '../harness/factory.js';
-import type { FailureContext, ToolCallRecord } from '../harness/types.js';
+import type { FailureContext, ToolCallRecord, FailureSignal, ImprovementProposal } from '../harness/types.js';
 
 export interface AgentServiceOptions {
   sessionId?: string;
@@ -812,7 +812,9 @@ export class AgentService {
       sessionId,
       skillId: runtime.turnContext?.activatedSkillName,
       agentId: (runtime.agent as any).state?.agentId || 'default',
-      taskMessage: '',
+      // effectiveMessage carries the user's task with the $skill-id prefix
+      // stripped; falls back to the original input.
+      taskMessage: runtime.turnContext?.effectiveMessage ?? '',
       toolCalls,
       errors,
       userFeedback: null,
@@ -848,6 +850,12 @@ export class AgentService {
       if (action === 'skip') return;
 
       if (action === 'auto_apply') {
+        // Daily cap on auto-applies — once exhausted, escalate to asking
+        // the user instead of silently applying more changes.
+        if (!harness.rateLimiter.canAutoApply()) {
+          await this.requestHarnessApproval(harness, runtime, proposal, signal);
+          return;
+        }
         const result = await harness.skillEditor.apply(proposal);
         if (result.success && result.commitHash && autoRollback) {
           harness.autoApplyMonitor.watch(
@@ -857,45 +865,67 @@ export class AgentService {
             autoRollback,
             result.commitHash,
           );
+          harness.rateLimiter.recordAutoApply();
         }
         return;
       }
 
       // require_approval: notify via ReplyDispatcher
-      const dispatcher = runtime.turnContext.replyDispatcher;
-      if (dispatcher?.requestHarnessApproval) {
-        const interaction = {
-          id: proposal.id,
-          type: 'harness_improvement' as const,
-          title: proposal.title,
-          failureSummary: signal.reason,
-          detail: proposal.summary,
-          diff: proposal.diff,
-          impact: {
-            scope: proposal.affectedScope,
-            riskLevel: proposal.regressionRisk,
-            expectedEffect: proposal.expectedEffect,
-          },
-          actions: [
-            { id: 'approve', label: i18n.t('harness:actions.approveApply'), style: 'primary' as const },
-            { id: 'edit', label: i18n.t('harness:actions.editApply'), style: 'default' as const, inputField: { placeholder: i18n.t('harness:actions.editPlaceholder'), multiline: true, defaultValue: proposal.diff.after } },
-            { id: 'reject', label: i18n.t('harness:actions.reject'), style: 'danger' as const },
-            { id: 'dismiss', label: i18n.t('harness:actions.ignore'), style: 'default' as const },
-          ],
-        };
-
-        const decision = await dispatcher.requestHarnessApproval(interaction, 120_000);
-
-        if (decision === 'approve') {
-          await harness.skillEditor.apply(proposal);
-        } else if (decision === 'edit') {
-          // Edit handled by the channel — for now, apply the original proposal
-          await harness.skillEditor.apply(proposal);
-        }
-      }
+      await this.requestHarnessApproval(harness, runtime, proposal, signal);
     } catch (optErr) {
       // Optimization failed — log but never throw (non-blocking)
       this.persistence?.logger.warn({ err: optErr }, 'Harness optimization step failed');
+    }
+  }
+
+  /** Present a proposal for user approval and apply it on approval / edit. */
+  private async requestHarnessApproval(
+    harness: NonNullable<AgentService['harness']>,
+    runtime: NonNullable<ReturnType<typeof this.runtimes.get>>,
+    proposal: ImprovementProposal,
+    signal: FailureSignal,
+  ): Promise<void> {
+    const dispatcher = runtime.turnContext.replyDispatcher;
+    if (!dispatcher?.requestHarnessApproval) {
+      this.persistence?.logger.warn(
+        { proposalId: proposal.id },
+        'Harness proposal requires approval but channel does not support it — skipping',
+      );
+      return;
+    }
+
+    const interaction = {
+      id: proposal.id,
+      type: 'harness_improvement' as const,
+      title: proposal.title,
+      failureSummary: signal.reason,
+      detail: proposal.summary,
+      diff: proposal.diff,
+      impact: {
+        scope: proposal.affectedScope,
+        riskLevel: proposal.regressionRisk,
+        expectedEffect: proposal.expectedEffect,
+      },
+      actions: [
+        { id: 'approve', label: i18n.t('harness:actions.approveApply'), style: 'primary' as const },
+        { id: 'edit', label: i18n.t('harness:actions.editApply'), style: 'default' as const, inputField: { placeholder: i18n.t('harness:actions.editPlaceholder'), multiline: true, defaultValue: proposal.diff.after } },
+        { id: 'reject', label: i18n.t('harness:actions.reject'), style: 'danger' as const },
+        { id: 'dismiss', label: i18n.t('harness:actions.ignore'), style: 'default' as const },
+      ],
+    };
+
+    const result = await dispatcher.requestHarnessApproval(interaction, 120_000);
+
+    if (result.decision === 'approve') {
+      await harness.skillEditor.apply(proposal);
+    } else if (result.decision === 'edit') {
+      // Apply the user's edited version when provided; fall back to the
+      // original diff for channels that only signal "edit" without a value.
+      const editedProposal =
+        typeof result.editedValue === 'string' && result.editedValue.length > 0
+          ? { ...proposal, diff: { ...proposal.diff, after: result.editedValue } }
+          : proposal;
+      await harness.skillEditor.apply(editedProposal);
     }
   }
 }

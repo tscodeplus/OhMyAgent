@@ -61,7 +61,7 @@ function makeProposal(overrides?: Partial<ImprovementProposal>): ImprovementProp
     title: overrides?.title ?? 'Test Proposal',
     summary: overrides?.summary ?? 'A test proposal',
     diff: overrides?.diff ?? {
-      surface: '/tmp/test-skill/SKILL.md',
+      surface: 'skill:test-skill:prompt',
       before: 'old text',
       after: 'new text',
     },
@@ -72,7 +72,7 @@ function makeProposal(overrides?: Partial<ImprovementProposal>): ImprovementProp
     },
     expectedEffect: overrides?.expectedEffect ?? 'Test effect',
     regressionRisk: overrides?.regressionRisk ?? 'low',
-    affectedScope: overrides?.affectedScope ?? '仅测试 skill',
+    affectedScope: overrides?.affectedScope ?? 'single_skill',
     mechanismFamily: overrides?.mechanismFamily ?? 'prompt_instruction',
     confidence: overrides?.confidence ?? 0.85,
     createdAt: overrides?.createdAt ?? Date.now(),
@@ -154,6 +154,100 @@ describe('FailureDetector', () => {
     };
     const signal = detector.detect(ctx);
     expect(signal).toBeNull();
+  });
+
+  it('should detect dependency_not_checked with 2+ consecutive not-found errors', () => {
+    const toolCalls = [
+      makeToolCall('shell', true, 1),
+      makeToolCall('shell', true, 2),
+    ];
+    toolCalls[0]!.errorMessage = 'adb: command not found';
+    toolCalls[1]!.errorMessage = 'adb: command not found';
+    const ctx: FailureContext = {
+      sessionId: 's1',
+      taskMessage: 'test',
+      toolCalls,
+      errors: [
+        { toolName: 'shell', message: 'adb: command not found', timestamp: 1 },
+        { toolName: 'shell', message: 'adb: command not found', timestamp: 2 },
+      ],
+      durationMs: 1000,
+      terminatedEarly: false,
+      agentEndReason: 'complete',
+    };
+    const signal = detector.detect(ctx);
+    expect(signal).not.toBeNull();
+    expect(signal!.pattern).toBe('dependency_not_checked');
+    expect(signal!.severity).toBe('medium');
+  });
+
+  it('should NOT misdetect permission-denied errors as dependency_not_checked', () => {
+    // Two consecutive non-dependency errors: below both the dependency (2) and
+    // cascade (3) thresholds → no pattern at all.
+    const toolCalls = [
+      makeToolCall('shell', true, 1),
+      makeToolCall('shell', true, 2),
+    ];
+    toolCalls[0]!.errorMessage = 'permission denied';
+    toolCalls[1]!.errorMessage = 'permission denied';
+    const ctx: FailureContext = {
+      sessionId: 's1',
+      taskMessage: 'test',
+      toolCalls,
+      errors: [
+        { toolName: 'shell', message: 'permission denied', timestamp: 1 },
+        { toolName: 'shell', message: 'permission denied', timestamp: 2 },
+      ],
+      durationMs: 1000,
+      terminatedEarly: false,
+      agentEndReason: 'complete',
+    };
+    expect(detector.detect(ctx)).toBeNull();
+  });
+
+  it('should detect tool_error_cascade for 3 consecutive non-dependency errors', () => {
+    const toolCalls = [
+      makeToolCall('shell', true, 1),
+      makeToolCall('file_read', true, 2),
+      makeToolCall('web_search', true, 3),
+    ];
+    for (const tc of toolCalls) tc.errorMessage = 'permission denied';
+    const ctx: FailureContext = {
+      sessionId: 's1',
+      taskMessage: 'test',
+      toolCalls,
+      errors: toolCalls.map((tc) => ({
+        toolName: tc.name,
+        message: tc.errorMessage ?? 'unknown error',
+        timestamp: tc.timestamp,
+      })),
+      durationMs: 1000,
+      terminatedEarly: false,
+      agentEndReason: 'complete',
+    };
+    expect(detector.detect(ctx)?.pattern).toBe('tool_error_cascade');
+  });
+
+  it('should NOT treat same-tool-different-args errors as identical_retry_loop', () => {
+    // New semantics: retry identity is tool name + args. Different args on the
+    // same tool is a different command, so this falls through to the cascade.
+    const toolCalls = [
+      { ...makeToolCall('shell', true, 1), args: { cmd: 'a' } },
+      { ...makeToolCall('shell', true, 2), args: { cmd: 'b' } },
+      { ...makeToolCall('shell', true, 3), args: { cmd: 'c' } },
+    ];
+    const ctx: FailureContext = {
+      sessionId: 's1',
+      taskMessage: 'test',
+      toolCalls,
+      errors: makeErrorRecords(toolCalls),
+      durationMs: 1000,
+      terminatedEarly: false,
+      agentEndReason: 'complete',
+    };
+    const signal = detector.detect(ctx);
+    expect(signal).not.toBeNull();
+    expect(signal!.pattern).toBe('tool_error_cascade');
   });
 
   it('should detect tool_error_cascade', () => {
@@ -271,6 +365,20 @@ describe('HarnessRateLimiter', () => {
     limiter.recordAutoApply();
     expect(limiter.getAutoApplyCount()).toBe(1);
   });
+
+  it('should cap auto-applies per day via canAutoApply', () => {
+    const limiter = new HarnessRateLimiter({
+      cooldownMinutes: 0,
+      maxPerHour: 10,
+      maxPerDay: 10,
+      maxAutoApplyPerDay: 2,
+    });
+    expect(limiter.canAutoApply()).toBe(true);
+    limiter.recordAutoApply();
+    expect(limiter.canAutoApply()).toBe(true);
+    limiter.recordAutoApply();
+    expect(limiter.canAutoApply()).toBe(false);
+  });
 });
 
 // ── EditableSurfaceProvider Tests ───────────────────────────────────────────────
@@ -365,14 +473,14 @@ describe('EditableSurfaceProvider', () => {
 // ── ApprovalPolicy Tests ────────────────────────────────────────────────────────
 
 describe('ApprovalPolicy', () => {
-  it('should match deletion rule (skip) for trigger_remove', () => {
+  it('should match deletion rule (require_approval) for trigger_remove', () => {
     const policy = new ApprovalPolicy(DEFAULT_RULES);
     const proposal = makeProposal({ type: 'trigger_remove', regressionRisk: 'low' });
     const result = policy.evaluate(proposal, { currentTime: new Date() });
-    // The default-deny-deletion rule uses 'skip' action to block destructive changes
+    // Rule 0 (default-deny-deletion) escalates destructive changes to
+    // require_approval — it never auto-applies them.
     expect(result.ruleId).toBe('default-deny-deletion');
-    // Either skip (block the change) or require_approval is acceptable
-    expect(['skip', 'require_approval']).toContain(result.action);
+    expect(result.action).toBe('require_approval');
   });
 
   it('should fallback to require_approval when no rule matches', () => {
@@ -399,7 +507,7 @@ describe('ApprovalPolicy', () => {
       type: 'prompt_text',
       regressionRisk: 'low',
       confidence: 0.9,
-      affectedScope: '仅 android-operator skill',
+      affectedScope: 'single_skill',
     });
     const result = policy.evaluate(proposal, {
       skillId: 'android-operator',
@@ -464,7 +572,10 @@ describe('AutoApplyMonitor', () => {
   let monitor: AutoApplyMonitor;
 
   beforeEach(() => {
-    monitor = new AutoApplyMonitor();
+    // Temp state path so tests never touch the real data/harness-monitors.json
+    monitor = new AutoApplyMonitor(
+      `/tmp/harness-monitors-${Math.random().toString(36).slice(2)}.json`,
+    );
   });
 
   it('should register a monitor with watch()', () => {
@@ -527,7 +638,10 @@ describe('SkillEditor', () => {
   let editor: SkillEditor;
 
   beforeEach(() => {
-    editor = new SkillEditor();
+    // The resolver is the allow-list: only registered surface ids map to paths.
+    editor = new SkillEditor(
+      (id) => (id === 'skill:test-skill:prompt' ? '/tmp/test-skill/SKILL.md' : undefined),
+    );
   });
 
   it('should validate a valid proposal', () => {
@@ -539,7 +653,7 @@ describe('SkillEditor', () => {
 
   it('should reject proposal with empty before diff', () => {
     const proposal = makeProposal({
-      diff: { surface: '/tmp/test', before: '', after: 'new' },
+      diff: { surface: 'skill:test-skill:prompt', before: '', after: 'new' },
     });
     const result = editor.validate(proposal);
     expect(result.valid).toBe(false);
@@ -548,7 +662,7 @@ describe('SkillEditor', () => {
 
   it('should reject proposal with empty after diff', () => {
     const proposal = makeProposal({
-      diff: { surface: '/tmp/test', before: 'old', after: '' },
+      diff: { surface: 'skill:test-skill:prompt', before: 'old', after: '' },
     });
     const result = editor.validate(proposal);
     expect(result.valid).toBe(false);
@@ -557,28 +671,32 @@ describe('SkillEditor', () => {
 
   it('should reject proposal with identical before/after', () => {
     const proposal = makeProposal({
-      diff: { surface: '/tmp/test', before: 'same', after: 'same' },
+      diff: { surface: 'skill:test-skill:prompt', before: 'same', after: 'same' },
     });
     const result = editor.validate(proposal);
     expect(result.valid).toBe(false);
   });
 
-  it('should reject path traversal in surface path', () => {
+  it('should reject unregistered surface (path traversal attempt)', () => {
     const proposal = makeProposal({
       diff: { surface: '../../../etc/passwd', before: 'x', after: 'y' },
     });
     const result = editor.validate(proposal);
     expect(result.valid).toBe(false);
-    expect(result.errors.some((e) => e.includes('..'))).toBe(true);
+    // The allow-list rejects any surface id the resolver does not know.
+    expect(result.errors.some((e) => e.includes('not a registered'))).toBe(true);
   });
 
-  it('should fail apply for non-existent file', async () => {
+  it('should fail apply when a registered surface points at a non-existent file', async () => {
+    const missingEditor = new SkillEditor(
+      (id) => (id === 'skill:missing:prompt' ? '/nonexistent/path/file.txt' : undefined),
+    );
     const proposal = makeProposal({
-      diff: { surface: '/nonexistent/path/file.txt', before: 'old', after: 'new' },
+      diff: { surface: 'skill:missing:prompt', before: 'old', after: 'new' },
     });
-    const result = await editor.apply(proposal);
+    const result = await missingEditor.apply(proposal);
     expect(result.success).toBe(false);
-    expect(result.error).toBeDefined();
+    expect(result.error).toContain('failed to read');
   });
 });
 
@@ -597,7 +715,7 @@ describe('HarnessOptimizer', () => {
       confidence: 0.3,
     }));
     const optimizer = new HarnessOptimizer(
-      { model: 'default', maxEditsPerProposal: 5 },
+      { model: 'default', maxEditsPerProposal: 5, minConfidence: 0.5, allowedMechanisms: [] },
       surfaceProvider,
       mockLLM,
     );
@@ -615,6 +733,106 @@ describe('HarnessOptimizer', () => {
     const result = await optimizer.optimize(ctx);
     // Low confidence should yield null
     expect(result).toBeNull();
+  });
+});
+
+// ── Optimizer → ApprovalPolicy Contract Tests ───────────────────────────────────
+// Guards against drift between the optimizer's proposal output and the approval
+// rule engine: a proposal emitted by the real HarnessOptimizer must be directly
+// consumable by the default ApprovalPolicy.
+
+describe('HarnessOptimizer → ApprovalPolicy contract', () => {
+  it('proposal from the real optimizer matches DEFAULT_RULES rule 7 → auto_apply with rollback', async () => {
+    const surfaces = new EditableSurfaceProvider();
+    surfaces.register({
+      id: 'skill:test-skill:prompt',
+      kind: 'skill_prompt',
+      path: 'skills/test-skill/SKILL.md',
+      label: 'Test Skill Prompt',
+      currentValue: 'Do the thing carefully.',
+      mechanismFamily: 'prompt_instruction',
+    });
+
+    let callCount = 0;
+    const mockLLM = vi.fn(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return JSON.stringify({
+          terminal_cause: 'agent retried the same failed command',
+          criticality: 'root_cause',
+          agent_mechanism: 'prompt_instruction',
+          reasoning: 'The agent kept retrying a failing command without adapting.',
+          recommended_surface: 'skill:test-skill:prompt',
+          confidence: 0.9,
+        });
+      }
+      // Full legal proposal JSON: includes change_type and affected_scope
+      return JSON.stringify({
+        title: 'Add precondition check',
+        summary: 'Check preconditions before running the command',
+        before: 'Do the thing carefully.',
+        after: 'Check the prerequisite first, then do the thing carefully.',
+        expected_effect: 'Fewer failed retries',
+        regression_risk: 'low',
+        confidence: 0.9,
+        mechanism_family: 'prompt_instruction',
+        change_type: 'prompt_text',
+        affected_scope: 'single_skill',
+      });
+    });
+
+    const optimizer = new HarnessOptimizer(
+      {
+        model: 'default',
+        maxEditsPerProposal: 5,
+        minConfidence: 0.5,
+        allowedMechanisms: ['prompt_instruction'],
+      },
+      surfaces,
+      mockLLM,
+    );
+
+    const ctx: FailureContext = {
+      sessionId: 'contract-1',
+      skillId: 'test-skill',
+      taskMessage: 'Run the task',
+      toolCalls: [
+        makeToolCall('shell', true, 1),
+        makeToolCall('shell', true, 2),
+        makeToolCall('shell', true, 3),
+      ],
+      errors: [
+        { toolName: 'shell', message: 'command not found', timestamp: 1 },
+        { toolName: 'shell', message: 'command not found', timestamp: 2 },
+        { toolName: 'shell', message: 'command not found', timestamp: 3 },
+      ],
+      durationMs: 1000,
+      terminatedEarly: false,
+      agentEndReason: 'error',
+    };
+    (ctx as any).pattern = 'identical_retry_loop';
+
+    const proposal = await optimizer.optimize(ctx);
+    expect(proposal).not.toBeNull();
+
+    // parseProposal standardises the LLM output onto the enum values
+    expect(proposal!.type).toBe('prompt_text');
+    expect(proposal!.affectedScope).toBe('single_skill');
+    expect(proposal!.regressionRisk).toBe('low');
+
+    // Feed the optimizer's actual output into the default rule engine
+    const policy = new ApprovalPolicy(DEFAULT_RULES);
+    const decision = policy.evaluate(proposal!, {
+      skillId: 'test-skill',
+      currentTime: new Date(),
+    });
+
+    expect(decision.ruleId).toBe('default-low-risk-auto');
+    expect(decision.action).toBe('auto_apply');
+    expect(decision.autoRollback).toBeDefined();
+    expect(decision.autoRollback!.satisfactionThreshold).toBe(0.6);
+    expect(decision.autoRollback!.observationWindow).toBe(50);
+    expect(decision.autoRollback!.errorRateMultiplier).toBe(2.0);
   });
 });
 

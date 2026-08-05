@@ -9,7 +9,7 @@
 import type { ReplyDispatcher, Usage, FooterConfig } from '../../src/app/types.js';
 import type { TelegramConfig, StreamController } from './telegram-types.js';
 import type { ReplyContent } from '../../src/channel/types.js';
-import type { HarnessImprovementPrompt, ApprovalDecision } from '../../src/harness/types.js';
+import type { HarnessImprovementPrompt, ApprovalDecision, HarnessApprovalResult } from '../../src/harness/types.js';
 import { summarizeToolInput } from '../../src/channel/tool-summary.js';
 import { formatUsageSummary } from '../../src/channel/usage-summary.js';
 import { i18n } from '../../src/i18n/index.js';
@@ -193,16 +193,16 @@ export class TelegramReplyDispatcher implements ReplyDispatcher {
   async requestHarnessApproval(
     prompt: HarnessImprovementPrompt,
     timeoutMs?: number,
-  ): Promise<ApprovalDecision> {
+  ): Promise<HarnessApprovalResult> {
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
         this._harnessResolvers.delete(prompt.id);
-        resolve('timeout');
+        resolve({ decision: 'timeout' });
       }, timeoutMs ?? 120_000);
 
       this._harnessResolvers.set(prompt.id, (decision: ApprovalDecision) => {
         clearTimeout(timeout);
-        resolve(decision);
+        resolve({ decision });
       });
 
       // Send text message with inline keyboard

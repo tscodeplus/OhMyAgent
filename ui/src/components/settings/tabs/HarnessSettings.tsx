@@ -131,7 +131,7 @@ export default function HarnessSettings({ tabId = 'harness', registerHandle, onD
         <div className={`${sectionCardClass} space-y-3`}>
           {APPROVAL_PRESETS.map((preset) => {
             const currentMode = getField('harness.interactive.approval.mode',
-              ((interactive?.approval as Record<string, string>)?.mode || 'always_ask')) as string;
+              ((interactive?.approval as Record<string, string>)?.mode || 'smart_approve')) as string;
             return (
               <label key={preset.value} className="flex items-center gap-3 cursor-pointer py-1">
                 <input

@@ -19,7 +19,7 @@ import { StreamingMarkdownFilter } from './markdown-filter.js';
 import { summarizeToolInput } from '../../src/channel/tool-summary.js';
 import { formatUsageSummary } from '../../src/channel/usage-summary.js';
 import { i18n } from '../../src/i18n/index.js';
-import type { HarnessImprovementPrompt, ApprovalDecision } from '../../src/harness/types.js';
+import type { HarnessImprovementPrompt, ApprovalDecision, HarnessApprovalResult } from '../../src/harness/types.js';
 
 /** Typing keepalive interval in milliseconds. */
 const TYPING_KEEPALIVE_MS = 5000;
@@ -164,16 +164,16 @@ export class WechatReplyDispatcher implements ReplyDispatcher {
   async requestHarnessApproval(
     prompt: HarnessImprovementPrompt,
     timeoutMs?: number,
-  ): Promise<ApprovalDecision> {
+  ): Promise<HarnessApprovalResult> {
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
         this._harnessResolvers.delete(prompt.id);
-        resolve('timeout');
+        resolve({ decision: 'timeout' });
       }, timeoutMs ?? 120_000);
 
       this._harnessResolvers.set(prompt.id, (decision: ApprovalDecision) => {
         clearTimeout(timeout);
-        resolve(decision);
+        resolve({ decision });
       });
 
       const text = [

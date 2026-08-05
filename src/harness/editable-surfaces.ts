@@ -1,4 +1,6 @@
 import { EditableSurface, EditableSurfaceKind, FailureContext, FailurePattern } from './types.js';
+import { readFile } from 'node:fs/promises';
+import { parse as parseYaml } from 'yaml';
 
 /**
  * Registry of all editable surfaces the harness can read and propose changes to.
@@ -47,10 +49,16 @@ export class EditableSurfaceProvider {
 
     // -- Step 2: skill-context surfaces --------------------------------------
     // When a skill was active, add every surface whose kind begins with "skill_"
-    // AND whose path contains the skill id.
+    // AND whose path or aliases match any of the activated skill names
+    // (the runtime may report several names joined by " | ").
     if (context.skillId) {
+      const skillTokens = context.skillId.split(' | ').map((s) => s.trim()).filter(Boolean);
       for (const surface of this.surfaces.values()) {
-        if (surface.kind.startsWith('skill_') && surface.path.includes(context.skillId)) {
+        if (!surface.kind.startsWith('skill_')) continue;
+        const matches = (token: string): boolean =>
+          surface.path.includes(token) ||
+          (surface.aliases?.some((alias) => alias === token) ?? false);
+        if (skillTokens.some(matches)) {
           addOnce(surface);
         }
       }
@@ -127,9 +135,11 @@ export class EditableSurfaceProvider {
   getSkillSurfaces(skillId: string): EditableSurface[] {
     const result: EditableSurface[] = [];
     for (const surface of this.surfaces.values()) {
-      if (surface.kind.startsWith('skill_') && surface.path.includes(skillId)) {
-        result.push(surface);
-      }
+      if (!surface.kind.startsWith('skill_')) continue;
+      const matches =
+        surface.path.includes(skillId) ||
+        (surface.aliases?.some((alias) => alias === skillId) ?? false);
+      if (matches) result.push(surface);
     }
     return result;
   }
@@ -173,6 +183,137 @@ const PATTERN_SURFACE_KINDS: Record<FailurePattern, EditableSurfaceKind[]> = {
   exploration_without_output: ['execution_instruction', 'turn_counter_rules', 'spawn_policy'],
   tool_error_cascade: ['failure_recovery_instruction', 'tool_execution_mode'],
   timeout_or_abort: ['max_retry_delay', 'thinking_budget', 'spawn_policy'],
-  dependency_not_checked: [],
+  dependency_not_checked: ['failure_recovery_instruction', 'tool_description'],
   user_explicit_dissatisfied: ['base_system_prompt', 'agent_system_prompt'],
 };
+
+// ---------------------------------------------------------------------------
+// Skill file surface registration
+// ---------------------------------------------------------------------------
+
+interface SkillFileFrontmatter {
+  name?: unknown;
+  description?: unknown;
+  triggers?: unknown;
+  'allowed-tools'?: unknown;
+  'x-ohmyagent'?: { memoryPolicy?: unknown };
+}
+
+/**
+ * Parse the YAML frontmatter block of a SKILL.md file.
+ * Returns `null` when the file has no frontmatter or cannot be parsed.
+ */
+export async function parseSkillFrontmatter(
+  filePath: string,
+): Promise<SkillFileFrontmatter | null> {
+  let content: string;
+  try {
+    content = await readFile(filePath, 'utf-8');
+  } catch {
+    return null;
+  }
+  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(content);
+  if (!match) return null;
+  try {
+    const parsed = parseYaml(match[1]!) as SkillFileFrontmatter;
+    return typeof parsed === 'object' && parsed !== null ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Extract the body text (everything after the frontmatter block). */
+export function extractSkillBody(content: string): string {
+  const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/.exec(content);
+  return match ? content.slice(match[0].length).trim() : content.trim();
+}
+
+/**
+ * Register the editable surfaces backed by a single skill file
+ * (`skills/<id>/SKILL.md`). The surface ids become the only legal
+ * modification targets for SkillEditor — this registration is the
+ * allow-list for what the harness may change.
+ *
+ * @param provider  the surface registry to populate
+ * @param skillId   directory name of the skill
+ * @param filePath  absolute path to the skill's SKILL.md
+ * @returns number of surfaces registered
+ */
+export async function registerSkillFileSurfaces(
+  provider: EditableSurfaceProvider,
+  skillId: string,
+  filePath: string,
+): Promise<number> {
+  let content: string;
+  try {
+    content = await readFile(filePath, 'utf-8');
+  } catch {
+    return 0;
+  }
+
+  const frontmatter = await parseSkillFrontmatter(filePath);
+  const body = extractSkillBody(content);
+  const aliases: string[] = [];
+  if (frontmatter && typeof frontmatter.name === 'string' && frontmatter.name.length > 0) {
+    aliases.push(frontmatter.name);
+  }
+
+  let registered = 0;
+  const register = (surface: EditableSurface): void => {
+    provider.register(surface);
+    registered++;
+  };
+
+  if (body.length > 0) {
+    register({
+      id: `skill:${skillId}:prompt`,
+      kind: 'skill_prompt',
+      path: filePath,
+      label: `Skill "${skillId}" — prompt body`,
+      currentValue: body,
+      mechanismFamily: 'prompt_instruction',
+      aliases,
+    });
+  }
+
+  const triggers = frontmatter?.triggers;
+  if (Array.isArray(triggers) && triggers.length > 0) {
+    register({
+      id: `skill:${skillId}:triggers`,
+      kind: 'skill_triggers',
+      path: filePath,
+      label: `Skill "${skillId}" — triggers`,
+      currentValue: triggers.map((t) => String(t)).join('\n'),
+      mechanismFamily: 'skill_procedure',
+      aliases,
+    });
+  }
+
+  const allowedTools = frontmatter?.['allowed-tools'];
+  if (typeof allowedTools === 'string' && allowedTools.trim().length > 0) {
+    register({
+      id: `skill:${skillId}:allowed_tools`,
+      kind: 'skill_allowed_tools',
+      path: filePath,
+      label: `Skill "${skillId}" — allowed tools`,
+      currentValue: allowedTools,
+      mechanismFamily: 'skill_procedure',
+      aliases,
+    });
+  }
+
+  const memoryPolicy = frontmatter?.['x-ohmyagent']?.memoryPolicy;
+  if (memoryPolicy !== undefined) {
+    register({
+      id: `skill:${skillId}:memory_policy`,
+      kind: 'skill_memory_policy',
+      path: filePath,
+      label: `Skill "${skillId}" — memory policy`,
+      currentValue: JSON.stringify(memoryPolicy, null, 2),
+      mechanismFamily: 'skill_procedure',
+      aliases,
+    });
+  }
+
+  return registered;
+}

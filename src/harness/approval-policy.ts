@@ -9,29 +9,8 @@ import {
   ImprovementProposal,
   FailurePattern,
   TimeRange,
+  ApprovalMode,
 } from './types.js';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Check whether a rule's scope keyword matches the proposal's affectedScope
- * string by checking for characteristic substrings (Chinese or English).
- */
-function scopeMatches(ruleScope: string, affectedScope: string): boolean {
-  const lower = affectedScope.toLowerCase();
-  switch (ruleScope) {
-    case 'single_skill':
-      return lower.includes('仅') || lower.includes('single');
-    case 'multi_skill':
-      return lower.includes('多') || lower.includes('multi');
-    case 'global':
-      return lower.includes('全局') || lower.includes('global');
-    default:
-      return lower.includes(ruleScope);
-  }
-}
 
 /**
  * Check whether `now` falls within any of the given time ranges.
@@ -60,14 +39,15 @@ function inTimeRange(now: Date, ranges: TimeRange[]): boolean {
 // ---------------------------------------------------------------------------
 
 export const DEFAULT_RULES: ApprovalRule[] = [
-  // 0 — Deny destructive changes by default
+  // 0 — Destructive changes always require approval (highest priority,
+  // never overridable — see design doc §5.3).
   {
     id: 'default-deny-deletion',
-    name: 'Deny destructive changes',
+    name: 'Destructive changes require approval',
     priority: 0,
     enabled: true,
     changeTypes: ['trigger_remove', 'tool_allow_remove', 'approval_policy'],
-    action: 'skip',
+    action: 'require_approval',
   },
   // 1 — Global / multi-skill changes always require approval
   {
@@ -140,9 +120,9 @@ export const DEFAULT_RULES: ApprovalRule[] = [
     minConfidence: 0.8,
     action: 'auto_apply',
     autoRollback: {
-      satisfactionThreshold: 0.7,
-      observationWindow: 5,
-      errorRateMultiplier: 1.5,
+      satisfactionThreshold: 0.6,
+      observationWindow: 50,
+      errorRateMultiplier: 2.0,
     },
   },
   // 8 — Fallback: require approval for anything else
@@ -169,9 +149,16 @@ export const DEFAULT_RULES: ApprovalRule[] = [
  */
 export class ApprovalPolicy {
   private rules: ApprovalRule[];
+  private mode: ApprovalMode;
 
-  constructor(rules: ApprovalRule[] = DEFAULT_RULES) {
+  constructor(rules: ApprovalRule[] = DEFAULT_RULES, mode: ApprovalMode = 'smart_approve') {
     this.rules = [...rules].sort((a, b) => a.priority - b.priority);
+    this.mode = mode;
+  }
+
+  /** Replace the approval strategy preset (always_ask / smart_approve / low_risk_auto). */
+  setMode(mode: ApprovalMode): void {
+    this.mode = mode;
   }
 
   /**
@@ -240,9 +227,11 @@ export class ApprovalPolicy {
       }
 
       // --- scopes ---
-      // The proposal's affectedScope must match at least one scope keyword.
+      // The proposal's standardised affectedScope must appear in the rule's
+      // list (proposals are normalised to single_skill | multi_skill |
+      // global | session | unknown by the optimizer).
       if (rule.scopes && rule.scopes.length > 0) {
-        if (!rule.scopes.some(s => scopeMatches(s, proposal.affectedScope))) continue;
+        if (!(rule.scopes as string[]).includes(proposal.affectedScope)) continue;
       }
 
       // --- timeRanges ---
@@ -251,9 +240,11 @@ export class ApprovalPolicy {
         if (!inTimeRange(now, rule.timeRanges)) continue;
       }
 
-      // All dimensions matched — this rule wins
+      // All dimensions matched — this rule wins; the active approval preset
+      // may still escalate or relax the resulting action.
+      const action = this.applyMode(rule.action, rule, proposal);
       return {
-        action: rule.action,
+        action,
         ruleId: rule.id,
         autoRollback: rule.autoRollback,
       };
@@ -261,6 +252,37 @@ export class ApprovalPolicy {
 
     // No rule matched — safe fallback
     return { action: 'require_approval', ruleId: 'fallback' };
+  }
+
+  /**
+   * Adjust a matched rule's action according to the active approval preset:
+   *  - always_ask: every auto_apply is escalated to require_approval
+   *  - low_risk_auto: low-risk, non-destructive require_approval rules are
+   *    relaxed to auto_apply (with a default rollback config)
+   *  - smart_approve: no adjustment
+   */
+  private applyMode(
+    action: ApprovalAction,
+    rule: ApprovalRule,
+    proposal: ImprovementProposal,
+  ): ApprovalAction {
+    if (this.mode === 'always_ask') {
+      return action === 'auto_apply' ? 'require_approval' : action;
+    }
+    if (this.mode === 'low_risk_auto') {
+      if (action !== 'require_approval') return action;
+      // Never auto-apply permission / approval-rule changes or destructive edits.
+      if (proposal.mechanismFamily === 'permission_interrupt') return action;
+      const destructive = (rule.changeTypes ?? []).some((ct) =>
+        ct === 'trigger_remove' || ct === 'tool_allow_remove' || ct === 'approval_policy',
+      );
+      if (destructive) return action;
+      const lowRisk =
+        proposal.regressionRisk !== 'medium' && proposal.impact.riskLevel !== 'medium';
+      if (!lowRisk) return action;
+      return 'auto_apply';
+    }
+    return action;
   }
 
   /**

@@ -61,6 +61,12 @@ export class HarnessRateLimiter {
     return this.autoApplyTimestamps.length;
   }
 
+  /** Whether another auto_apply is still allowed today (maxAutoApplyPerDay). */
+  canAutoApply(): boolean {
+    return this.getAutoApplyCount() < this.config.maxAutoApplyPerDay;
+  }
+
+  /** Record an auto-applied proposal so the daily cap counts it. */
   recordAutoApply(): void {
     this.autoApplyTimestamps.push(Date.now());
   }

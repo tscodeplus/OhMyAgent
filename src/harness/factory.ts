@@ -69,6 +69,8 @@ export function createHarnessServices(config: HarnessConfig): HarnessServices | 
     surfaceProvider,
     approvalPolicy: new ApprovalPolicy(config.rules ?? []),
     autoApplyMonitor: new AutoApplyMonitor(),
-    skillEditor: new SkillEditor(),
+    // Surface allow-list: the editor may only touch files reachable through
+    // the registered surfaces (never arbitrary LLM-provided paths).
+    skillEditor: new SkillEditor((surfaceId: string) => surfaceProvider.get(surfaceId)?.path),
   };
 }

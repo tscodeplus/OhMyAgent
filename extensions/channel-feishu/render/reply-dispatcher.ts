@@ -194,16 +194,16 @@ export class ReplyDispatcher {
   async requestHarnessApproval(
     prompt: import('../../../src/harness/types.js').HarnessImprovementPrompt,
     timeoutMs?: number,
-  ): Promise<import('../../../src/harness/types.js').ApprovalDecision> {
+  ): Promise<import('../../../src/harness/types.js').HarnessApprovalResult> {
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
         this.harnessResolvers.delete(prompt.id);
-        resolve('timeout');
+        resolve({ decision: 'timeout' as const });
       }, timeoutMs ?? 120_000);
 
       this.harnessResolvers.set(prompt.id, (decision: string) => {
         clearTimeout(timeout);
-        resolve(decision as import('../../../src/harness/types.js').ApprovalDecision);
+        resolve({ decision: decision as import('../../../src/harness/types.js').ApprovalDecision });
       });
 
       // Build a standalone interactive card (v1.0 format for msg_type:interactive)
@@ -259,7 +259,7 @@ export class ReplyDispatcher {
         // If sending fails, clean up and resolve as timeout
         this.harnessResolvers.delete(prompt.id);
         clearTimeout(timeout);
-        resolve('timeout');
+        resolve({ decision: 'timeout' as const });
       });
     });
   }

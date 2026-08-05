@@ -440,6 +440,7 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
           minIdenticalRetries: num(ht.min_identical_retries, 3),
           minExplorationSteps: num(ht.min_exploration_steps, 8),
           minConsecutiveErrors: num(ht.min_consecutive_errors, 3),
+          minDependencyErrors: num(ht.min_dependency_errors, 2),
         } : undefined,
         rateLimit: hr ? {
           cooldownMinutes: num(hr.cooldown_minutes, 30),
