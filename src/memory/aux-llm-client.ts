@@ -20,6 +20,14 @@ export interface AuxModelConfig {
   apiKeys?: Record<string, string>;
   baseUrls?: Record<string, string>;
   baseUrl?: string;
+  /**
+   * Suppress reasoning/thinking for these cheap extraction tasks. Sends a
+   * provider-agnostic `thinking: { type: "disabled" }` body (DeepSeek, Zhipu,
+   * MiniMax style). Reasoning models burn tokens on thinking even when the
+   * extraction output is a few lines of JSON — this keeps that cost near zero.
+   * Default: off (no extra body sent).
+   */
+  disableThinking?: boolean;
 }
 
 export interface AuxLLMCallOptions {
@@ -115,6 +123,7 @@ export async function auxLLMCall(
         ],
         temperature: options.temperature ?? 0.3,
         max_tokens: options.maxTokens ?? 2000,
+        ...(config.disableThinking ? { extraBody: { thinking: { type: 'disabled' } } } : {}),
       });
 
       const msg = completion.choices[0]?.message;

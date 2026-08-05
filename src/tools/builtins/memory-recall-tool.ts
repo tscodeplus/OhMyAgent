@@ -2,8 +2,10 @@ import { z } from 'zod';
 import { zodToTypeBox } from '../tool-adapter.js';
 import { i18n } from '../../i18n/index.js';
 import type { MemoryRetriever, RetrievedMemory } from '../../memory/memory-retriever.js';
+import { isPromptInjection } from '../../memory/memory-filter.js';
 import type { AgentTool } from '../../pi-mono/agent/types.js';
 import { defaultAgentId } from '../../agent/agent-context.js';
+import { truncate } from '../../shared/truncation.js';
 import type { Logger } from 'pino';
 
 /** @deprecated Use `createMemoryRecallToolDefinition` from `./memory/recall-definition.js` instead. */
@@ -49,14 +51,22 @@ export function createMemoryRecallTool(options: {
         options.logger?.debug({
           query: args.query,
           resultCount: results.length,
-          top3: results.slice(0, 3).map(r => ({ score: r.score.toFixed(3), content: r.content.slice(0, 80) })),
+          top3: results.slice(0, 3).map(r => ({ score: r.score.toFixed(3), content: truncate(r.content, 80) })),
         }, 'memory_recall results');
 
         if (results.length === 0) {
           return { content: [{ type: 'text', text: i18n.t('tools-builtins:memoryRecall.noResults') }] };
         }
 
-        const formatted = results
+        // Read-path injection gate (L1): recalled content goes straight into
+        // the LLM's context as a tool result — drop anything that looks like
+        // an instruction override before formatting.
+        const safeResults = results.filter(r => !isPromptInjection(r.content));
+        if (safeResults.length === 0) {
+          return { content: [{ type: 'text', text: i18n.t('tools-builtins:memoryRecall.noResults') }] };
+        }
+
+        const formatted = safeResults
           .map((r, i) => i18n.t('tools-builtins:memoryRecall.resultItem', { index: i + 1, content: r.content, score: r.score.toFixed(2) }))
           .join('\n');
 

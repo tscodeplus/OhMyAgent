@@ -16,6 +16,7 @@
 import type { Logger } from 'pino';
 import type { AuxModelConfig } from '../aux-llm-client.js';
 import { auxLLMCall } from '../aux-llm-client.js';
+import { truncate } from '../../shared/truncation.js';
 
 export interface JudgeConfig {
   auxConfig?: AuxModelConfig;
@@ -56,7 +57,7 @@ function hasModel(config: JudgeConfig): boolean {
 function buildContextPrompt(query: string, contexts: string[], config: JudgeConfig): string {
   const snippets = contexts
     .slice(0, config.maxContexts)
-    .map((c, i) => `[${i + 1}] ${c.slice(0, config.maxContextChars)}`)
+    .map((c, i) => `[${i + 1}] ${truncate(c, config.maxContextChars)}`)
     .join('\n');
   return `Context:\n${snippets}\n\nQuestion: ${query}\nAnswer:`;
 }

@@ -340,6 +340,7 @@ const configSchema = z.object({
   memoryAuxModels: z.object({
     primary: z.string().optional(),
     fallback_models: z.array(z.string()).default([]),
+    disableThinking: z.boolean().optional(),
   }).optional(),
   // Legacy: vision bridge config for backward-compat with existing config.yaml.
   // Prefer multimodal.image.bridge in new configs. Bootstrap merges both.

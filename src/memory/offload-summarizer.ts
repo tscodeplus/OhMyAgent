@@ -11,13 +11,14 @@
  * @module
  */
 
+import { truncate as truncateByCodePoint } from '../shared/truncation.js';
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
 function truncate(text: string, maxLen: number): string {
-  if (text.length <= maxLen) return text;
-  return text.slice(0, maxLen - 3) + '...';
+  return truncateByCodePoint(text, maxLen);
 }
 
 function countLines(text: string): number {

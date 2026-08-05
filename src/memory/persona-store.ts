@@ -5,6 +5,7 @@ import {
   personaToJson,
   personaFromJson,
 } from './persona-model.js';
+import { truncate } from '../shared/truncation.js';
 
 const PERSONA_ID = '__persona__';
 const PERSONA_SCOPE = 'user';
@@ -266,7 +267,7 @@ export class PersonaStore {
     }
 
     const result = lines.join('\n');
-    return result.length > 500 ? result.slice(0, 497) + '...' : result;
+    return truncate(result, 500);
   }
 
   /**

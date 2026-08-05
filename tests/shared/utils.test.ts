@@ -124,6 +124,32 @@ describe('truncate', () => {
   it('handles empty string', () => {
     expect(truncate('', 5)).toBe('');
   });
+
+  it('never splits a surrogate pair (emoji boundary)', () => {
+    // 'ab' + emoji(2 code units) + 'cdef'; limit 4 leaves room for 'a' + '...'
+    const text = 'ab😀cdef';
+    const result = truncate(text, 4);
+    expect(result).toBe('a...');
+    expect(result).toHaveLength(4);
+  });
+
+  it('truncates at a code-point boundary for CJK-extension chars', () => {
+    // U+20000 (a CJK extension B character) is a surrogate pair in UTF-16.
+    // A naive slice(0, 3) on 'a𠀀bcde' would return 'a' + a lone surrogate.
+    const text = 'a\u{20000}bcde'; // 6 code units: 1 + 2 + 3
+    // Limit 3: no room for ellipsis — body cut to 3 code units, pair intact
+    expect(truncate(text, 3)).toBe('a\u{20000}');
+    // Limit 5: room for 'a' + '...' — pair never split
+    expect(truncate(text, 5)).toBe('a...');
+    // Limit 2: cut before the pair entirely
+    expect(truncate(text, 2)).toBe('a');
+  });
+
+  it('keeps CJK (BMP) text truncation semantics unchanged', () => {
+    const text = '一二三四五六七八九十';
+    expect(truncate(text, 5)).toBe('一二...');
+    expect(truncate(text, 5)).toHaveLength(5);
+  });
 });
 
 describe('truncateToolOutput', () => {

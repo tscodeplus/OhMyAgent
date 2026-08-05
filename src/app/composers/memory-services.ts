@@ -179,6 +179,7 @@ export async function createMemoryServices(
     fallbackRefs: auxFallbacks,
     apiKeys: auxApiKeys,
     baseUrl: config.piAi.baseUrl,
+    disableThinking: memAux?.disableThinking,
   };
 
   logger.info({ primary: auxPrimary, fallbackCount: auxFallbacks.length }, 'Memory aux models configured');

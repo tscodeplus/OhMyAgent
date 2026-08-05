@@ -17,10 +17,37 @@ export interface EmbeddingClientConfig {
    * failure when the request throws — never trips. Default 30s.
    */
   timeoutMs?: number;
+  /**
+   * Retry attempts for retryable failures — HTTP 408/429/5xx and network
+   * errors — with exponential backoff between attempts. Timeouts are never
+   * retried (a hung provider usually stays hung, and the caller has its own
+   * outer timeout). Default 2.
+   */
+  maxRetries?: number;
+  /**
+   * Base delay for the exponential backoff in ms. Delay = base * 2^attempt
+   * with ±20% jitter. Default 500.
+   */
+  retryBaseDelayMs?: number;
 }
 
 const DEFAULT_MAX_INPUT_CHARS = 8000;
 const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_MAX_RETRIES = 2;
+const DEFAULT_RETRY_BASE_DELAY_MS = 500;
+
+/** HTTP statuses that are plausibly transient and worth a retry. */
+const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/** Exponential backoff with ±20% jitter to avoid thundering-herd retries. */
+function backoffDelay(baseMs: number, attempt: number): number {
+  const exp = baseMs * 2 ** attempt;
+  return Math.round(exp * (0.8 + Math.random() * 0.4));
+}
 
 export class EmbeddingClient {
   constructor(
@@ -65,51 +92,77 @@ export class EmbeddingClient {
     const cappedTexts = texts.map(t => this.capInput(t));
 
     const timeoutMs = this.config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const maxRetries = this.config.maxRetries ?? DEFAULT_MAX_RETRIES;
+    const baseDelay = this.config.retryBaseDelayMs ?? DEFAULT_RETRY_BASE_DELAY_MS;
 
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.config.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: this.config.model,
-          input: cappedTexts,
-        }),
-        signal: controller.signal,
-      });
-    } catch (err) {
-      if (controller.signal.aborted) {
-        throw new Error(`Embedding API request timed out after ${timeoutMs}ms`);
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.config.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: this.config.model,
+            input: cappedTexts,
+          }),
+          signal: controller.signal,
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        // Timeouts are NOT retried — a hung provider usually stays hung, and
+        // the caller's own timeout bounds the total wait.
+        if (controller.signal.aborted) {
+          throw new Error(`Embedding API request timed out after ${timeoutMs}ms`);
+        }
+        // Network error (DNS, refused, reset…) — transient, retryable.
+        lastError = err;
+        if (attempt < maxRetries) {
+          await sleep(backoffDelay(baseDelay, attempt));
+          continue;
+        }
+        throw err;
       }
-      throw err;
-    } finally {
       clearTimeout(timer);
-    }
 
-    if (!response.ok) {
+      if (response.ok) {
+        const data = (await response.json()) as {
+          data: Array<{ embedding: number[]; index: number }>;
+          model: string;
+        };
+
+        // Preserve order by index
+        const results = new Array<Float32Array>(texts.length);
+        for (const item of data.data) {
+          results[item.index] = new Float32Array(item.embedding);
+        }
+
+        return results;
+      }
+
+      // Non-OK. Retry only on likely-transient statuses (rate limit, gateway
+      // hiccup, overload); 4xx like 400/401 are permanent and throw at once.
+      // Drain the body before backing off so the connection can be reused.
       const errorBody = await response.text().catch(() => 'unknown');
+      if (attempt < maxRetries && RETRYABLE_STATUS.has(response.status)) {
+        lastError = new Error(
+          `Embedding API error: ${response.status} ${response.statusText} — ${errorBody}`,
+        );
+        await sleep(backoffDelay(baseDelay, attempt));
+        continue;
+      }
       throw new Error(
         `Embedding API error: ${response.status} ${response.statusText} — ${errorBody}`,
       );
     }
-
-    const data = (await response.json()) as {
-      data: Array<{ embedding: number[]; index: number }>;
-      model: string;
-    };
-
-    // Preserve order by index
-    const results = new Array<Float32Array>(texts.length);
-    for (const item of data.data) {
-      results[item.index] = new Float32Array(item.embedding);
-    }
-
-    return results;
+    // Not reached: every iteration either returns or throws.
+    throw lastError ?? new Error('Embedding API request failed');
   }
 
   /**

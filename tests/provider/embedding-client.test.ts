@@ -116,6 +116,71 @@ describe('EmbeddingClient', () => {
       await expect(client.embed(['hello'])).rejects.toThrow('Embedding API error: 401 Unauthorized');
     });
 
+    it('retries retryable status (429) and succeeds on the second attempt', async () => {
+      const mockFetch = vi.fn()
+        .mockResolvedValueOnce({
+          ok: false, status: 429, statusText: 'Too Many Requests',
+          text: async () => 'rate limited',
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ data: [{ embedding: [1, 2, 3], index: 0 }], model: 'test-embed' }),
+        });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const client = new EmbeddingClient({ ...config, retryBaseDelayMs: 1 });
+      const results = await client.embed(['hello']);
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(Array.from(results[0])).toEqual([1, 2, 3]);
+      vi.unstubAllGlobals();
+    });
+
+    it('retries network errors and succeeds on the second attempt', async () => {
+      const mockFetch = vi.fn()
+        .mockRejectedValueOnce(new TypeError('fetch failed'))
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ data: [{ embedding: [1, 2, 3], index: 0 }], model: 'test-embed' }),
+        });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const client = new EmbeddingClient({ ...config, retryBaseDelayMs: 1 });
+      const results = await client.embed(['hello']);
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(Array.from(results[0])).toEqual([1, 2, 3]);
+      vi.unstubAllGlobals();
+    });
+
+    it('throws after exhausting retries on persistent 503', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: false, status: 503, statusText: 'Service Unavailable',
+        text: async () => 'down',
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const client = new EmbeddingClient({ ...config, maxRetries: 2, retryBaseDelayMs: 1 });
+      await expect(client.embed(['hello'])).rejects.toThrow('Embedding API error: 503');
+
+      expect(mockFetch).toHaveBeenCalledTimes(3); // 1 initial + 2 retries
+      vi.unstubAllGlobals();
+    });
+
+    it('does not retry permanent 4xx errors', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: false, status: 401, statusText: 'Unauthorized',
+        text: async () => 'invalid key',
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const client = new EmbeddingClient(config);
+      await expect(client.embed(['hello'])).rejects.toThrow('Embedding API error: 401');
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      vi.unstubAllGlobals();
+    });
+
     it('aborts and throws when the request exceeds timeoutMs', async () => {
       // Simulate a hung connection: fetch settles only when the abort fires.
       const mockFetch = vi.fn().mockImplementation((_url: string, opts: any) => {

@@ -71,6 +71,12 @@ export interface MemoryAuxModels {
   primary?: string;
   /** Fallback models tried in order. */
   fallback_models?: string[];
+  /**
+   * Suppress reasoning/thinking for memory aux tasks (query expansion, entity
+   * extraction, merging, planning). Sends `thinking: { type: "disabled" }`
+   * to DeepSeek/Zhipu/MiniMax-style reasoning models to cut token cost.
+   */
+  disableThinking?: boolean;
 }
 
 /** v9: Auto context compression configuration. Follows pi coding-agent conventions. */

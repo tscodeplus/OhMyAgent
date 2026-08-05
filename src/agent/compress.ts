@@ -11,6 +11,7 @@
 import type { Logger } from 'pino';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { auxLLMCall, type AuxModelConfig } from '../memory/aux-llm-client.js';
+import { truncate } from '../shared/truncation.js';
 
 // ---------------------------------------------------------------------------
 // Token estimation — chars/4, conservative (pi convention)
@@ -81,7 +82,7 @@ function formatMessage(m: AgentMessage, index: number): string {
     if (parts.length > 0) content = parts.join(', ');
   }
   if (!content.trim()) return '';
-  return `[${m.role} #${index}]: ${content.slice(0, 500)}`;
+  return `[${m.role} #${index}]: ${truncate(content, 500)}`;
 }
 
 // ---------------------------------------------------------------------------

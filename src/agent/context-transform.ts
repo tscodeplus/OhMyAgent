@@ -23,6 +23,8 @@ import type { MermaidCanvas } from '../runtime-artifacts/mermaid-canvas.js';
 import type { AutoCompressConfig } from '../app/types.js';
 import { compressContext, estimateTokens } from './compress.js';
 import { extractPreferredName } from '../memory/persona-store.js';
+import { isPromptInjection } from '../memory/memory-filter.js';
+import { truncate } from '../shared/truncation.js';
 import type { Logger } from 'pino';
 
 function formatCurrentDatePrefix(lang?: string, granularity: 'minute' | 'day' = 'minute'): string | null {
@@ -160,6 +162,10 @@ function buildMemoryLines(memories: RetrievedMemory[], query: string): string[] 
     .filter(m => m.content?.trim())
     .filter(m => allowStaleTime || !isStaleCurrentTimeMemory(m.content))
     .filter(m => !containsPreferredNameExpression(m.content))
+    // Read-path injection gate (L1): recalled content is untrusted — it may
+    // predate the write-side filter or have bypassed it via non-tool writes
+    // (summarizer, offload, dream cycle). Never let it override instructions.
+    .filter(m => !isPromptInjection(m.content))
     .map(m => `- ${m.content}`)
     .slice(0, 5);
 }
@@ -357,7 +363,7 @@ export function createTransformContext(options?: TransformOptions) {
                   previous !== memoryHint ||
                   isMemoryRelevantRequest(query);
                 if (shouldInjectMemory) {
-                  options?.logger?.debug({ count: memoryLines.length, memories: memoryLines.map(l => l.slice(0, 60)) }, 'Memories injected into context');
+                  options?.logger?.debug({ count: memoryLines.length, memories: memoryLines.map(l => truncate(l, 60)) }, 'Memories injected into context');
                   const idx = result.lastIndexOf(lastUserMsg);
                   const injectedBlocks = [...blocks, { type: 'text', text: memoryHint }];
                   result[idx] = { ...lastUserMsg, content: injectedBlocks };
