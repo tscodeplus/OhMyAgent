@@ -36,6 +36,7 @@ import { createSkillLintTool } from '../tools/builtins/skills/skill-lint-definit
 import { createSkillCreateTool } from '../tools/builtins/skills/skill-create-definition.js';
 import { createSkillTestTool } from '../tools/builtins/skills/skill-test-definition.js';
 import { SkillMetricsService } from '../skills/skill-evolution/skill-metrics.js';
+import { ProposalGenerator } from '../skills/skill-evolution/proposal-generator.js';
 import { getWebUIToken } from './webui-auth.js';
 import { setupWebUIMiddleware } from './webui/setup-vite.js';
 import { createOnConfigChanged } from './webui/config-persist.js';
@@ -340,6 +341,11 @@ export async function bootstrap(): Promise<BootstrapResult> {
   const skillMetricsService = new SkillMetricsService(db);
   logger.info('Skill metrics service initialized (P1-4)');
 
+  // P2-2: Skill improvement proposal generator —— 共享单例 + SQLite 持久化。
+  // WebUI 各接口复用同一实例，apply/dismiss 状态跨请求、跨重启保留。
+  const proposalGenerator = new ProposalGenerator(skillMetricsService, skillRegistry, db);
+  logger.info('Skill proposal generator initialized (P2-2)');
+
   // ── Computer Use (extracted to composers/computer-use-services.ts) ──
   const cuServices = await createComputerUseServices(config, logger);
   const { computerUseHost, agentManagerRef, cuaSettingsRef } = cuServices;
@@ -575,6 +581,7 @@ export async function bootstrap(): Promise<BootstrapResult> {
     approvalGate,
     skillRegistry,
     skillMetricsService,
+    proposalGenerator,
     agentFactory,
     agentService,
     feishuClient,

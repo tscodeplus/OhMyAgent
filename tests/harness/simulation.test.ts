@@ -92,7 +92,12 @@ describe('Self-Harness Simulation', () => {
         });
       };
 
-      const optimizer = new HarnessOptimizer(CONFIG.proposal, surfaces, mockLLM);
+      const optimizer = new HarnessOptimizer(
+        CONFIG.proposal,
+        surfaces,
+        mockLLM,
+        `/tmp/harness-memory-${Math.random().toString(36).slice(2)}.json`,
+      );
       const ctx: FailureContext = {
         sessionId: 'sim-001', skillId: 'android-operator', taskMessage: 'debug',
         toolCalls: [

@@ -718,6 +718,7 @@ describe('HarnessOptimizer', () => {
       { model: 'default', maxEditsPerProposal: 5, minConfidence: 0.5, allowedMechanisms: [] },
       surfaceProvider,
       mockLLM,
+      `/tmp/harness-memory-${Math.random().toString(36).slice(2)}.json`,
     );
 
     const ctx: FailureContext = {
@@ -790,6 +791,7 @@ describe('HarnessOptimizer → ApprovalPolicy contract', () => {
       },
       surfaces,
       mockLLM,
+      `/tmp/harness-memory-${Math.random().toString(36).slice(2)}.json`,
     );
 
     const ctx: FailureContext = {

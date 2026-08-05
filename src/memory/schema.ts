@@ -273,11 +273,26 @@ CREATE TABLE IF NOT EXISTS skill_feedback (
   created_at TEXT NOT NULL DEFAULT (cast(strftime('%s','now') as integer) * 1000)
 )`;
 
+// P2-2: Skill improvement proposals (persisted so apply/dismiss survive restarts)
+const DDL_SKILL_PROPOSALS = `
+CREATE TABLE IF NOT EXISTS skill_proposals (
+  id TEXT PRIMARY KEY,
+  skill_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  change_json TEXT NOT NULL,
+  priority INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending'
+)`;
+
 // Indexes
 const INDEXES = [
   'CREATE INDEX IF NOT EXISTS idx_skill_feedback_skill ON skill_feedback(skill_id)',
   'CREATE INDEX IF NOT EXISTS idx_skill_feedback_session ON skill_feedback(session_id)',
   'CREATE INDEX IF NOT EXISTS idx_skill_feedback_created ON skill_feedback(created_at)',
+  'CREATE INDEX IF NOT EXISTS idx_skill_proposals_skill ON skill_proposals(skill_id)',
   'CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id)',
   'CREATE INDEX IF NOT EXISTS idx_processed_messages_processed_at ON processed_messages(processed_at)',
   'CREATE INDEX IF NOT EXISTS idx_processed_messages_source_session ON processed_messages(source, session_key)',
@@ -333,6 +348,7 @@ const ALL_DDL = [
   DDL_MEMORIES_FTS,
   DDL_MEMORIES_FTS_JIEBA,
   DDL_SKILL_FEEDBACK,
+  DDL_SKILL_PROPOSALS,
 ];
 
 const ALL_TRIGGERS = [

@@ -892,6 +892,11 @@ export interface AppServices {
   skillRegistry: SkillRegistry;
   /** P1-4: Skill metrics service for usage tracking and feedback analysis */
   skillMetricsService?: import('../skills/skill-evolution/skill-metrics.js').SkillMetricsService;
+  /**
+   * P2-2: Skill improvement proposal generator —— bootstrap 中的共享单例，
+   * SQLite 持久化 apply/dismiss 状态，WebUI 各接口复用同一实例。
+   */
+  proposalGenerator?: import('../skills/skill-evolution/proposal-generator.js').ProposalGenerator;
 
   // ── Feishu / Channel ──
   feishuClient: FeishuClient;
@@ -942,8 +947,8 @@ export type MemorySubServices = Pick<AppServices,
   'sessionRepository' | 'messageRepository' | 'episodeRepository' | 'toolRunRepository'
 >;
 
-/** Skills-domain: registry and metrics. */
-export type SkillsSubServices = Pick<AppServices, 'skillRegistry' | 'skillMetricsService'>;
+/** Skills-domain: registry, metrics, and proposal generator. */
+export type SkillsSubServices = Pick<AppServices, 'skillRegistry' | 'skillMetricsService' | 'proposalGenerator'>;
 
 /** Policy-domain: approval gate and policy center. */
 export type PolicySubServices = Pick<AppServices, 'approvalGate' | 'policyCenter'>;

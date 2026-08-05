@@ -20,11 +20,10 @@ const logger = pino();
 
 /** Pre-apply baseline metrics used to judge post-apply regression. */
 export interface MonitorBaseline {
-  successRate: number;
   errorRate: number;
 }
 
-interface ActivationResult {
+export interface ActivationResult {
   success: boolean;
   errorCount: number;
   durationMs: number;
@@ -41,11 +40,17 @@ interface PersistedMonitor {
   baseline: MonitorBaseline;
   cumSuccesses: number;
   cumErrors: number;
+  /** Number of failed git-revert attempts so far (absent on old state files). */
+  rollbackAttempts?: number;
+  /** Set once rollback attempts are exhausted — manual intervention required. */
+  rollbackFailed?: boolean;
 }
 
 const DEFAULT_STATE_PATH = 'data/harness-monitors.json';
 /** Absolute error-rate floor used when no real baseline is available. */
 const ERROR_RATE_FLOOR = 0.15;
+/** Number of failed revert attempts before a monitor is marked rollbackFailed. */
+const MAX_ROLLBACK_ATTEMPTS = 3;
 
 function execFileAsync(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -58,6 +63,9 @@ function execFileAsync(cmd: string, args: string[]): Promise<string> {
 
 export class AutoApplyMonitor {
   private monitors = new Map<string, PersistedMonitor>();
+  /** Proposal ids whose git revert is currently in flight — makes rollback
+   *  idempotent when evaluate() fires again before a revert resolves. */
+  private reverting = new Set<string>();
   private readonly statePath: string;
 
   constructor(statePath: string = DEFAULT_STATE_PATH) {
@@ -87,7 +95,14 @@ export class AutoApplyMonitor {
           logger.warn({ proposalId: item.proposalId }, '[AutoApplyMonitor] dropped monitor with missing commit');
           continue;
         }
-        this.monitors.set(item.proposalId, item);
+        // Tolerate old state files: baseline used to carry a successRate
+        // field (now removed) and rollbackAttempts/rollbackFailed may be
+        // absent — both are optional / defaulted at use sites.
+        const baseline: MonitorBaseline = {
+          errorRate:
+            typeof item.baseline?.errorRate === 'number' ? item.baseline.errorRate : 0,
+        };
+        this.monitors.set(item.proposalId, { ...item, baseline });
       }
       logger.info({ restored: this.monitors.size }, '[AutoApplyMonitor] state restored');
     } catch (err) {
@@ -102,7 +117,7 @@ export class AutoApplyMonitor {
     agentId: string | null,
     config: AutoRollbackConfig,
     commitHash: string,
-    baseline: MonitorBaseline = { successRate: 1.0, errorRate: 0 },
+    baseline: MonitorBaseline = { errorRate: 0 },
   ): void {
     const monitor: PersistedMonitor = {
       proposalId,
@@ -151,13 +166,17 @@ export class AutoApplyMonitor {
     const monitor = this.monitors.get(proposalId);
     if (!monitor) return;
 
+    // A monitor whose revert attempts are exhausted is kept for visibility
+    // until manual intervention — do not keep hammering git.
+    if (monitor.rollbackFailed) return;
+
     const { config, baseline } = monitor;
     const successRate = monitor.cumSuccesses / monitor.activationCount;
     const errorRate = monitor.cumErrors / monitor.activationCount;
 
     // Condition 1: success rate fell below the threshold.
     if (successRate < config.satisfactionThreshold) {
-      this.rollback(
+      void this.rollback(
         proposalId,
         `Success rate ${(successRate * 100).toFixed(1)}%` +
           ` below threshold ${(config.satisfactionThreshold * 100).toFixed(1)}%`,
@@ -173,7 +192,7 @@ export class AutoApplyMonitor {
       ERROR_RATE_FLOOR,
     );
     if (errorRate > errorThreshold) {
-      this.rollback(
+      void this.rollback(
         proposalId,
         `Error rate ${(errorRate * 100).toFixed(1)}%` +
           ` exceeds threshold ${(errorThreshold * 100).toFixed(1)}%`,
@@ -185,24 +204,42 @@ export class AutoApplyMonitor {
     this.monitors.delete(proposalId);
   }
 
-  /** Execute a git revert and remove the monitor. */
-  private rollback(proposalId: string, reason: string): void {
+  /** Execute a git revert; the monitor is only removed once the revert
+   *  actually succeeds, so a failed revert never leaves the change
+   *  unsupervised. A failed attempt keeps the monitor and is retried on the
+   *  next evaluation, until MAX_ROLLBACK_ATTEMPTS is reached. */
+  private async rollback(proposalId: string, reason: string): Promise<void> {
     const monitor = this.monitors.get(proposalId);
-    if (!monitor) return;
+    // reverting guard: concurrent evaluate() calls (back-to-back activations
+    // before the revert resolves) must not issue a second revert of the same
+    // commit — git would reject it and the failure would inflate the attempt
+    // count.
+    if (!monitor || this.reverting.has(proposalId)) return;
+    this.reverting.add(proposalId);
 
-    execFileAsync('git', ['revert', monitor.commitHash, '--no-edit'])
-      .then(() => {
-        logger.info(`[AutoApplyMonitor] Rolled back proposal ${proposalId}: ${reason}`);
-      })
-      .catch((err) => {
+    try {
+      await execFileAsync('git', ['revert', monitor.commitHash, '--no-edit']);
+      logger.info(`[AutoApplyMonitor] Rolled back proposal ${proposalId}: ${reason}`);
+      this.monitors.delete(proposalId);
+      await this.saveState();
+    } catch (err) {
+      monitor.rollbackAttempts = (monitor.rollbackAttempts ?? 0) + 1;
+      if (monitor.rollbackAttempts >= MAX_ROLLBACK_ATTEMPTS) {
+        monitor.rollbackFailed = true;
         logger.error(
-          { err, proposalId },
-          '[AutoApplyMonitor] Failed to rollback proposal',
+          { err, proposalId, attempts: monitor.rollbackAttempts },
+          '[AutoApplyMonitor] rollback failed after 3 attempts — manual intervention required',
         );
-      });
-
-    this.monitors.delete(proposalId);
-    void this.saveState();
+      } else {
+        logger.warn(
+          { err, proposalId, attempts: monitor.rollbackAttempts },
+          '[AutoApplyMonitor] rollback failed, will retry on next evaluation',
+        );
+      }
+      await this.saveState();
+    } finally {
+      this.reverting.delete(proposalId);
+    }
   }
 
   /** List currently active monitors (for reporting / dashboard). */
@@ -210,11 +247,15 @@ export class AutoApplyMonitor {
     proposalId: string;
     activationCount: number;
     observationWindow: number;
+    rollbackAttempts?: number;
+    rollbackFailed?: boolean;
   }> {
     return Array.from(this.monitors.values()).map((m) => ({
       proposalId: m.proposalId,
       activationCount: m.activationCount,
       observationWindow: m.config.observationWindow,
+      rollbackAttempts: m.rollbackAttempts,
+      rollbackFailed: m.rollbackFailed,
     }));
   }
 

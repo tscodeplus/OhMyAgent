@@ -428,7 +428,12 @@ describe('Self-Harness Runtime E2E', () => {
         });
       };
 
-      const optimizer = new HarnessOptimizer(LIVE_CONFIG.proposal, sp, mockLLM);
+      const optimizer = new HarnessOptimizer(
+        LIVE_CONFIG.proposal,
+        sp,
+        mockLLM,
+        `/tmp/harness-memory-${Math.random().toString(36).slice(2)}.json`,
+      );
 
       const ctx: FailureContext = {
         sessionId: 's1', taskMessage: 'test',
@@ -476,7 +481,12 @@ describe('Self-Harness Runtime E2E', () => {
         });
       };
 
-      const optimizer = new HarnessOptimizer(LIVE_CONFIG.proposal, sp, mockLLM);
+      const optimizer = new HarnessOptimizer(
+        LIVE_CONFIG.proposal,
+        sp,
+        mockLLM,
+        `/tmp/harness-memory-${Math.random().toString(36).slice(2)}.json`,
+      );
 
       const ctx: FailureContext = {
         sessionId: 's2', taskMessage: 'debug',

@@ -16,6 +16,18 @@ export type FailurePattern =
   | 'timeout_or_abort';
 
 /**
+ * Aggregated historical usage statistics for a skill (from skill_feedback),
+ * injected into FailureContext so the diagnosis LLM can reason with data
+ * beyond the single failing session.
+ */
+export interface SkillStatsInfo {
+  totalActivations: number;
+  successRate: number | null;
+  avgDurationMs: number | null;
+  topTools: Array<{ name: string; count: number }>;
+}
+
+/**
  * A single tool invocation recorded during a session.
  */
 export interface ToolCallRecord {
@@ -41,6 +53,8 @@ export interface FailureContext {
   sessionId: string;
   /** Identifier of the skill that was active, if any. */
   skillId?: string;
+  /** Historical usage statistics for the active skill (if any). */
+  skillStats?: SkillStatsInfo;
   /** Identifier of the agent that was running, if any. */
   agentId?: string;
   /** The user's original task message. */
@@ -234,6 +248,9 @@ export interface ApplyResult {
   commitHash?: string;
   /** Error message if the apply failed. */
   error?: string;
+  /** Non-fatal notice about the applied change (e.g. a diff.before text that
+   *  matched more than once — only the first occurrence was replaced). */
+  warning?: string;
 }
 
 /**

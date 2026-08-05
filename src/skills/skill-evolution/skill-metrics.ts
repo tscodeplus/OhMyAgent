@@ -63,13 +63,18 @@ export interface GlobalSkillStats {
  * Satisfied signals:
  *   - Message contains "谢谢/不错/OK/很好/太好了/thanks/great/nice/perfect"
  * Unsatisfied signals:
- *   - Message contains "不对/重新/错了/不行/wrong/incorrect/redo/again"
+ *   - Message contains "不对/错了/不行/重新做/wrong/incorrect/redo/again"
+ *
+ * 注意：裸词"重新"不能作为不满意信号——"重新整理一下，谢谢"这类正面
+ * 请求会被误判为不满意，污染成功率统计（宁可少判也不可误判）。仅保留
+ * 明确的"重做"表达（重新做/重新弄/重写/再试一次）作为不满意信号。
  */
 export function inferSatisfaction(followUpMessage: string | null): number | null {
   if (!followUpMessage) return null;
 
   const satisfiedPattern = /谢谢|太好了|不错|很好|很棒|OK|好的|完美|搞定|可以了|thanks|great|nice|perfect|awesome|thank you|works/i;
-  const unsatisfiedPattern = /不对|重新|错了|不行|不是|不要|取消|wrong|incorrect|redo|again|not working|bad|error/i;
+  // 不含裸词"重新"：避免"重新整理一下，谢谢"等正面语境被误判为不满意
+  const unsatisfiedPattern = /不对|错了|不行|不是|不要|取消|重新做|重新弄|重写|再试一次|wrong|incorrect|redo|again|not working|bad|error/i;
 
   // Check dissatisfaction first: "not OK", "不对" etc. contain substrings
   // that the satisfied pattern would also match ("OK", "对").
@@ -129,6 +134,19 @@ export class SkillMetricsService {
       duration_ms: durationMs,
       tool_calls_json: JSON.stringify(toolCalls.map(tc => tc.name)),
     });
+  }
+
+  /**
+   * Update only the success field of a feedback record.
+   * Used to backfill user satisfaction inferred from the follow-up message
+   * after the completion event has already been recorded.
+   */
+  recordSatisfaction(id: string, success: number): void {
+    this.db.prepare(`
+      UPDATE skill_feedback
+      SET success = @success
+      WHERE id = @id
+    `).run({ id, success });
   }
 
   /**

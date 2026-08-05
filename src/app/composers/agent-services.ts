@@ -326,6 +326,9 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
     getVisionBridge,
     config.multimodal?.image?.mode ?? 'native_first',
     harnessServices,
+    // Skill self-evolution feedback loop: lets AgentService reach
+    // skillMetricsService (recordSatisfaction / recordCompletion / getStats).
+    () => servicesRef.current,
   );
 
   return {

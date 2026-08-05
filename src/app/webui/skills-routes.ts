@@ -265,14 +265,13 @@ export function registerSkillsRoutes(app: FastifyInstance, cfg: SkillsRouteConfi
   app.get<{ Params: { slug: string } }>('/api/skills/:slug/proposals', async (request, reply) => {
     try {
       const { slug } = request.params;
-      const metricsService = cfg.services.skillMetricsService;
-      if (!metricsService) {
-        return reply.status(501).send({ error: 'Metrics service not available' });
+      const generator = cfg.services.proposalGenerator;
+      if (!generator) {
+        return reply.status(501).send({ error: 'Proposal service not available' });
       }
 
-      const { ProposalGenerator } = await import('../../skills/skill-evolution/proposal-generator.js');
-      const generator = new ProposalGenerator(metricsService, cfg.services.skillRegistry);
-      // Generate fresh proposals based on current metrics
+      // 复用 bootstrap 中的共享单例 —— 新提案持久化到 SQLite，
+      // apply/dismiss 状态跨请求、跨重启保留
       generator.generate(slug);
       const proposals = generator.getProposals(slug);
 
@@ -287,13 +286,11 @@ export function registerSkillsRoutes(app: FastifyInstance, cfg: SkillsRouteConfi
   app.get<{ Params: { slug: string } }>('/api/skills/:slug/health', async (request, reply) => {
     try {
       const { slug } = request.params;
-      const metricsService = cfg.services.skillMetricsService;
-      if (!metricsService) {
-        return reply.status(501).send({ error: 'Metrics service not available' });
+      const generator = cfg.services.proposalGenerator;
+      if (!generator) {
+        return reply.status(501).send({ error: 'Proposal service not available' });
       }
 
-      const { ProposalGenerator } = await import('../../skills/skill-evolution/proposal-generator.js');
-      const generator = new ProposalGenerator(metricsService, cfg.services.skillRegistry);
       const report = generator.getHealthReport(slug);
 
       if (!report) {
@@ -311,13 +308,12 @@ export function registerSkillsRoutes(app: FastifyInstance, cfg: SkillsRouteConfi
   app.post<{ Params: { slug: string; proposalId: string } }>('/api/skills/:slug/proposals/:proposalId/apply', async (request, reply) => {
     try {
       const { slug, proposalId } = request.params;
-      const metricsService = cfg.services.skillMetricsService;
-      if (!metricsService) {
-        return reply.status(501).send({ error: 'Metrics service not available' });
+      const generator = cfg.services.proposalGenerator;
+      if (!generator) {
+        return reply.status(501).send({ error: 'Proposal service not available' });
       }
 
-      const { ProposalGenerator } = await import('../../skills/skill-evolution/proposal-generator.js');
-      const generator = new ProposalGenerator(metricsService, cfg.services.skillRegistry);
+      // 共享单例上直接更新状态并同步写入 SQLite
       const ok = generator.applyProposal(slug, proposalId);
 
       if (!ok) {
@@ -335,13 +331,12 @@ export function registerSkillsRoutes(app: FastifyInstance, cfg: SkillsRouteConfi
   app.post<{ Params: { slug: string; proposalId: string } }>('/api/skills/:slug/proposals/:proposalId/dismiss', async (request, reply) => {
     try {
       const { slug, proposalId } = request.params;
-      const metricsService = cfg.services.skillMetricsService;
-      if (!metricsService) {
-        return reply.status(501).send({ error: 'Metrics service not available' });
+      const generator = cfg.services.proposalGenerator;
+      if (!generator) {
+        return reply.status(501).send({ error: 'Proposal service not available' });
       }
 
-      const { ProposalGenerator } = await import('../../skills/skill-evolution/proposal-generator.js');
-      const generator = new ProposalGenerator(metricsService, cfg.services.skillRegistry);
+      // 共享单例上直接更新状态并同步写入 SQLite
       const ok = generator.dismissProposal(slug, proposalId);
 
       if (!ok) {

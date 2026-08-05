@@ -5,13 +5,19 @@
  * Proposals are NEVER auto-applied — humans are always in the loop.
  *
  * Usage:
- *   const generator = new ProposalGenerator(metricsService, skillRegistry);
+ *   const generator = new ProposalGenerator(metricsService, skillRegistry, db);
  *   const proposals = generator.generate(skillId);
  *   // → { triggerAdditions, toolAdjustments, promptRefinements }
+ *
+ * 持久化：传入 db 时提案写入 SQLite 的 skill_proposals 表，bootstrap 中以
+ * 共享单例运行，apply/dismiss 状态跨 HTTP 请求、跨服务重启保留；不传 db
+ * 时退回纯内存模式（兼容测试与旧用法）。
  */
 
+import type Database from 'better-sqlite3';
 import type { SkillMetricsService, SkillUsageStats } from './skill-metrics.js';
 import type { SkillRegistry } from '../../app/types.js';
+import { generateId } from '../../shared/ids.js';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -43,12 +49,6 @@ export interface SkillHealthReport {
   summary: string;
 }
 
-// ── Helper ─────────────────────────────────────────────────────────────────────
-
-function generateId(): string {
-  return `prop-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
 // ── Proposal Generator ─────────────────────────────────────────────────────────
 
 export class ProposalGenerator {
@@ -56,10 +56,87 @@ export class ProposalGenerator {
   private skillRegistry: SkillRegistry;
   /** In-memory proposal store (proposals survive until applied/dismissed) */
   private proposals = new Map<string, EvolutionProposal[]>();
+  /** SQLite 持久化句柄；为 null 时退回纯内存模式 */
+  private db: Database.Database | null;
 
-  constructor(metrics: SkillMetricsService, skillRegistry: SkillRegistry) {
+  constructor(
+    metrics: SkillMetricsService,
+    skillRegistry: SkillRegistry,
+    db?: Database.Database,
+  ) {
     this.metrics = metrics;
     this.skillRegistry = skillRegistry;
+    this.db = db ?? null;
+    // 有 db 时启动即加载历史提案，保证重启后 apply/dismiss 状态可恢复
+    if (this.db) {
+      this.loadProposals();
+    }
+  }
+
+  /**
+   * 从 skill_proposals 表加载全部提案进内存（构造时调用）。
+   * change_json 列反序列化回 change 字段；解析失败的行视为脏数据跳过。
+   */
+  private loadProposals(): void {
+    const rows = this.db!.prepare('SELECT * FROM skill_proposals').all() as Array<{
+      id: string;
+      skill_id: string;
+      type: string;
+      title: string;
+      description: string;
+      change_json: string;
+      priority: number;
+      created_at: number;
+      status: string;
+    }>;
+
+    for (const row of rows) {
+      let change: EvolutionProposal['change'];
+      try {
+        change = JSON.parse(row.change_json) as EvolutionProposal['change'];
+      } catch {
+        continue; // 脏数据：跳过该行
+      }
+
+      const proposals = this.proposals.get(row.skill_id) ?? [];
+      proposals.push({
+        id: row.id,
+        skillId: row.skill_id,
+        type: row.type as EvolutionProposal['type'],
+        title: row.title,
+        description: row.description,
+        change,
+        priority: row.priority,
+        createdAt: row.created_at,
+        status: row.status as EvolutionProposal['status'],
+      });
+      this.proposals.set(row.skill_id, proposals);
+    }
+  }
+
+  /** 将新生成的提案写入 skill_proposals 表（幂等：主键冲突时忽略） */
+  private persistNewProposals(newProposals: EvolutionProposal[]): void {
+    if (!this.db || newProposals.length === 0) return;
+
+    const insertStmt = this.db.prepare(`
+      INSERT OR IGNORE INTO skill_proposals
+        (id, skill_id, type, title, description, change_json, priority, created_at, status)
+      VALUES
+        (@id, @skill_id, @type, @title, @description, @change_json, @priority, @created_at, @status)
+    `);
+    for (const p of newProposals) {
+      insertStmt.run({
+        id: p.id,
+        skill_id: p.skillId,
+        type: p.type,
+        title: p.title,
+        description: p.description,
+        change_json: JSON.stringify(p.change),
+        priority: p.priority,
+        created_at: p.createdAt,
+        status: p.status,
+      });
+    }
   }
 
   /**
@@ -76,7 +153,7 @@ export class ProposalGenerator {
     // ── Trigger suggestions ───────────────────────────────────────────
     if (stats.successRate !== null && stats.successRate < 60) {
       proposals.push({
-        id: generateId(),
+        id: `prop-${generateId()}`,
         skillId,
         type: 'trigger_addition',
         title: '考虑添加更多触发词以提高匹配率',
@@ -96,7 +173,7 @@ export class ProposalGenerator {
     // ── Tool suggestions ──────────────────────────────────────────────
     if (stats.topTools.length === 0 && stats.totalActivations > 5) {
       proposals.push({
-        id: generateId(),
+        id: `prop-${generateId()}`,
         skillId,
         type: 'tool_adjustment',
         title: '考虑添加 allowed-tools 以明确技能的能力范围',
@@ -116,7 +193,7 @@ export class ProposalGenerator {
     // ── Prompt refinement suggestions ─────────────────────────────────
     if (stats.totalActivations > 10 && (!stats.avgDurationMs || stats.avgDurationMs > 120_000)) {
       proposals.push({
-        id: generateId(),
+        id: `prop-${generateId()}`,
         skillId,
         type: 'prompt_refinement',
         title: '考虑优化技能指令以减少执行时间',
@@ -135,7 +212,7 @@ export class ProposalGenerator {
     // ── Low usage warning ─────────────────────────────────────────────
     if (stats.totalActivations <= 2 && skill) {
       proposals.push({
-        id: generateId(),
+        id: `prop-${generateId()}`,
         skillId,
         type: 'general',
         title: '技能使用率较低',
@@ -154,9 +231,14 @@ export class ProposalGenerator {
 
     // Store proposals
     const existing = this.proposals.get(skillId) ?? [];
-    // Deduplicate by type
-    const existingTypes = new Set(existing.map(p => p.type));
+    // 只对 pending 状态的提案按 type 去重 —— dismissed/applied 的类型不再
+    // 阻塞新提案生成，避免"驳回过一次就永远不再建议"的问题
+    const existingTypes = new Set(
+      existing.filter(p => p.status === 'pending').map(p => p.type),
+    );
     const newProposals = proposals.filter(p => !existingTypes.has(p.type));
+    // 有 db 时持久化新提案，保证重启后仍可追溯
+    this.persistNewProposals(newProposals);
     this.proposals.set(skillId, [...existing, ...newProposals]);
 
     return [...existing, ...newProposals];
@@ -218,6 +300,10 @@ export class ProposalGenerator {
     const p = proposals.find(p => p.id === proposalId);
     if (!p) return false;
     p.status = 'applied';
+    // 同步持久化状态，重启后仍保持 applied
+    if (this.db) {
+      this.db.prepare('UPDATE skill_proposals SET status = ? WHERE id = ?').run('applied', p.id);
+    }
     return true;
   }
 
@@ -230,6 +316,10 @@ export class ProposalGenerator {
     const p = proposals.find(p => p.id === proposalId);
     if (!p) return false;
     p.status = 'dismissed';
+    // 同步持久化状态，重启后仍保持 dismissed
+    if (this.db) {
+      this.db.prepare('UPDATE skill_proposals SET status = ? WHERE id = ?').run('dismissed', p.id);
+    }
     return true;
   }
 }

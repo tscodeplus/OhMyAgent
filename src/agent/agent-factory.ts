@@ -185,6 +185,9 @@ export interface AgentTurnContext {
   effectiveMessage?: string;
   /** Skill name activated for this turn (set when a skill matches via trigger or explicit command). */
   activatedSkillName?: string;
+  /** Skill id (manifest id) activated for this turn — the stable identifier
+   *  used for metrics and harness failure context. */
+  activatedSkillId?: string;
 }
 
 /** Options for the approval integration. */
@@ -485,10 +488,12 @@ export function createAgentFactory(
         if (compiled) {
           turnContext.effectiveMessage = options?.message;
           turnContext.activatedSkillName = activation.activatedSkillNames ?? activation.scope.scopeKey;
+          turnContext.activatedSkillId = activation.scope.scopeKey;
           logger?.info({ scopeKey: activation.scope.scopeKey, skillNames: turnContext.activatedSkillName }, '[agent-factory] skill activation names resolved');
         } else {
           turnContext.effectiveMessage = undefined;
           turnContext.activatedSkillName = undefined;
+          turnContext.activatedSkillId = undefined;
         }
       }
 

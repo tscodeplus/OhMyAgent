@@ -11,7 +11,7 @@ import type { AgentTurnContext } from './agent-factory.js';
 import { i18n } from '../i18n/i18n-service.js';
 import type { Agent } from '../pi-mono/agent/agent.js';
 import { setSessionAgent, clearSessionAgent } from './agent-context.js';
-import type { ReplyDispatcher, FooterConfig } from '../app/types.js';
+import type { ReplyDispatcher, FooterConfig, AppServices } from '../app/types.js';
 import type { SessionRepository } from '../memory/repositories/session-repository.js';
 import type { MessageRepository } from '../memory/repositories/message-repository.js';
 import type { EpisodeRepository } from '../memory/repositories/episode-repository.js';
@@ -25,8 +25,10 @@ import type { VisionBridgeService } from '../vision-bridge/vision-bridge-service
 import { persistMessages } from './message-persister.js';
 import { recoverFromOverflow } from './overflow-recovery.js';
 import { subscribeToolRunAudit } from './tool-audit.js';
+import { activeSkillFeedbackIds } from './skill-activator.js';
+import { inferSatisfaction } from '../skills/skill-evolution/skill-metrics.js';
 import type { HarnessServices } from '../harness/factory.js';
-import type { FailureContext, ToolCallRecord, FailureSignal, ImprovementProposal } from '../harness/types.js';
+import type { FailureContext, ToolCallRecord, FailureSignal, ImprovementProposal, SkillStatsInfo } from '../harness/types.js';
 
 export interface AgentServiceOptions {
   sessionId?: string;
@@ -99,6 +101,11 @@ export class AgentService {
     auditUnsubscribe?: () => void;
     persistedMessageCount: number;
     turnElapsed?: number;
+    /** Agent message count at the start of the current turn. Tool-call
+     *  extraction (completion metrics, harness failure context) only
+     *  considers messages after this baseline, so historical failures
+     *  are not re-analyzed. */
+    turnMessageBaseline?: number;
     turnContext: AgentTurnContext;
     channel?: string;
     /** Agent name captured from the dispatcher for metadata persistence. */
@@ -113,6 +120,14 @@ export class AgentService {
 
   private sessionAgentMap = new Map<string, string>();
 
+  /** sessionId → feedbackId awaiting satisfaction inference from the user's
+   *  next message (skill self-evolution feedback loop). */
+  private pendingSatisfaction = new Map<string, string>();
+
+  /** Last inferred user satisfaction per session, consumed by the harness
+   *  failure context (userFeedback). */
+  private sessionSatisfaction = new Map<string, 'satisfied' | 'dissatisfied' | null>();
+
   constructor(
     private factory: AgentFactory,
     private replyDispatcherFactory: (chatId: string, messageId?: string, agentId?: string) => ReplyDispatcher,
@@ -121,6 +136,9 @@ export class AgentService {
     private getVisionBridge?: () => VisionBridgeService | undefined,
     private imageMode: 'native_first' | 'bridge_only' | 'native_only' = 'native_first',
     private harness?: HarnessServices,
+    /** Lazy accessor for AppServices (bootstrap servicesRef) — used to reach
+     *  skillMetricsService for the skill self-evolution feedback loop. */
+    private getServices?: () => AppServices | undefined,
   ) {}
 
   /**
@@ -133,6 +151,31 @@ export class AgentService {
   ): Promise<Agent> {
     const sessionId = options?.sessionId ?? 'default';
     let runtime = this.runtimes.get(sessionId);
+
+    // ---- Skill self-evolution feedback loop: satisfaction inference ----
+    // Runs before the runtime build so it only picks up entries left over
+    // from a previous turn (same-turn activations are consumed at completion).
+    // The activator Map has no cleanup of its own — take-and-delete here.
+    const leftoverFeedback = activeSkillFeedbackIds.get(sessionId);
+    if (leftoverFeedback) {
+      this.pendingSatisfaction.set(sessionId, leftoverFeedback.feedbackId);
+      activeSkillFeedbackIds.delete(sessionId);
+    }
+    // Infer the previous turn's user satisfaction from this new message.
+    const pendingFeedbackId = this.pendingSatisfaction.get(sessionId);
+    if (pendingFeedbackId) {
+      const sat = inferSatisfaction(input);
+      if (sat !== null) {
+        this.sessionSatisfaction.set(sessionId, sat === 1 ? 'satisfied' : 'dissatisfied');
+        try {
+          this.getServices?.()?.skillMetricsService?.recordSatisfaction(pendingFeedbackId, sat);
+        } catch (err) {
+          // Non-fatal — best-effort metrics recording must never break the turn
+          this.persistence?.logger?.debug({ err, sessionId }, 'recordSatisfaction failed — best-effort');
+        }
+        this.pendingSatisfaction.delete(sessionId);
+      }
+    }
 
     const agentIdFromSession = this.sessionAgentMap.get(sessionId);
 
@@ -273,6 +316,11 @@ export class AgentService {
     // callback (which fires before agent.prompt() returns).
     const turnStart = Date.now();
 
+    // Baseline for the current turn's message window — tool-call extraction
+    // (completion metrics, harness failure analysis) only considers messages
+    // added after this point, so historical failures are not re-analyzed.
+    runtime.turnMessageBaseline = agent.state.messages.length;
+
     // Wire pre-complete callback: persist messages BEFORE the SSE "done"
     // event is sent so the frontend refetch always sees the latest turn.
     if (this.persistence && sessionId) {
@@ -368,6 +416,37 @@ export class AgentService {
         });
       }
 
+      // ---- Skill self-evolution feedback loop: completion metrics ----
+      try {
+        const extracted = this.extractToolCalls(
+          agent.state.messages.slice(runtime.turnMessageBaseline ?? 0),
+        );
+        const feedbackEntry = activeSkillFeedbackIds.get(sessionId);
+        if (feedbackEntry) {
+          // success stays null — the user's next message infers satisfaction
+          this.getServices?.()?.skillMetricsService?.recordCompletion(
+            feedbackEntry.feedbackId,
+            null,
+            Date.now() - feedbackEntry.startTime,
+            extracted.toolCalls,
+          );
+          // Keep the feedbackId alive for satisfaction inference on the next
+          // user message — the "closed loop" half of the feedback cycle.
+          this.pendingSatisfaction.set(sessionId, feedbackEntry.feedbackId);
+          activeSkillFeedbackIds.delete(sessionId);
+        }
+        if (this.harness) {
+          this.harness.autoApplyMonitor.onActivationComplete(
+            runtime.turnContext?.activatedSkillId ?? null,
+            (agent as any).state?.agentId || 'default',
+            { success: true, errorCount: extracted.errorCount, durationMs: runtime.turnElapsed ?? 0 },
+          );
+        }
+      } catch (err) {
+        // Non-fatal — best-effort metrics recording must never break the turn
+        this.persistence?.logger?.debug({ err, sessionId }, 'Skill feedback completion failed — best-effort');
+      }
+
       // ---- Self-Harness: failure detection and optimization ----
       if (this.harness) {
         this.detectAndOptimize(runtime, sessionId, null).catch(err => {
@@ -381,6 +460,36 @@ export class AgentService {
       runtime.auditUnsubscribe?.();
       this.runtimes.delete(sessionId);
       this.persistence?.logger.error({ err: error }, 'agent execute error');
+
+      // ---- Skill self-evolution feedback loop: failure completion ----
+      // Same backfill as the success path; runtime.turnElapsed may not have
+      // been updated here, so the duration falls back to Date.now() - turnStart.
+      try {
+        const extracted = this.extractToolCalls(
+          agent.state.messages.slice(runtime.turnMessageBaseline ?? 0),
+        );
+        const feedbackEntry = activeSkillFeedbackIds.get(sessionId);
+        if (feedbackEntry) {
+          this.getServices?.()?.skillMetricsService?.recordCompletion(
+            feedbackEntry.feedbackId,
+            null,
+            Date.now() - feedbackEntry.startTime,
+            extracted.toolCalls,
+          );
+          this.pendingSatisfaction.set(sessionId, feedbackEntry.feedbackId);
+          activeSkillFeedbackIds.delete(sessionId);
+        }
+        if (this.harness) {
+          this.harness.autoApplyMonitor.onActivationComplete(
+            runtime.turnContext?.activatedSkillId ?? null,
+            (agent as any).state?.agentId || 'default',
+            { success: false, errorCount: extracted.errorCount, durationMs: Date.now() - turnStart },
+          );
+        }
+      } catch (err) {
+        // Non-fatal — best-effort metrics recording must never break the turn
+        this.persistence?.logger?.debug({ err, sessionId }, 'Skill feedback failure completion failed — best-effort');
+      }
 
       // ---- Self-Harness: detect failure from error ----
       if (this.harness) {
@@ -769,6 +878,50 @@ export class AgentService {
     return subscribeToolRunAudit(agent, sessionId, toolRunRepository);
   }
 
+  /**
+   * Extract tool calls (and the error count) from agent state messages.
+   * Shared by completion metrics backfill and the harness failure context.
+   * Callers slice to `runtime.turnMessageBaseline` to only analyze the
+   * current turn — otherwise historical failures get re-analyzed.
+   */
+  private extractToolCalls(
+    messages: unknown[],
+  ): {
+    toolCalls: ToolCallRecord[];
+    errors: Array<{ toolName: string; message: string; timestamp: number }>;
+    errorCount: number;
+  } {
+    const toolCalls: ToolCallRecord[] = [];
+    const errors: Array<{ toolName: string; message: string; timestamp: number }> = [];
+
+    for (const rawMsg of messages) {
+      const msg = rawMsg as any;
+      if (msg.role !== 'toolResult') continue;
+      const contentArr = Array.isArray(msg.content)
+        ? msg.content.filter((b: any) => b.type === 'text').map((b: any) => b.text || '').join('\n')
+        : typeof msg.content === 'string'
+          ? msg.content
+          : '';
+      const isError = msg.isError === true;
+      toolCalls.push({
+        name: msg.toolName ?? 'unknown',
+        args: msg.details ?? {},
+        result: contentArr,
+        isError,
+        errorMessage: isError ? contentArr.slice(0, 200) : undefined,
+        timestamp: msg.timestamp ?? Date.now(),
+      });
+      if (isError) {
+        errors.push({
+          toolName: msg.toolName ?? 'unknown',
+          message: contentArr.slice(0, 200),
+          timestamp: msg.timestamp ?? Date.now(),
+        });
+      }
+    }
+    return { toolCalls, errors, errorCount: errors.length };
+  }
+
   private async detectAndOptimize(
     runtime: NonNullable<ReturnType<typeof this.runtimes.get>>,
     sessionId: string,
@@ -776,48 +929,46 @@ export class AgentService {
   ): Promise<void> {
     const harness = this.harness!;
 
-    // Build FailureContext from runtime state
-    const toolCalls: ToolCallRecord[] = [];
-    const errors: Array<{ toolName: string; message: string; timestamp: number }> = [];
-
-    // Extract tool calls from agent state messages
+    // Build FailureContext from runtime state — only the current turn's
+    // messages (post-baseline) so historical failures are not re-analyzed.
     const messages = runtime.agent.state.messages;
-    for (const msg of messages) {
-      if ((msg as any).role === 'toolResult') {
-        const contentArr = Array.isArray((msg as any).content)
-          ? (msg as any).content.filter((b: any) => b.type === 'text').map((b: any) => b.text || '').join('\n')
-          : typeof (msg as any).content === 'string'
-            ? (msg as any).content
-            : '';
-        const isError = (msg as any).isError === true;
-        toolCalls.push({
-          name: (msg as any).toolName ?? 'unknown',
-          args: (msg as any).details ?? {},
-          result: contentArr,
-          isError,
-          errorMessage: isError ? contentArr.slice(0, 200) : undefined,
-          timestamp: (msg as any).timestamp ?? Date.now(),
-        });
-        if (isError) {
-          errors.push({
-            toolName: (msg as any).toolName ?? 'unknown',
-            message: contentArr.slice(0, 200),
-            timestamp: (msg as any).timestamp ?? Date.now(),
-          });
+    const { toolCalls, errors } = this.extractToolCalls(
+      messages.slice(runtime.turnMessageBaseline ?? 0),
+    );
+
+    // Historical usage stats for the active skill (when metrics are
+    // reachable), injected so the diagnosis LLM can reason with data
+    // beyond the single failing session.
+    const skillId = runtime.turnContext?.activatedSkillId;
+    let skillStats: SkillStatsInfo | undefined;
+    if (skillId) {
+      try {
+        const stats = this.getServices?.()?.skillMetricsService?.getStats(skillId);
+        if (stats) {
+          skillStats = {
+            totalActivations: stats.totalActivations,
+            successRate: stats.successRate,
+            avgDurationMs: stats.avgDurationMs,
+            topTools: stats.topTools,
+          };
         }
+      } catch (statsErr) {
+        // Non-fatal — stats are a nice-to-have for the diagnosis LLM
+        this.persistence?.logger?.debug({ err: statsErr, sessionId }, 'skillStats lookup failed — best-effort');
       }
     }
 
     const failureContext: FailureContext = {
       sessionId,
-      skillId: runtime.turnContext?.activatedSkillName,
+      skillId,
+      skillStats,
       agentId: (runtime.agent as any).state?.agentId || 'default',
       // effectiveMessage carries the user's task with the $skill-id prefix
       // stripped; falls back to the original input.
       taskMessage: runtime.turnContext?.effectiveMessage ?? '',
       toolCalls,
       errors,
-      userFeedback: null,
+      userFeedback: this.sessionSatisfaction.get(sessionId) ?? null,
       durationMs: runtime.turnElapsed ?? 0,
       terminatedEarly: error !== null,
       agentEndReason: error ? 'error' : 'complete',

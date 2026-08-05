@@ -113,11 +113,14 @@ export class SkillEditor {
       return { success: false, error: `failed to read ${surfacePath}: ${message}` };
     }
 
-    // 4. Replace before with after
-    const updatedContent = content.replace(proposal.diff.before, proposal.diff.after);
-    if (updatedContent === content) {
+    // 4. Replace before with after. Count occurrences first: a before text
+    // that appears multiple times is only applied at the first site — the
+    // caller gets a warning instead of a silently partial application.
+    const occurrences = content.split(proposal.diff.before).length - 1;
+    if (occurrences === 0) {
       return { success: false, error: 'diff before text not found in file' };
     }
+    const updatedContent = content.replace(proposal.diff.before, proposal.diff.after);
 
     // 5. Write updated content, keeping the original for rollback
     try {
@@ -155,6 +158,11 @@ export class SkillEditor {
       return { success: false, error: `failed to retrieve commit hash: ${message}` };
     }
 
-    return { success: true, commitHash };
+    const result: ApplyResult = { success: true, commitHash };
+    if (occurrences > 1) {
+      result.warning =
+        `diff.before appeared ${occurrences} times; only the first occurrence was replaced`;
+    }
+    return result;
   }
 }

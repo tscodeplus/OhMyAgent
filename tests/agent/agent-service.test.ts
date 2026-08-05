@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AgentService } from '../../src/agent/agent-service.js';
 import type { AgentFactory } from '../../src/agent/agent-factory.js';
 import type { ReplyDispatcher } from '../../src/app/types.js';
+import { activeSkillFeedbackIds } from '../../src/agent/skill-activator.js';
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -125,6 +126,11 @@ describe('AgentService', () => {
       factory as unknown as AgentFactory,
       () => dispatcher,
     );
+  });
+
+  afterEach(() => {
+    // The activator feedback map is module-level — clean up between tests
+    activeSkillFeedbackIds.clear();
   });
 
   // ------------------------------------------------------------------ execute: basic flow
@@ -696,5 +702,107 @@ describe('AgentService', () => {
   it('followUp() returns false for unknown session', async () => {
     const ok = await service.followUp('nonexistent', 'question');
     expect(ok).toBe(false);
+  });
+
+  // -------------------------------------------------- skill feedback loop
+
+  it('records skill completion metrics after a successful turn and keeps the feedbackId pending', async () => {
+    const agent = createMockAgent();
+    agent.prompt.mockImplementationOnce(async () => {
+      // Simulate the activator having recorded an activation for this turn
+      // (in production this happens inside factory.create → activateSkill)
+      activeSkillFeedbackIds.set('s1', { feedbackId: 'fb-1', startTime: Date.now() - 1234 });
+      agent.state.messages = [
+        { role: 'user', content: 'do it' },
+        { role: 'toolResult', content: 'ok', toolName: 'shell', details: { command: 'ls' }, isError: false },
+      ];
+    });
+    const metricsService = {
+      recordCompletion: vi.fn(),
+      recordSatisfaction: vi.fn(),
+      getStats: vi.fn(() => null),
+    };
+    const svc = new AgentService(
+      createMockFactory(agent) as unknown as AgentFactory,
+      () => createMockDispatcher(),
+      undefined, undefined, 'native_first', undefined,
+      () => ({ skillMetricsService: metricsService } as any),
+    );
+
+    await svc.execute('do it', { sessionId: 's1' });
+
+    // Completion recorded with success=null (satisfaction comes later)
+    expect(metricsService.recordCompletion).toHaveBeenCalledWith(
+      'fb-1',
+      null,
+      expect.any(Number),
+      [{ name: 'shell', args: { command: 'ls' }, result: 'ok', isError: false, errorMessage: undefined, timestamp: expect.any(Number) }],
+    );
+    // Entry consumed — the map must not leak
+    expect(activeSkillFeedbackIds.has('s1')).toBe(false);
+  });
+
+  it('infers satisfaction from the follow-up message and records it once', async () => {
+    // Leftover entry from a previous turn (e.g. activation recorded before
+    // the turn failed to complete) — consumed at the next execute() start
+    activeSkillFeedbackIds.set('s1', { feedbackId: 'fb-1', startTime: Date.now() - 1000 });
+    const metricsService = {
+      recordCompletion: vi.fn(),
+      recordSatisfaction: vi.fn(),
+      getStats: vi.fn(() => null),
+    };
+    const svc = new AgentService(
+      factory as unknown as AgentFactory,
+      () => dispatcher,
+      undefined, undefined, 'native_first', undefined,
+      () => ({ skillMetricsService: metricsService } as any),
+    );
+
+    await svc.execute('帮我写个脚本', { sessionId: 's1' }); // entry moved to pending, not inferable
+    expect(metricsService.recordSatisfaction).not.toHaveBeenCalled();
+
+    await svc.execute('谢谢，搞定', { sessionId: 's1' }); // satisfied
+    expect(metricsService.recordSatisfaction).toHaveBeenCalledWith('fb-1', 1);
+
+    await svc.execute('好的', { sessionId: 's1' }); // pending was deleted — no double record
+    expect(metricsService.recordSatisfaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards activation completion to the auto-apply monitor with success and error counts', async () => {
+    const agent = createMockAgent();
+    agent.prompt.mockImplementationOnce(async () => {
+      agent.state.messages = [
+        { role: 'user', content: 'run shell' },
+        { role: 'toolResult', content: 'boom', toolName: 'shell', details: { command: 'ls' }, isError: true },
+      ];
+    });
+    const harness = {
+      autoApplyMonitor: { onActivationComplete: vi.fn(), watch: vi.fn() },
+      failureDetector: { detect: vi.fn(() => null) }, // short-circuit optimization
+      rateLimiter: {},
+      optimizer: {},
+      approvalPolicy: {},
+      skillEditor: {},
+      surfaceProvider: {},
+    };
+    const svc = new AgentService(
+      createMockFactory(agent) as unknown as AgentFactory,
+      () => createMockDispatcher(),
+      undefined, undefined, 'native_first',
+      harness as any,
+    );
+
+    await svc.execute('run shell', { sessionId: 's1' });
+
+    expect(harness.autoApplyMonitor.onActivationComplete).toHaveBeenCalledWith(
+      null, 'default', { success: true, errorCount: 1, durationMs: expect.any(Number) },
+    );
+
+    // Failure path reports success: false
+    agent.prompt.mockRejectedValueOnce(new Error('LLM failed'));
+    await expect(svc.execute('boom', { sessionId: 's1' })).rejects.toThrow('LLM failed');
+    expect(harness.autoApplyMonitor.onActivationComplete).toHaveBeenLastCalledWith(
+      null, 'default', { success: false, errorCount: 0, durationMs: expect.any(Number) },
+    );
   });
 });

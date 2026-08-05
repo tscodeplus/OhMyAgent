@@ -1,3 +1,7 @@
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { writeFile, mkdir } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import {
   FailureContext,
   ImprovementProposal,
@@ -11,9 +15,12 @@ import {
   ProposalImpact,
 } from './types.js';
 import { EditableSurfaceProvider } from './editable-surfaces.js';
+import { generateId } from '../shared/ids.js';
 import pino from 'pino';
 
 const logger = pino();
+
+const DEFAULT_MEMORY_PATH = 'data/harness-proposal-memory.json';
 
 /**
  * Configuration passed to the LLM describing available editable surfaces.
@@ -38,15 +45,71 @@ export class HarnessOptimizer {
   private config: HarnessProposalConfig;
   private readonly surfaceProvider: EditableSurfaceProvider;
   private llmCaller: (systemPrompt: string, userMessage: string, model?: string) => Promise<string>;
+  /** Dedup memory of already-proposed changes (persisted across restarts) so
+   *  the same failure pattern does not produce repeat proposals / commits. */
+  private readonly remembered = new Set<string>();
+  private readonly memoryPath: string;
 
   constructor(
     config: HarnessProposalConfig,
     surfaceProvider: EditableSurfaceProvider,
     llmCaller: (systemPrompt: string, userMessage: string, model?: string) => Promise<string>,
+    memoryPath: string = DEFAULT_MEMORY_PATH,
   ) {
     this.config = config;
     this.surfaceProvider = surfaceProvider;
     this.llmCaller = llmCaller;
+    this.memoryPath = memoryPath;
+    this.loadMemory();
+  }
+
+  /** Restore the dedup memory persisted by a previous process (best-effort:
+   *  a missing or corrupt file simply starts with an empty set). */
+  private loadMemory(): void {
+    let raw: string;
+    try {
+      raw = readFileSync(this.memoryPath, 'utf-8');
+    } catch {
+      return; // no memory file yet — first run
+    }
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        for (const key of parsed) {
+          if (typeof key === 'string') this.remembered.add(key);
+        }
+      }
+      logger.info(
+        { restored: this.remembered.size },
+        '[HarnessOptimizer] proposal memory restored',
+      );
+    } catch (err) {
+      logger.warn({ err }, '[HarnessOptimizer] failed to parse proposal memory file');
+    }
+  }
+
+  /** Persist the dedup memory (fire-and-forget; failures are logged only). */
+  private async persistMemory(): Promise<void> {
+    try {
+      await mkdir(dirname(this.memoryPath), { recursive: true });
+      await writeFile(
+        this.memoryPath,
+        JSON.stringify(Array.from(this.remembered), null, 2),
+        'utf-8',
+      );
+    } catch (err) {
+      logger.error({ err }, '[HarnessOptimizer] failed to persist proposal memory');
+    }
+  }
+
+  /** Fingerprint of a generated proposal — used to reject repeat proposals
+   *  for the same failure pattern on the same surface. */
+  private dedupKey(context: FailureContext, proposal: ImprovementProposal): string {
+    const beforeHash = createHash('sha256')
+      .update(proposal.diff.before)
+      .digest('hex')
+      .slice(0, 12);
+    return `${context.skillId ?? '_'}:${proposal.type}:${proposal.diff.surface}:${beforeHash}`;
   }
 
   /**
@@ -109,6 +172,15 @@ export class HarnessOptimizer {
       return null;
     }
 
+    // Step 6: dedup memory — a proposal already emitted for this failure
+    // pattern / surface is not proposed again.
+    const key = this.dedupKey(context, proposal);
+    if (this.remembered.has(key)) {
+      return null;
+    }
+    this.remembered.add(key);
+    void this.persistMemory();
+
     return proposal;
   }
 
@@ -160,6 +232,32 @@ export class HarnessOptimizer {
       JSON.stringify(surfaceDescriptors, null, 2),
     ].join('\n');
 
+    // Historical skill statistics (when available) give the diagnosis LLM
+    // context beyond the single failing session. Rendered before the Errors
+    // section so per-session errors remain the focus.
+    const statsBlock = context.skillStats
+      ? [
+          'Skill historical stats:',
+          `  Activations: ${context.skillStats.totalActivations}`,
+          `  Success rate: ${
+            context.skillStats.successRate === null
+              ? 'unknown'
+              : `${(context.skillStats.successRate * 100).toFixed(0)}%`
+          }`,
+          `  Avg duration: ${
+            context.skillStats.avgDurationMs === null
+              ? 'unknown'
+              : `${context.skillStats.avgDurationMs}ms`
+          }`,
+          `  Top tools: ${
+            context.skillStats.topTools.length > 0
+              ? context.skillStats.topTools.map((t) => `${t.name} (${t.count})`).join(', ')
+              : 'none'
+          }`,
+          '',
+        ]
+      : [];
+
     const userMessage = [
       'Session:',
       `  Task: ${context.taskMessage}`,
@@ -173,6 +271,7 @@ export class HarnessOptimizer {
       'Tool calls:',
       toolCallSummary,
       '',
+      ...statsBlock,
       `Errors (${context.errors.length}):`,
       ...context.errors.map((e) => `  - ${e.toolName}: ${e.message}`),
     ].join('\n');
@@ -294,10 +393,10 @@ export class HarnessOptimizer {
   // ---------------------------------------------------------------------------
 
   /**
-   * Generates a unique, sortable proposal ID.
+   * Generates a unique proposal ID (prefixed; underlying id from shared/ids).
    */
   private generateId(): string {
-    return 'prop-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+    return 'prop-' + generateId();
   }
 
   // ---------------------------------------------------------------------------

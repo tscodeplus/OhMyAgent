@@ -47,8 +47,8 @@ export function createHarnessServices(config: HarnessConfig): HarnessServices | 
     {
       model: config.proposal.model,
       maxEditsPerProposal: config.proposal.maxEditsPerProposal,
-      minConfidence: (config.proposal as any).minConfidence ?? 0.5,
-      allowedMechanisms: (config.proposal as any).allowedMechanisms ?? [
+      minConfidence: config.proposal.minConfidence ?? 0.5,
+      allowedMechanisms: config.proposal.allowedMechanisms ?? [
         'prompt_instruction', 'subagent', 'skill_procedure',
         'tool_configuration', 'middleware', 'runtime_control',
       ],
