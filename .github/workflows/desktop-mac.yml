@@ -1,0 +1,128 @@
+# Desktop macOS build — GitHub Actions CI (macOS has no cross-compile from WSL).
+#
+# Two independent jobs (native arch each, no universal fat binaries):
+#   · macos-13 → x64 (dmg + zip)
+#   · macos-14 → arm64 (dmg + zip)
+#
+# Signing/notarization is optional: with the Apple secrets set the app is
+# signed and notarized; without them an unsigned build is produced (Gatekeeper
+# will warn users; release notes should mention right-click → Open).
+#
+# Trigger: manual (workflow_dispatch) or when a release is published.
+
+name: desktop-mac
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to attach release assets to (e.g. 2.1.0-beta1). Leave empty for artifact-only build.'
+        required: false
+  release:
+    types: [published]
+
+env:
+  OMA_TARGET_PLATFORM_PLACEHOLDER: ''
+
+jobs:
+  build-mac:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-13
+            target: x86_64-apple-darwin
+            bundle_platform: darwin-x64
+          - runner: macos-14
+            target: aarch64-apple-darwin
+            bundle_platform: darwin-arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node (matches bundled runtime)
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: desktop/.node-version
+          cache: pnpm
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build WebUI
+        run: cd ui && pnpm install --frozen-lockfile && pnpm build
+
+      - name: Build server (root TS)
+        run: pnpm build
+
+      - name: Bundle sidecar deps (mac native binaries)
+        run: cd desktop && OMA_TARGET_PLATFORM=${{ matrix.bundle_platform }} node scripts/bundle-deps.cjs
+
+      - name: Fetch bundled Node runtime (mac)
+        run: cd desktop && OMA_TARGET_PLATFORM=${{ matrix.bundle_platform }} node scripts/fetch-node.cjs
+
+      - name: Build sidecar + Tauri app (dmg, zip)
+        run: cd desktop && npm run tauri:build:mac
+        env:
+          # beforeBuildCommand re-runs bundle-deps; keep the platform pruning
+          # aligned with this job's target (default would be win32-x64).
+          OMA_TARGET_PLATFORM: ${{ matrix.bundle_platform }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+
+      - name: Smoke test (launch app binary, check /api/health)
+        run: |
+          APP="desktop/src-tauri/target/release/bundle/macos/OhMyAgent.app"
+          BIN="$APP/Contents/MacOS/ohmyagent-desktop"
+          "$BIN" > /tmp/oma-smoke.log 2>&1 &
+          APP_PID=$!
+          for i in $(seq 1 40); do
+            if curl -sf -m 2 http://127.0.0.1:9191/api/health > /tmp/oma-health.json; then
+              echo "health OK: $(cat /tmp/oma-health.json)"
+              kill $APP_PID 2>/dev/null || true
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "health check failed; app log:"
+          tail -40 /tmp/oma-smoke.log
+          kill $APP_PID 2>/dev/null || true
+          exit 1
+
+      - name: Generate latest.yml metadata
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          DMG=$(ls desktop/src-tauri/target/release/bundle/dmg/*.dmg | head -1)
+          node desktop/scripts/release-meta.cjs "$DMG" "$VERSION"
+          cp "$(dirname "$DMG")/latest.yml" desktop/src-tauri/target/release/bundle/dmg/latest.yml
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ohmyagent-mac-${{ matrix.bundle_platform }}
+          path: |
+            desktop/src-tauri/target/release/bundle/dmg/*
+            desktop/src-tauri/target/release/bundle/macos/*.zip
+          if-no-files-found: error
+
+      - name: Attach to GitHub Release
+        if: (github.event_name == 'release' || github.event.inputs.version != '') && success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event_name == 'release' && github.event.release.tag_name || github.event.inputs.version }}
+          files: |
+            desktop/src-tauri/target/release/bundle/dmg/*
+            desktop/src-tauri/target/release/bundle/macos/*.zip
