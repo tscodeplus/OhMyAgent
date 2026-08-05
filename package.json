@@ -36,6 +36,7 @@
   "engines": {
     "node": ">=20"
   },
+  "packageManager": "pnpm@10.30.3",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",
     "@aws-sdk/client-bedrock-runtime": "^3.1030.0",
