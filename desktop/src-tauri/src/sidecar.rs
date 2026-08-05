@@ -215,7 +215,8 @@ fn spawn_sidecar(
     } else {
         sidecar_dir.join("node")
     };
-    let server_dist = sidecar_dir.join("server-dist");
+    // Sidecar bootstrap resolves server-dist relative to its own cwd; only
+    // the webui root and data paths are passed as env.
     let webui_dist = sidecar_dir.join("webui-dist");
     // All paths handed to the sidecar must be verbatim-free (Node chokes on
     // `\\?\` prefixes).
@@ -230,6 +231,16 @@ fn spawn_sidecar(
     // Windows mishandles an absolute entry path when the cwd differs (EISDIR
     // on the drive letter). index.js itself chdirs to server-dist, which is
     // where bootstrap expects to run.
+    // Windows: a GUI process spawning a console app (node.exe) allocates a
+    // new console window unless CREATE_NO_WINDOW is set — that black flash
+    // at startup. tokio's Command implements std's CommandExt, so the flag
+    // applies here too.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
     cmd.arg("index.js")
         .current_dir(&sidecar_dir)
         .env("OHMYAGENT_HOME", &data_dir)
@@ -440,8 +451,11 @@ fn reserve_port() -> u16 {
 /// other platforms: SIGKILL to the child (no process group is created).
 #[cfg(windows)]
 fn kill_process_tree(pid: u32) -> std::io::Result<()> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     std::process::Command::new("taskkill")
         .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .creation_flags(CREATE_NO_WINDOW)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()?;

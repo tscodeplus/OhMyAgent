@@ -27,7 +27,10 @@ const ID_QUIT: &str = "quit";
 /// Create the tray icon with its initial menu.
 pub fn create_tray(app: &AppHandle, cfg: &DesktopConfig) -> tauri::Result<()> {
     let menu = build_menu(app, cfg)?;
-    let mut builder = TrayIconBuilder::new()
+    // Without an explicit id the tray gets a random unique id and
+    // `app.tray_by_id("main")` in rebuild() silently misses → the menu
+    // would stay frozen at its initial state ("服务启动中…").
+    let mut builder = TrayIconBuilder::with_id("main")
         .menu(&menu)
         .tooltip("OhMyAgent")
         .on_menu_event(|app, event| handle_menu_event(app, event.id().as_ref()))
@@ -51,8 +54,10 @@ pub fn create_tray(app: &AppHandle, cfg: &DesktopConfig) -> tauri::Result<()> {
 }
 
 fn load_tray_icon(app: &AppHandle) -> Option<tauri::image::Image<'static>> {
-    // Use the bundled app icon (16px would be nicer but the app icon is fine).
-    app.default_window_icon().cloned().map(|i| i.to_owned())
+    // 16×16 tray asset (same one the Electron build used) — the 512px app
+    // icon downscaled to tray size renders blurry on Windows.
+    tauri::image::Image::from_bytes(include_bytes!("../../assets/tray-icon.png")).ok()
+        .or_else(|| app.default_window_icon().cloned().map(|i| i.to_owned()))
 }
 
 fn build_menu(app: &AppHandle, cfg: &DesktopConfig) -> tauri::Result<Menu<tauri::Wry>> {
@@ -138,7 +143,11 @@ pub fn rebuild(app: &AppHandle, cfg: &DesktopConfig) {
     if let Some(tray) = app.tray_by_id("main") {
         if let Ok(menu) = build_menu(app, cfg) {
             let _ = tray.set_menu(Some(menu));
+        } else {
+            log::warn!("tray: rebuild failed to build menu");
         }
+    } else {
+        log::warn!("tray: rebuild found no tray with id \"main\"");
     }
 }
 
@@ -177,12 +186,17 @@ fn toggle_main_window(app: &AppHandle) {
 }
 
 fn open_path(app: &AppHandle, path: &std::path::Path) {
-    if let Some(parent) = path.parent() {
-        if parent.exists() {
-            let _ = tauri_plugin_opener::OpenerExt::opener(app)
-                .open_path(parent.to_string_lossy().to_string(), None::<&str>);
-        }
-    }
+    // Open the directory itself; only fall back to the parent when it does
+    // not exist (e.g. logs dir before the sidecar has written anything).
+    let target = if path.exists() {
+        path.to_path_buf()
+    } else if std::fs::create_dir_all(path).is_ok() {
+        path.to_path_buf()
+    } else {
+        path.parent().unwrap_or(path).to_path_buf()
+    };
+    let _ = tauri_plugin_opener::OpenerExt::opener(app)
+        .open_path(target.to_string_lossy().to_string(), None::<&str>);
 }
 
 fn toggle_auto_start(app: &AppHandle) {

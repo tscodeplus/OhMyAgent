@@ -19,6 +19,7 @@ import path from 'node:path';
 import { broadcastEvent } from './control-server.js';
 import { loadConfig } from './config.js';
 import { getT, interpolate } from './i18n.js';
+import { fetchWithProxy } from './net.js';
 
 // ---------------------------------------------------------------------------
 // Version compare + latest.yml parser (verbatim from desktop/src/updater.ts)
@@ -252,7 +253,7 @@ export class AppUpdater {
 
     // Fetch releases from GitHub REST API.
     const apiUrl = 'https://api.github.com/repos/tscodeplus/OhMyAgent/releases?per_page=30';
-    const resp = await fetch(apiUrl, {
+    const resp = await fetchWithProxy(apiUrl, {
       headers: { Accept: 'application/vnd.github.v3+json' },
       signal: AbortSignal.timeout(10_000),
     });
@@ -288,7 +289,7 @@ export class AppUpdater {
     // Fetch latest.yml from the release to get file URLs and checksums.
     const latestYmlUrl = `https://github.com/tscodeplus/OhMyAgent/releases/download/${release.tag_name}/latest.yml`;
     diagLog(`checkForUpdateResult: fetching ${latestYmlUrl}`);
-    const ymlResp = await fetch(latestYmlUrl, { signal: AbortSignal.timeout(10_000) });
+    const ymlResp = await fetchWithProxy(latestYmlUrl, { signal: AbortSignal.timeout(10_000) });
     if (!ymlResp.ok) {
       throw new Error(`latest.yml returned ${ymlResp.status}`);
     }
@@ -379,7 +380,7 @@ export class AppUpdater {
     diagLog(
       `downloadFromPendingUpdate: downloading ${downloadUrl}${existingSize > 0 ? ` (resume at ${existingSize})` : ''}`,
     );
-    const resp = await fetch(downloadUrl, {
+    const resp = await fetchWithProxy(downloadUrl, {
       headers,
       signal: AbortSignal.timeout(300_000),
     });
@@ -882,7 +883,7 @@ export class AppUpdater {
     ];
     for (const { label, url } of testUrls) {
       try {
-        const resp = await fetch(url, {
+        const resp = await fetchWithProxy(url, {
           method: 'GET',
           redirect: 'follow',
           signal: AbortSignal.timeout(10_000),
