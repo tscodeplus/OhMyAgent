@@ -436,7 +436,7 @@ function Invoke-NodeRuntime {
 function Invoke-TauriBuild {
     Write-Step "Building Tauri app (NSIS)"
 
-    $r = Invoke-Cmd "npx tauri build --bundles nsis --no-before-build --publish never" $DesktopDir
+    $r = Invoke-Cmd "npx tauri build --bundles nsis" $DesktopDir
 
     if (-not $r.Success) {
         Write-Fail "tauri build failed"

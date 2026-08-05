@@ -118,7 +118,11 @@ fn status_label(app: &AppHandle, cfg: &DesktopConfig) -> String {
     if cfg.is_remote() {
         return format!("远程网关: {}", cfg.gateway.remote_url);
     }
-    let state = app.state::<std::sync::Arc<SidecarState>>();
+    // The tray is created before sidecar::init manages the state — degrade
+    // gracefully instead of panicking on state().
+    let Some(state) = app.try_state::<std::sync::Arc<SidecarState>>() else {
+        return "服务启动中…".into();
+    };
     let snapshot = take_snapshot(&state);
     match snapshot.kind {
         StatusKind::Running => format!("服务运行中 · 端口 {}", snapshot.port),

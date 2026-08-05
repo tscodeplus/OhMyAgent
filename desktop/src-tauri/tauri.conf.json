@@ -7,7 +7,7 @@
     "beforeDevCommand": "pnpm dev:sidecar",
     "devUrl": "http://127.0.0.1:9191/webui/?electron=1",
     "beforeBuildCommand": "pnpm bundle-deps && pnpm build:sidecar",
-    "frontendDist": "../ui/dist"
+    "frontendDist": "../../ui/dist"
   },
   "app": {
     "windows": [],
@@ -23,7 +23,8 @@
       "../../dist": "sidecar/server-dist",
       "../../ui/dist": "sidecar/webui-dist",
       "../.sidecar-deps/node_modules": "sidecar/node_modules",
-      "../.sidecar-deps/root": "sidecar"
+      "../.sidecar-deps/root": "sidecar",
+      "../.sidecar-deps/runtime": "sidecar"
     },
     "windows": {
       "nsis": {

@@ -36,6 +36,11 @@ fn url_escape(input: &str) -> String {
 /// Main window — built in code (not tauri.conf.json) so the electronAPI compat
 /// layer (compat.js) and the image hover-download injection can be attached via
 /// initialization_script. Hidden until the gateway is healthy.
+///
+/// Note: uses the native system title bar for now — the Electron shell's
+/// frameless + titleBarOverlay look was a cosmetic optimization that Tauri
+/// only supports for config-declared windows; revisit with a self-drawn
+/// caption (WebUI drag region + compat window buttons) in a later iteration.
 pub fn create_main_window(app: &AppHandle) -> tauri::Result<()> {
     let compat_js = include_str!("../../sidecar/src/compat.js");
     let url = WebviewUrl::External(
@@ -43,26 +48,14 @@ pub fn create_main_window(app: &AppHandle) -> tauri::Result<()> {
             .parse::<tauri::Url>()
             .expect("static url"),
     );
-    let builder = WebviewWindowBuilder::new(app, MAIN_LABEL, url)
+    WebviewWindowBuilder::new(app, MAIN_LABEL, url)
         .title("OhMyAgent")
         .inner_size(1200.0, 800.0)
         .min_inner_size(800.0, 600.0)
-        .decorations(false)
         .visible(false)
         .background_color(tauri::window::Color::from((10, 10, 10)))
-        .initialization_script(compat_js);
-
-    // Windows 11 title bar overlay (deep-color variant; the WebUI CSS handles
-    // the visible theme, this only affects the native caption area).
-    #[cfg(target_os = "windows")]
-    {
-        let builder = builder.title_bar_style(tauri::TitleBarStyle::Overlay);
-        builder.build()?;
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        builder.build()?;
-    }
+        .initialization_script(compat_js)
+        .build()?;
     Ok(())
 }
 

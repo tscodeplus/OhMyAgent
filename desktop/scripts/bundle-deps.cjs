@@ -153,6 +153,13 @@ function isWrongPlatformBinary(pkgName) {
     if (!pkgName.startsWith(keepPrefix)) return true;
   }
 
+  // sqlite-vec-*: platform packages (note: "windows" not "win32" in the name).
+  if (pkgName.startsWith('sqlite-vec-')) {
+    const sqliteOs = TARGET_OS === 'win32' ? 'windows' : TARGET_OS;
+    const keep = `sqlite-vec-${sqliteOs}-${TARGET_ARCH}`;
+    if (pkgName !== keep) return true;
+  }
+
   return false;
 }
 
@@ -466,7 +473,10 @@ function main() {
   log('');
 
   // 1. Clean and recreate staging
-  fs.rmSync(STAGING, { recursive: true, force: true });
+  // Clear staging subdirs but keep `.sidecar-deps/runtime` (bundled Node
+  // runtime, fetched separately — wiping it would force a re-download).
+  fs.rmSync(path.join(STAGING, 'node_modules'), { recursive: true, force: true });
+  fs.rmSync(path.join(STAGING, 'root'), { recursive: true, force: true });
   fs.mkdirSync(STAGING_NM, { recursive: true });
 
   // 2. Collect pnpm dependencies from root project
@@ -532,7 +542,8 @@ function main() {
   for (const addonName of NATIVE_ADDONS) {
     let searchDirs;
     if (addonName === 'sqlite-vec') {
-      searchDirs = [path.join(STAGING_NM, `sqlite-vec-${TARGET_OS}-${TARGET_ARCH}`)];
+      const sqliteOs = TARGET_OS === 'win32' ? 'windows' : TARGET_OS;
+      searchDirs = [path.join(STAGING_NM, `sqlite-vec-${sqliteOs}-${TARGET_ARCH}`)];
     } else if (addonName === 'sharp') {
       searchDirs = [path.join(STAGING_NM, '@img', `sharp-${TARGET_OS}-${TARGET_ARCH}`)];
     } else if (addonName === '@nut-tree-fork/nut-js') {

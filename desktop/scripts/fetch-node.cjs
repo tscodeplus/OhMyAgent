@@ -95,11 +95,17 @@ function main() {
   }
 
   pkg.extract(archive, extractDir);
-  // Archive layout: node-v<v>-<platform>/bin/node (or node.exe at root for win zip)
+  // Archive layout: win zip → node-v<v>-win-x64/node.exe; tarballs →
+  // node-v<v>-<platform>/bin/node
+  const platform = key.split('-')[0];
+  const arch = key.split('-')[1];
   const candidates = key.startsWith('win')
-    ? [path.join(extractDir, pkg.out(version))]
+    ? [
+        path.join(extractDir, `node-v${version}-win-x64`, 'node.exe'),
+        path.join(extractDir, 'node.exe'),
+      ]
     : [
-        path.join(extractDir, `node-v${version}-${key.split('-')[0]}-${key.split('-')[1]}`, 'bin', pkg.out(version)),
+        path.join(extractDir, `node-v${version}-${platform}-${arch}`, 'bin', pkg.out(version)),
         path.join(extractDir, `node-v${version}`, 'bin', pkg.out(version)),
       ];
   const bin = candidates.find((c) => fs.existsSync(c));

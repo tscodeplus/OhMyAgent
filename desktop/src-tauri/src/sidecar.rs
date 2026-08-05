@@ -191,11 +191,25 @@ fn spawn_holder(app: AppHandle, state: Arc<SidecarState>, mut child: tokio::proc
     });
 }
 
+/// Windows: tauri's resource_dir() returns `\\?\`-prefixed (verbatim) paths
+/// which Node cannot resolve (EISDIR on the drive letter). Strip the prefix
+/// before handing paths to the sidecar.
+fn strip_verbatim(p: &std::path::Path) -> std::path::PathBuf {
+    #[cfg(windows)]
+    {
+        let s = p.to_string_lossy();
+        if let Some(rest) = s.strip_prefix(r"\\?\") {
+            return std::path::PathBuf::from(rest);
+        }
+    }
+    p.to_path_buf()
+}
+
 fn spawn_sidecar(
     cfg: &ShellConfig,
     state: &Arc<SidecarState>,
 ) -> std::io::Result<tokio::process::Child> {
-    let sidecar_dir = &cfg.resources_dir;
+    let sidecar_dir = strip_verbatim(&cfg.resources_dir);
     let node = if cfg!(windows) {
         sidecar_dir.join("node.exe")
     } else {
@@ -203,17 +217,27 @@ fn spawn_sidecar(
     };
     let server_dist = sidecar_dir.join("server-dist");
     let webui_dist = sidecar_dir.join("webui-dist");
+    // All paths handed to the sidecar must be verbatim-free (Node chokes on
+    // `\\?\` prefixes).
+    let data_dir = strip_verbatim(&cfg.data_dir);
+    let db_path = strip_verbatim(&cfg.db_path);
+    let config_file = strip_verbatim(&cfg.config_file);
+    let log_dir = strip_verbatim(&cfg.log_dir);
     let locale = os_locale();
 
     let mut cmd = tokio::process::Command::new(node);
+    // Entry must be a *relative* path with cwd = the sidecar root: Node 24 on
+    // Windows mishandles an absolute entry path when the cwd differs (EISDIR
+    // on the drive letter). index.js itself chdirs to server-dist, which is
+    // where bootstrap expects to run.
     cmd.arg("index.js")
-        .current_dir(&server_dist)
-        .env("OHMYAGENT_HOME", &cfg.data_dir)
+        .current_dir(&sidecar_dir)
+        .env("OHMYAGENT_HOME", &data_dir)
         .env("OHMYAGENT_PORT", cfg.server_port.to_string())
         .env("OHMYAGENT_BIND_ADDRESS", "127.0.0.1")
-        .env("DATABASE_PATH", &cfg.db_path)
-        .env("CONFIG_FILE", &cfg.config_file)
-        .env("OHMYAGENT_LOG_DIR", &cfg.log_dir)
+        .env("DATABASE_PATH", &db_path)
+        .env("CONFIG_FILE", &config_file)
+        .env("OHMYAGENT_LOG_DIR", &log_dir)
         // 保留原名：服务器 src/ 依赖 ELECTRON_RUN=1 关闭 token 鉴权（零改动）
         .env("ELECTRON_RUN", "1")
         .env("WEBUI_STATIC_ROOT", &webui_dist)
