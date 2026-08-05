@@ -70,7 +70,7 @@ jobs:
       - name: Fetch bundled Node runtime (mac)
         run: cd desktop && OMA_TARGET_PLATFORM=${{ matrix.bundle_platform }} node scripts/fetch-node.cjs
 
-      - name: Build sidecar + Tauri app (dmg, zip)
+      - name: Build sidecar + Tauri app (dmg)
         run: cd desktop && npm run tauri:build:mac
         env:
           # beforeBuildCommand re-runs bundle-deps; keep the platform pruning
@@ -82,6 +82,14 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+
+      - name: Package zip distribution (ditto, preserves resource forks)
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          APP="desktop/src-tauri/target/release/bundle/macos/OhMyAgent.app"
+          ZIP="desktop/src-tauri/target/release/bundle/macos/OhMyAgent_${VERSION}_${{ matrix.bundle_platform }}.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+          ls -lh "$ZIP"
 
       - name: Smoke test (launch app binary, check /api/health)
         run: |
