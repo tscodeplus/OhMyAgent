@@ -1,0 +1,28 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default permissions for all shell windows. Remote API access covers the local gateway origin so the injected compat layer (invoke) works on the WebUI page; the remote-gateway origin is added at runtime (config.rs) when the user configures remote mode.",
+  "windows": [
+    "main",
+    "splash",
+    "gateway-chooser",
+    "updater-progress",
+    "updater-dialog",
+    "error"
+  ],
+  "remote": {
+    "urls": [
+      "http://127.0.0.1:9191",
+      "http://localhost:9191"
+    ]
+  },
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    "opener:default",
+    "notification:default",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled"
+  ]
+}

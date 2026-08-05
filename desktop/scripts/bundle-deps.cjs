@@ -26,17 +26,34 @@ const { execSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '../..');
 const DESKTOP = path.resolve(__dirname, '..');
-const STAGING = path.join(DESKTOP, '.electron-deps');
+const STAGING = path.join(DESKTOP, '.sidecar-deps');
 const STAGING_NM = path.join(STAGING, 'node_modules');
 
-// These packages contain native .node addons that MUST be the Electron-ABI
-// versions from desktop/node_modules/ (rebuilt by electron-builder install-app-deps)
+// Native .node addons that must be present (and Node-ABI) in the staging tree.
+// Under the Tauri sidecar layout the gateway runs on the bundled Node runtime,
+// so plain Node prebuilds (from pnpm install on the build machine) are correct
+// — no electron-rebuild / install-app-deps step anymore.
 const NATIVE_ADDONS = [
   'better-sqlite3',
   'sqlite-vec',
   'sharp',
   '@nut-tree-fork/nut-js',
 ];
+
+/** Recursively find native binaries (.node / .so / .dll / .dylib) under a directory. */
+function findNativeFiles(dir) {
+  if (!fs.existsSync(dir)) return [];
+  const out = [];
+  const walk = (d) => {
+    for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+      const full = path.join(d, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/(\.node|\.so|\.dll|\.dylib)$/.test(entry.name)) out.push(full);
+    }
+  };
+  walk(dir);
+  return out;
+}
 
 // Patterns to skip — dev-only files that bloat the package
 const SKIP_PATTERNS = [
@@ -115,21 +132,25 @@ function log(msg) {
  * every OS+arch combination. We only need the current target platform's binaries
  * — the rest are dead weight that can easily add 200+ MB to the installer.
  */
+// Target platform for native binary pruning. Default: win32-x64 (desktop main
+// release); CI (macOS runners, Linux) overrides via OMA_TARGET_PLATFORM
+// (e.g. darwin-arm64, darwin-x64, linux-x64).
+const TARGET_PLATFORM = process.env.OMA_TARGET_PLATFORM || 'win32-x64';
+const [TARGET_OS, TARGET_ARCH] = TARGET_PLATFORM.split('-');
+
 function isWrongPlatformBinary(pkgName) {
-  // @img/sharp-* packages: only keep colour (shared) and win32-x64 (Electron target)
+  // @img/sharp-* packages: keep only colour (shared) + the target platform variant
   if (pkgName.startsWith('@img/sharp-') || pkgName.startsWith('@img/sharp-libvips-')) {
     if (pkgName === '@img/colour') return false;
-    if (!pkgName.startsWith('@img/sharp-win32-')) return true;
-    // Keep only x64 variant (skip arm64, ia32 for win32)
-    if (!pkgName.includes('-x64')) return true;
+    const keepPrefix = `@img/sharp-${TARGET_OS}-${TARGET_ARCH}`;
+    if (!pkgName.startsWith(keepPrefix)) return true;
   }
 
   // @node-rs/jieba-*: Chinese text segmentation with per-platform native binaries.
-  // Only keep win32-x64 (and the base jieba package). See isWrongPlatformBinary
-  // comment above for rationale.
+  // Keep only the target platform variant.
   if (pkgName.startsWith('@node-rs/jieba-')) {
-    // Skip all non-win32-x64 platform variants
-    if (!pkgName.startsWith('@node-rs/jieba-win32-x64-')) return true;
+    const keepPrefix = `@node-rs/jieba-${TARGET_OS}-${TARGET_ARCH}-`;
+    if (!pkgName.startsWith(keepPrefix)) return true;
   }
 
   return false;
@@ -214,18 +235,11 @@ function copyDir(src, dest, basePath) {
 function collectPnpmDeps(projectDir) {
   log(`Scanning pnpm dependency tree in ${projectDir}...`);
 
-  // pnpm-workspace.yaml forces workspace mode, which changes how
-  // `pnpm list` resolves deps from subdirectories (e.g. desktop/).
-  // When in workspace mode, subdirectory deps like electron-store are
-  // not listed. Temporarily hide the config to get non-workspace behavior.
-  const rootWsYaml = path.resolve(projectDir, 'pnpm-workspace.yaml');
-  const parentWsYaml = path.resolve(projectDir, '..', 'pnpm-workspace.yaml');
-  const wsYaml = fs.existsSync(rootWsYaml) ? rootWsYaml :
-                 fs.existsSync(parentWsYaml) ? parentWsYaml : null;
-  if (wsYaml) {
-    fs.renameSync(wsYaml, wsYaml + '.bak');
-  }
-
+  // Note: the old trick of temporarily renaming pnpm-workspace.yaml to force
+  // non-workspace `pnpm list` no longer works — pnpm v10 in non-workspace mode
+  // resolves no deps at all for a pnpm-structured node_modules. Workspace-mode
+  // listing is correct and also covers subdirectory members (desktop has no
+  // prod deps anymore, so the root listing is what matters).
   let output;
   try {
     // depth=20 is sufficient for any realistic dependency tree.
@@ -240,17 +254,8 @@ function collectPnpmDeps(projectDir) {
     // pnpm list may exit non-zero but still output valid JSON
     output = err.stdout || '';
     if (!output.trim()) {
-      // Restore workspace config before throwing
-      if (wsYaml) {
-        try { fs.renameSync(wsYaml + '.bak', wsYaml); } catch {}
-      }
       throw new Error(`pnpm list failed: ${err.message}`);
     }
-  }
-
-  // Restore workspace config after pnpm list completes
-  if (wsYaml) {
-    try { fs.renameSync(wsYaml + '.bak', wsYaml); } catch {}
   }
 
   let tree;
@@ -503,7 +508,7 @@ function main() {
     if (backfilled > 0) log(`Backfilled ${backfilled} hoisted desktop dep(s)`);
   }
 
-  // Merge both (desktop wins on conflict — has Electron-ABI versions of native addons)
+  // Merge both (desktop wins on conflict)
   const allDeps = new Map(rootDeps);
   for (const [pkgPath, info] of desktopDeps) {
     allDeps.set(pkgPath, info);
@@ -517,23 +522,31 @@ function main() {
     copyPnpmPkg(pkgPath, STAGING_NM);
   }
 
-  // 5. Override native addons with Electron-ABI versions from desktop/node_modules
-  const desktopNm = path.join(DESKTOP, 'node_modules');
-  if (fs.existsSync(desktopNm)) {
-    log('');
-    log('Overriding native addons with Electron ABI versions...');
-    for (const addonName of NATIVE_ADDONS) {
-      const desktopAddonPath = path.join(desktopNm, addonName);
-      if (fs.existsSync(desktopAddonPath)) {
-        // Remove existing (pnpm version) and copy desktop version
-        const destAddonPath = path.join(STAGING_NM, addonName);
-        fs.rmSync(destAddonPath, { recursive: true, force: true });
-        copyDir(desktopAddonPath, destAddonPath, '');
-        log(`  ✓ ${addonName} (Electron ABI)`);
-      } else {
-        log(`  ⚠ ${addonName}: not found in desktop/node_modules — using pnpm version`);
-      }
+  // 5. Verify native addons are present (Node ABI — pnpm prebuilds on the
+  // build machine, matching the bundled Node runtime major version).
+  // Note: sqlite-vec ships vec0.so/.dll/.dylib in a platform package;
+  // sharp ships .node in @img/sharp-<os>-<arch>; better-sqlite3 and nut-js
+  // keep .node in their main package.
+  log('');
+  log('Verifying native addons (Node ABI)...');
+  for (const addonName of NATIVE_ADDONS) {
+    let searchDirs;
+    if (addonName === 'sqlite-vec') {
+      searchDirs = [path.join(STAGING_NM, `sqlite-vec-${TARGET_OS}-${TARGET_ARCH}`)];
+    } else if (addonName === 'sharp') {
+      searchDirs = [path.join(STAGING_NM, '@img', `sharp-${TARGET_OS}-${TARGET_ARCH}`)];
+    } else if (addonName === '@nut-tree-fork/nut-js') {
+      searchDirs = [path.join(STAGING_NM, '@nut-tree-fork', `libnut-${TARGET_OS}`)];
+    } else {
+      searchDirs = [path.join(STAGING_NM, addonName)];
     }
+    const nativeFiles = searchDirs.flatMap(findNativeFiles);
+    if (nativeFiles.length === 0) {
+      log(`  ✗ ${addonName}: no native files found in staging!`);
+      log('    (build machine Node major must match the bundled node runtime — see .node-version)');
+      process.exit(1);
+    }
+    log(`  ✓ ${addonName} (${nativeFiles.length} native file(s))`);
   }
 
   // 6. Fix nested dependencies for version conflicts

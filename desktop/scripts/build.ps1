@@ -37,9 +37,9 @@ $ScriptDir = $PSScriptRoot
 $DesktopDir = Split-Path -Parent $ScriptDir
 $RootDir = Split-Path -Parent $DesktopDir
 
-# Use npmmirror for Electron binary downloads (GitHub often unreachable from China)
-$env:ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/"
-$env:ELECTRON_BUILDER_BINARIES_MIRROR = "https://npmmirror.com/mirrors/electron-builder-binaries/"
+# Use npmmirror for the bundled Node runtime download (fetch-node.cjs default;
+# GitHub often unreachable from China). Override via NODE_MIRROR.
+$env:NODE_MIRROR = "https://npmmirror.com/mirrors/node"
 
 # Default: build all targets (portable + NSIS)
 # -Portable: only portable
@@ -136,6 +136,14 @@ function Check-Prerequisites {
         $errors += "pnpm not found. Install with: npm install -g pnpm"
     }
 
+    # Rust toolchain (Tauri)
+    try {
+        $rustVer = rustc --version 2>&1 | Out-String
+        Write-OK "Rust $($rustVer.Trim())"
+    } catch {
+        $errors += "rustc not found. Install via https://rustup.rs (MSVC toolchain required)"
+    }
+
     # Check key directories
     if (-not (Test-Path $RootDir)) {
         $errors += "Root directory not found: $RootDir"
@@ -169,8 +177,8 @@ function Invoke-Clean {
     Write-Step "Cleaning previous build artifacts"
 
     $dirs = @(
-        "$DesktopDir\.electron-deps",
-        "$DesktopDir\release",
+        "$DesktopDir\.sidecar-deps",
+        "$DesktopDir\src-tauri\target",
         "$DesktopDir\dist",
         "$RootDir\dist"
     )
@@ -372,60 +380,71 @@ function Invoke-BundleDeps {
 }
 
 # ---------------------------------------------------------------------------
-# Desktop TypeScript build
+# Sidecar TypeScript build
 # ---------------------------------------------------------------------------
 
-function Invoke-DesktopBuild {
-    Write-Step "Building desktop TypeScript"
+function Invoke-SidecarBuild {
+    Write-Step "Building sidecar TypeScript"
 
-    $r = Invoke-Cmd "npx tsc" $DesktopDir
+    $r = Invoke-Cmd "npm run build:sidecar" $DesktopDir
 
     if (-not $r.Success) {
-        Write-Fail "Desktop TypeScript build failed"
+        Write-Fail "Sidecar TypeScript build failed"
         Write-Host $r.Output
-        throw "Desktop tsc failed"
+        throw "Sidecar tsc failed"
     }
 
-    Write-OK "Desktop TypeScript compiled"
-
-    # Build preload as CommonJS (.cjs) — ESM preload scripts can fail silently
-    # inside ASAR in some Electron versions.
-    Write-Info "Building preload.cjs (CommonJS)"
-    $preloadR = Invoke-Cmd "npx tsc -p tsconfig.preload.json" $DesktopDir
-    if ($preloadR.Success) {
-        Remove-Item -Path "$DesktopDir\dist\preload.cjs" -Force -ErrorAction SilentlyContinue
-        Rename-Item -Path "$DesktopDir\dist\preload.js" -NewName "preload.cjs" -Force
-        Write-OK "preload.cjs compiled (CommonJS)"
-    } else {
-        Write-Warn "preload.cjs build had issues — check dist/preload.cjs"
-        Write-Host $preloadR.Output
-    }
+    Write-OK "Sidecar compiled to .sidecar-deps\root"
 }
 
 # ---------------------------------------------------------------------------
-# Electron Builder
+# Version consistency check (root / desktop / tauri.conf.json)
 # ---------------------------------------------------------------------------
 
-function Invoke-Package([string]$Target) {
-    $desc = switch ($Target) {
-        "portable" { "portable (win-unpacked)" }
-        "nsis"     { "NSIS installer" }
+function Invoke-VersionCheck {
+    Write-Step "Checking version consistency"
+    $rootVer = (Get-Content "$RootDir\package.json" | ConvertFrom-Json).version
+    $desktopVer = (Get-Content "$DesktopDir\package.json" | ConvertFrom-Json).version
+    $tauriVer = (Get-Content "$DesktopDir\src-tauri\tauri.conf.json" -Raw | ConvertFrom-Json).version
+    if ($rootVer -ne $desktopVer -or $rootVer -ne $tauriVer) {
+        Write-Fail "Version mismatch: root=$rootVer desktop=$desktopVer tauri.conf=$tauriVer"
+        throw "Version mismatch — keep package.json / desktop/package.json / tauri.conf.json in sync"
     }
-    $flags = switch ($Target) {
-        "portable" { "--win --dir --publish never" }
-        "nsis"     { "--win nsis --publish never" }
-    }
-    Write-Step "Packaging: $desc"
+    Write-OK "Versions consistent: $rootVer"
+}
 
-    $r = Invoke-Cmd "npx electron-builder $flags" $DesktopDir
+# ---------------------------------------------------------------------------
+# Bundled Node runtime download
+# ---------------------------------------------------------------------------
+
+function Invoke-NodeRuntime {
+    Write-Step "Fetching bundled Node runtime (desktop/.node-version)"
+
+    $r = Invoke-Cmd "node scripts/fetch-node.cjs" $DesktopDir
+    if (-not $r.Success) {
+        Write-Fail "Node runtime download failed"
+        Write-Host $r.Output
+        throw "fetch-node failed"
+    }
+    Write-OK $r.Output
+}
+
+# ---------------------------------------------------------------------------
+# Tauri build (NSIS installer + exe in src-tauri/target/release)
+# ---------------------------------------------------------------------------
+
+function Invoke-TauriBuild {
+    Write-Step "Building Tauri app (NSIS)"
+
+    $r = Invoke-Cmd "npx tauri build --bundles nsis --no-before-build --publish never" $DesktopDir
 
     if (-not $r.Success) {
-        Write-Fail "electron-builder failed ($Target)"
+        Write-Fail "tauri build failed"
         Write-Host $r.Output
-        throw "electron-builder failed ($Target)"
+        throw "tauri build failed"
     }
 
-    Write-OK "Packaging complete ($desc)"
+    Write-OK "Tauri build complete"
 }
 
 # ---------------------------------------------------------------------------
@@ -441,15 +460,16 @@ function Write-Summary {
     $elapsed = [math]::Round(((Get-Date) - $StartTime).TotalSeconds, 1)
     Write-Host "  Duration: ${elapsed}s" -ForegroundColor White
 
-    if (Test-Path "$DesktopDir\release\win-unpacked\OhMyAgent.exe") {
-        $exeSize = [math]::Round((Get-Item "$DesktopDir\release\win-unpacked\OhMyAgent.exe").Length / 1MB, 1)
-        Write-Host "  Portable: release\win-unpacked\  (EXE: ${exeSize} MB)" -ForegroundColor White
+    $exe = "$DesktopDir\src-tauri\target\release\ohmyagent-desktop.exe"
+    if (Test-Path $exe) {
+        $exeSize = [math]::Round((Get-Item $exe).Length / 1MB, 1)
+        Write-Host "  EXE (portable): src-tauri\target\release\ohmyagent-desktop.exe  (${exeSize} MB)" -ForegroundColor White
     }
 
-    $setupExe = Get-ChildItem "$DesktopDir\release\*Setup*.exe" -Name -ErrorAction SilentlyContinue | Sort-Object | Select-Object -Last 1
+    $setupExe = Get-ChildItem "$DesktopDir\src-tauri\target\release\bundle\nsis\*.exe" -Name -ErrorAction SilentlyContinue | Sort-Object | Select-Object -Last 1
     if ($setupExe) {
-        $setupSize = [math]::Round((Get-Item "$DesktopDir\release\$setupExe").Length / 1MB, 1)
-        Write-Host "  NSIS:     release\$setupExe  (${setupSize} MB)" -ForegroundColor White
+        $setupSize = [math]::Round((Get-Item "$DesktopDir\src-tauri\target\release\bundle\nsis\$setupExe").Length / 1MB, 1)
+        Write-Host "  NSIS:     src-tauri\target\release\bundle\nsis\$setupExe  (${setupSize} MB)" -ForegroundColor White
     }
 
     Write-Host ""
@@ -521,23 +541,15 @@ if (-not $SkipWebUI) {
     }
 }
 
+Invoke-VersionCheck
 Invoke-BundleDeps
-Invoke-DesktopBuild
+Invoke-SidecarBuild
+Invoke-NodeRuntime
 
-# Generate icons (must run after root node_modules is available, before packaging)
-Write-Step "Generating icons"
-$iconResult = Invoke-Cmd "node scripts/generate-icons.cjs" $DesktopDir
-if (-not $iconResult.Success) {
-    Write-Warn "Icon generation had warnings (non-fatal)"
-}
-Write-Info $iconResult.Output
-
-if ($Portable) {
-    Invoke-Package "portable"
-}
-
-if ($Nsis) {
-    Invoke-Package "nsis"
+if ($Portable -or $Nsis) {
+    Invoke-TauriBuild
+} else {
+    Write-Step "No bundle targets selected — nothing to build"
 }
 
 Write-Summary

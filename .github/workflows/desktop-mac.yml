@@ -30,7 +30,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
+          - runner: macos-13
             target: x86_64-apple-darwin
             bundle_platform: darwin-x64
           - runner: macos-14
@@ -70,39 +70,15 @@ jobs:
       - name: Fetch bundled Node runtime (mac)
         run: cd desktop && OMA_TARGET_PLATFORM=${{ matrix.bundle_platform }} node scripts/fetch-node.cjs
 
-      # Signing secrets are OPTIONAL. Never set the env vars to empty
-      # strings: tauri's codesign sees APPLE_CERTIFICATE set (even empty)
-      # and runs `security import` on an empty file → build fails.
-      - name: Configure signing env (only when secrets exist)
-        run: |
-          if [ -n "${{ secrets.APPLE_CERTIFICATE }}" ]; then
-            echo "APPLE_CERTIFICATE=${{ secrets.APPLE_CERTIFICATE }}" >> "$GITHUB_ENV"
-            echo "APPLE_CERTIFICATE_PASSWORD=${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" >> "$GITHUB_ENV"
-            echo "APPLE_SIGNING_IDENTITY=${{ secrets.APPLE_SIGNING_IDENTITY }}" >> "$GITHUB_ENV"
-          fi
-          if [ -n "${{ secrets.APPLE_API_KEY }}" ]; then
-            echo "APPLE_API_KEY=${{ secrets.APPLE_API_KEY }}" >> "$GITHUB_ENV"
-            echo "APPLE_API_ISSUER=${{ secrets.APPLE_API_ISSUER }}" >> "$GITHUB_ENV"
-            echo "APPLE_API_KEY_ID=${{ secrets.APPLE_API_KEY_ID }}" >> "$GITHUB_ENV"
-          fi
-
-      - name: Build sidecar + Tauri app (dmg)
-        # Timeout so a hung build (seen on macos-15-intel x64 twice) fails
-        # fast and its full log becomes downloadable for diagnosis.
-        timeout-minutes: 45
+      - name: Build sidecar + Tauri app (dmg, zip)
         run: cd desktop && npm run tauri:build:mac
         env:
-          # beforeBuildCommand re-runs bundle-deps; keep the platform pruning
-          # aligned with this job's target (default would be win32-x64).
-          OMA_TARGET_PLATFORM: ${{ matrix.bundle_platform }}
-
-      - name: Package zip distribution (ditto, preserves resource forks)
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          APP="desktop/src-tauri/target/release/bundle/macos/OhMyAgent.app"
-          ZIP="desktop/src-tauri/target/release/bundle/macos/OhMyAgent_${VERSION}_${{ matrix.bundle_platform }}.zip"
-          ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
-          ls -lh "$ZIP"
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
 
       - name: Smoke test (launch app binary, check /api/health)
         run: |
@@ -128,6 +104,7 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           DMG=$(ls desktop/src-tauri/target/release/bundle/dmg/*.dmg | head -1)
           node desktop/scripts/release-meta.cjs "$DMG" "$VERSION"
+          cp "$(dirname "$DMG")/latest.yml" desktop/src-tauri/target/release/bundle/dmg/latest.yml
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

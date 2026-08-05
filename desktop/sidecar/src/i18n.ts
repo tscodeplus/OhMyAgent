@@ -1,14 +1,14 @@
-import { app } from 'electron';
+// Desktop i18n — port of desktop/src/i18n.ts without Electron. The locale
+// strings live in the server's own src/locales/<lang>/desktop.json (bundled at
+// server-dist/locales/), so this module just resolves the language and loads
+// that file. app.getLocale() → OMA_OS_LOCALE env (set by the Rust shell).
+
 import fs from 'node:fs';
 import path from 'node:path';
-import { getDesktopConfig } from './config.js';
-
-// ── Supported locales ──
+import { loadConfig } from './config.js';
 
 export const SUPPORTED_LOCALES = ['en', 'zh-CN'] as const;
 export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
-
-// ── Desktop locale shapes ──
 
 interface UpdaterLocale {
   checking: string;
@@ -86,70 +86,50 @@ export interface DesktopLocales {
   error: ErrorLocale;
 }
 
-// ── Language resolution ──
-
 /**
- * Determine the UI language for the application.
- *
- * Priority:
+ * Determine the UI language. Priority:
  *  1. Desktop config language (persisted from user's last WebUI choice)
  *  2. Explicitly set UI_LANGUAGE env var
- *  3. System locale (if it matches a supported language)
+ *  3. System locale (OMA_OS_LOCALE, injected by the shell)
  *  4. Fallback to "en"
- *
- * Desktop config takes priority over env var because the env var is set
- * once at first launch (based on system locale) and never updated, while
- * the desktop config reflects the user's explicit choice in WebUI settings.
  */
 export function resolveUILanguage(): SupportedLocale {
-  // 1. Check desktop config for user's persisted language preference (takes priority)
+  // 1. Desktop config takes priority (user's explicit WebUI choice).
   try {
-    const lang = getDesktopConfig().get('language');
-    if (lang && SUPPORTED_LOCALES.includes(lang as SupportedLocale)) {
-      return lang as SupportedLocale;
+    const lang = loadConfig().language;
+    if (lang && SUPPORTED_LOCALES.includes(lang)) {
+      return lang;
     }
-  } catch { /* config store may not be ready yet; fall through */ }
-
-  // 2. If user explicitly set UI_LANGUAGE env var, respect that
-  if (process.env.UI_LANGUAGE) {
-    const explicit = process.env.UI_LANGUAGE;
-    if (SUPPORTED_LOCALES.includes(explicit as SupportedLocale)) {
-      return explicit as SupportedLocale;
-    }
+  } catch {
+    /* config not ready; fall through */
   }
 
-  const sysLocale = app.getLocale(); // e.g. "zh-CN", "en-US", "ja"
-  // Exact match
+  // 2. UI_LANGUAGE env var.
+  const explicit = process.env.UI_LANGUAGE;
+  if (explicit && SUPPORTED_LOCALES.includes(explicit as SupportedLocale)) {
+    return explicit as SupportedLocale;
+  }
+
+  // 3. System locale (Rust shell injected OMA_OS_LOCALE).
+  const sysLocale = process.env.OMA_OS_LOCALE ?? 'en';
   if (SUPPORTED_LOCALES.includes(sysLocale as SupportedLocale)) {
     return sysLocale as SupportedLocale;
   }
-  // Language-only match (e.g. "zh" → "zh-CN", "en-US" → "en")
   const langPart = sysLocale.split('-')[0]!.toLowerCase();
   const matched = SUPPORTED_LOCALES.find((s) => s.toLowerCase().startsWith(langPart));
   if (matched) return matched;
-  // Fallback
+
+  // 4. Fallback.
   return 'en';
 }
 
-// ── Locale file loading ──
-
-/** Resolve the path to `src/locales/` for both dev and packaged builds. */
+/** Locale files: prod lives at server-dist/locales (cwd), dev at repo src/locales. */
 function resolveLocalesDir(): string {
-  if (app.isPackaged) {
-    // electron-builder copies dist/ (which includes locales/) to resources/server-dist/
-    return path.join(process.resourcesPath, 'server-dist', 'locales');
-  }
-  // Dev: __dirname is either desktop/src/ (tsx) or desktop/dist/ (tsc).
-  // Both resolve to the same repository root → src/locales/
-  const candidates = [
-    path.resolve(__dirname, '..', '..', 'src', 'locales'),
-    path.resolve(__dirname, '..', 'src', 'locales'),
-  ];
-  for (const dir of candidates) {
-    if (fs.existsSync(dir)) return dir;
-  }
-  // Last-resort fallback: search from cwd
-  return path.resolve(process.cwd(), 'src', 'locales');
+  const isDev = process.env.OMA_DEV === '1';
+  const base = isDev
+    ? path.join(process.cwd(), 'src', 'locales')
+    : path.join(process.cwd(), 'locales');
+  return base;
 }
 
 function loadDesktopLocale(lang: SupportedLocale): DesktopLocales {
@@ -159,7 +139,7 @@ function loadDesktopLocale(lang: SupportedLocale): DesktopLocales {
     const raw = fs.readFileSync(filePath, 'utf-8');
     return JSON.parse(raw) as DesktopLocales;
   } catch (err) {
-    // Fall back to English if the requested locale fails to load
+    // Fall back to English.
     if (lang !== 'en') {
       const enPath = path.join(localesDir, 'en', 'desktop.json');
       try {
@@ -168,7 +148,7 @@ function loadDesktopLocale(lang: SupportedLocale): DesktopLocales {
       } catch {
         throw new Error(
           `Failed to load desktop locale '${lang}' from ${filePath}, ` +
-          `and fallback English locale also failed`,
+            `and fallback English locale also failed`,
         );
       }
     }
@@ -177,8 +157,6 @@ function loadDesktopLocale(lang: SupportedLocale): DesktopLocales {
     );
   }
 }
-
-// ── Singleton accessor ──
 
 let currentLang: SupportedLocale | null = null;
 let cachedT: DesktopLocales | null = null;
@@ -193,7 +171,7 @@ export function getT(): DesktopLocales {
   return cachedT;
 }
 
-/** Switch to a different language at runtime (invalidates cache immediately). */
+/** Switch language at runtime (invalidates cache immediately). */
 export function setDesktopLanguage(lang: SupportedLocale): void {
   currentLang = lang;
   cachedT = loadDesktopLocale(lang);
@@ -204,10 +182,11 @@ export function currentLanguage(): SupportedLocale {
   return resolveUILanguage();
 }
 
-// ── Template interpolation ──
-
 /** Replace {{key}} placeholders in a template string with the given values. */
-export function interpolate(template: string, values: Record<string, string | number>): string {
+export function interpolate(
+  template: string,
+  values: Record<string, string | number>,
+): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => {
     if (key in values) return String(values[key]!);
     return `{{${key}}}`; // leave unrecognized placeholders intact

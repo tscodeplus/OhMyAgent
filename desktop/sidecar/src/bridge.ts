@@ -1,39 +1,21 @@
-// ---------------------------------------------------------------------------
-// DesktopBridge — WebSocket client that connects to a remote OhMyAgent gateway
-// and exposes local tool execution (file_read, file_write, shell) back to it.
-// ---------------------------------------------------------------------------
-//
-// Protocol (JSON messages over WebSocket):
-//   Desktop → Gateway:  { type:"register", sessionId, capabilities:[...] }
-//   Gateway → Desktop:  { type:"tool_call", id, tool, args:{...} }
-//   Desktop → Gateway:  { type:"tool_result", id, ok:boolean, data?, error? }
-//   Gateway → Desktop:  { type:"config", allowedRoots:[...], deniedPatterns:[...] }
-//   Gateway → Desktop:  { type:"pong" }
-//   Desktop → Gateway:  { type:"ping" }
-//   Desktop → Gateway:  { type:"unregister", sessionId }
-// ---------------------------------------------------------------------------
+// Desktop Bridge — verbatim port of desktop/src/desktop-bridge.ts (pure Node:
+// ws + fs + child_process, zero Electron imports), plus a sidecar singleton
+// that follows the gateway config: remote mode connects to
+// <remoteUrl>/desktop/bridge, local mode stays disconnected (WebUI session
+// registrations are then harmless no-ops, same as Electron local mode).
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
 import WebSocket from 'ws';
 
+import { getGatewayConfig } from './config.js';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export type BridgeStatus = 'disconnected' | 'connecting' | 'connected';
-
-export interface DesktopBridgeOptions {
-  gatewayUrl: string; // ws://host:port
-  token: string;
-  logger?: {
-    debug(msg: string): void;
-    info(msg: string): void;
-    warn(msg: string): void;
-    error(msg: string): void;
-  };
-}
 
 interface ToolCallMessage {
   type: 'tool_call';
@@ -56,11 +38,7 @@ interface ConfigMessage {
   deniedPatterns: string[];
 }
 
-interface PongMessage {
-  type: 'pong';
-}
-
-type GatewayMessage = ToolCallMessage | ConfigMessage | PongMessage;
+type GatewayMessage = ToolCallMessage | ConfigMessage | { type: 'pong' };
 
 type DesktopMessage =
   | { type: 'register'; sessionId: string; capabilities: string[] }
@@ -98,7 +76,7 @@ function isPathDenied(target: string, deniedPatterns: string[]): boolean {
   });
 }
 
-function executeFileRead(filePath: string, _args: Record<string, unknown>): string {
+function executeFileRead(filePath: string): string {
   const resolved = path.resolve(filePath);
   const content = fs.readFileSync(resolved, 'utf-8');
   if (content.length > MAX_FILE_SIZE) {
@@ -127,13 +105,16 @@ function executeShell(args: Record<string, unknown>): string {
   return result || '(command completed with no output)';
 }
 
-function executeTool(tool: string, args: Record<string, unknown>): { ok: true; data: string } | { ok: false; error: string } {
+function executeTool(
+  tool: string,
+  args: Record<string, unknown>,
+): { ok: true; data: string } | { ok: false; error: string } {
   try {
     const filePath = (args.path ?? args.filePath ?? '') as string;
     let data: string;
     switch (tool) {
       case 'file_read':
-        data = executeFileRead(filePath, args);
+        data = executeFileRead(filePath);
         break;
       case 'file_write':
         data = executeFileWrite(filePath, args);
@@ -145,14 +126,16 @@ function executeTool(tool: string, args: Record<string, unknown>): { ok: true; d
         return { ok: false, error: `Unknown tool: ${tool}` };
     }
     return { ok: true, data };
-  } catch (err: any) {
-    const msg = err?.stderr || err?.message || String(err);
+  } catch (err: unknown) {
+    const e = err as { stderr?: string; message?: string };
+    const msg = e?.stderr || e?.message || String(err);
     return { ok: false, error: msg.trim() };
   }
 }
 
 // ---------------------------------------------------------------------------
-// DesktopBridge
+// DesktopBridge (verbatim from desktop/src/desktop-bridge.ts, with a
+// setTarget() added so the singleton can follow gateway config changes)
 // ---------------------------------------------------------------------------
 
 export class DesktopBridge {
@@ -165,25 +148,34 @@ export class DesktopBridge {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private readonly maxReconnectAttempts = 5;
-  private readonly gatewayUrl: string;
-  private readonly token: string;
-  private readonly logger: DesktopBridgeOptions['logger'];
+  private gatewayUrl = '';
+  private token = '';
 
-  constructor(options: DesktopBridgeOptions) {
+  constructor(options: { gatewayUrl: string; token: string; logger?: Console }) {
     this.gatewayUrl = options.gatewayUrl;
     this.token = options.token;
-    this.logger = options.logger;
   }
 
-  // ── Public API ────────────────────────────────────────────────────────────
+  /** Change the target gateway (config switched) — restarts the connection. */
+  setTarget(gatewayUrl: string, token: string): void {
+    const changed = gatewayUrl !== this.gatewayUrl || token !== this.token;
+    this.gatewayUrl = gatewayUrl;
+    this.token = token;
+    if (changed) {
+      this.stop();
+      if (gatewayUrl) void this.start();
+    }
+  }
 
   getStatus(): BridgeStatus {
     return this.status;
   }
 
-  /**
-   * Connect to the gateway and register all known sessions.
-   */
+  sessionCount(): number {
+    return this.sessions.size;
+  }
+
+  /** Connect to the gateway and register all known sessions. */
   async start(): Promise<void> {
     if (this.status === 'connecting' || this.status === 'connected') return;
     this.connect();
@@ -192,7 +184,6 @@ export class DesktopBridge {
   /** Register a session so tool calls for it are forwarded here. */
   registerSession(sessionId: string): void {
     this.sessions.add(sessionId);
-    this.logger?.debug(`[DesktopBridge] Session registered: ${sessionId}`);
     if (this.status === 'connected' && this.ws) {
       this.send({ type: 'register', sessionId, capabilities: ['file_read', 'file_write', 'shell'] });
     }
@@ -201,7 +192,6 @@ export class DesktopBridge {
   /** Unregister a session (e.g. chat closed). */
   unregisterSession(sessionId: string): void {
     this.sessions.delete(sessionId);
-    this.logger?.debug(`[DesktopBridge] Session unregistered: ${sessionId}`);
     if (this.status === 'connected' && this.ws) {
       this.send({ type: 'unregister', sessionId });
     }
@@ -213,35 +203,44 @@ export class DesktopBridge {
     if (this.ws) {
       // Unregister all sessions before closing
       for (const sid of this.sessions) {
-        try { this.send({ type: 'unregister', sessionId: sid }); } catch { /* */ }
+        try {
+          this.send({ type: 'unregister', sessionId: sid });
+        } catch {
+          /* ignore */
+        }
       }
-      this.sessions.clear();
-      try { this.ws.close(1000); } catch { /* */ }
+      try {
+        this.ws.close(1000);
+      } catch {
+        /* ignore */
+      }
       this.ws = null;
     }
     this.status = 'disconnected';
     this.reconnectAttempts = 0;
-    this.logger?.info('[DesktopBridge] Stopped');
   }
 
-  // ── Internal ──────────────────────────────────────────────────────────────
+  // -- Internal --------------------------------------------------------------
 
   private connect(): void {
+    if (!this.gatewayUrl) return;
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      this.logger?.warn('[DesktopBridge] Max reconnect attempts reached, giving up');
+      console.warn('[DesktopBridge] Max reconnect attempts reached, giving up');
       this.status = 'disconnected';
       return;
     }
 
     this.status = 'connecting';
-    this.logger?.info(`[DesktopBridge] Connecting to ${this.gatewayUrl} (attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`);
+    console.info(
+      `[DesktopBridge] Connecting to ${this.gatewayUrl} (attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`,
+    );
 
     const ws = new WebSocket(this.gatewayUrl, {
       headers: { Authorization: `Bearer ${this.token}` },
     });
 
     ws.on('open', () => {
-      this.logger?.info('[DesktopBridge] WebSocket connected');
+      console.info('[DesktopBridge] WebSocket connected');
       this.status = 'connected';
       this.reconnectAttempts = 0;
       this.ws = ws;
@@ -260,14 +259,14 @@ export class DesktopBridge {
       try {
         msg = JSON.parse(raw.toString()) as GatewayMessage;
       } catch {
-        this.logger?.warn(`[DesktopBridge] Invalid JSON message received`);
+        console.warn('[DesktopBridge] Invalid JSON message received');
         return;
       }
       this.handleMessage(msg);
     });
 
     ws.on('close', (code, reason) => {
-      this.logger?.warn(`[DesktopBridge] WebSocket closed: ${code} ${reason?.toString() ?? ''}`);
+      console.warn(`[DesktopBridge] WebSocket closed: ${code} ${reason?.toString() ?? ''}`);
       this.ws = null;
       this.status = 'disconnected';
       this.clearTimers();
@@ -275,7 +274,7 @@ export class DesktopBridge {
     });
 
     ws.on('error', (err) => {
-      this.logger?.error(`[DesktopBridge] WebSocket error: ${err.message}`);
+      console.error(`[DesktopBridge] WebSocket error: ${err.message}`);
       // 'close' will fire after 'error'
     });
   }
@@ -304,15 +303,14 @@ export class DesktopBridge {
       case 'config': {
         this.allowedRoots = msg.allowedRoots ?? [];
         this.deniedPatterns = msg.deniedPatterns ?? [];
-        this.logger?.info(`[DesktopBridge] Config updated: ${this.allowedRoots.length} allowed roots, ${this.deniedPatterns.length} denied patterns`);
+        console.info(
+          `[DesktopBridge] Config updated: ${this.allowedRoots.length} allowed roots, ${this.deniedPatterns.length} denied patterns`,
+        );
         break;
       }
       case 'pong': {
         // Heartbeat reply — nothing to do
         break;
-      }
-      default: {
-        this.logger?.warn(`[DesktopBridge] Unknown message type: ${(msg as any).type}`);
       }
     }
   }
@@ -340,19 +338,71 @@ export class DesktopBridge {
   }
 
   private clearTimers(): void {
-    if (this.pingTimer) { clearInterval(this.pingTimer); this.pingTimer = null; }
-    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
   }
 
   private scheduleReconnect(): void {
     this.reconnectAttempts++;
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      this.logger?.error('[DesktopBridge] Max reconnect attempts reached');
+      console.error('[DesktopBridge] Max reconnect attempts reached');
       this.status = 'disconnected';
       return;
     }
     const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30_000);
-    this.logger?.warn(`[DesktopBridge] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`);
+    console.warn(`[DesktopBridge] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`);
     this.reconnectTimer = setTimeout(() => this.connect(), delay);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Sidecar singleton — follows the gateway config
+// ---------------------------------------------------------------------------
+
+let bridge: DesktopBridge | null = null;
+let bridgeTarget: { gatewayUrl: string; token: string } | null = null;
+
+export function ensureBridge(): DesktopBridge {
+  if (!bridge) {
+    bridge = new DesktopBridge({ gatewayUrl: '', token: '' });
+  }
+  return bridge;
+}
+
+/** Re-read the gateway config; connect for remote mode, disconnect otherwise. */
+export function syncBridgeFromConfig(): void {
+  const cfg = getGatewayConfig();
+  if (cfg.mode === 'remote' && cfg.remoteUrl) {
+    const wsUrl = cfg.remoteUrl.replace(/^http/i, 'ws').replace(/\/$/, '') + '/desktop/bridge';
+    if (bridgeTarget && bridgeTarget.gatewayUrl === wsUrl && bridgeTarget.token === cfg.remoteToken) {
+      return; // already targeted
+    }
+    const b = ensureBridge();
+    b.setTarget(wsUrl, cfg.remoteToken);
+    bridgeTarget = { gatewayUrl: wsUrl, token: cfg.remoteToken };
+  } else {
+    if (bridge) bridge.stop();
+    bridgeTarget = null;
+  }
+}
+
+export function registerSession(sessionId: string): void {
+  if (bridge) bridge.registerSession(sessionId);
+}
+
+export function unregisterSession(sessionId: string): void {
+  if (bridge) bridge.unregisterSession(sessionId);
+}
+
+export function getBridgeStatus(): { connected: boolean; sessions: number } {
+  return {
+    connected: bridge ? bridge.getStatus() === 'connected' : false,
+    sessions: bridge ? bridge.sessionCount() : 0,
+  };
 }

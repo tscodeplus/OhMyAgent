@@ -1,15 +1,16 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "CommonJS",
-    "moduleResolution": "Node",
-    "outDir": "dist",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "../.sidecar-deps/root",
     "rootDir": "src",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "sourceMap": false
+    "resolveJsonModule": true,
+    "sourceMap": true
   },
-  "include": ["src/preload.ts"]
+  "include": ["src/**/*.ts"]
 }
