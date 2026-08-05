@@ -362,18 +362,18 @@ function Invoke-BundleDeps {
 
     $r = Invoke-Cmd "node scripts/bundle-deps.cjs" $DesktopDir
 
-    $nmPath = "$DesktopDir\.electron-deps\node_modules"
+    $nmPath = "$DesktopDir\.sidecar-deps\node_modules"
     if (Test-Path $nmPath) {
         $count = (Get-ChildItem $nmPath).Count
         if ($count -gt 10) {
-            Write-OK "$count packages staged in .electron-deps/node_modules/"
+            Write-OK "$count packages staged in .sidecar-deps/node_modules/"
         } else {
             Write-Fail "Only $count packages staged — expected 300+. bundle-deps likely failed."
             Write-Host $r.Output
             throw "bundle-deps produced too few packages"
         }
     } else {
-        Write-Fail "bundle-deps failed — .electron-deps/node_modules/ not created"
+        Write-Fail "bundle-deps failed — .sidecar-deps/node_modules/ not created"
         Write-Host $r.Output
         throw "bundle-deps failed"
     }
