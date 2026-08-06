@@ -101,9 +101,9 @@ jobs:
           $VERSION = node -p "require('./package.json').version"
           $exe = Get-ChildItem "desktop/src-tauri/target/release/bundle/nsis/OhMyAgent_*_x64-setup.exe" | Select-Object -First 1
           # -Force: the cargo target dir is cached between runs and may hold a
-        # renamed installer from a previous run (same version) — Rename-Item
-        # fails with "already exists" unless allowed to overwrite.
-        Rename-Item -Force $exe.FullName "OhMyAgent-Setup-$VERSION.exe"
+          # renamed installer from a previous run (same version) — Rename-Item
+          # fails with "already exists" unless allowed to overwrite.
+          Rename-Item -Force $exe.FullName "OhMyAgent-Setup-$VERSION.exe"
 
       - name: Generate latest.yml metadata
         run: |

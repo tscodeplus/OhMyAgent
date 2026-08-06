@@ -1,5 +1,10 @@
 name: Desktop Release
 
+# Creates the GitHub Release for a version tag. Actual builds are done by
+# desktop-windows.yml and desktop-mac.yml, which trigger on `release: published`
+# and attach their artifacts (NSIS installer / dmg / latest.yml) to this release.
+# (The old Electron build job was removed in the Tauri 2 migration.)
+
 on:
   push:
     tags:
@@ -22,7 +27,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       prerelease: ${{ steps.release_type.outputs.prerelease }}
-      channel: ${{ steps.release_type.outputs.channel }}
     steps:
       - name: Detect release type
         id: release_type
@@ -30,221 +34,27 @@ jobs:
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             if [[ "${{ github.event.inputs.prerelease }}" == "true" ]]; then
               echo "prerelease=true" >> $GITHUB_OUTPUT
-              echo "channel=beta" >> $GITHUB_OUTPUT
             else
               echo "prerelease=false" >> $GITHUB_OUTPUT
-              echo "channel=latest" >> $GITHUB_OUTPUT
             fi
           elif [[ "${{ github.ref_name }}" =~ -(beta|rc|alpha|pre) ]]; then
             echo "prerelease=true" >> $GITHUB_OUTPUT
-            echo "channel=beta" >> $GITHUB_OUTPUT
           else
             echo "prerelease=false" >> $GITHUB_OUTPUT
-            echo "channel=latest" >> $GITHUB_OUTPUT
           fi
 
   # ------------------------------------------------------------------
-  # Build — runs on Windows, macOS, and Linux in parallel
-  # ------------------------------------------------------------------
-  build:
-    needs: detect-release-type
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - windows-latest
-          - macos-latest
-          - ubuntu-latest
-    runs-on: ${{ matrix.os }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      # --- OS-specific dependencies ---
-      - name: Install Linux system dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libvips-dev \
-            libfuse2 \
-            libgtk-3-0 \
-            libnotify4 \
-            libnss3 \
-            libxss1 \
-            libxtst6 \
-            xdg-utils \
-            fakeroot \
-            dpkg-dev
-
-      - name: Install macOS system dependencies and build tools
-        if: runner.os == 'macOS'
-        run: |
-          brew install vips python-setuptools
-          # Ensure Xcode CLT is properly configured
-          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer || true
-          # Show build environment for debugging
-          echo "=== Python ===" && which python3 && python3 --version
-          echo "=== Xcode ===" && xcode-select -p || true
-          echo "=== arch ===" && uname -m
-          echo "=== node-gyp deps ===" && which make && make --version | head -1
-
-      # --- Build ---
-      - name: Install root dependencies (macOS)
-        if: runner.os == 'macOS'
-        shell: bash
-        # macOS ARM64 may need lockfile relaxed for platform-specific deps
-        run: |
-          echo "pnpm version:" && pnpm --version
-          pnpm install --no-frozen-lockfile --ignore-scripts 2>&1 || {
-            echo "::error::pnpm install failed even without frozen-lockfile"
-            exit 1
-          }
-          echo "Rebuilding native modules..."
-          pnpm rebuild 2>&1 || echo "::warning::pnpm rebuild failed, continuing"
-
-      - name: Install root dependencies (Linux/Windows)
-        if: runner.os != 'macOS'
-        run: pnpm install --frozen-lockfile
-
-      - name: Build server (TypeScript)
-        run: pnpm build
-
-      - name: Add package.json for ESM resolution
-        # Without this, Node.js treats .js files in server-dist as CommonJS
-        # when the installed app has no package.json in its ancestor chain.
-        run: |
-          echo '{ "type": "module" }' > dist/package.json
-
-      - name: Install WebUI dependencies
-        shell: bash
-        run: |
-          mv pnpm-workspace.yaml pnpm-workspace.yaml.bak
-          (cd ui && pnpm install --frozen-lockfile)
-          mv pnpm-workspace.yaml.bak pnpm-workspace.yaml
-
-      - name: Build WebUI
-        run: pnpm build:ui
-
-      - name: Install desktop dependencies
-        shell: bash
-        run: |
-          mv pnpm-workspace.yaml pnpm-workspace.yaml.bak
-          (cd desktop && pnpm install --frozen-lockfile)
-          mv pnpm-workspace.yaml.bak pnpm-workspace.yaml
-
-      - name: Make native addons universal (macOS)
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          echo "Creating universal (arm64+x64) native addons..."
-          cd desktop && node scripts/make-universal-addons.cjs
-
-      - name: Determine electron-builder platform flag
-        id: platform_flag
-        shell: bash
-        run: |
-          case "${{ runner.os }}" in
-            Windows) echo "flag=--win"   >> $GITHUB_OUTPUT ;;
-            macOS)   echo "flag=--mac"   >> $GITHUB_OUTPUT ;;
-            Linux)   echo "flag=--linux" >> $GITHUB_OUTPUT ;;
-          esac
-
-      - name: Bundle Electron dependencies
-        shell: bash
-        run: |
-          mv pnpm-workspace.yaml pnpm-workspace.yaml.bak
-          (cd desktop && npm run bundle-deps)
-          mv pnpm-workspace.yaml.bak pnpm-workspace.yaml
-
-      - name: Build desktop TypeScript
-        run: cd desktop && npm run build
-
-      - name: Build preload.cjs (CommonJS)
-        # ESM preload scripts fail silently inside ASAR.
-        # tsconfig.preload.json compiles preload.ts as CommonJS.
-        run: |
-          cd desktop
-          npx tsc -p tsconfig.preload.json
-          mv dist/preload.js dist/preload.cjs
-
-      - name: Package Electron app
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: cd desktop && npx electron-builder ${{ steps.platform_flag.outputs.flag }} --publish never
-
-      # --- Upload artifacts ---
-      - name: Upload Windows artifacts
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ohmyagent-windows-x64
-          path: |
-            desktop/release/*.exe
-            desktop/release/*.yml
-            desktop/release/*.blockmap
-          retention-days: 30
-
-      - name: Upload macOS artifacts
-        if: runner.os == 'macOS'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ohmyagent-macos-universal
-          path: |
-            desktop/release/*.dmg
-            desktop/release/*.zip
-            desktop/release/*.yml
-            desktop/release/*.blockmap
-          retention-days: 30
-
-      - name: Upload Linux artifacts
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ohmyagent-linux-x64
-          path: |
-            desktop/release/*.AppImage
-            desktop/release/*.deb
-            desktop/release/*.yml
-            desktop/release/*.blockmap
-          retention-days: 30
-
-  # ------------------------------------------------------------------
-  # Create Release — collects artifacts and creates a GitHub Release
-  # Only runs on tag push (not workflow_dispatch)
+  # Create Release — tag push only (not workflow_dispatch).
+  # Publishes immediately so the Tauri build workflows (desktop-mac.yml,
+  # desktop-windows.yml) are triggered via `release: published` and attach
+  # their installers to this release.
   # ------------------------------------------------------------------
   create-release:
-    needs: [detect-release-type, build]
+    needs: detect-release-type
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@v4
-
-      - name: Download Windows artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: ohmyagent-windows-x64
-          path: release-artifacts/windows
-
-      - name: Download macOS artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: ohmyagent-macos-universal
-          path: release-artifacts/macos
-
-      - name: Download Linux artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: ohmyagent-linux-x64
-          path: release-artifacts/linux
 
       - name: Create GitHub Release
         env:
@@ -254,14 +64,6 @@ jobs:
           if [[ "${{ needs.detect-release-type.outputs.prerelease }}" == "true" ]]; then
             PRERELEASE_FLAG="--prerelease"
           fi
-          # Collect installer and updater files, excluding builder-debug.yml
-          # (same name across platforms causes duplicate asset error)
-          ASSETS=()
-          for f in release-artifacts/**/*.exe release-artifacts/**/*.dmg release-artifacts/**/*.zip release-artifacts/**/*.AppImage release-artifacts/**/*.deb release-artifacts/**/*.yml release-artifacts/**/*.blockmap; do
-            [[ -f "$f" ]] || continue
-            [[ "$(basename "$f")" == "builder-debug.yml" ]] && continue
-            ASSETS+=("$f")
-          done
           NOTES_FILE="docs/release-notes/${{ github.ref_name }}.md"
           # Delete existing release if re-running (tag already has one)
           gh release delete "${{ github.ref_name }}" --yes --cleanup-tag 2>/dev/null || true
@@ -271,12 +73,12 @@ jobs:
               --notes-file "$NOTES_FILE" \
               $PRERELEASE_FLAG \
               --draft=false \
-              "${ASSETS[@]}"
+              --repo tscodeplus/OhMyAgent
           else
             gh release create "${{ github.ref_name }}" \
               --title "OhMyAgent Desktop ${{ github.ref_name }}" \
               --generate-notes \
               $PRERELEASE_FLAG \
               --draft=false \
-              "${ASSETS[@]}"
+              --repo tscodeplus/OhMyAgent
           fi
