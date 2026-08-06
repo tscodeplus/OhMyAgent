@@ -21,6 +21,11 @@ on:
   release:
     types: [published]
 
+# The repo default is read-only; the release attach step needs to upload
+# assets and update the release (same as the old Electron desktop-release.yml).
+permissions:
+  contents: write
+
 env:
   OMA_TARGET_PLATFORM_PLACEHOLDER: ''
 
