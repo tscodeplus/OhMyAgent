@@ -175,11 +175,9 @@ fn status_label(app: &AppHandle, cfg: &DesktopConfig) -> String {
         ),
         StatusKind::Starting => tr("服务启动中…", "Starting service…", zh).into(),
         StatusKind::Stopping => tr("服务停止中…", "Stopping service…", zh).into(),
-        StatusKind::Error => format!(
-            "{}: {}",
-            tr("服务异常", "Service error", zh),
-            snapshot.error.as_deref().unwrap_or(tr("未知错误", "Unknown error", zh))
-        ),
+        // Fixed label, like the Electron tray (its serviceStatusError string);
+        // the error details live in the error window, not in the menu.
+        StatusKind::Error => tr("服务异常", "Service error", zh).into(),
         StatusKind::Stopped => tr("服务已停止", "Service stopped", zh).into(),
     }
 }
