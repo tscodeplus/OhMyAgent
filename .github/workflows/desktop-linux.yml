@@ -111,6 +111,9 @@ jobs:
           # beforeBuildCommand re-runs bundle-deps; keep the platform pruning
           # aligned with this job's target (default would be win32-x64).
           OMA_TARGET_PLATFORM: linux-x64
+          # CI runners have no FUSE; linuxdeploy's AppImage fails to run
+          # unless extracted-and-run.
+          APPIMAGE_EXTRACT_AND_RUN: '1'
 
       # Rename to the Electron-era asset names (OhMyAgent-<v>.AppImage,
       # ohmyagent-desktop_<v>_amd64.deb) so the release looks the same as

@@ -97,13 +97,18 @@ jobs:
       # comes out as OhMyAgent_<v>_x64-setup.exe. Rename to the Electron-era
       # OhMyAgent-Setup-<v>.exe so the updater's latest.yml URL keeps working.
       - name: Rename installer (electron-builder style name)
+        shell: pwsh
         run: |
           $VERSION = node -p "require('./package.json').version"
-          $exe = Get-ChildItem "desktop/src-tauri/target/release/bundle/nsis/OhMyAgent_*_x64-setup.exe" | Select-Object -First 1
-          # -Force: the cargo target dir is cached between runs and may hold a
-          # renamed installer from a previous run (same version) — Rename-Item
-          # fails with "already exists" unless allowed to overwrite.
-          Rename-Item -Force $exe.FullName "OhMyAgent-Setup-$VERSION.exe"
+          $nsisDir = Join-Path $env:GITHUB_WORKSPACE "desktop/src-tauri/target/release/bundle/nsis"
+          $exe = Get-ChildItem (Join-Path $nsisDir "OhMyAgent_*_x64-setup.exe") | Select-Object -First 1
+          if (-not $exe) { throw "NSIS installer not found in $nsisDir" }
+          # Absolute target path inside the nsis dir — a relative name would
+          # land in the workspace root and the upload/attach globs would
+          # miss it. -Force: the cached target dir may hold a renamed
+          # installer from a previous run (same version).
+          Write-Host "renaming $($exe.FullName) -> $nsisDir\OhMyAgent-Setup-$VERSION.exe"
+          Rename-Item -Force $exe.FullName (Join-Path $nsisDir "OhMyAgent-Setup-$VERSION.exe")
 
       - name: Generate latest.yml metadata
         run: |
