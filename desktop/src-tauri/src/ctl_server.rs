@@ -33,7 +33,6 @@ struct PingBody {
 #[derive(Deserialize)]
 struct ShowWindowBody {
     kind: String,
-    html: String,
     width: u32,
     height: u32,
     #[serde(default = "default_true")]
@@ -163,10 +162,11 @@ fn handle(app: &AppHandle, url: &str, body: &str) -> tiny_http::Response<std::io
                     log::info!("ctl_server: /show-window kind={} {}x{}", b.kind, b.width, b.height);
                     let app2 = app.clone();
                     let _ = app.run_on_main_thread(move || {
+                        // HTML lives in the sidecar's control server
+                        // (/updater/page cache); the window loads it by URL.
                         let result = crate::windows::show_dialog_window(
                             &app2,
                             &b.kind,
-                            &b.html,
                             b.width,
                             b.height,
                             b.dark,

@@ -17,6 +17,9 @@
 //   DELETE /_desktop/bridge/session/:id       → unregister
 //   GET    /_desktop/bridge/status
 //   GET    /_desktop/gateway-chooser          → HTML (first-run wizard)
+//   GET    /_desktop/pages/updater/:kind      → HTML (dialog windows — cached
+//                                                by updater.ts via cachePage,
+//                                                loaded by Rust webview windows)
 //   POST   /_desktop/shutdown                 → graceful stop + exit
 //
 // M3 fills in updater routes; M2 fills in bridge + gateway-chooser.
@@ -45,6 +48,18 @@ export interface ControlServerOptions {
 
 /** Updater event emitter consumed by control-server SSE + updater module. */
 export const updaterEvents = new EventEmitter();
+
+/**
+ * Latest HTML per updater-dialog kind. Rust builds those windows with a real
+ * http://127.0.0.1:{port}/_desktop/pages/updater/{kind} URL (data: URLs are
+ * rejected by the remote-origin ACL), so the page must be served from here.
+ */
+const updaterPages = new Map<string, string>();
+
+/** Cache the dialog HTML for the given kind (called by updater.ts). */
+export function cachePage(kind: string, html: string): void {
+  updaterPages.set(kind, html);
+}
 
 const sseClients = new Set<ServerResponse>();
 
@@ -216,6 +231,18 @@ async function handle(req: IncomingMessage, res: ServerResponse, opts: ControlSe
 
     if (path === '/_desktop/gateway-chooser' && method === 'GET') {
       const html = await import('./gateway-chooser.js').then((m) => m.renderChooser(loadConfig()));
+      text(res, 200, html, 'text/html; charset=utf-8');
+      return;
+    }
+
+    // Updater dialog windows load this URL (see windows.rs show_dialog_window).
+    if (path.startsWith('/_desktop/pages/updater/') && method === 'GET') {
+      const kind = path.slice('/_desktop/pages/updater/'.length);
+      const html = updaterPages.get(kind);
+      if (!html) {
+        text(res, 404, 'page not cached');
+        return;
+      }
       text(res, 200, html, 'text/html; charset=utf-8');
       return;
     }

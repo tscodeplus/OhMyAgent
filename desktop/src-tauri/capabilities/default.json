@@ -14,7 +14,9 @@
   "remote": {
     "urls": [
       "http://127.0.0.1:9191",
-      "http://localhost:9191"
+      "http://localhost:9191",
+      "http://127.0.0.1:*",
+      "http://localhost:*"
     ]
   },
   "permissions": [

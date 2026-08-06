@@ -16,7 +16,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { broadcastEvent } from './control-server.js';
+import { broadcastEvent, cachePage } from './control-server.js';
 import { loadConfig } from './config.js';
 import { getT, interpolate } from './i18n.js';
 import { fetchWithProxy } from './net.js';
@@ -163,7 +163,11 @@ async function shellFetch(pathname: string, body?: unknown): Promise<void> {
 }
 
 function showWindow(kind: string, html: string, width: number, height: number, dark: boolean): void {
-  void shellFetch('/show-window', { kind, html, width, height, dark });
+  // The Rust shell builds the dialog window against a real http:// page
+  // (data: URLs are rejected by the remote-origin ACL), so the HTML is cached
+  // here and served from the control API; /show-window only carries geometry.
+  cachePage(kind, html);
+  void shellFetch('/show-window', { kind, width, height, dark });
 }
 
 /** Write an updater diagnostic message to the shared diag log (same path as Electron). */
@@ -671,7 +675,7 @@ export class AppUpdater {
   </div>
   <div class="message">${getT().updater.upToDate}</div>
   <div class="footer">
-    <button class="btn-primary" onclick="window.close()">${getT().updater.ok}</button>
+    <button class="btn-primary" onclick="window.electronAPI.close()">${getT().updater.ok}</button>
   </div>
 </body></html>`;
 
@@ -698,7 +702,7 @@ export class AppUpdater {
 <body>
   <h3>${title}</h3>
   <p>${detail.replace(/</g, '&lt;')}</p>
-  <button onclick="window.close()">${getT().updater.ok}</button>
+  <button onclick="window.electronAPI.close()">${getT().updater.ok}</button>
 </body></html>`;
 
     showWindow('updater-dialog', html, 380, 240, isDark);
@@ -767,8 +771,8 @@ export class AppUpdater {
   </div>
   <div class="content">${notesBody}</div>
   <div class="footer">
-    <button class="btn-secondary" onclick="window.close()">${getT().updater.cancel}</button>
-    <button class="btn-primary" onclick="window.electronAPI.downloadUpdate();window.close()">${getT().updater.upgrade}</button>
+    <button class="btn-secondary" onclick="window.electronAPI.close()">${getT().updater.cancel}</button>
+    <button class="btn-primary" onclick="window.electronAPI.downloadUpdate();window.electronAPI.close()">${getT().updater.upgrade}</button>
   </div>
 </body></html>`;
 
@@ -833,7 +837,7 @@ export class AppUpdater {
   function fmtSize(b){if(!b||b<=0)return'';var u=['B','KB','MB','GB'];var i=0,v=b;while(v>=1024&&i<u.length-1){v/=1024;i++}return v.toFixed(v<10?1:0)+' '+u[i]}
   function fmtSpeed(bps){var s=fmtSize(bps);return s?s+'/s':''}
   var _lastPct=0;
-  document.getElementById('btn-close').addEventListener('click',function(){api.cancelDownload();window.close()});
+  document.getElementById('btn-close').addEventListener('click',function(){api.cancelDownload();window.electronAPI.close()});
   document.getElementById('btn-install').addEventListener('click',function(){api.installUpdate()});
   document.getElementById('btn-releases').addEventListener('click',function(){window.open('https://github.com/tscodeplus/OhMyAgent/releases')});
   api.onUpdateDownloadProgress(function(d){

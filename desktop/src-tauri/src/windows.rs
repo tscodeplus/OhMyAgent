@@ -2,8 +2,12 @@
 //! gateway chooser, updater dialogs, and the error window. Theme chrome
 //! reactions live here too.
 
+use std::sync::Arc;
+
 use tauri::WebviewUrl;
 use tauri::{AppHandle, Manager, WebviewWindowBuilder};
+
+use crate::sidecar::SidecarState;
 
 pub const MAIN_LABEL: &str = "main";
 pub const SPLASH_LABEL: &str = "splash";
@@ -73,16 +77,26 @@ pub fn create_splash(app: &AppHandle) -> tauri::Result<()> {
     if app.get_webview_window(SPLASH_LABEL).is_some() {
         return Ok(());
     }
+    // Same look as the Electron splash (desktop/src/main.ts:createSplashHtml):
+    // indigo gradient, frosted logo tile with spinner, rounded corners.
     let html = r#"<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>
-  body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;
-       background:linear-gradient(135deg,#0a0a0a,#1a1a2e);overflow:hidden;font-family:system-ui}
-  .spinner{width:36px;height:36px;border:3px solid rgba(255,255,255,.15);border-top-color:#4f8cff;
-       border-radius:50%;animation:spin 1s linear infinite}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    height:100vh;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;padding-top:18px;
+    background:linear-gradient(135deg,#6366f1,#4f46e5);
+    color:#fff;user-select:none;-webkit-user-select:none;
+    border-radius:12px;overflow:hidden;
+  }
+  .logo{width:52px;height:52px;margin-bottom:20px;background:rgba(255,255,255,.15);border-radius:14px;display:flex;align-items:center;justify-content:center}
+  .spin-o{width:28px;height:28px;border:3.5px solid rgba(255,255,255,.2);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite}
+  .text{font-size:17px;font-weight:600;letter-spacing:1px;text-align:center;padding:0 24px;opacity:.9}
   @keyframes spin{to{transform:rotate(360deg)}}
-  p{color:#9aa0b5;font-size:13px;margin-top:14px}
 </style></head><body>
-<div style="text-align:center"><div class="spinner"></div><p>OhMyAgent 启动中…</p></div>
+  <div class="logo"><div class="spin-o"></div></div>
+  <div class="text">OhMyAgent 启动中…</div>
 </body></html>"#;
     WebviewWindowBuilder::new(app, SPLASH_LABEL, data_url(html))
         .title("OhMyAgent")
@@ -148,11 +162,15 @@ pub fn show_error_window(app: &AppHandle, message: &str) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Gateway chooser (first run / remote failure). HTML comes from the sidecar
-/// (`/_desktop/gateway-chooser`) so it can use the server i18n.
+/// Gateway chooser (first run / remote failure). The window loads the HTML
+/// straight from the sidecar control API (`/_desktop/gateway-chooser`) so the
+/// page origin is http://127.0.0.1:{control_port} — data: URLs have an opaque
+/// origin that the remote-domain ACL rejects, which would break the chooser's
+/// window.electronAPI invokes (save / close / quit).
 pub fn show_chooser_window(
     app: &AppHandle,
-    html: &str,
+    base_url: &str,
+    token: &str,
     width: u32,
     height: u32,
 ) -> tauri::Result<()> {
@@ -161,24 +179,27 @@ pub fn show_chooser_window(
         let _ = win.set_focus();
         return Ok(());
     }
-    WebviewWindowBuilder::new(app, CHOOSER_LABEL, data_url(html))
-        .title("OhMyAgent")
-        .inner_size(width as f64, height as f64)
-        .resizable(false)
-        .decorations(false)
-        .center()
-        .initialization_script(compat_script())
-        .build()?;
+    let url = format!("{base_url}/_desktop/gateway-chooser?token={token}");
+    WebviewWindowBuilder::new(
+        app,
+        CHOOSER_LABEL,
+        WebviewUrl::External(url.parse().expect("chooser url")),
+    )
+    .title("OhMyAgent")
+    .inner_size(width as f64, height as f64)
+    .resizable(false)
+    .decorations(false)
+    .center()
+    .initialization_script(compat_script())
+    .build()?;
     Ok(())
 }
 
 /// First-run flow: when no gateway is configured yet (firstRunDone == false,
-/// local mode, no remote URL), fetch the chooser HTML from the sidecar control
-/// API and show the chooser window. Called once the gateway is healthy.
+/// local mode, no remote URL), show the chooser window loading the sidecar
+/// control API page. Called once the gateway is healthy.
 pub async fn maybe_show_chooser(app: AppHandle) {
     use crate::config::{config_path, DesktopConfig};
-    use crate::sidecar::SidecarState;
-    use std::sync::Arc;
 
     let cfg = DesktopConfig::load(&config_path(&app));
     if cfg.first_run_done || cfg.is_remote() {
@@ -190,37 +211,28 @@ pub async fn maybe_show_chooser(app: AppHandle) {
 
     let state = app.state::<Arc<SidecarState>>();
     let port = state.sidecar_api_port.load(std::sync::atomic::Ordering::SeqCst);
+    if port == 0 {
+        return; // control API not up yet
+    }
+    let base_url = format!("http://127.0.0.1:{port}");
     let token = state.ctl_token.clone();
-
-    let client = match reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(8))
-        .build()
-    {
-        Ok(c) => c,
-        Err(_) => return,
-    };
-    let url = format!("http://127.0.0.1:{port}/_desktop/gateway-chooser");
-    let html = match client.get(&url).bearer_auth(&token).send().await {
-        Ok(r) if r.status().is_success() => match r.text().await {
-            Ok(t) => t,
-            Err(_) => return,
-        },
-        _ => return,
-    };
 
     let app2 = app.clone();
     let _ = app.run_on_main_thread(move || {
-        let _ = show_chooser_window(&app2, &html, 560, 620);
+        let _ = show_chooser_window(&app2, &base_url, &token, 560, 620);
     });
 }
 
 /// Updater dialogs pushed by the sidecar via POST /show-window.
 /// `kind` selects the window label; an existing window is only shown again
 /// (content updates come from the HTML's own polling of the control API).
+///
+/// The window loads http://127.0.0.1:{control_port}/_desktop/pages/updater/{kind}
+/// (HTML cached by the sidecar's control server) instead of an embedded
+/// data: URL — see show_chooser_window for why data: URLs can't invoke.
 pub fn show_dialog_window(
     app: &AppHandle,
     kind: &str,
-    html: &str,
     width: u32,
     height: u32,
     dark: bool,
@@ -245,15 +257,25 @@ pub fn show_dialog_window(
         let _ = win.set_focus();
         return Ok(());
     }
-    WebviewWindowBuilder::new(app, label, data_url(html))
-        .title("OhMyAgent 更新")
-        .inner_size(width as f64, height as f64)
-        .resizable(false)
-        .decorations(false)
-        .background_color(tauri::window::Color::from((20, 20, 31)))
-        .center()
-        .initialization_script(compat_script())
-        .build()?;
+    let state = app.state::<Arc<SidecarState>>();
+    let port = state.sidecar_api_port.load(std::sync::atomic::Ordering::SeqCst);
+    let token = state.ctl_token.clone();
+    let url = format!(
+        "http://127.0.0.1:{port}/_desktop/pages/updater/{kind}?token={token}"
+    );
+    WebviewWindowBuilder::new(
+        app,
+        label,
+        WebviewUrl::External(url.parse().expect("updater page url")),
+    )
+    .title("OhMyAgent 更新")
+    .inner_size(width as f64, height as f64)
+    .resizable(false)
+    .decorations(false)
+    .background_color(tauri::window::Color::from((20, 20, 31)))
+    .center()
+    .initialization_script(compat_script())
+    .build()?;
     let _ = dark;
     Ok(())
 }
