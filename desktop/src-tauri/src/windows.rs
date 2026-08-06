@@ -210,20 +210,53 @@ pub fn close_splash(app: &AppHandle) {
 /// chooser's "save" path (Electron relaunched the app there; the sidecar stays
 /// alive here, so a navigation is the equivalent). Creates + reveals the
 /// window when it does not exist yet (first run: chooser before reveal).
+///
+/// The chooser's save can land mid-service-restart, when the local server is
+/// briefly down — navigating then would stick the main window on a white
+/// connection-refused page. Wait for /api/health (bounded) before acting.
 pub fn reload_main_window(app: &AppHandle) {
-    let Some(win) = app.get_webview_window(MAIN_LABEL) else {
-        reveal_main_window(app);
-        return;
-    };
-    let port = ShellConfig::load(app).server_port;
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let url = format!("http://127.0.0.1:{port}/webui/?electron=1&_ts={ts}");
-    let _ = win.navigate(url.parse().expect("webui url"));
-    let _ = win.show();
-    let _ = win.set_focus();
+    let app2 = app.clone();
+    let server_port = ShellConfig::load(&app2).server_port;
+    tauri::async_runtime::spawn(async move {
+        let Ok(client) = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(3))
+            .build()
+        else {
+            return;
+        };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        loop {
+            let ok = client
+                .get(format!("http://127.0.0.1:{server_port}/api/health"))
+                .send()
+                .await
+                .map(|r| r.status().is_success())
+                .unwrap_or(false);
+            if ok || std::time::Instant::now() > deadline {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        }
+        let app3 = app2.clone();
+        let _ = app2.run_on_main_thread(move || {
+            if let Some(win) = app3.get_webview_window(MAIN_LABEL) {
+                let ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis())
+                    .unwrap_or(0);
+                let url = format!("http://127.0.0.1:{server_port}/webui/?electron=1&_ts={ts}");
+                let _ = win.navigate(url.parse().expect("webui url"));
+                let _ = win.show();
+                let _ = win.set_focus();
+            } else {
+                if let Err(e) = create_main_window(&app3) {
+                    log::error!("windows: create_main_window failed: {e}");
+                    return;
+                }
+                show_main_window(&app3);
+            }
+        });
+    });
 }
 
 /// Frameless error window with a message, a restart button and a dismiss
@@ -297,10 +330,12 @@ pub fn show_chooser_window(
     opts: ChooserOptions<'_>,
 ) -> tauri::Result<()> {
     if let Some(win) = app.get_webview_window(CHOOSER_LABEL) {
+        log::info!("windows: show_chooser_window → existing window");
         let _ = win.show();
         let _ = win.set_focus();
         return Ok(());
     }
+    log::info!("windows: show_chooser_window creating (base {base_url})");
     let mut url = format!("{base_url}/_desktop/gateway-chooser?token={token}");
     if let Some(e) = opts.error {
         url.push_str(&format!("&err={}", url_escape(e)));

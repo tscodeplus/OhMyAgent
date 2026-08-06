@@ -191,6 +191,12 @@ pub async fn init(app: &AppHandle) {
     if cfg!(debug_assertions) {
         log::info!("sidecar: dev mode — beforeDevCommand sidecar expected on :{server_port}");
     } else {
+        // Reclaim the port from an orphaned previous sidecar before spawning
+        // (its shell is gone but node survived — the anti-orphan heartbeat
+        // can miss a hard-killed shell, and a leftover listener turns every
+        // subsequent launch into a startup failure).
+        #[cfg(windows)]
+        reap_orphan_sidecar(server_port);
         match spawn_sidecar(&cfg, &state) {
             Ok(child) => {
                 let pid = child.id().unwrap_or(0);
@@ -258,16 +264,25 @@ fn spawn_holder(
             log::info!("sidecar: stale holder (gen {generation}, now {current_gen}) — ignoring exit");
             return;
         }
-        // Distinguish expected shutdown from crash.
+        // Distinguish expected shutdown from crash. Stopped counts as
+        // expected too: shutdown() force-flips the state when its taskkill
+        // fallback outruns this holder, and the exit arrives afterwards —
+        // treating it as a crash raised a bogus "服务异常" window after
+        // every slow graceful stop.
         let kind = state2.snapshot().await.kind;
-        if kind != StatusKind::Stopping {
-            log::error!("sidecar: process died unexpectedly (kind={kind:?})");
-            let msg = err_text("crashed", is_zh(&app2));
-            state2.set_error(msg.clone()).await;
-            crate::windows::close_splash(&app2);
-            let _ = crate::windows::show_error_window(&app2, &msg);
-        } else {
-            state2.set_kind(StatusKind::Stopped).await;
+        match kind {
+            StatusKind::Stopping | StatusKind::Stopped => {
+                if kind == StatusKind::Stopping {
+                    state2.set_kind(StatusKind::Stopped).await;
+                }
+            }
+            _ => {
+                log::error!("sidecar: process died unexpectedly (kind={kind:?})");
+                let msg = err_text("crashed", is_zh(&app2));
+                state2.set_error(msg.clone()).await;
+                crate::windows::close_splash(&app2);
+                let _ = crate::windows::show_error_window(&app2, &msg);
+            }
         }
         crate::tray::rebuild(&app2, &DesktopConfig::load(&config_path(&app2)));
     });
@@ -669,6 +684,61 @@ fn reserve_port() -> u16 {
         .unwrap_or(0)
 }
 
+/// Windows: if the server port is held by an orphaned sidecar from a previous
+/// shell (command line matches our bundled `sidecar\node.exe index.js` and
+/// its parent process is gone), kill it so this launch can bind. Runs once at
+/// shell start — deterministic, unlike the sidecar's heartbeat.
+#[cfg(windows)]
+fn reap_orphan_sidecar(port: u16) {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+    // netstat/powershell are console apps; from a GUI shell they would each
+    // flash a terminal window at startup without CREATE_NO_WINDOW.
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+    let netstat = match Command::new("netstat")
+        .arg("-ano")
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdout(Stdio::piped())
+        .output()
+    {
+        Ok(o) => o,
+        Err(_) => return,
+    };
+    let text = String::from_utf8_lossy(&netstat.stdout);
+    let Some(pid) = text.lines().find_map(|line| {
+        if !line.contains(&format!(":{port}")) || !line.contains("LISTENING") {
+            return None;
+        }
+        line.split_whitespace().last()?.parse::<u32>().ok()
+    }) else {
+        return; // port free — nothing to reap
+    };
+    if pid == std::process::id() {
+        return;
+    }
+    // Identify our sidecar and check its parent is gone, via WMI. `$` in the
+    // raw string are PowerShell variables.
+    let script = format!(
+        r#"$p = Get-CimInstance Win32_Process -Filter 'ProcessId={pid}' -ErrorAction SilentlyContinue
+if ($p -and $p.CommandLine -like '*\sidecar\node.exe*index.js*') {{
+  $parent = Get-CimInstance Win32_Process -Filter "ProcessId=$($p.ParentProcessId)" -ErrorAction SilentlyContinue
+  if (-not $parent) {{ 'ORPHAN' }}
+}}"#
+    );
+    let out = Command::new("powershell.exe")
+        .args(["-NoProfile", "-Command", &script])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+    let orphan = out
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains("ORPHAN"))
+        .unwrap_or(false);
+    if orphan {
+        log::warn!("sidecar: port {port} held by orphaned sidecar pid={pid} — killing it");
+        let _ = kill_process_tree(pid);
+    }
+}
+
 /// Kill the sidecar process and its whole tree. Windows: `taskkill /T /F`;
 /// other platforms: SIGKILL to the child (no process group is created).
 #[cfg(windows)]
@@ -726,9 +796,12 @@ pub fn restart(app: &AppHandle) {
             Err(e) => {
                 log::error!("sidecar: respawn failed: {e}");
                 let zh = is_zh(&app);
-                state
-                    .set_error(format!("{}: {e}", err_text("restart_failed", zh)))
-                    .await;
+                let msg = format!("{}: {e}", err_text("restart_failed", zh));
+                state.set_error(msg.clone()).await;
+                // Surface it like any other service failure — a silent
+                // respawn error would leave the user on a dead UI.
+                crate::windows::close_splash(&app);
+                let _ = crate::windows::show_error_window(&app, &msg);
             }
         }
     });

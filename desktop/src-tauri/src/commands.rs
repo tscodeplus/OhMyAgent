@@ -74,9 +74,24 @@ pub fn compat_quit_app(app: AppHandle) {
 }
 
 /// "Restart service": stop the sidecar and respawn it (dev: relaunch the shell).
+///
+/// Returns `{ok: true}` immediately — the shutdown+respawn runs in the
+/// background and its failures surface via the error window / tray state.
+/// The WebUI checks `result?.ok` (env.ts restartService signature), so an
+/// empty response made every restart report "保存失败" even though it ran.
+#[derive(serde::Serialize)]
+pub struct RestartResult {
+    pub ok: bool,
+    pub error: Option<String>,
+}
+
 #[tauri::command]
-pub fn compat_restart_service(app: AppHandle) {
+pub fn compat_restart_service(app: AppHandle) -> RestartResult {
     crate::sidecar::restart(&app);
+    RestartResult {
+        ok: true,
+        error: None,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -99,20 +114,56 @@ pub fn compat_open_gateway_chooser(app: AppHandle, error: Option<String>) {
     let ctl_token = state.ctl_token.clone();
     let cfg = DesktopConfig::load(&config_path(&app));
     let app2 = app.clone();
-    let _ = app.run_on_main_thread(move || {
-        let opts = crate::windows::ChooserOptions {
-            error: error.as_deref(),
-            initial_url: Some(&cfg.gateway.remote_url),
-            initial_token: Some(&cfg.gateway.remote_token),
+    tauri::async_runtime::spawn(async move {
+        // Right after a service restart the control API is briefly down (the
+        // old sidecar is dead, the new one still binding); opening the
+        // chooser now would leave it stuck on a white connection-refused
+        // page. Probe /ping with a short retry before creating the window.
+        let Ok(client) = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(2))
+            .build()
+        else {
+            return;
         };
-        let _ = crate::windows::show_chooser_window(
-            &app2,
-            &base_url,
-            &ctl_token,
-            560,
-            620,
-            opts,
-        );
+        let mut alive = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            let ok = client
+                .get(format!("{base_url}/_desktop/ping"))
+                .bearer_auth(&ctl_token)
+                .send()
+                .await
+                .map(|r| r.status().is_success())
+                .unwrap_or(false);
+            if ok {
+                alive = true;
+                break;
+            }
+            if std::time::Instant::now() > deadline {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        }
+        if !alive {
+            log::warn!("compat_open_gateway_chooser: control API never became reachable — not opening chooser");
+            return;
+        }
+        let app3 = app2.clone();
+        let _ = app2.run_on_main_thread(move || {
+            let opts = crate::windows::ChooserOptions {
+                error: error.as_deref(),
+                initial_url: Some(&cfg.gateway.remote_url),
+                initial_token: Some(&cfg.gateway.remote_token),
+            };
+            let _ = crate::windows::show_chooser_window(
+                &app3,
+                &base_url,
+                &ctl_token,
+                560,
+                620,
+                opts,
+            );
+        });
     });
 }
 
