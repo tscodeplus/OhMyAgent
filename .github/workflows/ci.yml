@@ -20,9 +20,10 @@ jobs:
             exit 1
           fi
 
+      # No version input: pnpm/action-setup reads the packageManager field
+      # (pnpm@10.30.3). Pinning version: 10 alongside it fails the action
+      # with "Multiple versions of pnpm specified".
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - uses: actions/setup-node@v4
         with:
@@ -52,8 +53,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - uses: actions/setup-node@v4
         with:

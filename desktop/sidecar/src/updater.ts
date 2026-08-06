@@ -307,12 +307,21 @@ export class AppUpdater {
       return null;
     }
 
-    // Fetch latest.yml from the release to get file URLs and checksums.
-    const latestYmlUrl = `https://github.com/tscodeplus/OhMyAgent/releases/download/${release.tag_name}/latest.yml`;
+    // Fetch the platform metadata file (electron-builder convention) so
+    // every platform keeps its own file URL list and the CI uploads never
+    // clobber each other: latest.yml = Windows, latest-mac.yml = macOS,
+    // latest-linux.yml = Linux.
+    const ymlName =
+      process.platform === 'win32'
+        ? 'latest.yml'
+        : process.platform === 'darwin'
+          ? 'latest-mac.yml'
+          : 'latest-linux.yml';
+    const latestYmlUrl = `https://github.com/tscodeplus/OhMyAgent/releases/download/${release.tag_name}/${ymlName}`;
     diagLog(`checkForUpdateResult: fetching ${latestYmlUrl}`);
     const ymlResp = await fetchWithProxy(latestYmlUrl, { signal: AbortSignal.timeout(10_000) });
     if (!ymlResp.ok) {
-      throw new Error(`latest.yml returned ${ymlResp.status}`);
+      throw new Error(`${ymlName} returned ${ymlResp.status}`);
     }
 
     const ymlText = await ymlResp.text();

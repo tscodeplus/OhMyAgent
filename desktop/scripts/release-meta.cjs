@@ -1,18 +1,21 @@
 // release-meta.cjs — generate the electron-builder-format latest.yml consumed
 // by the sidecar updater (desktop/sidecar/src/updater.ts parseLatestYml).
 //
-// Usage: node scripts/release-meta.cjs <installer-file> <version>
-//   reads the installer, computes sha512 (base64), writes latest.yml next to it.
-//   The updater downloads <release>/<file> and verifies against this sha512.
+// Usage: node scripts/release-meta.cjs <installer-file> <version> [name]
+//   reads the installer, computes sha512 (base64), writes <name> (default
+//   latest.yml) next to it. The updater downloads <release>/<file> and
+//   verifies against this sha512. Per-platform file names follow the
+//   electron-builder convention: latest.yml (Windows), latest-mac.yml
+//   (macOS), latest-linux.yml (Linux).
 
 const { createHash } = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
 function main() {
-  const [installerPath, version] = process.argv.slice(2);
+  const [installerPath, version, name] = process.argv.slice(2);
   if (!installerPath || !version) {
-    console.error('usage: node scripts/release-meta.cjs <installer-file> <version>');
+    console.error('usage: node scripts/release-meta.cjs <installer-file> <version> [name]');
     process.exit(1);
   }
   const abs = path.resolve(installerPath);
@@ -37,7 +40,8 @@ function main() {
     '',
   ].join('\n');
 
-  const outPath = path.join(path.dirname(abs), 'latest.yml');
+  const outName = name ?? 'latest.yml';
+  const outPath = path.join(path.dirname(abs), outName);
   fs.writeFileSync(outPath, yml);
   console.log(`release-meta: wrote ${outPath}`);
   console.log(`release-meta: version=${version} sha512=${sha512.slice(0, 24)}... size=${buf.length}`);
