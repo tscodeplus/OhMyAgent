@@ -125,7 +125,6 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           DMG=$(ls desktop/src-tauri/target/release/bundle/dmg/*.dmg | head -1)
           node desktop/scripts/release-meta.cjs "$DMG" "$VERSION"
-          cp "$(dirname "$DMG")/latest.yml" desktop/src-tauri/target/release/bundle/dmg/latest.yml
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
