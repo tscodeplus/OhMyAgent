@@ -112,29 +112,24 @@ jobs:
           fi
           echo "Versions consistent: $rootVer"
 
-      - name: Build Tauri app (deb + AppImage)
-        # -v: surfaces linuxdeploy's stderr, which is otherwise swallowed
-        # and we only get the generic "failed to run linuxdeploy".
-        run: cd desktop && npx tauri build -v --bundles deb,appimage
+      # deb only for now: tauri's cached linuxdeploy (2024-07-26 build) throws
+      # std::runtime_error while deploying gdk-pixbuf on Ubuntu 24.04, so the
+      # AppImage step always fails. Revisit with a newer linuxdeploy in the
+      # tauri tools cache (~/.cache/tauri/linuxdeploy-x86_64.AppImage).
+      - name: Build Tauri app (deb)
+        run: cd desktop && npx tauri build -v --bundles deb
         env:
           # beforeBuildCommand re-runs bundle-deps; keep the platform pruning
           # aligned with this job's target (default would be win32-x64).
           OMA_TARGET_PLATFORM: linux-x64
-          # CI runners have no FUSE; linuxdeploy's AppImage fails to run
-          # unless extracted-and-run. NO_STRIP: on Ubuntu 24.04 linuxdeploy
-          # trips over the toolchain's strip binary.
-          APPIMAGE_EXTRACT_AND_RUN: '1'
-          NO_STRIP: '1'
 
-      # Rename to the Electron-era asset names (OhMyAgent-<v>.AppImage,
-      # ohmyagent-desktop_<v>_amd64.deb) so the release looks the same as
-      # before the Tauri migration.
+      # Rename to the Electron-era asset name (ohmyagent-desktop_<v>_amd64.deb)
+      # so the release looks the same as before the Tauri migration.
       - name: Rename artifacts (electron-builder style names)
         run: |
           VERSION=$(node -p "require('./package.json').version")
           cd desktop/src-tauri/target/release/bundle
           mv -f deb/OhMyAgent_${VERSION}_amd64.deb "deb/ohmyagent-desktop_${VERSION}_amd64.deb"
-          mv -f appimage/OhMyAgent_${VERSION}_amd64.AppImage "appimage/OhMyAgent-${VERSION}.AppImage"
 
       - name: Generate latest-linux.yml metadata
         run: |
@@ -148,7 +143,6 @@ jobs:
           name: ohmyagent-linux-x64
           path: |
             desktop/src-tauri/target/release/bundle/deb/*.deb
-            desktop/src-tauri/target/release/bundle/appimage/*.AppImage
             desktop/src-tauri/target/release/bundle/deb/latest-linux.yml
           if-no-files-found: error
 
@@ -160,5 +154,4 @@ jobs:
           tag_name: ${{ github.event_name == 'release' && github.event.release.tag_name || github.event.inputs.version }}
           files: |
             desktop/src-tauri/target/release/bundle/deb/*.deb
-            desktop/src-tauri/target/release/bundle/appimage/*.AppImage
             desktop/src-tauri/target/release/bundle/deb/latest-linux.yml
