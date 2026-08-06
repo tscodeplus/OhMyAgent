@@ -195,7 +195,6 @@ pub async fn init(app: &AppHandle) {
         // (its shell is gone but node survived — the anti-orphan heartbeat
         // can miss a hard-killed shell, and a leftover listener turns every
         // subsequent launch into a startup failure).
-        #[cfg(windows)]
         reap_orphan_sidecar(server_port);
         match spawn_sidecar(&cfg, &state) {
             Ok(child) => {
@@ -736,6 +735,48 @@ if ($p -and $p.CommandLine -like '*\sidecar\node.exe*index.js*') {{
     if orphan {
         log::warn!("sidecar: port {port} held by orphaned sidecar pid={pid} — killing it");
         let _ = kill_process_tree(pid);
+    }
+}
+
+/// Same port-reclaim semantics on macOS/Linux: the anti-orphan heartbeat can
+/// miss a hard-killed shell, and a leftover listener would fail the next
+/// launch (spawn error + error window) if it happens within the ~9s before
+/// the orphaned node's heartbeat gives up. Simpler than Windows — node spawns
+/// no child processes here, so a single SIGKILL suffices, and the current
+/// shell hasn't spawned yet at this point, so a matching listener is by
+/// definition an orphan.
+#[cfg(not(windows))]
+fn reap_orphan_sidecar(port: u16) {
+    use std::process::Command;
+
+    let out = match Command::new("lsof")
+        .args(["-ti", &format!("tcp:{port}")])
+        .stdout(Stdio::piped())
+        .output()
+    {
+        Ok(o) if o.status.success() => o,
+        _ => return, // lsof unavailable or nothing listening
+    };
+    let text = String::from_utf8_lossy(&out.stdout);
+    for pid in text.split_whitespace() {
+        let ps = match Command::new("ps")
+            .args(["-p", pid, "-o", "command="])
+            .stdout(Stdio::piped())
+            .output()
+        {
+            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).to_string(),
+            _ => continue,
+        };
+        // The sidecar spawns `node index.js` (relative entry + cwd = sidecar
+        // dir); a node process whose argv mentions index.js is ours.
+        if ps.contains("index.js") {
+            log::warn!("sidecar: port {port} held by orphaned sidecar pid={pid} — killing it");
+            let _ = Command::new("kill")
+                .args(["-9", pid])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
     }
 }
 
