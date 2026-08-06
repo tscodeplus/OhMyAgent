@@ -70,18 +70,28 @@ jobs:
       - name: Fetch bundled Node runtime (mac)
         run: cd desktop && OMA_TARGET_PLATFORM=${{ matrix.bundle_platform }} node scripts/fetch-node.cjs
 
+      # Signing secrets are OPTIONAL. Never set the env vars to empty
+      # strings: tauri's codesign sees APPLE_CERTIFICATE set (even empty)
+      # and runs `security import` on an empty file → build fails.
+      - name: Configure signing env (only when secrets exist)
+        run: |
+          if [ -n "${{ secrets.APPLE_CERTIFICATE }}" ]; then
+            echo "APPLE_CERTIFICATE=${{ secrets.APPLE_CERTIFICATE }}" >> "$GITHUB_ENV"
+            echo "APPLE_CERTIFICATE_PASSWORD=${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" >> "$GITHUB_ENV"
+            echo "APPLE_SIGNING_IDENTITY=${{ secrets.APPLE_SIGNING_IDENTITY }}" >> "$GITHUB_ENV"
+          fi
+          if [ -n "${{ secrets.APPLE_API_KEY }}" ]; then
+            echo "APPLE_API_KEY=${{ secrets.APPLE_API_KEY }}" >> "$GITHUB_ENV"
+            echo "APPLE_API_ISSUER=${{ secrets.APPLE_API_ISSUER }}" >> "$GITHUB_ENV"
+            echo "APPLE_API_KEY_ID=${{ secrets.APPLE_API_KEY_ID }}" >> "$GITHUB_ENV"
+          fi
+
       - name: Build sidecar + Tauri app (dmg)
         run: cd desktop && npm run tauri:build:mac
         env:
           # beforeBuildCommand re-runs bundle-deps; keep the platform pruning
           # aligned with this job's target (default would be win32-x64).
           OMA_TARGET_PLATFORM: ${{ matrix.bundle_platform }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
 
       - name: Package zip distribution (ditto, preserves resource forks)
         run: |
