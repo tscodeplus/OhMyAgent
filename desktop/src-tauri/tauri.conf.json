@@ -4,9 +4,9 @@
   "version": "2.1.0-beta1",
   "identifier": "com.ohmyagent.desktop",
   "build": {
-    "beforeDevCommand": "pnpm dev:sidecar",
+    "beforeDevCommand": "pnpm dev:sidecar && node scripts/copy-pages.cjs",
     "devUrl": "http://127.0.0.1:9191/webui/?electron=1",
-    "beforeBuildCommand": "pnpm bundle-deps && pnpm build:sidecar",
+    "beforeBuildCommand": "pnpm bundle-deps && pnpm build:sidecar && node scripts/copy-pages.cjs",
     "frontendDist": "../../ui/dist"
   },
   "app": {
@@ -25,9 +25,7 @@
       "../../ui/dist": "sidecar/webui-dist",
       "../.sidecar-deps/node_modules": "sidecar/node_modules",
       "../.sidecar-deps/root": "sidecar",
-      "../.sidecar-deps/runtime": "sidecar",
-      "pages/splash.html": "pages/splash.html",
-      "pages/error.html": "pages/error.html"
+      "../.sidecar-deps/runtime": "sidecar"
     },
     "windows": {
       "nsis": {
