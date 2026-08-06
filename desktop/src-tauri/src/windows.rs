@@ -121,7 +121,7 @@ pub fn create_splash(app: &AppHandle) -> tauri::Result<()> {
         .center()
         .visible(false)
         .on_page_load(|win, payload| {
-            if matches!(payload.event, PageLoadEvent::Finished) {
+            if matches!(payload.event(), PageLoadEvent::Finished) {
                 let _ = win.show();
             }
         })
@@ -437,21 +437,22 @@ fn set_caption_theme(win: &tauri::WebviewWindow, dark: bool) {
         let dark_mode: i32 = i32::from(dark);
         // All three calls are best-effort; failures (e.g. Win10 attributes)
         // leave the system default in place.
+        // windows-sys exports the attributes as i32; the DWM API wants u32.
         DwmSetWindowAttribute(
             hwnd,
-            DWMWA_USE_IMMERSIVE_DARK_MODE,
+            DWMWA_USE_IMMERSIVE_DARK_MODE as u32,
             &dark_mode as *const i32 as *const _,
             size_of::<i32>() as u32,
         );
         DwmSetWindowAttribute(
             hwnd,
-            DWMWA_CAPTION_COLOR,
+            DWMWA_CAPTION_COLOR as u32,
             &bg as *const u32 as *const _,
             size_of::<u32>() as u32,
         );
         DwmSetWindowAttribute(
             hwnd,
-            DWMWA_TEXT_COLOR,
+            DWMWA_TEXT_COLOR as u32,
             &fg as *const u32 as *const _,
             size_of::<u32>() as u32,
         );
@@ -462,7 +463,6 @@ fn set_caption_theme(win: &tauri::WebviewWindow, dark: bool) {
 /// Personalize registry key (0 → dark); other platforms default to false.
 #[cfg(windows)]
 fn system_dark() -> bool {
-    use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::System::Registry::{
         RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD,
     };

@@ -531,7 +531,8 @@ async fn check_remote_health(url: &str, token: &str) -> RemoteHealth {
 /// Show the gateway chooser prefilled with the configured remote URL/token and
 /// an error banner describing why the remote gateway failed. Called from the
 /// health loop (non-main thread) → window creation needs the main thread.
-fn show_remote_chooser(app: &AppHandle, error: &str) {
+/// `error` must be 'static: it is moved into a main-thread closure.
+fn show_remote_chooser(app: &AppHandle, error: &'static str) {
     let state = app.state::<Arc<SidecarState>>();
     let port = state.sidecar_api_port.load(std::sync::atomic::Ordering::SeqCst);
     if port == 0 {
