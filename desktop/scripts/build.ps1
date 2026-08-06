@@ -453,7 +453,7 @@ function Invoke-TauriBuild {
     $setup = Get-ChildItem "$DesktopDir\src-tauri\target\release\bundle\nsis\OhMyAgent_*_x64-setup.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($setup) {
         $version = (Get-Content "$DesktopDir\package.json" | ConvertFrom-Json).version
-        Rename-Item $setup.FullName "OhMyAgent-Setup-$version.exe"
+        Rename-Item -Force $setup.FullName "OhMyAgent-Setup-$version.exe"
         Write-OK "Renamed installer to OhMyAgent-Setup-$version.exe"
     }
 
