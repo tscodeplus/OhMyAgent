@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Manual trigger: GitHub's push event delivery has been unreliable
+  # (2026-08-06 backlog); this keeps CI runnable without a push.
+  workflow_dispatch:
 
 jobs:
   test:
