@@ -61,7 +61,8 @@ jobs:
           key: node-linux-x64-${{ hashFiles('desktop/.node-version') }}
 
       # Tauri 2 system dependencies (WebKitGTK 4.1). libfuse2 is needed to
-      # run appimagetool when packaging the AppImage.
+      # run appimagetool when packaging the AppImage; gdk-pixbuf loaders and
+      # squashfs-tools/patchelf are required by linuxdeploy's AppImage step.
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -75,9 +76,15 @@ jobs:
             libssl-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
+            librsvg2-common \
+            libgdk-pixbuf2.0-bin \
+            squashfs-tools \
+            patchelf \
             libfuse2 \
             fakeroot \
             dpkg-dev
+          # Refresh the gdk-pixbuf loader cache linuxdeploy queries.
+          gdk-pixbuf-query-loaders --update-cache || true
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -106,7 +113,9 @@ jobs:
           echo "Versions consistent: $rootVer"
 
       - name: Build Tauri app (deb + AppImage)
-        run: cd desktop && npx tauri build --bundles deb,appimage
+        # -v: surfaces linuxdeploy's stderr, which is otherwise swallowed
+        # and we only get the generic "failed to run linuxdeploy".
+        run: cd desktop && npx tauri build -v --bundles deb,appimage
         env:
           # beforeBuildCommand re-runs bundle-deps; keep the platform pruning
           # aligned with this job's target (default would be win32-x64).
