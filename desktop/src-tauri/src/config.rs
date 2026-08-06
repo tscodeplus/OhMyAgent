@@ -200,11 +200,45 @@ static GRANTED_REMOTE_ORIGINS: LazyLock<Mutex<HashSet<String>>> =
 
 /// Grant a remote origin IPC access at runtime (tauri 2: capabilities with a
 /// `remote.urls` section — the v1 `dangerousRemoteDomainIpcAccess` field no
-/// longer exists in the config schema). Only `core:default` is exposed; the
-/// compat layer's own commands are what the remote page actually needs.
+/// longer exists in the config schema).
+///
+/// The permissions MUST mirror capabilities/default.json: tauri checks each
+/// command's `allow-*` permission individually, so a capability carrying only
+/// `core:default` lets the remote page match the scope yet still rejects every
+/// compat_* invoke (silently — the command never runs). The compat layer's
+/// getCtl then fails and the WebUI silently falls back to local mode.
 fn grant_remote_origin(app: &AppHandle, origin: &str) {
     use tauri::ipc::CapabilityBuilder;
     use tauri::Manager;
+
+    // Keep in sync with capabilities/default.json.
+    const PERMISSIONS: [&str; 25] = [
+        "core:default",
+        "dialog:default",
+        "opener:default",
+        "notification:default",
+        "autostart:allow-enable",
+        "autostart:allow-disable",
+        "autostart:allow-is-enabled",
+        "allow-compat-get-app-version",
+        "allow-compat-get-platform",
+        "allow-compat-get-server-status",
+        "allow-compat-get-control-info",
+        "allow-compat-quit-app",
+        "allow-compat-restart-service",
+        "allow-compat-window-minimize",
+        "allow-compat-window-maximize",
+        "allow-compat-window-close",
+        "allow-compat-toggle-devtools",
+        "allow-compat-open-data-dir",
+        "allow-compat-open-config-file",
+        "allow-compat-get-auto-start",
+        "allow-compat-set-auto-start",
+        "allow-compat-save-file-from-url",
+        "allow-compat-save-local-file",
+        "allow-compat-open-gateway-chooser",
+        "allow-compat-reload-main-window",
+    ];
 
     let id = format!("remote-gateway-{}", simple_hash(origin));
     {
@@ -212,18 +246,20 @@ fn grant_remote_origin(app: &AppHandle, origin: &str) {
         if granted.contains(&id) {
             return; // already granted this origin
         }
-        let cap = CapabilityBuilder::new(id.clone())
+        let mut cap = CapabilityBuilder::new(id.clone())
             .remote(origin.to_string())
             .local(false)
-            .windows(["main".to_string()])
-            .permission("core:default");
+            .windows(["main".to_string()]);
+        for p in PERMISSIONS {
+            cap = cap.permission(p);
+        }
         if let Err(e) = app.add_capability(cap) {
             log::error!("grant_remote_origin: add_capability failed for {origin}: {e}");
             return;
         }
         granted.insert(id);
     }
-    log::info!("grant_remote_origin: granted {origin}");
+    log::info!("grant_remote_origin: granted {origin} ({} permissions)", PERMISSIONS.len());
 }
 
 /// Deterministic short hash for capability identifiers (no external crate).
