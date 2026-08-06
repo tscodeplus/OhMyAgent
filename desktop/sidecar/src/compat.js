@@ -12,8 +12,12 @@
   window.__omaCompatInstalled = true;
 
   const invoke = window.__TAURI_INTERNALS__.invoke;
-  let ctlPromise = null; // { baseUrl, token } | null — resolved lazily, cached
+  let ctlPromise = null; // { baseUrl, token } — in-flight probe, not a cache
 
+  // The page loads before the sidecar's control API binds its port, so the
+  // first probe legitimately fails. Never cache that failure: null must be
+  // retried on the next call, or every later ctlFetch (check updates, config
+  // save, bridge) would fail for the whole session — "无法连接 GitHub".
   async function getCtl() {
     if (ctlPromise) return ctlPromise;
     ctlPromise = (async () => {
@@ -30,7 +34,9 @@
       } catch (e) { /* no control api at all */ }
       return null;
     })();
-    return ctlPromise;
+    const result = await ctlPromise;
+    if (!result) ctlPromise = null; // failure is transient — retry next call
+    return result;
   }
 
   async function probe(baseUrl, token) {

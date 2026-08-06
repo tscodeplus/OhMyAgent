@@ -74,10 +74,12 @@ try {
 const bridge = await import('./bridge.js');
 bridge.syncBridgeFromConfig();
 
-// 6. Heartbeat to the shell's control service (anti-orphan).
+// 6. Heartbeat to the shell's control service (anti-orphan). The heartbeat
+// also reports the control API port actually bound — the reserved port can
+// shift (race / TIME_WAIT), and the shell must track the live one.
 const ctlPort = Number(process.env.OMA_DESKTOP_CONTROL_PORT ?? 0);
 if (ctlPort > 0) {
-  startHeartbeat(ctlPort, controlToken);
+  startHeartbeat(ctlPort, controlToken, controlPort);
 }
 
 // 7. Signal handling — mirror src/index.ts (SIGINT/SIGTERM → stop → exit 0).

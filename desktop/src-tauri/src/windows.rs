@@ -189,7 +189,7 @@ pub async fn maybe_show_chooser(app: AppHandle) {
     }
 
     let state = app.state::<Arc<SidecarState>>();
-    let port = state.sidecar_api_port;
+    let port = state.sidecar_api_port.load(std::sync::atomic::Ordering::SeqCst);
     let token = state.ctl_token.clone();
 
     let client = match reqwest::Client::builder()
@@ -225,10 +225,20 @@ pub fn show_dialog_window(
     height: u32,
     dark: bool,
 ) -> tauri::Result<()> {
+    // Distinct labels per kind: a window is only *shown* if its label already
+    // exists, so sharing one label (spinner + result) would freeze the dialog
+    // on the first HTML forever.
     let label = match kind {
         "progress" => PROGRESS_LABEL,
+        "spinner" => "updater-spinner",
         _ => "updater-dialog",
     };
+    // A result window replaces the transient spinner.
+    if label != "updater-spinner" {
+        if let Some(spin) = app.get_webview_window("updater-spinner") {
+            let _ = spin.close();
+        }
+    }
     if let Some(win) = app.get_webview_window(label) {
         let _ = win.show();
         let _ = win.set_focus();

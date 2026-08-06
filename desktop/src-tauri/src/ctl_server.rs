@@ -22,6 +22,14 @@ struct UpdateInstallBody {
     path: String,
 }
 
+/// Heartbeat body: the sidecar reports the control API port it actually
+/// bound, so the shell can track it even if the reserved port shifted.
+#[derive(Deserialize)]
+struct PingBody {
+    #[serde(rename = "controlPort")]
+    control_port: u16,
+}
+
 #[derive(Deserialize)]
 struct ShowWindowBody {
     kind: String,
@@ -115,7 +123,17 @@ fn handle(app: &AppHandle, url: &str, body: &str) -> tiny_http::Response<std::io
     let (path, _query) = url.split_once('?').unwrap_or((url, ""));
 
     match path {
-        "/ping" => ok("pong"),
+        "/ping" => {
+            // Keep the shell's view of the control API port in sync: the
+            // sidecar may have re-bound elsewhere (reserved-port race).
+            if let Ok(b) = serde_json::from_str::<PingBody>(body) {
+                if b.control_port != 0 {
+                    let state = app.state::<Arc<SidecarState>>();
+                    state.sidecar_api_port.store(b.control_port, std::sync::atomic::Ordering::SeqCst);
+                }
+            }
+            ok("pong")
+        }
         "/update-install" => {
             match serde_json::from_str::<UpdateInstallBody>(body) {
                 Ok(b) => {

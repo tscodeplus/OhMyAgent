@@ -338,14 +338,21 @@ const MISSED_HEARTBEAT_LIMIT = 3;
 
 let heartbeatTimer: NodeJS.Timeout | null = null;
 
-export function startHeartbeat(ctlPort: number, token: string): void {
+export function startHeartbeat(ctlPort: number, token: string, controlPort?: number): void {
   const url = `http://127.0.0.1:${ctlPort}/ping`;
   let missed = 0;
 
   const tick = async (): Promise<void> => {
     try {
       const r = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        // Report the actually-bound control API port so the shell can keep
+        // tray/compat requests pointed at the live one.
+        body: JSON.stringify({ controlPort }),
         signal: AbortSignal.timeout(2000),
       });
       if (r.ok) {

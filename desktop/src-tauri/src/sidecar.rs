@@ -64,9 +64,10 @@ pub struct SidecarState {
     pub ctl_port: u16,
     pub ctl_token: String,
     /// Port the sidecar's control API listens on (reserved here, env
-    /// OMA_SIDECAR_CONTROL_PORT). Exposed to the compat layer via
+    /// OMA_SIDECAR_CONTROL_PORT; corrected by the heartbeat when the
+    /// sidecar's actual bind shifted). Exposed to the compat layer via
     /// `compat_get_control_info`.
-    pub sidecar_api_port: u16,
+    pub sidecar_api_port: std::sync::atomic::AtomicU16,
 }
 
 impl SidecarState {
@@ -86,8 +87,22 @@ impl SidecarState {
 }
 
 /// Synchronous snapshot for blocking contexts (tray menu events).
+///
+/// Deliberately lock-free: `block_on` panics when called from inside the
+/// tokio runtime (health_loop / poll_config_loop call this via
+/// `tray::rebuild`), which killed the health loop and left the tray stuck
+/// on "服务启动中…". `try_read` never blocks and never panics; a write
+/// hold is sub-millisecond (set_kind only), so a failed read is vanishingly
+/// rare and degrades to the Starting label until the next rebuild.
 pub fn take_snapshot(state: &SidecarState) -> SidecarStatus {
-    tauri::async_runtime::block_on(state.status.read()).clone()
+    match state.status.try_read() {
+        Ok(guard) => guard.clone(),
+        Err(_) => SidecarStatus {
+            kind: StatusKind::Starting,
+            port: 0,
+            error: None,
+        },
+    }
 }
 
 /// Entry point: build state, start the control server, (spawn|probe) the
@@ -112,7 +127,7 @@ pub async fn init(app: &AppHandle) {
         kill_notify: Notify::new(),
         ctl_port,
         ctl_token,
-        sidecar_api_port,
+        sidecar_api_port: std::sync::atomic::AtomicU16::new(sidecar_api_port),
     });
     app.manage(state.clone());
 
@@ -254,7 +269,13 @@ fn spawn_sidecar(
         .env("WEBUI_STATIC_ROOT", &webui_dist)
         .env("OMA_RESOURCES_DIR", sidecar_dir)
         .env("OMA_DESKTOP_CONTROL_PORT", state.ctl_port.to_string())
-        .env("OMA_SIDECAR_CONTROL_PORT", state.sidecar_api_port.to_string())
+        .env(
+            "OMA_SIDECAR_CONTROL_PORT",
+            state
+                .sidecar_api_port
+                .load(std::sync::atomic::Ordering::SeqCst)
+                .to_string(),
+        )
         .env("OMA_CONTROL_TOKEN", &state.ctl_token)
         .env("OMA_APP_VERSION", &cfg.app_version)
         .env("OMA_OS_LOCALE", &locale)

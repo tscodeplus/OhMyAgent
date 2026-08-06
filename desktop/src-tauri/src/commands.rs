@@ -53,7 +53,10 @@ pub struct ControlInfo {
 pub fn compat_get_control_info(app: AppHandle) -> Result<ControlInfo, String> {
     let state = app.state::<Arc<SidecarState>>();
     Ok(ControlInfo {
-        base_url: format!("http://127.0.0.1:{}", state.sidecar_api_port),
+        base_url: format!(
+            "http://127.0.0.1:{}",
+            state.sidecar_api_port.load(std::sync::atomic::Ordering::SeqCst)
+        ),
         token: state.ctl_token.clone(),
     })
 }
@@ -122,7 +125,8 @@ pub fn compat_toggle_devtools(window: tauri::WebviewWindow) -> Result<(), String
 
 #[tauri::command]
 pub fn compat_open_data_dir(app: AppHandle) -> Result<(), String> {
-    let dir = ShellConfig::load(&app).data_dir;
+    // Real data (app.db, downloads, …) lives in `<userData>/data`.
+    let dir = ShellConfig::load(&app).data_dir.join("data");
     tauri_plugin_opener::OpenerExt::opener(&app)
         .open_path(dir.to_string_lossy().to_string(), None::<&str>)
         .map_err(|e| e.to_string())

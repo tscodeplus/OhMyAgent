@@ -156,7 +156,10 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
         ID_TOGGLE => toggle_main_window(app),
         ID_RESTART_SERVICE => crate::sidecar::restart(app),
         ID_OPEN_DATA => {
-            let data_dir = crate::config::ShellConfig::load(app).data_dir;
+            // Real data (app.db, downloads, …) lives in `<userData>/data`;
+            // the userData root itself only holds config.yaml and logs/.
+            let cfg = crate::config::ShellConfig::load(app);
+            let data_dir = cfg.data_dir.join("data");
             open_path(app, &data_dir);
         }
         ID_OPEN_LOGS => {
@@ -241,7 +244,7 @@ fn check_updates(app: &AppHandle) {
     if snapshot.kind == StatusKind::Stopped {
         return;
     }
-    let port = state.sidecar_api_port;
+    let port = state.sidecar_api_port.load(std::sync::atomic::Ordering::SeqCst);
     let token = state.ctl_token.clone();
     tauri::async_runtime::spawn(async move {
         let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(8)).build();
