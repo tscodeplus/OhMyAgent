@@ -39,6 +39,32 @@ fn url_escape(input: &str) -> String {
     out
 }
 
+/// WebUI URL for the main window. In remote-gateway mode the page must load
+/// from the *remote* server: ui's apiRequest uses relative paths, so the page
+/// origin IS the API base. Loading the embedded server's WebUI while in remote
+/// mode makes AuthContext validate the remote token against the local gateway
+/// (/api/auth/verify → 401) → spurious "连接失败" page. `cache_bust` appends a
+/// `_ts` query param so a navigate after config changes isn't served from the
+/// webview cache.
+pub fn webui_url(app: &AppHandle, cache_bust: bool) -> String {
+    let cfg = DesktopConfig::load(&config_path(app));
+    let base = if cfg.is_remote() && !cfg.gateway.remote_url.is_empty() {
+        cfg.gateway.remote_url.trim_end_matches('/').to_string()
+    } else {
+        let port = ShellConfig::load(app).server_port;
+        format!("http://127.0.0.1:{port}")
+    };
+    if cache_bust {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        format!("{base}/webui/?electron=1&_ts={ts}")
+    } else {
+        format!("{base}/webui/?electron=1")
+    }
+}
+
 /// Main window — built in code (not tauri.conf.json) so the electronAPI compat
 /// layer (compat.js) and the image hover-download injection can be attached via
 /// initialization_script. Hidden until the gateway is healthy; the window is
@@ -53,9 +79,8 @@ fn url_escape(input: &str) -> String {
 /// caption (WebUI drag region + compat window buttons) in a later iteration.
 pub fn create_main_window(app: &AppHandle) -> tauri::Result<()> {
     let compat_js = include_str!("../../sidecar/src/compat.js");
-    let port = ShellConfig::load(app).server_port;
     let url = WebviewUrl::External(
-        format!("http://127.0.0.1:{port}/webui/?electron=1")
+        webui_url(app, false)
             .parse::<tauri::Url>()
             .expect("static url"),
     );
@@ -166,6 +191,12 @@ fn compat_script() -> &'static str {
 ///
 /// Creating a window requires the main thread; the show/focus half is
 /// thread-safe and runs inline for the already-created case (restart flows).
+///
+/// An existing window may sit on a stale WebUI URL — e.g. the user switched
+/// local ↔ remote gateway and restarted the service, but the window kept
+/// loading the embedded server's WebUI. Re-navigate when the target URL
+/// differs so the page origin follows the active gateway (compare without
+/// the cache-busting `_ts`).
 pub fn reveal_main_window(app: &AppHandle) {
     if app.get_webview_window(MAIN_LABEL).is_none() {
         let app2 = app.clone();
@@ -177,6 +208,28 @@ pub fn reveal_main_window(app: &AppHandle) {
             show_main_window(&app2);
         });
         return;
+    }
+    let target = webui_url(app, true);
+    if let Some(win) = app.get_webview_window(MAIN_LABEL) {
+        let current = win
+            .url()
+            .map(|u| u.to_string())
+            .unwrap_or_default()
+            .split('?')
+            .next()
+            .unwrap_or_default()
+            .to_string();
+        let target_base = target.split('?').next().unwrap_or_default().to_string();
+        if current != target_base {
+            let app2 = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                if let Some(win) = app2.get_webview_window(MAIN_LABEL) {
+                    if let Err(e) = win.navigate(target.parse().expect("webui url")) {
+                        log::error!("windows: reveal_main_window navigate failed: {e}");
+                    }
+                }
+            });
+        }
     }
     show_main_window(app);
 }
@@ -224,6 +277,9 @@ pub fn reload_main_window(app: &AppHandle) {
         else {
             return;
         };
+        // The embedded server answers this in both modes (it always runs);
+        // remote-mode reloads additionally depend on pre-flight already having
+        // passed (reveal_main_window) — navigate only to a known-healthy target.
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
         loop {
             let ok = client
@@ -238,14 +294,33 @@ pub fn reload_main_window(app: &AppHandle) {
             tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         }
         let app3 = app2.clone();
+        let url = webui_url(&app3, true);
+        // Remote mode: pre-flight the configured gateway before navigating, so
+        // a wrong URL/token saved in the chooser surfaces the chooser again
+        // (with its error banner) instead of a dead connection-refused page
+        // with no recovery path — mirror of Electron's relaunch-then-prefight.
+        let cfg = DesktopConfig::load(&config_path(&app3));
+        if cfg.is_remote() && !cfg.gateway.remote_url.is_empty() {
+            let remote_url = cfg.gateway.remote_url.clone();
+            let remote_token = cfg.gateway.remote_token.clone();
+            match crate::sidecar::check_remote_health(&remote_url, &remote_token).await {
+                crate::sidecar::RemoteHealth::Ok => {}
+                bad => {
+                    let key = match bad {
+                        crate::sidecar::RemoteHealth::Unreachable => "gatewayUnreachable",
+                        _ => "serverOnlineTokenInvalid",
+                    };
+                    log::warn!("windows: reload pre-flight {key} ({remote_url})");
+                    crate::sidecar::show_remote_chooser(&app3, key);
+                    return;
+                }
+            }
+        }
         let _ = app2.run_on_main_thread(move || {
             if let Some(win) = app3.get_webview_window(MAIN_LABEL) {
-                let ts = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis())
-                    .unwrap_or(0);
-                let url = format!("http://127.0.0.1:{server_port}/webui/?electron=1&_ts={ts}");
-                let _ = win.navigate(url.parse().expect("webui url"));
+                if let Err(e) = win.navigate(url.parse().expect("webui url")) {
+                    log::error!("windows: reload_main_window navigate failed: {e}");
+                }
                 let _ = win.show();
                 let _ = win.set_focus();
             } else {

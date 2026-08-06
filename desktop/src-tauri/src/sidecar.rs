@@ -535,7 +535,7 @@ async fn health_loop(app: AppHandle, state: Arc<SidecarState>, server_port: u16)
 /// Pre-flight outcome for a remote gateway (mirror of Electron's
 /// `checkRemoteHealth`): distinguishes "server offline" from "wrong token".
 #[derive(PartialEq, Eq, Debug)]
-enum RemoteHealth {
+pub(crate) enum RemoteHealth {
     Ok,
     Unreachable,
     InvalidToken,
@@ -545,7 +545,7 @@ enum RemoteHealth {
 /// — /api/auth/verify with it. The shell does this before revealing the main
 /// window in remote mode so a dead gateway surfaces the chooser immediately
 /// instead of an error page that cannot distinguish cause.
-async fn check_remote_health(url: &str, token: &str) -> RemoteHealth {
+pub(crate) async fn check_remote_health(url: &str, token: &str) -> RemoteHealth {
     let Ok(client) = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(8))
         .build()
@@ -584,7 +584,7 @@ async fn check_remote_health(url: &str, token: &str) -> RemoteHealth {
 /// an error banner describing why the remote gateway failed. Called from the
 /// health loop (non-main thread) → window creation needs the main thread.
 /// `error` must be 'static: it is moved into a main-thread closure.
-fn show_remote_chooser(app: &AppHandle, error: &'static str) {
+pub(crate) fn show_remote_chooser(app: &AppHandle, error: &'static str) {
     let state = app.state::<Arc<SidecarState>>();
     let port = state.sidecar_api_port.load(std::sync::atomic::Ordering::SeqCst);
     if port == 0 {
