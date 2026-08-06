@@ -105,10 +105,11 @@ jobs:
           if (-not $exe) { throw "NSIS installer not found in $nsisDir" }
           # Absolute target path inside the nsis dir — a relative name would
           # land in the workspace root and the upload/attach globs would
-          # miss it. -Force: the cached target dir may hold a renamed
-          # installer from a previous run (same version).
+          # miss it. Move-Item -Force (not Rename-Item, whose -Force cannot
+          # overwrite an existing target) replaces a stale installer that the
+          # cached target dir may hold from a previous run (same version).
           Write-Host "renaming $($exe.FullName) -> $nsisDir\OhMyAgent-Setup-$VERSION.exe"
-          Rename-Item -Force $exe.FullName (Join-Path $nsisDir "OhMyAgent-Setup-$VERSION.exe")
+          Move-Item -Force $exe.FullName (Join-Path $nsisDir "OhMyAgent-Setup-$VERSION.exe")
 
       - name: Generate latest.yml metadata
         run: |
