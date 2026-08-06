@@ -144,13 +144,15 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
 
-      - name: Package dmg (dmgbuild layout, no AppleScript)
+      - name: Package dmg (hdiutil + prebuilt .DS_Store, no AppleScript)
         # tauri's bundler lays out the dmg (app icon + /Applications drop
         # target) by driving Finder via AppleScript, which needs a TCC
         # automation grant and hangs ~3 min then fails on headless runners.
-        # dmgbuild writes the .DS_Store layout directly from Python (no
-        # Finder/AppleScript): OhMyAgent.app left, /Applications link right,
-        # both centered — see scripts/dmg-settings.py.
+        # Instead we replicate the Electron (electron-builder) dmg exactly:
+        # its prebuilt .DS_Store template (app left, /Applications right,
+        # 540x380 centered window) is committed at
+        # desktop/scripts/dmg-layout/.DS_Store and copied into the staging
+        # dir before hdiutil — no Finder, no extra dependencies.
         run: |
           VERSION=$(node -p "require('./package.json').version")
           APP="desktop/src-tauri/target/release/bundle/macos/OhMyAgent.app"
@@ -161,8 +163,12 @@ jobs:
           # start clean so only the fresh dmg exists.
           rm -rf "$DMG_DIR"
           mkdir -p "$DMG_DIR"
-          pip3 install -q dmgbuild
-          dmgbuild -D app_path="$APP" -s desktop/scripts/dmg-settings.py "OhMyAgent" "$DMG"
+          STAGING="$(mktemp -d)"
+          cp -R "$APP" "$STAGING/OhMyAgent.app"
+          ln -s /Applications "$STAGING/Applications"
+          cp desktop/scripts/dmg-layout/.DS_Store "$STAGING/.DS_Store"
+          hdiutil create -volname "OhMyAgent" -srcfolder "$STAGING" -ov -format UDZO "$DMG"
+          rm -rf "$STAGING"
           ls -lh "$DMG"
 
       - name: Package zip distribution (ditto, preserves resource forks)
