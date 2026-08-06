@@ -30,7 +30,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-15-intel
+          - runner: macos-14
             target: x86_64-apple-darwin
             bundle_platform: darwin-x64
           - runner: macos-14
@@ -87,6 +87,9 @@ jobs:
           fi
 
       - name: Build sidecar + Tauri app (dmg)
+        # Timeout so a hung build (seen on macos-15-intel x64 twice) fails
+        # fast and its full log becomes downloadable for diagnosis.
+        timeout-minutes: 45
         run: cd desktop && npm run tauri:build:mac
         env:
           # beforeBuildCommand re-runs bundle-deps; keep the platform pruning
