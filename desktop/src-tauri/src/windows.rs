@@ -18,12 +18,31 @@ pub const ERROR_LABEL: &str = "error";
 pub const PROGRESS_LABEL: &str = "updater-progress";
 
 fn data_url(html: &str) -> WebviewUrl {
-    let encoded = url_escape(html);
+    // WKWebView's charset detection for data: URLs is unreliable (WebKit bug
+    // 153794) — a percent-encoded UTF-8 payload can be decoded as Latin-1,
+    // which turns Chinese text into mojibake (seen on macOS Intel; arm64 and
+    // WebView2 decode it fine). HTML numeric entities are pure ASCII, so the
+    // payload renders identically regardless of the decoder.
+    let encoded = url_escape(&to_html_entities(html));
     WebviewUrl::External(
         format!("data:text/html;charset=utf-8,{encoded}")
             .parse()
             .unwrap_or_else(|_| "about:blank".parse().unwrap()),
     )
+}
+
+/// Escape non-ASCII characters as HTML numeric entities (pure-ASCII output),
+/// so data: URL pages render correctly no matter what charset WKWebView picks.
+fn to_html_entities(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for c in input.chars() {
+        if c.is_ascii() {
+            out.push(c);
+        } else {
+            out.push_str(&format!("&#x{:X};", c as u32));
+        }
+    }
+    out
 }
 
 /// Percent-encode everything except a small safe set (encodeURIComponent-ish).
@@ -436,14 +455,23 @@ pub fn show_chooser_window(
     Ok(())
 }
 
+/// True when no gateway configuration exists yet — the first-run wizard must
+/// appear instead of the main window (mirror of the Electron main.ts check:
+/// `!firstRunDone && mode === 'local' && !remoteUrl` → showGatewayChooser).
+pub fn is_first_run(app: &AppHandle) -> bool {
+    use crate::config::{config_path, DesktopConfig};
+    let cfg = DesktopConfig::load(&config_path(app));
+    !cfg.first_run_done && !cfg.is_remote()
+}
+
 /// First-run flow: when no gateway is configured yet (firstRunDone == false,
 /// local mode, no remote URL), show the chooser window loading the sidecar
-/// control API page. Called once the gateway is healthy.
+/// control API page. Called once the gateway is healthy. The main window is
+/// NOT shown on first run — the chooser's save triggers reloadMainWindow,
+/// which creates it (Electron relaunched the whole app after saving; a
+/// create+show is the equivalent), so the user only ever sees one window.
 pub async fn maybe_show_chooser(app: AppHandle) {
-    use crate::config::{config_path, DesktopConfig};
-
-    let cfg = DesktopConfig::load(&config_path(&app));
-    if cfg.first_run_done || cfg.is_remote() {
+    if !is_first_run(&app) {
         return;
     }
     if app.get_webview_window(CHOOSER_LABEL).is_some() {
@@ -460,7 +488,7 @@ pub async fn maybe_show_chooser(app: AppHandle) {
 
     let app2 = app.clone();
     let _ = app.run_on_main_thread(move || {
-        let _ = show_chooser_window(
+        if let Err(e) = show_chooser_window(
             &app2,
             &base_url,
             &token,
@@ -471,7 +499,13 @@ pub async fn maybe_show_chooser(app: AppHandle) {
                 initial_url: None,
                 initial_token: None,
             },
-        );
+        ) {
+            log::error!("windows: maybe_show_chooser failed: {e}");
+            return;
+        }
+        // With the main window deferred, the splash has no other consumer in
+        // the first-run path — dismiss it once the wizard is on screen.
+        close_splash(&app2);
     });
 }
 

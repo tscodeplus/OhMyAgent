@@ -471,6 +471,13 @@ async fn health_loop(app: AppHandle, state: Arc<SidecarState>, server_port: u16)
                                 }
                             }
                         });
+                    } else if crate::windows::is_first_run(&app) {
+                        // First run: chooser-only. The wizard's save triggers
+                        // reloadMainWindow, which creates the main window
+                        // (Electron relaunched the whole app after saving; a
+                        // create+show is the equivalent). Revealing the WebUI
+                        // here too would stack a second first-run window.
+                        log::info!("sidecar: first run — chooser only, main window deferred");
                     } else {
                         crate::windows::reveal_main_window(&app);
                     }
