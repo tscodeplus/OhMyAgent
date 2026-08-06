@@ -42,6 +42,8 @@
     "allow-compat-get-auto-start",
     "allow-compat-set-auto-start",
     "allow-compat-save-file-from-url",
-    "allow-compat-save-local-file"
+    "allow-compat-save-local-file",
+    "allow-compat-open-gateway-chooser",
+    "allow-compat-reload-main-window"
   ]
 }

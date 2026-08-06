@@ -164,6 +164,12 @@
       body: { mode: 'local', remoteUrl: '', remoteToken: '' },
     }),
 
+    // gateway chooser (remote-connection retry) — error shown in the chooser
+    openGatewayChooser: (error) => invoke('compat_open_gateway_chooser', { error }),
+    // after the chooser saves a new gateway config, reload the WebUI so it
+    // re-reads mode/url/token (Electron relaunched the app there)
+    reloadMainWindow: () => invoke('compat_reload_main_window'),
+
     // lifecycle
     quitApp: () => invoke('compat_quit_app'),
 

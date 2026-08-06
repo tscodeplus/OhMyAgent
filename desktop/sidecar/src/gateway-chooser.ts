@@ -276,6 +276,9 @@ export function renderChooser(
     try {
       await window.electronAPI.setGatewayConfig({ mode, remoteUrl: url, remoteToken: token });
       await window.electronAPI.setConfig('firstRunDone', true);
+      // Make the main window pick up the new gateway config (Electron
+      // relaunched the whole app here; a navigation is the equivalent).
+      await window.electronAPI.reloadMainWindow();
     } catch (e) { console.error('save failed', e); }
     // Close through the compat layer: WebView2 only lets scripts close
     // their own child windows; the Rust command destroys the window cleanly.

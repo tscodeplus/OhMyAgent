@@ -14,7 +14,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Globalization", "Win32_System_SystemInformation", "Win32_Foundation"] }
+# Win32_Graphics_Dwm: DwmSetWindowAttribute (title-bar color in dark mode);
+# Win32_Graphics_Gdi: GetSysColor (restore default caption colors);
+# Win32_System_Registry: AppsUseLightTheme (OS dark-mode detection).
+windows-sys = { version = "0.59", features = ["Win32_Globalization", "Win32_System_SystemInformation", "Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_System_Registry"] }
 
 [dependencies]
 tauri = { version = "2.11", features = ["tray-icon", "devtools", "image-png", "macos-private-api", "webview-data-url"] }

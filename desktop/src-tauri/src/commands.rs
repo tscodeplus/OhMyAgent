@@ -80,6 +80,50 @@ pub fn compat_restart_service(app: AppHandle) {
 }
 
 // ---------------------------------------------------------------------------
+// Gateway chooser (remote-connection retry) + main-window reload
+// ---------------------------------------------------------------------------
+
+/// Open the gateway chooser window prefilled with the current remote
+/// URL/token. Invoked by the ConnectionErrorPage "重新配置网关" button so a
+/// failed remote connection can be retried with corrected credentials without
+/// restarting the app.
+#[tauri::command]
+pub fn compat_open_gateway_chooser(app: AppHandle, error: Option<String>) {
+    let state = app.state::<Arc<SidecarState>>();
+    let port = state.sidecar_api_port.load(std::sync::atomic::Ordering::SeqCst);
+    if port == 0 {
+        log::warn!("compat_open_gateway_chooser: control API not up yet");
+        return;
+    }
+    let base_url = format!("http://127.0.0.1:{port}");
+    let ctl_token = state.ctl_token.clone();
+    let cfg = DesktopConfig::load(&config_path(&app));
+    let app2 = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let opts = crate::windows::ChooserOptions {
+            error: error.as_deref(),
+            initial_url: Some(&cfg.gateway.remote_url),
+            initial_token: Some(&cfg.gateway.remote_token),
+        };
+        let _ = crate::windows::show_chooser_window(
+            &app2,
+            &base_url,
+            &ctl_token,
+            560,
+            620,
+            opts,
+        );
+    });
+}
+
+/// Reload the main window so the WebUI re-reads the gateway config — the
+/// chooser's save path (Electron relaunched the whole app there).
+#[tauri::command]
+pub fn compat_reload_main_window(app: AppHandle) {
+    crate::windows::reload_main_window(&app);
+}
+
+// ---------------------------------------------------------------------------
 // Window control (also used by the gateway chooser's own HTML)
 // ---------------------------------------------------------------------------
 

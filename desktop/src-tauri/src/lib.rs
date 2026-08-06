@@ -54,6 +54,8 @@ pub fn run() {
             commands::compat_get_auto_start,
             commands::compat_set_auto_start,
             commands::compat_toggle_devtools,
+            commands::compat_open_gateway_chooser,
+            commands::compat_reload_main_window,
         ])
         // Close-to-tray: intercept the main window's close request.
         .on_window_event(|window, event| {
@@ -77,9 +79,11 @@ pub fn run() {
             config::CLOSE_TO_TRAY.store(cfg.close_to_tray, std::sync::atomic::Ordering::SeqCst);
             let _ = windows::apply_theme(&handle, &cfg.theme);
 
-            // Tray + windows first, then the sidecar supervision stack.
+            // Tray + splash first, then the sidecar supervision stack. The
+            // main window is NOT created here — it is built lazily by
+            // reveal_main_window once the sidecar answers /api/health, so its
+            // first navigation never hits a not-yet-listening server.
             let _ = tray::create_tray(&handle, &cfg);
-            let _ = windows::create_main_window(&handle);
             let _ = windows::create_splash(&handle);
 
             tauri::async_runtime::spawn(async move {

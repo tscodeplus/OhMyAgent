@@ -393,9 +393,40 @@ async fn health_loop(app: AppHandle, state: Arc<SidecarState>, server_port: u16)
                     consecutive_failures = 0;
                     state.set_kind(StatusKind::Running).await;
                     log::info!("sidecar: healthy, starting to run");
-                    crate::windows::reveal_main_window(&app);
+
+                    // Remote mode: pre-flight the configured gateway before
+                    // revealing the main window. A dead gateway / bad token
+                    // surfaces the chooser (URL + token editable, error shown)
+                    // instead of an unreachable error page — mirror of the
+                    // Electron main.ts pre-flight flow.
+                    let cfg = DesktopConfig::load(&config_path(&app));
+                    if cfg.is_remote() && !cfg.gateway.remote_url.is_empty() {
+                        let app2 = app.clone();
+                        let url = cfg.gateway.remote_url.clone();
+                        let token = cfg.gateway.remote_token.clone();
+                        tauri::async_runtime::spawn(async move {
+                            match check_remote_health(&url, &token).await {
+                                RemoteHealth::Ok => {
+                                    log::info!("sidecar: remote gateway OK, revealing main window");
+                                    crate::windows::reveal_main_window(&app2);
+                                }
+                                bad => {
+                                    let msg = match bad {
+                                        RemoteHealth::Unreachable => "网关无法连接或不在线",
+                                        _ => "网关在线但令牌无效",
+                                    };
+                                    log::warn!("sidecar: remote pre-flight {msg} ({url})");
+                                    crate::windows::close_splash(&app2);
+                                    show_remote_chooser(&app2, msg);
+                                }
+                            }
+                        });
+                    } else {
+                        crate::windows::reveal_main_window(&app);
+                    }
+
                     crate::tray::rebuild(&app, &DesktopConfig::load(&config_path(&app)));
-                    // First-run gateway chooser (no-op once configured).
+                    // First-run gateway chooser (no-op once configured / remote).
                     let app2 = app.clone();
                     tauri::async_runtime::spawn(async move {
                         crate::windows::maybe_show_chooser(app2).await;
@@ -447,6 +478,84 @@ async fn health_loop(app: AppHandle, state: Arc<SidecarState>, server_port: u16)
         }
         sleep(POLL_INTERVAL).await;
     }
+}
+
+/// Pre-flight outcome for a remote gateway (mirror of Electron's
+/// `checkRemoteHealth`): distinguishes "server offline" from "wrong token".
+#[derive(PartialEq, Eq, Debug)]
+enum RemoteHealth {
+    Ok,
+    Unreachable,
+    InvalidToken,
+}
+
+/// Probe a remote gateway: GET /api/health, then — when a token is configured
+/// — /api/auth/verify with it. The shell does this before revealing the main
+/// window in remote mode so a dead gateway surfaces the chooser immediately
+/// instead of an error page that cannot distinguish cause.
+async fn check_remote_health(url: &str, token: &str) -> RemoteHealth {
+    let Ok(client) = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+    else {
+        return RemoteHealth::Unreachable;
+    };
+    let base = url.trim_end_matches('/');
+    let healthy = client
+        .get(format!("{base}/api/health"))
+        .send()
+        .await
+        .map(|r| r.status().is_success())
+        .unwrap_or(false);
+    if !healthy {
+        return RemoteHealth::Unreachable;
+    }
+    let token = token.trim();
+    if token.is_empty() {
+        return RemoteHealth::Ok;
+    }
+    let valid = client
+        .get(format!("{base}/api/auth/verify"))
+        .bearer_auth(token)
+        .send()
+        .await
+        .map(|r| r.status().is_success())
+        .unwrap_or(false);
+    if valid {
+        RemoteHealth::Ok
+    } else {
+        RemoteHealth::InvalidToken
+    }
+}
+
+/// Show the gateway chooser prefilled with the configured remote URL/token and
+/// an error banner describing why the remote gateway failed. Called from the
+/// health loop (non-main thread) → window creation needs the main thread.
+fn show_remote_chooser(app: &AppHandle, error: &str) {
+    let state = app.state::<Arc<SidecarState>>();
+    let port = state.sidecar_api_port.load(std::sync::atomic::Ordering::SeqCst);
+    if port == 0 {
+        return; // control API not up yet — first-run flow will retry
+    }
+    let base_url = format!("http://127.0.0.1:{port}");
+    let ctl_token = state.ctl_token.clone();
+    let cfg = DesktopConfig::load(&config_path(app));
+    let app2 = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let opts = crate::windows::ChooserOptions {
+            error: Some(error),
+            initial_url: Some(&cfg.gateway.remote_url),
+            initial_token: Some(&cfg.gateway.remote_token),
+        };
+        let _ = crate::windows::show_chooser_window(
+            &app2,
+            &base_url,
+            &ctl_token,
+            560,
+            620,
+            opts,
+        );
+    });
 }
 
 /// Graceful shutdown: ask the sidecar to stop() itself, wait briefly, then

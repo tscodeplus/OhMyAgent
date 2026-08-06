@@ -92,21 +92,31 @@ export default function ConnectionErrorPage({
           {/* ── Action Buttons ── */}
           <div className="space-y-3">
             {electron && (
-              <button
-                onClick={handleSwitchToLocal}
-                disabled={switching}
-                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-600 transition-colors"
-              >
-                {switching ? (
-                  <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
-                    <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" className="opacity-75" />
-                  </svg>
-                ) : (
-                  <ArrowLeft size={16} />
-                )}
-                {t('auth.switchToLocal', '切换到本地网关')}
-              </button>
+              <>
+                <button
+                  onClick={() => window.electronAPI!.openGatewayChooser(error)}
+                  disabled={switching}
+                  className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-neutral-300 bg-white px-4 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700 transition-colors"
+                >
+                  <Settings size={16} />
+                  {t('auth.configureGateway', '配置网关设置')}
+                </button>
+                <button
+                  onClick={handleSwitchToLocal}
+                  disabled={switching}
+                  className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-600 transition-colors"
+                >
+                  {switching ? (
+                    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
+                      <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" className="opacity-75" />
+                    </svg>
+                  ) : (
+                    <ArrowLeft size={16} />
+                  )}
+                  {t('auth.switchToLocal', '切换到本地网关')}
+                </button>
+              </>
             )}
             <button
               onClick={handleRetry}

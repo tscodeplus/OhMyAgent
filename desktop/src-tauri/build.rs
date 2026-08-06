@@ -23,6 +23,8 @@ fn main() {
             "compat_set_auto_start",
             "compat_save_file_from_url",
             "compat_save_local_file",
+            "compat_open_gateway_chooser",
+            "compat_reload_main_window",
         ]),
     );
     tauri_build::try_build(attrs).expect("tauri build script failed");

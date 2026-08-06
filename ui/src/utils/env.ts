@@ -34,6 +34,10 @@ declare global {
       getGatewayConfig: () => Promise<{ mode: string; remoteUrl: string; remoteToken: string }>;
       setGatewayConfig: (config: unknown) => Promise<{ ok: boolean }>;
       resetGatewayConfig: () => Promise<{ ok: boolean }>;
+      // Gateway chooser (remote-connection retry): open the chooser window with
+      // the given error banner text; reload the WebUI after it saves.
+      openGatewayChooser: (error?: string) => Promise<void>;
+      reloadMainWindow: () => Promise<void>;
       // Language
       setDesktopLanguage: (lang: string) => Promise<boolean>;
       // File operations

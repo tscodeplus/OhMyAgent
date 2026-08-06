@@ -230,7 +230,14 @@ async function handle(req: IncomingMessage, res: ServerResponse, opts: ControlSe
     }
 
     if (path === '/_desktop/gateway-chooser' && method === 'GET') {
-      const html = await import('./gateway-chooser.js').then((m) => m.renderChooser(loadConfig()));
+      // Optional query params carried by the Rust shell on the window URL:
+      // err = error banner text, url/rt = prefilled remote URL/token.
+      const err = url.searchParams.get('err') ?? undefined;
+      const initialUrl = url.searchParams.get('url') ?? undefined;
+      const initialToken = url.searchParams.get('rt') ?? undefined;
+      const html = await import('./gateway-chooser.js').then((m) =>
+        m.renderChooser(loadConfig(), { error: err, initialUrl, initialToken }),
+      );
       text(res, 200, html, 'text/html; charset=utf-8');
       return;
     }

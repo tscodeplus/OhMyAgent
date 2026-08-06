@@ -4,9 +4,11 @@
 
 use std::sync::Arc;
 
+use tauri::webview::PageLoadEvent;
 use tauri::WebviewUrl;
 use tauri::{AppHandle, Manager, WebviewWindowBuilder};
 
+use crate::config::{config_path, DesktopConfig, ShellConfig};
 use crate::sidecar::SidecarState;
 
 pub const MAIN_LABEL: &str = "main";
@@ -39,7 +41,11 @@ fn url_escape(input: &str) -> String {
 
 /// Main window — built in code (not tauri.conf.json) so the electronAPI compat
 /// layer (compat.js) and the image hover-download injection can be attached via
-/// initialization_script. Hidden until the gateway is healthy.
+/// initialization_script. Hidden until the gateway is healthy; the window is
+/// *created lazily* once the sidecar answers /api/health (reveal_main_window)
+/// so the WebView's first navigation never hits a not-yet-listening server
+/// (an early load would leave the webview stuck on the ERR_CONNECTION_REFUSED
+/// error page).
 ///
 /// Note: uses the native system title bar for now — the Electron shell's
 /// frameless + titleBarOverlay look was a cosmetic optimization that Tauri
@@ -47,8 +53,9 @@ fn url_escape(input: &str) -> String {
 /// caption (WebUI drag region + compat window buttons) in a later iteration.
 pub fn create_main_window(app: &AppHandle) -> tauri::Result<()> {
     let compat_js = include_str!("../../sidecar/src/compat.js");
+    let port = ShellConfig::load(app).server_port;
     let url = WebviewUrl::External(
-        "http://127.0.0.1:9191/webui/?electron=1"
+        format!("http://127.0.0.1:{port}/webui/?electron=1")
             .parse::<tauri::Url>()
             .expect("static url"),
     );
@@ -73,6 +80,11 @@ fn window_icon() -> tauri::image::Image<'static> {
 }
 
 /// Splash shown while the sidecar boots. Same look as the Electron splash.
+///
+/// Created hidden and shown on page-load-Finished: a visible window before the
+/// webview paints shows the default white background for a frame (the
+/// transparent layer does not apply until the HTML renders), which reads as a
+/// white flash on startup.
 pub fn create_splash(app: &AppHandle) -> tauri::Result<()> {
     if app.get_webview_window(SPLASH_LABEL).is_some() {
         return Ok(());
@@ -107,6 +119,12 @@ pub fn create_splash(app: &AppHandle) -> tauri::Result<()> {
         .always_on_top(true)
         .skip_taskbar(true)
         .center()
+        .visible(false)
+        .on_page_load(|win, payload| {
+            if matches!(payload.event, PageLoadEvent::Finished) {
+                let _ = win.show();
+            }
+        })
         .build()?;
     Ok(())
 }
@@ -117,18 +135,66 @@ fn compat_script() -> &'static str {
     include_str!("../../sidecar/src/compat.js")
 }
 
-/// Main window is declared in tauri.conf.json (hidden until the gateway is
-/// healthy). Reveal it once the sidecar answers /api/health.
+/// Reveal the main window once the sidecar answers /api/health. The window is
+/// created lazily on first reveal (never at shell setup — see
+/// create_main_window) so the first navigation lands on a live server.
+///
+/// Creating a window requires the main thread; the show/focus half is
+/// thread-safe and runs inline for the already-created case (restart flows).
 pub fn reveal_main_window(app: &AppHandle) {
+    if app.get_webview_window(MAIN_LABEL).is_none() {
+        let app2 = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if let Err(e) = create_main_window(&app2) {
+                log::error!("windows: create_main_window failed: {e}");
+                return;
+            }
+            show_main_window(&app2);
+        });
+        return;
+    }
+    show_main_window(app);
+}
+
+/// Show + maximize + focus the main window, apply the current theme chrome
+/// (DWM caption colors, background — needed on the freshly created window
+/// since setup's apply_theme ran before it existed), then close the splash.
+fn show_main_window(app: &AppHandle) {
     if let Some(win) = app.get_webview_window(MAIN_LABEL) {
+        let cfg = DesktopConfig::load(&config_path(app));
+        let _ = apply_theme(app, &cfg.theme);
         let _ = win.show();
         let _ = win.maximize();
         let _ = win.set_focus();
         // Splash's job is done.
-        if let Some(splash) = app.get_webview_window(SPLASH_LABEL) {
-            let _ = splash.close();
-        }
+        close_splash(app);
     }
+}
+
+pub fn close_splash(app: &AppHandle) {
+    if let Some(splash) = app.get_webview_window(SPLASH_LABEL) {
+        let _ = splash.close();
+    }
+}
+
+/// Reload the main window so the WebUI re-reads the gateway config — the
+/// chooser's "save" path (Electron relaunched the app there; the sidecar stays
+/// alive here, so a navigation is the equivalent). Creates + reveals the
+/// window when it does not exist yet (first run: chooser before reveal).
+pub fn reload_main_window(app: &AppHandle) {
+    let Some(win) = app.get_webview_window(MAIN_LABEL) else {
+        reveal_main_window(app);
+        return;
+    };
+    let port = ShellConfig::load(app).server_port;
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let url = format!("http://127.0.0.1:{port}/webui/?electron=1&_ts={ts}");
+    let _ = win.navigate(url.parse().expect("webui url"));
+    let _ = win.show();
+    let _ = win.set_focus();
 }
 
 /// Frameless error window with a message and a dismiss button.
@@ -162,6 +228,15 @@ pub fn show_error_window(app: &AppHandle, message: &str) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Extra state for the chooser page: an error banner (remote pre-flight
+/// failure) and prefilled URL/token. Carried as query params on the window
+/// URL; the sidecar's control API route reads them back.
+pub struct ChooserOptions<'a> {
+    pub error: Option<&'a str>,
+    pub initial_url: Option<&'a str>,
+    pub initial_token: Option<&'a str>,
+}
+
 /// Gateway chooser (first run / remote failure). The window loads the HTML
 /// straight from the sidecar control API (`/_desktop/gateway-chooser`) so the
 /// page origin is http://127.0.0.1:{control_port} — data: URLs have an opaque
@@ -173,13 +248,23 @@ pub fn show_chooser_window(
     token: &str,
     width: u32,
     height: u32,
+    opts: ChooserOptions<'_>,
 ) -> tauri::Result<()> {
     if let Some(win) = app.get_webview_window(CHOOSER_LABEL) {
         let _ = win.show();
         let _ = win.set_focus();
         return Ok(());
     }
-    let url = format!("{base_url}/_desktop/gateway-chooser?token={token}");
+    let mut url = format!("{base_url}/_desktop/gateway-chooser?token={token}");
+    if let Some(e) = opts.error {
+        url.push_str(&format!("&err={}", url_escape(e)));
+    }
+    if let Some(u) = opts.initial_url {
+        url.push_str(&format!("&url={}", url_escape(u)));
+    }
+    if let Some(t) = opts.initial_token {
+        url.push_str(&format!("&rt={}", url_escape(t)));
+    }
     WebviewWindowBuilder::new(
         app,
         CHOOSER_LABEL,
@@ -219,7 +304,18 @@ pub async fn maybe_show_chooser(app: AppHandle) {
 
     let app2 = app.clone();
     let _ = app.run_on_main_thread(move || {
-        let _ = show_chooser_window(&app2, &base_url, &token, 560, 620);
+        let _ = show_chooser_window(
+            &app2,
+            &base_url,
+            &token,
+            560,
+            620,
+            ChooserOptions {
+                error: None,
+                initial_url: None,
+                initial_token: None,
+            },
+        );
     });
 }
 
@@ -280,8 +376,10 @@ pub fn show_dialog_window(
     Ok(())
 }
 
-/// Apply the configured theme to the main window chrome (background color
-/// prevents white flash; the page's own CSS handles the visible theme).
+/// Apply the configured theme to the main window chrome: window background
+/// (prevents white flash while the page paints) and, on Windows, the native
+/// title-bar colors (DWM) so dark mode blends with the UI's dark background
+/// instead of staying on the OS light caption.
 pub fn apply_theme(app: &AppHandle, theme: &str) -> tauri::Result<()> {
     let dark = match theme {
         "light" => false,
@@ -295,14 +393,106 @@ pub fn apply_theme(app: &AppHandle, theme: &str) -> tauri::Result<()> {
     };
     if let Some(win) = app.get_webview_window(MAIN_LABEL) {
         win.set_background_color(Some(color))?;
+        #[cfg(windows)]
+        set_caption_theme(&win, dark);
     }
     Ok(())
 }
 
+/// Windows 11 (22000+): paint the native title bar to match the UI theme —
+/// dark mode gets the UI's `#0a0a0a` background + white text; light mode
+/// restores the system default caption colors. Windows 10 ignores the
+/// DWMWA_CAPTION_COLOR/TEXT_COLOR attributes (returns an error we swallow);
+/// DWMWA_USE_IMMERSIVE_DARK_MODE still works there so the caption at least
+/// follows the OS dark theme.
+#[cfg(windows)]
+fn set_caption_theme(win: &tauri::WebviewWindow, dark: bool) {
+    use std::mem::size_of;
+    use windows_sys::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR,
+        DWMWA_USE_IMMERSIVE_DARK_MODE,
+    };
+    use windows_sys::Win32::Graphics::Gdi::{GetSysColor, COLOR_CAPTIONTEXT};
+
+    // COLOR_CAPTION (1) is not exported by windows-sys 0.59; it is a stable
+    // system-color index (GetSysColor takes SYS_COLOR_INDEX = i32).
+    const COLOR_CAPTION: i32 = 1;
+
+    let Ok(hwnd) = win.hwnd() else {
+        return;
+    };
+    let hwnd = hwnd.0;
+    unsafe {
+        // COLORREF layout is 0x00BBGGRR.
+        let bg: u32 = if dark {
+            0x000A_0A0A
+        } else {
+            GetSysColor(COLOR_CAPTION)
+        };
+        let fg: u32 = if dark {
+            0x00FF_FFFF
+        } else {
+            GetSysColor(COLOR_CAPTIONTEXT)
+        };
+        let dark_mode: i32 = i32::from(dark);
+        // All three calls are best-effort; failures (e.g. Win10 attributes)
+        // leave the system default in place.
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_USE_IMMERSIVE_DARK_MODE,
+            &dark_mode as *const i32 as *const _,
+            size_of::<i32>() as u32,
+        );
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_CAPTION_COLOR,
+            &bg as *const u32 as *const _,
+            size_of::<u32>() as u32,
+        );
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_TEXT_COLOR,
+            &fg as *const u32 as *const _,
+            size_of::<u32>() as u32,
+        );
+    }
+}
+
+/// OS-level dark preference: Windows reads AppsUseLightTheme from the
+/// Personalize registry key (0 → dark); other platforms default to false.
+#[cfg(windows)]
 fn system_dark() -> bool {
-    // Best effort: follow the OS-level dark preference where exposed.
-    // WebView2 page CSS handles the real theme; this only sets the native
-    // window background used before the page paints.
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::System::Registry::{
+        RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD,
+    };
+
+    let key: Vec<u16> = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    let name: Vec<u16> = "AppsUseLightTheme"
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut value: u32 = 0;
+    let mut size: u32 = size_of::<u32>() as u32;
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            key.as_ptr(),
+            name.as_ptr(),
+            RRF_RT_REG_DWORD,
+            std::ptr::null_mut(),
+            &mut value as *mut u32 as *mut _,
+            &mut size,
+        )
+    };
+    status == 0 && value == 0
+}
+
+#[cfg(not(windows))]
+fn system_dark() -> bool {
     false
 }
 
