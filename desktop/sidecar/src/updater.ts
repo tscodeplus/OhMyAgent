@@ -269,7 +269,17 @@ export class AppUpdater {
       signal: AbortSignal.timeout(10_000),
     });
     if (!resp.ok) {
-      throw new Error(`GitHub API returned ${resp.status}`);
+      // Surface GitHub's own reason — a 403 is usually a rate-limit rejection
+      // ("API rate limit exceeded for <ip>", common on shared proxy egress)
+      // or a User-Agent rejection; the body names the cause and the
+      // rate-limit header shows remaining headroom. Without this the dialog
+      // just says "Update check failed" and the cause stays invisible.
+      const body = await resp.text().catch(() => '');
+      const remaining = resp.headers.get('x-ratelimit-remaining');
+      const detail =
+        remaining !== null ? ` rate-limit remaining: ${remaining}` : '';
+      const snippet = body ? ` — ${body.trim().slice(0, 300)}` : '';
+      throw new Error(`GitHub API returned ${resp.status}${detail}${snippet}`);
     }
 
     const releases = (await resp.json()) as Array<{
