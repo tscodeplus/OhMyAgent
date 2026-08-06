@@ -38,7 +38,32 @@ export function resolveSystemProxy(): string | null {
     return `http://${s}`; // bare host:port
   }
 
-  // 2. Windows system proxy (Internet Settings registry).
+  // 2. macOS system proxy (SystemConfiguration) — ClashX / Clash Verge in
+  //    "system proxy" mode set no env vars, and Electron's Chromium read the
+  //    OS proxy automatically; replicate that via `scutil --proxy`.
+  if (process.platform === 'darwin') {
+    try {
+      const out = execFileSync('scutil', ['--proxy'], { encoding: 'utf8' });
+      const kv: Record<string, string> = {};
+      for (const line of out.split('\n')) {
+        const m = line.match(/^\s*(\w+)\s*:\s*(.+)$/);
+        if (m) kv[m[1]] = m[2].trim();
+      }
+      if (kv.HTTPSEnable === '1' && kv.HTTPSProxy && kv.HTTPSPort) {
+        return `http://${kv.HTTPSProxy}:${kv.HTTPSPort}`;
+      }
+      if (kv.HTTPEnable === '1' && kv.HTTPProxy && kv.HTTPPort) {
+        return `http://${kv.HTTPProxy}:${kv.HTTPPort}`;
+      }
+      if (kv.SOCKSEnable === '1' && kv.SOCKSProxy && kv.SOCKSPort) {
+        return `socks://${kv.SOCKSProxy}:${kv.SOCKSPort}`;
+      }
+    } catch {
+      // scutil unavailable — fall through
+    }
+  }
+
+  // 3. Windows system proxy (Internet Settings registry).
   if (process.platform === 'win32') {
     try {
       const KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings';
