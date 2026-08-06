@@ -7,8 +7,10 @@
 //! `closeToTray` changes without a push channel.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{LazyLock, Mutex};
 use std::time::SystemTime;
 use tauri::{AppHandle, Manager};
 
@@ -144,6 +146,15 @@ pub async fn poll_config_loop(app: AppHandle) {
     let path = ShellConfig::load(&app).data_dir.join("desktop-config.json");
     let mut mirror = ConfigMirror::new(&path);
 
+    // Grant once at startup, not only on change: the config can already be in
+    // remote mode when the shell launches (persisted by a previous session),
+    // so the mtime-change branch below would never fire — the remote page's
+    // invoke calls would stay rejected, the WebUI would silently fall back to
+    // local mode (empty main view + "加载配置失败" in settings).
+    if mirror.cfg.is_remote() && !mirror.cfg.gateway.remote_url.is_empty() {
+        grant_remote_origin(&app, mirror.cfg.gateway.remote_url.trim_end_matches('/'));
+    }
+
     loop {
         let mtime = std::fs::metadata(&path)
             .ok()
@@ -181,6 +192,12 @@ pub fn config_path(app: &AppHandle) -> PathBuf {
     ShellConfig::load(app).data_dir.join("desktop-config.json")
 }
 
+/// Granted remote-origin capability ids. The startup grant and the
+/// config-change grant can carry the same id — re-adding a capability is an
+/// error in tauri, so dedupe here.
+static GRANTED_REMOTE_ORIGINS: LazyLock<Mutex<HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
 /// Grant a remote origin IPC access at runtime (tauri 2: capabilities with a
 /// `remote.urls` section — the v1 `dangerousRemoteDomainIpcAccess` field no
 /// longer exists in the config schema). Only `core:default` is exposed; the
@@ -190,16 +207,23 @@ fn grant_remote_origin(app: &AppHandle, origin: &str) {
     use tauri::Manager;
 
     let id = format!("remote-gateway-{}", simple_hash(origin));
-    let cap = CapabilityBuilder::new(id)
-        .remote(origin.to_string())
-        .local(false)
-        .windows(["main".to_string()])
-        .permission("core:default");
-    if let Err(e) = app.add_capability(cap) {
-        log::error!("grant_remote_origin: add_capability failed for {origin}: {e}");
-    } else {
-        log::info!("grant_remote_origin: granted {origin}");
+    {
+        let mut granted = GRANTED_REMOTE_ORIGINS.lock().unwrap();
+        if granted.contains(&id) {
+            return; // already granted this origin
+        }
+        let cap = CapabilityBuilder::new(id.clone())
+            .remote(origin.to_string())
+            .local(false)
+            .windows(["main".to_string()])
+            .permission("core:default");
+        if let Err(e) = app.add_capability(cap) {
+            log::error!("grant_remote_origin: add_capability failed for {origin}: {e}");
+            return;
+        }
+        granted.insert(id);
     }
+    log::info!("grant_remote_origin: granted {origin}");
 }
 
 /// Deterministic short hash for capability identifiers (no external crate).

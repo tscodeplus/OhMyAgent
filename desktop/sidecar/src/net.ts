@@ -82,11 +82,22 @@ export async function fetchWithProxy(
 ): Promise<Response> {
   const u = typeof url === 'string' ? url : url.href;
   const isLoopback = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])/i.test(u);
+  // GitHub's REST API rejects requests without a User-Agent (403); undici
+  // sends none by default (Chromium's net.fetch in Electron did). Attach one
+  // to every external request unless the caller already set its own.
+  let headers = init?.headers ?? {};
+  if (!isLoopback) {
+    headers = new Headers(headers);
+    if (!headers.has('user-agent')) {
+      headers.set('user-agent', 'OhMyAgent-Desktop');
+    }
+  }
   if (isLoopback || !proxyAgent) {
-    return fetch(url, init);
+    return fetch(url, { ...(init ?? {}), headers });
   }
   return fetch(url, {
     ...(init ?? {}),
+    headers,
     dispatcher: proxyAgent,
   } as RequestInit & { dispatcher?: Dispatcher });
 }
