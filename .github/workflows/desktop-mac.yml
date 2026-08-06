@@ -143,12 +143,6 @@ jobs:
           # beforeBuildCommand re-runs bundle-deps; keep the platform pruning
           # aligned with this job's target (default would be win32-x64).
           OMA_TARGET_PLATFORM: ${{ matrix.bundle_platform }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
 
       - name: Package dmg (hdiutil + prebuilt .DS_Store, no AppleScript)
         # tauri's bundler lays out the dmg (app icon + /Applications drop
