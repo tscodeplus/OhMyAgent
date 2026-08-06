@@ -52,11 +52,10 @@ pub struct ControlInfo {
 #[tauri::command]
 pub fn compat_get_control_info(app: AppHandle) -> Result<ControlInfo, String> {
     let state = app.state::<Arc<SidecarState>>();
+    let port = state.sidecar_api_port.load(std::sync::atomic::Ordering::SeqCst);
+    log::info!("compat_get_control_info → :{port}");
     Ok(ControlInfo {
-        base_url: format!(
-            "http://127.0.0.1:{}",
-            state.sidecar_api_port.load(std::sync::atomic::Ordering::SeqCst)
-        ),
+        base_url: format!("http://127.0.0.1:{port}"),
         token: state.ctl_token.clone(),
     })
 }

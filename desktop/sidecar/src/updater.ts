@@ -233,8 +233,15 @@ export class AppUpdater {
           raw: 'Request timed out',
         });
       } else {
+        // Non-timeout failures must also reach the WebUI — without the
+        // event the about page stays on "checking" forever (the UI has no
+        // polling fallback and compat.js ctlFetch resolved fine).
         diagLog(`checkForUpdates: error caught — ${e.message || String(err)}`);
         console.error('[AppUpdater] Check for updates failed');
+        broadcastEvent('update-error', {
+          message: getT().updater.checkFailed,
+          raw: e.message || String(err),
+        });
       }
     }
   }

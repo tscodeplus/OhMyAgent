@@ -26,7 +26,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
-use tokio::sync::{Notify, RwLock};
+use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
 
 use crate::config::{config_path, DesktopConfig, ShellConfig};
@@ -58,8 +58,6 @@ pub struct SidecarStatus {
 pub struct SidecarState {
     pub status: RwLock<SidecarStatus>,
     pub pid: RwLock<Option<u32>>,
-    /// Fired once when shutdown is requested, so the holder task kills the tree.
-    pub kill_notify: Notify,
     /// Port of the shell's control service (env to the sidecar as OMA_DESKTOP_CONTROL_PORT).
     pub ctl_port: u16,
     pub ctl_token: String,
@@ -68,6 +66,15 @@ pub struct SidecarState {
     /// sidecar's actual bind shifted). Exposed to the compat layer via
     /// `compat_get_control_info`.
     pub sidecar_api_port: std::sync::atomic::AtomicU16,
+    /// Monotonic spawn counter — bumped on every respawn. Holders capture
+    /// their own generation at spawn and ignore the exit of a previous
+    /// sidecar after a restart (no bogus "意外退出" error window).
+    pub generation: std::sync::atomic::AtomicU32,
+    /// Unix-millis timestamp of when the current Starting phase began.
+    /// Reset by mark_starting() so the health loop's 60s startup window is
+    /// measured per-start, not per-shell-lifetime (restart would otherwise
+    /// trip "启动超时" on the first !healthy poll after respawn).
+    pub starting_at: std::sync::atomic::AtomicU64,
 }
 
 impl SidecarState {
@@ -84,6 +91,24 @@ impl SidecarState {
         s.kind = StatusKind::Error;
         s.error = Some(error);
     }
+
+    /// Enter the Starting state and start the health loop's startup window
+    /// from now. Call on initial spawn and on every respawn.
+    pub async fn mark_starting(&self, port: u16) {
+        let mut s = self.status.write().await;
+        s.kind = StatusKind::Starting;
+        s.port = port;
+        s.error = None;
+        self.starting_at
+            .store(unix_millis(), std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+fn unix_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 /// Synchronous snapshot for blocking contexts (tray menu events).
@@ -124,10 +149,11 @@ pub async fn init(app: &AppHandle) {
             error: None,
         }),
         pid: RwLock::new(None),
-        kill_notify: Notify::new(),
         ctl_port,
         ctl_token,
         sidecar_api_port: std::sync::atomic::AtomicU16::new(sidecar_api_port),
+        generation: std::sync::atomic::AtomicU32::new(1),
+        starting_at: std::sync::atomic::AtomicU64::new(unix_millis()),
     });
     app.manage(state.clone());
 
@@ -137,9 +163,9 @@ pub async fn init(app: &AppHandle) {
         match spawn_sidecar(&cfg, &state) {
             Ok(child) => {
                 let pid = child.id().unwrap_or(0);
-                log::info!("sidecar: spawned node pid={pid}");
+                log::info!("sidecar: spawned node pid={pid} (gen 1)");
                 *state.pid.write().await = Some(pid);
-                spawn_holder(app.clone(), state.clone(), child);
+                spawn_holder(app.clone(), state.clone(), child, 1);
             }
             Err(e) => {
                 log::error!("sidecar: spawn failed: {e}");
@@ -158,9 +184,21 @@ pub async fn init(app: &AppHandle) {
 }
 
 /// Owner of the spawned Child: forwards stdout/stderr to sidecar.log, reaps the
-/// process, kills the tree on shutdown, and flips state to error on surprise
-/// death (unless a shutdown was requested).
-fn spawn_holder(app: AppHandle, state: Arc<SidecarState>, mut child: tokio::process::Child) {
+/// process, and flips state to error on surprise death (unless a shutdown was
+/// requested). Kill-on-shutdown is handled by `shutdown()` itself (taskkill),
+/// so this task only reacts to the process exiting on its own — no Notify to
+/// race with a respawned holder.
+///
+/// `generation` is the spawn counter captured at spawn time: when a previous
+/// generation's process exits after a restart, this holder ignores it (the
+/// new sidecar owns the state now). Without that check the old child's wait
+/// would raise a bogus "意外退出" error window right after a clean restart.
+fn spawn_holder(
+    app: AppHandle,
+    state: Arc<SidecarState>,
+    mut child: tokio::process::Child,
+    generation: u32,
+) {
     let log_path = ShellConfig::load(&app).log_dir.join("sidecar.log");
 
     if let Some(stdout) = child.stdout.take() {
@@ -176,31 +214,27 @@ fn spawn_holder(app: AppHandle, state: Arc<SidecarState>, mut child: tokio::proc
         });
     }
 
-    let pid = child.id().unwrap_or(0);
     let app2 = app.clone();
     let state2 = state.clone();
     tauri::async_runtime::spawn(async move {
-        tokio::select! {
-            status = child.wait() => {
-                log::info!("sidecar: process exited ({status:?})");
-                // Distinguish expected shutdown from crash.
-                let kind = state2.snapshot().await.kind;
-                if kind != StatusKind::Stopping {
-                    state2.set_error("后端服务进程意外退出".into()).await;
-                    let _ = crate::windows::show_error_window(
-                        &app2,
-                        "后端服务已停止运行。请通过托盘菜单「重启服务」重新启动。",
-                    );
-                } else {
-                    state2.set_kind(StatusKind::Stopped).await;
-                }
-            }
-            _ = state2.kill_notify.notified() => {
-                log::info!("sidecar: kill requested (pid={pid}), killing process tree");
-                let _ = kill_process_tree(pid);
-                let _ = child.wait().await;
-                state2.set_kind(StatusKind::Stopped).await;
-            }
+        let status = child.wait().await;
+        log::info!("sidecar: process exited ({status:?})");
+        let current_gen = state2.generation.load(std::sync::atomic::Ordering::SeqCst);
+        if current_gen != generation {
+            log::info!("sidecar: stale holder (gen {generation}, now {current_gen}) — ignoring exit");
+            return;
+        }
+        // Distinguish expected shutdown from crash.
+        let kind = state2.snapshot().await.kind;
+        if kind != StatusKind::Stopping {
+            log::error!("sidecar: process died unexpectedly (kind={kind:?})");
+            state2.set_error("后端服务进程意外退出".into()).await;
+            let _ = crate::windows::show_error_window(
+                &app2,
+                "后端服务已停止运行。请通过托盘菜单「重启服务」重新启动。",
+            );
+        } else {
+            state2.set_kind(StatusKind::Stopped).await;
         }
         crate::tray::rebuild(&app2, &DesktopConfig::load(&config_path(&app2)));
     });
@@ -341,7 +375,6 @@ async fn health_loop(app: AppHandle, state: Arc<SidecarState>, server_port: u16)
     };
     let url = format!("http://127.0.0.1:{server_port}/api/health");
 
-    let started = std::time::Instant::now();
     let mut consecutive_failures: u32 = 0;
 
     loop {
@@ -358,7 +391,7 @@ async fn health_loop(app: AppHandle, state: Arc<SidecarState>, server_port: u16)
                 if healthy {
                     consecutive_failures = 0;
                     state.set_kind(StatusKind::Running).await;
-                    log::info!("sidecar: healthy after {:?}", started.elapsed());
+                    log::info!("sidecar: healthy, starting to run");
                     crate::windows::reveal_main_window(&app);
                     crate::tray::rebuild(&app, &DesktopConfig::load(&config_path(&app)));
                     // First-run gateway chooser (no-op once configured).
@@ -366,11 +399,18 @@ async fn health_loop(app: AppHandle, state: Arc<SidecarState>, server_port: u16)
                     tauri::async_runtime::spawn(async move {
                         crate::windows::maybe_show_chooser(app2).await;
                     });
-                } else if started.elapsed() > STARTUP_WINDOW {
-                    let err = "后端服务启动超时（60 秒内未就绪）".to_string();
-                    log::error!("sidecar: startup timeout");
-                    state.set_error(err.clone()).await;
-                    let _ = crate::windows::show_error_window(&app, &err);
+                } else {
+                    // Startup window is measured from when THIS Starting phase
+                    // began (mark_starting), not from shell launch — a
+                    // user-initiated restart must get a fresh 60s window.
+                    let started = state.starting_at.load(std::sync::atomic::Ordering::SeqCst);
+                    let elapsed = unix_millis().saturating_sub(started);
+                    if elapsed > STARTUP_WINDOW.as_millis() as u64 {
+                        let err = "后端服务启动超时（60 秒内未就绪）".to_string();
+                        log::error!("sidecar: startup timeout after {elapsed}ms");
+                        state.set_error(err.clone()).await;
+                        let _ = crate::windows::show_error_window(&app, &err);
+                    }
                 }
             }
             StatusKind::Running => {
@@ -445,15 +485,20 @@ pub async fn shutdown(app: &AppHandle) {
     if let Some(pid) = *state.pid.read().await {
         log::warn!("sidecar: graceful exit timed out, taskkill /T /F pid={pid}");
         let _ = kill_process_tree(pid);
-        state.kill_notify.notify_one();
     }
-    // Holder task flips state to Stopped; wait briefly for that.
+    // The holder task flips state to Stopped once the child reaps; wait
+    // briefly for that, then force it — a stuck Stopping state would leave
+    // the tray label frozen and block the next restart.
     let deadline = std::time::Instant::now() + Duration::from_secs(3);
     while std::time::Instant::now() < deadline {
         if state.snapshot().await.kind == StatusKind::Stopped {
             return;
         }
         sleep(Duration::from_millis(200)).await;
+    }
+    if state.snapshot().await.kind != StatusKind::Stopped {
+        log::warn!("sidecar: forced Stopped after kill (holder was slow)");
+        state.set_kind(StatusKind::Stopped).await;
     }
 }
 
@@ -515,14 +560,11 @@ pub fn restart(app: &AppHandle) {
         match spawn_sidecar(&cfg, &state) {
             Ok(child) => {
                 let pid = child.id().unwrap_or(0);
-                log::info!("sidecar: respawned pid={pid}");
+                let generation = state.generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                log::info!("sidecar: respawned pid={pid} (gen {generation})");
                 *state.pid.write().await = Some(pid);
-                spawn_holder(app.clone(), state.inner().clone(), child);
-                *state.status.write().await = SidecarStatus {
-                    kind: StatusKind::Starting,
-                    port: cfg.server_port,
-                    error: None,
-                };
+                spawn_holder(app.clone(), state.inner().clone(), child, generation);
+                state.mark_starting(cfg.server_port).await;
                 crate::tray::rebuild(&app, &DesktopConfig::load(&config_path(&app)));
             }
             Err(e) => {

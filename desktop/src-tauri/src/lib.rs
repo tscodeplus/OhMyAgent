@@ -16,6 +16,7 @@ use tauri::Manager;
 mod commands;
 mod config;
 mod ctl_server;
+mod log_file;
 mod sidecar;
 mod tray;
 mod windows;
@@ -67,6 +68,10 @@ pub fn run() {
         })
         .setup(|app| {
             let handle = app.handle().clone();
+            // File logger first: everything below (tray, sidecar, windows)
+            // logs into <userData>/logs/shell.log — GUI apps have no stderr.
+            let shell_log = config::ShellConfig::load(&handle).log_dir.join("shell.log");
+            let _ = log_file::init(&shell_log);
             // Read the shell config mirror (userData/desktop-config.json).
             let cfg = config::DesktopConfig::load(&config::config_path(&handle));
             config::CLOSE_TO_TRAY.store(cfg.close_to_tray, std::sync::atomic::Ordering::SeqCst);

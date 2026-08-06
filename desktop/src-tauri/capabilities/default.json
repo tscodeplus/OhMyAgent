@@ -7,6 +7,7 @@
     "splash",
     "gateway-chooser",
     "updater-progress",
+    "updater-spinner",
     "updater-dialog",
     "error"
   ],
@@ -23,6 +24,22 @@
     "notification:default",
     "autostart:allow-enable",
     "autostart:allow-disable",
-    "autostart:allow-is-enabled"
+    "autostart:allow-is-enabled",
+    "allow-compat-get-app-version",
+    "allow-compat-get-platform",
+    "allow-compat-get-server-status",
+    "allow-compat-get-control-info",
+    "allow-compat-quit-app",
+    "allow-compat-restart-service",
+    "allow-compat-window-minimize",
+    "allow-compat-window-maximize",
+    "allow-compat-window-close",
+    "allow-compat-toggle-devtools",
+    "allow-compat-open-data-dir",
+    "allow-compat-open-config-file",
+    "allow-compat-get-auto-start",
+    "allow-compat-set-auto-start",
+    "allow-compat-save-file-from-url",
+    "allow-compat-save-local-file"
   ]
 }

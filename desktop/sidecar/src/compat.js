@@ -88,7 +88,13 @@
     if (sseStarted) return;
     sseStarted = true;
     getCtl().then((c) => {
-      if (!c) return;
+      if (!c) {
+        // Control API not up yet (page loads before the sidecar binds).
+        // Reset the flag so a later onUpdate* registration can retry —
+        // otherwise update events would be lost for the whole session.
+        sseStarted = false;
+        return;
+      }
       const es = new EventSource(
         c.baseUrl + '/_desktop/events?token=' + encodeURIComponent(c.token)
       );

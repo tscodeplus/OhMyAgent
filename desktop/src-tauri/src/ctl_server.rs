@@ -160,9 +160,10 @@ fn handle(app: &AppHandle, url: &str, body: &str) -> tiny_http::Response<std::io
         "/show-window" => {
             match serde_json::from_str::<ShowWindowBody>(body) {
                 Ok(b) => {
+                    log::info!("ctl_server: /show-window kind={} {}x{}", b.kind, b.width, b.height);
                     let app2 = app.clone();
                     let _ = app.run_on_main_thread(move || {
-                        let _ = crate::windows::show_dialog_window(
+                        let result = crate::windows::show_dialog_window(
                             &app2,
                             &b.kind,
                             &b.html,
@@ -170,6 +171,9 @@ fn handle(app: &AppHandle, url: &str, body: &str) -> tiny_http::Response<std::io
                             b.height,
                             b.dark,
                         );
+                        if let Err(e) = result {
+                            log::error!("ctl_server: show_dialog_window({}) failed: {e}", b.kind);
+                        }
                     });
                     ok("window shown")
                 }

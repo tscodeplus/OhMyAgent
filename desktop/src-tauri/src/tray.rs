@@ -246,16 +246,18 @@ fn check_updates(app: &AppHandle) {
     }
     let port = state.sidecar_api_port.load(std::sync::atomic::Ordering::SeqCst);
     let token = state.ctl_token.clone();
+    log::info!("tray: check_updates → POST sidecar :{port}/_desktop/updater/check");
     tauri::async_runtime::spawn(async move {
         let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(8)).build();
         if let Ok(client) = client {
             let url = format!("http://127.0.0.1:{port}/_desktop/updater/check");
-            let _ = client
+            let resp = client
                 .post(&url)
                 .bearer_auth(&token)
                 .json(&serde_json::json!({ "includeBeta": false, "fromTray": true }))
                 .send()
                 .await;
+            log::info!("tray: updater/check response: {resp:?}");
         }
     });
 }

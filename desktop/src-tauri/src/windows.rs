@@ -233,6 +233,7 @@ pub fn show_dialog_window(
         "spinner" => "updater-spinner",
         _ => "updater-dialog",
     };
+    log::info!("windows: show_dialog_window kind={kind} → label={label}");
     // A result window replaces the transient spinner.
     if label != "updater-spinner" {
         if let Some(spin) = app.get_webview_window("updater-spinner") {
