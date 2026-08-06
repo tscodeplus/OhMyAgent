@@ -204,11 +204,13 @@ jobs:
           exit 1
 
       - name: Generate latest.yml metadata
+        # release-meta.cjs writes latest.yml next to the dmg already; the
+        # extra cp to the same path was a stale main-branch line that made
+        # bash -e exit on "are identical (not copied)".
         run: |
           VERSION=$(node -p "require('./package.json').version")
           DMG=$(ls desktop/src-tauri/target/release/bundle/dmg/*.dmg | head -1)
           node desktop/scripts/release-meta.cjs "$DMG" "$VERSION"
-          cp "$(dirname "$DMG")/latest.yml" desktop/src-tauri/target/release/bundle/dmg/latest.yml
 
       - name: Upload artifacts
         # One file only: the dmg. GitHub always packages downloads as zip,
