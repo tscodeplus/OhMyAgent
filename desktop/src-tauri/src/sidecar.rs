@@ -383,7 +383,41 @@ fn os_locale() -> String {
     }
 }
 
-#[cfg(not(windows))]
+/// macOS: GUI-launched apps (Finder/Dock) have no LANG/LC_ALL — the shell
+/// never set them — so the env fallback below would always yield "en" even
+/// on a Chinese-language system (updater dialogs / error window stayed
+/// English until the user explicitly picked a language). Read the system's
+/// preferred language list instead, mirroring Electron's app.getLocale().
+/// `defaults read -g AppleLanguages` prints an array like:
+///   (
+///       "zh-Hans-CN",
+///       en
+///   )
+#[cfg(target_os = "macos")]
+fn os_locale() -> String {
+    if let Ok(out) = std::process::Command::new("defaults")
+        .args(["read", "-g", "AppleLanguages"])
+        .output()
+    {
+        let text = String::from_utf8_lossy(&out.stdout);
+        for line in text.lines() {
+            let t = line.trim().trim_matches(',').trim();
+            if t.is_empty() || t == "(" || t == ")" {
+                continue;
+            }
+            let lang = t.trim_matches('"');
+            if lang.to_ascii_lowercase().starts_with("zh") {
+                return "zh-CN".into();
+            }
+            return "en".into();
+        }
+    }
+    std::env::var("LANG")
+        .or_else(|_| std::env::var("LC_ALL"))
+        .unwrap_or_else(|_| "en".to_string())
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn os_locale() -> String {
     std::env::var("LANG")
         .or_else(|_| std::env::var("LC_ALL"))
