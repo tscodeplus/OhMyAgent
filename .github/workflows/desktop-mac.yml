@@ -107,11 +107,30 @@ jobs:
       - name: Fetch bundled Node runtime (mac)
         run: cd desktop && OMA_TARGET_PLATFORM=${{ matrix.bundle_platform }} node scripts/fetch-node.cjs
 
-      - name: Build sidecar + Tauri app (dmg)
+      # Signing secrets are OPTIONAL. Never set the env vars to empty
+      # strings: tauri's codesign sees APPLE_CERTIFICATE set (even empty)
+      # and runs `security import` on an empty file → build fails.
+      - name: Configure signing env (only when secrets exist)
+        run: |
+          if [ -n "${{ secrets.APPLE_CERTIFICATE }}" ]; then
+            echo "APPLE_CERTIFICATE=${{ secrets.APPLE_CERTIFICATE }}" >> "$GITHUB_ENV"
+            echo "APPLE_CERTIFICATE_PASSWORD=${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" >> "$GITHUB_ENV"
+            echo "APPLE_SIGNING_IDENTITY=${{ secrets.APPLE_SIGNING_IDENTITY }}" >> "$GITHUB_ENV"
+          fi
+          if [ -n "${{ secrets.APPLE_API_KEY }}" ]; then
+            echo "APPLE_API_KEY=${{ secrets.APPLE_API_KEY }}" >> "$GITHUB_ENV"
+            echo "APPLE_API_ISSUER=${{ secrets.APPLE_API_ISSUER }}" >> "$GITHUB_ENV"
+            echo "APPLE_API_KEY_ID=${{ secrets.APPLE_API_KEY_ID }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build sidecar + Tauri app bundle
         # Timeout so a hung build fails fast and its full log becomes
         # downloadable for diagnosis. 90 min: the Intel runner is ~2x slower
         # than arm64 at the first (uncached) tauri compile; the cargo cache
         # above turns subsequent runs into mostly-link+package steps.
+        # dmg is NOT built here — tauri's bundler drives Finder via
+        # AppleScript (TCC automation grant), which hangs ~3 min then fails on
+        # headless runners. The next step packages the dmg with hdiutil.
         timeout-minutes: 90
         run: cd desktop && npm run tauri:build:mac
         env:
@@ -124,6 +143,15 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+
+      - name: Package dmg (hdiutil, no AppleScript)
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          APP="desktop/src-tauri/target/release/bundle/macos/OhMyAgent.app"
+          DMG="desktop/src-tauri/target/release/bundle/dmg/OhMyAgent_${VERSION}_${{ matrix.bundle_platform }}.dmg"
+          mkdir -p "$(dirname "$DMG")"
+          hdiutil create -volname "OhMyAgent" -srcfolder "$APP" -ov -format UDZO "$DMG"
+          ls -lh "$DMG"
 
       - name: Package zip distribution (ditto, preserves resource forks)
         run: |
