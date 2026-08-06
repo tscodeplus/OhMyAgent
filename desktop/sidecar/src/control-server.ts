@@ -46,6 +46,14 @@ export interface ControlServerOptions {
   stop: () => Promise<void>;
 }
 
+/**
+ * How long to wait for the graceful stop() before force-exiting. stop() can
+ * hang indefinitely: its server.close() waits for lingering SSE/keep-alive
+ * connections (the WebUI keeps one open), so without a deadline the process
+ * never exits and the respawn crashes with EADDRINUSE on the control port.
+ */
+const SHUTDOWN_TIMEOUT_MS = 5000;
+
 /** Updater event emitter consumed by control-server SSE + updater module. */
 export const updaterEvents = new EventEmitter();
 
@@ -256,12 +264,24 @@ async function handle(req: IncomingMessage, res: ServerResponse, opts: ControlSe
 
     if (path === '/_desktop/shutdown' && method === 'POST') {
       // Graceful stop: bootstrap().stop() closes channels/cron/WS/HTTP/db.
+      // If stop() hangs (server.close() waiting on a lingering connection),
+      // force-exit after a deadline so the ports are released and a respawn
+      // can bind — previously the process stayed alive holding the control
+      // port, and the next spawn died with EADDRINUSE.
       text(res, 200, 'shutting down');
+      const forceExit = setTimeout(() => {
+        console.error('[sidecar] stop() timed out — forcing exit');
+        process.exit(0);
+      }, SHUTDOWN_TIMEOUT_MS);
+      forceExit.unref?.();
       setTimeout(() => {
         void opts
           .stop()
           .catch((e) => console.error('[sidecar] stop() failed:', e))
-          .finally(() => process.exit(0));
+          .finally(() => {
+            clearTimeout(forceExit);
+            process.exit(0);
+          });
       }, 100);
       return;
     }

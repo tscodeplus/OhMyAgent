@@ -680,10 +680,18 @@ pub async fn shutdown(app: &AppHandle) {
         }
     }
 
-    // 2. Give the process a moment; the holder task flips state to Stopped.
+    // 2. Give the process a moment; the holder task flips state to Stopped
+    //    once the child reaps. Return early only when the PID is really gone
+    //    — not on the state alone, which the health loop can set (Stopping +
+    //    unhealthy) while a stuck graceful stop keeps the process alive and
+    //    holding the control port.
     let deadline = std::time::Instant::now() + GRACEFUL_EXIT_WAIT;
     loop {
-        if state.snapshot().await.kind == StatusKind::Stopped {
+        let gone = match *state.pid.read().await {
+            Some(pid) => !pid_alive(pid),
+            None => true,
+        };
+        if gone {
             return;
         }
         if std::time::Instant::now() > deadline {
@@ -692,9 +700,9 @@ pub async fn shutdown(app: &AppHandle) {
         sleep(Duration::from_millis(200)).await;
     }
 
-    // 3. Fallback: kill the whole tree.
+    // 3. Fallback: kill the whole tree (harmless if the pid already exited).
     if let Some(pid) = *state.pid.read().await {
-        log::warn!("sidecar: graceful exit timed out, taskkill /T /F pid={pid}");
+        log::warn!("sidecar: graceful exit timed out, killing pid={pid}");
         let _ = kill_process_tree(pid);
     }
     // The holder task flips state to Stopped once the child reaps; wait
@@ -818,6 +826,36 @@ fn reap_orphan_sidecar(port: u16) {
                 .stderr(Stdio::null())
                 .status();
         }
+    }
+}
+
+/// Is a pid still alive? shutdown() uses this instead of the state machine:
+/// the health loop flips Stopping→Stopped whenever the server stops answering,
+/// which races ahead of a stuck graceful stop (server.close() waits on
+/// lingering SSE connections) — trusting that state alone used to skip the
+/// kill, leaving the old process holding the control port so the respawn
+/// crashed with EADDRINUSE.
+#[cfg(not(windows))]
+fn pid_alive(pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(true) // kill unavailable — assume alive, fall through to the kill
+}
+
+#[cfg(windows)]
+fn pid_alive(pid: u32) -> bool {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let out = std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdout(Stdio::piped())
+        .output();
+    match out {
+        Ok(o) => String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()),
+        Err(_) => true, // tasklist unavailable — assume alive, fall through to the kill
     }
 }
 

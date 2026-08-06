@@ -88,12 +88,22 @@ async function shutdown(reason: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`[sidecar] shutdown (${reason})`);
+  // stop() can hang on server.close() waiting for lingering SSE/keep-alive
+  // connections; force-exit after a deadline so the ports are released (the
+  // shell's respawn would otherwise crash with EADDRINUSE on the control
+  // port held by this still-alive process).
+  const forceExit = setTimeout(() => {
+    console.error(`[sidecar] stop() timed out (${reason}) — forcing exit`);
+    process.exit(0);
+  }, 5000);
+  forceExit.unref?.();
   try {
     controlServer.close();
     await stop();
   } catch (e) {
     console.error('[sidecar] stop() error:', e);
   }
+  clearTimeout(forceExit);
   process.exit(0);
 }
 
