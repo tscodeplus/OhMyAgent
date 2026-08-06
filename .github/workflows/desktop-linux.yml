@@ -107,6 +107,10 @@ jobs:
 
       - name: Build Tauri app (deb + AppImage)
         run: cd desktop && npx tauri build --bundles deb,appimage
+        env:
+          # beforeBuildCommand re-runs bundle-deps; keep the platform pruning
+          # aligned with this job's target (default would be win32-x64).
+          OMA_TARGET_PLATFORM: linux-x64
 
       # Rename to the Electron-era asset names (OhMyAgent-<v>.AppImage,
       # ohmyagent-desktop_<v>_amd64.deb) so the release looks the same as
