@@ -145,12 +145,21 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
 
       - name: Package dmg (hdiutil, no AppleScript)
+        # tauri's bundler lays out the dmg (app icon + /Applications drop
+        # target) by driving Finder via AppleScript — which hangs ~3 min then
+        # fails on headless runners. Replicate the same layout with a plain
+        # staging dir: the /Applications symlink is what makes the standard
+        # "drag OhMyAgent.app onto Applications" install gesture work.
         run: |
           VERSION=$(node -p "require('./package.json').version")
           APP="desktop/src-tauri/target/release/bundle/macos/OhMyAgent.app"
           DMG="desktop/src-tauri/target/release/bundle/dmg/OhMyAgent_${VERSION}_${{ matrix.bundle_platform }}.dmg"
+          STAGING="$(mktemp -d)"
+          cp -R "$APP" "$STAGING/OhMyAgent.app"
+          ln -s /Applications "$STAGING/Applications"
           mkdir -p "$(dirname "$DMG")"
-          hdiutil create -volname "OhMyAgent" -srcfolder "$APP" -ov -format UDZO "$DMG"
+          hdiutil create -volname "OhMyAgent" -srcfolder "$STAGING" -ov -format UDZO "$DMG"
+          rm -rf "$STAGING"
           ls -lh "$DMG"
 
       - name: Package zip distribution (ditto, preserves resource forks)
