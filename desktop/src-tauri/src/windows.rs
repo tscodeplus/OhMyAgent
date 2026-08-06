@@ -91,6 +91,15 @@ pub fn create_splash(app: &AppHandle) -> tauri::Result<()> {
     }
     // Same look as the Electron splash (desktop/src/main.ts:createSplashHtml):
     // indigo gradient, frosted logo tile with spinner, rounded corners.
+    // The label is localized per desktop-config.json (the raw HTML is a
+    // template — style braces, so a placeholder is substituted instead of
+    // format! interpolation).
+    let zh = crate::i18n::is_zh(app);
+    let starting = if zh {
+        "OhMyAgent 启动中…"
+    } else {
+        "OhMyAgent Starting…"
+    };
     let html = r#"<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
@@ -108,9 +117,10 @@ pub fn create_splash(app: &AppHandle) -> tauri::Result<()> {
   @keyframes spin{to{transform:rotate(360deg)}}
 </style></head><body>
   <div class="logo"><div class="spin-o"></div></div>
-  <div class="text">OhMyAgent 启动中…</div>
-</body></html>"#;
-    WebviewWindowBuilder::new(app, SPLASH_LABEL, data_url(html))
+  <div class="text">__STARTING__</div>
+</body></html>"#
+        .replace("__STARTING__", starting);
+    WebviewWindowBuilder::new(app, SPLASH_LABEL, data_url(&html))
         .title("OhMyAgent")
         .inner_size(340.0, 240.0)
         .resizable(false)
@@ -126,6 +136,21 @@ pub fn create_splash(app: &AppHandle) -> tauri::Result<()> {
             }
         })
         .build()?;
+    // Fallback reveal: on_page_load's Finished event rides WebView2's
+    // NavigationCompleted, which is not reliable for data: URLs in a hidden
+    // window — if it never fires, the splash would stay invisible forever.
+    // Reveal after a short grace period instead (idempotent if the page-load
+    // path already showed it; a no-op if the splash was already closed as the
+    // main window appeared).
+    {
+        let app2 = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+            if let Some(splash) = app2.get_webview_window(SPLASH_LABEL) {
+                let _ = splash.show();
+            }
+        });
+    }
     Ok(())
 }
 
@@ -166,8 +191,12 @@ fn show_main_window(app: &AppHandle) {
         let _ = win.show();
         let _ = win.maximize();
         let _ = win.set_focus();
-        // Splash's job is done.
+        // Splash's job is done; a leftover error window (service died, then
+        // recovered via the restart button) is dismissed too.
         close_splash(app);
+        if let Some(err_win) = app.get_webview_window(ERROR_LABEL) {
+            let _ = err_win.close();
+        }
     }
 }
 
@@ -197,33 +226,50 @@ pub fn reload_main_window(app: &AppHandle) {
     let _ = win.set_focus();
 }
 
-/// Frameless error window with a message and a dismiss button.
+/// Frameless error window with a message, a restart button and a dismiss
+/// button. The compat layer is injected so the buttons go through
+/// `compat_window_close` / `compat_restart_service`: on a data: URL page
+/// `window.close()` is a no-op (browsers only honor it for script-opened
+/// windows), which left an unclosable window behind.
 pub fn show_error_window(app: &AppHandle, message: &str) -> tauri::Result<()> {
     if let Some(win) = app.get_webview_window(ERROR_LABEL) {
         let _ = win.show();
         let _ = win.set_focus();
         return Ok(());
     }
+    let zh = crate::i18n::is_zh(app);
+    let title = crate::i18n::tr("服务异常", "Service Error", zh);
+    let restart_label = crate::i18n::tr("重启服务", "Restart Service", zh);
+    let ok_label = crate::i18n::tr("确定", "OK", zh);
     let html = format!(
         r#"<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>
-  body{{margin:0;padding:28px;font-family:system-ui;background:#14141f;color:#e6e6f0}}
+  body{{margin:0;padding:26px 28px;font-family:system-ui;background:#14141f;color:#e6e6f0}}
   h3{{margin:0 0 10px;font-size:15px;color:#ff7b7b}}
   p{{font-size:13px;line-height:1.6;color:#b8bccb}}
-  button{{margin-top:18px;padding:7px 22px;border:none;border-radius:6px;background:#4f8cff;
+  .row{{display:flex;gap:10px;margin-top:20px}}
+  button{{flex:1;padding:7px 10px;border:none;border-radius:6px;background:#4f8cff;
        color:#fff;font-size:13px;cursor:pointer}}
+  button.secondary{{background:#33344a;color:#cfd3e0}}
 </style></head><body>
-<h3>服务异常</h3><p>{msg}</p>
-<button onclick="window.close()">确定</button>
+<h3>{title}</h3><p>{msg}</p>
+<div class="row">
+  <button class="secondary" onclick="window.electronAPI ? window.electronAPI.restartService() : window.close()">{restart_label}</button>
+  <button onclick="window.electronAPI ? window.electronAPI.close() : window.close()">{ok_label}</button>
+</div>
 </body></html>"#,
-        msg = escape_html(message)
+        title = title,
+        msg = escape_html(message),
+        restart_label = restart_label,
+        ok_label = ok_label,
     );
     WebviewWindowBuilder::new(app, ERROR_LABEL, data_url(&html))
         .title("OhMyAgent")
-        .inner_size(360.0, 240.0)
+        .inner_size(400.0, 250.0)
         .resizable(false)
         .decorations(false)
         .center()
+        .initialization_script(compat_script())
         .build()?;
     Ok(())
 }
@@ -359,12 +405,13 @@ pub fn show_dialog_window(
     let url = format!(
         "http://127.0.0.1:{port}/_desktop/pages/updater/{kind}?token={token}"
     );
+    let zh = crate::i18n::is_zh(app);
     WebviewWindowBuilder::new(
         app,
         label,
         WebviewUrl::External(url.parse().expect("updater page url")),
     )
-    .title("OhMyAgent 更新")
+    .title(crate::i18n::tr("OhMyAgent 更新", "OhMyAgent Update", zh))
     .inner_size(width as f64, height as f64)
     .resizable(false)
     .decorations(false)
@@ -400,11 +447,13 @@ pub fn apply_theme(app: &AppHandle, theme: &str) -> tauri::Result<()> {
 }
 
 /// Windows 11 (22000+): paint the native title bar to match the UI theme —
-/// dark mode gets the UI's `#0a0a0a` background + white text; light mode
-/// restores the system default caption colors. Windows 10 ignores the
-/// DWMWA_CAPTION_COLOR/TEXT_COLOR attributes (returns an error we swallow);
-/// DWMWA_USE_IMMERSIVE_DARK_MODE still works there so the caption at least
-/// follows the OS dark theme.
+/// dark mode gets the UI's `#0a0a0a` background + white text; light mode gets
+/// the default Win11 light caption (fixed #F0F0F0 + black text — not
+/// GetSysColor: with "accent color on title bars" enabled the system color is
+/// the user's accent, which can be dark, and was observed leaving the caption
+/// black-on-black). Windows 10 ignores the DWMWA_CAPTION_COLOR/TEXT_COLOR
+/// attributes (returns an error we swallow); DWMWA_USE_IMMERSIVE_DARK_MODE
+/// still works there so the caption at least follows the OS dark theme.
 #[cfg(windows)]
 fn set_caption_theme(win: &tauri::WebviewWindow, dark: bool) {
     use std::mem::size_of;
@@ -412,11 +461,6 @@ fn set_caption_theme(win: &tauri::WebviewWindow, dark: bool) {
         DwmSetWindowAttribute, DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR,
         DWMWA_USE_IMMERSIVE_DARK_MODE,
     };
-    use windows_sys::Win32::Graphics::Gdi::{GetSysColor, COLOR_CAPTIONTEXT};
-
-    // COLOR_CAPTION (1) is not exported by windows-sys 0.59; it is a stable
-    // system-color index (GetSysColor takes SYS_COLOR_INDEX = i32).
-    const COLOR_CAPTION: i32 = 1;
 
     let Ok(hwnd) = win.hwnd() else {
         return;
@@ -427,12 +471,12 @@ fn set_caption_theme(win: &tauri::WebviewWindow, dark: bool) {
         let bg: u32 = if dark {
             0x000A_0A0A
         } else {
-            GetSysColor(COLOR_CAPTION)
+            0x00F0_F0F0
         };
         let fg: u32 = if dark {
             0x00FF_FFFF
         } else {
-            GetSysColor(COLOR_CAPTIONTEXT)
+            0x0000_0000
         };
         let dark_mode: i32 = i32::from(dark);
         // All three calls are best-effort; failures (e.g. Win10 attributes)

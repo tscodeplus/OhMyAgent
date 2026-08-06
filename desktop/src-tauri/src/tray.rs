@@ -11,6 +11,7 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{AppHandle, Manager};
 
 use crate::config::{config_path, DesktopConfig};
+use crate::i18n::{is_zh_cfg, tr};
 use crate::sidecar::{take_snapshot, SidecarState, StatusKind};
 
 const ID_TOGGLE: &str = "toggle-window";
@@ -61,19 +62,26 @@ fn load_tray_icon(app: &AppHandle) -> Option<tauri::image::Image<'static>> {
 }
 
 fn build_menu(app: &AppHandle, cfg: &DesktopConfig) -> tauri::Result<Menu<tauri::Wry>> {
+    let zh = is_zh_cfg(cfg);
     let menu = Menu::new(app)?;
 
     let status = MenuItem::with_id(app, ID_STATUS, status_label(app, cfg), false, None::<&str>)?;
     menu.append(&status)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
 
-    let toggle = MenuItem::with_id(app, ID_TOGGLE, "显示 / 隐藏窗口", true, None::<&str>)?;
+    let toggle = MenuItem::with_id(
+        app,
+        ID_TOGGLE,
+        tr("显示 / 隐藏窗口", "Show / Hide Window", zh),
+        true,
+        None::<&str>,
+    )?;
     menu.append(&toggle)?;
 
     let restart = MenuItem::with_id(
         app,
         ID_RESTART_SERVICE,
-        "重启服务",
+        tr("重启服务", "Restart Service", zh),
         !cfg.is_remote(),
         None::<&str>,
     )?;
@@ -81,9 +89,21 @@ fn build_menu(app: &AppHandle, cfg: &DesktopConfig) -> tauri::Result<Menu<tauri:
 
     menu.append(&PredefinedMenuItem::separator(app)?)?;
 
-    let open_data = MenuItem::with_id(app, ID_OPEN_DATA, "打开数据目录", true, None::<&str>)?;
+    let open_data = MenuItem::with_id(
+        app,
+        ID_OPEN_DATA,
+        tr("打开数据目录", "Open Data Folder", zh),
+        true,
+        None::<&str>,
+    )?;
     menu.append(&open_data)?;
-    let open_logs = MenuItem::with_id(app, ID_OPEN_LOGS, "打开日志目录", true, None::<&str>)?;
+    let open_logs = MenuItem::with_id(
+        app,
+        ID_OPEN_LOGS,
+        tr("打开日志目录", "Open Log Folder", zh),
+        true,
+        None::<&str>,
+    )?;
     menu.append(&open_logs)?;
 
     menu.append(&PredefinedMenuItem::separator(app)?)?;
@@ -91,7 +111,7 @@ fn build_menu(app: &AppHandle, cfg: &DesktopConfig) -> tauri::Result<Menu<tauri:
     let auto_start = CheckMenuItem::with_id(
         app,
         ID_AUTO_START,
-        "开机自启动",
+        tr("开机自启动", "Start on Login", zh),
         true,
         cfg.auto_start,
         None::<&str>,
@@ -100,7 +120,7 @@ fn build_menu(app: &AppHandle, cfg: &DesktopConfig) -> tauri::Result<Menu<tauri:
     let close_to_tray = CheckMenuItem::with_id(
         app,
         ID_CLOSE_TO_TRAY,
-        "关闭时最小化到托盘",
+        tr("关闭时最小化到托盘", "Close to Tray", zh),
         true,
         cfg.close_to_tray,
         None::<&str>,
@@ -109,32 +129,58 @@ fn build_menu(app: &AppHandle, cfg: &DesktopConfig) -> tauri::Result<Menu<tauri:
 
     menu.append(&PredefinedMenuItem::separator(app)?)?;
 
-    let check = MenuItem::with_id(app, ID_CHECK_UPDATES, "检查更新", true, None::<&str>)?;
+    let check = MenuItem::with_id(
+        app,
+        ID_CHECK_UPDATES,
+        tr("检查更新", "Check for Updates", zh),
+        true,
+        None::<&str>,
+    )?;
     menu.append(&check)?;
-    let restart_app = MenuItem::with_id(app, ID_RESTART_APP, "重启应用", true, None::<&str>)?;
+    let restart_app = MenuItem::with_id(
+        app,
+        ID_RESTART_APP,
+        tr("重启应用", "Restart App", zh),
+        true,
+        None::<&str>,
+    )?;
     menu.append(&restart_app)?;
-    let quit = MenuItem::with_id(app, ID_QUIT, "退出", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, ID_QUIT, tr("退出", "Quit", zh), true, None::<&str>)?;
     menu.append(&quit)?;
 
     Ok(menu)
 }
 
 fn status_label(app: &AppHandle, cfg: &DesktopConfig) -> String {
+    let zh = is_zh_cfg(cfg);
     if cfg.is_remote() {
-        return format!("远程网关: {}", cfg.gateway.remote_url);
+        return format!(
+            "{}: {}",
+            tr("远程网关", "Remote gateway", zh),
+            cfg.gateway.remote_url
+        );
     }
     // The tray is created before sidecar::init manages the state — degrade
     // gracefully instead of panicking on state().
     let Some(state) = app.try_state::<std::sync::Arc<SidecarState>>() else {
-        return "服务启动中…".into();
+        return tr("服务启动中…", "Starting service…", zh).into();
     };
     let snapshot = take_snapshot(&state);
     match snapshot.kind {
-        StatusKind::Running => format!("服务运行中 · 端口 {}", snapshot.port),
-        StatusKind::Starting => "服务启动中…".into(),
-        StatusKind::Stopping => "服务停止中…".into(),
-        StatusKind::Error => format!("服务异常: {}", snapshot.error.as_deref().unwrap_or("未知错误")),
-        StatusKind::Stopped => "服务已停止".into(),
+        StatusKind::Running => format!(
+            "{} · {} {}",
+            tr("服务运行中", "Service running", zh),
+            tr("端口", "port", zh),
+            snapshot.port
+        ),
+        StatusKind::Starting => tr("服务启动中…", "Starting service…", zh).into(),
+        StatusKind::Stopping => tr("服务停止中…", "Stopping service…", zh).into(),
+        StatusKind::Error => format!(
+            "{}: {}",
+            tr("服务异常", "Service error", zh),
+            snapshot.error.as_deref().unwrap_or(tr("未知错误", "Unknown error", zh))
+        ),
+        StatusKind::Stopped => tr("服务已停止", "Service stopped", zh).into(),
     }
 }
 

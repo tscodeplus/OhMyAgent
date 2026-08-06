@@ -30,6 +30,7 @@ use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
 
 use crate::config::{config_path, DesktopConfig, ShellConfig};
+use crate::i18n::is_zh;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const HTTP_TIMEOUT: Duration = Duration::from_secs(8);
@@ -111,6 +112,36 @@ fn unix_millis() -> u64 {
         .unwrap_or(0)
 }
 
+/// User-visible error text for shell dialogs / the tray status, in the
+/// configured UI language.
+fn err_text(key: &str, zh: bool) -> String {
+    match (key, zh) {
+        (
+            "startup_timeout",
+            true,
+        ) => "后端服务启动超时（60 秒内未就绪）。请关闭其他 OhMyAgent 实例，或检查端口 9191 是否被其他程序占用。"
+            .into(),
+        (
+            "startup_timeout",
+            false,
+        ) => "The backend service did not become ready within 60 seconds. Close other OhMyAgent instances or check whether port 9191 is in use by another program."
+            .into(),
+        ("crashed", true) => {
+            "后端服务已停止运行。请点击「重启服务」重新启动。若反复出现，请检查端口 9191 是否被其他程序或残留进程占用。"
+                .into()
+        }
+        ("crashed", false) => {
+            "The backend service stopped unexpectedly. Click \"Restart Service\" to restart it. If this keeps happening, check whether port 9191 is held by a leftover process."
+                .into()
+        }
+        ("spawn_failed", true) => "无法启动后端服务".into(),
+        ("spawn_failed", false) => "Failed to start the backend service".into(),
+        ("restart_failed", true) => "重新启动后端服务失败".into(),
+        ("restart_failed", false) => "Failed to restart the backend service".into(),
+        _ => key.into(),
+    }
+}
+
 /// Synchronous snapshot for blocking contexts (tray menu events).
 ///
 /// Deliberately lock-free: `block_on` panics when called from inside the
@@ -169,7 +200,10 @@ pub async fn init(app: &AppHandle) {
             }
             Err(e) => {
                 log::error!("sidecar: spawn failed: {e}");
-                state.set_error(format!("无法启动后端服务: {e}")).await;
+                let zh = is_zh(&app);
+                state
+                    .set_error(format!("{}: {e}", err_text("spawn_failed", zh)))
+                    .await;
             }
         }
     }
@@ -228,11 +262,10 @@ fn spawn_holder(
         let kind = state2.snapshot().await.kind;
         if kind != StatusKind::Stopping {
             log::error!("sidecar: process died unexpectedly (kind={kind:?})");
-            state2.set_error("后端服务进程意外退出".into()).await;
-            let _ = crate::windows::show_error_window(
-                &app2,
-                "后端服务已停止运行。请通过托盘菜单「重启服务」重新启动。",
-            );
+            let msg = err_text("crashed", is_zh(&app2));
+            state2.set_error(msg.clone()).await;
+            crate::windows::close_splash(&app2);
+            let _ = crate::windows::show_error_window(&app2, &msg);
         } else {
             state2.set_kind(StatusKind::Stopped).await;
         }
@@ -411,13 +444,16 @@ async fn health_loop(app: AppHandle, state: Arc<SidecarState>, server_port: u16)
                                     crate::windows::reveal_main_window(&app2);
                                 }
                                 bad => {
-                                    let msg = match bad {
-                                        RemoteHealth::Unreachable => "网关无法连接或不在线",
-                                        _ => "网关在线但令牌无效",
+                                    // i18n keys resolved against the chooser's
+                                    // own dictionary (it knows the UI language);
+                                    // the chooser page translates them.
+                                    let key = match bad {
+                                        RemoteHealth::Unreachable => "gatewayUnreachable",
+                                        _ => "serverOnlineTokenInvalid",
                                     };
-                                    log::warn!("sidecar: remote pre-flight {msg} ({url})");
+                                    log::warn!("sidecar: remote pre-flight {key} ({url})");
                                     crate::windows::close_splash(&app2);
-                                    show_remote_chooser(&app2, msg);
+                                    show_remote_chooser(&app2, key);
                                 }
                             }
                         });
@@ -438,9 +474,10 @@ async fn health_loop(app: AppHandle, state: Arc<SidecarState>, server_port: u16)
                     let started = state.starting_at.load(std::sync::atomic::Ordering::SeqCst);
                     let elapsed = unix_millis().saturating_sub(started);
                     if elapsed > STARTUP_WINDOW.as_millis() as u64 {
-                        let err = "后端服务启动超时（60 秒内未就绪）".to_string();
+                        let err = err_text("startup_timeout", is_zh(&app));
                         log::error!("sidecar: startup timeout after {elapsed}ms");
                         state.set_error(err.clone()).await;
+                        crate::windows::close_splash(&app);
                         let _ = crate::windows::show_error_window(&app, &err);
                     }
                 }
@@ -569,15 +606,23 @@ pub async fn shutdown(app: &AppHandle) {
     }
     state.set_kind(StatusKind::Stopping).await;
 
-    // 1. Graceful: POST /_desktop/shutdown with the control token.
+    // 1. Graceful: POST /_desktop/shutdown to the sidecar's control API.
+    //    (Not the shell's own ctl_server — that one has no such route and a
+    //    request there is a 404, which silently degraded every shutdown to the
+    //    taskkill fallback below and could orphan the node process.)
     let client = reqwest::Client::builder().timeout(HTTP_TIMEOUT).build();
     if let Ok(client) = client {
-        let url = format!("http://127.0.0.1:{}/_desktop/shutdown", state.ctl_port);
-        let _ = client
-            .post(&url)
-            .bearer_auth(&state.ctl_token)
-            .send()
-            .await;
+        let sidecar_port = state
+            .sidecar_api_port
+            .load(std::sync::atomic::Ordering::SeqCst);
+        if sidecar_port != 0 {
+            let url = format!("http://127.0.0.1:{sidecar_port}/_desktop/shutdown");
+            let _ = client
+                .post(&url)
+                .bearer_auth(&state.ctl_token)
+                .send()
+                .await;
+        }
     }
 
     // 2. Give the process a moment; the holder task flips state to Stopped.
@@ -680,7 +725,10 @@ pub fn restart(app: &AppHandle) {
             }
             Err(e) => {
                 log::error!("sidecar: respawn failed: {e}");
-                state.set_error(format!("重新启动后端服务失败: {e}")).await;
+                let zh = is_zh(&app);
+                state
+                    .set_error(format!("{}: {e}", err_text("restart_failed", zh)))
+                    .await;
             }
         }
     });

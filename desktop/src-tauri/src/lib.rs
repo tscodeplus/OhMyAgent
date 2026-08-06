@@ -16,6 +16,7 @@ use tauri::Manager;
 mod commands;
 mod config;
 mod ctl_server;
+mod i18n;
 mod log_file;
 mod sidecar;
 mod tray;

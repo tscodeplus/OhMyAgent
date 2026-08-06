@@ -73,7 +73,13 @@ export function renderChooser(
   const initialMode = cfg.gateway.mode ?? 'local';
   const initialUrl = opts.initialUrl ?? cfg.gateway.remoteUrl;
   const initialToken = opts.initialToken ?? cfg.gateway.remoteToken;
-  const errorMessage = opts.error ?? '';
+  // opts.error is either a known i18n key (from the shell's remote
+  // pre-flight) or a free-form, already-translated message (from the WebUI
+  // error page) — resolve keys against the local dictionary, pass others
+  // through.
+  const rawError = opts.error ?? '';
+  const errorMessage =
+    rawError in t ? t[rawError as keyof GatewayStrings] : rawError;
 
   // eslint-disable-next-line no-useless-escape
   const js = (s: string): string => s.replace(/'/g, "\\'");

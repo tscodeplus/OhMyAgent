@@ -255,7 +255,11 @@ pub fn compat_save_local_file(
 ) -> Result<String, String> {
     let src = std::path::PathBuf::from(&file_path);
     if !src.is_file() {
-        return Err(format!("文件不存在或不可读: {file_path}"));
+        let zh = crate::i18n::is_zh(&app);
+        return Err(format!(
+            "{}: {file_path}",
+            crate::i18n::tr("文件不存在或不可读", "File does not exist or is unreadable", zh)
+        ));
     }
     let Some(dst) = save_dialog(&app, &file_name) else {
         return Ok(String::new()); // cancelled
