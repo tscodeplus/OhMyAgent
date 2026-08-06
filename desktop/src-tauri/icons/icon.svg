@@ -9,8 +9,9 @@
   <!-- The O as a ring of two circles (fill-rule evenodd): pure geometry so
        the letter is visually centered on every platform. The previous
        <text> element relied on font baseline math (dy=.35em), which renders
-       the O too high on macOS. -->
+       the O too high on macOS. Outer diameter 420 (the old 580px font's
+       cap-height ≈ 418) keeps the O the same size as the Electron icon. -->
   <path fill="white" fill-rule="evenodd"
-        d="M512 232 a280 280 0 1 1 0 560 a280 280 0 1 1 0 -560
-           M512 330 a182 182 0 1 0 0 364 a182 182 0 1 0 0 -364"/>
+        d="M512 302 a210 210 0 1 1 0 420 a210 210 0 1 1 0 -420
+           M512 374 a138 138 0 1 0 0 276 a138 138 0 1 0 0 -276"/>
 </svg>

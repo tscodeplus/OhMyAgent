@@ -144,22 +144,25 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
 
-      - name: Package dmg (hdiutil, no AppleScript)
+      - name: Package dmg (dmgbuild layout, no AppleScript)
         # tauri's bundler lays out the dmg (app icon + /Applications drop
-        # target) by driving Finder via AppleScript — which hangs ~3 min then
-        # fails on headless runners. Replicate the same layout with a plain
-        # staging dir: the /Applications symlink is what makes the standard
-        # "drag OhMyAgent.app onto Applications" install gesture work.
+        # target) by driving Finder via AppleScript, which needs a TCC
+        # automation grant and hangs ~3 min then fails on headless runners.
+        # dmgbuild writes the .DS_Store layout directly from Python (no
+        # Finder/AppleScript): OhMyAgent.app left, /Applications link right,
+        # both centered — see scripts/dmg-settings.py.
         run: |
           VERSION=$(node -p "require('./package.json').version")
           APP="desktop/src-tauri/target/release/bundle/macos/OhMyAgent.app"
-          DMG="desktop/src-tauri/target/release/bundle/dmg/OhMyAgent_${VERSION}_${{ matrix.bundle_platform }}.dmg"
-          STAGING="$(mktemp -d)"
-          cp -R "$APP" "$STAGING/OhMyAgent.app"
-          ln -s /Applications "$STAGING/Applications"
-          mkdir -p "$(dirname "$DMG")"
-          hdiutil create -volname "OhMyAgent" -srcfolder "$STAGING" -ov -format UDZO "$DMG"
-          rm -rf "$STAGING"
+          DMG_DIR="desktop/src-tauri/target/release/bundle/dmg"
+          DMG="$DMG_DIR/OhMyAgent_${VERSION}_${{ matrix.bundle_platform }}.dmg"
+          # The dmg dir accumulates stale files from previous runs via the
+          # cargo target cache (bundle_dmg.sh, old-named dmg, icon.icns) —
+          # start clean so only the fresh dmg exists.
+          rm -rf "$DMG_DIR"
+          mkdir -p "$DMG_DIR"
+          pip3 install -q dmgbuild
+          dmgbuild -D app_path="$APP" -s desktop/scripts/dmg-settings.py "OhMyAgent" "$DMG"
           ls -lh "$DMG"
 
       - name: Package zip distribution (ditto, preserves resource forks)
@@ -197,12 +200,13 @@ jobs:
           cp "$(dirname "$DMG")/latest.yml" desktop/src-tauri/target/release/bundle/dmg/latest.yml
 
       - name: Upload artifacts
+        # One file only: the dmg. GitHub always packages downloads as zip,
+        # so the user gets a zip containing exactly one dmg. The ditto zip
+        # and latest.yml stay out of artifacts (Release assets carry them).
         uses: actions/upload-artifact@v4
         with:
           name: ohmyagent-mac-${{ matrix.bundle_platform }}
-          path: |
-            desktop/src-tauri/target/release/bundle/dmg/*
-            desktop/src-tauri/target/release/bundle/macos/*.zip
+          path: desktop/src-tauri/target/release/bundle/dmg/OhMyAgent_*_${{ matrix.bundle_platform }}.dmg
           if-no-files-found: error
 
       - name: Attach to GitHub Release
@@ -211,5 +215,6 @@ jobs:
         with:
           tag_name: ${{ github.event_name == 'release' && github.event.release.tag_name || github.event.inputs.version }}
           files: |
-            desktop/src-tauri/target/release/bundle/dmg/*
-            desktop/src-tauri/target/release/bundle/macos/*.zip
+            desktop/src-tauri/target/release/bundle/dmg/OhMyAgent_*_${{ matrix.bundle_platform }}.dmg
+            desktop/src-tauri/target/release/bundle/dmg/latest.yml
+            desktop/src-tauri/target/release/bundle/macos/OhMyAgent_*_${{ matrix.bundle_platform }}.zip
