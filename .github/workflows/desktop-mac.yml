@@ -30,7 +30,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-13
+          # macos-14/15 are arm64 runners — pnpm there installs only
+          # darwin-arm64 native modules (sharp/@img etc.), so the x64 job
+          # MUST run on the Intel runner or bundle-deps fails ("sharp: no
+          # native files found" — darwin-x64 was never installed).
+          - runner: macos-15-intel
             target: x86_64-apple-darwin
             bundle_platform: darwin-x64
           - runner: macos-14
@@ -55,6 +59,22 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # Every run starts from a clean VM — without this the ~300-crate tauri
+      # dep tree recompiles from scratch each time (30-45 min on the Intel
+      # runner). Cache cargo registry + the release target dir; the key is
+      # stable across version bumps (Cargo.lock unchanged), so rebuilds after
+      # a release version change still reuse the compiled deps.
+      - name: Cache cargo (registry + build artifacts)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            desktop/src-tauri/target
+          key: cargo-${{ matrix.target }}-${{ hashFiles('desktop/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ matrix.target }}-
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -71,6 +91,11 @@ jobs:
         run: cd desktop && OMA_TARGET_PLATFORM=${{ matrix.bundle_platform }} node scripts/fetch-node.cjs
 
       - name: Build sidecar + Tauri app (dmg)
+        # Timeout so a hung build fails fast and its full log becomes
+        # downloadable for diagnosis. 90 min: the Intel runner is ~2x slower
+        # than arm64 at the first (uncached) tauri compile; the cargo cache
+        # above turns subsequent runs into mostly-link+package steps.
+        timeout-minutes: 90
         run: cd desktop && npm run tauri:build:mac
         env:
           # beforeBuildCommand re-runs bundle-deps; keep the platform pruning
