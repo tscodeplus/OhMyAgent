@@ -446,6 +446,17 @@ function Invoke-TauriBuild {
         throw "tauri build failed"
     }
 
+    # tauri v2 has no artifact-name config — the NSIS file comes out as
+    # OhMyAgent_<v>_x64-setup.exe. Rename to the Electron-era
+    # OhMyAgent-Setup-<v>.exe so the updater's latest.yml URL keeps working
+    # (same rename as the desktop-windows CI workflow).
+    $setup = Get-ChildItem "$DesktopDir\src-tauri\target\release\bundle\nsis\OhMyAgent_*_x64-setup.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($setup) {
+        $version = (Get-Content "$DesktopDir\package.json" | ConvertFrom-Json).version
+        Rename-Item $setup.FullName "OhMyAgent-Setup-$version.exe"
+        Write-OK "Renamed installer to OhMyAgent-Setup-$version.exe"
+    }
+
     Write-OK "Tauri build complete"
 }
 

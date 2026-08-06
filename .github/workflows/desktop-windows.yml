@@ -88,6 +88,15 @@ jobs:
       - name: Build Tauri app (NSIS installer)
         run: cd desktop && npx tauri build --bundles nsis
 
+      # tauri has no artifact-name config (removed in v2) — the NSIS file
+      # comes out as OhMyAgent_<v>_x64-setup.exe. Rename to the Electron-era
+      # OhMyAgent-Setup-<v>.exe so the updater's latest.yml URL keeps working.
+      - name: Rename installer (electron-builder style name)
+        run: |
+          $VERSION = node -p "require('./package.json').version"
+          $exe = Get-ChildItem "desktop/src-tauri/target/release/bundle/nsis/OhMyAgent_*_x64-setup.exe" | Select-Object -First 1
+          Rename-Item $exe.FullName "OhMyAgent-Setup-$VERSION.exe"
+
       - name: Generate latest.yml metadata
         run: |
           $VERSION = node -p "require('./package.json').version"

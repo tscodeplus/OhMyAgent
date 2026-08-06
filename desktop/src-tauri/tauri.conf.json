@@ -33,8 +33,7 @@
         "languages": ["SimpChinese", "English"],
         "compression": "zlib",
         "displayLanguageSelector": true,
-        "installerIcon": "icons/icon.ico",
-        "artifactName": "OhMyAgent-Setup-${version}.${ext}"
+        "installerIcon": "icons/icon.ico"
       },
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
