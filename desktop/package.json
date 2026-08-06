@@ -15,7 +15,7 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "tauri:build:win": "tauri build --bundles nsis",
-    "tauri:build:mac": "tauri build --bundles dmg",
+    "tauri:build:mac": "tauri build --bundles app,dmg",
     "bundle-deps": "node scripts/bundle-deps.cjs"
   },
   "devDependencies": {}
