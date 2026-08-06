@@ -73,7 +73,8 @@ pub fn init(log_path: &std::path::Path) -> Result<(), String> {
 fn now_hms() -> String {
     #[cfg(windows)]
     {
-        use windows_sys::Win32::System::Time::{GetLocalTime, SYSTEMTIME};
+        // windows-sys 0.59 keeps GetLocalTime/SYSTEMTIME under SystemInformation.
+        use windows_sys::Win32::System::SystemInformation::{GetLocalTime, SYSTEMTIME};
         let mut st: SYSTEMTIME = unsafe { std::mem::zeroed() };
         unsafe { GetLocalTime(&mut st) };
         format!(

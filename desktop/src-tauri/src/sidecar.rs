@@ -286,7 +286,8 @@ fn spawn_sidecar(
     // applies here too.
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
+        // tokio::process::Command has creation_flags as a native method —
+        // no CommandExt import needed (std::process::Command does need it).
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }

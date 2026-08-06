@@ -14,7 +14,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Globalization", "Win32_System_Time"] }
+windows-sys = { version = "0.59", features = ["Win32_Globalization", "Win32_System_SystemInformation"] }
 
 [dependencies]
 tauri = { version = "2.11", features = ["tray-icon", "devtools", "image-png", "macos-private-api"] }
