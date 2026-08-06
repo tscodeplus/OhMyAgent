@@ -8,6 +8,7 @@
 #   .\scripts\build.ps1 -Portable        # Build portable only (win-unpacked)
 #   .\scripts\build.ps1 -Nsis            # Build NSIS installer only
 #   .\scripts\build.ps1 -Clean           # Clean before building
+#   .\scripts\build.ps1 -SkipClean       # Override -Clean: keep src-tauri/target
 #   .\scripts\build.ps1 -NoSync          # Skip WSL code sync
 #   .\scripts\build.ps1 -SyncOnly        # Only sync code from WSL, no build
 #   .\scripts\build.ps1 -SkipRootBuild   # Skip root TS + WebUI builds
@@ -21,6 +22,7 @@ param(
     [switch]$Portable,
     [switch]$Nsis,
     [switch]$Clean,
+    [switch]$SkipClean,
     [switch]$NoSync,
     [switch]$SyncOnly,
     [switch]$SkipRootBuild,
@@ -513,7 +515,11 @@ if ($SyncOnly) {
 }
 
 if ($Clean) {
-    Invoke-Clean
+    if ($SkipClean) {
+        Write-Step "Skipping clean (-SkipClean)"
+    } else {
+        Invoke-Clean
+    }
 }
 
 if (-not $SkipRootBuild) {

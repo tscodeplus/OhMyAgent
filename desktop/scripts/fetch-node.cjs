@@ -76,6 +76,16 @@ function main() {
     process.exit(1);
   }
 
+  const destName = key === 'win32-x64' ? 'node.exe' : 'node';
+  const dest = path.join(OUT_DIR, destName);
+  // Cache: the bundled runtime only changes when .node-version changes —
+  // skip the download+extract when the target binary already exists (each
+  // build was re-downloading the ~27MB archive, the single biggest waste).
+  if (fs.existsSync(dest)) {
+    console.log(`[fetch-node] ✓ cached ${dest} (${(fs.statSync(dest).size / 1048576).toFixed(1)} MB)`);
+    return;
+  }
+
   const mirror = process.env.NODE_MIRROR || 'https://npmmirror.com/mirrors/node';
   const url = `${mirror}/v${version}/${pkg.file(version)}`;
   const archive = path.join(os.tmpdir(), pkg.file(version));
@@ -113,7 +123,6 @@ function main() {
     console.error(`[fetch-node] binary not found under ${extractDir}`);
     process.exit(1);
   }
-  const dest = path.join(OUT_DIR, key === 'win32-x64' ? 'node.exe' : 'node');
   fs.copyFileSync(bin, dest);
   if (process.platform !== 'win32') {
     fs.chmodSync(dest, 0o755);
