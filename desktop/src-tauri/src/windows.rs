@@ -17,34 +17,6 @@ pub const CHOOSER_LABEL: &str = "gateway-chooser";
 pub const ERROR_LABEL: &str = "error";
 pub const PROGRESS_LABEL: &str = "updater-progress";
 
-fn data_url(html: &str) -> WebviewUrl {
-    // WKWebView's charset detection for data: URLs is unreliable (WebKit bug
-    // 153794) — a percent-encoded UTF-8 payload can be decoded as Latin-1,
-    // which turns Chinese text into mojibake (seen on macOS Intel; arm64 and
-    // WebView2 decode it fine). HTML numeric entities are pure ASCII, so the
-    // payload renders identically regardless of the decoder.
-    let encoded = url_escape(&to_html_entities(html));
-    WebviewUrl::External(
-        format!("data:text/html;charset=utf-8,{encoded}")
-            .parse()
-            .unwrap_or_else(|_| "about:blank".parse().unwrap()),
-    )
-}
-
-/// Escape non-ASCII characters as HTML numeric entities (pure-ASCII output),
-/// so data: URL pages render correctly no matter what charset WKWebView picks.
-fn to_html_entities(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    for c in input.chars() {
-        if c.is_ascii() {
-            out.push(c);
-        } else {
-            out.push_str(&format!("&#x{:X};", c as u32));
-        }
-    }
-    out
-}
-
 /// Percent-encode everything except a small safe set (encodeURIComponent-ish).
 fn url_escape(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
@@ -135,36 +107,16 @@ pub fn create_splash(app: &AppHandle) -> tauri::Result<()> {
     }
     // Same look as the Electron splash (desktop/src/main.ts:createSplashHtml):
     // indigo gradient, frosted logo tile with spinner, rounded corners.
-    // The label is localized per desktop-config.json (the raw HTML is a
-    // template — style braces, so a placeholder is substituted instead of
-    // format! interpolation).
-    let zh = crate::i18n::is_zh(app);
-    let starting = if zh {
-        "OhMyAgent 启动中…"
-    } else {
-        "OhMyAgent Starting…"
-    };
-    let html = r#"<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>
-  *{margin:0;padding:0;box-sizing:border-box}
-  body{
-    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-    height:100vh;display:flex;flex-direction:column;align-items:center;
-    justify-content:center;padding-top:18px;
-    background:linear-gradient(135deg,#6366f1,#4f46e5);
-    color:#fff;user-select:none;-webkit-user-select:none;
-    border-radius:12px;overflow:hidden;
-  }
-  .logo{width:52px;height:52px;margin-bottom:20px;background:rgba(255,255,255,.15);border-radius:14px;display:flex;align-items:center;justify-content:center}
-  .spin-o{width:28px;height:28px;border:3.5px solid rgba(255,255,255,.2);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite}
-  .text{font-size:17px;font-weight:600;letter-spacing:1px;text-align:center;padding:0 24px;opacity:.9}
-  @keyframes spin{to{transform:rotate(360deg)}}
-</style></head><body>
-  <div class="logo"><div class="spin-o"></div></div>
-  <div class="text">__STARTING__</div>
-</body></html>"#
-        .replace("__STARTING__", starting);
-    WebviewWindowBuilder::new(app, SPLASH_LABEL, data_url(&html))
+    // The page is a static resource (pages/splash.html) loaded over the App
+    // URL — data: URLs are unreliable on WKWebView (charset detection, and
+    // plain-text rendering of the payload — wry dropped native data: URL
+    // support in 0.37). The label is localized in-page from
+    // navigator.language.
+    WebviewWindowBuilder::new(
+        app,
+        SPLASH_LABEL,
+        WebviewUrl::App("pages/splash.html".into()),
+    )
         .title("OhMyAgent")
         .inner_size(340.0, 240.0)
         .resizable(false)
@@ -368,35 +320,28 @@ pub fn show_error_window(app: &AppHandle, message: &str) -> tauri::Result<()> {
     let title = crate::i18n::tr("服务异常", "Service Error", zh);
     let restart_label = crate::i18n::tr("重启服务", "Restart Service", zh);
     let ok_label = crate::i18n::tr("确定", "OK", zh);
-    let html = format!(
-        r#"<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>
-  body{{margin:0;padding:26px 28px;font-family:system-ui;background:#14141f;color:#e6e6f0}}
-  h3{{margin:0 0 10px;font-size:15px;color:#ff7b7b}}
-  p{{font-size:13px;line-height:1.6;color:#b8bccb}}
-  .row{{display:flex;gap:10px;margin-top:20px}}
-  button{{flex:1;padding:7px 10px;border:none;border-radius:6px;background:#4f8cff;
-       color:#fff;font-size:13px;cursor:pointer}}
-  button.secondary{{background:#33344a;color:#cfd3e0}}
-</style></head><body>
-<h3>{title}</h3><p>{msg}</p>
-<div class="row">
-  <button class="secondary" onclick="window.electronAPI ? window.electronAPI.restartService() : window.close()">{restart_label}</button>
-  <button onclick="window.electronAPI ? window.electronAPI.close() : window.close()">{ok_label}</button>
-</div>
-</body></html>"#,
-        title = title,
-        msg = escape_html(message),
-        restart_label = restart_label,
-        ok_label = ok_label,
-    );
-    WebviewWindowBuilder::new(app, ERROR_LABEL, data_url(&html))
+    // The page is a static resource (pages/error.html); the runtime message
+    // and labels ride in via an initialization script as JSON (rendered with
+    // textContent — no HTML injection surface). data: URLs are unreliable on
+    // WKWebView, so the page loads over the App URL instead.
+    let payload = serde_json::json!({
+        "title": title,
+        "msg": message,
+        "restart": restart_label,
+        "ok": ok_label,
+    });
+    let init = format!("{}\nwindow.__OMA_ERR__ = {};", compat_script(), payload);
+    WebviewWindowBuilder::new(
+        app,
+        ERROR_LABEL,
+        WebviewUrl::App("pages/error.html".into()),
+    )
         .title("OhMyAgent")
         .inner_size(400.0, 250.0)
         .resizable(false)
         .decorations(false)
         .center()
-        .initialization_script(compat_script())
+        .initialization_script(init)
         .build()?;
     Ok(())
 }
@@ -586,6 +531,16 @@ pub fn apply_theme(app: &AppHandle, theme: &str) -> tauri::Result<()> {
         win.set_background_color(Some(color))?;
         #[cfg(windows)]
         set_caption_theme(&win, dark);
+        // macOS/Linux: drive the native window appearance so the title bar
+        // and the system menu bar follow the app theme (Windows uses the DWM
+        // caption calls above). Without this the window chrome stays light
+        // even in dark mode.
+        #[cfg(not(windows))]
+        win.set_theme(Some(if dark {
+            tauri::Theme::Dark
+        } else {
+            tauri::Theme::Light
+        }))?;
     }
     Ok(())
 }
@@ -684,8 +639,3 @@ fn system_dark() -> bool {
     false
 }
 
-fn escape_html(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-}

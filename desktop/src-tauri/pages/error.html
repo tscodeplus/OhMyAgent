@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<!-- Frameless error window. Loaded as a static resource via the App URL
+     (data: URLs are unreliable on WKWebView); the runtime message and
+     button labels are injected by the shell as window.__OMA_ERR__ and
+     rendered with textContent (no HTML injection surface). Buttons go
+     through the injected electronAPI compat layer: on a data: URL page
+     window.close() is a no-op, and the compat commands close/restart
+     reliably. -->
+<html><head><meta charset="utf-8">
+<style>
+  body{margin:0;padding:26px 28px;font-family:system-ui;background:#14141f;color:#e6e6f0}
+  h3{margin:0 0 10px;font-size:15px;color:#ff7b7b}
+  p{font-size:13px;line-height:1.6;color:#b8bccb;word-break:break-all}
+  .row{display:flex;gap:10px;margin-top:20px}
+  button{flex:1;padding:7px 10px;border:none;border-radius:6px;background:#4f8cff;
+       color:#fff;font-size:13px;cursor:pointer}
+  button.secondary{background:#33344a;color:#cfd3e0}
+</style></head><body>
+<h3 id="title">Error</h3><p id="msg"></p>
+<div class="row">
+  <button class="secondary" id="btn-restart">Restart</button>
+  <button id="btn-ok">OK</button>
+</div>
+<script>
+  var e = window.__OMA_ERR__ || {title:'Error', msg:'', restart:'Restart', ok:'OK'};
+  document.getElementById('title').textContent = e.title;
+  document.getElementById('msg').textContent = e.msg;
+  document.getElementById('btn-restart').textContent = e.restart;
+  document.getElementById('btn-ok').textContent = e.ok;
+  document.getElementById('btn-restart').onclick = function () {
+    if (window.electronAPI) { window.electronAPI.restartService(); } else { window.close(); }
+  };
+  document.getElementById('btn-ok').onclick = function () {
+    if (window.electronAPI) { window.electronAPI.close(); } else { window.close(); }
+  };
+</script>
+</body></html>

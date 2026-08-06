@@ -25,7 +25,9 @@
       "../../ui/dist": "sidecar/webui-dist",
       "../.sidecar-deps/node_modules": "sidecar/node_modules",
       "../.sidecar-deps/root": "sidecar",
-      "../.sidecar-deps/runtime": "sidecar"
+      "../.sidecar-deps/runtime": "sidecar",
+      "pages/splash.html": "pages/splash.html",
+      "pages/error.html": "pages/error.html"
     },
     "windows": {
       "nsis": {
