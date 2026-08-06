@@ -34,12 +34,18 @@ jobs:
           # darwin-arm64 native modules (sharp/@img etc.), so the x64 job
           # MUST run on the Intel runner or bundle-deps fails ("sharp: no
           # native files found" — darwin-x64 was never installed).
+          # artifact_suffix keeps the Release asset names identical to the
+          # Electron-era naming (v2.0.1-beta1): x64 = OhMyAgent-<v>.dmg /
+          # OhMyAgent-<v>-mac.zip, arm64 = OhMyAgent-<v>-arm64.dmg /
+          # OhMyAgent-<v>-arm64-mac.zip.
           - runner: macos-15-intel
             target: x86_64-apple-darwin
             bundle_platform: darwin-x64
+            artifact_suffix: ''
           - runner: macos-14
             target: aarch64-apple-darwin
             bundle_platform: darwin-arm64
+            artifact_suffix: '-arm64'
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
@@ -157,7 +163,7 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           APP="desktop/src-tauri/target/release/bundle/macos/OhMyAgent.app"
           DMG_DIR="desktop/src-tauri/target/release/bundle/dmg"
-          DMG="$DMG_DIR/OhMyAgent_${VERSION}_${{ matrix.bundle_platform }}.dmg"
+          DMG="$DMG_DIR/OhMyAgent-${VERSION}${{ matrix.artifact_suffix }}.dmg"
           # The dmg dir accumulates stale files from previous runs via the
           # cargo target cache (bundle_dmg.sh, old-named dmg, icon.icns) —
           # start clean so only the fresh dmg exists.
@@ -175,7 +181,7 @@ jobs:
         run: |
           VERSION=$(node -p "require('./package.json').version")
           APP="desktop/src-tauri/target/release/bundle/macos/OhMyAgent.app"
-          ZIP="desktop/src-tauri/target/release/bundle/macos/OhMyAgent_${VERSION}_${{ matrix.bundle_platform }}.zip"
+          ZIP="desktop/src-tauri/target/release/bundle/macos/OhMyAgent-${VERSION}${{ matrix.artifact_suffix }}-mac.zip"
           ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
           ls -lh "$ZIP"
 
@@ -212,15 +218,19 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ohmyagent-mac-${{ matrix.bundle_platform }}
-          path: desktop/src-tauri/target/release/bundle/dmg/OhMyAgent_*_${{ matrix.bundle_platform }}.dmg
+          path: desktop/src-tauri/target/release/bundle/dmg/OhMyAgent-*${{ matrix.artifact_suffix }}.dmg
           if-no-files-found: error
 
       - name: Attach to GitHub Release
         if: (github.event_name == 'release' || github.event.inputs.version != '') && success()
         uses: softprops/action-gh-release@v2
         with:
+          # Both arch jobs attach a latest.yml for the same tag — the later
+          # upload wins (the updater only needs the dmg URL for display; the
+          # Windows latest.yml is uploaded manually and overwrites this one).
+          overwrite: true
           tag_name: ${{ github.event_name == 'release' && github.event.release.tag_name || github.event.inputs.version }}
           files: |
-            desktop/src-tauri/target/release/bundle/dmg/OhMyAgent_*_${{ matrix.bundle_platform }}.dmg
+            desktop/src-tauri/target/release/bundle/dmg/OhMyAgent-*${{ matrix.artifact_suffix }}.dmg
             desktop/src-tauri/target/release/bundle/dmg/latest.yml
-            desktop/src-tauri/target/release/bundle/macos/OhMyAgent_*_${{ matrix.bundle_platform }}.zip
+            desktop/src-tauri/target/release/bundle/macos/OhMyAgent-*${{ matrix.artifact_suffix }}-mac.zip
