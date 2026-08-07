@@ -123,15 +123,19 @@ describe('AutoApplyMonitor rollback failure handling', () => {
       success: false, errorCount: 3, durationMs: 1000,
     });
 
-    // Each evaluation must be awaited before firing the next one: back-to-back
-    // activations in the same tick are intentionally coalesced by the in-flight
+    // Each evaluation must be fully awaited before firing the next one:
+    // back-to-back activations are intentionally coalesced by the in-flight
     // revert guard (a second revert of the same commit would fail anyway).
+    // The guard only clears after the rollback chain's saveState IO settles,
+    // so waiting on the attempt count alone races the filesystem — flaky on
+    // slow CI runners.
     await vi.waitFor(() => {
       const active = monitor.getActiveMonitors();
       expect(active.length).toBe(1); // monitor must survive a failed revert
       expect(active[0]!.rollbackAttempts).toBe(1);
       expect(active[0]!.rollbackFailed).toBeUndefined();
     });
+    await vi.waitFor(() => expect(monitor.isReverting('prop-rb')).toBe(false));
 
     // Two more failing evaluations → attempts reach the limit → rollbackFailed.
     monitor.onActivationComplete('skill-a', null, {
@@ -140,6 +144,7 @@ describe('AutoApplyMonitor rollback failure handling', () => {
     await vi.waitFor(() => {
       expect(monitor.getActiveMonitors()[0]!.rollbackAttempts).toBe(2);
     });
+    await vi.waitFor(() => expect(monitor.isReverting('prop-rb')).toBe(false));
 
     monitor.onActivationComplete('skill-a', null, {
       success: false, errorCount: 3, durationMs: 1000,
@@ -172,8 +177,11 @@ describe('AutoApplyMonitor rollback failure handling', () => {
     }, 'commit1');
 
     // Drive 3 failed attempts (awaiting each evaluation so the in-flight
-    // revert guard never coalesces two attempts into one).
+    // revert guard never coalesces two attempts into one). Wait for the
+    // guard to clear explicitly — it only releases after the rollback
+    // chain's saveState IO, which races the count waitFor on slow CI.
     for (let i = 1; i <= 3; i++) {
+      await vi.waitFor(() => expect(monitor.isReverting('prop-rb2')).toBe(false));
       monitor.onActivationComplete('skill-a', null, {
         success: false, errorCount: 3, durationMs: 1000,
       });

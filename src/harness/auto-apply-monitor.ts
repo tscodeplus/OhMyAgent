@@ -259,6 +259,14 @@ export class AutoApplyMonitor {
     }));
   }
 
+  /** Whether a revert is currently in flight for the proposal. The
+   *  in-flight guard only clears after the rollback chain fully settles
+   *  (including the saveState IO), so tests can wait for it before firing
+   *  the next activation instead of racing the filesystem. */
+  isReverting(proposalId: string): boolean {
+    return this.reverting.has(proposalId);
+  }
+
   // ---------------------------------------------------------------------------
   // Persistence
   // ---------------------------------------------------------------------------
