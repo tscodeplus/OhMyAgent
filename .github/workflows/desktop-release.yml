@@ -269,6 +269,11 @@ jobs:
           # cached target dir may hold from a previous run (same version).
           Write-Host "renaming $($exe.FullName) -> $nsisDir\OhMyAgent-Setup-$VERSION.exe"
           Move-Item -Force $exe.FullName (Join-Path $nsisDir "OhMyAgent-Setup-$VERSION.exe")
+          # Drop stale installers of other versions left by the cargo target
+          # cache so the upload glob below ships only the current one.
+          Get-ChildItem $nsisDir -Filter "OhMyAgent*.exe" |
+            Where-Object { $_.Name -notlike "*$VERSION*" } |
+            Remove-Item -Force
 
       - name: Generate latest.yml metadata
         if: runner.os == 'Windows'
@@ -328,6 +333,9 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           APP="desktop/src-tauri/target/release/bundle/macos/OhMyAgent.app"
           ZIP="desktop/src-tauri/target/release/bundle/macos/OhMyAgent-${VERSION}${{ matrix.artifact_suffix }}-mac.zip"
+          # Drop stale zips of other versions left by the cargo target cache
+          # so the upload glob below ships only the current one.
+          rm -f desktop/src-tauri/target/release/bundle/macos/OhMyAgent-*-mac.zip
           ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
           ls -lh "$ZIP"
 
@@ -359,6 +367,9 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           cd desktop/src-tauri/target/release/bundle
           mv -f deb/OhMyAgent_${VERSION}_amd64.deb "deb/ohmyagent-desktop_${VERSION}_amd64.deb"
+          # Drop stale debs of other versions left by the cargo target cache
+          # so the upload glob below ships only the current one.
+          rm -f deb/OhMyAgent_*.deb
 
       - name: Generate latest-linux.yml metadata
         if: runner.os == 'Linux'
