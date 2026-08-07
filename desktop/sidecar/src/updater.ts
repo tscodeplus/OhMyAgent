@@ -716,7 +716,15 @@ export class AppUpdater {
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.showMessageDialog(getT().updater.checkFailed, msg);
+      // Rate-limit 403s already carry the full short i18n message — use it as
+      // the title too, so the tray dialog matches the WebUI about page
+      // ("GitHub API 限流，请稍后重试 (403 rate-limit remaining: 0)") exactly.
+      // Other failures keep the generic "check failed" title with details in
+      // the body.
+      const title = msg.startsWith(getT().updater.rateLimitExceeded)
+        ? msg
+        : getT().updater.checkFailed;
+      this.showMessageDialog(title, msg);
     }
   }
 
