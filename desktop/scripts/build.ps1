@@ -453,7 +453,12 @@ function Invoke-TauriBuild {
     $setup = Get-ChildItem "$DesktopDir\src-tauri\target\release\bundle\nsis\OhMyAgent_*_x64-setup.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($setup) {
         $version = (Get-Content "$DesktopDir\package.json" | ConvertFrom-Json).version
-        Rename-Item -Force $setup.FullName "OhMyAgent-Setup-$version.exe"
+        # Rename-Item never overwrites an existing target, even with -Force —
+        # drop a stale installer from a previous build first, else the standard
+        # OhMyAgent-Setup-<v>.exe name silently stays an old artifact.
+        $target = "OhMyAgent-Setup-$version.exe"
+        Remove-Item "$DesktopDir\src-tauri\target\release\bundle\nsis\$target" -Force -ErrorAction SilentlyContinue
+        Rename-Item -Force $setup.FullName $target
         Write-OK "Renamed installer to OhMyAgent-Setup-$version.exe"
     }
 
