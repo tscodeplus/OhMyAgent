@@ -85,6 +85,13 @@ const SKIP_PATTERNS = [
   /\.cpp$/,             // C++ source
   /\.c$/,               // C source
   /\.h(pp)?$/,          // C/C++ headers
+  // Browser-only builds: Node's exports/main resolution never activates the
+  // "browser" condition, and the packages below were verified to not use a
+  // browser file as main. See PACKAGE_SUBPATH_SKIPS for package-scoped cuts.
+  /^browser\.js$/,
+  /^browser\.mjs$/,
+  /^browser\.cjs$/,
+  /^browser\//,
   // NOTE: Do NOT add a blanket /^deps\// rule here.
   // Some packages (e.g. @fastify/busboy) vendor runtime JS inside deps/
   // (like deps/dicer/). Skipping deps/ would break those at runtime.
@@ -117,6 +124,19 @@ const SKIP_PACKAGES = new Set([
   // Not needed at runtime once native modules are compiled.
   'node-addon-api',
 ]);
+
+// Package-scoped subpath cuts — subdirectories/files inside a package that
+// are never reachable at runtime. Verified against each package's
+// exports/main resolution: the kept entry point is what Node resolves.
+const PACKAGE_SUBPATH_SKIPS = {
+  // main=./lib/index.js (CJS) — the es/ ESM build is never resolved.
+  '@larksuiteoapi/node-sdk': ['es'],
+  // "." resolves to dist/node/index.mjs under Node's "node" condition;
+  // dist/web/ and the top-level bundles serve bundlers/browsers only.
+  '@google/genai': ['dist/web', 'dist/index.cjs', 'dist/index.mjs'],
+  // main=dist/index.js — browser/ is the bundler build.
+  'jimp': ['browser'],
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -355,7 +375,41 @@ function copyPnpmPkg(pkgPath, destBase, isNativeOverride = false) {
 
   // Copy
   copyDir(pkgPath, destPath, '');
+  // Drop package-scoped unreachable subpaths (see PACKAGE_SUBPATH_SKIPS).
+  const subpathSkips = PACKAGE_SUBPATH_SKIPS[pkgName];
+  if (subpathSkips) {
+    for (const sub of subpathSkips) {
+      const victim = path.join(destPath, sub);
+      if (fs.existsSync(victim)) {
+        fs.rmSync(victim, { recursive: true, force: true });
+        log(`  ✂ ${pkgName}/${sub} (unreachable at runtime)`);
+      }
+    }
+  }
   log(`  ${pkgName}@${pkgJson.version || '?'}`);
+}
+
+/**
+ * Copy the compiled server dist to the staging dir, dropping dev-only
+ * artifacts. ONLY *.map and *.d.ts are removed — .ts sources are KEPT
+ * because the Bedrock lazy loader (bedrock-converse-stream.lazy.js) and the
+ * extension loader import .ts paths at runtime; .md files (built-in skill
+ * prompts) are read by the skills system.
+ */
+function copyPrunedServerDist(src, dest) {
+  const entries = fs.readdirSync(src, { withFileTypes: true });
+  for (const entry of entries) {
+    const s = path.join(src, entry.name);
+    const d = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      fs.mkdirSync(d, { recursive: true });
+      copyPrunedServerDist(s, d);
+    } else if (/\.(map|d\.ts)$/.test(entry.name)) {
+      continue; // dev-only artifacts
+    } else {
+      fs.copyFileSync(s, d);
+    }
+  }
 }
 
 /**
@@ -589,6 +643,21 @@ function main() {
       JSON.stringify({ name: `@earendil-works/${pkg.name}`, main: 'index.js' }));
     log(`  ✓ @earendil-works/${pkg.name}`);
   }
+
+  // 6c. Pruned server-dist for the sidecar. tauri.conf.json maps
+  // sidecar/server-dist from here (not from root dist/), so source maps and
+  // .d.ts never reach the installer. .ts sources and .md skill prompts are
+  // intentionally kept (runtime-imported, see copyPrunedServerDist).
+  log('');
+  log('Pruning server-dist (dropping *.map / *.d.ts)...');
+  const SERVER_DIST = path.join(STAGING, 'server-dist');
+  fs.rmSync(SERVER_DIST, { recursive: true, force: true });
+  fs.mkdirSync(SERVER_DIST, { recursive: true });
+  copyPrunedServerDist(path.join(ROOT, 'dist'), SERVER_DIST);
+  const serverDistBytes = fs.readdirSync(SERVER_DIST, { recursive: true })
+    .filter((f) => fs.statSync(path.join(SERVER_DIST, f)).isFile())
+    .reduce((sum, f) => sum + fs.statSync(path.join(SERVER_DIST, f)).size, 0);
+  log(`  server-dist staged: ${(serverDistBytes / 1048576).toFixed(1)} MB (source maps + .d.ts removed)`);
 
   // 7. Report stats
   const count = fs.readdirSync(STAGING_NM).length;

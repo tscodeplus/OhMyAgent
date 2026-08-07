@@ -19,9 +19,13 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["icons/icon.ico", "icons/icon.icns", "icons/icon.png"],
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.icns",
+      "icons/icon.png"
+    ],
     "resources": {
-      "../../dist": "sidecar/server-dist",
+      "../.sidecar-deps/server-dist": "sidecar/server-dist",
       "../../ui/dist": "sidecar/webui-dist",
       "../.sidecar-deps/node_modules": "sidecar/node_modules",
       "../.sidecar-deps/root": "sidecar",
@@ -30,7 +34,10 @@
     "windows": {
       "nsis": {
         "installMode": "currentUser",
-        "languages": ["SimpChinese", "English"],
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
         "compression": "zlib",
         "displayLanguageSelector": true,
         "installerIcon": "icons/icon.ico"

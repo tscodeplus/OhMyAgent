@@ -158,6 +158,10 @@ jobs:
         # 540x380 centered window) is committed at
         # desktop/scripts/dmg-layout/.DS_Store and copied into the staging
         # dir before hdiutil — no Finder, no extra dependencies.
+        # UDBZ (bzip2) instead of UDZO (zlib): bzip2 compresses the ~270 MB
+        # .app (mostly JS text + Node binary) noticeably better — measured
+        # ~117 MB with UDZO vs ~100 MB with UDBZ. Slightly slower to create;
+        # fully supported by macOS for mounting since 10.4.
         run: |
           VERSION=$(node -p "require('./package.json').version")
           APP="desktop/src-tauri/target/release/bundle/macos/OhMyAgent.app"
@@ -172,7 +176,7 @@ jobs:
           cp -R "$APP" "$STAGING/OhMyAgent.app"
           ln -s /Applications "$STAGING/Applications"
           cp desktop/scripts/dmg-layout/.DS_Store "$STAGING/.DS_Store"
-          hdiutil create -volname "OhMyAgent" -srcfolder "$STAGING" -ov -format UDZO "$DMG"
+          hdiutil create -volname "OhMyAgent" -srcfolder "$STAGING" -ov -format UDBZ "$DMG"
           rm -rf "$STAGING"
           ls -lh "$DMG"
 
