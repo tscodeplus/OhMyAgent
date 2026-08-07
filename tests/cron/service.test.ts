@@ -66,15 +66,18 @@ describe('parseSchedule', () => {
   });
 
   it('parses "at 15:00" as oneshot today', () => {
-    // Can only test this reliably if the time is in the future
-    const now = new Date();
-    const targetHour = 23;
-    const targetMin = 59;
-    const result = parseSchedule(`at ${targetHour}:${targetMin}`);
-    expect(result.schedule.type).toBe('oneshot');
-    const sched = result.schedule as { type: 'oneshot'; timestampMs: number };
-    const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), targetHour, targetMin);
-    expect(sched.timestampMs).toBe(target.getTime());
+    // Freeze the clock: the old version pinned "23:59", which is already
+    // "in the past" whenever the suite runs after 23:59 — flaky on CI.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-01T12:00:00'));
+    try {
+      const result = parseSchedule('at 15:00');
+      expect(result.schedule.type).toBe('oneshot');
+      const sched = result.schedule as { type: 'oneshot'; timestampMs: number };
+      expect(sched.timestampMs).toBe(new Date('2026-01-01T15:00:00').getTime());
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('rejects "at HH:MM" that is in the past', () => {
