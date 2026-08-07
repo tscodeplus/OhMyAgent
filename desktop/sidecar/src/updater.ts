@@ -270,11 +270,16 @@ export class AppUpdater {
         // Non-timeout failures must also reach the WebUI — without the
         // event the about page stays on "checking" forever (the UI has no
         // polling fallback and compat.js ctlFetch resolved fine).
-        diagLog(`checkForUpdates: error caught — ${e.message || String(err)}`);
+        const rawMsg = e.message || String(err);
+        diagLog(`checkForUpdates: error caught — ${rawMsg}`);
         console.error('[AppUpdater] Check for updates failed');
         broadcastEvent('update-error', {
-          message: getT().updater.checkFailed,
-          raw: e.message || String(err),
+          // Rate-limit 403s carry their own short i18n message; everything
+          // else keeps the generic "check failed" label with details in raw.
+          message: rawMsg.startsWith(getT().updater.rateLimitExceeded)
+            ? rawMsg
+            : getT().updater.checkFailed,
+          raw: rawMsg,
         });
       }
     }
