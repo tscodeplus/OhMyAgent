@@ -19,6 +19,7 @@ interface UpdaterLocale {
   cancel: string;
   ok: string;
   checkFailed: string;
+  rateLimitExceeded: string;
   networkTimeout: string;
   noUpdateAvailable: string;
   noUpdateConfig: string;

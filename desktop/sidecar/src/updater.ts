@@ -221,6 +221,12 @@ export class AppUpdater {
   private _macOSUnsigned: boolean | null = null;
   /** Cached update info from the last successful check. */
   private pendingUpdate: CachedUpdate | null = null;
+  /**
+   * Tray flow flag: the tray update dialog closes the moment "upgrade" is
+   * clicked, so downloadUpdate() must open the progress window itself.
+   * The WebUI flow has its own progress UI and must not get the window.
+   */
+  private _fromTrayFlow = false;
 
   /** Check for updates (called from WebUI via control API). Sends SSE events. */
   async checkForUpdates(includeBeta = false): Promise<void> {
@@ -295,15 +301,21 @@ export class AppUpdater {
     if (!resp.ok) {
       // Surface GitHub's own reason — a 403 is usually a rate-limit rejection
       // ("API rate limit exceeded for <ip>", common on shared proxy egress)
-      // or a User-Agent rejection; the body names the cause and the
-      // rate-limit header shows remaining headroom. Without this the dialog
-      // just says "Update check failed" and the cause stays invisible.
+      // or a User-Agent rejection. A rate-limit 403 dumps a long JSON body
+      // that overflows the small dialog window, so those get a short i18n
+      // message; other failures keep a truncated body snippet.
       const body = await resp.text().catch(() => '');
       const remaining = resp.headers.get('x-ratelimit-remaining');
+      const status = resp.status;
       const detail =
         remaining !== null ? ` rate-limit remaining: ${remaining}` : '';
-      const snippet = body ? ` — ${body.trim().slice(0, 300)}` : '';
-      throw new Error(`GitHub API returned ${resp.status}${detail}${snippet}`);
+      if ((status === 403 || status === 429) && remaining === '0') {
+        throw new Error(
+          `${getT().updater.rateLimitExceeded} (${status}${detail})`,
+        );
+      }
+      const snippet = body ? ` — ${body.trim().slice(0, 80)}` : '';
+      throw new Error(`GitHub API returned ${status}${detail}${snippet}`);
     }
 
     const releases = (await resp.json()) as Array<{
@@ -317,9 +329,17 @@ export class AppUpdater {
       return null;
     }
 
+    // Sort by version, not list order: GitHub orders by creation time and
+    // re-published legacy releases (e.g. the duplicate v0.2.0 entries) can
+    // sit above newer versions, which would make the "latest" check pick
+    // an old release (or report a downgrade as "up to date").
+    const tagged = releases
+      .filter((r) => r.tag_name && /^v?\d+(\.\d+)+/.test(r.tag_name))
+      .map((r) => ({ ...r, version: r.tag_name!.replace(/^v/, '') }));
+    tagged.sort((a, b) => compareVersions(b.version, a.version));
     const release = includeBeta
-      ? releases[0]
-      : releases.find((r) => !/beta/i.test(r.tag_name || ''));
+      ? tagged[0]
+      : tagged.find((r) => !/beta/i.test(r.version));
     if (!release) {
       return null;
     }
@@ -361,6 +381,13 @@ export class AppUpdater {
     this.downloadCancelled = false;
     diagLog('downloadUpdate() called');
     this.downloading = true;
+    // Tray flow: the dialog window closes right after this call, so open the
+    // download-progress window here (it listens to the SSE events and offers
+    // the install button). The WebUI flow has its own progress UI.
+    if (this._fromTrayFlow) {
+      this._fromTrayFlow = false;
+      this.showDownloadProgressWindow();
+    }
 
     try {
       if (this.pendingUpdate) {
@@ -630,6 +657,9 @@ export class AppUpdater {
    * POST /show-window; their buttons talk to the compat layer.
    */
   async checkForUpdatesFromTray(): Promise<void> {
+    // The tray dialog closes right after downloadUpdate() is clicked, so the
+    // progress window must be opened from within downloadUpdate() itself.
+    this._fromTrayFlow = true;
     const isDark = this.isDarkTheme();
 
     const primaryBg = isDark ? '#1e1e2e' : '#f8fafc';
@@ -739,7 +769,11 @@ export class AppUpdater {
        background:${bg};color:${fg};padding:24px;display:flex;flex-direction:column;
        align-items:center;justify-content:center;height:100vh;text-align:center}
   h3{margin:0 0 10px;font-size:15px;color:#ef4444}
-  p{font-size:13px;color:${fg};opacity:.8;margin:0 0 20px;line-height:1.6;word-break:keep-all}
+  p{font-size:13px;color:${fg};opacity:.8;margin:0 0 20px;line-height:1.6;
+    word-break:break-all;overflow-wrap:anywhere;overflow-y:auto;max-height:110px}
+  p::-webkit-scrollbar{width:5px}
+  p::-webkit-scrollbar-track{background:transparent}
+  p::-webkit-scrollbar-thumb{background:rgba(128,128,128,0.35);border-radius:3px}
   button{padding:7px 22px;border-radius:8px;font-size:13px;font-weight:600;
          cursor:pointer;border:none;background:#6366f1;color:#fff}
 </style></head>
