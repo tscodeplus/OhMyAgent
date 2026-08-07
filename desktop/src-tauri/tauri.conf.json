@@ -40,7 +40,8 @@
         ],
         "compression": "zlib",
         "displayLanguageSelector": true,
-        "installerIcon": "icons/icon.ico"
+        "installerIcon": "icons/icon.ico",
+        "include": "nsis/uninstall-hooks.nsi"
       },
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
