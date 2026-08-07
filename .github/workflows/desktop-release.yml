@@ -271,8 +271,11 @@ jobs:
           Move-Item -Force $exe.FullName (Join-Path $nsisDir "OhMyAgent-Setup-$VERSION.exe")
           # Drop stale installers of other versions left by the cargo target
           # cache so the upload glob below ships only the current one.
+          # Exact-name match (-ne), not a wildcard: a beta1 build of the same
+          # version (OhMyAgent-Setup-2.2.0-beta1.exe) contains "2.2.0" as a
+          # substring and would survive -notlike "*2.2.0*".
           Get-ChildItem $nsisDir -Filter "OhMyAgent*.exe" |
-            Where-Object { $_.Name -notlike "*$VERSION*" } |
+            Where-Object { $_.Name -ne "OhMyAgent-Setup-$VERSION.exe" } |
             Remove-Item -Force
 
       - name: Generate latest.yml metadata
@@ -368,8 +371,11 @@ jobs:
           cd desktop/src-tauri/target/release/bundle
           mv -f deb/OhMyAgent_${VERSION}_amd64.deb "deb/ohmyagent-desktop_${VERSION}_amd64.deb"
           # Drop stale debs of other versions left by the cargo target cache
-          # so the upload glob below ships only the current one.
-          rm -f deb/OhMyAgent_*.deb
+          # so the upload glob below ships only the current one. Purge both
+          # name forms — old builds ship as OhMyAgent_*.deb, and a stale
+          # ohmyagent-desktop_*.deb (same-name prefix) would slip past a
+          # single-prefix glob.
+          rm -f deb/OhMyAgent_*.deb deb/ohmyagent-desktop_*.deb
 
       - name: Generate latest-linux.yml metadata
         if: runner.os == 'Linux'
