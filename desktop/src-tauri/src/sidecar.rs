@@ -363,7 +363,83 @@ fn spawn_sidecar(
         .env("OMA_OS_LOCALE", &locale)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    cmd.spawn()
+    let child = cmd.spawn()?;
+    // Windows: put the sidecar in a kill-on-close job object so the OS
+    // terminates it the instant the shell process dies — however it dies
+    // (crash, taskkill from the NSIS uninstaller, tray quit). Without this
+    // the sidecar lingers ~10s (3 missed 3s heartbeats, control-server.ts)
+    // while holding server-dist as its cwd; the uninstaller starts deleting
+    // files 500ms after killing the shell, fails on the locked tree, and the
+    // whole sidecar\ directory stays behind on disk.
+    #[cfg(windows)]
+    assign_to_kill_on_close_job(&child);
+    Ok(child)
+}
+
+/// Windows: the shared Job Object the sidecar is assigned to. Flagged
+/// KILL_ON_JOB_CLOSE — when the shell exits (any path), its last handle to
+/// the job closes and the OS force-terminates every process in it. One job
+/// object covers all sidecar generations (spawn/restart), since the flag
+/// only applies at job destruction, not per assignment.
+#[cfg(windows)]
+fn kill_on_close_job() -> windows_sys::Win32::Foundation::HANDLE {
+    use windows_sys::Win32::Foundation::HANDLE;
+    use windows_sys::Win32::System::JobObjects::{
+        CreateJobObjectW, JobObjectExtendedLimitInformation, SetInformationJobObject,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    };
+
+    // HANDLE is a raw pointer — not Send/Sync; wrap for static storage. The
+    // handle lives for the whole shell process (the OS closes it at exit,
+    // which is exactly what fires the kill-on-close).
+    struct JobHandle(HANDLE);
+    // SAFETY: the handle is only stored, never dereferenced; the OS owns it.
+    unsafe impl Send for JobHandle {}
+    unsafe impl Sync for JobHandle {}
+
+    static JOB: std::sync::OnceLock<JobHandle> = std::sync::OnceLock::new();
+    JOB.get_or_init(|| unsafe {
+        // SAFETY: CreateJobObjectW with a null name yields a fresh job handle
+        // (or null on failure — checked below). Setting KILL_ON_JOB_CLOSE
+        // flags the job so closing its last handle (at shell exit)
+        // force-terminates children. Failure of the SET is tolerable: the
+        // guarantee degrades to the heartbeat suicide; assignment proceeds.
+        let raw = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+        if !raw.is_null() {
+            let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            let _ = SetInformationJobObject(
+                raw,
+                JobObjectExtendedLimitInformation,
+                &info as *const _ as *const core::ffi::c_void,
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            );
+        }
+        JobHandle(raw)
+    }).0
+}
+
+/// Windows: assign a spawned sidecar to the shared kill-on-close job.
+/// Best-effort — a failed assignment (e.g. the process sits in a
+/// breakaway-restricted job already) only loses the auto-kill guarantee.
+#[cfg(windows)]
+fn assign_to_kill_on_close_job(child: &tokio::process::Child) {
+    use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
+
+    let job = kill_on_close_job();
+    if job.is_null() {
+        return;
+    }
+    // tokio's raw_handle() is Option: None only if the process handle was
+    // already taken — impossible right after spawn.
+    if let Some(handle) = child.raw_handle() {
+        unsafe {
+            // SAFETY: handle borrows the live process handle of the
+            // just-spawned child; the job outlives this call (static), and
+            // assignment after the process exits is a harmless no-op.
+            let _ = AssignProcessToJobObject(job, handle);
+        }
+    }
 }
 
 /// Best-effort OS locale, mirroring Electron's `app.getLocale()`.
