@@ -252,13 +252,14 @@ jobs:
           path: mac-arm64
 
       - name: Generate merged latest-mac.yml (x64 + arm64)
-        # upload-artifact stores both globs under the least common ancestor
-        # (desktop/src-tauri/target/release/bundle), so the zips land at
-        # <path>/bundle/macos/... and the yml is written next to the first zip.
+        # upload-artifact stores both globs relative to their least common
+        # ancestor (desktop/src-tauri/target/release/bundle), so inside the
+        # artifact the files live at dmg/ and macos/ — no bundle/ prefix.
+        # The yml is written next to the first zip (mac-x64/macos/).
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          ZIP_X64=$(ls mac-x64/bundle/macos/OhMyAgent-*-mac.zip | head -1)
-          ZIP_ARM64=$(ls mac-arm64/bundle/macos/OhMyAgent-*-arm64-mac.zip | head -1)
+          ZIP_X64=$(ls mac-x64/macos/OhMyAgent-*-mac.zip | head -1)
+          ZIP_ARM64=$(ls mac-arm64/macos/OhMyAgent-*-arm64-mac.zip | head -1)
           if [ -z "$ZIP_X64" ] || [ -z "$ZIP_ARM64" ]; then
             echo "missing zip: x64='$ZIP_X64' arm64='$ZIP_ARM64'"
             exit 1
@@ -271,4 +272,4 @@ jobs:
         with:
           overwrite: true
           tag_name: ${{ github.event_name == 'release' && github.event.release.tag_name || github.event.inputs.version }}
-          files: mac-x64/bundle/macos/latest-mac.yml
+          files: mac-x64/macos/latest-mac.yml
