@@ -305,7 +305,20 @@ jobs:
           cp -R "$APP" "$STAGING/OhMyAgent.app"
           ln -s /Applications "$STAGING/Applications"
           cp desktop/scripts/dmg-layout/.DS_Store "$STAGING/.DS_Store"
-          hdiutil create -volname "OhMyAgent" -srcfolder "$STAGING" -ov -format UDBZ "$DMG"
+          # hdiutil occasionally fails with "create failed - Resource busy"
+          # on GitHub's macOS runners — transient, the same step succeeds on
+          # re-run. Retry the create against the same staging dir.
+          for attempt in 1 2 3; do
+            if hdiutil create -volname "OhMyAgent" -srcfolder "$STAGING" -ov -format UDBZ "$DMG"; then
+              break
+            fi
+            echo "hdiutil create failed (attempt $attempt/3), retrying in 10s..."
+            sleep 10
+          done
+          if [ ! -f "$DMG" ]; then
+            echo "hdiutil create failed after 3 attempts"
+            exit 1
+          fi
           rm -rf "$STAGING"
           ls -lh "$DMG"
 
