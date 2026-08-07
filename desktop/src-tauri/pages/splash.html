@@ -22,12 +22,21 @@
     display:flex;align-items:center;justify-content:center;
     user-select:none;-webkit-user-select:none;
   }
-  /* The gradient lives on an inner card, not <body>: a root-element
-     background propagates to the (rectangular) canvas, so border-radius is
-     ignored on macOS WKWebView — the splash renders as a sharp-cornered blue
-     rectangle there. An inner element clips at its own box on both engines. */
-  html.win body{background:linear-gradient(135deg,#6366f1,#4f46e5);border-radius:12px}
-  html.win .card{background:transparent}
+  /* Windows keeps the pre-card rendering path, byte-for-byte: the gradient
+     and radius live on <body> (WebView2 clips border-radius) with
+     overflow:hidden, and .card degrades to a transparent, radius-free
+     container — leaving its border-radius/overflow out of the composited
+     alpha edges (a transparent rounded layer on top of the gradient produced
+     a soft blurred halo around the window on WebView2). macOS needs the
+     card variant instead: WKWebView propagates a root-element background
+     over the (rectangular) canvas, ignoring border-radius. */
+  html.win body{
+    height:100vh;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;padding-top:18px;
+    background:linear-gradient(135deg,#6366f1,#4f46e5);
+    border-radius:12px;overflow:hidden;
+  }
+  html.win .card{background:transparent;border-radius:0;overflow:visible}
   .card{
     width:100%;height:100%;
     display:flex;flex-direction:column;
