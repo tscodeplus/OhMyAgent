@@ -185,12 +185,17 @@ jobs:
         run: pnpm build
 
       # bundle-deps / fetch-node default to win32-x64 (the host platform);
-      # macOS and Linux must select their bundle platform explicitly.
+      # the matrix platform must be passed via env (a VAR=value prefix is
+      # bash syntax — the Windows runner's default shell is PowerShell).
       - name: Bundle sidecar deps
-        run: cd desktop && OMA_TARGET_PLATFORM=${{ matrix.bundle_platform }} node scripts/bundle-deps.cjs
+        run: cd desktop && node scripts/bundle-deps.cjs
+        env:
+          OMA_TARGET_PLATFORM: ${{ matrix.bundle_platform }}
 
       - name: Fetch bundled Node runtime
-        run: cd desktop && OMA_TARGET_PLATFORM=${{ matrix.bundle_platform }} node scripts/fetch-node.cjs
+        run: cd desktop && node scripts/fetch-node.cjs
+        env:
+          OMA_TARGET_PLATFORM: ${{ matrix.bundle_platform }}
 
       - name: Check version consistency (root / desktop / tauri.conf.json)
         run: |
