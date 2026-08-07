@@ -203,35 +203,69 @@ jobs:
           kill $APP_PID 2>/dev/null || true
           exit 1
 
-      - name: Generate latest-mac.yml metadata
-        # Platform metadata follows the electron-builder convention
-        # (latest-mac.yml for macOS), so per-platform yml uploads never
-        # clobber each other; Windows carries latest.yml.
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          DMG=$(ls desktop/src-tauri/target/release/bundle/dmg/*.dmg | head -1)
-          node desktop/scripts/release-meta.cjs "$DMG" "$VERSION" latest-mac.yml
-
       - name: Upload artifacts
-        # One file only: the dmg. GitHub always packages downloads as zip,
-        # so the user gets a zip containing exactly one dmg. The ditto zip
-        # and latest-mac.yml stay out of artifacts (Release assets carry them).
+        # dmg + zip go to the workflow artifacts so the mac-meta job below
+        # can build a merged latest-mac.yml (one entry per architecture).
+        # GitHub always packages artifact downloads as zip, so the user gets
+        # a zip containing exactly one dmg for the dmg artifact.
         uses: actions/upload-artifact@v4
         with:
           name: ohmyagent-mac-${{ matrix.bundle_platform }}
-          path: desktop/src-tauri/target/release/bundle/dmg/OhMyAgent-*${{ matrix.artifact_suffix }}.dmg
+          path: |
+            desktop/src-tauri/target/release/bundle/dmg/OhMyAgent-*${{ matrix.artifact_suffix }}.dmg
+            desktop/src-tauri/target/release/bundle/macos/OhMyAgent-*${{ matrix.artifact_suffix }}-mac.zip
           if-no-files-found: error
 
       - name: Attach to GitHub Release
         if: (github.event_name == 'release' || github.event.inputs.version != '') && success()
         uses: softprops/action-gh-release@v2
         with:
-          # Both arch jobs attach the same latest-mac.yml name for one tag —
-          # the later upload wins; harmless (mac installs go through the
-          # GitHub Releases page). Windows keeps its own latest.yml.
+          # latest-mac.yml is NOT attached here — the mac-meta job merges
+          # both architectures into one yml, so no per-arch job can clobber
+          # the other's entry. Windows keeps its own latest.yml.
           overwrite: true
           tag_name: ${{ github.event_name == 'release' && github.event.release.tag_name || github.event.inputs.version }}
           files: |
             desktop/src-tauri/target/release/bundle/dmg/OhMyAgent-*${{ matrix.artifact_suffix }}.dmg
-            desktop/src-tauri/target/release/bundle/dmg/latest-mac.yml
             desktop/src-tauri/target/release/bundle/macos/OhMyAgent-*${{ matrix.artifact_suffix }}-mac.zip
+
+  # Merge the per-arch zip entries into a single latest-mac.yml so the mac
+  # updater can pick its own architecture (selectUpdateFile in updater.ts).
+  # Builds the yml from the two artifacts and attaches it — the ONLY yml
+  # attachment for macOS, which also fixes the old "later job overwrites the
+  # other arch's yml" bug.
+  mac-meta:
+    needs: build-mac
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ohmyagent-mac-darwin-x64
+          path: mac-x64
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ohmyagent-mac-darwin-arm64
+          path: mac-arm64
+
+      - name: Generate merged latest-mac.yml (x64 + arm64)
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          ZIP_X64=$(ls mac-x64/OhMyAgent-*-mac.zip | head -1)
+          ZIP_ARM64=$(ls mac-arm64/OhMyAgent-*-arm64-mac.zip | head -1)
+          if [ -z "$ZIP_X64" ] || [ -z "$ZIP_ARM64" ]; then
+            echo "missing zip: x64='$ZIP_X64' arm64='$ZIP_ARM64'"
+            exit 1
+          fi
+          node desktop/scripts/release-meta.cjs "$ZIP_X64" "$ZIP_ARM64" "$VERSION" latest-mac.yml
+
+      - name: Attach latest-mac.yml to GitHub Release
+        if: (github.event_name == 'release' || github.event.inputs.version != '') && success()
+        uses: softprops/action-gh-release@v2
+        with:
+          overwrite: true
+          tag_name: ${{ github.event_name == 'release' && github.event.release.tag_name || github.event.inputs.version }}
+          files: mac-x64/latest-mac.yml

@@ -66,8 +66,7 @@ function parseSemver(v: string): ParsedSemver {
 }
 
 /** Minimal YAML parser for latest.yml format (flat key: value + array of objects). */
-function parseLatestYml(
-  text: string,
+function parseLatestYml(  text: string,
 ): {
   version: string;
   files: Array<{ url: string; sha512: string }>;
@@ -126,6 +125,31 @@ interface CachedUpdate {
   releaseNotes: string | null;
   releaseUrl: string;
   files: Array<{ url: string; sha512: string }>;
+}
+
+/**
+ * Pick the update file for the running architecture.
+ *
+ * latest-mac.yml carries one entry per macOS architecture (x64 zip + arm64
+ * zip, merged by the mac-meta CI job); Windows/Linux yml files have a single
+ * entry, which is returned as-is. Selection rule:
+ *   - exactly one file            -> it (single-arch platforms)
+ *   - arm64 host                  -> the file whose name contains "arm64"
+ *   - anything else (x64/universal)-> the file whose name does NOT contain
+ *                                     "arm64"
+ * Falls back to the first entry when nothing matches, so an unexpected yml
+ * layout degrades to the old behavior instead of failing the update.
+ */
+export function selectUpdateFile(
+  files: Array<{ url: string; sha512: string }>,
+  arch: string = process.arch,
+): { url: string; sha512: string } {
+  if (files.length <= 1) {
+    return files[0];
+  }
+  const wantsArm64 = arch === 'arm64';
+  const match = files.find((f) => /arm64/.test(f.url) === wantsArm64);
+  return match ?? files[0];
 }
 
 // ---------------------------------------------------------------------------
@@ -363,7 +387,8 @@ export class AppUpdater {
    */
   private async downloadFromPendingUpdate(): Promise<void> {
     const update = this.pendingUpdate!;
-    const fileInfo = update.files[0];
+    // multi-arch yml (macOS) carries one entry per architecture — pick ours.
+    const fileInfo = selectUpdateFile(update.files);
     if (!fileInfo) {
       throw new Error('No files in update info');
     }
@@ -573,7 +598,7 @@ export class AppUpdater {
 
     if (this.pendingUpdate && process.platform === 'win32') {
       const downloadsDir = path.join(process.env.OHMYAGENT_HOME ?? '.', 'downloads');
-      const installerName = this.pendingUpdate.files[0]?.url;
+      const installerName = selectUpdateFile(this.pendingUpdate.files)?.url;
       const installerPath = path.join(downloadsDir, installerName);
       if (installerName && fs.existsSync(installerPath)) {
         diagLog(`installUpdate: shell spawns ${installerPath} --updated`);
