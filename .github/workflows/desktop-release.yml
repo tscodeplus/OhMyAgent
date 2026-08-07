@@ -371,11 +371,11 @@ jobs:
           cd desktop/src-tauri/target/release/bundle
           mv -f deb/OhMyAgent_${VERSION}_amd64.deb "deb/ohmyagent-desktop_${VERSION}_amd64.deb"
           # Drop stale debs of other versions left by the cargo target cache
-          # so the upload glob below ships only the current one. Purge both
-          # name forms — old builds ship as OhMyAgent_*.deb, and a stale
-          # ohmyagent-desktop_*.deb (same-name prefix) would slip past a
-          # single-prefix glob.
-          rm -f deb/OhMyAgent_*.deb deb/ohmyagent-desktop_*.deb
+          # so the upload glob below ships only the current one. Keep the
+          # freshly renamed deb: a glob can't express "any version but this
+          # one" — OhMyAgent_*.deb misses old renamed builds while
+          # ohmyagent-desktop_*.deb would delete the current file itself.
+          find deb -maxdepth 1 -name "*.deb" ! -name "ohmyagent-desktop_${VERSION}_amd64.deb" -delete
 
       - name: Generate latest-linux.yml metadata
         if: runner.os == 'Linux'
