@@ -329,6 +329,8 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
     // Skill self-evolution feedback loop: lets AgentService reach
     // skillMetricsService (recordSatisfaction / recordCompletion / getStats).
     () => servicesRef.current,
+    // P1 M6: turn-level watchdog (seconds → ms; 0 disables)
+    (config.agent?.turn_timeout_sec ?? 300) * 1000,
   );
 
   return {

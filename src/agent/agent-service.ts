@@ -24,6 +24,7 @@ import type { ImageContent } from '../pi-mono/ai/types.js';
 import type { VisionBridgeService } from '../vision-bridge/vision-bridge-service.js';
 import { persistMessages } from './message-persister.js';
 import { recoverFromOverflow } from './overflow-recovery.js';
+import { waitForIdleWithTimeout } from '../shared/with-timeout.js';
 import { subscribeToolRunAudit } from './tool-audit.js';
 import { activeSkillFeedbackIds } from './skill-activator.js';
 import { inferSatisfaction } from '../skills/skill-evolution/skill-metrics.js';
@@ -44,6 +45,10 @@ export interface AgentServiceOptions {
   replyDispatcherFactory?: () => ReplyDispatcher;
   /** Channel identifier for channel-aware features (e.g. cron delivery, approval UI routing). */
   channel?: string;
+  /** Operator identity of the message sender (e.g. Feishu open_id). Stored as
+   *  the approval request's requester so approval callbacks can verify the
+   *  clicker is the requester. */
+  senderId?: string;
   /** Non-Feishu channel approval message sender. */
   channelApprovalSender?: import('./before-tool-call.js').BeforeToolCallDeps['channelApprovalSender'];
   /** Channel-specific Computer Use screenshot sender. */
@@ -89,6 +94,24 @@ function estimateTokens(content: string | Array<{ type: string; text?: string }>
     tokens += ch.charCodeAt(0) > 127 ? 0.5 : 0.25;
   }
   return Math.ceil(tokens);
+}
+
+/** P1 M6: default wall-clock cap for a single agent turn (5 minutes). */
+const DEFAULT_TURN_TIMEOUT_MS = 300_000;
+/** P1 M6: grace period for an aborted turn to unwind before we abandon the
+ *  wait (matches the orchestrator's 10s stopAgent settle window). */
+const TURN_SETTLE_GRACE_MS = 10_000;
+
+/**
+ * Thrown when an agent turn exceeds the configured wall-clock cap.
+ * Caught by execute()'s generic error path — cleanup, harness failure
+ * detection, and queue unblocking all work as for any turn error.
+ */
+export class TurnTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TurnTimeoutError';
+  }
 }
 
 export class AgentService {
@@ -139,6 +162,8 @@ export class AgentService {
     /** Lazy accessor for AppServices (bootstrap servicesRef) — used to reach
      *  skillMetricsService for the skill self-evolution feedback loop. */
     private getServices?: () => AppServices | undefined,
+    /** P1 M6: Max wall-clock time for a single agent turn (ms). 0 disables. */
+    private turnTimeoutMs: number = DEFAULT_TURN_TIMEOUT_MS,
   ) {}
 
   /**
@@ -402,7 +427,13 @@ export class AgentService {
       }
 
       // Run the prompt — Agent.state.messages provides conversation continuity
-      await agent.prompt(finalInput, finalImages);
+      // P1 M6: turn-level watchdog — a provider stream or tool that never
+      // settles (network hang, provider fault) must not block this session's
+      // queue forever. On timeout we abort via the agent's own AbortController
+      // (the same chain /stop uses — no duplicate abort mechanism), then give
+      // the loop a bounded grace period to unwind and dispatch the failure
+      // card before failing the turn.
+      await this.runTurnWithTimeout(agent, finalInput, finalImages, runtime, sessionId);
       runtime.turnElapsed = Date.now() - turnStart;
 
       // v9: Context overflow recovery (pi-style)
@@ -503,6 +534,70 @@ export class AgentService {
   }
 
   /**
+   * Run one agent turn under the P1 M6 turn-level watchdog.
+   *
+   * On timeout: abort() via the agent's own AbortController (same chain as
+   * /stop), then wait a bounded grace period for agent_end to fire — that
+   * dispatches the failure card and runs the pre-complete persistMessages
+   * callback. A tool stuck in a hung operation may never unwind; in that
+   * case the error card is sent explicitly and the turn fails regardless,
+   * so the session queue can move on.
+   */
+  private async runTurnWithTimeout(
+    agent: Agent,
+    input: string,
+    images: ImageContent[] | undefined,
+    runtime: NonNullable<ReturnType<typeof this.runtimes.get>>,
+    sessionId?: string,
+  ): Promise<void> {
+    const timeoutMs = this.turnTimeoutMs;
+    if (timeoutMs <= 0) {
+      await agent.prompt(input, images);
+      return;
+    }
+
+    const turnPromise = agent.prompt(input, images);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
+    try {
+      timedOut = await Promise.race([
+        turnPromise.then(() => false),
+        new Promise<boolean>((resolve) => {
+          timer = setTimeout(() => resolve(true), timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+
+    if (!timedOut) return;
+
+    const message = `Agent turn timed out after ${timeoutMs / 1000}s`;
+    this.persistence?.logger?.warn({ err: new TurnTimeoutError(message), sessionId }, 'Agent turn timed out');
+    // Consume any late rejection — the abort path below already handled the outcome.
+    turnPromise.catch(() => {});
+
+    agent.abort();
+    const settled = await waitForIdleWithTimeout(
+      () => agent.waitForIdle(),
+      TURN_SETTLE_GRACE_MS,
+    );
+    if (!settled) {
+      this.persistence?.logger?.warn(
+        { sessionId },
+        'Agent did not settle within grace period after turn timeout — abandoning wait (agent may be stuck in a hung tool)',
+      );
+      // agent_end will never fire — deliver the error card ourselves.
+      try {
+        await runtime.turnContext.replyDispatcher?.onError(new Error(message));
+      } catch {
+        // Best-effort — the turn is already failing.
+      }
+    }
+    throw new TurnTimeoutError(message);
+  }
+
+  /**
    * Abort the current agent execution, if any.
    *
    * Waits for the agent to become idle before returning so that the
@@ -512,13 +607,28 @@ export class AgentService {
    * preserving correct chronological order.
    */
   async abort(sessionId?: string): Promise<void> {
+    const settle = async (runtime: NonNullable<ReturnType<typeof this.runtimes.get>>, sessionKey?: string): Promise<void> => {
+      // P1 M6: bounded settle — a hung tool may never unwind, so /stop must
+      // not hang the command handler (and with it the session queue).
+      const settled = await waitForIdleWithTimeout(
+        () => runtime.agent.waitForIdle(),
+        TURN_SETTLE_GRACE_MS,
+      );
+      if (!settled) {
+        this.persistence?.logger?.warn(
+          { sessionId: sessionKey },
+          'Agent did not settle within grace period during abort — abandoning wait',
+        );
+      }
+    };
+
     if (sessionId) {
       const runtime = this.runtimes.get(sessionId);
       if (!runtime) return;
       runtime.agent.abort();
       // waitForIdle resolves after all agent_end listeners (including
       // the pre-complete persistMessages callback) have settled.
-      await runtime.agent.waitForIdle().catch((err) => { this.persistence?.logger?.warn({ err, sessionId }, 'waitForIdle failed during abort'); });
+      await settle(runtime, sessionId);
       return;
     }
 
@@ -527,9 +637,7 @@ export class AgentService {
     }
     // Wait for all runtimes to settle
     await Promise.allSettled(
-      Array.from(this.runtimes.values()).map(r =>
-        r.agent.waitForIdle().catch((err) => { this.persistence?.logger?.warn({ err }, 'waitForIdle failed during bulk abort'); }),
-      ),
+      Array.from(this.runtimes.values()).map(r => settle(r)),
     );
   }
 
@@ -726,10 +834,16 @@ export class AgentService {
     agentId?: string,
     sessionId?: string,
   ): Promise<void> {
-    try {
-      await runtime.agent.waitForIdle();
-    } catch {
-      this.persistence?.logger?.debug({ sessionId }, 'waitForIdle failed in followUp');
+    // P1 M6: bounded settle — a hung turn must not hang /btw dispatch either.
+    const settled = await waitForIdleWithTimeout(
+      () => runtime.agent.waitForIdle(),
+      TURN_SETTLE_GRACE_MS,
+    );
+    if (!settled) {
+      this.persistence?.logger?.warn(
+        { sessionId },
+        'waitForIdle did not settle within grace period in followUp — abandoning',
+      );
       return;
     }
     runtime.bridge?.stop();

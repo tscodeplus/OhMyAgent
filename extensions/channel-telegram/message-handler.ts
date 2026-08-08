@@ -101,9 +101,16 @@ export function setupMessageHandlers(
           const forwardText = result.forwardText;
           logger.info({ sessionKey, forwardText }, 'Forwarding to agent after command');
           const live = api.getConfig();
-          chatQueue.enqueue(sessionKey, () =>
+          // P1 M6: bounded queue — reject with a busy reply at capacity
+          if (!chatQueue.enqueue(sessionKey, () =>
             executeAgent(forwardText, sessionKey, chatId, ctx, config, agentService, logger, bot, live.showToolCalls, live.showSkillCalls, live.footer, live.tools.fileRead.allowedRoots, live.tools.fileRead.deniedPatterns).catch(err => logger.error({ err }, 'Telegram queued agent failed')),
-          );
+          )) {
+            try {
+              await (ctx as any).reply(i18n.t('messages:errors.busy'));
+            } catch {
+              // best-effort
+            }
+          }
         }
         return;
       }
@@ -126,9 +133,16 @@ export function setupMessageHandlers(
       return;
     }
     const live = api.getConfig();
-    chatQueue.enqueue(sessionKey, () =>
+    // P1 M6: bounded queue — reject with a busy reply at capacity
+    if (!chatQueue.enqueue(sessionKey, () =>
       executeAgent(text, sessionKey, chatId, ctx, config, agentService, logger, bot, live.showToolCalls, live.showSkillCalls, live.footer, live.tools.fileRead.allowedRoots, live.tools.fileRead.deniedPatterns).catch(err => logger.error({ err }, 'Telegram queued agent failed')),
-    );
+    )) {
+      try {
+        await (ctx as any).reply(i18n.t('messages:errors.busy'));
+      } catch {
+        // best-effort
+      }
+    }
   });
 
   // ── Media messages ──
@@ -185,7 +199,8 @@ export function setupMessageHandlers(
     const live = api.getConfig();
     const mediaSessionKey = `telegram:${chatIdNum}`;
     const mediaChatId = String(chatIdNum);
-    chatQueue.enqueue(mediaSessionKey, () =>
+    // P1 M6: bounded queue — reject with a busy reply at capacity
+    if (!chatQueue.enqueue(mediaSessionKey, () =>
       executeAgent(
         mediaText,
         mediaSessionKey,
@@ -201,7 +216,13 @@ export function setupMessageHandlers(
         live.tools.fileRead.allowedRoots,
         live.tools.fileRead.deniedPatterns,
       ).catch(err => logger.error({ err }, 'Telegram queued agent failed')),
-    );
+    )) {
+      try {
+        await (ctx as any).reply(i18n.t('messages:errors.busy'));
+      } catch {
+        // best-effort
+      }
+    }
   });
 
   // ── Inline keyboard callbacks ──

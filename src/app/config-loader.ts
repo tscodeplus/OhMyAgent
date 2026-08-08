@@ -415,6 +415,14 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
     smart_agent_team: root.smart_agent_team ? {
       enabled: envBool((root.smart_agent_team as YamlNode)?.enabled, true),
       max_children: num((root.smart_agent_team as YamlNode)?.max_children, 4),
+      // P1 M5: child agent wall-clock cap + abort settle grace period
+      child_timeout_sec: num((root.smart_agent_team as YamlNode)?.child_timeout_sec, 300),
+      child_settle_timeout_ms: num((root.smart_agent_team as YamlNode)?.child_settle_timeout_ms, 15_000),
+    } : undefined,
+
+    // P1 M6: turn-level watchdog (0 disables the timeout)
+    agent: root.agent ? {
+      turn_timeout_sec: num((root.agent as YamlNode)?.turn_timeout_sec, 300),
     } : undefined,
 
     policy: root.policy ? {
@@ -827,6 +835,9 @@ export function jsConfigToYaml(
 
       // ─── smart_agent_team (already snake_case) ───
       case 'smart_agent_team': yaml.smart_agent_team = value; break;
+
+      // ─── agent (P1 M6, already snake_case) ───
+      case 'agent': yaml.agent = value; break;
 
       // ─── multimodal (already snake_case) ───
       case 'multimodal': yaml.multimodal = value; break;

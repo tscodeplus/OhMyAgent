@@ -259,6 +259,86 @@ describe('AgentService', () => {
     service.abort();
   });
 
+  // ----------------------------------------------------- turn timeout (P1 M6)
+
+  describe('turn timeout (P1 M6)', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('fails the turn with TurnTimeoutError when prompt exceeds the cap', async () => {
+      vi.useFakeTimers();
+      const agent = createMockAgent();
+      agent.prompt.mockImplementation(() => new Promise<void>(() => { /* never settles */ }));
+      const factory = createMockFactory(agent);
+      const service = new AgentService(
+        factory as unknown as AgentFactory,
+        () => dispatcher,
+        undefined, undefined, 'native_first', undefined, undefined,
+        30, // turnTimeoutMs
+      );
+
+      const promise = service.execute('Hello');
+      // Attach a handler up front so the watchdog's rejection is not
+      // reported as unhandled while the fake timers advance.
+      promise.catch(() => {});
+      await vi.advanceTimersByTimeAsync(40);
+
+      await expect(promise).rejects.toThrow(/timed out after/);
+      // The turn is aborted via the agent's own AbortController — no duplicate mechanism
+      expect(agent.abort).toHaveBeenCalledTimes(1);
+      // The mock settles immediately, so agent_end handled the card — no extra onError
+      expect(dispatcher.onError).not.toHaveBeenCalled();
+    });
+
+    it('sends an error card when the aborted turn never settles (hung tool)', async () => {
+      vi.useFakeTimers();
+      const agent = createMockAgent();
+      agent.prompt.mockImplementation(() => new Promise<void>(() => { /* never settles */ }));
+      agent.waitForIdle.mockImplementation(() => new Promise<void>(() => { /* never settles */ }));
+      const factory = createMockFactory(agent);
+      const service = new AgentService(
+        factory as unknown as AgentFactory,
+        () => dispatcher,
+        undefined, undefined, 'native_first', undefined, undefined,
+        30, // turnTimeoutMs
+      );
+
+      const promise = service.execute('Hello');
+      promise.catch(() => {});
+      await vi.advanceTimersByTimeAsync(40); // timeout fires
+      await vi.advanceTimersByTimeAsync(10_000); // settle grace elapses
+
+      await expect(promise).rejects.toThrow(/timed out after/);
+      expect(agent.abort).toHaveBeenCalledTimes(1);
+      // agent_end never fires — the error card is sent explicitly
+      expect(dispatcher.onError).toHaveBeenCalled();
+    });
+
+    it('abort() does not hang on a stuck agent (bounded settle)', async () => {
+      vi.useFakeTimers();
+      const agent = createMockAgent();
+      agent.prompt.mockImplementation(() => new Promise<void>(() => { /* never settles */ }));
+      agent.waitForIdle.mockImplementation(() => new Promise<void>(() => { /* never settles */ }));
+      const factory = createMockFactory(agent);
+      const service = new AgentService(
+        factory as unknown as AgentFactory,
+        () => dispatcher,
+      );
+
+      const runPromise = service.execute('Hello');
+      runPromise.catch(() => {});
+      const abortPromise = service.abort('default');
+      await vi.advanceTimersByTimeAsync(10_000); // grace elapses
+      await abortPromise; // must resolve instead of hanging forever
+
+      // The turn's own watchdog still fires and fails the turn
+      await vi.advanceTimersByTimeAsync(300_000); // turn cap (default 300s)
+      await vi.advanceTimersByTimeAsync(10_000); // settle grace after its abort
+      await expect(runPromise).rejects.toThrow(/timed out after/);
+    });
+  });
+
   // ------------------------------------------------------------------ isRunning
 
   it('isRunning() returns false initially', () => {

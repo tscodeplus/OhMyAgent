@@ -115,6 +115,10 @@ export interface AppConfig {
     wsEnabled: boolean;
     /** Region: 'feishu' for domestic (open.feishu.cn), 'lark' for international (open.larksuite.com). */
     region: 'feishu' | 'lark';
+    /** Access control: only these sender open_ids may interact with the bot.
+     *  Empty list = allow all. Also serves as the admin list for privileged
+     *  slash commands (e.g. /permission). Mirrors Telegram/WeChat/QQ. */
+    allowedUsers: string[];
   };
   piAi: {
     provider: string;
@@ -359,6 +363,8 @@ export interface AppConfig {
   };
   /** v7: Agent Team mode global configuration. */
   smart_agent_team: SmartAgentTeamConfig;
+  /** P1 M6: Agent runtime reliability knobs (turn-level watchdog). */
+  agent?: AgentRuntimeConfig;
   /** v4: Multimodal runtime configuration. */
   multimodal?: {
     enabled?: boolean;
@@ -466,6 +472,20 @@ export interface AppConfig {
 export interface SmartAgentTeamConfig {
   enabled: boolean;
   max_children: number;
+  /** P1 M5: wall-clock cap for a single spawned child agent, in seconds. */
+  child_timeout_sec: number;
+  /** P1 M5: grace period (ms) to wait for an aborted child to unwind before
+   *  abandoning the wait — a child stuck in a hung tool must not hang the parent. */
+  child_settle_timeout_ms: number;
+}
+
+// ---------------------------------------------------------------------------
+// Agent runtime configuration (P1 M6)
+// ---------------------------------------------------------------------------
+
+export interface AgentRuntimeConfig {
+  /** Wall-clock cap for a single agent turn, in seconds. 0 disables the watchdog. */
+  turn_timeout_sec: number;
 }
 
 // ---------------------------------------------------------------------------

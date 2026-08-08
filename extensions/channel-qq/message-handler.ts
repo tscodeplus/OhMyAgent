@@ -27,6 +27,7 @@ import { isMessageEvent, isInteractionEvent, type QQInteractionEvent } from './q
 import { createQQApprovalSender } from './send-message.js';
 import { handleApprovalInteraction } from './qq-approval-handler.js';
 import { parseQuestionCallback } from './qq-keyboard.js';
+import { i18n } from '../../src/i18n/index.js';
 import { writeFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -197,9 +198,12 @@ export function setupMessageHandlers(
             const forwardText = result.forwardText;
             logger.info({ sessionKey, forwardText }, 'QQ forwarding to agent after command');
             const live = api.getConfig();
-            chatQueue.enqueue(sessionKey, () =>
+            // P1 M6: bounded queue — reject with a busy reply at capacity
+            if (!chatQueue.enqueue(sessionKey, () =>
               executeAgent(forwardText, sessionKey, chatId, messageId, target, openid, gateway, config, agentService, logger, replyTracker, live.showToolCalls, live.showSkillCalls, live.footer, live.tools.fileRead.allowedRoots, live.tools.fileRead.deniedPatterns).catch(err => logger.error({ err, sessionKey }, 'QQ queued agent failed')),
-            );
+            )) {
+              await sendChunkedText(gateway, i18n.t('messages:errors.busy'), target, config.textLimit).catch(() => {});
+            }
           }
           return;
         }
@@ -217,9 +221,12 @@ export function setupMessageHandlers(
         return;
       }
       const liveConfig = api.getConfig();
-      chatQueue.enqueue(sessionKey, () =>
+      // P1 M6: bounded queue — reject with a busy reply at capacity
+      if (!chatQueue.enqueue(sessionKey, () =>
         executeAgent(agentText, sessionKey, chatId, messageId, target, openid, gateway, config, agentService, logger, replyTracker, liveConfig.showToolCalls, liveConfig.showSkillCalls, liveConfig.footer, liveConfig.tools.fileRead.allowedRoots, liveConfig.tools.fileRead.deniedPatterns).catch(err => logger.error({ err, sessionKey }, 'QQ queued agent failed')),
-      );
+      )) {
+        await sendChunkedText(gateway, i18n.t('messages:errors.busy'), target, config.textLimit).catch(() => {});
+      }
     } catch (err) {
       logger.error({ err, t: (payload as any)?.t }, 'QQ message handler error');
     }

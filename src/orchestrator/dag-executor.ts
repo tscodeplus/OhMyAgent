@@ -16,6 +16,7 @@ import type { ResolvedAgentConfig } from '../agent/config-types.js';
 import type { AgentManager } from '../agent/agent-manager.js';
 import type { Orchestrator } from './orchestrator.js';
 import type { Logger } from 'pino';
+import { waitForIdleWithTimeout } from '../shared/with-timeout.js';
 import type {
   SubTaskDef,
   PlanAndSpawnInput,
@@ -24,6 +25,7 @@ import type {
 } from './dag-types.js';
 
 const DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes
+const DEFAULT_SETTLE_TIMEOUT_MS = 15_000; // 15s — abort settle grace
 
 export interface DAGExecutorDeps {
   agentManager: AgentManager;
@@ -37,6 +39,10 @@ export interface DAGExecutorDeps {
   logger: Logger;
   maxConcurrency: number;
   timeoutMs?: number;
+  // P1 M5: grace period (ms) to wait for an aborted subtask to unwind before
+  // abandoning the wait — a subtask stuck in a hung tool must not hang the
+  // whole plan execution.
+  settleTimeoutMs?: number;
 }
 
 export class DAGExecutor {
@@ -303,7 +309,19 @@ export class DAGExecutor {
 
         if (raceResult === 'timeout') {
           subAgent.abort();
-          await subAgent.waitForIdle();
+          // P1 M5: bounded settle — a subtask stuck in a hung tool never
+          // unwinds; abandon the wait after the grace period instead of
+          // hanging the whole plan execution forever.
+          const settled = await waitForIdleWithTimeout(
+            () => subAgent.waitForIdle(),
+            this.deps.settleTimeoutMs ?? DEFAULT_SETTLE_TIMEOUT_MS,
+          );
+          if (!settled) {
+            this.deps.logger.warn(
+              { agentId: childRun.agentId, title: st.title },
+              'DAGExecutor: subtask did not settle within grace period after abort — abandoning wait (subtask may be stuck in a hung tool)',
+            );
+          }
           await this.deps.orchestrator.finishAgent(childRun.agentId, 'failed', 'timeout');
           return {
             title: st.title,

@@ -188,6 +188,90 @@ describe('spawn_agent ToolDefinition orchestrator path', () => {
 });
 
 // ============================================================================
+// P1 M5: timeout + bounded settle — a hung child must not hang the parent
+// ============================================================================
+
+describe('spawn_agent ToolDefinition — P1 M5 timeout settle', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('aborts and fails the child run when the child hangs past the settle grace', async () => {
+    vi.useFakeTimers();
+    const childRun: AgentRun = {
+      agentId: 'child-1',
+      parentAgentId: 'parent-1',
+      rootSessionId: 'session-1',
+      role: 'child',
+      status: 'running',
+      createdAt: Date.now(),
+      scope: { ...DEFAULT_POLICY_SCOPE },
+    };
+
+    const orchestrator = {
+      spawnChildAgent: vi.fn(async () => childRun),
+      stopAgent: vi.fn(),
+      finishAgent: vi.fn(),
+      getAgentRun: vi.fn(() => childRun),
+      registerRuntime: vi.fn(),
+      unregisterRuntime: vi.fn(),
+    } as unknown as Orchestrator;
+
+    // Child never settles: prompt hangs AND waitForIdle hangs after abort
+    const subAgent = {
+      prompt: vi.fn(() => new Promise<void>(() => { /* never settles */ })),
+      waitForIdle: vi.fn(() => new Promise<void>(() => { /* never settles */ })),
+      abort: vi.fn(),
+      state: { messages: [] },
+    };
+    const warn = vi.fn();
+    const def = createSpawnAgentToolDefinition({
+      agentManager: {
+        get: vi.fn(() => ({
+          id: 'default',
+          name: 'Default',
+          system_prompt: '',
+          model: {},
+          tools: { profile: 'standard', add: [], deny: [] },
+          channels: [],
+          memory: {},
+          metadata: {},
+        })),
+        list: vi.fn(() => [{ id: 'default' }]),
+      } as any,
+      logger: { error: vi.fn(), warn } as any,
+      orchestrator,
+      createAgent: vi.fn(() => subAgent as any),
+      childTimeoutMs: 30,
+      childSettleTimeoutMs: 50,
+    });
+
+    const promise = def.execute(
+      { task: 'do work' },
+      {
+        cwd: process.cwd(),
+        services: {} as any,
+        policyScope: DEFAULT_POLICY_SCOPE,
+        sessionId: 'session-1',
+        agentId: 'parent-1',
+      },
+    );
+
+    await vi.advanceTimersByTimeAsync(40); // child timeout fires
+    await vi.advanceTimersByTimeAsync(60); // settle grace elapses
+    const result = await promise;
+
+    expect(subAgent.abort).toHaveBeenCalledTimes(1);
+    // Hung waitForIdle is abandoned — the parent tool call still returns
+    expect(warn).toHaveBeenCalled();
+    expect(orchestrator.finishAgent).toHaveBeenCalledWith('child-1', 'failed', 'timeout');
+    expect(result.isError).toBe(true);
+    const errorText = (result.content[0] as any).text;
+    expect(errorText).toContain('timed out');
+  });
+});
+
+// ============================================================================
 // P0: maxParallel injection
 // ============================================================================
 

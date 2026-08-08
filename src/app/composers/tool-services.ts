@@ -187,6 +187,9 @@ export function registerV4ToolDefinitions(input: {
     agentManager,
     logger,
     orchestrator,
+    // P1 M5: child timeout + abort settle grace from config
+    childTimeoutMs: (config.smart_agent_team?.child_timeout_sec ?? 300) * 1000,
+    childSettleTimeoutMs: config.smart_agent_team?.child_settle_timeout_ms ?? 15_000,
     createAgent: (config, task, childOptions) => agentFactory.create({
       agentId: config.id,
       systemPrompt: config.system_prompt,
@@ -208,7 +211,8 @@ export function registerV4ToolDefinitions(input: {
     orchestrator,
     logger,
     maxConcurrency: config.smart_agent_team.max_children,
-    timeoutMs: 300_000,
+    timeoutMs: (config.smart_agent_team?.child_timeout_sec ?? 300) * 1000,
+    settleTimeoutMs: config.smart_agent_team?.child_settle_timeout_ms ?? 15_000,
     createAgent: (config: any, task: string, childOptions: any) => agentFactory.create({
       agentId: config.id,
       systemPrompt: config.system_prompt,

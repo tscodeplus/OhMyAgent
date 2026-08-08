@@ -277,6 +277,9 @@ export function assembleAgentTools(opts: ToolPipelineOptions): ToolPipelineResul
       logger: opts.logger,
       orchestrator,
       maxParallel,
+      // P1 M5: child timeout + abort settle grace from config
+      childTimeoutMs: (opts.config.smart_agent_team?.child_timeout_sec ?? 300) * 1000,
+      childSettleTimeoutMs: opts.config.smart_agent_team?.child_settle_timeout_ms ?? 15_000,
       createAgent: (config, task, childOptions) => {
         const childTools = opts.agentManager!.resolveTools(config)
           .filter((t: any) => t.name !== 'spawn_agent');

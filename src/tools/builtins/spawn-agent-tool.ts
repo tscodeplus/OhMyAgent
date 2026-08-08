@@ -1,5 +1,6 @@
 import { Type } from 'typebox';
 import { generateId } from '../../shared/ids.js';
+import { waitForIdleWithTimeout } from '../../shared/with-timeout.js';
 import type { AgentManager } from '../../agent/agent-manager.js';
 import type { ResolvedAgentConfig } from '../../agent/config-types.js';
 import type { Agent } from '../../pi-mono/agent/agent.js';
@@ -22,6 +23,13 @@ export interface SpawnAgentDeps {
   orchestrator?: import('../../orchestrator/orchestrator.js').Orchestrator;
   // P0: Maximum concurrent sub-agents (default 4). Injected from resolved config.
   maxParallel?: number;
+  // P1 M5: Wall-clock cap for a single child agent, in ms. Injected from
+  // config (smart_agent_team.child_timeout_sec).
+  childTimeoutMs?: number;
+  // P1 M5: Grace period (ms) to wait for an aborted child to unwind before
+  // abandoning the wait — a child stuck in a hung tool must not hang the
+  // parent agent's turn. Injected from smart_agent_team.child_settle_timeout_ms.
+  childSettleTimeoutMs?: number;
 }
 
 // Track active sub-agents per parent session for parallel limit enforcement
@@ -30,6 +38,7 @@ const activeSubAgents = new Map<string, Set<string>>();
 // This default only applies when no explicit value is provided.
 const DEFAULT_MAX_PARALLEL = 4;
 const DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes
+const DEFAULT_SETTLE_TIMEOUT_MS = 15_000; // 15s — abort settle grace
 
 /** @deprecated Use `createSpawnAgentToolDefinition` from `./agents/spawn-definition.js` instead. */
 export function createSpawnAgentTool(deps: SpawnAgentDeps): AgentTool<any> {
@@ -90,8 +99,10 @@ export function createSpawnAgentTool(deps: SpawnAgentDeps): AgentTool<any> {
         const subAgent = deps.createAgent(subConfig, task);
 
         // Set timeout race
+        const timeoutMs = deps.childTimeoutMs ?? DEFAULT_TIMEOUT_MS;
+        const settleTimeoutMs = deps.childSettleTimeoutMs ?? DEFAULT_SETTLE_TIMEOUT_MS;
         const timeoutPromise = new Promise<'timeout'>((resolve) => {
-          setTimeout(() => resolve('timeout'), DEFAULT_TIMEOUT_MS);
+          setTimeout(() => resolve('timeout'), timeoutMs);
         });
 
         // Run sub-agent
@@ -105,8 +116,19 @@ export function createSpawnAgentTool(deps: SpawnAgentDeps): AgentTool<any> {
 
         if (raceResult === 'timeout') {
           subAgent.abort();
-          // Let the aborted agent settle
-          await subAgent.waitForIdle();
+          // P1 M5: bounded settle — a child stuck in a hung tool never
+          // unwinds; abandon the wait after the grace period instead of
+          // hanging the parent agent's turn forever.
+          const settled = await waitForIdleWithTimeout(
+            () => subAgent.waitForIdle(),
+            settleTimeoutMs,
+          );
+          if (!settled) {
+            deps.logger.warn(
+              { subAgentId, parentSessionId, settleTimeoutMs },
+              '子任务中止后未在宽限期内收敛，已放弃等待（子代理可能卡在工具执行中）',
+            );
+          }
 
           // Extract partial results if any
           const state = subAgent.state as any;
@@ -114,7 +136,7 @@ export function createSpawnAgentTool(deps: SpawnAgentDeps): AgentTool<any> {
           const partialSummary = extractSummary(messages, task, true);
 
           return {
-            content: [{ type: 'text', text: `子任务超时 (${DEFAULT_TIMEOUT_MS / 1000}s)。\n\n部分结果:\n${partialSummary.content}` }],
+            content: [{ type: 'text', text: `子任务超时 (${timeoutMs / 1000}s)。\n\n部分结果:\n${partialSummary.content}` }],
             details: partialSummary.details,
           };
         }

@@ -31,6 +31,7 @@ import { createWechatApprovalSender } from './wechat-approval-sender.js';
 import { createWechatUserQuestionSender } from './user-question-sender.js';
 import type { UserQuestionSender } from '../../src/agent/user-question-port.js';
 import { resolveWechatErrorNotice } from './wechat-error.js';
+import { i18n } from '../../src/i18n/index.js';
 import { ChatQueue } from '../channel-feishu/chat-queue.js';
 
 /** 24-hour TTL for context tokens. */
@@ -156,7 +157,8 @@ export function setupMessageHandlers(
           const fwdAgentText = fwdText
             ? `${cmdResult.forwardText}\n${fwdText}`
             : cmdResult.forwardText;
-          chatQueue.enqueue(sessionKey, () =>
+          // P1 M6: bounded queue — reject with a busy reply at capacity
+          if (!chatQueue.enqueue(sessionKey, () =>
             executeAgent(
               fwdAgentText,
               sessionKey,
@@ -169,7 +171,17 @@ export function setupMessageHandlers(
               fwdImages,
               api,
             ).catch(err => logger.error({ err, sessionKey }, 'WeChat queued agent failed')),
-          );
+          )) {
+            await sendChunkedText(
+              sender.apiBase,
+              sender.botToken,
+              tokenEntry.toUserId,
+              tokenEntry.token,
+              i18n.t('messages:errors.busy'),
+              config.textLimit,
+              logger,
+            ).catch(() => {});
+          }
         }
         return; // Command was handled
       }
@@ -210,7 +222,8 @@ export function setupMessageHandlers(
       return;
     }
 
-    chatQueue.enqueue(sessionKey, () =>
+    // P1 M6: bounded queue — reject with a busy reply at capacity
+    if (!chatQueue.enqueue(sessionKey, () =>
       executeAgent(
         agentText,
         sessionKey,
@@ -223,7 +236,17 @@ export function setupMessageHandlers(
         images,
         api,
       ).catch(err => logger.error({ err, sessionKey }, 'WeChat queued agent failed')),
-    );
+    )) {
+      await sendChunkedText(
+        sender.apiBase,
+        sender.botToken,
+        tokenEntry.toUserId,
+        tokenEntry.token,
+        i18n.t('messages:errors.busy'),
+        config.textLimit,
+        logger,
+      ).catch(() => {});
+    }
   }).catch((err: Error) => {
     logger.error({ err }, 'WeChat poller crashed');
   });

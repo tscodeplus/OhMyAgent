@@ -16,7 +16,8 @@
   },
   "errors": {
     "timeout": "Sorry, the request timed out. Please try again or simplify your question.",
-    "generic": "Sorry, an error occurred: {{message}}"
+    "generic": "Sorry, an error occurred: {{message}}",
+    "busy": "This conversation is busy processing messages. Please try again shortly."
   },
   "plan": {
     "label": "Plan"

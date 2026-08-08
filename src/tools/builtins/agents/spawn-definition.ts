@@ -8,8 +8,10 @@ import type { ToolExecutionContext } from '../../platform/tool-context.js';
 import type { ToolExecutionResult } from '../../platform/tool-result.js';
 import { textResult, errorResult } from '../../platform/tool-result.js';
 import { createSpawnAgentTool, type SpawnAgentDeps } from '../spawn-agent-tool.js';
+import { waitForIdleWithTimeout } from '../../../shared/with-timeout.js';
 
 const DEFAULT_TIMEOUT_MS = 300_000;
+const DEFAULT_SETTLE_TIMEOUT_MS = 15_000; // 15s — abort settle grace
 
 export const spawnAgentToolCapability: ToolCapabilityDescriptor = {
   category: 'agent',
@@ -111,10 +113,12 @@ async function executeViaOrchestrator(
     waitForIdle: () => subAgent.waitForIdle(),
   });
 
+  const timeoutMs = deps.childTimeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const settleTimeoutMs = deps.childSettleTimeoutMs ?? DEFAULT_SETTLE_TIMEOUT_MS;
   let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
   try {
     const timeoutPromise = new Promise<'timeout'>((resolve) => {
-      timeoutTimer = setTimeout(() => resolve('timeout'), DEFAULT_TIMEOUT_MS);
+      timeoutTimer = setTimeout(() => resolve('timeout'), timeoutMs);
     });
     const runPromise = (async (): Promise<'completed'> => {
       await subAgent.prompt(args.task);
@@ -125,9 +129,21 @@ async function executeViaOrchestrator(
     const raceResult = await Promise.race([runPromise, timeoutPromise]);
     if (raceResult === 'timeout') {
       subAgent.abort();
-      await subAgent.waitForIdle();
+      // P1 M5: bounded settle — a child stuck in a hung tool never
+      // unwinds; abandon the wait after the grace period instead of
+      // hanging the parent agent's turn forever.
+      const settled = await waitForIdleWithTimeout(
+        () => subAgent.waitForIdle(),
+        settleTimeoutMs,
+      );
+      if (!settled) {
+        deps.logger.warn(
+          { agentId: childRun.agentId, sessionId, settleTimeoutMs },
+          'Child agent did not settle within grace period after abort — abandoning wait (child may be stuck in a hung tool)',
+        );
+      }
       await deps.orchestrator.finishAgent(childRun.agentId, 'failed', 'timeout');
-      return errorResult(`Child agent timed out after ${DEFAULT_TIMEOUT_MS / 1000}s.`);
+      return errorResult(`Child agent timed out after ${timeoutMs / 1000}s.`);
     }
 
     // Extract summary from sub-agent state

@@ -82,6 +82,10 @@ const configSchema = z.object({
     wsEnabled: z.boolean().default(true),
     /** Region: 'feishu' for domestic (open.feishu.cn), 'lark' for international (open.larksuite.com). */
     region: z.enum(['feishu', 'lark']).default('feishu'),
+    /** Access control: only these sender open_ids may interact with the bot.
+     *  Empty list = allow all. Also serves as the admin list for privileged
+     *  slash commands (e.g. /permission). Mirrors Telegram/WeChat/QQ. */
+    allowedUsers: strListSchema(''),
   }),
   piAi: z.object({
     provider: z.string().default(''),
@@ -386,6 +390,13 @@ const configSchema = z.object({
   smart_agent_team: z.object({
     enabled: z.boolean().default(true),
     max_children: z.number().int().min(1).max(10).default(4),
+    // P1 M5: child agent wall-clock cap + abort settle grace period
+    child_timeout_sec: z.coerce.number().int().positive().default(300),
+    child_settle_timeout_ms: z.coerce.number().int().positive().default(15_000),
+  }).default({}),
+  // P1 M6: turn-level watchdog (0 disables the timeout)
+  agent: z.object({
+    turn_timeout_sec: z.coerce.number().int().nonnegative().default(300),
   }).default({}),
   multimodal: z.object({
     enabled: z.boolean().default(true),
@@ -568,6 +579,7 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
       verificationToken: env.FEISHU_VERIFICATION_TOKEN ?? '',
       encryptKey: env.FEISHU_ENCRYPT_KEY ?? '',
       wsEnabled: env.FEISHU_CONNECTION_MODE !== 'webhook',
+      allowedUsers: env.FEISHU_ALLOWED_USERS,
     },
     piAi: {
       provider: env.PI_AI_PROVIDER,

@@ -115,6 +115,80 @@ describe('ChatQueue', () => {
     });
   });
 
+  describe('enqueue — bounded queue (P1 M6)', () => {
+    it('returns true when the task is accepted', () => {
+      const queue = new ChatQueue({ maxPending: 2 });
+      const accepted = queue.enqueue('session-1', vi.fn().mockResolvedValue(undefined));
+      expect(accepted).toBe(true);
+    });
+
+    it('rejects new tasks once the pending queue reaches maxPending', async () => {
+      const queue = new ChatQueue({ maxPending: 2 });
+      const barrier = { resolve: undefined as (() => void) | undefined };
+      const barrierPromise = new Promise<void>((r) => {
+        barrier.resolve = r;
+      });
+
+      // Blocking task runs; two more fill the pending queue
+      queue.enqueue('session-1', vi.fn().mockImplementation(async () => {
+        await barrierPromise;
+      }));
+      expect(queue.enqueue('session-1', vi.fn().mockResolvedValue(undefined))).toBe(true);
+      expect(queue.enqueue('session-1', vi.fn().mockResolvedValue(undefined))).toBe(true);
+
+      // Beyond the cap — rejected without running
+      const extra = vi.fn().mockResolvedValue(undefined);
+      expect(queue.enqueue('session-1', extra)).toBe(false);
+      expect(extra).not.toHaveBeenCalled();
+
+      // Release the blocker — the queued tasks run, the rejected one never does
+      barrier.resolve!();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(extra).not.toHaveBeenCalled();
+    });
+
+    it('accepts tasks again after the queue drains', async () => {
+      const queue = new ChatQueue({ maxPending: 1 });
+      const barrier = { resolve: undefined as (() => void) | undefined };
+      const barrierPromise = new Promise<void>((r) => {
+        barrier.resolve = r;
+      });
+
+      // Blocking task runs; one pending fills the cap
+      queue.enqueue('session-1', vi.fn().mockImplementation(async () => {
+        await barrierPromise;
+      }));
+      expect(queue.enqueue('session-1', vi.fn().mockResolvedValue(undefined))).toBe(true);
+      // Beyond the cap — rejected while the backlog is stuck
+      expect(queue.enqueue('session-1', vi.fn().mockResolvedValue(undefined))).toBe(false);
+
+      // Release the backlog; once drained, new tasks are accepted again
+      barrier.resolve!();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(queue.enqueue('session-1', vi.fn().mockResolvedValue(undefined))).toBe(true);
+    });
+
+    it('applies the cap per session — other sessions are unaffected', async () => {
+      const queue = new ChatQueue({ maxPending: 1 });
+      const barrier = { resolve: undefined as (() => void) | undefined };
+      const barrierPromise = new Promise<void>((r) => {
+        barrier.resolve = r;
+      });
+
+      queue.enqueue('session-1', vi.fn().mockImplementation(async () => {
+        await barrierPromise;
+      }));
+      expect(queue.enqueue('session-1', vi.fn().mockResolvedValue(undefined))).toBe(true);
+      // session-1 pending backlog is full
+      expect(queue.enqueue('session-1', vi.fn().mockResolvedValue(undefined))).toBe(false);
+
+      // A different session is not capped by session-1's backlog
+      expect(queue.enqueue('session-2', vi.fn().mockResolvedValue(undefined))).toBe(true);
+      barrier.resolve!();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+  });
+
   describe('getQueueSize', () => {
     it('should return 0 for unknown sessions', () => {
       expect(queue.getQueueSize('unknown')).toBe(0);

@@ -5,14 +5,30 @@
  * Different sessions: tasks run in parallel (no global lock).
  * Errors in one session do not affect other sessions.
  * Auto-cleans queues when empty.
+ *
+ * P1 M6: bounded per session — when the pending backlog of a session exceeds
+ * `maxPending`, new tasks are rejected (enqueue returns false) so a hung turn
+ * cannot accumulate an unbounded message backlog for that session.
  */
 
 export type TaskFn = () => Promise<void>;
+
+export interface ChatQueueOptions {
+  /** Max pending (not-yet-started) tasks per session. Default 5. */
+  maxPending?: number;
+}
+
+const DEFAULT_MAX_PENDING = 5;
 
 export class ChatQueue {
   private queues: Map<string, TaskFn[]> = new Map();
   private running: Map<string, boolean> = new Map();
   private logger?: { warn: (...args: any[]) => void };
+  private readonly maxPending: number;
+
+  constructor(options: ChatQueueOptions = {}) {
+    this.maxPending = options.maxPending ?? DEFAULT_MAX_PENDING;
+  }
 
   setLogger(logger: { warn: (...args: any[]) => void }): void {
     this.logger = logger;
@@ -22,12 +38,22 @@ export class ChatQueue {
    * Enqueue a task for a given session.
    * Starts processing immediately if the session is idle.
    * Returns immediately — does NOT wait for the task to complete.
+   *
+   * P1 M6: returns false (and skips the task) when the session's pending
+   * backlog is already at maxPending — the caller should reply with a
+   * "busy" message instead of silently dropping the user's input.
    */
-  enqueue(sessionKey: string, task: TaskFn): void {
+  enqueue(sessionKey: string, task: TaskFn): boolean {
     let queue = this.queues.get(sessionKey);
     if (!queue) {
       queue = [];
       this.queues.set(sessionKey, queue);
+    }
+
+    // P1 M6: bounded backlog per session
+    if (queue.length >= this.maxPending) {
+      this.logger?.warn(`[ChatQueue] session ${sessionKey} backlog full (${this.maxPending} pending), rejecting task`);
+      return false;
     }
 
     queue.push(task);
@@ -36,6 +62,7 @@ export class ChatQueue {
     if (!this.running.get(sessionKey)) {
       void this.processNext(sessionKey);
     }
+    return true;
   }
 
   /**
