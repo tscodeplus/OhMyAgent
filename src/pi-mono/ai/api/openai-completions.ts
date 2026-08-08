@@ -28,6 +28,7 @@ import type {
 	StreamFunction,
 	StreamOptions,
 	TextContent,
+	ThinkingBudgets,
 	ThinkingContent,
 	Tool,
 	ToolCall,
@@ -51,7 +52,7 @@ import {
 } from "./constrained-sampling.js";
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.js";
 import { clampOpenAIPromptCacheKey } from "./openai-prompt-cache.js";
-import { buildBaseOptions } from "./simple-options.js";
+import { buildBaseOptions, clampReasoning, MIN_ANSWER_TOKENS } from "./simple-options.js";
 import { transformMessages } from "./transform-messages.js";
 
 /**
@@ -141,6 +142,8 @@ function isEncryptedReasoningDetail(detail: unknown): detail is OpenAIEncryptedR
 export interface OpenAICompletionsOptions extends StreamOptions {
 	toolChoice?: OpenAI.Chat.Completions.ChatCompletionToolChoiceOption;
 	reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+	/** Token budgets per thinking level. Only used when `compat.supportsThinkingTokenBudget` is set. */
+	thinkingBudgets?: ThinkingBudgets;
 }
 
 export interface ConvertCompletionsMessagesOptions {
@@ -154,10 +157,11 @@ interface OpenAICompatCacheControl {
 
 type ResolvedOpenAICompletionsCompat = Omit<
 	Required<OpenAICompletionsCompat>,
-	"cacheControlFormat" | "deferredToolsMode"
+	"cacheControlFormat" | "deferredToolsMode" | "supportsThinkingTokenBudget"
 > & {
 	cacheControlFormat?: OpenAICompletionsCompat["cacheControlFormat"];
 	deferredToolsMode?: OpenAICompletionsCompat["deferredToolsMode"];
+	supportsThinkingTokenBudget?: OpenAICompletionsCompat["supportsThinkingTokenBudget"];
 };
 
 type ResolvedChatTemplateKwargValue = string | number | boolean | null;
@@ -215,7 +219,7 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 				totalTokens: 0,
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 			},
-			stopReason: "stop",
+			stopReason: "pending",
 			timestamp: Date.now(),
 		};
 
@@ -228,7 +232,7 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 			);
 			const cacheRetention = resolveCacheRetention(options?.cacheRetention, options?.env);
 			const cacheSessionId = cacheRetention === "none" ? undefined : options?.sessionId;
-			const client = createClient(model, context, apiKey, options?.headers, cacheSessionId, compat);
+			const client = createClient(model, context, apiKey, options?.headers, options?.fetch, cacheSessionId, compat);
 			let params = buildParams(model, context, options, compat, cacheRetention, grammarToolInputProperties);
 			const nextParams = await options?.onPayload?.(params, model);
 			if (nextParams !== undefined) {
@@ -383,9 +387,8 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 				if (!block) {
 					// Note: the "input" fallback here should/must not be taken.  in case the LLM makes up
 					// a tool we don't knwo about, we at least have a place to stash our stuff.
-					const customInputProperty = toolCall.custom
-						? (grammarToolInputProperties.get(name) ?? "input")
-						: undefined;
+					const customInputProperty =
+						toolCall.custom && !toolCall.function ? (grammarToolInputProperties.get(name) ?? "input") : undefined;
 					const hasCustomInput = customInputProperty !== undefined;
 					block = {
 						type: "toolCall",
@@ -421,7 +424,7 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 				if (!block.name && name) {
 					block.name = name;
 				}
-				if (toolCall.custom && !block.customInput) {
+				if (toolCall.custom && !toolCall.function && !block.customInput) {
 					const customInputProperty = grammarToolInputProperties.get(block.name) ?? "input";
 					block.arguments = { [customInputProperty]: "" };
 					block.customInput = {
@@ -457,6 +460,7 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 				}
 
 				if (choice.finish_reason) {
+					output.rawStopReason = choice.finish_reason;
 					const finishReasonResult = mapStopReason(choice.finish_reason);
 					output.stopReason = finishReasonResult.stopReason;
 					if (finishReasonResult.errorMessage) {
@@ -571,10 +575,13 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 			if (output.stopReason === "aborted") {
 				throw new Error("Request was aborted");
 			}
+			if (!hasFinishReason && !compat.supportsFinishReason) {
+				output.stopReason = output.content.some((block) => block.type === "toolCall") ? "toolUse" : "stop";
+			}
 			if (output.stopReason === "error") {
 				throw new Error(output.errorMessage || "Provider returned an error stop reason");
 			}
-			if (!hasFinishReason) {
+			if ((compat.supportsFinishReason && !hasFinishReason) || output.stopReason === "pending") {
 				throw new Error("Stream ended without finish_reason");
 			}
 
@@ -622,6 +629,7 @@ export const streamSimple: StreamFunction<"openai-completions", SimpleStreamOpti
 		...base,
 		reasoningEffort,
 		toolChoice,
+		thinkingBudgets: options?.thinkingBudgets,
 	} satisfies OpenAICompletionsOptions);
 };
 
@@ -630,6 +638,7 @@ function createClient(
 	context: Context,
 	apiKey: string,
 	optionsHeaders?: ProviderHeaders,
+	fetch?: typeof globalThis.fetch,
 	sessionId?: string,
 	compat: ResolvedOpenAICompletionsCompat = getCompat(model),
 ) {
@@ -664,6 +673,7 @@ function createClient(
 		apiKey,
 		baseURL: model.baseUrl,
 		dangerouslyAllowBrowser: true,
+		fetch,
 		defaultHeaders: headers,
 	});
 }
@@ -750,15 +760,38 @@ function buildParams(
 		}
 	} else if (compat.thinkingFormat === "qwen" && model.reasoning) {
 		(params as any).enable_thinking = !!options?.reasoningEffort;
+		if (options?.reasoningEffort && compat.supportsReasoningEffort) {
+			const effort = model.thinkingLevelMap?.[options.reasoningEffort] ?? options.reasoningEffort;
+			if (typeof effort === "string") {
+				(params as any).reasoning_effort = effort;
+			}
+		}
 	} else if (compat.thinkingFormat === "qwen-chat-template" && model.reasoning) {
 		(params as any).chat_template_kwargs = {
 			enable_thinking: !!options?.reasoningEffort,
 			preserve_thinking: true,
 		};
 	} else if (compat.thinkingFormat === "chat-template" && model.reasoning) {
-		const chatTemplateKwargs = buildChatTemplateKwargs(model, options, compat);
+		const chatTemplateKwargs = buildChatTemplateValues(model, options, compat.chatTemplateKwargs);
 		if (chatTemplateKwargs) {
 			(params as any).chat_template_kwargs = chatTemplateKwargs;
+		}
+	} else if (compat.thinkingFormat === "baseten" && model.reasoning) {
+		const basetenParams = params as Omit<typeof params, "reasoning_effort"> & {
+			chat_template_args?: Record<string, ResolvedChatTemplateKwargValue>;
+			reasoning_effort?: string;
+		};
+		const chatTemplateArgs = buildChatTemplateValues(model, options, compat.chatTemplateArgs);
+		if (chatTemplateArgs) {
+			basetenParams.chat_template_args = chatTemplateArgs;
+		}
+		if (compat.supportsReasoningEffort) {
+			const requestedEffort = options?.reasoningEffort;
+			const mappedEffort = requestedEffort ? model.thinkingLevelMap?.[requestedEffort] : model.thinkingLevelMap?.off;
+			const effort = mappedEffort === undefined ? requestedEffort : mappedEffort;
+			if (typeof effort === "string") {
+				basetenParams.reasoning_effort = effort;
+			}
 		}
 	} else if (compat.thinkingFormat === "deepseek" && model.reasoning) {
 		if (options?.reasoningEffort) {
@@ -811,6 +844,27 @@ function buildParams(
 		}
 	}
 
+	// vLLM caps reasoning with a top-level thinking_token_budget. Independent of
+	// thinkingFormat: the same server can serve zai, qwen or chat-template models.
+	// Reasoning and the answer share max_tokens here, so an uncapped reasoning
+	// phase can consume the whole response and leave no answer and no tool call.
+	if (compat.supportsThinkingTokenBudget && options?.reasoningEffort && model.reasoning) {
+		const level = clampReasoning(options.reasoningEffort)!;
+		const budgets: ThinkingBudgets = {
+			minimal: 1024,
+			low: 2048,
+			medium: 8192,
+			high: 16384,
+			...options.thinkingBudgets,
+		};
+		const ceiling = (params as { max_tokens?: number }).max_tokens ?? params.max_completion_tokens ?? model.maxTokens;
+		// Always leave room for the answer, otherwise the budget recreates the bug it prevents.
+		const budget = Math.min(budgets[level]!, Math.max(0, ceiling - MIN_ANSWER_TOKENS));
+		if (budget > 0) {
+			(params as { thinking_token_budget?: number }).thinking_token_budget = budget;
+		}
+	}
+
 	// OpenRouter provider routing preferences
 	if (model.compat?.openRouterRouting) {
 		(params as any).provider = model.compat.openRouterRouting;
@@ -827,24 +881,29 @@ function buildParams(
 		}
 	}
 
+	// Last so custom keys override the named request fields.
+	if (options?.samplingParams) {
+		Object.assign(params, options.samplingParams);
+	}
+
 	return params;
 }
 
-function buildChatTemplateKwargs(
+function buildChatTemplateValues(
 	model: Model<"openai-completions">,
 	options: OpenAICompletionsOptions | undefined,
-	compat: ResolvedOpenAICompletionsCompat,
+	values: Record<string, ChatTemplateKwargValue>,
 ): Record<string, ResolvedChatTemplateKwargValue> | undefined {
-	const kwargs: Record<string, ResolvedChatTemplateKwargValue> = {};
+	const resolvedValues: Record<string, ResolvedChatTemplateKwargValue> = {};
 
-	for (const [key, value] of Object.entries(compat.chatTemplateKwargs)) {
+	for (const [key, value] of Object.entries(values)) {
 		const resolved = resolveChatTemplateKwargValue(model, options, value);
 		if (resolved !== undefined) {
-			kwargs[key] = resolved;
+			resolvedValues[key] = resolved;
 		}
 	}
 
-	return Object.keys(kwargs).length > 0 ? kwargs : undefined;
+	return Object.keys(resolvedValues).length > 0 ? resolvedValues : undefined;
 }
 
 function resolveChatTemplateKwargValue(
@@ -1417,7 +1476,13 @@ function detectCompat(model: Model<"openai-completions">): ResolvedOpenAIComplet
 		isAntLing;
 
 	const useMaxTokens =
-		baseUrl.includes("chutes.ai") || isMoonshot || isCloudflareAiGateway || isTogether || isNvidia || isAntLing;
+		baseUrl.includes("chutes.ai") ||
+		isMoonshot ||
+		isCloudflareAiGateway ||
+		isTogether ||
+		isNvidia ||
+		isAntLing ||
+		isZai;
 
 	const isGrok = provider === "xai" || baseUrl.includes("api.x.ai");
 	const isDeepSeek = provider === "deepseek" || baseUrl.includes("deepseek.com");
@@ -1431,6 +1496,7 @@ function detectCompat(model: Model<"openai-completions">): ResolvedOpenAIComplet
 		supportsReasoningEffort:
 			!isGrok && !isZai && !isMoonshot && !isTogether && !isCloudflareAiGateway && !isNvidia && !isAntLing,
 		supportsUsageInStreaming: true,
+		supportsFinishReason: true,
 		maxTokensField: useMaxTokens ? "max_tokens" : "max_completion_tokens",
 		requiresToolResultName: false,
 		requiresAssistantAfterToolResult: false,
@@ -1450,7 +1516,9 @@ function detectCompat(model: Model<"openai-completions">): ResolvedOpenAIComplet
 		openRouterRouting: {},
 		vercelGatewayRouting: {},
 		chatTemplateKwargs: {},
+		chatTemplateArgs: {},
 		zaiToolStream: false,
+		supportsThinkingTokenBudget: false,
 		supportsStrictMode: !isMoonshot && !isTogether && !isCloudflareAiGateway && !isNvidia,
 		supportsOpenAIGrammarTools: false,
 		cacheControlFormat,
@@ -1480,6 +1548,7 @@ function getCompat(model: Model<"openai-completions">): ResolvedOpenAICompletion
 		supportsDeveloperRole: model.compat.supportsDeveloperRole ?? detected.supportsDeveloperRole,
 		supportsReasoningEffort: model.compat.supportsReasoningEffort ?? detected.supportsReasoningEffort,
 		supportsUsageInStreaming: model.compat.supportsUsageInStreaming ?? detected.supportsUsageInStreaming,
+		supportsFinishReason: model.compat.supportsFinishReason ?? detected.supportsFinishReason,
 		maxTokensField: model.compat.maxTokensField ?? detected.maxTokensField,
 		requiresToolResultName: model.compat.requiresToolResultName ?? detected.requiresToolResultName,
 		requiresAssistantAfterToolResult:
@@ -1492,7 +1561,9 @@ function getCompat(model: Model<"openai-completions">): ResolvedOpenAICompletion
 		openRouterRouting: model.compat.openRouterRouting ?? {},
 		vercelGatewayRouting: model.compat.vercelGatewayRouting ?? detected.vercelGatewayRouting,
 		chatTemplateKwargs: model.compat.chatTemplateKwargs ?? detected.chatTemplateKwargs,
+		chatTemplateArgs: model.compat.chatTemplateArgs ?? detected.chatTemplateArgs,
 		zaiToolStream: model.compat.zaiToolStream ?? detected.zaiToolStream,
+		supportsThinkingTokenBudget: model.compat.supportsThinkingTokenBudget ?? detected.supportsThinkingTokenBudget,
 		supportsStrictMode: model.compat.supportsStrictMode ?? detected.supportsStrictMode,
 		supportsOpenAIGrammarTools: model.compat.supportsOpenAIGrammarTools ?? detected.supportsOpenAIGrammarTools,
 		cacheControlFormat: model.compat.cacheControlFormat ?? detected.cacheControlFormat,

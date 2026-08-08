@@ -30,38 +30,38 @@ export function registerBundledOAuthFlowLoaders(loaders: OAuthFlowLoaders): void
 
 export const loadAnthropicOAuth = async (): Promise<OAuthAuth> => {
 	if (bundledLoaders) return bundledLoaders.anthropic();
-	return ((await importOAuthModule("./anthropic.ts")) as { anthropicOAuth: OAuthAuth }).anthropicOAuth;
+	return ((await importOAuthModule("./anthropic.js")) as { anthropicOAuth: OAuthAuth }).anthropicOAuth;
 };
 
 export const loadOpenAICodexOAuth = async (): Promise<OAuthAuth> => {
 	if (bundledLoaders) return bundledLoaders.openaiCodex();
-	return ((await importOAuthModule("./openai-codex.ts")) as { openaiCodexOAuth: OAuthAuth }).openaiCodexOAuth;
+	return ((await importOAuthModule("./openai-codex.js")) as { openaiCodexOAuth: OAuthAuth }).openaiCodexOAuth;
 };
 
 export const loadGitHubCopilotOAuth = async (): Promise<OAuthAuth> => {
 	if (bundledLoaders) return bundledLoaders.githubCopilot();
-	return ((await importOAuthModule("./github-copilot.ts")) as { githubCopilotOAuth: OAuthAuth }).githubCopilotOAuth;
+	return ((await importOAuthModule("./github-copilot.js")) as { githubCopilotOAuth: OAuthAuth }).githubCopilotOAuth;
 };
 
 export const loadOpenRouterOAuth = async (): Promise<OAuthAuth> => {
 	if (bundledLoaders) return bundledLoaders.openrouter();
-	return ((await importOAuthModule("./openrouter.ts")) as { openRouterOAuth: OAuthAuth }).openRouterOAuth;
+	return ((await importOAuthModule("./openrouter.js")) as { openRouterOAuth: OAuthAuth }).openRouterOAuth;
 };
 
 export const loadKimiCodingOAuth = async (): Promise<OAuthAuth> => {
 	if (bundledLoaders) return bundledLoaders.kimiCoding();
-	return ((await importOAuthModule("./kimi-coding.ts")) as { kimiCodingOAuth: OAuthAuth }).kimiCodingOAuth;
+	return ((await importOAuthModule("./kimi-coding.js")) as { kimiCodingOAuth: OAuthAuth }).kimiCodingOAuth;
 };
 
 export const loadXaiOAuth = async (): Promise<OAuthAuth> => {
 	if (bundledLoaders) return bundledLoaders.xai();
-	return ((await importOAuthModule("./xai.ts")) as { xaiOAuth: OAuthAuth }).xaiOAuth;
+	return ((await importOAuthModule("./xai.js")) as { xaiOAuth: OAuthAuth }).xaiOAuth;
 };
 
 export const loadRadiusOAuth = async (options: { name: string; gateway: string }): Promise<OAuthAuth> => {
 	if (bundledLoaders) return bundledLoaders.radius(options);
 	return (
-		(await importOAuthModule("./radius.ts")) as {
+		(await importOAuthModule("./radius.js")) as {
 			createRadiusOAuth: (input: { name: string; gateway: string }) => OAuthAuth;
 		}
 	).createRadiusOAuth(options);

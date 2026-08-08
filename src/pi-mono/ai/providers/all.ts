@@ -6,6 +6,7 @@ import { amazonBedrockProvider } from "./amazon-bedrock.js";
 import { antLingProvider } from "./ant-ling.js";
 import { anthropicProvider } from "./anthropic.js";
 import { azureOpenAIResponsesProvider } from "./azure-openai-responses.js";
+import { basetenProvider } from "./baseten.js";
 import { cerebrasProvider } from "./cerebras.js";
 import { cloudflareAIGatewayProvider } from "./cloudflare-ai-gateway.js";
 import { cloudflareWorkersAIProvider } from "./cloudflare-workers-ai.js";
@@ -32,6 +33,7 @@ import { openrouterProvider } from "./openrouter.js";
 import { openrouterImagesProvider } from "./openrouter-images.js";
 import { qwenTokenPlanProvider } from "./qwen-token-plan.js";
 import { qwenTokenPlanCnProvider } from "./qwen-token-plan-cn.js";
+import { qwenTokenPlanIndividualProvider } from "./qwen-token-plan-individual.js";
 import { radiusProvider } from "./radius.js";
 import { togetherProvider } from "./together.js";
 import { vercelAIGatewayProvider } from "./vercel-ai-gateway.js";
@@ -90,6 +92,7 @@ export function builtinProviders(): Provider[] {
 		antLingProvider(),
 		anthropicProvider(),
 		azureOpenAIResponsesProvider(),
+		basetenProvider(),
 		cerebrasProvider(),
 		cloudflareAIGatewayProvider(),
 		cloudflareWorkersAIProvider(),
@@ -114,6 +117,7 @@ export function builtinProviders(): Provider[] {
 		openrouterProvider(),
 		qwenTokenPlanProvider(),
 		qwenTokenPlanCnProvider(),
+		qwenTokenPlanIndividualProvider(),
 		radiusProvider(),
 		togetherProvider(),
 		vercelAIGatewayProvider(),

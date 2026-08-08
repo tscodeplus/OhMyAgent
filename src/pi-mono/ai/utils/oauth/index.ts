@@ -30,12 +30,12 @@ const DEFAULT_RADIUS_GATEWAY = "https://radius.earendil-works.com";
 // ── Adapt old callbacks → new AuthInteraction ────────────────────────────
 
 function toAuthInteraction(callbacks: OAuthLoginCallbacks): {
-  signal?: AbortSignal;
+  signal: AbortSignal;
   prompt(p: AuthPrompt): Promise<string>;
   notify(e: AuthEvent): void;
 } {
   return {
-    signal: callbacks.signal,
+    signal: callbacks.signal ?? new AbortController().signal,
     async prompt(p: AuthPrompt): Promise<string> {
       switch (p.type) {
         case "text":
@@ -101,7 +101,7 @@ function adaptOAuthAuth(
       return { access: credential.access, refresh: credential.refresh, expires: credential.expires };
     },
     async refreshToken(credentials: OAuthCredentials) {
-      const refreshed = await (await auth()).refresh(credentials as any);
+      const refreshed = await (await auth()).refresh(credentials as any, new AbortController().signal);
       return { access: refreshed.access, refresh: refreshed.refresh, expires: refreshed.expires };
     },
     getApiKey(credentials: OAuthCredentials) {

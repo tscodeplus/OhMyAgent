@@ -47,6 +47,7 @@ import type {
 	ToolCall,
 	ToolResultMessage,
 } from "../types.js";
+import { appendAssistantMessageDiagnostic } from "../utils/diagnostics.js";
 import { normalizeProviderError } from "../utils/error-body.js";
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { providerHeadersToRecord } from "../utils/headers.js";
@@ -125,14 +126,20 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 				totalTokens: 0,
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 			},
-			stopReason: "stop",
+			stopReason: "pending",
 			timestamp: Date.now(),
 		};
 
 		const blocks = output.content as Block[];
 
+		// A profile explicitly configured through pi's auth flow (the `profile`
+		// option or scoped `AWS_PROFILE` on the stored credential's env) must win
+		// over ambient AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY. The SDK default
+		// chain already prefers a configured profile over env keys, but only when
+		// `credentials` is not set on the client config. See #6957.
+		const optionsProfile = options.profile || options.env?.AWS_PROFILE;
 		const config: BedrockRuntimeClientConfig = {
-			profile: options.profile || getProviderEnvValue("AWS_PROFILE", options.env),
+			profile: optionsProfile || getProviderEnvValue("AWS_PROFILE", options.env),
 		};
 		const configuredRegion = getConfiguredBedrockRegion(options);
 		const hasAmbientConfiguredProfile = Boolean(getProviderEnvValue("AWS_PROFILE"));
@@ -184,7 +191,7 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 			}
 
 			const credentials = getConfiguredBedrockCredentials(options.env);
-			if (!skipAuth && credentials) {
+			if (!skipAuth && credentials && !optionsProfile) {
 				config.credentials = credentials;
 			}
 
@@ -213,6 +220,10 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 			config.authSchemePreference = ["httpBearerAuth"];
 		}
 
+		// Kept outside the try so the catch can still correlate a mid-stream failure:
+		// exceptions delivered as stream events carry no HTTP metadata of their own.
+		let responseRequestId: string | undefined;
+
 		try {
 			const client = new BedrockRuntimeClient(config);
 			const customHeaders = providerHeadersToRecord(options.headers);
@@ -240,6 +251,7 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 			const command = new ConverseStreamCommand(commandInput);
 
 			const response = await client.send(command, { abortSignal: options.signal });
+			responseRequestId = normalizeDiagnosticValue(response.$metadata.requestId);
 			if (response.$metadata.httpStatusCode !== undefined) {
 				const responseHeaders: Record<string, string> = {};
 				if (response.$metadata.requestId) {
@@ -261,6 +273,7 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 				} else if (item.contentBlockStop) {
 					handleContentBlockStop(item.contentBlockStop, blocks, output, stream);
 				} else if (item.messageStop) {
+					output.rawStopReason = item.messageStop.stopReason;
 					const { stopReason, errorMessage } = mapStopReason(item.messageStop.stopReason);
 					output.stopReason = stopReason;
 					if (errorMessage) {
@@ -285,6 +298,9 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 				throw new Error("Request was aborted");
 			}
 
+			if (output.stopReason === "pending") {
+				throw new Error("Bedrock stream ended without a stop reason");
+			}
 			if (output.stopReason === "error" || output.stopReason === "aborted") {
 				throw new Error(output.errorMessage || "An unknown error occurred");
 			}
@@ -299,6 +315,9 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 			}
 			output.stopReason = options.signal?.aborted ? "aborted" : "error";
 			output.errorMessage = formatBedrockError(error);
+			if (output.stopReason === "error") {
+				appendBedrockFailureDiagnostic(output, error, responseRequestId);
+			}
 			stream.push({ type: "error", reason: output.stopReason, error: output });
 			stream.end();
 		}
@@ -354,6 +373,54 @@ function formatBedrockError(error: unknown): string {
 	return `${core}${dataRetentionHint}`;
 }
 
+type SdkErrorMetadata = { $metadata?: { httpStatusCode?: unknown; requestId?: unknown } };
+
+/** Over-long header values are dropped rather than truncated: a truncated request id is not a request id. */
+const MAX_BEDROCK_DIAGNOSTIC_VALUE_CHARS = 200;
+
+function normalizeDiagnosticValue(value: unknown): string | undefined {
+	if (typeof value !== "string") return undefined;
+	const trimmed = value.trim();
+	if (trimmed.length === 0 || trimmed.length > MAX_BEDROCK_DIAGNOSTIC_VALUE_CHARS) return undefined;
+	return trimmed;
+}
+
+/**
+ * The SDK puts the modeled code on `error.name` for service exceptions and unmodeled stream errors alike, so
+ * do not narrow to `BedrockRuntimeServiceException`. Modeled Bedrock errors all end in `Exception`, unlike
+ * transport names such as `TimeoutError`.
+ */
+function extractBedrockErrorCode(error: unknown): string | undefined {
+	if (!(error instanceof Error) || !error.name.endsWith("Exception")) return undefined;
+	return normalizeDiagnosticValue(error.name);
+}
+
+/**
+ * Structured metadata alongside `errorMessage`, which stays byte-identical because `isRetryableAssistantError`
+ * matches against it. Unknown fields are omitted, never guessed: a modeled mid-stream exception reaches us as
+ * a bare object literal, leaving only `fallbackRequestId`. `details` only, as the throw is not always `Error`.
+ */
+function appendBedrockFailureDiagnostic(
+	output: AssistantMessage,
+	error: unknown,
+	fallbackRequestId: string | undefined,
+): void {
+	const metadata = (error as SdkErrorMetadata)?.$metadata;
+	const details: Record<string, unknown> = {};
+
+	if (typeof metadata?.httpStatusCode === "number") details.status = metadata.httpStatusCode;
+
+	const errorCode = extractBedrockErrorCode(error);
+	if (errorCode !== undefined) details.errorCode = errorCode;
+
+	const requestId = normalizeDiagnosticValue(metadata?.requestId) ?? fallbackRequestId;
+	if (requestId !== undefined) details.requestId = requestId;
+
+	if (Object.keys(details).length === 0) return;
+
+	appendAssistantMessageDiagnostic(output, { type: "bedrock_response_failure", timestamp: Date.now(), details });
+}
+
 /**
  * Header keys that must never be overwritten by caller-supplied headers.
  * `host` and `x-amz-*` participate in the SigV4 canonical request; `authorization`
@@ -375,7 +442,7 @@ function isReservedHeader(key: string): boolean {
  * all other caller headers override any existing same-named header on the request.
  */
 function addCustomHeadersMiddleware(client: BedrockRuntimeClient, headers: Record<string, string>): void {
-	const middleware: BuildMiddleware<object, MetadataBearer> = (next) => async (args) => {
+	const middleware = ((next) => async (args: any) => {
 		const request = args.request;
 		if (request && typeof request === "object" && "headers" in request) {
 			const requestHeaders = (request as { headers: Record<string, string> }).headers;
@@ -386,8 +453,8 @@ function addCustomHeadersMiddleware(client: BedrockRuntimeClient, headers: Recor
 			}
 		}
 		return next(args);
-	};
-	client.middlewareStack.add(middleware, { step: "build", name: "pi-ai-custom-headers", priority: "low" });
+	}) as BuildMiddleware<object, MetadataBearer>;
+	client.middlewareStack.add(middleware as any, { step: "build", name: "pi-ai-custom-headers", priority: "low" });
 }
 
 export const streamSimple: StreamFunction<"bedrock-converse-stream", SimpleStreamOptions> = (
@@ -960,7 +1027,9 @@ function mapStopReason(reason: string | undefined): { stopReason: StopReason; er
 		case BedrockStopReason.TOOL_USE:
 			return { stopReason: "toolUse" };
 		default:
-			return reason ? { stopReason: "error", errorMessage: reason } : { stopReason: "error" };
+			return reason
+				? { stopReason: "error", errorMessage: `Provider stopped with: ${reason}` }
+				: { stopReason: "error" };
 	}
 }
 
