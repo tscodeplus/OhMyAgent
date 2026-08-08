@@ -122,16 +122,14 @@ jobs:
           targets: ${{ matrix.target }}
 
       # Fast linker — mirrors the local build machines' ~/.cargo/config.toml
-      # (mold on Linux, lld-link on Windows) so CI links as fast as local
-      # ones. Install + config write are chained with &&: a failed install
-      # silently falls back to the default linker instead of breaking the
-      # release build. macOS intentionally keeps the default ld64: Apple
-      # clang rejects -fuse-ld=mold ("invalid linker name"), and the
-      # bundled ld64 is already fast — no speedup to buy there. NOTE: the
+      # (mold on Linux only). Windows and macOS keep their default linkers:
+      # lld-link measured no speedup over MSVC link.exe (2m38s vs 2m37s),
+      # and Apple clang rejects -fuse-ld=mold. Install + config write are
+      # chained with &&: a failed install silently falls back to the
+      # default linker instead of breaking the release build. NOTE: the
       # -fuse-ld rustflags change the cargo fingerprint, so the first build
-      # after this lands recompiles everything once; the refreshed cache
-      # then keeps it fast. Windows is unaffected (the [target] linker
-      # setting is not fingerprinted).
+      # after a linker change recompiles everything once; the refreshed
+      # cache then keeps it fast.
       - name: Install fast linker
         shell: bash
         run: |
@@ -139,11 +137,6 @@ jobs:
             Linux)
               sudo apt-get install -y mold && {
                 printf '%s\n' '[target.x86_64-unknown-linux-gnu]' 'rustflags = ["-C", "link-arg=-fuse-ld=mold"]' >> "$HOME/.cargo/config.toml"
-              }
-              ;;
-            Windows)
-              choco install llvm -y --no-progress && {
-                printf '%s\n' '[target.x86_64-pc-windows-msvc]' "linker = 'C:\\Program Files\\LLVM\\bin\\lld-link.exe'" >> "$HOME/.cargo/config.toml"
               }
               ;;
           esac
