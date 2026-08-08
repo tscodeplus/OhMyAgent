@@ -867,7 +867,22 @@ export async function bootstrap(): Promise<BootstrapResult> {
 
       // Critical cleanup: always attempt to close server and DB,
       // even if the sequence above errored partway through.
-      try { await server.close(); } catch { /* already closed */ }
+      // server.close() waits for open connections to end — the WebUI's
+      // WebSocket (desktop window still open during a tray quit) never does,
+      // so close() hangs forever and the shell's graceful-exit deadline
+      // force-kills the process. Bound the wait, then force-close any
+      // remaining connections so the process exits cleanly on its own.
+      try {
+        await Promise.race([
+          server.close(),
+          new Promise((resolve) => setTimeout(resolve, 3000)),
+        ]);
+      } catch { /* already closed */ }
+      // Fastify's public types predate closeAllConnections (Node 18.2+);
+      // the runtime method exists on the underlying http.Server.
+      try {
+        (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();
+      } catch { /* no-op */ }
       try { db.close(); } catch { /* already closed or unreachable */ }
       logger.info('[OhMyAgent] HTTP server + database closed');
 

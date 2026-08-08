@@ -36,7 +36,11 @@ const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const HTTP_TIMEOUT: Duration = Duration::from_secs(8);
 const STARTUP_WINDOW: Duration = Duration::from_secs(60);
 const MAX_CONSECUTIVE_FAILURES: u32 = 5;
-const GRACEFUL_EXIT_WAIT: Duration = Duration::from_secs(2);
+// Must exceed the sidecar's own force-exit deadline (SHUTDOWN_TIMEOUT_MS,
+// 5s) so a stuck stop() is reaped by the sidecar itself — killing from
+// here only happens when even that deadline didn't fire (process wedged,
+// e.g. an uninterruptible native call).
+const GRACEFUL_EXIT_WAIT: Duration = Duration::from_secs(6);
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug)]
 #[serde(rename_all = "lowercase")]
