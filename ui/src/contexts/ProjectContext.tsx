@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { apiRequest } from '../utils/api';
+import { useAuth } from './AuthContext';
 import type { Project } from '../types/project';
 
 interface EnsureDefaultResponse {
@@ -32,6 +33,7 @@ const ProjectContext = createContext<ProjectContextValue>({
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation('common');
+  const { token } = useAuth();
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
@@ -42,6 +44,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // Wait for the auth token: the desktop shell injects it via IPC
+    // (getWebUIToken) after mount, so firing ensure-default without it gets
+    // 401-rejected and HomePage would fall back to /dashboard forever.
+    if (!token) return;
     let cancelled = false;
     const defaultName = t('project.defaultName', 'Default Space');
     apiRequest<EnsureDefaultResponse>('/api/projects/ensure-default', {
@@ -58,7 +64,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         if (!cancelled) setInitialized(true);
       });
     return () => { cancelled = true; };
-  }, [t]);
+  }, [t, token]);
 
   return (
     <ProjectContext.Provider

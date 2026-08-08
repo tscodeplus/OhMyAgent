@@ -57,8 +57,11 @@ export default function App() {
   const { isAuthenticated, isLoading, connectionError, remoteUrl, retryAuth } = useAuth();
   const { initialized } = useProject();
 
-  // Still validating token / establishing connection
-  if (isLoading || !initialized) {
+  // Still validating token / establishing connection. Don't gate the login
+  // page on project bootstrap: ensure-default only fires once the auth token
+  // exists (the desktop shell injects it via IPC after mount), so an
+  // unauthenticated user must reach LoginPage without waiting on it.
+  if (isLoading || (isAuthenticated && !initialized)) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-neutral-50 dark:bg-neutral-950">
         <div className="flex flex-col items-center gap-3">
