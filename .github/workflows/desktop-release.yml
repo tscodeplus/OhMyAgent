@@ -102,16 +102,19 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Install Node (matches bundled runtime)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version-file: desktop/.node-version
           cache: pnpm
+          # v5 auto-caches via the packageManager field — keep v4's explicit
+          # `cache: pnpm` behavior identical.
+          package-manager-cache: false
 
       # Same rustc everywhere (matches the Windows build machine) — a bump
       # invalidates every crate's fingerprint and turns the cargo cache below
@@ -148,7 +151,7 @@ jobs:
       # workflows' keys (cargo-win-x64-, cargo-<target>-, cargo-linux-x64-),
       # so the existing CI caches are reused.
       - name: Cache cargo (registry + toolchain + build artifacts)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -163,7 +166,7 @@ jobs:
       # already exists — give it a persistent home so the download happens
       # once per .node-version, not once per run.
       - name: Cache bundled Node runtime
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: desktop/.sidecar-deps/runtime
           key: node-${{ matrix.bundle_platform }}-${{ hashFiles('desktop/.node-version') }}
@@ -175,7 +178,7 @@ jobs:
       # @tauri-apps/cli version, and a stale restore is harmless.
       - name: Cache tauri bundler tools (NSIS toolchain)
         if: runner.os == 'Windows'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: '${{ env.LOCALAPPDATA }}\tauri'
           key: tauri-tools-win
@@ -418,7 +421,7 @@ jobs:
 
       - name: Upload artifacts (Windows)
         if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ohmyagent-windows-x64
           path: |
@@ -428,7 +431,7 @@ jobs:
 
       - name: Upload artifacts (macOS)
         if: runner.os == 'macOS'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ohmyagent-mac-${{ matrix.bundle_platform }}
           path: |
@@ -438,7 +441,7 @@ jobs:
 
       - name: Upload artifacts (Linux)
         if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ohmyagent-linux-x64
           path: |
@@ -456,14 +459,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v6
         with:
           name: ohmyagent-mac-darwin-x64
           path: mac-x64
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v6
         with:
           name: ohmyagent-mac-darwin-arm64
           path: mac-arm64
@@ -484,7 +487,7 @@ jobs:
           node desktop/scripts/release-meta.cjs "$ZIP_X64" "$ZIP_ARM64" "$VERSION" latest-mac.yml
 
       - name: Upload merged latest-mac.yml
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ohmyagent-mac-meta
           path: mac-x64/macos/latest-mac.yml
@@ -500,34 +503,34 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')   # tag push only, not workflow_dispatch
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download Windows artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: ohmyagent-windows-x64
           path: release-artifacts/windows
 
       - name: Download macOS x64 artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: ohmyagent-mac-darwin-x64
           path: release-artifacts/mac-x64
 
       - name: Download macOS arm64 artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: ohmyagent-mac-darwin-arm64
           path: release-artifacts/mac-arm64
 
       - name: Download Linux artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: ohmyagent-linux-x64
           path: release-artifacts/linux
 
       - name: Download merged latest-mac.yml
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: ohmyagent-mac-meta
           path: release-artifacts/mac-meta
