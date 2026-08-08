@@ -194,13 +194,35 @@ function writeFileRoot(configPath: string, root: string): void {
 // Path Security
 // ---------------------------------------------------------------------------
 
+/**
+ * True when `candidate` resolves to a path inside `root` (or root itself).
+ *
+ * Naively this is `resolved.startsWith(resolvedRoot + sep)`, but that breaks
+ * on Windows drive roots: resolve("D:\\") ends with sep, so appending sep
+ * yields "D:\\\\" which never matches a real path ("D:\\Users\\..."). When the
+ * root already ends with sep, the root itself is the prefix.
+ *
+ * The path module is injectable so tests can exercise Windows semantics
+ * (path.win32) from a Linux runner.
+ */
+export function isWithinRoot(
+  root: string,
+  candidate: string,
+  p: { resolve(...paths: string[]): string; sep: string } = { resolve, sep },
+): boolean {
+  const resolvedRoot = p.resolve(root);
+  const resolved = p.resolve(candidate);
+  if (resolved === resolvedRoot) return true;
+  const prefix = resolvedRoot.endsWith(p.sep) ? resolvedRoot : resolvedRoot + p.sep;
+  return resolved.startsWith(prefix);
+}
+
 function safeResolve(root: string, userPath: string): string {
   const normalized = normalize(userPath).replace(/^(\.\.(\/|\\|$))+/, '');
   const resolved = resolve(root, normalized);
-  const resolvedRoot = resolve(root);
 
   // Ensure resolved path stays within root
-  if (!resolved.startsWith(resolvedRoot + sep) && resolved !== resolvedRoot) {
+  if (!isWithinRoot(root, resolved)) {
     throw new Error('Path traversal denied');
   }
 
@@ -427,8 +449,7 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
         // Absolute path: verify within an allowed root
         const resolvedAbs = resolve(normalized);
         for (const root of allowedRoots) {
-          const resolvedRoot = resolve(root);
-          if (resolvedAbs.startsWith(resolvedRoot + sep) || resolvedAbs === resolvedRoot) {
+          if (isWithinRoot(root, resolvedAbs)) {
             filePath = resolvedAbs;
             break;
           }
@@ -438,8 +459,7 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
         for (const root of allowedRoots) {
           const candidate = resolve(root, normalized);
           if (existsSync(candidate)) {
-            const resolvedRoot = resolve(root);
-            if (candidate.startsWith(resolvedRoot + sep) || candidate === resolvedRoot) {
+            if (isWithinRoot(root, candidate)) {
               filePath = candidate;
               break;
             }
@@ -509,8 +529,7 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
         // Absolute path: verify it's within an allowed root
         const resolvedAbs = resolve(normalized);
         for (const root of allowedRoots) {
-          const resolvedRoot = resolve(root);
-          if (resolvedAbs.startsWith(resolvedRoot + sep) || resolvedAbs === resolvedRoot) {
+          if (isWithinRoot(root, resolvedAbs)) {
             filePath = resolvedAbs;
             break;
           }
@@ -540,8 +559,7 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
           const candidate = resolve(root, normalized);
           if (existsSync(candidate)) {
             // Security check: must be within this root
-            const resolvedRoot = resolve(root);
-            if (candidate.startsWith(resolvedRoot + sep) || candidate === resolvedRoot) {
+            if (isWithinRoot(root, candidate)) {
               filePath = candidate;
               break;
             }

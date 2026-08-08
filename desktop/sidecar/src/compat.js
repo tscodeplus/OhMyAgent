@@ -189,14 +189,28 @@
     getBridgeStatus: () => ctlFetch('/_desktop/bridge/status'),
 
     // files
-    saveFileFromUrl: (url, filename) => invoke('compat_save_file_from_url', {
-      url,
-      filename,
-    }),
-    saveLocalFile: (filePath, fileName) => invoke('compat_save_local_file', {
-      filePath,
-      fileName,
-    }),
+    // The Rust commands return the saved path (String) or "" when the user
+    // cancels the dialog. Wrap into the { ok, error } shape the WebUI expects
+    // (inherited from the Electron preload) so a successful save isn't
+    // reported as a failure.
+    saveFileFromUrl: async (url, filename) => {
+      try {
+        const saved = await invoke('compat_save_file_from_url', { url, filename });
+        if (!saved) return { ok: false, error: 'cancelled' };
+        return { ok: true, path: saved };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    },
+    saveLocalFile: async (filePath, fileName) => {
+      try {
+        const saved = await invoke('compat_save_local_file', { filePath, fileName });
+        if (!saved) return { ok: false, error: 'cancelled' };
+        return { ok: true, path: saved };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    },
 
     // language
     setDesktopLanguage: (lang) => ctlFetch('/_desktop/language', {
