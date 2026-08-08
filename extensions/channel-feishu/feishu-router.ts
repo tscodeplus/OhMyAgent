@@ -24,6 +24,14 @@ export interface FeishuRouterOptions {
 export class FeishuRouter {
   private handlers: Map<string, EventHandler> = new Map();
   private seen: Map<string, number> = new Map();
+  /**
+   * Message ids whose handler is currently running. Guards against concurrent
+   * duplicate delivery (Feishu retry racing the initial delivery). Entries are
+   * only removed when the handler settles — a hung handler blocks re-delivery
+   * of that single message until process restart, which is safer than running
+   * the handler twice. No TTL cleanup: unlike `seen`, entries never expire.
+   */
+  private inFlight: Set<string> = new Set();
   private dedupTTL: number = 5 * 60 * 1000; // 5 minutes
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
   private readonly MAX_SEEN_SIZE = 10_000;
@@ -65,7 +73,10 @@ export class FeishuRouter {
       return;
     }
 
-    // Deduplication on message_id (only for message events)
+    // Deduplication on message_id (only for message events). The seen map is
+    // only populated AFTER the handler succeeds, so a failed delivery is not
+    // marked as processed and Feishu's retry can re-process it instead of
+    // being silently dropped as a duplicate.
     const messageId: string | undefined = event?.event?.message?.message_id;
     if (messageId && this.isDuplicate(messageId)) {
       return;
@@ -76,11 +87,32 @@ export class FeishuRouter {
       return;
     }
     if (this.isStaleMessage(context)) {
+      this.markSeen(messageId);
       this.recordProcessedMessage(context, eventType);
       return;
     }
-    await handler(context);
-    this.recordProcessedMessage(context, eventType);
+
+    // In-flight guard: while the handler is running, a concurrent delivery of
+    // the same message (Feishu retry racing the initial delivery) is dropped
+    // instead of running the handler twice. The guard is released in `finally`,
+    // so a retry arriving AFTER a failure is still processed normally.
+    if (messageId && this.inFlight.has(messageId)) {
+      return;
+    }
+    if (messageId) {
+      this.inFlight.add(messageId);
+    }
+    try {
+      await handler(context);
+      // Mark as processed only after successful handling — if the handler
+      // throws, the message stays retryable for Feishu's next attempt.
+      this.markSeen(messageId);
+      this.recordProcessedMessage(context, eventType);
+    } finally {
+      if (messageId) {
+        this.inFlight.delete(messageId);
+      }
+    }
   }
 
   private isPersistentlyProcessed(context: FeishuMessageContext, eventType: string): boolean {
@@ -142,16 +174,23 @@ export class FeishuRouter {
   }
 
   /**
-   * Check whether a messageId has been seen recently.
-   * If not, record it and return false. If yes, return true.
+   * Check whether a messageId has been handled recently (successful processing
+   * or deliberate stale drop). Does NOT record it — recording only happens
+   * after the handler succeeds (see markSeen), so failed deliveries stay
+   * retryable.
    */
   private isDuplicate(messageId: string): boolean {
-    if (this.seen.has(messageId)) {
-      return true;
-    }
+    return this.seen.has(messageId);
+  }
 
-    this.seen.set(messageId, Date.now());
-    return false;
+  /**
+   * Record a messageId as handled in the in-memory dedup map.
+   * No-op when the event has no message_id (nothing to deduplicate).
+   */
+  private markSeen(messageId: string | undefined): void {
+    if (messageId) {
+      this.seen.set(messageId, Date.now());
+    }
   }
 
   /**

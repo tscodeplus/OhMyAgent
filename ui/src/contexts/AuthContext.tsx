@@ -63,7 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       (async () => {
         // Check if we're connecting to a remote gateway (config set in desktop settings).
         // Remote gateways enforce token auth; we must use the configured remote token,
-        // not the local 'electron-local' bypass value.
+        // not the local gateway token.
         let remoteToken = '';
         let configRemoteUrl = '';
         try {
@@ -94,10 +94,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setConnectionError(baseMsg);
           }
         } else {
-          // Local mode — use the Electron bypass token
-          const electronToken = 'electron-local';
-          setToken(electronToken);
-          setTokenState(electronToken);
+          // Local mode — the shell generated a token and injected it into the
+          // gateway process (OMA_WEBUI_TOKEN); read it from the control API.
+          // The gateway enforces it, so a missing token must fail closed —
+          // the connection error page offers a retry (the control API may
+          // briefly be down at page load in dev).
+          let webuiToken = '';
+          try {
+            for (let attempt = 0; attempt < 10 && !webuiToken; attempt++) {
+              webuiToken = await window.electronAPI!.getWebUIToken();
+              if (!webuiToken) {
+                await new Promise((r) => setTimeout(r, 500));
+              }
+            }
+          } catch { /* control API unreachable — fail closed below */ }
+          if (webuiToken) {
+            setToken(webuiToken);
+            setTokenState(webuiToken);
+          } else {
+            clearToken();
+            setTokenState(null);
+            setConnectionError('无法获取桌面端访问令牌，请重试');
+          }
         }
         setIsLoading(false);
       })();

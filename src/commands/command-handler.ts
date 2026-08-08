@@ -65,6 +65,18 @@ export interface CommandDeps {
   configPath?: string;
   /** Trigger config hot-reload after config.yaml is modified by a slash command. */
   triggerConfigReload?: () => void;
+  /** Channel-provided admin check for privileged commands (e.g. /permission).
+   *  When present, the operator identity passed to handleCommand is required
+   *  to satisfy it; a failing check rejects the command. */
+  isAdmin?: (operator: { senderId?: string; chatType?: string }) => boolean;
+}
+
+/** Operator context of the message that issued a slash command. */
+export interface CommandOperator {
+  /** Channel sender identity (e.g. Feishu open_id). */
+  senderId?: string;
+  /** Chat type (e.g. 'p2p' | 'group'). */
+  chatType?: string;
 }
 
 export interface CommandResult {
@@ -88,6 +100,7 @@ export async function handleCommand(
   deps: CommandDeps,
   messageId?: string,
   chatId?: string,
+  operator?: CommandOperator,
 ): Promise<CommandResult | null> {
   const trimmed = text.trim();
   if (!trimmed.startsWith('/')) return null;
@@ -128,7 +141,7 @@ export async function handleCommand(
     case '/answer':
       return handleAnswer(args, sessionKey, deps);
     case '/permission':
-      return await handlePermission(args, deps);
+      return await handlePermission(args, deps, operator);
     default:
       return null;
   }
@@ -560,7 +573,16 @@ async function setMode(mode: PolicyMode, deps: CommandDeps): Promise<{ ok: boole
 async function handlePermission(
   args: string,
   deps: CommandDeps,
+  operator?: CommandOperator,
 ): Promise<CommandResult> {
+  // ── Admin gate ──
+  // Applies when the channel supplies operator context (Feishu messages).
+  // Channels without per-user identity (e.g. WebUI, token-authenticated)
+  // do not pass operator context and keep legacy behavior.
+  if (operator && deps.isAdmin && !deps.isAdmin(operator)) {
+    return { reply: i18n.t('commands:permission.notAuthorized') };
+  }
+
   const sub = args.trim().toLowerCase();
 
   // /permission — show current mode

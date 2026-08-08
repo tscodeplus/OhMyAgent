@@ -99,6 +99,9 @@ export interface MessageHandlerOptions {
   sttConfig?: { autoTranscribe?: boolean; enabled?: boolean; language?: string };
   /** Bot's app_id used to detect @mentions in groups (format: @_bot_<app_id>). */
   botAppId?: string;
+  /** Access control: only these sender open_ids may interact with the bot.
+   *  Empty list = allow all (legacy behavior). Mirrors Telegram/WeChat/QQ. */
+  allowedUsers?: string[];
 }
 
 export class MessageHandler {
@@ -111,6 +114,42 @@ export class MessageHandler {
       this._sttTranscriber = this.options.getSttTranscriber?.() ?? null;
     }
     return this._sttTranscriber || undefined;
+  }
+
+  /** Whether the message @-mentions the bot (format: @_bot_<app_id>). */
+  private isMentioningBot(context: FeishuMessageContext): boolean {
+    if (!this.options.botAppId) return false;
+    const rawMentions: Array<{ key?: string; id?: { open_id?: string } }> | undefined =
+      context.rawEvent?.event?.message?.mentions;
+    const botMentionKey = `@_bot_${this.options.botAppId}`;
+    if (rawMentions?.length) {
+      return rawMentions.some(
+        (m) => m.key === botMentionKey || m.id?.open_id === botMentionKey,
+      );
+    }
+    return false;
+  }
+
+  /**
+   * Access control (aligned with Telegram/WeChat/QQ):
+   *  - allowedUsers (open_ids) restricts who may interact at all; empty = allow all.
+   *  - Group chats are only answered when the bot is @-mentioned.
+   */
+  private isAllowed(context: FeishuMessageContext): boolean {
+    const allowed = this.options.allowedUsers;
+    if (allowed && allowed.length > 0 && !allowed.includes(context.senderId)) {
+      this.options.logger?.warn(
+        `Feishu user ${context.senderId} not in allowedUsers, skipping message ${context.messageId}`,
+      );
+      return false;
+    }
+    if (context.chatType === 'group' && !this.isMentioningBot(context)) {
+      this.options.logger?.warn(
+        `Feishu group message without @bot mention, skipping message ${context.messageId}`,
+      );
+      return false;
+    }
+    return true;
   }
 
   private createMediaTool(chatId: string): any | null {
@@ -144,6 +183,9 @@ export class MessageHandler {
    * 3. Otherwise → pass extracted text to agent
    */
   async handle(context: FeishuMessageContext): Promise<boolean> {
+    // ── Access control: allowedUsers whitelist + @bot mention in groups ──
+    if (!this.isAllowed(context)) return false;
+
     const text = context.text.trim();
 
     // ── Slash command routing ──
@@ -166,6 +208,7 @@ export class MessageHandler {
         this.options.commandDeps,
         context.messageId,
         context.chatId,
+        { senderId: context.senderId, chatType: context.chatType },
       );
 
       if (result) {
@@ -213,12 +256,15 @@ export class MessageHandler {
     text: string,
     context: FeishuMessageContext,
   ): void {
-    this.options.chatQueue.enqueue(context.sessionKey, async () => {
+    // P1 M6: bounded queue — when the session is at capacity, tell the user
+    // instead of silently dropping the message or queueing without limit.
+    const accepted = this.options.chatQueue.enqueue(context.sessionKey, async () => {
       const mediaTool = this.createMediaTool(context.chatId);
       const baseOptions = {
         sessionId: context.sessionKey,
         chatId: context.chatId,
         messageId: context.messageId,
+        senderId: context.senderId,
         channel: 'feishu' as const,
         extraTools: mediaTool ? [mediaTool] : [],
       };
@@ -317,6 +363,10 @@ export class MessageHandler {
       // Text / post (without images) / fallback
       await this.options.agentService.execute(text, baseOptions);
     });
+
+    if (!accepted) {
+      void this.options.sendTextReply(context.chatId, i18n.t('messages:errors.busy')).catch(() => {});
+    }
   }
 
   /**
@@ -426,15 +476,8 @@ export class MessageHandler {
     if (context.chatType === 'p2p') return true;
 
     // Group chat — only transcribe if @mentioned
-    if (context.chatType === 'group' && this.options.botAppId) {
-      const rawMentions: Array<{ key?: string; id?: { open_id?: string } }> | undefined =
-        context.rawEvent?.event?.message?.mentions;
-      const botMentionKey = `@_bot_${this.options.botAppId}`;
-      if (rawMentions?.length) {
-        return rawMentions.some(
-          (m) => m.key === botMentionKey || m.id?.open_id === botMentionKey,
-        );
-      }
+    if (context.chatType === 'group') {
+      return this.isMentioningBot(context);
     }
 
     return false;

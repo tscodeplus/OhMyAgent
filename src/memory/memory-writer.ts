@@ -655,10 +655,11 @@ export class MemoryWriter {
    * reference the old preference value (stale records that would keep
    * the old value alive in retrieval results).
    *
-   * Uses LIKE matching on key tokens from the old content, which is
-   * more reliable than cosine similarity for long summary transcripts.
+   * Matching is scoped to the target conversation (scope + scopeKey) and
+   * requires the FULL key-token sequence of the old content — a single
+   * common word must never purge summaries of unrelated sessions.
    */
-  private async purgeStaleSummaries(oldContent: string): Promise<void> {
+  private async purgeStaleSummaries(oldContent: string, scope: string, scopeKey: string): Promise<void> {
     try {
       // Extract key tokens from old preference (skip very short/generic words)
       const tokens = oldContent
@@ -669,15 +670,16 @@ export class MemoryWriter {
 
       if (tokens.length === 0) return;
 
-      for (const token of tokens) {
-        if (token.length < 2) continue;
-        const results = this.memoryRepository.searchByContent(token, undefined, undefined);
-        for (const mem of results) {
-          if (mem.kind === 'summary' && mem.content.includes(token)) {
-            this.memoryRepository.delete(mem.id);
-            this.mergeConfig?.logger.info({ memoryId: mem.id, token, content: mem.content.slice(0, 60) }, 'Purged stale summary after preference replacement');
-          }
-        }
+      // Narrow candidates to the target conversation via the first token,
+      // then require ALL tokens to appear. Partial token overlap must not
+      // delete another session's summary (or an unrelated topic's one).
+      const candidates = this.memoryRepository.searchByContent(tokens[0], scope, scopeKey);
+      for (const mem of candidates) {
+        if (mem.kind !== 'summary') continue;
+        const matchesAllTokens = tokens.every(token => mem.content.includes(token));
+        if (!matchesAllTokens) continue;
+        this.memoryRepository.delete(mem.id);
+        this.mergeConfig?.logger.info({ memoryId: mem.id, tokens, content: mem.content.slice(0, 60) }, 'Purged stale summary after preference replacement');
       }
     } catch {
       // Best-effort cleanup

@@ -563,4 +563,111 @@ describe('MemoryWriter', () => {
       expect(match).toBeNull();
     });
   });
+
+  describe('purgeStaleSummaries', () => {
+    // purgeStaleSummaries is private — reach it through a typed escape hatch
+    function purgeStaleSummaries(
+      writer: MemoryWriter,
+      oldContent: string,
+      scope: string,
+      scopeKey: string,
+    ): Promise<void> {
+      return (writer as unknown as {
+        purgeStaleSummaries(oldContent: string, scope: string, scopeKey: string): Promise<void>;
+      }).purgeStaleSummaries(oldContent, scope, scopeKey);
+    }
+
+    function createSummary(id: string, scopeKey: string, content: string) {
+      return memoryRepo.create({
+        id,
+        scope: 'session',
+        scope_key: scopeKey,
+        kind: 'summary',
+        content,
+      });
+    }
+
+    it('deletes the target summary but keeps other sessions whose summary only shares a common word', async () => {
+      const { writer } = createWriter();
+
+      // Target session: summary references the whole old preference
+      const target = createSummary(uniqueId('summary'), 'u1', 'Project status changed and user approved the plan');
+      // Other session: summary only happens to contain the common word "Project"
+      const other = createSummary(uniqueId('summary'), 'u2', 'Project planning notes for a different team');
+
+      await purgeStaleSummaries(writer, 'Project status changed', 'session', 'u1');
+
+      expect(memoryRepo.findById(target.id)).toBeUndefined();
+      expect(memoryRepo.findById(other.id)).toBeDefined();
+    });
+
+    it('keeps summaries in the same session that only partially match the tokens', async () => {
+      const { writer } = createWriter();
+
+      const fullMatch = createSummary(uniqueId('summary'), 'u1', 'Project status changed yesterday');
+      // Only "status" appears — not the full token sequence
+      const partial = createSummary(uniqueId('summary'), 'u1', 'Daily status report for the team');
+      // Only "changed" appears
+      const partial2 = createSummary(uniqueId('summary'), 'u1', 'Everything changed after the meeting');
+
+      await purgeStaleSummaries(writer, 'Project status changed', 'session', 'u1');
+
+      expect(memoryRepo.findById(fullMatch.id)).toBeUndefined();
+      expect(memoryRepo.findById(partial.id)).toBeDefined();
+      expect(memoryRepo.findById(partial2.id)).toBeDefined();
+    });
+
+    it('does not delete non-summary memories even when they contain the full token sequence', async () => {
+      const { writer } = createWriter();
+
+      const fact = memoryRepo.create({
+        id: uniqueId('mem'),
+        scope: 'session',
+        scope_key: 'u1',
+        kind: 'fact',
+        content: 'Project status changed — fact record',
+      });
+
+      await purgeStaleSummaries(writer, 'Project status changed', 'session', 'u1');
+
+      expect(memoryRepo.findById(fact.id)).toBeDefined();
+    });
+
+    it('does nothing when oldContent yields no tokens', async () => {
+      const { writer } = createWriter();
+
+      const summary = createSummary(uniqueId('summary'), 'u1', 'Any summary at all');
+
+      await purgeStaleSummaries(writer, '！、。', 'session', 'u1');
+
+      expect(memoryRepo.findById(summary.id)).toBeDefined();
+    });
+
+    it('does nothing when no summary matches', async () => {
+      const { writer } = createWriter();
+
+      const summary = createSummary(uniqueId('summary'), 'u1', 'Unrelated meeting notes');
+
+      await purgeStaleSummaries(writer, 'Project status changed', 'session', 'u1');
+
+      expect(memoryRepo.findById(summary.id)).toBeDefined();
+    });
+
+    it('scopes single-token matches to the target session and requires the full token', async () => {
+      const { writer } = createWriter();
+
+      // Chinese content stays a single token — matched as the full phrase
+      const target = createSummary(uniqueId('summary'), 'u1', '用户偏好红色主题配色的界面');
+      // Other session contains only the short substring "红色", not the full token
+      const other = createSummary(uniqueId('summary'), 'u2', '红色是另一个话题的关键词');
+      // Same session, but only a substring of the token
+      const partial = createSummary(uniqueId('summary'), 'u1', '主题配色方案待定');
+
+      await purgeStaleSummaries(writer, '红色主题配色', 'session', 'u1');
+
+      expect(memoryRepo.findById(target.id)).toBeUndefined();
+      expect(memoryRepo.findById(other.id)).toBeDefined();
+      expect(memoryRepo.findById(partial.id)).toBeDefined();
+    });
+  });
 });

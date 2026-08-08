@@ -2,7 +2,7 @@
 // v4 ToolDefinition wrapper for the file_read tool
 // ---------------------------------------------------------------------------
 
-import { readFile } from 'node:fs/promises';
+import { open } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import type { ToolDefinition } from '../../platform/tool-definition.js';
@@ -68,11 +68,30 @@ export function createFileReadToolDefinition(deps: FileReadToolDeps): ToolDefini
           const resolvedPath = rawPath.startsWith('~')
             ? path.resolve(os.homedir(), rawPath.slice(2))
             : path.resolve(rawPath);
-          const content = await readFile(resolvedPath, 'utf-8');
-          const truncated = content.length > MAX_FILE_SIZE
-            ? content.slice(0, MAX_FILE_SIZE) + `\n\n... (${content.length - MAX_FILE_SIZE} more characters)`
-            : content;
-          return { content: [{ type: 'text', text: truncated }], isError: false };
+          // Size pre-check via fd stat (symlink-safe — the path cannot be
+          // swapped between check and read): reject oversized files before
+          // reading so a multi-GB file is never pulled into memory, and bound
+          // the fd read to the stat'd size in case the file grows meanwhile.
+          const handle = await open(resolvedPath, 'r');
+          try {
+            const stats = await handle.stat();
+            if (stats.size > MAX_FILE_SIZE) {
+              return { content: [{ type: 'text', text: `File too large to read (${stats.size} bytes, limit ${MAX_FILE_SIZE} bytes)` }], isError: true };
+            }
+            // UTF-8 bytes >= chars, so a file within the byte limit is also
+            // within the character display limit and needs no truncation.
+            const buffer = Buffer.alloc(Math.max(stats.size, 1));
+            let total = 0;
+            while (total < buffer.length) {
+              const { bytesRead } = await handle.read(buffer, total, buffer.length - total, total);
+              if (bytesRead === 0) break;
+              total += bytesRead;
+            }
+            const content = buffer.subarray(0, total).toString('utf-8');
+            return { content: [{ type: 'text', text: content }], isError: false };
+          } finally {
+            await handle.close();
+          }
         } catch (e: any) {
           return { content: [{ type: 'text', text: `Error reading file: ${e.message}` }], isError: true };
         }

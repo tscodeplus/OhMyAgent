@@ -62,6 +62,12 @@ pub struct SidecarState {
     /// Port of the shell's control service (env to the sidecar as OMA_DESKTOP_CONTROL_PORT).
     pub ctl_port: u16,
     pub ctl_token: String,
+    /// WebUI gateway token for local mode (env to the sidecar as
+    /// OMA_WEBUI_TOKEN). Generated once per shell process — stable across
+    /// sidecar respawns; the WebUI re-reads it from the control API at every
+    /// page load, so a shell restart (which reloads the window) needs no
+    /// persistence.
+    pub webui_token: String,
     /// Port the sidecar's control API listens on (reserved here, env
     /// OMA_SIDECAR_CONTROL_PORT; corrected by the heartbeat when the
     /// sidecar's actual bind shifted). Exposed to the compat layer via
@@ -172,6 +178,9 @@ pub async fn init(app: &AppHandle) {
     let ctl_token = uuid::Uuid::new_v4().to_string();
     let ctl_port = crate::ctl_server::start(app.clone(), ctl_token.clone());
     let sidecar_api_port = reserve_port();
+    // Per-shell-process WebUI token; the gateway enforces it via
+    // OMA_WEBUI_TOKEN (fail-closed: without the injection the WebUI 401s).
+    let webui_token = uuid::Uuid::new_v4().to_string();
 
     let state = Arc::new(SidecarState {
         status: RwLock::new(SidecarStatus {
@@ -182,6 +191,7 @@ pub async fn init(app: &AppHandle) {
         pid: RwLock::new(None),
         ctl_port,
         ctl_token,
+        webui_token,
         sidecar_api_port: std::sync::atomic::AtomicU16::new(sidecar_api_port),
         generation: std::sync::atomic::AtomicU32::new(1),
         starting_at: std::sync::atomic::AtomicU64::new(unix_millis()),
@@ -346,8 +356,9 @@ fn spawn_sidecar(
         .env("DATABASE_PATH", &db_path)
         .env("CONFIG_FILE", &config_file)
         .env("OHMYAGENT_LOG_DIR", &log_dir)
-        // 保留原名：服务器 src/ 依赖 ELECTRON_RUN=1 关闭 token 鉴权（零改动）
-        .env("ELECTRON_RUN", "1")
+        // WebUI token 鉴权不再有 ELECTRON_RUN 旁路；壳生成的 token 通过
+        // OMA_WEBUI_TOKEN 注入，WebUI 从控制 API 读取后自动登录
+        .env("OMA_WEBUI_TOKEN", &state.webui_token)
         .env("WEBUI_STATIC_ROOT", &webui_dist)
         .env("OMA_RESOURCES_DIR", sidecar_dir)
         .env("OMA_DESKTOP_CONTROL_PORT", state.ctl_port.to_string())

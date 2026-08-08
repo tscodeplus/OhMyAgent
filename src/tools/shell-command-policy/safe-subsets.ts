@@ -348,9 +348,13 @@ export function determineSubcommandLabel(
   const args = command.args;
   const raw = command.raw.toLowerCase();
 
-  // Helper: check if args contain a specific flag
-  const hasFlag = (flag: string): boolean =>
-    raw.includes(` ${flag}`) || raw.includes(` ${flag} `) || raw.endsWith(` ${flag}`);
+  // Helper: check if args contain a specific flag.
+  // Note: `raw` is lowercased above, so the flag must be lowercased too —
+  // otherwise uppercase flags (-X, -O, -I, -D, -R ...) never match (dead code).
+  const hasFlag = (flag: string): boolean => {
+    const f = flag.toLowerCase();
+    return raw.includes(` ${f}`) || raw.includes(` ${f} `) || raw.endsWith(` ${f}`);
+  };
 
   // git-specific
   if (command.program === 'git') {
@@ -379,9 +383,22 @@ export function determineSubcommandLabel(
   if (command.program === 'curl' || command.program === 'wget') {
     if (raw.includes('|')) return 'pipe';
     if (hasFlag('-o') || hasFlag('--output') || hasFlag('-O') || hasFlag('--remote-name')) return 'download';
-    if (hasFlag('-X') && (raw.includes('POST') || raw.includes(' PUT '))) return 'post';
     if (hasFlag('--spider') || hasFlag('-I') || hasFlag('--head')) return 'spider';
-    if (hasFlag('-X') && raw.includes('DELETE')) return 'delete';
+    // Data-carrying flags imply a request body (POST by default without -X).
+    // These must never classify as a safe GET — data exfiltration surface.
+    if (hasFlag('-d') || hasFlag('--data') || hasFlag('--data-binary') ||
+        hasFlag('--data-raw') || hasFlag('--data-urlencode') ||
+        hasFlag('--post-data') || hasFlag('--post-file')) {
+      return 'post';
+    }
+    // -X / --request METHOD (also the concatenated form -XPOST) and wget's
+    // --method=POST. `raw` is lowercased, so the method match is lowercase.
+    const methodMatch = raw.match(/(?:^|\s)(?:-x|--request|--method=)\s*([a-z]+)/);
+    const method = methodMatch?.[1] ?? '';
+    if (method === 'delete') return 'delete';
+    if (method && method !== 'get' && method !== 'head') {
+      return 'post'; // post / put / patch / custom methods may carry a body
+    }
     if (hasFlag('-O') && hasFlag('-')) return 'output-stdout';
     return 'get';
   }

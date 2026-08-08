@@ -338,14 +338,14 @@ describe('assessCommandRisk', () => {
 // ─── ApprovalActionHandler ───
 
 describe('ApprovalActionHandler', () => {
-  it('returns decision on first callback', () => {
+  it('returns decision on first callback', async () => {
     const handler = new ApprovalActionHandler();
     const data: ApprovalCallbackData = {
       action: 'approve_once',
       requestId: 'req-1',
     };
 
-    const result = handler.handleCallback(data);
+    const result = await handler.handleCallback(data);
 
     expect(result).toEqual({
       decision: 'approve_once',
@@ -353,15 +353,15 @@ describe('ApprovalActionHandler', () => {
     });
   });
 
-  it('returns null on duplicate callback (idempotent)', () => {
+  it('returns null on duplicate callback (idempotent)', async () => {
     const handler = new ApprovalActionHandler();
     const data: ApprovalCallbackData = {
       action: 'reject_always',
       requestId: 'req-2',
     };
 
-    const first = handler.handleCallback(data);
-    const second = handler.handleCallback(data);
+    const first = await handler.handleCallback(data);
+    const second = await handler.handleCallback(data);
 
     expect(first).toEqual({
       decision: 'reject_always',
@@ -370,32 +370,32 @@ describe('ApprovalActionHandler', () => {
     expect(second).toBeNull();
   });
 
-  it('handles different requestIds independently', () => {
+  it('handles different requestIds independently', async () => {
     const handler = new ApprovalActionHandler();
 
-    const r1 = handler.handleCallback({ action: 'approve_once', requestId: 'a' });
-    const r2 = handler.handleCallback({ action: 'reject_once', requestId: 'b' });
+    const r1 = await handler.handleCallback({ action: 'approve_once', requestId: 'a' });
+    const r2 = await handler.handleCallback({ action: 'reject_once', requestId: 'b' });
 
     expect(r1?.decision).toBe('approve_once');
     expect(r2?.decision).toBe('reject_once');
   });
 
-  it('isDecided returns true after processing', () => {
+  it('isDecided returns true after processing', async () => {
     const handler = new ApprovalActionHandler();
 
     expect(handler.isDecided('req-x')).toBe(false);
 
-    handler.handleCallback({ action: 'approve_always', requestId: 'req-x' });
+    await handler.handleCallback({ action: 'approve_always', requestId: 'req-x' });
 
     expect(handler.isDecided('req-x')).toBe(true);
   });
 
-  it('getDecision returns the stored decision', () => {
+  it('getDecision returns the stored decision', async () => {
     const handler = new ApprovalActionHandler();
 
     expect(handler.getDecision('req-y')).toBeUndefined();
 
-    handler.handleCallback({ action: 'reject_always', requestId: 'req-y' });
+    await handler.handleCallback({ action: 'reject_always', requestId: 'req-y' });
 
     expect(handler.getDecision('req-y')).toBe('reject_always');
   });
@@ -403,5 +403,58 @@ describe('ApprovalActionHandler', () => {
   it('getDecision returns undefined for unknown requestId', () => {
     const handler = new ApprovalActionHandler();
     expect(handler.getDecision('unknown')).toBeUndefined();
+  });
+
+  // ─── Operator verification (P0 H3: approval callbacks must verify the clicker) ───
+
+  it('accepts the callback when the operator is the request initiator', async () => {
+    const handler = new ApprovalActionHandler({
+      verifyOperator: async (_requestId, operatorId) => operatorId === 'ou_requester',
+    });
+
+    const result = await handler.handleCallback(
+      { action: 'approve_once', requestId: 'req-1' },
+      'ou_requester',
+    );
+
+    expect(result).toEqual({ decision: 'approve_once', requestId: 'req-1' });
+    expect(handler.isDecided('req-1')).toBe(true);
+  });
+
+  it('rejects the callback when the operator is not the initiator and records no decision', async () => {
+    const handler = new ApprovalActionHandler({
+      verifyOperator: async (_requestId, operatorId) => operatorId === 'ou_requester',
+    });
+
+    const result = await handler.handleCallback(
+      { action: 'approve_once', requestId: 'req-1' },
+      'ou_attacker',
+    );
+
+    expect(result).toEqual({ error: 'not_authorized' });
+    expect(handler.isDecided('req-1')).toBe(false);
+    expect(handler.getDecision('req-1')).toBeUndefined();
+  });
+
+  it('fails closed when an operator is supplied but no verifier is configured', async () => {
+    const handler = new ApprovalActionHandler();
+
+    const result = await handler.handleCallback(
+      { action: 'approve_once', requestId: 'req-1' },
+      'ou_someone',
+    );
+
+    expect(result).toEqual({ error: 'not_authorized' });
+    expect(handler.isDecided('req-1')).toBe(false);
+  });
+
+  it('keeps legacy behavior when no operatorId is supplied', async () => {
+    const handler = new ApprovalActionHandler({
+      verifyOperator: async () => false,
+    });
+
+    const result = await handler.handleCallback({ action: 'reject_once', requestId: 'req-1' });
+
+    expect(result).toEqual({ decision: 'reject_once', requestId: 'req-1' });
   });
 });

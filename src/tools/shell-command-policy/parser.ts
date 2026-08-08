@@ -145,6 +145,17 @@ export function splitCommandSegments(rawCommand: string): NormalizedShellCommand
         current = '';
         continue;
       }
+
+      // A newline is a command separator in the shell. Treating it as one
+      // here prevents `echo hi\nrm -rf ~/x` from being checked as a single
+      // read-only segment. (Escaped newlines — line continuations — were
+      // consumed by the escapeNext branch above.)
+      if (ch === '\n') {
+        const trimmed = current.trim();
+        if (trimmed) segments.push(trimmed);
+        current = '';
+        continue;
+      }
     }
 
     current += ch;

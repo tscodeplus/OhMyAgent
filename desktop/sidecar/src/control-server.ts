@@ -185,6 +185,14 @@ async function handle(req: IncomingMessage, res: ServerResponse, opts: ControlSe
       return;
     }
 
+    if (path === '/_desktop/webui-token' && method === 'GET') {
+      // WebUI gateway token for local mode — injected by the shell (prod) or
+      // dev-sidecar (dev) as OMA_WEBUI_TOKEN. Served through the control API
+      // (already ctl-token-gated) so the WebUI never needs to know it a priori.
+      json(res, 200, { token: process.env.OMA_WEBUI_TOKEN ?? 'dev' });
+      return;
+    }
+
     if (path === '/_desktop/gateway-config' && method === 'PUT') {
       const body = (await readJson(req)) as Partial<GatewayConfigBody>;
       const updated = setGatewayConfig(body ?? {});

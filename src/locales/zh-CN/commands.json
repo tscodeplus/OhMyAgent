@@ -71,6 +71,7 @@
     "invalidMode": "无效模式 \"{{mode}}\"。可用模式：{{modes}}",
     "cannotRead": "无法读取当前配置",
     "noConfigPath": "配置文件路径未设置，无法修改权限模式",
-    "writeFailed": "写入配置失败：{{error}}"
+    "writeFailed": "写入配置失败：{{error}}",
+    "notAuthorized": "⛔ 无权限：仅管理员可修改权限模式。"
   }
 }

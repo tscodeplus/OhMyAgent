@@ -41,7 +41,12 @@ export { determineSubcommandLabel } from './safe-subsets.js';
 
 // File paths
 export { READ_ONLY_PROGRAMS } from './file-paths.js';
-export { extractFilePaths, resolveFilePath, checkFilePathsOutsideRoots } from './file-paths.js';
+export {
+  extractFilePaths,
+  resolveFilePath,
+  expandPathVariables,
+  checkFilePathsOutsideRoots,
+} from './file-paths.js';
 
 // Read-only shell profile checks
 export { getReadOnlyShellBlockReason } from './read-only-shell.js';

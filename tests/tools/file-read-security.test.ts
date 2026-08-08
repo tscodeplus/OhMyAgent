@@ -89,4 +89,32 @@ describe('FileReadTool path security', () => {
     expect(text).not.toContain('/etc/passwd');
     expect(text).not.toContain(process.cwd());
   });
+
+  it('rejects oversized files before reading them', async () => {
+    const dir = join(tmpdir(), 'ohmyagent-oversize-test-' + Date.now());
+    await mkdir(dir, { recursive: true });
+    const filePath = join(dir, 'big.txt');
+    await writeFile(filePath, 'x'.repeat(100_001));
+
+    const tool = createFileReadTool({ allowedRoots: [dir] });
+    const result = await tool.execute('call-1', { path: filePath });
+    expectToolResultContains(result, 'too large');
+    expect(extractToolText(result)).not.toContain('x'.repeat(1000));
+
+    await rm(dir, { recursive: true });
+  });
+
+  it('reads a file exactly at the size limit', async () => {
+    const dir = join(tmpdir(), 'ohmyagent-limit-test-' + Date.now());
+    await mkdir(dir, { recursive: true });
+    const filePath = join(dir, 'limit.txt');
+    const content = 'y'.repeat(100_000);
+    await writeFile(filePath, content);
+
+    const tool = createFileReadTool({ allowedRoots: [dir] });
+    const result = await tool.execute('call-1', { path: filePath });
+    expect(extractToolText(result)).toBe(content);
+
+    await rm(dir, { recursive: true });
+  });
 });

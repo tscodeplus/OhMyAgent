@@ -12,6 +12,7 @@ import { buildSimpleMarkdownCard } from '../../../extensions/channel-feishu/rend
 import { loadConfig, resetConfig } from '../config.js';
 import { configManager } from '../config-manager.js';
 import type { AppConfig } from '../types.js';
+import type { CommandDeps } from '../../commands/command-handler.js';
 import type { AgentService } from '../../agent/agent-service.js';
 import type { SkillRegistry } from '../../skills/skill-registry.js';
 import type { CronService } from '../../cron/service.js';
@@ -23,7 +24,7 @@ import type { Logger } from 'pino';
 
 export interface FeishuServicesResult {
   messageHandler: MessageHandler;
-  commandDeps: Record<string, unknown>;
+  commandDeps: CommandDeps;
 }
 
 export function createFeishuServices(options: {
@@ -59,7 +60,7 @@ export function createFeishuServices(options: {
   const configPath = process.env.CONFIG_FILE || './config.yaml';
 
   // Shared CommandDeps for slash commands
-  const commandDeps = {
+  const commandDeps: CommandDeps = {
     agentService,
     skillRegistry: {
       getSkills: () => skillRegistry.getSkills(),
@@ -77,6 +78,17 @@ export function createFeishuServices(options: {
       configManager.reloadFromFile().catch(err =>
         logger.error({ err }, 'Config reload via /permission failed'),
       );
+    },
+    // Admin determination for privileged commands (/permission):
+    // - When feishu.allowedUsers is configured, only listed open_ids are admins.
+    // - Otherwise the bot's p2p chat is treated as single-operator (admin),
+    //   while group chats without a whitelist cannot run privileged commands.
+    isAdmin: (operator) => {
+      const allowed = config.feishu.allowedUsers ?? [];
+      if (allowed.length > 0) {
+        return !!operator.senderId && allowed.includes(operator.senderId);
+      }
+      return operator.chatType === 'p2p';
     },
   };
   servicesMap.set('commandDeps', commandDeps);
@@ -118,6 +130,7 @@ export function createFeishuServices(options: {
       language: sttCfg.language ?? 'zh',
     } : undefined,
     botAppId: config.feishu.appId,
+    allowedUsers: config.feishu.allowedUsers,
   });
 
   return { messageHandler, commandDeps };

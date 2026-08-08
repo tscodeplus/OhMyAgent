@@ -1,4 +1,4 @@
-import { readFile } from 'fs/promises';
+import { open } from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import { Type } from 'typebox';
@@ -148,16 +148,37 @@ export function createFileReadTool(param?: FileReadToolDeps | FileReadToolOption
         }
 
         // ---- Read the file ----
+        //
+        // Size pre-check: stat the opened fd (symlink-safe — the path cannot
+        // be swapped between check and read) and reject oversized files before
+        // reading, so a multi-GB file is never pulled into memory. The fd read
+        // is bounded to the stat'd size, capping memory even if the file grows
+        // between stat and read.
 
-        const content = await readFile(resolvedPath, 'utf-8');
-        if (content.length > MAX_FILE_SIZE) {
-          const truncated = content.slice(0, MAX_FILE_SIZE);
-          const remaining = content.length - MAX_FILE_SIZE;
-          return {
-            content: [{ type: 'text' as const, text: `${truncated}\n\n${i18n.t('tools-builtins:fileRead.truncated', { count: remaining })}` }],
-          };
+        let handle: Awaited<ReturnType<typeof open>> | undefined;
+        try {
+          handle = await open(resolvedPath, 'r');
+          const stats = await handle.stat();
+          if (stats.size > MAX_FILE_SIZE) {
+            return {
+              content: [{ type: 'text' as const, text: i18n.t('tools-builtins:fileRead.tooLarge', { size: stats.size, limit: MAX_FILE_SIZE }) }],
+              isError: true,
+            };
+          }
+          // Read at most MAX_FILE_SIZE bytes: UTF-8 bytes >= chars, so a file
+          // within the byte limit is also within the character display limit.
+          const buffer = Buffer.alloc(Math.max(stats.size, 1));
+          let total = 0;
+          while (total < buffer.length) {
+            const { bytesRead } = await handle.read(buffer, total, buffer.length - total, total);
+            if (bytesRead === 0) break;
+            total += bytesRead;
+          }
+          const content = buffer.subarray(0, total).toString('utf-8');
+          return { content: [{ type: 'text' as const, text: content }] };
+        } finally {
+          await handle?.close();
         }
-        return { content: [{ type: 'text' as const, text: content }] };
       } catch (error: any) {
         if (error.code === 'ENOENT') {
           return { content: [{ type: 'text' as const, text: i18n.t('tools-builtins:fileRead.notFound') }] };

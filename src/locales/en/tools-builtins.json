@@ -9,6 +9,7 @@
     "accessDenied": "Access denied: path is outside allowed directories",
     "notFound": "Error: File not found",
     "error": "Error reading file",
+    "tooLarge": "File too large to read ({{size}} bytes, limit {{limit}} bytes)",
     "truncated": "[File truncated: {{count}} characters omitted]"
   },
   "fileSearch": {

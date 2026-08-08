@@ -44,7 +44,9 @@ const env = {
   OHMYAGENT_LOG_DIR: path.join(dataDir(), 'logs'),
   DATABASE_PATH: path.join(dataDir(), 'data', 'app.db'),
   CONFIG_FILE: path.join(dataDir(), 'config.yaml'),
-  ELECTRON_RUN: '1',
+  // WebUI token for local mode — fixed dev value, same convention as
+  // OMA_CONTROL_TOKEN ('dev') and compat.js's dev fallback probe.
+  OMA_WEBUI_TOKEN: 'dev',
   WEBUI_STATIC_ROOT: path.join(ROOT, 'ui', 'dist'),
   OMA_OS_LOCALE: process.env.LANG || 'en',
   OMA_APP_VERSION: require(path.join(DESKTOP_DIR, 'package.json')).version,

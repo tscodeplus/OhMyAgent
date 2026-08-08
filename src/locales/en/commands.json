@@ -71,6 +71,7 @@
     "invalidMode": "Invalid mode \"{{mode}}\". Available modes: {{modes}}",
     "cannotRead": "Unable to read current configuration",
     "noConfigPath": "Configuration file path not set, cannot change permission mode",
-    "writeFailed": "Failed to write config: {{error}}"
+    "writeFailed": "Failed to write config: {{error}}",
+    "notAuthorized": "⛔ Not authorized: only admins can change the permission mode."
   }
 }

@@ -262,4 +262,82 @@ describe('handleCommand (shared)', () => {
     expect(deps.agentService.steer).not.toHaveBeenCalled();
     expect(result!.forwardText).toBe('do this now');
   });
+
+  // ── /permission admin gate ──
+
+  it('/permission mode switch works for an admin operator', async () => {
+    const adminDeps = makeDeps({
+      configPath: '/tmp/oma-test-config.yaml',
+      triggerConfigReload: vi.fn(),
+      isAdmin: ({ senderId }) => senderId === 'ou_admin',
+    });
+    // Read-only display path is admin-gated too; exercise the switch.
+    const result = await handleCommand('/permission bypass', 's1', adminDeps, undefined, 'oc_1', {
+      senderId: 'ou_admin',
+      chatType: 'p2p',
+    });
+    // Config file may or may not be writable in the test env — the gate
+    // must have let the admin through either way (never an auth rejection).
+    expect(result!.reply).toBeDefined();
+    expect(result!.reply).not.toContain(i18n.t('commands:permission.notAuthorized'));
+  });
+
+  it('/permission is rejected for a non-admin operator', async () => {
+    const adminDeps = makeDeps({
+      configPath: '/tmp/oma-test-config.yaml',
+      triggerConfigReload: vi.fn(),
+      isAdmin: ({ senderId }) => senderId === 'ou_admin',
+    });
+
+    const result = await handleCommand('/permission bypass', 's1', adminDeps, undefined, 'oc_1', {
+      senderId: 'ou_member',
+      chatType: 'group',
+    });
+
+    expect(result!.reply).toContain(i18n.t('commands:permission.notAuthorized'));
+  });
+
+  it('/permission keeps legacy behavior when no operator context is provided', async () => {
+    const adminDeps = makeDeps({
+      configPath: '/tmp/oma-test-config.yaml',
+      triggerConfigReload: vi.fn(),
+      isAdmin: ({ senderId }) => senderId === 'ou_admin',
+    });
+
+    // WebUI-style call: no operator context — the gate does not apply.
+    const result = await handleCommand('/permission bypass', 's1', adminDeps);
+    expect(result!.reply).not.toContain(i18n.t('commands:permission.notAuthorized'));
+  });
+
+  it('/permission is rejected in groups when no admin whitelist is configured', async () => {
+    // allowedUsers empty → admin determination falls back to p2p-only.
+    const adminDeps = makeDeps({
+      configPath: '/tmp/oma-test-config.yaml',
+      triggerConfigReload: vi.fn(),
+      isAdmin: ({ chatType }) => chatType === 'p2p',
+    });
+
+    const result = await handleCommand('/permission bypass', 's1', adminDeps, undefined, 'oc_1', {
+      senderId: 'ou_member',
+      chatType: 'group',
+    });
+
+    expect(result!.reply).toContain(i18n.t('commands:permission.notAuthorized'));
+  });
+
+  it('/permission works in p2p when no admin whitelist is configured', async () => {
+    const adminDeps = makeDeps({
+      configPath: '/tmp/oma-test-config.yaml',
+      triggerConfigReload: vi.fn(),
+      isAdmin: ({ chatType }) => chatType === 'p2p',
+    });
+
+    // Should NOT be gated (p2p single operator) — reply is a write error at most.
+    const result = await handleCommand('/permission bypass', 's1', adminDeps, undefined, 'oc_1', {
+      senderId: 'ou_owner',
+      chatType: 'p2p',
+    });
+
+    expect(result!.reply).not.toContain(i18n.t('commands:permission.notAuthorized'));
+  });
 });

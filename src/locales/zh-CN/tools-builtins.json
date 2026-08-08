@@ -9,6 +9,7 @@
     "accessDenied": "访问被拒绝：路径在允许目录之外",
     "notFound": "错误：文件未找到",
     "error": "读取文件时出错",
+    "tooLarge": "文件过大，无法读取（{{size}} 字节，上限 {{limit}} 字节）",
     "truncated": "[文件已截断：省略了 {{count}} 个字符]"
   },
   "fileSearch": {

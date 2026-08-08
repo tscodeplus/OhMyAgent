@@ -164,6 +164,10 @@
       body: { mode: 'local', remoteUrl: '', remoteToken: '' },
     }),
 
+    // local-mode WebUI gateway token (injected as OMA_WEBUI_TOKEN; served by
+    // the control API so it stays in sync with the gateway process)
+    getWebUIToken: () => ctlFetch('/_desktop/webui-token').then((d) => d.token),
+
     // gateway chooser (remote-connection retry) — error shown in the chooser
     openGatewayChooser: (error) => invoke('compat_open_gateway_chooser', { error }),
     // after the chooser saves a new gateway config, reload the WebUI so it

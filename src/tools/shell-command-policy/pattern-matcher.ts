@@ -9,7 +9,13 @@ export function matchesExact(pattern: string, command: NormalizedShellCommand): 
 }
 
 export function matchesPrefix(pattern: string, command: NormalizedShellCommand): boolean {
-  return command.raw.trim().replace(/\s+/g, ' ').startsWith(pattern);
+  const normalized = command.raw.trim().replace(/\s+/g, ' ');
+  if (!normalized.startsWith(pattern)) return false;
+  // The pattern must end at a token boundary (whitespace, end of command, or a
+  // shell separator). A bare startsWith would let an `ssh` allow entry match
+  // `sshpass` / `sshfs` / `sshd`, and `git` match `gitk`.
+  const rest = normalized.slice(pattern.length);
+  return rest === '' || /^[\s;&|()<>]/.test(rest);
 }
 
 export function matchesProgram(pattern: string, command: NormalizedShellCommand): boolean {

@@ -34,6 +34,8 @@ declare global {
       getGatewayConfig: () => Promise<{ mode: string; remoteUrl: string; remoteToken: string }>;
       setGatewayConfig: (config: unknown) => Promise<{ ok: boolean }>;
       resetGatewayConfig: () => Promise<{ ok: boolean }>;
+      /** WebUI gateway token for local mode (injected by the shell, served by the sidecar control API). */
+      getWebUIToken: () => Promise<string>;
       // Gateway chooser (remote-connection retry): open the chooser window with
       // the given error banner text; reload the WebUI after it saves.
       openGatewayChooser: (error?: string) => Promise<void>;

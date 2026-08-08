@@ -222,6 +222,83 @@ describe('FeishuRouter', () => {
       await expect(router.route(makeEnvelope({ messageId: 'om_fail' }))).rejects.toThrow('boom');
       expect(persistentRepo.createIfAbsent).not.toHaveBeenCalled();
     });
+
+    it('does not mark a message as seen when the handler fails, so a retry is re-processed', async () => {
+      const handler = vi.fn()
+        .mockRejectedValueOnce(new Error('boom'))
+        .mockResolvedValueOnce(undefined);
+      router.on('im.message.receive_v1', handler);
+
+      const envelope = makeEnvelope({ messageId: 'om_retry' });
+
+      // First delivery fails — the message must NOT be marked as processed
+      await expect(router.route(envelope)).rejects.toThrow('boom');
+      expect(handler).toHaveBeenCalledOnce();
+      expect(router.seenSize).toBe(0);
+
+      // Feishu retries the delivery — it must NOT be dropped as a duplicate
+      await router.route(envelope);
+      expect(handler).toHaveBeenCalledTimes(2);
+      expect(router.seenSize).toBe(1);
+    });
+
+    it('drops a concurrent duplicate delivery while the handler is in flight', async () => {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      const handler = vi.fn(async () => { await gate; });
+      router.on('im.message.receive_v1', handler);
+
+      const envelope = makeEnvelope({ messageId: 'om_inflight' });
+
+      // route() runs synchronously up to the handler's first await, so the
+      // in-flight guard is already set when the first promise is created
+      const first = router.route(envelope);
+      await router.route(envelope); // racing retry — dropped by in-flight guard
+      expect(handler).toHaveBeenCalledOnce();
+
+      release();
+      await first;
+      expect(handler).toHaveBeenCalledOnce();
+    });
+
+    it('releases the in-flight guard after a failure so a later retry is processed', async () => {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      const handler = vi.fn(async () => { await gate; throw new Error('boom'); });
+      router.on('im.message.receive_v1', handler);
+
+      const envelope = makeEnvelope({ messageId: 'om_race' });
+
+      const first = router.route(envelope); // handler now in flight
+      await router.route(envelope);         // racing retry — dropped, not double-processed
+      expect(handler).toHaveBeenCalledOnce();
+
+      release();
+      await expect(first).rejects.toThrow('boom');
+      expect(router.seenSize).toBe(0);
+
+      // Retry after the failure is processed again — the guard was released
+      await expect(router.route(envelope)).rejects.toThrow('boom');
+      expect(handler).toHaveBeenCalledTimes(2);
+    });
+
+    it('marks seen before the persistent record, so a record failure cannot cause re-processing', async () => {
+      const persistentRepo = {
+        has: vi.fn(() => false),
+        createIfAbsent: vi.fn(() => { throw new Error('db down'); }),
+      };
+      router = new FeishuRouter({ processedMessageRepository: persistentRepo as any });
+      const handler = vi.fn();
+      router.on('im.message.receive_v1', handler);
+
+      await expect(router.route(makeEnvelope({ messageId: 'om_dbdown' }))).rejects.toThrow('db down');
+      expect(handler).toHaveBeenCalledOnce();
+      expect(router.seenSize).toBe(1);
+
+      // The message WAS processed — a retry within the dedup TTL is still dropped
+      await router.route(makeEnvelope({ messageId: 'om_dbdown' }));
+      expect(handler).toHaveBeenCalledOnce();
+    });
   });
 
   describe('stale message filtering', () => {

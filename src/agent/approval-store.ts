@@ -55,6 +55,9 @@ export class PendingApprovalStore {
       toolName?: string;
       reason?: string;
       policyScope?: string;
+      /** Operator identity of the requester (e.g. Feishu open_id). Used by
+       *  approval callbacks to verify that the clicker is the requester. */
+      requesterId?: string;
     },
   ): Promise<ApprovalDecisionType> {
     if (approvalRepo) {
@@ -63,6 +66,7 @@ export class PendingApprovalStore {
         session_key: sessionKey ?? '',
         chat_id: metadata?.chatId ?? null,
         thread_id: metadata?.threadId ?? null,
+        requester_id: metadata?.requesterId ?? null,
         target_kind: metadata?.targetKind ?? 'shell',
         tool_name: metadata?.toolName ?? null,
         command_text: command,

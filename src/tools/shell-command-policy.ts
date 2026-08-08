@@ -36,6 +36,7 @@ export {
   getReadOnlyShellBlockReason,
   extractFilePaths,
   resolveFilePath,
+  expandPathVariables,
   checkFilePathsOutsideRoots,
   assessCommandRisk,
 } from './shell-command-policy/index.js';

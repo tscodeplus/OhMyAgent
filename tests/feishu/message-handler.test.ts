@@ -101,6 +101,7 @@ describe('MessageHandler', () => {
         sessionId: 'sess-1',
         chatId: 'chat-123',
         messageId: 'msg-1',
+        senderId: 'user-1',
         channel: 'feishu',
         extraTools: [],
       });
@@ -116,6 +117,7 @@ describe('MessageHandler', () => {
           sessionId: 'session-xyz',
           chatId: 'chat-456',
           messageId: 'msg-456',
+          senderId: 'user-1',
           channel: 'feishu',
           extraTools: [],
         },
@@ -149,6 +151,87 @@ describe('MessageHandler', () => {
       expect(mockAgentService.execute).toHaveBeenCalledWith(
         'What is the weather today?',
         expect.any(Object),
+      );
+    });
+
+    it('should reject senders not in allowedUsers whitelist', async () => {
+      const restricted = new MessageHandler({
+        agentService: mockAgentService,
+        chatQueue: mockChatQueue,
+        commandDeps: { agentService: mockAgentService },
+        sendTextReply: vi.fn(async () => {}),
+        allowedUsers: ['trusted-user'],
+      });
+      const context = makeContext({ text: 'hello' });
+
+      const handled = await restricted.handle(context);
+
+      expect(handled).toBe(false);
+      expect(mockChatQueue.enqueue).not.toHaveBeenCalled();
+      expect(mockAgentService.execute).not.toHaveBeenCalled();
+    });
+
+    it('should accept senders in allowedUsers whitelist', async () => {
+      const restricted = new MessageHandler({
+        agentService: mockAgentService,
+        chatQueue: mockChatQueue,
+        commandDeps: { agentService: mockAgentService },
+        sendTextReply: vi.fn(async () => {}),
+        allowedUsers: ['user-1'],
+      });
+      const context = makeContext({ text: 'hello' });
+
+      await restricted.handle(context);
+
+      expect(mockAgentService.execute).toHaveBeenCalledOnce();
+    });
+
+    it('should skip group messages that do not mention the bot', async () => {
+      const groupHandler = new MessageHandler({
+        agentService: mockAgentService,
+        chatQueue: mockChatQueue,
+        commandDeps: { agentService: mockAgentService },
+        sendTextReply: vi.fn(async () => {}),
+        botAppId: 'cli_123',
+      });
+      const context = makeContext({
+        chatType: 'group',
+        text: 'hello everyone',
+        rawEvent: { event: { message: { mentions: [] } } },
+      });
+
+      const handled = await groupHandler.handle(context);
+
+      expect(handled).toBe(false);
+      expect(mockAgentService.execute).not.toHaveBeenCalled();
+    });
+
+    it('should process group messages that mention the bot', async () => {
+      const groupHandler = new MessageHandler({
+        agentService: mockAgentService,
+        chatQueue: mockChatQueue,
+        commandDeps: { agentService: mockAgentService },
+        sendTextReply: vi.fn(async () => {}),
+        botAppId: 'cli_123',
+      });
+      const context = makeContext({
+        chatType: 'group',
+        text: '@_bot_cli_123 hello',
+        rawEvent: {
+          event: {
+            message: {
+              mentions: [{ key: '@_bot_cli_123', id: { open_id: '@_bot_cli_123' } }],
+            },
+          },
+        },
+      });
+
+      await groupHandler.handle(context);
+
+      expect(mockAgentService.execute).toHaveBeenCalledOnce();
+      expect(mockAgentService.execute).toHaveBeenCalledWith(
+        '@_bot_cli_123 hello',
+        expect.objectContaining({ senderId: 'user-1' }),
       );
     });
   });

@@ -52,6 +52,34 @@ export function createWSCardActionHandler(
     }
 
     const decision = action as 'approve_once' | 'approve_session' | 'approve_always' | 'reject_once' | 'reject_always';
+
+    // ── Operator identity verification ──
+    // Only the request initiator (requester) may decide an approval. The
+    // WS path (normalized by the lark SDK) carries operator.openId; the HTTP
+    // card action body carries operator.open_id.
+    const operatorId: string =
+      (callback?.operator?.openId as string | undefined) ??
+      (callback?.operator?.open_id as string | undefined) ??
+      '';
+    if (opts.approvalRequestRepo) {
+      const record = opts.approvalRequestRepo.findById(requestId);
+      if (record) {
+        if (record.requester_id) {
+          if (!operatorId || operatorId !== record.requester_id) {
+            return {
+              toast: { type: 'error', content: i18n.t('bootstrap:toast.approvalNotAuthorized') },
+            };
+          }
+        } else {
+          // No requester identity recorded (legacy/cron-created request).
+          // Fail closed: an unverifiable approval must not be decidable.
+          return {
+            toast: { type: 'error', content: i18n.t('bootstrap:toast.approvalRequesterUnknown') },
+          };
+        }
+      }
+    }
+
     const resolved = opts.agentFactory.resolveApproval(requestId, decision);
 
     if (!resolved) {
@@ -76,7 +104,7 @@ export function createWSCardActionHandler(
     opts.approvalDecisionRepository.create({
       id: generateId(),
       request_id: requestId,
-      decided_by: 'user',
+      decided_by: operatorId || 'user',
       decision,
     });
     opts.approvalRequestRepo.update(requestId, {

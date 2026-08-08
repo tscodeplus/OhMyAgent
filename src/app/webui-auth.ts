@@ -1,9 +1,10 @@
 /**
  * WebUI Token Authentication Middleware
  *
- * Simple Token auth: reads WEBUI_TOKEN from .env, generates a random token
- * if not configured. All /api/* and /ws requests must include
- * Authorization: Bearer <token> header.
+ * Simple Token auth: reads OMA_WEBUI_TOKEN (injected by the desktop shell) or
+ * WEBUI_TOKEN from .env, generates a random token if neither is configured.
+ * All /api/* and /ws requests must include Authorization: Bearer <token>
+ * header.
  *
  * Excluded paths (no token required):
  *   - /api/feishu/*, /api/telegram/*, /api/wechat/*, /api/qq/*   (IM webhooks)
@@ -23,8 +24,6 @@ const EXCLUDED_PREFIXES = [
   '/api/auth/login',
   '/api/health',
   '/api/config/minimal-check',
-  '/api/files/serve',
-  '/api/files/download',
   '/api/subscriptions',
   '/api/system/update-status',
   '/qr-exchange/',
@@ -33,15 +32,13 @@ const EXCLUDED_PREFIXES = [
 let configuredToken: string;
 
 export function getWebUIToken(): string {
-  // Electron desktop: all requests are local, no token needed.
-  // Return a dummy value to avoid spurious warnings.
-  if (process.env.ELECTRON_RUN === '1') {
-    return 'electron-local';
-  }
-
   if (!configuredToken) {
-    configuredToken = process.env.WEBUI_TOKEN || crypto.randomBytes(32).toString('hex');
-    if (!process.env.WEBUI_TOKEN) {
+    // The desktop shell injects the token it generated (OMA_WEBUI_TOKEN) so
+    // desktop users never see a login screen; WEBUI_TOKEN is the manual .env
+    // override; last resort is a per-run random token (fail-closed — the
+    // desktop WebUI 401s until the shell injection chain is fixed).
+    configuredToken = process.env.OMA_WEBUI_TOKEN || process.env.WEBUI_TOKEN || crypto.randomBytes(32).toString('hex');
+    if (!process.env.OMA_WEBUI_TOKEN && !process.env.WEBUI_TOKEN) {
       // The operator needs this token to authenticate, so it has to be shown
       // once. Route it to stderr (the human-facing diagnostic channel) rather
       // than stdout, which is more likely to be captured into searchable,
@@ -81,11 +78,6 @@ export async function webuiAuthHook(
   request: FastifyRequest,
   reply: FastifyReply,
 ): Promise<void> {
-  // When running inside Electron, all requests come from localhost (127.0.0.1).
-  // Token auth adds no security in this context and creates unnecessary
-  // friction for desktop users — skip it entirely.
-  if (process.env.ELECTRON_RUN === '1') return;
-
   const path = request.url.split('?')[0]; // strip query string
 
   // Skip auth for excluded paths and non-api/ws paths
@@ -110,7 +102,5 @@ export async function webuiAuthHook(
  * Verify token without Fastify context (for WebSocket upgrade).
  */
 export function verifyToken(token: string): boolean {
-  // Electron desktop: all requests are local, skip verification
-  if (process.env.ELECTRON_RUN === '1') return true;
   return safeEqual(token, getWebUIToken());
 }

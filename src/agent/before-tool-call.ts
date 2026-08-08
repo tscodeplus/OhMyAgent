@@ -82,6 +82,10 @@ export interface BeforeToolCallDeps {
   policyScope?: AgentPolicyScope;
   /** Runtime policy agent id, used by orchestrated child agents. */
   policyAgentId?: string;
+  /** Operator identity of the current message sender (e.g. Feishu open_id).
+   *  Stored as the approval request's requester so approval callbacks can
+   *  verify the clicker is the requester. */
+  senderId?: string;
   /** Diagnostic logger (pino-compatible). */
   logger?: { warn: (...args: any[]) => void; info: (...args: any[]) => void; error: (...args: any[]) => void };
 }
@@ -194,6 +198,7 @@ async function handleComputerUseApproval(
       targetKind: 'tool',
       toolName: 'computer_use',
       reason,
+      requesterId: deps.senderId,
     },
   );
 
@@ -297,6 +302,7 @@ async function handleShellApproval(
         cardMessageId,
         targetKind: 'shell',
         reason: rejectReason,
+        requesterId: deps.senderId,
       },
     );
 
@@ -386,6 +392,7 @@ async function handleFileAccessApproval(
       toolName,
       reason,
       policyScope: 'path',
+      requesterId: deps.senderId,
     },
   );
 
@@ -463,6 +470,7 @@ async function handleGenericToolApproval(
       targetKind: 'tool',
       toolName,
       reason,
+      requesterId: deps.senderId,
     },
   );
 

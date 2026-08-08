@@ -7,7 +7,7 @@ import ToolCallCard from './ToolCallCard';
 import ApprovalCard, { type ApprovalDecision } from './ApprovalCard';
 import UserQuestionCard from './UserQuestionCard';
 import HarnessImprovementCard from './HarnessImprovementCard';
-import { apiRequest } from '../../utils/api';
+import { apiRequest, getToken } from '../../utils/api';
 import { isElectron, getElectronAPI } from '../../utils/env';
 import { useToast } from '../ui/Toast';
 import { useTranslation } from 'react-i18next';
@@ -49,6 +49,21 @@ function stripFileRefs(content: string): string {
   return cleaned.trim();
 }
 
+/**
+ * Serve endpoints (/api/files/serve, /api/files/download) require the WebUI
+ * token; <img>/<a>/<video> requests can't set Authorization headers, so the
+ * token rides in the query string (same pattern FilesView downloads use).
+ * Applied only at render time — persisted message URLs stay token-free.
+ * Non-/api/ URLs (/dl/ signed links, /desktop-bridge-download, absolute
+ * http(s)/data:) are left untouched.
+ */
+function withAuthUrl(url: string): string {
+  if (!url.startsWith('/api/files/')) return url;
+  const token = getToken();
+  if (!token || url.includes('token=')) return url;
+  return url.includes('?') ? `${url}&token=${encodeURIComponent(token)}` : `${url}?token=${encodeURIComponent(token)}`;
+}
+
 export default function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isAssistant = message.role === 'assistant';
@@ -64,6 +79,9 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
   }>>({});
 
   const handleDownload = useCallback(async (url: string, filename: string) => {
+    // Serve endpoints need the WebUI token — anchor clicks can't set headers,
+    // so carry it in the query string (keep the raw URL for bridge parsing).
+    const authUrl = withAuthUrl(url);
     if (isElectron()) {
       const api = getElectronAPI();
       if (!api) return;
@@ -79,7 +97,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
           showToast(t('chat.saveFailed'), 'error');
         }
       } else {
-        const result = await api.saveFileFromUrl(url, filename);
+        const result = await api.saveFileFromUrl(authUrl, filename);
         if (result?.ok) {
           showToast(t('chat.fileSaved'), 'success');
         } else if (result?.error !== 'cancelled') {
@@ -90,9 +108,9 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
       // WebUI: use browser download via temporary anchor.
       // Append ?download=1 to serve URLs so the server sends
       // Content-Disposition: attachment with the real filename.
-      let downloadUrl = url;
-      if (url.includes('/api/files/serve') && !url.includes('download=1')) {
-        downloadUrl = url.includes('?') ? `${url}&download=1` : `${url}?download=1`;
+      let downloadUrl = authUrl;
+      if (authUrl.includes('/api/files/serve') && !authUrl.includes('download=1')) {
+        downloadUrl = authUrl.includes('?') ? `${authUrl}&download=1` : `${authUrl}?download=1`;
       }
       const a = document.createElement('a');
       a.href = downloadUrl;
@@ -106,6 +124,9 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
   // Custom markdown rendering: desktop-bridge links → download buttons, images → constrained size
   const markdownComponents = {
     img: ({ src, alt, ...props }: any) => {
+      // Serve URLs require the token — append it for the <img> request and
+      // the lightbox (both can't set Authorization headers).
+      const authSrc = withAuthUrl(src);
       // Extract real filename from serve URL for download
       const imgFilename = (() => {
         try {
@@ -118,11 +139,11 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
       return (
         <div className="relative group max-w-[240px]">
           <button
-            onClick={() => src && setLightboxUrl(src)}
+            onClick={() => authSrc && setLightboxUrl(authSrc)}
             className="block w-full rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 hover:opacity-90 transition-opacity cursor-pointer"
           >
             <img
-              src={src}
+              src={authSrc}
               alt={alt || 'Image'}
               className="w-full h-auto object-cover"
               loading="lazy"
@@ -131,7 +152,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
           </button>
           {/* Download button — bottom-right corner, visible on hover */}
           <button
-            onClick={(e) => { e.stopPropagation(); handleDownload(src, imgFilename); }}
+            onClick={(e) => { e.stopPropagation(); handleDownload(authSrc, imgFilename); }}
             className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-1 rounded-lg bg-black/60 hover:bg-black/80 text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity"
           >
             <Download size={12} />
@@ -182,9 +203,10 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
   };
 
   async function handleImageError(imgUrl: string) {
-    // Check if the serve endpoint wants approval
+    // Check if the serve endpoint wants approval. The probe needs the token;
+    // the approval-state key stays the raw URL so the render loop lookup matches.
     try {
-      const resp = await fetch(imgUrl);
+      const resp = await fetch(withAuthUrl(imgUrl));
       if (resp.status === 403) {
         const data = await resp.json().catch(() => null);
         if (data?.needsApproval) {
@@ -275,11 +297,11 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
                     <div key={`media-${i}`} className="my-1">
                       {seg.media.type === 'image' ? (
                         <button
-                          onClick={() => setLightboxUrl(seg.media!.url)}
+                          onClick={() => setLightboxUrl(withAuthUrl(seg.media!.url))}
                           className="block max-w-[240px] rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 hover:opacity-90 transition-opacity cursor-pointer"
                         >
                           <img
-                            src={seg.media.url}
+                            src={withAuthUrl(seg.media.url)}
                             alt={seg.media.alt || seg.media.name || 'Image'}
                             className="w-full h-auto object-cover"
                             loading="lazy"
@@ -287,7 +309,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
                         </button>
                       ) : seg.media.type === 'video' ? (
                         <video
-                          src={seg.media.url}
+                          src={withAuthUrl(seg.media.url)}
                           controls
                           className="max-w-full rounded-lg border border-neutral-200 dark:border-neutral-700"
                           style={{ maxHeight: '300px' }}
@@ -398,7 +420,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
                 <div key={i} className="flex flex-col gap-1">
                   <div className="relative group">
                     <button
-                      onClick={() => !needsApproval && !wasRejected && setLightboxUrl(img.url)}
+                      onClick={() => !needsApproval && !wasRejected && setLightboxUrl(withAuthUrl(img.url))}
                       className={`block max-w-[240px] rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 hover:opacity-90 transition-opacity ${needsApproval || wasRejected ? 'cursor-default opacity-50' : 'cursor-pointer'}`}
                     >
                       {wasRejected ? (
@@ -408,7 +430,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
                       ) : (
                         <img
                           key={imgKey}
-                          src={img.url}
+                          src={withAuthUrl(img.url)}
                           alt={img.alt || 'Generated image'}
                           className="w-full h-auto object-cover"
                           loading="lazy"

@@ -54,8 +54,18 @@ export async function registerWebUIRoutes(
   cfg: WebUIRouteConfig,
 ): Promise<{ wsManager: WebSocketManager; bridgeRegistry: DesktopBridgeRegistry }> {
   // 1. Register CORS (must be before auth hook — handles OPTIONS preflight)
+  //    Whitelist local WebUI origins only — the WebUI is same-origin with the
+  //    API, so browsers never need CORS here; rejecting (not reflecting) every
+  //    other origin stops a cross-origin page from reading API responses.
+  //    Remote-mode WebUIs hit the gateway same-origin and are unaffected.
   app.register(cors, {
-    origin: true, // Reflect request origin (safe for personal LAN tools)
+    origin: (origin: string | undefined, cb: (err: Error | null, allow: boolean) => void) => {
+      if (!origin || /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
+        cb(null, true);
+      } else {
+        cb(null, false);
+      }
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Authorization', 'Content-Type'],
     credentials: true,
