@@ -122,13 +122,16 @@ jobs:
           targets: ${{ matrix.target }}
 
       # Fast linker — mirrors the local build machines' ~/.cargo/config.toml
-      # (mold on Linux/macOS, lld-link on Windows) so CI links as fast as
-      # local ones. Install + config write are chained with &&: a failed
-      # install silently falls back to the default linker instead of
-      # breaking the release build. NOTE: the -fuse-ld rustflags change the
-      # cargo fingerprint, so the first build after this lands recompiles
-      # everything once; the refreshed cache then keeps it fast. Windows is
-      # unaffected (the [target] linker setting is not fingerprinted).
+      # (mold on Linux, lld-link on Windows) so CI links as fast as local
+      # ones. Install + config write are chained with &&: a failed install
+      # silently falls back to the default linker instead of breaking the
+      # release build. macOS intentionally keeps the default ld64: Apple
+      # clang rejects -fuse-ld=mold ("invalid linker name"), and the
+      # bundled ld64 is already fast — no speedup to buy there. NOTE: the
+      # -fuse-ld rustflags change the cargo fingerprint, so the first build
+      # after this lands recompiles everything once; the refreshed cache
+      # then keeps it fast. Windows is unaffected (the [target] linker
+      # setting is not fingerprinted).
       - name: Install fast linker
         shell: bash
         run: |
@@ -136,11 +139,6 @@ jobs:
             Linux)
               sudo apt-get install -y mold && {
                 printf '%s\n' '[target.x86_64-unknown-linux-gnu]' 'rustflags = ["-C", "link-arg=-fuse-ld=mold"]' >> "$HOME/.cargo/config.toml"
-              }
-              ;;
-            macOS)
-              brew install mold && {
-                printf '%s\n' "[target.${{ matrix.target }}]" 'rustflags = ["-C", "link-arg=-fuse-ld=mold"]' >> "$HOME/.cargo/config.toml"
               }
               ;;
             Windows)
