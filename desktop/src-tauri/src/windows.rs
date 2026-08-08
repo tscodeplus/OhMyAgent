@@ -87,12 +87,13 @@ pub fn create_main_window(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// 32×32 window icon — the Windows title bar (16px at 100% DPI, 32px at 200%)
-/// downscales this far better than the 512px app icon. macOS ignores it (no
-/// title-bar icon there); the Dock uses the packaged .icns.
+/// 64×64 window icon — the Windows title bar / taskbar renders at 16-48px
+/// (32-96px at high DPI), and the 32px source this replaced got upscaled on
+/// 125%/150% displays. macOS ignores it (no title-bar icon there); the Dock
+/// uses the packaged .icns.
 fn window_icon() -> tauri::image::Image<'static> {
-    tauri::image::Image::from_bytes(include_bytes!("../icons/icon-32.png"))
-        .expect("icon-32.png embedded")
+    tauri::image::Image::from_bytes(include_bytes!("../icons/icon-64.png"))
+        .expect("icon-64.png embedded")
 }
 
 /// Splash shown while the sidecar boots. Same look as the Electron splash.

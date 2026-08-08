@@ -23,6 +23,7 @@ import {
   Save,
 } from 'lucide-react';
 import { apiRequest } from '../../utils/api';
+import { isElectron, getElectronAPI } from '../../utils/env';
 import { useToast } from '../ui/Toast';
 import { cn } from '../../lib/utils';
 import { copyTextToClipboard } from '../../utils/clipboard';
@@ -516,6 +517,19 @@ export default function FilesView() {
     try {
       const url = `/api/files/download-zip?path=${encodeURIComponent(rootPath)}`;
       const token = localStorage.getItem('ohmyagent_token');
+      if (isElectron()) {
+        // WebView2 has no anchor-download handling — go through the native
+        // save dialog (same path the chat image downloads use).
+        const api = getElectronAPI();
+        if (!api) return;
+        const result = await api.saveFileFromUrl(token ? `${url}&token=${encodeURIComponent(token)}` : url, 'download.zip');
+        if (result?.ok) {
+          showToast(t('chat.fileSaved'), 'success');
+        } else if (result?.error !== 'cancelled') {
+          showToast(t('chat.saveFailed'), 'error');
+        }
+        return;
+      }
       const anchor = document.createElement('a');
       anchor.href = token ? `${url}&token=${encodeURIComponent(token)}` : url;
       anchor.download = 'download.zip';
@@ -528,8 +542,21 @@ export default function FilesView() {
   }, [rootPath, showToast, t]);
 
   // ---- Download file ----
-  const handleDownloadFile = useCallback((event: ReactMouseEvent | null, node: FileTreeNode) => {
+  const handleDownloadFile = useCallback(async (event: ReactMouseEvent | null, node: FileTreeNode) => {
     event?.stopPropagation();
+    if (isElectron()) {
+      // The file is already on disk — copy it via the native save dialog
+      // instead of an anchor click (WebView2 ignores <a download>).
+      const api = getElectronAPI();
+      if (!api) return;
+      const result = await api.saveLocalFile(node.path, node.name);
+      if (result?.ok) {
+        showToast(t('chat.fileSaved'), 'success');
+      } else if (result?.error !== 'cancelled') {
+        showToast(t('chat.saveFailed'), 'error');
+      }
+      return;
+    }
     const url = `/api/files/download?path=${encodeURIComponent(node.path)}`;
     const token = localStorage.getItem('ohmyagent_token');
     const anchor = document.createElement('a');
@@ -539,7 +566,7 @@ export default function FilesView() {
     document.body.appendChild(anchor);
     anchor.click();
     document.body.removeChild(anchor);
-  }, []);
+  }, [showToast, t]);
 
   const handleDeleteActive = useCallback(() => {
     if (!activePath) return;

@@ -43,8 +43,9 @@ declare global {
       // Language
       setDesktopLanguage: (lang: string) => Promise<boolean>;
       // File operations
-      saveFileFromUrl: (url: string, filename: string) => Promise<{ ok: boolean; error?: string }>;
-      saveLocalFile: (filePath: string, fileName: string) => Promise<{ ok: boolean; error?: string }>;
+      // `path` is the chosen save location when ok is true
+      saveFileFromUrl: (url: string, filename: string) => Promise<{ ok: boolean; error?: string; path?: string }>;
+      saveLocalFile: (filePath: string, fileName: string) => Promise<{ ok: boolean; error?: string; path?: string }>;
       // Desktop Bridge (remote tool execution on local machine)
       bridgeRegisterSession: (sessionId: string) => Promise<void>;
       bridgeUnregisterSession: (sessionId: string) => Promise<void>;
