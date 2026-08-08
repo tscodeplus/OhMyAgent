@@ -168,6 +168,18 @@ jobs:
           path: desktop/.sidecar-deps/runtime
           key: node-${{ matrix.bundle_platform }}-${{ hashFiles('desktop/.node-version') }}
 
+      # tauri-bundler auto-downloads its NSIS toolchain into
+      # %LOCALAPPDATA%\tauri on first use — every run starts from a clean
+      # VM, so without this each Windows build re-downloads makensis.
+      # Stable key (no hash): the toolchain tracks the lock-pinned
+      # @tauri-apps/cli version, and a stale restore is harmless.
+      - name: Cache tauri bundler tools (NSIS toolchain)
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: '${{ env.LOCALAPPDATA }}\tauri'
+          key: tauri-tools-win
+
       # Tauri 2 system dependencies (WebKitGTK 4.1). libfuse2 is needed to
       # run appimagetool; gdk-pixbuf loaders and squashfs-tools/patchelf are
       # required by linuxdeploy's AppImage step.
