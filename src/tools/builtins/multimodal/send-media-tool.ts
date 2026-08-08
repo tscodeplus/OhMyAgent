@@ -3,8 +3,9 @@
  *
  * Allows the agent to send images and files directly in the WebUI chat by
  * returning serve URLs that the frontend renders as image thumbnails or
- * file download links. Uses public download tokens (/dl/:token/:filename)
- * so the links work across all channels without authentication.
+ * file download links. Uses /api/files/serve (WebUI token auth, no expiry)
+ * for gateway-local files — persisted history stays functional across
+ * restarts without depending on short-lived /dl/ signing tokens.
  */
 
 import fs from 'node:fs';
@@ -13,11 +14,7 @@ import os from 'node:os';
 import { Type } from 'typebox';
 import type { AgentTool } from '../../../pi-mono/agent/types.js';
 import { shouldRouteToDesktopBridge } from '../../platform/tool-context.js';
-import { createDownloadUrl } from '../../../shared/download-token.js';
 
-function getBaseUrl(): string | undefined {
-  return process.env.OHMYAGENT_PUBLIC_URL || undefined;
-}
 interface SendMediaDetails {
   filePath: string;
   fileName: string;
@@ -130,7 +127,11 @@ export function createSendMediaTool(): AgentTool<any> {
         }
 
         const fileName = path.basename(filePath);
-        const serveUrl = createDownloadUrl(filePath, fileName, getBaseUrl());
+        // Serve URL (no signing token): the WebUI renders it with the auth
+        // token and history stays valid forever. Matches image_generate's
+        // output format so persisted messages never depend on the per-process
+        // download-signing key or the 1h /dl/ token TTL.
+        const serveUrl = `/api/files/serve?path=${encodeURIComponent(filePath)}`;
         const sizeStr = stat.size < 1024
           ? `${stat.size} B`
           : stat.size < 1024 * 1024

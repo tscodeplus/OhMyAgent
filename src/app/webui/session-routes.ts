@@ -11,6 +11,30 @@ import type { FooterConfig } from '../types.js';
 import { stripXmlTag } from '../../shared/text-extract.js';
 import { refreshDownloadUrl } from '../../shared/download-token.js';
 
+/**
+ * Re-sign any /dl/ download tokens in the given image/file URL lists with
+ * the current signing key. Tokens are persisted in message history but the
+ * key is per-process (or on-disk) — re-signing on read keeps history links
+ * functional across restarts. URLs that fail to refresh are left untouched.
+ */
+export function refreshPersistedDownloadUrls(
+  images: Array<{ url: string }>,
+  files: Array<{ path: string }>,
+): void {
+  for (const img of images) {
+    if (img.url.startsWith('/dl/')) {
+      const refreshed = refreshDownloadUrl(img.url);
+      if (refreshed) img.url = refreshed;
+    }
+  }
+  for (const f of files) {
+    if (f.path.startsWith('/dl/')) {
+      const refreshed = refreshDownloadUrl(f.path);
+      if (refreshed) f.path = refreshed;
+    }
+  }
+}
+
 export function registerSessionRoutes(
   app: FastifyInstance,
   db: Database.Database,
@@ -219,16 +243,11 @@ export function registerSessionRoutes(
         extractFilesFrom(content);
       }
 
-      // Refresh expired /dl/ tokens for persisted file links so downloads
-      // remain functional across page refreshes and long-lived sessions.
-      if (files.length > 0) {
-        for (const f of files) {
-          if (f.path.startsWith('/dl/')) {
-            const refreshed = refreshDownloadUrl(f.path);
-            if (refreshed) f.path = refreshed;
-          }
-        }
-      }
+      // Refresh expired /dl/ tokens with the current signing key so images
+      // and files keep working across page refreshes, long-lived sessions
+      // and restarts (the key changes per process start, invalidating any
+      // tokens persisted in history).
+      refreshPersistedDownloadUrls(images, files);
 
       const result: any = {
         id: m.id,

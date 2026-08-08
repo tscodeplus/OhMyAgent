@@ -8,24 +8,47 @@
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import path from 'node:path';
 
 const DEFAULT_TTL_MS = 60 * 60 * 1000; // 1 hour
 const TOKEN_VERSION = 1;
 
 function getSecret(): string {
-  // Use a stable server-side secret. In production, this should be a fixed
-  // value derived from config or an env var. For now, derive from the app
-  // secret (Feishu) if available, otherwise fall back to a random per-process key.
+  // Prefer an explicit env override.
   const envSecret = process.env.OHMYAGENT_DOWNLOAD_SECRET
-    || process.env.FEISHU_APP_SECRET
-    || crypto.randomBytes(32).toString('hex');
-  return envSecret;
+    || process.env.FEISHU_APP_SECRET;
+  if (envSecret) return envSecret;
+
+  // Persistent fallback: keep the key on disk (data/download-secret) so
+  // tokens persisted in message history survive process restarts and
+  // reinstalls. Without this, every start gets a fresh random key and all
+  // previously signed /dl/ links become invalid.
+  const secretFile = process.env.OHMYAGENT_DOWNLOAD_SECRET_FILE
+    || path.resolve(process.cwd(), 'data', 'download-secret');
+  try {
+    if (fs.existsSync(secretFile)) {
+      const existing = fs.readFileSync(secretFile, 'utf-8').trim();
+      if (existing) return existing;
+    }
+    const generated = crypto.randomBytes(32).toString('hex');
+    fs.mkdirSync(path.dirname(secretFile), { recursive: true });
+    fs.writeFileSync(secretFile, generated, { mode: 0o600 });
+    return generated;
+  } catch {
+    // Last resort: per-process random key (tokens will not survive restarts)
+    return crypto.randomBytes(32).toString('hex');
+  }
 }
 
 let _secret: string | null = null;
 function secret(): string {
   if (!_secret) _secret = getSecret();
   return _secret;
+}
+
+/** Reset the cached secret. Only used for testing. */
+export function resetDownloadSecret(): void {
+  _secret = null;
 }
 
 /**
