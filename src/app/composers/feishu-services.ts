@@ -27,6 +27,52 @@ export interface FeishuServicesResult {
   commandDeps: CommandDeps;
 }
 
+/** Operator shape the admin check receives (subset of CommandOperator). */
+interface AdminOperator {
+  senderId?: string;
+  chatType?: string;
+  channel?: string;
+}
+
+/**
+ * Channel-aware admin check for privileged slash commands (e.g. /permission).
+ *
+ * The CommandDeps instance is shared across all channels, so the check must
+ * resolve the operator's own channel instead of always consulting the Feishu
+ * config. Rules per channel:
+ * - allowedUsers configured → only whitelisted senders are admins
+ * - no whitelist → single/private chat counts as the operator's own channel
+ *   (admin); group chats cannot run privileged commands
+ *   (Feishu 'p2p', Telegram private (anything but group/supergroup), WeChat
+ *   is inherently 1:1, QQ 'c2c')
+ */
+export function createChannelIsAdmin(config: AppConfig) {
+  return (operator: AdminOperator): boolean => {
+    const channel = operator.channel ?? 'feishu';
+    const allowedUsers = ((): string[] => {
+      switch (channel) {
+        case 'telegram': return config.telegram?.allowedUsers ?? [];
+        case 'wechat': return config.wechat?.allowedUsers ?? [];
+        case 'qq': return config.qq?.allowedUsers ?? [];
+        default: return config.feishu.allowedUsers ?? [];
+      }
+    })();
+    if (allowedUsers.length > 0) {
+      return !!operator.senderId && allowedUsers.includes(operator.senderId);
+    }
+    switch (channel) {
+      case 'telegram':
+        return operator.chatType !== 'group' && operator.chatType !== 'supergroup';
+      case 'qq':
+        return operator.chatType !== 'group';
+      case 'wechat':
+        return true; // personal WeChat bot — every conversation is 1:1
+      default: // feishu
+        return operator.chatType === 'p2p';
+    }
+  };
+}
+
 export function createFeishuServices(options: {
   config: AppConfig;
   logger: Logger;
@@ -79,17 +125,7 @@ export function createFeishuServices(options: {
         logger.error({ err }, 'Config reload via /permission failed'),
       );
     },
-    // Admin determination for privileged commands (/permission):
-    // - When feishu.allowedUsers is configured, only listed open_ids are admins.
-    // - Otherwise the bot's p2p chat is treated as single-operator (admin),
-    //   while group chats without a whitelist cannot run privileged commands.
-    isAdmin: (operator) => {
-      const allowed = config.feishu.allowedUsers ?? [];
-      if (allowed.length > 0) {
-        return !!operator.senderId && allowed.includes(operator.senderId);
-      }
-      return operator.chatType === 'p2p';
-    },
+    isAdmin: createChannelIsAdmin(config),
   };
   servicesMap.set('commandDeps', commandDeps);
 

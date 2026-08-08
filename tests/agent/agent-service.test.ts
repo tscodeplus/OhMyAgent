@@ -885,4 +885,71 @@ describe('AgentService', () => {
       null, 'default', { success: false, errorCount: 0, durationMs: expect.any(Number) },
     );
   });
+
+  describe('currentTurnMessages (compression-safe turn window)', () => {
+    it('returns only messages added since the turn started', () => {
+      const svcAny = service as unknown as { currentTurnMessages(r: unknown): unknown[] };
+      const oldMsg1 = { role: 'user', content: 'old 1', timestamp: 1 };
+      const oldMsg2 = { role: 'assistant', content: 'old 2', timestamp: 2 };
+      const newMsg = { role: 'user', content: 'new', timestamp: 3 };
+
+      const agent = createMockAgent();
+      agent.state.messages = [oldMsg1, oldMsg2];
+      const runtime = {
+        agent,
+        turnMessageBaseline: 2,
+        turnBaselineMessages: new Set([oldMsg1, oldMsg2]),
+      };
+      // Turn in progress: user message appended
+      agent.state.messages = [oldMsg1, oldMsg2, newMsg];
+
+      const result = svcAny.currentTurnMessages(runtime);
+      expect(result).toEqual([newMsg]);
+    });
+
+    it('keeps the new messages after mid-turn compression shrinks the array', () => {
+      const svcAny = service as unknown as { currentTurnMessages(r: unknown): unknown[] };
+      const oldMsg1 = { role: 'user', content: 'old 1', timestamp: 1 };
+      const oldMsg2 = { role: 'assistant', content: 'old 2', timestamp: 2 };
+      const newMsg = { role: 'user', content: 'new', timestamp: 3 };
+
+      const agent = createMockAgent();
+      agent.state.messages = [oldMsg1, oldMsg2];
+      const runtime = {
+        agent,
+        turnMessageBaseline: 2,
+        turnBaselineMessages: new Set([oldMsg1, oldMsg2]),
+      };
+      // Turn in progress: new message appended, then compression replaces
+      // the transcript — array shrinks (baseline index 2 > length 2 → an
+      // index slice would be empty), but the retained tail keeps the same
+      // object references plus a fresh summary marker.
+      agent.state.messages = [newMsg];
+      agent.state.messages = [
+        { role: 'user', content: '[Compression summary]', timestamp: 4 },
+        newMsg,
+      ];
+
+      const result = svcAny.currentTurnMessages(runtime);
+      // The turn's own message survives the compression window; the summary
+      // marker is new too (no tool calls inside, harmless for extraction).
+      expect(result).toContain(newMsg);
+      expect(result.some(m => (m as any).content === '[Compression summary]')).toBe(true);
+      expect(result).not.toContain(oldMsg1);
+      expect(result).not.toContain(oldMsg2);
+    });
+
+    it('falls back to the length baseline when the identity set is absent', () => {
+      const svcAny = service as unknown as { currentTurnMessages(r: unknown): unknown[] };
+      const oldMsg = { role: 'user', content: 'old', timestamp: 1 };
+      const newMsg = { role: 'user', content: 'new', timestamp: 2 };
+
+      const agent = createMockAgent();
+      agent.state.messages = [oldMsg, newMsg];
+      const runtime = { agent, turnMessageBaseline: 1 };
+
+      const result = svcAny.currentTurnMessages(runtime);
+      expect(result).toEqual([newMsg]);
+    });
+  });
 });

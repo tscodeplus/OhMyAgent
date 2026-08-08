@@ -83,7 +83,13 @@ export function setupMessageHandlers(
 
     // ── All other slash commands → shared command handler ──
     if (text.startsWith('/')) {
-      const result = await handleCommand(text, sessionKey, commandDeps, String((ctx as any).message?.message_id ?? ''), chatId);
+      const result = await handleCommand(text, sessionKey, commandDeps, String((ctx as any).message?.message_id ?? ''), chatId, {
+        // Operator identity for privileged commands (e.g. /permission):
+        // the admin check uses the sender + chat type (+ our channel id).
+        senderId: String((ctx as any).message?.from?.id ?? ''),
+        chatType: String((ctx as any).chat?.type ?? ''),
+        channel: 'telegram',
+      });
 
       if (result) {
         // Command was recognized and handled

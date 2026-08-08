@@ -10,6 +10,7 @@ import type { AgentFactory } from './agent-factory.js';
 import type { AgentTurnContext } from './agent-factory.js';
 import { i18n } from '../i18n/i18n-service.js';
 import type { Agent } from '../pi-mono/agent/agent.js';
+import type { AgentMessage } from '../pi-mono/agent/types.js';
 import { setSessionAgent, clearSessionAgent } from './agent-context.js';
 import type { ReplyDispatcher, FooterConfig, AppServices } from '../app/types.js';
 import type { SessionRepository } from '../memory/repositories/session-repository.js';
@@ -129,6 +130,11 @@ export class AgentService {
      *  considers messages after this baseline, so historical failures
      *  are not re-analyzed. */
     turnMessageBaseline?: number;
+    /** Message objects present when the turn started. Identity-based window
+     *  for tool-call extraction: survives mid-turn context compression,
+     *  which shrinks state.messages and would otherwise make a length
+     *  baseline slice empty (missing the turn's metrics entirely). */
+    turnBaselineMessages?: Set<AgentMessage>;
     turnContext: AgentTurnContext;
     channel?: string;
     /** Agent name captured from the dispatcher for metadata persistence. */
@@ -345,6 +351,7 @@ export class AgentService {
     // (completion metrics, harness failure analysis) only considers messages
     // added after this point, so historical failures are not re-analyzed.
     runtime.turnMessageBaseline = agent.state.messages.length;
+    runtime.turnBaselineMessages = new Set(agent.state.messages);
 
     // Wire pre-complete callback: persist messages BEFORE the SSE "done"
     // event is sent so the frontend refetch always sees the latest turn.
@@ -450,7 +457,7 @@ export class AgentService {
       // ---- Skill self-evolution feedback loop: completion metrics ----
       try {
         const extracted = this.extractToolCalls(
-          agent.state.messages.slice(runtime.turnMessageBaseline ?? 0),
+          this.currentTurnMessages(runtime),
         );
         const feedbackEntry = activeSkillFeedbackIds.get(sessionId);
         if (feedbackEntry) {
@@ -497,7 +504,7 @@ export class AgentService {
       // been updated here, so the duration falls back to Date.now() - turnStart.
       try {
         const extracted = this.extractToolCalls(
-          agent.state.messages.slice(runtime.turnMessageBaseline ?? 0),
+          this.currentTurnMessages(runtime),
         );
         const feedbackEntry = activeSkillFeedbackIds.get(sessionId);
         if (feedbackEntry) {
@@ -993,6 +1000,27 @@ export class AgentService {
   }
 
   /**
+   * Messages added since the current turn started.
+   *
+   * Uses the object-identity set captured at turn start instead of a length
+   * baseline: mid-turn context compression replaces state.messages with a
+   * shorter array, so `slice(baseline)` would return nothing and the turn's
+   * tool calls would vanish from completion metrics and harness analysis.
+   * Compression keeps the same message object references for the retained
+   * tail (only the array and the dropped prefix change), so identity
+   * filtering survives it; without compression it matches the slice exactly.
+   */
+  private currentTurnMessages(
+    runtime: NonNullable<ReturnType<typeof this.runtimes.get>>,
+  ): unknown[] {
+    const baselineMessages = runtime.turnBaselineMessages;
+    if (baselineMessages) {
+      return runtime.agent.state.messages.filter(m => !baselineMessages.has(m));
+    }
+    return runtime.agent.state.messages.slice(runtime.turnMessageBaseline ?? 0);
+  }
+
+  /**
    * Extract tool calls (and the error count) from agent state messages.
    * Shared by completion metrics backfill and the harness failure context.
    * Callers slice to `runtime.turnMessageBaseline` to only analyze the
@@ -1045,9 +1073,8 @@ export class AgentService {
 
     // Build FailureContext from runtime state — only the current turn's
     // messages (post-baseline) so historical failures are not re-analyzed.
-    const messages = runtime.agent.state.messages;
     const { toolCalls, errors } = this.extractToolCalls(
-      messages.slice(runtime.turnMessageBaseline ?? 0),
+      this.currentTurnMessages(runtime),
     );
 
     // Historical usage stats for the active skill (when metrics are

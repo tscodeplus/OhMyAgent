@@ -73,10 +73,13 @@ export interface CommandDeps {
 
 /** Operator context of the message that issued a slash command. */
 export interface CommandOperator {
-  /** Channel sender identity (e.g. Feishu open_id). */
+  /** Channel sender identity (e.g. Feishu open_id, Telegram user id). */
   senderId?: string;
-  /** Chat type (e.g. 'p2p' | 'group'). */
+  /** Chat type (e.g. 'p2p' | 'group'; Telegram: 'private' | 'group' | 'supergroup'). */
   chatType?: string;
+  /** Channel id ('feishu' | 'telegram' | 'wechat' | 'qq') — lets the shared
+   *  admin check resolve the right allowedUsers list. Defaults to feishu. */
+  channel?: string;
 }
 
 export interface CommandResult {
@@ -576,9 +579,11 @@ async function handlePermission(
   operator?: CommandOperator,
 ): Promise<CommandResult> {
   // ── Admin gate ──
-  // Applies when the channel supplies operator context (Feishu messages).
-  // Channels without per-user identity (e.g. WebUI, token-authenticated)
-  // do not pass operator context and keep legacy behavior.
+  // Enforced whenever the channel supplies operator context (IM messages),
+  // so group strangers cannot flip the approval mode. Channels without a
+  // per-user identity — e.g. WebUI, which is already gated by bearer-token
+  // auth (the token holder IS the gateway owner/admin) — pass no operator
+  // and stay open by design; failing closed there would lock the owner out.
   if (operator && deps.isAdmin && !deps.isAdmin(operator)) {
     return { reply: i18n.t('commands:permission.notAuthorized') };
   }

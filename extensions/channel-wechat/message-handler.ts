@@ -498,9 +498,16 @@ async function handleSlashCommand(
   sessionKey: string,
   deps: CommandDeps,
   messageId: string,
-  chatId?: string,
+  senderId?: string,
 ): Promise<{ handled: boolean; reply?: string; forwardText?: string }> {
-  const result = await handleCommand(text, sessionKey, deps, messageId, chatId);
+  const result = await handleCommand(text, sessionKey, deps, messageId, senderId, {
+    // Operator identity for privileged commands (e.g. /permission).
+    // WeChat is a 1:1 personal bot, so the sender is always the operator
+    // unless an allowedUsers whitelist is configured.
+    senderId,
+    chatType: 'p2p',
+    channel: 'wechat',
+  });
   if (!result) return { handled: false };
   return { handled: true, reply: result.reply, forwardText: result.forwardText };
 }

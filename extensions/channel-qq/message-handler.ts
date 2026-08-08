@@ -187,7 +187,14 @@ export function setupMessageHandlers(
           extensionManager: undefined,
         } as CommandDeps);
 
-        const result = await handleCommand(text, sessionKey, deps, messageId, chatId);
+        const result = await handleCommand(text, sessionKey, deps, messageId, chatId, {
+          // Operator identity for privileged commands (e.g. /permission):
+          // C2C messages are the operator's own, group messages are not
+          // unless an allowedUsers whitelist is configured.
+          senderId: target.openid ?? event.d.author.user_openid,
+          chatType: target.groupOpenid ? 'group' : 'c2c',
+          channel: 'qq',
+        });
 
         if (result) {
           if (result.reply) {
