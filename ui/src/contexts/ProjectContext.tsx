@@ -33,7 +33,7 @@ const ProjectContext = createContext<ProjectContextValue>({
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation('common');
-  const { token } = useAuth();
+  const { token, isLoading } = useAuth();
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
@@ -44,10 +44,15 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    // Wait for the auth token: the desktop shell injects it via IPC
-    // (getWebUIToken) after mount, so firing ensure-default without it gets
-    // 401-rejected and HomePage would fall back to /dashboard forever.
-    if (!token) return;
+    // Wait for auth to settle before ensure-default:
+    // - The desktop shell injects the real token via IPC (getWebUIToken)
+    //   after mount, but localStorage still holds the PREVIOUS run's token
+    //   until then. Firing with that stale token gets 401-rejected, the
+    //   catch marks the provider initialized with a null project id, and
+    //   HomePage falls back to /dashboard forever.
+    // - isLoading is false only once the new token is in place, so gating
+    //   on it guarantees the request carries a valid token.
+    if (isLoading || !token) return;
     let cancelled = false;
     const defaultName = t('project.defaultName', 'Default Space');
     apiRequest<EnsureDefaultResponse>('/api/projects/ensure-default', {
@@ -64,7 +69,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         if (!cancelled) setInitialized(true);
       });
     return () => { cancelled = true; };
-  }, [t, token]);
+  }, [t, token, isLoading]);
 
   return (
     <ProjectContext.Provider

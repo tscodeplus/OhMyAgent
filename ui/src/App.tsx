@@ -22,7 +22,10 @@ function HomePage() {
     const pid = selectedProjectId;
     if (!pid) {
       // ProjectProvider's ensure-default should have set this already;
-      // only reachable if the backend is unreachable.
+      // only reachable if the backend is unreachable. Re-run when the
+      // project id arrives later (e.g. the first ensure-default attempt
+      // was 401-rejected with a stale token, then retried successfully) —
+      // an empty dependency array here would strand the app on /dashboard.
       navigate('/dashboard', { replace: true });
       return;
     }
@@ -48,7 +51,7 @@ function HomePage() {
         navigate(`/p/${pid}`, { replace: true });
       }
     })();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedProjectId, setSelectedSessionId, navigate]);
 
   return <div className="flex items-center justify-center h-full text-neutral-500">Loading...</div>;
 }
