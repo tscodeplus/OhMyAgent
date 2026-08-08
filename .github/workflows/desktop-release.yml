@@ -121,6 +121,35 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # Fast linker — mirrors the local build machines' ~/.cargo/config.toml
+      # (mold on Linux/macOS, lld-link on Windows) so CI links as fast as
+      # local ones. Install + config write are chained with &&: a failed
+      # install silently falls back to the default linker instead of
+      # breaking the release build. NOTE: the -fuse-ld rustflags change the
+      # cargo fingerprint, so the first build after this lands recompiles
+      # everything once; the refreshed cache then keeps it fast. Windows is
+      # unaffected (the [target] linker setting is not fingerprinted).
+      - name: Install fast linker
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Linux)
+              sudo apt-get install -y mold && {
+                printf '%s\n' '[target.x86_64-unknown-linux-gnu]' 'rustflags = ["-C", "link-arg=-fuse-ld=mold"]' >> "$HOME/.cargo/config.toml"
+              }
+              ;;
+            macOS)
+              brew install mold && {
+                printf '%s\n' "[target.${{ matrix.target }}]" 'rustflags = ["-C", "link-arg=-fuse-ld=mold"]' >> "$HOME/.cargo/config.toml"
+              }
+              ;;
+            Windows)
+              choco install llvm -y --no-progress && {
+                printf '%s\n' '[target.x86_64-pc-windows-msvc]' "linker = 'C:\\Program Files\\LLVM\\bin\\lld-link.exe'" >> "$HOME/.cargo/config.toml"
+              }
+              ;;
+          esac
+
       # Every run starts from a clean VM — without this the ~300-crate tauri
       # dep tree recompiles from scratch each time. Cache cargo registry +
       # toolchain + the release target dir; the key is stable across version

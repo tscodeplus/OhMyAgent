@@ -23,5 +23,3 @@ MyDocs/
 .pi/
 skills/skills-lock.json
 skills/.pi/
-.electron-deps/
-release/

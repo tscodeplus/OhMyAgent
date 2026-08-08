@@ -1,16 +1,14 @@
 /**
- * bundle-deps.cjs — Prepare flat node_modules for Electron packaging.
+ * bundle-deps.cjs — Prepare flat node_modules for the Tauri sidecar.
  *
  * Problem: pnpm's node_modules uses symlinks to a content-addressable store
- * (.pnpm/<name>@<ver>/node_modules/<name>/). electron-builder follows these
- * symlinks when copying extraResources, resulting in .pnpm/* paths that
- * Node.js module resolution cannot find at runtime.
+ * (.pnpm/<name>@<ver>/node_modules/<name>/). Bundled verbatim, those .pnpm/*
+ * paths would break Node.js module resolution at runtime.
  *
  * Solution:
  *   1. Walk pnpm's dependency tree to get every package's actual path
  *   2. Copy each package into a flat staging node_modules/
- *   3. Override native addons with Electron-ABI-rebuilt versions from
- *      desktop/node_modules/ (prepared by electron-builder install-app-deps)
+ *   3. Prune dev-only packages and wrong-platform native binaries
  *
  * Usage: node scripts/bundle-deps.cjs
  * Run from: desktop/ directory

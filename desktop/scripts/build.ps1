@@ -319,7 +319,7 @@ function Invoke-RootBuild {
     # Create a minimal package.json in dist/ so that the server-dist
     # extraResources is self-contained for ESM resolution.
     # Without this, Node.js treats .js files as CommonJS when the installed
-    # Electron app has no package.json in its ancestor chain (unlike the
+    # The installed desktop app has no package.json in its ancestor chain (unlike the
     # portable build which inherits "type":"module" from desktop/package.json).
     Set-Content -Path "$RootDir\dist\package.json" -Value '{ "type": "module" }'
     Write-OK "Added dist/package.json (type: module for ESM resolution)"
