@@ -10,6 +10,13 @@ import { DEFAULT_POLICY_SCOPE } from '../../policy/types.js';
 export interface ToolExecutionContext {
   sessionId?: string;
   messageId?: string;
+  /**
+   * Abort signal of the current agent run (set by the pi-mono loop). Tools
+   * that spawn long-running work (e.g. shell commands) should honor it so a
+   * /stop abort kills the child process instead of letting it run to its
+   * own timeout.
+   */
+  signal?: AbortSignal;
   agentId?: string;
   parentAgentId?: string;
   skillId?: string;

@@ -239,6 +239,12 @@ export interface TransformOptions {
   logger?: Pick<Logger, 'debug' | 'warn' | 'info'>;
   /** Provider-tuned cache behavior. Currently used for DeepSeek automatic prefix cache. */
   cacheProfile?: 'default' | 'deepseek';
+  /**
+   * Called with the compacted transcript after context compression succeeds.
+   * Lets the owner (agent factory) write the result back to agent state so
+   * future turns start from the summary instead of the full history.
+   */
+  onCompressed?: (messages: any[]) => void;
 }
 
 /**
@@ -451,42 +457,46 @@ export function createTransformContext(options?: TransformOptions) {
         if (shouldSkipCanvas) {
           options.logger?.debug({ sessionKey: canvasKey, nodeCount: total, currentPhase }, 'Repeated static Mermaid canvas skipped for DeepSeek cache profile');
         } else {
-          if (cacheProfile === 'deepseek') deepseekCanvasSignatureBySession.set(canvasKey, canvasSignature);
-        if (nodes.length <= options.mermaidCanvasConfig.maxNodesInContext) {
-          const canvasText = options.mermaidCanvasConfig.injectFormat === 'full'
-            ? options.mermaidCanvas.toMermaid()
-            : options.mermaidCanvas.toContextSummary();
-          if (canvasText) {
-            const canvasHint = `\n\n---\n${canvasText}`;
+          if (nodes.length <= options.mermaidCanvasConfig.maxNodesInContext) {
+            const canvasText = options.mermaidCanvasConfig.injectFormat === 'full'
+              ? options.mermaidCanvas.toMermaid()
+              : options.mermaidCanvas.toContextSummary();
+            if (canvasText) {
+              const canvasHint = `\n\n---\n${canvasText}`;
+              if (lastUserMsg) {
+                const idx = result.lastIndexOf(lastUserMsg);
+                const blocks = ensureContentBlocks(lastUserMsg.content);
+                result[idx] = { ...lastUserMsg, content: [...blocks, { type: 'text', text: canvasHint }] };
+                options.logger?.debug({
+                  sessionKey,
+                  nodeCount: nodes.length,
+                  injectFormat: options.mermaidCanvasConfig.injectFormat,
+                  maxNodesInContext: options.mermaidCanvasConfig.maxNodesInContext,
+                }, 'Mermaid canvas injected into context');
+                // Cache the signature only after the canvas was actually
+                // injected — otherwise a skipped injection would suppress
+                // future injections of the same canvas.
+                if (cacheProfile === 'deepseek') deepseekCanvasSignatureBySession.set(canvasKey, canvasSignature);
+              }
+            }
+          } else {
+            // Too many nodes — inject a concise count summary instead
+            const max = options.mermaidCanvasConfig.maxNodesInContext;
+            const countHint = `\n\n---\n[任务进度] 当前阶段: ${currentPhase} (${completed}/${total} 完成, 显示最近 ${max}/${total} 步)`;
             if (lastUserMsg) {
               const idx = result.lastIndexOf(lastUserMsg);
               const blocks = ensureContentBlocks(lastUserMsg.content);
-              result[idx] = { ...lastUserMsg, content: [...blocks, { type: 'text', text: canvasHint }] };
+              result[idx] = { ...lastUserMsg, content: [...blocks, { type: 'text', text: countHint }] };
               options.logger?.debug({
                 sessionKey,
-                nodeCount: nodes.length,
-                injectFormat: options.mermaidCanvasConfig.injectFormat,
-                maxNodesInContext: options.mermaidCanvasConfig.maxNodesInContext,
-              }, 'Mermaid canvas injected into context');
+                nodeCount: total,
+                completed,
+                currentPhase,
+                maxNodesInContext: max,
+              }, 'Mermaid canvas compact progress injected into context');
+              if (cacheProfile === 'deepseek') deepseekCanvasSignatureBySession.set(canvasKey, canvasSignature);
             }
           }
-        } else {
-          // Too many nodes — inject a concise count summary instead
-          const max = options.mermaidCanvasConfig.maxNodesInContext;
-          const countHint = `\n\n---\n[任务进度] 当前阶段: ${currentPhase} (${completed}/${total} 完成, 显示最近 ${max}/${total} 步)`;
-          if (lastUserMsg) {
-            const idx = result.lastIndexOf(lastUserMsg);
-            const blocks = ensureContentBlocks(lastUserMsg.content);
-            result[idx] = { ...lastUserMsg, content: [...blocks, { type: 'text', text: countHint }] };
-            options.logger?.debug({
-              sessionKey,
-              nodeCount: total,
-              completed,
-              currentPhase,
-              maxNodesInContext: max,
-            }, 'Mermaid canvas compact progress injected into context');
-          }
-        }
         }
       } catch (err) {
         options.logger?.warn({
@@ -600,6 +610,16 @@ export function createTransformContext(options?: TransformOptions) {
             const tokensBefore = estimateTokens(result);
             result.length = 0;
             result.push(compressResult.summaryMessage, ...recentMessages);
+            // Compact the caller's transcript in place (uses the pre-injection
+            // messages so injected context blocks — date, memories, canvas —
+            // never leak into the transcript) and notify the owner via
+            // onCompressed so agent state is updated too. Otherwise every LLM
+            // call in this turn re-compresses the same old messages and
+            // persistence keeps the full history.
+            const transcriptRecent = messages.slice(compressResult.compressedIndex);
+            messages.length = 0;
+            messages.push(compressResult.summaryMessage, ...transcriptRecent);
+            options?.onCompressed?.(messages);
             lastCompressedIndexBySession.set(sessionKey, result.length);
             if (compressResult.summary) {
               lastCompressionSummaryBySession.set(sessionKey, compressResult.summary);

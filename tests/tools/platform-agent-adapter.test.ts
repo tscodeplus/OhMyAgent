@@ -136,6 +136,32 @@ describe('AgentToolAdapterImpl', () => {
     expect(policyCenter.evaluateToolCall).toHaveBeenCalledOnce();
   });
 
+  it('forwards the run abort signal into the tool execution context', async () => {
+    let capturedSignal: AbortSignal | undefined;
+    const definition = {
+      name: 'signal_probe',
+      label: 'Signal Probe',
+      description: 'probe',
+      category: 'session',
+      parametersSchema: {},
+      capability: {
+        category: 'session', readOnly: true, readsFiles: false, writesFiles: false,
+        usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none',
+        approvalDefault: 'none',
+      },
+      execute: async (_args: unknown, ctx: any) => {
+        capturedSignal = ctx.signal;
+        return { content: [{ type: 'text', text: 'ok' }], isError: false };
+      },
+    };
+    const adapter = new AgentToolAdapterImpl({});
+    const tool = adapter.toAgentTool(definition as any);
+
+    const controller = new AbortController();
+    await tool.execute('call-1', {}, controller.signal);
+    expect(capturedSignal).toBe(controller.signal);
+  });
+
   it('allows requiresApproval only when runtime approval handling is marked complete', async () => {
     const policyCenter = {
       evaluateToolCall: vi.fn(async () => ({

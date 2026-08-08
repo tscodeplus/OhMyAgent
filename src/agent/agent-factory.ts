@@ -137,6 +137,10 @@ export interface AgentCreateOptions {
   sessionId?: string;
   chatId?: string;
   messageId?: string;
+  /** Operator identity of the current message sender (e.g. Feishu open_id).
+   *  Threaded into approval request records as the requester so approval
+   *  callbacks can verify the clicker is the requester. */
+  senderId?: string;
   historyMessages?: Array<{ role: string; content: string | Array<{ type: string; text?: string }>; timestamp: number }>;
   turnContext?: AgentTurnContext;
   channel?: string;
@@ -178,6 +182,8 @@ export interface FeishuApprovalClient {
 export interface AgentTurnContext {
   chatId?: string;
   messageId?: string;
+  /** Operator identity of the current message sender (e.g. Feishu open_id). */
+  senderId?: string;
   replyDispatcher?: ReplyDispatcher;
   /** Factory to create a fresh channel-specific dispatcher (used by followUp). */
   replyDispatcherFactory?: () => ReplyDispatcher;
@@ -589,7 +595,11 @@ export function createAgentFactory(
       tools = toolPipelineResult.tools;
       const toolSearchAssembly = toolPipelineResult.toolSearchAssembly;
 
-      const agent = new Agent({
+      // Declared before construction so the transform closure can write
+      // compression results back to state. The transform only runs during
+      // agent.prompt(), by which time `agent` is assigned.
+      let agent: Agent;
+      agent = new Agent({
         initialState: {
           systemPrompt,
           model,
@@ -648,6 +658,12 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
               baseUrl: configRef.current.piAi.baseUrl,
             };
           })(),
+          // M4: persist successful compression back to the agent transcript so
+          // later turns (and end-of-turn persistence) start from the summary
+          // instead of re-compressing the same old messages every call.
+          onCompressed: (compressed) => {
+            agent.state.messages = compressed;
+          },
           logger,
         }),
         sessionId,
@@ -842,6 +858,7 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
               policyAgentId: options?.policyAgentId,
               channelApprovalSender: options?.channelApprovalSender,
               channel: (options?.channel as BeforeToolCallDeps['channel']),
+              senderId: options?.senderId,
               logger,
             })
           : undefined,

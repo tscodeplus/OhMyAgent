@@ -491,4 +491,97 @@ describe('auto compression in transformContext (pi-style)', () => {
     expect(mockCompressContext).not.toHaveBeenCalled();
     expect(result).toHaveLength(15);
   });
+
+  it('compacts the caller array in place and notifies onCompressed (M4)', async () => {
+    mockEstimateTokens.mockReturnValue(5000);
+    const summaryMsg = { role: 'user' as const, content: [{ type: 'text' as const, text: '## 目标\n...' }] };
+    mockCompressContext.mockResolvedValue({
+      summaryMessage: summaryMsg,
+      compressedIndex: 5,
+      summary: '## 目标\n...',
+    });
+    const onCompressed = vi.fn();
+    const transform = createTransformContext({
+      maxMessages: 100,
+      sessionKey: 'test-writeback',
+      dateLanguage: 'zh-CN',
+      compressConfig: {
+        config: makeCompressConfig(),
+        contextWindow: 5000,
+        mainModelRef: 'deepseek/model',
+        globalFallbackRefs: [],
+        apiKeys: {},
+        baseUrls: {},
+      },
+      onCompressed,
+    });
+
+    const messages = Array.from({ length: 10 }, (_, i) => makeMessage('user', i));
+    await transform(messages);
+
+    expect(onCompressed).toHaveBeenCalledTimes(1);
+    const written = onCompressed.mock.calls[0][0] as any[];
+    expect(written).toHaveLength(6); // 1 summary + 5 recent
+    expect(written[0]).toBe(summaryMsg);
+    // Transcript write-back uses the ORIGINAL messages — injected context
+    // blocks (date prefix on the last user message) must not leak in.
+    expect(written[1].content).toBe('msg-5');
+    expect(written[5].content).toBe('msg-9');
+    // The caller's array is compacted in place so later LLM calls in the
+    // same turn don't re-compress the same old messages.
+    expect(messages).toHaveLength(6);
+    expect(messages[0]).toBe(summaryMsg);
+  });
+
+  it('skips the transcript write-back when compression yields no summary', async () => {
+    mockEstimateTokens.mockReturnValue(5000);
+    mockCompressContext.mockResolvedValue({ summaryMessage: null, compressedIndex: 0, summary: '' });
+    const onCompressed = vi.fn();
+    const transform = createTransformContext({
+      maxMessages: 100,
+      sessionKey: 'test-writeback-none',
+      compressConfig: {
+        config: makeCompressConfig(),
+        contextWindow: 5000,
+        mainModelRef: 'deepseek/model',
+        globalFallbackRefs: [],
+        apiKeys: {},
+        baseUrls: {},
+      },
+      onCompressed,
+    });
+
+    const messages = Array.from({ length: 10 }, (_, i) => makeMessage('user', i));
+    const result = await transform(messages);
+
+    expect(onCompressed).not.toHaveBeenCalled();
+    expect(messages).toHaveLength(10); // untouched
+    expect(result).toHaveLength(10); // no compression, no maxMessages trim (10 < 100)
+  });
+
+  it('does not cache the DeepSeek canvas signature when no injection happened', async () => {
+    const logger = { debug: vi.fn(), warn: vi.fn(), info: vi.fn() };
+    const transform = createTransformContext({
+      maxMessages: 5,
+      sessionKey: 'deepseek-canvas-noinject',
+      cacheProfile: 'deepseek',
+      mermaidCanvasConfig: { enabled: true, injectFormat: 'summary', maxNodesInContext: 5 },
+      mermaidCanvas: {
+        getAllNodes: () => [{ id: 'node-001', status: 'success' }],
+        toContextSummary: () => '[任务画布]\n- node-001 done',
+        toMermaid: () => 'flowchart LR',
+        getCurrentPhase: () => '执行',
+      } as any,
+      logger: logger as any,
+    });
+
+    // First call has no user message — nothing to attach the canvas to, so
+    // the injection is skipped and the signature must NOT be cached.
+    await transform([{ role: 'assistant', content: 'ok' }]);
+
+    // Second call has a user message — it must still inject the canvas
+    // instead of being suppressed by the stale signature cache.
+    const second = await transform([{ role: 'user', content: 'hello' }]);
+    expect(second[0].content.some((b: any) => b.text?.includes('[任务画布]'))).toBe(true);
+  });
 });

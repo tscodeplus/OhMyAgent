@@ -68,7 +68,9 @@ export function createShellToolDefinition(options: ShellToolOptions = {}): ToolD
         }
       }
 
-      const result: ShellToolResult = await legacyTool.execute('', args as ShellToolParams);
+      // Forward the run's abort signal so /stop kills the shell command
+      // instead of letting it run to the exec timeout.
+      const result: ShellToolResult = await legacyTool.execute('', args as ShellToolParams, ctx.signal);
       return {
         content: (result.content ?? []) as ToolResultContent[],
         isError: !result.content?.length,

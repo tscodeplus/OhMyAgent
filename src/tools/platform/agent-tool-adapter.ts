@@ -49,13 +49,15 @@ export class AgentToolAdapterImpl implements AgentToolAdapter {
       description: def.description,
       parameters: def.parametersSchema as any,
 
-      execute: async (_toolCallId, params, _signal?, _onUpdate?) => {
-        // 1. Build ToolExecutionContext
+      execute: async (_toolCallId, params, signal?, _onUpdate?) => {
+        // 1. Build ToolExecutionContext (per-invocation signal wins over
+        //    context overrides so /stop aborts reach the tool)
         const ctx: ToolExecutionContext = {
           cwd: process.cwd(),
           policyScope: DEFAULT_POLICY_SCOPE,
           services: this.deps.getServices?.() ?? ({} as AppServices),
           ...this.deps.getContextOverrides?.(),
+          signal,
         };
 
         // 2. beforeExecute hooks (PolicyCenter gate)

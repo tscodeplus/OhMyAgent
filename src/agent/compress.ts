@@ -19,19 +19,27 @@ import { truncate } from '../shared/truncation.js';
 
 /** Estimate token count for a single message using chars/4 heuristic. */
 function estimateMessageTokens(m: AgentMessage): number {
-  let chars = 0;
-  if (typeof m.content === 'string') {
-    chars = m.content.length;
-  } else if (Array.isArray(m.content)) {
-    for (const b of m.content) {
-      if (b.type === 'text' && typeof b.text === 'string') chars += b.text.length;
-      else if (b.type === 'thinking' && typeof b.thinking === 'string') chars += b.thinking.length;
-      else if (b.type === 'toolCall') chars += (b.name.length ?? 0) + JSON.stringify(b.arguments ?? {}).length;
-      else if (b.type === 'image') chars += 4800; // image estimate
-      else chars += JSON.stringify(b).length;
+  try {
+    let chars = 0;
+    if (typeof m.content === 'string') {
+      chars = m.content.length;
+    } else if (Array.isArray(m.content)) {
+      for (const b of m.content) {
+        if (b.type === 'text' && typeof b.text === 'string') chars += b.text.length;
+        else if (b.type === 'thinking' && typeof b.thinking === 'string') chars += b.thinking.length;
+        // b.name may be missing on malformed toolCall blocks — dereference
+        // only after the nullish check (b.name.length ?? 0 would throw).
+        else if (b.type === 'toolCall') chars += (b.name?.length ?? 0) + JSON.stringify(b.arguments ?? {}).length;
+        else if (b.type === 'image') chars += 4800; // image estimate
+        else chars += JSON.stringify(b).length;
+      }
     }
+    return Math.ceil(chars / 4);
+  } catch {
+    // Malformed content (e.g. BigInt in arguments makes JSON.stringify throw)
+    // must never crash the request — estimate as 0 and let callers proceed.
+    return 0;
   }
-  return Math.ceil(chars / 4);
 }
 
 export function estimateTokens(messages: AgentMessage[]): number {
@@ -270,10 +278,25 @@ export async function compressContext(
       summary,
     };
   } catch (err) {
+    // Hard truncation fallback: the compression LLM failed. Instead of
+    // returning empty (which would leave the over-budget context intact and
+    // re-trigger a failing compression on every LLM call), drop the old
+    // messages at the cut point and keep the recent tail so the request can
+    // still go out. The marker keeps the split visible to the model; summary
+    // stays empty so a later turn can retry real summarization.
     logger?.warn({
       sessionKey,
       err: err instanceof Error ? err.message : String(err),
     }, 'Context compression failed, falling back to hard truncation');
-    return empty;
+    const recentMessages = messages.slice(cutPoint);
+    if (recentMessages.length === 0) return empty;
+    return {
+      summaryMessage: {
+        role: 'user',
+        content: [{ type: 'text', text: '\n\n---\n[Context Compression — Earlier Conversation Truncated (summarization failed)]\n---\n' }],
+      } as AgentMessage,
+      compressedIndex: cutPoint,
+      summary: '',
+    };
   }
 }
