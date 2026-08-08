@@ -457,9 +457,18 @@ function Invoke-TauriBuild {
         # drop a stale installer from a previous build first, else the standard
         # OhMyAgent-Setup-<v>.exe name silently stays an old artifact.
         $target = "OhMyAgent-Setup-$version.exe"
-        Remove-Item "$DesktopDir\src-tauri\target\release\bundle\nsis\$target" -Force -ErrorAction SilentlyContinue
-        Rename-Item -Force $setup.FullName $target
-        Write-OK "Renamed installer to OhMyAgent-Setup-$version.exe"
+        $targetPath = "$DesktopDir\src-tauri\target\release\bundle\nsis\$target"
+        # Fail loud if the stale installer is locked (open Explorer, running
+        # updater, AV scan): a silently-failing Remove-Item makes the rename
+        # below fail too, yet Write-OK still printed success and shipped a
+        # STALE installer under the standard name.
+        try {
+            if (Test-Path $targetPath) { Remove-Item $targetPath -Force -ErrorAction Stop }
+            Rename-Item -Force $setup.FullName $target -ErrorAction Stop
+        } catch {
+            throw "Installer rename failed: $($_.Exception.Message). Fresh installer is still at $($setup.FullName) — close whatever holds '$target' (Explorer/AV/updater) and rerun, or rename it manually."
+        }
+        Write-OK "Renamed installer to $target"
     }
 
     Write-OK "Tauri build complete"
