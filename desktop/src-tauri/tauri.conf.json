@@ -40,8 +40,7 @@
         ],
         "compression": "lzma",
         "displayLanguageSelector": true,
-        "installerIcon": "icons/icon.ico",
-        "installerHooks": "nsis/uninstall-hooks.nsh"
+        "installerIcon": "icons/icon.ico"
       },
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
