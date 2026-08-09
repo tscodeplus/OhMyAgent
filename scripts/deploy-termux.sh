@@ -141,7 +141,62 @@ fi
 # Step 3: Install dependencies (full output — don't hide errors with tail)
 echo "[3/7] Installing dependencies..."
 unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY 2>/dev/null || true
-pnpm install 2>&1
+# Native builds (better-sqlite3, sqlite-vec) must compile against Termux's
+# local Node headers via $PREFIX — otherwise node-gyp tries to download
+# node-vX-headers.tar.gz from nodejs.org, which often fails on the device.
+export ANDROID_NDK_HOME="$PREFIX"
+export npm_config_nodedir="$PREFIX"
+# sharp has no prebuilt for Termux and its source build (needs libvips) always
+# fails. It is optional at runtime (nut-js screenshots degrade gracefully), so
+# drop it from the build allow-list on the device (pnpm 11 allowBuilds map /
+# onlyBuiltDependencies list / .npmrc array entries — match any line loosely
+# because indentation differs between the two pnpm config formats).
+sed -i '/sharp/d' pnpm-workspace.yaml
+sed -i '/sharp/d' .npmrc
+# Over SSH there is no TTY, so when pnpm decides the existing modules dir
+# (e.g. an older pnpm layout) must be purged it aborts with
+# ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY instead of asking. Try the fast
+# incremental install first; fall back to a from-scratch install (the pnpm
+# store cache keeps this fast) only when pnpm actually aborted on the purge
+# prompt — other failures are surfaced as-is.
+INSTALL_LOG=$(mktemp)
+if ! pnpm install > "$INSTALL_LOG" 2>&1; then
+  if grep -q "NO_TTY" "$INSTALL_LOG"; then
+    echo "  Incremental install aborted (no-TTY purge prompt); installing from scratch..."
+    rm -rf node_modules
+    pnpm install 2>&1
+  else
+    echo "  pnpm install failed:"
+    cat "$INSTALL_LOG"
+    rm -f "$INSTALL_LOG"
+    exit 1
+  fi
+fi
+rm -f "$INSTALL_LOG"
+
+# sharp: no prebuilt for Termux, but it compiles against the system libvips
+# (pkg install libvips) via SHARP_FORCE_GLOBAL_LIBVIPS. It is optional at
+# runtime (nut-js screenshots degrade gracefully), so a failed build is
+# non-fatal — but it used to work on this device, so keep it working.
+echo "[3b/7] Checking sharp..."
+if node -e "require('sharp')" >/dev/null 2>&1; then
+  echo "  sharp already available"
+else
+  echo "  Building sharp against system libvips..."
+  pkg install -y pkg-config binutils xorgproto libvips >/dev/null 2>&1 || true
+  pnpm add -D --ignore-scripts node-addon-api node-gyp >/dev/null 2>&1 || true
+  # pnpm rebuild silently skips sharp (it is not in the build allow-list on
+  # the device), so run sharp's own build script directly. Needs
+  # ANDROID_NDK_HOME (set above) or node-gyp fails with
+  # "Undefined variable android_ndk_path in binding.gyp".
+  SHARP_PKG_DIR=$(find node_modules/.pnpm -maxdepth 1 -type d -name 'sharp@*' | head -1)/node_modules/sharp
+  (cd "$SHARP_PKG_DIR" && SHARP_FORCE_GLOBAL_LIBVIPS=1 npm run build) 2>&1 | tail -5 || true
+  if node -e "require('sharp')" >/dev/null 2>&1; then
+    echo "  sharp OK"
+  else
+    echo "  sharp build failed (optional, continuing)"
+  fi
+fi
 
 # Step 5: Compile better-sqlite3
 echo "[4/7] Checking better-sqlite3..."
@@ -163,7 +218,22 @@ echo "  Build OK: dist/src/index.js exists"
 # Step 7: Build WebUI (ui/dist)
 echo "[6/7] Building WebUI frontend..."
 if [ -f ui/package.json ]; then
-  cd ui && pnpm install 2>&1 && pnpm build 2>&1 && cd ..
+  cd ui
+  if ! pnpm install > "$INSTALL_LOG" 2>&1; then
+    if grep -q "NO_TTY" "$INSTALL_LOG"; then
+      echo "  ui install aborted (no-TTY purge); retrying from scratch..."
+      rm -rf node_modules
+      pnpm install 2>&1
+    else
+      echo "  ui pnpm install failed:"
+      cat "$INSTALL_LOG"
+      rm -f "$INSTALL_LOG"
+      exit 1
+    fi
+  fi
+  rm -f "$INSTALL_LOG"
+  pnpm build 2>&1
+  cd ..
   echo "  WebUI built to ui/dist/"
 else
   echo "  ui/package.json not found, skipping WebUI build"
@@ -203,7 +273,9 @@ REMOTE_SCRIPT
 start_service() {
   info "Restarting ohmyagent service (force-restart)..."
   ssh_cmd "export SVDIR=\$PREFIX/var/service && sv force-restart ohmyagent 2>&1 || true"
-  sleep 6
+  # Termux cold start takes a while (better-sqlite3 init, embedding models,
+  # WebSocket connect) — 6s was too short and the health check warned falsely.
+  sleep 20
 
   info "Verifying service..."
   local status
@@ -211,7 +283,9 @@ start_service() {
   echo "  $status"
 
   local http_code
-  http_code=$(ssh_cmd "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:\${PORT:-9191}/ 2>/dev/null || echo '000'")
+  # `; true` keeps ssh's exit code 0 even when curl fails, so http_code is
+  # exactly curl's %{http_code} (302/200, or 000 on connection failure).
+  http_code=$(ssh_cmd "curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:\${PORT:-9191}/ 2>/dev/null; true" || echo "000")
   if [ "$http_code" != "000" ]; then
     info "HTTP service OK (status: $http_code)"
   else
