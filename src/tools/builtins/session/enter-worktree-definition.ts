@@ -2,7 +2,7 @@
 // v4 ToolDefinition for the enter_worktree tool
 // ---------------------------------------------------------------------------
 
-import { Type } from '@sinclair/typebox';
+import { Type } from 'typebox';
 import { execFileSync, execSync } from 'node:child_process';
 import { basename, isAbsolute, relative, resolve } from 'node:path';
 import type { ToolDefinition } from '../../platform/tool-definition.js';

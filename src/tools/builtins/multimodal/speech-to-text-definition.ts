@@ -3,7 +3,7 @@
 // Transcribes an audio file to text using configured STT providers.
 // ---------------------------------------------------------------------------
 
-import { Type } from '@sinclair/typebox';
+import { Type } from 'typebox';
 import { statSync } from 'node:fs';
 import type { ToolDefinition } from '../../platform/tool-definition.js';
 import type { ToolCapabilityDescriptor } from '../../platform/tool-capabilities.js';

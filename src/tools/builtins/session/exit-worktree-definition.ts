@@ -2,7 +2,7 @@
 // v4 ToolDefinition for the exit_worktree tool
 // ---------------------------------------------------------------------------
 
-import { Type } from '@sinclair/typebox';
+import { Type } from 'typebox';
 import { execFileSync } from 'node:child_process';
 import type { ToolDefinition } from '../../platform/tool-definition.js';
 import type { ToolCapabilityDescriptor } from '../../platform/tool-capabilities.js';

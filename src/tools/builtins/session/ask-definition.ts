@@ -13,7 +13,7 @@
 // If no UserQuestionSender is available for the channel, the tool falls back
 // to formatted text output (current behavior — no waiting).
 
-import { Type } from '@sinclair/typebox';
+import { Type } from 'typebox';
 import type { ToolDefinition } from '../../platform/tool-definition.js';
 import type { ToolCapabilityDescriptor } from '../../platform/tool-capabilities.js';
 import { textResult, errorResult } from '../../platform/tool-result.js';

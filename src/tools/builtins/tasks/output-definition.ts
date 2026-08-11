@@ -2,7 +2,7 @@
 // v4 ToolDefinition for the task_output tool
 // ---------------------------------------------------------------------------
 
-import { Type } from '@sinclair/typebox';
+import { Type } from 'typebox';
 import type { ToolDefinition } from '../../platform/tool-definition.js';
 import type { ToolCapabilityDescriptor } from '../../platform/tool-capabilities.js';
 import type { ToolExecutionContext } from '../../platform/tool-context.js';

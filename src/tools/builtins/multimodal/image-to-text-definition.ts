@@ -6,7 +6,7 @@
 // pi-mono completeSimple API.
 // ---------------------------------------------------------------------------
 
-import { Type } from '@sinclair/typebox';
+import { Type } from 'typebox';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { ToolDefinition } from '../../platform/tool-definition.js';

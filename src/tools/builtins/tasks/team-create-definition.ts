@@ -2,7 +2,7 @@
 // v4 ToolDefinition for the team_create tool
 // ---------------------------------------------------------------------------
 
-import { Type } from '@sinclair/typebox';
+import { Type } from 'typebox';
 import type { ToolDefinition } from '../../platform/tool-definition.js';
 import type { ToolCapabilityDescriptor } from '../../platform/tool-capabilities.js';
 import { textResult, errorResult } from '../../platform/tool-result.js';
