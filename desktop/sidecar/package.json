@@ -1,6 +1,6 @@
 {
   "name": "ohmyagent-sidecar",
-  "version": "2.3.0-beta4",
+  "version": "2.3.0",
   "description": "OhMyAgent Sidecar — runs the gateway server as a child of the Tauri shell",
   "private": true,
   "type": "module",
