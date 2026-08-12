@@ -385,6 +385,17 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
       } : undefined,
       node: cuNode ? {
         url: str(cuNode.url, ''),
+        token: cuNode.token ? str(cuNode.token, '') : undefined,
+        adb: cuNode.adb ? {
+          path: str(cuNode.adb.path, 'adb'),
+          serial: cuNode.adb.serial ? str(cuNode.adb.serial, '') : undefined,
+          // 兼容 snake_case(手写 YAML)与 camelCase(WebUI 保存),camelCase 优先
+          manageScreen: cuNode.adb.manageScreen !== undefined
+            ? Boolean(cuNode.adb.manageScreen)
+            : cuNode.adb.manage_screen !== undefined
+              ? Boolean(cuNode.adb.manage_screen)
+              : false,
+        } : undefined,
       } : undefined,
       perPlatformProvider: cuCfg.per_platform_provider
         ? (cuCfg.per_platform_provider as Record<string, unknown>) as Record<string, string>

@@ -1,8 +1,9 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, it, expect, beforeEach, vi } from 'vitest';
 import { loadConfig, resetConfig, startConfigWatcher, stopConfigWatcher } from '../../src/app/config';
+import { normalizeComputerUseSettings } from '../../src/computer-use/settings';
 
 describe('loadConfig', () => {
   beforeEach(() => {
@@ -148,6 +149,37 @@ describe('loadConfig', () => {
       ...validEnv,
       SHELL_APPROVAL_MODE: 'unsafe',
     })).toThrow('Configuration validation failed');
+  });
+
+  it('yaml → loadConfig → settings normalize:computer_use.node token/adb 链路生效', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oma-cu-'));
+    const yamlPath = join(dir, 'config.yaml');
+    writeFileSync(yamlPath, `provider:
+  primary: openai/gpt-4o
+  api_key: sk-test
+computer_use:
+  enabled: true
+  provider: node
+  node:
+    url: http://192.168.1.201:8080
+    token: secret-token
+    adb:
+      path: /custom/adb
+      serial: emulator-5554
+      manage_screen: true
+`, 'utf-8');
+    resetConfig();
+
+    const config = loadConfig({ CONFIG_FILE: yamlPath });
+    const settings = normalizeComputerUseSettings(config.computerUse);
+
+    expect(settings.enabled).toBe(true);
+    expect(settings.provider).toBe('node');
+    expect(settings.node.url).toBe('http://192.168.1.201:8080');
+    expect(settings.node.token).toBe('secret-token');
+    expect(settings.node.adb?.path).toBe('/custom/adb');
+    expect(settings.node.adb?.serial).toBe('emulator-5554');
+    expect(settings.node.adb?.manageScreen).toBe(true);
   });
 });
 

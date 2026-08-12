@@ -339,6 +339,44 @@ describe('yamlToAppConfigRaw', () => {
     expect(raw.showToolCalls).toBe(true);
     expect(raw.database.path).toBe('~/.ohmyagent/data/app.db');
   });
+
+  it('maps computer_use.node token/adb from snake_case yaml', () => {
+    const raw = yamlToAppConfigRaw({
+      ...minimalYaml,
+      computer_use: {
+        enabled: true,
+        node: {
+          url: 'http://192.168.1.201:8080',
+          token: 'secret-token',
+          adb: { path: '/custom/adb', serial: 'emulator-5554', manage_screen: true },
+        },
+      },
+    });
+    expect(raw.computerUse?.node).toEqual({
+      url: 'http://192.168.1.201:8080',
+      token: 'secret-token',
+      adb: { path: '/custom/adb', serial: 'emulator-5554', manageScreen: true },
+    });
+  });
+
+  it('computer_use.node.adb manageScreen(camelCase)优先于 manage_screen', () => {
+    const raw = yamlToAppConfigRaw({
+      ...minimalYaml,
+      computer_use: {
+        enabled: true,
+        node: { url: 'http://x', adb: { manage_screen: true, manageScreen: false } },
+      },
+    });
+    expect(raw.computerUse?.node?.adb?.manageScreen).toBe(false);
+  });
+
+  it('computer_use.node 缺省 adb/token → 不产出 undefined 字段', () => {
+    const raw = yamlToAppConfigRaw({
+      ...minimalYaml,
+      computer_use: { enabled: true, node: { url: 'http://x' } },
+    });
+    expect(raw.computerUse?.node).toEqual({ url: 'http://x' });
+  });
 });
 
 describe('loadYamlFile', () => {

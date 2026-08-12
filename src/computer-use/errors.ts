@@ -13,6 +13,8 @@ export const COMPUTER_USE_ERRORS = {
   PROVIDER_UNAVAILABLE: 'Provider is not available on this platform',
   PROVIDER_CRASHED: 'Provider daemon crashed or returned invalid data',
   TARGET_NOT_FOUND: 'Target element not found in snapshot',
+  ELEMENT_STALE_TREE: 'Element belongs to a stale accessibility tree, refresh the snapshot',
+  ELEMENT_NO_ACTION: 'Element does not expose a performable action',
 } as const;
 
 export type ComputerUseErrorCode = keyof typeof COMPUTER_USE_ERRORS;

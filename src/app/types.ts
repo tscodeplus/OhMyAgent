@@ -510,6 +510,17 @@ export interface ComputerUseConfig {
   };
   node?: {
     url: string;
+    /** mimic 认证 token(经 x-mimic-token 头发送)。可选。 */
+    token?: string;
+    /** adb 电源/锁屏管理(唤醒/常亮/恢复)。可选,默认不启用。 */
+    adb?: {
+      /** adb 命令或绝对路径,默认 'adb' */
+      path: string;
+      /** 多设备时的序列号 */
+      serial?: string;
+      /** 操作前唤醒/常亮,完成后恢复。默认 false。 */
+      manageScreen: boolean;
+    };
   };
   perPlatformProvider?: Record<string, string>;
 }

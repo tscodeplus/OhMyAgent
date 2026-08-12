@@ -87,6 +87,8 @@ export interface UIElement {
   enabled: boolean;
   focused?: boolean;
   actions?: string[];       // AXPress, AXOpen, AXShowDefaultUI, ...
+  /** True for password/secret fields — value must never be included. */
+  sensitive?: boolean;
 }
 
 export type ActionType =

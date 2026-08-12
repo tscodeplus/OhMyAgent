@@ -304,6 +304,25 @@ export class ComputerLeaseRegistry {
     };
   }
 
+  /** 列出某 session 的全部 lease(含已释放的),供断开清理时调 provider 收尾。 */
+  listBySession(sessionPath: string): Lease[] {
+    const out: Lease[] = [];
+    for (const [sk, keys] of this.leasesBySession) {
+      if (!sk.startsWith(`${sessionPath}\0`)) continue;
+      for (const key of keys) {
+        const lease = this.leases.get(key);
+        if (lease) out.push(lease);
+      }
+    }
+    // Fallback:扫描兜底(索引可能不完整)
+    for (const [, lease] of this.leases) {
+      if (lease.sessionPath === sessionPath && !out.includes(lease)) {
+        out.push(lease);
+      }
+    }
+    return out;
+  }
+
   releaseBySession(sessionPath: string): void {
     // Use index when available, fall back to full scan
     for (const [sk, keys] of this.leasesBySession) {

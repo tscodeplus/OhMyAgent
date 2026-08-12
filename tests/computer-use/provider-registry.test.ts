@@ -34,11 +34,11 @@ function stubProvider(id: string): ComputerUseProvider {
 // ---------------------------------------------------------------------------
 
 describe('DEFAULT_PROVIDER_BY_PLATFORM', () => {
-  it('maps linux, darwin, and win32 all to nutjs', () => {
+  it('maps every native platform to the accessibility-first local provider', () => {
     expect(DEFAULT_PROVIDER_BY_PLATFORM).toEqual({
-      linux: 'nutjs',
-      win32: 'nutjs',
-      darwin: 'nutjs',
+      linux: 'linux:local',
+      win32: 'windows:local',
+      darwin: 'darwin:local',
     });
   });
 });
@@ -94,9 +94,9 @@ describe('resolveComputerProviderId', () => {
       settings: makeSettings(),
       platform: 'linux',
       defaultProviderId: 'local',
-      hasProvider: (id: string) => id === 'nutjs',
+      hasProvider: (id: string) => id === 'linux:local',
     });
-    expect(result).toBe('nutjs');
+    expect(result).toBe('linux:local');
   });
 
   it('per-platform override is skipped when provider is not registered', () => {
@@ -107,11 +107,11 @@ describe('resolveComputerProviderId', () => {
       }),
       platform: 'linux',
       defaultProviderId: 'local',
-      hasProvider: (id: string) => id === 'nutjs',
+      hasProvider: (id: string) => id === 'linux:local',
     });
     // Step 2: perPlatformProvider.linux = 'ssh', hasProvider('ssh') = false -> skipped
-    // Step 3: DEFAULT_PROVIDER_BY_PLATFORM.linux = 'nutjs', hasProvider('nutjs') = true -> 'nutjs'
-    expect(result).toBe('nutjs');
+    // Step 3: DEFAULT_PROVIDER_BY_PLATFORM.linux = 'linux:local', hasProvider('linux:local') = true -> 'linux:local'
+    expect(result).toBe('linux:local');
   });
 });
 

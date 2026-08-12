@@ -17,7 +17,19 @@ export interface ComputerUseSSHSettings {
 }
 
 export interface ComputerUseNodeSettings {
+  /** mimic REST 服务地址(手机端,如 http://127.0.0.1:8473)。 */
   url: string;
+  /** mimic 认证 token(经 x-mimic-token 头发送)。可选,默认无。 */
+  token?: string;
+  /** adb 电源/锁屏管理(唤醒/常亮/恢复)。可选,默认不启用。 */
+  adb?: {
+    /** adb 命令或绝对路径,默认 'adb' */
+    path: string;
+    /** 多设备时的序列号 */
+    serial?: string;
+    /** 操作前唤醒/常亮,完成后恢复。默认 false。 */
+    manageScreen: boolean;
+  };
 }
 
 export type ComputerUseProviderMode = 'auto' | 'ssh' | 'local' | 'node';
@@ -44,7 +56,7 @@ export function normalizeComputerUseSettings(cfg?: ComputerUseConfig): ComputerU
       provider: 'auto',
       ssh: { host: '', user: '', keyPath: '', port: 22, jumpHost: '', display: ':0',
              hostKeyChecking: 'accept-new', knownHostsPath: '' },
-      node: { url: '' },
+      node: normalizeNodeSettings(),
       allowedApps: [],
       allowedAgents: [],
       approvalWhitelist: [],
@@ -66,12 +78,23 @@ export function normalizeComputerUseSettings(cfg?: ComputerUseConfig): ComputerU
       knownHostsPath: cfg.ssh.knownHostsPath || '',
     } : { host: '', user: '', keyPath: '', port: 22, jumpHost: '', display: ':0',
           hostKeyChecking: 'accept-new', knownHostsPath: '' },
-    node: cfg.node ? {
-      url: cfg.node.url || '',
-    } : { url: '' },
+    node: normalizeNodeSettings(cfg.node),
     allowedApps: cfg.allowedApps,
     allowedAgents: cfg.allowedAgents ?? [],
     approvalWhitelist: cfg.approvalWhitelist || [],
     perPlatformProvider: cfg.perPlatformProvider || {},
+  };
+}
+
+/** Normalize the node (mimic) section; all fields default to safe values. */
+function normalizeNodeSettings(cfg?: ComputerUseConfig['node']): ComputerUseNodeSettings {
+  return {
+    url: cfg?.url || '',
+    token: cfg?.token || undefined,
+    adb: {
+      path: cfg?.adb?.path || 'adb',
+      serial: cfg?.adb?.serial || undefined,
+      manageScreen: cfg?.adb?.manageScreen === true,
+    },
   };
 }

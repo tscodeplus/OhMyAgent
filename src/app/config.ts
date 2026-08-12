@@ -329,6 +329,12 @@ const configSchema = z.object({
     }).optional(),
     node: z.object({
       url: z.string().default(''),
+      token: z.string().optional(),
+      adb: z.object({
+        path: z.string().default('adb'),
+        serial: z.string().optional(),
+        manageScreen: z.boolean().default(false),
+      }).optional(),
     }).optional(),
     perPlatformProvider: z.record(z.string()).optional(),
   }).optional(),

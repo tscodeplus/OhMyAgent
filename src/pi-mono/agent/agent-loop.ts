@@ -298,7 +298,7 @@ async function streamAssistantResponse(
 	const llmContext: Context = {
 		systemPrompt: context.systemPrompt,
 		messages: llmMessages,
-		tools: compactToolsForPrompt(context.tools),
+		tools: compactToolsForPrompt(context.tools, context.messages),
 	};
 
 	// Build model list: primary + fallbacks (OhMyAgent extension)
@@ -399,10 +399,24 @@ async function streamAssistantResponse(
 	throw new Error("Unexpected: fallback loop exhausted");
 }
 
-/** Filter out deferred tools before sending to the LLM. (OhMyAgent extension.) */
-function compactToolsForPrompt(tools?: AgentTool<any>[]): any[] | undefined {
+/**
+ * Filter out deferred tools before sending to the LLM. (OhMyAgent extension.)
+ *
+ * Dynamic tool discovery (OhMyAgent): tools declared via tool_result
+ * ``addedToolNames`` (tool_search/tool_call 命中后) are unlocked and stay in
+ * the prompt even with the ``deferred`` flag, so the model can call them
+ * directly without re-searching. Unlock is transcript-scoped: once a tool
+ * result declared it, every subsequent request keeps it visible.
+ */
+function compactToolsForPrompt(tools?: AgentTool<any>[], messages?: AgentMessage[]): any[] | undefined {
 	if (!tools) return undefined;
-	return tools.filter((t) => !(t as any).deferred) as any[];
+	const unlocked = new Set<string>();
+	for (const m of messages ?? []) {
+		if (m.role === "toolResult") {
+			for (const name of m.addedToolNames ?? []) unlocked.add(name);
+		}
+	}
+	return tools.filter((t) => !(t as any).deferred || unlocked.has(t.name)) as any[];
 }
 
 /**

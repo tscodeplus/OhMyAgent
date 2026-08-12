@@ -5,9 +5,10 @@ import type { ComputerUseSettings } from './settings.js';
 import { computerUseError } from './errors.js';
 
 export const DEFAULT_PROVIDER_BY_PLATFORM: Record<string, string> = {
-  linux: 'nutjs',
-  win32: 'nutjs',
-  darwin: 'nutjs',
+  // Every native platform prefers the accessibility-first local provider.
+  linux: 'linux:local',
+  win32: 'windows:local',
+  darwin: 'darwin:local',
 };
 
 export class ComputerProviderRegistry {

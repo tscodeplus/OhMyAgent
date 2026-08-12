@@ -10,7 +10,10 @@ export { ComputerProviderRegistry, resolveComputerProviderId, DEFAULT_PROVIDER_B
 // Providers
 export { SSHComputerUseProvider } from './providers/ssh-provider.js';
 export { LocalWindowsProvider } from './providers/local-windows.js';
+export { LocalDarwinProvider } from './providers/local-darwin.js';
+export { LocalLinuxProvider } from './providers/local-linux.js';
 export { NutJSProvider } from './providers/local-nutjs.js';
+export { NodeComputerUseProvider } from './providers/node-provider.js';
 export { createMockComputerProvider } from './providers/mock-provider.js';
 export type { MockComputerProvider } from './providers/mock-provider.js';
 

@@ -1,0 +1,784 @@
+// src/computer-use/win-uia/win-uia-scripts.ts
+//
+// Protocol constants and PowerShell template generation for the resident
+// Windows UIA (UI Automation) helper process.
+//
+// The helper is a long-lived powershell.exe process that reads one JSON
+// command per line on stdin and writes one JSON response per line on stdout.
+// It loads UIAutomationClient.dll / UIAutomationTypes.dll (bundled with
+// Windows 10+) via Add-Type, so no C# toolchain or npm native dependency is
+// needed. All interaction is control-level (InvokePattern / ValuePattern /
+// ScrollPattern) — the user's mouse, keyboard, focus and clipboard are never
+// touched. The only exceptions are the explicit `click-point` command
+// (user-requested coordinate click) and the explicit `focus-app` command
+// (user-requested foreground activation).
+
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
+
+// ---------------------------------------------------------------------------
+// Protocol constants
+// ---------------------------------------------------------------------------
+
+/** Marker the server prints on stdout once ready; the client sends no
+ *  commands before seeing it (avoids the encoding-setup/first-read race). */
+export const UIA_HANDSHAKE_MARKER = 'CUAREADY 1';
+
+/** Element ID prefix: `win-{hwnd}:{gen}:{index}`. */
+export const UIA_ELEMENT_ID_PREFIX = 'win-';
+
+/** Absolute path where the generated .ps1 is materialized at runtime. */
+export const UIA_SERVER_SCRIPT_PATH = 'C:\\Windows\\Temp\\ohmyagent\\win-uia-server.ps1';
+
+/** Default request timeout (ms). get-app-state uses a shorter one. */
+export const UIA_COMMAND_TIMEOUT_MS = 30_000;
+export const UIA_GET_STATE_TIMEOUT_MS = 15_000;
+
+/** Idle (no commands) after which the server exits on its own. */
+export const UIA_IDLE_EXIT_MS = 10 * 60 * 1000;
+
+/** Element cache cap inside the server. */
+export const UIA_MAX_ELEMENTS = 300;
+/** Tree walk depth cap inside the server. */
+export const UIA_MAX_DEPTH = 20;
+
+// ---------------------------------------------------------------------------
+// PowerShell server script template
+// ---------------------------------------------------------------------------
+
+/**
+ * Generate the resident UIA server .ps1 body.
+ *
+ * Encoding rules (PS 5.1 traps):
+ *   - Script body must stay pure ASCII; any literal must be escaped.
+ *   - First lines set [Console]::OutputEncoding / InputEncoding to UTF-8
+ *     without BOM (default OEM code page is GBK on Chinese systems).
+ *   - All protocol output must go through [Console]::Out.WriteLine() —
+ *     never plain Write-Output (pipeline re-encodes to the OEM page).
+ * The materialized file must be written as UTF-8 **with BOM** so PS 5.1
+ * parses it as UTF-8 (BOM-less UTF-8 is read as ANSI by default).
+ *
+ * Length is budgeted well under 12k chars (32KB cmdline hard limit).
+ */
+export function buildWinUiaServerScript(): string {
+  return String.raw`
+[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)
+[Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false)
+$ErrorActionPreference='Stop'
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;using System.Text;
+public struct CuaRect { public int L; public int T; public int R; public int B; }
+public class CuaNative {
+[DllImport("user32.dll")]public static extern IntPtr GetForegroundWindow();
+[DllImport("user32.dll",CharSet=CharSet.Unicode)]public static extern int GetWindowText(IntPtr h,StringBuilder t,int c);
+[DllImport("user32.dll")]public static extern bool GetWindowRect(IntPtr h,out CuaRect r);
+[DllImport("user32.dll")]public static extern bool PrintWindow(IntPtr h,IntPtr hdc,uint f);
+[DllImport("user32.dll")]public static extern bool PostMessage(IntPtr h,uint m,IntPtr w,IntPtr l);
+[DllImport("user32.dll",CharSet=CharSet.Unicode)]public static extern IntPtr SendMessage(IntPtr h,uint m,IntPtr w,[MarshalAs(UnmanagedType.LPWStr)]string l);
+[DllImport("user32.dll")]public static extern bool SetForegroundWindow(IntPtr h);
+[DllImport("user32.dll")]public static extern uint GetWindowThreadProcessId(IntPtr h,out uint p);
+[DllImport("kernel32.dll")]public static extern uint GetCurrentThreadId();
+[DllImport("user32.dll")]public static extern bool AttachThreadInput(uint a,uint b,bool f);
+[DllImport("user32.dll")]public static extern bool EnumWindows(EnumWindowsProc cb,IntPtr l);
+[DllImport("user32.dll")]public static extern bool IsWindowVisible(IntPtr h);
+public delegate bool EnumWindowsProc(IntPtr h,IntPtr l);
+public static IntPtr FirstWindow(IntPtr pid){IntPtr f=IntPtr.Zero;EnumWindows(delegate(IntPtr h,IntPtr l){uint p;GetWindowThreadProcessId(h,out p);if(p==(uint)(int)pid&&IsWindowVisible(h)){f=h;return false;}return true;},IntPtr.Zero);return f;}
+}'
+$z=[IntPtr]::Zero
+$N=[CuaNative]
+$C=[Console]
+$pi=[System.Windows.Automation.InvokePattern]::Pattern
+$psi=[System.Windows.Automation.SelectionItemPattern]::Pattern
+$pt=[System.Windows.Automation.TogglePattern]::Pattern
+$pe=[System.Windows.Automation.ExpandCollapsePattern]::Pattern
+$ps=[System.Windows.Automation.ScrollPattern]::Pattern
+$pr=[System.Windows.Automation.RangeValuePattern]::Pattern
+$pv=[System.Windows.Automation.ValuePattern]::Pattern
+$pl=$null; try { $pl=[System.Windows.Automation.LegacyIAccessiblePattern]::Pattern } catch {}
+$si=[System.Windows.Automation.ScrollAmount]::SmallIncrement
+$sd=[System.Windows.Automation.ScrollAmount]::SmallDecrement
+$sn=[System.Windows.Automation.ScrollAmount]::NoAmount
+$tw=[System.Windows.Automation.TreeWalker]::RawViewWalker
+function FH($h) { [System.Windows.Automation.AutomationElement]::FromHandle($h) }
+$png=[System.Drawing.Imaging.ImageFormat]::Png
+$rx='\.exe$'
+$cm=@{button='INV';hyperlink='INV';listitem='SEL';dataitem='SEL';tabitem='SEL';radiobutton='SEL';checkbox='TOG';combobox='EXP';treeitem='EXP';slider='RNG';scrollbar='RNG';document='DD'}
+function OJ($o) { $C::Out.WriteLine(($o|ConvertTo-Json -Compress -Depth 5)) }
+function OE($id,$code,$msg) { OJ @{id=$id;ok=$false;error=@{code=$code;message=$msg}} }
+function OK($id,$r) { OJ @{id=$id;ok=$true;result=$r} }
+function Ttl($h) { $sb=[System.Text.StringBuilder]::new(512); $N::GetWindowText($h,$sb,512) > $null; $sb.ToString() }
+function Rct($h) { $r=New-Object CuaRect; $N::GetWindowRect($h,[ref]$r) > $null; @{x=[int]$r.L;y=[int]$r.T;width=[int]($r.R-$r.L);height=[int]($r.B-$r.T)} }
+function Dsp { $b=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds; @{width=[int]$b.Width;height=[int]$b.Height} }
+function Gr($b) { [System.Drawing.Graphics]::FromImage($b) }
+function SM($h,$t) { $N::SendMessage($h,0x000C,$z,$t) -ne $z }
+function HW($h) { if ($h -and [int64]$h -ne 0) { return [IntPtr][int64]$h }; $z }
+function FTRY($el,$pat,$m) { try { $x=$el.GetCurrentPattern($pat); $x.$m(); $true } catch { $false } }
+function GE($req) {
+  if (-not $req.elementId) { return $null }
+  if ($req.elementId -match '^win-(-?\d+):(\d+):\d+$') { if ([int64]$matches[2] -ne $S.Gen) { return $null } }
+  $S.Cache[$req.elementId]
+}
+function WaitHwnd($p,$ms) { $sw=[System.Diagnostics.Stopwatch]::StartNew(); $hwnd=$z; while ($sw.ElapsedMilliseconds -lt $ms -and $hwnd -eq $z -and -not $p.HasExited) { Start-Sleep -m 200; $p.Refresh(); $hwnd=$p.MainWindowHandle }; $hwnd }
+function Shot($h) {
+  $r=New-Object CuaRect; $N::GetWindowRect($h,[ref]$r) > $null
+  $w=$r.R-$r.L; $hh=$r.B-$r.T
+  if ($w -le 0 -or $hh -le 0) { return '' }
+  $bmp=[System.Drawing.Bitmap]::new($w,$hh); $g=Gr $bmp
+  $hdc=$g.GetHdc(); $ok=$N::PrintWindow($h,$hdc,2); $g.ReleaseHdc($hdc)
+  if (-not $ok) { $g2=Gr $bmp; $g2.CopyFromScreen($r.L,$r.T,0,0,[System.Drawing.Size]::new($w,$hh)); $g2.Dispose() }
+  $ms=[System.IO.MemoryStream]::new(); $bmp.Save($ms,$png)
+  $b64=[Convert]::ToBase64String($ms.ToArray()); $ms.Dispose(); $g.Dispose(); $bmp.Dispose()
+  $b64
+}
+function Role($el) {
+  $pn=$el.Current.ControlType.ProgrammaticName
+  if ($pn -match 'ControlType\.(.+)$') { $pn=$matches[1] }
+  $rm=@{Edit='textbox';Button='button';CheckBox='checkbox';ComboBox='combobox';ListItem='listitem';DataItem='dataitem';TabItem='tabitem';RadioButton='radiobutton';TreeItem='treeitem';Slider='slider';ScrollBar='scrollbar';Hyperlink='hyperlink';Window='window';Text='text'}
+  if ($rm.ContainsKey($pn)) { return $rm[$pn] }
+  $pn.ToLowerInvariant()
+}
+function Acts($el) {
+  $a=@()
+  foreach ($p in $el.GetSupportedPatterns()) {
+    $n=$p.ProgrammaticName
+    foreach ($t in @('Invoke','SelectionItem','Toggle','ExpandCollapse','Scroll','RangeValue','Value')) { if ($n.Contains($t)) { $a+=$t; break } }
+  }
+  $a
+}
+function Vk($k) {
+  $m=@{Enter=0x0D;Tab=0x09;Escape=0x1B;BackSpace=0x08;Delete=0x2E;Home=0x24;End=0x23;Page_Up=0x21;Page_Down=0x22;Up=0x26;Down=0x28;Left=0x25;Right=0x27;Space=0x20}
+  if ($m.ContainsKey($k)) { return $m[$k] }
+  if ($k -match '^F([1-9]|1[0-2])$') { return 0x70+[int]$matches[1]-1 }
+  if ($k) { return [int][char][char]::ToUpper($k[0]) }
+  return 0
+}
+function Walk($el,$depth,[ref]$idx) {
+  if ($depth -gt $S.MaxD -or $S.N -ge $S.MaxE) { $S.Trunc=$true; return }
+  $cu=$el.Current
+  try { if ($cu.IsOffscreen) { return } } catch { return }
+  # Rect.Empty has Width/Height = -Infinity; [int] conversion throws, so
+  # always guard before converting bounds.
+  $rect=$cu.BoundingRectangle
+  $bx=0;$by=0;$bw=0;$bh=0
+  if ($null -ne $rect -and -not $rect.IsEmpty) { $bx=[int]$rect.X;$by=[int]$rect.Y;$bw=[int]$rect.Width;$bh=[int]$rect.Height }
+  $area=$bw*$bh
+  $name=$cu.Name; $patterns=$el.GetSupportedPatterns()
+  if (-not (-not $patterns -and -not $name -and $area -eq 0)) {
+    $eid="win-$($S.Hwnd):$($S.Gen):$($idx.Value)"; $idx.Value++
+    if ($S.Cache.Count -lt $S.MaxE) { $S.Cache[$eid]=$el }
+    $label=$name
+    if (-not $label) { try { $label=$el.GetCurrentPattern($pl).Current.Name } catch { $label='' } }
+    $S.N++; $S.List += @{elementId=$eid;role=(Role $el);label=$label;bounds=@{x=$bx;y=$by;width=$bw;height=$bh};enabled=$cu.IsEnabled;focused=$cu.HasKeyboardFocus;sensitive=$cu.IsPassword;actions=@(Acts $el)}
+  }
+  $c=0
+  foreach ($child in $el.FindAll([System.Windows.Automation.TreeScope]::Children,[System.Windows.Automation.Condition]::TrueCondition)) { if ($c -ge 20) { $S.Trunc=$true; break }; Walk $child ($depth+1) $idx; $c++; if ($S.N -ge $S.MaxE) { $S.Trunc=$true; break } }
+}
+$S=@{Cache=@{};Hwnd=$z;Gen=0;N=0;Trunc=$false;List=@();MaxD=20;MaxE=300}
+
+$C::Out.WriteLine('${UIA_HANDSHAKE_MARKER}')
+
+# Blocking-read main loop. WSL interop trap: [Console]::In.Peek() returns -1
+# forever once the pipe has been read empty (a false EOF), so a polling loop
+# silently stops consuming commands after the first one. ReadLine() blocks
+# reliably and returns $null only on a real EOF (client exit), which exits
+# the server. Idle self-exit is driven by the client (kill after
+# UIA_IDLE_EXIT_MS without requests).
+while ($true) {
+$line=$C::In.ReadLine()
+if ($null -eq $line) { break }
+$req=$null; try { $req=$line | ConvertFrom-Json } catch { continue }
+$id=$req.id
+try {
+switch ($req.cmd) {
+'ping' { OK $id @{pong=$true} }
+'get-app-state' {
+$hwnd=HW $req.hwnd
+if ($hwnd -eq $z) { $hwnd=$N::GetForegroundWindow() }
+$S.Hwnd=$hwnd; $S.Gen++; $S.Cache=@{}; $S.N=0; $S.Trunc=$false; $S.List=@(); $S.MaxD=20; $S.MaxE=300
+if ($req.depth) { $S.MaxD=$req.depth }; if ($req.maxElements) { $S.MaxE=$req.maxElements }
+Walk (FH $hwnd) 0 ([ref]0)
+OK $id @{hwnd=[int64]$hwnd;gen=$S.Gen;windowTitle=(Ttl $hwnd);windowRect=(Rct $hwnd);display=(Dsp);elements=$S.List;screenshot=(Shot $hwnd);truncated=$S.Trunc}
+}
+'click-element' {
+$el=GE $req
+if (-not $el) { OE $id 'ELEMENT_STALE_TREE' 'Stale element' }
+else {
+switch ($cm[(Role $el)]) {
+'INV' { $ok=FTRY $el $pi 'Invoke'; if (-not $ok) { $ok=FTRY $el $pl 'DoDefaultAction' } }
+'SEL' { $ok=FTRY $el $psi 'Select'; if (-not $ok) { $ok=FTRY $el $pi 'Invoke' } }
+'TOG' { $ok=FTRY $el $pt 'Toggle' }
+'EXP' { $ok=FTRY $el $pe 'Expand'; if (-not $ok) { $ok=FTRY $el $pi 'Invoke' } }
+'RNG' { try { $rv=$el.GetCurrentPattern($pr); $sc=$rv.Current.SmallChange; if ($sc -le 0) { $sc=1 }; $rv.SetValue($rv.Current.Value+$sc); $ok=$true } catch {} }
+'DD' { $ok=FTRY $el $pl 'DoDefaultAction' }
+}
+if ($ok) { OK $id @{clicked=$true} } else { OE $id 'ELEMENT_NO_ACTION' 'No action' }
+}
+}
+'type-text' {
+$text=$req.text; $el=GE $req
+if (-not $el -and $req.elementId) { OE $id 'ELEMENT_STALE_TREE' 'Stale element' }
+else {
+$ok=$false
+if ($el) {
+try { $el.GetCurrentPattern($pv).SetValue($text); $ok=$true } catch {}
+if (-not $ok) { try { $el.GetCurrentPattern($pl).SetValue($text); $ok=$true } catch {} }
+if (-not $ok) { try { $w=$el.Current.NativeWindowHandle; if ($w -ne 0) { $ok=SM $w $text } } catch {} }
+} elseif ($S.Hwnd -ne $z) { $ok=SM $S.Hwnd $text }
+if ($ok) { OK $id @{typed=$true} } else { OE $id 'ELEMENT_NO_ACTION' 'No text target' }
+}
+}
+'press-key' {
+$hwnd=HW $req.hwnd
+if ($hwnd -eq $z) { OE $id 'SERVER_ERROR' 'hwnd required' }
+else {
+$vk=Vk $req.key
+if ($vk -eq 0) { OE $id 'SERVER_ERROR' "Unknown key: $($req.key)" }
+else { $N::PostMessage($hwnd,0x0100,[IntPtr]$vk,$z) > $null; $N::PostMessage($hwnd,0x0101,[IntPtr]$vk,$z) > $null; OK $id @{key=$req.key} }
+}
+}
+'scroll' {
+$el=GE $req
+if ($req.elementId -and -not $el) { OE $id 'ELEMENT_STALE_TREE' 'Stale element' }
+else {
+if (-not $el) { $hwnd=$S.Hwnd; if ($hwnd -eq $z) { $hwnd=$N::GetForegroundWindow() }; try { $el=FH $hwnd } catch {} }
+$sp=$null; $cur=$el
+while ($null -ne $cur -and $null -eq $sp) { try { $sp=$cur.GetCurrentPattern($ps) } catch { $sp=$null }; if ($null -eq $sp) { $cur=$tw.GetParent($cur) } }
+if (-not $sp) { OE $id 'ELEMENT_NO_ACTION' 'No scrollable' }
+else {
+$rep=$req.amount; if ($rep -lt 1) { $rep=1 }
+for ($i=0; $i -lt $rep; $i++) {
+switch ($req.direction) {
+'up' { $sp.Scroll($sd,$sn) } 'left' { $sp.Scroll($sn,$sd) }
+'right' { $sp.Scroll($sn,$si) } default { $sp.Scroll($si,$sn) }
+}
+}
+OK $id @{scrolled=$true}
+}
+}
+}
+'screenshot' {
+if ($req.hwnd -and [int64]$req.hwnd -ne 0) { OK $id @{screenshot=(Shot (HW $req.hwnd))} }
+else {
+$b=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+$bmp=[System.Drawing.Bitmap]::new($b.Width,$b.Height); $g=Gr $bmp; $g.CopyFromScreen($b.X,$b.Y,0,0,$b.Size)
+$ms=[System.IO.MemoryStream]::new(); $bmp.Save($ms,$png); $b64=[Convert]::ToBase64String($ms.ToArray()); $ms.Dispose(); $g.Dispose(); $bmp.Dispose()
+OK $id @{screenshot=$b64}
+}
+}
+'get-foreground' {
+$hwnd=$N::GetForegroundWindow()
+OK $id @{hwnd=[int64]$hwnd;title=(Ttl $hwnd);windowRect=(Rct $hwnd)}
+}
+'list-apps' {
+$lines=@(Get-Process | ? { $_.MainWindowTitle -ne '' } | % { "APP|$($_.ProcessName)|$($_.Id)|$($_.MainWindowHandle)|$($_.MainWindowTitle)" })
+OK $id @{apps=$lines}
+}
+'launch-app' {
+$name=$req.name
+if ($name -notmatch '^[A-Za-z0-9._+-]+(?: [A-Za-z0-9._+-]+)*$') { OE $id 'SERVER_ERROR' 'Bad app name' }
+else {
+$appExe=$name; if ($appExe -notmatch $rx) { $appExe="$name.exe" }
+# Running instance: reuse it WITHOUT Start-Process - Start-Process on an
+# already-running app activates its window and steals the foreground, so a
+# running process is NEVER launched again (even with no window: return 0
+# and let the caller fall back rather than activate the instance).
+# Win11 notepad is single-process/multi-window: MainWindowHandle is
+# unreliable there (often 0 or an arbitrary window), and the OS
+# background-preloads extra windowless notepad.exe processes (select -Last
+# 1 could pick one, yielding hwnd=0). Iterate all processes and keep the
+# newest one that actually has a visible window (EnumWindows by PID).
+$all=@(Get-Process -Name ($appExe -replace $rx,'') -EA SilentlyContinue)
+$p=$null; $hwnd=$z
+foreach ($pr in $all) { $h=$N::FirstWindow([IntPtr]$pr.Id); if ($h -ne $z) { $p=$pr; $hwnd=[int64]$h } }
+if (-not $p) { $p=@($all | select -Last 1)[0]; if ($p) { $hwnd=[int64]$p.MainWindowHandle } }
+if ($hwnd -eq $z -and -not $p) {
+$p=Start-Process $appExe -PassThru
+$hwnd=WaitHwnd $p 20000
+if ($hwnd -eq $z) {
+  # AppX apps (e.g. the Win11 notepad) activate slowly: Start-Process
+  # returns the activator process which exits immediately, and the real
+  # window belongs to a later process. Poll for the window instead of a
+  # single snapshot (native-win32 cold start exposes this reliably).
+  $sw=[System.Diagnostics.Stopwatch]::StartNew()
+  while ($sw.ElapsedMilliseconds -lt 10000 -and $hwnd -eq $z) {
+    Start-Sleep -m 500
+    $fp=Get-Process -Name ($appExe -replace $rx,'') -EA SilentlyContinue | select -Last 1
+    if ($fp) { $h=$N::FirstWindow([IntPtr]$fp.Id); if ($h -ne $z) { $hwnd=[int64]$h } }
+  }
+}
+}
+OK $id @{pid=$p.Id;hwnd=[int64]$hwnd}
+}
+}
+'focus-app' {
+$name=$req.name
+if ($name -notmatch '^[A-Za-z0-9._+-]+(?: [A-Za-z0-9._+-]+)*$') { OE $id 'SERVER_ERROR' 'Bad app name' }
+else {
+$procs=@(Get-Process -Name ($name -replace $rx,'') -EA SilentlyContinue)
+if ($procs.Count -eq 0) { OE $id 'TARGET_NOT_FOUND' "Not found: $name" }
+else {
+$p=$procs[0]; $hwnd=WaitHwnd $p 10000
+if ($hwnd -ne $z) {
+$N::SetForegroundWindow($hwnd) > $null
+$fg=$N::GetForegroundWindow()
+if ($fg -ne $hwnd) {
+$fgPid=0; $fgTid=$N::GetWindowThreadProcessId($fg,[ref]$fgPid); $myTid=$N::GetCurrentThreadId()
+if ($fgTid -ne 0) { $N::AttachThreadInput($myTid,$fgTid,$true) > $null; $N::SetForegroundWindow($hwnd) > $null; $N::AttachThreadInput($myTid,$fgTid,$false) > $null }
+}
+}
+OK $id @{hwnd=[int64]$hwnd;title=(Ttl $hwnd)}
+}
+}
+}
+'close-app' {
+$procName=$req.name -replace $rx,''
+taskkill /f /im "$procName.exe" >$null 2>$null
+OK $id @{closed=$true}
+}
+'click-point' {
+if ($null -eq $req.x -or $null -eq $req.y) { OE $id 'SERVER_ERROR' 'x and y required' }
+else {
+if (-not ('CuaMouse' -as [type])) { Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;
+public class CuaMouse { [DllImport("user32.dll")]public static extern bool SetCursorPos(int X,int Y);[DllImport("user32.dll")]public static extern void mouse_event(uint f,uint dx,uint dy,uint d,UIntPtr x);}' }
+[CuaMouse]::SetCursorPos($req.x,$req.y); Start-Sleep -m 30
+[CuaMouse]::mouse_event(0x0002,0,0,0,[UIntPtr]::Zero); Start-Sleep -m 30
+[CuaMouse]::mouse_event(0x0004,0,0,0,[UIntPtr]::Zero)
+OK $id @{clicked=$true}
+}
+}
+'quit' { OK $id @{bye=$true}; exit 0 }
+default { OE $id 'UNKNOWN_COMMAND' "Unknown cmd: $($req.cmd)" }
+}
+} catch { OE $id 'SERVER_ERROR' $_.Exception.Message }
+}
+`.trim() + '\n';
+}
+
+/**
+ * Materialize the server script as UTF-8 **with BOM**. PS 5.1 reads
+ * BOM-less UTF-8 as the ANSI code page, which garbles non-ASCII content on
+ * CJK systems; the BOM forces UTF-8 parsing.
+ *
+ * `filePath` must be writable by the current process — WSL callers should
+ * pass the /mnt/... equivalent of the Windows path.
+ */
+export function writeUiaServerScript(
+  filePath: string,
+  script: string = buildWinUiaServerScript(),
+): void {
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(
+    filePath,
+    Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(script, 'utf8')]),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Stateless one-shot script (SSH win32 branch)
+// ---------------------------------------------------------------------------
+//
+// The SSH win32 branch cannot keep a resident helper process on the remote
+// host, so it reuses the same UIA template body in *stateless* form: every
+// action spawns powershell.exe once (after a small file-materialization
+// step), executes exactly ONE command and prints a single JSON line
+// `{"ok":true,"result":...}` / `{"ok":false,"error":{"code","message"}}`
+// before exiting. There is no handshake marker, no command loop and no
+// element cache — elementIds (`win-{hwnd}:{gen}:{index}`) are resolved by
+// re-walking the tree from the root element by DFS index (same semantics as
+// the Linux AT-SPI path), returning ELEMENT_STALE_TREE when the index no
+// longer resolves.
+//
+// Execution is two-stage (simple and reliable, chosen over a single
+// `-EncodedCommand`):
+//   1. `buildWinUiaOnceWriteCommands()` — materialize the (pure ASCII)
+//      script at `$env:TEMP\ohmyagent\win-uia-once.ps1`. The body is
+//      base64-encoded and written in chunks, because the remote OpenSSH
+//      shell (cmd.exe) truncates command lines at ~8191 chars and a
+//      `-EncodedCommand` base64 (UTF-16LE, 2x) of an 8-12KB script would
+//      blow that limit.
+//   2. `buildWinUiaOnceRunCommand()` — execute the file via `-File`.
+// The fixed path makes repeated actions cheap (no discovery needed).
+
+/** Commands supported by the one-shot script. */
+export const WIN_UIA_ONCE_COMMANDS = [
+  'get-app-state',
+  'click-element',
+  'type-text',
+  'press-key',
+  'scroll',
+  'click-point',
+] as const;
+export type WinUiaOnceCommand = (typeof WIN_UIA_ONCE_COMMANDS)[number];
+
+/** Payload for a one-shot UIA command. */
+export interface WinUiaOncePayload {
+  /** Decimal window handle (may be negative on 64-bit); 0/absent = foreground window. */
+  hwnd?: number | string;
+  /** `win-{hwnd}:{gen}:{index}` element id (DFS index into the kept tree). */
+  elementId?: string;
+  /** Text to set on the target element (type-text). */
+  text?: string;
+  /** Key name for press-key (see the Vk() table). */
+  key?: string;
+  direction?: 'up' | 'down' | 'left' | 'right';
+  amount?: number;
+  x?: number;
+  y?: number;
+  depth?: number;
+  maxElements?: number;
+  screenshot?: boolean;
+}
+
+/** Fixed path (PS expression, expanded on the remote host) of the one-shot script. */
+export const UIA_ONCE_SCRIPT_PATH = '$env:TEMP\\ohmyagent\\win-uia-once.ps1';
+
+/** Base64 chunk size per write command — leaves ample headroom under the
+ *  cmd.exe ~8191-char command-line limit. */
+const UIA_ONCE_WRITE_CHUNK = 6000;
+
+/**
+ * Stage-1 commands that materialize `script` on the remote Windows host at
+ * `$env:TEMP\ohmyagent\win-uia-once.ps1`. The (pure ASCII) body is
+ * base64-encoded so it survives the cmd.exe → powershell.exe boundary, and
+ * written in chunks: the first command overwrites with a UTF-8 BOM, later
+ * chunks append (the BOM stays in place). Each command line stays far below
+ * the cmd.exe limit regardless of the script size.
+ */
+export function buildWinUiaOnceWriteCommands(script: string): string[] {
+  const b64 = Buffer.from(script, 'utf8').toString('base64');
+  const commands: string[] = [];
+  for (let i = 0; i < b64.length; i += UIA_ONCE_WRITE_CHUNK) {
+    const chunk = b64.slice(i, i + UIA_ONCE_WRITE_CHUNK);
+    if (i === 0) {
+      commands.push(
+        `powershell.exe -NoProfile -NonInteractive -Command "New-Item -ItemType Directory -Force (($env:TEMP)+'\\ohmyagent') | Out-Null; [System.IO.File]::WriteAllText(($env:TEMP)+'\\ohmyagent\\win-uia-once.ps1',[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${chunk}')),[System.Text.UTF8Encoding]::new($true))"`,
+      );
+    } else {
+      commands.push(
+        `powershell.exe -NoProfile -NonInteractive -Command "[System.IO.File]::AppendAllText(($env:TEMP)+'\\ohmyagent\\win-uia-once.ps1',[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${chunk}')))"`,
+      );
+    }
+  }
+  return commands;
+}
+
+/** Stage-2 command: run the materialized one-shot script and print its single JSON line. */
+export function buildWinUiaOnceRunCommand(): string {
+  return `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& (($env:TEMP)+'\\ohmyagent\\win-uia-once.ps1')"`;
+}
+
+/**
+ * Generate the stateless one-shot PowerShell script for a single UIA
+ * command. Same encoding rules as the resident server template (pure ASCII,
+ * UTF-8 console encodings, protocol output only via [Console]::Out).
+ *
+ * The payload is embedded as a hashtable literal — every value is
+ * validated/sanitized by this function (numbers only for hwnd/coords,
+ * base64 for text), so the script is injection-safe.
+ */
+export function buildWinUiaOnceScript(
+  cmd: WinUiaOnceCommand,
+  payload: WinUiaOncePayload = {},
+): string {
+  if (!(WIN_UIA_ONCE_COMMANDS as readonly string[]).includes(cmd)) {
+    throw new Error(`Unsupported win-uia once command: '${cmd}'`);
+  }
+  const reqLiteral = buildOnceRequestLiteral(cmd, payload);
+  return `${WIN_UIA_ONCE_CORE}
+$MaxD=20; $MaxE=300
+$R=${reqLiteral}
+try {
+switch ($R.cmd) {
+${WIN_UIA_ONCE_BRANCHES[cmd]}
+default { OE 'UNKNOWN_COMMAND' ("Unknown cmd: " + $R.cmd) }
+}
+} catch { OE 'SERVER_ERROR' $_.Exception.Message }
+`;
+}
+
+/** Build the `$R=@{...}` payload literal (all values sanitized). */
+function buildOnceRequestLiteral(cmd: WinUiaOnceCommand, payload: WinUiaOncePayload): string {
+  const num = (name: string, value: unknown): string => {
+    if (value === undefined) return `${name}=0`;
+    const n = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(n) || !Number.isInteger(n)) {
+      throw new Error(`Invalid win-uia once payload ${name}: '${String(value)}'`);
+    }
+    return `${name}=${n}`;
+  };
+  const word = (name: string, value: unknown, re: RegExp): string => {
+    if (value === undefined) return `${name}=''`;
+    const s = String(value);
+    if (!re.test(s)) throw new Error(`Invalid win-uia once payload ${name}: '${s}'`);
+    return `${name}='${s}'`;
+  };
+  const parts: string[] = [`cmd='${cmd}'`];
+  const hwnd = payload.hwnd ?? 0;
+  parts.push(num('hwnd', hwnd));
+  if (payload.elementId !== undefined) {
+    if (!/^win--?\d+:\d+:\d+$/.test(payload.elementId)) {
+      throw new Error(`Invalid win-uia elementId: '${payload.elementId}'`);
+    }
+    parts.push(`elementId='${payload.elementId}'`);
+  }
+  if (payload.text !== undefined) {
+    parts.push(`textB64='${Buffer.from(payload.text, 'utf8').toString('base64')}'`);
+  }
+  if (payload.key !== undefined) {
+    parts.push(word('key', payload.key, /^[A-Za-z0-9_.]+$/));
+  }
+  if (payload.direction !== undefined) {
+    if (!['up', 'down', 'left', 'right'].includes(payload.direction)) {
+      throw new Error(`Invalid win-uia direction: '${payload.direction}'`);
+    }
+    parts.push(`direction='${payload.direction}'`);
+  }
+  if (payload.amount !== undefined) parts.push(num('amount', payload.amount));
+  if (payload.x !== undefined) parts.push(num('x', payload.x));
+  if (payload.y !== undefined) parts.push(num('y', payload.y));
+  if (payload.depth !== undefined) parts.push(num('depth', payload.depth));
+  if (payload.maxElements !== undefined) parts.push(num('maxElements', payload.maxElements));
+  parts.push(`screenshot=${payload.screenshot ? '$true' : '$false'}`);
+  return `@{${parts.join(';')}}`;
+}
+
+// ---------------------------------------------------------------------------
+// One-shot template body
+// ---------------------------------------------------------------------------
+
+/**
+ * Common preamble + helpers for the one-shot script: console encodings,
+ * Add-Type (UIA + native Win32), pattern variables, element walking /
+ * DFS-index location and the small OJ/OE/OK protocol helpers. Mirrors the
+ * resident server template's helpers (no handshake, no loop, no cache).
+ */
+const WIN_UIA_ONCE_CORE = String.raw`
+[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)
+[Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false)
+$ErrorActionPreference='Stop'
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;using System.Text;
+public struct CuaRect { public int L; public int T; public int R; public int B; }
+public class CuaNative {
+[DllImport("user32.dll")]public static extern IntPtr GetForegroundWindow();
+[DllImport("user32.dll",CharSet=CharSet.Unicode)]public static extern int GetWindowText(IntPtr h,StringBuilder t,int c);
+[DllImport("user32.dll")]public static extern bool GetWindowRect(IntPtr h,out CuaRect r);
+[DllImport("user32.dll")]public static extern bool PrintWindow(IntPtr h,IntPtr hdc,uint f);
+[DllImport("user32.dll")]public static extern bool PostMessage(IntPtr h,uint m,IntPtr w,IntPtr l);
+[DllImport("user32.dll",CharSet=CharSet.Unicode)]public static extern IntPtr SendMessage(IntPtr h,uint m,IntPtr w,[MarshalAs(UnmanagedType.LPWStr)]string l);
+[DllImport("user32.dll")]public static extern bool EnumWindows(EnumWindowsProc cb,IntPtr l);
+[DllImport("user32.dll")]public static extern uint GetWindowThreadProcessId(IntPtr h,out uint p);
+[DllImport("user32.dll")]public static extern bool IsWindowVisible(IntPtr h);
+public delegate bool EnumWindowsProc(IntPtr h,IntPtr l);
+public static IntPtr FirstWindow(IntPtr pid){IntPtr f=IntPtr.Zero;EnumWindows(delegate(IntPtr h,IntPtr l){uint p;GetWindowThreadProcessId(h,out p);if(p==(uint)(int)pid&&IsWindowVisible(h)){f=h;return false;}return true;},IntPtr.Zero);return f;}
+}'
+$z=[IntPtr]::Zero
+$N=[CuaNative]
+$C=[Console]
+$pi=[System.Windows.Automation.InvokePattern]::Pattern
+$psi=[System.Windows.Automation.SelectionItemPattern]::Pattern
+$pt=[System.Windows.Automation.TogglePattern]::Pattern
+$pe=[System.Windows.Automation.ExpandCollapsePattern]::Pattern
+$ps=[System.Windows.Automation.ScrollPattern]::Pattern
+$pr=[System.Windows.Automation.RangeValuePattern]::Pattern
+$pv=[System.Windows.Automation.ValuePattern]::Pattern
+$pl=$null; try { $pl=[System.Windows.Automation.LegacyIAccessiblePattern]::Pattern } catch {}
+$si=[System.Windows.Automation.ScrollAmount]::SmallIncrement
+$sd=[System.Windows.Automation.ScrollAmount]::SmallDecrement
+$sn=[System.Windows.Automation.ScrollAmount]::NoAmount
+$tw=[System.Windows.Automation.TreeWalker]::RawViewWalker
+function FH($h) { [System.Windows.Automation.AutomationElement]::FromHandle($h) }
+$png=[System.Drawing.Imaging.ImageFormat]::Png
+$cm=@{button='INV';hyperlink='INV';listitem='SEL';dataitem='SEL';tabitem='SEL';radiobutton='SEL';checkbox='TOG';combobox='EXP';treeitem='EXP';slider='RNG';scrollbar='RNG';document='DD'}
+function OJ($o) { $C::Out.WriteLine(($o|ConvertTo-Json -Compress -Depth 5)) }
+function OE($code,$msg) { OJ @{ok=$false;error=@{code=$code;message=$msg}} }
+function OK($r) { OJ @{ok=$true;result=$r} }
+function Ttl($h) { $sb=[System.Text.StringBuilder]::new(512); $N::GetWindowText($h,$sb,512) > $null; $sb.ToString() }
+function Rct($h) { $r=New-Object CuaRect; $N::GetWindowRect($h,[ref]$r) > $null; @{x=[int]$r.L;y=[int]$r.T;width=[int]($r.R-$r.L);height=[int]($r.B-$r.T)} }
+function Dsp { $b=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds; @{width=[int]$b.Width;height=[int]$b.Height} }
+function Gr($b) { [System.Drawing.Graphics]::FromImage($b) }
+function SM($h,$t) { $N::SendMessage($h,0x000C,$z,$t) -ne $z }
+function HW($h) { if ($h -and [int64]$h -ne 0) { return [IntPtr][int64]$h }; $z }
+function FTRY($el,$pat,$m) { try { $x=$el.GetCurrentPattern($pat); $x.$m(); $true } catch { $false } }
+function Shot($h) {
+  $r=New-Object CuaRect; $N::GetWindowRect($h,[ref]$r) > $null
+  $w=$r.R-$r.L; $hh=$r.B-$r.T
+  if ($w -le 0 -or $hh -le 0) { return '' }
+  $bmp=[System.Drawing.Bitmap]::new($w,$hh); $g=Gr $bmp
+  $hdc=$g.GetHdc(); $ok=$N::PrintWindow($h,$hdc,2); $g.ReleaseHdc($hdc)
+  if (-not $ok) { $g2=Gr $bmp; $g2.CopyFromScreen($r.L,$r.T,0,0,[System.Drawing.Size]::new($w,$hh)); $g2.Dispose() }
+  $ms=[System.IO.MemoryStream]::new(); $bmp.Save($ms,$png)
+  $b64=[Convert]::ToBase64String($ms.ToArray()); $ms.Dispose(); $g.Dispose(); $bmp.Dispose()
+  $b64
+}
+function Role($el) {
+  $pn=$el.Current.ControlType.ProgrammaticName
+  if ($pn -match 'ControlType\.(.+)$') { $pn=$matches[1] }
+  $rm=@{Edit='textbox';Button='button';CheckBox='checkbox';ComboBox='combobox';ListItem='listitem';DataItem='dataitem';TabItem='tabitem';RadioButton='radiobutton';TreeItem='treeitem';Slider='slider';ScrollBar='scrollbar';Hyperlink='hyperlink';Window='window';Text='text'}
+  if ($rm.ContainsKey($pn)) { return $rm[$pn] }
+  $pn.ToLowerInvariant()
+}
+function Acts($el) {
+  $a=@()
+  foreach ($p in $el.GetSupportedPatterns()) {
+    $n=$p.ProgrammaticName
+    foreach ($t in @('Invoke','SelectionItem','Toggle','ExpandCollapse','Scroll','RangeValue','Value')) { if ($n.Contains($t)) { $a+=$t; break } }
+  }
+  $a
+}
+function Vk($k) {
+  $m=@{Enter=0x0D;Tab=0x09;Escape=0x1B;BackSpace=0x08;Delete=0x2E;Home=0x24;End=0x23;Page_Up=0x21;Page_Down=0x22;Up=0x26;Down=0x28;Left=0x25;Right=0x27;Space=0x20}
+  if ($m.ContainsKey($k)) { return $m[$k] }
+  if ($k -match '^F([1-9]|1[0-2])$') { return 0x70+[int]$matches[1]-1 }
+  if ($k) { return [int][char][char]::ToUpper($k[0]) }
+  return 0
+}
+function Walk($el,$depth,[ref]$n) {
+  if ($n.Value -ge $MaxE) { $script:Trunc=$true; return }
+  if ($depth -gt $MaxD) { return }
+  $cu=$el.Current
+  try { if ($cu.IsOffscreen) { return } } catch { return }
+  # Rect.Empty has Width/Height = -Infinity; guard before [int] conversion.
+  $rect=$cu.BoundingRectangle
+  $bx=0;$by=0;$bw=0;$bh=0
+  if ($null -ne $rect -and -not $rect.IsEmpty) { $bx=[int]$rect.X;$by=[int]$rect.Y;$bw=[int]$rect.Width;$bh=[int]$rect.Height }
+  $area=$bw*$bh
+  $name=$cu.Name; $patterns=$el.GetSupportedPatterns()
+  if (-not (-not $patterns -and -not $name -and $area -eq 0)) {
+    $eid="win-$($HWND):1:$($n.Value)"
+    $label=$name
+    if (-not $label) { try { $label=$el.GetCurrentPattern($pl).Current.Name } catch { $label='' } }
+    $script:List += @{elementId=$eid;role=(Role $el);label=$label;bounds=@{x=$bx;y=$by;width=$bw;height=$bh};enabled=$cu.IsEnabled;focused=$cu.HasKeyboardFocus;sensitive=$cu.IsPassword;actions=@(Acts $el)}
+    $n.Value++
+  }
+  $c=0
+  foreach ($child in $el.FindAll([System.Windows.Automation.TreeScope]::Children,[System.Windows.Automation.Condition]::TrueCondition)) {
+    if ($c -ge 20) { $script:Trunc=$true; return }
+    Walk $child ($depth+1) $n
+    if ($n.Value -ge $MaxE) { $script:Trunc=$true; return }
+    $c++
+  }
+}
+function ElByIdx($el,$depth,$want,[ref]$n) {
+  if ($null -eq $el) { return $null }
+  if ($depth -gt $MaxD) { return $null }
+  $cu=$el.Current
+  try { if ($cu.IsOffscreen) { return $null } } catch { return $null }
+  # Rect.Empty has Width/Height = -Infinity; guard before [int] conversion.
+  $rect=$cu.BoundingRectangle
+  $area=0; if ($null -ne $rect -and -not $rect.IsEmpty) { $area=[int]$rect.Width*[int]$rect.Height }
+  $name=$cu.Name; $patterns=$el.GetSupportedPatterns()
+  if (-not (-not $patterns -and -not $name -and $area -eq 0)) {
+    if ($n.Value -eq $want) { return $el }
+    $n.Value++
+  }
+  $c=0
+  foreach ($child in $el.FindAll([System.Windows.Automation.TreeScope]::Children,[System.Windows.Automation.Condition]::TrueCondition)) {
+    if ($c -ge 20) { return $null }
+    $r=ElByIdx $child ($depth+1) $want $n
+    if ($null -ne $r) { return $r }
+    $c++
+  }
+  return $null
+}
+`;
+
+/** One branch per command — emitted into the switch only for the requested
+ *  cmd, so e.g. click-element scripts never contain the coordinate-injection
+ *  code (keeps the no-intrusion static assertions meaningful). */
+const WIN_UIA_ONCE_BRANCHES: Record<WinUiaOnceCommand, string> = {
+  'get-app-state': `'get-app-state' {
+  $HWND=HW $R.hwnd
+  if ($HWND -eq $z) { $HWND=$N::GetForegroundWindow() }
+  if ($HWND -eq $z) { OE 'SERVER_ERROR' 'No window to read'; break }
+  $MaxD=20; $MaxE=300
+  if ($R.depth) { $MaxD=$R.depth }; if ($R.maxElements) { $MaxE=$R.maxElements }
+  $script:List=@(); $script:Trunc=$false
+  Walk (FH $HWND) 0 ([ref]0)
+  $shot=''
+  if ($R.screenshot) { $shot=Shot $HWND }
+  OK @{hwnd=[int64]$HWND;gen=1;windowTitle=(Ttl $HWND);windowRect=(Rct $HWND);display=(Dsp);elements=$script:List;screenshot=$shot;truncated=$script:Trunc}
+}`,
+  'click-element': `'click-element' {
+  if (-not $R.elementId) { OE 'SERVER_ERROR' 'elementId required'; break }
+  if ($R.elementId -notmatch '^win-(-?\\d+):\\d+:(\\d+)$') { OE 'ELEMENT_STALE_TREE' 'Invalid element id'; break }
+  $el=ElByIdx (FH ([IntPtr][int64]$matches[1])) 0 ([int]$matches[2]) ([ref]0)
+  if (-not $el) { OE 'ELEMENT_STALE_TREE' 'Stale element'; break }
+  $ok=$false
+  switch ($cm[(Role $el)]) {
+  'INV' { $ok=FTRY $el $pi 'Invoke'; if (-not $ok) { $ok=FTRY $el $pl 'DoDefaultAction' } }
+  'SEL' { $ok=FTRY $el $psi 'Select'; if (-not $ok) { $ok=FTRY $el $pi 'Invoke' } }
+  'TOG' { $ok=FTRY $el $pt 'Toggle' }
+  'EXP' { $ok=FTRY $el $pe 'Expand'; if (-not $ok) { $ok=FTRY $el $pi 'Invoke' } }
+  'RNG' { try { $rv=$el.GetCurrentPattern($pr); $sc=$rv.Current.SmallChange; if ($sc -le 0) { $sc=1 }; $rv.SetValue($rv.Current.Value+$sc); $ok=$true } catch {} }
+  'DD' { $ok=FTRY $el $pl 'DoDefaultAction' }
+  }
+  if ($ok) { OK @{clicked=$true} } else { OE 'ELEMENT_NO_ACTION' 'No action' }
+}`,
+  'type-text': `'type-text' {
+  $text=''
+  if ($R.textB64) { $text=[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($R.textB64)) }
+  $el=$null
+  if ($R.elementId) {
+    if ($R.elementId -notmatch '^win-(-?\\d+):\\d+:(\\d+)$') { OE 'ELEMENT_STALE_TREE' 'Invalid element id'; break }
+    $el=ElByIdx (FH ([IntPtr][int64]$matches[1])) 0 ([int]$matches[2]) ([ref]0)
+    if (-not $el) { OE 'ELEMENT_STALE_TREE' 'Stale element'; break }
+  }
+  $ok=$false
+  if ($el) {
+    try { $el.GetCurrentPattern($pv).SetValue($text); $ok=$true } catch {}
+    if (-not $ok) { try { $el.GetCurrentPattern($pl).SetValue($text); $ok=$true } catch {} }
+    if (-not $ok) { try { $w=$el.Current.NativeWindowHandle; if ($w -ne 0) { $ok=SM $w $text } } catch {} }
+  } else {
+    $hwnd=HW $R.hwnd
+    if ($hwnd -eq $z) { $hwnd=$N::GetForegroundWindow() }
+    if ($hwnd -ne $z) { $ok=SM $hwnd $text }
+  }
+  if ($ok) { OK @{typed=$true} } else { OE 'ELEMENT_NO_ACTION' 'No text target' }
+}`,
+  'press-key': `'press-key' {
+  $hwnd=HW $R.hwnd
+  if ($hwnd -eq $z) { $hwnd=$N::GetForegroundWindow() }
+  if ($hwnd -eq $z) { OE 'SERVER_ERROR' 'hwnd required'; break }
+  $vk=Vk $R.key
+  if ($vk -eq 0) { OE 'SERVER_ERROR' ("Unknown key: " + $R.key); break }
+  $N::PostMessage($hwnd,0x0100,[IntPtr]$vk,$z) > $null
+  $N::PostMessage($hwnd,0x0101,[IntPtr]$vk,$z) > $null
+  OK @{key=$R.key}
+}`,
+  scroll: `'scroll' {
+  $el=$null
+  if ($R.elementId) {
+    if ($R.elementId -notmatch '^win-(-?\\d+):\\d+:(\\d+)$') { OE 'ELEMENT_STALE_TREE' 'Invalid element id'; break }
+    $el=ElByIdx (FH ([IntPtr][int64]$matches[1])) 0 ([int]$matches[2]) ([ref]0)
+    if (-not $el) { OE 'ELEMENT_STALE_TREE' 'Stale element'; break }
+  }
+  if (-not $el) {
+    $hwnd=HW $R.hwnd
+    if ($hwnd -eq $z) { $hwnd=$N::GetForegroundWindow() }
+    try { $el=FH $hwnd } catch { $el=$null }
+  }
+  $sp=$null; $cur=$el
+  while ($null -ne $cur -and $null -eq $sp) { try { $sp=$cur.GetCurrentPattern($ps) } catch { $sp=$null }; if ($null -eq $sp) { $cur=$tw.GetParent($cur) } }
+  if (-not $sp) { OE 'ELEMENT_NO_ACTION' 'No scrollable'; break }
+  $rep=$R.amount; if (-not $rep -or $rep -lt 1) { $rep=1 }
+  for ($i=0; $i -lt $rep; $i++) {
+    switch ($R.direction) {
+    'up' { $sp.Scroll($sd,$sn) } 'left' { $sp.Scroll($sn,$sd) }
+    'right' { $sp.Scroll($sn,$si) } default { $sp.Scroll($si,$sn) }
+    }
+  }
+  OK @{scrolled=$true}
+}`,
+  'click-point': `'click-point' {
+  if ($null -eq $R.x -or $null -eq $R.y) { OE 'SERVER_ERROR' 'x and y required'; break }
+  if (-not ('CuaMouse' -as [type])) { Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;
+public class CuaMouse { [DllImport("user32.dll")]public static extern bool SetCursorPos(int X,int Y);[DllImport("user32.dll")]public static extern void mouse_event(uint f,uint dx,uint dy,uint d,UIntPtr x);}' }
+  [CuaMouse]::SetCursorPos($R.x,$R.y); Start-Sleep -m 30
+  [CuaMouse]::mouse_event(0x0002,0,0,0,[UIntPtr]::Zero); Start-Sleep -m 30
+  [CuaMouse]::mouse_event(0x0004,0,0,0,[UIntPtr]::Zero)
+  OK @{clicked=$true}
+}`,
+};

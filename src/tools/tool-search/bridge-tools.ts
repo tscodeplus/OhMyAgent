@@ -133,13 +133,46 @@ function capDescription(desc: string | undefined, max: number = 400): string {
 // tool_search
 // ---------------------------------------------------------------------------
 
-function createToolSearchTool(deps: BridgeToolDeps): AgentTool {
+function createToolSearchTool(deps: BridgeToolDeps, unlockedNames: Set<string>): AgentTool {
   return {
     name: TOOL_SEARCH_NAME,
     label: 'Tool Search',
-    description: deps.activated
-      ? `**Search BEFORE using generic tools** — a specialized tool may already exist for tasks like creating skills, generating images, etc. ${deps.deferredCatalog.size} on-demand tools available: ${Array.from(deps.deferredCatalog.keys()).join(', ')}. Use query=keywords to search, or invoke=true + arguments={...} to call the best match in one step. You can also call these tools directly by name once you know them.`
-      : 'Search available tools by name using exact match, substring, or regex pattern.',
+    // 动态描述:解锁前保持原字符串逐字节不变(不破坏 prompt 缓存);
+    // 一旦有工具被 tool_search/tool_call 解锁,提示模型直接按名调用。
+    // getter 每次被读(每轮请求序列化 tools 时)实时求值,见
+    // createBridgeTools 中共享的 unlockedNames 闭包。
+    get description(): string {
+      if (!deps.activated) {
+        return 'Search available tools by name using exact match, substring, or regex pattern.';
+      }
+      if (unlockedNames.size > 0) {
+        const unlocked = Array.from(unlockedNames).join(', ');
+        const remaining = Array.from(deps.deferredCatalog.keys()).filter(
+          (n) => !unlockedNames.has(n),
+        );
+        const remainingList =
+          remaining.length > 0
+            ? remaining.join(', ')
+            : '(none — all on-demand tools are unlocked)';
+        return (
+          `**Unlocked — call directly, do not search**: ${unlocked}. ` +
+          `These tools are already in your tools list with full schemas; ` +
+          `call them by name instead of tool_search. ` +
+          `Remaining on-demand tools: ${remainingList}. ` +
+          `Search them with query=keywords, or invoke=true + arguments={...} ` +
+          `to call the best match in one step.`
+        );
+      }
+      return (
+        `**Search BEFORE using generic tools** — a specialized tool may already exist ` +
+        `for tasks like creating skills, generating images, etc. ` +
+        `${deps.deferredCatalog.size} on-demand tools available: ` +
+        `${Array.from(deps.deferredCatalog.keys()).join(', ')}. ` +
+        `Use query=keywords to search, or invoke=true + arguments={...} ` +
+        `to call the best match in one step. You can also call these tools ` +
+        `directly by name once you know them.`
+      );
+    },
     parameters: ToolSearchParams,
     execute: async (toolCallId, rawParams, signal?, onUpdate?) => {
       const params = rawParams as ToolSearchArgs;
@@ -173,6 +206,22 @@ function createToolSearchTool(deps: BridgeToolDeps): AgentTool {
         const bestName = hits[0]!.name;
         const realTool = deps.deferredCatalog.get(bestName);
         if (realTool) {
+          // 行为矫正(已解锁工具):拒绝继续走 tool_search 执行,强制模型
+          // 直接按名调用。描述引导已被验证对 deepseek 无效(路径依赖 >
+          // 提示词),错误反馈是确定性的:模型收到错误后只能换路直接调用。
+          // 纯搜索(非 invoke)不受影响——模型仍可搜索其他未解锁工具。
+          if (unlockedNames.has(bestName)) {
+            return errorResult(
+              `'${bestName}' is UNLOCKED — it is already in your tools list ` +
+              `with its full schema. Call '${bestName}' directly by name; ` +
+              `tool_search no longer serves it.`,
+            );
+          }
+          // 动态解锁(即时生效):取消 deferred 标志,该工具随后立即进入
+          // 主工具列表(compactToolsForPrompt 只过滤仍带标志的工具)。
+          (realTool as any).deferred = false;
+          // 登记解锁集合:tool_search 的 description 据此提示模型直接调用。
+          unlockedNames.add(bestName);
           try {
             const forwardedArgs = resolveForwardedArgs(params as unknown as Record<string, unknown>, TOOL_SEARCH_OWN_KEYS);
             const hasRequiredArgs = hasRequiredParams(realTool);
@@ -190,9 +239,17 @@ function createToolSearchTool(deps: BridgeToolDeps): AgentTool {
                 ...result.content,
               ],
               details: result.details,
+              // 动态解锁:命中后该工具完整 schema 将追加到后续 LLM 请求
+              // (见 openai-completions getDeferredToolNames),模型可直接
+              // 按名调用,无需再次 tool_search。调用失败也解锁——失败
+              // 往往因模型没见过完整参数,解锁后下次直接调用更容易成功。
+              addedToolNames: [bestName],
             };
           } catch (err) {
-            return errorResult(`${bestName} failed: ${(err as Error).message}`);
+            return {
+              ...errorResult(`${bestName} failed: ${(err as Error).message}`),
+              addedToolNames: [bestName],
+            };
           }
         }
       }
@@ -217,7 +274,7 @@ function createToolSearchTool(deps: BridgeToolDeps): AgentTool {
 // tool_describe
 // ---------------------------------------------------------------------------
 
-function createToolDescribeTool(deps: BridgeToolDeps): AgentTool {
+function createToolDescribeTool(deps: BridgeToolDeps, unlockedNames: Set<string>): AgentTool {
   return {
     name: TOOL_DESCRIBE_NAME,
     label: 'Tool Describe',
@@ -236,6 +293,17 @@ function createToolDescribeTool(deps: BridgeToolDeps): AgentTool {
         return errorResult(
           `'${name}' is not a deferrable tool. If you see it in the tools list already, call it directly; otherwise check the spelling against tool_search.`,
         );
+      }
+
+      // Already unlocked — the full schema is in the model-facing tools list.
+      if (unlockedNames.has(name)) {
+        const tool = deps.deferredCatalog.get(name);
+        return jsonResult({
+          name: tool?.name ?? name,
+          description: tool?.description,
+          parameters: tool?.parameters,
+          note: `'${name}' is UNLOCKED — it is already in your tools list with its full schema. Call it directly by name instead of via tool_describe/tool_call.`,
+        });
       }
 
       // Look up in the deferred catalog
@@ -266,7 +334,7 @@ function createToolDescribeTool(deps: BridgeToolDeps): AgentTool {
 // tool_call
 // ---------------------------------------------------------------------------
 
-function createToolCallTool(deps: BridgeToolDeps): AgentTool {
+function createToolCallTool(deps: BridgeToolDeps, unlockedNames: Set<string>): AgentTool {
   return {
     name: TOOL_CALL_NAME,
     label: 'Tool Call',
@@ -299,6 +367,11 @@ function createToolCallTool(deps: BridgeToolDeps): AgentTool {
           `'${name}' is not available in this session. Use tool_search to find tools you can call.`,
         );
       }
+      // 动态解锁(即时生效):与 tool_search invoke 一致,直接调用过的
+      // 延迟工具取消 deferred 标志,进入主工具列表。
+      (realTool as any).deferred = false;
+      // 登记解锁集合:tool_search 的 description 据此提示模型直接调用。
+      unlockedNames.add(name);
 
       // Delegate to the real tool's execute.
       // The real tool was created via AgentToolAdapterImpl.toAgentTool(),
@@ -307,11 +380,16 @@ function createToolCallTool(deps: BridgeToolDeps): AgentTool {
       try {
         const forwardedArgs = resolveForwardedArgs(params as unknown as Record<string, unknown>, TOOL_CALL_OWN_KEYS);
         const result = await realTool.execute(toolCallId, forwardedArgs, signal, onUpdate);
-        return result;
+        // 动态解锁:与 tool_search invoke 一致,直接调用过的延迟工具
+        // 后续保持完整 schema 可见,模型可直接按名调用。
+        return { ...result, addedToolNames: [name] };
       } catch (err) {
-        return errorResult(
-          `Error executing '${name}': ${(err as Error).message}`,
-        );
+        return {
+          ...errorResult(
+            `Error executing '${name}': ${(err as Error).message}`,
+          ),
+          addedToolNames: [name],
+        };
       }
     },
   };
@@ -329,9 +407,12 @@ function createToolCallTool(deps: BridgeToolDeps): AgentTool {
  * can transparently delegate to the real tool at execution time.
  */
 export function createBridgeTools(deps: BridgeToolDeps): AgentTool[] {
+  // 已解锁工具集合(三桥共享闭包):tool_search invoke / tool_call 命中后
+  // 登记;tool_search 的 description getter 据此动态提示模型直接按名调用。
+  const unlockedNames = new Set<string>();
   return [
-    createToolSearchTool(deps),
-    createToolDescribeTool(deps),
-    createToolCallTool(deps),
+    createToolSearchTool(deps, unlockedNames),
+    createToolDescribeTool(deps, unlockedNames),
+    createToolCallTool(deps, unlockedNames),
   ];
 }

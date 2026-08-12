@@ -138,7 +138,7 @@ export function createComputerUseTool(
 	      ], { description: "Action to perform" }),
 	      target: Type.Optional(Type.String({ description: "App process name (open/focus/close). e.g. firefox, msedge.exe." })),
 	      lease_id: Type.Optional(Type.String({ description: "Lease ID from open_app or view_screen. Defaults to most recent." })),
-	      element_id: Type.Optional(Type.String({ description: "Element ID for click/double_click" })),
+	      element_id: Type.Optional(Type.String({ description: "Element ID for click/double_click/type_text" })),
 	      x: Type.Optional(Type.Number({ description: "X coordinate for click_point" })),
 	      y: Type.Optional(Type.Number({ description: "Y coordinate for click_point" })),
 	      text: Type.Optional(Type.String({ description: "Text for type_text" })),
@@ -442,6 +442,8 @@ export function createComputerUseTool(
             const result = await computerUseHost.performAction(ctx, resolvedLeaseId, {
               type: 'type_text',
               text: params.text,
+              // 显式定位输入框(可选):模型在 view_screen 后应传 element_id
+              elementId: params.element_id,
             });
             if (result.ok) {
               return { content: [{ type: 'text', text: `Typed text: "${params.text}"` }] };

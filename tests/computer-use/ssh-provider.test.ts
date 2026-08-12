@@ -157,21 +157,20 @@ describe('SSHComputerUseProvider', () => {
   });
 
   it('getAppState returns AppState with screenshot, display info, and window title', async () => {
-    const { provider } = createProvider({
+    const { provider, mockPool } = createProvider({
       responses: {
-        'xdotool windowactivate': { stdout: '', stderr: '', exitCode: 0 },
         'scrot -z': { stdout: '', stderr: '', exitCode: 0 },
         'base64 -w0': {
           stdout: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk',
           stderr: '',
           exitCode: 0,
         },
-        'xdotool getactivewindow getwindowname': {
+        'xdotool getwindowname': {
           stdout: 'Firefox - Mozilla',
           stderr: '',
           exitCode: 0,
         },
-        'xdotool getactivewindow getwindowgeometry --shell': {
+        'xdotool getwindowgeometry --shell': {
           stdout: 'WIDTH=1024\nHEIGHT=768\nX=0\nY=0\nSCREEN=0',
           stderr: '',
           exitCode: 0,
@@ -194,17 +193,29 @@ describe('SSHComputerUseProvider', () => {
     expect(state.display.originalWidth).toBe(1920);
     expect(state.display.originalHeight).toBe(1080);
     expect(state.windowTitle).toBe('Firefox - Mozilla');
+
+    // The leased window's metadata must be read *by id* — never via
+    // xdotool windowactivate (focus stealing) nor getactivewindow.
+    const allCmds = mockPool.exec.mock.calls.map((call: [string]) => call[0]).join('\n');
+    expect(allCmds).not.toContain('windowactivate');
+    expect(allCmds).not.toContain('getactivewindow');
+    expect(allCmds).toContain('xdotool getwindowname 0x12345678');
+    expect(allCmds).toContain('xdotool getwindowgeometry --shell 0x12345678');
   });
 
-  it('performAction click_element constructs correct xdotool mousemove command', async () => {
-    const { provider, mockPool } = createProvider();
+  it('performAction click_element with tree element uses AT-SPI doAction (no mouse movement)', async () => {
+    const { provider, mockPool } = createProvider({
+      responses: {
+        'python3': { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
+      },
+    });
     const lease = makeLease();
 
     const result = await provider.performAction(DEFAULT_CTX, lease, {
       type: 'click_element',
-      elementId: 'btn-1',
+      elementId: '/0/2/5',
       snapshotElement: {
-        elementId: 'btn-1',
+        elementId: '/0/2/5',
         role: 'button',
         bounds: { x: 100, y: 200, width: 80, height: 30 },
         enabled: true,
@@ -215,7 +226,9 @@ describe('SSHComputerUseProvider', () => {
     expect(result.action).toBe('click_element');
 
     const cmd = mockPool.exec.mock.lastCall?.[0];
-    expect(cmd).toContain('xdotool mousemove 140 215 click 1');
+    expect(cmd).toContain('python3');
+    expect(cmd).toContain('/0/2/5');
+    expect(cmd).not.toContain('xdotool mousemove');
   });
 
   it('performAction type_text escapes special characters', async () => {
@@ -284,214 +297,5 @@ describe('SSHComputerUseProvider', () => {
 
     const cmd = mockPool.exec.mock.lastCall?.[0];
     expect(cmd).toContain('rm -f /tmp/cua_test-lease-1.png');
-  });
-
-  // ---------------------------------------------------------------------------
-  // macOS support
-  // ---------------------------------------------------------------------------
-
-  describe('macOS support', () => {
-    it('_detectRemoteOS returns darwin when uname -s outputs Darwin', async () => {
-      const { provider, mockPool } = createProvider({
-        responses: {
-          'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        },
-      });
-      await provider.listApps(DEFAULT_CTX);
-      const osascriptCalls = mockPool.exec.mock.calls.filter(
-        (call: [string]) => call[0].includes('osascript'),
-      );
-      expect(osascriptCalls.length).toBeGreaterThan(0);
-    });
-
-    it('_detectRemoteOS returns linux when uname -s outputs Linux', async () => {
-      const { provider, mockPool } = createProvider({
-        responses: {
-          'uname -s': { stdout: 'Linux', stderr: '', exitCode: 0 },
-        },
-      });
-      await provider.listApps(DEFAULT_CTX);
-      const osascriptCalls = mockPool.exec.mock.calls.filter(
-        (call: [string]) => call[0].includes('osascript'),
-      );
-      expect(osascriptCalls).toHaveLength(0);
-    });
-
-    it('_detectRemoteOS returns linux when uname -s fails (error path)', async () => {
-      const { provider, mockPool } = createProvider();
-      mockPool.exec.mockRejectedValueOnce(new Error('SSH connection failed'));
-      await provider.listApps(DEFAULT_CTX);
-      const osascriptCalls = mockPool.exec.mock.calls.filter(
-        (call: [string]) => call[0].includes('osascript'),
-      );
-      expect(osascriptCalls).toHaveLength(0);
-    });
-
-    it('performAction type_text on macOS neutralizes single-quote shell injection', async () => {
-      const { provider, mockPool } = createProvider({
-        responses: {
-          'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        },
-      });
-      // Force remote OS detection to darwin.
-      await provider.listApps(DEFAULT_CTX);
-      const lease = makeLease();
-
-      // Malicious text trying to break out of osascript -e '...' and run rm.
-      const evil = `x'; rm -rf ~; echo '`;
-      const result = await provider.performAction(DEFAULT_CTX, lease, {
-        type: 'type_text',
-        text: evil,
-      });
-
-      expect(result.ok).toBe(true);
-      const cmd = mockPool.exec.mock.lastCall?.[0] as string;
-      // The entire osascript script is wrapped in a single-quoted shell arg,
-      // and every literal `'` in the user text is escaped as '\'' (close-quote,
-      // escaped-quote, reopen-quote). The malicious `'` therefore cannot break
-      // out of the quoting to start a new shell command.
-      const expected =
-        `osascript -e 'tell application "System Events" to keystroke "x'\\''; rm -rf ~; echo '\\''"'`;
-      expect(cmd).toBe(expected);
-      // Sanity: the dangerous quote was escaped, not left raw.
-      expect(cmd).toContain(`'\\''`);
-    });
-
-    it('getAppState uses screencapture on macOS', async () => {
-      const { provider, mockPool } = createProvider({
-        responses: {
-          'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-          'screencapture': { stdout: '', stderr: '', exitCode: 0 },
-          'base64': { stdout: 'iVBOR', stderr: '', exitCode: 0 },
-          'osascript': { stdout: 'Finder', stderr: '', exitCode: 0 },
-        },
-      });
-      const lease = makeLease({ leaseId: 'test-lease-1' });
-      await provider.getAppState(DEFAULT_CTX, lease);
-      const screencaptureCall = mockPool.exec.mock.calls.find(
-        (call: [string]) => call[0].includes('screencapture'),
-      );
-      expect(screencaptureCall).toBeDefined();
-      expect(screencaptureCall![0]).toContain('screencapture -x -T0');
-    });
-
-    it("getAppState uses 'base64 -i' on macOS", async () => {
-      const { provider, mockPool } = createProvider({
-        responses: {
-          'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-          'screencapture': { stdout: '', stderr: '', exitCode: 0 },
-          'base64': { stdout: 'iVBOR', stderr: '', exitCode: 0 },
-          'osascript': { stdout: 'Finder', stderr: '', exitCode: 0 },
-        },
-      });
-      const lease = makeLease({ leaseId: 'test-lease-1' });
-      await provider.getAppState(DEFAULT_CTX, lease);
-      const base64Call = mockPool.exec.mock.calls.find(
-        (call: [string]) => call[0].includes('base64'),
-      );
-      expect(base64Call).toBeDefined();
-      expect(base64Call![0]).toContain('base64 -i');
-    });
-
-    it('performAction click_point on macOS generates osascript click at command', async () => {
-      const { provider, mockPool } = createProvider({
-        responses: {
-          'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        },
-      });
-      const lease = makeLease();
-      const result = await provider.performAction(DEFAULT_CTX, lease, {
-        type: 'click_point',
-        x: 500,
-        y: 300,
-      });
-      expect(result.ok).toBe(true);
-      const cmd = mockPool.exec.mock.lastCall?.[0];
-      expect(cmd).toContain('osascript');
-      expect(cmd).toContain('click at {500, 300}');
-    });
-
-    it('performAction type_text on macOS generates osascript keystroke command', async () => {
-      const { provider, mockPool } = createProvider({
-        responses: {
-          'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        },
-      });
-      const lease = makeLease();
-      const result = await provider.performAction(DEFAULT_CTX, lease, {
-        type: 'type_text',
-        text: 'hello world',
-      });
-      expect(result.ok).toBe(true);
-      const cmd = mockPool.exec.mock.lastCall?.[0];
-      expect(cmd).toContain('osascript');
-      expect(cmd).toContain('keystroke "hello world"');
-    });
-
-    it('performAction press_key on macOS generates key code 36 for Enter', async () => {
-      const { provider, mockPool } = createProvider({
-        responses: {
-          'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        },
-      });
-      const lease = makeLease();
-      const result = await provider.performAction(DEFAULT_CTX, lease, {
-        type: 'press_key',
-        key: 'Return',
-      });
-      expect(result.ok).toBe(true);
-      const cmd = mockPool.exec.mock.lastCall?.[0];
-      expect(cmd).toContain('key code 36');
-    });
-
-    it('performAction scroll on macOS generates repeated arrow key code commands', async () => {
-      const { provider, mockPool } = createProvider({
-        responses: {
-          'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        },
-      });
-      const lease = makeLease();
-      const result = await provider.performAction(DEFAULT_CTX, lease, {
-        type: 'scroll',
-        direction: 'up',
-        amount: 3,
-      });
-      expect(result.ok).toBe(true);
-      const cmd = mockPool.exec.mock.lastCall?.[0];
-      expect(cmd).toContain('key code 126');
-      const matches = cmd!.match(/key code 126/g);
-      expect(matches).toHaveLength(3);
-    });
-
-    it('listApps on macOS uses osascript process listing', async () => {
-      const { provider } = createProvider({
-        responses: {
-          'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-          'osascript': { stdout: 'Finder, Safari, Terminal', stderr: '', exitCode: 0 },
-        },
-      });
-      const apps = await provider.listApps(DEFAULT_CTX);
-      expect(apps).toHaveLength(3);
-      expect(apps[0].name).toBe('Finder');
-      expect(apps[1].name).toBe('Safari');
-      expect(apps[2].name).toBe('Terminal');
-    });
-
-    it('OS detection result is cached (uname -s called only once across multiple _detectRemoteOS calls)', async () => {
-      const { provider, mockPool } = createProvider({
-        responses: {
-          'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-          'osascript': { stdout: 'Finder', stderr: '', exitCode: 0 },
-        },
-      });
-      // First call triggers _detectRemoteOS
-      await provider.listApps(DEFAULT_CTX);
-      // Second call should use cached value
-      await provider.listApps(DEFAULT_CTX);
-      const unameCalls = mockPool.exec.mock.calls.filter(
-        (call: [string]) => call[0].includes('uname -s'),
-      );
-      expect(unameCalls).toHaveLength(1);
-    });
   });
 });

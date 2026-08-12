@@ -265,3 +265,136 @@ describe('tool_call', () => {
     expect(text).toContain('requires a "name"');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Dynamic description (unlocked tools) — 方案B
+// ---------------------------------------------------------------------------
+
+describe('tool_search dynamic description', () => {
+  function findSearch(bridge: AgentTool[]): AgentTool {
+    return bridge.find((t) => t.name === TOOL_SEARCH_NAME)!;
+  }
+
+  function findCall(bridge: AgentTool[]): AgentTool {
+    return bridge.find((t) => t.name === TOOL_CALL_NAME)!;
+  }
+
+  it('keeps the original description byte-identical before any unlock', () => {
+    const search = findSearch(makeBridgeTools([realTool('computer_use')]));
+    expect(search.description).toContain('Search BEFORE using generic tools');
+    expect(search.description).not.toContain('Unlocked');
+    // 与静态时代逐字节一致(不破坏 prompt 缓存的关键)
+    expect(search.description).toContain(
+      'on-demand tools available: computer_use',
+    );
+  });
+
+  it('switches to "call directly" description after invoke unlocks a tool', async () => {
+    const bridge = makeBridgeTools([realTool('computer_use')]);
+    const search = findSearch(bridge);
+    const result = await search.execute!(
+      '1',
+      { query: 'computer use', invoke: true, arguments: { repo: 'x' } },
+      undefined,
+      undefined,
+    );
+    const text = (result.content[0]! as { type: 'text'; text: string }).text;
+    expect(text).toContain('[invoked computer_use]');
+
+    expect(search.description).toContain('Unlocked');
+    expect(search.description).toContain('computer_use');
+    expect(search.description).not.toContain('Search BEFORE');
+  });
+
+  it('lists remaining on-demand tools excluding the unlocked one', async () => {
+    const bridge = makeBridgeTools([
+      realTool('computer_use'),
+      realTool('memory_rebuild_persona'),
+    ]);
+    const search = findSearch(bridge);
+    await search.execute!(
+      '1',
+      { query: 'computer use', invoke: true, arguments: { repo: 'x' } },
+      undefined,
+      undefined,
+    );
+    // unlocked 工具出现在"直接调用"列表
+    expect(search.description).toContain('Unlocked — call directly');
+    // 未解锁工具仍列在 on-demand 目录里
+    expect(search.description).toContain('memory_rebuild_persona');
+  });
+
+  it('reports no remaining tools when all are unlocked', async () => {
+    const bridge = makeBridgeTools([realTool('only_tool')]);
+    const search = findSearch(bridge);
+    await search.execute!(
+      '1',
+      { query: 'only_tool', invoke: true, arguments: { repo: 'x' } },
+      undefined,
+      undefined,
+    );
+    expect(search.description).toContain('all on-demand tools are unlocked');
+  });
+
+  it('rejects re-invoking an already-unlocked tool via tool_search', async () => {
+    const bridge = makeBridgeTools([realTool('computer_use')]);
+    const search = findSearch(bridge);
+    // 第一次 invoke 解锁并执行
+    const first = await search.execute!(
+      '1',
+      { query: 'computer use', invoke: true, arguments: { repo: 'x' } },
+      undefined,
+      undefined,
+    );
+    expect((first.content[0]! as { type: 'text'; text: string }).text).toContain(
+      '[invoked computer_use]',
+    );
+    // 第二次 invoke 同一工具 → 拒绝执行,返回行为矫正错误
+    const second = await search.execute!(
+      '2',
+      { query: 'computer use', invoke: true, arguments: { repo: 'x' } },
+      undefined,
+      undefined,
+    );
+    const text = (second.content[0]! as { type: 'text'; text: string }).text;
+    expect(text).toContain('[ERROR]');
+    expect(text).toContain('UNLOCKED');
+    expect(text).toContain('Call');
+    expect(text).not.toContain('[invoked');
+  });
+
+  it('tool_call also registers the unlock', async () => {
+    const bridge = makeBridgeTools([realTool('cron_create')]);
+    const search = findSearch(bridge);
+    const call = findCall(bridge);
+    await call.execute('call1', {
+      name: 'cron_create',
+      arguments: { repo: 'a/b' },
+    });
+    expect(search.description).toContain('Unlocked');
+    expect(search.description).toContain('cron_create');
+  });
+
+  it('keeps the short static description when not activated', () => {
+    const search = findSearch(makeBridgeTools([realTool('a')], [], false));
+    expect(search.description).toBe(
+      'Search available tools by name using exact match, substring, or regex pattern.',
+    );
+  });
+
+  it('tool_describe notes when a tool is already unlocked', async () => {
+    const bridge = makeBridgeTools([realTool('cron_create')]);
+    const search = findSearch(bridge);
+    const describe = bridge.find((t) => t.name === TOOL_DESCRIBE_NAME)!;
+    await search.execute!(
+      '1',
+      { query: 'cron', invoke: true, arguments: { repo: 'x' } },
+      undefined,
+      undefined,
+    );
+    const result = await describe.execute('d1', { name: 'cron_create' });
+    const text = (result.content[0]! as { type: 'text'; text: string }).text;
+    expect(text).toContain('UNLOCKED');
+    expect(text).toContain('Call it directly');
+  });
+});

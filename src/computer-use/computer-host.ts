@@ -15,6 +15,7 @@ import type {
   ActionResult,
   ProviderStatus,
   ActionType,
+  UIElement,
   ComputerUseCapabilities,
 } from './types.js';
 import type { ComputerUseProvider } from './provider-contract.js';
@@ -593,9 +594,19 @@ export class ComputerUseHost {
         );
       }
 
-      const element = snap.elements.find(
-        (e) => e.elementId === action.elementId,
-      );
+      // 回退匹配:模型常把 view_screen 显示格式 "#<id>: <role> "<label>"
+      // 中的 "#<id>" 或 label 直接当 element_id 传回。精确匹配失败时:
+      // ① 剥离 "#" 前缀后按 elementId 匹配
+      // ② 再按 label 精确匹配
+      let element: UIElement | null =
+        snap.elements.find((e) => e.elementId === action.elementId) ?? null;
+      if (!element && action.elementId.startsWith('#')) {
+        const stripped = action.elementId.slice(1);
+        element = snap.elements.find((e) => e.elementId === stripped) ?? null;
+      }
+      if (!element) {
+        element = snap.elements.find((e) => e.label === action.elementId) ?? null;
+      }
       if (!element) {
         throw computerUseError(
           'TARGET_NOT_FOUND',
@@ -656,8 +667,22 @@ export class ComputerUseHost {
     return true;
   }
 
-  /** Release all leases for a session (e.g. on disconnect). */
+  /**
+   * Release all leases for a session (e.g. on disconnect).
+   * 除标记 lease 记录外,还要调 provider.releaseLease 做资源收尾
+   * (如 node provider 的 restoreScreen 解除常亮/熄屏),fire-and-forget。
+   */
   abortSession(sessionPath: string): void {
+    for (const lease of this._leases.listBySession(sessionPath)) {
+      if (lease.status !== 'active') continue;
+      try {
+        const provider = this._providers.require(lease.providerId);
+        const ctx: Ctx = { sessionPath: lease.sessionPath, agentId: lease.agentId };
+        provider.releaseLease(ctx, lease).catch(() => {});
+      } catch (err) {
+        this._logger?.warn({ err, leaseId: lease.leaseId }, 'Error releasing lease in abortSession');
+      }
+    }
     this._leases.releaseBySession(sessionPath);
   }
 }

@@ -283,6 +283,53 @@ describe('ComputerUseHost', () => {
     });
   });
 
+  // -----------------------------------------------------------------------
+  // Element lookup fallbacks(模型把 "#<id>" 显示前缀或 label 当 element_id)
+  // -----------------------------------------------------------------------
+
+  describe('element lookup fallbacks', () => {
+    it('strips "#" display prefix before matching elementId', async () => {
+      const { host, mockProvider } = createTestHost();
+      const lease = await host.createLease(baseCtx, { appName: 'app.notes' });
+      await host.getAppState(baseCtx, lease.leaseId);
+
+      const result = await host.performAction(baseCtx, lease.leaseId, {
+        type: 'click_element',
+        elementId: '#mock-button',
+      });
+
+      expect(result.ok).toBe(true);
+      expect(mockProvider.actions.at(-1)?.action.snapshotElement?.elementId).toBe('mock-button');
+    });
+
+    it('matches elementId by label as a last resort', async () => {
+      const { host, mockProvider } = createTestHost();
+      const lease = await host.createLease(baseCtx, { appName: 'app.notes' });
+      await host.getAppState(baseCtx, lease.leaseId);
+
+      const result = await host.performAction(baseCtx, lease.leaseId, {
+        type: 'click_element',
+        elementId: 'Continue',
+      });
+
+      expect(result.ok).toBe(true);
+      expect(mockProvider.actions.at(-1)?.action.snapshotElement?.elementId).toBe('mock-button');
+    });
+
+    it('still throws TARGET_NOT_FOUND when nothing matches', async () => {
+      const { host } = createTestHost();
+      const lease = await host.createLease(baseCtx, { appName: 'app.notes' });
+      await host.getAppState(baseCtx, lease.leaseId);
+
+      await expect(
+        host.performAction(baseCtx, lease.leaseId, {
+          type: 'click_element',
+          elementId: 'nonexistent',
+        }),
+      ).rejects.toThrow('element not found in snapshot');
+    });
+  });
+
   describe('snapshot validation', () => {
     it('requires a screen snapshot before element actions', async () => {
       const { host } = createTestHost();
@@ -344,6 +391,27 @@ describe('ComputerUseHost', () => {
 
       const releasedLease = leaseRegistry.getLease(baseCtx, lease.leaseId);
       expect(releasedLease!.status).toBe('released');
+      expect(leaseRegistry.getActiveLease()).toBeNull();
+    });
+
+    it('abortSession calls provider.releaseLease for cleanup, then marks records released', async () => {
+      const { host, mockProvider, leaseRegistry } = createTestHost();
+      let releasedCount = 0;
+      mockProvider.releaseLease = async () => {
+        releasedCount += 1;
+      };
+
+      const lease = await host.createLease(baseCtx, { appName: 'app.notes' });
+      expect(lease.status).toBe('active');
+
+      host.abortSession('sess-1');
+
+      // provider 清理是 fire-and-forget,等一个宏任务
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(releasedCount).toBe(1);
+
+      const after = leaseRegistry.getLease(baseCtx, lease.leaseId);
+      expect(after!.status).toBe('released');
       expect(leaseRegistry.getActiveLease()).toBeNull();
     });
   });
