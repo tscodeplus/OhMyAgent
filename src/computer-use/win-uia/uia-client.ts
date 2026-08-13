@@ -14,6 +14,7 @@ import {
   UIA_SERVER_SCRIPT_PATH,
   UIA_COMMAND_TIMEOUT_MS,
   UIA_GET_STATE_TIMEOUT_MS,
+  UIA_LAUNCH_TIMEOUT_MS,
   UIA_IDLE_EXIT_MS,
   buildWinUiaServerScript,
   writeUiaServerScript,
@@ -150,7 +151,12 @@ export class UiaClient {
   // -------------------------------------------------------------------------
 
   private _defaultTimeoutFor(cmd: string): number {
-    return cmd === 'get-app-state' ? UIA_GET_STATE_TIMEOUT_MS : UIA_COMMAND_TIMEOUT_MS;
+    if (cmd === 'get-app-state') return UIA_GET_STATE_TIMEOUT_MS;
+    // launch-app's server-side worst case (WaitHwnd 20s + AppX cold-start
+    // poll 10s) sits exactly on the default 30s timeout - a slow cold start
+    // killed the server mid-launch and failed the app open. Give it headroom.
+    if (cmd === 'launch-app') return UIA_LAUNCH_TIMEOUT_MS;
+    return UIA_COMMAND_TIMEOUT_MS;
   }
 
   /**

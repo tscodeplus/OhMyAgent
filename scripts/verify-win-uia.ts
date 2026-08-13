@@ -151,7 +151,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function scenarioNotepad(server: Server): Promise<void> {
   console.log('\n=== A. Notepad: type Chinese text + Enter ===');
-  const la = await server.req('launch-app', { name: 'notepad' });
+  // launch-app can take 20s+ (WaitHwnd) plus AppX cold-start poll - the
+  // default 25s request timeout races it exactly like the server client did.
+  const la = await server.req('launch-app', { name: 'notepad' }, 60000);
   const hwnd: number = la.result?.hwnd ?? 0;
   check('A1 launch-app notepad', la.ok === true && hwnd !== 0, JSON.stringify(la.result ?? la.error));
 
@@ -184,7 +186,7 @@ async function scenarioNotepad(server: Server): Promise<void> {
 
 async function scenarioChrome(server: Server): Promise<void> {
   console.log('\n=== C. Chrome: address bar -> www.sohu.com -> Enter ===');
-  const la = await server.req('launch-app', { name: 'chrome' });
+  const la = await server.req('launch-app', { name: 'chrome' }, 60000);
   const hwnd: number = la.result?.hwnd ?? 0;
   check('C1 launch-app chrome', la.ok === true && hwnd !== 0, JSON.stringify(la.result ?? la.error));
   await sleep(2000);

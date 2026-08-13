@@ -34,6 +34,14 @@ export const UIA_SERVER_SCRIPT_PATH = 'C:\\Windows\\Temp\\ohmyagent\\win-uia-ser
 export const UIA_COMMAND_TIMEOUT_MS = 30_000;
 export const UIA_GET_STATE_TIMEOUT_MS = 15_000;
 
+/**
+ * launch-app budget: the server waits WaitHwnd 20s + AppX cold-start poll
+ * 10s = 30s worst case, so the client must not cut it off with the default
+ * 30s timeout (observed: killing the server mid-launch and failing the app
+ * open on a slow notepad cold start).
+ */
+export const UIA_LAUNCH_TIMEOUT_MS = 60_000;
+
 /** Idle (no commands) after which the server exits on its own. */
 export const UIA_IDLE_EXIT_MS = 10 * 60 * 1000;
 
@@ -373,14 +381,10 @@ foreach ($e in $S.Cache.Values) { try { if ($e.Current.HasKeyboardFocus) { $fe=$
 $w=$z
 if ($fe) { try { $w=$fe.Current.NativeWindowHandle } catch { $w=$z } }
 $doc=$null
-$scan=$fe
-for ($i=0; $i -lt 8 -and $null -ne $scan; $i++) {
-if ((Role $scan) -eq 'document') { $doc=$scan; break }
-$nx=$null
-try { $nx=$scan.FindFirst([System.Windows.Automation.TreeScope]::Children,[System.Windows.Automation.Condition]::TrueCondition) } catch {}
-if ($null -eq $nx) { break }
-$scan=$nx
-}
+try {
+$dc=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::Document)
+$doc=(FH $hwnd).FindFirst([System.Windows.Automation.TreeScope]::Subtree,$dc)
+} catch {}
 if ($null -ne $doc) {
 $vpOk=Shield $hwnd {
 $r=$false
@@ -1126,18 +1130,16 @@ const WIN_UIA_ONCE_BRANCHES: Record<WinUiaOnceCommand, string> = {
   if ($fe) { try { $w=$fe.Current.NativeWindowHandle } catch { $w=$z } }
   # Editable-document detection: Win11 Notepad focuses an inner Pane whose
   # native window is a XAML child (a real handle, but PostMessage to it is
-  # silently ignored - false success). Walk the focused element's subtree
-  # for the document child and apply Enter/Tab/BackSpace via ValuePattern
-  # append instead: no keyboard, no IME, no window structure assumptions.
+  # silently ignored - false success). Find the editor document anywhere in
+  # the window tree (ControlType=Document) and apply Enter/Tab/BackSpace
+  # via ValuePattern append instead: no keyboard, no IME. Window-wide
+  # lookup, not focus-relative - SetFocus can land on the tab-strip Pane,
+  # where a focus-subtree walk finds no document at all.
   $doc=$null
-  $scan=$fe
-  for ($i=0; $i -lt 8 -and $null -ne $scan; $i++) {
-    if ((Role $scan) -eq 'document') { $doc=$scan; break }
-    $nx=$null
-    try { $nx=$scan.FindFirst([System.Windows.Automation.TreeScope]::Children,[System.Windows.Automation.Condition]::TrueCondition) } catch {}
-    if ($null -eq $nx) { break }
-    $scan=$nx
-  }
+  try {
+    $dc=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::Document)
+    $doc=(FH $hwnd).FindFirst([System.Windows.Automation.TreeScope]::Subtree,$dc)
+  } catch {}
   if ($null -ne $doc) {
     $vpOk=Shield $hwnd {
     $r=$false
