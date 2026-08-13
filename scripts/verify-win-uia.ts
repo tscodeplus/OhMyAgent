@@ -99,10 +99,12 @@ async function startServer(): Promise<Server> {
     stop() { child.kill(); },
   };
 
+  let t: NodeJS.Timeout | undefined;
   await Promise.race([
     ready,
-    new Promise((r) => setTimeout(() => { console.log('FAIL handshake timeout'); r(undefined); }, 30000)),
+    new Promise((r) => (t = setTimeout(() => { console.log('FAIL handshake timeout'); r(undefined); }, 30000))),
   ]);
+  if (t) clearTimeout(t); // ready won the race - don't let the timer fire mid-scenario
   return server;
 }
 

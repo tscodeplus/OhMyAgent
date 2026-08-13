@@ -110,6 +110,18 @@ describe('win-uia server script (PowerShell template)', () => {
     expect(script).toContain('UIPI_BLOCKED');
   });
 
+  it('declares every extern used by GetIntegrityLevel (Add-Type compiles)', () => {
+    // Real-machine trap: GetIntegrityLevel calls CloseHandle but the
+    // [DllImport] declaration was missing, so Add-Type failed at server
+    // startup with "当前上下文中不存在名称CloseHandle" and the whole
+    // handshake timed out. PowerShell Parser::ParseFile can't catch this -
+    // only the C# compiler can.
+    expect(script).toContain('[DllImport("kernel32.dll")]public static extern bool CloseHandle(IntPtr h);');
+    expect(script).toContain('extern IntPtr OpenProcess(uint a,bool i,uint p);');
+    expect(script).toContain('extern bool OpenProcessToken(IntPtr h,uint a,out IntPtr t);');
+    expect(script).toContain('extern bool GetTokenInformation(IntPtr t,uint c,byte[] b,uint n,out uint r);');
+  });
+
   it('focus-app and press-key SendKeys fallback may foreground the target', () => {
     const start = script.indexOf("'focus-app'");
     const end = script.indexOf("'close-app'");
