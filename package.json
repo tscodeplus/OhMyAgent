@@ -19,6 +19,7 @@
     "eval:memory": "tsx src/memory/eval/eval-runner.ts",
     "eval:memory:build": "tsx src/memory/eval/eval-builder.ts",
     "eval:memory:public": "tsx scripts/eval-public-memory.ts",
+    "verify:win-uia": "tsx scripts/verify-win-uia.ts",
     "memory:eval": "tsx src/memory/eval/eval-runner.ts",
     "test:memory:v11": "vitest run tests/memory tests/agent/memory-injection.test.ts tests/tools/memory-tools.test.ts tests/e2e/memory-flow.test.ts",
     "build:desktop": "cd desktop && npm run build:sidecar",
