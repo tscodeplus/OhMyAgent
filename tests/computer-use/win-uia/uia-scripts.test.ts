@@ -31,9 +31,9 @@ describe('win-uia server script (PowerShell template)', () => {
     expect(script).toContain('[System.Text.UTF8Encoding]::new($false)');
   });
 
-  it('semantic action branch (click-element..click-point) never injects input', () => {
+  it('click-element/type-text branches (click-element..press-key) never inject input', () => {
     const start = script.indexOf("'click-element'");
-    const end = script.indexOf("'click-point'");
+    const end = script.indexOf("'press-key'");
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     const semantic = script.slice(start, end);
@@ -42,6 +42,30 @@ describe('win-uia server script (PowerShell template)', () => {
     expect(semantic).not.toContain('SendKeys');
     expect(semantic).not.toContain('Clipboard');
     expect(semantic).not.toContain('SendInput');
+  });
+
+  it('click-element focuses textboxes via SetFocusPattern', () => {
+    // Edit controls (role textbox) must be focusable — previously they
+    // returned ELEMENT_NO_ACTION so agents could never click into an
+    // address bar or editor.
+    expect(script).toContain("textbox='FOC'");
+    expect(script).toContain('[System.Windows.Automation.SetFocusPattern]::Pattern');
+    expect(script).toContain("$ok=FTRY $el $sfp 'SetFocus'");
+  });
+
+  it('type-text sets the focused element, never the top-level window title', () => {
+    // The SM() helper posts SendMessage(hwnd, 0x000C=WM_SETTEXT, ...).
+    expect(script).toContain('SendMessage');
+    expect(script).toContain('0x000C');
+    const start = script.indexOf("'type-text'");
+    const end = script.indexOf("'press-key'");
+    const type = script.slice(start, end);
+    expect(type).not.toContain('SendKeys');
+    expect(type).not.toContain('Clipboard');
+    // WM_SETTEXT to the top-level window only rewrites the title and reports
+    // a false success — the fallback must target the focused element.
+    expect(type).not.toContain('SM $S.Hwnd $text');
+    expect(type).toContain('HasKeyboardFocus');
   });
 
   it('launch-app branch does not steal focus or maximize', () => {
@@ -56,28 +80,26 @@ describe('win-uia server script (PowerShell template)', () => {
     expect(launch).toContain('MainWindowHandle');
   });
 
-  it('focus-app is the only branch with foreground activation', () => {
+  it('focus-app and press-key SendKeys fallback may foreground the target', () => {
     const start = script.indexOf("'focus-app'");
     const end = script.indexOf("'close-app'");
     const focus = script.slice(start, end);
     expect(focus).toContain('SetForegroundWindow');
-  });
-
-  it('type-text falls back to SendMessage (WM_SETTEXT), never SendKeys', () => {
-    // The SM() helper posts SendMessage(hwnd, 0x000C=WM_SETTEXT, ...).
-    expect(script).toContain('SendMessage');
-    expect(script).toContain('0x000C');
-    const start = script.indexOf("'type-text'");
-    const end = script.indexOf("'press-key'");
-    const type = script.slice(start, end);
-    expect(type).not.toContain('SendKeys');
-    expect(type).not.toContain('Clipboard');
+    // press-key's SendKeys fallback (for apps whose UIA elements have no
+    // native hwnd, e.g. Chrome/Edge) foregrounds the target first, guarded
+    // by a foreground check so keys never land in a wrong window.
+    const pkStart = script.indexOf("'press-key'");
+    const pkEnd = script.indexOf("'scroll'");
+    const pressKey = script.slice(pkStart, pkEnd);
+    expect(pressKey).toContain('SendKeys');
+    expect(pressKey).toContain('SetForegroundWindow');
+    expect(pressKey).toContain('Could not foreground target window');
   });
 
   // The script runs via `powershell.exe -File`, so there is no 32KB cmdline
   // limit on its content; the cap is a safety margin for PS parsing speed.
-  it('stays under the 16KB length budget', () => {
-    expect(script.length).toBeLessThan(16_000);
+  it('stays under the 20KB length budget', () => {
+    expect(script.length).toBeLessThan(20_000);
   });
 
   it('guards against Rect.Empty bounds (Width/Height = -Infinity would throw [int])', () => {

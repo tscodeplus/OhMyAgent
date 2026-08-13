@@ -58,7 +58,7 @@ export const UIA_MAX_DEPTH = 20;
  * The materialized file must be written as UTF-8 **with BOM** so PS 5.1
  * parses it as UTF-8 (BOM-less UTF-8 is read as ANSI by default).
  *
- * Length is budgeted well under 12k chars (32KB cmdline hard limit).
+ * Length is budgeted well under 20k chars (32KB cmdline hard limit).
  */
 export function buildWinUiaServerScript(): string {
   return String.raw`
@@ -95,6 +95,7 @@ $pe=[System.Windows.Automation.ExpandCollapsePattern]::Pattern
 $ps=[System.Windows.Automation.ScrollPattern]::Pattern
 $pr=[System.Windows.Automation.RangeValuePattern]::Pattern
 $pv=[System.Windows.Automation.ValuePattern]::Pattern
+$sfp=[System.Windows.Automation.SetFocusPattern]::Pattern
 $pl=$null; try { $pl=[System.Windows.Automation.LegacyIAccessiblePattern]::Pattern } catch {}
 $si=[System.Windows.Automation.ScrollAmount]::SmallIncrement
 $sd=[System.Windows.Automation.ScrollAmount]::SmallDecrement
@@ -103,7 +104,7 @@ $tw=[System.Windows.Automation.TreeWalker]::RawViewWalker
 function FH($h) { [System.Windows.Automation.AutomationElement]::FromHandle($h) }
 $png=[System.Drawing.Imaging.ImageFormat]::Png
 $rx='\.exe$'
-$cm=@{button='INV';hyperlink='INV';listitem='SEL';dataitem='SEL';tabitem='SEL';radiobutton='SEL';checkbox='TOG';combobox='EXP';treeitem='EXP';slider='RNG';scrollbar='RNG';document='DD'}
+$cm=@{button='INV';hyperlink='INV';textbox='FOC';listitem='SEL';dataitem='SEL';tabitem='SEL';radiobutton='SEL';checkbox='TOG';combobox='EXP';treeitem='EXP';slider='RNG';scrollbar='RNG';document='DD'}
 function OJ($o) { $C::Out.WriteLine(($o|ConvertTo-Json -Compress -Depth 5)) }
 function OE($id,$code,$msg) { OJ @{id=$id;ok=$false;error=@{code=$code;message=$msg}} }
 function OK($id,$r) { OJ @{id=$id;ok=$true;result=$r} }
@@ -152,6 +153,13 @@ function Vk($k) {
   if ($k -match '^F([1-9]|1[0-2])$') { return 0x70+[int]$matches[1]-1 }
   if ($k) { return [int][char][char]::ToUpper($k[0]) }
   return 0
+}
+function SK($k) {
+  $m=@{Enter='{ENTER}';Tab='{TAB}';Escape='{ESC}';BackSpace='{BACKSPACE}';Delete='{DELETE}';Home='{HOME}';End='{END}';Page_Up='{PGUP}';Page_Down='{PGDN}';Up='{UP}';Down='{DOWN}';Left='{LEFT}';Right='{RIGHT}';Space='{SPACE}'}
+  if ($m.ContainsKey($k)) { return $m[$k] }
+  if ($k -match '^F([1-9]|1[0-2])$') { return ('{'+$k+'}') }
+  if ($k -match '^[A-Za-z0-9]$') { return $k }
+  return $null
 }
 function Walk($el,$depth,[ref]$idx) {
   if ($depth -gt $S.MaxD -or $S.N -ge $S.MaxE) { $S.Trunc=$true; return }
@@ -205,6 +213,7 @@ $el=GE $req
 if (-not $el) { OE $id 'ELEMENT_STALE_TREE' 'Stale element' }
 else {
 switch ($cm[(Role $el)]) {
+'FOC' { $ok=FTRY $el $sfp 'SetFocus'; if (-not $ok) { $ok=FTRY $el $pl 'Select' } }
 'INV' { $ok=FTRY $el $pi 'Invoke'; if (-not $ok) { $ok=FTRY $el $pl 'DoDefaultAction' } }
 'SEL' { $ok=FTRY $el $psi 'Select'; if (-not $ok) { $ok=FTRY $el $pi 'Invoke' } }
 'TOG' { $ok=FTRY $el $pt 'Toggle' }
@@ -224,7 +233,18 @@ if ($el) {
 try { $el.GetCurrentPattern($pv).SetValue($text); $ok=$true } catch {}
 if (-not $ok) { try { $el.GetCurrentPattern($pl).SetValue($text); $ok=$true } catch {} }
 if (-not $ok) { try { $w=$el.Current.NativeWindowHandle; if ($w -ne 0) { $ok=SM $w $text } } catch {} }
-} elseif ($S.Hwnd -ne $z) { $ok=SM $S.Hwnd $text }
+} else {
+# No elementId: set the window's focused element. Never fall back to
+# WM_SETTEXT on the top-level window - that only rewrites the window
+# title and reports a false success (agent says done, nothing typed).
+$fe=$null
+foreach ($e in $S.Cache.Values) { try { if ($e.Current.HasKeyboardFocus) { $fe=$e; break } } catch {} }
+if ($fe) {
+try { $fe.GetCurrentPattern($pv).SetValue($text); $ok=$true } catch {}
+if (-not $ok) { try { $fe.GetCurrentPattern($pl).SetValue($text); $ok=$true } catch {} }
+if (-not $ok) { try { $w=$fe.Current.NativeWindowHandle; if ($w -ne 0) { $ok=SM $w $text } } catch {} }
+}
+}
 if ($ok) { OK $id @{typed=$true} } else { OE $id 'ELEMENT_NO_ACTION' 'No text target' }
 }
 }
@@ -234,7 +254,39 @@ if ($hwnd -eq $z) { OE $id 'SERVER_ERROR' 'hwnd required' }
 else {
 $vk=Vk $req.key
 if ($vk -eq 0) { OE $id 'SERVER_ERROR' "Unknown key: $($req.key)" }
-else { $N::PostMessage($hwnd,0x0100,[IntPtr]$vk,$z) > $null; $N::PostMessage($hwnd,0x0101,[IntPtr]$vk,$z) > $null; OK $id @{key=$req.key} }
+else {
+# 1) Non-intrusive: PostMessage to the focused element's native window
+#    (Win32 controls like Notepad's edit) - works without foreground.
+$fe=$null
+foreach ($e in $S.Cache.Values) { try { if ($e.Current.HasKeyboardFocus) { $fe=$e; break } } catch {} }
+$w=$z
+if ($fe) { try { $w=$fe.Current.NativeWindowHandle } catch { $w=$z } }
+if ([int64]$w -ne 0) {
+$N::PostMessage($w,0x0100,[IntPtr]$vk,$z) > $null
+$N::PostMessage($w,0x0101,[IntPtr]$vk,$z) > $null
+OK $id @{key=$req.key}
+} else {
+# 2) Modern apps (Chrome/Edge - UIA elements have no native hwnd):
+#    PostMessage to the top-level window is a no-op there, so foreground
+#    the target and inject a real key (same trade-off as Linux xdotool).
+$sk=SK $req.key
+if (-not $sk) { OE $id 'SERVER_ERROR' "Unsupported key: $($req.key)" }
+else {
+$N::SetForegroundWindow($hwnd) > $null
+$fg=$N::GetForegroundWindow()
+if ($fg -ne $hwnd) {
+$fgPid=0; $fgTid=$N::GetWindowThreadProcessId($fg,[ref]$fgPid); $myTid=$N::GetCurrentThreadId()
+if ($fgTid -ne 0) { $N::AttachThreadInput($myTid,$fgTid,$true) > $null; $N::SetForegroundWindow($hwnd) > $null; $N::AttachThreadInput($myTid,$fgTid,$false) > $null }
+}
+$fg=$N::GetForegroundWindow()
+if ($fg -ne $hwnd) { OE $id 'SERVER_ERROR' 'Could not foreground target window' }
+else {
+try { $wshell=New-Object -ComObject WScript.Shell; $wshell.SendKeys($sk) } catch { OE $id 'SERVER_ERROR' 'SendKeys failed'; break }
+OK $id @{key=$req.key}
+}
+}
+}
+}
 }
 }
 'scroll' {
@@ -570,6 +622,9 @@ public class CuaNative {
 [DllImport("user32.dll",CharSet=CharSet.Unicode)]public static extern IntPtr SendMessage(IntPtr h,uint m,IntPtr w,[MarshalAs(UnmanagedType.LPWStr)]string l);
 [DllImport("user32.dll")]public static extern bool EnumWindows(EnumWindowsProc cb,IntPtr l);
 [DllImport("user32.dll")]public static extern uint GetWindowThreadProcessId(IntPtr h,out uint p);
+[DllImport("user32.dll")]public static extern bool SetForegroundWindow(IntPtr h);
+[DllImport("kernel32.dll")]public static extern uint GetCurrentThreadId();
+[DllImport("user32.dll")]public static extern bool AttachThreadInput(uint a,uint b,bool f);
 [DllImport("user32.dll")]public static extern bool IsWindowVisible(IntPtr h);
 public delegate bool EnumWindowsProc(IntPtr h,IntPtr l);
 public static IntPtr FirstWindow(IntPtr pid){IntPtr f=IntPtr.Zero;EnumWindows(delegate(IntPtr h,IntPtr l){uint p;GetWindowThreadProcessId(h,out p);if(p==(uint)(int)pid&&IsWindowVisible(h)){f=h;return false;}return true;},IntPtr.Zero);return f;}
@@ -584,6 +639,7 @@ $pe=[System.Windows.Automation.ExpandCollapsePattern]::Pattern
 $ps=[System.Windows.Automation.ScrollPattern]::Pattern
 $pr=[System.Windows.Automation.RangeValuePattern]::Pattern
 $pv=[System.Windows.Automation.ValuePattern]::Pattern
+$sfp=[System.Windows.Automation.SetFocusPattern]::Pattern
 $pl=$null; try { $pl=[System.Windows.Automation.LegacyIAccessiblePattern]::Pattern } catch {}
 $si=[System.Windows.Automation.ScrollAmount]::SmallIncrement
 $sd=[System.Windows.Automation.ScrollAmount]::SmallDecrement
@@ -591,7 +647,7 @@ $sn=[System.Windows.Automation.ScrollAmount]::NoAmount
 $tw=[System.Windows.Automation.TreeWalker]::RawViewWalker
 function FH($h) { [System.Windows.Automation.AutomationElement]::FromHandle($h) }
 $png=[System.Drawing.Imaging.ImageFormat]::Png
-$cm=@{button='INV';hyperlink='INV';listitem='SEL';dataitem='SEL';tabitem='SEL';radiobutton='SEL';checkbox='TOG';combobox='EXP';treeitem='EXP';slider='RNG';scrollbar='RNG';document='DD'}
+$cm=@{button='INV';hyperlink='INV';textbox='FOC';listitem='SEL';dataitem='SEL';tabitem='SEL';radiobutton='SEL';checkbox='TOG';combobox='EXP';treeitem='EXP';slider='RNG';scrollbar='RNG';document='DD'}
 function OJ($o) { $C::Out.WriteLine(($o|ConvertTo-Json -Compress -Depth 5)) }
 function OE($code,$msg) { OJ @{ok=$false;error=@{code=$code;message=$msg}} }
 function OK($r) { OJ @{ok=$true;result=$r} }
@@ -634,6 +690,13 @@ function Vk($k) {
   if ($k -match '^F([1-9]|1[0-2])$') { return 0x70+[int]$matches[1]-1 }
   if ($k) { return [int][char][char]::ToUpper($k[0]) }
   return 0
+}
+function SK($k) {
+  $m=@{Enter='{ENTER}';Tab='{TAB}';Escape='{ESC}';BackSpace='{BACKSPACE}';Delete='{DELETE}';Home='{HOME}';End='{END}';Page_Up='{PGUP}';Page_Down='{PGDN}';Up='{UP}';Down='{DOWN}';Left='{LEFT}';Right='{RIGHT}';Space='{SPACE}'}
+  if ($m.ContainsKey($k)) { return $m[$k] }
+  if ($k -match '^F([1-9]|1[0-2])$') { return ('{'+$k+'}') }
+  if ($k -match '^[A-Za-z0-9]$') { return $k }
+  return $null
 }
 function Walk($el,$depth,[ref]$n) {
   if ($n.Value -ge $MaxE) { $script:Trunc=$true; return }
@@ -678,6 +741,18 @@ function ElByIdx($el,$depth,$want,[ref]$n) {
   foreach ($child in $el.FindAll([System.Windows.Automation.TreeScope]::Children,[System.Windows.Automation.Condition]::TrueCondition)) {
     if ($c -ge 20) { return $null }
     $r=ElByIdx $child ($depth+1) $want $n
+    if ($null -ne $r) { return $r }
+    $c++
+  }
+  return $null
+}
+function FocEl($root,$depth) {
+  if ($null -eq $root -or $depth -gt 20) { return $null }
+  try { if ($root.Current.HasKeyboardFocus) { return $root } } catch { return $null }
+  $c=0
+  foreach ($child in $root.FindAll([System.Windows.Automation.TreeScope]::Children,[System.Windows.Automation.Condition]::TrueCondition)) {
+    if ($c -ge 20) { return $null }
+    $r=FocEl $child ($depth+1)
     if ($null -ne $r) { return $r }
     $c++
   }
@@ -732,9 +807,19 @@ const WIN_UIA_ONCE_BRANCHES: Record<WinUiaOnceCommand, string> = {
     if (-not $ok) { try { $el.GetCurrentPattern($pl).SetValue($text); $ok=$true } catch {} }
     if (-not $ok) { try { $w=$el.Current.NativeWindowHandle; if ($w -ne 0) { $ok=SM $w $text } } catch {} }
   } else {
+    # No elementId: set the window's focused element. Never fall back to
+    # WM_SETTEXT on the top-level window - that only rewrites the window
+    # title and reports a false success.
     $hwnd=HW $R.hwnd
     if ($hwnd -eq $z) { $hwnd=$N::GetForegroundWindow() }
-    if ($hwnd -ne $z) { $ok=SM $hwnd $text }
+    if ($hwnd -ne $z) {
+      $fe=FocEl (FH $hwnd) 0
+      if ($fe) {
+        try { $fe.GetCurrentPattern($pv).SetValue($text); $ok=$true } catch {}
+        if (-not $ok) { try { $fe.GetCurrentPattern($pl).SetValue($text); $ok=$true } catch {} }
+        if (-not $ok) { try { $w=$fe.Current.NativeWindowHandle; if ($w -ne 0) { $ok=SM $w $text } } catch {} }
+      }
+    }
   }
   if ($ok) { OK @{typed=$true} } else { OE 'ELEMENT_NO_ACTION' 'No text target' }
 }`,
@@ -744,9 +829,36 @@ const WIN_UIA_ONCE_BRANCHES: Record<WinUiaOnceCommand, string> = {
   if ($hwnd -eq $z) { OE 'SERVER_ERROR' 'hwnd required'; break }
   $vk=Vk $R.key
   if ($vk -eq 0) { OE 'SERVER_ERROR' ("Unknown key: " + $R.key); break }
-  $N::PostMessage($hwnd,0x0100,[IntPtr]$vk,$z) > $null
-  $N::PostMessage($hwnd,0x0101,[IntPtr]$vk,$z) > $null
-  OK @{key=$R.key}
+  # 1) Non-intrusive: PostMessage to the focused element's native window
+  #    (Win32 controls like Notepad's edit) - works without foreground.
+  $fe=FocEl (FH $hwnd) 0
+  $w=$z
+  if ($fe) { try { $w=$fe.Current.NativeWindowHandle } catch { $w=$z } }
+  if ([int64]$w -ne 0) {
+    $N::PostMessage($w,0x0100,[IntPtr]$vk,$z) > $null
+    $N::PostMessage($w,0x0101,[IntPtr]$vk,$z) > $null
+    OK @{key=$R.key}
+  } else {
+    # 2) Modern apps (Chrome/Edge - UIA elements have no native hwnd):
+    #    PostMessage to the top-level window is a no-op there, so foreground
+    #    the target and inject a real key (same trade-off as Linux xdotool).
+    $sk=SK $R.key
+    if (-not $sk) { OE 'SERVER_ERROR' ("Unsupported key: " + $R.key) }
+    else {
+      $N::SetForegroundWindow($hwnd) > $null
+      $fg=$N::GetForegroundWindow()
+      if ($fg -ne $hwnd) {
+        $fgPid=0; $fgTid=$N::GetWindowThreadProcessId($fg,[ref]$fgPid); $myTid=$N::GetCurrentThreadId()
+        if ($fgTid -ne 0) { $N::AttachThreadInput($myTid,$fgTid,$true) > $null; $N::SetForegroundWindow($hwnd) > $null; $N::AttachThreadInput($myTid,$fgTid,$false) > $null }
+      }
+      $fg=$N::GetForegroundWindow()
+      if ($fg -ne $hwnd) { OE 'SERVER_ERROR' 'Could not foreground target window' }
+      else {
+        try { $wshell=New-Object -ComObject WScript.Shell; $wshell.SendKeys($sk) } catch { OE 'SERVER_ERROR' 'SendKeys failed' }
+        OK @{key=$R.key}
+      }
+    }
+  }
 }`,
   scroll: `'scroll' {
   $el=$null

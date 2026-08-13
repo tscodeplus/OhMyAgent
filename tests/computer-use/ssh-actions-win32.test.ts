@@ -120,7 +120,9 @@ describe('buildWinUiaOnceScript (stateless UIA)', () => {
   });
 
   it('semantic branches never inject input (no SetCursorPos/mouse_event/SendKeys/Clipboard)', () => {
-    for (const cmd of ['get-app-state', 'click-element', 'type-text', 'press-key', 'scroll']) {
+    // press-key is excluded: its SendKeys fallback (for apps whose UIA
+    // elements have no native hwnd, e.g. Chrome/Edge) is asserted separately.
+    for (const cmd of ['get-app-state', 'click-element', 'type-text', 'scroll']) {
       const script = buildWinUiaOnceScript(cmd as never, { elementId: 'win-1:1:0', key: 'Return', text: 'x' });
       expect(script, cmd).not.toContain('SetCursorPos');
       expect(script, cmd).not.toContain('mouse_event');
@@ -339,7 +341,7 @@ describe('performWin32Action (UIA stateless)', () => {
     expect(written).not.toContain('SendKeys');
   });
 
-  it('type_text without an element targets the leased window via WM_SETTEXT', async () => {
+  it('type_text without an element targets the window\'s focused element (no top-level WM_SETTEXT)', async () => {
     const { pool, execMock } = createMockSSHPool({
       'AppendAllText': { stdout: '', stderr: '', exitCode: 0 },
       'WriteAllText': { stdout: '', stderr: '', exitCode: 0 },
@@ -352,10 +354,15 @@ describe('performWin32Action (UIA stateless)', () => {
     const written = decodeWrittenScripts(execMock.mock.calls);
     expect(written).toContain("cmd='type-text'");
     expect(written).toContain('hwnd=4340');
+    expect(written).toContain('FocEl');
+    expect(written).toContain('HasKeyboardFocus');
+    // WM_SETTEXT is only allowed on the focused element's native window,
+    // never on the top-level window (that would just rewrite the title).
     expect(written).toContain('SendMessage');
+    expect(written).not.toContain('$ok=SM $hwnd $text');
   });
 
-  it('press_key posts the key to the leased window (PostMessage, no SendKeys)', async () => {
+  it('press_key posts to the focused element, with a foreground-guarded SendKeys fallback', async () => {
     const { pool, execMock } = createMockSSHPool({
       'AppendAllText': { stdout: '', stderr: '', exitCode: 0 },
       'WriteAllText': { stdout: '', stderr: '', exitCode: 0 },
@@ -369,7 +376,10 @@ describe('performWin32Action (UIA stateless)', () => {
     expect(written).toContain("cmd='press-key'");
     expect(written).toContain('hwnd=4340');
     expect(written).toContain('PostMessage');
-    expect(written).not.toContain('SendKeys');
+    // SendKeys fallback is foreground-guarded so keys never land elsewhere.
+    expect(written).toContain('SendKeys');
+    expect(written).toContain('SetForegroundWindow');
+    expect(written).toContain('Could not foreground target window');
   });
 
   it('press_key rejects invalid keys', async () => {
