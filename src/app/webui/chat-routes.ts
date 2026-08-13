@@ -532,10 +532,12 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
     // image here when the model cannot carry it as a tool result (text-only
     // models drop image content). We write the PNG under
     // data/computer-use-screenshots (servable via /api/files/serve, see
-    // computeServeAllowedRoots) and persist ONE assistant message carrying
-    // the markdown image — that is the single rendered copy. The tool
-    // output returns plain text only: a markdown link there would render a
-    // second image, and the agent would copy it into its reply for a third.
+    // computeServeAllowedRoots) and return a markdown image in the tool
+    // output — the SAME path webui_send_media uses: the SSE frontend renders
+    // it as a media segment, and on reload session-routes re-extracts it
+    // from the persisted tool_call output. No separate assistant message is
+    // persisted: one that also carried markdown would render twice (React-
+    // Markdown + the extracted-images array in MessageBubble).
     const computerUseImageSender = async (image: { data: string; mimeType: string }): Promise<string> => {
       const dir = path.resolve('./data/computer-use-screenshots');
       fs.mkdirSync(dir, { recursive: true });
@@ -546,17 +548,7 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
       const filePath = path.join(dir, fileName);
       fs.writeFileSync(filePath, Buffer.from(image.data, 'base64'));
       const serveUrl = `/api/files/serve?path=${encodeURIComponent(filePath)}`;
-      if (cfg.db && sessionId) {
-        try {
-          const { v4: uuidv4 } = await import('uuid');
-          cfg.db.prepare(
-            "INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, 'assistant', ?, ?)",
-          ).run(uuidv4(), sessionId, `![${fileName}](${serveUrl})`, Date.now());
-        } catch (dbErr) {
-          app.log.warn({ err: dbErr }, '[chat] Failed to persist screenshot message');
-        }
-      }
-      return 'Sent to chat as image';
+      return `Sent to chat as image\n\n![${fileName}](${serveUrl})`;
     };
 
     try {
