@@ -532,9 +532,10 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
     // image here when the model cannot carry it as a tool result (text-only
     // models drop image content). We write the PNG under
     // data/computer-use-screenshots (servable via /api/files/serve, see
-    // computeServeAllowedRoots), persist an assistant message so the picture
-    // survives a refresh, and return a markdown link — the frontend renders
-    // it from the tool output exactly like webui_send_media.
+    // computeServeAllowedRoots) and persist ONE assistant message carrying
+    // the markdown image — that is the single rendered copy. The tool
+    // output returns plain text only: a markdown link there would render a
+    // second image, and the agent would copy it into its reply for a third.
     const computerUseImageSender = async (image: { data: string; mimeType: string }): Promise<string> => {
       const dir = path.resolve('./data/computer-use-screenshots');
       fs.mkdirSync(dir, { recursive: true });
@@ -555,7 +556,7 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
           app.log.warn({ err: dbErr }, '[chat] Failed to persist screenshot message');
         }
       }
-      return `Sent to chat as image\n\n![${fileName}](${serveUrl})`;
+      return 'Sent to chat as image';
     };
 
     try {
