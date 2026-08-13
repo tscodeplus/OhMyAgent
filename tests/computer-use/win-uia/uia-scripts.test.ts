@@ -44,13 +44,15 @@ describe('win-uia server script (PowerShell template)', () => {
     expect(semantic).not.toContain('SendInput');
   });
 
-  it('click-element focuses textboxes via SetFocusPattern', () => {
+  it('click-element focuses textboxes via AutomationElement.SetFocus()', () => {
     // Edit controls (role textbox) must be focusable — previously they
     // returned ELEMENT_NO_ACTION so agents could never click into an
-    // address bar or editor.
+    // address bar or editor. The SetFocusPattern class is absent on some
+    // .NET Framework builds (observed on Win11 + PS 5.1), so we focus via
+    // the AutomationElement.SetFocus() method, which exists everywhere.
     expect(script).toContain("textbox='FOC'");
-    expect(script).toContain('[System.Windows.Automation.SetFocusPattern]::Pattern');
-    expect(script).toContain("$ok=FTRY $el $sfp 'SetFocus'");
+    expect(script).toContain("$el.SetFocus()");
+    expect(script).toContain("'FOC' { try { $el.SetFocus(); $ok=$true } catch {}");
   });
 
   it('type-text sets the focused element, never the top-level window title', () => {

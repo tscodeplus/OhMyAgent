@@ -83,7 +83,7 @@ public class CuaNative {
 [DllImport("user32.dll")]public static extern bool EnumWindows(EnumWindowsProc cb,IntPtr l);
 [DllImport("user32.dll")]public static extern bool IsWindowVisible(IntPtr h);
 public delegate bool EnumWindowsProc(IntPtr h,IntPtr l);
-public static IntPtr FirstWindow(IntPtr pid){IntPtr f=IntPtr.Zero;EnumWindows(delegate(IntPtr h,IntPtr l){uint p;GetWindowThreadProcessId(h,out p);if(p==(uint)(int)pid&&IsWindowVisible(h)){f=h;return false;}return true;},IntPtr.Zero);return f;}
+public static IntPtr FirstWindow(IntPtr pid){IntPtr f=IntPtr.Zero;long best=0;EnumWindows(delegate(IntPtr h,IntPtr l){uint p;GetWindowThreadProcessId(h,out p);if(p==(uint)(int)pid&&IsWindowVisible(h)){CuaRect r=new CuaRect();GetWindowRect(h,out r);long a=(long)(r.R-r.L)*(r.B-r.T);if(a>best){best=a;f=h;}}return true;},IntPtr.Zero);return f;}
 }'
 $z=[IntPtr]::Zero
 $N=[CuaNative]
@@ -95,7 +95,9 @@ $pe=[System.Windows.Automation.ExpandCollapsePattern]::Pattern
 $ps=[System.Windows.Automation.ScrollPattern]::Pattern
 $pr=[System.Windows.Automation.RangeValuePattern]::Pattern
 $pv=[System.Windows.Automation.ValuePattern]::Pattern
-$sfp=[System.Windows.Automation.SetFocusPattern]::Pattern
+# SetFocusPattern/LegacyIAccessiblePattern classes are absent on some .NET
+# Framework builds (observed on Win11 + PS 5.1) - focus via the
+# AutomationElement.SetFocus() method, which exists everywhere.
 $pl=$null; try { $pl=[System.Windows.Automation.LegacyIAccessiblePattern]::Pattern } catch {}
 $si=[System.Windows.Automation.ScrollAmount]::SmallIncrement
 $sd=[System.Windows.Automation.ScrollAmount]::SmallDecrement
@@ -104,7 +106,7 @@ $tw=[System.Windows.Automation.TreeWalker]::RawViewWalker
 function FH($h) { [System.Windows.Automation.AutomationElement]::FromHandle($h) }
 $png=[System.Drawing.Imaging.ImageFormat]::Png
 $rx='\.exe$'
-$cm=@{button='INV';hyperlink='INV';textbox='FOC';listitem='SEL';dataitem='SEL';tabitem='SEL';radiobutton='SEL';checkbox='TOG';combobox='EXP';treeitem='EXP';slider='RNG';scrollbar='RNG';document='DD'}
+$cm=@{button='INV';hyperlink='INV';textbox='FOC';listitem='SEL';dataitem='SEL';tabitem='SEL';radiobutton='SEL';checkbox='TOG';combobox='EXP';treeitem='EXP';slider='RNG';scrollbar='RNG';document='FOC'}
 function OJ($o) { $C::Out.WriteLine(($o|ConvertTo-Json -Compress -Depth 5)) }
 function OE($id,$code,$msg) { OJ @{id=$id;ok=$false;error=@{code=$code;message=$msg}} }
 function OK($id,$r) { OJ @{id=$id;ok=$true;result=$r} }
@@ -213,7 +215,7 @@ $el=GE $req
 if (-not $el) { OE $id 'ELEMENT_STALE_TREE' 'Stale element' }
 else {
 switch ($cm[(Role $el)]) {
-'FOC' { $ok=FTRY $el $sfp 'SetFocus'; if (-not $ok) { $ok=FTRY $el $pl 'Select' } }
+'FOC' { try { $el.SetFocus(); $ok=$true } catch {}; if (-not $ok) { $ok=FTRY $el $pl 'Select' } }
 'INV' { $ok=FTRY $el $pi 'Invoke'; if (-not $ok) { $ok=FTRY $el $pl 'DoDefaultAction' } }
 'SEL' { $ok=FTRY $el $psi 'Select'; if (-not $ok) { $ok=FTRY $el $pi 'Invoke' } }
 'TOG' { $ok=FTRY $el $pt 'Toggle' }
@@ -331,20 +333,21 @@ $name=$req.name
 if ($name -notmatch '^[A-Za-z0-9._+-]+(?: [A-Za-z0-9._+-]+)*$') { OE $id 'SERVER_ERROR' 'Bad app name' }
 else {
 $appExe=$name; if ($appExe -notmatch $rx) { $appExe="$name.exe" }
-# Running instance: reuse it WITHOUT Start-Process - Start-Process on an
+# Visible instance: reuse it WITHOUT Start-Process - Start-Process on an
 # already-running app activates its window and steals the foreground, so a
-# running process is NEVER launched again (even with no window: return 0
-# and let the caller fall back rather than activate the instance).
+# visible instance is NEVER launched again.
 # Win11 notepad is single-process/multi-window: MainWindowHandle is
 # unreliable there (often 0 or an arbitrary window), and the OS
-# background-preloads extra windowless notepad.exe processes (select -Last
-# 1 could pick one, yielding hwnd=0). Iterate all processes and keep the
-# newest one that actually has a visible window (EnumWindows by PID).
+# background-preloads extra windowless notepad.exe processes. Iterate all
+# processes and keep one that actually has a visible window (EnumWindows by
+# PID). If NONE does - not even one - those are preloaded windowless
+# instances (never "running apps"): launch a fresh one, or the caller gets
+# hwnd=0 and reads the wrong (foreground) window forever.
 $all=@(Get-Process -Name ($appExe -replace $rx,'') -EA SilentlyContinue)
 $p=$null; $hwnd=$z
 foreach ($pr in $all) { $h=$N::FirstWindow([IntPtr]$pr.Id); if ($h -ne $z) { $p=$pr; $hwnd=[int64]$h } }
 if (-not $p) { $p=@($all | select -Last 1)[0]; if ($p) { $hwnd=[int64]$p.MainWindowHandle } }
-if ($hwnd -eq $z -and -not $p) {
+if ($hwnd -eq $z) {
 $p=Start-Process $appExe -PassThru
 $hwnd=WaitHwnd $p 20000
 if ($hwnd -eq $z) {
@@ -627,7 +630,7 @@ public class CuaNative {
 [DllImport("user32.dll")]public static extern bool AttachThreadInput(uint a,uint b,bool f);
 [DllImport("user32.dll")]public static extern bool IsWindowVisible(IntPtr h);
 public delegate bool EnumWindowsProc(IntPtr h,IntPtr l);
-public static IntPtr FirstWindow(IntPtr pid){IntPtr f=IntPtr.Zero;EnumWindows(delegate(IntPtr h,IntPtr l){uint p;GetWindowThreadProcessId(h,out p);if(p==(uint)(int)pid&&IsWindowVisible(h)){f=h;return false;}return true;},IntPtr.Zero);return f;}
+public static IntPtr FirstWindow(IntPtr pid){IntPtr f=IntPtr.Zero;long best=0;EnumWindows(delegate(IntPtr h,IntPtr l){uint p;GetWindowThreadProcessId(h,out p);if(p==(uint)(int)pid&&IsWindowVisible(h)){CuaRect r=new CuaRect();GetWindowRect(h,out r);long a=(long)(r.R-r.L)*(r.B-r.T);if(a>best){best=a;f=h;}}return true;},IntPtr.Zero);return f;}
 }'
 $z=[IntPtr]::Zero
 $N=[CuaNative]
@@ -639,7 +642,9 @@ $pe=[System.Windows.Automation.ExpandCollapsePattern]::Pattern
 $ps=[System.Windows.Automation.ScrollPattern]::Pattern
 $pr=[System.Windows.Automation.RangeValuePattern]::Pattern
 $pv=[System.Windows.Automation.ValuePattern]::Pattern
-$sfp=[System.Windows.Automation.SetFocusPattern]::Pattern
+# SetFocusPattern/LegacyIAccessiblePattern classes are absent on some .NET
+# Framework builds (observed on Win11 + PS 5.1) - focus via the
+# AutomationElement.SetFocus() method, which exists everywhere.
 $pl=$null; try { $pl=[System.Windows.Automation.LegacyIAccessiblePattern]::Pattern } catch {}
 $si=[System.Windows.Automation.ScrollAmount]::SmallIncrement
 $sd=[System.Windows.Automation.ScrollAmount]::SmallDecrement
@@ -647,7 +652,7 @@ $sn=[System.Windows.Automation.ScrollAmount]::NoAmount
 $tw=[System.Windows.Automation.TreeWalker]::RawViewWalker
 function FH($h) { [System.Windows.Automation.AutomationElement]::FromHandle($h) }
 $png=[System.Drawing.Imaging.ImageFormat]::Png
-$cm=@{button='INV';hyperlink='INV';textbox='FOC';listitem='SEL';dataitem='SEL';tabitem='SEL';radiobutton='SEL';checkbox='TOG';combobox='EXP';treeitem='EXP';slider='RNG';scrollbar='RNG';document='DD'}
+$cm=@{button='INV';hyperlink='INV';textbox='FOC';listitem='SEL';dataitem='SEL';tabitem='SEL';radiobutton='SEL';checkbox='TOG';combobox='EXP';treeitem='EXP';slider='RNG';scrollbar='RNG';document='FOC'}
 function OJ($o) { $C::Out.WriteLine(($o|ConvertTo-Json -Compress -Depth 5)) }
 function OE($code,$msg) { OJ @{ok=$false;error=@{code=$code;message=$msg}} }
 function OK($r) { OJ @{ok=$true;result=$r} }
@@ -783,6 +788,7 @@ const WIN_UIA_ONCE_BRANCHES: Record<WinUiaOnceCommand, string> = {
   if (-not $el) { OE 'ELEMENT_STALE_TREE' 'Stale element'; break }
   $ok=$false
   switch ($cm[(Role $el)]) {
+  'FOC' { try { $el.SetFocus(); $ok=$true } catch {}; if (-not $ok) { $ok=FTRY $el $pl 'Select' } }
   'INV' { $ok=FTRY $el $pi 'Invoke'; if (-not $ok) { $ok=FTRY $el $pl 'DoDefaultAction' } }
   'SEL' { $ok=FTRY $el $psi 'Select'; if (-not $ok) { $ok=FTRY $el $pi 'Invoke' } }
   'TOG' { $ok=FTRY $el $pt 'Toggle' }
