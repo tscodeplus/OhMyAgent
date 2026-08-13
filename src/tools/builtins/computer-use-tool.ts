@@ -62,6 +62,9 @@ function formatScreenState(state: ScreenState): string {
   if (state.windowTitle) {
     lines.push(`Window: ${state.windowTitle}`);
   }
+  if (state.notice) {
+    lines.push(`Note: ${state.notice}`);
+  }
   lines.push(`Snapshot: ${state.snapshotId}`);
   if (state.elements.length > 0) {
     const shownElements = state.elements.slice(0, MAX_ELEMENTS_IN_TEXT);

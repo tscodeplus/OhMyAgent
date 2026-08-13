@@ -100,17 +100,35 @@ describe('LocalDarwinProvider', () => {
     expect(apps.map(a => a.name)).toEqual(['Finder', 'TextEdit', 'Safari']);
   });
 
-  it('createLease launches via `open -a -g` (no foreground steal) and resolves the pid via pgrep', async () => {
+  it('createLease launches via `open -g -a` (no foreground steal) and resolves the pid by exact process name', async () => {
     const { runner, commands } = createMockRunner({
-      'open -a': { stdout: '' },
-      'pgrep -f -i': { stdout: '4242' },
+      'open -g -a': { stdout: '' },
+      'whose name is "TextEdit"': { stdout: '4242' },
     });
     const provider = new LocalDarwinProvider({ runner });
     const lease = await provider.createLease(DEFAULT_CTX, { appName: 'TextEdit' });
     expect(lease.providerState).toEqual({ pid: 4242 });
     // -g = --background: the window appears but the app is not activated.
-    expect(commands.some(c => c.startsWith('open -a -g'))).toBe(true);
-    expect(commands.some(c => c.includes('pgrep -f -i'))).toBe(true);
+    // Flag order matters: `open -a -g` misparses `-g` as the `-a` app name.
+    expect(commands.some(c => c.startsWith("open -g -a 'TextEdit'"))).toBe(true);
+    // Exact process-name match via System Events — pgrep -f would also match
+    // helper processes whose paths contain the app name.
+    expect(
+      commands.some(c => c.includes('unix id of first process whose name is "TextEdit"')),
+    ).toBe(true);
+    expect(commands.some(c => c.includes('pgrep -f -i'))).toBe(false);
+  });
+
+  it('createLease falls back to pgrep -x when System Events is denied (no AX permission)', async () => {
+    const { runner, commands } = createMockRunner({
+      'open -g -a': { stdout: '' },
+      'whose name is "TextEdit"': { error: 'kAXErrorAPIDisabled' },
+      'pgrep -ix': { stdout: '4242' },
+    });
+    const provider = new LocalDarwinProvider({ runner });
+    const lease = await provider.createLease(DEFAULT_CTX, { appName: 'TextEdit' });
+    expect(lease.providerState).toEqual({ pid: 4242 });
+    expect(commands.some(c => c.includes("pgrep -ix 'TextEdit'"))).toBe(true);
   });
 
   it('createLease rejects unsafe app names', async () => {
@@ -137,6 +155,53 @@ describe('LocalDarwinProvider', () => {
     expect(first.elementId).toBe('/0');
     // The tree walk must embed the leased pid, never the focused app.
     expect(commands.find(c => c.includes('osascript -l JavaScript'))).toContain('4242');
+  });
+
+  it('getAppState captures the leased app window (screencapture -l) when a window id resolves', async () => {
+    const { runner, commands } = createMockRunner({
+      // Order matters: the window-id JXA query contains 'osascript -l JavaScript'
+      // too, and the first matching pattern wins.
+      'kCGWindowOwnerPID': { stdout: '{"id": 777}' },
+      'screencapture -x -l': { stdout: '' },
+      'base64 -i': { stdout: 'c2NyZWVuc2hvdA==' },
+      'osascript -l JavaScript': { stdout: TREE_STDOUT },
+      'osascript': { stdout: 'Finder' },
+    });
+    const provider = new LocalDarwinProvider({ runner });
+    const state = await provider.getAppState(DEFAULT_CTX, makeLease());
+    expect(state.screenshot).toBeDefined();
+    // The background-launched app is not frontmost — the capture must target
+    // the leased app's window, not the full screen (which shows the desktop).
+    expect(commands.some(c => c.includes('screencapture -x -l 777'))).toBe(true);
+    expect(commands.some(c => c.includes('screencapture -x -T0'))).toBe(false);
+  });
+
+  it('getAppState falls back to a full-screen capture when no window id resolves', async () => {
+    const { runner, commands } = createMockRunner({
+      // Window query returns a tree JSON (non-matching) → no id.
+      'osascript -l JavaScript': { stdout: TREE_STDOUT },
+      'screencapture -x -T0': { stdout: '' },
+      'base64 -i': { stdout: 'c2NyZWVuc2hvdA==' },
+      'osascript': { stdout: 'Finder' },
+    });
+    const provider = new LocalDarwinProvider({ runner });
+    const state = await provider.getAppState(DEFAULT_CTX, makeLease());
+    expect(state.screenshot).toBeDefined();
+    expect(commands.some(c => c.includes('screencapture -x -T0'))).toBe(true);
+  });
+
+  it('getAppState reports a locked screen (frontmost = loginwindow) via notice', async () => {
+    const { runner } = createMockRunner({
+      'get name of front process': { stdout: 'loginwindow' },
+      'screencapture -x -T0': { stdout: '' },
+      'base64 -i': { stdout: 'c2NyZWVuc2hvdA==' },
+      'osascript -l JavaScript': { stdout: TREE_STDOUT },
+      'osascript': { stdout: 'Finder' },
+    });
+    const provider = new LocalDarwinProvider({ runner });
+    const state = await provider.getAppState(DEFAULT_CTX, makeLease());
+    expect(state.notice).toContain('loginwindow');
+    expect(state.notice).toContain('unlock');
   });
 
   it('click_element issues an AXPress command — never a coordinate click', async () => {

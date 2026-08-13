@@ -263,8 +263,56 @@ export interface DarwinWindowState {
   screenshotBase64: string;
   windowTitle: string;
   elements: UIElement[];
+  /** True when the frontmost process is loginwindow (screen locked / at the login screen). */
+  locked?: boolean;
   /** Human-readable note when the AX tree could not be read (e.g. TCC). */
   axError?: string;
+}
+
+/** Notice appended to the agent-visible state when the screen is locked. */
+export const DARWIN_LOCKED_NOTICE =
+  'The Mac screen is at the login/lock screen (frontmost process: loginwindow). ' +
+  'The user session may still be active, but visual control requires the screen to be ' +
+  'unlocked — ask the user to unlock the Mac; do not attempt to type credentials.';
+
+/**
+ * JXA script: find the largest on-screen window owned by the pid and emit
+ * its CGWindowNumber. Emits {} when the app has no on-screen window
+ * (minimized / hidden / no windows) so the caller falls back to a full-screen
+ * capture. CGWindowListOption: OnScreenOnly(1) | ExcludeDesktopElements(16);
+ * the pid is an integer, so injection into the script is impossible.
+ */
+function jxaWindowIdScript(pid: number): string {
+  return `ObjC.import('CoreGraphics');
+var opts = 1 | 16;
+var list = $.CGWindowListCopyWindowInfo(opts, 0);
+var best = null;
+for (var i = 0; i < list.length; i++) {
+  var w = list[i];
+  if (w.kCGWindowOwnerPID !== ${pid}) continue;
+  if (w.kCGWindowLayer !== 0) continue;
+  var b = w.kCGWindowBounds || {};
+  var area = (Number(b.Width || b.width) || 0) * (Number(b.Height || b.height) || 0);
+  if (!best || area > best.area) best = { id: Number(w.kCGWindowNumber), area: area };
+}
+JSON.stringify(best ? { id: best.id } : {});`;
+}
+
+/**
+ * Resolve the CGWindowNumber of the app's largest on-screen window, or
+ * undefined when the query fails / the app has no on-screen window.
+ */
+async function getWindowIdForPid(runner: ExecRunner, pid: number): Promise<number | undefined> {
+  try {
+    const res = await runner.exec(jxaCommand(jxaWindowIdScript(pid)), {
+      timeoutMs: AX_JXA_TIMEOUT_MS,
+    });
+    const parsed: unknown = JSON.parse(res.stdout.trim());
+    const id = (parsed as { id?: unknown })?.id;
+    return typeof id === 'number' && id > 0 ? id : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -280,21 +328,57 @@ export async function readDarwinWindowState(
   leaseId: string,
   pid?: number,
 ): Promise<DarwinWindowState> {
+  // The leased app is launched in the background (open -g) and stays
+  // non-frontmost, so a full-screen capture shows whatever IS frontmost
+  // (the desktop / the user's app) — never the leased app. When the pid is
+  // known, capture the app's own window instead (screencapture -l grabs the
+  // window's content even when it is occluded), falling back to the full
+  // screen when no window id can be resolved.
   let screenshotBase64 = '';
-  try {
-    await runner.exec(`screencapture -x -T0 /tmp/cua_${leaseId}.png`);
-    const b64Result = await runner.exec(`base64 -i /tmp/cua_${leaseId}.png`);
-    screenshotBase64 = b64Result.stdout.trim();
-    await runner.exec(`rm -f /tmp/cua_${leaseId}.png`).catch(() => {});
-  } catch { /* screencapture failed */ }
+  if (pid !== undefined && pid > 0) {
+    const windowId = await getWindowIdForPid(runner, pid);
+    if (windowId) {
+      try {
+        await runner.exec(`screencapture -x -l ${windowId} /tmp/cua_${leaseId}.png`);
+        const b64Result = await runner.exec(`base64 -i /tmp/cua_${leaseId}.png`);
+        screenshotBase64 = b64Result.stdout.trim();
+      } catch { /* window capture failed — full-screen fallback below */ }
+    }
+  }
+  if (!screenshotBase64) {
+    try {
+      await runner.exec(`screencapture -x -T0 /tmp/cua_${leaseId}.png`);
+      const b64Result = await runner.exec(`base64 -i /tmp/cua_${leaseId}.png`);
+      screenshotBase64 = b64Result.stdout.trim();
+    } catch { /* screencapture failed */ }
+  }
+  await runner.exec(`rm -f /tmp/cua_${leaseId}.png`).catch(() => {});
 
+  // Front process name: identifies the locked-screen case (loginwindow) and
+  // is the fallback title when no pid is available.
   let windowTitle = '';
+  let locked = false;
   try {
     const titleResult = await runner.exec(
       `osascript -e 'tell application "System Events" to get name of front process'`,
     );
     windowTitle = truncateStdout(titleResult.stdout.trim());
+    locked = windowTitle.toLowerCase() === 'loginwindow';
   } catch { /* Non-critical */ }
+
+  // With a lease pid, the state should describe the LEASED app (e.g.
+  // "Safari"), not whatever holds the foreground — the background-launched
+  // app is usually not frontmost, and "Finder"/"loginwindow" would mislead
+  // the agent about what the snapshot shows.
+  if (pid !== undefined && pid > 0) {
+    try {
+      const nameResult = await runner.exec(
+        `osascript -e 'tell application "System Events" to get name of first process whose unix id is ${pid}'`,
+      );
+      const name = nameResult.stdout.trim();
+      if (name) windowTitle = truncateStdout(name);
+    } catch { /* keep the front-process name */ }
+  }
 
   // AX tree. The JXA command also contains 'osascript', so this must be
   // tolerant of non-JSON stdout ('Finder' from the title probe mocks) —
@@ -308,7 +392,7 @@ export async function readDarwinWindowState(
     axError = AX_API_DISABLED_MESSAGE;
   }
 
-  return { screenshotBase64, windowTitle, elements, axError };
+  return { screenshotBase64, windowTitle, elements, locked, axError };
 }
 
 // ---------------------------------------------------------------------------

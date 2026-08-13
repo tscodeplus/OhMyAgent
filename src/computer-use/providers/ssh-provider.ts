@@ -18,7 +18,7 @@ import {
   listLinuxApps, readLinuxWindowState, performLinuxAction,
 } from '../ssh-actions-linux.js';
 import {
-  listDarwinApps, readDarwinWindowState, performDarwinAction,
+  listDarwinApps, readDarwinWindowState, performDarwinAction, DARWIN_LOCKED_NOTICE,
 } from '../ssh-actions-darwin.js';
 import {
   readWin32WindowState, performWin32Action,
@@ -258,6 +258,7 @@ export class SSHComputerUseProvider implements ComputerUseProvider {
 
     let screenshotBase64 = '';
     let windowTitle = '';
+    let notice: string | undefined;
     let windowWidth = 1920;
     let windowHeight = 1080;
     let screenWidth = windowWidth;
@@ -280,6 +281,10 @@ export class SSHComputerUseProvider implements ComputerUseProvider {
           { pid: providerState?.pid },
           'macOS accessibility tree returned no elements — the app may expose no AX tree; screenshot fallback only',
         );
+      }
+      if (st.locked) {
+        this.logger?.warn('macOS screen is at the login/lock screen (loginwindow)');
+        notice = DARWIN_LOCKED_NOTICE;
       }
     } else if (remoteOS === 'win32') {
       const st = await readWin32WindowState(
@@ -322,6 +327,7 @@ export class SSHComputerUseProvider implements ComputerUseProvider {
       },
       elements,
       windowTitle: windowTitle || undefined,
+      notice,
     };
   }
 

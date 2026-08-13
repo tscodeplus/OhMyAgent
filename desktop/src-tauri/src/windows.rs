@@ -532,11 +532,26 @@ pub fn apply_theme(app: &AppHandle, theme: &str) -> tauri::Result<()> {
         win.set_background_color(Some(color))?;
         #[cfg(windows)]
         set_caption_theme(&win, dark);
-        // macOS/Linux: drive the native window appearance so the title bar
-        // and the system menu bar follow the app theme (Windows uses the DWM
-        // caption calls above). Without this the window chrome stays light
-        // even in dark mode.
-        #[cfg(not(windows))]
+        // macOS: 'system' must NOT pin the window appearance. Pinning forced
+        // the WKWebView's prefers-color-scheme to that pinned value (in the
+        // old code "system" resolved to Light on macOS, so a dark OS showed
+        // a light WebUI and matchMedia never tracked the OS). Passing None
+        // sets NSAppearance to nil → the WebView follows the OS appearance
+        // and its prefers-color-scheme updates live. Explicit light/dark
+        // still pin the appearance so the title bar matches the choice.
+        #[cfg(target_os = "macos")]
+        {
+            let forced = match theme {
+                "light" => Some(tauri::Theme::Light),
+                "dark" => Some(tauri::Theme::Dark),
+                _ => None,
+            };
+            win.set_theme(forced)?;
+        }
+        // Other non-Windows platforms (Linux): pin the computed theme;
+        // set_theme is a no-op there and the background color above is what
+        // matters.
+        #[cfg(all(not(windows), not(target_os = "macos")))]
         win.set_theme(Some(if dark {
             tauri::Theme::Dark
         } else {
@@ -635,7 +650,24 @@ fn system_dark() -> bool {
     status == 0 && value == 0
 }
 
-#[cfg(not(windows))]
+/// OS-level dark preference: macOS reads the global interface style
+/// (`defaults read -g AppleInterfaceStyle` → "Dark" when the OS is in dark
+/// mode; works without any TCC permission and tracks Auto appearance). Other
+/// non-Windows platforms default to false.
+#[cfg(target_os = "macos")]
+fn system_dark() -> bool {
+    std::process::Command::new("defaults")
+        .args(["read", "-g", "AppleInterfaceStyle"])
+        .output()
+        .map(|out| {
+            String::from_utf8_lossy(&out.stdout)
+                .trim()
+                .eq_ignore_ascii_case("dark")
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(all(not(windows), not(target_os = "macos")))]
 fn system_dark() -> bool {
     false
 }

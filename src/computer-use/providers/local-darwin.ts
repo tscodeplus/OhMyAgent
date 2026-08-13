@@ -16,7 +16,7 @@ import type {
 } from '../types.js';
 import { createLocalExecRunner, quoteShellArg, type ExecRunner } from '../ssh-actions-common.js';
 import {
-  listDarwinApps, readDarwinWindowState, performDarwinAction,
+  listDarwinApps, readDarwinWindowState, performDarwinAction, DARWIN_LOCKED_NOTICE,
 } from '../ssh-actions-darwin.js';
 
 export class LocalDarwinProvider implements ComputerUseProvider {
@@ -84,24 +84,18 @@ export class LocalDarwinProvider implements ComputerUseProvider {
     let pid: number | undefined;
     if (target.appName) {
       assertSafeAppName(target.appName);
-      // `open -a -g` launches via LaunchServices without activating the app
-      // (--background: the window appears but the foreground is not stolen).
-      // The AX tree is addressed by pid, so resolve it with pgrep (same
-      // pattern as the SSH provider).
-      await this.runner.exec(`open -a -g ${quoteShellArg(target.appName)}`);
+      // `open -g -a <name>` launches via LaunchServices without activating
+      // the app (--background: the window appears but the foreground is not
+      // stolen). Flag order matters: `open -a -g` misparses `-g` as the `-a`
+      // app-name argument and treats <name> as a file to open (failing with
+      // "Unable to find application named '-g'"). The AX tree is addressed
+      // by pid, so resolve it with an exact process-name match — pgrep -f
+      // would also match the app's helper processes (e.g. "Safari Web
+      // Content"), whose empty AX trees make every action fail.
+      await this.runner.exec(`open -g -a ${quoteShellArg(target.appName)}`);
       for (let i = 0; i < 5 && pid === undefined; i++) {
         await new Promise(resolve => setTimeout(resolve, 500));
-        try {
-          // grep -v "^$$$" excludes the local shell itself (its command line
-          // contains the app name and pgrep -f would match it).
-          const pidResult = await this.runner.exec(
-            `pgrep -f -i ${quoteShellArg(target.appName)} | grep -v "^$$\$" | tail -1`,
-          );
-          const parsed = parseInt(pidResult.stdout.trim(), 10);
-          if (!isNaN(parsed)) pid = parsed;
-        } catch {
-          // Keep polling.
-        }
+        pid = await resolveAppPid(this.runner, target.appName);
       }
     } else {
       pid = target.pid ?? target.processId;
@@ -151,6 +145,7 @@ export class LocalDarwinProvider implements ComputerUseProvider {
       display: { width: 1920, height: 1080 },
       elements: st.elements,
       windowTitle: st.windowTitle || undefined,
+      notice: st.locked ? DARWIN_LOCKED_NOTICE : undefined,
     };
   }
 
@@ -164,4 +159,30 @@ function assertSafeAppName(appName: string): void {
   if (!/^[A-Za-z0-9._+-]+$/.test(appName)) {
     throw new Error(`Invalid application name: '${appName}'`);
   }
+}
+
+/**
+ * Resolve the pid of a launched app by exact process-name match. System
+ * Events is the primary query (the names listApps reports); pgrep -x is the
+ * fallback when Accessibility permission is missing. Exact-name matching
+ * never picks helper processes, whose paths/names contain the app name.
+ * appName is restricted to [A-Za-z0-9._+-] by assertSafeAppName, so it needs
+ * no escaping inside the AppleScript string.
+ */
+async function resolveAppPid(runner: ExecRunner, appName: string): Promise<number | undefined> {
+  try {
+    const res = await runner.exec(
+      `osascript -e ${quoteShellArg(
+        `tell application "System Events" to get unix id of first process whose name is "${appName}"`,
+      )}`,
+    );
+    const parsed = parseInt(res.stdout.trim(), 10);
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+  } catch { /* No AX permission — pgrep fallback below. */ }
+  try {
+    const res = await runner.exec(`pgrep -ix ${quoteShellArg(appName)} | tail -1`);
+    const parsed = parseInt(res.stdout.trim(), 10);
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+  } catch { /* Best-effort. */ }
+  return undefined;
 }

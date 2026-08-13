@@ -75,6 +75,8 @@ export interface AppState {
   elements: UIElement[];
   focusedElementId?: string;
   windowTitle?: string;
+  /** Agent-visible note about the screen state (e.g. screen locked). */
+  notice?: string;
 }
 
 export interface UIElement {

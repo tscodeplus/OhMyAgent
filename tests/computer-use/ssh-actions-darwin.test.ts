@@ -187,6 +187,42 @@ describe('SSHComputerUseProvider macOS support', () => {
     expect(screencaptureCall![0]).toContain('screencapture -x -T0');
   });
 
+  it('getAppState captures the leased app window via screencapture -l when JXA resolves a window id', async () => {
+    const { provider, mockPool } = createProvider({
+      responses: {
+        'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
+        // Order matters: the window-id JXA query also contains 'osascript'.
+        'kCGWindowOwnerPID': { stdout: '{"id": 42}', stderr: '', exitCode: 0 },
+        'screencapture -x -l': { stdout: '', stderr: '', exitCode: 0 },
+        'base64': { stdout: 'iVBOR', stderr: '', exitCode: 0 },
+        'osascript': { stdout: 'Finder', stderr: '', exitCode: 0 },
+      },
+    });
+    const lease = makeLease({ leaseId: 'test-lease-1' });
+    const state = await provider.getAppState(DEFAULT_CTX, lease);
+    const winCapture = mockPool.exec.mock.calls.find(
+      (call: [string]) => call[0].includes('screencapture -x -l'),
+    );
+    expect(winCapture).toBeDefined();
+    expect(winCapture![0]).toContain('screencapture -x -l 42');
+    expect(state.screenshot).toBeDefined();
+  });
+
+  it('getAppState flags the locked screen (frontmost = loginwindow) via notice', async () => {
+    const { provider } = createProvider({
+      responses: {
+        'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
+        'get name of front process': { stdout: 'loginwindow', stderr: '', exitCode: 0 },
+        'screencapture': { stdout: '', stderr: '', exitCode: 0 },
+        'base64': { stdout: 'iVBOR', stderr: '', exitCode: 0 },
+        'osascript': { stdout: 'Finder', stderr: '', exitCode: 0 },
+      },
+    });
+    const lease = makeLease({ leaseId: 'test-lease-1' });
+    const state = await provider.getAppState(DEFAULT_CTX, lease);
+    expect(state.notice).toContain('loginwindow');
+  });
+
   it("getAppState uses 'base64 -i' on macOS", async () => {
     const { provider, mockPool } = createProvider({
       responses: {
