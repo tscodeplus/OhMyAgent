@@ -344,10 +344,9 @@ OK $id @{hwnd=[int64]$hwnd;gen=$S.Gen;windowTitle=(Ttl $hwnd);windowRect=(Rct $h
 $el=GE $req
 if (-not $el) { OE $id 'ELEMENT_STALE_TREE' 'Stale element' }
 else {
-# UWP/XAML/WinUI and Chromium/Electron hosts self-foreground while
-# handling UIA pattern calls (Invoke/Expand/Toggle/Select); the shield
-# disables the top-level window for the duration so the user's foreground
-# is never stolen.
+# Hosts like Chrome self-foreground asynchronously after UIA pattern
+# calls; capture the foreground and hand it back once the click lands.
+$prevFg=$N::GetForegroundWindow()
 $ok=Shield $S.Hwnd {
 $r=$false
 switch ($cm[(Role $el)]) {
@@ -361,6 +360,8 @@ switch ($cm[(Role $el)]) {
 }
 $r
 }
+Start-Sleep -m 250
+RestoreFg $prevFg $S.Hwnd
 if ($ok) { OK $id @{clicked=$true} } else { OE $id 'ELEMENT_NO_ACTION' 'No action' }
 }
 }
@@ -1152,8 +1153,10 @@ const WIN_UIA_ONCE_BRANCHES: Record<WinUiaOnceCommand, string> = {
   $el=ElByIdx (FH ([IntPtr][int64]$matches[1])) 0 ([int]$matches[2]) ([ref]0)
   if (-not $el) { OE 'ELEMENT_STALE_TREE' 'Stale element'; break }
   # EnableWindow shield around UIA pattern calls: XAML/Chromium hosts
-  # self-foreground while handling them (see the resident template).
+  # self-foreground while handling them; Chrome completes the activation
+  # asynchronously after the pattern returns, so restore the foreground.
   $HWND=[IntPtr][int64]$matches[1]
+  $prevFg=$N::GetForegroundWindow()
   $ok=Shield $HWND {
   $r=$false
   switch ($cm[(Role $el)]) {
@@ -1167,6 +1170,8 @@ const WIN_UIA_ONCE_BRANCHES: Record<WinUiaOnceCommand, string> = {
   }
   $r
   }
+  Start-Sleep -m 250
+  RestoreFg $prevFg $HWND
   if ($ok) { OK @{clicked=$true} } else { OE 'ELEMENT_NO_ACTION' 'No action' }
 }`,
   'type-text': `'type-text' {

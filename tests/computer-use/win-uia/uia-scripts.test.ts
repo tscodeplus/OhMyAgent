@@ -161,6 +161,10 @@ describe('win-uia server script (PowerShell template)', () => {
     expect(script).toContain('$N::GetForegroundWindow() -ne $tgt');
     // PostClick reuses the helper for its own foreground restore.
     expect(script).toContain('RestoreFg $prevFg $root');
+    // click-element also restores: Chrome completes its self-activation
+    // asynchronously after the UIA pattern call, past the EnableWindow
+    // shield window, so the foreground is handed back once the click lands.
+    expect(script).toContain('RestoreFg $prevFg $S.Hwnd');
   });
 
   it('focus-app and press-key SendKeys fallback may foreground the target', () => {
