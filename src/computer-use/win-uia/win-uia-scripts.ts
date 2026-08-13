@@ -258,19 +258,44 @@ $vk=Vk $req.key
 if ($vk -eq 0) { OE $id 'SERVER_ERROR' "Unknown key: $($req.key)" }
 else {
 # 1) Non-intrusive: PostMessage to the focused element's native window
-#    (Win32 controls like Notepad's edit) - works without foreground.
+#    (Win32 controls like legacy Notepad's edit) - works without
+#    foreground. Skip when the element reports the top-level window's own
+#    hwnd (UWP/XAML Islands like Win11 Notepad): posting to the top-level
+#    window is a no-op there, so fall through to real key injection.
 $fe=$null
 foreach ($e in $S.Cache.Values) { try { if ($e.Current.HasKeyboardFocus) { $fe=$e; break } } catch {} }
 $w=$z
 if ($fe) { try { $w=$fe.Current.NativeWindowHandle } catch { $w=$z } }
-if ([int64]$w -ne 0) {
+if ([int64]$w -ne 0 -and [int64]$w -ne [int64]$hwnd) {
 $N::PostMessage($w,0x0100,[IntPtr]$vk,$z) > $null
 $N::PostMessage($w,0x0101,[IntPtr]$vk,$z) > $null
 OK $id @{key=$req.key}
 } else {
-# 2) Modern apps (Chrome/Edge - UIA elements have no native hwnd):
-#    PostMessage to the top-level window is a no-op there, so foreground
-#    the target and inject a real key (same trade-off as Linux xdotool).
+# 2) IME-proof path for editable documents (Win11 Notepad's editor is a
+#    document whose native window IS the top-level window): PostMessage to
+#    the top-level is a no-op, and SendKeys is IME-dependent - a Chinese
+#    IME swallows synthetic text keys and Enter. Apply the key via
+#    ValuePattern instead: append/truncate the current value, no keyboard,
+#    no IME. Non-document roles and keys without text semantics fall
+#    through to real key injection below.
+$vpOk=$false
+if ($fe -and (Role $fe) -eq 'document') {
+try {
+$vp2=$fe.GetCurrentPattern($pv)
+$cur2=$vp2.Current.Value
+if ($cur2 -ne $null) {
+switch ($req.key) {
+'Enter' { $vp2.SetValue($cur2 + [char]10); $vpOk=$true }
+'Tab' { $vp2.SetValue($cur2 + [char]9); $vpOk=$true }
+'BackSpace' { if ($cur2.Length -gt 0) { $vp2.SetValue($cur2.Substring(0,$cur2.Length-1)); $vpOk=$true } }
+}
+}
+} catch {}
+}
+if (-not $vpOk) {
+# 3) Modern apps (Chrome/Edge - UIA elements have no native hwnd) or
+#    keys without text semantics: foreground the target and inject a
+#    real key (same trade-off as Linux xdotool).
 $sk=SK $req.key
 if (-not $sk) { OE $id 'SERVER_ERROR' "Unsupported key: $($req.key)" }
 else {
@@ -287,6 +312,8 @@ try { $wshell=New-Object -ComObject WScript.Shell; $wshell.SendKeys($sk) } catch
 OK $id @{key=$req.key}
 }
 }
+}
+else { OK $id @{key=$req.key} }
 }
 }
 }
@@ -836,34 +863,61 @@ const WIN_UIA_ONCE_BRANCHES: Record<WinUiaOnceCommand, string> = {
   $vk=Vk $R.key
   if ($vk -eq 0) { OE 'SERVER_ERROR' ("Unknown key: " + $R.key); break }
   # 1) Non-intrusive: PostMessage to the focused element's native window
-  #    (Win32 controls like Notepad's edit) - works without foreground.
+  #    (Win32 controls like legacy Notepad's edit) - works without
+  #    foreground. Skip when the element reports the top-level window's own
+  #    hwnd (UWP/XAML Islands like Win11 Notepad): posting to the top-level
+  #    window is a no-op there, so fall through to real key injection.
   $fe=FocEl (FH $hwnd) 0
   $w=$z
   if ($fe) { try { $w=$fe.Current.NativeWindowHandle } catch { $w=$z } }
-  if ([int64]$w -ne 0) {
+  if ([int64]$w -ne 0 -and [int64]$w -ne [int64]$hwnd) {
     $N::PostMessage($w,0x0100,[IntPtr]$vk,$z) > $null
     $N::PostMessage($w,0x0101,[IntPtr]$vk,$z) > $null
     OK @{key=$R.key}
   } else {
-    # 2) Modern apps (Chrome/Edge - UIA elements have no native hwnd):
-    #    PostMessage to the top-level window is a no-op there, so foreground
-    #    the target and inject a real key (same trade-off as Linux xdotool).
-    $sk=SK $R.key
-    if (-not $sk) { OE 'SERVER_ERROR' ("Unsupported key: " + $R.key) }
-    else {
-      $N::SetForegroundWindow($hwnd) > $null
-      $fg=$N::GetForegroundWindow()
-      if ($fg -ne $hwnd) {
-        $fgPid=0; $fgTid=$N::GetWindowThreadProcessId($fg,[ref]$fgPid); $myTid=$N::GetCurrentThreadId()
-        if ($fgTid -ne 0) { $N::AttachThreadInput($myTid,$fgTid,$true) > $null; $N::SetForegroundWindow($hwnd) > $null; $N::AttachThreadInput($myTid,$fgTid,$false) > $null }
-      }
-      $fg=$N::GetForegroundWindow()
-      if ($fg -ne $hwnd) { OE 'SERVER_ERROR' 'Could not foreground target window' }
+    # 2) IME-proof path for editable documents (Win11 Notepad's editor is a
+    #    document whose native window IS the top-level window): PostMessage
+    #    to the top-level is a no-op, and SendKeys is IME-dependent - a
+    #    Chinese IME swallows synthetic text keys and Enter. Apply the key
+    #    via ValuePattern instead: append/truncate the current value, no
+    #    keyboard, no IME. Non-document roles and keys without text
+    #    semantics fall through to real key injection below.
+    $vpOk=$false
+    if ($fe -and (Role $fe) -eq 'document') {
+      try {
+        $vp2=$fe.GetCurrentPattern($pv)
+        $cur2=$vp2.Current.Value
+        if ($cur2 -ne $null) {
+          switch ($R.key) {
+            'Enter' { $vp2.SetValue($cur2 + [char]10); $vpOk=$true }
+            'Tab' { $vp2.SetValue($cur2 + [char]9); $vpOk=$true }
+            'BackSpace' { if ($cur2.Length -gt 0) { $vp2.SetValue($cur2.Substring(0,$cur2.Length-1)); $vpOk=$true } }
+          }
+        }
+      } catch {}
+    }
+    if (-not $vpOk) {
+      # 3) Modern apps (Chrome/Edge - UIA elements have no native hwnd) or
+      #    keys without text semantics: foreground the target and inject a
+      #    real key (same trade-off as Linux xdotool).
+      $sk=SK $R.key
+      if (-not $sk) { OE 'SERVER_ERROR' ("Unsupported key: " + $R.key) }
       else {
-        try { $wshell=New-Object -ComObject WScript.Shell; $wshell.SendKeys($sk) } catch { OE 'SERVER_ERROR' 'SendKeys failed' }
-        OK @{key=$R.key}
+        $N::SetForegroundWindow($hwnd) > $null
+        $fg=$N::GetForegroundWindow()
+        if ($fg -ne $hwnd) {
+          $fgPid=0; $fgTid=$N::GetWindowThreadProcessId($fg,[ref]$fgPid); $myTid=$N::GetCurrentThreadId()
+          if ($fgTid -ne 0) { $N::AttachThreadInput($myTid,$fgTid,$true) > $null; $N::SetForegroundWindow($hwnd) > $null; $N::AttachThreadInput($myTid,$fgTid,$false) > $null }
+        }
+        $fg=$N::GetForegroundWindow()
+        if ($fg -ne $hwnd) { OE 'SERVER_ERROR' 'Could not foreground target window' }
+        else {
+          try { $wshell=New-Object -ComObject WScript.Shell; $wshell.SendKeys($sk) } catch { OE 'SERVER_ERROR' 'SendKeys failed' }
+          OK @{key=$R.key}
+        }
       }
     }
+    else { OK @{key=$R.key} }
   }
 }`,
   scroll: `'scroll' {
