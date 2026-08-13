@@ -387,10 +387,20 @@ describe('performWin32Action (UIA stateless)', () => {
     expect(written).toContain("cmd='press-key'");
     expect(written).toContain('hwnd=4340');
     expect(written).toContain('PostMessage');
-    // SendKeys fallback is foreground-guarded so keys never land elsewhere.
+    // SendKeys fallback is foreground-guarded so keys never land elsewhere,
+    // refuses while the user is active, and restores the foreground after.
     expect(written).toContain('SendKeys');
     expect(written).toContain('SetForegroundWindow');
     expect(written).toContain('Could not foreground target window');
+    expect(written).toContain("'USER_ACTIVE'");
+    expect(written).toContain('RestoreFg $prevFg $hwnd');
+  });
+
+  it('emits userActiveMs only when explicitly provided (default lives in the script)', () => {
+    const with0 = buildWinUiaOnceScript('press-key', { hwnd: 4340, key: 'Enter', userActiveMs: 0 });
+    expect(with0).toContain('userActiveMs=0');
+    const defaulted = buildWinUiaOnceScript('press-key', { hwnd: 4340, key: 'Enter' });
+    expect(defaulted).not.toContain('userActiveMs=');
   });
 
   it('press_key rejects invalid keys', async () => {

@@ -121,12 +121,12 @@ export function createComputerUseTool(
     name: 'computer_use',
     label: 'Computer Use',
 	    description: `GUI automation on the user's desktop. Workflow:
-1. open_app: launch or reuse an app (pass target with its process name, e.g. notepad, firefox, msedge.exe).
+1. open_app: launch or reuse an app (pass target with its process name, e.g. notepad, firefox, msedge.exe). Launches without stealing the user's foreground window.
 2. view_screen: read the app window. Returns a numbered element list (each line: #<element_id>: <role> "<label>" at <x,y,w,h>; the element_id is the value after the '#') plus a screenshot you can analyze. Call it after open_app and after every action that changes the screen.
 3. Interact using element_ids from the view_screen result:
    - click / click_point / double_click: click an element (element_id) or a coordinate (x, y).
    - type_text: type into an input element (pass element_id + text). If you need to type into a text field, first click it, then type_text.
-   - press_key: send one key, e.g. Enter, Tab, BackSpace, Escape (no element_id needed).
+   - press_key: send one key, e.g. Enter, Tab, BackSpace, Escape (no element_id needed). While the user is actively typing/moving the mouse, real-key injection may be rejected (USER_ACTIVE) - wait a moment and retry; the foreground is handed back after the key is sent.
 4. send_screenshot: capture the screen and DELIVER the image directly to the user in chat. The image is NOT saved as a file on disk - never search the filesystem for screenshot files. Use it when the user asks for a screenshot or to show what is on screen.
 5. focus_app / close_app / scroll / release_control: focus an app window, close an app, scroll an element, or release control.
 

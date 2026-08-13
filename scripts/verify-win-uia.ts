@@ -28,6 +28,12 @@
 //     The failure is the safety guard working, not a bug: keys must never
 //     land in the wrong window. The non-intrusive paths (Notepad scenario)
 //     work even while locked - only real-key injection needs the foreground.
+//   - launch-app starts apps minimized and restores them without activating
+//     (SW_SHOWNOACTIVATE), so the caller's window keeps the foreground.
+//   - C6 passes userActiveMs: 0 to disable the user-activity guard (this
+//     script is run by a human watching the desktop). To verify the guard
+//     itself: remove userActiveMs and move the mouse while C6 runs - you
+//     should get USER_ACTIVE and the foreground must never change.
 //   - Exits 0 when all steps pass, 1 otherwise.
 
 import { buildWinUiaServerScript, UIA_HANDSHAKE_MARKER, UIA_SERVER_SCRIPT_PATH } from '../src/computer-use/win-uia/win-uia-scripts.js';
@@ -208,7 +214,14 @@ async function scenarioChrome(server: Server): Promise<void> {
   check('C5 readback address bar contains URL', v.ok && v.value.includes('sohu'),
     v.ok ? JSON.stringify(v.value) : v.value);
 
-  const pk = await server.req('press-key', { hwnd, key: 'Enter' });
+  // userActiveMs: 0 disables the user-activity guard: this script is run by
+  // a human watching the desktop, so mouse/keyboard activity is near
+  // certain mid-run and would otherwise reject the real-key injection with
+  // USER_ACTIVE. The guard exists for unattended agent runs.
+  // (To verify the guard manually: run this line without userActiveMs and
+  // move the mouse while it executes - you should get USER_ACTIVE and the
+  // foreground must never change.)
+  const pk = await server.req('press-key', { hwnd, key: 'Enter', userActiveMs: 0 });
   check('C6 press-key Enter (SendKeys fallback)', pk.ok === true, JSON.stringify(pk.error ?? pk.result));
 
   await sleep(6000);

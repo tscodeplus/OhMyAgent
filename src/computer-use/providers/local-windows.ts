@@ -131,6 +131,7 @@ export class LocalWindowsProvider implements ComputerUseProvider {
 
   async createLease(ctx: Ctx, target: Target): Promise<Lease> {
     let hwnd: number | undefined;
+    let launched: { pid?: number; hwnd?: number; title?: string } | undefined;
 
     if (target.appName) {
       const res = await this.client().request(
@@ -140,19 +141,27 @@ export class LocalWindowsProvider implements ComputerUseProvider {
       if (!res.ok) {
         throw new Error(`Failed to ${target.activateOnly ? 'focus' : 'launch'} Windows app "${target.appName}": ${res.error.message}`);
       }
-      const launched = res.result as { pid?: number; hwnd?: number; title?: string };
+      launched = res.result as { pid?: number; hwnd?: number; title?: string };
       hwnd = launched.hwnd;
     }
 
-    // Get foreground window info for the lease.
+    // Get window info for the lease. With focus-free launch the foreground
+    // after launch is the caller's own window - reading it would store the
+    // wrong title/rect. Only fall back to the foreground when launch yielded
+    // no window at all; otherwise use the launched window's title (focus-app
+    // returns it; launch-app's title is filled lazily via get-app-state).
     let windowTitle = '';
     let windowRect = { x: 0, y: 0, width: 0, height: 0 };
-    const fg = await this.client().request('get-foreground');
-    if (fg.ok) {
-      const info = fg.result as { hwnd?: number; title?: string; windowRect?: typeof windowRect };
-      if (hwnd === undefined || hwnd === 0) hwnd = info.hwnd;
-      windowTitle = info.title || target.appName || '';
-      windowRect = info.windowRect || windowRect;
+    if (hwnd === undefined || hwnd === 0) {
+      const fg = await this.client().request('get-foreground');
+      if (fg.ok) {
+        const info = fg.result as { hwnd?: number; title?: string; windowRect?: typeof windowRect };
+        if (hwnd === undefined || hwnd === 0) hwnd = info.hwnd;
+        windowTitle = info.title || target.appName || '';
+        windowRect = info.windowRect || windowRect;
+      }
+    } else if (launched?.title) {
+      windowTitle = launched.title;
     }
 
     const leaseId = `win-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

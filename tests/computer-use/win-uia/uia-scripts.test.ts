@@ -76,10 +76,18 @@ describe('win-uia server script (PowerShell template)', () => {
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     const launch = script.slice(start, end);
+    // RestoreFg's SetForegroundWindow lives in the shared preamble - the
+    // branch itself must only reference it by name, never foreground.
     expect(launch).not.toContain('SetForegroundWindow');
     expect(launch).not.toContain('AttachThreadInput');
     expect(launch).not.toContain('SW_MAXIMIZE');
     expect(launch).toContain('MainWindowHandle');
+    // Focus-free launch: start minimized (a minimized window cannot take the
+    // foreground), then restore without activating; hand the foreground back
+    // if an AppX host activated anyway.
+    expect(launch).toContain('-WindowStyle Minimized');
+    expect(launch).toContain('ShowWindow($hwnd,4)');
+    expect(launch).toContain('RestoreFg $prevFg $hwnd');
   });
 
   it('click-point uses the PostMessage chain — never SetCursorPos/mouse_event', () => {
@@ -120,6 +128,21 @@ describe('win-uia server script (PowerShell template)', () => {
     expect(script).toContain('extern IntPtr OpenProcess(uint a,bool i,uint p);');
     expect(script).toContain('extern bool OpenProcessToken(IntPtr h,uint a,out IntPtr t);');
     expect(script).toContain('extern bool GetTokenInformation(IntPtr t,uint c,byte[] b,uint n,out uint r);');
+    // User-activity guard + focus-free launch (same Add-Type trap: a missing
+    // [DllImport] compiles fine until Add-Type runs on the real machine).
+    expect(script).toContain('public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }');
+    expect(script).toContain('[DllImport("user32.dll")]public static extern bool GetLastInputInfo(ref LASTINPUTINFO li);');
+    expect(script).toContain('[DllImport("user32.dll")]public static extern bool ShowWindow(IntPtr h,int c);');
+  });
+
+  it('provides the user-activity guard and foreground-restore helpers', () => {
+    expect(script).toContain('function IdleMs');
+    // uint32 math survives the TickCount 24.9-day wraparound.
+    expect(script).toContain('[uint32]([Environment]::TickCount) - $li.dwTime');
+    expect(script).toContain('function RestoreFg($prev,$tgt)');
+    expect(script).toContain('$N::GetForegroundWindow() -ne $tgt');
+    // PostClick reuses the helper for its own foreground restore.
+    expect(script).toContain('RestoreFg $prevFg $root');
   });
 
   it('focus-app and press-key SendKeys fallback may foreground the target', () => {
@@ -136,6 +159,11 @@ describe('win-uia server script (PowerShell template)', () => {
     expect(pressKey).toContain('SendKeys');
     expect(pressKey).toContain('SetForegroundWindow');
     expect(pressKey).toContain('Could not foreground target window');
+    // The SendKeys fallback refuses while the user is actively typing and
+    // hands the foreground back once the key has been delivered.
+    expect(pressKey).toContain("'USER_ACTIVE'");
+    expect(pressKey).toContain('RestoreFg $prevFg $hwnd');
+    expect(pressKey).toContain('Start-Sleep -m 200');
   });
 
   // The script runs via `powershell.exe -File`, so there is no 32KB cmdline

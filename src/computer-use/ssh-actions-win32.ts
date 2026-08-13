@@ -85,6 +85,9 @@ function onceErrorToMessage(once: OnceResult, fallback: string): string {
   if (code === 'ELEMENT_NO_ACTION') {
     return 'Element does not expose a performable action';
   }
+  if (code === 'USER_ACTIVE') {
+    return 'User is actively using the computer; retry later';
+  }
   const message = once.error?.message;
   return `${fallback}: ${typeof message === 'string' && message ? message : String(code ?? 'unknown')}`;
 }

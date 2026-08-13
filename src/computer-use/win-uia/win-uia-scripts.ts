@@ -9,9 +9,12 @@
 // Windows 10+) via Add-Type, so no C# toolchain or npm native dependency is
 // needed. All interaction is control-level (InvokePattern / ValuePattern /
 // ScrollPattern) — the user's mouse, keyboard, focus and clipboard are never
-// touched. The only exceptions are the explicit `click-point` command
-// (user-requested coordinate click) and the explicit `focus-app` command
-// (user-requested foreground activation).
+// touched. launch-app starts windows minimized and restores them without
+// activating (SW_SHOWNOACTIVATE); press-key's SendKeys fallback only steals
+// the foreground while the user is idle and hands it back afterwards. The
+// only explicit exceptions are the `click-point` command (user-requested
+// coordinate click) and the `focus-app` command (user-requested foreground
+// activation).
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -109,6 +112,9 @@ public static IntPtr FirstWindow(IntPtr pid){IntPtr f=IntPtr.Zero;long best=0;En
 [DllImport("advapi32.dll")]public static extern bool OpenProcessToken(IntPtr h,uint a,out IntPtr t);
 [DllImport("advapi32.dll")]public static extern bool GetTokenInformation(IntPtr t,uint c,byte[] b,uint n,out uint r);
 public static int GetIntegrityLevel(int pid){IntPtr h=OpenProcess(0x1000,false,(uint)pid);if(h==IntPtr.Zero){return 0;}IntPtr t;if(!OpenProcessToken(h,0x0008,out t)){CloseHandle(h);return 0;}byte[] b=new byte[64];uint n=0;bool ok=GetTokenInformation(t,25,b,(uint)b.Length,out n);CloseHandle(t);CloseHandle(h);if(!ok||n<12){return 0;}int c=b[1];if(c<1){return 0;}int off=8+(c-1)*4;if(off+4>b.Length){return 0;}return System.BitConverter.ToInt32(b,off);}
+public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
+[DllImport("user32.dll")]public static extern bool GetLastInputInfo(ref LASTINPUTINFO li);
+[DllImport("user32.dll")]public static extern bool ShowWindow(IntPtr h,int c);
 }'
 $z=[IntPtr]::Zero
 $N=[CuaNative]
@@ -180,6 +186,23 @@ function UipiBlocked($h) {
   $m=[CuaNative]::GetIntegrityLevel([int]$PID); $t=[CuaNative]::GetIntegrityLevel([int]$pt)
   return ($m -gt 0 -and $t -gt $m)
 }
+# Milliseconds since the last user input event (mouse/keyboard), via the
+# read-only GetLastInputInfo query. uint32 math keeps the subtraction valid
+# across the TickCount 24.9-day wraparound.
+function IdleMs {
+  $li=New-Object LASTINPUTINFO; $li.cbSize=[uint32]([System.Runtime.InteropServices.Marshal]::SizeOf([LASTINPUTINFO]))
+  if ($N::GetLastInputInfo([ref]$li)) { return [int64]([uint32]([Environment]::TickCount) - $li.dwTime) }
+  return 0
+}
+# Return the foreground to the window that held it before an agent-initiated
+# activation. Only restores when the current foreground is exactly the window
+# we activated - a third window means the user/OS switched, never yank it.
+function RestoreFg($prev,$tgt) {
+  if ([int64]$prev -eq 0 -or $prev -eq $tgt) { return }
+  if ($N::GetForegroundWindow() -ne $tgt) { return }
+  $fgPid=0; $fgTid=$N::GetWindowThreadProcessId($prev,[ref]$fgPid); $myTid=$N::GetCurrentThreadId()
+  if ($fgTid -ne 0) { $N::AttachThreadInput($myTid,$fgTid,$true) > $null; $N::SetForegroundWindow($prev) > $null; $N::AttachThreadInput($myTid,$fgTid,$false) > $null }
+}
 # Background coordinate click via PostMessage: walk to the deepest child at
 # the point (so the top-level frame does not activate itself), hold
 # WS_EX_NOACTIVATE on the root for the burst, then restore the previous
@@ -214,10 +237,7 @@ function PostClick($hwnd,$x,$y,$count) {
     Start-Sleep -m 30
   }
   if ($armed) { $N::SetWindowLongPtr($root,-20,$exStyle) > $null }
-  if ([int64]$prevFg -ne 0 -and $prevFg -ne $root -and $N::GetForegroundWindow() -eq $root) {
-    $fgPid=0; $fgTid=$N::GetWindowThreadProcessId($prevFg,[ref]$fgPid); $myTid=$N::GetCurrentThreadId()
-    if ($fgTid -ne 0) { $N::AttachThreadInput($myTid,$fgTid,$true) > $null; $N::SetForegroundWindow($prevFg) > $null; $N::AttachThreadInput($myTid,$fgTid,$false) > $null }
-  }
+  RestoreFg $prevFg $root
   return $true
 }
 function GE($req) {
@@ -409,6 +429,14 @@ else {
 $sk=SK $req.key
 if (-not $sk) { OE $id 'SERVER_ERROR' "Unsupported key: $($req.key)" }
 else {
+# Real key injection needs the foreground - but only when the target is not
+# already there. Refuse while the user is actively typing/moving the mouse
+# (GetLastInputInfo; default 3s window, 0 disables the guard).
+$prevFg=$N::GetForegroundWindow()
+if ($prevFg -ne $hwnd) {
+$th=$req.userActiveMs; if ($null -eq $th -or $th -lt 0) { $th=3000 }
+if ($th -gt 0 -and (IdleMs) -lt $th) { OE $id 'USER_ACTIVE' 'User is actively using the computer; retry later'; break }
+}
 $N::SetForegroundWindow($hwnd) > $null
 $fg=$N::GetForegroundWindow()
 if ($fg -ne $hwnd) {
@@ -419,6 +447,10 @@ $fg=$N::GetForegroundWindow()
 if ($fg -ne $hwnd) { OE $id 'SERVER_ERROR' 'Could not foreground target window' }
 else {
 try { $wshell=New-Object -ComObject WScript.Shell; $wshell.SendKeys($sk) } catch { OE $id 'SERVER_ERROR' 'SendKeys failed'; break }
+# SendKeys is async (SendInput enqueues and returns): let the key reach
+# the target before handing the foreground back to the user's window.
+Start-Sleep -m 200
+RestoreFg $prevFg $hwnd
 OK $id @{key=$req.key}
 }
 }
@@ -444,6 +476,14 @@ else {
 $sk=SK $req.key
 if (-not $sk) { OE $id 'SERVER_ERROR' "Unsupported key: $($req.key)" }
 else {
+# Real key injection needs the foreground - but only when the target is not
+# already there. Refuse while the user is actively typing/moving the mouse
+# (GetLastInputInfo; default 3s window, 0 disables the guard).
+$prevFg=$N::GetForegroundWindow()
+if ($prevFg -ne $hwnd) {
+$th=$req.userActiveMs; if ($null -eq $th -or $th -lt 0) { $th=3000 }
+if ($th -gt 0 -and (IdleMs) -lt $th) { OE $id 'USER_ACTIVE' 'User is actively using the computer; retry later'; break }
+}
 $N::SetForegroundWindow($hwnd) > $null
 $fg=$N::GetForegroundWindow()
 if ($fg -ne $hwnd) {
@@ -454,6 +494,10 @@ $fg=$N::GetForegroundWindow()
 if ($fg -ne $hwnd) { OE $id 'SERVER_ERROR' 'Could not foreground target window' }
 else {
 try { $wshell=New-Object -ComObject WScript.Shell; $wshell.SendKeys($sk) } catch { OE $id 'SERVER_ERROR' 'SendKeys failed'; break }
+# SendKeys is async (SendInput enqueues and returns): let the key reach
+# the target before handing the foreground back to the user's window.
+Start-Sleep -m 200
+RestoreFg $prevFg $hwnd
 OK $id @{key=$req.key}
 }
 }
@@ -518,7 +562,13 @@ $p=$null; $hwnd=$z
 foreach ($pr in $all) { $h=$N::FirstWindow([IntPtr]$pr.Id); if ($h -ne $z) { $p=$pr; $hwnd=[int64]$h } }
 if (-not $p) { $p=@($all | select -Last 1)[0]; if ($p) { $hwnd=[int64]$p.MainWindowHandle } }
 if ($hwnd -eq $z) {
-$p=Start-Process $appExe -PassThru
+# Fresh launch: start minimized so the new window can never become the
+# foreground (a minimized window cannot take the foreground), then restore
+# it to normal size without activating (SW_SHOWNOACTIVATE) once the handle
+# is known. AppX hosts ignore the minimized startup state and activate
+# anyway - RestoreFg hands the foreground back in that case.
+$prevFg=$N::GetForegroundWindow()
+$p=Start-Process $appExe -WindowStyle Minimized -PassThru
 $hwnd=WaitHwnd $p 20000
 if ($hwnd -eq $z) {
   # AppX apps (e.g. the Win11 notepad) activate slowly: Start-Process
@@ -531,6 +581,15 @@ if ($hwnd -eq $z) {
     $fp=Get-Process -Name ($appExe -replace $rx,'') -EA SilentlyContinue | select -Last 1
     if ($fp) { $h=$N::FirstWindow([IntPtr]$fp.Id); if ($h -ne $z) { $hwnd=[int64]$h } }
   }
+}
+if ($hwnd -ne $z) {
+  # SW_SHOWNOACTIVATE=4: restore from minimized without activating. Call
+  # twice - the first ShowWindow on a window launched with
+  # STARTF_USESHOWWINDOW is overridden by the startup show state.
+  $N::ShowWindow($hwnd,4) > $null
+  $N::ShowWindow($hwnd,4) > $null
+  Start-Sleep -m 250
+  RestoreFg $prevFg $hwnd
 }
 }
 OK $id @{pid=$p.Id;hwnd=[int64]$hwnd}
@@ -658,6 +717,9 @@ export interface WinUiaOncePayload {
   key?: string;
   direction?: 'up' | 'down' | 'left' | 'right';
   amount?: number;
+  /** Reject the SendKeys fallback while the user has been active within this
+   *  many ms (0 = never reject). Default 3000. */
+  userActiveMs?: number;
   x?: number;
   y?: number;
   depth?: number;
@@ -770,6 +832,9 @@ function buildOnceRequestLiteral(cmd: WinUiaOnceCommand, payload: WinUiaOncePayl
     parts.push(`direction='${payload.direction}'`);
   }
   if (payload.amount !== undefined) parts.push(num('amount', payload.amount));
+  // Only emitted when explicitly provided - num() would force `=0` on
+  // undefined and silently disable the user-activity guard.
+  if (payload.userActiveMs !== undefined) parts.push(num('userActiveMs', payload.userActiveMs));
   if (payload.x !== undefined) parts.push(num('x', payload.x));
   if (payload.y !== undefined) parts.push(num('y', payload.y));
   if (payload.depth !== undefined) parts.push(num('depth', payload.depth));
@@ -827,6 +892,9 @@ public static IntPtr FirstWindow(IntPtr pid){IntPtr f=IntPtr.Zero;long best=0;En
 [DllImport("advapi32.dll")]public static extern bool OpenProcessToken(IntPtr h,uint a,out IntPtr t);
 [DllImport("advapi32.dll")]public static extern bool GetTokenInformation(IntPtr t,uint c,byte[] b,uint n,out uint r);
 public static int GetIntegrityLevel(int pid){IntPtr h=OpenProcess(0x1000,false,(uint)pid);if(h==IntPtr.Zero){return 0;}IntPtr t;if(!OpenProcessToken(h,0x0008,out t)){CloseHandle(h);return 0;}byte[] b=new byte[64];uint n=0;bool ok=GetTokenInformation(t,25,b,(uint)b.Length,out n);CloseHandle(t);CloseHandle(h);if(!ok||n<12){return 0;}int c=b[1];if(c<1){return 0;}int off=8+(c-1)*4;if(off+4>b.Length){return 0;}return System.BitConverter.ToInt32(b,off);}
+public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
+[DllImport("user32.dll")]public static extern bool GetLastInputInfo(ref LASTINPUTINFO li);
+[DllImport("user32.dll")]public static extern bool ShowWindow(IntPtr h,int c);
 }'
 $z=[IntPtr]::Zero
 $N=[CuaNative]
@@ -897,6 +965,23 @@ function UipiBlocked($h) {
   $m=[CuaNative]::GetIntegrityLevel([int]$PID); $t=[CuaNative]::GetIntegrityLevel([int]$pt)
   return ($m -gt 0 -and $t -gt $m)
 }
+# Milliseconds since the last user input event (mouse/keyboard), via the
+# read-only GetLastInputInfo query. uint32 math keeps the subtraction valid
+# across the TickCount 24.9-day wraparound.
+function IdleMs {
+  $li=New-Object LASTINPUTINFO; $li.cbSize=[uint32]([System.Runtime.InteropServices.Marshal]::SizeOf([LASTINPUTINFO]))
+  if ($N::GetLastInputInfo([ref]$li)) { return [int64]([uint32]([Environment]::TickCount) - $li.dwTime) }
+  return 0
+}
+# Return the foreground to the window that held it before an agent-initiated
+# activation. Only restores when the current foreground is exactly the window
+# we activated - a third window means the user/OS switched, never yank it.
+function RestoreFg($prev,$tgt) {
+  if ([int64]$prev -eq 0 -or $prev -eq $tgt) { return }
+  if ($N::GetForegroundWindow() -ne $tgt) { return }
+  $fgPid=0; $fgTid=$N::GetWindowThreadProcessId($prev,[ref]$fgPid); $myTid=$N::GetCurrentThreadId()
+  if ($fgTid -ne 0) { $N::AttachThreadInput($myTid,$fgTid,$true) > $null; $N::SetForegroundWindow($prev) > $null; $N::AttachThreadInput($myTid,$fgTid,$false) > $null }
+}
 # Background coordinate click via PostMessage: walk to the deepest child at
 # the point (so the top-level frame does not activate itself), hold
 # WS_EX_NOACTIVATE on the root for the burst, then restore the previous
@@ -931,10 +1016,7 @@ function PostClick($hwnd,$x,$y,$count) {
     Start-Sleep -m 30
   }
   if ($armed) { $N::SetWindowLongPtr($root,-20,$exStyle) > $null }
-  if ([int64]$prevFg -ne 0 -and $prevFg -ne $root -and $N::GetForegroundWindow() -eq $root) {
-    $fgPid=0; $fgTid=$N::GetWindowThreadProcessId($prevFg,[ref]$fgPid); $myTid=$N::GetCurrentThreadId()
-    if ($fgTid -ne 0) { $N::AttachThreadInput($myTid,$fgTid,$true) > $null; $N::SetForegroundWindow($prevFg) > $null; $N::AttachThreadInput($myTid,$fgTid,$false) > $null }
-  }
+  RestoreFg $prevFg $root
   return $true
 }
 function Shot($h) {
@@ -1175,8 +1257,16 @@ const WIN_UIA_ONCE_BRANCHES: Record<WinUiaOnceCommand, string> = {
     #    keys without text semantics: foreground the target and inject a
     #    real key (same trade-off as Linux xdotool).
     $sk=SK $R.key
-    if (-not $sk) { OE 'SERVER_ERROR' ("Unsupported key: " + $R.key) }
+    if (-not $sk) { OE 'SERVER_ERROR' ("Unsupported key: " + $R.key); break }
     else {
+      # Real key injection needs the foreground - but only when the target is
+      # not already there. Refuse while the user is actively typing/moving
+      # the mouse (GetLastInputInfo; default 3s window, 0 disables the guard).
+      $prevFg=$N::GetForegroundWindow()
+      if ($prevFg -ne $hwnd) {
+        $th=$R.userActiveMs; if ($null -eq $th -or $th -lt 0) { $th=3000 }
+        if ($th -gt 0 -and (IdleMs) -lt $th) { OE 'USER_ACTIVE' 'User is actively using the computer; retry later'; break }
+      }
       $N::SetForegroundWindow($hwnd) > $null
       $fg=$N::GetForegroundWindow()
       if ($fg -ne $hwnd) {
@@ -1184,11 +1274,13 @@ const WIN_UIA_ONCE_BRANCHES: Record<WinUiaOnceCommand, string> = {
         if ($fgTid -ne 0) { $N::AttachThreadInput($myTid,$fgTid,$true) > $null; $N::SetForegroundWindow($hwnd) > $null; $N::AttachThreadInput($myTid,$fgTid,$false) > $null }
       }
       $fg=$N::GetForegroundWindow()
-      if ($fg -ne $hwnd) { OE 'SERVER_ERROR' 'Could not foreground target window' }
-      else {
-        try { $wshell=New-Object -ComObject WScript.Shell; $wshell.SendKeys($sk) } catch { OE 'SERVER_ERROR' 'SendKeys failed' }
-        OK @{key=$R.key}
-      }
+      if ($fg -ne $hwnd) { OE 'SERVER_ERROR' 'Could not foreground target window'; break }
+      try { $wshell=New-Object -ComObject WScript.Shell; $wshell.SendKeys($sk) } catch { OE 'SERVER_ERROR' 'SendKeys failed'; break }
+      # SendKeys is async (SendInput enqueues and returns): let the key reach
+      # the target before handing the foreground back to the user's window.
+      Start-Sleep -m 200
+      RestoreFg $prevFg $hwnd
+      OK @{key=$R.key}
     }
   }
 }`,

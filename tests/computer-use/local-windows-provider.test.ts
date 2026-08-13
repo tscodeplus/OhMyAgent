@@ -212,8 +212,21 @@ describe('LocalWindowsProvider', () => {
     expect(result.error).toContain('Stale');
   });
 
-  it('createLease launches without focus, then reads foreground info', async () => {
+  it('createLease launches without focus and skips the foreground read', async () => {
     MOCK_RESPONSES['launch-app'] = { ok: true, result: { pid: 4242, hwnd: 524318 } };
+    const provider = new LocalWindowsProvider();
+
+    const lease = await provider.createLease(DEFAULT_CTX, { appName: 'notepad' });
+
+    // With focus-free launch the foreground after launch is the caller's own
+    // window - reading it would store a wrong title/rect on the lease.
+    expect(requests.map(r => r.cmd)).toEqual(['launch-app']);
+    expect(requests[0].payload).toEqual({ name: 'notepad' });
+    expect(lease.providerState).toMatchObject({ hwnd: 524318, targetApp: 'notepad' });
+  });
+
+  it('createLease falls back to the foreground window when launch yields none', async () => {
+    MOCK_RESPONSES['launch-app'] = { ok: true, result: { pid: 4242, hwnd: 0 } };
     MOCK_RESPONSES['get-foreground'] = {
       ok: true,
       result: { hwnd: 524318, title: 'Notepad', windowRect: { x: 0, y: 0, width: 800, height: 600 } },
@@ -223,18 +236,17 @@ describe('LocalWindowsProvider', () => {
     const lease = await provider.createLease(DEFAULT_CTX, { appName: 'notepad' });
 
     expect(requests.map(r => r.cmd)).toEqual(['launch-app', 'get-foreground']);
-    expect(requests[0].payload).toEqual({ name: 'notepad' });
-    expect(lease.providerState).toMatchObject({ hwnd: 524318, targetApp: 'notepad' });
+    expect(lease.providerState).toMatchObject({ hwnd: 524318, windowTitle: 'Notepad' });
   });
 
-  it('activateOnly uses focus-app instead of launch-app', async () => {
-    MOCK_RESPONSES['focus-app'] = { ok: true, result: { pid: 4242, hwnd: 524318 } };
-    MOCK_RESPONSES['get-foreground'] = { ok: true, result: { hwnd: 524318, title: 'Notepad' } };
+  it('activateOnly uses focus-app and its returned window title', async () => {
+    MOCK_RESPONSES['focus-app'] = { ok: true, result: { pid: 4242, hwnd: 524318, title: 'Notepad' } };
     const provider = new LocalWindowsProvider();
 
-    await provider.createLease(DEFAULT_CTX, { appName: 'notepad', activateOnly: true });
+    const lease = await provider.createLease(DEFAULT_CTX, { appName: 'notepad', activateOnly: true });
 
-    expect(requests.map(r => r.cmd)).toEqual(['focus-app', 'get-foreground']);
+    expect(requests.map(r => r.cmd)).toEqual(['focus-app']);
+    expect(lease.providerState).toMatchObject({ hwnd: 524318, windowTitle: 'Notepad' });
   });
 
   it('getStatus reports unavailable when the server is unreachable', async () => {
