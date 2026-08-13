@@ -14,6 +14,7 @@ import os from 'node:os';
 import { Type } from 'typebox';
 import type { AgentTool } from '../../../pi-mono/agent/types.js';
 import { shouldRouteToDesktopBridge } from '../../platform/tool-context.js';
+import { toolAllowedRoots } from '../../platform/serve-roots.js';
 
 interface SendMediaDetails {
   filePath: string;
@@ -22,13 +23,10 @@ interface SendMediaDetails {
   serveUrl: string;
 }
 
-// Same allowed roots as the /api/files/serve endpoint
+// Shared with /api/files/serve|download (see serve-roots.ts) — a path this
+// tool accepts must always be servable by the endpoint, or the preview breaks.
 function getAllowedRoots(): string[] {
-  return [
-    process.cwd(),
-    '/tmp',
-    os.homedir(),
-  ];
+  return toolAllowedRoots();
 }
 
 function isPathAllowed(filePath: string, allowedRoots: string[]): boolean {

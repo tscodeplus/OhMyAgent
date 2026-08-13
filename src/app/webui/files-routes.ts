@@ -21,6 +21,7 @@ import { resolve, join, normalize, sep, relative, extname, basename } from 'node
 import { platform } from 'node:os';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import type { AppConfig } from '../types.js';
+import { toolAllowedRoots } from '../../tools/platform/serve-roots.js';
 import * as archiverModule from 'archiver';
 const archiver = archiverModule.default;
 
@@ -171,6 +172,31 @@ function readFileRoot(configPath: string): string {
     // Config not readable — fall back to default
   }
   return PLATFORM_INFO.defaultRoot;
+}
+
+/** True for Windows drive-letter absolute paths (C:\..., D:/...). */
+function isDriveLetterPath(p: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(p);
+}
+
+/**
+ * Allowed roots for /api/files/serve and /api/files/download — the union of
+ * the shared tool roots (cwd, /tmp, homedir, see toolAllowedRoots) plus
+ * webui.file_root and the image/video generation output dirs. Kept aligned
+ * with webui_send_media so a path the tool accepts is always servable here;
+ * a mismatch surfaces as "sent but can't preview" (403 Path traversal denied).
+ */
+export function computeServeAllowedRoots(appConfig: AppConfig, fileRoot: string): string[] {
+  const roots: string[] = [fileRoot, ...toolAllowedRoots()];
+  const imgOut = appConfig.multimodal?.imageGeneration?.outputDir || './data/generated-images';
+  const vidOut = appConfig.multimodal?.videoGeneration?.outputDir || './data/generated-videos';
+  for (const dir of [imgOut, vidOut]) {
+    const resolved = resolve(dir);
+    if (!roots.some(r => resolve(r) === resolved)) {
+      roots.unshift(resolved);
+    }
+  }
+  return roots;
 }
 
 function writeFileRoot(configPath: string, root: string): void {
@@ -428,24 +454,15 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
         return reply.status(400).send({ error: 'path is required' });
       }
 
-      // Resolve path against multiple allowed roots, matching /api/files/serve behavior
+      // Resolve path against multiple allowed roots (shared with webui_send_media)
       const appConfig = cfg.getConfig();
       const fileRoot = resolve(readFileRoot(cfg.configPath));
-      const allowedRoots: string[] = [fileRoot, '/tmp'];
-      // Add image/video generation output dirs
-      const imgOut = appConfig.multimodal?.imageGeneration?.outputDir || './data/generated-images';
-      const vidOut = appConfig.multimodal?.videoGeneration?.outputDir || './data/generated-videos';
-      for (const dir of [imgOut, vidOut]) {
-        const resolved = resolve(dir);
-        if (!allowedRoots.some(r => resolve(r) === resolved)) {
-          allowedRoots.unshift(resolved);
-        }
-      }
+      const allowedRoots = computeServeAllowedRoots(appConfig, fileRoot);
 
       let filePath: string | null = null;
       const normalized = normalize(query.path);
 
-      if (normalized.startsWith('/') || normalized.startsWith('\\')) {
+      if (normalized.startsWith('/') || normalized.startsWith('\\') || isDriveLetterPath(normalized)) {
         // Absolute path: verify within an allowed root
         const resolvedAbs = resolve(normalized);
         for (const root of allowedRoots) {
@@ -507,25 +524,16 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
       // Allowed roots (in priority order):
       // 1. Configured image/video generation output directories
       // 2. The webui.file_root (Files Browser root)
-      // 3. /tmp (temporary files from shell tools)
+      // 3. Shared tool roots: /tmp, homedir, cwd (must match webui_send_media)
       const appConfig = cfg.getConfig();
       const fileRoot = resolve(readFileRoot(cfg.configPath));
-      const allowedRoots: string[] = [fileRoot, '/tmp'];
-      // Add image/video generation output dirs from config (with defaults)
-      const imgOut = appConfig.multimodal?.imageGeneration?.outputDir || './data/generated-images';
-      const vidOut = appConfig.multimodal?.videoGeneration?.outputDir || './data/generated-videos';
-      for (const dir of [imgOut, vidOut]) {
-        const resolved = resolve(dir);
-        if (!allowedRoots.some(r => resolve(r) === resolved)) {
-          allowedRoots.unshift(resolved);
-        }
-      }
+      const allowedRoots = computeServeAllowedRoots(appConfig, fileRoot);
 
       // Try to resolve the path against each allowed root
       let filePath: string | null = null;
       const normalized = normalize(query.path);
 
-      if (normalized.startsWith('/') || normalized.startsWith('\\')) {
+      if (normalized.startsWith('/') || normalized.startsWith('\\') || isDriveLetterPath(normalized)) {
         // Absolute path: verify it's within an allowed root
         const resolvedAbs = resolve(normalized);
         for (const root of allowedRoots) {
