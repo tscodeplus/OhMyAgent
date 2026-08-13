@@ -399,8 +399,9 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
                 const seg = segmentsRef.current[i]!;
                 if (seg.type === 'tool_call' && seg.toolCall?.id === toolCallId) {
                   seg.toolCall = { ...existing };
-                  // Immediately extract media from webui_send_media output for inline display
-                  if (existing.name === 'webui_send_media' && existing.status === 'success' && existing.output) {
+                  // Immediately extract media from webui_send_media / computer_use
+                  // (send_screenshot) output for inline display
+                  if ((existing.name === 'webui_send_media' || existing.name === 'computer_use') && existing.status === 'success' && existing.output) {
                     const output = existing.output;
                     // Match both /api/files/serve?path=... and /dl/<token>/<filename> URLs
                     // Use [^\[\]] (exclude both [ and ]) instead of [^\]] to prevent

@@ -528,6 +528,36 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
       if (images.length === 0) images = undefined;
     }
 
+    // WebUI screenshot delivery — computer_use send_screenshot hands the
+    // image here when the model cannot carry it as a tool result (text-only
+    // models drop image content). We write the PNG under
+    // data/computer-use-screenshots (servable via /api/files/serve, see
+    // computeServeAllowedRoots), persist an assistant message so the picture
+    // survives a refresh, and return a markdown link — the frontend renders
+    // it from the tool output exactly like webui_send_media.
+    const computerUseImageSender = async (image: { data: string; mimeType: string }): Promise<string> => {
+      const dir = path.resolve('./data/computer-use-screenshots');
+      fs.mkdirSync(dir, { recursive: true });
+      const ext = image.mimeType === 'image/jpeg' ? '.jpg'
+        : image.mimeType === 'image/webp' ? '.webp'
+          : image.mimeType === 'image/gif' ? '.gif' : '.png';
+      const fileName = `screenshot-${Date.now()}${ext}`;
+      const filePath = path.join(dir, fileName);
+      fs.writeFileSync(filePath, Buffer.from(image.data, 'base64'));
+      const serveUrl = `/api/files/serve?path=${encodeURIComponent(filePath)}`;
+      if (cfg.db && sessionId) {
+        try {
+          const { v4: uuidv4 } = await import('uuid');
+          cfg.db.prepare(
+            "INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, 'assistant', ?, ?)",
+          ).run(uuidv4(), sessionId, `![${fileName}](${serveUrl})`, Date.now());
+        } catch (dbErr) {
+          app.log.warn({ err: dbErr }, '[chat] Failed to persist screenshot message');
+        }
+      }
+      return `Sent to chat as image\n\n![${fileName}](${serveUrl})`;
+    };
+
     try {
       await cfg.agentService.execute(message, {
         sessionId: sessionId,
@@ -539,6 +569,7 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
         extraTools: [createSendMediaTool()],
         eagerPersistUserMessage: true,
         images,
+        computerUseImageSender,
       });
     } catch (err: unknown) {
       completionStatus = 'error';

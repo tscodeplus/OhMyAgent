@@ -190,7 +190,10 @@ export function computeServeAllowedRoots(appConfig: AppConfig, fileRoot: string)
   const roots: string[] = [fileRoot, ...toolAllowedRoots()];
   const imgOut = appConfig.multimodal?.imageGeneration?.outputDir || './data/generated-images';
   const vidOut = appConfig.multimodal?.videoGeneration?.outputDir || './data/generated-videos';
-  for (const dir of [imgOut, vidOut]) {
+  // computer_use send_screenshot drops captured PNGs here (chat-routes.ts
+  // computerUseImageSender) so they can be served to the WebUI chat.
+  const cuOut = './data/computer-use-screenshots';
+  for (const dir of [imgOut, vidOut, cuOut]) {
     const resolved = resolve(dir);
     if (!roots.some(r => resolve(r) === resolved)) {
       roots.unshift(resolved);
