@@ -187,7 +187,8 @@ function UipiBlocked($h) {
 # read-only GetLastInputInfo query. uint32 math keeps the subtraction valid
 # across the TickCount 24.9-day wraparound.
 function IdleMs {
-  $li=New-Object LASTINPUTINFO; $li.cbSize=[uint32]([System.Runtime.InteropServices.Marshal]::SizeOf([LASTINPUTINFO]))
+  # LASTINPUTINFO nests in the Add-Type class; PS 5.1 needs the 'CuaNative+...' string form and cbSize fixed at 8 (two uint).
+  $li=New-Object 'CuaNative+LASTINPUTINFO'; $li.cbSize=8
   if ($N::GetLastInputInfo([ref]$li)) { return [int64]([uint32]([Environment]::TickCount) - $li.dwTime) }
   return 0
 }
@@ -966,7 +967,8 @@ function UipiBlocked($h) {
 # read-only GetLastInputInfo query. uint32 math keeps the subtraction valid
 # across the TickCount 24.9-day wraparound.
 function IdleMs {
-  $li=New-Object LASTINPUTINFO; $li.cbSize=[uint32]([System.Runtime.InteropServices.Marshal]::SizeOf([LASTINPUTINFO]))
+  # LASTINPUTINFO nests in the Add-Type class; PS 5.1 needs the 'CuaNative+...' string form and cbSize fixed at 8 (two uint).
+  $li=New-Object 'CuaNative+LASTINPUTINFO'; $li.cbSize=8
   if ($N::GetLastInputInfo([ref]$li)) { return [int64]([uint32]([Environment]::TickCount) - $li.dwTime) }
   return 0
 }
