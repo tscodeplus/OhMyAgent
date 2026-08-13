@@ -10,8 +10,9 @@
 // needed. All interaction is control-level (InvokePattern / ValuePattern /
 // ScrollPattern) — the user's mouse, keyboard, focus and clipboard are never
 // touched. launch-app starts minimized and restores without activating;
-// press-key's SendKeys fallback only foregrounds while the user is idle and
-// returns the foreground. Explicit exceptions: `click-point`, `focus-app`.
+// press-key's SendKeys fallback foregrounds only at low input activity
+// (frequency-based guard; an idle wireless poke is filtered out) and returns
+// the foreground. Explicit exceptions: `click-point`, `focus-app`.
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -183,14 +184,19 @@ function UipiBlocked($h) {
   $m=[CuaNative]::GetIntegrityLevel([int]$PID); $t=[CuaNative]::GetIntegrityLevel([int]$pt)
   return ($m -gt 0 -and $t -gt $m)
 }
-# Milliseconds since the last user input event (mouse/keyboard), via the
-# read-only GetLastInputInfo query. uint32 math keeps the subtraction valid
-# across the TickCount 24.9-day wraparound.
-function IdleMs {
+# Count input events over $ms - a wireless idle poke (~1 per 2s) resets
+# recency with no human at the keys; frequency, not recency, decides.
+function InputEventsIn($ms) {
   # LASTINPUTINFO nests in the Add-Type class; PS 5.1 needs the 'CuaNative+...' string form and cbSize fixed at 8 (two uint).
   $li=New-Object 'CuaNative+LASTINPUTINFO'; $li.cbSize=8
-  if ($N::GetLastInputInfo([ref]$li)) { return [int64]([uint32]([Environment]::TickCount) - $li.dwTime) }
-  return 0
+  $N::GetLastInputInfo([ref]$li); $last=$li.dwTime; $n=0
+  $sw=[Diagnostics.Stopwatch]::StartNew()
+  while ($sw.ElapsedMilliseconds -lt $ms) {
+    Start-Sleep -m 50
+    $N::GetLastInputInfo([ref]$li)
+    if ($li.dwTime -ne $last) { $n++; $last=$li.dwTime }
+  }
+  return $n
 }
 # Return the foreground to the window that held it before an agent-initiated
 # activation. Only restores when the current foreground is exactly the window
@@ -431,12 +437,11 @@ $sk=SK $req.key
 if (-not $sk) { OE $id 'SERVER_ERROR' "Unsupported key: $($req.key)" }
 else {
 # Real key injection needs the foreground - but only when the target is not
-# already there. Refuse while the user is actively typing/moving the mouse
-# (GetLastInputInfo; default 3s window, 0 disables the guard).
+# already there. Refuse at >2 input events/s (userActiveMs 0 disables).
 $prevFg=$N::GetForegroundWindow()
 if ($prevFg -ne $hwnd) {
 $th=$req.userActiveMs; if ($null -eq $th -or $th -lt 0) { $th=3000 }
-if ($th -gt 0 -and (IdleMs) -lt $th) { OE $id 'USER_ACTIVE' 'User is actively using the computer; retry later'; break }
+if ($th -gt 0 -and (InputEventsIn 1000) -gt 2) { OE $id 'USER_ACTIVE' 'User is actively using the computer; retry later'; break }
 }
 $N::SetForegroundWindow($hwnd) > $null
 $fg=$N::GetForegroundWindow()
@@ -478,12 +483,11 @@ $sk=SK $req.key
 if (-not $sk) { OE $id 'SERVER_ERROR' "Unsupported key: $($req.key)" }
 else {
 # Real key injection needs the foreground - but only when the target is not
-# already there. Refuse while the user is actively typing/moving the mouse
-# (GetLastInputInfo; default 3s window, 0 disables the guard).
+# already there. Refuse at >2 input events/s (userActiveMs 0 disables).
 $prevFg=$N::GetForegroundWindow()
 if ($prevFg -ne $hwnd) {
 $th=$req.userActiveMs; if ($null -eq $th -or $th -lt 0) { $th=3000 }
-if ($th -gt 0 -and (IdleMs) -lt $th) { OE $id 'USER_ACTIVE' 'User is actively using the computer; retry later'; break }
+if ($th -gt 0 -and (InputEventsIn 1000) -gt 2) { OE $id 'USER_ACTIVE' 'User is actively using the computer; retry later'; break }
 }
 $N::SetForegroundWindow($hwnd) > $null
 $fg=$N::GetForegroundWindow()
@@ -715,8 +719,9 @@ export interface WinUiaOncePayload {
   key?: string;
   direction?: 'up' | 'down' | 'left' | 'right';
   amount?: number;
-  /** Reject the SendKeys fallback while the user has been active within this
-   *  many ms (0 = never reject). Default 3000. */
+  /** 0 = never reject the SendKeys fallback; >0 enables the guard (it counts
+   *  input events over a 1s window and rejects at >2/s - a human at the keys,
+   *  not a wireless idle poke). */
   userActiveMs?: number;
   x?: number;
   y?: number;
@@ -963,14 +968,19 @@ function UipiBlocked($h) {
   $m=[CuaNative]::GetIntegrityLevel([int]$PID); $t=[CuaNative]::GetIntegrityLevel([int]$pt)
   return ($m -gt 0 -and $t -gt $m)
 }
-# Milliseconds since the last user input event (mouse/keyboard), via the
-# read-only GetLastInputInfo query. uint32 math keeps the subtraction valid
-# across the TickCount 24.9-day wraparound.
-function IdleMs {
+# Count input events over $ms - a wireless idle poke (~1 per 2s) resets
+# recency with no human at the keys; frequency, not recency, decides.
+function InputEventsIn($ms) {
   # LASTINPUTINFO nests in the Add-Type class; PS 5.1 needs the 'CuaNative+...' string form and cbSize fixed at 8 (two uint).
   $li=New-Object 'CuaNative+LASTINPUTINFO'; $li.cbSize=8
-  if ($N::GetLastInputInfo([ref]$li)) { return [int64]([uint32]([Environment]::TickCount) - $li.dwTime) }
-  return 0
+  $N::GetLastInputInfo([ref]$li); $last=$li.dwTime; $n=0
+  $sw=[Diagnostics.Stopwatch]::StartNew()
+  while ($sw.ElapsedMilliseconds -lt $ms) {
+    Start-Sleep -m 50
+    $N::GetLastInputInfo([ref]$li)
+    if ($li.dwTime -ne $last) { $n++; $last=$li.dwTime }
+  }
+  return $n
 }
 # Return the foreground to the window that held it before an agent-initiated
 # activation. Only restores when the current foreground is exactly the window
@@ -1259,12 +1269,12 @@ const WIN_UIA_ONCE_BRANCHES: Record<WinUiaOnceCommand, string> = {
     if (-not $sk) { OE 'SERVER_ERROR' ("Unsupported key: " + $R.key); break }
     else {
       # Real key injection needs the foreground - but only when the target is
-      # not already there. Refuse while the user is actively typing/moving
-      # the mouse (GetLastInputInfo; default 3s window, 0 disables the guard).
+      # not already there. Refuse at >2 input events/s (human at the keys; an
+      # idle wireless poke is filtered; userActiveMs 0 disables the guard).
       $prevFg=$N::GetForegroundWindow()
       if ($prevFg -ne $hwnd) {
         $th=$R.userActiveMs; if ($null -eq $th -or $th -lt 0) { $th=3000 }
-        if ($th -gt 0 -and (IdleMs) -lt $th) { OE 'USER_ACTIVE' 'User is actively using the computer; retry later'; break }
+        if ($th -gt 0 -and (InputEventsIn 1000) -gt 2) { OE 'USER_ACTIVE' 'User is actively using the computer; retry later'; break }
       }
       $N::SetForegroundWindow($hwnd) > $null
       $fg=$N::GetForegroundWindow()

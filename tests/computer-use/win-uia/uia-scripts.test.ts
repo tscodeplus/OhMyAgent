@@ -147,14 +147,16 @@ describe('win-uia server script (PowerShell template)', () => {
   });
 
   it('provides the user-activity guard and foreground-restore helpers', () => {
-    expect(script).toContain('function IdleMs');
+    // Frequency, not recency: a wireless mouse's idle poke (~1 per 2s)
+    // resets GetLastInputInfo with no human at the keys, so the guard counts
+    // distinct events over a 1s window and rejects only at >2/s.
+    expect(script).toContain('function InputEventsIn');
     // LASTINPUTINFO nests in the Add-Type class: PS 5.1 has no [X+Y] type
     // literal, so New-Object must use the 'CuaNative+...' string form and
     // cbSize is fixed at 8 (two uint). The old top-level reference threw
     // "找不到类型 [LASTINPUTINFO]" at runtime and the guard never worked.
     expect(script).toContain("New-Object 'CuaNative+LASTINPUTINFO'; $li.cbSize=8");
-    // uint32 math survives the TickCount 24.9-day wraparound.
-    expect(script).toContain('[uint32]([Environment]::TickCount) - $li.dwTime');
+    expect(script).toContain('(InputEventsIn 1000) -gt 2');
     expect(script).toContain('function RestoreFg($prev,$tgt)');
     expect(script).toContain('$N::GetForegroundWindow() -ne $tgt');
     // PostClick reuses the helper for its own foreground restore.
