@@ -162,16 +162,79 @@ async function ensureAppFrontmost(runner: ExecRunner, pid: number): Promise<bool
 }
 
 /**
- * Ensure synthesized (frontmost-bound) input would reach the leased app:
- * no-op when already frontmost or no pid is known; otherwise activate and
- * verify. Returns false when the app cannot be brought to the front — the
- * caller must fail rather than post keys into the user's app.
+ * The pid of the app currently holding the foreground (System Events query),
+ * undefined when the query fails (TCC, no frontmost app) — callers must not
+ * block on an unknown answer.
  */
-async function requireFrontmostForInput(runner: ExecRunner, pid?: number): Promise<boolean> {
-  if (pid === undefined || pid <= 0) return true;
+async function getFrontmostPid(runner: ExecRunner): Promise<number | undefined> {
+  try {
+    const res = await runner.exec(
+      `osascript -e 'tell application "System Events" to get unix id of first process whose frontmost is true'`,
+    );
+    const pid = parseInt(res.stdout.trim(), 10);
+    return isNaN(pid) ? undefined : pid;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether the user touched the keyboard/mouse within the last 3 seconds
+ * (HIDIdleTime via ioreg, seconds). Unknown (command failed / unparseable)
+ * means idle — the guard must never block on an unknown answer.
+ */
+async function isUserActive(runner: ExecRunner): Promise<boolean> {
+  try {
+    const res = await runner.exec(
+      `ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print $NF/1000000000; exit}'`,
+    );
+    const idleSec = parseFloat(res.stdout.trim());
+    if (isNaN(idleSec)) return false;
+    return idleSec < 3;
+  } catch {
+    return false;
+  }
+}
+
+interface FrontmostSwap {
+  ok: boolean;
+  /** Failure reason when !ok (the user is active — the foreground must not be stolen). */
+  error?: string;
+  /** The app that held the foreground before the swap; restore target. */
+  prevFgPid?: number;
+}
+
+/**
+ * Ensure synthesized (frontmost-bound) input would reach the leased app:
+ * no-op when already frontmost or no pid is known; otherwise refuse while
+ * the user is actively using the computer, then activate and verify.
+ * Returns false when the app cannot be brought to the front — the caller
+ * must fail rather than post keys into the user's app. Mirrors the Windows
+ * USER_ACTIVE guard + foreground hand-back pattern.
+ */
+async function requireFrontmostForInput(runner: ExecRunner, pid?: number): Promise<FrontmostSwap> {
+  if (pid === undefined || pid <= 0) return { ok: true };
   const frontmost = await isAppFrontmost(runner, pid);
-  if (frontmost === true) return true;
-  return ensureAppFrontmost(runner, pid);
+  if (frontmost === true) return { ok: true };
+  if (await isUserActive(runner)) {
+    return { ok: false, error: 'User is actively using the computer; retry later' };
+  }
+  const prevFgPid = await getFrontmostPid(runner);
+  if (!(await ensureAppFrontmost(runner, pid))) {
+    return { ok: false, error: 'Could not foreground target app' };
+  }
+  return { ok: true, prevFgPid };
+}
+
+/**
+ * Hand the foreground back to the app that held it before an agent-initiated
+ * activation, but only while the target still holds it — a third app means
+ * the user/OS switched, never yank it away.
+ */
+async function restoreFrontmost(runner: ExecRunner, targetPid: number | undefined, prevFgPid?: number) {
+  if (!prevFgPid || !targetPid || prevFgPid === targetPid) return;
+  if ((await getFrontmostPid(runner)) !== targetPid) return;
+  await runner.exec(macActivateAppCommand(prevFgPid)).catch(() => {});
 }
 
 /**
@@ -812,15 +875,19 @@ export async function performDarwinAction(
       // Degradation: keystroke synthesizes input into the *frontmost* app,
       // so ensure the leased app is frontmost first (activate + verify) —
       // the AX path already failed, so this is an explicit foreground swap,
-      // and it must land in the leased app, never the user's front app.
-      if (!(await requireFrontmostForInput(runner, pid))) {
+      // and it must land in the leased app, never the user's front app. The
+      // swap refuses while the user is active and is handed back afterwards.
+      const swap = await requireFrontmostForInput(runner, pid);
+      if (!swap.ok) {
         return {
           ok: false,
           action: action.type,
-          error: 'Could not foreground target app for text entry',
+          error: swap.error ?? 'Could not foreground target app for text entry',
         };
       }
-      return execCommand(runner, macKeystrokeCommand(text), action.type);
+      const result = await execCommand(runner, macKeystrokeCommand(text), action.type);
+      await restoreFrontmost(runner, pid, swap.prevFgPid);
+      return result;
     }
 
     case 'press_key': {
@@ -847,11 +914,14 @@ export async function performDarwinAction(
       // Degraded path: System Events key code / keystroke posts into the
       // FRONTMOST app. Ensure the leased app is frontmost first (activate +
       // verify), else the key would land in whatever the user has on top.
-      if (!(await requireFrontmostForInput(runner, pid))) {
+      // The swap refuses while the user is active and is handed back once
+      // the key has been delivered.
+      const swap = await requireFrontmostForInput(runner, pid);
+      if (!swap.ok) {
         return {
           ok: false,
           action: action.type,
-          error: 'Could not foreground target app for key delivery',
+          error: swap.error ?? 'Could not foreground target app for key delivery',
         };
       }
       let command: string;
@@ -866,7 +936,9 @@ export async function performDarwinAction(
           error: `Unsupported macOS key: '${action.key}'`,
         };
       }
-      return execCommand(runner, command, action.type);
+      const result = await execCommand(runner, command, action.type);
+      await restoreFrontmost(runner, pid, swap.prevFgPid);
+      return result;
     }
 
     case 'scroll': {
@@ -899,17 +971,21 @@ export async function performDarwinAction(
       }
       // System Events key code targets the frontmost app — same ensure as
       // press_key so the scroll keys reach the leased app, not the user's.
-      if (!(await requireFrontmostForInput(runner, pid))) {
+      // Same active-user refusal and foreground hand-back.
+      const swap = await requireFrontmostForInput(runner, pid);
+      if (!swap.ok) {
         return {
           ok: false,
           action: action.type,
-          error: 'Could not foreground target app for scroll keys',
+          error: swap.error ?? 'Could not foreground target app for scroll keys',
         };
       }
       const command = Array.from({ length: repeat }, () =>
         `osascript -e 'tell application "System Events" to key code ${keyCode}'`,
       ).join(' && ');
-      return execCommand(runner, command, action.type);
+      const result = await execCommand(runner, command, action.type);
+      await restoreFrontmost(runner, pid, swap.prevFgPid);
+      return result;
     }
 
     // Explicit coordinate action — degraded, kept as-is.

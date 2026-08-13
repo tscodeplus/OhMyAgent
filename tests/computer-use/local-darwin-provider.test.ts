@@ -100,7 +100,7 @@ describe('LocalDarwinProvider', () => {
     expect(apps.map(a => a.name)).toEqual(['Finder', 'TextEdit', 'Safari']);
   });
 
-  it('createLease launches via `open -a` and resolves the pid via pgrep', async () => {
+  it('createLease launches via `open -a -g` (no foreground steal) and resolves the pid via pgrep', async () => {
     const { runner, commands } = createMockRunner({
       'open -a': { stdout: '' },
       'pgrep -f -i': { stdout: '4242' },
@@ -108,7 +108,8 @@ describe('LocalDarwinProvider', () => {
     const provider = new LocalDarwinProvider({ runner });
     const lease = await provider.createLease(DEFAULT_CTX, { appName: 'TextEdit' });
     expect(lease.providerState).toEqual({ pid: 4242 });
-    expect(commands.some(c => c.startsWith('open -a'))).toBe(true);
+    // -g = --background: the window appears but the app is not activated.
+    expect(commands.some(c => c.startsWith('open -a -g'))).toBe(true);
     expect(commands.some(c => c.includes('pgrep -f -i'))).toBe(true);
   });
 

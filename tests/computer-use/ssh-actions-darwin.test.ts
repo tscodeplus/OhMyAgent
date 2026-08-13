@@ -459,6 +459,130 @@ describe('SSHComputerUseProvider macOS support', () => {
     expect(result.error).toContain('Could not foreground target app');
   });
 
+  it('press_key degradation refuses while the user is active (HIDIdleTime < 3s)', async () => {
+    // The degraded path must not yank the user's foreground while they are
+    // typing/mousing — mirrors the Windows USER_ACTIVE guard.
+    const { provider, mockPool } = createProvider({
+      responses: {
+        'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
+        'osascript -l JavaScript': {
+          stdout: '{"ok":false,"error":"PERFORM_FAILED"}',
+          stderr: '',
+          exitCode: 0,
+        },
+        'get frontmost of': { stdout: 'false', stderr: '', exitCode: 0 },
+        'HIDIdleTime': { stdout: '1.2', stderr: '', exitCode: 0 },
+      },
+    });
+    await provider.listApps(DEFAULT_CTX);
+    const lease = makeLease({ providerState: { pid: 4242, windowId: '0x12345678', display: ':0' } });
+    const result = await provider.performAction(DEFAULT_CTX, lease, {
+      type: 'press_key',
+      key: 'Return',
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('User is actively using the computer; retry later');
+    const calls = mockPool.exec.mock.calls.map(c => c[0] as string);
+    // The activation must never run once the guard refused.
+    expect(calls.some(c => c.includes('set frontmost of (first process whose unix id is 4242) to true'))).toBe(false);
+  });
+
+  it('press_key degradation hands the foreground back to the previous app once the key lands', async () => {
+    // Sequence-aware mock: frontmost check flips to true after the
+    // activation, the previous foreground is pid 7777, and the restore
+    // happens only because the target still holds the foreground.
+    let frontmostChecks = 0;
+    let frontmostPidQueries = 0;
+    const execFn = vi.fn().mockImplementation(async (cmd: string) => {
+      if (cmd.includes('uname -s')) return { stdout: 'Darwin', stderr: '', exitCode: 0 };
+      if (cmd.includes('osascript -l JavaScript')) {
+        return { stdout: '{"ok":false,"error":"PERFORM_FAILED"}', stderr: '', exitCode: 0 };
+      }
+      if (cmd.includes('get frontmost of')) {
+        frontmostChecks++;
+        return { stdout: frontmostChecks >= 2 ? 'true' : 'false', stderr: '', exitCode: 0 };
+      }
+      if (cmd.includes('whose frontmost is true')) {
+        // First query: the user's app (7777) before the swap; second: the
+        // leased app still holds the foreground, so the restore proceeds.
+        frontmostPidQueries++;
+        return { stdout: frontmostPidQueries >= 2 ? '4242' : '7777', stderr: '', exitCode: 0 };
+      }
+      if (cmd.includes('HIDIdleTime')) return { stdout: '99', stderr: '', exitCode: 0 };
+      return { stdout: '', stderr: '', exitCode: 0 };
+    });
+    const provider = new SSHComputerUseProvider({
+      sshPool: {
+        exec: execFn,
+        healthCheck: vi.fn().mockResolvedValue({
+          reachable: true,
+          deps: { xdotool: true, scrot: true },
+        }),
+        destroy: vi.fn(),
+      } as any,
+      settings: BASE_SETTINGS,
+    });
+    await provider.listApps(DEFAULT_CTX);
+    const lease = makeLease({ providerState: { pid: 4242, windowId: '0x12345678', display: ':0' } });
+    const result = await provider.performAction(DEFAULT_CTX, lease, {
+      type: 'press_key',
+      key: 'Return',
+    });
+    expect(result.ok).toBe(true);
+    const calls = execFn.mock.calls.map(c => c[0] as string);
+    // The key lands first, then the restore hands the user's app back.
+    const keyIdx = calls.findIndex(c => c.includes('key code 36'));
+    const restoreIdx = calls.findIndex(c => c.includes('unix id is 7777'));
+    expect(keyIdx).toBeGreaterThan(-1);
+    expect(restoreIdx).toBeGreaterThan(keyIdx);
+    expect(calls[restoreIdx]).toContain('set frontmost of (first process whose unix id is 7777) to true');
+  });
+
+  it('press_key degradation never yanks the foreground when the user has switched apps', async () => {
+    // The restore is guarded: if a third app holds the foreground when the
+    // key lands, the swap is left alone (the user/OS switched away). The
+    // frontmost check flips true only after the activation, and the
+    // foreground pid query always reports a third app (8888), never the
+    // leased app — so the restore must not fire.
+    let frontmostChecks = 0;
+    const execFn = vi.fn().mockImplementation(async (cmd: string) => {
+      if (cmd.includes('uname -s')) return { stdout: 'Darwin', stderr: '', exitCode: 0 };
+      if (cmd.includes('osascript -l JavaScript')) {
+        return { stdout: '{"ok":false,"error":"PERFORM_FAILED"}', stderr: '', exitCode: 0 };
+      }
+      if (cmd.includes('get frontmost of')) {
+        frontmostChecks++;
+        return { stdout: frontmostChecks >= 2 ? 'true' : 'false', stderr: '', exitCode: 0 };
+      }
+      if (cmd.includes('whose frontmost is true')) return { stdout: '8888', stderr: '', exitCode: 0 };
+      if (cmd.includes('HIDIdleTime')) return { stdout: '99', stderr: '', exitCode: 0 };
+      return { stdout: '', stderr: '', exitCode: 0 };
+    });
+    const provider = new SSHComputerUseProvider({
+      sshPool: {
+        exec: execFn,
+        healthCheck: vi.fn().mockResolvedValue({
+          reachable: true,
+          deps: { xdotool: true, scrot: true },
+        }),
+        destroy: vi.fn(),
+      } as any,
+      settings: BASE_SETTINGS,
+    });
+    await provider.listApps(DEFAULT_CTX);
+    const lease = makeLease({ providerState: { pid: 4242, windowId: '0x12345678', display: ':0' } });
+    const result = await provider.performAction(DEFAULT_CTX, lease, {
+      type: 'press_key',
+      key: 'Return',
+    });
+    expect(result.ok).toBe(true);
+    const calls = execFn.mock.calls.map(c => c[0] as string);
+    // The key was delivered, and the restore guard saw a third app (8888)
+    // holding the foreground — so no restore command was issued.
+    expect(calls.some(c => c.includes('key code 36'))).toBe(true);
+    expect(calls.some(c => c.includes('set frontmost of (first process whose unix id is 8888) to true'))).toBe(false);
+  });
+
   it('scroll degradation posts arrow keys in the background via CGEventPostToPid', async () => {
     const { provider, mockPool } = createProvider({
       responses: {

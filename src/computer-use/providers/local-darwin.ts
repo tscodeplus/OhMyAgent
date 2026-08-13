@@ -84,9 +84,11 @@ export class LocalDarwinProvider implements ComputerUseProvider {
     let pid: number | undefined;
     if (target.appName) {
       assertSafeAppName(target.appName);
-      // `open -a` launches via LaunchServices; the AX tree is addressed by
-      // pid, so resolve it with pgrep (same pattern as the SSH provider).
-      await this.runner.exec(`open -a ${quoteShellArg(target.appName)}`);
+      // `open -a -g` launches via LaunchServices without activating the app
+      // (--background: the window appears but the foreground is not stolen).
+      // The AX tree is addressed by pid, so resolve it with pgrep (same
+      // pattern as the SSH provider).
+      await this.runner.exec(`open -a -g ${quoteShellArg(target.appName)}`);
       for (let i = 0; i < 5 && pid === undefined; i++) {
         await new Promise(resolve => setTimeout(resolve, 500));
         try {
