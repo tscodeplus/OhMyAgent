@@ -86,7 +86,7 @@ describe('win-uia server script (PowerShell template)', () => {
     // foreground), then restore without activating; hand the foreground back
     // if an AppX host activated anyway.
     expect(launch).toContain('-WindowStyle Minimized');
-    expect(launch).toContain('ShowWindow($hwnd,4)');
+    expect(launch).toContain('ShowWindow([IntPtr]$hwnd,4)');
     expect(launch).toContain('RestoreFg $prevFg $hwnd');
   });
 
@@ -133,6 +133,17 @@ describe('win-uia server script (PowerShell template)', () => {
     expect(script).toContain('public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }');
     expect(script).toContain('[DllImport("user32.dll")]public static extern bool GetLastInputInfo(ref LASTINPUTINFO li);');
     expect(script).toContain('[DllImport("user32.dll")]public static extern bool ShowWindow(IntPtr h,int c);');
+  });
+
+  it('WaitHwnd never assigns a null MainWindowHandle (PS 5.1 AppX trap)', () => {
+    // A process with no main window (the AppX activator that exits right
+    // after Start-Process) reports MainWindowHandle as $null in PS 5.1.
+    // Unconditional assignment made WaitHwnd return $null: `$null -eq $z`
+    // was false, so the AppX poll was skipped and ShowWindow($null) threw
+    // SERVER_ERROR on every launch-app of the Win11 notepad.
+    expect(script).toContain('$h=$p.MainWindowHandle; if ($h) { $hwnd=$h }');
+    expect(script).toContain('$h=$p.MainWindowHandle; if ($h) { $hwnd=[int64]$h }');
+    expect(script).toContain('[IntPtr]$hwnd,4');
   });
 
   it('provides the user-activity guard and foreground-restore helpers', () => {

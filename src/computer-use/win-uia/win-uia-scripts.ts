@@ -9,12 +9,9 @@
 // Windows 10+) via Add-Type, so no C# toolchain or npm native dependency is
 // needed. All interaction is control-level (InvokePattern / ValuePattern /
 // ScrollPattern) — the user's mouse, keyboard, focus and clipboard are never
-// touched. launch-app starts windows minimized and restores them without
-// activating (SW_SHOWNOACTIVATE); press-key's SendKeys fallback only steals
-// the foreground while the user is idle and hands it back afterwards. The
-// only explicit exceptions are the `click-point` command (user-requested
-// coordinate click) and the `focus-app` command (user-requested foreground
-// activation).
+// touched. launch-app starts minimized and restores without activating;
+// press-key's SendKeys fallback only foregrounds while the user is idle and
+// returns the foreground. Explicit exceptions: `click-point`, `focus-app`.
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -245,7 +242,10 @@ function GE($req) {
   if ($req.elementId -match '^win-(-?\d+):(\d+):\d+$') { if ([int64]$matches[2] -ne $S.Gen) { return $null } }
   $S.Cache[$req.elementId]
 }
-function WaitHwnd($p,$ms) { $sw=[System.Diagnostics.Stopwatch]::StartNew(); $hwnd=$z; while ($sw.ElapsedMilliseconds -lt $ms -and $hwnd -eq $z -and -not $p.HasExited) { Start-Sleep -m 200; $p.Refresh(); $hwnd=$p.MainWindowHandle }; $hwnd }
+# PS 5.1 trap: MainWindowHandle is $null for a main-window-less process
+# (AppX activator) - keep $z, else $null -eq $z is false, the AppX poll is
+# skipped and ShowWindow($null) throws.
+function WaitHwnd($p,$ms) { $sw=[System.Diagnostics.Stopwatch]::StartNew(); $hwnd=$z; while ($sw.ElapsedMilliseconds -lt $ms -and $hwnd -eq $z -and -not $p.HasExited) { Start-Sleep -m 200; $p.Refresh(); $h=$p.MainWindowHandle; if ($h) { $hwnd=$h } }; $hwnd }
 function Shot($h) {
   $r=New-Object CuaRect; $N::GetWindowRect($h,[ref]$r) > $null
   $w=$r.R-$r.L; $hh=$r.B-$r.T
@@ -560,7 +560,7 @@ $appExe=$name; if ($appExe -notmatch $rx) { $appExe="$name.exe" }
 $all=@(Get-Process -Name ($appExe -replace $rx,'') -EA SilentlyContinue)
 $p=$null; $hwnd=$z
 foreach ($pr in $all) { $h=$N::FirstWindow([IntPtr]$pr.Id); if ($h -ne $z) { $p=$pr; $hwnd=[int64]$h } }
-if (-not $p) { $p=@($all | select -Last 1)[0]; if ($p) { $hwnd=[int64]$p.MainWindowHandle } }
+if (-not $p) { $p=@($all | select -Last 1)[0]; if ($p) { $h=$p.MainWindowHandle; if ($h) { $hwnd=[int64]$h } } }
 if ($hwnd -eq $z) {
 # Fresh launch: start minimized so the new window can never become the
 # foreground (a minimized window cannot take the foreground), then restore
@@ -571,10 +571,7 @@ $prevFg=$N::GetForegroundWindow()
 $p=Start-Process $appExe -WindowStyle Minimized -PassThru
 $hwnd=WaitHwnd $p 20000
 if ($hwnd -eq $z) {
-  # AppX apps (e.g. the Win11 notepad) activate slowly: Start-Process
-  # returns the activator process which exits immediately, and the real
-  # window belongs to a later process. Poll for the window instead of a
-  # single snapshot (native-win32 cold start exposes this reliably).
+  # AppX: Start-Process returns an activator that exits; poll for the real window.
   $sw=[System.Diagnostics.Stopwatch]::StartNew()
   while ($sw.ElapsedMilliseconds -lt 10000 -and $hwnd -eq $z) {
     Start-Sleep -m 500
@@ -586,8 +583,8 @@ if ($hwnd -ne $z) {
   # SW_SHOWNOACTIVATE=4: restore from minimized without activating. Call
   # twice - the first ShowWindow on a window launched with
   # STARTF_USESHOWWINDOW is overridden by the startup show state.
-  $N::ShowWindow($hwnd,4) > $null
-  $N::ShowWindow($hwnd,4) > $null
+  $N::ShowWindow([IntPtr]$hwnd,4) > $null
+  $N::ShowWindow([IntPtr]$hwnd,4) > $null
   Start-Sleep -m 250
   RestoreFg $prevFg $hwnd
 }
