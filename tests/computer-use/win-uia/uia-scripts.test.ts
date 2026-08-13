@@ -52,7 +52,7 @@ describe('win-uia server script (PowerShell template)', () => {
     // the AutomationElement.SetFocus() method, which exists everywhere.
     expect(script).toContain("textbox='FOC'");
     expect(script).toContain("$el.SetFocus()");
-    expect(script).toContain("'FOC' { try { $el.SetFocus(); $ok=$true } catch {}");
+    expect(script).toContain("'FOC' { try { $el.SetFocus(); $r=$true } catch {}");
   });
 
   it('type-text sets the focused element, never the top-level window title', () => {
@@ -82,6 +82,34 @@ describe('win-uia server script (PowerShell template)', () => {
     expect(launch).toContain('MainWindowHandle');
   });
 
+  it('click-point uses the PostMessage chain — never SetCursorPos/mouse_event', () => {
+    const start = script.indexOf("'click-point'");
+    const end = script.indexOf("'quit'");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const click = script.slice(start, end);
+    expect(click).not.toContain('SetCursorPos');
+    expect(click).not.toContain('mouse_event');
+    expect(click).toContain('PostClick $hwnd');
+    expect(click).toContain('UipiBlocked');
+    // Chain machinery lives in the shared preamble.
+    expect(script).toContain('ChildWindowFromPointEx');
+    expect(script).toContain('0x08000000'); // WS_EX_NOACTIVATE
+    expect(script).toContain('0x0201'); // WM_LBUTTONDOWN
+    expect(script).toContain('0x0203'); // WM_LBUTTONDBLCLK
+  });
+
+  it('UIA pattern calls are shielded from foreground-stealing hosts (EnableWindow bypass)', () => {
+    expect(script).toContain('function Shield($h,$body)');
+    expect(script).toContain('Chrome_WidgetWin_');
+    expect(script).toContain('WinUIDesktopWin32WindowClass');
+    expect(script).toContain('Shield $S.Hwnd');
+    // UIPI integrity check prevents silent false-success against elevated
+    // targets (PostMessage returns TRUE but the message is dropped).
+    expect(script).toContain('GetIntegrityLevel');
+    expect(script).toContain('UIPI_BLOCKED');
+  });
+
   it('focus-app and press-key SendKeys fallback may foreground the target', () => {
     const start = script.indexOf("'focus-app'");
     const end = script.indexOf("'close-app'");
@@ -100,8 +128,10 @@ describe('win-uia server script (PowerShell template)', () => {
 
   // The script runs via `powershell.exe -File`, so there is no 32KB cmdline
   // limit on its content; the cap is a safety margin for PS parsing speed.
-  it('stays under the 20KB length budget', () => {
-    expect(script.length).toBeLessThan(20_000);
+  // Raised from 20KB when the foreground-steal shield + PostMessage click
+  // chain (+~5KB of helpers) landed.
+  it('stays under the 30KB length budget', () => {
+    expect(script.length).toBeLessThan(30_000);
   });
 
   it('guards against Rect.Empty bounds (Width/Height = -Infinity would throw [int])', () => {

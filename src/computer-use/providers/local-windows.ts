@@ -166,7 +166,7 @@ export class LocalWindowsProvider implements ComputerUseProvider {
       createdAt: new Date().toISOString(),
       status: 'active',
       allowedActions: [
-        'click_element', 'click_point', 'type_text', 'press_key',
+        'click_element', 'click_point', 'double_click', 'type_text', 'press_key',
         'scroll', 'stop',
       ],
       providerState: { hwnd, windowTitle, windowRect, targetApp: target.appName },
@@ -232,7 +232,24 @@ export class LocalWindowsProvider implements ComputerUseProvider {
         if (action.x === undefined || action.y === undefined) {
           return { ok: false, action: action.type, error: 'x and y coordinates required' };
         }
-        const res = await this.client().request('click-point', { x: action.x, y: action.y });
+        const providerState = lease.providerState as { hwnd?: number } | undefined;
+        const res = await this.client().request('click-point', {
+          x: action.x,
+          y: action.y,
+          ...(providerState?.hwnd ? { hwnd: providerState.hwnd } : {}),
+        });
+        return this._toResult(action.type, res);
+      }
+      case 'double_click': {
+        if (action.x === undefined || action.y === undefined) {
+          return { ok: false, action: action.type, error: 'x and y coordinates required' };
+        }
+        const providerState = lease.providerState as { hwnd?: number } | undefined;
+        const res = await this.client().request('double-click', {
+          x: action.x,
+          y: action.y,
+          ...(providerState?.hwnd ? { hwnd: providerState.hwnd } : {}),
+        });
         return this._toResult(action.type, res);
       }
       case 'type_text': {
@@ -267,8 +284,6 @@ export class LocalWindowsProvider implements ComputerUseProvider {
       }
       case 'stop':
         return { ok: true, action: 'stop' };
-      case 'double_click':
-        return { ok: false, action: action.type, error: `Action '${action.type}' not supported on Windows` };
       case 'drag':
       case 'perform_secondary_action':
         return { ok: false, action: action.type, error: `Action '${action.type}' not yet supported on Windows` };

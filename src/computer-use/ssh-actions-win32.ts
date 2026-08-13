@@ -6,10 +6,10 @@
 // executes a single command against the accessibility tree and prints one
 // JSON line. All interaction is control-level (InvokePattern / ValuePattern
 // / ScrollPattern / PostMessage) — the user's mouse, keyboard, focus and
-// clipboard are never touched. The only exceptions are the explicit
-// coordinate actions (click_point and double_click without an element),
-// which use SetCursorPos + mouse_event exactly as the UIA server template's
-// click-point branch does.
+// clipboard are never touched. Coordinate actions (click_point and
+// double_click without an element) use the PostMessage click chain (deepest
+// child + WS_EX_NOACTIVATE guard), so they never move the real cursor or
+// steal the foreground either.
 
 import type { ExecRunner } from './ssh-actions-common.js';
 import type { Action, ActionResult, UIElement } from './types.js';
@@ -224,7 +224,7 @@ export async function readWin32WindowState(
 // Actions
 // ---------------------------------------------------------------------------
 
-/** Coordinate click fallback — explicit user-requested coordinates only. */
+/** Coordinate click — explicit user-requested coordinates only. */
 async function runWin32ClickPoint(
   runner: ExecRunner,
   actionType: Action['type'],
@@ -234,6 +234,18 @@ async function runWin32ClickPoint(
   const once = await runWin32Once(runner, 'click-point', { x, y });
   if (once.ok) return { ok: true, action: actionType };
   return { ok: false, action: actionType, error: onceErrorToMessage(once, 'UIA click failed') };
+}
+
+/** Coordinate double-click via the PostMessage chain (WM_LBUTTONDBLCLK). */
+async function runWin32DoubleClick(
+  runner: ExecRunner,
+  actionType: Action['type'],
+  x: number,
+  y: number,
+): Promise<ActionResult> {
+  const once = await runWin32Once(runner, 'double-click', { x, y });
+  if (once.ok) return { ok: true, action: actionType };
+  return { ok: false, action: actionType, error: onceErrorToMessage(once, 'UIA double-click failed') };
 }
 
 /**
@@ -347,23 +359,14 @@ export async function performWin32Action(
           return { ok: false, action: action.type, error: onceErrorToMessage(once, 'UIA click failed') };
         }
         const b = action.snapshotElement.bounds;
-        const r1 = await runWin32ClickPoint(
-          runner,
-          action.type,
-          Math.round(b.x + b.width / 2),
-          Math.round(b.y + b.height / 2),
-        );
-        if (!r1.ok) return r1;
-        return runWin32ClickPoint(
+        return runWin32DoubleClick(
           runner,
           action.type,
           Math.round(b.x + b.width / 2),
           Math.round(b.y + b.height / 2),
         );
       }
-      const r1 = await runWin32ClickPoint(runner, action.type, action.x ?? 0, action.y ?? 0);
-      if (!r1.ok) return r1;
-      return runWin32ClickPoint(runner, action.type, action.x ?? 0, action.y ?? 0);
+      return runWin32DoubleClick(runner, action.type, action.x ?? 0, action.y ?? 0);
     }
 
     case 'stop':

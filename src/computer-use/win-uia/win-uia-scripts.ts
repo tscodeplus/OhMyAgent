@@ -58,7 +58,8 @@ export const UIA_MAX_DEPTH = 20;
  * The materialized file must be written as UTF-8 **with BOM** so PS 5.1
  * parses it as UTF-8 (BOM-less UTF-8 is read as ANSI by default).
  *
- * Length is budgeted well under 20k chars (32KB cmdline hard limit).
+ * Length is budgeted under ~30k chars (the resident script runs via
+ * `powershell.exe -File`, so the 32KB cmdline limit does not apply to it).
  */
 export function buildWinUiaServerScript(): string {
   return String.raw`
@@ -69,6 +70,7 @@ Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;using System.Text;
 public struct CuaRect { public int L; public int T; public int R; public int B; }
+public struct CuaPoint { public int X; public int Y; }
 public class CuaNative {
 [DllImport("user32.dll")]public static extern IntPtr GetForegroundWindow();
 [DllImport("user32.dll",CharSet=CharSet.Unicode)]public static extern int GetWindowText(IntPtr h,StringBuilder t,int c);
@@ -84,6 +86,20 @@ public class CuaNative {
 [DllImport("user32.dll")]public static extern bool IsWindowVisible(IntPtr h);
 public delegate bool EnumWindowsProc(IntPtr h,IntPtr l);
 public static IntPtr FirstWindow(IntPtr pid){IntPtr f=IntPtr.Zero;long best=0;EnumWindows(delegate(IntPtr h,IntPtr l){uint p;GetWindowThreadProcessId(h,out p);if(p==(uint)(int)pid&&IsWindowVisible(h)){CuaRect r=new CuaRect();GetWindowRect(h,out r);long a=(long)(r.R-r.L)*(r.B-r.T);if(a>best){best=a;f=h;}}return true;},IntPtr.Zero);return f;}
+[DllImport("user32.dll")]public static extern bool EnableWindow(IntPtr h,bool e);
+[DllImport("user32.dll",CharSet=CharSet.Unicode)]public static extern int GetClassName(IntPtr h,StringBuilder c,int n);
+[DllImport("user32.dll")]public static extern IntPtr GetAncestor(IntPtr h,uint f);
+[DllImport("user32.dll",EntryPoint="GetWindowLongPtrW")]public static extern int GetWindowLongPtr(IntPtr h,int i);
+[DllImport("user32.dll",EntryPoint="SetWindowLongPtrW")]public static extern int SetWindowLongPtr(IntPtr h,int i,int v);
+[DllImport("user32.dll",EntryPoint="GetClassLongPtrW")]public static extern int GetClassLongPtr(IntPtr h,int i);
+[DllImport("user32.dll")]public static extern IntPtr ChildWindowFromPointEx(IntPtr h,CuaPoint p,uint f);
+[DllImport("user32.dll")]public static extern bool ClientToScreen(IntPtr h,ref CuaPoint p);
+[DllImport("user32.dll")]public static extern bool ScreenToClient(IntPtr h,ref CuaPoint p);
+[DllImport("user32.dll")]public static extern bool IsChild(IntPtr p,IntPtr c);
+[DllImport("kernel32.dll")]public static extern IntPtr OpenProcess(uint a,bool i,uint p);
+[DllImport("advapi32.dll")]public static extern bool OpenProcessToken(IntPtr h,uint a,out IntPtr t);
+[DllImport("advapi32.dll")]public static extern bool GetTokenInformation(IntPtr t,uint c,byte[] b,uint n,out uint r);
+public static int GetIntegrityLevel(int pid){IntPtr h=OpenProcess(0x1000,false,(uint)pid);if(h==IntPtr.Zero){return 0;}IntPtr t;if(!OpenProcessToken(h,0x0008,out t)){CloseHandle(h);return 0;}byte[] b=new byte[64];uint n=0;bool ok=GetTokenInformation(t,25,b,(uint)b.Length,out n);CloseHandle(t);CloseHandle(h);if(!ok||n<12){return 0;}int c=b[1];if(c<1){return 0;}int off=8+(c-1)*4;if(off+4>b.Length){return 0;}return System.BitConverter.ToInt32(b,off);}
 }'
 $z=[IntPtr]::Zero
 $N=[CuaNative]
@@ -117,6 +133,84 @@ function Gr($b) { [System.Drawing.Graphics]::FromImage($b) }
 function SM($h,$t) { $N::SendMessage($h,0x000C,$z,$t) -ne $z }
 function HW($h) { if ($h -and [int64]$h -ne 0) { return [IntPtr][int64]$h }; $z }
 function FTRY($el,$pat,$m) { try { $x=$el.GetCurrentPattern($pat); $x.$m(); $true } catch { $false } }
+function ClassName($h) { $sb=[System.Text.StringBuilder]::new(256); $n=$N::GetClassName($h,$sb,256); if ($n -gt 0) { $sb.ToString() } else { '' } }
+function SelfActHost($h) {
+  if ([int64]$h -eq 0) { return $false }
+  $c=ClassName $h
+  switch ($c) {
+    'ApplicationFrameWindow' { return $true }
+    'WinUIDesktopWin32WindowClass' { return $true }
+    'Windows.UI.Core.CoreWindow' { return $true }
+    'Microsoft.UI.Content.DesktopChildSiteBridge' { return $true }
+  }
+  if ($c.StartsWith('Chrome_WidgetWin_') -or $c.StartsWith('CefBrowser')) { return $true }
+  $pt=0; $N::GetWindowThreadProcessId($h,[ref]$pt) > $null
+  if ($pt -ne 0) {
+    $pn=(Get-Process -Id $pt -EA SilentlyContinue).ProcessName
+    if ($pn) { $l=$pn.ToLowerInvariant(); if ($l -in @('notepad','calculatorapp','calc','applicationframehost','photos','systemsettings')) { return $true } }
+  }
+  return $false
+}
+# Foreground-steal bypass: UWP/XAML/WinUI and Chromium/Electron hosts call
+# SetForegroundWindow(self) while handling UIA pattern calls. Disabling the
+# top-level window for the duration suppresses the steal (UIA delivery uses
+# the kernel accessibility channel, not the input queue EnableWindow gates).
+function Shield($h,$body) {
+  if (-not (SelfActHost $h)) { return (& $body) }
+  $root=$N::GetAncestor($h,2); if ([int64]$root -eq 0) { $root=$h }
+  $N::EnableWindow($root,$false) > $null
+  try { return (& $body) } finally { $N::EnableWindow($root,$true) > $null }
+}
+# UIPI: PostMessage/SendMessage of input-class messages from a lower-
+# integrity process to a higher-integrity window is silently dropped while
+# the call still returns TRUE. Detect it before posting.
+function UipiBlocked($h) {
+  if ([int64]$h -eq 0) { return $false }
+  $pt=0; $N::GetWindowThreadProcessId($h,[ref]$pt) > $null
+  if ($pt -eq 0) { return $false }
+  $m=[CuaNative]::GetIntegrityLevel([int]$PID); $t=[CuaNative]::GetIntegrityLevel([int]$pt)
+  return ($m -gt 0 -and $t -gt $m)
+}
+# Background coordinate click via PostMessage: walk to the deepest child at
+# the point (so the top-level frame does not activate itself), hold
+# WS_EX_NOACTIVATE on the root for the burst, then restore the previous
+# foreground window if the target stole it anyway.
+function PostClick($hwnd,$x,$y,$count) {
+  $cur=$hwnd
+  for ($i=0; $i -lt 16; $i++) {
+    $p=New-Object CuaPoint; $p.X=[int]$x; $p.Y=[int]$y
+    $N::ScreenToClient($cur,[ref]$p) > $null
+    $child=$N::ChildWindowFromPointEx($cur,$p,7)
+    if ([int64]$child -eq 0 -or $child -eq $cur) { break }
+    if (-not $N::IsChild($hwnd,$child)) { break }
+    $cur=$child
+  }
+  $p2=New-Object CuaPoint; $p2.X=[int]$x; $p2.Y=[int]$y
+  $N::ScreenToClient($cur,[ref]$p2) > $null
+  $root=$N::GetAncestor($hwnd,2); if ([int64]$root -eq 0) { $root=$hwnd }
+  $exStyle=[int]$N::GetWindowLongPtr($root,-20)
+  $noAct=0x08000000
+  $armed=(($exStyle -band $noAct) -eq 0)
+  if ($armed) { $N::SetWindowLongPtr($root,-20,($exStyle -bor $noAct)) > $null }
+  $prevFg=$N::GetForegroundWindow()
+  $lparam=[IntPtr][int64](((($p2.Y -band 0xffff) -shl 16) -bor ($p2.X -band 0xffff)))
+  $dbl=((($N::GetClassLongPtr($cur,-26) -band 0x8) -ne 0))
+  for ($i=0; $i -lt $count; $i++) {
+    $down=0x0201; $up=0x0202
+    if ($i -ge 1 -and $dbl) { $down=0x0203 }
+    $N::PostMessage($cur,0x0200,[IntPtr]::Zero,$lparam) > $null
+    $N::PostMessage($cur,$down,[IntPtr]1,$lparam) > $null
+    Start-Sleep -m 30
+    $N::PostMessage($cur,$up,[IntPtr]::Zero,$lparam) > $null
+    Start-Sleep -m 30
+  }
+  if ($armed) { $N::SetWindowLongPtr($root,-20,$exStyle) > $null }
+  if ([int64]$prevFg -ne 0 -and $prevFg -ne $root -and $N::GetForegroundWindow() -eq $root) {
+    $fgPid=0; $fgTid=$N::GetWindowThreadProcessId($prevFg,[ref]$fgPid); $myTid=$N::GetCurrentThreadId()
+    if ($fgTid -ne 0) { $N::AttachThreadInput($myTid,$fgTid,$true) > $null; $N::SetForegroundWindow($prevFg) > $null; $N::AttachThreadInput($myTid,$fgTid,$false) > $null }
+  }
+  return $true
+}
 function GE($req) {
   if (-not $req.elementId) { return $null }
   if ($req.elementId -match '^win-(-?\d+):(\d+):\d+$') { if ([int64]$matches[2] -ne $S.Gen) { return $null } }
@@ -214,14 +308,22 @@ OK $id @{hwnd=[int64]$hwnd;gen=$S.Gen;windowTitle=(Ttl $hwnd);windowRect=(Rct $h
 $el=GE $req
 if (-not $el) { OE $id 'ELEMENT_STALE_TREE' 'Stale element' }
 else {
+# UWP/XAML/WinUI and Chromium/Electron hosts self-foreground while
+# handling UIA pattern calls (Invoke/Expand/Toggle/Select); the shield
+# disables the top-level window for the duration so the user's foreground
+# is never stolen.
+$ok=Shield $S.Hwnd {
+$r=$false
 switch ($cm[(Role $el)]) {
-'FOC' { try { $el.SetFocus(); $ok=$true } catch {}; if (-not $ok) { $ok=FTRY $el $pl 'Select' } }
-'INV' { $ok=FTRY $el $pi 'Invoke'; if (-not $ok) { $ok=FTRY $el $pl 'DoDefaultAction' } }
-'SEL' { $ok=FTRY $el $psi 'Select'; if (-not $ok) { $ok=FTRY $el $pi 'Invoke' } }
-'TOG' { $ok=FTRY $el $pt 'Toggle' }
-'EXP' { $ok=FTRY $el $pe 'Expand'; if (-not $ok) { $ok=FTRY $el $pi 'Invoke' } }
-'RNG' { try { $rv=$el.GetCurrentPattern($pr); $sc=$rv.Current.SmallChange; if ($sc -le 0) { $sc=1 }; $rv.SetValue($rv.Current.Value+$sc); $ok=$true } catch {} }
-'DD' { $ok=FTRY $el $pl 'DoDefaultAction' }
+'FOC' { try { $el.SetFocus(); $r=$true } catch {}; if (-not $r) { $r=FTRY $el $pl 'Select' } }
+'INV' { $r=FTRY $el $pi 'Invoke'; if (-not $r) { $r=FTRY $el $pl 'DoDefaultAction' } }
+'SEL' { $r=FTRY $el $psi 'Select'; if (-not $r) { $r=FTRY $el $pi 'Invoke' } }
+'TOG' { $r=FTRY $el $pt 'Toggle' }
+'EXP' { $r=FTRY $el $pe 'Expand'; if (-not $r) { $r=FTRY $el $pi 'Invoke' } }
+'RNG' { try { $rv=$el.GetCurrentPattern($pr); $sc=$rv.Current.SmallChange; if ($sc -le 0) { $sc=1 }; $rv.SetValue($rv.Current.Value+$sc); $r=$true } catch {} }
+'DD' { $r=FTRY $el $pl 'DoDefaultAction' }
+}
+$r
 }
 if ($ok) { OK $id @{clicked=$true} } else { OE $id 'ELEMENT_NO_ACTION' 'No action' }
 }
@@ -230,11 +332,12 @@ if ($ok) { OK $id @{clicked=$true} } else { OE $id 'ELEMENT_NO_ACTION' 'No actio
 $text=$req.text; $el=GE $req
 if (-not $el -and $req.elementId) { OE $id 'ELEMENT_STALE_TREE' 'Stale element' }
 else {
-$ok=$false
+$ok=Shield $S.Hwnd {
+$r=$false
 if ($el) {
-try { $el.GetCurrentPattern($pv).SetValue($text); $ok=$true } catch {}
-if (-not $ok) { try { $el.GetCurrentPattern($pl).SetValue($text); $ok=$true } catch {} }
-if (-not $ok) { try { $w=$el.Current.NativeWindowHandle; if ($w -ne 0) { $ok=SM $w $text } } catch {} }
+try { $el.GetCurrentPattern($pv).SetValue($text); $r=$true } catch {}
+if (-not $r) { try { $el.GetCurrentPattern($pl).SetValue($text); $r=$true } catch {} }
+if (-not $r) { try { $w=$el.Current.NativeWindowHandle; if ($w -ne 0 -and -not (UipiBlocked $w)) { $r=SM $w $text } } catch {} }
 } else {
 # No elementId: set the window's focused element. Never fall back to
 # WM_SETTEXT on the top-level window - that only rewrites the window
@@ -242,10 +345,12 @@ if (-not $ok) { try { $w=$el.Current.NativeWindowHandle; if ($w -ne 0) { $ok=SM 
 $fe=$null
 foreach ($e in $S.Cache.Values) { try { if ($e.Current.HasKeyboardFocus) { $fe=$e; break } } catch {} }
 if ($fe) {
-try { $fe.GetCurrentPattern($pv).SetValue($text); $ok=$true } catch {}
-if (-not $ok) { try { $fe.GetCurrentPattern($pl).SetValue($text); $ok=$true } catch {} }
-if (-not $ok) { try { $w=$fe.Current.NativeWindowHandle; if ($w -ne 0) { $ok=SM $w $text } } catch {} }
+try { $fe.GetCurrentPattern($pv).SetValue($text); $r=$true } catch {}
+if (-not $r) { try { $fe.GetCurrentPattern($pl).SetValue($text); $r=$true } catch {} }
+if (-not $r) { try { $w=$fe.Current.NativeWindowHandle; if ($w -ne 0 -and -not (UipiBlocked $w)) { $r=SM $w $text } } catch {} }
 }
+}
+$r
 }
 if ($ok) { OK $id @{typed=$true} } else { OE $id 'ELEMENT_NO_ACTION' 'No text target' }
 }
@@ -267,9 +372,12 @@ foreach ($e in $S.Cache.Values) { try { if ($e.Current.HasKeyboardFocus) { $fe=$
 $w=$z
 if ($fe) { try { $w=$fe.Current.NativeWindowHandle } catch { $w=$z } }
 if ([int64]$w -ne 0 -and [int64]$w -ne [int64]$hwnd) {
+if (UipiBlocked $w) { OE $id 'UIPI_BLOCKED' 'Target window is elevated; input injection blocked by UIPI from this process' }
+else {
 $N::PostMessage($w,0x0100,[IntPtr]$vk,$z) > $null
 $N::PostMessage($w,0x0101,[IntPtr]$vk,$z) > $null
 OK $id @{key=$req.key}
+}
 } else {
 # 2) IME-proof path for editable documents (Win11 Notepad's editor is a
 #    document whose native window IS the top-level window): PostMessage to
@@ -280,17 +388,21 @@ OK $id @{key=$req.key}
 #    through to real key injection below.
 $vpOk=$false
 if ($fe -and (Role $fe) -eq 'document') {
+$vpOk=Shield $hwnd {
+$r=$false
 try {
 $vp2=$fe.GetCurrentPattern($pv)
 $cur2=$vp2.Current.Value
 if ($cur2 -ne $null) {
 switch ($req.key) {
-'Enter' { $vp2.SetValue($cur2 + [char]10); $vpOk=$true }
-'Tab' { $vp2.SetValue($cur2 + [char]9); $vpOk=$true }
-'BackSpace' { if ($cur2.Length -gt 0) { $vp2.SetValue($cur2.Substring(0,$cur2.Length-1)); $vpOk=$true } }
+'Enter' { $vp2.SetValue($cur2 + [char]10); $r=$true }
+'Tab' { $vp2.SetValue($cur2 + [char]9); $r=$true }
+'BackSpace' { if ($cur2.Length -gt 0) { $vp2.SetValue($cur2.Substring(0,$cur2.Length-1)); $r=$true } }
 }
 }
 } catch {}
+$r
+}
 }
 if (-not $vpOk) {
 # 3) Modern apps (Chrome/Edge - UIA elements have no native hwnd) or
@@ -421,12 +533,21 @@ OK $id @{closed=$true}
 'click-point' {
 if ($null -eq $req.x -or $null -eq $req.y) { OE $id 'SERVER_ERROR' 'x and y required' }
 else {
-if (-not ('CuaMouse' -as [type])) { Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;
-public class CuaMouse { [DllImport("user32.dll")]public static extern bool SetCursorPos(int X,int Y);[DllImport("user32.dll")]public static extern void mouse_event(uint f,uint dx,uint dy,uint d,UIntPtr x);}' }
-[CuaMouse]::SetCursorPos($req.x,$req.y); Start-Sleep -m 30
-[CuaMouse]::mouse_event(0x0002,0,0,0,[UIntPtr]::Zero); Start-Sleep -m 30
-[CuaMouse]::mouse_event(0x0004,0,0,0,[UIntPtr]::Zero)
-OK $id @{clicked=$true}
+$hwnd=HW $req.hwnd
+if ($hwnd -eq $z) { $hwnd=$N::GetForegroundWindow() }
+if ($hwnd -eq $z) { OE $id 'SERVER_ERROR' 'No target window for click-point' }
+elseif (UipiBlocked $hwnd) { OE $id 'UIPI_BLOCKED' 'Target window is elevated; input injection blocked by UIPI from this process' }
+else { PostClick $hwnd $req.x $req.y 1 > $null; OK $id @{clicked=$true} }
+}
+}
+'double-click' {
+if ($null -eq $req.x -or $null -eq $req.y) { OE $id 'SERVER_ERROR' 'x and y required' }
+else {
+$hwnd=HW $req.hwnd
+if ($hwnd -eq $z) { $hwnd=$N::GetForegroundWindow() }
+if ($hwnd -eq $z) { OE $id 'SERVER_ERROR' 'No target window for double-click' }
+elseif (UipiBlocked $hwnd) { OE $id 'UIPI_BLOCKED' 'Target window is elevated; input injection blocked by UIPI from this process' }
+else { PostClick $hwnd $req.x $req.y 2 > $null; OK $id @{clicked=$true} }
 }
 }
 'quit' { OK $id @{bye=$true}; exit 0 }
@@ -490,6 +611,7 @@ export const WIN_UIA_ONCE_COMMANDS = [
   'press-key',
   'scroll',
   'click-point',
+  'double-click',
 ] as const;
 export type WinUiaOnceCommand = (typeof WIN_UIA_ONCE_COMMANDS)[number];
 
@@ -643,6 +765,7 @@ Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;using System.Text;
 public struct CuaRect { public int L; public int T; public int R; public int B; }
+public struct CuaPoint { public int X; public int Y; }
 public class CuaNative {
 [DllImport("user32.dll")]public static extern IntPtr GetForegroundWindow();
 [DllImport("user32.dll",CharSet=CharSet.Unicode)]public static extern int GetWindowText(IntPtr h,StringBuilder t,int c);
@@ -658,6 +781,20 @@ public class CuaNative {
 [DllImport("user32.dll")]public static extern bool IsWindowVisible(IntPtr h);
 public delegate bool EnumWindowsProc(IntPtr h,IntPtr l);
 public static IntPtr FirstWindow(IntPtr pid){IntPtr f=IntPtr.Zero;long best=0;EnumWindows(delegate(IntPtr h,IntPtr l){uint p;GetWindowThreadProcessId(h,out p);if(p==(uint)(int)pid&&IsWindowVisible(h)){CuaRect r=new CuaRect();GetWindowRect(h,out r);long a=(long)(r.R-r.L)*(r.B-r.T);if(a>best){best=a;f=h;}}return true;},IntPtr.Zero);return f;}
+[DllImport("user32.dll")]public static extern bool EnableWindow(IntPtr h,bool e);
+[DllImport("user32.dll",CharSet=CharSet.Unicode)]public static extern int GetClassName(IntPtr h,StringBuilder c,int n);
+[DllImport("user32.dll")]public static extern IntPtr GetAncestor(IntPtr h,uint f);
+[DllImport("user32.dll",EntryPoint="GetWindowLongPtrW")]public static extern int GetWindowLongPtr(IntPtr h,int i);
+[DllImport("user32.dll",EntryPoint="SetWindowLongPtrW")]public static extern int SetWindowLongPtr(IntPtr h,int i,int v);
+[DllImport("user32.dll",EntryPoint="GetClassLongPtrW")]public static extern int GetClassLongPtr(IntPtr h,int i);
+[DllImport("user32.dll")]public static extern IntPtr ChildWindowFromPointEx(IntPtr h,CuaPoint p,uint f);
+[DllImport("user32.dll")]public static extern bool ClientToScreen(IntPtr h,ref CuaPoint p);
+[DllImport("user32.dll")]public static extern bool ScreenToClient(IntPtr h,ref CuaPoint p);
+[DllImport("user32.dll")]public static extern bool IsChild(IntPtr p,IntPtr c);
+[DllImport("kernel32.dll")]public static extern IntPtr OpenProcess(uint a,bool i,uint p);
+[DllImport("advapi32.dll")]public static extern bool OpenProcessToken(IntPtr h,uint a,out IntPtr t);
+[DllImport("advapi32.dll")]public static extern bool GetTokenInformation(IntPtr t,uint c,byte[] b,uint n,out uint r);
+public static int GetIntegrityLevel(int pid){IntPtr h=OpenProcess(0x1000,false,(uint)pid);if(h==IntPtr.Zero){return 0;}IntPtr t;if(!OpenProcessToken(h,0x0008,out t)){CloseHandle(h);return 0;}byte[] b=new byte[64];uint n=0;bool ok=GetTokenInformation(t,25,b,(uint)b.Length,out n);CloseHandle(t);CloseHandle(h);if(!ok||n<12){return 0;}int c=b[1];if(c<1){return 0;}int off=8+(c-1)*4;if(off+4>b.Length){return 0;}return System.BitConverter.ToInt32(b,off);}
 }'
 $z=[IntPtr]::Zero
 $N=[CuaNative]
@@ -690,6 +827,84 @@ function Gr($b) { [System.Drawing.Graphics]::FromImage($b) }
 function SM($h,$t) { $N::SendMessage($h,0x000C,$z,$t) -ne $z }
 function HW($h) { if ($h -and [int64]$h -ne 0) { return [IntPtr][int64]$h }; $z }
 function FTRY($el,$pat,$m) { try { $x=$el.GetCurrentPattern($pat); $x.$m(); $true } catch { $false } }
+function ClassName($h) { $sb=[System.Text.StringBuilder]::new(256); $n=$N::GetClassName($h,$sb,256); if ($n -gt 0) { $sb.ToString() } else { '' } }
+function SelfActHost($h) {
+  if ([int64]$h -eq 0) { return $false }
+  $c=ClassName $h
+  switch ($c) {
+    'ApplicationFrameWindow' { return $true }
+    'WinUIDesktopWin32WindowClass' { return $true }
+    'Windows.UI.Core.CoreWindow' { return $true }
+    'Microsoft.UI.Content.DesktopChildSiteBridge' { return $true }
+  }
+  if ($c.StartsWith('Chrome_WidgetWin_') -or $c.StartsWith('CefBrowser')) { return $true }
+  $pt=0; $N::GetWindowThreadProcessId($h,[ref]$pt) > $null
+  if ($pt -ne 0) {
+    $pn=(Get-Process -Id $pt -EA SilentlyContinue).ProcessName
+    if ($pn) { $l=$pn.ToLowerInvariant(); if ($l -in @('notepad','calculatorapp','calc','applicationframehost','photos','systemsettings')) { return $true } }
+  }
+  return $false
+}
+# Foreground-steal bypass: UWP/XAML/WinUI and Chromium/Electron hosts call
+# SetForegroundWindow(self) while handling UIA pattern calls. Disabling the
+# top-level window for the duration suppresses the steal (UIA delivery uses
+# the kernel accessibility channel, not the input queue EnableWindow gates).
+function Shield($h,$body) {
+  if (-not (SelfActHost $h)) { return (& $body) }
+  $root=$N::GetAncestor($h,2); if ([int64]$root -eq 0) { $root=$h }
+  $N::EnableWindow($root,$false) > $null
+  try { return (& $body) } finally { $N::EnableWindow($root,$true) > $null }
+}
+# UIPI: PostMessage/SendMessage of input-class messages from a lower-
+# integrity process to a higher-integrity window is silently dropped while
+# the call still returns TRUE. Detect it before posting.
+function UipiBlocked($h) {
+  if ([int64]$h -eq 0) { return $false }
+  $pt=0; $N::GetWindowThreadProcessId($h,[ref]$pt) > $null
+  if ($pt -eq 0) { return $false }
+  $m=[CuaNative]::GetIntegrityLevel([int]$PID); $t=[CuaNative]::GetIntegrityLevel([int]$pt)
+  return ($m -gt 0 -and $t -gt $m)
+}
+# Background coordinate click via PostMessage: walk to the deepest child at
+# the point (so the top-level frame does not activate itself), hold
+# WS_EX_NOACTIVATE on the root for the burst, then restore the previous
+# foreground window if the target stole it anyway.
+function PostClick($hwnd,$x,$y,$count) {
+  $cur=$hwnd
+  for ($i=0; $i -lt 16; $i++) {
+    $p=New-Object CuaPoint; $p.X=[int]$x; $p.Y=[int]$y
+    $N::ScreenToClient($cur,[ref]$p) > $null
+    $child=$N::ChildWindowFromPointEx($cur,$p,7)
+    if ([int64]$child -eq 0 -or $child -eq $cur) { break }
+    if (-not $N::IsChild($hwnd,$child)) { break }
+    $cur=$child
+  }
+  $p2=New-Object CuaPoint; $p2.X=[int]$x; $p2.Y=[int]$y
+  $N::ScreenToClient($cur,[ref]$p2) > $null
+  $root=$N::GetAncestor($hwnd,2); if ([int64]$root -eq 0) { $root=$hwnd }
+  $exStyle=[int]$N::GetWindowLongPtr($root,-20)
+  $noAct=0x08000000
+  $armed=(($exStyle -band $noAct) -eq 0)
+  if ($armed) { $N::SetWindowLongPtr($root,-20,($exStyle -bor $noAct)) > $null }
+  $prevFg=$N::GetForegroundWindow()
+  $lparam=[IntPtr][int64](((($p2.Y -band 0xffff) -shl 16) -bor ($p2.X -band 0xffff)))
+  $dbl=((($N::GetClassLongPtr($cur,-26) -band 0x8) -ne 0))
+  for ($i=0; $i -lt $count; $i++) {
+    $down=0x0201; $up=0x0202
+    if ($i -ge 1 -and $dbl) { $down=0x0203 }
+    $N::PostMessage($cur,0x0200,[IntPtr]::Zero,$lparam) > $null
+    $N::PostMessage($cur,$down,[IntPtr]1,$lparam) > $null
+    Start-Sleep -m 30
+    $N::PostMessage($cur,$up,[IntPtr]::Zero,$lparam) > $null
+    Start-Sleep -m 30
+  }
+  if ($armed) { $N::SetWindowLongPtr($root,-20,$exStyle) > $null }
+  if ([int64]$prevFg -ne 0 -and $prevFg -ne $root -and $N::GetForegroundWindow() -eq $root) {
+    $fgPid=0; $fgTid=$N::GetWindowThreadProcessId($prevFg,[ref]$fgPid); $myTid=$N::GetCurrentThreadId()
+    if ($fgTid -ne 0) { $N::AttachThreadInput($myTid,$fgTid,$true) > $null; $N::SetForegroundWindow($prevFg) > $null; $N::AttachThreadInput($myTid,$fgTid,$false) > $null }
+  }
+  return $true
+}
 function Shot($h) {
   $r=New-Object CuaRect; $N::GetWindowRect($h,[ref]$r) > $null
   $w=$r.R-$r.L; $hh=$r.B-$r.T
@@ -813,15 +1028,21 @@ const WIN_UIA_ONCE_BRANCHES: Record<WinUiaOnceCommand, string> = {
   if ($R.elementId -notmatch '^win-(-?\\d+):\\d+:(\\d+)$') { OE 'ELEMENT_STALE_TREE' 'Invalid element id'; break }
   $el=ElByIdx (FH ([IntPtr][int64]$matches[1])) 0 ([int]$matches[2]) ([ref]0)
   if (-not $el) { OE 'ELEMENT_STALE_TREE' 'Stale element'; break }
-  $ok=$false
+  # EnableWindow shield around UIA pattern calls: XAML/Chromium hosts
+  # self-foreground while handling them (see the resident template).
+  $HWND=[IntPtr][int64]$matches[1]
+  $ok=Shield $HWND {
+  $r=$false
   switch ($cm[(Role $el)]) {
-  'FOC' { try { $el.SetFocus(); $ok=$true } catch {}; if (-not $ok) { $ok=FTRY $el $pl 'Select' } }
-  'INV' { $ok=FTRY $el $pi 'Invoke'; if (-not $ok) { $ok=FTRY $el $pl 'DoDefaultAction' } }
-  'SEL' { $ok=FTRY $el $psi 'Select'; if (-not $ok) { $ok=FTRY $el $pi 'Invoke' } }
-  'TOG' { $ok=FTRY $el $pt 'Toggle' }
-  'EXP' { $ok=FTRY $el $pe 'Expand'; if (-not $ok) { $ok=FTRY $el $pi 'Invoke' } }
-  'RNG' { try { $rv=$el.GetCurrentPattern($pr); $sc=$rv.Current.SmallChange; if ($sc -le 0) { $sc=1 }; $rv.SetValue($rv.Current.Value+$sc); $ok=$true } catch {} }
-  'DD' { $ok=FTRY $el $pl 'DoDefaultAction' }
+  'FOC' { try { $el.SetFocus(); $r=$true } catch {}; if (-not $r) { $r=FTRY $el $pl 'Select' } }
+  'INV' { $r=FTRY $el $pi 'Invoke'; if (-not $r) { $r=FTRY $el $pl 'DoDefaultAction' } }
+  'SEL' { $r=FTRY $el $psi 'Select'; if (-not $r) { $r=FTRY $el $pi 'Invoke' } }
+  'TOG' { $r=FTRY $el $pt 'Toggle' }
+  'EXP' { $r=FTRY $el $pe 'Expand'; if (-not $r) { $r=FTRY $el $pi 'Invoke' } }
+  'RNG' { try { $rv=$el.GetCurrentPattern($pr); $sc=$rv.Current.SmallChange; if ($sc -le 0) { $sc=1 }; $rv.SetValue($rv.Current.Value+$sc); $r=$true } catch {} }
+  'DD' { $r=FTRY $el $pl 'DoDefaultAction' }
+  }
+  $r
   }
   if ($ok) { OK @{clicked=$true} } else { OE 'ELEMENT_NO_ACTION' 'No action' }
 }`,
@@ -829,16 +1050,22 @@ const WIN_UIA_ONCE_BRANCHES: Record<WinUiaOnceCommand, string> = {
   $text=''
   if ($R.textB64) { $text=[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($R.textB64)) }
   $el=$null
+  $HWND=$z
   if ($R.elementId) {
     if ($R.elementId -notmatch '^win-(-?\\d+):\\d+:(\\d+)$') { OE 'ELEMENT_STALE_TREE' 'Invalid element id'; break }
     $el=ElByIdx (FH ([IntPtr][int64]$matches[1])) 0 ([int]$matches[2]) ([ref]0)
     if (-not $el) { OE 'ELEMENT_STALE_TREE' 'Stale element'; break }
+    $HWND=[IntPtr][int64]$matches[1]
   }
   $ok=$false
   if ($el) {
-    try { $el.GetCurrentPattern($pv).SetValue($text); $ok=$true } catch {}
-    if (-not $ok) { try { $el.GetCurrentPattern($pl).SetValue($text); $ok=$true } catch {} }
-    if (-not $ok) { try { $w=$el.Current.NativeWindowHandle; if ($w -ne 0) { $ok=SM $w $text } } catch {} }
+    $ok=Shield $HWND {
+    $r=$false
+    try { $el.GetCurrentPattern($pv).SetValue($text); $r=$true } catch {}
+    if (-not $r) { try { $el.GetCurrentPattern($pl).SetValue($text); $r=$true } catch {} }
+    if (-not $r) { try { $w=$el.Current.NativeWindowHandle; if ($w -ne 0 -and -not (UipiBlocked $w)) { $r=SM $w $text } } catch {} }
+    $r
+    }
   } else {
     # No elementId: set the window's focused element. Never fall back to
     # WM_SETTEXT on the top-level window - that only rewrites the window
@@ -846,11 +1073,15 @@ const WIN_UIA_ONCE_BRANCHES: Record<WinUiaOnceCommand, string> = {
     $hwnd=HW $R.hwnd
     if ($hwnd -eq $z) { $hwnd=$N::GetForegroundWindow() }
     if ($hwnd -ne $z) {
+      $ok=Shield $hwnd {
       $fe=FocEl (FH $hwnd) 0
+      $r=$false
       if ($fe) {
-        try { $fe.GetCurrentPattern($pv).SetValue($text); $ok=$true } catch {}
-        if (-not $ok) { try { $fe.GetCurrentPattern($pl).SetValue($text); $ok=$true } catch {} }
-        if (-not $ok) { try { $w=$fe.Current.NativeWindowHandle; if ($w -ne 0) { $ok=SM $w $text } } catch {} }
+        try { $fe.GetCurrentPattern($pv).SetValue($text); $r=$true } catch {}
+        if (-not $r) { try { $fe.GetCurrentPattern($pl).SetValue($text); $r=$true } catch {} }
+        if (-not $r) { try { $w=$fe.Current.NativeWindowHandle; if ($w -ne 0 -and -not (UipiBlocked $w)) { $r=SM $w $text } } catch {} }
+      }
+      $r
       }
     }
   }
@@ -871,6 +1102,7 @@ const WIN_UIA_ONCE_BRANCHES: Record<WinUiaOnceCommand, string> = {
   $w=$z
   if ($fe) { try { $w=$fe.Current.NativeWindowHandle } catch { $w=$z } }
   if ([int64]$w -ne 0 -and [int64]$w -ne [int64]$hwnd) {
+    if (UipiBlocked $w) { OE 'UIPI_BLOCKED' 'Target window is elevated; input injection blocked by UIPI from this process'; break }
     $N::PostMessage($w,0x0100,[IntPtr]$vk,$z) > $null
     $N::PostMessage($w,0x0101,[IntPtr]$vk,$z) > $null
     OK @{key=$R.key}
@@ -884,17 +1116,21 @@ const WIN_UIA_ONCE_BRANCHES: Record<WinUiaOnceCommand, string> = {
     #    semantics fall through to real key injection below.
     $vpOk=$false
     if ($fe -and (Role $fe) -eq 'document') {
+      $vpOk=Shield $hwnd {
+      $r=$false
       try {
         $vp2=$fe.GetCurrentPattern($pv)
         $cur2=$vp2.Current.Value
         if ($cur2 -ne $null) {
           switch ($R.key) {
-            'Enter' { $vp2.SetValue($cur2 + [char]10); $vpOk=$true }
-            'Tab' { $vp2.SetValue($cur2 + [char]9); $vpOk=$true }
-            'BackSpace' { if ($cur2.Length -gt 0) { $vp2.SetValue($cur2.Substring(0,$cur2.Length-1)); $vpOk=$true } }
+            'Enter' { $vp2.SetValue($cur2 + [char]10); $r=$true }
+            'Tab' { $vp2.SetValue($cur2 + [char]9); $r=$true }
+            'BackSpace' { if ($cur2.Length -gt 0) { $vp2.SetValue($cur2.Substring(0,$cur2.Length-1)); $r=$true } }
           }
         }
       } catch {}
+      $r
+      }
     }
     if (-not $vpOk) {
       # 3) Modern apps (Chrome/Edge - UIA elements have no native hwnd) or
@@ -946,11 +1182,20 @@ const WIN_UIA_ONCE_BRANCHES: Record<WinUiaOnceCommand, string> = {
 }`,
   'click-point': `'click-point' {
   if ($null -eq $R.x -or $null -eq $R.y) { OE 'SERVER_ERROR' 'x and y required'; break }
-  if (-not ('CuaMouse' -as [type])) { Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;
-public class CuaMouse { [DllImport("user32.dll")]public static extern bool SetCursorPos(int X,int Y);[DllImport("user32.dll")]public static extern void mouse_event(uint f,uint dx,uint dy,uint d,UIntPtr x);}' }
-  [CuaMouse]::SetCursorPos($R.x,$R.y); Start-Sleep -m 30
-  [CuaMouse]::mouse_event(0x0002,0,0,0,[UIntPtr]::Zero); Start-Sleep -m 30
-  [CuaMouse]::mouse_event(0x0004,0,0,0,[UIntPtr]::Zero)
+  $hwnd=HW $R.hwnd
+  if ($hwnd -eq $z) { $hwnd=$N::GetForegroundWindow() }
+  if ($hwnd -eq $z) { OE 'SERVER_ERROR' 'No target window for click-point'; break }
+  if (UipiBlocked $hwnd) { OE 'UIPI_BLOCKED' 'Target window is elevated; input injection blocked by UIPI from this process'; break }
+  PostClick $hwnd $R.x $R.y 1 > $null
+  OK @{clicked=$true}
+}`,
+  'double-click': `'double-click' {
+  if ($null -eq $R.x -or $null -eq $R.y) { OE 'SERVER_ERROR' 'x and y required'; break }
+  $hwnd=HW $R.hwnd
+  if ($hwnd -eq $z) { $hwnd=$N::GetForegroundWindow() }
+  if ($hwnd -eq $z) { OE 'SERVER_ERROR' 'No target window for double-click'; break }
+  if (UipiBlocked $hwnd) { OE 'UIPI_BLOCKED' 'Target window is elevated; input injection blocked by UIPI from this process'; break }
+  PostClick $hwnd $R.x $R.y 2 > $null
   OK @{clicked=$true}
 }`,
 };

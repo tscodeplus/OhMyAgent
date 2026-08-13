@@ -118,10 +118,28 @@ describe('SSHComputerUseProvider macOS support', () => {
   });
 
   it('performAction type_text on macOS neutralizes single-quote shell injection', async () => {
-    const { provider, mockPool } = createProvider({
-      responses: {
-        'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-      },
+    // The degraded keystroke path first verifies/activates the leased app
+    // (pid from the lease), then types. Sequence-aware frontmost: not
+    // frontmost first, confirmed frontmost after the activation.
+    let frontmostChecks = 0;
+    const execFn = vi.fn().mockImplementation(async (cmd: string) => {
+      if (cmd.includes('uname -s')) return { stdout: 'Darwin', stderr: '', exitCode: 0 };
+      if (cmd.includes('get frontmost of')) {
+        frontmostChecks++;
+        return { stdout: frontmostChecks >= 2 ? 'true' : 'false', stderr: '', exitCode: 0 };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    });
+    const provider = new SSHComputerUseProvider({
+      sshPool: {
+        exec: execFn,
+        healthCheck: vi.fn().mockResolvedValue({
+          reachable: true,
+          deps: { xdotool: true, scrot: true },
+        }),
+        destroy: vi.fn(),
+      } as any,
+      settings: BASE_SETTINGS,
     });
     // Force remote OS detection to darwin.
     await provider.listApps(DEFAULT_CTX);
@@ -135,16 +153,15 @@ describe('SSHComputerUseProvider macOS support', () => {
     });
 
     expect(result.ok).toBe(true);
-    const cmd = mockPool.exec.mock.lastCall?.[0] as string;
-    // The degraded keystroke path first activates the leased app (pid from
-    // the lease), then types. The entire osascript script is wrapped in a
-    // single-quoted shell arg, and every literal `'` in the user text is
-    // escaped as '\'' (close-quote, escaped-quote, reopen-quote). The
-    // malicious `'` therefore cannot break out of the quoting to start a
-    // new shell command.
-    expect(cmd).toContain(
-      `osascript -e 'tell application "System Events" to set frontmost of (first process whose unix id is 12345) to true' &&`,
-    );
+    const calls = execFn.mock.calls.map(c => c[0] as string);
+    expect(
+      calls.some(c => c.includes('set frontmost of (first process whose unix id is 12345) to true')),
+    ).toBe(true);
+    const cmd = calls[calls.length - 1];
+    // The entire osascript script is wrapped in a single-quoted shell arg,
+    // and every literal `'` in the user text is escaped as '\'' (close-quote,
+    // escaped-quote, reopen-quote). The malicious `'` therefore cannot break
+    // out of the quoting to start a new shell command.
     expect(cmd).toContain(
       `osascript -e 'tell application "System Events" to keystroke "x'\\''; rm -rf ~; echo '\\''"'`,
     );
@@ -206,10 +223,83 @@ describe('SSHComputerUseProvider macOS support', () => {
     expect(cmd).toContain('click at {500, 300}');
   });
 
+  it('click_point with a lease pid hits-tests the AX tree instead of clicking (no cursor move)', async () => {
+    const { provider, mockPool } = createProvider({
+      responses: {
+        'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
+        'osascript -l JavaScript': { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
+      },
+    });
+    await provider.listApps(DEFAULT_CTX);
+    const lease = makeLease();
+    const result = await provider.performAction(DEFAULT_CTX, lease, {
+      type: 'click_point',
+      x: 500,
+      y: 300,
+    });
+    expect(result.ok).toBe(true);
+    const cmd = mockPool.exec.mock.lastCall?.[0] as string;
+    expect(cmd).toContain('AXUIElementCopyElementAtPosition');
+    expect(cmd).toContain('AXUIElementGetPid');
+    expect(cmd).toContain('var sys = $.AXUIElementCreateSystemWide()');
+    expect(cmd).toContain('AXUIElementPerformAction(target, "AXPress")');
+    // The hit element must belong to the leased app (pid 12345) — never
+    // press whatever the user has on top.
+    expect(cmd).toContain('pidRef[0] !== 12345');
+    expect(cmd).not.toContain('click at');
+  });
+
+  it('click_point maps hit-test API_DISABLED to a readable Accessibility error', async () => {
+    const { provider, mockPool } = createProvider({
+      responses: {
+        'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
+        'osascript -l JavaScript': {
+          stdout: '{"ok":false,"error":"API_DISABLED"}',
+          stderr: '',
+          exitCode: 0,
+        },
+      },
+    });
+    await provider.listApps(DEFAULT_CTX);
+    const lease = makeLease();
+    const result = await provider.performAction(DEFAULT_CTX, lease, {
+      type: 'click_point',
+      x: 100,
+      y: 100,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('accessibility API is disabled');
+    // Never degrade into a cursor-moving click when the API is disabled.
+    expect(mockPool.exec.mock.calls.some(c => (c[0] as string).includes('click at'))).toBe(false);
+  });
+
+  it('click_point degrades to the synthesized click when the hit element is foreign', async () => {
+    const { provider, mockPool } = createProvider({
+      responses: {
+        'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
+        'osascript -l JavaScript': {
+          stdout: '{"ok":false,"error":"FOREIGN_ELEMENT"}',
+          stderr: '',
+          exitCode: 0,
+        },
+      },
+    });
+    await provider.listApps(DEFAULT_CTX);
+    const lease = makeLease();
+    const result = await provider.performAction(DEFAULT_CTX, lease, {
+      type: 'click_point',
+      x: 80,
+      y: 90,
+    });
+    expect(result.ok).toBe(true);
+    expect(mockPool.exec.mock.lastCall?.[0]).toContain('click at {80, 90}');
+  });
+
   it('performAction type_text on macOS generates osascript keystroke command', async () => {
     const { provider, mockPool } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
+        'get frontmost of': { stdout: 'true', stderr: '', exitCode: 0 },
       },
     });
     const lease = makeLease();
@@ -288,6 +378,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     const { provider, mockPool } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
+        'get frontmost of': { stdout: 'true', stderr: '', exitCode: 0 },
         'osascript -l JavaScript': {
           stdout: '{"ok":false,"error":"PERFORM_FAILED"}',
           stderr: '',
@@ -304,6 +395,68 @@ describe('SSHComputerUseProvider macOS support', () => {
     expect(result.ok).toBe(true);
     const cmd = mockPool.exec.mock.lastCall?.[0] as string;
     expect(cmd).toContain('key code 36');
+  });
+
+  it('press_key degradation activates the leased app when not frontmost, then posts the key', async () => {
+    // Same sequence-aware mock as the type_text degradation test: the key
+    // code must only be posted once the leased app is confirmed frontmost.
+    let frontmostChecks = 0;
+    const execFn = vi.fn().mockImplementation(async (cmd: string) => {
+      if (cmd.includes('uname -s')) return { stdout: 'Darwin', stderr: '', exitCode: 0 };
+      if (cmd.includes('osascript -l JavaScript')) {
+        return { stdout: '{"ok":false,"error":"PERFORM_FAILED"}', stderr: '', exitCode: 0 };
+      }
+      if (cmd.includes('get frontmost of')) {
+        frontmostChecks++;
+        return { stdout: frontmostChecks >= 2 ? 'true' : 'false', stderr: '', exitCode: 0 };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    });
+    const provider = new SSHComputerUseProvider({
+      sshPool: {
+        exec: execFn,
+        healthCheck: vi.fn().mockResolvedValue({
+          reachable: true,
+          deps: { xdotool: true, scrot: true },
+        }),
+        destroy: vi.fn(),
+      } as any,
+      settings: BASE_SETTINGS,
+    });
+    await provider.listApps(DEFAULT_CTX);
+    const lease = makeLease({ providerState: { pid: 4242, windowId: '0x12345678', display: ':0' } });
+    const result = await provider.performAction(DEFAULT_CTX, lease, {
+      type: 'press_key',
+      key: 'Return',
+    });
+    expect(result.ok).toBe(true);
+    const calls = execFn.mock.calls.map(c => c[0] as string);
+    expect(
+      calls.some(c => c.includes('set frontmost of (first process whose unix id is 4242) to true')),
+    ).toBe(true);
+    expect(calls[calls.length - 1]).toContain('key code 36');
+  });
+
+  it('press_key degradation fails when the leased app cannot be brought frontmost', async () => {
+    const { provider } = createProvider({
+      responses: {
+        'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
+        'osascript -l JavaScript': {
+          stdout: '{"ok":false,"error":"PERFORM_FAILED"}',
+          stderr: '',
+          exitCode: 0,
+        },
+        'get frontmost of': { stdout: 'false', stderr: '', exitCode: 0 },
+      },
+    });
+    await provider.listApps(DEFAULT_CTX);
+    const lease = makeLease({ providerState: { pid: 4242, windowId: '0x12345678', display: ':0' } });
+    const result = await provider.performAction(DEFAULT_CTX, lease, {
+      type: 'press_key',
+      key: 'Return',
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('Could not foreground target app');
   });
 
   it('scroll degradation posts arrow keys in the background via CGEventPostToPid', async () => {
@@ -343,6 +496,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     const { provider, mockPool } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
+        'get frontmost of': { stdout: 'true', stderr: '', exitCode: 0 },
         'osascript -l JavaScript': {
           stdout: '{"ok":false,"error":"NO_SCROLLABLE"}',
           stderr: '',
@@ -559,6 +713,7 @@ describe('SSHComputerUseProvider macOS AX (accessibility-first)', () => {
     const { provider, mockPool } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
+        'get frontmost of': { stdout: 'true', stderr: '', exitCode: 0 },
       },
     });
     await provider.listApps(DEFAULT_CTX);
@@ -573,11 +728,29 @@ describe('SSHComputerUseProvider macOS AX (accessibility-first)', () => {
     expect(cmd).toContain('keystroke "hello"');
   });
 
-  it('type_text degradation activates the leased app before keystroke', async () => {
-    const { provider, mockPool } = createProvider({
-      responses: {
-        'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-      },
+  it('type_text degradation activates the leased app and verifies frontmost before keystroke', async () => {
+    // Frontmost check reports false first, true after the activation — the
+    // degraded keystroke must only run once the leased app is confirmed
+    // frontmost (else the text would land in the user's app).
+    let frontmostChecks = 0;
+    const execFn = vi.fn().mockImplementation(async (cmd: string) => {
+      if (cmd.includes('uname -s')) return { stdout: 'Darwin', stderr: '', exitCode: 0 };
+      if (cmd.includes('get frontmost of')) {
+        frontmostChecks++;
+        return { stdout: frontmostChecks >= 2 ? 'true' : 'false', stderr: '', exitCode: 0 };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    });
+    const provider = new SSHComputerUseProvider({
+      sshPool: {
+        exec: execFn,
+        healthCheck: vi.fn().mockResolvedValue({
+          reachable: true,
+          deps: { xdotool: true, scrot: true },
+        }),
+        destroy: vi.fn(),
+      } as any,
+      settings: BASE_SETTINGS,
     });
     await provider.listApps(DEFAULT_CTX);
     const lease = makeLease({ providerState: { pid: 4242, windowId: '0x12345678', display: ':0' } });
@@ -587,15 +760,36 @@ describe('SSHComputerUseProvider macOS AX (accessibility-first)', () => {
       snapshotElement: makeElement({ role: 'button' }),
     });
     expect(result.ok).toBe(true);
-    const cmd = mockPool.exec.mock.lastCall?.[0] as string;
-    expect(cmd).toContain('set frontmost of (first process whose unix id is 4242) to true');
-    expect(cmd).toContain('keystroke "abc"');
+    const calls = execFn.mock.calls.map(c => c[0] as string);
+    expect(
+      calls.some(c => c.includes('set frontmost of (first process whose unix id is 4242) to true')),
+    ).toBe(true);
+    expect(calls[calls.length - 1]).toContain('keystroke "abc"');
+  });
+
+  it('type_text degradation fails when the leased app cannot be brought frontmost', async () => {
+    const { provider } = createProvider({
+      responses: {
+        'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
+        'get frontmost of': { stdout: 'false', stderr: '', exitCode: 0 },
+      },
+    });
+    await provider.listApps(DEFAULT_CTX);
+    const lease = makeLease({ providerState: { pid: 4242, windowId: '0x12345678', display: ':0' } });
+    const result = await provider.performAction(DEFAULT_CTX, lease, {
+      type: 'type_text',
+      text: 'abc',
+      snapshotElement: makeElement({ role: 'button' }),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('Could not foreground target app');
   });
 
   it('type_text truncates oversized payloads (64KB cap)', async () => {
     const { provider, mockPool } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
+        'get frontmost of': { stdout: 'true', stderr: '', exitCode: 0 },
       },
     });
     await provider.listApps(DEFAULT_CTX);
@@ -641,6 +835,7 @@ describe('SSHComputerUseProvider macOS AX (accessibility-first)', () => {
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
         // JXA scroll fails -> degraded arrow keys
+        'get frontmost of': { stdout: 'true', stderr: '', exitCode: 0 },
         'osascript -l JavaScript': {
           stdout: '{"ok":false,"error":"NO_SCROLLABLE"}',
           stderr: '',

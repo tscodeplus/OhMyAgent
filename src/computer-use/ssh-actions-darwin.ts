@@ -130,6 +130,51 @@ export function macActivateAppCommand(pid: number): string {
 }
 
 /**
+ * Query whether the process is the frontmost app via System Events.
+ * Returns undefined when the query itself fails (TCC or app-not-visible) —
+ * callers must not block on an unknown answer.
+ */
+async function isAppFrontmost(runner: ExecRunner, pid: number): Promise<boolean | undefined> {
+  try {
+    const res = await runner.exec(
+      `osascript -e 'tell application "System Events" to get frontmost of (first process whose unix id is ${pid})'`,
+    );
+    return res.stdout.trim() === 'true';
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Bring the app to the front and verify it actually became frontmost.
+ * Used before degraded synthesized-input fallbacks (`key code` / keystroke)
+ * so the keys land in the leased app instead of whatever the user has on
+ * top — mirrors the Windows SetForegroundWindow + verification pattern.
+ */
+async function ensureAppFrontmost(runner: ExecRunner, pid: number): Promise<boolean> {
+  try {
+    await runner.exec(macActivateAppCommand(pid));
+    const now = await isAppFrontmost(runner, pid);
+    return now === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Ensure synthesized (frontmost-bound) input would reach the leased app:
+ * no-op when already frontmost or no pid is known; otherwise activate and
+ * verify. Returns false when the app cannot be brought to the front — the
+ * caller must fail rather than post keys into the user's app.
+ */
+async function requireFrontmostForInput(runner: ExecRunner, pid?: number): Promise<boolean> {
+  if (pid === undefined || pid <= 0) return true;
+  const frontmost = await isAppFrontmost(runner, pid);
+  if (frontmost === true) return true;
+  return ensureAppFrontmost(runner, pid);
+}
+
+/**
  * List running macOS applications via osascript — visible processes (those
  * with windows on the desktop). Shared by the SSH provider and the local
  * macOS provider (local-darwin).
@@ -477,6 +522,63 @@ JSON.stringify(runAction());`;
 }
 
 /**
+ * JXA script: coordinate click via AX hit-test. Resolves the element at the
+ * screen point (AXUIElementCopyElementAtPosition), verifies it belongs to the
+ * leased app (AXUIElementGetPid — never press whatever the user has on top),
+ * then walks up to the first ancestor exposing AXPress and performs it. No
+ * synthesized mouse event is generated, so the real cursor never moves.
+ * Degrades (caller falls back to `System Events click at`) on HIT_TEST_FAILED /
+ * FOREIGN_ELEMENT / NO_ACTION.
+ */
+function jxaHitTestPressScript(pid: number, x: number, y: number): string {
+  return `ObjC.import('Foundation');
+ObjC.import('ApplicationServices');
+function attr(el, name) {
+  var v = Ref(), e = Ref();
+  var r = $.AXUIElementCopyAttributeValue(el, name, v, e);
+  if (r !== 0) return null;
+  return v[0] || null;
+}
+function firstPressable(el) {
+  var cur = el;
+  for (var d = 0; d < 8 && cur; d++) {
+    var a = attr(cur, $.kAXActionsAttribute);
+    if (a) {
+      for (var i = 0; i < a.length; i++) {
+        if (String(a[i]) === "AXPress") return cur;
+      }
+    }
+    cur = attr(cur, $.kAXParentAttribute);
+  }
+  return null;
+}
+var sys = $.AXUIElementCreateSystemWide();
+var elRef = Ref(), errRef = Ref();
+var hr = $.AXUIElementCopyElementAtPosition(sys, ${x}, ${y}, elRef);
+if (hr === -25211) {
+  JSON.stringify({ ok: false, error: 'API_DISABLED' });
+} else if (hr !== 0 || !elRef[0]) {
+  JSON.stringify({ ok: false, error: 'HIT_TEST_FAILED' });
+} else {
+  var pidRef = Ref();
+  var pidr = $.AXUIElementGetPid(elRef[0], pidRef);
+  if (pidr !== 0 || pidRef[0] !== ${pid}) {
+    JSON.stringify({ ok: false, error: 'FOREIGN_ELEMENT' });
+  } else {
+    var target = firstPressable(elRef[0]);
+    if (!target) {
+      JSON.stringify({ ok: false, error: 'NO_ACTION' });
+    } else {
+      var r = $.AXUIElementPerformAction(target, "AXPress");
+      if (r === -25211) { JSON.stringify({ ok: false, error: 'API_DISABLED' }); }
+      else if (r !== 0) { JSON.stringify({ ok: false, error: 'PERFORM_FAILED' }); }
+      else { JSON.stringify({ ok: true }); }
+    }
+  }
+}`;
+}
+
+/**
  * JXA script: set kAXValueAttribute on the element (text input).
  * The text is injected as base64 (digits/letters only, injection-safe)
  * and decoded inside JXA with NSData/NSString — a raw string would have to
@@ -662,10 +764,21 @@ export async function performDarwinAction(
       return { ok: false, action: action.type, error: jxaErrorToMessage(result) };
     }
 
-    // Explicit coordinate action — degraded, kept as-is.
     case 'click_point': {
       const cx = action.x ?? 0;
       const cy = action.y ?? 0;
+      // Primary path: AX hit-test at the screen point and AXPress the
+      // resolved element (only when it belongs to the leased app — never
+      // click whatever the user has on top). No synthesized mouse event, so
+      // the real cursor never moves. Degrades to the explicit System Events
+      // click (cursor moves) when no pid is available or AX cannot resolve.
+      if (pid !== undefined && pid > 0) {
+        const result = await runJxa(runner, jxaHitTestPressScript(pid, cx, cy));
+        if (result?.ok === true) return { ok: true, action: action.type };
+        if (result?.error === 'API_DISABLED') {
+          return { ok: false, action: action.type, error: AX_API_DISABLED_MESSAGE };
+        }
+      }
       return execCommand(
         runner,
         `osascript -e 'tell application "System Events" to click at {${cx}, ${cy}}'`,
@@ -697,12 +810,17 @@ export async function performDarwinAction(
         }
       }
       // Degradation: keystroke synthesizes input into the *frontmost* app,
-      // so first bring the leased app to the front (explicit — the AX path
-      // already failed) so the typed text lands in it.
-      const activate = pid !== undefined && pid > 0
-        ? `${macActivateAppCommand(pid)} && `
-        : '';
-      return execCommand(runner, `${activate}${macKeystrokeCommand(text)}`, action.type);
+      // so ensure the leased app is frontmost first (activate + verify) —
+      // the AX path already failed, so this is an explicit foreground swap,
+      // and it must land in the leased app, never the user's front app.
+      if (!(await requireFrontmostForInput(runner, pid))) {
+        return {
+          ok: false,
+          action: action.type,
+          error: 'Could not foreground target app for text entry',
+        };
+      }
+      return execCommand(runner, macKeystrokeCommand(text), action.type);
     }
 
     case 'press_key': {
@@ -725,6 +843,16 @@ export async function performDarwinAction(
           return { ok: false, action: action.type, error: AX_API_DISABLED_MESSAGE };
         }
         // Other JXA failures degrade to synthesized input below.
+      }
+      // Degraded path: System Events key code / keystroke posts into the
+      // FRONTMOST app. Ensure the leased app is frontmost first (activate +
+      // verify), else the key would land in whatever the user has on top.
+      if (!(await requireFrontmostForInput(runner, pid))) {
+        return {
+          ok: false,
+          action: action.type,
+          error: 'Could not foreground target app for key delivery',
+        };
       }
       let command: string;
       if (keyEvent) {
@@ -768,6 +896,15 @@ export async function performDarwinAction(
         if (result?.error === 'API_DISABLED') {
           return { ok: false, action: action.type, error: AX_API_DISABLED_MESSAGE };
         }
+      }
+      // System Events key code targets the frontmost app — same ensure as
+      // press_key so the scroll keys reach the leased app, not the user's.
+      if (!(await requireFrontmostForInput(runner, pid))) {
+        return {
+          ok: false,
+          action: action.type,
+          error: 'Could not foreground target app for scroll keys',
+        };
       }
       const command = Array.from({ length: repeat }, () =>
         `osascript -e 'tell application "System Events" to key code ${keyCode}'`,

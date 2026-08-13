@@ -152,6 +152,36 @@ describe('LocalWindowsProvider', () => {
     expect(requests[0].payload).toEqual({ elementId: 'win-524318:3:9', text: '你好 world' });
   });
 
+  it('click_point sends coordinates plus the lease window hwnd (PostMessage chain target)', async () => {
+    MOCK_RESPONSES['click-point'] = { ok: true, result: { clicked: true } };
+    const provider = new LocalWindowsProvider();
+
+    const result = await provider.performAction(DEFAULT_CTX, makeLease(), {
+      type: 'click_point',
+      x: 500,
+      y: 300,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(requests[0].cmd).toBe('click-point');
+    expect(requests[0].payload).toEqual({ x: 500, y: 300, hwnd: 524318 });
+  });
+
+  it('double_click posts a single double-click command with the lease hwnd', async () => {
+    MOCK_RESPONSES['double-click'] = { ok: true, result: { clicked: true } };
+    const provider = new LocalWindowsProvider();
+
+    const result = await provider.performAction(DEFAULT_CTX, makeLease(), {
+      type: 'double_click',
+      x: 100,
+      y: 200,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(requests[0].cmd).toBe('double-click');
+    expect(requests[0].payload).toEqual({ x: 100, y: 200, hwnd: 524318 });
+  });
+
   it('press_key targets the lease window hwnd', async () => {
     MOCK_RESPONSES['press-key'] = { ok: true, result: { key: 'Enter' } };
     const provider = new LocalWindowsProvider();

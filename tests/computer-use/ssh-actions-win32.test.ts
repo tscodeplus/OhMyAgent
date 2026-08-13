@@ -132,12 +132,23 @@ describe('buildWinUiaOnceScript (stateless UIA)', () => {
     }
   });
 
-  it('click-point is the only branch with coordinate injection (explicit coordinates)', () => {
+  it('click-point uses the PostMessage chain — never SetCursorPos/mouse_event', () => {
     const script = buildWinUiaOnceScript('click-point', { x: 100, y: 200 });
-    expect(script).toContain('SetCursorPos');
-    expect(script).toContain('mouse_event');
+    expect(script).not.toContain('SetCursorPos');
+    expect(script).not.toContain('mouse_event');
+    expect(script).toContain('ChildWindowFromPointEx');
+    expect(script).toContain('0x08000000'); // WS_EX_NOACTIVATE guard
+    expect(script).toContain('PostClick $hwnd $R.x $R.y 1');
     expect(script).toContain('x=100');
     expect(script).toContain('y=200');
+  });
+
+  it('double-click posts a two-press PostMessage chain (WM_LBUTTONDBLCLK)', () => {
+    const script = buildWinUiaOnceScript('double-click', { x: 100, y: 200 });
+    expect(script).not.toContain('SetCursorPos');
+    expect(script).not.toContain('mouse_event');
+    expect(script).toContain('PostClick $hwnd $R.x $R.y 2');
+    expect(script).toContain('0x0203'); // WM_LBUTTONDBLCLK
   });
 
   it('press-key uses PostMessage to the window (no foreground requirement)', () => {
@@ -426,6 +437,27 @@ describe('performWin32Action (UIA stateless)', () => {
     expect(result.ok).toBe(true);
     const written = decodeWrittenScripts(execMock.mock.calls);
     expect(written).toContain("cmd='click-element'");
+  });
+
+  it('double_click without an element posts a single double-click chain command', async () => {
+    const { pool, execMock } = createMockSSHPool({
+      'AppendAllText': { stdout: '', stderr: '', exitCode: 0 },
+      'WriteAllText': { stdout: '', stderr: '', exitCode: 0 },
+      'win-uia-once.ps1': okRun,
+    });
+
+    const result = await performWin32Action(pool, {
+      type: 'double_click',
+      x: 300,
+      y: 400,
+    });
+
+    expect(result.ok).toBe(true);
+    const written = decodeWrittenScripts(execMock.mock.calls);
+    expect(written).toContain("cmd='double-click'");
+    expect(written).toContain('x=300');
+    expect(written).toContain('y=400');
+    expect(written).toContain('PostClick $hwnd $R.x $R.y 2');
   });
 
   it('returns an error for click_element without a snapshotElement', async () => {
