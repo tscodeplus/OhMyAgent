@@ -16,6 +16,18 @@ vi.mock('node:fs', async (importOriginal) => {
   };
 });
 
+// The darwin:local provider probes availability by compiling and running the
+// embedded Swift AX tool (swiftc). CI runners (ubuntu-latest, macOS) have
+// swiftc, so a real probe can take 10s+ and blow the 10s test timeout. This
+// is a composer unit test — mock the probe, keep everything else real.
+vi.mock('../../src/computer-use/ssh-actions-darwin.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/computer-use/ssh-actions-darwin.js')>();
+  return {
+    ...actual,
+    runSwiftAx: vi.fn(async () => ({ ok: true })),
+  };
+});
+
 const noopLogger = {
   info: vi.fn(),
   warn: vi.fn(),
