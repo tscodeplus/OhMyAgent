@@ -18,14 +18,15 @@
     "files": "文件"
   },
   "sidebar": {
-    "projects": "对话空间",
+ "projects": "对话",
     "sessions": "会话",
     "newProject": "新建空间",
     "newSession": "新对话",
     "settings": "设置",
     "collapse": "收起侧边栏",
     "expand": "展开侧边栏",
-    "noProjects": "还没有对话空间",
+ "noProjects": "还没有对话",
+ "tools": "功能",
     "createFirst": "创建第一个 Project",
     "searchProject": "搜索空间...",
     "rename": "重命名",

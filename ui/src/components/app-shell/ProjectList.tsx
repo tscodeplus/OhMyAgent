@@ -6,6 +6,7 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   Folder,
+  MessageSquare,
   MessageSquarePlus,
   Plus,
   Pencil,
@@ -168,8 +169,9 @@ export default function ProjectList({ refreshKey, onRefresh, onCreateProject }: 
 
   return (
     <section className="pt-2">
-      <div className="flex items-center px-3 pb-1">
-        <span className="flex-1 text-[11px] font-medium uppercase tracking-[0.04em] text-neutral-500/90 dark:text-neutral-400/80">
+      <div className="flex items-center gap-1.5 px-2 pb-1">
+        <MessageSquare className="h-3.5 w-3.5 shrink-0 text-neutral-500/90 dark:text-neutral-400/80" strokeWidth={1.75} />
+        <span className="flex-1 text-[13px] font-medium uppercase tracking-[0.04em] text-neutral-600 dark:text-neutral-400">
           {t('sidebar.projects')}
         </span>
         <button

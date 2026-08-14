@@ -18,14 +18,15 @@
     "files": "Files"
   },
   "sidebar": {
-    "projects": "Projects",
+ "projects": "Chat",
     "sessions": "Sessions",
     "newProject": "New Project",
     "newSession": "New Chat",
     "settings": "Settings",
     "collapse": "Collapse sidebar",
     "expand": "Expand sidebar",
-    "noProjects": "No Projects",
+ "noProjects": "No chats yet",
+ "tools": "Tools",
     "createFirst": "Create your first Project",
     "rename": "Rename",
     "delete": "Delete",

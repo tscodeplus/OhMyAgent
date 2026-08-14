@@ -3,7 +3,7 @@ import { Outlet, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   PanelLeftOpen, PanelLeftClose, Settings as SettingsIcon,
-  Bot, Sparkles, Folder, BarChart3, Database, Clock,
+  Bot, Sparkles, Folder, BarChart3, Database, Clock, ChevronDown, LayoutGrid,
 } from 'lucide-react';
 import { useProject } from '../../contexts/ProjectContext';
 import { useSettings } from '../../contexts/SettingsContext';
@@ -26,14 +26,23 @@ const SIDEBAR_COLLAPSED = 56;
 
 type Tab = { id: string; path: string; labelKey: string; icon: typeof Bot };
 
-const TABS: Tab[] = [
-  { id: 'chat', path: '/', labelKey: 'tabs.chat', icon: Bot },
+// The chat shortcut lives outside the tools drawer: expanded, the pinned
+// "对话" (chat spaces) section at the bottom of the sidebar replaces it;
+// the collapsed rail keeps it as its first icon (the reference project's
+// rail shows its workspace icons) so a tool page can jump straight back.
+const CHAT_TAB: Tab = { id: 'chat', path: '/', labelKey: 'tabs.chat', icon: Bot };
+
+// Secondary features live in a collapsible drawer above the chat section —
+// collapsing it frees the whole remaining sidebar for 对话.
+const TOOL_TABS: Tab[] = [
   { id: 'skills', path: '/skills', labelKey: 'tabs.skills', icon: Sparkles },
   { id: 'files', path: '/files', labelKey: 'tabs.files', icon: Folder },
   { id: 'memory', path: '/memory', labelKey: 'tabs.memory', icon: Database },
   { id: 'cron', path: '/cron', labelKey: 'tabs.cron', icon: Clock },
   { id: 'dashboard', path: '/dashboard', labelKey: 'tabs.dashboard', icon: BarChart3 },
 ];
+
+const RAIL_TABS: Tab[] = [CHAT_TAB, ...TOOL_TABS];
 
 export default function AppShell() {
   const { t } = useTranslation('common');
@@ -84,6 +93,11 @@ export default function AppShell() {
   const [mobileSidebar, setMobileSidebar] = useState(false);
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  // Tools drawer open/closed (persisted; open by default).
+  const [toolsOpen, setToolsOpen] = useState(() => { try { return localStorage.getItem('oma-sidebar-tools-open') !== 'false'; } catch { return true; } });
+  const toggleTools = useCallback(() => {
+    setToolsOpen(v => { const n = !v; try { localStorage.setItem('oma-sidebar-tools-open', String(n)); } catch {} return n; });
+  }, []);
 
   useEffect(() => {
     const onResize = () => setViewportWidth(window.innerWidth);
@@ -194,6 +208,7 @@ export default function AppShell() {
         {/* Header — brand + collapse toggle */}
         <div className="flex h-16 shrink-0 items-center justify-between pl-2 pr-4">
           <button type="button" onClick={() => navigate('/')} className="flex items-center gap-2 rounded-md p-1 transition hover:opacity-80">
+            <BrandMark className="h-6 w-6" />
             <span className="text-[15px] font-semibold tracking-tight text-neutral-800 dark:text-neutral-200">OhMyAgent</span>
           </button>
           <button type="button" onClick={toggleSidebar} title={t('sidebar.collapse')} aria-label={t('sidebar.collapse')}
@@ -202,28 +217,43 @@ export default function AppShell() {
           </button>
         </div>
 
-        {/* App navigation — moved out of the old top toolbar into the sidebar */}
-        <nav className="shrink-0 px-2 pb-1" aria-label="Tools" role="tablist">
-          <div className="space-y-0.5">
-            {TABS.map(tab => {
-              const Icon = tab.icon;
-              const active = isTabActive(tab);
-              return (
-                <button key={tab.id} type="button" role="tab" aria-selected={active} onClick={() => handleTabClick(tab)}
-                  className={`flex h-9 w-full items-center gap-2.5 rounded-lg px-3 text-[13px] transition-colors ${
-                    active
-                      ? 'bg-neutral-100 font-medium text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100'
-                      : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100'
-                  }`}>
-                  <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} />
-                  <span className="truncate">{t(tab.labelKey)}</span>
-                </button>
-              );
-            })}
+        {/* Collapsible tools drawer — secondary features tuck away so the
+            pinned 对话 section below gets the remaining space. */}
+        <div className="shrink-0 border-b border-neutral-200/70 px-2 pb-1 dark:border-neutral-800/70">
+          {/* Header row mirrors the 对话 section: label on the left, the
+              collapse control as a small square icon button on the right. */}
+          <div className="flex items-center gap-1.5 px-3 pb-1">
+            <LayoutGrid className="h-3.5 w-3.5 shrink-0 text-neutral-500 dark:text-neutral-400" strokeWidth={1.75} />
+            <span className="flex-1 text-[13px] font-medium uppercase tracking-[0.04em] text-neutral-600 dark:text-neutral-400">
+              {t('sidebar.tools')}
+            </span>
+            <button type="button" onClick={toggleTools} aria-expanded={toolsOpen} title={t('sidebar.tools')}
+              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100">
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${toolsOpen ? 'rotate-0' : '-rotate-90'}`} strokeWidth={1.75} />
+            </button>
           </div>
-        </nav>
+          {toolsOpen && (
+            <nav className="space-y-0.5 pb-1" aria-label="Tools" role="tablist">
+              {TOOL_TABS.map(tab => {
+                const Icon = tab.icon;
+                const active = isTabActive(tab);
+                return (
+                  <button key={tab.id} type="button" role="tab" aria-selected={active} onClick={() => handleTabClick(tab)}
+                    className={`flex h-9 w-full items-center gap-2.5 rounded-lg px-3 text-[13px] transition-colors ${
+                      active
+                        ? 'bg-neutral-100 font-medium text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100'
+                        : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100'
+                    }`}>
+                    <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                    <span className="truncate">{t(tab.labelKey)}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          )}
+        </div>
 
-        {/* Projects / sessions */}
+        {/* Chat spaces — the single, pinned chat entry at the bottom */}
         <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
           <ProjectList refreshKey={refreshKey} onRefresh={() => setRefreshKey(k => k + 1)} onCreateProject={() => setShowCreateProject(true)} />
         </div>
@@ -243,12 +273,12 @@ export default function AppShell() {
         {/* Rail logo: brand mark at rest, expand affordance on hover */}
         <button type="button" onClick={toggleSidebar} title={t('sidebar.expand')} aria-label={t('sidebar.expand')}
           className="group flex h-9 w-9 items-center justify-center rounded-full text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800">
-          <span className="flex h-6 w-6 items-center justify-center rounded-md bg-indigo-500 text-[11px] font-bold text-white group-hover:hidden">O</span>
+          <BrandMark className="h-6 w-6 group-hover:hidden" />
           <PanelLeftOpen className="hidden h-[18px] w-[18px] group-hover:block" strokeWidth={1.75} />
         </button>
 
         <nav className="mt-3 flex flex-col items-center gap-1" aria-label="Tools" role="tablist">
-          {TABS.map(tab => {
+          {RAIL_TABS.map(tab => {
             const Icon = tab.icon;
             const active = isTabActive(tab);
             return (
@@ -325,5 +355,24 @@ export default function AppShell() {
       )}
       {showCreateProject && <CreateProjectModal onClose={() => setShowCreateProject(false)} onCreated={handleProjectCreated} />}
     </div>
+  );
+}
+
+// Brand mark — the app icon's indigo rounded square + O ring, inlined so the
+// expanded header and the collapsed rail carry the real logo.
+function BrandMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 1024 1024" className={className} aria-hidden="true">
+      <defs>
+        <linearGradient id="oma-brand-bg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#6366f1" />
+          <stop offset="100%" stopColor="#4f46e5" />
+        </linearGradient>
+      </defs>
+      <rect x="64" y="64" width="896" height="896" rx="224" fill="url(#oma-brand-bg)" />
+      <path fill="white" fillRule="evenodd"
+        d="M512 302 a210 210 0 1 1 0 420 a210 210 0 1 1 0 -420
+           M512 374 a138 138 0 1 0 0 276 a138 138 0 1 0 0 -276" />
+    </svg>
   );
 }
