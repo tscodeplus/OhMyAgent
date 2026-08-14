@@ -3,7 +3,7 @@ import { Outlet, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   PanelLeftOpen, PanelLeftClose, Settings as SettingsIcon,
-  Bot, Sparkles, Folder, BarChart3, Database, Clock, ChevronDown, LayoutGrid,
+  Bot, Sparkles, Folder, BarChart3, Database, Clock, ChevronDown,
 } from 'lucide-react';
 import { useProject } from '../../contexts/ProjectContext';
 import { useSettings } from '../../contexts/SettingsContext';
@@ -32,8 +32,7 @@ type Tab = { id: string; path: string; labelKey: string; icon: typeof Bot };
 // rail shows its workspace icons) so a tool page can jump straight back.
 const CHAT_TAB: Tab = { id: 'chat', path: '/', labelKey: 'tabs.chat', icon: Bot };
 
-// Secondary features live in a collapsible drawer above the chat section —
-// collapsing it frees the whole remaining sidebar for 对话.
+// Secondary tools — flat peers of the chat section below it.
 const TOOL_TABS: Tab[] = [
   { id: 'skills', path: '/skills', labelKey: 'tabs.skills', icon: Sparkles },
   { id: 'files', path: '/files', labelKey: 'tabs.files', icon: Folder },
@@ -93,7 +92,8 @@ export default function AppShell() {
   const [mobileSidebar, setMobileSidebar] = useState(false);
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-  // Tools drawer open/closed (persisted; open by default).
+  // Titleless tools drawer — open by default; collapsing frees the whole
+  // block for the chat section above (persisted).
   const [toolsOpen, setToolsOpen] = useState(() => { try { return localStorage.getItem('oma-sidebar-tools-open') !== 'false'; } catch { return true; } });
   const toggleTools = useCallback(() => {
     setToolsOpen(v => { const n = !v; try { localStorage.setItem('oma-sidebar-tools-open', String(n)); } catch {} return n; });
@@ -217,45 +217,46 @@ export default function AppShell() {
           </button>
         </div>
 
-        {/* Collapsible tools drawer — secondary features tuck away so the
-            pinned 对话 section below gets the remaining space. */}
-        <div className="shrink-0 border-b border-neutral-200/70 px-2 pb-1 dark:border-neutral-800/70">
-          {/* Header row mirrors the 对话 section: label on the left, the
-              collapse control as a small square icon button on the right. */}
-          <div className="flex items-center gap-1.5 px-3 pb-1">
-            <LayoutGrid className="h-3.5 w-3.5 shrink-0 text-neutral-500 dark:text-neutral-400" strokeWidth={1.75} />
-            <span className="flex-1 text-[13px] font-medium uppercase tracking-[0.04em] text-neutral-600 dark:text-neutral-400">
-              {t('sidebar.tools')}
-            </span>
-            <button type="button" onClick={toggleTools} aria-expanded={toolsOpen} title={t('sidebar.tools')}
-              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100">
-              <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${toolsOpen ? 'rotate-0' : '-rotate-90'}`} strokeWidth={1.75} />
-            </button>
-          </div>
-          {toolsOpen && (
-            <nav className="space-y-0.5 pb-1" aria-label="Tools" role="tablist">
-              {TOOL_TABS.map(tab => {
-                const Icon = tab.icon;
-                const active = isTabActive(tab);
-                return (
-                  <button key={tab.id} type="button" role="tab" aria-selected={active} onClick={() => handleTabClick(tab)}
-                    className={`flex h-9 w-full items-center gap-2.5 rounded-lg px-3 text-[13px] transition-colors ${
-                      active
-                        ? 'bg-neutral-100 font-medium text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100'
-                        : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100'
-                    }`}>
-                    <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} />
-                    <span className="truncate">{t(tab.labelKey)}</span>
-                  </button>
-                );
-              })}
-            </nav>
-          )}
-        </div>
-
-        {/* Chat spaces — the single, pinned chat entry at the bottom */}
+        {/* Chat spaces — pinned at the top, the primary area of the sidebar */}
         <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
           <ProjectList refreshKey={refreshKey} onRefresh={() => setRefreshKey(k => k + 1)} onCreateProject={() => setShowCreateProject(true)} />
+        </div>
+
+        {/* Tools drawer — titleless: just an expand/collapse icon; collapsing
+            gives the chat section above the whole remaining space. */}
+        <div className="mt-4 shrink-0 border-t border-neutral-200/70 dark:border-neutral-800/70">
+          {/* Whole row is the toggle — a full-width hit target with the
+              chevron pinned at the left (aligned with the chat-space
+              expand/collapse chevrons at x=18). */}
+          <button type="button" onClick={toggleTools} aria-expanded={toolsOpen}
+            title={toolsOpen ? t('sidebar.collapseTools') : t('sidebar.expandTools')}
+            aria-label={toolsOpen ? t('sidebar.collapseTools') : t('sidebar.expandTools')}
+            className="flex w-full items-center justify-center pb-1 pt-0.5 text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100">
+            <span className="flex h-6 w-6 items-center justify-center rounded-md">
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${toolsOpen ? 'rotate-180' : ''}`} strokeWidth={1.75} />
+            </span>
+          </button>
+          {toolsOpen && (
+            <nav className="px-2 pb-1" aria-label="Tools" role="tablist">
+              <div className="space-y-0">
+                {TOOL_TABS.map(tab => {
+                  const Icon = tab.icon;
+                  const active = isTabActive(tab);
+                  return (
+                    <button key={tab.id} type="button" role="tab" aria-selected={active} onClick={() => handleTabClick(tab)}
+                      className={`flex h-7 w-full items-center gap-1.5 rounded-lg px-3 text-[13px] transition-colors ${
+                        active
+                          ? 'bg-neutral-100 font-medium text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100'
+                          : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100'
+                      }`}>
+                      <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                      <span className="truncate">{t(tab.labelKey)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </nav>
+          )}
         </div>
 
         {/* Settings */}
