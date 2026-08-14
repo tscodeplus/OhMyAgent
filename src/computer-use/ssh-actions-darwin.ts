@@ -62,8 +62,8 @@ const MAC_KEYCODE_RETURN = 36;
  * bridge, which macOS 15.7 breaks for C functions with 2+ out-params
  * (AXUIElementCopyAttributeValue etc. throw "incorrect number of
  * arguments"). Subcommands: tree / press / setvalue / postkey / hitpress /
- * confirmfocused / scroll / windowid / probe — each emits one JSON object
- * on stdout.
+ * confirmfocused / confirmpath / scroll / windowid / probe — each emits one
+ * JSON object on stdout.
  * The script must not contain backticks or "${" (template-string rules).
  */
 export const SWIFT_AX_TOOL_SOURCE = `import ApplicationServices
@@ -234,6 +234,28 @@ func cmdConfirmFocused(_ pid: pid_t) {
     print(json(["ok": true]))
 }
 
+// ================= confirmpath =================
+
+// Same commit semantics as confirmfocused, addressed to an explicit element
+// path instead of the app's focused element. A background-launched app keeps
+// the AXWindow as its focused element (actions: AXRaise only) — verified
+// live on macOS 15: after AXPress + AXValue set on Safari's address bar,
+// AXFocusedUIElement still reports the window, so confirmfocused fails with
+// NO_CONFIRM while the field itself offers AXConfirm. The caller tracks the
+// element it last set text into (providerState.lastTextTargetPath) and
+// confirms that element here.
+func cmdConfirmPath(_ pid: pid_t, _ path: [Int]) {
+    let app = AXUIElementCreateApplication(pid)
+    if apiDisabled(app) { fail("API_DISABLED") }
+    guard let target = elByPath(app, path) else { fail("ELEMENT_NOT_FOUND") }
+    let actions = actionsOf(target)
+    guard actions.contains("AXConfirm") else { fail("NO_CONFIRM") }
+    let err = AXUIElementPerformAction(target, "AXConfirm" as CFString)
+    if err.rawValue == -25211 { fail("API_DISABLED") }
+    if err != AXError.success { fail("PERFORM_FAILED") }
+    print(json(["ok": true]))
+}
+
 // ================= postkey =================
 
 func cmdPostKey(_ pid: pid_t, _ code: CGKeyCode, _ flags: UInt64, _ repeatCount: Int) {
@@ -385,6 +407,9 @@ case "postkey":
 case "confirmfocused":
     guard args.count >= 3, let pid = pid_t(args[2]) else { fail("ARGS") }
     cmdConfirmFocused(pid)
+case "confirmpath":
+    guard args.count >= 4, let pid = pid_t(args[2]) else { fail("ARGS") }
+    cmdConfirmPath(pid, parsePath(args[3]))
 case "hitpress":
     guard args.count >= 5, let pid = pid_t(args[2]), let x = Float(args[3]), let y = Float(args[4]) else { fail("ARGS") }
     cmdHitPress(pid, x, y)
@@ -972,6 +997,7 @@ export async function performDarwinAction(
   runner: ExecRunner,
   action: Action,
   pid?: number,
+  textTargetPath?: string,
 ): Promise<ActionResult> {
   switch (action.type) {
     // Primary path: AXPress on the snapshot element — never a synthesized
@@ -1081,7 +1107,21 @@ export async function performDarwinAction(
         if (confirm?.error === 'API_DISABLED') {
           return { ok: false, action: action.type, error: AX_API_DISABLED_MESSAGE };
         }
-        // NO_FOCUS / NO_CONFIRM / tool failure — fall through to background post.
+        // A background-launched app keeps the AXWindow as its focused element
+        // (actions: AXRaise only) — AXFocusedUIElement never reaches the text
+        // field, so confirmfocused fails with NO_CONFIRM. Fall back to the
+        // element the caller last set text into (providerState tracks it),
+        // which is the intended commit target (Safari's address bar offers
+        // AXConfirm).
+        if (textTargetPath) {
+          const confirmPath = await runSwiftAx(runner, ['confirmpath', String(pid), textTargetPath]);
+          if (confirmPath?.ok === true) return { ok: true, action: action.type };
+          if (confirmPath?.error === 'API_DISABLED') {
+            return { ok: false, action: action.type, error: AX_API_DISABLED_MESSAGE };
+          }
+        }
+        // NO_FOCUS / NO_CONFIRM / ELEMENT_NOT_FOUND / tool failure — fall
+        // through to background post.
       }
       // Primary path: background delivery via CGEventPostToPid straight into
       // the leased app's event queue — no foreground requirement, no global

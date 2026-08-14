@@ -391,7 +391,17 @@ export class SSHComputerUseProvider implements ComputerUseProvider {
     if (remoteOS === 'darwin') {
       // AX element actions must target the *leased* app, never the user's
       // focused app — the pid is embedded in the JXA script.
-      return performDarwinAction(this.sshPool, action, providerState?.pid);
+      const textTargetPath = (providerState as { lastTextTargetPath?: string } | undefined)
+        ?.lastTextTargetPath;
+      const result = await performDarwinAction(this.sshPool, action, providerState?.pid, textTargetPath);
+      // Track where text was last set so a following Enter can AXConfirm
+      // that element (background apps keep the window focused; see
+      // ssh-actions-darwin).
+      if (result.ok && action.type === 'type_text') {
+        const path = action.snapshotElement?.elementId ?? action.elementId;
+        if (path && lease.providerState) lease.providerState.lastTextTargetPath = path;
+      }
+      return result;
     }
     if (remoteOS === 'win32') {
       return performWin32Action(this.sshPool, action, providerState?.windowId || lease.windowId);

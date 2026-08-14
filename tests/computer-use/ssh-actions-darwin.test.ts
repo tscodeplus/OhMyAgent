@@ -391,6 +391,57 @@ describe('SSHComputerUseProvider macOS support', () => {
     expect(cmd).not.toContain('key code 36');
   });
 
+  it('press_key Enter confirms the last text target when the focused element offers no AXConfirm', async () => {
+    // Background-launched apps keep the AXWindow as the focused element
+    // (actions: AXRaise only), so confirmfocused fails with NO_CONFIRM even
+    // though the address bar offers AXConfirm. The provider tracks the
+    // element it last set text into and commits that element instead.
+    const { provider, mockPool } = createProvider({
+      responses: {
+        'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
+        'confirmfocused ': { stdout: '{"ok":false,"error":"NO_CONFIRM"}', stderr: '', exitCode: 0 },
+        'confirmpath ': { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
+      },
+    });
+    await provider.listApps(DEFAULT_CTX);
+    const lease = makeLease({
+      providerState: { pid: 12345, windowId: '0x12345678', display: ':0', lastTextTargetPath: '/0/2' },
+    });
+    const result = await provider.performAction(DEFAULT_CTX, lease, {
+      type: 'press_key',
+      key: 'Return',
+    });
+    expect(result.ok).toBe(true);
+    const cmd = mockPool.exec.mock.lastCall?.[0] as string;
+    expect(cmd).toContain('confirmpath 12345 /0/2'); // AXConfirm on the last text target
+    // No CGEvent post, no foreground key-code path.
+    expect(cmd).not.toContain('postkey 12345');
+    expect(cmd).not.toContain('key code 36');
+  });
+
+  it('press_key Enter falls back to CGEvent posting when both confirm paths fail', async () => {
+    const { provider, mockPool } = createProvider({
+      responses: {
+        'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
+        'confirmfocused ': { stdout: '{"ok":false,"error":"NO_CONFIRM"}', stderr: '', exitCode: 0 },
+        'confirmpath ': { stdout: '{"ok":false,"error":"NO_CONFIRM"}', stderr: '', exitCode: 0 },
+        'postkey ': { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
+      },
+    });
+    await provider.listApps(DEFAULT_CTX);
+    const lease = makeLease({
+      providerState: { pid: 12345, windowId: '0x12345678', display: ':0', lastTextTargetPath: '/0/2' },
+    });
+    const result = await provider.performAction(DEFAULT_CTX, lease, {
+      type: 'press_key',
+      key: 'Return',
+    });
+    expect(result.ok).toBe(true);
+    const cmd = mockPool.exec.mock.lastCall?.[0] as string;
+    expect(cmd).toContain('postkey 12345 36 0 1');
+    expect(cmd).not.toContain('key code 36');
+  });
+
   it('press_key without a lease pid degrades to synthesized key code', async () => {
     const { provider, mockPool } = createProvider({
       responses: {
@@ -813,6 +864,16 @@ describe('SSHComputerUseProvider macOS AX (Swift tool, accessibility-first)', ()
     // AXConfirm action.
     expect(SWIFT_AX_TOOL_SOURCE).toContain('confirmfocused');
     expect(SWIFT_AX_TOOL_SOURCE).toContain('"AXFocusedUIElement" as CFString');
+    expect(SWIFT_AX_TOOL_SOURCE).toContain('"AXConfirm" as CFString');
+  });
+
+  it('Swift tool confirms an explicit element path (confirmpath) for background-launched apps', () => {
+    // AXFocusedUIElement stays the AXWindow while an app runs in the
+    // background — the field is reachable only by tree path. confirmpath
+    // resolves the path and performs AXConfirm on that element.
+    expect(SWIFT_AX_TOOL_SOURCE).toContain('cmdConfirmPath');
+    expect(SWIFT_AX_TOOL_SOURCE).toContain('case "confirmpath"');
+    expect(SWIFT_AX_TOOL_SOURCE).toContain('elByPath(app, path)');
     expect(SWIFT_AX_TOOL_SOURCE).toContain('"AXConfirm" as CFString');
   });
 

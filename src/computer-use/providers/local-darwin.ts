@@ -158,8 +158,23 @@ export class LocalDarwinProvider implements ComputerUseProvider {
   }
 
   async performAction(_ctx: Ctx, lease: Lease, action: Action): Promise<ActionResult> {
-    const providerState = lease.providerState as { pid?: number } | undefined;
-    return performDarwinAction(this.runner, action, providerState?.pid);
+    const providerState = lease.providerState as
+      | { pid?: number; lastTextTargetPath?: string }
+      | undefined;
+    const result = await performDarwinAction(
+      this.runner,
+      action,
+      providerState?.pid,
+      providerState?.lastTextTargetPath,
+    );
+    // Remember where text was last set so a following Enter can AXConfirm
+    // that element — background-launched apps never move focus into the
+    // field, so confirmfocused alone cannot commit (see ssh-actions-darwin).
+    if (result.ok && action.type === 'type_text') {
+      const path = action.snapshotElement?.elementId ?? action.elementId;
+      if (path && lease.providerState) lease.providerState.lastTextTargetPath = path;
+    }
+    return result;
   }
 }
 

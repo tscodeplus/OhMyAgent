@@ -251,4 +251,32 @@ describe('LocalDarwinProvider', () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain('snapshotElement');
   });
+
+  it('type_text remembers the target so a following Enter AXConfirms it (background apps keep window focus)', async () => {
+    // Background-launched apps keep the AXWindow as the focused element —
+    // confirmfocused fails with NO_CONFIRM while the address bar itself
+    // offers AXConfirm. The provider tracks the last type_text element and
+    // press_key Enter commits it via confirmpath.
+    const { runner, commands } = createMockRunner({
+      'setvalue ': { stdout: OK_STDOUT },
+      'confirmfocused ': { stdout: '{"ok":false,"error":"NO_CONFIRM"}' },
+      'confirmpath ': { stdout: OK_STDOUT },
+    });
+    const provider = new LocalDarwinProvider({ runner });
+    const lease = makeLease();
+    const typed = await provider.performAction(DEFAULT_CTX, lease, {
+      type: 'type_text',
+      text: 'https://example.com',
+      snapshotElement: { elementId: '/1', role: 'textbox', label: '', bounds: { x: 0, y: 0, width: 10, height: 10 } },
+    } as any);
+    expect(typed.ok).toBe(true);
+    const entered = await provider.performAction(DEFAULT_CTX, lease, {
+      type: 'press_key',
+      key: 'Return',
+    } as any);
+    expect(entered.ok).toBe(true);
+    const confirmCmd = commands.find(c => c.includes('confirmpath 4242 /1'))!;
+    expect(confirmCmd).toContain('confirmpath 4242 /1'); // commits the typed-into element
+    expect(commands.some(c => c.includes('postkey'))).toBe(false);
+  });
 });
