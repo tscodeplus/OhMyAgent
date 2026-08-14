@@ -75,20 +75,20 @@ describe('LocalDarwinProvider', () => {
     });
   });
 
-  it('getStatus is available when osascript probe succeeds', async () => {
-    const { runner } = createMockRunner({ 'System Events': { stdout: 'Finder' } });
+  it('getStatus is available when the AX probe succeeds', async () => {
+    const { runner } = createMockRunner({ 'oma-ax probe': { stdout: '{"ok":true}' } });
     const provider = new LocalDarwinProvider({ runner });
     const status = await provider.getStatus(DEFAULT_CTX);
     expect(status.available).toBe(true);
     expect(status.permissions).toEqual([{ name: 'macos-accessibility', granted: true }]);
   });
 
-  it('getStatus reports unavailable when osascript fails (TCC/API disabled)', async () => {
-    const { runner } = createMockRunner({ 'System Events': { error: 'kAXErrorAPIDisabled' } });
+  it('getStatus reports unavailable when the AX probe is denied (no Accessibility permission)', async () => {
+    const { runner } = createMockRunner({ 'oma-ax probe': { stdout: '{"ok":false}' } });
     const provider = new LocalDarwinProvider({ runner });
     const status = await provider.getStatus(DEFAULT_CTX);
     expect(status.available).toBe(false);
-    expect(status.message).toContain('unavailable');
+    expect(status.message).toContain('Accessibility');
   });
 
   it('listApps parses osascript visible-process output', async () => {
@@ -138,11 +138,22 @@ describe('LocalDarwinProvider', () => {
     );
   });
 
+  it('createLease accepts app names with spaces (Microsoft Edge)', async () => {
+    const { runner, commands } = createMockRunner({
+      'open -g -a': { stdout: '' },
+      'whose name is "Microsoft Edge"': { stdout: '4242' },
+    });
+    const provider = new LocalDarwinProvider({ runner });
+    const lease = await provider.createLease(DEFAULT_CTX, { appName: 'Microsoft Edge' });
+    expect(lease.providerState).toEqual({ pid: 4242 });
+    expect(commands.some(c => c.startsWith("open -g -a 'Microsoft Edge'"))).toBe(true);
+  });
+
   it('getAppState parses the JXA tree into UI elements', async () => {
     const { runner, commands } = createMockRunner({
       'screencapture': { stdout: '' },
       'base64 -i': { stdout: 'c2NyZWVuc2hvdA==' },
-      'osascript -l JavaScript': { stdout: TREE_STDOUT },
+      'tree ': { stdout: TREE_STDOUT },
     });
     const provider = new LocalDarwinProvider({ runner });
     const state = await provider.getAppState(DEFAULT_CTX, makeLease());
@@ -153,18 +164,18 @@ describe('LocalDarwinProvider', () => {
     expect(first.role).toBe('button');
     expect(first.label).toBe('OK');
     expect(first.elementId).toBe('/0');
-    // The tree walk must embed the leased pid, never the focused app.
-    expect(commands.find(c => c.includes('osascript -l JavaScript'))).toContain('4242');
+    // The tree walk must target the leased pid, never the focused app.
+    expect(commands.some(c => c.includes('/tmp/oma-ax tree 4242'))).toBe(true);
   });
 
   it('getAppState captures the leased app window (screencapture -l) when a window id resolves', async () => {
     const { runner, commands } = createMockRunner({
-      // Order matters: the window-id JXA query contains 'osascript -l JavaScript'
-      // too, and the first matching pattern wins.
-      'kCGWindowOwnerPID': { stdout: '{"id": 777}' },
+      // Order matters: the window-id command contains 'windowid ' and the
+      // first matching pattern wins.
+      'windowid ': { stdout: '{"id": 777}' },
       'screencapture -x -l': { stdout: '' },
       'base64 -i': { stdout: 'c2NyZWVuc2hvdA==' },
-      'osascript -l JavaScript': { stdout: TREE_STDOUT },
+      'tree ': { stdout: TREE_STDOUT },
       'osascript': { stdout: 'Finder' },
     });
     const provider = new LocalDarwinProvider({ runner });
@@ -179,7 +190,7 @@ describe('LocalDarwinProvider', () => {
   it('getAppState falls back to a full-screen capture when no window id resolves', async () => {
     const { runner, commands } = createMockRunner({
       // Window query returns a tree JSON (non-matching) → no id.
-      'osascript -l JavaScript': { stdout: TREE_STDOUT },
+      'tree ': { stdout: TREE_STDOUT },
       'screencapture -x -T0': { stdout: '' },
       'base64 -i': { stdout: 'c2NyZWVuc2hvdA==' },
       'osascript': { stdout: 'Finder' },
@@ -192,10 +203,10 @@ describe('LocalDarwinProvider', () => {
 
   it('getAppState reports a locked screen (frontmost = loginwindow) via notice', async () => {
     const { runner } = createMockRunner({
-      'get name of front process': { stdout: 'loginwindow' },
+      'frontmost is true': { stdout: 'loginwindow' },
       'screencapture -x -T0': { stdout: '' },
       'base64 -i': { stdout: 'c2NyZWVuc2hvdA==' },
-      'osascript -l JavaScript': { stdout: TREE_STDOUT },
+      'tree ': { stdout: TREE_STDOUT },
       'osascript': { stdout: 'Finder' },
     });
     const provider = new LocalDarwinProvider({ runner });
@@ -205,21 +216,20 @@ describe('LocalDarwinProvider', () => {
   });
 
   it('click_element issues an AXPress command — never a coordinate click', async () => {
-    const { runner, commands } = createMockRunner({ 'osascript -l JavaScript': { stdout: OK_STDOUT } });
+    const { runner, commands } = createMockRunner({ 'press ': { stdout: OK_STDOUT } });
     const provider = new LocalDarwinProvider({ runner });
     const result = await provider.performAction(DEFAULT_CTX, makeLease(), {
       type: 'click_element',
       snapshotElement: { elementId: '/0', role: 'button', label: 'OK', bounds: { x: 0, y: 0, width: 10, height: 10 } },
     } as any);
     expect(result.ok).toBe(true);
-    const jxa = commands.find(c => c.includes('osascript -l JavaScript'))!;
-    expect(jxa).toContain('AXUIElementPerformAction');
-    expect(jxa).not.toContain('click at');
-    expect(jxa).toContain('4242'); // pid-targeted, not focused app
+    const press = commands.find(c => c.includes('/tmp/oma-ax press 4242 /0'))!;
+    expect(press).toContain('/tmp/oma-ax press 4242 /0');
+    expect(press).not.toContain('click at');
   });
 
   it('type_text sets kAXValueAttribute via base64 — no clipboard, no keystroke', async () => {
-    const { runner, commands } = createMockRunner({ 'osascript -l JavaScript': { stdout: OK_STDOUT } });
+    const { runner, commands } = createMockRunner({ 'setvalue ': { stdout: OK_STDOUT } });
     const provider = new LocalDarwinProvider({ runner });
     const result = await provider.performAction(DEFAULT_CTX, makeLease(), {
       type: 'type_text',
@@ -227,11 +237,11 @@ describe('LocalDarwinProvider', () => {
       snapshotElement: { elementId: '/1', role: 'textbox', label: '', bounds: { x: 0, y: 0, width: 10, height: 10 } },
     } as any);
     expect(result.ok).toBe(true);
-    const jxa = commands.find(c => c.includes('osascript -l JavaScript'))!;
-    expect(jxa).toContain('kAXValueAttribute');
-    expect(jxa).not.toContain('keystroke');
+    const setvalue = commands.find(c => c.includes('/tmp/oma-ax setvalue 4242 /1'))!;
+    expect(setvalue).toContain('/tmp/oma-ax setvalue 4242 /1');
+    expect(setvalue).not.toContain('keystroke');
     // base64 of '你好' — CJK survives the command line
-    expect(jxa).toContain('5L2g5aW9');
+    expect(setvalue).toContain('5L2g5aW9');
   });
 
   it('click_element without a snapshotElement returns an error (no coordinate fallback)', async () => {

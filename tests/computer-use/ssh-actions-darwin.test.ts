@@ -174,7 +174,7 @@ describe('SSHComputerUseProvider macOS support', () => {
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
         'screencapture': { stdout: '', stderr: '', exitCode: 0 },
-        'base64': { stdout: 'iVBOR', stderr: '', exitCode: 0 },
+        'base64 -i': { stdout: 'iVBOR', stderr: '', exitCode: 0 },
         'osascript': { stdout: 'Finder', stderr: '', exitCode: 0 },
       },
     });
@@ -192,9 +192,9 @@ describe('SSHComputerUseProvider macOS support', () => {
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
         // Order matters: the window-id JXA query also contains 'osascript'.
-        'kCGWindowOwnerPID': { stdout: '{"id": 42}', stderr: '', exitCode: 0 },
+        'windowid ': { stdout: '{"id": 42}', stderr: '', exitCode: 0 },
         'screencapture -x -l': { stdout: '', stderr: '', exitCode: 0 },
-        'base64': { stdout: 'iVBOR', stderr: '', exitCode: 0 },
+        'base64 -i': { stdout: 'iVBOR', stderr: '', exitCode: 0 },
         'osascript': { stdout: 'Finder', stderr: '', exitCode: 0 },
       },
     });
@@ -212,9 +212,9 @@ describe('SSHComputerUseProvider macOS support', () => {
     const { provider } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        'get name of front process': { stdout: 'loginwindow', stderr: '', exitCode: 0 },
+        'frontmost is true': { stdout: 'loginwindow', stderr: '', exitCode: 0 },
         'screencapture': { stdout: '', stderr: '', exitCode: 0 },
-        'base64': { stdout: 'iVBOR', stderr: '', exitCode: 0 },
+        'base64 -i': { stdout: 'iVBOR', stderr: '', exitCode: 0 },
         'osascript': { stdout: 'Finder', stderr: '', exitCode: 0 },
       },
     });
@@ -228,14 +228,16 @@ describe('SSHComputerUseProvider macOS support', () => {
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
         'screencapture': { stdout: '', stderr: '', exitCode: 0 },
-        'base64': { stdout: 'iVBOR', stderr: '', exitCode: 0 },
+        'base64 -i': { stdout: 'iVBOR', stderr: '', exitCode: 0 },
         'osascript': { stdout: 'Finder', stderr: '', exitCode: 0 },
       },
     });
     const lease = makeLease({ leaseId: 'test-lease-1' });
     await provider.getAppState(DEFAULT_CTX, lease);
+    // The screenshot read-back uses `base64 -i` — the Swift tool's own
+    // `base64 -d` writes must not be matched here.
     const base64Call = mockPool.exec.mock.calls.find(
-      (call: [string]) => call[0].includes('base64'),
+      (call: [string]) => call[0].includes('base64 -i'),
     );
     expect(base64Call).toBeDefined();
     expect(base64Call![0]).toContain('base64 -i');
@@ -263,7 +265,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     const { provider, mockPool } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        'osascript -l JavaScript': { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
+        'hitpress ': { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
       },
     });
     await provider.listApps(DEFAULT_CTX);
@@ -275,13 +277,9 @@ describe('SSHComputerUseProvider macOS support', () => {
     });
     expect(result.ok).toBe(true);
     const cmd = mockPool.exec.mock.lastCall?.[0] as string;
-    expect(cmd).toContain('AXUIElementCopyElementAtPosition');
-    expect(cmd).toContain('AXUIElementGetPid');
-    expect(cmd).toContain('var sys = $.AXUIElementCreateSystemWide()');
-    expect(cmd).toContain('AXUIElementPerformAction(target, "AXPress")');
+    expect(cmd).toContain('/tmp/oma-ax hitpress 12345 500 300');
     // The hit element must belong to the leased app (pid 12345) — never
-    // press whatever the user has on top.
-    expect(cmd).toContain('pidRef[0] !== 12345');
+    // press whatever the user has on top (enforced inside the Swift tool).
     expect(cmd).not.toContain('click at');
   });
 
@@ -289,7 +287,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     const { provider, mockPool } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        'osascript -l JavaScript': {
+        'hitpress ': {
           stdout: '{"ok":false,"error":"API_DISABLED"}',
           stderr: '',
           exitCode: 0,
@@ -313,7 +311,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     const { provider, mockPool } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        'osascript -l JavaScript': {
+        'hitpress ': {
           stdout: '{"ok":false,"error":"FOREIGN_ELEMENT"}',
           stderr: '',
           exitCode: 0,
@@ -353,7 +351,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     const { provider, mockPool } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        'CGEventPostToPid': { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
+        'postkey ': { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
       },
     });
     await provider.listApps(DEFAULT_CTX);
@@ -364,10 +362,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     });
     expect(result.ok).toBe(true);
     const cmd = mockPool.exec.mock.lastCall?.[0] as string;
-    expect(cmd).toContain('osascript -l JavaScript');
-    expect(cmd).toContain('CGEventPostToPid');
-    expect(cmd).toContain('CGEventCreateKeyboardEvent($(), 36');
-    expect(cmd).toContain('var pid = 12345'); // targets the leased app
+    expect(cmd).toContain('/tmp/oma-ax postkey 12345 36 0 1'); // targets the leased app
     // The foreground key-code path must not run.
     expect(cmd).not.toContain('key code 36');
   });
@@ -394,7 +389,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     const { provider, mockPool } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        'CGEventPostToPid': { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
+        'postkey ': { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
       },
     });
     await provider.listApps(DEFAULT_CTX);
@@ -406,8 +401,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     expect(result.ok).toBe(true);
     const cmd = mockPool.exec.mock.lastCall?.[0] as string;
     // 'a' = keycode 0; uppercase adds kCGEventFlagMaskShift (0x020000 = 131072).
-    expect(cmd).toContain('CGEventCreateKeyboardEvent($(), 0');
-    expect(cmd).toContain('var flags = 131072');
+    expect(cmd).toContain('/tmp/oma-ax postkey 12345 0 131072 1');
   });
 
   it('press_key falls back to synthesized key code when background posting fails', async () => {
@@ -415,7 +409,7 @@ describe('SSHComputerUseProvider macOS support', () => {
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
         'get frontmost of': { stdout: 'true', stderr: '', exitCode: 0 },
-        'osascript -l JavaScript': {
+        'postkey ': {
           stdout: '{"ok":false,"error":"PERFORM_FAILED"}',
           stderr: '',
           exitCode: 0,
@@ -439,7 +433,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     let frontmostChecks = 0;
     const execFn = vi.fn().mockImplementation(async (cmd: string) => {
       if (cmd.includes('uname -s')) return { stdout: 'Darwin', stderr: '', exitCode: 0 };
-      if (cmd.includes('osascript -l JavaScript')) {
+      if (cmd.includes('postkey ')) {
         return { stdout: '{"ok":false,"error":"PERFORM_FAILED"}', stderr: '', exitCode: 0 };
       }
       if (cmd.includes('get frontmost of')) {
@@ -477,7 +471,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     const { provider } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        'osascript -l JavaScript': {
+        'postkey ': {
           stdout: '{"ok":false,"error":"PERFORM_FAILED"}',
           stderr: '',
           exitCode: 0,
@@ -501,7 +495,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     const { provider, mockPool } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        'osascript -l JavaScript': {
+        'postkey ': {
           stdout: '{"ok":false,"error":"PERFORM_FAILED"}',
           stderr: '',
           exitCode: 0,
@@ -531,7 +525,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     let frontmostPidQueries = 0;
     const execFn = vi.fn().mockImplementation(async (cmd: string) => {
       if (cmd.includes('uname -s')) return { stdout: 'Darwin', stderr: '', exitCode: 0 };
-      if (cmd.includes('osascript -l JavaScript')) {
+      if (cmd.includes('postkey ')) {
         return { stdout: '{"ok":false,"error":"PERFORM_FAILED"}', stderr: '', exitCode: 0 };
       }
       if (cmd.includes('get frontmost of')) {
@@ -583,7 +577,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     let frontmostChecks = 0;
     const execFn = vi.fn().mockImplementation(async (cmd: string) => {
       if (cmd.includes('uname -s')) return { stdout: 'Darwin', stderr: '', exitCode: 0 };
-      if (cmd.includes('osascript -l JavaScript')) {
+      if (cmd.includes('postkey ')) {
         return { stdout: '{"ok":false,"error":"PERFORM_FAILED"}', stderr: '', exitCode: 0 };
       }
       if (cmd.includes('get frontmost of')) {
@@ -623,11 +617,11 @@ describe('SSHComputerUseProvider macOS support', () => {
     const { provider, mockPool } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        // Order matters: the background key-posting JXA contains
-        // 'CGEventPostToPid' and matches first; the AX scroll JXA then
-        // matches 'osascript -l JavaScript' and fails, forcing degradation.
-        'CGEventPostToPid': { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
-        'osascript -l JavaScript': {
+        // Order matters: the background key-posting command matches
+        // 'postkey ' first; the AX scroll tool then matches 'scroll ' and
+        // fails, forcing degradation.
+        'postkey ': { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
+        'scroll ': {
           stdout: '{"ok":false,"error":"NO_SCROLLABLE"}',
           stderr: '',
           exitCode: 0,
@@ -644,10 +638,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     });
     expect(result.ok).toBe(true);
     const cmd = mockPool.exec.mock.lastCall?.[0] as string;
-    expect(cmd).toContain('CGEventPostToPid');
-    expect(cmd).toContain('CGEventCreateKeyboardEvent($(), 125');
-    // repeat = 2 posts the key twice inside the script.
-    expect(cmd).toContain('for (var n = 0; n < 2; n++)');
+    expect(cmd).toContain('/tmp/oma-ax postkey 12345 125 0 2'); // repeat 2 in the background
     // The foreground arrow-key path must not run.
     expect(cmd).not.toContain('key code 125');
   });
@@ -657,7 +648,7 @@ describe('SSHComputerUseProvider macOS support', () => {
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
         'get frontmost of': { stdout: 'true', stderr: '', exitCode: 0 },
-        'osascript -l JavaScript': {
+        'scroll ': {
           stdout: '{"ok":false,"error":"NO_SCROLLABLE"}',
           stderr: '',
           exitCode: 0,
@@ -712,7 +703,7 @@ describe('SSHComputerUseProvider macOS support', () => {
 });
 
 // ---------------------------------------------------------------------------
-// macOS accessibility-first (AX via JXA) support
+// macOS accessibility-first (AX via the Swift tool) support
 // ---------------------------------------------------------------------------
 
 function makeElement(overrides?: Partial<UIElement>): UIElement {
@@ -726,12 +717,12 @@ function makeElement(overrides?: Partial<UIElement>): UIElement {
   };
 }
 
-describe('SSHComputerUseProvider macOS AX (accessibility-first)', () => {
+describe('SSHComputerUseProvider macOS AX (Swift tool, accessibility-first)', () => {
   it('click_element with snapshotElement issues a JXA AXPress command (never "click at")', async () => {
     const { provider, mockPool } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        'osascript -l JavaScript': { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
+        'press ': { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
       },
     });
     await provider.listApps(DEFAULT_CTX);
@@ -742,9 +733,8 @@ describe('SSHComputerUseProvider macOS AX (accessibility-first)', () => {
     });
     expect(result.ok).toBe(true);
     const cmd = mockPool.exec.mock.lastCall?.[0] as string;
-    expect(cmd).toContain('osascript -l JavaScript');
+    expect(cmd).toContain('/tmp/oma-ax press 12345 /0/2/5');
     expect(cmd).toContain('/0/2/5');
-    expect(cmd).toContain('AXPress');
     expect(cmd).not.toContain('click at');
   });
 
@@ -752,7 +742,7 @@ describe('SSHComputerUseProvider macOS AX (accessibility-first)', () => {
     const { provider, mockPool } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        'osascript -l JavaScript': { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
+        'press ': { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
       },
     });
     await provider.listApps(DEFAULT_CTX);
@@ -764,16 +754,16 @@ describe('SSHComputerUseProvider macOS AX (accessibility-first)', () => {
     });
     expect(result.ok).toBe(true);
     const cmd = mockPool.exec.mock.lastCall?.[0] as string;
-    expect(cmd).toContain('var pid = 12345');
-    expect(cmd).toContain('AXUIElementCreateApplication(12345)');
-    expect(cmd).not.toContain('kAXFocusedApplicationAttribute');
+    // The leased pid (12345) is passed to the Swift tool — the focused-app
+    // fallback never runs.
+    expect(cmd).toContain('/tmp/oma-ax press 12345 /0/2/5');
   });
 
   it('click_element without a lease pid falls back to the focused application', async () => {
     const { provider, mockPool } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        'osascript -l JavaScript': { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
+        'press ': { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
       },
     });
     await provider.listApps(DEFAULT_CTX);
@@ -784,8 +774,7 @@ describe('SSHComputerUseProvider macOS AX (accessibility-first)', () => {
     });
     expect(result.ok).toBe(true);
     const cmd = mockPool.exec.mock.lastCall?.[0] as string;
-    expect(cmd).toContain('var pid = 0');
-    expect(cmd).not.toContain('AXUIElementCreateApplication');
+    expect(cmd).toContain('/tmp/oma-ax press 0 /0/2/5');
   });
 
   it('click_element without snapshotElement still returns an error (no coordinate fallback for element clicks)', async () => {
@@ -807,7 +796,7 @@ describe('SSHComputerUseProvider macOS AX (accessibility-first)', () => {
     const { provider, mockPool } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        'osascript -l JavaScript': {
+        'press ': {
           stdout: '{"ok":false,"error":"API_DISABLED"}',
           stderr: '',
           exitCode: 0,
@@ -830,7 +819,7 @@ describe('SSHComputerUseProvider macOS AX (accessibility-first)', () => {
     const { provider } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        'osascript -l JavaScript': {
+        'press ': {
           stdout: '{"ok":false,"error":"NO_ACTION"}',
           stderr: '',
           exitCode: 0,
@@ -851,7 +840,7 @@ describe('SSHComputerUseProvider macOS AX (accessibility-first)', () => {
     const { provider, mockPool } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        'osascript -l JavaScript': { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
+        'setvalue ': { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
       },
     });
     await provider.listApps(DEFAULT_CTX);
@@ -863,9 +852,7 @@ describe('SSHComputerUseProvider macOS AX (accessibility-first)', () => {
     });
     expect(result.ok).toBe(true);
     const cmd = mockPool.exec.mock.lastCall?.[0] as string;
-    expect(cmd).toContain('osascript -l JavaScript');
-    expect(cmd).toContain('kAXValueAttribute');
-    expect(cmd).toContain('var pid = 12345'); // targets the leased app
+    expect(cmd).toContain('/tmp/oma-ax setvalue 12345 /0/2/5'); // targets the leased app
     expect(cmd).not.toContain('keystroke');
   });
 
@@ -996,7 +983,7 @@ describe('SSHComputerUseProvider macOS AX (accessibility-first)', () => {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
         // JXA scroll fails -> degraded arrow keys
         'get frontmost of': { stdout: 'true', stderr: '', exitCode: 0 },
-        'osascript -l JavaScript': {
+        'scroll ': {
           stdout: '{"ok":false,"error":"NO_SCROLLABLE"}',
           stderr: '',
           exitCode: 0,
@@ -1023,9 +1010,9 @@ describe('SSHComputerUseProvider macOS AX (accessibility-first)', () => {
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
         'screencapture': { stdout: '', stderr: '', exitCode: 0 },
-        'base64': { stdout: 'iVBOR', stderr: '', exitCode: 0 },
+        'base64 -i': { stdout: 'iVBOR', stderr: '', exitCode: 0 },
         // JXA tree probe returns a non-JSON string like the title probe.
-        'osascript -l JavaScript': { stdout: 'Finder', stderr: '', exitCode: 0 },
+        'tree ': { stdout: 'Finder', stderr: '', exitCode: 0 },
         'osascript': { stdout: 'Finder', stderr: '', exitCode: 0 },
       },
     });
@@ -1034,13 +1021,13 @@ describe('SSHComputerUseProvider macOS AX (accessibility-first)', () => {
     expect(state.elements).toEqual([]);
   });
 
-  it('getAppState parses AX elements from JXA JSON output (role mapping + elementId as path)', async () => {
+  it('getAppState parses AX elements from Swift tool JSON output (role mapping + elementId as path)', async () => {
     const { provider } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
         'screencapture': { stdout: '', stderr: '', exitCode: 0 },
-        'base64': { stdout: 'iVBOR', stderr: '', exitCode: 0 },
-        'osascript -l JavaScript': {
+        'base64 -i': { stdout: 'iVBOR', stderr: '', exitCode: 0 },
+        'tree ': {
           stdout: JSON.stringify({
             ok: true,
             elements: [

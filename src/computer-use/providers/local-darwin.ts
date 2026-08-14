@@ -17,6 +17,7 @@ import type {
 import { createLocalExecRunner, quoteShellArg, type ExecRunner } from '../ssh-actions-common.js';
 import {
   listDarwinApps, readDarwinWindowState, performDarwinAction, DARWIN_LOCKED_NOTICE,
+  runSwiftAx,
 } from '../ssh-actions-darwin.js';
 
 export class LocalDarwinProvider implements ComputerUseProvider {
@@ -52,21 +53,28 @@ export class LocalDarwinProvider implements ComputerUseProvider {
   }
 
   async getStatus(_ctx: Ctx): Promise<ProviderStatus> {
+    // A real AX probe, not a System Events process listing — the latter
+    // works without Accessibility permission and would report available
+    // while every AX call is denied. The probe goes through the same Swift
+    // AX tool the actions use (never the JXA bridge, broken on macOS 15.7).
     try {
-      // osascript + System Events reachable ⇒ AX automation is available
-      // (TCC granted or promptable). Failures surface as unavailable.
-      await this.runner.exec(
-        `osascript -e 'tell application "System Events" to get name of front process'`,
-        { timeoutMs: 10_000 },
-      );
+      const res = await runSwiftAx(this.runner, ['probe'], 10_000);
+      if (res?.ok === true) {
+        return {
+          providerId: this.providerId,
+          available: true,
+          permissions: [{ name: 'macos-accessibility', granted: true }],
+        };
+      }
       return {
         providerId: this.providerId,
-        available: true,
-        permissions: [{ name: 'macos-accessibility', granted: true }],
+        available: false,
+        permissions: [],
+        message: 'macOS accessibility unavailable: grant OhMyAgent Accessibility permission in System Settings > Privacy & Security',
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      this.logger?.debug({ err: message }, 'LocalDarwinProvider: osascript probe failed');
+      this.logger?.debug({ err: message }, 'LocalDarwinProvider: AX probe failed');
       return {
         providerId: this.providerId,
         available: false,
@@ -156,7 +164,11 @@ export class LocalDarwinProvider implements ComputerUseProvider {
 }
 
 function assertSafeAppName(appName: string): void {
-  if (!/^[A-Za-z0-9._+-]+$/.test(appName)) {
+  // Spaces allowed — real app names are "Microsoft Edge" / "Google Chrome".
+  // The name is embedded in an AppleScript string literal (resolveAppPid)
+  // and passed through quoteShellArg, so quotes and shell metacharacters
+  // remain forbidden.
+  if (!/^[A-Za-z0-9._+\- ]+$/.test(appName)) {
     throw new Error(`Invalid application name: '${appName}'`);
   }
 }

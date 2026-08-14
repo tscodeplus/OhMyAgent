@@ -26,7 +26,11 @@ import {
 import { quoteShellArg } from '../ssh-actions-common.js';
 
 function assertSafeAppName(appName: string): void {
-  if (!/^[A-Za-z0-9._+-]+$/.test(appName)) {
+  // Spaces allowed — real app names are "Microsoft Edge" / "Google Chrome".
+  // The name is embedded in an AppleScript string literal and passed
+  // through quoteShellArg, so quotes and shell metacharacters remain
+  // forbidden.
+  if (!/^[A-Za-z0-9._+\- ]+$/.test(appName)) {
     throw new Error(`Invalid application name: '${appName}'`);
   }
 }

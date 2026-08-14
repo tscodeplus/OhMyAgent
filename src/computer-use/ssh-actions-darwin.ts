@@ -1,27 +1,30 @@
 // src/computer-use/ssh-actions-darwin.ts
 //
 // macOS window-state reading and action execution over SSH.
-// Primary path (accessibility-first): the AX (accessibility) tree read via
-// JXA (`osascript -l JavaScript`) + the ObjC bridge, driving AXUIElement
-// attributes and AXPress-style actions — no mouse movement, and the target
-// app does not need to be foreground. Keyboard events (press_key, and the
-// scroll arrow-key degradation) post straight into the leased app's event
-// queue via CGEventPostToPid — background delivery, the same technique
-// Peekaboo / mac-cua use: the app never becomes frontmost and the real
-// keyboard stream is never touched. Only the final fallbacks use osascript
-// synthesized input (keystroke / key code / coordinate `click at`), and
-// only when no target pid is available or the background path fails.
+// Primary path (accessibility-first): the AX (accessibility) tree via a
+// native Swift tool (SWIFT_AX_TOOL_SOURCE, compiled with swiftc on first
+// use) driving AXUIElement attributes and AXPress-style actions — no mouse
+// movement, and the target app does not need to be foreground. Swift is
+// used instead of JXA because macOS 15.7's JXA ObjC bridge fails on C
+// functions with 2+ out-params (AXUIElementCopyAttributeValue and friends
+// throw "incorrect number of arguments"), which broke every JXA AX script.
+// Keyboard events (press_key, and the scroll arrow-key degradation) post
+// straight into the leased app's event queue via CGEventPostToPid —
+// background delivery, the same technique Peekaboo / mac-cua use: the app
+// never becomes frontmost and the real keyboard stream is never touched.
+// Only the final fallbacks use osascript synthesized input (keystroke /
+// key code / coordinate `click at`), and only when no target pid is
+// available or the background path fails.
 //
 // TCC note: AX calls (and CGEventPostToPid, which shares the bucket on most
-// versions) require the *remote* terminal to hold Accessibility
-// permission. On newer macOS the Event Posting permission may be a separate
-// bucket. When the OS rejects the AX API (kAXErrorAPIDisabled, -25211) the
-// JXA scripts return {"ok":false,"error":"API_DISABLED"} and the platform
-// layer surfaces a readable message: grant Accessibility in System Settings
-// > Privacy & Security > Accessibility on the Mac and re-launch the
-// terminal app. Note CGEventPostToPid itself returns void and fails
-// silently without permission — the scripts probe the AX API first so the
-// common no-permission case is still reported.
+// versions) require the process to hold Accessibility permission. When the
+// OS rejects the AX API (kAXErrorAPIDisabled, -25211) the Swift tool
+// returns {"ok":false,"error":"API_DISABLED"} and the platform layer
+// surfaces a readable message: grant Accessibility in System Settings >
+// Privacy & Security > Accessibility on the Mac and re-launch the app.
+// Note CGEventPostToPid itself returns void and fails silently without
+// permission — the tool probes the AX API first so the common
+// no-permission case is still reported.
 
 import type { ExecRunner } from './ssh-actions-common.js';
 import type { Action, ActionResult, ActionType, AppInfo, UIElement } from './types.js';
@@ -40,7 +43,345 @@ export const MAC_KEY_CODES: Record<string, number> = {
 };
 
 /** Timeout for JXA AX commands (tree walks can be slow over SSH). */
-const AX_JXA_TIMEOUT_MS = 20_000;
+// Timeout for the Swift AX tool: the first invocation also compiles the
+// tool with swiftc (~5-15s), subsequent ones just run the cached binary.
+const AX_TOOL_TIMEOUT_MS = 60_000;
+
+/**
+ * Native Swift AX tool source, embedded here and compiled with swiftc on
+ * first use (/tmp/oma-ax.swift -> /tmp/oma-ax). Replaces the JXA ObjC
+ * bridge, which macOS 15.7 breaks for C functions with 2+ out-params
+ * (AXUIElementCopyAttributeValue etc. throw "incorrect number of
+ * arguments"). Subcommands: tree / press / setvalue / postkey / hitpress /
+ * scroll / windowid / probe — each emits one JSON object on stdout.
+ * The script must not contain backticks or "${" (template-string rules).
+ */
+export const SWIFT_AX_TOOL_SOURCE = `import ApplicationServices
+import Foundation
+import CoreGraphics
+
+// ================= helpers =================
+
+func ax(_ el: AXUIElement, _ name: CFString) -> CFTypeRef? {
+    var v: CFTypeRef?
+    let err = AXUIElementCopyAttributeValue(el, name, &v)
+    return err == AXError.success ? v : nil
+}
+
+func axErr(_ el: AXUIElement, _ name: CFString) -> AXError {
+    var v: CFTypeRef?
+    return AXUIElementCopyAttributeValue(el, name, &v)
+}
+
+func pointAttr(_ el: AXUIElement, _ name: CFString) -> CGPoint? {
+    guard let v = ax(el, name) else { return nil }
+    var p = CGPoint.zero
+    return AXValueGetValue(v as! AXValue, .cgPoint, &p) ? p : nil
+}
+
+func sizeAttr(_ el: AXUIElement, _ name: CFString) -> CGSize? {
+    guard let v = ax(el, name) else { return nil }
+    var s = CGSize.zero
+    return AXValueGetValue(v as! AXValue, .cgSize, &s) ? s : nil
+}
+
+func json(_ obj: Any) -> String {
+    guard let data = try? JSONSerialization.data(withJSONObject: obj) else { return "{}" }
+    return String(data: data, encoding: .utf8) ?? "{}"
+}
+
+func fail(_ error: String) -> Never {
+    print(json(["ok": false, "error" as CFString: error]))
+    exit(1)
+}
+
+func parsePath(_ s: String) -> [Int] {
+    s.split(separator: "/").compactMap { Int($0) }
+}
+
+func apiDisabled(_ app: AXUIElement) -> Bool {
+    axErr(app, "AXRole" as CFString).rawValue == -25211
+}
+
+func elByPath(_ app: AXUIElement, _ path: [Int]) -> AXUIElement? {
+    var el = app
+    for i in path {
+        guard let kids = ax(el, "AXChildren" as CFString) as? [AXUIElement], i < kids.count else { return nil }
+        el = kids[i]
+    }
+    return el
+}
+
+// ================= tree =================
+
+func walk(_ el: AXUIElement, _ path: [Int], _ depth: Int, _ out: inout [[String: Any]]) {
+    if out.count >= 300 || depth >= 12 { return }
+    guard let role = ax(el, "AXRole" as CFString) as? String, !role.isEmpty else { return }
+    let actions = (ax(el, "AXActions" as CFString) as? [String]) ?? []
+    if !actions.isEmpty, let p = pointAttr(el, "AXPosition" as CFString),
+       let s = sizeAttr(el, "AXSize" as CFString), s.width > 0, s.height > 0 {
+        let enabled = (ax(el, "AXEnabled" as CFString) as? Bool) ?? true
+        out.append([
+            "path": path.map(String.init).joined(separator: "/"),
+            "role": role,
+            "label": (ax(el, "AXTitle" as CFString) as? String) ?? "",
+            "description": (ax(el, "AXDescription" as CFString) as? String) ?? "",
+            "actions": actions,
+            "enabled": enabled,
+            "bounds": ["x": p.x, "y": p.y, "width": s.width, "height": s.height],
+        ])
+    }
+    guard let kids = ax(el, "AXChildren" as CFString) as? [AXUIElement] else { return }
+    for (i, k) in kids.enumerated() {
+        walk(k, path + [i], depth + 1, &out)
+    }
+}
+
+func cmdTree(_ pid: pid_t) {
+    let app = AXUIElementCreateApplication(pid)
+    if apiDisabled(app) {
+        print(json(["ok": false, "error" as CFString: "API_DISABLED"]))
+        return
+    }
+    var out: [[String: Any]] = []
+    walk(app, [], 0, &out)
+    print(json(["ok": true, "elements" as CFString: out, "truncated": out.count >= 300]))
+}
+
+// ================= press =================
+
+func cmdPress(_ pid: pid_t, _ path: [Int]) {
+    let app = AXUIElementCreateApplication(pid)
+    if apiDisabled(app) { fail("API_DISABLED") }
+    guard let target = elByPath(app, path) else { fail("ELEMENT_NOT_FOUND") }
+    let actions = (ax(target, "AXActions" as CFString) as? [String]) ?? []
+    if actions.isEmpty { fail("NO_ACTION") }
+    var action = "AXPress"
+    if !actions.contains(action) { action = actions[0] }
+    let err = AXUIElementPerformAction(target, action as CFString)
+    if err.rawValue == -25211 { fail("API_DISABLED") }
+    if err != AXError.success { fail("PERFORM_FAILED") }
+    print(json(["ok": true]))
+}
+
+// ================= setvalue =================
+
+func cmdSetValue(_ pid: pid_t, _ path: [Int], _ b64: String) {
+    let app = AXUIElementCreateApplication(pid)
+    if apiDisabled(app) { fail("API_DISABLED") }
+    guard let target = elByPath(app, path) else { fail("ELEMENT_NOT_FOUND") }
+    guard let data = Data(base64Encoded: b64), let text = String(data: data, encoding: .utf8), !text.isEmpty else {
+        fail("EMPTY_TEXT")
+    }
+    let err = AXUIElementSetAttributeValue(target, "AXValue" as CFString, text as CFString)
+    if err.rawValue == -25211 { fail("API_DISABLED") }
+    if err != AXError.success { fail("SET_VALUE_FAILED") }
+    print(json(["ok": true]))
+}
+
+// ================= postkey =================
+
+func cmdPostKey(_ pid: pid_t, _ code: CGKeyCode, _ flags: UInt64, _ repeatCount: Int) {
+    let app = AXUIElementCreateApplication(pid)
+    if apiDisabled(app) { fail("API_DISABLED") }
+    guard let down = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true),
+          let up = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false) else {
+        fail("EVENT_CREATE_FAILED")
+    }
+    if flags != 0 {
+        down.flags = CGEventFlags(rawValue: flags)
+        up.flags = CGEventFlags(rawValue: flags)
+    }
+    for _ in 0..<repeatCount {
+        down.postToPid(pid)
+        up.postToPid(pid)
+    }
+    print(json(["ok": true]))
+}
+
+// ================= hitpress =================
+
+func cmdHitPress(_ pid: pid_t, _ x: Float, _ y: Float) {
+    let sys = AXUIElementCreateSystemWide()
+    var elRef: AXUIElement?
+    let hr = AXUIElementCopyElementAtPosition(sys, x, y, &elRef)
+    if hr.rawValue == -25211 { fail("API_DISABLED") }
+    guard hr == AXError.success, let element = elRef else { fail("HIT_TEST_FAILED") }
+    var hitPid: pid_t = 0
+    let pidr = AXUIElementGetPid(element, &hitPid)
+    if pidr != AXError.success || hitPid != pid { fail("FOREIGN_ELEMENT") }
+    var cur: AXUIElement? = element
+    var found: AXUIElement?
+    var d = 0
+    while let c = cur, d < 8 {
+        if let acts = ax(c, "AXActions" as CFString) as? [String], acts.contains("AXPress") {
+            found = c
+            break
+        }
+        if let parent = ax(c, "AXParent" as CFString) { cur = parent as! AXUIElement }
+        d += 1
+    }
+    guard let target = found else { fail("NO_ACTION") }
+    let err = AXUIElementPerformAction(target, "AXPress" as CFString as CFString)
+    if err.rawValue == -25211 { fail("API_DISABLED") }
+    if err != AXError.success { fail("PERFORM_FAILED") }
+    print(json(["ok": true]))
+}
+
+// ================= scroll =================
+
+func cmdScroll(_ pid: pid_t, _ path: [Int], _ direction: String, _ amount: Int) {
+    let app = AXUIElementCreateApplication(pid)
+    if apiDisabled(app) { fail("API_DISABLED") }
+    guard let target = elByPath(app, path) else { fail("ELEMENT_NOT_FOUND") }
+    let actionName: String
+    switch direction {
+    case "up": actionName = "AXScrollUpByLine"
+    case "down": actionName = "AXScrollDownByLine"
+    case "left": actionName = "AXScrollLeftByLine"
+    default: actionName = "AXScrollRightByLine"
+    }
+    var sc: AXUIElement?
+    var cur: AXUIElement? = target
+    for _ in 0..<10 {
+        guard let c = cur else { break }
+        let role = (ax(c, "AXRole" as CFString) as? String) ?? ""
+        if role == "AXScrollArea" || role == "AXScrollBar" {
+            sc = c
+            break
+        }
+        if let parent = ax(c, "AXParent" as CFString) { cur = parent as! AXUIElement }
+    }
+    guard let scrollEl = sc else { fail("NO_SCROLLABLE") }
+    let role = (ax(scrollEl, "AXRole" as CFString) as? String) ?? ""
+    if role == "AXScrollArea" {
+        for _ in 0..<amount {
+            let r = AXUIElementPerformAction(scrollEl, actionName as CFString)
+            if r.rawValue == -25211 { fail("API_DISABLED") }
+            if r != AXError.success { fail("PERFORM_FAILED") }
+        }
+        print(json(["ok": true]))
+        return
+    }
+    let val = (ax(scrollEl, "AXValue" as CFString) as? NSNumber)?.doubleValue ?? Double.nan
+    let mn = (ax(scrollEl, "AXMinValue" as CFString) as? NSNumber)?.doubleValue ?? Double.nan
+    let mx = (ax(scrollEl, "AXMaxValue" as CFString) as? NSNumber)?.doubleValue ?? Double.nan
+    guard !val.isNaN, !mn.isNaN, !mx.isNaN else { fail("VALUE_UNREADABLE") }
+    let step = 0.1
+    let nv = (direction == "up" || direction == "left") ? val - step : val + step
+    let clamped = min(max(nv, mn), mx)
+    let err = AXUIElementSetAttributeValue(scrollEl, "AXValue" as CFString, NSNumber(value: clamped))
+    if err.rawValue == -25211 { fail("API_DISABLED") }
+    if err != AXError.success { fail("SET_VALUE_FAILED") }
+    print(json(["ok": true]))
+}
+
+// ================= windowid =================
+
+func cmdWindowId(_ pid: pid_t) {
+    let opts: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+    guard let list = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]] else {
+        print(json([:]))
+        return
+    }
+    var bestID = 0
+    var bestArea = 0.0
+    for w in list {
+        guard let ownerPid = w[kCGWindowOwnerPID as String] as? Int, ownerPid == pid else { continue }
+        guard let layer = w[kCGWindowLayer as String] as? Int, layer == 0 else { continue }
+        guard let b = w[kCGWindowBounds as String] as? [String: Any] else { continue }
+        let width = (b["Width"] as? Double) ?? 0
+        let height = (b["Height"] as? Double) ?? 0
+        let area = width * height
+        if area > bestArea {
+            bestArea = area
+            bestID = w[kCGWindowNumber as String] as? Int ?? 0
+        }
+    }
+    if bestID > 0 {
+        print(json(["id": bestID]))
+    } else {
+        print(json([:]))
+    }
+}
+
+// ================= main =================
+
+let args = CommandLine.arguments
+guard args.count >= 2 else { fail("USAGE") }
+switch args[1] {
+case "probe":
+    let sysProbe = AXUIElementCreateSystemWide()
+    let errProbe = axErr(sysProbe, "AXRole" as CFString)
+    print(json(["ok": errProbe == AXError.success]))
+case "tree":
+    guard args.count >= 3, let pid = pid_t(args[2]) else { fail("ARGS") }
+    cmdTree(pid)
+case "press":
+    guard args.count >= 4, let pid = pid_t(args[2]) else { fail("ARGS") }
+    cmdPress(pid, parsePath(args[3]))
+case "setvalue":
+    guard args.count >= 5, let pid = pid_t(args[2]) else { fail("ARGS") }
+    cmdSetValue(pid, parsePath(args[3]), args[4])
+case "postkey":
+    guard args.count >= 6, let pid = pid_t(args[2]), let code = CGKeyCode(args[3]),
+          let flags = UInt64(args[4]), let rep = Int(args[5]) else { fail("ARGS") }
+    cmdPostKey(pid, code, flags, rep)
+case "hitpress":
+    guard args.count >= 5, let pid = pid_t(args[2]), let x = Float(args[3]), let y = Float(args[4]) else { fail("ARGS") }
+    cmdHitPress(pid, x, y)
+case "scroll":
+    guard args.count >= 6, let pid = pid_t(args[2]), let rep = Int(args[5]) else { fail("ARGS") }
+    cmdScroll(pid, parsePath(args[3]), args[4], rep)
+case "windowid":
+    guard args.count >= 3, let pid = pid_t(args[2]) else { fail("ARGS") }
+    cmdWindowId(pid)
+default:
+    fail("UNKNOWN_CMD")
+}
+`;
+
+interface SwiftAxResult {
+  ok?: boolean;
+  error?: string;
+  elements?: RawAxElement[];
+  truncated?: boolean;
+  id?: number;
+}
+
+/** Cache paths for the compiled AX tool. */
+const AX_TOOL_SRC = '/tmp/oma-ax.swift';
+const AX_TOOL_BIN = '/tmp/oma-ax';
+
+/**
+ * Run the Swift AX tool through the runner: write the (fixed) source,
+ * compile only when the cached binary is missing or stale, then execute
+ * with the given args. Returns the parsed JSON result, or null when the
+ * command fails or stdout is not valid JSON — callers must treat null as
+ * a graceful degradation signal, never throw. Concurrent invocations may
+ * race on the /tmp paths harmlessly (identical source -> identical binary).
+ */
+export async function runSwiftAx(
+  runner: ExecRunner,
+  args: string[],
+  timeoutMs = AX_TOOL_TIMEOUT_MS,
+): Promise<SwiftAxResult | null> {
+  try {
+    const srcB64 = Buffer.from(SWIFT_AX_TOOL_SOURCE, 'utf8').toString('base64');
+    const cmd =
+      `echo ${srcB64} | base64 -d > ${AX_TOOL_SRC} && ` +
+      `([ -x ${AX_TOOL_BIN} ] && [ ${AX_TOOL_SRC} -nt ${AX_TOOL_BIN} ] || swiftc -O ${AX_TOOL_SRC} -o ${AX_TOOL_BIN}) && ` +
+      `${AX_TOOL_BIN} ${args.join(' ')}`;
+    const res = await runner.exec(cmd, { timeoutMs });
+    const trimmed = res.stdout.trim();
+    if (!trimmed) return null;
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === 'object') return parsed as SwiftAxResult;
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 /** kCGEventFlagMaskShift — required by uppercase/symbol-shifted keys. */
 const CG_EVENT_FLAG_SHIFT = 0x020000;
@@ -276,43 +617,15 @@ export const DARWIN_LOCKED_NOTICE =
   'unlocked — ask the user to unlock the Mac; do not attempt to type credentials.';
 
 /**
- * JXA script: find the largest on-screen window owned by the pid and emit
- * its CGWindowNumber. Emits {} when the app has no on-screen window
- * (minimized / hidden / no windows) so the caller falls back to a full-screen
- * capture. CGWindowListOption: OnScreenOnly(1) | ExcludeDesktopElements(16);
- * the pid is an integer, so injection into the script is impossible.
- */
-function jxaWindowIdScript(pid: number): string {
-  return `ObjC.import('CoreGraphics');
-var opts = 1 | 16;
-var list = $.CGWindowListCopyWindowInfo(opts, 0);
-var best = null;
-for (var i = 0; i < list.length; i++) {
-  var w = list[i];
-  if (w.kCGWindowOwnerPID !== ${pid}) continue;
-  if (w.kCGWindowLayer !== 0) continue;
-  var b = w.kCGWindowBounds || {};
-  var area = (Number(b.Width || b.width) || 0) * (Number(b.Height || b.height) || 0);
-  if (!best || area > best.area) best = { id: Number(w.kCGWindowNumber), area: area };
-}
-JSON.stringify(best ? { id: best.id } : {});`;
-}
-
-/**
  * Resolve the CGWindowNumber of the app's largest on-screen window, or
- * undefined when the query fails / the app has no on-screen window.
+ * undefined when the query fails / the app has no on-screen window. The
+ * Swift tool emits {} when the app has no on-screen window (minimized /
+ * hidden / no windows) so the caller falls back to a full-screen capture.
  */
 async function getWindowIdForPid(runner: ExecRunner, pid: number): Promise<number | undefined> {
-  try {
-    const res = await runner.exec(jxaCommand(jxaWindowIdScript(pid)), {
-      timeoutMs: AX_JXA_TIMEOUT_MS,
-    });
-    const parsed: unknown = JSON.parse(res.stdout.trim());
-    const id = (parsed as { id?: unknown })?.id;
-    return typeof id === 'number' && id > 0 ? id : undefined;
-  } catch {
-    return undefined;
-  }
+  const result = await runSwiftAx(runner, ['windowid', String(pid)]);
+  const id = result?.id;
+  return typeof id === 'number' && id > 0 ? id : undefined;
 }
 
 /**
@@ -354,13 +667,19 @@ export async function readDarwinWindowState(
   }
   await runner.exec(`rm -f /tmp/cua_${leaseId}.png`).catch(() => {});
 
-  // Front process name: identifies the locked-screen case (loginwindow) and
-  // is the fallback title when no pid is available.
+  // Frontmost app name: identifies the locked-screen case (loginwindow) and
+  // is the fallback title when no pid is available. NOTE: `front process`
+  // is NOT reliable here — on macOS 15 it reports "loginwindow" even when
+  // the screen is unlocked and a real app is frontmost (observed with
+  // OhMyAgent: lsappinfo front + `frontmost is true` said ohmyagent-desktop
+  // while `front process` said loginwindow). The frontmost query reflects
+  // the actual top window (loginwindow only when the lock/login UI really
+  // covers the screen), so lock detection keys on it.
   let windowTitle = '';
   let locked = false;
   try {
     const titleResult = await runner.exec(
-      `osascript -e 'tell application "System Events" to get name of front process'`,
+      `osascript -e 'tell application "System Events" to get name of first process whose frontmost is true'`,
     );
     windowTitle = truncateStdout(titleResult.stdout.trim());
     locked = windowTitle.toLowerCase() === 'loginwindow';
@@ -380,15 +699,20 @@ export async function readDarwinWindowState(
     } catch { /* keep the front-process name */ }
   }
 
-  // AX tree. The JXA command also contains 'osascript', so this must be
-  // tolerant of non-JSON stdout ('Finder' from the title probe mocks) —
-  // runJxa returns null and we yield an empty list.
+  // AX tree. runSwiftAx returns null when the tool fails / output is not
+  // valid JSON — we yield an empty list and surface an axError instead.
   let elements: UIElement[] = [];
   let axError: string | undefined;
-  const treeResult = await runJxa(runner, jxaTreeScript(pid ?? 0));
+  const treeResult = await runSwiftAx(runner, ['tree', String(pid ?? 0)]);
   if (treeResult?.ok === true && Array.isArray(treeResult.elements)) {
     elements = treeResult.elements.map(mapRawElement);
   } else if (treeResult?.error === 'API_DISABLED') {
+    axError = AX_API_DISABLED_MESSAGE;
+  } else if (treeResult === null) {
+    // The JXA script itself failed (non-JSON output / exec error) — with
+    // missing Accessibility permission the AX API can reject the process
+    // with errors other than API_DISABLED, which aborts the whole script.
+    // Surface that instead of reporting a silently empty tree.
     axError = AX_API_DISABLED_MESSAGE;
   }
 
@@ -412,12 +736,6 @@ interface RawAxElement {
   actions?: string[];
   enabled?: boolean;
   bounds?: { x: number; y: number; width: number; height: number };
-}
-
-interface JxaResult {
-  ok?: boolean;
-  error?: string;
-  elements?: RawAxElement[];
 }
 
 /** AXRole name -> platform UIElement role. Unknown roles are lowercased. */
@@ -494,358 +812,7 @@ function parseElementPath(elementId: string | undefined): number[] | null {
 }
 
 /** Wrap a JXA script in `osascript -l JavaScript -e <script>` (single-quoted). */
-function jxaCommand(script: string): string {
-  return `osascript -l JavaScript -e ${quoteShellArg(script)}`;
-}
-
-/**
- * Run a JXA script over SSH and parse its JSON output.
- * Returns null when the command fails or stdout is not valid JSON
- * (e.g. 'Finder' from a non-AX osascript probe) — callers must treat
- * null as a graceful degradation signal, never throw.
- */
-async function runJxa(runner: ExecRunner, script: string): Promise<JxaResult | null> {
-  try {
-    const res = await runner.exec(jxaCommand(script), { timeoutMs: AX_JXA_TIMEOUT_MS });
-    const trimmed = res.stdout.trim();
-    if (!trimmed) return null;
-    const parsed = JSON.parse(trimmed);
-    if (parsed && typeof parsed === 'object') return parsed as JxaResult;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Common JXA preamble for element-targeted actions:
- *   - attr(): AXUIElementCopyAttributeValue wrapper. NSString/NSNumber
- *     results are explicitly unwrapped with String()/Number() before
- *     JSON.stringify — never serialize raw ObjC refs (that yields
- *     {value=...} noise).
- *   - elByPath(): re-walk kAXChildrenAttribute along the element path.
- *   - app: pid > 0 → `AXUIElementCreateApplication(pid)` with the pid
- *     inlined and the focused-app fallback branch *omitted entirely*, so
- *     the script can never touch the user's focused app; else the focused
- *     application via AXUIElementCreateSystemWide + kAXFocusedApplication
- *     (no pid is available for actions; the caller passes 0).
- *   - pathStr: injected as '/0/2/5' (digits + slashes only, injection-safe).
- *
- * IMPORTANT quoting rule: JXA scripts are passed through quoteShellArg, so
- * the script itself must never contain a single quote — all JS string
- * literals below use double quotes.
- */
-function jxaCommon(pid: number, pathParts: number[]): string {
-  const canonicalPath = `/${pathParts.join('/')}`;
-  const appSetup = pid > 0
-    ? `var app = $.AXUIElementCreateApplication(${pid});`
-    : `var app;
-var sys = $.AXUIElementCreateSystemWide();
-var fav = Ref(), fae = Ref();
-var fr = $.AXUIElementCopyAttributeValue(sys, $.kAXFocusedApplicationAttribute, fav, fae);
-app = (fr === 0 && fav[0]) ? fav[0] : sys;`;
-  return `ObjC.import('Foundation');
-ObjC.import('ApplicationServices');
-function attr(el, name) {
-  var v = Ref(), e = Ref();
-  var r = $.AXUIElementCopyAttributeValue(el, name, v, e);
-  if (r !== 0) return null;
-  return v[0] || null;
-}
-function elByPath(app, parts) {
-  var el = app;
-  for (var i = 0; i < parts.length; i++) {
-    var kids = attr(el, $.kAXChildrenAttribute);
-    if (!kids || !kids[parts[i]]) return null;
-    el = kids[parts[i]];
-  }
-  return el;
-}
-var pid = ${pid};
-${appSetup}
-var pathStr = "${canonicalPath}";
-var parts = pathStr.split('/').slice(1).map(Number);
-`;
-}
-
-/** Guard against the TCC-disabled error (kAXErrorAPIDisabled = -25211). */
-function jxaApiDisabledGuard(): string {
-  return `  var probe = Ref(), perr = Ref();
-  var pr = $.AXUIElementCopyAttributeValue(app, $.kAXRoleAttribute, probe, perr);
-  if (pr === -25211) return { ok: false, error: 'API_DISABLED' };
-`;
-}
-
-/**
- * JXA script: walk the AX tree (max 300 elements, depth 12) and emit
- * interactive elements (have actions, valid position and size) as JSON.
- * 0 = focused application.
- */
-function jxaTreeScript(pid: number): string {
-  return `ObjC.import('Foundation');
-ObjC.import('ApplicationServices');
-function attr(el, name) {
-  var v = Ref(), e = Ref();
-  var r = $.AXUIElementCopyAttributeValue(el, name, v, e);
-  if (r !== 0) return null;
-  return v[0] || null;
-}
-function walk(el, path, depth, out) {
-  if (out.length >= 300 || depth >= 12) return;
-  var role = String(attr(el, $.kAXRoleAttribute) || '');
-  if (!role) return;
-  var a = attr(el, $.kAXActionsAttribute);
-  var actions = [];
-  if (a) { for (var i = 0; i < a.length; i++) actions.push(String(a[i])); }
-  var pos = attr(el, $.kAXPositionAttribute);
-  var size = attr(el, $.kAXSizeAttribute);
-  // AXValue bridges to {x,y}/{width,height} in JXA; also accept {w,h}.
-  var px = pos ? Number(pos.x !== undefined ? pos.x : pos.w) : NaN;
-  var py = pos ? Number(pos.y !== undefined ? pos.y : pos.h) : NaN;
-  var sw = size ? Number(size.width !== undefined ? size.width : size.w) : NaN;
-  var sh = size ? Number(size.height !== undefined ? size.height : size.h) : NaN;
-  if (actions.length > 0 && !isNaN(px) && !isNaN(sw) && sw > 0 && sh > 0) {
-    out.push({
-      path: path.join('/'),
-      role: role,
-      label: String(attr(el, $.kAXTitleAttribute) || ''),
-      description: String(attr(el, $.kAXDescriptionAttribute) || ''),
-      actions: actions,
-      enabled: !!attr(el, $.kAXEnabledAttribute),
-      bounds: { x: px, y: py, width: sw, height: sh }
-    });
-  }
-  var children = attr(el, $.kAXChildrenAttribute);
-  if (!children) return;
-  for (var i = 0; i < children.length; i++) walk(children[i], path.concat(i), depth + 1, out);
-}
-var pid = ${pid};
-${pid > 0
-  ? `var app = $.AXUIElementCreateApplication(${pid});`
-  : `var app;
-var sys = $.AXUIElementCreateSystemWide();
-var fav = Ref(), fae = Ref();
-var fr = $.AXUIElementCopyAttributeValue(sys, $.kAXFocusedApplicationAttribute, fav, fae);
-app = (fr === 0 && fav[0]) ? fav[0] : sys;`}
-var apiDisabled = false;
-var probe = Ref(), perr = Ref();
-var pr = $.AXUIElementCopyAttributeValue(app, $.kAXRoleAttribute, probe, perr);
-if (pr === -25211) apiDisabled = true;
-if (apiDisabled) {
-  JSON.stringify({ ok: false, error: 'API_DISABLED' });
-} else {
-  var out = [];
-  walk(app, [], 0, out);
-  JSON.stringify({ ok: true, elements: out, truncated: out.length >= 300 });
-}`;
-}
-
-/**
- * JXA script: locate the element by path and perform its press action
- * (kAXPressAction preferred, else the first listed action).
- */
-function jxaPressScript(pid: number, pathParts: number[]): string {
-  return `${jxaCommon(pid, pathParts)}
-function runAction() {
-${jxaApiDisabledGuard()}
-  var target = elByPath(app, parts);
-  if (!target) return { ok: false, error: 'ELEMENT_NOT_FOUND' };
-  var a = attr(target, $.kAXActionsAttribute);
-  var actions = [];
-  if (a) { for (var i = 0; i < a.length; i++) actions.push(String(a[i])); }
-  if (actions.length === 0) return { ok: false, error: 'NO_ACTION' };
-  var press = "AXPress";
-  var found = false;
-  for (var i = 0; i < actions.length; i++) {
-    if (actions[i] === press) { found = true; break; }
-  }
-  if (!found) press = actions[0];
-  var r = $.AXUIElementPerformAction(target, press);
-  if (r === -25211) return { ok: false, error: 'API_DISABLED' };
-  if (r !== 0) return { ok: false, error: 'PERFORM_FAILED' };
-  return { ok: true };
-}
-JSON.stringify(runAction());`;
-}
-
-/**
- * JXA script: coordinate click via AX hit-test. Resolves the element at the
- * screen point (AXUIElementCopyElementAtPosition), verifies it belongs to the
- * leased app (AXUIElementGetPid — never press whatever the user has on top),
- * then walks up to the first ancestor exposing AXPress and performs it. No
- * synthesized mouse event is generated, so the real cursor never moves.
- * Degrades (caller falls back to `System Events click at`) on HIT_TEST_FAILED /
- * FOREIGN_ELEMENT / NO_ACTION.
- */
-function jxaHitTestPressScript(pid: number, x: number, y: number): string {
-  return `ObjC.import('Foundation');
-ObjC.import('ApplicationServices');
-function attr(el, name) {
-  var v = Ref(), e = Ref();
-  var r = $.AXUIElementCopyAttributeValue(el, name, v, e);
-  if (r !== 0) return null;
-  return v[0] || null;
-}
-function firstPressable(el) {
-  var cur = el;
-  for (var d = 0; d < 8 && cur; d++) {
-    var a = attr(cur, $.kAXActionsAttribute);
-    if (a) {
-      for (var i = 0; i < a.length; i++) {
-        if (String(a[i]) === "AXPress") return cur;
-      }
-    }
-    cur = attr(cur, $.kAXParentAttribute);
-  }
-  return null;
-}
-var sys = $.AXUIElementCreateSystemWide();
-var elRef = Ref(), errRef = Ref();
-var hr = $.AXUIElementCopyElementAtPosition(sys, ${x}, ${y}, elRef);
-if (hr === -25211) {
-  JSON.stringify({ ok: false, error: 'API_DISABLED' });
-} else if (hr !== 0 || !elRef[0]) {
-  JSON.stringify({ ok: false, error: 'HIT_TEST_FAILED' });
-} else {
-  var pidRef = Ref();
-  var pidr = $.AXUIElementGetPid(elRef[0], pidRef);
-  if (pidr !== 0 || pidRef[0] !== ${pid}) {
-    JSON.stringify({ ok: false, error: 'FOREIGN_ELEMENT' });
-  } else {
-    var target = firstPressable(elRef[0]);
-    if (!target) {
-      JSON.stringify({ ok: false, error: 'NO_ACTION' });
-    } else {
-      var r = $.AXUIElementPerformAction(target, "AXPress");
-      if (r === -25211) { JSON.stringify({ ok: false, error: 'API_DISABLED' }); }
-      else if (r !== 0) { JSON.stringify({ ok: false, error: 'PERFORM_FAILED' }); }
-      else { JSON.stringify({ ok: true }); }
-    }
-  }
-}`;
-}
-
-/**
- * JXA script: set kAXValueAttribute on the element (text input).
- * The text is injected as base64 (digits/letters only, injection-safe)
- * and decoded inside JXA with NSData/NSString — a raw string would have to
- * be shell-escaped *and* JS-escaped, and any single quote would break the
- * quoteShellArg wrapping.
- */
-function jxaSetValueScript(pid: number, pathParts: number[], textB64: string): string {
-  return `${jxaCommon(pid, pathParts)}
-function runAction() {
-${jxaApiDisabledGuard()}
-  var target = elByPath(app, parts);
-  if (!target) return { ok: false, error: 'ELEMENT_NOT_FOUND' };
-  var nsdata = $.NSData.alloc.initWithBase64EncodedStringOptions("${textB64}", 0);
-  var text = (nsdata && nsdata.length > 0) ? $.NSString.alloc.initWithDataEncoding(nsdata, $.NSUTF8StringEncoding) : "";
-  if (text === "") return { ok: false, error: 'EMPTY_TEXT' };
-  var r = $.AXUIElementSetAttributeValue(target, $.kAXValueAttribute, text);
-  if (r === -25211) return { ok: false, error: 'API_DISABLED' };
-  if (r !== 0) return { ok: false, error: 'SET_VALUE_FAILED' };
-  return { ok: true };
-}
-JSON.stringify(runAction());`;
-}
-
-/**
- * JXA script: post a keyboard event directly into the leased app's event
- * queue via CGEventPostToPid — the app does NOT need to be frontmost and
- * the global keyboard stream is never touched. The AX probe surfaces the
- * common no-permission case (CGEventPostToPid itself returns void and
- * silently drops events without Accessibility / Event Posting permission).
- * `repeat` posts the event that many times (scroll degradation needs a
- * repeat count; press_key always passes 1).
- */
-function jxaPostKeyScript(pid: number, code: number, flags: number, repeat = 1): string {
-  return `ObjC.import('Foundation');
-ObjC.import('ApplicationServices');
-ObjC.import('CoreGraphics');
-var pid = ${pid};
-var app = $.AXUIElementCreateApplication(pid);
-var probe = Ref(), perr = Ref();
-var pr = $.AXUIElementCopyAttributeValue(app, $.kAXRoleAttribute, probe, perr);
-if (pr === -25211) {
-  JSON.stringify({ ok: false, error: 'API_DISABLED' });
-} else {
-  var down = $.CGEventCreateKeyboardEvent($(), ${code}, true);
-  var up = $.CGEventCreateKeyboardEvent($(), ${code}, false);
-  var flags = ${flags};
-  if (flags !== 0) {
-    $.CGEventSetFlags(down, flags);
-    $.CGEventSetFlags(up, flags);
-  }
-  for (var n = 0; n < ${repeat}; n++) {
-    $.CGEventPostToPid(pid, down);
-    $.CGEventPostToPid(pid, up);
-  }
-  JSON.stringify({ ok: true });
-}`;
-}
-
-/**
- * JXA script: scroll a scrollable ancestor of the element. Prefers the
- * AXScrollArea scroll action (kAXScrollDownByLineAction etc.); falls back
- * to adjusting an AXScrollBar's kAXValueAttribute by a fixed step.
- */
-function jxaScrollScript(
-  pid: number,
-  pathParts: number[],
-  direction: 'up' | 'down' | 'left' | 'right',
-  amount: number,
-): string {
-  const actionName = SCROLL_AX_ACTIONS[direction];
-  const repeat = Math.min(Math.max(amount, 1), 10);
-  const decrease = direction === 'up' || direction === 'left';
-  return `${jxaCommon(pid, pathParts)}
-function toNum(v) {
-  if (typeof v === 'number') return v;
-  if (v && typeof v === 'object') {
-    if (typeof v.width === 'number') return v.width;
-    if (typeof v.w === 'number') return v.w;
-  }
-  return NaN;
-}
-function runAction() {
-${jxaApiDisabledGuard()}
-  var target = elByPath(app, parts);
-  if (!target) return { ok: false, error: 'ELEMENT_NOT_FOUND' };
-  var sc = null;
-  var cur = target;
-  for (var d = 0; d < 10; d++) {
-    var role = String(attr(cur, $.kAXRoleAttribute) || '');
-    if (role === "AXScrollArea" || role === "AXScrollBar") { sc = cur; break; }
-    cur = attr(cur, $.kAXParentAttribute);
-    if (!cur) break;
-  }
-  if (!sc) return { ok: false, error: 'NO_SCROLLABLE' };
-  var role = String(attr(sc, $.kAXRoleAttribute) || '');
-  if (role === "AXScrollArea") {
-    for (var i = 0; i < ${repeat}; i++) {
-      var r = $.AXUIElementPerformAction(sc, "${actionName}");
-      if (r === -25211) return { ok: false, error: 'API_DISABLED' };
-      if (r !== 0) return { ok: false, error: 'PERFORM_FAILED' };
-    }
-    return { ok: true };
-  }
-  var v = toNum(attr(sc, $.kAXValueAttribute));
-  var mn = toNum(attr(sc, $.kAXMinValueAttribute));
-  var mx = toNum(attr(sc, $.kAXMaxValueAttribute));
-  if (isNaN(v) || isNaN(mn) || isNaN(mx)) return { ok: false, error: 'VALUE_UNREADABLE' };
-  var step = 0.1;
-  var nv = ${decrease ? 'v - step' : 'v + step'};
-  nv = Math.min(Math.max(nv, mn), mx);
-  var r2 = $.AXUIElementSetAttributeValue(sc, $.kAXValueAttribute, nv);
-  if (r2 === -25211) return { ok: false, error: 'API_DISABLED' };
-  if (r2 !== 0) return { ok: false, error: 'SET_VALUE_FAILED' };
-  return { ok: true };
-}
-JSON.stringify(runAction());`;
-}
-
-/** Map a JXA result to a readable error message. */
-function jxaErrorToMessage(result: JxaResult | null): string {
+function jxaErrorToMessage(result: SwiftAxResult | null): string {
   if (!result) {
     return 'AX action failed: JXA returned no valid result (accessibility tree unavailable)';
   }
@@ -906,7 +873,7 @@ export async function performDarwinAction(
           error: `Invalid elementId '${action.snapshotElement.elementId}' for click_element (expected path like /0/2/5)`,
         };
       }
-      const result = await runJxa(runner, jxaPressScript(pid ?? 0, pathParts));
+      const result = await runSwiftAx(runner, ['press', String(pid ?? 0), action.snapshotElement.elementId]);
       if (result?.ok === true) return { ok: true, action: action.type };
       return { ok: false, action: action.type, error: jxaErrorToMessage(result) };
     }
@@ -920,7 +887,7 @@ export async function performDarwinAction(
       // the real cursor never moves. Degrades to the explicit System Events
       // click (cursor moves) when no pid is available or AX cannot resolve.
       if (pid !== undefined && pid > 0) {
-        const result = await runJxa(runner, jxaHitTestPressScript(pid, cx, cy));
+        const result = await runSwiftAx(runner, ['hitpress', String(pid), String(cx), String(cy)]);
         if (result?.ok === true) return { ok: true, action: action.type };
         if (result?.error === 'API_DISABLED') {
           return { ok: false, action: action.type, error: AX_API_DISABLED_MESSAGE };
@@ -951,7 +918,7 @@ export async function performDarwinAction(
         const pathParts = parseElementPath(el.elementId);
         if (pathParts) {
           const textB64 = Buffer.from(text, 'utf8').toString('base64');
-          const result = await runJxa(runner, jxaSetValueScript(pid ?? 0, pathParts, textB64));
+          const result = await runSwiftAx(runner, ['setvalue', String(pid ?? 0), el.elementId, textB64]);
           if (result?.ok === true) return { ok: true, action: action.type };
           // Fall through to activate + keystroke degradation on AX failure.
         }
@@ -988,7 +955,10 @@ export async function performDarwinAction(
       // keyboard stream. Only possible with a target pid; keys without a
       // US-layout keycode (e.g. CJK) skip straight to the fallback.
       if (keyEvent && pid !== undefined && pid > 0) {
-        const result = await runJxa(runner, jxaPostKeyScript(pid, keyEvent.code, keyEvent.flags));
+        const result = await runSwiftAx(
+          runner,
+          ['postkey', String(pid), String(keyEvent.code), String(keyEvent.flags), '1'],
+        );
         if (result?.ok === true) return { ok: true, action: action.type };
         if (result?.error === 'API_DISABLED') {
           return { ok: false, action: action.type, error: AX_API_DISABLED_MESSAGE };
@@ -1033,7 +1003,11 @@ export async function performDarwinAction(
       if (el) {
         const pathParts = parseElementPath(el.elementId);
         if (pathParts) {
-          const result = await runJxa(runner, jxaScrollScript(pid ?? 0, pathParts, direction, amount));
+          const axRepeat = Math.min(Math.max(amount, 1), 10);
+          const result = await runSwiftAx(
+            runner,
+            ['scroll', String(pid ?? 0), el.elementId, direction, String(axRepeat)],
+          );
           if (result?.ok === true) return { ok: true, action: action.type };
           // Fall through to arrow-key degradation on AX failure.
         }
@@ -1047,7 +1021,10 @@ export async function performDarwinAction(
       // leased app's queue via CGEventPostToPid (same path as press_key);
       // synthesized input only when no pid is available or JXA fails.
       if (pid !== undefined && pid > 0) {
-        const result = await runJxa(runner, jxaPostKeyScript(pid, keyCode, 0, repeat));
+        const result = await runSwiftAx(
+          runner,
+          ['postkey', String(pid), String(keyCode), '0', String(repeat)],
+        );
         if (result?.ok === true) return { ok: true, action: action.type };
         if (result?.error === 'API_DISABLED') {
           return { ok: false, action: action.type, error: AX_API_DISABLED_MESSAGE };
