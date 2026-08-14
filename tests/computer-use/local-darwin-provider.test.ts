@@ -76,7 +76,7 @@ describe('LocalDarwinProvider', () => {
   });
 
   it('getStatus is available when the AX probe succeeds', async () => {
-    const { runner } = createMockRunner({ 'oma-ax probe': { stdout: '{"ok":true}' } });
+    const { runner } = createMockRunner({ ' probe': { stdout: '{"ok":true}' } });
     const provider = new LocalDarwinProvider({ runner });
     const status = await provider.getStatus(DEFAULT_CTX);
     expect(status.available).toBe(true);
@@ -84,7 +84,7 @@ describe('LocalDarwinProvider', () => {
   });
 
   it('getStatus reports unavailable when the AX probe is denied (no Accessibility permission)', async () => {
-    const { runner } = createMockRunner({ 'oma-ax probe': { stdout: '{"ok":false}' } });
+    const { runner } = createMockRunner({ ' probe': { stdout: '{"ok":false}' } });
     const provider = new LocalDarwinProvider({ runner });
     const status = await provider.getStatus(DEFAULT_CTX);
     expect(status.available).toBe(false);
@@ -165,7 +165,7 @@ describe('LocalDarwinProvider', () => {
     expect(first.label).toBe('OK');
     expect(first.elementId).toBe('/0');
     // The tree walk must target the leased pid, never the focused app.
-    expect(commands.some(c => c.includes('/tmp/oma-ax tree 4242'))).toBe(true);
+    expect(commands.some(c => c.includes('tree 4242'))).toBe(true);
   });
 
   it('getAppState captures the leased app window (screencapture -l) when a window id resolves', async () => {
@@ -223,8 +223,8 @@ describe('LocalDarwinProvider', () => {
       snapshotElement: { elementId: '/0', role: 'button', label: 'OK', bounds: { x: 0, y: 0, width: 10, height: 10 } },
     } as any);
     expect(result.ok).toBe(true);
-    const press = commands.find(c => c.includes('/tmp/oma-ax press 4242 /0'))!;
-    expect(press).toContain('/tmp/oma-ax press 4242 /0');
+    const press = commands.find(c => c.includes('press 4242 /0'))!;
+    expect(press).toContain('press 4242 /0');
     expect(press).not.toContain('click at');
   });
 
@@ -237,8 +237,8 @@ describe('LocalDarwinProvider', () => {
       snapshotElement: { elementId: '/1', role: 'textbox', label: '', bounds: { x: 0, y: 0, width: 10, height: 10 } },
     } as any);
     expect(result.ok).toBe(true);
-    const setvalue = commands.find(c => c.includes('/tmp/oma-ax setvalue 4242 /1'))!;
-    expect(setvalue).toContain('/tmp/oma-ax setvalue 4242 /1');
+    const setvalue = commands.find(c => c.includes('setvalue 4242 /1'))!;
+    expect(setvalue).toContain('setvalue 4242 /1');
     expect(setvalue).not.toContain('keystroke');
     // base64 of '你好' — CJK survives the command line
     expect(setvalue).toContain('5L2g5aW9');

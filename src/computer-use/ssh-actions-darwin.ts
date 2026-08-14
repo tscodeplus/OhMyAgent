@@ -26,6 +26,7 @@
 // permission — the tool probes the AX API first so the common
 // no-permission case is still reported.
 
+import { createHash } from 'node:crypto';
 import type { ExecRunner } from './ssh-actions-common.js';
 import type { Action, ActionResult, ActionType, AppInfo, UIElement } from './types.js';
 import { quoteShellArg, truncateStdout } from './ssh-actions-common.js';
@@ -48,12 +49,21 @@ export const MAC_KEY_CODES: Record<string, number> = {
 const AX_TOOL_TIMEOUT_MS = 60_000;
 
 /**
+ * Return/Enter virtual key code. Background-posted (CGEventPostToPid)
+ * Return does not commit Safari's smart search field, so press_key prefers
+ * the focused element's AXConfirm action for this key (see press_key).
+ */
+const MAC_KEYCODE_RETURN = 36;
+
+/**
  * Native Swift AX tool source, embedded here and compiled with swiftc on
- * first use (/tmp/oma-ax.swift -> /tmp/oma-ax). Replaces the JXA ObjC
+ * first use; the compiled binary is cached under the user's app-support
+ * dir, keyed by the source hash (see runSwiftAx). Replaces the JXA ObjC
  * bridge, which macOS 15.7 breaks for C functions with 2+ out-params
  * (AXUIElementCopyAttributeValue etc. throw "incorrect number of
  * arguments"). Subcommands: tree / press / setvalue / postkey / hitpress /
- * scroll / windowid / probe — each emits one JSON object on stdout.
+ * confirmfocused / scroll / windowid / probe — each emits one JSON object
+ * on stdout.
  * The script must not contain backticks or "${" (template-string rules).
  */
 export const SWIFT_AX_TOOL_SOURCE = `import ApplicationServices
@@ -201,6 +211,26 @@ func cmdSetValue(_ pid: pid_t, _ path: [Int], _ b64: String) {
     let err = AXUIElementSetAttributeValue(target, "AXValue" as CFString, text as CFString)
     if err.rawValue == -25211 { fail("API_DISABLED") }
     if err != AXError.success { fail("SET_VALUE_FAILED") }
+    print(json(["ok": true]))
+}
+
+// ================= confirmfocused =================
+
+// Background-posted Enter (CGEventPostToPid) does not commit Safari's smart
+// search field — verified live: URL unchanged after postkey Return, while
+// the field's AXConfirm action navigates. Perform the focused element's
+// AXConfirm when it offers one; fail with NO_FOCUS / NO_CONFIRM so the
+// caller can fall back to the CGEvent path.
+func cmdConfirmFocused(_ pid: pid_t) {
+    let app = AXUIElementCreateApplication(pid)
+    if apiDisabled(app) { fail("API_DISABLED") }
+    guard let focused = ax(app, "AXFocusedUIElement" as CFString) else { fail("NO_FOCUS") }
+    let target = focused as! AXUIElement
+    let actions = actionsOf(target)
+    guard actions.contains("AXConfirm") else { fail("NO_CONFIRM") }
+    let err = AXUIElementPerformAction(target, "AXConfirm" as CFString)
+    if err.rawValue == -25211 { fail("API_DISABLED") }
+    if err != AXError.success { fail("PERFORM_FAILED") }
     print(json(["ok": true]))
 }
 
@@ -352,6 +382,9 @@ case "postkey":
     guard args.count >= 6, let pid = pid_t(args[2]), let code = CGKeyCode(args[3]),
           let flags = UInt64(args[4]), let rep = Int(args[5]) else { fail("ARGS") }
     cmdPostKey(pid, code, flags, rep)
+case "confirmfocused":
+    guard args.count >= 3, let pid = pid_t(args[2]) else { fail("ARGS") }
+    cmdConfirmFocused(pid)
 case "hitpress":
     guard args.count >= 5, let pid = pid_t(args[2]), let x = Float(args[3]), let y = Float(args[4]) else { fail("ARGS") }
     cmdHitPress(pid, x, y)
@@ -374,17 +407,27 @@ interface SwiftAxResult {
   id?: number;
 }
 
-/** Cache paths for the compiled AX tool. */
-const AX_TOOL_SRC = '/tmp/oma-ax.swift';
-const AX_TOOL_BIN = '/tmp/oma-ax';
+const AX_TOOL_HASH = createHash('sha256').update(SWIFT_AX_TOOL_SOURCE).digest('hex').slice(0, 16);
+// The compiled tool is cached under the user's app-support dir, keyed by the
+// source hash — NOT /tmp. /tmp is world-writable (any process can overwrite
+// the binary or trigger a rebuild) and is cleared on reboot, which twice
+// silently regressed the AX layer to an older embedded source during the
+// macOS 15 regression hunt. A hash-named binary is immutable: the embedded
+// source never changes, so the tool is compiled at most once per install
+// and the old mtime-compare dance disappears entirely.
+const AX_TOOL_DIR = '$HOME/Library/Application Support/OhMyAgent';
+const AX_TOOL_SRC = `${AX_TOOL_DIR}/oma-ax-${AX_TOOL_HASH}.swift`;
+const AX_TOOL_BIN = `${AX_TOOL_DIR}/oma-ax-${AX_TOOL_HASH}`;
 
 /**
- * Run the Swift AX tool through the runner: write the (fixed) source,
- * compile only when the cached binary is missing or stale, then execute
- * with the given args. Returns the parsed JSON result, or null when the
+ * Run the Swift AX tool through the runner. A normal call is one mkdir +
+ * one `-x` check + exec of the hash-keyed binary; only the first call per
+ * embedded source compiles (to a per-pid temp, atomically renamed into
+ * place so concurrent first calls never interleave a partial binary). A
+ * failed compile emits a JSON error, so callers see COMPILE_FAILED instead
+ * of a silent null. Returns the parsed JSON result, or null when the
  * command fails or stdout is not valid JSON — callers must treat null as
- * a graceful degradation signal, never throw. Concurrent invocations may
- * race on the /tmp paths harmlessly (identical source -> identical binary).
+ * a graceful degradation signal, never throw.
  */
 export async function runSwiftAx(
   runner: ExecRunner,
@@ -393,10 +436,14 @@ export async function runSwiftAx(
 ): Promise<SwiftAxResult | null> {
   try {
     const srcB64 = Buffer.from(SWIFT_AX_TOOL_SOURCE, 'utf8').toString('base64');
+    const bin = `"${AX_TOOL_BIN}"`;
     const cmd =
-      `echo ${srcB64} | base64 -d > ${AX_TOOL_SRC} && ` +
-      `([ -x ${AX_TOOL_BIN} ] && [ ${AX_TOOL_SRC} -nt ${AX_TOOL_BIN} ] || swiftc -O ${AX_TOOL_SRC} -o ${AX_TOOL_BIN}) && ` +
-      `${AX_TOOL_BIN} ${args.join(' ')}`;
+      `mkdir -p "${AX_TOOL_DIR}" && ` +
+      `( [ -x ${bin} ] || ` +
+      `  { echo ${srcB64} | base64 -d > "${AX_TOOL_SRC}" && ` +
+      `    swiftc -O "${AX_TOOL_SRC}" -o "${AX_TOOL_BIN}.$$" && mv "${AX_TOOL_BIN}.$$" "${AX_TOOL_BIN}" || ` +
+      `    { echo '{"ok":false,"error":"COMPILE_FAILED"}'; exit 1; }; } ) && ` +
+      `${bin} ${args.join(' ')}`;
     const res = await runner.exec(cmd, { timeoutMs });
     const trimmed = res.stdout.trim();
     if (!trimmed) return null;
@@ -1022,6 +1069,20 @@ export async function performDarwinAction(
         };
       }
       const keyEvent = macKeyToKeyEvent(action.key);
+      // Enter/Return: the AX-native commit for text fields is AXConfirm on
+      // the focused element. Safari (and most Cocoa apps) ignore Enter
+      // posted in the background via CGEventPostToPid for smart-search
+      // commits — the value was set but no navigation started (verified on
+      // macOS 15). Prefer AXConfirm; fall through to the CGEvent path when
+      // no focused element offers it.
+      if (keyEvent?.code === MAC_KEYCODE_RETURN && pid !== undefined && pid > 0) {
+        const confirm = await runSwiftAx(runner, ['confirmfocused', String(pid)]);
+        if (confirm?.ok === true) return { ok: true, action: action.type };
+        if (confirm?.error === 'API_DISABLED') {
+          return { ok: false, action: action.type, error: AX_API_DISABLED_MESSAGE };
+        }
+        // NO_FOCUS / NO_CONFIRM / tool failure — fall through to background post.
+      }
       // Primary path: background delivery via CGEventPostToPid straight into
       // the leased app's event queue — no foreground requirement, no global
       // keyboard stream. Only possible with a target pid; keys without a

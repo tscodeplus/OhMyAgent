@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { SSHComputerUseProvider } from '../../src/computer-use/providers/ssh-provider.js';
-import { SWIFT_AX_TOOL_SOURCE } from '../../src/computer-use/ssh-actions-darwin.js';
+import { runSwiftAx, SWIFT_AX_TOOL_SOURCE } from '../../src/computer-use/ssh-actions-darwin.js';
 import type { ComputerUseSettings } from '../../src/computer-use/settings.js';
 import type { Ctx, Lease, UIElement } from '../../src/computer-use/types.js';
 
@@ -278,7 +278,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     });
     expect(result.ok).toBe(true);
     const cmd = mockPool.exec.mock.lastCall?.[0] as string;
-    expect(cmd).toContain('/tmp/oma-ax hitpress 12345 500 300');
+    expect(cmd).toContain('hitpress 12345 500 300');
     // The hit element must belong to the leased app (pid 12345) — never
     // press whatever the user has on top (enforced inside the Swift tool).
     expect(cmd).not.toContain('click at');
@@ -348,10 +348,32 @@ describe('SSHComputerUseProvider macOS support', () => {
     expect(cmd).toContain('keystroke "hello world"');
   });
 
-  it('press_key with a lease pid posts the key in the background via CGEventPostToPid', async () => {
+  it('press_key Enter prefers the focused element\'s AXConfirm (Safari ignores background-posted Enter)', async () => {
     const { provider, mockPool } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
+        'confirmfocused ': { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
+      },
+    });
+    await provider.listApps(DEFAULT_CTX);
+    const lease = makeLease();
+    const result = await provider.performAction(DEFAULT_CTX, lease, {
+      type: 'press_key',
+      key: 'Return',
+    });
+    expect(result.ok).toBe(true);
+    const cmd = mockPool.exec.mock.lastCall?.[0] as string;
+    expect(cmd).toContain('confirmfocused 12345'); // AXConfirm on the focused element
+    // No CGEvent keyboard post, no foreground key-code path.
+    expect(cmd).not.toContain('postkey 12345');
+    expect(cmd).not.toContain('key code 36');
+  });
+
+  it('press_key Enter falls back to background CGEvent posting when no focused AXConfirm', async () => {
+    const { provider, mockPool } = createProvider({
+      responses: {
+        'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
+        'confirmfocused ': { stdout: '{"ok":false,"error":"NO_CONFIRM"}', stderr: '', exitCode: 0 },
         'postkey ': { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
       },
     });
@@ -363,7 +385,8 @@ describe('SSHComputerUseProvider macOS support', () => {
     });
     expect(result.ok).toBe(true);
     const cmd = mockPool.exec.mock.lastCall?.[0] as string;
-    expect(cmd).toContain('/tmp/oma-ax postkey 12345 36 0 1'); // targets the leased app
+    // AXConfirm was tried first, then the key posted into the leased app.
+    expect(cmd).toContain('postkey 12345 36 0 1'); // targets the leased app
     // The foreground key-code path must not run.
     expect(cmd).not.toContain('key code 36');
   });
@@ -402,7 +425,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     expect(result.ok).toBe(true);
     const cmd = mockPool.exec.mock.lastCall?.[0] as string;
     // 'a' = keycode 0; uppercase adds kCGEventFlagMaskShift (0x020000 = 131072).
-    expect(cmd).toContain('/tmp/oma-ax postkey 12345 0 131072 1');
+    expect(cmd).toContain('postkey 12345 0 131072 1');
   });
 
   it('press_key resolves cross-platform combo keys ("Meta+L" -> Command key)', async () => {
@@ -422,7 +445,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     const cmd = mockPool.exec.mock.lastCall?.[0] as string;
     // 'l' = keycode 37; Command = kCGEventFlagMaskCommand (0x001000 = 4096).
     // The base letter is matched lowercase — no spurious Shift flag.
-    expect(cmd).toContain('/tmp/oma-ax postkey 12345 37 4096 1');
+    expect(cmd).toContain('postkey 12345 37 4096 1');
   });
 
   it('press_key combo degradation keeps the modifiers (key code ... using {command down})', async () => {
@@ -455,6 +478,11 @@ describe('SSHComputerUseProvider macOS support', () => {
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
         'get frontmost of': { stdout: 'true', stderr: '', exitCode: 0 },
+        'confirmfocused ': {
+          stdout: '{"ok":false,"error":"NO_CONFIRM"}',
+          stderr: '',
+          exitCode: 0,
+        },
         'postkey ': {
           stdout: '{"ok":false,"error":"PERFORM_FAILED"}',
           stderr: '',
@@ -684,7 +712,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     });
     expect(result.ok).toBe(true);
     const cmd = mockPool.exec.mock.lastCall?.[0] as string;
-    expect(cmd).toContain('/tmp/oma-ax postkey 12345 125 0 2'); // repeat 2 in the background
+    expect(cmd).toContain('postkey 12345 125 0 2'); // repeat 2 in the background
     // The foreground arrow-key path must not run.
     expect(cmd).not.toContain('key code 125');
   });
@@ -779,6 +807,53 @@ describe('SSHComputerUseProvider macOS AX (Swift tool, accessibility-first)', ()
     expect(SWIFT_AX_TOOL_SOURCE).toContain('"AXWindows" as CFString');
   });
 
+  it('Swift tool commits the focused element via AXConfirm (Safari smart-search Enter regression)', () => {
+    // Background-posted Enter (CGEventPostToPid) does not commit Safari's
+    // smart search field; the AX-native commit is the focused element's
+    // AXConfirm action.
+    expect(SWIFT_AX_TOOL_SOURCE).toContain('confirmfocused');
+    expect(SWIFT_AX_TOOL_SOURCE).toContain('"AXFocusedUIElement" as CFString');
+    expect(SWIFT_AX_TOOL_SOURCE).toContain('"AXConfirm" as CFString');
+  });
+
+  it('runSwiftAx caches the compiled tool by source hash under the app-support dir', async () => {
+    // The old cache wrote to /tmp and compared mtimes, so ANY invocation
+    // with a different embedded source silently recompiled — overwriting a
+    // manually-patched binary and regressing the AX layer (happened twice
+    // during the macOS 15 regression hunt). The hash-keyed binary is
+    // immutable: no mtime dance, no /tmp, atomic mv on first compile.
+    const calls: string[] = [];
+    const runner = {
+      exec: vi.fn().mockImplementation(async (cmd: string) => {
+        calls.push(cmd);
+        return { stdout: '{"ok":true}', stderr: '', exitCode: 0 };
+      }),
+    };
+    const res = await runSwiftAx(runner as any, ['probe']);
+    expect(res).toEqual({ ok: true });
+    const cmd = calls[0];
+    expect(cmd).toContain('mkdir -p "$HOME/Library/Application Support/OhMyAgent"');
+    expect(cmd).toContain('oma-ax-');
+    expect(cmd).toContain('swiftc -O');
+    expect(cmd).toContain('mv'); // atomic rename — concurrent first calls never interleave
+    expect(cmd).not.toContain('-nt'); // the mtime-compare dance is gone
+    expect(cmd).not.toContain('/tmp/oma-ax');
+  });
+
+  it('runSwiftAx surfaces COMPILE_FAILED instead of a silent null when swiftc fails', async () => {
+    const runner = {
+      exec: vi.fn().mockResolvedValue({
+        stdout: '{"ok":false,"error":"COMPILE_FAILED"}',
+        stderr: '',
+        exitCode: 1,
+      }),
+    };
+    const res = await runSwiftAx(runner as any, ['probe']);
+    // A failed compile is an explicit error the caller can distinguish from
+    // an empty AX tree — the old chain just broke silently.
+    expect(res).toEqual({ ok: false, error: 'COMPILE_FAILED' });
+  });
+
   it('click_element with snapshotElement issues a JXA AXPress command (never "click at")', async () => {
     const { provider, mockPool } = createProvider({
       responses: {
@@ -794,7 +869,7 @@ describe('SSHComputerUseProvider macOS AX (Swift tool, accessibility-first)', ()
     });
     expect(result.ok).toBe(true);
     const cmd = mockPool.exec.mock.lastCall?.[0] as string;
-    expect(cmd).toContain('/tmp/oma-ax press 12345 /0/2/5');
+    expect(cmd).toContain('press 12345 /0/2/5');
     expect(cmd).toContain('/0/2/5');
     expect(cmd).not.toContain('click at');
   });
@@ -817,7 +892,7 @@ describe('SSHComputerUseProvider macOS AX (Swift tool, accessibility-first)', ()
     const cmd = mockPool.exec.mock.lastCall?.[0] as string;
     // The leased pid (12345) is passed to the Swift tool — the focused-app
     // fallback never runs.
-    expect(cmd).toContain('/tmp/oma-ax press 12345 /0/2/5');
+    expect(cmd).toContain('press 12345 /0/2/5');
   });
 
   it('click_element without a lease pid falls back to the focused application', async () => {
@@ -835,7 +910,7 @@ describe('SSHComputerUseProvider macOS AX (Swift tool, accessibility-first)', ()
     });
     expect(result.ok).toBe(true);
     const cmd = mockPool.exec.mock.lastCall?.[0] as string;
-    expect(cmd).toContain('/tmp/oma-ax press 0 /0/2/5');
+    expect(cmd).toContain('press 0 /0/2/5');
   });
 
   it('click_element without snapshotElement still returns an error (no coordinate fallback for element clicks)', async () => {
@@ -913,7 +988,7 @@ describe('SSHComputerUseProvider macOS AX (Swift tool, accessibility-first)', ()
     });
     expect(result.ok).toBe(true);
     const cmd = mockPool.exec.mock.lastCall?.[0] as string;
-    expect(cmd).toContain('/tmp/oma-ax setvalue 12345 /0/2/5'); // targets the leased app
+    expect(cmd).toContain('setvalue 12345 /0/2/5'); // targets the leased app
     expect(cmd).not.toContain('keystroke');
   });
 
