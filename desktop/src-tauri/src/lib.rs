@@ -49,6 +49,7 @@ pub fn run() {
             commands::compat_save_local_file,
             commands::compat_window_minimize,
             commands::compat_window_maximize,
+            commands::compat_window_is_maximized,
             commands::compat_window_close,
             commands::compat_open_data_dir,
             commands::compat_open_config_file,

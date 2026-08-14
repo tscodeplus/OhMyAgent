@@ -1,23 +1,28 @@
-import React, { useCallback, useEffect, useRef, useState, createContext, useContext, type ReactNode } from 'react';
-import { Outlet, useNavigate, useParams, useLocation, NavLink } from 'react-router-dom';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Outlet, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   PanelLeftOpen, PanelLeftClose, Settings as SettingsIcon,
-  Bot, Sparkles, Folder, BarChart3, Database, Clock, MessageSquarePlus,
+  Bot, Sparkles, Folder, BarChart3, Database, Clock,
 } from 'lucide-react';
 import { useProject } from '../../contexts/ProjectContext';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { apiRequest } from '../../utils/api';
+import { useDesktopPlatform } from '../../utils/desktop';
 import { useToast } from '../ui/Toast';
 import ProjectList from './ProjectList';
 import SettingsModal from '../settings/SettingsModal';
 import SetupWizard from '../setup-wizard/SetupWizard';
 import CreateProjectModal from '../project-wizard/CreateProjectModal';
+import DesktopCaption from './DesktopCaption';
 import type { Project } from '../../types/project';
 import type { Session } from '../../types/session';
 
 const SIDEBAR_MIN = 200; const SIDEBAR_MAX = 480; const SIDEBAR_DEFAULT = 248;
+// Collapsed rail geometry (mimics deepseek-harness-desktop): a 24px icon
+// column between 10px side paddings — 56px total, 36px controls, 12px rhythm.
+const SIDEBAR_COLLAPSED = 56;
 
 type Tab = { id: string; path: string; labelKey: string; icon: typeof Bot };
 
@@ -35,7 +40,7 @@ export default function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
   const { projectId } = useParams();
-  const { selectedProjectId, setSelectedProjectId, selectedSessionId, setSelectedSessionId } = useProject();
+  const { selectedProjectId, setSelectedProjectId, setSelectedSessionId } = useProject();
   const { settingsOpen, setSettingsOpen } = useSettings();
   const { showToast } = useToast();
   const { subscribe } = useWebSocket();
@@ -59,15 +64,34 @@ export default function AppShell() {
     });
   }, [subscribe, showToast, settingsOpen]);
 
+  // Desktop platform — the frameless caption differs per OS: macOS keeps its
+  // native traffic lights (custom buttons hidden, sidebar clears them), while
+  // Windows/Linux draw their own window controls at the top right.
+  const platform = useDesktopPlatform();
+  const isMac = platform === 'macos';
+
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     try { const n = Number(localStorage.getItem('oma-sidebar-width')); if (Number.isFinite(n)) return Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, n)); } catch {}
     return SIDEBAR_DEFAULT;
   });
   const [isResizing, setIsResizing] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(() => { try { return localStorage.getItem('oma-sidebar-collapsed') !== 'true'; } catch { return true; } });
+  // Narrow viewports auto-collapse the sidebar to the rail (mimics
+  // deepseek-harness-desktop's SIDEBAR_AUTO_COLLAPSE = 1024); a manual toggle
+  // while narrow flips this override instead of the wide preference.
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
+  const [narrowExpanded, setNarrowExpanded] = useState(false);
   const [mobileSidebar, setMobileSidebar] = useState(false);
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  const narrow = viewportWidth < 1024;
+  const sidebarVisible = narrow ? narrowExpanded : sidebarOpen;
 
   // ─── Setup Wizard ───
   const [showSetupWizard, setShowSetupWizard] = useState(false);
@@ -96,8 +120,14 @@ export default function AppShell() {
   }, [projectId, selectedProjectId, setSelectedProjectId]);
 
   const toggleSidebar = useCallback(() => {
+    if (narrow) {
+      // Narrow: flip the re-expand override; the wide preference is untouched,
+      // so widening the window restores it (reference behavior).
+      setNarrowExpanded(v => !v);
+      return;
+    }
     setSidebarOpen(v => { const n = !v; try { localStorage.setItem('oma-sidebar-collapsed', String(!n)); } catch {} return n; });
-  }, []);
+  }, [narrow]);
 
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault(); const sx = e.clientX; const sw = sidebarWidth; setIsResizing(true);
@@ -112,39 +142,142 @@ export default function AppShell() {
 
   const isChatArea = location.pathname.startsWith('/p/');
 
+  // The "chat" tab opens the most recently active session (or creates one).
+  const handleTabClick = useCallback(async (tab: Tab) => {
+    if (tab.path !== '/') {
+      navigate(tab.path);
+      return;
+    }
+    const pid = selectedProjectId;
+    if (!pid) {
+      navigate('/dashboard');
+      return;
+    }
+    try {
+      const sessions = await apiRequest<Session[]>(`/api/projects/${pid}/sessions`);
+      if (sessions.length > 0) {
+        const latest = sessions.reduce((a, b) =>
+          new Date(a.updated_at).getTime() > new Date(b.updated_at).getTime() ? a : b
+        );
+        setSelectedSessionId(latest.id);
+        navigate(`/p/${pid}/s/${latest.id}`);
+        return;
+      }
+    } catch { /* fall through to create new session */ }
+    try {
+      const session = await apiRequest<Session>(`/api/projects/${pid}/sessions`, { method: 'POST' });
+      setSelectedSessionId(session.id);
+      navigate(`/p/${pid}/s/${session.id}`);
+    } catch {
+      navigate(`/p/${pid}`);
+    }
+  }, [selectedProjectId, navigate, setSelectedSessionId]);
+
+  const isTabActive = (tab: Tab) => tab.path === '/' ? isChatArea || location.pathname === '/' : location.pathname.startsWith(tab.path);
+
+  // Caption strip text (subtle, so the shell still reads as toolbar-free).
+  const pageTitle = location.pathname.startsWith('/skills') ? t('nav.skills') :
+    location.pathname.startsWith('/files') ? t('nav.files') :
+    location.pathname.startsWith('/dashboard') ? t('nav.dashboard') :
+    location.pathname.startsWith('/memory') ? t('nav.memory') :
+    location.pathname.startsWith('/cron') ? t('nav.cron') :
+    isChatArea ? t('tabs.chat') : 'OhMyAgent';
+  const captionText = selectedProjectId ? `${selectedProjectId} / ${pageTitle}` : pageTitle;
+
   const sidebarEl = (
-    <aside data-sidebar
-      style={{ width: `${sidebarWidth}px` }}
-      className="relative flex h-full shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 text-neutral-900 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
+    <aside
+      data-sidebar
+      className={`relative h-full w-full overflow-hidden border-r border-neutral-200 bg-neutral-50 text-neutral-900 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 ${isMac ? 'pt-8' : ''}`}
     >
-      {/* Header — matches PilotDeck: h-16, pl-2 pr-4 */}
-      <div className="flex h-16 items-center justify-between pl-2 pr-4 shrink-0">
-        <button type="button" onClick={() => navigate('/')} className="flex items-center gap-2 rounded-md p-1 transition hover:opacity-80">
-          <span className="text-[15px] font-semibold tracking-tight text-neutral-800 dark:text-neutral-200">OhMyAgent</span>
+      {/* Expanded content */}
+      <div className={`absolute inset-0 flex flex-col transition-opacity duration-200 ${sidebarVisible || mobileSidebar ? 'opacity-100' : 'pointer-events-none opacity-0'}`}>
+        {/* Header — brand + collapse toggle */}
+        <div className="flex h-16 shrink-0 items-center justify-between pl-2 pr-4">
+          <button type="button" onClick={() => navigate('/')} className="flex items-center gap-2 rounded-md p-1 transition hover:opacity-80">
+            <span className="text-[15px] font-semibold tracking-tight text-neutral-800 dark:text-neutral-200">OhMyAgent</span>
+          </button>
+          <button type="button" onClick={toggleSidebar} title={t('sidebar.collapse')} aria-label={t('sidebar.collapse')}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100">
+            <PanelLeftClose className="h-4 w-4" strokeWidth={1.75} />
+          </button>
+        </div>
+
+        {/* App navigation — moved out of the old top toolbar into the sidebar */}
+        <nav className="shrink-0 px-2 pb-1" aria-label="Tools" role="tablist">
+          <div className="space-y-0.5">
+            {TABS.map(tab => {
+              const Icon = tab.icon;
+              const active = isTabActive(tab);
+              return (
+                <button key={tab.id} type="button" role="tab" aria-selected={active} onClick={() => handleTabClick(tab)}
+                  className={`flex h-9 w-full items-center gap-2.5 rounded-lg px-3 text-[13px] transition-colors ${
+                    active
+                      ? 'bg-neutral-100 font-medium text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100'
+                      : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100'
+                  }`}>
+                  <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                  <span className="truncate">{t(tab.labelKey)}</span>
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+
+        {/* Projects / sessions */}
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
+          <ProjectList refreshKey={refreshKey} onRefresh={() => setRefreshKey(k => k + 1)} onCreateProject={() => setShowCreateProject(true)} />
+        </div>
+
+        {/* Settings */}
+        <div className="shrink-0 border-t border-neutral-200 px-2 py-2 dark:border-neutral-800">
+          <button type="button" onClick={() => setSettingsOpen(true)}
+            className="flex h-9 w-full items-center justify-start gap-2 rounded-lg px-6 text-[13px] font-medium text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100">
+            <SettingsIcon className="h-4 w-4" strokeWidth={1.75} />
+            <span>{t('sidebar.settings')}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Collapsed rail — 56px icon column, mimics deepseek-harness-desktop */}
+      <div className={`absolute inset-0 flex flex-col items-center px-[10px] pb-2 pt-[18px] transition-opacity duration-200 ${sidebarVisible && !mobileSidebar ? 'pointer-events-none opacity-0' : 'opacity-100'}`}>
+        {/* Rail logo: brand mark at rest, expand affordance on hover */}
+        <button type="button" onClick={toggleSidebar} title={t('sidebar.expand')} aria-label={t('sidebar.expand')}
+          className="group flex h-9 w-9 items-center justify-center rounded-full text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800">
+          <span className="flex h-6 w-6 items-center justify-center rounded-md bg-indigo-500 text-[11px] font-bold text-white group-hover:hidden">O</span>
+          <PanelLeftOpen className="hidden h-[18px] w-[18px] group-hover:block" strokeWidth={1.75} />
         </button>
-        <button type="button" onClick={toggleSidebar}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
-          aria-label="Hide sidebar">
-          <PanelLeftClose className="h-4 w-4" strokeWidth={1.75} />
+
+        <nav className="mt-3 flex flex-col items-center gap-1" aria-label="Tools" role="tablist">
+          {TABS.map(tab => {
+            const Icon = tab.icon;
+            const active = isTabActive(tab);
+            return (
+              <button key={tab.id} type="button" role="tab" aria-selected={active} onClick={() => handleTabClick(tab)} title={t(tab.labelKey)} aria-label={t(tab.labelKey)}
+                className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
+                  active
+                    ? 'bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100'
+                    : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100'
+                }`}>
+                <Icon className="h-[18px] w-[18px]" strokeWidth={1.75} />
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="flex-1" />
+
+        <button type="button" onClick={() => setSettingsOpen(true)} title={t('sidebar.settings')} aria-label={t('sidebar.settings')}
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100">
+          <SettingsIcon className="h-[18px] w-[18px]" strokeWidth={1.75} />
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
-        <ProjectList refreshKey={refreshKey} onRefresh={() => setRefreshKey(k => k + 1)} onCreateProject={() => setShowCreateProject(true)} />
-      </div>
-
-      <div className="border-t border-neutral-200 px-2 py-2 dark:border-neutral-800 shrink-0">
-        <button type="button" onClick={() => setSettingsOpen(true)}
-          className="flex h-9 w-full items-center justify-start gap-2 rounded-lg px-6 text-[13px] font-medium text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100">
-          <SettingsIcon className="h-4 w-4" strokeWidth={1.75} />
-          <span>{t('sidebar.settings')}</span>
-        </button>
-      </div>
-
-      {/* Resize handle */}
-      <div role="separator" aria-orientation="vertical" onMouseDown={handleResizeStart}
-        onDoubleClick={() => { setSidebarWidth(SIDEBAR_DEFAULT); try { localStorage.setItem('oma-sidebar-width', String(SIDEBAR_DEFAULT)); } catch {} }}
-        className={`absolute inset-y-0 right-0 z-10 hidden w-1 cursor-col-resize select-none transition-colors md:block ${isResizing ? 'bg-blue-500/60' : 'hover:bg-neutral-300/70 dark:hover:bg-neutral-700/70'}`} />
+      {/* Resize handle — only while expanded */}
+      {sidebarVisible && (
+        <div role="separator" aria-orientation="vertical" onMouseDown={handleResizeStart}
+          onDoubleClick={() => { setSidebarWidth(SIDEBAR_DEFAULT); try { localStorage.setItem('oma-sidebar-width', String(SIDEBAR_DEFAULT)); } catch {} }}
+          className={`absolute inset-y-0 right-0 z-10 hidden w-1 cursor-col-resize select-none transition-colors md:block ${isResizing ? 'bg-blue-500/60' : 'hover:bg-neutral-300/70 dark:hover:bg-neutral-700/70'}`} />
+      )}
       {isResizing && <div className="fixed inset-0 z-[60] cursor-col-resize" style={{ userSelect: 'none' }} />}
     </aside>
   );
@@ -159,104 +292,25 @@ export default function AppShell() {
         </div>
       )}
 
-      {/* Desktop sidebar */}
-      <div className="hidden md:block shrink-0" style={{ width: sidebarOpen ? undefined : 0 }}>
-        {sidebarOpen ? sidebarEl : null}
+      {/* Mobile floating toggle (no toolbar on small screens anymore) */}
+      <button type="button" onClick={() => setMobileSidebar(true)} aria-label={t('sidebar.expand')}
+        className="fixed left-3 top-3 z-40 inline-flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-200 bg-white/95 text-neutral-600 shadow-sm hover:bg-neutral-50 md:hidden dark:border-neutral-800 dark:bg-neutral-900/95 dark:text-neutral-300 dark:hover:bg-neutral-800">
+        <PanelLeftOpen className="h-4 w-4" strokeWidth={1.75} />
+      </button>
+
+      {/* Desktop sidebar — the width animates between expanded and the 56px rail */}
+      <div
+        className="hidden shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out md:block"
+        style={{ width: sidebarVisible ? sidebarWidth : SIDEBAR_COLLAPSED }}
+      >
+        {sidebarEl}
       </div>
 
-      {/* Main */}
+      {/* Main — no top toolbar: content starts at the top (browser) or under a
+          transparent caption strip that doubles as the window drag region
+          (desktop shell) with window controls at the top right. */}
       <main className="flex min-w-0 flex-1 flex-col">
-        {/* Header bar — matches PilotDeck: h-12 px-6 */}
-        <header className="flex h-10 sm:h-12 shrink-0 items-center border-b border-neutral-200 px-3 sm:px-6 dark:border-neutral-800">
-          {/* Sidebar toggle when collapsed */}
-          {!sidebarOpen && (
-            <button type="button" onClick={toggleSidebar}
-              className="mr-2 sm:mr-4 hidden md:inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100">
-              <PanelLeftOpen className="h-4 w-4" strokeWidth={1.75} />
-            </button>
-          )}
-
-          {/* Mobile toggle — always visible on small screens for sidebar access */}
-          <button type="button" onClick={() => setMobileSidebar(true)}
-            className="mr-2 sm:mr-4 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 md:hidden">
-            <PanelLeftOpen className="h-4 w-4" strokeWidth={1.75} />
-          </button>
-
-          {/* Breadcrumb — compact on mobile, full on desktop */}
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2 text-[12px] sm:text-[13px]">
-            {selectedProjectId ? (
-              <>
-                <span className="min-w-0 truncate max-w-[100px] sm:max-w-[180px] text-neutral-500 dark:text-neutral-400" title={selectedProjectId}>{selectedProjectId}</span>
-                <span className="shrink-0 text-neutral-300/60 dark:text-neutral-600/60">/</span>
-              </>
-            ) : null}
-            {projectId && selectedSessionId ? (
-              <>
-                <span className="shrink-0 font-medium">{t('tabs.chat')}</span>
-              </>
-            ) : (
-              <span className="shrink-0 font-medium">
-                {location.pathname.startsWith('/skills') ? t('nav.skills') :
-                 location.pathname.startsWith('/files') ? t('nav.files') :
-                 location.pathname.startsWith('/dashboard') ? t('nav.dashboard') :
-                 location.pathname.startsWith('/memory') ? t('nav.memory') :
-                 location.pathname.startsWith('/cron') ? t('nav.cron') :
-                 isChatArea ? t('tabs.chat') : 'OhMyAgent'}
-              </span>
-            )}
-          </div>
-
-          {/* Tab switcher — compact on mobile, full labels on desktop */}
-          <nav role="tablist" aria-label="Tools" className="ml-2 sm:ml-4 flex h-9 shrink-0 items-center gap-0.5 sm:gap-1.5 overflow-x-auto">
-            {TABS.map(tab => {
-              const Icon = tab.icon;
-              const isActive = tab.path === '/' ? isChatArea || location.pathname === '/' : location.pathname.startsWith(tab.path);
-              return (
-                <button key={tab.id} type="button" role="tab" aria-selected={isActive}
-                  onClick={async () => {
-                    if (tab.path === '/') {
-                      const pid = selectedProjectId;
-                      if (!pid) {
-                        navigate('/dashboard');
-                        return;
-                      }
-                      // Try to find the most recently active session
-                      try {
-                        const sessions = await apiRequest<Session[]>(`/api/projects/${pid}/sessions`);
-                        if (sessions.length > 0) {
-                          const latest = sessions.reduce((a, b) =>
-                            new Date(a.updated_at).getTime() > new Date(b.updated_at).getTime() ? a : b
-                          );
-                          setSelectedSessionId(latest.id);
-                          navigate(`/p/${pid}/s/${latest.id}`);
-                          return;
-                        }
-                      } catch { /* fall through to create new session */ }
-                      // No sessions exist — create one
-                      try {
-                        const session = await apiRequest<Session>(`/api/projects/${pid}/sessions`, { method: 'POST' });
-                        setSelectedSessionId(session.id);
-                        navigate(`/p/${pid}/s/${session.id}`);
-                      } catch {
-                        navigate(`/p/${pid}`);
-                      }
-                    } else {
-                      navigate(tab.path);
-                    }
-                  }}
-                  className={`relative inline-flex h-8 shrink-0 items-center gap-1 sm:gap-1.5 rounded-md px-1.5 sm:px-2.5 text-[12px] sm:text-[13px] transition-colors ${
-                    isActive
-                      ? 'bg-neutral-100 font-medium text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100'
-                      : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100'
-                  }`}>
-                  <Icon className="h-3.5 w-3.5" strokeWidth={1.75} />
-                  <span className="hidden sm:inline">{t(tab.labelKey)}</span>
-                </button>
-              );
-            })}
-          </nav>
-        </header>
-
+        <DesktopCaption mac={isMac} text={captionText} />
         <div className="min-h-0 flex-1 overflow-hidden"><Outlet /></div>
       </main>
 

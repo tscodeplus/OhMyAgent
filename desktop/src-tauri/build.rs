@@ -15,6 +15,7 @@ fn main() {
             "compat_restart_service",
             "compat_window_minimize",
             "compat_window_maximize",
+            "compat_window_is_maximized",
             "compat_window_close",
             "compat_toggle_devtools",
             "compat_open_data_dir",

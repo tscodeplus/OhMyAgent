@@ -23,6 +23,8 @@
     "newProject": "New Project",
     "newSession": "New Chat",
     "settings": "Settings",
+    "collapse": "Collapse sidebar",
+    "expand": "Expand sidebar",
     "noProjects": "No Projects",
     "createFirst": "Create your first Project",
     "rename": "Rename",
@@ -907,5 +909,11 @@
     "loadError": "Failed to load marketplace",
     "popularTitle": "Popular Skills",
     "refresh": "Refresh"
+  },
+  "window": {
+    "minimize": "Minimize",
+    "maximize": "Maximize",
+    "restore": "Restore",
+    "close": "Close"
   }
 }

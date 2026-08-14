@@ -64,10 +64,12 @@ pub fn webui_url(app: &AppHandle, cache_bust: bool) -> String {
 /// (an early load would leave the webview stuck on the ERR_CONNECTION_REFUSED
 /// error page).
 ///
-/// Note: uses the native system title bar for now — the Electron shell's
-/// frameless + titleBarOverlay look was a cosmetic optimization that Tauri
-/// only supports for config-declared windows; revisit with a self-drawn
-/// caption (WebUI drag region + compat window buttons) in a later iteration.
+/// Immersive shell (mirrors the old Electron frameless + titleBarOverlay
+/// look, like deepseek-harness-desktop): no native toolbar. On Windows/Linux
+/// the window is fully frameless and the WebUI draws its own caption — a
+/// drag region plus minimize/maximize/close buttons at the top right
+/// (compat_window_* commands). macOS keeps the native traffic lights via
+/// TitleBarStyle::Overlay, so the WebUI hides its own buttons there.
 pub fn create_main_window(app: &AppHandle) -> tauri::Result<()> {
     let compat_js = include_str!("../../sidecar/src/compat.js");
     let url = WebviewUrl::External(
@@ -75,15 +77,29 @@ pub fn create_main_window(app: &AppHandle) -> tauri::Result<()> {
             .parse::<tauri::Url>()
             .expect("static url"),
     );
-    WebviewWindowBuilder::new(app, MAIN_LABEL, url)
+    let mut builder = WebviewWindowBuilder::new(app, MAIN_LABEL, url)
         .title("OhMyAgent")
         .inner_size(1200.0, 800.0)
         .min_inner_size(800.0, 600.0)
         .visible(false)
         .background_color(tauri::window::Color::from((10, 10, 10)))
         .icon(window_icon())?
-        .initialization_script(compat_js)
-        .build()?;
+        .initialization_script(compat_js);
+    #[cfg(target_os = "macos")]
+    {
+        // hiddenInset-style: transparent title bar, content under it, native
+        // traffic lights parked where the WebUI's sidebar clears them.
+        builder = builder
+            .title_bar_style(tauri::TitleBarStyle::Overlay)
+            .traffic_light_position(tauri::LogicalPosition::new(16.0, 18.0));
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Windows/Linux: no native chrome at all — the WebUI's caption strip
+        // (drag region + window buttons) replaces it.
+        builder = builder.decorations(false);
+    }
+    builder.build()?;
     Ok(())
 }
 
@@ -671,4 +687,3 @@ fn system_dark() -> bool {
 fn system_dark() -> bool {
     false
 }
-

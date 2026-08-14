@@ -119,6 +119,7 @@
     // window control
     minimize: () => invoke('compat_window_minimize'),
     maximize: () => invoke('compat_window_maximize'),
+    isMaximized: () => invoke('compat_window_is_maximized'),
     close: () => invoke('compat_window_close'),
 
     // server

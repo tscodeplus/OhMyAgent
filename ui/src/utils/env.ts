@@ -8,6 +8,7 @@ declare global {
     electronAPI?: {
       minimize: () => Promise<void>;
       maximize: () => Promise<void>;
+      isMaximized: () => Promise<boolean>;
       close: () => Promise<void>;
       getServerStatus: () => Promise<{ running: boolean; port: number }>;
       restartService: () => Promise<{ ok: boolean; error?: string }>;
@@ -28,7 +29,7 @@ declare global {
       onUpdateDownloadProgress: (cb: (info: { percent: number }) => void) => void;
       removeUpdateListeners: () => void;
       getAppVersion: () => Promise<string>;
-      getPlatform: () => string;
+      getPlatform: () => Promise<string>;
       getUserDataPath: () => Promise<string>;
       // Gateway
       getGatewayConfig: () => Promise<{ mode: string; remoteUrl: string; remoteToken: string }>;

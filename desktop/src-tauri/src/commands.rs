@@ -193,8 +193,20 @@ pub fn compat_window_minimize(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn compat_window_maximize(app: AppHandle) -> Result<(), String> {
     let win = main_window(&app).ok_or_else(|| "no main window".to_string())?;
-    let _ = win.maximize();
+    // Toggle: the frameless caption's maximize button doubles as restore.
+    if win.is_maximized().unwrap_or(false) {
+        win.unmaximize().map_err(|e| e.to_string())?;
+    } else {
+        win.maximize().map_err(|e| e.to_string())?;
+    }
     Ok(())
+}
+
+/// Current maximized state, so the caption button can show maximize/restore.
+#[tauri::command]
+pub fn compat_window_is_maximized(app: AppHandle) -> Result<bool, String> {
+    let win = main_window(&app).ok_or_else(|| "no main window".to_string())?;
+    win.is_maximized().map_err(|e| e.to_string())
 }
 
 /// Close the *current* window (the one that invoked it — e.g. the chooser).

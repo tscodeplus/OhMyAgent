@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { WifiOff, ArrowLeft, RefreshCw, Settings } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { isElectron } from '../../utils/env';
+import { useDesktopPlatform } from '../../utils/desktop';
+import DesktopCaption from '../app-shell/DesktopCaption';
 
 interface ConnectionErrorPageProps {
   /** The error message to display. */
@@ -19,6 +21,7 @@ export default function ConnectionErrorPage({
   onRetry,
 }: ConnectionErrorPageProps) {
   const { t } = useTranslation('common');
+  const platform = useDesktopPlatform();
   const [switching, setSwitching] = useState(false);
   const [retrying, setRetrying] = useState(false);
 
@@ -53,9 +56,13 @@ export default function ConnectionErrorPage({
   const electron = isElectron();
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-neutral-50 dark:bg-neutral-950">
-      <div className="w-full max-w-md mx-4">
-        <div className="rounded-xl border border-red-200 dark:border-red-800 bg-white dark:bg-neutral-900 p-8 shadow-lg">
+    <div className="fixed inset-0 flex flex-col bg-neutral-50 dark:bg-neutral-950">
+      {/* Frameless desktop shell: keep drag region + window controls visible
+          on the error screen too (no AppShell here). */}
+      <DesktopCaption mac={platform === 'macos'} text={t('auth.connectionError', '连接失败')} />
+      <div className="flex min-h-0 flex-1 items-center justify-center">
+        <div className="w-full max-w-md mx-4">
+          <div className="rounded-xl border border-red-200 dark:border-red-800 bg-white dark:bg-neutral-900 p-8 shadow-lg">
           {/* ── Icon + Title ── */}
           <div className="flex flex-col items-center mb-6">
             <div className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/40 mb-4">
@@ -143,6 +150,7 @@ export default function ConnectionErrorPage({
                 {t('auth.configureGateway', '配置网关设置')}
               </button>
             )}
+            </div>
           </div>
         </div>
       </div>

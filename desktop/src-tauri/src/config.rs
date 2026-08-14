@@ -212,7 +212,7 @@ fn grant_remote_origin(app: &AppHandle, origin: &str) {
     use tauri::Manager;
 
     // Keep in sync with capabilities/default.json.
-    const PERMISSIONS: [&str; 25] = [
+    const PERMISSIONS: [&str; 26] = [
         "core:default",
         "dialog:default",
         "opener:default",
@@ -228,6 +228,7 @@ fn grant_remote_origin(app: &AppHandle, origin: &str) {
         "allow-compat-restart-service",
         "allow-compat-window-minimize",
         "allow-compat-window-maximize",
+        "allow-compat-window-is-maximized",
         "allow-compat-window-close",
         "allow-compat-toggle-devtools",
         "allow-compat-open-data-dir",
