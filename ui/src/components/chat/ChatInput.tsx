@@ -4,6 +4,7 @@ import { useLocation } from 'react-router-dom';
 import { Send, Paperclip, X, Loader2 } from 'lucide-react';
 import { createSSEClient, type SSEEvent } from '../../utils/sse-client';
 import { getToken } from '../../utils/api';
+import { CHAT_MEDIA_TOOL_NAMES, isChatMediaUrl } from '../../utils/chatMedia';
 import type { Message, MessageApproval, UserQuestion, ToolCall, MessageFooter, MessageSegment, MediaSegmentItem, MessageFile } from '../../types/session';
 
 interface ChatInputProps {
@@ -558,12 +559,21 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
             const extractImages = (text: string) => {
               imgRegex.lastIndex = 0;
               while ((imgMatch = imgRegex.exec(text)) !== null) {
-                images.push({ alt: imgMatch[1] || undefined, url: imgMatch[2] });
+                const url = imgMatch[2];
+                // Only locally-served chat media renders as images — arbitrary
+                // external URLs (e.g. from web_search snippets) must not flood
+                // the chat with image bubbles.
+                if (isChatMediaUrl(url)) {
+                  images.push({ alt: imgMatch[1] || undefined, url });
+                }
               }
             };
             extractImages(assistantContentRef.current);
             for (const tc of toolCallsRef.current) {
-              if (tc.status === 'success' && tc.output) extractImages(tc.output);
+              // Only media-emitting tools may surface images in chat.
+              if (tc.status === 'success' && tc.output && CHAT_MEDIA_TOOL_NAMES.has(tc.name)) {
+                extractImages(tc.output);
+              }
             }
             if (images.length > 0) console.log('[ChatInput] done — extracted images', images.length, images.map(i => i.url.slice(0, 50)));
             // Extract file download links

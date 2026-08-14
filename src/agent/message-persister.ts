@@ -12,6 +12,7 @@ import type { Logger } from 'pino';
 import type { FooterConfig } from '../app/types.js';
 import { generateId } from '../shared/ids.js';
 import { extractText, extractUserText } from '../shared/text-extract.js';
+import { CHAT_MEDIA_TOOL_NAMES, isChatMediaUrl } from '../shared/chat-media.js';
 import { i18n } from '../i18n/index.js';
 
 // ── Types ──
@@ -75,6 +76,10 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
     let toolResultCount = 0;
     for (const m of batchMessages) {
       if (m.role !== 'toolResult' || !Array.isArray(m.content)) continue;
+      // Only media-emitting tools may surface images in chat. Search/web tools
+      // return untrusted snippets full of image links — extracting them would
+      // flood the chat with "sent" images (see shared/chat-media.ts).
+      if (!CHAT_MEDIA_TOOL_NAMES.has((m as any).toolName)) continue;
       toolResultCount++;
       const text = m.content
         .filter((b: any) => b.type === 'text')
@@ -84,6 +89,7 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
       let imgMatch: RegExpExecArray | null;
       while ((imgMatch = imgRegex.exec(text)) !== null) {
         const url = imgMatch[2];
+        if (!isChatMediaUrl(url)) continue;
         if (!seenUrls.has(url)) {
           seenUrls.add(url);
           batchImages.push({ alt: imgMatch[1] || undefined, url });

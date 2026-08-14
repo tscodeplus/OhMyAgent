@@ -11,6 +11,7 @@ import { apiRequest, getToken } from '../../utils/api';
 import { isElectron, getElectronAPI } from '../../utils/env';
 import { useToast } from '../ui/Toast';
 import { useTranslation } from 'react-i18next';
+import { isChatMediaUrl } from '../../utils/chatMedia';
 
 interface MessageBubbleProps {
   message: Message;
@@ -124,6 +125,21 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
   // Custom markdown rendering: desktop-bridge links → download buttons, images → constrained size
   const markdownComponents = {
     img: ({ src, alt, ...props }: any) => {
+      // Only gateway-served images render inline. External image links (e.g.
+      // scraped into web_search result snippets) would otherwise flood the
+      // chat with images whenever a search output mentions an image URL.
+      if (!src || !isChatMediaUrl(src)) {
+        return (
+          <a
+            href={src}
+            target="_blank"
+            rel="noreferrer"
+            className="text-blue-600 dark:text-blue-400 underline break-all"
+          >
+            {alt || src}
+          </a>
+        );
+      }
       // Serve URLs require the token — append it for the <img> request and
       // the lightbox (both can't set Authorization headers).
       const authSrc = withAuthUrl(src);
@@ -387,13 +403,16 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
         {/* Generated images — fallback: extract from markdown content at render time.
             Skip for user messages — ReactMarkdown already renders images inline. */}
         {!isUser && (() => {
-          const extracted: { url: string; alt?: string }[] = message.images || [];
+          const extracted: { url: string; alt?: string }[] = (message.images || []).filter(img => isChatMediaUrl(img.url));
           if (extracted.length === 0 && message.content) {
             // Extract images from markdown content as fallback
             const imgRegex = /!\[([^\]]*)\]\(([^)\s]+)\)/g;
             let m: RegExpExecArray | null;
             while ((m = imgRegex.exec(message.content)) !== null) {
-              extracted.push({ alt: m[1] || undefined, url: m[2] });
+              const url = m[2];
+              if (isChatMediaUrl(url)) {
+                extracted.push({ alt: m[1] || undefined, url });
+              }
             }
           }
           if (extracted.length === 0) return null;

@@ -10,6 +10,7 @@ import type Database from 'better-sqlite3';
 import type { FooterConfig } from '../types.js';
 import { stripXmlTag } from '../../shared/text-extract.js';
 import { refreshDownloadUrl } from '../../shared/download-token.js';
+import { CHAT_MEDIA_TOOL_NAMES, isChatMediaUrl } from '../../shared/chat-media.js';
 
 /**
  * Re-sign any /dl/ download tokens in the given image/file URL lists with
@@ -187,7 +188,7 @@ export function registerSessionRoutes(
       const metaImages = meta?.images as Array<{ url: string; alt?: string }> | undefined;
       if (metaImages) {
         for (const img of metaImages) {
-          if (!seenUrls.has(img.url)) {
+          if (img && isChatMediaUrl(img.url) && !seenUrls.has(img.url)) {
             seenUrls.add(img.url);
             images.push(img);
           }
@@ -208,6 +209,9 @@ export function registerSessionRoutes(
         let m: RegExpExecArray | null;
         while ((m = imgRegex.exec(text)) !== null) {
           const url = m[2];
+          // Arbitrary external URLs (e.g. image links inside web_search result
+          // snippets) must never be surfaced as chat images.
+          if (!isChatMediaUrl(url)) continue;
           if (!seenUrls.has(url)) {
             seenUrls.add(url);
             images.push({ alt: m[1] || undefined, url });
@@ -232,10 +236,15 @@ export function registerSessionRoutes(
       if (m.role === 'assistant') {
         extractImagesFrom(content);
         extractFilesFrom(content);
-        const toolCalls = meta?.tool_calls as Array<{ output?: string }> | undefined;
+        const toolCalls = meta?.tool_calls as Array<{ name?: string; output?: string }> | undefined;
         if (toolCalls) {
           for (const tc of toolCalls) {
-            if (tc.output) { extractImagesFrom(tc.output); extractFilesFrom(tc.output); }
+            // Only media-emitting tools may surface images in chat (web_search
+            // etc. return untrusted snippets full of image links).
+            if (tc.output && tc.name && CHAT_MEDIA_TOOL_NAMES.has(tc.name)) {
+              extractImagesFrom(tc.output);
+              extractFilesFrom(tc.output);
+            }
           }
         }
       } else if (m.role === 'user') {

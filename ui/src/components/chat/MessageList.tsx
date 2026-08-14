@@ -4,6 +4,7 @@ import { apiRequest } from '../../utils/api';
 import MessageBubble from './MessageBubble';
 import type { Message } from '../../types/session';
 import Spinner from '../ui/Spinner';
+import { CHAT_MEDIA_TOOL_NAMES, isChatMediaUrl } from '../../utils/chatMedia';
 
 interface MessageListProps {
   projectId?: string;
@@ -56,6 +57,7 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
           let m: RegExpExecArray | null;
           while ((m = imgRegex.exec(text)) !== null) {
             const url = m[2];
+            if (!isChatMediaUrl(url)) continue;
             if (!seen.has(url)) {
               seen.add(url);
               images.push({ alt: m[1] || undefined, url });
@@ -66,7 +68,9 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
         // Also scan tool call outputs (webui_send_media puts images here)
         if (msg.tool_calls) {
           for (const tc of msg.tool_calls) {
-            if (tc.output) scan(tc.output);
+            // Only media-emitting tools may surface images in chat (web_search
+            // etc. return untrusted snippets full of image links).
+            if (tc.output && CHAT_MEDIA_TOOL_NAMES.has(tc.name)) scan(tc.output);
           }
         }
         if (images.length > 0) { msg.images = images; console.log('[MessageList] extracted images for msg', msg.id.slice(0, 8), images); }
