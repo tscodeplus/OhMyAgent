@@ -28,6 +28,9 @@ function resolveLogDir(): string {
  *   - Always writes to <logDir>/ohmyagent.log (appended, never truncated).
  *   - Log directory defaults to ~/.ohmyagent/logs; override with
  *     OHMYAGENT_LOG_DIR or OHMYAGENT_HOME.
+ *   - The file target is a self-healing transport (src/app/file-self-heal.js):
+ *     if the log file is deleted while the server runs, the next write
+ *     recreates it instead of silently writing into the unlinked inode.
  *
  * Result is cached — subsequent calls return the same instance.
  */
@@ -60,14 +63,18 @@ export function createLogger(level?: string): pino.Logger {
     });
   }
 
-  // File transport: always write logs to disk
+  // File transport: always write logs to disk.
+  // Uses the self-healing `file-self-heal.js` worker instead of pino's
+  // built-in `pino/file`, so the log file is recreated automatically if it is
+  // deleted while the process is running (pino/file holds one fd forever and
+  // would keep writing into the unlinked inode, never recreating the file).
   try {
     mkdirSync(logDir, { recursive: true });
   } catch {
     // Directory might already exist or be unwritable — don't crash
   }
   targets.push({
-    target: 'pino/file',
+    target: './file-self-heal.js',
     options: {
       destination: join(logDir, 'ohmyagent.log'),
       mkdir: true,
