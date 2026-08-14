@@ -73,6 +73,18 @@ func axErr(_ el: AXUIElement, _ name: CFString) -> AXError {
     return AXUIElementCopyAttributeValue(el, name, &v)
 }
 
+// macOS 15.x regression: the "AXActions" ATTRIBUTE returns
+// kAXErrorAttributeUnsupported (-25205) on every element, even Finder's.
+// The equivalent C function AXUIElementCopyActionNames still works — use it
+// everywhere actions are read, or every element would fail the tree filter
+// and come back as an empty tree.
+func actionsOf(_ el: AXUIElement) -> [String] {
+    var names: CFArray?
+    let err = AXUIElementCopyActionNames(el, &names)
+    guard err == AXError.success, let arr = names as? [String] else { return [] }
+    return arr
+}
+
 func pointAttr(_ el: AXUIElement, _ name: CFString) -> CGPoint? {
     guard let v = ax(el, name) else { return nil }
     var p = CGPoint.zero
@@ -103,11 +115,22 @@ func apiDisabled(_ app: AXUIElement) -> Bool {
     axErr(app, "AXRole" as CFString).rawValue == -25211
 }
 
+// Root-level children of an app element. Most apps expose their windows
+// under AXChildren, but Safari (and some others) keep AXChildren empty and
+// expose windows only via AXWindows — with no fallback the tree comes back
+// empty and every element action degrades to blind coordinates.
+func rootChildren(_ app: AXUIElement) -> [AXUIElement] {
+    let kids = (ax(app, "AXChildren" as CFString) as? [AXUIElement]) ?? []
+    let windows = (ax(app, "AXWindows" as CFString) as? [AXUIElement]) ?? []
+    return kids.isEmpty && !windows.isEmpty ? windows : kids
+}
+
 func elByPath(_ app: AXUIElement, _ path: [Int]) -> AXUIElement? {
     var el = app
-    for i in path {
-        guard let kids = ax(el, "AXChildren" as CFString) as? [AXUIElement], i < kids.count else { return nil }
-        el = kids[i]
+    for (i, idx) in path.enumerated() {
+        let kids = i == 0 ? rootChildren(el) : ((ax(el, "AXChildren" as CFString) as? [AXUIElement]) ?? [])
+        guard idx < kids.count else { return nil }
+        el = kids[idx]
     }
     return el
 }
@@ -117,7 +140,7 @@ func elByPath(_ app: AXUIElement, _ path: [Int]) -> AXUIElement? {
 func walk(_ el: AXUIElement, _ path: [Int], _ depth: Int, _ out: inout [[String: Any]]) {
     if out.count >= 300 || depth >= 12 { return }
     guard let role = ax(el, "AXRole" as CFString) as? String, !role.isEmpty else { return }
-    let actions = (ax(el, "AXActions" as CFString) as? [String]) ?? []
+    let actions = actionsOf(el)
     if !actions.isEmpty, let p = pointAttr(el, "AXPosition" as CFString),
        let s = sizeAttr(el, "AXSize" as CFString), s.width > 0, s.height > 0 {
         let enabled = (ax(el, "AXEnabled" as CFString) as? Bool) ?? true
@@ -144,7 +167,9 @@ func cmdTree(_ pid: pid_t) {
         return
     }
     var out: [[String: Any]] = []
-    walk(app, [], 0, &out)
+    for (i, w) in rootChildren(app).enumerated() {
+        walk(w, [i], 0, &out)
+    }
     print(json(["ok": true, "elements" as CFString: out, "truncated": out.count >= 300]))
 }
 
@@ -154,7 +179,7 @@ func cmdPress(_ pid: pid_t, _ path: [Int]) {
     let app = AXUIElementCreateApplication(pid)
     if apiDisabled(app) { fail("API_DISABLED") }
     guard let target = elByPath(app, path) else { fail("ELEMENT_NOT_FOUND") }
-    let actions = (ax(target, "AXActions" as CFString) as? [String]) ?? []
+    let actions = actionsOf(target)
     if actions.isEmpty { fail("NO_ACTION") }
     var action = "AXPress"
     if !actions.contains(action) { action = actions[0] }
@@ -214,7 +239,7 @@ func cmdHitPress(_ pid: pid_t, _ x: Float, _ y: Float) {
     var found: AXUIElement?
     var d = 0
     while let c = cur, d < 8 {
-        if let acts = ax(c, "AXActions" as CFString) as? [String], acts.contains("AXPress") {
+        if actionsOf(c).contains("AXPress") {
             found = c
             break
         }
@@ -421,9 +446,28 @@ const MAC_ASCII_KEY_CODES: Record<string, { code: number; shift: boolean }> = ((
   return map;
 })();
 
+/** CGEvent modifier masks, for combo keys and the System Events fallback. */
+const CG_EVENT_FLAG_COMMAND = 0x001000;
+const CG_EVENT_FLAG_CONTROL = 0x040000;
+const CG_EVENT_FLAG_ALTERNATE = 0x080000;
+
+/** Modifier prefix name -> CGEvent flag mask. "Meta" is the cross-platform
+ * name agents emit; on macOS it means Command. */
+const MAC_MODIFIER_FLAGS: Record<string, number> = {
+  'Cmd': CG_EVENT_FLAG_COMMAND, 'Command': CG_EVENT_FLAG_COMMAND,
+  'Meta': CG_EVENT_FLAG_COMMAND, 'Super': CG_EVENT_FLAG_COMMAND,
+  'Win': CG_EVENT_FLAG_COMMAND, 'Windows': CG_EVENT_FLAG_COMMAND,
+  'Ctrl': CG_EVENT_FLAG_CONTROL, 'Control': CG_EVENT_FLAG_CONTROL,
+  'Alt': CG_EVENT_FLAG_ALTERNATE, 'Option': CG_EVENT_FLAG_ALTERNATE, 'Opt': CG_EVENT_FLAG_ALTERNATE,
+  'Shift': CG_EVENT_FLAG_SHIFT,
+};
+
 /**
  * Resolve a press_key value to a virtual key code + modifier flags, or null
- * when the key has no US-layout keycode (CJK characters etc.).
+ * when the key has no US-layout keycode (CJK characters etc.). Supports
+ * single keys ("l", "Return", "F5") and combo keys ("Cmd+L", "Meta+A",
+ * "Ctrl+Shift+Z") — the base letter is matched lowercase so the Shift flag
+ * comes only from an explicit Shift modifier, never from the letter case.
  */
 function macKeyToKeyEvent(key: string): { code: number; flags: number } | null {
   const named = MAC_KEY_CODES[key];
@@ -432,7 +476,35 @@ function macKeyToKeyEvent(key: string): { code: number; flags: number } | null {
     const m = MAC_ASCII_KEY_CODES[key];
     if (m) return { code: m.code, flags: m.shift ? CG_EVENT_FLAG_SHIFT : 0 };
   }
+  const parts = key.split('+');
+  if (parts.length >= 2) {
+    let flags = 0;
+    for (const mod of parts.slice(0, -1)) {
+      const f = MAC_MODIFIER_FLAGS[mod];
+      if (f === undefined) return null;
+      flags |= f;
+    }
+    const baseRaw = parts[parts.length - 1];
+    let code = MAC_KEY_CODES[baseRaw];
+    if (code === undefined && baseRaw.length === 1) {
+      const m = MAC_ASCII_KEY_CODES[baseRaw.toLowerCase()];
+      if (m) code = m.code;
+    }
+    if (code === undefined) return null;
+    return { code, flags };
+  }
   return null;
+}
+
+/** Map CGEvent flags to the System Events `key code ... using {...}`
+ * modifier list (empty when no modifiers). */
+function macModifiersAppleScript(flags: number): string {
+  const mods: string[] = [];
+  if (flags & CG_EVENT_FLAG_COMMAND) mods.push('command down');
+  if (flags & CG_EVENT_FLAG_SHIFT) mods.push('shift down');
+  if (flags & CG_EVENT_FLAG_CONTROL) mods.push('control down');
+  if (flags & CG_EVENT_FLAG_ALTERNATE) mods.push('option down');
+  return mods.length > 0 ? ` using {${mods.join(', ')}}` : '';
 }
 
 /** Cap for injected text (64KB); oversized payloads are truncated. */
@@ -980,7 +1052,10 @@ export async function performDarwinAction(
       }
       let command: string;
       if (keyEvent) {
-        command = `osascript -e 'tell application "System Events" to key code ${keyEvent.code}'`;
+        // Keep the combo modifiers on the degraded path: without them
+        // "Cmd+L" would arrive as a bare "l" in the leased app.
+        command =
+          `osascript -e 'tell application "System Events" to key code ${keyEvent.code}${macModifiersAppleScript(keyEvent.flags)}'`;
       } else if (action.key.length === 1) {
         command = macKeystrokeCommand(action.key);
       } else {

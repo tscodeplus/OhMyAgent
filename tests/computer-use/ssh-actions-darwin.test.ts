@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { SSHComputerUseProvider } from '../../src/computer-use/providers/ssh-provider.js';
+import { SWIFT_AX_TOOL_SOURCE } from '../../src/computer-use/ssh-actions-darwin.js';
 import type { ComputerUseSettings } from '../../src/computer-use/settings.js';
 import type { Ctx, Lease, UIElement } from '../../src/computer-use/types.js';
 
@@ -404,6 +405,51 @@ describe('SSHComputerUseProvider macOS support', () => {
     expect(cmd).toContain('/tmp/oma-ax postkey 12345 0 131072 1');
   });
 
+  it('press_key resolves cross-platform combo keys ("Meta+L" -> Command key)', async () => {
+    const { provider, mockPool } = createProvider({
+      responses: {
+        'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
+        'postkey ': { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
+      },
+    });
+    await provider.listApps(DEFAULT_CTX);
+    const lease = makeLease();
+    const result = await provider.performAction(DEFAULT_CTX, lease, {
+      type: 'press_key',
+      key: 'Meta+L',
+    });
+    expect(result.ok).toBe(true);
+    const cmd = mockPool.exec.mock.lastCall?.[0] as string;
+    // 'l' = keycode 37; Command = kCGEventFlagMaskCommand (0x001000 = 4096).
+    // The base letter is matched lowercase — no spurious Shift flag.
+    expect(cmd).toContain('/tmp/oma-ax postkey 12345 37 4096 1');
+  });
+
+  it('press_key combo degradation keeps the modifiers (key code ... using {command down})', async () => {
+    const { provider, mockPool } = createProvider({
+      responses: {
+        'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
+        'get frontmost of': { stdout: 'true', stderr: '', exitCode: 0 },
+        'postkey ': {
+          stdout: '{"ok":false,"error":"PERFORM_FAILED"}',
+          stderr: '',
+          exitCode: 0,
+        },
+      },
+    });
+    await provider.listApps(DEFAULT_CTX);
+    const lease = makeLease();
+    const result = await provider.performAction(DEFAULT_CTX, lease, {
+      type: 'press_key',
+      key: 'Meta+A',
+    });
+    expect(result.ok).toBe(true);
+    const cmd = mockPool.exec.mock.lastCall?.[0] as string;
+    // 'a' = keycode 0; the System Events fallback must keep Command —
+    // without it "Cmd+A" would arrive as a bare "a".
+    expect(cmd).toContain('key code 0 using {command down}');
+  });
+
   it('press_key falls back to synthesized key code when background posting fails', async () => {
     const { provider, mockPool } = createProvider({
       responses: {
@@ -718,6 +764,21 @@ function makeElement(overrides?: Partial<UIElement>): UIElement {
 }
 
 describe('SSHComputerUseProvider macOS AX (Swift tool, accessibility-first)', () => {
+  it('Swift tool reads actions via AXUIElementCopyActionNames (macOS 15 AXActions attribute regression)', () => {
+    // On macOS 15.x the "AXActions" ATTRIBUTE returns -25205 on every
+    // element (observed on this project's target machines); the C function
+    // still works. Reading the attribute silently empties the tree.
+    expect(SWIFT_AX_TOOL_SOURCE).toContain('AXUIElementCopyActionNames');
+    expect(SWIFT_AX_TOOL_SOURCE).not.toContain('"AXActions" as CFString');
+  });
+
+  it('Swift tool walks AXWindows when AXChildren is empty (Safari-style apps)', () => {
+    // Safari keeps AXChildren empty at the app level and exposes windows
+    // only via AXWindows — without the fallback its tree comes back empty.
+    expect(SWIFT_AX_TOOL_SOURCE).toContain('rootChildren');
+    expect(SWIFT_AX_TOOL_SOURCE).toContain('"AXWindows" as CFString');
+  });
+
   it('click_element with snapshotElement issues a JXA AXPress command (never "click at")', async () => {
     const { provider, mockPool } = createProvider({
       responses: {
