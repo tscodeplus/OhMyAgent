@@ -129,7 +129,7 @@ pub fn create_splash(app: &AppHandle) -> tauri::Result<()> {
     // plain-text rendering of the payload — wry dropped native data: URL
     // support in 0.37). The label is localized in-page from
     // navigator.language.
-    WebviewWindowBuilder::new(
+    let builder = WebviewWindowBuilder::new(
         app,
         SPLASH_LABEL,
         WebviewUrl::App("pages/splash.html".into()),
@@ -142,7 +142,14 @@ pub fn create_splash(app: &AppHandle) -> tauri::Result<()> {
         .always_on_top(true)
         .skip_taskbar(true)
         .center()
-        .visible(false)
+        .visible(false);
+    // Tauri/tao enables the undecorated-window shadow by default; on Windows
+    // DWM paints that shadow as a subtle gray border around the transparent
+    // splash (the old Electron splash had no shadow). macOS keeps its native
+    // NSWindow shadow, which renders cleanly — only Windows opts out.
+    #[cfg(windows)]
+    let builder = builder.shadow(false);
+    builder
         .on_page_load(|win, payload| {
             if matches!(payload.event(), PageLoadEvent::Finished) {
                 let _ = win.show();
