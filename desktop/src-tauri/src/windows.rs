@@ -149,13 +149,19 @@ pub fn create_splash(app: &AppHandle) -> tauri::Result<()> {
     // NSWindow shadow, which renders cleanly — only Windows opts out.
     #[cfg(windows)]
     let builder = builder.shadow(false);
-    builder
+    #[cfg_attr(not(windows), allow(unused_variables))]
+    let splash = builder
         .on_page_load(|win, payload| {
             if matches!(payload.event(), PageLoadEvent::Finished) {
                 let _ = win.show();
             }
         })
         .build()?;
+    // Shadow off also takes the Win11 DWM corner rounding with it (the
+    // undecorated shadow was what rounded the window before), leaving sharp
+    // corners. Ask DWM for the rounding explicitly — borderless, no shadow.
+    #[cfg(windows)]
+    set_rounded_corners(&splash);
     // Fallback reveal: on_page_load's Finished event rides WebView2's
     // NavigationCompleted, which is not reliable for data: URLs in a hidden
     // window — if it never fires, the splash would stay invisible forever.
@@ -637,6 +643,32 @@ fn set_caption_theme(win: &tauri::WebviewWindow, dark: bool) {
             DWMWA_TEXT_COLOR as u32,
             &fg as *const u32 as *const _,
             size_of::<u32>() as u32,
+        );
+    }
+}
+
+/// Windows 11 (22000+): round the splash window's corners via DWM. The
+/// undecorated shadow used to add the rounding (and the 1px gray border we
+/// removed); with the shadow off, DWMWA_WINDOW_CORNER_PREFERENCE restores the
+/// rounded shape on its own. Windows 10 ignores the attribute (sharp corners
+/// there, as before).
+#[cfg(windows)]
+fn set_rounded_corners(win: &tauri::WebviewWindow) {
+    use std::mem::size_of;
+    use windows_sys::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+    };
+
+    let Ok(hwnd) = win.hwnd() else {
+        return;
+    };
+    let preference = DWMWCP_ROUND;
+    unsafe {
+        DwmSetWindowAttribute(
+            hwnd.0,
+            DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+            &preference as *const i32 as *const _,
+            size_of::<i32>() as u32,
         );
     }
 }

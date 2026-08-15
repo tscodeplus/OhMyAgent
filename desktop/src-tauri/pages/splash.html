@@ -7,11 +7,12 @@
 <html><head><meta charset="utf-8">
 <script>
   // Set before the CSS applies to avoid a flash of unstyled background.
-  // WebView2 paints its opaque default (white) background under a transparent
-  // <body> — the rounded corners would show white. So Windows keeps the
-  // gradient on <body> (WebView2 clips border-radius), while macOS uses the
-  // inner-card variant: WKWebView propagates a root-element background over
-  // the canvas, ignoring border-radius.
+  // Windows: DWM rounds the window itself (set_rounded_corners in
+  // windows.rs), so the gradient fills the whole <body> — no HTML radius,
+  // no transparent corner pixels to pick up the webview's white default
+  // background. macOS: WKWebView propagates a root-element background over
+  // the (rectangular) canvas, ignoring border-radius, so the gradient lives
+  // on an inner card that clips at its own box.
   document.documentElement.className = navigator.userAgent.includes('Windows') ? 'win' : '';
 </script>
 <style>
@@ -22,19 +23,16 @@
     display:flex;align-items:center;justify-content:center;
     user-select:none;-webkit-user-select:none;
   }
-  /* Windows keeps the pre-card rendering path, byte-for-byte: the gradient
-     and radius live on <body> (WebView2 clips border-radius) with
-     overflow:hidden, and .card degrades to a transparent, radius-free
-     container — leaving its border-radius/overflow out of the composited
-     alpha edges (a transparent rounded layer on top of the gradient produced
-     a soft blurred halo around the window on WebView2). macOS needs the
-     card variant instead: WKWebView propagates a root-element background
-     over the (rectangular) canvas, ignoring border-radius. */
+  /* Windows fills the whole body: the window shape (rounded corners) comes
+     from DWM, so the gradient must cover every pixel — a border-radius here
+     would only leave transparent corner pixels that show the webview's
+     opaque default background. .card degrades to a transparent container.
+     macOS needs the card variant: WKWebView propagates a root-element
+     background over the (rectangular) canvas, ignoring border-radius. */
   html.win body{
     height:100vh;display:flex;flex-direction:column;
     align-items:center;justify-content:center;padding-top:18px;
     background:linear-gradient(135deg,#6366f1,#4f46e5);
-    border-radius:12px;overflow:hidden;
   }
   html.win .card{background:transparent;border-radius:0;overflow:visible;padding-top:0}
   .card{
