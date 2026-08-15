@@ -227,8 +227,7 @@ function SessionRow({
             <span className="block h-1.5 w-1.5 rounded-full bg-neutral-300 dark:bg-neutral-600" />
           </span>
           <div className="min-w-0 flex-1">
-            {/* Native tooltip shows the full title when it overflows the row */}
-            <div title={title} className="truncate text-[12.5px] text-neutral-900 dark:text-neutral-100">{title}</div>
+            <div className="truncate text-[12.5px] text-neutral-900 dark:text-neutral-100">{title}</div>
             <div className="text-[11px] text-neutral-500 dark:text-neutral-400">{formatRelativeTime(session.updated_at)}</div>
           </div>
         </button>
@@ -240,6 +239,14 @@ function SessionRow({
             isActive ? 'opacity-100' : 'opacity-0 group-hover/session:opacity-100')}>
           <Trash2 className="h-3 w-3" strokeWidth={1.75} />
         </button>
+      )}
+      {/* Full-title tooltip on row hover (title + timestamp area), styled for
+          both light and dark themes — the native title attr can't follow the
+          app theme. */}
+      {!isRenaming && (
+        <div className="pointer-events-none invisible absolute inset-x-2 top-full z-20 mt-1 rounded-md border border-neutral-200 bg-white px-2.5 py-1.5 text-[12.5px] leading-snug text-neutral-900 opacity-0 shadow-lg transition-[opacity,visibility] delay-150 group-hover/session:visible group-hover/session:opacity-100 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100">
+          {title}
+        </div>
       )}
     </div>
   );
