@@ -21,7 +21,7 @@ export default function DesktopCaption({ mac, text }: DesktopCaptionProps) {
   return (
     <div data-tauri-drag-region="deep" className="relative z-20 flex h-11 shrink-0 select-none items-center pl-4">
       {text ? (
-        <span className="truncate text-[12px] text-neutral-400 dark:text-neutral-500">{text}</span>
+        <span title={text} className="truncate text-[12px] text-neutral-400 dark:text-neutral-500">{text}</span>
       ) : null}
       <div className="ml-auto flex h-full items-stretch" data-tauri-drag-region="false">
         <WindowControls hidden={mac} />

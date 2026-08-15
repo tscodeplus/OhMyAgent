@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Outlet, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -47,11 +47,18 @@ export default function AppShell() {
   const { t } = useTranslation('common');
   const navigate = useNavigate();
   const location = useLocation();
-  const { projectId } = useParams();
-  const { selectedProjectId, setSelectedProjectId, setSelectedSessionId } = useProject();
+  const { projectId, sessionId } = useParams();
+  const { selectedProjectId, setSelectedProjectId } = useProject();
   const { settingsOpen, setSettingsOpen } = useSettings();
   const { showToast } = useToast();
   const { subscribe } = useWebSocket();
+  // Chat navigation flyout (collapsed rail): conversation spaces + sessions
+  // for switching chats without hiding the currently open conversation.
+  const [chatNavOpen, setChatNavOpen] = useState(false);
+  const chatNavRef = useRef<HTMLDivElement>(null);
+  const chatRailBtnRef = useRef<HTMLButtonElement>(null);
+  /** Full title of the current session, for the desktop caption strip. */
+  const [currentSessionTitle, setCurrentSessionTitle] = useState<string | null>(null);
 
   // Listen for cron delivery notifications via WebSocket
   useEffect(() => {
@@ -156,36 +163,73 @@ export default function AppShell() {
 
   const isChatArea = location.pathname.startsWith('/p/');
 
-  // The "chat" tab opens the most recently active session (or creates one).
-  const handleTabClick = useCallback(async (tab: Tab) => {
+  // Current session title — replaces the opaque project id in the desktop
+  // caption ("<projectId> / 对话" → the session's full title). Fetched from
+  // the sessions list and refreshed on a timer so auto-titled/renamed
+  // sessions stay in sync with the sidebar.
+  useEffect(() => {
+    if (!isChatArea || !projectId || !sessionId) {
+      setCurrentSessionTitle(null);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const sessions = await apiRequest<Session[]>(`/api/projects/${projectId}/sessions`);
+        if (cancelled) return;
+        const s = sessions.find(x => x.id === sessionId);
+        setCurrentSessionTitle(s
+          ? s.title || (s.metadata && (s.metadata as any).title) || t('chat.newSession')
+          : null);
+      } catch { /* keep the previous title */ }
+    };
+    load();
+    const timer = setInterval(load, 30000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [isChatArea, projectId, sessionId, t]);
+
+  // The chat nav flyout is a temporary overlay — retract it automatically
+  // when it's not in use: click outside, Escape, or any navigation. The rail
+  // chat icon click itself toggles (it's excluded from outside clicks).
+  useEffect(() => {
+    if (!chatNavOpen) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (chatNavRef.current?.contains(target)) return;
+      if (chatRailBtnRef.current?.contains(target)) return;
+      setChatNavOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setChatNavOpen(false);
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onDocMouseDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [chatNavOpen]);
+
+  // location.key changes on every navigation — including selecting the
+  // session that is already open (same pathname) — so the flyout retracts
+  // in all cases.
+  useEffect(() => { setChatNavOpen(false); }, [location.key]);
+
+  // Expanding the sidebar reveals the full conversation list — the flyout
+  // would just overlap it, so close it.
+  useEffect(() => { if (sidebarVisible) setChatNavOpen(false); }, [sidebarVisible]);
+
+  // Tool tabs navigate away (and close the flyout). The chat tab toggles the
+  // navigation flyout instead of re-navigating to the latest session — the
+  // currently open conversation stays visible underneath.
+  const handleTabClick = useCallback((tab: Tab) => {
     if (tab.path !== '/') {
+      setChatNavOpen(false);
       navigate(tab.path);
       return;
     }
-    const pid = selectedProjectId;
-    if (!pid) {
-      navigate('/dashboard');
-      return;
-    }
-    try {
-      const sessions = await apiRequest<Session[]>(`/api/projects/${pid}/sessions`);
-      if (sessions.length > 0) {
-        const latest = sessions.reduce((a, b) =>
-          new Date(a.updated_at).getTime() > new Date(b.updated_at).getTime() ? a : b
-        );
-        setSelectedSessionId(latest.id);
-        navigate(`/p/${pid}/s/${latest.id}`);
-        return;
-      }
-    } catch { /* fall through to create new session */ }
-    try {
-      const session = await apiRequest<Session>(`/api/projects/${pid}/sessions`, { method: 'POST' });
-      setSelectedSessionId(session.id);
-      navigate(`/p/${pid}/s/${session.id}`);
-    } catch {
-      navigate(`/p/${pid}`);
-    }
-  }, [selectedProjectId, navigate, setSelectedSessionId]);
+    setChatNavOpen(v => !v);
+  }, [navigate]);
 
   const isTabActive = (tab: Tab) => tab.path === '/' ? isChatArea || location.pathname === '/' : location.pathname.startsWith(tab.path);
 
@@ -196,7 +240,11 @@ export default function AppShell() {
     location.pathname.startsWith('/memory') ? t('nav.memory') :
     location.pathname.startsWith('/cron') ? t('nav.cron') :
     isChatArea ? t('tabs.chat') : 'OhMyAgent';
-  const captionText = selectedProjectId ? `${selectedProjectId} / ${pageTitle}` : pageTitle;
+  // In the chat area the caption shows the current session's full title
+  // (the opaque project id is useless there); other pages keep id / page.
+  const captionText = isChatArea
+    ? (currentSessionTitle ?? t('tabs.chat'))
+    : selectedProjectId ? `${selectedProjectId} / ${pageTitle}` : pageTitle;
 
   const sidebarEl = (
     <aside
@@ -281,9 +329,10 @@ export default function AppShell() {
         <nav className="mt-3 flex flex-col items-center gap-1" aria-label="Tools" role="tablist">
           {RAIL_TABS.map(tab => {
             const Icon = tab.icon;
-            const active = isTabActive(tab);
+            const active = isTabActive(tab) || (tab.id === 'chat' && chatNavOpen);
             return (
               <button key={tab.id} type="button" role="tab" aria-selected={active} onClick={() => handleTabClick(tab)} title={t(tab.labelKey)} aria-label={t(tab.labelKey)}
+                ref={tab.id === 'chat' ? chatRailBtnRef : undefined}
                 className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
                   active
                     ? 'bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100'
@@ -344,6 +393,21 @@ export default function AppShell() {
         <DesktopCaption mac={isMac} text={captionText} />
         <div className="min-h-0 flex-1 overflow-hidden"><Outlet /></div>
       </main>
+
+      {/* Chat navigation flyout — slides out beside the collapsed rail so the
+          open conversation stays visible; conversation spaces + session list
+          for quick switching. Auto-retracts when not in use. */}
+      <div
+        ref={chatNavRef}
+        aria-label={t('sidebar.projects')}
+        className={`absolute inset-y-0 left-0 z-30 hidden w-[300px] flex-col border-r border-neutral-200 bg-white shadow-2xl transition-[transform,opacity] duration-200 ease-out md:flex dark:border-neutral-800 dark:bg-neutral-900 ${
+          chatNavOpen ? 'translate-x-14 opacity-100' : 'pointer-events-none -translate-x-full opacity-0'
+        }`}
+      >
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 pt-2">
+          <ProjectList refreshKey={refreshKey} onRefresh={() => setRefreshKey(k => k + 1)} onCreateProject={() => setShowCreateProject(true)} />
+        </div>
+      </div>
 
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
       {showSetupWizard && wizardData && (
