@@ -15,11 +15,13 @@
   }
   /* The gradient lives on an inner card that clips at its own border-radius;
      the <body> around it stays transparent so the corners show the desktop.
-     Windows only gets true per-pixel alpha once the window runs with
-     WS_EX_NOREDIRECTIONBITMAP (enable_per_pixel_alpha in windows.rs) —
-     without it WebView2 composites over an opaque redirection surface and the
-     corners show the webview's default background instead of the desktop.
-     macOS handles the transparent corners natively. */
+     This works on both platforms: WebView2 renders transparent page pixels
+     over the hosting window's background, so the window keeps
+     transparent(true) (tao's DwmEnableBlurBehindWindow backdrop) and the
+     corners show the desktop through it — no DWM shadow, no gray border.
+     A gradient on <body> would NOT work here: like WKWebView, WebView2
+     propagates a root-element background over the whole rectangular canvas,
+     ignoring border-radius. */
   .card{
     width:100%;height:100%;
     display:flex;flex-direction:column;
