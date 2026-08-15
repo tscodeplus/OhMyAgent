@@ -148,6 +148,13 @@ export interface GenerateTitleOptions {
   model: unknown;
   /** User's first message text. */
   message: string;
+  /**
+   * API key for the model's provider. Required for custom providers (the
+   * compat completeSimple() wrapper only auto-injects keys for providers
+   * with well-known env vars, e.g. OPENAI_API_KEY — custom providers like
+   * `agnes` would otherwise fail with "No API key for provider").
+   */
+  apiKey?: string;
   logger?: Logger;
 }
 
@@ -173,7 +180,7 @@ export async function generateSessionTitle(options: GenerateTitleOptions): Promi
         systemPrompt,
         messages: [{ role: 'user' as const, content: prompt, timestamp: Date.now() }],
       },
-      { temperature: 0.3, maxTokens: 64, signal: controller.signal },
+      { temperature: 0.3, maxTokens: 64, signal: controller.signal, apiKey: options.apiKey },
     );
     const title = parseTitleResponse(extractText(result));
     if (title) return title;

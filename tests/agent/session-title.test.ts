@@ -1,8 +1,18 @@
 import { describe, it, expect } from 'vitest';
+import { vi, beforeEach } from 'vitest';
+
+// Mock the LLM entrypoint so generateSessionTitle tests don't hit the network.
+const mockCompleteSimple = vi.fn();
+vi.mock('@earendil-works/pi-ai', () => ({
+  completeSimple: (...args: any[]) => mockCompleteSimple(...args),
+}));
+
+import { completeSimple } from '@earendil-works/pi-ai';
 import {
   buildTitlePrompt,
   cleanTitleInput,
   fallbackTitle,
+  generateSessionTitle,
   isPlaceholderTitle,
   MAX_TITLE_LENGTH,
   MIN_TITLE_LENGTH,
@@ -117,5 +127,48 @@ describe('fallbackTitle', () => {
   it('returns null for empty input', () => {
     expect(fallbackTitle('   ')).toBeNull();
     expect(fallbackTitle('<system-reminder>only tags</system-reminder>')).toBeNull();
+  });
+});
+
+describe('generateSessionTitle', () => {
+  const model = { provider: 'agnes', id: 'agnes-2.0-flash', api: 'openai-completions' };
+
+  beforeEach(() => {
+    mockCompleteSimple.mockReset();
+  });
+
+  it('forwards the provider apiKey into the LLM call options', async () => {
+    mockCompleteSimple.mockResolvedValue({
+      stopReason: 'stop',
+      content: [{ type: 'text', text: '{"title":"帮我写脚本"}' }],
+    });
+
+    const title = await generateSessionTitle({ model, message: '帮我写一个 Python 脚本', apiKey: 'sk-test' });
+
+    expect(title).toBe('帮我写脚本');
+    expect(mockCompleteSimple).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ apiKey: 'sk-test' }),
+    );
+  });
+
+  it('falls back to the first message when the LLM call fails (e.g. missing apiKey)', async () => {
+    mockCompleteSimple.mockRejectedValue(new Error('No API key for provider: agnes'));
+
+    const title = await generateSessionTitle({ model, message: '北京今天是什么天气' });
+
+    expect(title).toBe('北京今天是什么天气');
+  });
+
+  it('falls back to the first message when the LLM returns unparseable output', async () => {
+    mockCompleteSimple.mockResolvedValue({
+      stopReason: 'error',
+      content: [],
+    });
+
+    const title = await generateSessionTitle({ model, message: '帮我写个脚本' });
+
+    expect(title).toBe('帮我写个脚本');
   });
 });

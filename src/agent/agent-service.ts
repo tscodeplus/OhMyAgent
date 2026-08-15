@@ -972,11 +972,21 @@ export class AgentService {
           source = firstUser.content;
         }
 
-        const title = await generateSessionTitle({
-          model: (agent.state as { model?: unknown }).model,
-          message: source,
-          logger,
-        });
+        // Resolve the provider API key the same way the agent loop does
+        // (agent.getApiKey covers custom providers → provider_keys → piAi
+        // apiKey). The compat completeSimple() used by generateSessionTitle
+        // only auto-injects keys for well-known env vars, so custom providers
+        // (e.g. agnes) would otherwise fail and silently fall back to the
+        // user's first message as the title.
+        const state = agent.state as { model?: { provider?: string; apiKey?: string } };
+        const model = state.model;
+        let apiKey: string | undefined = model?.apiKey;
+        if (model?.provider && agent.getApiKey) {
+          const resolved = await agent.getApiKey(model.provider);
+          if (resolved) apiKey = resolved;
+        }
+
+        const title = await generateSessionTitle({ model, message: source, apiKey, logger });
         if (!title) return;
 
         // Re-check before writing: a manual rename that landed while the LLM
