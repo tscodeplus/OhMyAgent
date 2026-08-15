@@ -227,7 +227,8 @@ function SessionRow({
             <span className="block h-1.5 w-1.5 rounded-full bg-neutral-300 dark:bg-neutral-600" />
           </span>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[12.5px] text-neutral-900 dark:text-neutral-100">{title}</div>
+            {/* Native tooltip shows the full title when it overflows the row */}
+            <div title={title} className="truncate text-[12.5px] text-neutral-900 dark:text-neutral-100">{title}</div>
             <div className="text-[11px] text-neutral-500 dark:text-neutral-400">{formatRelativeTime(session.updated_at)}</div>
           </div>
         </button>

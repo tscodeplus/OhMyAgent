@@ -31,6 +31,11 @@ import { activeSkillFeedbackIds } from './skill-activator.js';
 import { inferSatisfaction } from '../skills/skill-evolution/skill-metrics.js';
 import type { HarnessServices } from '../harness/factory.js';
 import type { FailureContext, ToolCallRecord, FailureSignal, ImprovementProposal, SkillStatsInfo } from '../harness/types.js';
+import {
+  generateSessionTitle,
+  isPlaceholderTitle,
+  parseSessionMetadata,
+} from './session-title.js';
 
 export interface AgentServiceOptions {
   sessionId?: string;
@@ -118,6 +123,9 @@ export class TurnTimeoutError extends Error {
 export class AgentService {
   /** Sessions explicitly cleared by /new or /clear — skip history load on next message. */
   private clearedSessions = new Set<string>();
+
+  /** Sessions whose auto-title generation is currently in flight. */
+  private pendingTitles = new Set<string>();
 
   private runtimes = new Map<string, {
     agent: Agent;
@@ -366,6 +374,10 @@ export class AgentService {
     try {
       if (this.persistence && sessionId) {
         this.ensureSession(sessionId);
+        // Auto-title the conversation from its first user message. Fire-and-forget:
+        // never blocks or breaks the turn, and only writes when the current title
+        // is still a placeholder (user renames always win).
+        this.maybeAutoTitle(sessionId, input, agent);
       }
 
       // Eagerly persist the user message so the frontend can show it
@@ -927,6 +939,65 @@ export class AgentService {
       logger,
       ensureSession: (key) => this.ensureSession(key),
     });
+  }
+
+  /**
+   * Auto-generate a session title from the first user message, reusing the
+   * conversation's own model. Fire-and-forget; skips when the session already
+   * has a real title (placeholder-only sessions get titled from their FIRST
+   * user message so pre-upgrade "New Chat/新对话" rows also improve).
+   */
+  private maybeAutoTitle(sessionKey: string, input: string, agent: Agent): void {
+    if (sessionKey === 'default') return;
+    if (this.pendingTitles.has(sessionKey)) return;
+    const { sessionRepository, messageRepository, logger } = this.persistence!;
+
+    const session = sessionRepository.findById(sessionKey);
+    if (!session) return;
+    const metadata = parseSessionMetadata(session.metadata);
+    if (!isPlaceholderTitle(typeof metadata.title === 'string' ? metadata.title : undefined)) {
+      return;
+    }
+
+    this.pendingTitles.add(sessionKey);
+    void (async () => {
+      try {
+        // Fresh session → title from this message. Older placeholder sessions
+        // → title from their first user message instead.
+        let source = input;
+        const earliest = messageRepository.findBySessionId(sessionKey, 50);
+        if (earliest.length > 0) {
+          const firstUser = earliest.find((m) => m.role === 'user');
+          if (!firstUser) return; // No user message persisted — nothing to title from
+          source = firstUser.content;
+        }
+
+        const title = await generateSessionTitle({
+          model: (agent.state as { model?: unknown }).model,
+          message: source,
+          logger,
+        });
+        if (!title) return;
+
+        // Re-check before writing: a manual rename that landed while the LLM
+        // was running must never be overwritten.
+        const current = sessionRepository.findById(sessionKey);
+        if (!current) return;
+        const currentMeta = parseSessionMetadata(current.metadata);
+        if (!isPlaceholderTitle(typeof currentMeta.title === 'string' ? currentMeta.title : undefined)) {
+          return;
+        }
+
+        sessionRepository.update(sessionKey, {
+          metadata: JSON.stringify({ ...currentMeta, title }),
+        });
+        logger.info({ sessionKey, title }, 'Session title auto-generated');
+      } catch (err) {
+        logger.debug({ err, sessionKey }, 'Session title generation skipped');
+      } finally {
+        this.pendingTitles.delete(sessionKey);
+      }
+    })();
   }
 
   /**
