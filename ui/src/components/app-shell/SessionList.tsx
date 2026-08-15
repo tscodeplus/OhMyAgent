@@ -246,11 +246,20 @@ function SessionRow({
       : (e as React.MouseEvent).clientY;
     onLongPress(cx, cy);
   });
+  const titleRef = useRef<HTMLDivElement>(null);
 
   return (
     <div
       {...longPressProps}
-      onMouseEnter={(e) => { if (!isRenaming) onTipEnter(title, e.currentTarget.getBoundingClientRect()); }}
+      onMouseEnter={(e) => {
+        if (isRenaming) return;
+        // Only show the full-title tooltip when the title is actually
+        // truncated (ends with "…") — short titles are fully visible.
+        const el = titleRef.current;
+        if (el && el.scrollWidth > el.clientWidth) {
+          onTipEnter(title, e.currentTarget.getBoundingClientRect());
+        }
+      }}
       onMouseLeave={onTipLeave}
       className={cn('group/session relative w-full rounded-md transition-colors', isActive ? 'bg-neutral-200/70 dark:bg-neutral-800' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800')}>
       {isRenaming ? (
@@ -265,7 +274,7 @@ function SessionRow({
             <span className="block h-1.5 w-1.5 rounded-full bg-neutral-300 dark:bg-neutral-600" />
           </span>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[12.5px] text-neutral-900 dark:text-neutral-100">{title}</div>
+            <div ref={titleRef} className="truncate text-[12.5px] text-neutral-900 dark:text-neutral-100">{title}</div>
             <div className="text-[11px] text-neutral-500 dark:text-neutral-400">{formatRelativeTime(session.updated_at)}</div>
           </div>
         </button>
