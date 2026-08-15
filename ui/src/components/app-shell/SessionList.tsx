@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Pencil, Trash2 } from 'lucide-react';
@@ -28,6 +28,9 @@ export default function SessionList({ projectId, onSessionSelect }: SessionListP
   const [renameDraft, setRenameDraft] = useState('');
   const [contextMenu, setContextMenu] = useState<{ session: Session; x: number; y: number } | null>(null);
   const [confirmDeleteSession, setConfirmDeleteSession] = useState<Session | null>(null);
+  /** Full-title tooltip, positioned at the title's vertical level. */
+  const [tip, setTip] = useState<{ title: string; left: number; top: number } | null>(null);
+  const tipHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchSessions = useCallback(async (showSpinner = false) => {
     if (!projectId) return;
@@ -53,6 +56,21 @@ export default function SessionList({ projectId, onSessionSelect }: SessionListP
     window.addEventListener('click', close);
     return () => window.removeEventListener('click', close);
   }, [contextMenu]);
+
+  useEffect(() => () => {
+    if (tipHideTimer.current) clearTimeout(tipHideTimer.current);
+  }, []);
+
+  const showTip = useCallback((title: string, rect: DOMRect) => {
+    if (tipHideTimer.current) { clearTimeout(tipHideTimer.current); tipHideTimer.current = null; }
+    // Align with the title text (dot 12px + gap 8px + row padding 8px), same line.
+    setTip({ title, left: rect.left + 28, top: rect.top + 2 });
+  }, []);
+
+  const hideTip = useCallback(() => {
+    if (tipHideTimer.current) clearTimeout(tipHideTimer.current);
+    tipHideTimer.current = setTimeout(() => setTip(null), 120);
+  }, []);
 
   const handleNewSession = async () => {
     try {
@@ -149,6 +167,8 @@ export default function SessionList({ projectId, onSessionSelect }: SessionListP
               onRenameDraftChange={setRenameDraft}
               onRenameCommit={() => commitRename(s.id)}
               onRenameCancel={() => setRenamingId(null)}
+              onTipEnter={showTip}
+              onTipLeave={hideTip}
             />
           );
         })
@@ -170,6 +190,18 @@ export default function SessionList({ projectId, onSessionSelect }: SessionListP
           </button>
         </div>
       )}
+
+      {/* Full-title tooltip — one line at the title's level, theme-aware.
+          Fixed so it escapes the sidebar scroll container's clipping. */}
+      {tip && (
+        <div
+          role="tooltip"
+          className="pointer-events-none fixed z-[70] whitespace-nowrap rounded-md border border-neutral-200 bg-white px-2.5 py-1 text-[12.5px] leading-snug text-neutral-900 shadow-lg dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+          style={{ left: tip.left, top: tip.top }}
+        >
+          {tip.title}
+        </div>
+      )}
     </div>
   );
 }
@@ -188,6 +220,8 @@ function SessionRow({
   onRenameDraftChange,
   onRenameCommit,
   onRenameCancel,
+  onTipEnter,
+  onTipLeave,
 }: {
   session: Session;
   isActive: boolean;
@@ -200,6 +234,8 @@ function SessionRow({
   onRenameDraftChange: (v: string) => void;
   onRenameCommit: () => void;
   onRenameCancel: () => void;
+  onTipEnter: (title: string, rect: DOMRect) => void;
+  onTipLeave: () => void;
 }) {
   const longPressProps = useLongPress((e) => {
     const cx = 'touches' in e
@@ -214,6 +250,8 @@ function SessionRow({
   return (
     <div
       {...longPressProps}
+      onMouseEnter={(e) => { if (!isRenaming) onTipEnter(title, e.currentTarget.getBoundingClientRect()); }}
+      onMouseLeave={onTipLeave}
       className={cn('group/session relative w-full rounded-md transition-colors', isActive ? 'bg-neutral-200/70 dark:bg-neutral-800' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800')}>
       {isRenaming ? (
         <div className="flex items-center px-2 py-1">
@@ -239,14 +277,6 @@ function SessionRow({
             isActive ? 'opacity-100' : 'opacity-0 group-hover/session:opacity-100')}>
           <Trash2 className="h-3 w-3" strokeWidth={1.75} />
         </button>
-      )}
-      {/* Full-title tooltip on row hover (title + timestamp area), styled for
-          both light and dark themes — the native title attr can't follow the
-          app theme. */}
-      {!isRenaming && (
-        <div className="pointer-events-none invisible absolute inset-x-2 top-full z-20 mt-1 rounded-md border border-neutral-200 bg-white px-2.5 py-1.5 text-[12.5px] leading-snug text-neutral-900 opacity-0 shadow-lg transition-[opacity,visibility] delay-150 group-hover/session:visible group-hover/session:opacity-100 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100">
-          {title}
-        </div>
       )}
     </div>
   );
