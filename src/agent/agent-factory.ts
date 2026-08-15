@@ -82,6 +82,24 @@ function mergeProviderKeys(
   if (config.piAi.baseUrl) baseUrls[config.piAi.provider] = config.piAi.baseUrl;
 }
 
+/**
+ * Resolve the API key for a provider, mirroring the agent loop's priority:
+ * customProviders → provider_keys → piAi.apiKey (primary provider only).
+ * Shared by agent-factory's getApiKey and auxiliary LLM callers (harness
+ * optimizer, session titles) so every outbound call uses the same key source.
+ */
+export function resolveProviderApiKey(config: AppConfig, provider: string): string | undefined {
+  // 1. Custom providers (explicit per-provider key)
+  const cp = config.customProviders?.find((p) => p.provider === provider);
+  if (cp?.apiKey) return cp.apiKey;
+  // 2. Built-in provider keys (from config.yaml provider_keys)
+  const pk = config.providerKeys?.[provider];
+  if (pk?.apiKey) return pk.apiKey;
+  // 3. Primary model's provider (piAi.apiKey from config.yaml provider.api_key)
+  if (provider === config.piAi.provider && config.piAi.apiKey) return config.piAi.apiKey;
+  return undefined;
+}
+
 function buildSummaryLLMConfig(config: AppConfig): SummaryLLMConfig {
   const apiKeys: Record<string, string> = {};
   const baseUrls: Record<string, string> = {};
@@ -667,19 +685,7 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
           logger,
         }),
         sessionId,
-        getApiKey: (provider: string) => {
-          // 1. Custom providers (explicit per-provider key)
-          const cp = configRef.current.customProviders?.find(p => p.provider === provider);
-          if (cp?.apiKey) return cp.apiKey;
-          // 2. Built-in provider keys (from config.yaml provider_keys)
-          const pk = configRef.current.providerKeys?.[provider];
-          if (pk?.apiKey) return pk.apiKey;
-          // 3. Primary model's provider (piAi.apiKey from config.yaml provider.api_key)
-          if (provider === configRef.current.piAi.provider && configRef.current.piAi.apiKey) {
-            return configRef.current.piAi.apiKey;
-          }
-          return undefined;
-        },
+        getApiKey: (provider: string) => resolveProviderApiKey(configRef.current, provider),
         fallbackModels: fallbackModels.length > 0 ? fallbackModels : undefined,
         afterToolCall: async (context) => {
           const result = context.result;

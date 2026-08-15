@@ -7,7 +7,7 @@
 
 import { getDefaultModel } from '../../provider/pi-ai-setup.js';
 import { getModel, completeSimple } from '@earendil-works/pi-ai';
-import { createAgentFactory } from '../../agent/agent-factory.js';
+import { createAgentFactory, resolveProviderApiKey } from '../../agent/agent-factory.js';
 import { AgentService } from '../../agent/agent-service.js';
 import { VisionBridgeService } from '../../vision-bridge/vision-bridge-service.js';
 import { ReplyDispatcher } from '../../../extensions/channel-feishu/render/reply-dispatcher.js';
@@ -304,6 +304,10 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
           {
             maxTokens: 1024,
             signal: AbortSignal.timeout(30_000),
+            // Custom providers (e.g. agnes) are not covered by the compat
+            // completeSimple env-key injection — resolve the key explicitly
+            // or the call fails with "No API key for provider".
+            apiKey: resolveProviderApiKey(config, resolvedModel.provider),
           },
         );
 

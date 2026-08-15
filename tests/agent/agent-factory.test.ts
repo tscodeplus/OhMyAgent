@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Agent } from '@earendil-works/pi-agent-core';
-import { createAgentFactory } from '../../src/agent/agent-factory';
+import { createAgentFactory, resolveProviderApiKey } from '../../src/agent/agent-factory';
 import type { AppConfig } from '../../src/app/types';
 
 // Mock getDefaultModel to avoid real provider lookups
@@ -427,6 +427,37 @@ describe('AgentFactory', () => {
     const factory = createAgentFactory({ config, toolRegistry: registry });
     const agent = factory.create({ sessionId: 'test-session' });
     expect(agent).toBeInstanceOf(Agent);
+  });
+});
+
+describe('resolveProviderApiKey', () => {
+  it('returns the custom provider key', () => {
+    const config = makeMockConfig();
+    config.customProviders = [
+      { provider: 'agnes', apiKey: 'agnes-key', baseUrl: 'https://apihub.agnes-ai.com/v1', models: [] },
+    ];
+    expect(resolveProviderApiKey(config, 'agnes')).toBe('agnes-key');
+  });
+
+  it('returns the provider_keys entry for built-in providers', () => {
+    const config = makeMockConfig();
+    config.providerKeys = { nvidia: { apiKey: 'nvidia-key', baseUrl: '' } };
+    expect(resolveProviderApiKey(config, 'nvidia')).toBe('nvidia-key');
+  });
+
+  it('falls back to piAi.apiKey for the primary provider only', () => {
+    const config = makeMockConfig(); // piAi.provider = 'deepseek', apiKey = 'test-key'
+    expect(resolveProviderApiKey(config, 'deepseek')).toBe('test-key');
+    expect(resolveProviderApiKey(config, 'some-other-provider')).toBeUndefined();
+  });
+
+  it('prefers custom provider keys over provider_keys and piAi.apiKey', () => {
+    const config = makeMockConfig();
+    config.customProviders = [
+      { provider: 'deepseek', apiKey: 'custom-key', baseUrl: 'https://custom.example.com/v1', models: [] },
+    ];
+    config.providerKeys = { deepseek: { apiKey: 'pk-key', baseUrl: '' } };
+    expect(resolveProviderApiKey(config, 'deepseek')).toBe('custom-key');
   });
 });
 
