@@ -5,16 +5,6 @@
      plain-text rendering — wry dropped native data: URL support in 0.37).
      The label is localized in-page from navigator.language. -->
 <html><head><meta charset="utf-8">
-<script>
-  // Set before the CSS applies to avoid a flash of unstyled background.
-  // Windows: DWM rounds the window itself (set_rounded_corners in
-  // windows.rs), so the gradient fills the whole <body> — no HTML radius,
-  // no transparent corner pixels to pick up the webview's white default
-  // background. macOS: WKWebView propagates a root-element background over
-  // the (rectangular) canvas, ignoring border-radius, so the gradient lives
-  // on an inner card that clips at its own box.
-  document.documentElement.className = navigator.userAgent.includes('Windows') ? 'win' : '';
-</script>
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
   html,body{height:100%;background:transparent}
@@ -23,18 +13,13 @@
     display:flex;align-items:center;justify-content:center;
     user-select:none;-webkit-user-select:none;
   }
-  /* Windows fills the whole body: the window shape (rounded corners) comes
-     from DWM, so the gradient must cover every pixel — a border-radius here
-     would only leave transparent corner pixels that show the webview's
-     opaque default background. .card degrades to a transparent container.
-     macOS needs the card variant: WKWebView propagates a root-element
-     background over the (rectangular) canvas, ignoring border-radius. */
-  html.win body{
-    height:100vh;display:flex;flex-direction:column;
-    align-items:center;justify-content:center;padding-top:18px;
-    background:linear-gradient(135deg,#6366f1,#4f46e5);
-  }
-  html.win .card{background:transparent;border-radius:0;overflow:visible;padding-top:0}
+  /* The gradient lives on an inner card that clips at its own border-radius;
+     the <body> around it stays transparent so the corners show the desktop.
+     Windows only gets true per-pixel alpha once the window runs with
+     WS_EX_NOREDIRECTIONBITMAP (enable_per_pixel_alpha in windows.rs) —
+     without it WebView2 composites over an opaque redirection surface and the
+     corners show the webview's default background instead of the desktop.
+     macOS handles the transparent corners natively. */
   .card{
     width:100%;height:100%;
     display:flex;flex-direction:column;

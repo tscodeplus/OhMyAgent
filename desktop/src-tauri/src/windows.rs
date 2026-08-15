@@ -159,9 +159,12 @@ pub fn create_splash(app: &AppHandle) -> tauri::Result<()> {
         .build()?;
     // Shadow off also takes the Win11 DWM corner rounding with it (the
     // undecorated shadow was what rounded the window before), leaving sharp
-    // corners. Ask DWM for the rounding explicitly — borderless, no shadow.
+    // corners. DWM's corner-preference API can't help: on Win11 it re-enables
+    // the shadow (and its 1px gray border). Instead give the WebView2 content
+    // true per-pixel alpha so the HTML border-radius rounds the window itself
+    // — clean corners, no shadow, no gray border.
     #[cfg(windows)]
-    set_rounded_corners(&splash);
+    enable_per_pixel_alpha(&splash);
     // Fallback reveal: on_page_load's Finished event rides WebView2's
     // NavigationCompleted, which is not reliable for data: URLs in a hidden
     // window — if it never fires, the splash would stay invisible forever.
@@ -647,28 +650,66 @@ fn set_caption_theme(win: &tauri::WebviewWindow, dark: bool) {
     }
 }
 
-/// Windows 11 (22000+): round the splash window's corners via DWM. The
-/// undecorated shadow used to add the rounding (and the 1px gray border we
-/// removed); with the shadow off, DWMWA_WINDOW_CORNER_PREFERENCE restores the
-/// rounded shape on its own. Windows 10 ignores the attribute (sharp corners
-/// there, as before).
+/// Windows: let the splash's WebView2 content alpha-blend per-pixel over the
+/// desktop. WebView2 in windowed mode composites into the window's DWM
+/// redirection surface, which is opaque — CSS border-radius on the page only
+/// leaves default-background pixels in the corners (this is why the splash
+/// previously relied on the DWM shadow to round the window). Setting
+/// WS_EX_NOREDIRECTIONBITMAP tells DWM to skip the redirection surface and
+/// composite the WebView2's DirectComposition visual directly, so transparent
+/// page pixels really show the desktop: the HTML border-radius rounds the
+/// window with no shadow and no gray border (the same approach wails v3 uses
+/// for transparent windows).
+///
+/// Must run before the window's first present (DWM allocates the redirection
+/// surface then); the splash is built hidden and shown only after the page
+/// loads, so this is safe. Once set, the flag cannot be unset for the life of
+/// the window.
 #[cfg(windows)]
-fn set_rounded_corners(win: &tauri::WebviewWindow) {
-    use std::mem::size_of;
+fn enable_per_pixel_alpha(win: &tauri::WebviewWindow) {
     use windows_sys::Win32::Graphics::Dwm::{
-        DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+        DwmEnableBlurBehindWindow, DWM_BLURBEHIND, DWM_BB_ENABLE,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE,
+        SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+        WS_EX_NOREDIRECTIONBITMAP,
     };
 
     let Ok(hwnd) = win.hwnd() else {
         return;
     };
-    let preference = DWMWCP_ROUND;
+    let hwnd = hwnd.0;
     unsafe {
-        DwmSetWindowAttribute(
-            hwnd.0,
-            DWMWA_WINDOW_CORNER_PREFERENCE as u32,
-            &preference as *const i32 as *const _,
-            size_of::<i32>() as u32,
+        // tao's transparent-window path enabled DwmEnableBlurBehindWindow with
+        // an empty region at creation; that legacy compositor path is what
+        // keeps the webview content off the per-pixel-alpha route. Turn it off
+        // so NOREDIRECTIONBITMAP is the only compositor.
+        let bb = DWM_BLURBEHIND {
+            dwFlags: DWM_BB_ENABLE,
+            fEnable: false.into(),
+            hRgnBlur: std::ptr::null_mut(),
+            fTransitionOnMaximized: false.into(),
+        };
+        let _ = DwmEnableBlurBehindWindow(hwnd, &bb);
+
+        let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        if ex_style == 0 {
+            return;
+        }
+        SetWindowLongPtrW(
+            hwnd,
+            GWL_EXSTYLE,
+            ex_style | WS_EX_NOREDIRECTIONBITMAP as isize,
+        );
+        SetWindowPos(
+            hwnd,
+            std::ptr::null_mut(),
+            0,
+            0,
+            0,
+            0,
+            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
         );
     }
 }

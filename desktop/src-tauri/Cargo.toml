@@ -21,7 +21,9 @@ tauri-build = { version = "2", features = [] }
 #   / crash / quit orphan cleanup — the OS terminates the child with the shell);
 #   its CreateJobObjectW needs Win32_Security (SECURITY_ATTRIBUTES param) and
 #   JOBOBJECT_EXTENDED_LIMIT_INFORMATION needs Win32_System_Threading.
-windows-sys = { version = "0.59", features = ["Win32_Globalization", "Win32_System_SystemInformation", "Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_System_Registry", "Win32_System_JobObjects", "Win32_Security", "Win32_System_Threading"] }
+# Win32_UI_WindowsAndMessaging: GetWindowLongPtrW/SetWindowLongPtrW +
+#   WS_EX_NOREDIRECTIONBITMAP (per-pixel alpha for the splash).
+windows-sys = { version = "0.59", features = ["Win32_Globalization", "Win32_System_SystemInformation", "Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_System_Registry", "Win32_System_JobObjects", "Win32_Security", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
 
 [dependencies]
 tauri = { version = "2.11", features = ["tray-icon", "devtools", "image-png", "macos-private-api", "webview-data-url"] }
