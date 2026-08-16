@@ -335,6 +335,8 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
     () => servicesRef.current,
     // P1 M6: turn-level watchdog (seconds → ms; 0 disables)
     (config.agent?.turn_timeout_sec ?? 300) * 1000,
+    // Transient provider/transport error retries (0 disables)
+    config.agent?.max_retries ?? 2,
   );
 
   return {

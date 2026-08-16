@@ -403,6 +403,8 @@ const configSchema = z.object({
   // P1 M6: turn-level watchdog (0 disables the timeout)
   agent: z.object({
     turn_timeout_sec: z.coerce.number().int().nonnegative().default(300),
+    // Transient provider/transport error retries (0 disables)
+    max_retries: z.coerce.number().int().nonnegative().default(2),
   }).default({}),
   multimodal: z.object({
     enabled: z.boolean().default(true),

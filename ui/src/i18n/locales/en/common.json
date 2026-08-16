@@ -76,6 +76,7 @@
     "downloadImage": "Download image",
     "taskPlan": "Task Plan",
     "completed": "Completed",
+    "error": "Task interrupted",
     "questionAnswered": "Answer received",
     "questionPlaceholder": "Type your answer...",
     "harnessImprovement": {

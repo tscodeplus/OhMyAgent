@@ -49,6 +49,8 @@ export interface Message {
   files?: MessageFile[];
   /** Skill name that was activated for this message (from metadata). */
   skill_activated?: string;
+  /** Provider/stream error that ended this message's turn (from metadata). */
+  error?: string;
 }
 
 export interface MediaSegmentItem {

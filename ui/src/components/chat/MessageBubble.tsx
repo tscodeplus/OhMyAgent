@@ -582,6 +582,12 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
 
         {/* Footer — matches Feishu buildCompletedCard format:
             agentName · 已完成 · 耗时 xs · model · ↓ in ↑ out · 缓存命中 xx% */}
+        {message.error && (
+          <div className="mt-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-400">
+            <span className="font-medium">⚠️ {t('chat.error')}：</span>
+            <span className="break-all">{message.error}</span>
+          </div>
+        )}
         {/* Image lightbox */}
         {lightboxUrl && (
           <div

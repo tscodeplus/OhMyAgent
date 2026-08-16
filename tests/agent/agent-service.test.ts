@@ -158,11 +158,26 @@ describe('AgentService', () => {
     }));
   });
 
+  it('execute() forwards maxRetries to the factory', async () => {
+    const svc = new AgentService(
+      factory as unknown as AgentFactory,
+      () => dispatcher,
+      undefined, undefined, 'native_first', undefined, undefined,
+      undefined, 3, // maxRetries
+    );
+
+    await svc.execute('Hi');
+
+    expect(factory.create).toHaveBeenCalledWith(expect.objectContaining({
+      maxRetries: 3,
+    }));
+  });
+
   it('execute() subscribes to agent events via EventBridge', async () => {
     await service.execute('test');
 
-    // EventBridge.start() calls agent.subscribe()
-    expect(factory.agent.subscribe).toHaveBeenCalledTimes(1);
+    // EventBridge.start() + the activity-based turn watchdog each subscribe
+    expect(factory.agent.subscribe).toHaveBeenCalledTimes(2);
   });
 
   // ------------------------------------------------------------------ execute: dispatcher lifecycle
@@ -291,6 +306,36 @@ describe('AgentService', () => {
       expect(dispatcher.onError).not.toHaveBeenCalled();
     });
 
+    it('resets the turn deadline on agent activity (active turns are not killed)', async () => {
+      vi.useFakeTimers();
+      const agent = createMockAgent();
+      agent.prompt.mockImplementation(() => new Promise<void>(() => { /* never settles */ }));
+      const factory = createMockFactory(agent);
+      const service = new AgentService(
+        factory as unknown as AgentFactory,
+        () => dispatcher,
+        undefined, undefined, 'native_first', undefined, undefined,
+        1000, // turnTimeoutMs
+      );
+
+      const promise = service.execute('Hello');
+      promise.catch(() => {});
+
+      // Activity at t=500ms resets the deadline to t=1500ms
+      await vi.advanceTimersByTimeAsync(500);
+      agent._emit({
+        type: 'message_update',
+        assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'x', partial: {} },
+        message: {},
+      } as any);
+      await vi.advanceTimersByTimeAsync(600); // t=1100ms — past the original cap, still alive
+      expect(agent.abort).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(600); // t=1700ms — 1200ms since last activity → fires
+      await expect(promise).rejects.toThrow(/timed out after/);
+      expect(agent.abort).toHaveBeenCalledTimes(1);
+    });
+
     it('sends an error card when the aborted turn never settles (hung tool)', async () => {
       vi.useFakeTimers();
       const agent = createMockAgent();
@@ -383,7 +428,8 @@ describe('AgentService', () => {
     // (bridge.start) and the bridge is cleaned up in finally block.
     await service.execute('test');
 
-    expect(factory.agent.subscribe).toHaveBeenCalledTimes(1);
+    // EventBridge + turn watchdog listeners are both removed after the run
+    expect(factory.agent.subscribe).toHaveBeenCalledTimes(2);
     expect(service.isRunning()).toBe(false);
   });
 
@@ -392,7 +438,7 @@ describe('AgentService', () => {
 
     await expect(service.execute('test')).rejects.toThrow('boom');
 
-    expect(factory.agent.subscribe).toHaveBeenCalledTimes(1);
+    expect(factory.agent.subscribe).toHaveBeenCalledTimes(2);
     expect(service.isRunning()).toBe(false);
   });
 

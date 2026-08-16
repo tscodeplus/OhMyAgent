@@ -34,6 +34,7 @@ import type { PromptManager } from '../prompt/prompt-manager.js';
 import type { PromptAssemblyOptions } from '../prompt/types.js';
 import { teamModeStore } from './team-mode-store.js';
 import { turnCounter, planOnlyReflection } from './turn-counter.js';
+import { createRetryingStreamFn } from './retrying-stream.js';
 import { createBeforeToolCall, type BeforeToolCallDeps } from './before-tool-call.js';
 import type { PolicyCenter } from '../policy/policy-center.js';
 import type { AgentPolicyScope } from '../policy/types.js';
@@ -174,6 +175,8 @@ export interface AgentCreateOptions {
   isChildAgent?: boolean;
   /** v5: Task description for child agent */
   childTaskDescription?: string;
+  /** Maximum retry attempts for transient provider/transport errors (0 disables). */
+  maxRetries?: number;
 }
 
 interface ResolvedSkillScope {
@@ -625,7 +628,9 @@ export function createAgentFactory(
           thinkingLevel: thinkingLevel as import('@earendil-works/pi-ai').ThinkingLevel,
           messages: (options?.historyMessages ?? []) as import('@earendil-works/pi-agent-core').AgentMessage[],
         },
-        streamFn: streamSimple as any,
+        streamFn: createRetryingStreamFn(streamSimple as any, {
+          maxRetries: options?.maxRetries ?? configRef.current.agent?.max_retries ?? 2,
+        }) as any,
         convertToLlm,
         transformContext: createTransformContext({
           memoryRetriever,

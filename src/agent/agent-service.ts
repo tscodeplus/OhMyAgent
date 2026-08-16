@@ -10,7 +10,7 @@ import type { AgentFactory } from './agent-factory.js';
 import type { AgentTurnContext } from './agent-factory.js';
 import { i18n } from '../i18n/i18n-service.js';
 import type { Agent } from '../pi-mono/agent/agent.js';
-import type { AgentMessage } from '../pi-mono/agent/types.js';
+import type { AgentEvent, AgentMessage } from '../pi-mono/agent/types.js';
 import { setSessionAgent, clearSessionAgent } from './agent-context.js';
 import type { ReplyDispatcher, FooterConfig, AppServices } from '../app/types.js';
 import type { SessionRepository } from '../memory/repositories/session-repository.js';
@@ -178,6 +178,8 @@ export class AgentService {
     private getServices?: () => AppServices | undefined,
     /** P1 M6: Max wall-clock time for a single agent turn (ms). 0 disables. */
     private turnTimeoutMs: number = DEFAULT_TURN_TIMEOUT_MS,
+    /** Maximum retry attempts for transient provider/transport errors (0 disables). */
+    private maxRetries: number = 2,
   ) {}
 
   /**
@@ -274,6 +276,7 @@ export class AgentService {
           agentId: agentIdFromSession ?? options?.agentId,
           turnContext,
           historyMessages,
+          maxRetries: this.maxRetries,
         }),
         bridge: null,
         persistedMessageCount: historyMessages?.length ?? 0,
@@ -297,6 +300,7 @@ export class AgentService {
         message: input,
         agentId: agentIdFromSession ?? options?.agentId,
         turnContext: runtime.turnContext,
+        maxRetries: this.maxRetries,
       });
       nextAgent.state.messages = preservedMessages;
       runtime.agent = nextAgent;
@@ -578,14 +582,45 @@ export class AgentService {
     const turnPromise = agent.prompt(input, images);
     let timer: ReturnType<typeof setTimeout> | undefined;
     let timedOut = false;
+    let resolveTimeout: ((value: boolean) => void) | undefined;
+
+    // Activity-based watchdog: the wall-clock cap applies to *inactivity*
+    // rather than the whole turn. Long tool sequences and multi-step research
+    // keep the turn alive as long as the agent keeps emitting progress; a
+    // genuinely hung provider stream or tool still trips the cap after
+    // `timeoutMs` of silence. The listener is synchronous and never throws,
+    // so it adds no observable latency to event dispatch.
+    const armTimer = () => {
+      if (timedOut) return;
+      if (timer !== undefined) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timedOut = true;
+        resolveTimeout?.(true);
+      }, timeoutMs);
+    };
+    const ACTIVITY_EVENTS = new Set<AgentEvent['type']>([
+      'turn_start',
+      'message_start',
+      'message_update',
+      'message_end',
+      'tool_execution_start',
+      'tool_execution_end',
+      'turn_end',
+    ]);
+    const unsubscribeActivity = agent.subscribe((event) => {
+      if (ACTIVITY_EVENTS.has(event.type)) armTimer();
+    });
     try {
+      const timeoutPromise = new Promise<boolean>((resolve) => {
+        resolveTimeout = resolve;
+      });
+      armTimer();
       timedOut = await Promise.race([
         turnPromise.then(() => false),
-        new Promise<boolean>((resolve) => {
-          timer = setTimeout(() => resolve(true), timeoutMs);
-        }),
+        timeoutPromise,
       ]);
     } finally {
+      unsubscribeActivity();
       if (timer !== undefined) clearTimeout(timer);
     }
 

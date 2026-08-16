@@ -307,10 +307,18 @@ export class EventBridge {
           }
 
           if (assistantMsg && assistantMsg.stopReason === 'error') {
+            this.logger?.warn(
+              { err: new Error(assistantMsg.errorMessage ?? 'Agent error'), model: assistantMsg.model, provider: assistantMsg.provider },
+              'Agent turn failed with provider/stream error',
+            );
             await this.dispatchSafely(() => this.replyDispatcher.onError(
               new Error(assistantMsg.errorMessage ?? 'Agent error'),
             ));
           } else if (assistantMsg && assistantMsg.stopReason === 'aborted') {
+            this.logger?.warn(
+              { model: assistantMsg.model, provider: assistantMsg.provider },
+              'Agent turn aborted',
+            );
             await this.dispatchSafely(() => this.replyDispatcher.onAborted());
           } else {
             const src = assistantMsg?.usage;

@@ -117,6 +117,7 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
       usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
       model?: string;
       provider?: string;
+      errorMessage?: string;
     }
 
     let pendingAssistant: PendingAssistant | null = null;
@@ -208,7 +209,12 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
         if (batchImages.length > 0) meta.images = batchImages;
         if (batchFiles.length > 0) meta.files = batchFiles;
       }
-      if (pending.usage) {
+      // A failed provider stream carries a zero-initialized usage that never
+      // saw its final usage chunk — persist the error instead so the UI never
+      // shows a misleading "↓0 ↑0" footer for a response that consumed tokens.
+      if (pending.errorMessage) {
+        meta.error = pending.errorMessage;
+      } else if (pending.usage) {
         meta.usage = {
           input: pending.usage.input ?? 0,
           output: pending.usage.output ?? 0,
@@ -312,7 +318,10 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
               meta.segments = [{ type: 'skill', name: runtime.skillActivatedName }];
               runtime.skillActivatedName = undefined;
             }
-            if (msg.usage) {
+            const errMsg = (msg as { errorMessage?: string }).errorMessage;
+            if (errMsg) {
+              meta.error = errMsg;
+            } else if (msg.usage) {
               meta.usage = {
                 input: msg.usage.input ?? 0,
                 output: msg.usage.output ?? 0,
@@ -367,6 +376,8 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
 
         if (msg.usage) pendingAssistant.usage = msg.usage;
         if (msg.model) pendingAssistant.model = msg.model;
+        const pendingErr = (msg as { errorMessage?: string }).errorMessage;
+        if (pendingErr) pendingAssistant.errorMessage = pendingErr;
         if ((msg as unknown as StreamMessageMeta).provider) pendingAssistant.provider = (msg as unknown as StreamMessageMeta).provider;
       }
     }

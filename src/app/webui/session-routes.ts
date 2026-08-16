@@ -268,6 +268,7 @@ export function registerSessionRoutes(
         ...(meta?.approval ? { approval: meta.approval } : {}),
         ...(meta?.userQuestion ? { userQuestion: meta.userQuestion } : {}),
         ...(meta?.skill_activated ? { skill_activated: meta?.skill_activated } : {}),
+        ...(meta?.error ? { error: meta.error } : {}),
         ...(images.length > 0 ? { images } : {}),
         ...(files.length > 0 ? { files } : {}),
       };

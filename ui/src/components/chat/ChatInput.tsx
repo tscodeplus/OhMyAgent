@@ -640,12 +640,28 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
             break;
           }
 
-          case 'error':
+          case 'error': {
             // Reset everything on stream error
             activeTurnsRef.current = 0;
             setSending(false);
             onDone?.();
+            // Surface the provider/stream error on the current bubble so the
+            // task does not appear to "stop by itself" without explanation.
+            const errorText = event.error || '';
+            if (errorText && assistantCreatedAtRef.current && onMessages) {
+              onMessages([{
+                id: assistantIdRef.current,
+                session_id: sessionId,
+                role: 'assistant',
+                content: assistantContentRef.current,
+                tool_calls: toolCallsRef.current.length > 0 ? [...toolCallsRef.current] : undefined,
+                segments: [...segmentsRef.current],
+                error: errorText,
+                created_at: assistantCreatedAtRef.current || new Date().toISOString(),
+              }]);
+            }
             break;
+          }
         }
       },
       () => {

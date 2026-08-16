@@ -486,6 +486,8 @@ export interface SmartAgentTeamConfig {
 export interface AgentRuntimeConfig {
   /** Wall-clock cap for a single agent turn, in seconds. 0 disables the watchdog. */
   turn_timeout_sec: number;
+  /** Maximum retry attempts for transient provider/transport errors (0 disables). */
+  max_retries: number;
 }
 
 // ---------------------------------------------------------------------------

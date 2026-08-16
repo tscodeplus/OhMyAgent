@@ -434,6 +434,7 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
     // P1 M6: turn-level watchdog (0 disables the timeout)
     agent: root.agent ? {
       turn_timeout_sec: num((root.agent as YamlNode)?.turn_timeout_sec, 300),
+      max_retries: num((root.agent as YamlNode)?.max_retries, 2),
     } : undefined,
 
     policy: root.policy ? {
