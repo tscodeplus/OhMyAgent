@@ -144,6 +144,16 @@ function shouldKeepFullToolResultInContext(toolName: string): boolean {
   return ['web_search', 'web-search', 'web_fetch'].includes(toolName);
 }
 
+/** Build a compact one-line "label: first sentence" snippet for the tools catalog layer. */
+function toolOneLineSnippet(tool: { name?: string; label?: string; description?: string }): string {
+  const label = typeof tool.label === 'string' && tool.label.length > 0 ? tool.label : tool.name ?? '';
+  const desc = typeof tool.description === 'string' ? tool.description : '';
+  const firstLine = desc.split('\n')[0] ?? '';
+  const firstSentence = firstLine.split(/(?<=[.!?。！？])\s/)[0]?.trim() ?? '';
+  const body = firstSentence || firstLine.trim().slice(0, 60) || '';
+  return `${label}: ${body}`.slice(0, 120);
+}
+
 /** Options for creating an Agent instance. */
 export interface AgentCreateOptions {
   message?: string;
@@ -472,9 +482,19 @@ export function createAgentFactory(
           ?? configRef.current.smart_agent_team.max_children
           ?? 4;
 
+        // One-line tool index for the system prompt (pi-style). Uses the
+        // pre-pipeline tool set — names are stable across the pipeline, so
+        // the snippets remain accurate for index purposes only.
+        const availableTools = tools.length > 0
+          ? tools
+              .map((t: any) => ({ name: String(t.name ?? ''), snippet: toolOneLineSnippet(t) }))
+              .filter((t) => t.name.length > 0)
+          : undefined;
+
         promptAssembly = promptManager.assemble({
           agentId: options?.agentId ?? agentConfig?.id,
           availableSkills,
+          availableTools: availableTools && availableTools.length > 0 ? availableTools : undefined,
           activeSkillLayers: compiled?.promptLayers,
           isChildAgent: options?.isChildAgent,
           childTaskDescription: options?.childTaskDescription,
@@ -631,6 +651,7 @@ export function createAgentFactory(
         streamFn: createRetryingStreamFn(streamSimple as any, {
           maxRetries: options?.maxRetries ?? configRef.current.agent?.max_retries ?? 2,
         }) as any,
+        maxToolCycles: configRef.current.agent?.max_tool_cycles,
         convertToLlm,
         transformContext: createTransformContext({
           memoryRetriever,
@@ -764,9 +785,15 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
               sessionId, seq, context.toolCall.name, context.args, formatted, context.isError, summary
             );
             const resultChars = textBlockChars(formatted);
-            const shouldCompactForDeepSeek =
-              cacheProfile === 'deepseek' &&
-              resultChars > 4000 &&
+            // Large tool results are archived above and replaced in context
+            // with a summary + archive path (file_read restores the full
+            // output). DeepSeek's cache profile compacts earlier (4K chars)
+            // because repeated large payloads are expensive against its
+            // prefix cache; the default profile compacts at 20K chars so a
+            // single oversized result does not crowd out the answer budget.
+            const compactThreshold = cacheProfile === 'deepseek' ? 4000 : 20000;
+            const shouldCompactLargeResult =
+              resultChars > compactThreshold &&
               !shouldKeepFullToolResultInContext(context.toolCall.name);
 
             // P1: Mermaid canvas update (via shared helper)
@@ -787,14 +814,14 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
               ensurePhaseTagger,
             });
 
-            if (shouldCompactForDeepSeek) {
+            if (shouldCompactLargeResult) {
               const ref = `${offloadStore.getSessionDirPath(sessionId)}/${record.refPath}`;
               logger?.info({
                 sessionId,
                 toolName: context.toolCall.name,
                 charsBefore: resultChars,
                 refPath: record.refPath,
-              }, 'DeepSeek cache profile compacted large tool result');
+              }, 'Large tool result compacted and archived');
               return {
                 ...result,
                 content: [{
@@ -805,13 +832,13 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
                   ...(typeof result.details === 'object' && result.details !== null ? result.details : {}),
                   offloadRef: ref,
                   originalChars: resultChars,
-                  compactedFor: 'deepseek-cache',
+                  compactedFor: cacheProfile === 'deepseek' ? 'deepseek-cache' : 'large-result',
                 },
               };
             }
 
-            // Return full result unchanged when it is small enough or the model
-            // is not using DeepSeek's automatic prefix-cache profile.
+            // Return full result unchanged when it is small enough or the tool
+            // needs its full payload in context (web_search/web_fetch).
             return { ...result, content: formatted };
           }
 

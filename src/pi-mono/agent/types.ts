@@ -150,6 +150,14 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	model: Model<any>;
 	/** Fallback models to try if the primary model fails (OhMyAgent extension). */
 	fallbackModels?: Model<any>[];
+	/**
+	 * Soft cap on the number of tool-calling rounds in one agent run
+	 * (OhMyAgent extension). 0/undefined = unlimited. When the cap is
+	 * reached, a diagnostic message is injected and further tool calls are
+	 * failed with a system-stop error so the model finally replies to the
+	 * user instead of looping forever.
+	 */
+	maxToolCycles?: number;
 
 	/**
 	 * Converts AgentMessage[] to LLM-compatible Message[] before each LLM call.

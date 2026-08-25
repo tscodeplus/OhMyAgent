@@ -488,6 +488,8 @@ export interface AgentRuntimeConfig {
   turn_timeout_sec: number;
   /** Maximum retry attempts for transient provider/transport errors (0 disables). */
   max_retries: number;
+  /** Soft cap on tool-calling rounds per turn (0 disables). */
+  max_tool_cycles: number;
 }
 
 // ---------------------------------------------------------------------------

@@ -166,6 +166,17 @@ async function runLoop(
 	// Check for steering messages at start (user may have typed while waiting)
 	let pendingMessages: AgentMessage[] = (await config.getSteeringMessages?.()) || [];
 
+	// ── OhMyAgent extension: tool-cycle abort guard ──
+	// Bounds the inner loop so a repeating agent (same failing tool call
+	// re-issued forever, or a runaway long task) is steered back to a final
+	// answer instead of spinning until the turn watchdog fires.
+	let toolCycles = 0;
+	let lastFailedTool: string | null = null;
+	let failureStreak = 0;
+	let failureDiagnosticInjected = false;
+	let haltDiagnosticInjected = false;
+	let toolExecutionHalted = false;
+
 	// Outer loop: continues when queued follow-up messages arrive after agent would stop
 	while (true) {
 		let hasMoreToolCalls = true;
@@ -211,13 +222,62 @@ async function runLoop(
 				const executedToolBatch =
 					message.stopReason === "length"
 						? await failToolCallsFromTruncatedMessage(toolCalls, emit)
-						: await executeToolCalls(currentContext, message, config, signal, emit);
+						: toolExecutionHalted
+							? await failToolCallsWithSystemHalt(toolCalls, emit)
+							: await executeToolCalls(currentContext, message, config, signal, emit);
 				toolResults.push(...executedToolBatch.messages);
 				hasMoreToolCalls = !executedToolBatch.terminate;
 
 				for (const result of toolResults) {
 					currentContext.messages.push(result);
 					newMessages.push(result);
+				}
+
+				// ── OhMyAgent extension: count cycles and same-tool failure
+				// streaks; inject a steering diagnostic (a user-role message
+				// the LLM sees on its next call) so the model stops repeating
+				// and stays usable instead of looping until the watchdog. ──
+				toolCycles++;
+				const failedNames = toolResults
+					.filter((r) => r.isError)
+					.map((r) => r.toolName)
+					.filter((n): n is string => !!n);
+				if (failedNames.length > 0) {
+					const uniqueNames = [...new Set(failedNames)];
+					if (uniqueNames.length === 1 && uniqueNames[0] === lastFailedTool) {
+						failureStreak++;
+					} else {
+						failureStreak = 1;
+					}
+					lastFailedTool = uniqueNames[0] ?? null;
+				} else {
+					failureStreak = 0;
+					lastFailedTool = null;
+				}
+				if (failureStreak >= 3 && !failureDiagnosticInjected) {
+					failureDiagnosticInjected = true;
+					const diag = createGuardMessage(
+						`[system] Tool "${lastFailedTool}" has failed ${failureStreak} times in a row with the same call. ` +
+							`Stop repeating it. Fix the cause, switch to a different approach, or reply to the user explaining ` +
+							`what is blocked — do NOT retry the same call again.`,
+					);
+					await emit({ type: "message_start", message: { ...diag } });
+					await emit({ type: "message_end", message: diag });
+					currentContext.messages.push(diag);
+					newMessages.push(diag);
+				}
+				if (config.maxToolCycles && toolCycles >= config.maxToolCycles && !haltDiagnosticInjected) {
+					haltDiagnosticInjected = true;
+					toolExecutionHalted = true;
+					const diag = createGuardMessage(
+						`[system] The agent has reached its tool-call budget (${config.maxToolCycles} rounds) for this turn. ` +
+							`Tool execution is now stopped. Summarize what you have learned so far and reply to the user — ` +
+							`do NOT attempt further tool calls.`,
+					);
+					await emit({ type: "message_start", message: { ...diag } });
+					await emit({ type: "message_end", message: diag });
+					currentContext.messages.push(diag);
+					newMessages.push(diag);
 				}
 			}
 
@@ -442,6 +502,51 @@ async function failToolCallsFromTruncatedMessage(
 			toolCall,
 			result: createErrorToolResult(
 				`Tool call "${toolCall.name}" was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments.`,
+			),
+			isError: true,
+		};
+		await emitToolExecutionEnd(finalized, emit);
+		const toolResultMessage = createToolResultMessage(finalized);
+		await emitToolResultMessage(toolResultMessage, emit);
+		messages.push(toolResultMessage);
+	}
+	return { messages, terminate: false };
+}
+
+/**
+ * Build a user-role steering message for the tool-cycle guard. The LLM sees
+ * it as the last message of the next call, so it is not part of any
+ * tool_call/toolResult pairing.
+ */
+function createGuardMessage(text: string): AgentMessage {
+	return {
+		role: "user",
+		content: [{ type: "text", text }],
+		timestamp: Date.now(),
+	};
+}
+
+/**
+ * Fail all tool calls after the agent exceeded its tool-cycle budget
+ * (OhMyAgent extension). Reports a system stop so the model finally
+ * produces a user-facing answer instead of issuing more calls.
+ */
+async function failToolCallsWithSystemHalt(
+	toolCalls: AgentToolCall[],
+	emit: AgentEventSink,
+): Promise<ExecutedToolCallBatch> {
+	const messages: ToolResultMessage[] = [];
+	for (const toolCall of toolCalls) {
+		await emit({
+			type: "tool_execution_start",
+			toolCallId: toolCall.id,
+			toolName: toolCall.name,
+			args: toolCall.arguments,
+		});
+		const finalized: FinalizedToolCallOutcome = {
+			toolCall,
+			result: createErrorToolResult(
+				`Tool call "${toolCall.name}" was not executed: the agent exceeded its tool-call budget for this turn. Stop calling tools and reply to the user now.`,
 			),
 			isError: true,
 		};
@@ -745,7 +850,11 @@ async function executePreparedToolCall(
 		);
 		acceptingUpdates = false;
 		await Promise.all(updateEvents);
-		return { result, isError: false };
+		// OhMyAgent extension: v4 tools (AgentToolAdapter) carry the failure
+		// flag on the result even though it is outside the AgentToolResult
+		// contract — surface it so the loop's failure tracking sees it.
+		const resultError = (result as { isError?: boolean } | null)?.isError === true;
+		return { result, isError: resultError };
 	} catch (error) {
 		acceptingUpdates = false;
 		await Promise.all(updateEvents);

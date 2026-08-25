@@ -94,7 +94,12 @@ export class AgentToolAdapterImpl implements AgentToolAdapter {
             return c as { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string };
           }),
           details: (result.metadata ?? {}) as any,
-        };
+          // isError is not part of the pi-mono AgentToolResult contract; the
+          // agent loop reads it off the executed result (see
+          // executePreparedToolCall) so a v4 tool's failure flag reaches the
+          // tool-cycle guard instead of looking like success.
+          isError: result.isError === true,
+        } as any;
       },
     } as AgentTool<any>;
   }

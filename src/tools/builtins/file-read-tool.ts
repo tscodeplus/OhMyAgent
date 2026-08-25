@@ -181,9 +181,9 @@ export function createFileReadTool(param?: FileReadToolDeps | FileReadToolOption
         }
       } catch (error: any) {
         if (error.code === 'ENOENT') {
-          return { content: [{ type: 'text' as const, text: i18n.t('tools-builtins:fileRead.notFound') }] };
+          return { content: [{ type: 'text' as const, text: i18n.t('tools-builtins:fileRead.notFound') }], isError: true };
         }
-        return { content: [{ type: 'text' as const, text: i18n.t('tools-builtins:fileRead.error') }] };
+        return { content: [{ type: 'text' as const, text: i18n.t('tools-builtins:fileRead.error') }], isError: true };
       }
     },
   } as AgentTool<any>;

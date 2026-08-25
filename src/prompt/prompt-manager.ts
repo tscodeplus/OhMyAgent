@@ -10,12 +10,25 @@ import type {
 
 const PRIORITY_BASE = 0;
 const PRIORITY_SKILLS_CATALOG = 25;
+const PRIORITY_TOOLS_CATALOG = 26;
 const PRIORITY_AGENT_OVERRIDE = 50;
 const PRIORITY_TEAM_MODE = 60;
 const PRIORITY_CHILD_MODIFIER = 200;
 
 const DEFAULT_CONTEXT_WINDOW = 200_000;
 const DEFAULT_MAX_SYSTEM_PROMPT_RATIO = 0.3;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** Escape text for XML embedding in prompt layers (skill catalog etc.). */
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
 
 // ── Token Estimation ──────────────────────────────────────────────────────────
 
@@ -117,6 +130,11 @@ export class PromptManager {
       layers.push(this.buildSkillsCatalogLayer(options.availableSkills));
     }
 
+    // Layer 1.55: Tools catalog (one-line snippets — quick index for the model)
+    if (options.availableTools && options.availableTools.length > 0) {
+      layers.push(this.buildToolsCatalogLayer(options.availableTools));
+    }
+
     // Layer 1.6: Active skill prompt layers (injected from skill-compiler output)
     if (options.activeSkillLayers && options.activeSkillLayers.length > 0) {
       for (const layer of options.activeSkillLayers) {
@@ -146,6 +164,25 @@ export class PromptManager {
   private buildBaseLayer(options: PromptAssemblyOptions): PromptLayer {
     const parts = [
       'You are OhMyAgent, a helpful AI assistant.',
+      '',
+      '## Task Execution',
+      `You are an action-oriented agent that FINISHES tasks — not just replies.
+
+GENERAL PRINCIPLES
+- Multi-step task: plan silently first (what to do, in what order, what success looks like), then execute step by step.
+- After each step, VERIFY the result before moving on. Never claim a step succeeded without confirming it.
+- Never give up after one failure: read the error, fix the likely cause, retry once. If the same call fails 3 times with the same error, stop repeating it — switch approach or ask the user.
+- Keep working until the goal is reached, then report. Do not stop at the first intermediate result.
+
+TOOL USE RULES
+- Do not repeat an identical tool call (same tool, same arguments) that already failed, unless the error was transient (network/rate-limit).
+- Failures are feedback, not blockers: syntax/param errors → correct and retry; environment/access errors → try a fallback approach or tell the user exactly what is missing.
+- Large tool output: keep only a summary in the conversation. Never paste raw logs or full file contents — quote only the parts that matter.
+- When a tool returns "Full result archived at ...", use file_read on that path if you need the complete output.
+
+FAILURE & COMPLETION
+- If blocked, state the blocker and the next best step for the user — never pretend success.
+- The task is complete only when the user's goal is achieved, or you have confirmed with the user that it cannot be.`,
       '',
       '## Memory',
       `You have long-term memory capabilities. Use the memory tools to manage information:
@@ -217,15 +254,23 @@ Results are automatically delivered to this chat — you do NOT need to provide 
     lines.push('Skills are specialized instruction sets. Use the list below only to decide whether a skill fits the current task.');
     lines.push('');
 
-    lines.push('### Available skills');
+    lines.push('<available_skills>');
     for (const skill of availableSkills) {
-      lines.push(`- ${skill.name} ($${skill.id}): ${skill.description}`);
+      lines.push('  <skill>');
+      lines.push(`    <name>${escapeXml(skill.name)}</name>`);
+      lines.push(`    <id>${escapeXml(skill.id)}</id>`);
+      lines.push(`    <trigger>$${escapeXml(skill.id)}</trigger>`);
+      lines.push(`    <description>${escapeXml(skill.description)}</description>`);
+      lines.push('  </skill>');
     }
+    lines.push('</available_skills>');
 
     lines.push('');
     lines.push(`### How to use skills
 
 If the user names \`$<skill-id>\` or \`/<skill-id>\` or the task clearly matches a listed description, use that skill for this turn. When a skill is activated, follow the loaded skill instructions; choose the smallest useful set and say which skill you are using. If no skill fits, continue normally.
+
+When a skill fits the task, the full skill instructions are injected automatically; you may also read the complete SKILL.md via file_read on its path if the injected instructions are insufficient.
 
 **Creating new skills** — when the user asks to create a new skill/capability/automation, use the \`skill_create\` tool (do NOT manually write a SKILL.md). The tool generates from a template, validates with lint, and reloads the registry.`);
 
@@ -236,6 +281,34 @@ If the user names \`$<skill-id>\` or \`/<skill-id>\` or the task clearly matches
       cacheKey: 'skills-catalog',
       volatile: false,
       blockTag: 'skills-catalog',
+    };
+  }
+
+  private buildToolsCatalogLayer(
+    availableTools: NonNullable<PromptAssemblyOptions['availableTools']>,
+  ): PromptLayer {
+    const lines: string[] = [];
+
+    lines.push('## Available tools');
+    lines.push('');
+    lines.push('The tools below are available in this session. Full parameter schemas are provided through the API; this list is only a quick index of what exists.');
+    lines.push('');
+    lines.push('<available_tools>');
+    for (const tool of availableTools) {
+      lines.push('  <tool>');
+      lines.push(`    <name>${escapeXml(tool.name)}</name>`);
+      lines.push(`    <snippet>${escapeXml(tool.snippet)}</snippet>`);
+      lines.push('  </tool>');
+    }
+    lines.push('</available_tools>');
+
+    return {
+      name: 'tools-catalog',
+      content: lines.join('\n'),
+      priority: PRIORITY_TOOLS_CATALOG,
+      cacheKey: 'tools-catalog',
+      volatile: false,
+      blockTag: 'tools-catalog',
     };
   }
 

@@ -112,7 +112,7 @@ describe('createTransformContext', () => {
 
     expect(result[0].content).toEqual([
       { type: 'text', text: 'hello' },
-      { type: 'text', text: '[用户画像]\n偏好简洁回复\n\n---\n' },
+      { type: 'text', text: '<persona>\n[用户画像]\n偏好简洁回复\n</persona>\n' },
     ]);
   });
 
@@ -127,7 +127,7 @@ describe('createTransformContext', () => {
 
     expect(result[0].content).toEqual([
       { type: 'text', text: 'hello' },
-      { type: 'text', text: '[用户画像]\n偏好简洁回复\n\n---\n' },
+      { type: 'text', text: '<persona>\n[用户画像]\n偏好简洁回复\n</persona>\n' },
     ]);
   });
 
@@ -180,7 +180,7 @@ describe('createTransformContext', () => {
     const first = await transform([{ role: 'user', content: '你好' }]);
     expect(first[0].content).toEqual([
       { type: 'text', text: '你好' },
-      { type: 'text', text: '[用户画像]\n用户喜欢被称呼为老板\n\n---\n' },
+      { type: 'text', text: '<persona>\n[用户画像]\n用户喜欢被称呼为老板\n</persona>\n' },
     ]);
 
     const second = await transform([
@@ -198,7 +198,7 @@ describe('createTransformContext', () => {
     ]);
     expect(third[2].content).toEqual([
       { type: 'text', text: '再打个招呼' },
-      { type: 'text', text: '[用户画像]\n用户喜欢被称呼为老大\n\n---\n' },
+      { type: 'text', text: '<persona>\n[用户画像]\n用户喜欢被称呼为老大\n</persona>\n' },
     ]);
   });
 
@@ -321,7 +321,7 @@ describe('createTransformContext', () => {
 
     expect(result[0].content).toEqual([
       { type: 'text', text: 'continue' },
-      { type: 'text', text: '\n\n---\n[任务画布]\n- node-001 done' },
+      { type: 'text', text: '\n\n<task_progress>\n[任务画布]\n- node-001 done\n</task_progress>' },
     ]);
     expect(logger.debug).toHaveBeenCalledWith(
       expect.objectContaining({ sessionKey: 's1', nodeCount: 1, injectFormat: 'summary' }),

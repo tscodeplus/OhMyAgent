@@ -27,18 +27,21 @@ export function createShellTool(options: ShellToolOptions = {}) {
           signal,
           maxBuffer: 10 * 1024 * 1024,
         }, (error, stdout, stderr) => {
+          // Error callback fires for non-zero exit codes too — an aborted or
+          // failing command must surface as an error so the agent loop's
+          // failure tracking (tool-cycle guard) can see it.
           if (error) {
-            if (error.killed || (error as any).code === 'ABORT_ERR') {
-              resolve({ content: [{ type: 'text', text: i18n.t('tools-builtins:shell.timedOut') }] });
+            if (error.killed || (error as any).code === 'ABORT_ERR' || (error as any).code === 'SIGTERM') {
+              resolve({ content: [{ type: 'text', text: i18n.t('tools-builtins:shell.timedOut') }], isError: true });
               return;
             }
             const output = stderr || error.message;
-            resolve({ content: [{ type: 'text', text: i18n.t('tools-builtins:shell.error', { message: truncateOutput(output, maxOutputLength) }) }] });
+            resolve({ content: [{ type: 'text', text: i18n.t('tools-builtins:shell.error', { message: truncateOutput(output, maxOutputLength) }) }], isError: true });
             return;
           }
 
           const output = stdout || stderr || i18n.t('tools-builtins:shell.noOutput');
-          resolve({ content: [{ type: 'text', text: truncateOutput(output, maxOutputLength) }] });
+          resolve({ content: [{ type: 'text', text: truncateOutput(output, maxOutputLength) }], isError: false });
         });
 
         if (signal) {

@@ -108,6 +108,8 @@ export interface AgentOptions {
 	shouldStopAfterTurn?: (context: ShouldStopAfterTurnContext, signal?: AbortSignal) => boolean | Promise<boolean>;
 	/** Fallback models to try if the primary model fails (OhMyAgent extension). */
 	fallbackModels?: Model<any>[];
+	/** Soft cap on tool-calling rounds in one run (OhMyAgent extension). */
+	maxToolCycles?: number;
 	prepareNextTurn?: (
 		signal?: AbortSignal,
 	) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
@@ -219,6 +221,8 @@ export class Agent {
 	public toolExecution: ToolExecutionMode;
 	/** Fallback models to try if the primary model fails (OhMyAgent extension). */
 	public fallbackModels?: Model<any>[];
+	/** Soft cap on tool-calling rounds in one run (OhMyAgent extension). */
+	public maxToolCycles?: number;
 	/** OhMyAgent extension: human-readable agent name for logging/persistence. */
 	public ohmyagent_agentName?: string;
 
@@ -245,6 +249,7 @@ export class Agent {
 		this.maxRetryDelayMs = runtimeOptions.maxRetryDelayMs;
 		this.toolExecution = runtimeOptions.toolExecution ?? "parallel";
 		this.fallbackModels = runtimeOptions.fallbackModels;
+		this.maxToolCycles = runtimeOptions.maxToolCycles;
 	}
 
 	/**
@@ -468,6 +473,7 @@ export class Agent {
 			beforeToolCall: this.beforeToolCall,
 			afterToolCall: this.afterToolCall,
 			fallbackModels: this.fallbackModels,
+			maxToolCycles: this.maxToolCycles,
 			shouldStopAfterTurn: shouldStopAfterTurn
 				? async (context) => await shouldStopAfterTurn(context, this.signal)
 				: undefined,

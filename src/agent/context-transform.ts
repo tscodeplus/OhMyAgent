@@ -112,6 +112,11 @@ const INJECTED_BLOCK_PREFIXES = [
   '---\n[任务画布]',
   '[当前用户画像',
   '[最新用户偏好',
+  // XML-wrapped injection blocks (pi-style structure)
+  '<memory_context>',
+  '<persona>',
+  '<task_progress>',
+  '<archived_tool_results>',
 ];
 
 const deepseekMemorySignatureBySession = new Map<string, string>();
@@ -361,7 +366,7 @@ export function createTransformContext(options?: TransformOptions) {
             if (memories.length > 0) {
               const memoryLines = buildMemoryLines(memories, query);
               if (memoryLines.length > 0) {
-                const memoryHint = `\n\n---\nRelevant remembered information:\n${memoryLines.join('\n')}`;
+                const memoryHint = `\n\n<memory_context>\nRelevant remembered information:\n${memoryLines.join('\n')}\n</memory_context>`;
                 const memoryKey = sessionKey || 'default';
                 const previous = deepseekMemorySignatureBySession.get(memoryKey);
                 const shouldInjectMemory =
@@ -407,7 +412,7 @@ export function createTransformContext(options?: TransformOptions) {
               if (memories.length > 0) {
                 const memoryLines = buildMemoryLines(memories, query);
                 if (memoryLines.length > 0) {
-                  const memoryHint = `\n\n---\nRelevant remembered information:\n${memoryLines.join('\n')}`;
+                  const memoryHint = `\n\n<memory_context>\nRelevant remembered information:\n${memoryLines.join('\n')}\n</memory_context>`;
                   const memoryKey = sessionKey || 'default';
                   const previous = deepseekMemorySignatureBySession.get(memoryKey);
                   const shouldInjectMemory =
@@ -462,7 +467,7 @@ export function createTransformContext(options?: TransformOptions) {
               ? options.mermaidCanvas.toMermaid()
               : options.mermaidCanvas.toContextSummary();
             if (canvasText) {
-              const canvasHint = `\n\n---\n${canvasText}`;
+              const canvasHint = `\n\n<task_progress>\n${canvasText}\n</task_progress>`;
               if (lastUserMsg) {
                 const idx = result.lastIndexOf(lastUserMsg);
                 const blocks = ensureContentBlocks(lastUserMsg.content);
@@ -482,7 +487,7 @@ export function createTransformContext(options?: TransformOptions) {
           } else {
             // Too many nodes — inject a concise count summary instead
             const max = options.mermaidCanvasConfig.maxNodesInContext;
-            const countHint = `\n\n---\n[任务进度] 当前阶段: ${currentPhase} (${completed}/${total} 完成, 显示最近 ${max}/${total} 步)`;
+            const countHint = `\n\n<task_progress>\n[任务进度] 当前阶段: ${currentPhase} (${completed}/${total} 完成, 显示最近 ${max}/${total} 步)\n</task_progress>`;
             if (lastUserMsg) {
               const idx = result.lastIndexOf(lastUserMsg);
               const blocks = ensureContentBlocks(lastUserMsg.content);
@@ -555,7 +560,7 @@ export function createTransformContext(options?: TransformOptions) {
               options?.logger?.debug({ personaText: personaText.slice(0, 120) }, 'Persona injected into context');
               const idx = result.lastIndexOf(lastUserMsg);
               const blocks = ensureContentBlocks(lastUserMsg.content);
-              const personaBlock = { type: 'text' as const, text: `${personaText}\n\n---\n` };
+              const personaBlock = { type: 'text' as const, text: `<persona>\n${personaText}\n</persona>\n` };
               const nextBlocks = [...blocks, personaBlock];
               result[idx] = { ...lastUserMsg, content: nextBlocks };
               personaInjectedSessions.add(personaKey);
@@ -680,7 +685,7 @@ export function createTransformContext(options?: TransformOptions) {
               return `${icon} [${r.nodeId}] ${r.summary || r.toolName} | ${sessionDir}/${r.refPath}`;
             });
             if (lines.length > 0) {
-              const hint = `\n\n---\n[已归档的早期工具结果 (使用 file_read 恢复)]\n${lines.join('\n')}`;
+              const hint = `\n\n<archived_tool_results>\n[已归档的早期工具结果 (使用 file_read 恢复)]\n${lines.join('\n')}\n</archived_tool_results>`;
               const firstUser = trimmed.find((m: any) => m.role === 'user');
               if (firstUser) {
                 const idx = trimmed.indexOf(firstUser);

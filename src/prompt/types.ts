@@ -33,6 +33,16 @@ export interface PromptAssemblyOptions {
     /** Relative path to the SKILL.md file (e.g. "skills/researcher/SKILL.md") */
     path: string;
   }>;
+  /**
+   * One-line snippets for tools available this session (pi-style quick
+   * index; full schemas still go through the API). Included as a stable
+   * layer after the skills catalog.
+   */
+  availableTools?: Array<{
+    name: string;
+    /** Short one-line description of what the tool does. */
+    snippet: string;
+  }>;
   /** v7: Agent Team mode — inject orchestrator role layer */
   isTeamMode?: boolean;
   /** v7: Agent Team mode — max parallel child agents */

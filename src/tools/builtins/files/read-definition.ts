@@ -100,7 +100,7 @@ export function createFileReadToolDefinition(deps: FileReadToolDeps): ToolDefini
       const result = await legacyTool.execute('' as any, args as any);
       return {
         content: (result.content ?? []) as any,
-        isError: !result.content?.length,
+        isError: (result as any).isError ?? !result.content?.length,
         metadata: result.details as Record<string, unknown> | undefined,
       };
     },

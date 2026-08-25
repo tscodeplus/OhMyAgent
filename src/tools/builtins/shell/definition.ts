@@ -16,6 +16,8 @@ interface ShellToolParams {
 type ShellToolResult = {
   content: Array<{ type: string; text?: string }>;
   details?: Record<string, unknown>;
+  /** True when the command failed (non-zero exit, timeout, abort). */
+  isError?: boolean;
 };
 
 export const shellToolCapability: ToolCapabilityDescriptor = {
@@ -73,7 +75,7 @@ export function createShellToolDefinition(options: ShellToolOptions = {}): ToolD
       const result: ShellToolResult = await legacyTool.execute('', args as ShellToolParams, ctx.signal);
       return {
         content: (result.content ?? []) as ToolResultContent[],
-        isError: !result.content?.length,
+        isError: result.isError ?? !result.content?.length,
         metadata: result.details as Record<string, unknown> | undefined,
       };
     },
