@@ -51,7 +51,7 @@ export function registerAgentRoutes(app: FastifyInstance, cfg: AgentRouteConfig)
         id: 'default',
         name: 'Default',
         description: undefined,
-        systemPrompt: 'You are a helpful AI assistant.',
+        systemPrompt: '',
         model: config.piAi ? `${config.piAi.provider}/${config.piAi.model}` : undefined,
         fallbackModels: undefined,
         reasoningLevel: undefined,

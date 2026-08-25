@@ -14,7 +14,7 @@ import type { AgentConfig } from '../../src/agent/config-types.js';
 const DEFAULT_AGENT: AgentConfig = {
   id: 'default',
   name: 'Default',
-  system_prompt: 'You are a helpful AI assistant.',
+  system_prompt: '',
 };
 
 describe('web_search extension availability', () => {

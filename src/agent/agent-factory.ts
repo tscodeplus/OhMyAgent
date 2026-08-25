@@ -423,7 +423,10 @@ export function createAgentFactory(
       let systemPrompt = options?.systemPrompt ?? buildDefaultSystemPrompt(configRef.current.uiLanguage);
 
       if (agentConfig && !options?.systemPrompt) {
-        systemPrompt = agentConfig.system_prompt || systemPrompt;
+        // Empty agent prompt → no override layer. The PromptManager base
+        // layer (Task Execution, Memory, cronjob, ...) is the system default;
+        // falling back to the legacy built-in prompt here would duplicate it.
+        systemPrompt = agentConfig.system_prompt?.trim() ? agentConfig.system_prompt : '';
       }
 
       // Render template variables in agent system_prompt
@@ -435,6 +438,8 @@ export function createAgentFactory(
           channel: options?.channel ?? 'unknown',
           ui_language: configRef.current.uiLanguage ?? 'zh-CN',
         });
+        // Empty content → PromptManager.buildAgentLayer skips it (falsy check),
+        // so no override layer is registered for blank prompts.
         promptManager.registerAgentOverride(agentConfig.id, renderedAgent);
         systemPrompt = renderedAgent;
       }

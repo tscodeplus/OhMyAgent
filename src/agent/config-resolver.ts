@@ -63,7 +63,9 @@ export function resolveAgentConfig(
   global: AppConfig,
   agent: AgentConfig,
 ): ResolvedAgentConfig {
-  const system_prompt = agent.system_prompt || 'You are a helpful AI assistant.';
+  // Empty prompt = no agent override layer; the PromptManager base layer is
+  // used as the real system default (Task Execution, Memory, cronjob, ...).
+  const system_prompt = agent.system_prompt ?? '';
   const model = resolveModel(agent, global);
   const tools = resolveTools(agent, global);
   const spawn = resolveSpawn(agent, global);

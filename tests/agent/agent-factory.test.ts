@@ -900,8 +900,10 @@ describe('AgentFactory config injection', () => {
       agentManager: agentManager as any,
     });
     const agent = factory.create({ agentId: 'agent-noprompt', sessionId: 's1' });
-    expect(agent.state.systemPrompt).toContain('You are OhMyAgent');
-    expect(agent.state.systemPrompt).toContain('## Memory');
+    // No legacy default fallback: blank prompt means "no agent override
+    // layer", so the system prompt comes from the PromptManager base layer
+    // (which already contains the identity + Task Execution + Memory sections).
+    expect(agent.state.systemPrompt).toBe('');
   });
 
   it('falls back to getDefault when agentId is not found in agentManager', () => {

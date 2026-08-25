@@ -52,7 +52,6 @@ export class AgentManager {
     return resolveAgentConfig(this.global, {
       id: 'default',
       name: 'Default',
-      system_prompt: 'You are a helpful AI assistant.',
       tools: { profile: 'advanced' },
       channels: ['feishu', 'telegram', 'wechat', 'qq', 'webui'],
     });
