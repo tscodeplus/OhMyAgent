@@ -41,18 +41,11 @@ function sourceToLines(source: string): string[] {
   return source.split('\n');
 }
 
-/** Convert cell source (string or string[]) to a single string. */
-function sourceToString(source: string | string[]): string {
-  if (Array.isArray(source)) return source.join('');
-  return source;
-}
-
 export function createNotebookEditToolDefinition(): ToolDefinition {
   return {
     name: 'notebook_edit',
     label: 'Notebook Edit',
-    description:
-      'Modify Jupyter notebook (.ipynb) cells: insert, replace, or delete.',
+    description: 'Modify Jupyter notebook (.ipynb) cells: insert, replace, or delete.',
     category: 'file',
     parametersSchema: Type.Object({
       filePath: Type.String({
@@ -67,22 +60,13 @@ export function createNotebookEditToolDefinition(): ToolDefinition {
         ],
         { description: 'Action to perform' },
       ),
-      index: Type.Optional(
-        Type.Number({ description: 'Cell index (0-based)' }),
-      ),
+      index: Type.Optional(Type.Number({ description: 'Cell index (0-based)' })),
       cellType: Type.Optional(
-        Type.Union(
-          [
-            Type.Literal('code'),
-            Type.Literal('markdown'),
-            Type.Literal('raw'),
-          ],
-          { description: 'Cell type for insert/replace' },
-        ),
+        Type.Union([Type.Literal('code'), Type.Literal('markdown'), Type.Literal('raw')], {
+          description: 'Cell type for insert/replace',
+        }),
       ),
-      source: Type.Optional(
-        Type.String({ description: 'Cell source content' }),
-      ),
+      source: Type.Optional(Type.String({ description: 'Cell source content' })),
     }),
     capability: notebookEditCapability,
     execute: async (
@@ -96,7 +80,9 @@ export function createNotebookEditToolDefinition(): ToolDefinition {
       ctx,
     ) => {
       try {
-        const resolvedPath = path.resolve(ctx.cwd, args.filePath);
+        // Prefer the policy-center-canonicalized path (ctx.resolvedPath) so the
+        // executed path matches the one the policy evaluation approved.
+        const resolvedPath = ctx.resolvedPath ?? path.resolve(ctx.cwd, args.filePath);
 
         // Read the file
         let raw: string;
@@ -122,6 +108,8 @@ export function createNotebookEditToolDefinition(): ToolDefinition {
           );
         }
 
+        // SAFETY: the shape was just validated above (object with a cells array);
+        // the cast only recovers the Notebook typing for field access below.
         const notebookData = nb as unknown as Notebook;
         const cells = notebookData.cells;
 
@@ -142,8 +130,7 @@ export function createNotebookEditToolDefinition(): ToolDefinition {
               newCell.outputs = [];
               newCell.execution_count = null;
             }
-            const insertIdx =
-              args.index !== undefined ? args.index : cells.length;
+            const insertIdx = args.index !== undefined ? args.index : cells.length;
             cells.splice(insertIdx, 0, newCell);
             break;
           }
@@ -153,9 +140,7 @@ export function createNotebookEditToolDefinition(): ToolDefinition {
               return errorResult('index is required for replace_cell action');
             }
             if (args.index < 0 || args.index >= cells.length) {
-              return errorResult(
-                `Cell index ${args.index} out of range (cells: ${cells.length})`,
-              );
+              return errorResult(`Cell index ${args.index} out of range (cells: ${cells.length})`);
             }
             if (!args.cellType) {
               return errorResult('cellType is required for replace_cell action');
@@ -181,9 +166,7 @@ export function createNotebookEditToolDefinition(): ToolDefinition {
               return errorResult('index is required for delete_cell action');
             }
             if (args.index < 0 || args.index >= cells.length) {
-              return errorResult(
-                `Cell index ${args.index} out of range (cells: ${cells.length})`,
-              );
+              return errorResult(`Cell index ${args.index} out of range (cells: ${cells.length})`);
             }
             cells.splice(args.index, 1);
             break;
@@ -191,19 +174,13 @@ export function createNotebookEditToolDefinition(): ToolDefinition {
 
           case 'update_cell_source': {
             if (args.index === undefined) {
-              return errorResult(
-                'index is required for update_cell_source action',
-              );
+              return errorResult('index is required for update_cell_source action');
             }
             if (args.index < 0 || args.index >= cells.length) {
-              return errorResult(
-                `Cell index ${args.index} out of range (cells: ${cells.length})`,
-              );
+              return errorResult(`Cell index ${args.index} out of range (cells: ${cells.length})`);
             }
             if (args.source === undefined || args.source === null) {
-              return errorResult(
-                'source is required for update_cell_source action',
-              );
+              return errorResult('source is required for update_cell_source action');
             }
             // Preserve outputs, execution_count, metadata — only update source
             cells[args.index].source = sourceToLines(args.source);
@@ -217,18 +194,10 @@ export function createNotebookEditToolDefinition(): ToolDefinition {
         }
 
         // Write back
-        fs.writeFileSync(
-          resolvedPath,
-          JSON.stringify(notebookData, null, 2),
-          'utf-8',
-        );
-        return textResult(
-          `Successfully performed ${args.action} on ${resolvedPath}`,
-        );
+        fs.writeFileSync(resolvedPath, JSON.stringify(notebookData, null, 2), 'utf-8');
+        return textResult(`Successfully performed ${args.action} on ${resolvedPath}`);
       } catch (err: any) {
-        return errorResult(
-          `Failed to edit notebook: ${err.message ?? String(err)}`,
-        );
+        return errorResult(`Failed to edit notebook: ${err.message ?? String(err)}`);
       }
     },
   };

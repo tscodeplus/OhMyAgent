@@ -2,13 +2,14 @@
  * WebUI Route Registration
  *
  * Fastify plugin that registers all WebUI API routes and WebSocket support.
- * Applies webui-auth middleware to protect all /api/ routes.
+ * Auth (webuiAuthHook) is registered in bootstrap.ts BEFORE extensions load —
+ * Fastify applies onRequest hooks only to routes registered after the hook,
+ * so registering it here would be too late for extension routes.
  */
 
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import type { AppConfig, AppServices } from './types.js';
-import { webuiAuthHook } from './webui-auth.js';
 import { loadConfig, resetConfig } from './config.js';
 import { ProjectStore } from './webui/project-store.js';
 import { registerProjectRoutes } from './webui/project-routes.js';
@@ -74,8 +75,8 @@ export async function registerWebUIRoutes(
   // 2. Register multipart for file uploads
   app.register(multipart);
 
-  // 3. Apply auth middleware to all routes
-  app.addHook('onRequest', webuiAuthHook);
+  // 3. Auth hook (webuiAuthHook) was already registered on the root instance
+  //    in bootstrap.ts before extension loading — do NOT add it again here.
 
   // 4. Create stores
   const projectStore = new ProjectStore(cfg.db);
@@ -165,7 +166,8 @@ export async function registerWebUIRoutes(
   registerCronRoutes(app, cfg.services.cronService);
 
   // Approval routes — reuse the same ApprovalRequestRepository from memory services
-  const { ApprovalRequestRepository } = await import('../memory/repositories/approval-request-repository.js');
+  const { ApprovalRequestRepository } =
+    await import('../memory/repositories/approval-request-repository.js');
   registerApprovalRoutes(app, {
     agentService: cfg.services.agentService,
     approvalRequestRepo: new ApprovalRequestRepository(cfg.db),

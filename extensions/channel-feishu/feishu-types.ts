@@ -175,11 +175,7 @@ export interface TypingStateData {}
 // ─── Approval Types ───
 
 /** The four approval decisions. */
-export type ApprovalDecision =
-  | 'approve_once'
-  | 'approve_always'
-  | 'reject_once'
-  | 'reject_always';
+export type ApprovalDecision = 'approve_once' | 'approve_always' | 'reject_once' | 'reject_always';
 
 /** Persisted approval state for a request. */
 export interface ApprovalPersistedState {
@@ -235,4 +231,6 @@ export interface ApprovalCardData {
 export interface FeishuConfig {
   appId: string;
   appSecret: string;
+  /** 'feishu' (default) → open.feishu.cn; 'lark' → open.larksuite.com */
+  region?: 'feishu' | 'lark';
 }

@@ -7,13 +7,19 @@ import { loadYamlFile, yamlToAppConfigRaw } from './config-loader.js';
 import { envBool } from '../shared/env.js';
 import { ConfigError } from '../shared/errors.js';
 
-
 /** Accepts comma-separated string or string array, normalizes to string array. */
 function strListSchema(defaultVal: string) {
-  return z.string().or(z.array(z.string())).default(defaultVal).transform(v => {
-    if (Array.isArray(v)) return v.map(s => s.trim()).filter(Boolean);
-    return v.split(',').map(s => s.trim()).filter(Boolean);
-  });
+  return z
+    .string()
+    .or(z.array(z.string()))
+    .default(defaultVal)
+    .transform((v) => {
+      if (Array.isArray(v)) return v.map((s) => s.trim()).filter(Boolean);
+      return v
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    });
 }
 
 const MEMORY_OUTPUT_LANGUAGE_ALIASES: Record<string, string> = {
@@ -44,9 +50,12 @@ const MEMORY_OUTPUT_LANGUAGE_ALIASES: Record<string, string> = {
  */
 export function resolveAutoOutputLanguage(uiLanguage: 'zh-CN' | 'en'): string {
   switch (uiLanguage) {
-    case 'zh-CN': return 'Simplified Chinese';
-    case 'en': return 'English';
-    default: return 'English';
+    case 'zh-CN':
+      return 'Simplified Chinese';
+    case 'en':
+      return 'English';
+    default:
+      return 'English';
   }
 }
 
@@ -65,9 +74,11 @@ function normalizeMemoryOutputLanguage(val: string | undefined): string {
 }
 
 const configSchema = z.object({
-  logging: z.object({
-    level: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
-  }).default({}),
+  logging: z
+    .object({
+      level: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+    })
+    .default({}),
   uiLanguage: z.enum(['zh-CN', 'en']).default('en'),
   setupWizardDone: z.boolean().default(false),
   showToolCalls: z.boolean().default(true),
@@ -94,28 +105,36 @@ const configSchema = z.object({
     apiKey: z.string().default(''),
     baseUrl: z.string().optional(),
   }),
-  customProviders: z.array(z.object({
-    provider: z.string().min(1),
-    apiKey: z.string().min(1),
-    baseUrl: z.string().min(1),
-    models: z.array(z.object({
-      id: z.string().min(1),
-      name: z.string().min(1),
-      api: z.string().min(1),
-      reasoning: z.boolean().optional(),
-      reasoningLevel: z.string().optional(),
-      contextWindow: z.number().int().positive().optional(),
-      maxTokens: z.number().int().positive().optional(),
-      input: z.array(z.enum(["text", "image", "video"])).optional(),
-      compat: z.record(z.string(), z.any()).optional(),
-      cost: z.object({
-        input: z.number(),
-        output: z.number(),
-        cacheRead: z.number().default(0),
-        cacheWrite: z.number().default(0),
-      }).optional(),
-    })),
-  })).optional(),
+  customProviders: z
+    .array(
+      z.object({
+        provider: z.string().min(1),
+        apiKey: z.string().min(1),
+        baseUrl: z.string().min(1),
+        models: z.array(
+          z.object({
+            id: z.string().min(1),
+            name: z.string().min(1),
+            api: z.string().min(1),
+            reasoning: z.boolean().optional(),
+            reasoningLevel: z.string().optional(),
+            contextWindow: z.number().int().positive().optional(),
+            maxTokens: z.number().int().positive().optional(),
+            input: z.array(z.enum(['text', 'image', 'video'])).optional(),
+            compat: z.record(z.string(), z.any()).optional(),
+            cost: z
+              .object({
+                input: z.number(),
+                output: z.number(),
+                cacheRead: z.number().default(0),
+                cacheWrite: z.number().default(0),
+              })
+              .optional(),
+          }),
+        ),
+      }),
+    )
+    .optional(),
   embedding: z.object({
     baseUrl: z.string().default(''),
     apiKey: z.string().default(''),
@@ -126,10 +145,12 @@ const configSchema = z.object({
   database: z.object({
     path: z.string().default('~/.ohmyagent/data/app.db'),
   }),
-  rateLimit: z.object({
-    webhookMaxRequests: z.coerce.number().int().positive().default(100),
-    webhookWindowMs: z.coerce.number().int().positive().default(60000),
-  }).default({}),
+  rateLimit: z
+    .object({
+      webhookMaxRequests: z.coerce.number().int().positive().default(100),
+      webhookWindowMs: z.coerce.number().int().positive().default(60000),
+    })
+    .default({}),
   tools: z.object({
     shellEnabled: z.boolean().default(true),
     defaultTimeoutMs: z.coerce.number().int().positive().default(60000),
@@ -140,14 +161,18 @@ const configSchema = z.object({
     shellAllowlist: strListSchema(''),
     // deprecated v1 fields (kept for backward compat, mapped to v2 in loadConfig)
     shellApprovalMode: z.enum(['strict', 'balanced', 'relaxed']).default('balanced'),
-    shellApprovalWhitelist: strListSchema('date,ls,pwd,whoami,uname,echo,cat,head,tail,wc,grep,find,which,env,printenv'),
+    shellApprovalWhitelist: strListSchema(
+      'date,ls,pwd,whoami,uname,echo,cat,head,tail,wc,grep,find,which,env,printenv',
+    ),
     // approval timeout
     shellApprovalTimeoutSec: z.coerce.number().int().positive().default(600),
     shellApprovalTimeoutAction: z.enum(['deny', 'allow']).default('deny'),
-    fileRead: z.object({
-      allowedRoots: strListSchema(''),
-      deniedPatterns: strListSchema('.env,*.pem,/etc/passwd,*/.ssh/*'),
-    }).default({}),
+    fileRead: z
+      .object({
+        allowedRoots: strListSchema(''),
+        deniedPatterns: strListSchema('.env,*.pem,/etc/passwd,*/.ssh/*'),
+      })
+      .default({}),
   }),
   memory: z.object({
     autoRecall: z.boolean().default(false),
@@ -169,401 +194,534 @@ const configSchema = z.object({
     embeddingCacheMaxEntries: z.coerce.number().int().positive().default(10000),
     queryEmbeddingTimeoutMs: z.coerce.number().int().positive().default(10000),
     // Intent-aware query planner (commonality/attribute coverage retrieval).
-    queryPlanner: z.object({
-      enabled: z.boolean().default(true),
-      commonalityCoverage: z.boolean().default(true),
-      speakerBoost: z.coerce.number().min(0).default(0.05),
-      perSlotFloor: z.coerce.number().int().positive().default(2),
-      maxEntities: z.coerce.number().int().positive().default(4),
-      llm: z.object({ enabled: z.boolean().default(false) }).default({}),
-    }).default({}),
+    queryPlanner: z
+      .object({
+        enabled: z.boolean().default(true),
+        commonalityCoverage: z.boolean().default(true),
+        speakerBoost: z.coerce.number().min(0).default(0.05),
+        perSlotFloor: z.coerce.number().int().positive().default(2),
+        maxEntities: z.coerce.number().int().positive().default(4),
+        llm: z.object({ enabled: z.boolean().default(false) }).default({}),
+      })
+      .default({}),
     // Recall depth: larger values surface weak-margin (semantic) hits into the
     // candidate pool before reranking. Defaults match pre-tuning behavior.
-    recall: z.object({
-      prefilterMultiplier: z.coerce.number().int().positive().default(5),
-      prefilterMin: z.coerce.number().int().positive().default(20),
-      mergeCandidateMultiplier: z.coerce.number().int().positive().default(3),
-    }).default({}),
+    recall: z
+      .object({
+        prefilterMultiplier: z.coerce.number().int().positive().default(5),
+        prefilterMin: z.coerce.number().int().positive().default(20),
+        mergeCandidateMultiplier: z.coerce.number().int().positive().default(3),
+      })
+      .default({}),
     // Score-gated LLM query expansion. When enabled, a query whose initial recall
     // is weak (top similarity < minScoreTrigger) is rewritten into lexical variants
     // via the aux model to bridge wording gaps (e.g. "martial arts" → "kickboxing").
     // Disabled by default: it adds an aux-LLM call on weak-recall queries and is a
     // per-category trade-off, so it is opt-in. See memory_aux_models for the model.
-    expansion: z.object({
-      enabled: z.boolean().default(false),
-      minQueryLength: z.coerce.number().int().positive().default(15),
-      minScoreTrigger: z.coerce.number().min(0).max(1).default(0.3),
-      maxVariants: z.coerce.number().int().positive().default(4),
-    }).default({}),
+    expansion: z
+      .object({
+        enabled: z.boolean().default(false),
+        minQueryLength: z.coerce.number().int().positive().default(15),
+        minScoreTrigger: z.coerce.number().min(0).max(1).default(0.3),
+        maxVariants: z.coerce.number().int().positive().default(4),
+      })
+      .default({}),
     // Memory hygiene
-    hygiene: z.object({
-      enabled: z.boolean().default(true),
-      retentionDays: z.coerce.number().int().positive().default(90),
-    }).default({}),
+    hygiene: z
+      .object({
+        enabled: z.boolean().default(true),
+        retentionDays: z.coerce.number().int().positive().default(90),
+      })
+      .default({}),
     // Circuit breaker for embedding API
-    embeddingCircuitBreaker: z.object({
-      failureThreshold: z.coerce.number().int().nonnegative().default(5),
-      cooldownSec: z.coerce.number().int().positive().default(30),
-    }).default({}),
-    offloading: z.object({
-      enabled: z.boolean().default(true),
-      maxRefsInContext: z.coerce.number().int().positive().default(10),
-      preserveInMessages: z.coerce.number().int().nonnegative().default(2),
-      refDir: z.string().default(''),
-      retentionDays: z.coerce.number().int().positive().default(7),
-    }).default({}),
-    persona: z.object({
-      enabled: z.boolean().default(true),
-      distillThreshold: z.coerce.number().int().positive().default(3),
-      minDistillIntervalHours: z.coerce.number().int().nonnegative().default(0),
-    }).default({}),
-    mermaidCanvas: z.object({
-      enabled: z.boolean().default(false),
-      injectFormat: z.enum(['summary', 'full']).default('summary'),
-      phaseTagging: z.enum(['auto', 'llm', 'off']).default('auto'),
-      maxNodesInContext: z.coerce.number().int().positive().default(20),
-    }).default({}),
-    sceneClustering: z.object({
-      enabled: z.boolean().default(false),
-      windowDays: z.coerce.number().int().positive().default(7),
-      minMemories: z.coerce.number().int().positive().default(5),
-    }).default({}),
-    maintenance: z.object({
-      enabled: z.boolean().default(true),
-      intervalMs: z.coerce.number().int().positive().default(300000),
-      jobs: z.object({
-        memory_hygiene: z.boolean().default(true),
-        embedding_backfill: z.boolean().default(true),
-        embedding_cache_trim: z.boolean().default(true),
-        entity_backfill: z.boolean().default(true),
-        persona_consistency: z.boolean().default(true),
-        offload_hygiene: z.boolean().default(true),
-        scene_cluster: z.boolean().default(false),
-        memory_doctor: z.boolean().default(false),
-      }).default({}),
-    }).default({}),
-    dreamCycle: z.object({
-      enabled: z.boolean().default(true),
-      timezone: z.string().default(''),
-      hour: z.coerce.number().int().min(0).max(23).default(2),
-      minute: z.coerce.number().int().min(0).max(59).default(0),
-      windowGraceMinutes: z.coerce.number().int().positive().default(120),
-      phaseTimeoutMs: z.coerce.number().int().positive().default(1_800_000),
-      synthesizeBatchSize: z.coerce.number().int().positive().default(50),
-    }).default({}),
+    embeddingCircuitBreaker: z
+      .object({
+        failureThreshold: z.coerce.number().int().nonnegative().default(5),
+        cooldownSec: z.coerce.number().int().positive().default(30),
+      })
+      .default({}),
+    offloading: z
+      .object({
+        enabled: z.boolean().default(true),
+        maxRefsInContext: z.coerce.number().int().positive().default(10),
+        preserveInMessages: z.coerce.number().int().nonnegative().default(2),
+        refDir: z.string().default(''),
+        retentionDays: z.coerce.number().int().positive().default(7),
+      })
+      .default({}),
+    persona: z
+      .object({
+        enabled: z.boolean().default(true),
+        distillThreshold: z.coerce.number().int().positive().default(3),
+        minDistillIntervalHours: z.coerce.number().int().nonnegative().default(0),
+      })
+      .default({}),
+    mermaidCanvas: z
+      .object({
+        enabled: z.boolean().default(false),
+        injectFormat: z.enum(['summary', 'full']).default('summary'),
+        phaseTagging: z.enum(['auto', 'llm', 'off']).default('auto'),
+        maxNodesInContext: z.coerce.number().int().positive().default(20),
+      })
+      .default({}),
+    sceneClustering: z
+      .object({
+        enabled: z.boolean().default(false),
+        windowDays: z.coerce.number().int().positive().default(7),
+        minMemories: z.coerce.number().int().positive().default(5),
+      })
+      .default({}),
+    maintenance: z
+      .object({
+        enabled: z.boolean().default(true),
+        intervalMs: z.coerce.number().int().positive().default(300000),
+        jobs: z
+          .object({
+            memory_hygiene: z.boolean().default(true),
+            embedding_backfill: z.boolean().default(true),
+            embedding_cache_trim: z.boolean().default(true),
+            entity_backfill: z.boolean().default(true),
+            persona_consistency: z.boolean().default(true),
+            offload_hygiene: z.boolean().default(true),
+            scene_cluster: z.boolean().default(false),
+            memory_doctor: z.boolean().default(false),
+          })
+          .default({}),
+      })
+      .default({}),
+    dreamCycle: z
+      .object({
+        enabled: z.boolean().default(true),
+        timezone: z.string().default(''),
+        hour: z.coerce.number().int().min(0).max(23).default(2),
+        minute: z.coerce.number().int().min(0).max(59).default(0),
+        windowGraceMinutes: z.coerce.number().int().positive().default(120),
+        phaseTimeoutMs: z.coerce.number().int().positive().default(1_800_000),
+        synthesizeBatchSize: z.coerce.number().int().positive().default(50),
+      })
+      .default({}),
     // v9: Auto context compression
-    autoCompress: z.object({
-      enabled: z.boolean().default(true),
-      reserveTokens: z.coerce.number().int().positive().default(16384),
-      keepRecentTokens: z.coerce.number().int().positive().default(20000),
-      model: z.object({
-        primary: z.string().optional(),
-        fallback_models: z.array(z.string()).default([]),
-      }).optional(),
-    }).default({}),
+    autoCompress: z
+      .object({
+        enabled: z.boolean().default(true),
+        reserveTokens: z.coerce.number().int().positive().default(16384),
+        keepRecentTokens: z.coerce.number().int().positive().default(20000),
+        model: z
+          .object({
+            primary: z.string().optional(),
+            fallback_models: z.array(z.string()).default([]),
+          })
+          .optional(),
+      })
+      .default({}),
   }),
-  cron: z.object({
-    enabled: z.boolean().default(true),
-    tickIntervalMs: z.coerce.number().int().positive().default(30000),
-    dataDir: z.string().default('./cron'),
-    executionTimeoutMs: z.coerce.number().int().positive().default(600000),
-    maxConcurrency: z.coerce.number().int().positive().default(4),
-  }).default({}),
-  webSearch: z.object({
-    providerOrder: strListSchema('anysearch, tavily, exa, baidu'),
-    tavilyApiKey: z.string().optional(),
-    exaApiKey: z.string().optional(),
-    baiduApiKey: z.string().optional(),
-    anysearchApiKey: z.string().optional(),
-    searchTimeoutMs: z.coerce.number().int().positive().default(30000),
-    maxResults: z.coerce.number().int().min(1).max(10).default(5),
-  }).default({}),
-  telegram: z.object({
-    enabled: z.boolean().default(false),
-    botToken: z.string().min(1),
-    botName: z.string().default(''),
-    mode: z.enum(['polling', 'webhook']).default('polling'),
-    webhookUrl: z.string().optional(),
-    webhookPort: z.coerce.number().int().positive().default(8443),
-    webhookSecret: z.string().optional(),
-    allowedUsers: strListSchema(''),
-    allowedGroups: strListSchema(''),
-    proxyUrl: z.string().optional(),
-    streamMode: z.enum(['edit', 'send']).default('edit'),
-    textLimit: z.coerce.number().int().positive().default(4096),
-    streamIntervalMs: z.coerce.number().int().min(200).max(2000).default(500),
-  }).optional(),
-  wechat: z.object({
-    enabled: z.boolean().default(false),
-    botToken: z.string().optional(),
-    apiBase: z.string().default('https://ilinkai.weixin.qq.com'),
-    cursorDir: z.string().default('./data/wechat'),
-    textLimit: z.coerce.number().int().positive().default(2048),
-    aesKey: z.string().optional(),
-    allowedUsers: strListSchema(''),
-  }).optional(),
-  qq: z.object({
-    enabled: z.boolean().default(false),
-    appId: z.string().min(1),
-    clientSecret: z.string().min(1),
-    sandbox: z.boolean().default(false),
-    allowedUsers: strListSchema(''),
-    allowedGroups: strListSchema(''),
-    textLimit: z.coerce.number().int().positive().default(1500),
-  }).optional(),
-  computerUse: z.object({
-    enabled: z.boolean().default(false),
-    provider: z.enum(['auto', 'ssh', 'local', 'node']).optional(),
-    allowedApps: z.array(z.string()).default([]),
-    allowedAgents: z.array(z.string()).default([]),
-    approvalWhitelist: z.array(z.string()).default([]),
-    ssh: z.object({
-      host: z.string().default(''),
-      user: z.string().default(''),
-      keyPath: z.string().default(''),
-      port: z.number().default(22),
-      jumpHost: z.string().default(''),
-      display: z.string().default(':0'),
-      hostKeyChecking: z.enum(['accept-new', 'strict']).default('accept-new'),
-      knownHostsPath: z.string().default(''),
-    }).optional(),
-    node: z.object({
-      url: z.string().default(''),
-      token: z.string().optional(),
-      adb: z.object({
-        path: z.string().default('adb'),
-        serial: z.string().optional(),
-        manageScreen: z.boolean().default(false),
-      }).optional(),
-    }).optional(),
-    perPlatformProvider: z.record(z.string()).optional(),
-  }).optional(),
-  extensions: z.object({
-    directory: z.string().default('extensions'),
-  }).default({}),
+  cron: z
+    .object({
+      enabled: z.boolean().default(true),
+      tickIntervalMs: z.coerce.number().int().positive().default(30000),
+      dataDir: z.string().default('./cron'),
+      executionTimeoutMs: z.coerce.number().int().positive().default(600000),
+      maxConcurrency: z.coerce.number().int().positive().default(4),
+    })
+    .default({}),
+  webSearch: z
+    .object({
+      providerOrder: strListSchema('anysearch, tavily, exa, baidu'),
+      tavilyApiKey: z.string().optional(),
+      exaApiKey: z.string().optional(),
+      baiduApiKey: z.string().optional(),
+      anysearchApiKey: z.string().optional(),
+      searchTimeoutMs: z.coerce.number().int().positive().default(30000),
+      maxResults: z.coerce.number().int().min(1).max(10).default(5),
+    })
+    .default({}),
+  telegram: z
+    .object({
+      enabled: z.boolean().default(false),
+      botToken: z.string().min(1),
+      botName: z.string().default(''),
+      mode: z.enum(['polling', 'webhook']).default('polling'),
+      webhookUrl: z.string().optional(),
+      webhookPort: z.coerce.number().int().positive().default(8443),
+      webhookSecret: z.string().optional(),
+      allowedUsers: strListSchema(''),
+      allowedGroups: strListSchema(''),
+      proxyUrl: z.string().optional(),
+      streamMode: z.enum(['edit', 'send']).default('edit'),
+      textLimit: z.coerce.number().int().positive().default(4096),
+      streamIntervalMs: z.coerce.number().int().min(200).max(2000).default(500),
+    })
+    .optional(),
+  wechat: z
+    .object({
+      enabled: z.boolean().default(false),
+      botToken: z.string().optional(),
+      apiBase: z.string().default('https://ilinkai.weixin.qq.com'),
+      cursorDir: z.string().default('./data/wechat'),
+      textLimit: z.coerce.number().int().positive().default(2048),
+      aesKey: z.string().optional(),
+      allowedUsers: strListSchema(''),
+    })
+    .optional(),
+  qq: z
+    .object({
+      enabled: z.boolean().default(false),
+      appId: z.string().min(1),
+      clientSecret: z.string().min(1),
+      sandbox: z.boolean().default(false),
+      allowedUsers: strListSchema(''),
+      allowedGroups: strListSchema(''),
+      textLimit: z.coerce.number().int().positive().default(1500),
+    })
+    .optional(),
+  computerUse: z
+    .object({
+      enabled: z.boolean().default(false),
+      provider: z.enum(['auto', 'ssh', 'local', 'node']).optional(),
+      allowedApps: z.array(z.string()).default([]),
+      allowedAgents: z.array(z.string()).default([]),
+      approvalWhitelist: z.array(z.string()).default([]),
+      ssh: z
+        .object({
+          host: z.string().default(''),
+          user: z.string().default(''),
+          keyPath: z.string().default(''),
+          port: z.number().default(22),
+          jumpHost: z.string().default(''),
+          display: z.string().default(':0'),
+          hostKeyChecking: z.enum(['accept-new', 'strict']).default('accept-new'),
+          knownHostsPath: z.string().default(''),
+        })
+        .optional(),
+      node: z
+        .object({
+          url: z.string().default(''),
+          token: z.string().optional(),
+          adb: z
+            .object({
+              path: z.string().default('adb'),
+              serial: z.string().optional(),
+              manageScreen: z.boolean().default(false),
+            })
+            .optional(),
+        })
+        .optional(),
+      perPlatformProvider: z.record(z.string()).optional(),
+    })
+    .optional(),
+  extensions: z
+    .object({
+      directory: z.string().default('extensions'),
+    })
+    .default({}),
   fallbackModels: z.array(z.string()).default([]),
-  providerKeys: z.record(z.object({
-    apiKey: z.string().optional(),
-    baseUrl: z.string().optional(),
-  })).default({}),
+  providerKeys: z
+    .record(
+      z.object({
+        apiKey: z.string().optional(),
+        baseUrl: z.string().optional(),
+      }),
+    )
+    .default({}),
   defaultReasoningLevel: z.string().default('high'),
-  memoryAuxModels: z.object({
-    primary: z.string().optional(),
-    fallback_models: z.array(z.string()).default([]),
-    disableThinking: z.boolean().optional(),
-  }).optional(),
+  memoryAuxModels: z
+    .object({
+      primary: z.string().optional(),
+      fallback_models: z.array(z.string()).default([]),
+      disableThinking: z.boolean().optional(),
+    })
+    .optional(),
   // Legacy: vision bridge config for backward-compat with existing config.yaml.
   // Prefer multimodal.image.bridge in new configs. Bootstrap merges both.
-  visionBridge: z.object({
-    enabled: z.boolean().default(false),
-    modelRef: z.string().optional(),
-    apiKey: z.string().optional(),
-    baseUrl: z.string().optional(),
-    timeoutMs: z.number().int().positive().default(120_000),
-    maxNoteChars: z.number().int().positive().default(3200),
-    maxCacheEntries: z.number().int().positive().default(256),
-  }).optional(),
-  footer: z.object({
-    showAgentName: z.boolean().default(true),
-    showModel: z.boolean().default(true),
-    showCompleted: z.boolean().default(false),
-    showElapsed: z.boolean().default(true),
-    showUsage: z.boolean().default(false),
-    showCacheHitRate: z.boolean().default(false),
-  }).default({}),
+  visionBridge: z
+    .object({
+      enabled: z.boolean().default(false),
+      modelRef: z.string().optional(),
+      apiKey: z.string().optional(),
+      baseUrl: z.string().optional(),
+      timeoutMs: z.number().int().positive().default(120_000),
+      maxNoteChars: z.number().int().positive().default(3200),
+      maxCacheEntries: z.number().int().positive().default(256),
+    })
+    .optional(),
+  footer: z
+    .object({
+      showAgentName: z.boolean().default(true),
+      showModel: z.boolean().default(true),
+      showCompleted: z.boolean().default(false),
+      showElapsed: z.boolean().default(true),
+      showUsage: z.boolean().default(false),
+      showCacheHitRate: z.boolean().default(false),
+    })
+    .default({}),
   // -----------------------------------------------------------------------
   // v4 configuration sections (all optional, backward-compatible)
   // -----------------------------------------------------------------------
-  policy: z.object({
-    mode: z.enum(['bypass', 'safe', 'balanced', 'permissive']).default('balanced'),
-    path: z.object({
-      readRoots: z.array(z.string()).default([]),
-      writeRoots: z.array(z.string()).default([]),
-      deniedPatterns: z.array(z.string()).default([]),
-    }).optional(),
-    approval: z.object({
-      timeoutSec: z.number().default(120),
-      timeoutAction: z.enum(['deny', 'allow']).default('deny'),
-    }).optional(),
-  }).optional(),
-  orchestrator: z.object({
-    enabled: z.boolean().default(true),
-    maxChildAgents: z.number().default(4),
-    allowGrandchildren: z.boolean().default(false),
-    inheritApprovals: z.boolean().default(true),
-    inheritAppApprovals: z.boolean().default(true),
-  }).default({}),
-  smart_agent_team: z.object({
-    enabled: z.boolean().default(true),
-    max_children: z.number().int().min(1).max(10).default(4),
-    // P1 M5: child agent wall-clock cap + abort settle grace period
-    child_timeout_sec: z.coerce.number().int().positive().default(300),
-    child_settle_timeout_ms: z.coerce.number().int().positive().default(15_000),
-  }).default({}),
+  policy: z
+    .object({
+      mode: z.enum(['bypass', 'safe', 'balanced', 'permissive']).default('balanced'),
+      path: z
+        .object({
+          readRoots: z.array(z.string()).default([]),
+          writeRoots: z.array(z.string()).default([]),
+          deniedPatterns: z.array(z.string()).default([]),
+        })
+        .optional(),
+      approval: z
+        .object({
+          timeoutSec: z.number().default(120),
+          timeoutAction: z.enum(['deny', 'allow']).default('deny'),
+        })
+        .optional(),
+    })
+    .optional(),
+  orchestrator: z
+    .object({
+      enabled: z.boolean().default(true),
+      maxChildAgents: z.number().default(4),
+      allowGrandchildren: z.boolean().default(false),
+      inheritApprovals: z.boolean().default(true),
+      inheritAppApprovals: z.boolean().default(true),
+    })
+    .default({}),
+  smart_agent_team: z
+    .object({
+      enabled: z.boolean().default(true),
+      max_children: z.number().int().min(1).max(10).default(4),
+      // P1 M5: child agent wall-clock cap + abort settle grace period
+      child_timeout_sec: z.coerce.number().int().positive().default(300),
+      child_settle_timeout_ms: z.coerce.number().int().positive().default(15_000),
+    })
+    .default({}),
   // P1 M6: turn-level watchdog (0 disables the timeout)
-  agent: z.object({
-    turn_timeout_sec: z.coerce.number().int().nonnegative().default(300),
-    // Transient provider/transport error retries (0 disables)
-    max_retries: z.coerce.number().int().nonnegative().default(2),
-    // Soft cap on tool-calling rounds per turn (0 disables). At the cap the
-    // loop stops executing new tool calls and asks the model to reply.
-    max_tool_cycles: z.coerce.number().int().nonnegative().default(25),
-  }).default({}),
-  multimodal: z.object({
-    enabled: z.boolean().default(true),
-    attachments: z.object({
-      cacheDir: z.string().default('./data/media-cache'),
-      autoParseImages: z.boolean().default(true),
-      autoParseDocuments: z.boolean().default(true),
-      autoTranscribeAudio: z.boolean().default(false),
-    }).optional(),
-    image: z.object({
-      mode: z.enum(['native_first', 'bridge_only', 'native_only']).default('native_first'),
-      bridge: z.object({
-        enabled: z.boolean().default(false),
-        modelRef: z.string().optional(),
-        apiKey: z.string().optional(),
-        baseUrl: z.string().optional(),
-        timeoutMs: z.number().int().positive().default(120_000),
-        maxNoteChars: z.number().int().positive().default(3200),
-        maxCacheEntries: z.number().int().positive().default(256),
-      }).optional(),
-    }).optional(),
-    imageGeneration: z.object({
-      enabled: z.boolean().default(false),
-      modelRef: z.string().optional(),
-      outputDir: z.string().default('./data/generated-images'),
-      maxPromptChars: z.number().default(4000),
-    }).optional(),
-    videoGeneration: z.object({
-      enabled: z.boolean().default(false),
-      modelRef: z.string().optional(),
-      outputDir: z.string().default('./data/generated-videos'),
-      maxPromptChars: z.number().default(4000),
-      defaultSeconds: z.string().default('5.0'),
-      defaultSize: z.string().default('1280x768'),
-      defaultMode: z.enum(['ti2vid', 'keyframes']).optional(),
-      defaultHeight: z.number().int().positive().optional(),
-      defaultWidth: z.number().int().positive().optional(),
-      defaultFrameRate: z.number().min(1).max(60).optional(),
-    }).optional(),
-    stt: z.object({
-      enabled: z.boolean().default(false),
-      language: z.string().default('auto'),
-      autoTranscribe: z.boolean().default(true),
-      maxDurationSec: z.number().int().positive().default(300),
-      maxFileSizeMb: z.number().int().positive().default(25),
-      providers: z.array(z.object({
+  agent: z
+    .object({
+      turn_timeout_sec: z.coerce.number().int().nonnegative().default(300),
+      // Transient provider/transport error retries (0 disables)
+      max_retries: z.coerce.number().int().nonnegative().default(2),
+      // Soft cap on tool-calling rounds per turn (0 disables). At the cap the
+      // loop stops executing new tool calls and asks the model to reply.
+      max_tool_cycles: z.coerce.number().int().nonnegative().default(25),
+    })
+    .default({}),
+  multimodal: z
+    .object({
+      enabled: z.boolean().default(true),
+      attachments: z
+        .object({
+          cacheDir: z.string().default('./data/media-cache'),
+          autoParseImages: z.boolean().default(true),
+          autoParseDocuments: z.boolean().default(true),
+          autoTranscribeAudio: z.boolean().default(false),
+        })
+        .optional(),
+      image: z
+        .object({
+          mode: z.enum(['native_first', 'bridge_only', 'native_only']).default('native_first'),
+          bridge: z
+            .object({
+              enabled: z.boolean().default(false),
+              modelRef: z.string().optional(),
+              apiKey: z.string().optional(),
+              baseUrl: z.string().optional(),
+              timeoutMs: z.number().int().positive().default(120_000),
+              maxNoteChars: z.number().int().positive().default(3200),
+              maxCacheEntries: z.number().int().positive().default(256),
+            })
+            .optional(),
+        })
+        .optional(),
+      imageGeneration: z
+        .object({
+          enabled: z.boolean().default(false),
+          modelRef: z.string().optional(),
+          outputDir: z.string().default('./data/generated-images'),
+          maxPromptChars: z.number().default(4000),
+        })
+        .optional(),
+      videoGeneration: z
+        .object({
+          enabled: z.boolean().default(false),
+          modelRef: z.string().optional(),
+          outputDir: z.string().default('./data/generated-videos'),
+          maxPromptChars: z.number().default(4000),
+          defaultSeconds: z.string().default('5.0'),
+          defaultSize: z.string().default('1280x768'),
+          defaultMode: z.enum(['ti2vid', 'keyframes']).optional(),
+          defaultHeight: z.number().int().positive().optional(),
+          defaultWidth: z.number().int().positive().optional(),
+          defaultFrameRate: z.number().min(1).max(60).optional(),
+        })
+        .optional(),
+      stt: z
+        .object({
+          enabled: z.boolean().default(false),
+          language: z.string().default('auto'),
+          autoTranscribe: z.boolean().default(true),
+          maxDurationSec: z.number().int().positive().default(300),
+          maxFileSizeMb: z.number().int().positive().default(25),
+          providers: z
+            .array(
+              z.object({
+                id: z.string(),
+                apiKey: z.string().optional(),
+                baseUrl: z.string().optional(),
+                model: z.string().optional(),
+                endpoint: z.string().optional(),
+                requestType: z.enum(['multipart', 'json']).optional(),
+                audioFieldName: z.string().optional(),
+                languageFieldName: z.string().optional(),
+                responseTextField: z.string().optional(),
+                extraFields: z.record(z.string()).optional(),
+                authPrefix: z.string().optional(),
+              }),
+            )
+            .optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+  remoteTriggers: z
+    .object({
+      targets: z
+        .array(
+          z.object({
+            id: z.string(),
+            name: z.string(),
+            url: z.string(),
+            method: z.enum(['POST', 'PUT']),
+            headers: z.record(z.string()).optional(),
+          }),
+        )
+        .optional(),
+    })
+    .optional(),
+  agents: z
+    .array(
+      z.object({
         id: z.string(),
-        apiKey: z.string().optional(),
-        baseUrl: z.string().optional(),
-        model: z.string().optional(),
-        endpoint: z.string().optional(),
-        requestType: z.enum(['multipart', 'json']).optional(),
-        audioFieldName: z.string().optional(),
-        languageFieldName: z.string().optional(),
-        responseTextField: z.string().optional(),
-        extraFields: z.record(z.string()).optional(),
-        authPrefix: z.string().optional(),
-      })).optional(),
-    }).optional(),
-  }).optional(),
-  remoteTriggers: z.object({
-    targets: z.array(z.object({
-      id: z.string(),
-      name: z.string(),
-      url: z.string(),
-      method: z.enum(['POST', 'PUT']),
-      headers: z.record(z.string()).optional(),
-    })).optional(),
-  }).optional(),
-  agents: z.array(z.object({
-    id: z.string(),
-    name: z.string(),
-    description: z.string().optional(),
-    system_prompt: z.string().optional(),
-    model: z.object({
-      primary: z.string().optional(),
-      fallback: z.array(z.string()).optional(),
-      reasoning_level: z.string().optional(),
-      transport: z.string().optional(),
-      max_retry: z.number().int().positive().optional(),
-    }).optional(),
-    tools: z.object({
-      profile: z.enum(['minimal', 'standard', 'advanced', 'full']).optional(),
-      add: z.array(z.string()).optional(),
-      deny: z.array(z.string()).optional(),
-    }).optional(),
-    spawn: z.object({
-      enabled: z.boolean().optional(),
-      max_parallel: z.number().int().positive().optional(),
-      allowed_personas: z.array(z.string()).optional(),
-    }).optional(),
-    extensions: z.object({
-      disable: z.array(z.string()).optional(),
-    }).optional(),
-    channels: z.array(z.string()).optional(),
-  })).optional(),
+        name: z.string(),
+        description: z.string().optional(),
+        system_prompt: z.string().optional(),
+        model: z
+          .object({
+            primary: z.string().optional(),
+            fallback: z.array(z.string()).optional(),
+            reasoning_level: z.string().optional(),
+            transport: z.string().optional(),
+            max_retry: z.number().int().positive().optional(),
+          })
+          .optional(),
+        tools: z
+          .object({
+            profile: z.enum(['minimal', 'standard', 'advanced', 'full']).optional(),
+            add: z.array(z.string()).optional(),
+            deny: z.array(z.string()).optional(),
+          })
+          .optional(),
+        spawn: z
+          .object({
+            enabled: z.boolean().optional(),
+            max_parallel: z.number().int().positive().optional(),
+            allowed_personas: z.array(z.string()).optional(),
+          })
+          .optional(),
+        extensions: z
+          .object({
+            disable: z.array(z.string()).optional(),
+          })
+          .optional(),
+        channels: z.array(z.string()).optional(),
+      }),
+    )
+    .optional(),
   // Tool Search — progressive tool disclosure
-  toolSearch: z.object({
-    /** Enable mode: auto=threshold trigger, on=always active, off=disabled */
-    enabled: z.enum(['auto', 'on', 'off']).default('on'),
-    /** Percentage of context window at which auto mode activates (0-100) */
-    thresholdPct: z.number().min(0).max(100).default(10),
-    /** Default number of results returned by tool_search */
-    searchDefaultLimit: z.number().min(1).max(20).default(5),
-    /** Maximum results the model can request via limit parameter */
-    maxSearchLimit: z.number().min(1).max(50).default(20),
-  }).default({}),
+  toolSearch: z
+    .object({
+      /** Enable mode: auto=threshold trigger, on=always active, off=disabled */
+      enabled: z.enum(['auto', 'on', 'off']).default('on'),
+      /** Percentage of context window at which auto mode activates (0-100) */
+      thresholdPct: z.number().min(0).max(100).default(10),
+      /** Default number of results returned by tool_search */
+      searchDefaultLimit: z.number().min(1).max(20).default(5),
+      /** Maximum results the model can request via limit parameter */
+      maxSearchLimit: z.number().min(1).max(50).default(20),
+    })
+    .default({}),
   // -----------------------------------------------------------------------
   // Performance tuning (concurrency knobs, all optional)
   // -----------------------------------------------------------------------
-  performance: z.object({
-    embeddingApiConcurrency: z.coerce.number().int().positive().default(8),
-    llmApiConcurrency: z.coerce.number().int().positive().default(4),
-    dbQueryConcurrency: z.coerce.number().int().positive().default(16),
-  }).default({}),
+  performance: z
+    .object({
+      embeddingApiConcurrency: z.coerce.number().int().positive().default(8),
+      llmApiConcurrency: z.coerce.number().int().positive().default(4),
+      dbQueryConcurrency: z.coerce.number().int().positive().default(16),
+    })
+    .default({}),
   // -----------------------------------------------------------------------
   // Self-Harness configuration (all optional, backward-compatible)
   // -----------------------------------------------------------------------
-  harness: z.object({
-    enabled: z.boolean().default(true),
-    channels: z.object({
-      webui: z.boolean().default(true),
-      feishu: z.boolean().default(true),
-      telegram: z.boolean().default(true),
-      wechat: z.boolean().default(false),
-      qq: z.boolean().default(false),
-    }).default({}),
-    trigger: z.object({
-      minIdenticalRetries: z.number().int().positive().default(3),
-      minExplorationSteps: z.number().int().positive().default(8),
-      minConsecutiveErrors: z.number().int().positive().default(3),
-      minDependencyErrors: z.number().int().positive().default(2),
-    }).default({}),
-    rateLimit: z.object({
-      cooldownMinutes: z.number().int().positive().default(30),
-      maxPerHour: z.number().int().positive().default(2),
-      maxPerDay: z.number().int().positive().default(10),
-      maxAutoApplyPerDay: z.number().int().positive().default(5),
-    }).default({}),
-    proposal: z.object({
-      model: z.string().default('default'),
-      maxEditsPerProposal: z.number().int().positive().default(5),
-      minConfidence: z.number().min(0).max(1).default(0.5),
-      allowedMechanisms: z.array(z.string()).default([
-        'prompt_instruction', 'subagent', 'skill_procedure',
-        'tool_configuration', 'middleware', 'runtime_control',
-      ]),
-    }).default({}),
-    interactive: z.object({
+  harness: z
+    .object({
       enabled: z.boolean().default(true),
-      approval: z.object({
-        mode: z.enum(['always_ask', 'smart_approve', 'low_risk_auto']).default('smart_approve'),
-      }).optional(),
-    }).optional(),
-    rules: z.array(z.any()).optional(),
-  }).optional().default({}),
+      channels: z
+        .object({
+          webui: z.boolean().default(true),
+          feishu: z.boolean().default(true),
+          telegram: z.boolean().default(true),
+          wechat: z.boolean().default(false),
+          qq: z.boolean().default(false),
+        })
+        .default({}),
+      trigger: z
+        .object({
+          minIdenticalRetries: z.number().int().positive().default(3),
+          minExplorationSteps: z.number().int().positive().default(8),
+          minConsecutiveErrors: z.number().int().positive().default(3),
+          minDependencyErrors: z.number().int().positive().default(2),
+        })
+        .default({}),
+      rateLimit: z
+        .object({
+          cooldownMinutes: z.number().int().positive().default(30),
+          maxPerHour: z.number().int().positive().default(2),
+          maxPerDay: z.number().int().positive().default(10),
+          maxAutoApplyPerDay: z.number().int().positive().default(5),
+        })
+        .default({}),
+      proposal: z
+        .object({
+          model: z.string().default('default'),
+          maxEditsPerProposal: z.number().int().positive().default(5),
+          minConfidence: z.number().min(0).max(1).default(0.5),
+          allowedMechanisms: z
+            .array(z.string())
+            .default([
+              'prompt_instruction',
+              'subagent',
+              'skill_procedure',
+              'tool_configuration',
+              'middleware',
+              'runtime_control',
+            ]),
+        })
+        .default({}),
+      interactive: z
+        .object({
+          enabled: z.boolean().default(true),
+          approval: z
+            .object({
+              mode: z
+                .enum(['always_ask', 'smart_approve', 'low_risk_auto'])
+                .default('smart_approve'),
+            })
+            .optional(),
+        })
+        .optional(),
+      rules: z.array(z.any()).optional(),
+    })
+    .optional()
+    .default({}),
 });
 
 let cachedConfig: AppConfig | null = null;
@@ -603,10 +761,25 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
     providerKeys: (() => {
       // Auto-detect <PROVIDER>_API_KEY env vars for known builtin providers
       const knownProviders = [
-        'deepseek', 'openai', 'anthropic', 'google', 'mistral',
-        'xai', 'xiaomi', 'cerebras', 'groq', 'together', 'fireworks',
-        'openrouter', 'github-copilot', 'moonshotai', 'minimax',
-        'kimi-coding', 'zai', 'opencode', 'huggingface',
+        'deepseek',
+        'openai',
+        'anthropic',
+        'google',
+        'mistral',
+        'xai',
+        'xiaomi',
+        'cerebras',
+        'groq',
+        'together',
+        'fireworks',
+        'openrouter',
+        'github-copilot',
+        'moonshotai',
+        'minimax',
+        'kimi-coding',
+        'zai',
+        'opencode',
+        'huggingface',
       ];
       const keys: Record<string, { apiKey?: string; baseUrl?: string }> = {};
       for (const p of knownProviders) {
@@ -620,7 +793,9 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
       return Object.keys(keys).length > 0 ? keys : undefined;
     })(),
     fallbackModels: env.FALLBACK_MODELS
-      ? env.FALLBACK_MODELS.split(',').map(s => s.trim()).filter(Boolean)
+      ? env.FALLBACK_MODELS.split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
       : [],
     defaultReasoningLevel: env.DEFAULT_REASONING_LEVEL?.trim() || 'high',
     memoryAuxModels: (() => {
@@ -629,7 +804,12 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
       if (!primary && !fallback) return undefined;
       return {
         primary: primary || undefined,
-        fallback_models: fallback ? fallback.split(',').map(s => s.trim()).filter(Boolean) : [],
+        fallback_models: fallback
+          ? fallback
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : [],
       };
     })(),
     embedding: {
@@ -741,39 +921,47 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
       searchTimeoutMs: env.WEB_SEARCH_TIMEOUT_MS,
       maxResults: env.WEB_SEARCH_MAX_RESULTS,
     },
-    telegram: envBool(env.TELEGRAM_ENABLED, false) && env.TELEGRAM_BOT_TOKEN ? {
-      enabled: true,
-      botToken: env.TELEGRAM_BOT_TOKEN,
-      botName: env.TELEGRAM_BOT_NAME ?? '',
-      mode: (env.TELEGRAM_MODE as 'polling' | 'webhook') ?? undefined,
-      webhookUrl: env.TELEGRAM_WEBHOOK_URL || undefined,
-      webhookPort: env.TELEGRAM_WEBHOOK_PORT,
-      webhookSecret: env.TELEGRAM_WEBHOOK_SECRET || undefined,
-      allowedUsers: env.TELEGRAM_ALLOWED_USERS,
-      allowedGroups: env.TELEGRAM_ALLOWED_GROUPS,
-      proxyUrl: env.TELEGRAM_PROXY_URL || undefined,
-      streamMode: (env.TELEGRAM_STREAM_MODE as 'edit' | 'send') ?? undefined,
-      textLimit: env.TELEGRAM_TEXT_LIMIT,
-      streamIntervalMs: env.TELEGRAM_STREAM_INTERVAL,
-    } : undefined,
-    wechat: envBool(env.WECHAT_ENABLED, false) ? {
-      enabled: true,
-      botToken: env.WECHAT_BOT_TOKEN || undefined,
-      apiBase: env.WECHAT_API_BASE ?? undefined,
-      cursorDir: env.WECHAT_CURSOR_DIR ?? undefined,
-      textLimit: env.WECHAT_TEXT_LIMIT,
-      aesKey: env.WECHAT_AES_KEY || undefined,
-      allowedUsers: env.WECHAT_ALLOWED_USERS,
-    } : undefined,
-    qq: envBool(env.QQ_ENABLED, false) && env.QQ_APP_ID ? {
-      enabled: true,
-      appId: env.QQ_APP_ID,
-      clientSecret: env.QQ_CLIENT_SECRET ?? '',
-      sandbox: envBool(env.QQ_SANDBOX, false),
-      allowedUsers: env.QQ_ALLOWED_USERS,
-      allowedGroups: env.QQ_ALLOWED_GROUPS,
-      textLimit: env.QQ_TEXT_LIMIT,
-    } : undefined,
+    telegram:
+      envBool(env.TELEGRAM_ENABLED, false) && env.TELEGRAM_BOT_TOKEN
+        ? {
+            enabled: true,
+            botToken: env.TELEGRAM_BOT_TOKEN,
+            botName: env.TELEGRAM_BOT_NAME ?? '',
+            mode: (env.TELEGRAM_MODE as 'polling' | 'webhook') ?? undefined,
+            webhookUrl: env.TELEGRAM_WEBHOOK_URL || undefined,
+            webhookPort: env.TELEGRAM_WEBHOOK_PORT,
+            webhookSecret: env.TELEGRAM_WEBHOOK_SECRET || undefined,
+            allowedUsers: env.TELEGRAM_ALLOWED_USERS,
+            allowedGroups: env.TELEGRAM_ALLOWED_GROUPS,
+            proxyUrl: env.TELEGRAM_PROXY_URL || undefined,
+            streamMode: (env.TELEGRAM_STREAM_MODE as 'edit' | 'send') ?? undefined,
+            textLimit: env.TELEGRAM_TEXT_LIMIT,
+            streamIntervalMs: env.TELEGRAM_STREAM_INTERVAL,
+          }
+        : undefined,
+    wechat: envBool(env.WECHAT_ENABLED, false)
+      ? {
+          enabled: true,
+          botToken: env.WECHAT_BOT_TOKEN || undefined,
+          apiBase: env.WECHAT_API_BASE ?? undefined,
+          cursorDir: env.WECHAT_CURSOR_DIR ?? undefined,
+          textLimit: env.WECHAT_TEXT_LIMIT,
+          aesKey: env.WECHAT_AES_KEY || undefined,
+          allowedUsers: env.WECHAT_ALLOWED_USERS,
+        }
+      : undefined,
+    qq:
+      envBool(env.QQ_ENABLED, false) && env.QQ_APP_ID
+        ? {
+            enabled: true,
+            appId: env.QQ_APP_ID,
+            clientSecret: env.QQ_CLIENT_SECRET ?? '',
+            sandbox: envBool(env.QQ_SANDBOX, false),
+            allowedUsers: env.QQ_ALLOWED_USERS,
+            allowedGroups: env.QQ_ALLOWED_GROUPS,
+            textLimit: env.QQ_TEXT_LIMIT,
+          }
+        : undefined,
     extensions: {
       directory: env.EXTENSIONS_DIRECTORY,
     },
@@ -797,10 +985,39 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
  * Apply env var overrides on top of a YAML-derived raw config.
  * Only overrides fields where the env var is explicitly set (not undefined).
  */
-function applyEnvOverrides(raw: Record<string, unknown>, env: Record<string, string | undefined>): void {
+function applyEnvOverrides(
+  raw: Record<string, unknown>,
+  env: Record<string, string | undefined>,
+): void {
   // For simplicity, re-build the env raw and merge only defined top-level keys.
   // This avoids field-by-field tracking. The zod schema handles defaults for missing values.
   const envRaw = buildRawFromEnv(env);
+
+  /**
+   * Field-level section merge: copy ONLY the listed fields from the env-built
+   * section into the YAML-derived section, and only when their corresponding
+   * env var is explicitly set. Prevents a single env var (e.g.
+   * FEISHU_APP_ID) from wiping unrelated YAML config in the same section.
+   */
+  function mergeEnvSection(
+    section: string,
+    overrides: Array<{ env: string | undefined; field: string }>,
+  ): void {
+    const source = envRaw[section] as Record<string, unknown> | undefined;
+    if (!source) return;
+    const target = { ...((raw[section] as Record<string, unknown>) ?? {}) } as Record<
+      string,
+      unknown
+    >;
+    let changed = false;
+    for (const { env: envVar, field } of overrides) {
+      if (envVar !== undefined && field in source) {
+        target[field] = source[field];
+        changed = true;
+      }
+    }
+    if (changed) raw[section] = target;
+  }
 
   // Merge piAi env overrides — only override fields explicitly set, keep YAML values
   if (env.PI_AI_PROVIDER !== undefined || env.PI_AI_API_KEY !== undefined) {
@@ -814,10 +1031,17 @@ function applyEnvOverrides(raw: Record<string, unknown>, env: Record<string, str
     raw.piAi = yamlPiAi;
   }
 
-  // Feishu
-  if (env.FEISHU_APP_ID !== undefined) {
-    raw.feishu = envRaw.feishu;
-  }
+  // Feishu — field-level so e.g. FEISHU_APP_ID doesn't wipe other feishu YAML settings
+  mergeEnvSection('feishu', [
+    { env: env.FEISHU_ENABLED, field: 'enabled' },
+    { env: env.FEISHU_APP_ID, field: 'appId' },
+    { env: env.FEISHU_APP_SECRET, field: 'appSecret' },
+    { env: env.FEISHU_BOT_NAME, field: 'botName' },
+    { env: env.FEISHU_VERIFICATION_TOKEN, field: 'verificationToken' },
+    { env: env.FEISHU_ENCRYPT_KEY, field: 'encryptKey' },
+    { env: env.FEISHU_CONNECTION_MODE, field: 'wsEnabled' },
+    { env: env.FEISHU_ALLOWED_USERS, field: 'allowedUsers' },
+  ]);
 
   // Fallback models
   if (env.FALLBACK_MODELS !== undefined) {
@@ -826,7 +1050,10 @@ function applyEnvOverrides(raw: Record<string, unknown>, env: Record<string, str
 
   // Provider keys: only auto-detect from env when YAML has no explicit provider_keys.
   // Once managed via WebUI (YAML), env auto-detection is disabled to prevent deleted entries from reappearing.
-  if (envRaw.providerKeys && Object.keys(envRaw.providerKeys as Record<string, unknown>).length > 0) {
+  if (
+    envRaw.providerKeys &&
+    Object.keys(envRaw.providerKeys as Record<string, unknown>).length > 0
+  ) {
     if (raw.providerKeys === undefined) {
       raw.providerKeys = envRaw.providerKeys;
     }
@@ -843,7 +1070,12 @@ function applyEnvOverrides(raw: Record<string, unknown>, env: Record<string, str
   }
 
   // Embedding — merge individual fields to avoid wiping YAML config
-  if (env.EMBEDDING_API_KEY !== undefined || env.EMBEDDING_BASE_URL !== undefined || env.EMBEDDING_MODEL !== undefined || env.EMBEDDING_DIMENSION !== undefined) {
+  if (
+    env.EMBEDDING_API_KEY !== undefined ||
+    env.EMBEDDING_BASE_URL !== undefined ||
+    env.EMBEDDING_MODEL !== undefined ||
+    env.EMBEDDING_DIMENSION !== undefined
+  ) {
     const yamlEmb = (raw.embedding ?? {}) as Record<string, unknown>;
     const envEmb = envRaw.embedding as Record<string, unknown>;
     if (env.EMBEDDING_BASE_URL !== undefined) yamlEmb.baseUrl = envEmb.baseUrl;
@@ -860,35 +1092,147 @@ function applyEnvOverrides(raw: Record<string, unknown>, env: Record<string, str
   }
 
   // Rate limit
-  if (env.RATE_LIMIT_WEBHOOK_MAX !== undefined || env.RATE_LIMIT_WEBHOOK_WINDOW_MS !== undefined) {
-    raw.rateLimit = envRaw.rateLimit;
-  }
+  mergeEnvSection('rateLimit', [
+    { env: env.RATE_LIMIT_WEBHOOK_MAX, field: 'webhookMaxRequests' },
+    { env: env.RATE_LIMIT_WEBHOOK_WINDOW_MS, field: 'webhookWindowMs' },
+  ]);
 
-  // Tools (check key env vars)
-  if (env.TOOLS_PROFILE !== undefined || env.SHELL_EXEC_MODE !== undefined) {
-    raw.tools = envRaw.tools;
-  }
+  // Tools (field-level)
+  mergeEnvSection('tools', [
+    { env: env.SHELL_ENABLED, field: 'shellEnabled' },
+    { env: env.SHELL_COMMAND_TIMEOUT_MS, field: 'defaultTimeoutMs' },
+    { env: env.SHELL_MAX_OUTPUT_CHARS, field: 'maxOutputLength' },
+    { env: env.TOOLS_PROFILE, field: 'toolsProfile' },
+    { env: env.SHELL_EXEC_MODE, field: 'shellExecMode' },
+    { env: env.SHELL_ALLOWLIST, field: 'shellAllowlist' },
+    { env: env.SHELL_APPROVAL_MODE, field: 'shellApprovalMode' },
+    { env: env.SHELL_APPROVAL_WHITELIST, field: 'shellApprovalWhitelist' },
+    { env: env.SHELL_APPROVAL_TIMEOUT_SEC, field: 'shellApprovalTimeoutSec' },
+    { env: env.SHELL_APPROVAL_TIMEOUT_ACTION, field: 'shellApprovalTimeoutAction' },
+    ...(env.FILE_READ_ALLOWED_ROOTS !== undefined || env.FILE_READ_DENIED_PATTERNS !== undefined
+      ? [{ env: '1', field: 'fileRead' }]
+      : []),
+  ]);
 
-  // Memory (check key env vars)
-  if (env.MEMORY_AUTO_RECALL !== undefined || env.MEMORY_SUMMARIZE_INTERVAL !== undefined || env.OFFLOADING_ENABLED !== undefined || env.PERSONA_ENABLED !== undefined || env.MERMAID_CANVAS_ENABLED !== undefined || env.SCENE_CLUSTERING_ENABLED !== undefined) {
-    raw.memory = envRaw.memory;
-  }
+  // Memory (field-level; nested groups merge as a unit when any of their vars is set)
+  mergeEnvSection('memory', [
+    { env: env.MEMORY_AUTO_RECALL, field: 'autoRecall' },
+    { env: env.MEMORY_AUTO_RECALL_FREQUENCY, field: 'autoRecallFrequency' },
+    { env: env.MEMORY_AUTO_CAPTURE, field: 'autoCapture' },
+    { env: env.MEMORY_RECALL_TOP_K, field: 'recallTopK' },
+    { env: env.MEMORY_RECALL_MIN_SCORE, field: 'recallMinScore' },
+    { env: env.MEMORY_CAPTURE_MAX_CHARS, field: 'captureMaxChars' },
+    { env: env.MEMORY_HISTORY_LOAD_COUNT, field: 'historyLoadCount' },
+    { env: env.MEMORY_HISTORY_MAX_TOKENS, field: 'historyMaxTokens' },
+    { env: env.MEMORY_SUMMARIZE_INTERVAL, field: 'summarizeInterval' },
+    { env: env.MEMORY_OUTPUT_LANGUAGE, field: 'outputLanguage' },
+    { env: env.MEMORY_DECAY_HALF_LIFE_DAYS, field: 'decayHalfLifeDays' },
+    { env: env.EMBEDDING_CACHE_MAX_ENTRIES, field: 'embeddingCacheMaxEntries' },
+    ...(env.MEMORY_QUERY_PLANNER_ENABLED !== undefined ||
+    env.MEMORY_QUERY_PLANNER_COMMONALITY !== undefined ||
+    env.MEMORY_QUERY_PLANNER_SPEAKER_BOOST !== undefined ||
+    env.MEMORY_QUERY_PLANNER_PER_SLOT_FLOOR !== undefined ||
+    env.MEMORY_QUERY_PLANNER_MAX_ENTITIES !== undefined ||
+    env.MEMORY_QUERY_PLANNER_LLM_ENABLED !== undefined
+      ? [{ env: '1', field: 'queryPlanner' }]
+      : []),
+    ...(env.MEMORY_RECALL_PREFILTER_MULTIPLIER !== undefined ||
+    env.MEMORY_RECALL_PREFILTER_MIN !== undefined ||
+    env.MEMORY_RECALL_MERGE_CANDIDATE_MULTIPLIER !== undefined
+      ? [{ env: '1', field: 'recall' }]
+      : []),
+    ...(env.MEMORY_EXPANSION_ENABLED !== undefined ||
+    env.MEMORY_EXPANSION_MIN_QUERY_LENGTH !== undefined ||
+    env.MEMORY_EXPANSION_MIN_SCORE_TRIGGER !== undefined ||
+    env.MEMORY_EXPANSION_MAX_VARIANTS !== undefined
+      ? [{ env: '1', field: 'expansion' }]
+      : []),
+    ...(env.MEMORY_HYGIENE_ENABLED !== undefined || env.MEMORY_HYGIENE_RETENTION_DAYS !== undefined
+      ? [{ env: '1', field: 'hygiene' }]
+      : []),
+    ...(env.EMBEDDING_CB_FAILURE_THRESHOLD !== undefined ||
+    env.EMBEDDING_CB_COOLDOWN_SEC !== undefined
+      ? [{ env: '1', field: 'embeddingCircuitBreaker' }]
+      : []),
+    ...(env.OFFLOADING_ENABLED !== undefined ||
+    env.OFFLOADING_MAX_REFS_IN_CONTEXT !== undefined ||
+    env.OFFLOADING_PRESERVE_IN_MESSAGES !== undefined ||
+    env.OFFLOADING_REF_DIR !== undefined ||
+    env.OFFLOADING_RETENTION_DAYS !== undefined
+      ? [{ env: '1', field: 'offloading' }]
+      : []),
+    ...(env.PERSONA_ENABLED !== undefined ||
+    env.PERSONA_DISTILL_THRESHOLD !== undefined ||
+    env.PERSONA_MIN_DISTILL_INTERVAL_HOURS !== undefined
+      ? [{ env: '1', field: 'persona' }]
+      : []),
+    ...(env.MERMAID_CANVAS_ENABLED !== undefined ||
+    env.MERMAID_CANVAS_INJECT_FORMAT !== undefined ||
+    env.MERMAID_CANVAS_PHASE_TAGGING !== undefined ||
+    env.MERMAID_CANVAS_MAX_NODES !== undefined
+      ? [{ env: '1', field: 'mermaidCanvas' }]
+      : []),
+    ...(env.SCENE_CLUSTERING_ENABLED !== undefined ||
+    env.SCENE_CLUSTERING_WINDOW_DAYS !== undefined ||
+    env.SCENE_CLUSTERING_MIN_MEMORIES !== undefined
+      ? [{ env: '1', field: 'sceneClustering' }]
+      : []),
+  ]);
 
   // Cron
-  if (env.CRON_ENABLED !== undefined) {
-    raw.cron = envRaw.cron;
-  }
+  mergeEnvSection('cron', [
+    { env: env.CRON_ENABLED, field: 'enabled' },
+    { env: env.CRON_TICK_INTERVAL_MS, field: 'tickIntervalMs' },
+    { env: env.CRON_DATA_DIR, field: 'dataDir' },
+    { env: env.CRON_EXECUTION_TIMEOUT_MS, field: 'executionTimeoutMs' },
+  ]);
 
   // Web search
-  if (env.WEB_SEARCH_PROVIDER !== undefined) {
-    raw.webSearch = envRaw.webSearch;
-  }
+  mergeEnvSection('webSearch', [
+    { env: env.WEB_SEARCH_PROVIDER, field: 'providerOrder' },
+    { env: env.WEB_SEARCH_TAVILY_API_KEY, field: 'tavilyApiKey' },
+    { env: env.WEB_SEARCH_EXA_API_KEY, field: 'exaApiKey' },
+    { env: env.WEB_SEARCH_BAIDU_API_KEY, field: 'baiduApiKey' },
+    { env: env.WEB_SEARCH_ANYSEARCH_API_KEY, field: 'anysearchApiKey' },
+    { env: env.WEB_SEARCH_TIMEOUT_MS, field: 'searchTimeoutMs' },
+    { env: env.WEB_SEARCH_MAX_RESULTS, field: 'maxResults' },
+  ]);
 
-  // Channels — only override when the channel-level "enabling" flag is explicitly set in env.
-  // Token-only env vars are for ${VAR} interpolation in config.yaml, not overrides.
-  if (env.TELEGRAM_ENABLED !== undefined || env.TELEGRAM_MODE !== undefined || env.TELEGRAM_PROXY_URL !== undefined) raw.telegram = envRaw.telegram;
-  if (env.WECHAT_ENABLED !== undefined) raw.wechat = envRaw.wechat;
-  if (env.QQ_ENABLED !== undefined) raw.qq = envRaw.qq;
+  // Channels — field-level merges. Channel-level "enabling" flags and tokens:
+  // token-only env vars are for ${VAR} interpolation in config.yaml, not overrides.
+  mergeEnvSection('telegram', [
+    { env: env.TELEGRAM_ENABLED ?? env.TELEGRAM_MODE ?? env.TELEGRAM_PROXY_URL, field: 'enabled' },
+    ...(env.TELEGRAM_BOT_TOKEN !== undefined ? [{ env: '1', field: 'botToken' }] : []),
+    { env: env.TELEGRAM_BOT_NAME, field: 'botName' },
+    { env: env.TELEGRAM_MODE, field: 'mode' },
+    { env: env.TELEGRAM_WEBHOOK_URL, field: 'webhookUrl' },
+    { env: env.TELEGRAM_WEBHOOK_PORT, field: 'webhookPort' },
+    { env: env.TELEGRAM_WEBHOOK_SECRET, field: 'webhookSecret' },
+    { env: env.TELEGRAM_ALLOWED_USERS, field: 'allowedUsers' },
+    { env: env.TELEGRAM_ALLOWED_GROUPS, field: 'allowedGroups' },
+    { env: env.TELEGRAM_PROXY_URL, field: 'proxyUrl' },
+    { env: env.TELEGRAM_STREAM_MODE, field: 'streamMode' },
+    { env: env.TELEGRAM_TEXT_LIMIT, field: 'textLimit' },
+    { env: env.TELEGRAM_STREAM_INTERVAL, field: 'streamIntervalMs' },
+  ]);
+  mergeEnvSection('wechat', [
+    { env: env.WECHAT_ENABLED, field: 'enabled' },
+    ...(env.WECHAT_BOT_TOKEN !== undefined ? [{ env: '1', field: 'botToken' }] : []),
+    { env: env.WECHAT_API_BASE, field: 'apiBase' },
+    { env: env.WECHAT_CURSOR_DIR, field: 'cursorDir' },
+    { env: env.WECHAT_TEXT_LIMIT, field: 'textLimit' },
+    { env: env.WECHAT_AES_KEY, field: 'aesKey' },
+    { env: env.WECHAT_ALLOWED_USERS, field: 'allowedUsers' },
+  ]);
+  mergeEnvSection('qq', [
+    { env: env.QQ_ENABLED ?? env.QQ_APP_ID, field: 'enabled' },
+    ...(env.QQ_APP_ID !== undefined ? [{ env: '1', field: 'appId' }] : []),
+    ...(env.QQ_CLIENT_SECRET !== undefined ? [{ env: '1', field: 'clientSecret' }] : []),
+    { env: env.QQ_SANDBOX, field: 'sandbox' },
+    { env: env.QQ_ALLOWED_USERS, field: 'allowedUsers' },
+    { env: env.QQ_ALLOWED_GROUPS, field: 'allowedGroups' },
+    { env: env.QQ_TEXT_LIMIT, field: 'textLimit' },
+  ]);
 
   // Extensions
   if (env.EXTENSIONS_DIRECTORY !== undefined) {
@@ -897,7 +1241,9 @@ function applyEnvOverrides(raw: Record<string, unknown>, env: Record<string, str
 
   // Misc
   if (env.LOG_LEVEL !== undefined) {
-    (raw.logging as Record<string, unknown>).level = (envRaw.logging as Record<string, unknown>).level;
+    (raw.logging as Record<string, unknown>).level = (
+      envRaw.logging as Record<string, unknown>
+    ).level;
   }
   if (env.UI_LANGUAGE !== undefined) {
     raw.uiLanguage = envRaw.uiLanguage;
@@ -908,16 +1254,23 @@ function applyEnvOverrides(raw: Record<string, unknown>, env: Record<string, str
   if (env.SHOW_SKILL_CALLS !== undefined) {
     raw.showSkillCalls = envRaw.showSkillCalls;
   }
-  if (env.FOOTER_SHOW_AGENT_NAME !== undefined || env.FOOTER_SHOW_MODEL !== undefined ||
-      env.FOOTER_SHOW_COMPLETED !== undefined || env.FOOTER_SHOW_ELAPSED !== undefined ||
-      env.FOOTER_SHOW_USAGE !== undefined || env.FOOTER_SHOW_CACHE_HIT_RATE !== undefined) {
+  if (
+    env.FOOTER_SHOW_AGENT_NAME !== undefined ||
+    env.FOOTER_SHOW_MODEL !== undefined ||
+    env.FOOTER_SHOW_COMPLETED !== undefined ||
+    env.FOOTER_SHOW_ELAPSED !== undefined ||
+    env.FOOTER_SHOW_USAGE !== undefined ||
+    env.FOOTER_SHOW_CACHE_HIT_RATE !== undefined
+  ) {
     raw.footer = envRaw.footer;
   }
 
   // Performance — merge if any performance env var is explicitly set
-  if (env.PERFORMANCE_EMBEDDING_API_CONCURRENCY !== undefined ||
-      env.PERFORMANCE_LLM_API_CONCURRENCY !== undefined ||
-      env.PERFORMANCE_DB_QUERY_CONCURRENCY !== undefined) {
+  if (
+    env.PERFORMANCE_EMBEDDING_API_CONCURRENCY !== undefined ||
+    env.PERFORMANCE_LLM_API_CONCURRENCY !== undefined ||
+    env.PERFORMANCE_DB_QUERY_CONCURRENCY !== undefined
+  ) {
     raw.performance = envRaw.performance;
   }
 }
@@ -932,7 +1285,10 @@ function applyEnvOverrides(raw: Record<string, unknown>, env: Record<string, str
  *
  * Result is cached — subsequent calls return the same instance.
  */
-export function loadConfig(env: Record<string, string | undefined> = process.env, configPath?: string): AppConfig {
+export function loadConfig(
+  env: Record<string, string | undefined> = process.env,
+  configPath?: string,
+): AppConfig {
   if (cachedConfig) return cachedConfig;
 
   // Guard against concurrent loads after resetConfig().
@@ -961,7 +1317,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
 
     const result = configSchema.safeParse(raw);
     if (!result.success) {
-      const errors = result.error.issues.map(i => `  ${i.path.join('.')}: ${i.message}`).join('\n');
+      const errors = result.error.issues
+        .map((i) => `  ${i.path.join('.')}: ${i.message}`)
+        .join('\n');
       throw new ConfigError(`Configuration validation failed:\n${errors}`);
     }
 
@@ -1000,10 +1358,7 @@ export function setWatcherLogger(logger: { error: (...args: any[]) => void }): v
  * Watch config.yaml for changes and invoke `onReload` with the new config.
  * Debounces by 500ms to avoid double-fires from editors doing atomic-save.
  */
-export function startConfigWatcher(
-  configPath: string,
-  onReload: ConfigReloadFn,
-): void {
+export function startConfigWatcher(configPath: string, onReload: ConfigReloadFn): void {
   if (configWatcher) return;
   if (!configPath || !existsSync(configPath)) return;
 

@@ -18,13 +18,8 @@
  * are available.
  */
 
-import { Agent } from '@earendil-works/pi-agent-core';
-import type {
-  AppConfig,
-  ToolRegistry,
-  ApprovalGate,
-  ToolProfileId,
-} from '../app/types.js';
+import type { Agent } from '@earendil-works/pi-agent-core';
+import type { AppConfig, ToolRegistry, ApprovalGate, ToolProfileId } from '../app/types.js';
 import type { ResolvedAgentConfig } from './config-types.js';
 import type { AgentManager } from './agent-manager.js';
 import { PROFILE_TOOLS } from './agent-manager.js';
@@ -36,12 +31,10 @@ import type { AgentPolicyScope } from '../policy/types.js';
 import type { Orchestrator } from '../orchestrator/orchestrator.js';
 import type { Logger } from 'pino';
 import type { AppServices } from '../app/types.js';
-import type { DesktopBridgeRegistry } from './desktop-bridge-registry.js';
 import { AgentToolAdapterImpl } from '../tools/platform/agent-tool-adapter.js';
 import { createCronjobTool } from '../cron/cronjob-tool.js';
 import { createComputerUseTool } from '../tools/builtins/computer-use-tool.js';
 import { createSpawnAgentToolDefinition } from '../tools/builtins/agents/spawn-definition.js';
-import { OffloadStore } from '../runtime-artifacts/offload-store.js';
 import { generateId } from '../shared/ids.js';
 import { loadConfig as loadToolSearchConfig, assembleTools } from '../tools/tool-search/index.js';
 
@@ -152,7 +145,8 @@ export function assembleAgentTools(opts: ToolPipelineOptions): ToolPipelineResul
         channel: opts.channel ?? 'unknown',
         agentName: opts.agentName ?? opts.agentConfig?.name,
         agentId: opts.agentId,
-        computerUseAllowed: opts.computerUseAllowedFn ?? (() => tools.some((t: any) => t.name === 'computer_use')),
+        computerUseAllowed:
+          opts.computerUseAllowedFn ?? (() => tools.some((t: any) => t.name === 'computer_use')),
       });
       tools = [...tools, cronTool];
     } catch {
@@ -163,7 +157,9 @@ export function assembleAgentTools(opts: ToolPipelineOptions): ToolPipelineResul
   // ── Stage 3: Profile-based filtering ──
   const profileAllowedTools = PROFILE_TOOLS[opts.effectiveProfile] ?? PROFILE_TOOLS.standard;
   if (profileAllowedTools[0] !== '*' && !opts.explicitTools) {
-    tools = tools.filter((t: any) => profileAllowedTools.includes(t.name) || t.name === 'computer_use');
+    tools = tools.filter(
+      (t: any) => profileAllowedTools.includes(t.name) || t.name === 'computer_use',
+    );
   }
 
   if (opts.computerUseAllowed === false) {
@@ -193,7 +189,12 @@ export function assembleAgentTools(opts: ToolPipelineOptions): ToolPipelineResul
           channel: opts.channel,
           chatId: opts.chatId,
           policyScope: opts.runtimePolicyScope,
-          approvalAlreadyHandled: !!opts.approvalGate,
+          // Invariant: when approvalGate is configured, agent-factory installs
+          // a beforeToolCall hook that agent-loop runs UNCONDITIONALLY before
+          // every tool.execute() — non-blocking returns imply the policy gate
+          // allowed the call (directly or after user approval). Tools may
+          // therefore skip their redundant internal approval checks.
+          approvalAlreadyHandled: Boolean(opts.approvalGate),
         };
 
         // Inject desktop bridge if one is registered for this session
@@ -221,57 +222,73 @@ export function assembleAgentTools(opts: ToolPipelineOptions): ToolPipelineResul
 
   // ── Stage 6: Computer use tool wrapping ──
   if (opts.computerUseHost && tools.some((t: any) => t.name === 'computer_use')) {
-    const modelInput = Array.isArray(opts.modelInput)
-      ? opts.modelInput
-      : ['text'];
+    const modelInput = Array.isArray(opts.modelInput) ? opts.modelInput : ['text'];
 
-    const sendComputerUseImage = opts.computerUseImageSender
-      ?? (opts.channel === 'feishu' && opts.chatId && opts.feishuClient?.uploadImage && opts.feishuClient?.sendMessage
-      ? async (image: { data: string; mimeType: string }) => {
-          const buffer = Buffer.from(image.data, 'base64');
-          const { imageKey } = await opts.feishuClient!.uploadImage!(buffer, 'message');
-          await opts.feishuClient!.sendMessage!({
-            receive_id: opts.chatId!,
-            receive_id_type: 'chat_id',
-            msg_type: 'image',
-            content: JSON.stringify({ image_key: imageKey }),
-            uuid: generateId(),
-          });
-          return `Sent to Feishu as image ${imageKey}`;
-        }
-      : undefined);
+    const sendComputerUseImage =
+      opts.computerUseImageSender ??
+      (opts.channel === 'feishu' &&
+      opts.chatId &&
+      opts.feishuClient?.uploadImage &&
+      opts.feishuClient?.sendMessage
+        ? async (image: { data: string; mimeType: string }) => {
+            const buffer = Buffer.from(image.data, 'base64');
+            const { imageKey } = await opts.feishuClient!.uploadImage!(buffer, 'message');
+            await opts.feishuClient!.sendMessage!({
+              receive_id: opts.chatId!,
+              receive_id_type: 'chat_id',
+              msg_type: 'image',
+              content: JSON.stringify({ image_key: imageKey }),
+              uuid: generateId(),
+            });
+            return `Sent to Feishu as image ${imageKey}`;
+          }
+        : undefined);
 
-    tools = tools.map((tool: any) => tool.name === 'computer_use'
-      ? createComputerUseTool(opts.computerUseHost!, () => ({
-          sessionPath: opts.sessionId,
-          agentId: opts.runtimeAgentId,
-          accessMode: opts.effectiveShellMode === 'read-only' ? 'read-only' : 'operate',
-          model: {
-            provider: opts.modelProvider ?? '',
-            id: opts.modelId ?? '',
-            input: modelInput as ('text' | 'image' | 'audio')[],
-          },
-        }), {
-          sendImage: sendComputerUseImage,
-          policyCenter: opts.policyCenter,
-          policyScope: {
-            ...opts.runtimePolicyScope,
-            computerUseEnabled: opts.runtimePolicyScope.computerUseEnabled && opts.computerUseAllowed !== false,
-          },
-          approvalAlreadyHandled: !!opts.approvalGate,
-          logger: opts.logger,
-        })
-      : tool);
+    tools = tools.map((tool: any) =>
+      tool.name === 'computer_use'
+        ? createComputerUseTool(
+            opts.computerUseHost!,
+            () => ({
+              sessionPath: opts.sessionId,
+              agentId: opts.runtimeAgentId,
+              accessMode: opts.effectiveShellMode === 'read-only' ? 'read-only' : 'operate',
+              model: {
+                provider: opts.modelProvider ?? '',
+                id: opts.modelId ?? '',
+                input: modelInput as ('text' | 'image' | 'audio')[],
+              },
+            }),
+            {
+              sendImage: sendComputerUseImage,
+              policyCenter: opts.policyCenter,
+              policyScope: {
+                ...opts.runtimePolicyScope,
+                computerUseEnabled:
+                  opts.runtimePolicyScope.computerUseEnabled && opts.computerUseAllowed !== false,
+              },
+              // Same invariant as Stage 4: the beforeToolCall hook (installed iff
+              // approvalGate is set) gates every computer_use execution.
+              approvalAlreadyHandled: Boolean(opts.approvalGate),
+              logger: opts.logger,
+            },
+          )
+        : tool,
+    );
   }
 
   // ── Stage 7: Spawn agent tool wrapping ──
   const orchestrator = opts.orchestratorFactory?.();
-  if (spawnEnabled && orchestrator && opts.agentManager && opts.logger && tools.some((t: any) => t.name === 'spawn_agent')) {
+  if (
+    spawnEnabled &&
+    orchestrator &&
+    opts.agentManager &&
+    opts.logger &&
+    tools.some((t: any) => t.name === 'spawn_agent')
+  ) {
     // P0: maxParallel unified — reads from resolved agent config first,
     // falls back to global smart_agent_team.max_children.
-    const maxParallel = opts.agentConfig?.spawn?.max_parallel
-      ?? opts.config.smart_agent_team?.max_children
-      ?? 4;
+    const maxParallel =
+      opts.agentConfig?.spawn?.max_parallel ?? opts.config.smart_agent_team?.max_children ?? 4;
     const spawnDef = createSpawnAgentToolDefinition({
       agentManager: opts.agentManager,
       logger: opts.logger,
@@ -281,8 +298,6 @@ export function assembleAgentTools(opts: ToolPipelineOptions): ToolPipelineResul
       childTimeoutMs: (opts.config.smart_agent_team?.child_timeout_sec ?? 300) * 1000,
       childSettleTimeoutMs: opts.config.smart_agent_team?.child_settle_timeout_ms ?? 15_000,
       createAgent: (config, task, childOptions) => {
-        const childTools = opts.agentManager!.resolveTools(config)
-          .filter((t: any) => t.name !== 'spawn_agent');
         if (!opts.createChildAgent) {
           throw new Error('createChildAgent callback is required for spawn_agent');
         }
@@ -300,12 +315,13 @@ export function assembleAgentTools(opts: ToolPipelineOptions): ToolPipelineResul
         sessionId: opts.sessionId,
         agentId: opts.runtimeAgentId,
         policyScope: opts.runtimePolicyScope,
-        approvalAlreadyHandled: !!opts.approvalGate,
+        // Same invariant as Stage 4 (see comment there).
+        approvalAlreadyHandled: Boolean(opts.approvalGate),
       }),
     });
-    tools = tools.map((tool: any) => tool.name === 'spawn_agent'
-      ? spawnAdapter.toAgentTool(spawnDef)
-      : tool);
+    tools = tools.map((tool: any) =>
+      tool.name === 'spawn_agent' ? spawnAdapter.toAgentTool(spawnDef) : tool,
+    );
   }
 
   // ── Stage 8: Tool search assembly ──
@@ -321,18 +337,24 @@ export function assembleAgentTools(opts: ToolPipelineOptions): ToolPipelineResul
         : undefined;
       toolSearchAssembly = assembleTools(tools, tsConfig, contextLength, forceVisible);
 
-      opts.logger?.debug({
-        activated: toolSearchAssembly.activated,
-        deferredCount: toolSearchAssembly.deferredCount,
-        deferredTokens: toolSearchAssembly.deferredTokens,
-      }, 'tool_search assembly');
+      opts.logger?.debug(
+        {
+          activated: toolSearchAssembly.activated,
+          deferredCount: toolSearchAssembly.deferredCount,
+          deferredTokens: toolSearchAssembly.deferredTokens,
+        },
+        'tool_search assembly',
+      );
 
       if (toolSearchAssembly.activated) {
-        opts.logger?.info({
-          deferred: toolSearchAssembly.deferredCount,
-          deferredTokens: toolSearchAssembly.deferredTokens,
-          threshold: toolSearchAssembly.thresholdTokens,
-        }, 'tool_search activated');
+        opts.logger?.info(
+          {
+            deferred: toolSearchAssembly.deferredCount,
+            deferredTokens: toolSearchAssembly.deferredTokens,
+            threshold: toolSearchAssembly.thresholdTokens,
+          },
+          'tool_search activated',
+        );
       }
 
       tools = toolSearchAssembly.tools;

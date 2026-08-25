@@ -2,12 +2,9 @@
 // v4 Policy — approval resolution policy
 // ---------------------------------------------------------------------------
 
-import type {
-  ApprovalKind,
-  ApprovalDecisionType,
-  ApprovalDecisionRecord,
-} from '../types.js';
+import type { ApprovalKind, ApprovalDecisionType, ApprovalDecisionRecord } from '../types.js';
 import type { ApprovalGate } from '../../app/types.js';
+import { LRUCache } from 'lru-cache';
 
 export interface ApprovalReuseResult {
   canReuse: boolean;
@@ -21,11 +18,12 @@ export interface ApprovalResolutionPolicy {
 
 export class ApprovalResolutionPolicyImpl implements ApprovalResolutionPolicy {
   private approvalGate: ApprovalGate;
-  private sessionApprovals: Map<string, Map<string, ApprovalDecisionType>>;
+  /** Bounded LRU (TTL 24h) — unbounded per-session maps leak on long-running gateways. */
+  private sessionApprovals: LRUCache<string, Map<string, ApprovalDecisionType>>;
 
   constructor(deps: { approvalGate: ApprovalGate }) {
     this.approvalGate = deps.approvalGate;
-    this.sessionApprovals = new Map();
+    this.sessionApprovals = new LRUCache({ max: 5000, ttl: 1000 * 60 * 60 * 24 });
   }
 
   async checkReuse(

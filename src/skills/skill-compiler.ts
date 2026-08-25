@@ -1,5 +1,10 @@
 import type { ResolvedSkill } from './skill-router.js';
-import type { SkillMemoryScope, ApprovalOverride, ToolProfileId, LoadedSkill } from '../app/types.js';
+import type {
+  SkillMemoryScope,
+  ApprovalOverride,
+  ToolProfileId,
+  LoadedSkill,
+} from '../app/types.js';
 import type { PromptLayer } from '../prompt/types.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -86,7 +91,7 @@ export function detectConflicts(skills: LoadedSkill[]): ConflictReport[] {
   }
 
   // ── Rule 2: Declared conflicts from metadata.x-ohmyagent ──────────────
-  const idSet = new Set(skills.map(s => s.manifest.id));
+  const idSet = new Set(skills.map((s) => s.manifest.id));
   for (const skill of skills) {
     const meta = (skill.manifest as any)._ohmyagentMeta as OhMyAgentMetadata | undefined;
     if (meta?.conflicts) {
@@ -105,7 +110,7 @@ export function detectConflicts(skills: LoadedSkill[]): ConflictReport[] {
 
     // Check composesWith: log cooperative pairings
     if (meta?.composesWith) {
-      const companions = meta.composesWith.filter(cid => idSet.has(cid));
+      const companions = meta.composesWith.filter((cid) => idSet.has(cid));
       for (const cid of companions) {
         reports.push({
           level: 'info',
@@ -123,9 +128,9 @@ export function detectConflicts(skills: LoadedSkill[]): ConflictReport[] {
     for (let j = i + 1; j < skills.length; j++) {
       const a = skills[i]!;
       const b = skills[j]!;
-      const aTriggers = new Set(a.manifest.triggers.map(t => t.toLowerCase()));
-      const bTriggers = new Set(b.manifest.triggers.map(t => t.toLowerCase()));
-      const overlap = [...aTriggers].filter(t => bTriggers.has(t));
+      const aTriggers = new Set(a.manifest.triggers.map((t) => t.toLowerCase()));
+      const bTriggers = new Set(b.manifest.triggers.map((t) => t.toLowerCase()));
+      const overlap = [...aTriggers].filter((t) => bTriggers.has(t));
 
       if (overlap.length > 0) {
         reports.push({
@@ -146,13 +151,10 @@ export function detectConflicts(skills: LoadedSkill[]): ConflictReport[] {
  * Resolve tool conflicts using deny-priority strategy.
  * When skill A allows a tool and skill B denies it, the tool is removed from the allowed set.
  */
-export function resolveToolConflicts(
-  allowedTools: string[],
-  deniedTools: string[],
-): string[] {
+export function resolveToolConflicts(allowedTools: string[], deniedTools: string[]): string[] {
   if (deniedTools.length === 0) return allowedTools;
   const denied = new Set(deniedTools);
-  return allowedTools.filter(t => !denied.has(t));
+  return allowedTools.filter((t) => !denied.has(t));
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -175,12 +177,42 @@ const SECTION_PATTERNS: Array<{
   priority: number;
   volatile: boolean;
 }> = [
-  { regex: /##\s+MUST\s+DO\s*\n([\s\S]*?)(?=\n##\s|\n*$)/i, layerName: 'must', priority: 75, volatile: false },
-  { regex: /##\s+SHOULD\s+DO\s*\n([\s\S]*?)(?=\n##\s|\n*$)/i, layerName: 'should', priority: 85, volatile: true },
-  { regex: /##\s+WHEN\b[^\n]*\n([\s\S]*?)(?=\n##\s|\n*$)/i, layerName: 'when', priority: 95, volatile: true },
-  { regex: /##\s+Output\s+Format\s*\n([\s\S]*?)(?=\n##\s|\n*$)/i, layerName: 'output-format', priority: 90, volatile: true },
-  { regex: /##\s+Verification\s+Checklist\s*\n([\s\S]*?)(?=\n##\s|\n*$)/i, layerName: 'checklist', priority: 80, volatile: false },
-  { regex: /##\s+Examples?\s*\n([\s\S]*?)(?=\n##\s|\n*$)/i, layerName: 'examples', priority: 100, volatile: true },
+  {
+    regex: /##\s+MUST\s+DO\s*\n([\s\S]*?)(?=\n##\s|\n*$)/i,
+    layerName: 'must',
+    priority: 75,
+    volatile: false,
+  },
+  {
+    regex: /##\s+SHOULD\s+DO\s*\n([\s\S]*?)(?=\n##\s|\n*$)/i,
+    layerName: 'should',
+    priority: 85,
+    volatile: true,
+  },
+  {
+    regex: /##\s+WHEN\b[^\n]*\n([\s\S]*?)(?=\n##\s|\n*$)/i,
+    layerName: 'when',
+    priority: 95,
+    volatile: true,
+  },
+  {
+    regex: /##\s+Output\s+Format\s*\n([\s\S]*?)(?=\n##\s|\n*$)/i,
+    layerName: 'output-format',
+    priority: 90,
+    volatile: true,
+  },
+  {
+    regex: /##\s+Verification\s+Checklist\s*\n([\s\S]*?)(?=\n##\s|\n*$)/i,
+    layerName: 'checklist',
+    priority: 80,
+    volatile: false,
+  },
+  {
+    regex: /##\s+Examples?\s*\n([\s\S]*?)(?=\n##\s|\n*$)/i,
+    layerName: 'examples',
+    priority: 100,
+    volatile: true,
+  },
 ];
 
 // ── P2-3: Few-Shot Example Sub-Parsing ─────────────────────────────────────────
@@ -201,10 +233,7 @@ const SECTION_PATTERNS: Array<{
  *   User: ...
  *   Assistant: ... ❌
  */
-function parseExamplesSection(
-  skillId: string,
-  examplesContent: string,
-): PromptLayer[] {
+function parseExamplesSection(skillId: string, examplesContent: string): PromptLayer[] {
   if (!examplesContent || !examplesContent.trim()) return [];
 
   const layers: PromptLayer[] = [];
@@ -229,7 +258,8 @@ function parseExamplesSection(
     } else if (isBad) {
       layers.push({
         name: `skill:${skillId}:example-bad`,
-        content: trimmed.replace(/❌/g, '') + '\n[Above is an anti-pattern — DO NOT follow this approach]',
+        content:
+          trimmed.replace(/❌/g, '') + '\n[Above is an anti-pattern — DO NOT follow this approach]',
         priority: 125, // Lowest — trim first
         volatile: true,
         cacheKey: '',
@@ -260,10 +290,7 @@ function parseExamplesSection(
  *
  * Returns empty array when promptContent is empty.
  */
-export function parseStructuredSections(
-  skillId: string,
-  promptContent: string,
-): PromptLayer[] {
+export function parseStructuredSections(skillId: string, promptContent: string): PromptLayer[] {
   if (!promptContent || !promptContent.trim()) {
     return [];
   }
@@ -272,7 +299,7 @@ export function parseStructuredSections(
   let remaining = promptContent;
 
   // Extract recognized sections (skip Examples — handled specially by P2-3)
-  const nonExamplePatterns = SECTION_PATTERNS.filter(p => p.layerName !== 'examples');
+  const nonExamplePatterns = SECTION_PATTERNS.filter((p) => p.layerName !== 'examples');
   for (const pattern of nonExamplePatterns) {
     const match = remaining.match(pattern.regex);
     if (match && match[1]?.trim()) {
@@ -288,7 +315,7 @@ export function parseStructuredSections(
   }
 
   // P2-3: Parse Examples section for Good/Bad sub-examples
-  const examplesPattern = SECTION_PATTERNS.find(p => p.layerName === 'examples')!;
+  const examplesPattern = SECTION_PATTERNS.find((p) => p.layerName === 'examples')!;
   const examplesMatch = remaining.match(examplesPattern.regex);
   if (examplesMatch && examplesMatch[1]?.trim()) {
     const exampleLayers = parseExamplesSection(skillId, examplesMatch[1].trim());
@@ -391,14 +418,17 @@ export function compileSkillContext(resolved: ResolvedSkill[]): CompiledSkillCon
       }
     }
 
-    // Last resolved skill's toolsProfile wins
-    if (skill.toolsProfile) {
+    // First (highest-priority) resolved skill's toolsProfile wins — resolved
+    // is sorted by priority descending and explicit user intent ranks first,
+    // so letting a lower-priority (likely weak/fuzzy match) skill override
+    // the tool profile inverted the intended precedence.
+    if (skill.toolsProfile && effectiveProfile === undefined) {
       effectiveProfile = skill.toolsProfile;
     }
   }
 
   // P1-2: Detect and report conflicts
-  const rawSkills = resolved.map(r => r.skill);
+  const rawSkills = resolved.map((r) => r.skill);
   result.conflicts = detectConflicts(rawSkills);
 
   // P1-2: Resolve tool conflicts (deny-priority)

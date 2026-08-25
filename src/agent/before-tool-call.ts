@@ -24,6 +24,7 @@ import type { ResolvedAgentConfig } from './config-types.js';
 import type { PendingApprovalStore } from './approval-store.js';
 import type { AgentPolicyScope, ApprovalKind } from '../policy/types.js';
 import { generateId } from '../shared/ids.js';
+import { extractPathArg } from '../shared/path-utils.js';
 import { i18n } from '../i18n/index.js';
 import { computerUseApprovalSubject } from '../computer-use/app-approval-subject.js';
 import { assessCommandRisk } from '../tools/shell-command-policy.js';
@@ -44,13 +45,12 @@ const CU_LOG = path.join(os.tmpdir(), `ohmyagent-cu-debug-${process.pid}.log`);
 function cuLog(msg: string, data?: unknown) {
   if (!CU_DEBUG) return;
   const line = `[${new Date().toISOString()}] ${msg} ${data ? JSON.stringify(data) : ''}`;
-  try { fs.appendFileSync(CU_LOG, line + '\n', { mode: 0o600 }); } catch {}
+  try {
+    fs.appendFileSync(CU_LOG, line + '\n', { mode: 0o600 });
+  } catch {}
 }
 
-import {
-  normalizeCommand,
-  getReadOnlyShellBlockReason,
-} from '../tools/shell-command-policy.js';
+import { normalizeCommand, getReadOnlyShellBlockReason } from '../tools/shell-command-policy.js';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Types
@@ -87,7 +87,11 @@ export interface BeforeToolCallDeps {
    *  verify the clicker is the requester. */
   senderId?: string;
   /** Diagnostic logger (pino-compatible). */
-  logger?: { warn: (...args: any[]) => void; info: (...args: any[]) => void; error: (...args: any[]) => void };
+  logger?: {
+    warn: (...args: any[]) => void;
+    info: (...args: any[]) => void;
+    error: (...args: any[]) => void;
+  };
 }
 
 /**
@@ -125,13 +129,23 @@ async function handleComputerUseApproval(
   activeChatId: string,
   activeDispatcher?: ReplyDispatcher,
 ): Promise<BeforeToolCallResult | undefined> {
-  const { computerUseHost, approvalTimeoutMs, approvalRequestRepo, sessionId,
-          pendingApprovals, agentConfig } = deps;
+  const {
+    computerUseHost,
+    approvalTimeoutMs,
+    approvalRequestRepo,
+    sessionId,
+    pendingApprovals,
+    agentConfig,
+  } = deps;
 
   const appId = args?.target?.trim();
   const computerUseActions = new Set(['open_app', 'focus_app', 'close_app']);
   if (!args?.action || !computerUseActions.has(args.action) || !appId || !computerUseHost) {
-    cuLog('handleComputerUseApproval: skip', { action: args?.action, appId, hasHost: !!computerUseHost });
+    cuLog('handleComputerUseApproval: skip', {
+      action: args?.action,
+      appId,
+      hasHost: !!computerUseHost,
+    });
     return undefined;
   }
 
@@ -146,7 +160,13 @@ async function handleComputerUseApproval(
 
   if (!activeChatId) {
     deps.logger?.warn(
-      { appId, channel: deps.channel, hasTurnContext: !!deps.turnContext, turnContextChatId: deps.turnContext?.chatId, fallbackChatId: deps.chatId },
+      {
+        appId,
+        channel: deps.channel,
+        hasTurnContext: !!deps.turnContext,
+        turnContextChatId: deps.turnContext?.chatId,
+        fallbackChatId: deps.chatId,
+      },
       '[CU:beforeToolCall] Computer Use app approval blocked: no activeChatId',
     );
     cuLog('handleComputerUseApproval: BLOCK no chatId', { appId });
@@ -250,8 +270,14 @@ async function handleShellApproval(
   activeMessageId: string | undefined,
   activeDispatcher: ReplyDispatcher | undefined,
 ): Promise<BeforeToolCallResult | undefined> {
-  const { approvalGate, approvalTimeoutMs, approvalRequestRepo, sessionId,
-          pendingApprovals, resolvedSkillScope } = deps;
+  const {
+    approvalGate,
+    approvalTimeoutMs,
+    approvalRequestRepo,
+    sessionId,
+    pendingApprovals,
+    resolvedSkillScope,
+  } = deps;
 
   const normalized = normalizeCommand(command);
 
@@ -317,12 +343,7 @@ async function handleShellApproval(
     }
 
     if (approvalGate) {
-      await approvalGate.recordDecision(
-        requestId,
-        decisionType,
-        command,
-        sessionId ?? undefined,
-      );
+      await approvalGate.recordDecision(requestId, decisionType, command, sessionId ?? undefined);
     }
 
     if (decisionType.startsWith('reject')) {
@@ -349,18 +370,21 @@ async function handleFileAccessApproval(
   activeMessageId: string | undefined,
   activeDispatcher: ReplyDispatcher | undefined,
 ): Promise<BeforeToolCallResult | undefined> {
-  const { approvalTimeoutMs, approvalRequestRepo, sessionId,
-          pendingApprovals } = deps;
+  const { approvalTimeoutMs, approvalRequestRepo, sessionId, pendingApprovals } = deps;
 
   const pathArg = extractApprovalPathArg(args);
   const command = `${toolName} ${pathArg}`;
   const approvalSubject = pathApprovalSubject(toolName, pathArg);
   const requestId = generateId();
 
-  // Channels without interactive approval UI (e.g. WeChat) auto-allow
-  // file access. Their send_media tools are already scoped by allowedRoots.
+  // Fail closed: without an interactive approval channel we cannot obtain user
+  // consent for out-of-root file access — deny instead of silently allowing.
+  // (In-root access never reaches this handler; path-policy allows it directly.)
   if (deps.channel !== 'feishu' && !deps.channelApprovalSender) {
-    return undefined;
+    return {
+      block: true,
+      reason: `Tool "${toolName}" requires approval for ${pathArg}, but no interactive approval channel is available on this channel`,
+    } satisfies BeforeToolCallResult;
   }
 
   const session = resolveApprovalSession(deps, activeChatId, activeDispatcher);
@@ -432,8 +456,7 @@ async function handleGenericToolApproval(
   activeMessageId: string | undefined,
   activeDispatcher: ReplyDispatcher | undefined,
 ): Promise<BeforeToolCallResult | undefined> {
-  const { approvalTimeoutMs, approvalRequestRepo, sessionId,
-          pendingApprovals } = deps;
+  const { approvalTimeoutMs, approvalRequestRepo, sessionId, pendingApprovals } = deps;
   const requestId = generateId();
   const command = `${toolName} ${JSON.stringify(args ?? {})}`;
   const subject = toolName;
@@ -443,7 +466,8 @@ async function handleGenericToolApproval(
   if (!session || !activeChatId) {
     return {
       block: true,
-      reason: reason ?? `Tool "${toolName}" requires approval, but no approval channel is available`,
+      reason:
+        reason ?? `Tool "${toolName}" requires approval, but no approval channel is available`,
     } satisfies BeforeToolCallResult;
   }
 
@@ -510,15 +534,19 @@ async function recordPolicyApprovalDecision(
 ): Promise<void> {
   if (!deps.policyCenter) return;
   if (input.decision === 'approve_once' || input.decision === 'reject_once') return;
-  await deps.policyCenter.recordApprovalDecision({
-    requestId: input.requestId,
-    decision: input.decision,
-    scope: input.decision.endsWith('_always') ? 'global' : 'session',
-    kind: input.kind,
-    sessionId: deps.sessionId,
-    subject: input.subject,
-    recordedAt: Date.now(),
-  }).catch((err) => { deps.logger?.warn({ err }, 'Failed to record approval decision — non-critical'); });
+  await deps.policyCenter
+    .recordApprovalDecision({
+      requestId: input.requestId,
+      decision: input.decision,
+      scope: input.decision.endsWith('_always') ? 'global' : 'session',
+      kind: input.kind,
+      sessionId: deps.sessionId,
+      subject: input.subject,
+      recordedAt: Date.now(),
+    })
+    .catch((err) => {
+      deps.logger?.warn({ err }, 'Failed to record approval decision — non-critical');
+    });
 }
 
 function pathApprovalSubject(toolName: string, path: string): string {
@@ -526,13 +554,7 @@ function pathApprovalSubject(toolName: string, path: string): string {
 }
 
 function extractApprovalPathArg(args: unknown): string {
-  if (!args || typeof args !== 'object') return JSON.stringify(args);
-  const argsAny = args as Record<string, unknown>;
-  for (const key of ['path', 'filePath', 'directory', 'imagePath', 'audioPath', 'cwd', 'outputPath', 'outputDir']) {
-    const value = argsAny[key];
-    if (typeof value === 'string' && value.trim()) return value;
-  }
-  return JSON.stringify(args);
+  return extractPathArg(args) ?? JSON.stringify(args);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -543,7 +565,10 @@ function getCapabilityForTool(
   toolName: string,
   args?: unknown,
 ): import('../tools/platform/tool-capabilities.js').ToolCapabilityDescriptor {
-  if (toolName === 'send_message' && (args as { route?: string } | undefined)?.route === 'external') {
+  if (
+    toolName === 'send_message' &&
+    (args as { route?: string } | undefined)?.route === 'external'
+  ) {
     return {
       category: 'task',
       readOnly: false,
@@ -556,66 +581,483 @@ function getCapabilityForTool(
       approvalDefault: 'high_risk',
     };
   }
-	  // cronjob remove action is destructive — requires approval
-	  if (toolName === 'cronjob' && (args as { action?: string } | undefined)?.action === 'remove') {
-	    return {
-	      category: 'cron',
-	      readOnly: false,
-	      writesFiles: false,
-	      readsFiles: false,
-	      usesShell: false,
-	      usesNetwork: false,
-	      usesComputerUse: false,
-	      pathAccess: 'none',
-	      approvalDefault: 'mutating',
-	    };
-	  }
+  // cronjob remove action is destructive — requires approval
+  if (toolName === 'cronjob' && (args as { action?: string } | undefined)?.action === 'remove') {
+    return {
+      category: 'cron',
+      readOnly: false,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'mutating',
+    };
+  }
 
-  const map: Record<string, any> = {
-    shell:          { category: 'shell', readOnly: false, writesFiles: true, readsFiles: true, usesShell: true,  usesNetwork: false, usesComputerUse: false, pathAccess: 'read_write', approvalDefault: 'mutating' },
-    file_read:      { category: 'file', readOnly: true,  writesFiles: false, readsFiles: true, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'read', approvalDefault: 'none' },
-    file_write:     { category: 'file', readOnly: false, writesFiles: true, readsFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'write', approvalDefault: 'mutating' },
-    file_edit:      { category: 'file', readOnly: false, writesFiles: true, readsFiles: true, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'read_write', approvalDefault: 'mutating' },
-    file_search:    { category: 'file', readOnly: true,  writesFiles: false, readsFiles: true, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'read', approvalDefault: 'none' },
-    memory_recall:  { category: 'memory', readOnly: true, writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'none' },
-    memory_store:   { category: 'memory', readOnly: false, writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'mutating' },
-    memory_list:    { category: 'memory', readOnly: true, writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'none' },
-    memory_delete:  { category: 'memory', readOnly: false, writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'mutating' },
-    memory_update:  { category: 'memory', readOnly: false, writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'mutating' },
-    session_summarize: { category: 'session', readOnly: true, writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'none' },
-    web_fetch:      { category: 'web', readOnly: true, writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: true, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'none' },
-    web_search:     { category: 'web', readOnly: true, writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: true, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'none' },
-    image_to_text:  { category: 'multimodal', readOnly: true, writesFiles: false, readsFiles: true, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'read', approvalDefault: 'none' },
-    computer_use:   { category: 'computer_use', readOnly: false, writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: true, pathAccess: 'none', approvalDefault: 'high_risk' },
-    spawn_agent:    { category: 'agent', readOnly: false, writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'mutating' },
-    cronjob:        { category: 'cron', readOnly: false, writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'none' },
-    ask_user_question: { category: 'session', readOnly: true, writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'none' },
-    todo_write:     { category: 'session', readOnly: false, writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'mutating' },
-    task_create:    { category: 'task', readOnly: false, writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'none' },
-    task_get:       { category: 'task', readOnly: true,  writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'none' },
-    task_list:      { category: 'task', readOnly: true,  writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'none' },
-    task_stop:      { category: 'task', readOnly: false, writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'none' },
-    task_output:    { category: 'task', readOnly: true,  writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'none' },
-    task_update:    { category: 'task', readOnly: false, writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'none' },
-    send_message:   { category: 'task', readOnly: false, writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'none' },
-    team_create:    { category: 'task', readOnly: false, writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'mutating' },
-    team_delete:    { category: 'task', readOnly: false, writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'mutating' },
-    enter_plan_mode: { category: 'session', readOnly: false, writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'none' },
-    exit_plan_mode: { category: 'session', readOnly: false, writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'none' },
-    enter_worktree: { category: 'session', readOnly: false, writesFiles: true, readsFiles: true, usesShell: true, usesNetwork: false, usesComputerUse: false, pathAccess: 'read_write', approvalDefault: 'mutating' },
-    exit_worktree:  { category: 'session', readOnly: false, writesFiles: true, readsFiles: true, usesShell: true, usesNetwork: false, usesComputerUse: false, pathAccess: 'read_write', approvalDefault: 'mutating' },
+  const map: Record<
+    string,
+    import('../tools/platform/tool-capabilities.js').ToolCapabilityDescriptor
+  > = {
+    shell: {
+      category: 'shell',
+      readOnly: false,
+      writesFiles: true,
+      readsFiles: true,
+      usesShell: true,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'read_write',
+      approvalDefault: 'mutating',
+    },
+    file_read: {
+      category: 'file',
+      readOnly: true,
+      writesFiles: false,
+      readsFiles: true,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'read',
+      approvalDefault: 'none',
+    },
+    file_write: {
+      category: 'file',
+      readOnly: false,
+      writesFiles: true,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'write',
+      approvalDefault: 'mutating',
+    },
+    file_edit: {
+      category: 'file',
+      readOnly: false,
+      writesFiles: true,
+      readsFiles: true,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'read_write',
+      approvalDefault: 'mutating',
+    },
+    file_search: {
+      category: 'file',
+      readOnly: true,
+      writesFiles: false,
+      readsFiles: true,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'read',
+      approvalDefault: 'none',
+    },
+    memory_recall: {
+      category: 'memory',
+      readOnly: true,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'none',
+    },
+    memory_store: {
+      category: 'memory',
+      readOnly: false,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'mutating',
+    },
+    memory_list: {
+      category: 'memory',
+      readOnly: true,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'none',
+    },
+    memory_delete: {
+      category: 'memory',
+      readOnly: false,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'mutating',
+    },
+    memory_update: {
+      category: 'memory',
+      readOnly: false,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'mutating',
+    },
+    session_summarize: {
+      category: 'session',
+      readOnly: true,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'none',
+    },
+    web_fetch: {
+      category: 'web',
+      readOnly: true,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: true,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'none',
+    },
+    web_search: {
+      category: 'web',
+      readOnly: true,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: true,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'none',
+    },
+    image_to_text: {
+      category: 'multimodal',
+      readOnly: true,
+      writesFiles: false,
+      readsFiles: true,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'read',
+      approvalDefault: 'none',
+    },
+    computer_use: {
+      category: 'computer_use',
+      readOnly: false,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: true,
+      pathAccess: 'none',
+      approvalDefault: 'high_risk',
+    },
+    spawn_agent: {
+      category: 'agent',
+      readOnly: false,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'mutating',
+    },
+    cronjob: {
+      category: 'cron',
+      readOnly: false,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'none',
+    },
+    ask_user_question: {
+      category: 'session',
+      readOnly: true,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'none',
+    },
+    todo_write: {
+      category: 'session',
+      readOnly: false,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'mutating',
+    },
+    task_create: {
+      category: 'task',
+      readOnly: false,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'none',
+    },
+    task_get: {
+      category: 'task',
+      readOnly: true,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'none',
+    },
+    task_list: {
+      category: 'task',
+      readOnly: true,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'none',
+    },
+    task_stop: {
+      category: 'task',
+      readOnly: false,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'none',
+    },
+    task_output: {
+      category: 'task',
+      readOnly: true,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'none',
+    },
+    task_update: {
+      category: 'task',
+      readOnly: false,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'none',
+    },
+    send_message: {
+      category: 'task',
+      readOnly: false,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'none',
+    },
+    team_create: {
+      category: 'task',
+      readOnly: false,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'mutating',
+    },
+    team_delete: {
+      category: 'task',
+      readOnly: false,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'mutating',
+    },
+    enter_plan_mode: {
+      category: 'session',
+      readOnly: false,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'none',
+    },
+    exit_plan_mode: {
+      category: 'session',
+      readOnly: false,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'none',
+    },
+    enter_worktree: {
+      category: 'session',
+      readOnly: false,
+      writesFiles: true,
+      readsFiles: true,
+      usesShell: true,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'read_write',
+      approvalDefault: 'mutating',
+    },
+    exit_worktree: {
+      category: 'session',
+      readOnly: false,
+      writesFiles: true,
+      readsFiles: true,
+      usesShell: true,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'read_write',
+      approvalDefault: 'mutating',
+    },
     // New v4 final tools
-    notebook_edit:  { category: 'file', readOnly: false, readsFiles: true, writesFiles: true, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'read_write', approvalDefault: 'mutating' },
-    remote_trigger: { category: 'web', readOnly: false, writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: true, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'high_risk' },
-    image_generation: { category: 'multimodal', readOnly: false, writesFiles: true, readsFiles: false, usesShell: false, usesNetwork: true, usesComputerUse: false, pathAccess: 'write', approvalDefault: 'mutating' },
+    notebook_edit: {
+      category: 'file',
+      readOnly: false,
+      readsFiles: true,
+      writesFiles: true,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'read_write',
+      approvalDefault: 'mutating',
+    },
+    remote_trigger: {
+      category: 'web',
+      readOnly: false,
+      writesFiles: false,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: true,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'high_risk',
+    },
+    image_generation: {
+      category: 'multimodal',
+      readOnly: false,
+      writesFiles: true,
+      readsFiles: false,
+      usesShell: false,
+      usesNetwork: true,
+      usesComputerUse: false,
+      pathAccess: 'write',
+      approvalDefault: 'mutating',
+    },
     // Channel media tools
-	    feishu_send_media: { category: 'session', readOnly: false, writesFiles: false, readsFiles: true, usesShell: false, usesNetwork: true, usesComputerUse: false, pathAccess: 'read', approvalDefault: 'none' },
-	    wechat_send_media: { category: 'session', readOnly: false, writesFiles: false, readsFiles: true, usesShell: false, usesNetwork: true, usesComputerUse: false, pathAccess: 'read', approvalDefault: 'none' },
-	    qq_send_media:     { category: 'session', readOnly: false, writesFiles: false, readsFiles: true, usesShell: false, usesNetwork: true, usesComputerUse: false, pathAccess: 'read', approvalDefault: 'none' },
-	    telegram_send_media: { category: 'session', readOnly: false, writesFiles: false, readsFiles: true, usesShell: false, usesNetwork: true, usesComputerUse: false, pathAccess: 'read', approvalDefault: 'none' },
-	    webui_send_media: { category: 'session', readOnly: true, writesFiles: false, readsFiles: true, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'read', approvalDefault: 'none' },
+    feishu_send_media: {
+      category: 'session',
+      readOnly: false,
+      writesFiles: false,
+      readsFiles: true,
+      usesShell: false,
+      usesNetwork: true,
+      usesComputerUse: false,
+      pathAccess: 'read',
+      approvalDefault: 'none',
+    },
+    wechat_send_media: {
+      category: 'session',
+      readOnly: false,
+      writesFiles: false,
+      readsFiles: true,
+      usesShell: false,
+      usesNetwork: true,
+      usesComputerUse: false,
+      pathAccess: 'read',
+      approvalDefault: 'none',
+    },
+    qq_send_media: {
+      category: 'session',
+      readOnly: false,
+      writesFiles: false,
+      readsFiles: true,
+      usesShell: false,
+      usesNetwork: true,
+      usesComputerUse: false,
+      pathAccess: 'read',
+      approvalDefault: 'none',
+    },
+    telegram_send_media: {
+      category: 'session',
+      readOnly: false,
+      writesFiles: false,
+      readsFiles: true,
+      usesShell: false,
+      usesNetwork: true,
+      usesComputerUse: false,
+      pathAccess: 'read',
+      approvalDefault: 'none',
+    },
+    webui_send_media: {
+      category: 'session',
+      readOnly: true,
+      writesFiles: false,
+      readsFiles: true,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'read',
+      approvalDefault: 'none',
+    },
   };
-  return map[toolName] ?? { category: 'session', readOnly: true, writesFiles: false, readsFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'none' };
+  // Unknown tools default to mutating/approval-required (fail-closed):
+  // new tools must be explicitly registered here before they run without approval.
+  return (
+    map[toolName] ?? {
+      category: 'session',
+      readOnly: false,
+      writesFiles: true,
+      readsFiles: true,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'read_write',
+      approvalDefault: 'mutating',
+    }
+  );
 }
 
 async function handleViaPolicyCenter(
@@ -632,15 +1074,20 @@ async function handleViaPolicyCenter(
     resolveApprovalSession(deps, activeChatId, activeDispatcher);
   }
 
-  cuLog('handleViaPolicyCenter: called', { toolName: context.toolCall.name, args: JSON.stringify(context.args).slice(0, 100) });
+  cuLog('handleViaPolicyCenter: called', {
+    toolName: context.toolCall.name,
+    args: JSON.stringify(context.args).slice(0, 100),
+  });
 
   // Step 1: Build a minimal AgentPolicyScope from deps
   const scope = deps.policyScope ?? {
-    toolsProfile: (deps.effectiveProfile || 'standard') as 'minimal' | 'standard' | 'advanced' | 'full',
+    toolsProfile: (deps.effectiveProfile || 'standard') as
+      'minimal' | 'standard' | 'advanced' | 'full',
     readRoots: [] as string[],
     writeRoots: [] as string[],
     deniedPatterns: [] as string[],
-    shellExecMode: (deps.shellMode === 'read-only' ? 'safe' : 'balanced') as 'safe' | 'balanced' | 'trusted',
+    shellExecMode: (deps.shellMode === 'read-only' ? 'safe' : 'balanced') as
+      'safe' | 'balanced' | 'trusted',
     sessionApprovals: [] as string[],
     appApprovals: [] as string[],
     readOnly: deps.shellMode === 'read-only',
@@ -662,7 +1109,11 @@ async function handleViaPolicyCenter(
   });
 
   // Step 4: Handle the decision
-  cuLog('handleViaPolicyCenter: decision', { allowed: decision.allowed, requiresApproval: decision.requiresApproval, approvalKind: decision.approvalKind });
+  cuLog('handleViaPolicyCenter: decision', {
+    allowed: decision.allowed,
+    requiresApproval: decision.requiresApproval,
+    approvalKind: decision.approvalKind,
+  });
 
   if (decision.allowed) {
     cuLog('handleViaPolicyCenter: allowed, approving app from policy');
@@ -688,17 +1139,24 @@ async function handleViaPolicyCenter(
   }
 
   if (context.toolCall.name === 'computer_use') {
+    const action = (context.args as { action?: string })?.action;
     const computerUseResult = await handleComputerUseApproval(
       deps,
       context.args as { action?: string; target?: string },
       activeChatId ?? '',
       activeDispatcher,
     );
-    const action = (context.args as { action?: string })?.action;
-    if (computerUseResult || action === 'open_app' || action === 'focus_app' || action === 'close_app') {
+    if (computerUseResult) {
       return computerUseResult;
     }
-    return undefined;
+    if (action === 'open_app' || action === 'focus_app' || action === 'close_app') {
+      // App actions: undefined from handleComputerUseApproval means the app was
+      // already approved (or got approved just now) — safe to allow.
+      return undefined;
+    }
+    // Non-app CU actions (click_point, type_text, press_key, scroll, drag, …)
+    // are mutating/high-risk too — do NOT allow silently; fall through to the
+    // fail-closed generic approval path below.
   }
 
   if (decision.approvalKind === 'path') {
@@ -724,29 +1182,33 @@ async function handleViaPolicyCenter(
   );
 }
 
-function approveComputerUseAppFromPolicy(
-  deps: BeforeToolCallDeps,
-  args: unknown,
-): void {
+function approveComputerUseAppFromPolicy(deps: BeforeToolCallDeps, args: unknown): void {
   if (!deps.computerUseHost || !args || typeof args !== 'object') return;
   const record = args as { action?: string; target?: string };
   if (
-    record.action !== 'open_app'
-    && record.action !== 'focus_app'
-    && record.action !== 'close_app'
+    record.action !== 'open_app' &&
+    record.action !== 'focus_app' &&
+    record.action !== 'close_app'
   ) {
     return;
   }
   const appId = record.target?.trim();
   if (!appId) return;
 
-  deps.computerUseHost.approveApp({
-    sessionPath: deps.sessionId,
-    agentId: deps.agentConfig?.id,
-  }, appId, 'session');
+  deps.computerUseHost.approveApp(
+    {
+      sessionPath: deps.sessionId,
+      agentId: deps.agentConfig?.id,
+    },
+    appId,
+    'session',
+  );
 }
 
-function checkReadOnlyShell(command: string, effectiveProfile: string): BeforeToolCallResult | undefined {
+function checkReadOnlyShell(
+  command: string,
+  effectiveProfile: string,
+): BeforeToolCallResult | undefined {
   const reason = getReadOnlyShellBlockReason(command, effectiveProfile);
   if (reason) return { block: true, reason } satisfies BeforeToolCallResult;
   return undefined;
@@ -765,11 +1227,12 @@ export function createBeforeToolCall(deps: BeforeToolCallDeps) {
     toolCall: { name: string };
     args: unknown;
   }): Promise<BeforeToolCallResult | undefined> => {
-
     // ── v4 path: delegate to PolicyCenter ──
     if (deps.policyCenter) {
       return handleViaPolicyCenter(
-        deps as BeforeToolCallDeps & { policyCenter: NonNullable<BeforeToolCallDeps['policyCenter']> },
+        deps as BeforeToolCallDeps & {
+          policyCenter: NonNullable<BeforeToolCallDeps['policyCenter']>;
+        },
         context,
       );
     }
@@ -816,9 +1279,4 @@ export function createBeforeToolCall(deps: BeforeToolCallDeps) {
       activeDispatcher,
     );
   };
-}
-
-function summarizeApprovalCommand(command: string): string {
-  const normalized = command.trim().replace(/\s+/g, ' ');
-  return normalized.length > 80 ? `${normalized.slice(0, 77)}...` : normalized;
 }

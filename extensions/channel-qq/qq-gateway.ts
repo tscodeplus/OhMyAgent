@@ -132,6 +132,8 @@ export class QQGateway {
   // Handshake promise
   private handshakeResolve: (() => void) | null = null;
   private handshakeReject: ((err: Error) => void) | null = null;
+  /** In-flight connect() promise — guards against overlapping connect calls. */
+  private connecting: Promise<void> | null = null;
   private handshakeTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Event callback
@@ -170,12 +172,15 @@ export class QQGateway {
    */
   async connect(): Promise<void> {
     if (this._connected) return;
+    // Single-flight: a second connect() while one is in flight must not open a
+    // second socket and clobber this.ws / the pending handshake.
+    if (this.connecting) return this.connecting;
     this.intentionalClose = false;
 
     const gatewayUrl = await this.auth.getGatewayUrl();
     const token = await this.auth.getAccessToken();
 
-    return new Promise<void>((resolve, reject) => {
+    const attempt = new Promise<void>((resolve, reject) => {
       this.handshakeResolve = resolve;
       this.handshakeReject = reject;
       try {
@@ -186,6 +191,10 @@ export class QQGateway {
         reject(err);
       }
     });
+    this.connecting = attempt.finally(() => {
+      this.connecting = null;
+    });
+    return this.connecting;
   }
 
   /**
@@ -277,7 +286,11 @@ export class QQGateway {
     ws.on('close', (code: number, reason: Buffer) => {
       this._connected = false;
       this.clearHeartbeat();
-      this.ws = null;
+      // Only clear the reference if this socket is still the active one —
+      // a late close event from an OLD connection must not detach the NEW one.
+      if (this.ws === ws) {
+        this.ws = null;
+      }
 
       const reasonStr = reason?.toString() || 'unknown';
       this.logger.warn({ code, reason: reasonStr }, 'QQ WebSocket closed');
@@ -474,7 +487,11 @@ export class QQGateway {
       this.sendWs({ op: 1, d: this.lastSeq ?? null });
     }, this.heartbeatInterval);
     // Prevent the timer from keeping the process alive
-    if (this.heartbeatTimer && typeof this.heartbeatTimer === 'object' && 'unref' in this.heartbeatTimer) {
+    if (
+      this.heartbeatTimer &&
+      typeof this.heartbeatTimer === 'object' &&
+      'unref' in this.heartbeatTimer
+    ) {
       (this.heartbeatTimer as NodeJS.Timeout).unref();
     }
   }
@@ -508,10 +525,7 @@ export class QQGateway {
 
     // Exponential backoff with ceiling (only for non-immediate)
     if (!immediate) {
-      this.reconnectDelay = Math.min(
-        this.reconnectDelay * 2,
-        RECONNECT_MAX_DELAY_MS,
-      );
+      this.reconnectDelay = Math.min(this.reconnectDelay * 2, RECONNECT_MAX_DELAY_MS);
     }
   }
 

@@ -19,7 +19,6 @@ import type { AgentService } from '../../src/agent/agent-service.js';
 import type { FastifyInstance } from 'fastify';
 import type { Logger } from 'pino';
 import type { CronDeliveryRegistry } from '../../src/cron/delivery-registry.js';
-import type { FooterConfig } from '../../src/app/types.js';
 import { resolveWechatConfig } from './wechat-config.js';
 import type { WechatConfig } from './wechat-types.js';
 import { WechatPoller } from './wechat-poller.js';
@@ -48,7 +47,9 @@ export default function (api: ExtensionAPI) {
   const server = api.getService<FastifyInstance>('server');
   const commandDeps = api.getService<CommandDeps>('commandDeps');
 
-  // Build a safe CommandDeps fallback when the real one is unavailable
+  // Build a safe CommandDeps fallback when the real one is unavailable.
+  // SAFETY: agentService is the same concrete AgentService instance; CommandDeps
+  // narrows it opaquely so the tool layer cannot depend on its concrete type here.
   const deps: CommandDeps | undefined = commandDeps ?? {
     agentService: agentService as unknown as CommandDeps['agentService'],
     skillRegistry: undefined,
@@ -69,7 +70,10 @@ export default function (api: ExtensionAPI) {
         }
         const tokenEntry = getTokenForCron(chatId);
         if (!tokenEntry) {
-          logger.warn({ chatId }, 'Cannot deliver cron result - no valid WeChat context token (expired or never received)');
+          logger.warn(
+            { chatId },
+            'Cannot deliver cron result - no valid WeChat context token (expired or never received)',
+          );
           return;
         }
         const parts: string[] = [];
@@ -100,7 +104,18 @@ export default function (api: ExtensionAPI) {
 
   // ── QR code login REST endpoints (always registered for initial auth / re-auth) ──
   if (server) {
-    registerQrRoutes(server, wechatConfig, logger, agentService, deps, api, () => poller, (p) => { poller = p; });
+    registerQrRoutes(
+      server,
+      wechatConfig,
+      logger,
+      agentService,
+      deps,
+      api,
+      () => poller,
+      (p) => {
+        poller = p;
+      },
+    );
   }
 
   // ── ChannelAdapter ──
@@ -195,6 +210,49 @@ function registerQrRoutes(
   getPoller: () => WechatPoller | null,
   setPoller: (p: WechatPoller | null) => void,
 ): void {
+  // Persist the bot token to config + .env and (re)start the poller.
+  // Shared by /wechat/login/poll (server-side auto-activation on scan confirm),
+  // POST /wechat/login/start (token-authenticated) and the /api/channels/wechat/qr/start wrapper.
+  async function activateBot(botToken: string, source: string): Promise<void> {
+    wechatConfig.botToken = botToken;
+    try {
+      const fs = await import('node:fs/promises');
+      const envPath = '.env';
+      let envContent = '';
+      try {
+        envContent = await fs.readFile(envPath, 'utf-8');
+      } catch {
+        logger.warn('No existing .env file to read for WeChat token update');
+      }
+      const newLine = `WECHAT_BOT_TOKEN=${botToken}`;
+      if (envContent.includes('WECHAT_BOT_TOKEN=')) {
+        // Use function-form replacement so `$` sequences in the token are
+        // inserted literally instead of being interpreted as replacement patterns.
+        envContent = envContent.replace(/WECHAT_BOT_TOKEN=.*/g, () => newLine);
+      } else {
+        envContent += '\n' + newLine + '\n';
+      }
+      await fs.writeFile(envPath, envContent, 'utf-8');
+      logger.info({ source }, 'WeChat bot token persisted to .env');
+    } catch (e) {
+      logger.warn({ err: e }, 'Failed to persist WeChat token to .env');
+    }
+
+    // Stop old poller if running (token might have expired), then start fresh
+    const old = getPoller();
+    if (old) {
+      try {
+        old.stop();
+      } catch {
+        logger.warn('Failed to stop old WeChat poller during restart');
+      }
+      setPoller(null);
+    }
+    const p = await startWechatBot(wechatConfig, agentService, deps, logger, api);
+    setPoller(p);
+  }
+
+  // GET /wechat/login — show QR code page (browser-friendly)
   // GET /wechat/login — show QR code page (browser-friendly)
   server.get('/wechat/login', async (_req, reply) => {
     try {
@@ -224,9 +282,9 @@ function poll() {
     .then(data => {
       statusEl.className = data.status || 'waiting';
       statusEl.textContent = labels[data.status] || data.status;
-      if (data.status === 'confirmed' && data.botToken) {
-        fetch('/wechat/login/start', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({botToken: data.botToken}) })
-          .then(() => { statusEl.textContent = '✅ 登录成功！Bot 已启动'; });
+      // Bot activation happens server-side on confirm (poll response carries no token).
+      if (data.status === 'confirmed') {
+        statusEl.textContent = '✅ 登录成功！Bot 已启动';
       } else if (data.status !== 'expired') {
         setTimeout(poll, 2000);
       }
@@ -269,12 +327,15 @@ setTimeout(poll, 1000);
       const controller = new AbortController();
       req.raw.on('close', () => controller.abort());
 
-      const result = await pollQrcodeStatus(
-        wechatConfig.apiBase,
-        body.qrcodeId,
-        controller.signal,
-      );
+      const result = await pollQrcodeStatus(wechatConfig.apiBase, body.qrcodeId, controller.signal);
       logger.info({ status: result.status }, 'QR poll: result');
+      if (result.status === 'confirmed' && result.botToken) {
+        // Activate the bot server-side — the botToken must NOT be returned to
+        // (potentially unauthenticated) poll callers, and the scan-page flow
+        // no longer needs a separate authenticated /login/start round-trip.
+        await activateBot(result.botToken, 'QR login confirmed');
+        return reply.send({ ok: true, status: 'confirmed' });
+      }
       return reply.send(result);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -283,7 +344,8 @@ setTimeout(poll, 1000);
     }
   });
 
-  // POST /wechat/login/start — store bot token and start the bot
+  // POST /wechat/login/start — store bot token and start the bot (token-authenticated;
+  // QR scan flow auto-activates server-side via /wechat/login/poll)
   server.post('/wechat/login/start', async (req, reply) => {
     try {
       const body = req.body as { botToken?: string };
@@ -291,33 +353,7 @@ setTimeout(poll, 1000);
         return reply.status(400).send({ ok: false, error: 'botToken required' });
       }
 
-      // Store token in config AND persist to .env
-      wechatConfig.botToken = body.botToken;
-      try {
-        const fs = await import('node:fs/promises');
-        const envPath = '.env';
-        let envContent = '';
-        try { envContent = await fs.readFile(envPath, 'utf-8'); } catch { logger.warn('No existing .env file to read for WeChat token update'); }
-        const newLine = `WECHAT_BOT_TOKEN=${body.botToken}`;
-        if (envContent.includes('WECHAT_BOT_TOKEN=')) {
-          envContent = envContent.replace(/WECHAT_BOT_TOKEN=.*/g, newLine);
-        } else {
-          envContent += '\n' + newLine + '\n';
-        }
-        await fs.writeFile(envPath, envContent, 'utf-8');
-        logger.info('WeChat bot token persisted to .env');
-      } catch (e) {
-        logger.warn({ err: e }, 'Failed to persist WeChat token to .env');
-      }
-
-      // Stop old poller if running (token might have expired), then start fresh
-      const old = getPoller();
-      if (old) {
-        try { old.stop(); } catch { logger.warn('Failed to stop old WeChat poller during restart'); }
-        setPoller(null);
-      }
-      const p = await startWechatBot(wechatConfig, agentService, deps, logger, api);
-      setPoller(p);
+      await activateBot(body.botToken, 'login/start');
 
       return reply.send({ ok: true });
     } catch (err: unknown) {
@@ -374,33 +410,7 @@ setTimeout(poll, 1000);
         return reply.status(400).send({ ok: false, error: 'botToken required' });
       }
 
-      // Store token in config AND persist to .env
-      wechatConfig.botToken = body.botToken;
-      try {
-        const fs = await import('node:fs/promises');
-        const envPath = '.env';
-        let envContent = '';
-        try { envContent = await fs.readFile(envPath, 'utf-8'); } catch { logger.warn('No existing .env file to read for WeChat token update'); }
-        const newLine = `WECHAT_BOT_TOKEN=${body.botToken}`;
-        if (envContent.includes('WECHAT_BOT_TOKEN=')) {
-          envContent = envContent.replace(/WECHAT_BOT_TOKEN=.*/g, newLine);
-        } else {
-          envContent += '\n' + newLine + '\n';
-        }
-        await fs.writeFile(envPath, envContent, 'utf-8');
-        logger.info('WeChat bot token persisted to .env via API');
-      } catch (e) {
-        logger.warn({ err: e }, 'Failed to persist WeChat token to .env');
-      }
-
-      // Stop old poller if running, then start fresh
-      const old = getPoller();
-      if (old) {
-        try { old.stop(); } catch { logger.warn('Failed to stop old WeChat poller during restart'); }
-        setPoller(null);
-      }
-      const p = await startWechatBot(wechatConfig, agentService, deps, logger, api);
-      setPoller(p);
+      await activateBot(body.botToken, 'api/channels/wechat/qr/start');
 
       return reply.send({ ok: true });
     } catch (err: unknown) {
@@ -431,28 +441,33 @@ async function startWechatBot(
     throw new Error('Cannot start WeChat bot without a bot token');
   }
 
-  const poller = new WechatPoller(
-    config.apiBase,
-    config.botToken,
-    config.cursorDir,
-    logger,
-  );
+  const poller = new WechatPoller(config.apiBase, config.botToken, config.cursorDir, logger);
 
   // v5 P2: Build STT transcriber for WeChat voice messages
   let sttTranscriber: ((path: string, lang?: string) => Promise<string>) | undefined;
   const appConfig = api.getConfig();
   const sttCfg = appConfig.multimodal?.stt;
   if (sttCfg?.enabled && sttCfg.providers?.length) {
-    const { createSTTProviders, transcribeWithFallback } = await import('../../src/media-providers/stt/factory.js');
+    const { createSTTProviders, transcribeWithFallback } =
+      await import('../../src/media-providers/stt/factory.js');
     const sttProviders = createSTTProviders(sttCfg.providers);
     if (sttProviders.length > 0) {
       sttTranscriber = async (audioPath: string, language?: string) => {
-        const result = await transcribeWithFallback(sttProviders, { audioPath, language: language ?? sttCfg.language ?? 'auto' });
+        const result = await transcribeWithFallback(sttProviders, {
+          audioPath,
+          language: language ?? sttCfg.language ?? 'auto',
+        });
         return result.text;
       };
     }
   }
-  const sttHandlerConfig = sttCfg ? { enabled: sttCfg.enabled ?? false, autoTranscribe: sttCfg.autoTranscribe ?? true, language: sttCfg.language ?? 'auto' } : undefined;
+  const sttHandlerConfig = sttCfg
+    ? {
+        enabled: sttCfg.enabled ?? false,
+        autoTranscribe: sttCfg.autoTranscribe ?? true,
+        language: sttCfg.language ?? 'auto',
+      }
+    : undefined;
 
   // Wire message handlers (starts polling in background)
   setupMessageHandlers(

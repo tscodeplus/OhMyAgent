@@ -15,20 +15,21 @@ describe('MemoryHygiene', () => {
     repo = new MemoryRepository(db);
     hygiene = new MemoryHygiene(repo, db, {
       tempRetentionDays: 90,
-      checkIntervalMs: 0,  // always run for testing
+      checkIntervalMs: 0, // always run for testing
     });
   });
 
   function insertMemory(id: string, kind: string, daysAgo: number) {
-    const pastDate = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .slice(0, 19)
-      .replace('T', ' ');
-    db.prepare(`INSERT INTO memories (id, scope, scope_key, kind, content, created_at, updated_at) VALUES (?, 'user', 'u1', ?, 'test', ?, ?)`)
-      .run(id, kind, pastDate, pastDate);
+    // Production format: memories.updated_at stores epoch milliseconds as TEXT
+    // (schema default cast(strftime('%s','now') as integer) * 1000).
+    const pastMs = String(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+    db.prepare(
+      `INSERT INTO memories (id, scope, scope_key, kind, content, created_at, updated_at) VALUES (?, 'user', 'u1', ?, 'test', ?, ?)`,
+    ).run(id, kind, pastMs, pastMs);
     // Also insert an embedding row to test cascade
-    db.prepare('INSERT INTO memory_embeddings (id, memory_id, embedding, model, dimension) VALUES (?, ?, ?, ?, ?)')
-      .run(`emb-${id}`, id, Buffer.alloc(16), 'test-model', 4);
+    db.prepare(
+      'INSERT INTO memory_embeddings (id, memory_id, embedding, model, dimension) VALUES (?, ?, ?, ?, ?)',
+    ).run(`emb-${id}`, id, Buffer.alloc(16), 'test-model', 4);
   }
 
   it('cleans old temporary memories', () => {
@@ -55,8 +56,8 @@ describe('MemoryHygiene', () => {
     insertMemory('m4', 'task', 3);
 
     const report = hygiene.clean();
-    expect(report.cleanedCount).toBe(1);  // only the fact
-    expect(repo.findById('m1')).toBeDefined();  // preference survived
+    expect(report.cleanedCount).toBe(1); // only the fact
+    expect(repo.findById('m1')).toBeDefined(); // preference survived
     expect(repo.findById('m2')).toBeUndefined();
   });
 
@@ -82,21 +83,17 @@ describe('MemoryHygiene', () => {
     expect(repo.findById('m2')).toBeDefined();
   });
 
-  it('compares cutoff using SQLite datetime format on the retention boundary day', () => {
+  it('compares cutoff using the stored epoch-milliseconds format on the retention boundary day', () => {
     const now = Date.now();
-    const oldEnough = new Date(now - 90 * 24 * 60 * 60 * 1000 - 60_000)
-      .toISOString()
-      .slice(0, 19)
-      .replace('T', ' ');
-    const tooNew = new Date(now - 90 * 24 * 60 * 60 * 1000 + 60_000)
-      .toISOString()
-      .slice(0, 19)
-      .replace('T', ' ');
+    const oldEnough = String(now - 90 * 24 * 60 * 60 * 1000 - 60_000);
+    const tooNew = String(now - 90 * 24 * 60 * 60 * 1000 + 60_000);
 
-    db.prepare(`INSERT INTO memories (id, scope, scope_key, kind, content, created_at, updated_at) VALUES (?, 'user', 'u1', 'fact', 'old', ?, ?)`)
-      .run('old-boundary', oldEnough, oldEnough);
-    db.prepare(`INSERT INTO memories (id, scope, scope_key, kind, content, created_at, updated_at) VALUES (?, 'user', 'u1', 'fact', 'new', ?, ?)`)
-      .run('new-boundary', tooNew, tooNew);
+    db.prepare(
+      `INSERT INTO memories (id, scope, scope_key, kind, content, created_at, updated_at) VALUES (?, 'user', 'u1', 'fact', 'old', ?, ?)`,
+    ).run('old-boundary', oldEnough, oldEnough);
+    db.prepare(
+      `INSERT INTO memories (id, scope, scope_key, kind, content, created_at, updated_at) VALUES (?, 'user', 'u1', 'fact', 'new', ?, ?)`,
+    ).run('new-boundary', tooNew, tooNew);
 
     const report = hygiene.clean();
 
@@ -110,12 +107,16 @@ describe('MemoryHygiene', () => {
     // Add fresh temp memories to keep expired ratio < 80%
     insertMemory('m2', 'fact', 5);
     insertMemory('m3', 'task', 3);
-    const embBefore = db.prepare("SELECT COUNT(*) as cnt FROM memory_embeddings WHERE memory_id = 'm1'").get() as { cnt: number };
+    const embBefore = db
+      .prepare("SELECT COUNT(*) as cnt FROM memory_embeddings WHERE memory_id = 'm1'")
+      .get() as { cnt: number };
     expect(embBefore.cnt).toBe(1);
 
     hygiene.clean();
 
-    const embAfter = db.prepare("SELECT COUNT(*) as cnt FROM memory_embeddings WHERE memory_id = 'm1'").get() as { cnt: number };
+    const embAfter = db
+      .prepare("SELECT COUNT(*) as cnt FROM memory_embeddings WHERE memory_id = 'm1'")
+      .get() as { cnt: number };
     expect(embAfter.cnt).toBe(0);
   });
 

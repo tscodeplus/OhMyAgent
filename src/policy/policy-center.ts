@@ -20,6 +20,7 @@ import type { PathAccessPolicy } from './path-policy.js';
 import type { ShellExecutionPolicy } from './shell/evaluator.js';
 import type { ApprovalResolutionPolicy } from './approval/resolution.js';
 import type { AgentInheritancePolicy } from './inheritance/scope-merge.js';
+import { extractPathArg } from '../shared/path-utils.js';
 import {
   computerUseApprovalSubject,
   computerUseApprovalSubjectCandidates,
@@ -84,9 +85,8 @@ export class PolicyCenterImpl implements PolicyCenter {
     // 2. If tool uses shell, delegate to shell execution policy
     if (input.capability.usesShell) {
       const shellInput: ShellPolicyInput = {
-        command: typeof (input.args as any)?.command === 'string'
-          ? (input.args as any).command
-          : '',
+        command:
+          typeof (input.args as any)?.command === 'string' ? (input.args as any).command : '',
         sessionId: input.sessionId,
         agentId: input.agentId,
         scope: input.policyScope,
@@ -99,9 +99,10 @@ export class PolicyCenterImpl implements PolicyCenter {
       const path = extractPathArgument(input.args);
 
       if (path) {
-        const operations = input.capability.pathAccess === 'read_write'
-          ? ['read', 'write'] as const
-          : [input.capability.pathAccess] as const;
+        const operations =
+          input.capability.pathAccess === 'read_write'
+            ? (['read', 'write'] as const)
+            : ([input.capability.pathAccess] as const);
 
         for (const operation of operations) {
           const pathDecision = this.pathAccess.check({
@@ -140,11 +141,7 @@ export class PolicyCenterImpl implements PolicyCenter {
     if (input.sessionId) {
       const subjects = approvalSubjects(input.toolName, input.args);
       for (const subject of subjects) {
-        const reuse = await this.approvalResolution.checkReuse(
-          input.sessionId,
-          'tool',
-          subject,
-        );
+        const reuse = await this.approvalResolution.checkReuse(input.sessionId, 'tool', subject);
         if (reuse.canReuse && reuse.decision?.startsWith('approve')) {
           return { allowed: true, requiresApproval: false, resolvedPath };
         }
@@ -226,23 +223,17 @@ export class PolicyCenterImpl implements PolicyCenter {
 }
 
 function extractPathArgument(args: unknown): string | undefined {
-  if (!args || typeof args !== 'object') return undefined;
-  const record = args as Record<string, unknown>;
-  for (const key of ['filePath', 'path', 'directory', 'imagePath', 'audioPath', 'cwd', 'outputPath', 'outputDir']) {
-    const value = record[key];
-    if (typeof value === 'string' && value.trim()) return value;
-  }
-  return undefined;
+  return extractPathArg(args);
 }
 
 function approvalSubjects(toolName: string, args: unknown): string[] {
   if (toolName === 'computer_use' && args && typeof args === 'object') {
     const record = args as Record<string, unknown>;
     if (
-      typeof record.action === 'string'
-      && ['open_app', 'focus_app', 'close_app'].includes(record.action)
-      && typeof record.target === 'string'
-      && record.target.trim()
+      typeof record.action === 'string' &&
+      ['open_app', 'focus_app', 'close_app'].includes(record.action) &&
+      typeof record.target === 'string' &&
+      record.target.trim()
     ) {
       return computerUseApprovalSubjectCandidates(record.action, record.target);
     }
@@ -255,10 +246,10 @@ function approvalSubject(toolName: string, args: unknown): string {
   if (toolName === 'computer_use' && args && typeof args === 'object') {
     const record = args as Record<string, unknown>;
     if (
-      typeof record.action === 'string'
-      && ['open_app', 'focus_app', 'close_app'].includes(record.action)
-      && typeof record.target === 'string'
-      && record.target.trim()
+      typeof record.action === 'string' &&
+      ['open_app', 'focus_app', 'close_app'].includes(record.action) &&
+      typeof record.target === 'string' &&
+      record.target.trim()
     ) {
       return computerUseApprovalSubject(record.action, record.target);
     }

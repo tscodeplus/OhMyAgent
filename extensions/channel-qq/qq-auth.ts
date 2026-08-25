@@ -40,11 +40,7 @@ function isRateLimited(status: number, body: string): boolean {
  * fetch() wrapper that retries on QQ API rate-limit errors with exponential
  * backoff. Non-rate-limit errors are thrown immediately on the first attempt.
  */
-async function fetchWithRetry(
-  url: string,
-  init: RequestInit,
-  logger: Logger,
-): Promise<Response> {
+async function fetchWithRetry(url: string, init: RequestInit, logger: Logger): Promise<Response> {
   let lastBody = '';
   for (let attempt = 0; attempt < RATE_LIMIT_RETRY_MAX; attempt++) {
     const response = await fetch(url, init);
@@ -52,14 +48,12 @@ async function fetchWithRetry(
 
     lastBody = await response.text();
     if (!isRateLimited(response.status, lastBody)) {
-      throw new Error(
-        `QQ API request failed: ${response.status} ${lastBody}`,
-      );
+      throw new Error(`QQ API request failed: ${response.status} ${lastBody}`);
     }
 
     // Rate limited — retry with backoff unless this was the last attempt
     if (attempt < RATE_LIMIT_RETRY_MAX - 1) {
-      const delay = RATE_LIMIT_RETRY_BASE_MS * Math.pow(2, attempt);
+      const delay = RATE_LIMIT_RETRY_BASE_MS * 2 ** attempt;
       logger.warn(
         { attempt: attempt + 1, delayMs: delay, status: response.status },
         'QQ API rate limited, retrying with backoff',
@@ -68,9 +62,7 @@ async function fetchWithRetry(
     }
   }
 
-  throw new Error(
-    `QQ API rate limited after ${RATE_LIMIT_RETRY_MAX} retries: ${lastBody}`,
-  );
+  throw new Error(`QQ API rate limited after ${RATE_LIMIT_RETRY_MAX} retries: ${lastBody}`);
 }
 
 export class QQAuth {
@@ -81,6 +73,8 @@ export class QQAuth {
 
   private accessToken: string | null = null;
   private tokenExpiresAt: number = 0;
+  /** In-flight token request — single-flight lock shared by concurrent callers. */
+  private tokenFetch: Promise<string> | null = null;
 
   private gatewayUrl: string | null = null;
 
@@ -110,27 +104,48 @@ export class QQAuth {
       return this.accessToken;
     }
 
+    // Single-flight: concurrent callers at the expiry moment share one request
+    // instead of hammering the auth endpoint (which triggers rate limiting).
+    if (this.tokenFetch) return this.tokenFetch;
+
     this.logger.info('Requesting new QQ access token');
 
-    const response = await fetchWithRetry(
-      this.AUTH_URL,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          appId: this.appId,
-          clientSecret: this.clientSecret,
-        }),
-      },
-      this.logger,
-    );
+    this.tokenFetch = (async () => {
+      const response = await fetchWithRetry(
+        this.AUTH_URL,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            appId: this.appId,
+            clientSecret: this.clientSecret,
+          }),
+        },
+        this.logger,
+      );
 
-    const data = (await response.json()) as QQAccessTokenResponse;
-    this.accessToken = data.access_token;
-    this.tokenExpiresAt = Date.now() + data.expires_in * 1000;
+      const data = (await response.json()) as QQAccessTokenResponse;
+      // QQ returns expires_in as a STRING (e.g. "3352") — coerce, don't
+      // strict-type-check. A previous typeof check rejected every valid
+      // response and took the whole QQ channel down at startup.
+      const expiresInSec = Number(data.expires_in);
+      if (!data.access_token || !Number.isFinite(expiresInSec) || expiresInSec <= 0) {
+        throw new Error(
+          `QQ auth response missing access_token: ${JSON.stringify(data).slice(0, 200)}`,
+        );
+      }
+      this.accessToken = data.access_token;
+      this.tokenExpiresAt = Date.now() + expiresInSec * 1000;
 
-    this.logger.info({ expiresIn: data.expires_in }, 'QQ access token acquired');
-    return this.accessToken;
+      this.logger.info({ expiresIn: expiresInSec }, 'QQ access token acquired');
+      return this.accessToken;
+    })();
+
+    try {
+      return await this.tokenFetch;
+    } finally {
+      this.tokenFetch = null;
+    }
   }
 
   /**

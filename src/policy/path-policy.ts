@@ -3,14 +3,18 @@
 // ---------------------------------------------------------------------------
 
 import path from 'node:path';
-import { homedir } from 'node:os';
-import { realpathSync, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { i18n } from '../i18n/index.js';
 import type { PathPolicyInput, PathPolicyDecision, PathPolicyConfig } from './types.js';
+import { resolveSymlinks } from '../tools/shell-command-policy/file-paths.js';
+import { expandHomePath } from '../shared/path-utils.js';
 
 export interface PathAccessPolicy {
   check(input: PathPolicyInput): PathPolicyDecision;
-  getEffectiveRoots(scope: { readRoots: string[]; writeRoots: string[] }): { readRoots: string[]; writeRoots: string[] };
+  getEffectiveRoots(scope: { readRoots: string[]; writeRoots: string[] }): {
+    readRoots: string[];
+    writeRoots: string[];
+  };
 }
 
 export interface PathAccessPolicyConfig extends PathPolicyConfig {
@@ -45,7 +49,11 @@ export class PathAccessPolicyImpl implements PathAccessPolicy {
     // 2. Check denied patterns first (they override everything)
     for (const denied of this.getDeniedPatterns(input)) {
       if (matchesDeniedPattern(resolved, denied)) {
-        return { allowed: false, reason: i18n.t('tools-builtins:pathPolicy.deniedPattern', { pattern: denied }), resolvedPath: resolved };
+        return {
+          allowed: false,
+          reason: i18n.t('tools-builtins:pathPolicy.deniedPattern', { pattern: denied }),
+          resolvedPath: resolved,
+        };
       }
     }
 
@@ -53,7 +61,13 @@ export class PathAccessPolicyImpl implements PathAccessPolicy {
     const roots = this.getRootsForInput(input);
 
     if (roots.length === 0) {
-      return { allowed: false, reason: i18n.t('tools-builtins:pathPolicy.noRootsConfigured', { operation: input.operation }), resolvedPath: resolved };
+      return {
+        allowed: false,
+        reason: i18n.t('tools-builtins:pathPolicy.noRootsConfigured', {
+          operation: input.operation,
+        }),
+        resolvedPath: resolved,
+      };
     }
 
     for (const root of roots) {
@@ -64,12 +78,18 @@ export class PathAccessPolicyImpl implements PathAccessPolicy {
 
     return {
       allowed: false,
-      reason: i18n.t('tools-builtins:pathPolicy.outsideRoots', { resolved, operation: input.operation }),
+      reason: i18n.t('tools-builtins:pathPolicy.outsideRoots', {
+        resolved,
+        operation: input.operation,
+      }),
       resolvedPath: resolved,
     };
   }
 
-  getEffectiveRoots(scope: { readRoots: string[]; writeRoots: string[] }): { readRoots: string[]; writeRoots: string[] } {
+  getEffectiveRoots(scope: { readRoots: string[]; writeRoots: string[] }): {
+    readRoots: string[];
+    writeRoots: string[];
+  } {
     return {
       readRoots: this.getScopedRoots(this.readRoots, scope.readRoots),
       writeRoots: this.getScopedRoots(this.writeRoots, scope.writeRoots),
@@ -83,13 +103,13 @@ export class PathAccessPolicyImpl implements PathAccessPolicy {
   }
 
   private getScopedRoots(configuredRoots: string[], scopedRoots: string[]): string[] {
-    const normalizedScope = unique(scopedRoots.map(r => normalizePath(r)));
+    const normalizedScope = unique(scopedRoots.map((r) => normalizePath(r)));
     if (normalizedScope.length === 0) {
       return configuredRoots;
     }
 
-    return normalizedScope.filter(scopeRoot =>
-      configuredRoots.some(configuredRoot => isWithinRoot(scopeRoot, configuredRoot)),
+    return normalizedScope.filter((scopeRoot) =>
+      configuredRoots.some((configuredRoot) => isWithinRoot(scopeRoot, configuredRoot)),
     );
   }
 
@@ -103,8 +123,8 @@ function normalizeConfig(config: PathAccessPolicyConfig): {
   writeRoots: string[];
   deniedPatterns: string[];
 } {
-  const resolvedReadRoots = (config.readRoots ?? []).map(r => normalizePath(r));
-  const resolvedWriteRoots = (config.writeRoots ?? []).map(w => normalizePath(w));
+  const resolvedReadRoots = (config.readRoots ?? []).map((r) => normalizePath(r));
+  const resolvedWriteRoots = (config.writeRoots ?? []).map((w) => normalizePath(w));
 
   if (config.autoInjectCwd !== false) {
     const cwd = normalizePath(process.cwd());
@@ -126,8 +146,9 @@ function normalizeConfig(config: PathAccessPolicyConfig): {
 }
 
 function expandHome(input: string): string {
-  if (!input.startsWith('~')) return input;
-  return path.resolve(homedir(), input.slice(input.startsWith('~/') ? 2 : 1));
+  // Shared implementation (also used by the file tools) — handles bare `~`,
+  // `~/...` and leaves `~name` untouched.
+  return expandHomePath(input);
 }
 
 function normalizePath(input: string, operation?: 'read' | 'write'): string {
@@ -139,14 +160,16 @@ function normalizePath(input: string, operation?: 'read' | 'write'): string {
 }
 
 function normalizeExistingPath(input: string): string {
+  // Kernel-style symlink resolution (same semantics as the shell policy):
+  // fs.realpathSync collapses `..` string-wise after following a symlink,
+  // which mis-evaluates escape attempts like <root>/link/../target where
+  // link points elsewhere. resolveSymlinks handles non-existent components
+  // by appending them verbatim after the deepest existing prefix.
   try {
-    if (existsSync(input)) {
-      return realpathSync(input);
-    }
+    return resolveSymlinks(input);
   } catch {
-    // Non-existent read targets are still checked by their normalized path.
+    return input;
   }
-  return input;
 }
 
 function normalizeWritePath(input: string): string {
@@ -161,14 +184,14 @@ function normalizeWritePath(input: string): string {
   }
 
   const realExisting = normalizeExistingPath(existing);
-  return missingParts.length === 0
-    ? realExisting
-    : path.join(realExisting, ...missingParts);
+  return missingParts.length === 0 ? realExisting : path.join(realExisting, ...missingParts);
 }
 
 function isWithinRoot(filePath: string, root: string): boolean {
   const relative = path.relative(root, filePath);
-  return relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative));
+  return (
+    relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative))
+  );
 }
 
 /**
@@ -213,17 +236,14 @@ function matchGlob(filePath: string, pattern: string): boolean {
  * should prefer the double-star form.
  */
 function matchGlobGreedy(filePath: string, pattern: string): boolean {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\?]/g, '\\$&')
-    .replace(/\*/g, '.*');
+  const escaped = pattern.replace(/[.+^${}()|[\]\\?]/g, '\\$&').replace(/\*/g, '.*');
   return new RegExp(`^${escaped}$`).test(filePath);
 }
 
 function matchesDeniedPattern(resolvedPath: string, pattern: string): boolean {
   const expanded = expandHome(pattern);
-  const normalizedPattern = path.isAbsolute(expanded) && !expanded.includes('*')
-    ? normalizePath(expanded)
-    : expanded;
+  const normalizedPattern =
+    path.isAbsolute(expanded) && !expanded.includes('*') ? normalizePath(expanded) : expanded;
 
   if (path.isAbsolute(normalizedPattern) && !normalizedPattern.includes('*')) {
     return isWithinRoot(resolvedPath, normalizedPattern);

@@ -34,7 +34,11 @@ export interface ChannelServices {
   agentManager: AgentManager;
 }
 
-function buildCronFooter(modelLabel: string, agentName: string | undefined, footerConfig: FooterConfig): string {
+function buildCronFooter(
+  modelLabel: string,
+  agentName: string | undefined,
+  footerConfig: FooterConfig,
+): string {
   const parts: string[] = [];
   if (footerConfig.showAgentName && agentName) parts.push(agentName);
   if (footerConfig.showModel && modelLabel) parts.push(modelLabel);
@@ -83,12 +87,18 @@ export function createChannelServices(input: {
   // Only create FeishuClient when the channel is enabled AND has credentials.
   // Creating it with empty appId/appSecret triggers lark SDK errors.
   const feishuEnabled = config.feishu.enabled && config.feishu.appId && config.feishu.appSecret;
+  // SAFETY: the ternary guarantees the undefined branch only runs when the
+  // channel is disabled; downstream code null-checks feishuClient before use.
   const feishuClient = feishuEnabled
     ? new FeishuClient(
-        { appId: config.feishu.appId, appSecret: config.feishu.appSecret },
+        {
+          appId: config.feishu.appId,
+          appSecret: config.feishu.appSecret,
+          region: config.feishu.region,
+        },
         logger,
       )
-    : undefined as unknown as FeishuClient;
+    : (undefined as unknown as FeishuClient);
 
   const commandRegistry = new CommandRegistry();
   const channelManager = new ChannelManager();

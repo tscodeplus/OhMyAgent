@@ -30,11 +30,7 @@ describe('createTransformContext', () => {
 
   it('keeps all messages when exactly maxMessages', async () => {
     const transform = createTransformContext({ maxMessages: 3 });
-    const messages = [
-      makeMessage('user', 1),
-      makeMessage('assistant', 2),
-      makeMessage('user', 3),
-    ];
+    const messages = [makeMessage('user', 1), makeMessage('assistant', 2), makeMessage('user', 3)];
     const result = await transform(messages);
     expect(result).toHaveLength(3);
   });
@@ -72,11 +68,7 @@ describe('createTransformContext', () => {
 
   it('trims normally when no system message present', async () => {
     const transform = createTransformContext({ maxMessages: 2 });
-    const messages = [
-      makeMessage('user', 1),
-      makeMessage('assistant', 2),
-      makeMessage('user', 3),
-    ];
+    const messages = [makeMessage('user', 1), makeMessage('assistant', 2), makeMessage('user', 3)];
     const result = await transform(messages);
     expect(result).toHaveLength(2);
     expect(result.map((m: any) => m.content)).toEqual(['msg-2', 'msg-3']);
@@ -216,9 +208,11 @@ describe('createTransformContext', () => {
 
     await transform([{ role: 'user', content: 'please inspect memory system' }]);
 
-    expect(memoryRetriever.retrieve).toHaveBeenCalledWith(expect.objectContaining({
-      query: 'please inspect memory system',
-    }));
+    expect(memoryRetriever.retrieve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: 'please inspect memory system',
+      }),
+    );
   });
 
   it('uses original user text for memory query and filters stale current-time memories', async () => {
@@ -239,11 +233,15 @@ describe('createTransformContext', () => {
 
     const result = await transform([{ role: 'user', content: '哈喽朋友你好' }]);
 
-    expect(memoryRetriever.retrieve).toHaveBeenCalledWith(expect.objectContaining({
-      query: '哈喽朋友你好',
-      topK: 5,
-    }));
-    const memoryBlock = result[0].content.find((b: any) => b.text?.includes('Relevant remembered information'));
+    expect(memoryRetriever.retrieve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: '哈喽朋友你好',
+        topK: 5,
+      }),
+    );
+    const memoryBlock = result[0].content.find((b: any) =>
+      b.text?.includes('Relevant remembered information'),
+    );
     expect(memoryBlock.text).toContain('用户偏好使用中文交流');
     expect(memoryBlock.text).not.toContain('用户当前时间为');
   });
@@ -264,16 +262,46 @@ describe('createTransformContext', () => {
     const first = await transform([{ role: 'user', content: '哈喽朋友你好' }]);
     const second = await transform([{ role: 'user', content: '哈喽朋友你好' }]);
 
-    expect(first[0].content.some((b: any) => b.text?.includes('Relevant remembered information'))).toBe(true);
+    expect(
+      first[0].content.some((b: any) => b.text?.includes('Relevant remembered information')),
+    ).toBe(true);
     expect(second[0].content).toBe('哈喽朋友你好');
   });
 
   it('uses maxRefsInContext and preserveInMessages for offload archive hints', async () => {
     const records = [
-      { seq: 1, nodeId: 'node-001', summary: 'one', toolName: 'shell', status: 'success', refPath: '001-shell.md' },
-      { seq: 2, nodeId: 'node-002', summary: 'two', toolName: 'shell', status: 'success', refPath: '002-shell.md' },
-      { seq: 3, nodeId: 'node-003', summary: 'three', toolName: 'shell', status: 'success', refPath: '003-shell.md' },
-      { seq: 4, nodeId: 'node-004', summary: 'four', toolName: 'shell', status: 'success', refPath: '004-shell.md' },
+      {
+        seq: 1,
+        nodeId: 'node-001',
+        summary: 'one',
+        toolName: 'shell',
+        status: 'success',
+        refPath: '001-shell.md',
+      },
+      {
+        seq: 2,
+        nodeId: 'node-002',
+        summary: 'two',
+        toolName: 'shell',
+        status: 'success',
+        refPath: '002-shell.md',
+      },
+      {
+        seq: 3,
+        nodeId: 'node-003',
+        summary: 'three',
+        toolName: 'shell',
+        status: 'success',
+        refPath: '003-shell.md',
+      },
+      {
+        seq: 4,
+        nodeId: 'node-004',
+        summary: 'four',
+        toolName: 'shell',
+        status: 'success',
+        refPath: '004-shell.md',
+      },
     ];
     const transform = createTransformContext({
       maxMessages: 2,
@@ -321,7 +349,11 @@ describe('createTransformContext', () => {
 
     expect(result[0].content).toEqual([
       { type: 'text', text: 'continue' },
-      { type: 'text', text: '\n\n<task_progress>\n[任务画布]\n- node-001 done\n</task_progress>' },
+      {
+        type: 'text',
+        text: '\n\n<task_progress>\n[任务画布]\n- node-001 done\n</task_progress>',
+        injected: true,
+      },
     ]);
     expect(logger.debug).toHaveBeenCalledWith(
       expect.objectContaining({ sessionKey: 's1', nodeCount: 1, injectFormat: 'summary' }),
@@ -369,7 +401,10 @@ describe('auto compression in transformContext (pi-style)', () => {
     // contextWindow=5000, reserveTokens=1000 → trigger at 4000
     // estimateTokens returns 5000 > 4000 → trigger
     mockEstimateTokens.mockReturnValue(5000);
-    const summaryMsg = { role: 'user' as const, content: [{ type: 'text' as const, text: '## 目标\n...' }] };
+    const summaryMsg = {
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text: '## 目标\n...' }],
+    };
     mockCompressContext.mockResolvedValue({
       summaryMessage: summaryMsg,
       compressedIndex: 5,
@@ -425,7 +460,10 @@ describe('auto compression in transformContext (pi-style)', () => {
 
   it('uses a lower compression threshold for DeepSeek cache profile', async () => {
     mockEstimateTokens.mockReturnValue(25000);
-    const summaryMsg = { role: 'user' as const, content: [{ type: 'text' as const, text: 'summary' }] };
+    const summaryMsg = {
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text: 'summary' }],
+    };
     mockCompressContext.mockResolvedValue({
       summaryMessage: summaryMsg,
       compressedIndex: 5,
@@ -450,14 +488,20 @@ describe('auto compression in transformContext (pi-style)', () => {
     await transform(messages);
 
     expect(mockCompressContext).toHaveBeenCalledTimes(1);
-    expect(mockCompressContext).toHaveBeenCalledWith(expect.objectContaining({
-      settings: { reserveTokens: 1000, keepRecentTokens: 4000 },
-    }));
+    expect(mockCompressContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        settings: { reserveTokens: 1000, keepRecentTokens: 4000 },
+      }),
+    );
   });
 
   it('falls through to hard truncation when compression fails', async () => {
     mockEstimateTokens.mockReturnValue(5000);
-    mockCompressContext.mockResolvedValue({ summaryMessage: null, compressedIndex: 0, summary: '' });
+    mockCompressContext.mockResolvedValue({
+      summaryMessage: null,
+      compressedIndex: 0,
+      summary: '',
+    });
 
     const transform = createTransformContext({
       maxMessages: 5,
@@ -494,7 +538,10 @@ describe('auto compression in transformContext (pi-style)', () => {
 
   it('compacts the caller array in place and notifies onCompressed (M4)', async () => {
     mockEstimateTokens.mockReturnValue(5000);
-    const summaryMsg = { role: 'user' as const, content: [{ type: 'text' as const, text: '## 目标\n...' }] };
+    const summaryMsg = {
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text: '## 目标\n...' }],
+    };
     mockCompressContext.mockResolvedValue({
       summaryMessage: summaryMsg,
       compressedIndex: 5,
@@ -535,7 +582,11 @@ describe('auto compression in transformContext (pi-style)', () => {
 
   it('skips the transcript write-back when compression yields no summary', async () => {
     mockEstimateTokens.mockReturnValue(5000);
-    mockCompressContext.mockResolvedValue({ summaryMessage: null, compressedIndex: 0, summary: '' });
+    mockCompressContext.mockResolvedValue({
+      summaryMessage: null,
+      compressedIndex: 0,
+      summary: '',
+    });
     const onCompressed = vi.fn();
     const transform = createTransformContext({
       maxMessages: 100,

@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import type { MemoryRepository } from './repositories/memory-repository.js';
+import { EmbeddingRepository } from './repositories/embedding-repository.js';
 import type { SceneClusterer } from './scene-cluster.js';
 
 export interface HygieneConfig {
@@ -18,8 +19,14 @@ export interface HygieneReport {
   error?: string;
 }
 
-function toSqliteDateTime(date: Date): string {
-  return date.toISOString().slice(0, 19).replace('T', ' ');
+/**
+ * `memories.updated_at` stores epoch milliseconds as TEXT (schema default
+ * `cast(strftime('%s','now') as integer) * 1000`). Cutoff comparisons must
+ * use the same representation — lexicographic comparison of numeric strings
+ * is only correct when both sides share the format.
+ */
+function toEpochMsString(date: Date): string {
+  return String(date.getTime());
 }
 
 export class MemoryHygiene {
@@ -48,8 +55,8 @@ export class MemoryHygiene {
 
     const lastCheckMemory = this.memoryRepository.findById(config.lastCheckKey);
     if (lastCheckMemory) {
-      const lastCheckMs = new Date(lastCheckMemory.updated_at).getTime();
-      if (Date.now() - lastCheckMs < config.checkIntervalMs) {
+      const lastCheckMs = Number(lastCheckMemory.updated_at);
+      if (Number.isFinite(lastCheckMs) && Date.now() - lastCheckMs < config.checkIntervalMs) {
         return { cleanedCount: 0, cleanedKinds: {}, durationMs: 0 };
       }
     }
@@ -67,26 +74,28 @@ export class MemoryHygiene {
     const startMs = Date.now();
     const config = this.resolvedConfig;
 
-    const cutoff = new Date(
-      Date.now() - config.tempRetentionDays * 24 * 60 * 60 * 1000,
-    );
-    const cutoffSqlite = toSqliteDateTime(cutoff);
+    const cutoff = new Date(Date.now() - config.tempRetentionDays * 24 * 60 * 60 * 1000);
+    const cutoffStored = toEpochMsString(cutoff);
 
     try {
       const tempKinds = ['fact', 'task', 'device_state'];
       const placeholders = tempKinds.map(() => '?').join(',');
-      const rows = this.db.prepare(`
+      const rows = this.db
+        .prepare(
+          `
         SELECT id, kind FROM memories
         WHERE kind IN (${placeholders})
           AND updated_at < ?
         ORDER BY updated_at ASC
-      `).all(...tempKinds, cutoffSqlite) as Array<{ id: string; kind: string }>;
+      `,
+        )
+        .all(...tempKinds, cutoffStored) as Array<{ id: string; kind: string }>;
 
       // Safety: refuse to delete > 80% of temp-kind memories in one pass.
       // Prevents catastrophic data loss from misconfigured retention or clock skew.
-      const totalRow = this.db.prepare(
-        `SELECT COUNT(*) as cnt FROM memories WHERE kind IN (${placeholders})`
-      ).get(...tempKinds) as { cnt: number };
+      const totalRow = this.db
+        .prepare(`SELECT COUNT(*) as cnt FROM memories WHERE kind IN (${placeholders})`)
+        .get(...tempKinds) as { cnt: number };
       const totalCount = totalRow?.cnt ?? 0;
       const expiredCount = rows.length;
       if (totalCount > 0 && expiredCount > 0) {
@@ -102,13 +111,15 @@ export class MemoryHygiene {
       }
 
       const cleanedKinds: Record<string, number> = {};
-      const deleteEmbeddings = this.db.prepare('DELETE FROM memory_embeddings WHERE memory_id = ?');
-      const deleteMemories = this.db.prepare('DELETE FROM memories WHERE id = ?');
+      // Delete via the repositories so vec_memory_embeddings and the jieba
+      // FTS index stay consistent — raw SQL here would leave orphan vectors
+      // (vec_ virtual tables have no FK cascade) and orphan FTS rows.
+      const embeddingRepository = new EmbeddingRepository(this.db);
 
       const deleteBatch = this.db.transaction((items: Array<{ id: string; kind: string }>) => {
         for (const item of items) {
-          deleteEmbeddings.run(item.id);
-          deleteMemories.run(item.id);
+          embeddingRepository.deleteByMemoryId(item.id);
+          this.memoryRepository.delete(item.id);
           cleanedKinds[item.kind] = (cleanedKinds[item.kind] ?? 0) + 1;
         }
       });

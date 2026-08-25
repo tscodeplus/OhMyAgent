@@ -25,9 +25,13 @@ import { compressContext, estimateTokens } from './compress.js';
 import { extractPreferredName } from '../memory/persona-store.js';
 import { isPromptInjection } from '../memory/memory-filter.js';
 import { truncate } from '../shared/truncation.js';
+import { LRUCache } from 'lru-cache';
 import type { Logger } from 'pino';
 
-function formatCurrentDatePrefix(lang?: string, granularity: 'minute' | 'day' = 'minute'): string | null {
+function formatCurrentDatePrefix(
+  lang?: string,
+  granularity: 'minute' | 'day' = 'minute',
+): string | null {
   if (!lang) return null;
   const now = new Date();
   if (granularity === 'day') {
@@ -81,7 +85,7 @@ function getMessageText(content: string | any[]): string {
 }
 
 function isTimeSensitiveRequest(text: string): boolean {
-  return TIME_SENSITIVE_PATTERNS.some(pattern => pattern.test(text));
+  return TIME_SENSITIVE_PATTERNS.some((pattern) => pattern.test(text));
 }
 
 const MEMORY_RELEVANT_PATTERNS = [
@@ -119,15 +123,23 @@ const INJECTED_BLOCK_PREFIXES = [
   '<archived_tool_results>',
 ];
 
-const deepseekMemorySignatureBySession = new Map<string, string>();
-const deepseekCanvasSignatureBySession = new Map<string, string>();
+// Per-session cache signatures — bounded LRU so long-running gateways don't
+// accumulate an entry per session forever.
+const deepseekMemorySignatureBySession = new LRUCache<string, string>({
+  max: 2000,
+  ttl: 1000 * 60 * 60 * 24,
+});
+const deepseekCanvasSignatureBySession = new LRUCache<string, string>({
+  max: 2000,
+  ttl: 1000 * 60 * 60 * 24,
+});
 
 function isMemoryRelevantRequest(text: string): boolean {
-  return MEMORY_RELEVANT_PATTERNS.some(pattern => pattern.test(text));
+  return MEMORY_RELEVANT_PATTERNS.some((pattern) => pattern.test(text));
 }
 
 function isCanvasRelevantRequest(text: string): boolean {
-  return CANVAS_RELEVANT_PATTERNS.some(pattern => pattern.test(text));
+  return CANVAS_RELEVANT_PATTERNS.some((pattern) => pattern.test(text));
 }
 
 function allowsHistoricalTimeMemory(text: string): boolean {
@@ -135,7 +147,7 @@ function allowsHistoricalTimeMemory(text: string): boolean {
 }
 
 function isStaleCurrentTimeMemory(content: string): boolean {
-  return STALE_CURRENT_TIME_MEMORY_PATTERNS.some(pattern => pattern.test(content));
+  return STALE_CURRENT_TIME_MEMORY_PATTERNS.some((pattern) => pattern.test(content));
 }
 
 function getUserQueryText(content: string | any[]): string {
@@ -144,8 +156,12 @@ function getUserQueryText(content: string | any[]): string {
   return content
     .filter((b: any) => {
       if (b?.type !== 'text' || typeof b.text !== 'string') return false;
+      // Structured marker first — injection sites tag their blocks with
+      // `injected: true`, which cannot false-positive on user text.
+      if (b.injected === true) return false;
+      // Prefix fallback for blocks from sources without the marker.
       const text = b.text.trimStart();
-      return !INJECTED_BLOCK_PREFIXES.some(prefix => text.startsWith(prefix));
+      return !INJECTED_BLOCK_PREFIXES.some((prefix) => text.startsWith(prefix));
     })
     .map((b: any) => b.text)
     .join('\n');
@@ -163,16 +179,18 @@ function containsPreferredNameExpression(content: string): boolean {
 
 function buildMemoryLines(memories: RetrievedMemory[], query: string): string[] {
   const allowStaleTime = allowsHistoricalTimeMemory(query);
-  return memories
-    .filter(m => m.content?.trim())
-    .filter(m => allowStaleTime || !isStaleCurrentTimeMemory(m.content))
-    .filter(m => !containsPreferredNameExpression(m.content))
-    // Read-path injection gate (L1): recalled content is untrusted — it may
-    // predate the write-side filter or have bypassed it via non-tool writes
-    // (summarizer, offload, dream cycle). Never let it override instructions.
-    .filter(m => !isPromptInjection(m.content))
-    .map(m => `- ${m.content}`)
-    .slice(0, 5);
+  return (
+    memories
+      .filter((m) => m.content?.trim())
+      .filter((m) => allowStaleTime || !isStaleCurrentTimeMemory(m.content))
+      .filter((m) => !containsPreferredNameExpression(m.content))
+      // Read-path injection gate (L1): recalled content is untrusted — it may
+      // predate the write-side filter or have bypassed it via non-tool writes
+      // (summarizer, offload, dream cycle). Never let it override instructions.
+      .filter((m) => !isPromptInjection(m.content))
+      .map((m) => `- ${m.content}`)
+      .slice(0, 5)
+  );
 }
 
 export interface TransformOptions {
@@ -237,7 +255,11 @@ export interface TransformOptions {
    */
   desktopBridgeReminderProvider?: (sessionKey?: string) => string | undefined;
   /** Config for Mermaid canvas task graph injection. */
-  mermaidCanvasConfig?: { enabled: boolean; injectFormat: 'summary' | 'full'; maxNodesInContext: number };
+  mermaidCanvasConfig?: {
+    enabled: boolean;
+    injectFormat: 'summary' | 'full';
+    maxNodesInContext: number;
+  };
   /** MermaidCanvas instance for tracking tool execution progress. */
   mermaidCanvas?: MermaidCanvas;
   /** Optional logger for context-injection observability. */
@@ -265,22 +287,21 @@ function ensureContentBlocks(content: string | any[]): any[] {
  * Check whether a date prefix has already been injected into the content blocks.
  */
 function hasDatePrefix(blocks: any[]): boolean {
-  return blocks.some((b: any) =>
-    b.type === 'text' && (
-      (b.text ?? '').startsWith('[当前时间') ||
-      (b.text ?? '').startsWith('[当前日期') ||
-      (b.text ?? '').startsWith('[Current time') ||
-      (b.text ?? '').startsWith('[Current date')
-    ),
+  return blocks.some(
+    (b: any) =>
+      b.type === 'text' &&
+      ((b.text ?? '').startsWith('[当前时间') ||
+        (b.text ?? '').startsWith('[当前日期') ||
+        (b.text ?? '').startsWith('[Current time') ||
+        (b.text ?? '').startsWith('[Current date')),
   );
 }
 
 function hasPreciseTimePrefix(blocks: any[]): boolean {
-  return blocks.some((b: any) =>
-    b.type === 'text' && (
-      (b.text ?? '').startsWith('[当前时间') ||
-      (b.text ?? '').startsWith('[Current time')
-    ),
+  return blocks.some(
+    (b: any) =>
+      b.type === 'text' &&
+      ((b.text ?? '').startsWith('[当前时间') || (b.text ?? '').startsWith('[Current time')),
   );
 }
 
@@ -294,8 +315,8 @@ export function createTransformContext(options?: TransformOptions) {
   const autoRecallFrequency = options?.autoRecallFrequency ?? 'first';
   const sessionKey = options?.sessionKey;
   const agentId = options?.agentId;
-  const snapshotMode = options?.snapshotMode ??
-    (autoRecallFrequency === 'every' ? 'every' : 'first');
+  const snapshotMode =
+    options?.snapshotMode ?? (autoRecallFrequency === 'every' ? 'every' : 'first');
 
   // Track sessions that have already had auto-recall triggered
   const recalledSessions = new Set<string>();
@@ -326,11 +347,15 @@ export function createTransformContext(options?: TransformOptions) {
         const idx = result.lastIndexOf(lastUserMsg);
         const blocks = ensureContentBlocks(lastUserMsg.content);
         if (!hasDatePrefix(blocks)) {
-          blocks.push({ type: 'text', text: '\n\n' + datePrefix });
+          blocks.push({ type: 'text', text: '\n\n' + datePrefix, injected: true } as any);
         }
-        if (!hasPreciseTimePrefix(blocks) && isTimeSensitiveRequest(getMessageText(lastUserMsg.content))) {
+        if (
+          !hasPreciseTimePrefix(blocks) &&
+          isTimeSensitiveRequest(getMessageText(lastUserMsg.content))
+        ) {
           const preciseTime = formatCurrentDatePrefix(dateLanguage, 'minute');
-          if (preciseTime) blocks.push({ type: 'text', text: '\n\n' + preciseTime });
+          if (preciseTime)
+            blocks.push({ type: 'text', text: '\n\n' + preciseTime, injected: true } as any);
         }
         result[idx] = { ...lastUserMsg, content: blocks };
       }
@@ -374,13 +399,26 @@ export function createTransformContext(options?: TransformOptions) {
                   previous !== memoryHint ||
                   isMemoryRelevantRequest(query);
                 if (shouldInjectMemory) {
-                  options?.logger?.debug({ count: memoryLines.length, memories: memoryLines.map(l => truncate(l, 60)) }, 'Memories injected into context');
+                  options?.logger?.debug(
+                    {
+                      count: memoryLines.length,
+                      memories: memoryLines.map((l) => truncate(l, 60)),
+                    },
+                    'Memories injected into context',
+                  );
                   const idx = result.lastIndexOf(lastUserMsg);
-                  const injectedBlocks = [...blocks, { type: 'text', text: memoryHint }];
+                  const injectedBlocks = [
+                    ...blocks,
+                    { type: 'text', text: memoryHint, injected: true } as any,
+                  ];
                   result[idx] = { ...lastUserMsg, content: injectedBlocks };
-                  if (cacheProfile === 'deepseek') deepseekMemorySignatureBySession.set(memoryKey, memoryHint);
+                  if (cacheProfile === 'deepseek')
+                    deepseekMemorySignatureBySession.set(memoryKey, memoryHint);
                 } else {
-                  options?.logger?.debug({ sessionKey: memoryKey, count: memoryLines.length }, 'Repeated memory context skipped for DeepSeek cache profile');
+                  options?.logger?.debug(
+                    { sessionKey: memoryKey, count: memoryLines.length },
+                    'Repeated memory context skipped for DeepSeek cache profile',
+                  );
                 }
               }
             }
@@ -391,9 +429,10 @@ export function createTransformContext(options?: TransformOptions) {
       }
     } else {
       // Classic auto-recall logic (existing behavior for backward compatibility)
-      const shouldRecall = autoRecall && memoryRetriever && (
-        autoRecallFrequency === 'every' || !recalledSessions.has(sessionKey ?? '')
-      );
+      const shouldRecall =
+        autoRecall &&
+        memoryRetriever &&
+        (autoRecallFrequency === 'every' || !recalledSessions.has(sessionKey ?? ''));
 
       if (shouldRecall) {
         const lastUserMsg = [...result].reverse().find((m: any) => m.role === 'user');
@@ -406,7 +445,7 @@ export function createTransformContext(options?: TransformOptions) {
               const memories = await memoryRetriever.retrieve({
                 query,
                 topK: cacheProfile === 'deepseek' ? 8 : 5,
-                scope: 'user',         // limit to user-scoped memories
+                scope: 'user', // limit to user-scoped memories
               });
 
               if (memories.length > 0) {
@@ -421,16 +460,26 @@ export function createTransformContext(options?: TransformOptions) {
                     isMemoryRelevantRequest(query);
                   if (shouldInjectMemory) {
                     const idx = result.lastIndexOf(lastUserMsg);
-                    const injectedBlocks = [...blocks, { type: 'text', text: memoryHint }];
+                    const injectedBlocks = [
+                      ...blocks,
+                      { type: 'text', text: memoryHint, injected: true } as any,
+                    ];
                     result[idx] = { ...lastUserMsg, content: injectedBlocks };
-                    if (cacheProfile === 'deepseek') deepseekMemorySignatureBySession.set(memoryKey, memoryHint);
+                    if (cacheProfile === 'deepseek')
+                      deepseekMemorySignatureBySession.set(memoryKey, memoryHint);
                   } else {
-                    options?.logger?.debug({ sessionKey: memoryKey, count: memoryLines.length }, 'Repeated memory context skipped for DeepSeek cache profile');
+                    options?.logger?.debug(
+                      { sessionKey: memoryKey, count: memoryLines.length },
+                      'Repeated memory context skipped for DeepSeek cache profile',
+                    );
                   }
                 }
               }
             } catch (err) {
-              options?.logger?.debug({ err }, 'Memory retrieval failed — continuing without memory context');
+              options?.logger?.debug(
+                { err },
+                'Memory retrieval failed — continuing without memory context',
+              );
             }
             recalledSessions.add(sessionKey ?? '');
           }
@@ -445,7 +494,7 @@ export function createTransformContext(options?: TransformOptions) {
       try {
         const nodes = options.mermaidCanvas.getAllNodes();
         const total = nodes.length;
-        const completed = nodes.filter(n => n.status !== 'running').length;
+        const completed = nodes.filter((n) => n.status !== 'running').length;
         const currentPhase = options.mermaidCanvas.getCurrentPhase();
         const lastUserMsg = [...result].reverse().find((m: any) => m.role === 'user');
         const currentUserText = lastUserMsg ? getUserQueryText(lastUserMsg.content) : '';
@@ -460,54 +509,73 @@ export function createTransformContext(options?: TransformOptions) {
           !isCanvasRelevantRequest(currentUserText);
 
         if (shouldSkipCanvas) {
-          options.logger?.debug({ sessionKey: canvasKey, nodeCount: total, currentPhase }, 'Repeated static Mermaid canvas skipped for DeepSeek cache profile');
-        } else {
-          if (nodes.length <= options.mermaidCanvasConfig.maxNodesInContext) {
-            const canvasText = options.mermaidCanvasConfig.injectFormat === 'full'
+          options.logger?.debug(
+            { sessionKey: canvasKey, nodeCount: total, currentPhase },
+            'Repeated static Mermaid canvas skipped for DeepSeek cache profile',
+          );
+        } else if (nodes.length <= options.mermaidCanvasConfig.maxNodesInContext) {
+          const canvasText =
+            options.mermaidCanvasConfig.injectFormat === 'full'
               ? options.mermaidCanvas.toMermaid()
               : options.mermaidCanvas.toContextSummary();
-            if (canvasText) {
-              const canvasHint = `\n\n<task_progress>\n${canvasText}\n</task_progress>`;
-              if (lastUserMsg) {
-                const idx = result.lastIndexOf(lastUserMsg);
-                const blocks = ensureContentBlocks(lastUserMsg.content);
-                result[idx] = { ...lastUserMsg, content: [...blocks, { type: 'text', text: canvasHint }] };
-                options.logger?.debug({
+          if (canvasText) {
+            const canvasHint = `\n\n<task_progress>\n${canvasText}\n</task_progress>`;
+            if (lastUserMsg) {
+              const idx = result.lastIndexOf(lastUserMsg);
+              const blocks = ensureContentBlocks(lastUserMsg.content);
+              result[idx] = {
+                ...lastUserMsg,
+                content: [...blocks, { type: 'text', text: canvasHint, injected: true } as any],
+              };
+              options.logger?.debug(
+                {
                   sessionKey,
                   nodeCount: nodes.length,
                   injectFormat: options.mermaidCanvasConfig.injectFormat,
                   maxNodesInContext: options.mermaidCanvasConfig.maxNodesInContext,
-                }, 'Mermaid canvas injected into context');
-                // Cache the signature only after the canvas was actually
-                // injected — otherwise a skipped injection would suppress
-                // future injections of the same canvas.
-                if (cacheProfile === 'deepseek') deepseekCanvasSignatureBySession.set(canvasKey, canvasSignature);
-              }
+                },
+                'Mermaid canvas injected into context',
+              );
+              // Cache the signature only after the canvas was actually
+              // injected — otherwise a skipped injection would suppress
+              // future injections of the same canvas.
+              if (cacheProfile === 'deepseek')
+                deepseekCanvasSignatureBySession.set(canvasKey, canvasSignature);
             }
-          } else {
-            // Too many nodes — inject a concise count summary instead
-            const max = options.mermaidCanvasConfig.maxNodesInContext;
-            const countHint = `\n\n<task_progress>\n[任务进度] 当前阶段: ${currentPhase} (${completed}/${total} 完成, 显示最近 ${max}/${total} 步)\n</task_progress>`;
-            if (lastUserMsg) {
-              const idx = result.lastIndexOf(lastUserMsg);
-              const blocks = ensureContentBlocks(lastUserMsg.content);
-              result[idx] = { ...lastUserMsg, content: [...blocks, { type: 'text', text: countHint }] };
-              options.logger?.debug({
+          }
+        } else {
+          // Too many nodes — inject a concise count summary instead
+          const max = options.mermaidCanvasConfig.maxNodesInContext;
+          const countHint = `\n\n<task_progress>\n[任务进度] 当前阶段: ${currentPhase} (${completed}/${total} 完成, 显示最近 ${max}/${total} 步)\n</task_progress>`;
+          if (lastUserMsg) {
+            const idx = result.lastIndexOf(lastUserMsg);
+            const blocks = ensureContentBlocks(lastUserMsg.content);
+            result[idx] = {
+              ...lastUserMsg,
+              content: [...blocks, { type: 'text', text: countHint, injected: true } as any],
+            };
+            options.logger?.debug(
+              {
                 sessionKey,
                 nodeCount: total,
                 completed,
                 currentPhase,
                 maxNodesInContext: max,
-              }, 'Mermaid canvas compact progress injected into context');
-              if (cacheProfile === 'deepseek') deepseekCanvasSignatureBySession.set(canvasKey, canvasSignature);
-            }
+              },
+              'Mermaid canvas compact progress injected into context',
+            );
+            if (cacheProfile === 'deepseek')
+              deepseekCanvasSignatureBySession.set(canvasKey, canvasSignature);
           }
         }
       } catch (err) {
-        options.logger?.warn({
-          sessionKey,
-          err: err instanceof Error ? err.message : String(err),
-        }, 'Mermaid canvas injection failed');
+        options.logger?.warn(
+          {
+            sessionKey,
+            err: err instanceof Error ? err.message : String(err),
+          },
+          'Mermaid canvas injection failed',
+        );
         // Mermaid canvas injection failure should not block the LLM call
       }
     }
@@ -557,10 +625,16 @@ export function createTransformContext(options?: TransformOptions) {
               previousPersonaText !== personaText;
 
             if (shouldInjectPersona) {
-              options?.logger?.debug({ personaText: personaText.slice(0, 120) }, 'Persona injected into context');
+              options?.logger?.debug(
+                { personaText: personaText.slice(0, 120) },
+                'Persona injected into context',
+              );
               const idx = result.lastIndexOf(lastUserMsg);
               const blocks = ensureContentBlocks(lastUserMsg.content);
-              const personaBlock = { type: 'text' as const, text: `<persona>\n${personaText}\n</persona>\n` };
+              const personaBlock = {
+                type: 'text' as const,
+                text: `<persona>\n${personaText}\n</persona>\n`,
+              };
               const nextBlocks = [...blocks, personaBlock];
               result[idx] = { ...lastUserMsg, content: nextBlocks };
               personaInjectedSessions.add(personaKey);
@@ -581,9 +655,8 @@ export function createTransformContext(options?: TransformOptions) {
     if (compressCfg?.config.enabled && sessionKey) {
       const estimatedTokens = estimateTokens(result);
       const defaultThreshold = compressCfg.contextWindow - compressCfg.config.reserveTokens;
-      const triggerThreshold = cacheProfile === 'deepseek'
-        ? Math.min(defaultThreshold, 12000)
-        : defaultThreshold;
+      const triggerThreshold =
+        cacheProfile === 'deepseek' ? Math.min(defaultThreshold, 12000) : defaultThreshold;
 
       if (estimatedTokens > triggerThreshold) {
         try {
@@ -593,9 +666,10 @@ export function createTransformContext(options?: TransformOptions) {
             contextWindow: compressCfg.contextWindow,
             settings: {
               reserveTokens: compressCfg.config.reserveTokens,
-              keepRecentTokens: cacheProfile === 'deepseek'
-                ? Math.min(compressCfg.config.keepRecentTokens, 4000)
-                : compressCfg.config.keepRecentTokens,
+              keepRecentTokens:
+                cacheProfile === 'deepseek'
+                  ? Math.min(compressCfg.config.keepRecentTokens, 4000)
+                  : compressCfg.config.keepRecentTokens,
             },
             sessionKey,
             mainModelRef: compressCfg.mainModelRef,
@@ -629,20 +703,26 @@ export function createTransformContext(options?: TransformOptions) {
             if (compressResult.summary) {
               lastCompressionSummaryBySession.set(sessionKey, compressResult.summary);
             }
-            options?.logger?.info({
-              sessionKey,
-              originalCount,
-              newCount: result.length,
-              compressedIndex: compressResult.compressedIndex,
-              tokensBefore,
-              tokensAfter: estimateTokens(result),
-            }, 'Context compressed');
+            options?.logger?.info(
+              {
+                sessionKey,
+                originalCount,
+                newCount: result.length,
+                compressedIndex: compressResult.compressedIndex,
+                tokensBefore,
+                tokensAfter: estimateTokens(result),
+              },
+              'Context compressed',
+            );
           }
         } catch (err) {
-          options?.logger?.warn({
-            sessionKey,
-            err: err instanceof Error ? err.message : String(err),
-          }, 'Context compression failed, falling back to hard truncation');
+          options?.logger?.warn(
+            {
+              sessionKey,
+              err: err instanceof Error ? err.message : String(err),
+            },
+            'Context compression failed, falling back to hard truncation',
+          );
         }
       }
     }
@@ -675,12 +755,15 @@ export function createTransformContext(options?: TransformOptions) {
           if (records.length > 0) {
             const sessionDir = options.offloadStore.getSessionDirPath(sessionKey);
             const preserveCount = offloadCfg.preserveInMessages ?? 0;
-            const injectableRecords = preserveCount > 0
-              ? records.slice(0, Math.max(0, records.length - preserveCount))
-              : records;
+            const injectableRecords =
+              preserveCount > 0
+                ? records.slice(0, Math.max(0, records.length - preserveCount))
+                : records;
             const maxRefs = Math.max(1, offloadCfg.maxRefsInContext);
-            const trimmedRecords = injectableRecords.filter(r => r.seq <= trimStart).slice(-maxRefs);
-            const lines = trimmedRecords.map(r => {
+            const trimmedRecords = injectableRecords
+              .filter((r) => r.seq <= trimStart)
+              .slice(-maxRefs);
+            const lines = trimmedRecords.map((r) => {
               const icon = r.status === 'error' ? '❌' : '✅';
               return `${icon} [${r.nodeId}] ${r.summary || r.toolName} | ${sessionDir}/${r.refPath}`;
             });
@@ -690,12 +773,17 @@ export function createTransformContext(options?: TransformOptions) {
               if (firstUser) {
                 const idx = trimmed.indexOf(firstUser);
                 const blocks = ensureContentBlocks(firstUser.content);
-                trimmed[idx] = { ...firstUser, content: [{ type: 'text', text: hint }, ...blocks] };
+                trimmed[idx] = {
+                  ...firstUser,
+                  content: [{ type: 'text', text: hint, injected: true } as any, ...blocks],
+                };
               }
             }
           }
         } catch {
-          options?.logger?.debug('Offload index injection failed — continuing without offload hints');
+          options?.logger?.debug(
+            'Offload index injection failed — continuing without offload hints',
+          );
         }
       }
 

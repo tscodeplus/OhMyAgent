@@ -4,10 +4,10 @@
 
 import { open } from 'node:fs/promises';
 import path from 'node:path';
-import os from 'node:os';
 import type { ToolDefinition } from '../../platform/tool-definition.js';
 import type { ToolCapabilityDescriptor } from '../../platform/tool-capabilities.js';
 import { shouldRouteToDesktopBridge } from '../../platform/tool-context.js';
+import { expandHomePath } from '../../../shared/path-utils.js';
 import { createFileReadTool, type FileReadToolDeps } from '../file-read-tool.js';
 
 const MAX_FILE_SIZE = 100_000;
@@ -55,9 +55,15 @@ export function createFileReadToolDefinition(deps: FileReadToolDeps): ToolDefini
             const link = `\n\n[${fileName}](/desktop-bridge-download?path=${encodeURIComponent(rawPath)}&name=${encodeURIComponent(fileName)})`;
             return { content: [{ type: 'text' as const, text: content + link }], isError: false };
           }
-          return { content: [{ type: 'text' as const, text: `Error reading file: ${result.error}` }], isError: true };
+          return {
+            content: [{ type: 'text' as const, text: `Error reading file: ${result.error}` }],
+            isError: true,
+          };
         } catch (err: any) {
-          return { content: [{ type: 'text' as const, text: `Desktop bridge error: ${err.message}` }], isError: true };
+          return {
+            content: [{ type: 'text' as const, text: `Desktop bridge error: ${err.message}` }],
+            isError: true,
+          };
         }
       }
 
@@ -65,9 +71,7 @@ export function createFileReadToolDefinition(deps: FileReadToolDeps): ToolDefini
       if (ctx.approvalAlreadyHandled) {
         try {
           const rawPath = (args as { path: string }).path;
-          const resolvedPath = rawPath.startsWith('~')
-            ? path.resolve(os.homedir(), rawPath.slice(2))
-            : path.resolve(rawPath);
+          const resolvedPath = path.resolve(expandHomePath(rawPath));
           // Size pre-check via fd stat (symlink-safe — the path cannot be
           // swapped between check and read): reject oversized files before
           // reading so a multi-GB file is never pulled into memory, and bound
@@ -76,7 +80,15 @@ export function createFileReadToolDefinition(deps: FileReadToolDeps): ToolDefini
           try {
             const stats = await handle.stat();
             if (stats.size > MAX_FILE_SIZE) {
-              return { content: [{ type: 'text', text: `File too large to read (${stats.size} bytes, limit ${MAX_FILE_SIZE} bytes)` }], isError: true };
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: `File too large to read (${stats.size} bytes, limit ${MAX_FILE_SIZE} bytes)`,
+                  },
+                ],
+                isError: true,
+              };
             }
             // UTF-8 bytes >= chars, so a file within the byte limit is also
             // within the character display limit and needs no truncation.
@@ -93,7 +105,10 @@ export function createFileReadToolDefinition(deps: FileReadToolDeps): ToolDefini
             await handle.close();
           }
         } catch (e: any) {
-          return { content: [{ type: 'text', text: `Error reading file: ${e.message}` }], isError: true };
+          return {
+            content: [{ type: 'text', text: `Error reading file: ${e.message}` }],
+            isError: true,
+          };
         }
       }
       // Fallback: legacy tool with its own path check

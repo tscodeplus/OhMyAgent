@@ -55,8 +55,16 @@ export function openDatabase(dbPath: string): Database.Database {
     try {
       fs.chmodSync(resolvedPath, 0o600);
       // Also set permissions on WAL and SHM files if they exist
-      try { fs.chmodSync(resolvedPath + '-wal', 0o600); } catch { /* ignore */ }
-      try { fs.chmodSync(resolvedPath + '-shm', 0o600); } catch { /* ignore */ }
+      try {
+        fs.chmodSync(resolvedPath + '-wal', 0o600);
+      } catch {
+        /* ignore */
+      }
+      try {
+        fs.chmodSync(resolvedPath + '-shm', 0o600);
+      } catch {
+        /* ignore */
+      }
     } catch {
       // Silently ignore permission errors on filesystems that don't support chmod
     }
@@ -70,12 +78,28 @@ export function openDatabase(dbPath: string): Database.Database {
   applySchema(db);
   attachMemoryObservabilityDb(db);
 
-  // Populate FTS index if empty (first-time migration for existing databases)
-  const ftsCount = (db.prepare('SELECT COUNT(*) as cnt FROM memories_fts').get() as { cnt: number }).cnt;
-  if (ftsCount === 0) {
-    const memCount = (db.prepare('SELECT COUNT(*) as cnt FROM memories').get() as { cnt: number }).cnt;
-    if (memCount > 0) {
-      db.exec('INSERT INTO memories_fts(rowid, content) SELECT rowid, content FROM memories');
+  // Backfill FTS index for memories that are missing from it (first-time
+  // migration for existing databases, plus partial corruption self-heal:
+  // previously only a fully-empty index triggered the rebuild).
+  {
+    const ftsCount = (
+      db.prepare('SELECT COUNT(*) as cnt FROM memories_fts').get() as { cnt: number }
+    ).cnt;
+    const memCount = (
+      db.prepare("SELECT COUNT(*) as cnt FROM memories WHERE status = 'active'").get() as {
+        cnt: number;
+      }
+    ).cnt;
+    if (ftsCount < memCount) {
+      const backfilled = db.transaction(() =>
+        db.exec('INSERT INTO memories_fts(rowid, content) SELECT rowid, content FROM memories'),
+      );
+      try {
+        backfilled();
+        logger.info(`[FTS] Backfilled memories_fts (${ftsCount} -> ${memCount} rows)`);
+      } catch (err) {
+        logger.warn({ err }, '[FTS] memories_fts backfill failed — search falls back to LIKE');
+      }
     }
   }
 
@@ -114,7 +138,7 @@ export function getDatabase(dbPath?: string): Database.Database {
   if (dbPath === undefined) {
     throw new Error(
       'getDatabase() called before initialization: the first call must pass an explicit ' +
-      "dbPath (or ':memory:' for tests).",
+        "dbPath (or ':memory:' for tests).",
     );
   }
   cachedDb = openDatabase(dbPath);

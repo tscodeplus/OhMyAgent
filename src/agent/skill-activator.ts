@@ -10,6 +10,7 @@ import type { SkillRegistry } from '../skills/skill-registry.js';
 import type { ApprovalGate, PatternType, PolicyEffect } from '../app/types.js';
 import type { Logger } from 'pino';
 import type { LoadedSkill } from '../skills/skill-loader.js';
+import { LRUCache } from 'lru-cache';
 
 // ── Types ──
 
@@ -29,16 +30,35 @@ export interface SkillActivationDeps {
   approvalGate?: ApprovalGate | null;
   logger?: Logger;
   /** Returns the AppServices container (lazy — may not exist at construction time). */
-  getServices?: () => { skillMetricsService?: { recordActivation(skillId: string, sessionKey: string, message: string): string } } | undefined;
+  getServices?: () =>
+    | {
+        skillMetricsService?: {
+          recordActivation(skillId: string, sessionKey: string, message: string): string;
+        };
+      }
+    | undefined;
 }
 
 // ── State ──
 
+// Session-scoped tracking maps use bounded LRU caches (TTL 24h) — plain Maps
+// grew without bound on the long-running gateway and concurrent turns on the
+// same session silently overwrote each other's state.
+
 /** Session-scoped active skill tracking (P1-3 compliance). */
-export const activeSkillForSession = new Map<string, { skillId: string; skill: LoadedSkill }>();
+export const activeSkillForSession = new LRUCache<string, { skillId: string; skill: LoadedSkill }>({
+  max: 1000,
+  ttl: 1000 * 60 * 60 * 24,
+});
 
 /** Session-scoped feedback tracking for metrics (P1-4). */
-export const activeSkillFeedbackIds = new Map<string, { feedbackId: string; startTime: number }>();
+export const activeSkillFeedbackIds = new LRUCache<
+  string,
+  { feedbackId: string; startTime: number }
+>({
+  max: 1000,
+  ttl: 1000 * 60 * 60 * 24,
+});
 
 // ── Activation ──
 
@@ -73,7 +93,7 @@ export function activateSkill(
 
   const resolved = skillRegistry.resolve(message);
   logger?.info(
-    { message, count: resolved.length, skills: resolved.map(r => r.skill.manifest.id) },
+    { message, count: resolved.length, skills: resolved.map((r) => r.skill.manifest.id) },
     '[skill-activator] resolution result',
   );
 
@@ -89,7 +109,14 @@ export function activateSkill(
     scopeKey: resolved[0]!.skill.manifest.id,
   };
 
-  logger?.info({ skillId: skill.manifest.id, matchType: resolved[0]!.matchType, trigger: resolved[0]!.matchedTrigger }, '[skill-activator] skill activated');
+  logger?.info(
+    {
+      skillId: skill.manifest.id,
+      matchType: resolved[0]!.matchType,
+      trigger: resolved[0]!.matchedTrigger,
+    },
+    '[skill-activator] skill activated',
+  );
 
   // P1-3: Store active skill for compliance tracking
   activeSkillForSession.set(sessionId, { skillId: skill.manifest.id, skill });
@@ -98,11 +125,7 @@ export function activateSkill(
   let skillFeedbackId: string | undefined;
   const metricsService = getServices?.()?.skillMetricsService;
   if (metricsService) {
-    skillFeedbackId = metricsService.recordActivation(
-      skill.manifest.id,
-      sessionId,
-      message,
-    );
+    skillFeedbackId = metricsService.recordActivation(skill.manifest.id, sessionId, message);
     activeSkillFeedbackIds.set(sessionId, { feedbackId: skillFeedbackId, startTime: Date.now() });
   }
 
@@ -118,7 +141,12 @@ export function activateSkill(
   // Register skill-level approval overrides
   if (compiled.approvalOverrides && approvalGate?.createPolicy) {
     for (const [key, override] of Object.entries(compiled.approvalOverrides)) {
-      const ov = override as { targetKind: string; patternType: string; pattern: string; effect: string };
+      const ov = override as {
+        targetKind: string;
+        patternType: string;
+        pattern: string;
+        effect: string;
+      };
       approvalGate.createPolicy({
         id: `skill-${key}`,
         scope: 'skill',
@@ -131,7 +159,7 @@ export function activateSkill(
     }
   }
 
-  const activatedSkillNames = resolved.map(r => r.skill.manifest.name).join(' | ');
+  const activatedSkillNames = resolved.map((r) => r.skill.manifest.name).join(' | ');
 
   return { compiled, scope, cleanMessage, activatedSkillNames };
 }

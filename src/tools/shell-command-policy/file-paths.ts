@@ -14,10 +14,28 @@ import type { NormalizedShellCommand } from './types.js';
 // Use `printenv` to list environment variables instead.
 
 export const READ_ONLY_PROGRAMS = new Set([
-  'ls', 'cat', 'head', 'tail', 'wc', 'grep', 'find',
-  'df', 'du', 'ps', 'uptime', 'uname', 'whoami',
-  'date', 'echo', 'printenv', 'which', 'pwd',
-  'sort', 'uniq', 'cut', 'tr',
+  'ls',
+  'cat',
+  'head',
+  'tail',
+  'wc',
+  'grep',
+  'find',
+  'df',
+  'du',
+  'ps',
+  'uptime',
+  'uname',
+  'whoami',
+  'date',
+  'echo',
+  'printenv',
+  'which',
+  'pwd',
+  'sort',
+  'uniq',
+  'cut',
+  'tr',
 ]);
 
 // ─── File Path Extraction & Root Checking ───
@@ -121,14 +139,14 @@ export function expandPathVariables(rawPath: string): string | null {
  * appended verbatim after the deepest existing prefix; a symlink loop is
  * cut off after MAX_SYMLINK_DEPTH links (remaining components verbatim).
  */
-function resolveSymlinks(p: string): string {
+export function resolveSymlinks(p: string): string {
   const MAX_SYMLINK_DEPTH = 40;
   const root = path.parse(p).root;
   const components = p
     .slice(root.length)
     .replace(/\\/g, '/')
     .split('/')
-    .filter(c => c !== '' && c !== '.');
+    .filter((c) => c !== '' && c !== '.');
 
   let current = root; // canonical prefix resolved so far
   let linkBudget = MAX_SYMLINK_DEPTH;
@@ -167,7 +185,7 @@ function resolveSymlinks(p: string): string {
       const targetComponents = linkTarget
         .replace(/\\/g, '/')
         .split('/')
-        .filter(x => x !== '' && x !== '.');
+        .filter((x) => x !== '' && x !== '.');
       if (path.isAbsolute(linkTarget)) {
         current = path.parse(linkTarget).root;
       }
@@ -213,7 +231,7 @@ export function checkFilePathsOutsideRoots(
   for (const r of allowedRoots) {
     const resolved = path.resolve(r);
     // Case-insensitive dedup on Windows
-    const isDup = roots.some(existing =>
+    const isDup = roots.some((existing) =>
       process.platform === 'win32'
         ? existing.toLowerCase() === resolved.toLowerCase()
         : existing === resolved,
@@ -225,7 +243,7 @@ export function checkFilePathsOutsideRoots(
 
   // Resolve symlinks in the roots too, so boundary checks compare like-for-like
   // (an allowed root may itself be a symlink).
-  const realRoots = roots.map(r => resolveSymlinks(r));
+  const realRoots = roots.map((r) => resolveSymlinks(r));
 
   const filePaths = extractFilePaths(command);
   const outside: string[] = [];
@@ -245,7 +263,7 @@ export function checkFilePathsOutsideRoots(
     }
     const resolved = resolveSymlinks(expanded);
     // Cross-platform path check: handles mixed separators + case-insensitive on Windows
-    const inside = realRoots.some(root => isWithinRoot(resolved, root));
+    const inside = realRoots.some((root) => isWithinRoot(resolved, root));
     if (!inside) {
       outside.push(fp);
     }

@@ -1,11 +1,12 @@
 import type Database from 'better-sqlite3';
 import { buildFtsQuery, tokenizeForIndex, isJiebaAvailable } from './fts-tokenizer.js';
+import { memoryObservability } from './observability.js';
 
 export interface FtsSearchResult {
   memoryId: string;
   content: string;
-  bm25Score: number;      // raw BM25 score (lower = more relevant)
-  normalizedScore: number;  // normalized to [0, 1] (higher = more relevant)
+  bm25Score: number; // raw BM25 score (lower = more relevant)
+  normalizedScore: number; // normalized to [0, 1] (higher = more relevant)
 }
 
 /**
@@ -60,17 +61,18 @@ export function ftsSearch(
 
   // Normalize BM25 scores to [0, 1]
   // BM25 raw values are negative; smaller = better match
-  const ranks = rows.map(r => r.rank);
+  const ranks = rows.map((r) => r.rank);
   const minRank = Math.min(...ranks);
   const maxRank = Math.max(...ranks);
 
-  return rows.map(r => ({
+  return rows.map((r) => ({
     memoryId: r.id,
     content: r.content,
     bm25Score: r.rank,
-    normalizedScore: maxRank === minRank
-      ? 0.8  // all results equally relevant → reasonable default
-      : 1 - (r.rank - minRank) / (maxRank - minRank),  // linear normalization
+    normalizedScore:
+      maxRank === minRank
+        ? 0.8 // all results equally relevant → reasonable default
+        : 1 - (r.rank - minRank) / (maxRank - minRank), // linear normalization
   }));
 }
 
@@ -125,7 +127,11 @@ export function ftsSearchJieba(
 
   let rows: Array<{ memory_id: string; content: string; rank: number }>;
   try {
-    rows = db.prepare(sql).all(...params) as Array<{ memory_id: string; content: string; rank: number }>;
+    rows = db.prepare(sql).all(...params) as Array<{
+      memory_id: string;
+      content: string;
+      rank: number;
+    }>;
   } catch {
     // FTS5 query parse error → fall back to original FTS
     return ftsSearch(db, queryText.replace(/[^\w\s一-鿿]/g, ' ').trim(), limit, scope, scopeKey);
@@ -133,7 +139,7 @@ export function ftsSearchJieba(
 
   if (rows.length === 0) return [];
 
-  return rows.map(r => {
+  return rows.map((r) => {
     // BM25 rank: more negative = more relevant
     const relevance = -r.rank;
     return {
@@ -185,8 +191,15 @@ export function syncJiebaFts(
         memory.created_at,
       );
     }
-  } catch {
-    // FTS sync failure is non-fatal — main write already succeeded
+  } catch (err) {
+    // FTS sync failure is non-fatal — main write already succeeded — but it
+    // must be observable: silent drift between memories and the jieba index
+    // silently degrades recall quality.
+    memoryObservability.record('memory.fts.failed', {
+      operation: 'syncJiebaFts',
+      memoryId: memory.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 
@@ -211,14 +224,22 @@ export function rebuildJiebaFts(db: Database.Database): number {
 
   try {
     // Only backfill memories that don't already have a jieba entry
-    const rows = db.prepare(`
+    const rows = db
+      .prepare(
+        `
       SELECT m.id, m.content, m.kind, m.scope, m.scope_key, m.created_at
       FROM memories m
       LEFT JOIN memories_fts_jieba j ON j.memory_id = m.id
       WHERE m.status = 'active' AND j.memory_id IS NULL
-    `).all() as Array<{
-      id: string; content: string; kind: string;
-      scope: string; scope_key: string; created_at: string;
+    `,
+      )
+      .all() as Array<{
+      id: string;
+      content: string;
+      kind: string;
+      scope: string;
+      scope_key: string;
+      created_at: string;
     }>;
 
     if (rows.length === 0) return 0;

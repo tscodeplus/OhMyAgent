@@ -16,7 +16,14 @@
  */
 
 import { i18n, changeI18nLocale } from '../i18n/index.js';
-import { loadConfig, setWatcherLogger, startConfigWatcher, startEnvWatcher, stopConfigWatcher, stopEnvWatcher } from './config.js';
+import {
+  loadConfig,
+  setWatcherLogger,
+  startConfigWatcher,
+  startEnvWatcher,
+  stopConfigWatcher,
+  stopEnvWatcher,
+} from './config.js';
 import { createLogger, safeLogWrapper } from './logger.js';
 import { teamModeStore } from '../agent/team-mode-store.js';
 import { createI18nService } from '../i18n/i18n-service.js';
@@ -37,13 +44,12 @@ import { createSkillCreateTool } from '../tools/builtins/skills/skill-create-def
 import { createSkillTestTool } from '../tools/builtins/skills/skill-test-definition.js';
 import { SkillMetricsService } from '../skills/skill-evolution/skill-metrics.js';
 import { ProposalGenerator } from '../skills/skill-evolution/proposal-generator.js';
-import { getWebUIToken } from './webui-auth.js';
+import { getWebUIToken, webuiAuthHook } from './webui-auth.js';
 import { setupWebUIMiddleware } from './webui/setup-vite.js';
 import { createOnConfigChanged } from './webui/config-persist.js';
 import { registerSkillFileSurfaces } from '../harness/editable-surfaces.js';
 import path from 'node:path';
 import { readdir } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
 
 // Computer Use (provider logic extracted to composers/computer-use-services.ts)
 import { normalizeComputerUseSettings } from '../computer-use/settings.js';
@@ -98,7 +104,10 @@ function hasRateLimitPlugin(server: FastifyInstance): server is FastifyWithRateL
 function registerCustomProviders(config: AppConfig, logger: AppServices['logger']): void {
   if (!config.customProviders) return;
   for (const cp of config.customProviders) {
-    logger.info({ provider: cp.provider, modelCount: cp.models.length }, 'Registering custom provider');
+    logger.info(
+      { provider: cp.provider, modelCount: cp.models.length },
+      'Registering custom provider',
+    );
     for (const m of cp.models) {
       registerModel(cp.provider, m.id, {
         id: m.id,
@@ -123,7 +132,10 @@ function registerCustomProviders(config: AppConfig, logger: AppServices['logger'
   }
 }
 
-function withCustomProviderCacheCompat(model: CustomModelConfig, providerName?: string): Record<string, unknown> | undefined {
+function withCustomProviderCacheCompat(
+  model: CustomModelConfig,
+  providerName?: string,
+): Record<string, unknown> | undefined {
   if (model.api === 'openai-completions') {
     const defaults: Record<string, unknown> = {
       sendSessionAffinityHeaders: true,
@@ -171,7 +183,10 @@ export async function bootstrap(): Promise<BootstrapResult> {
     defaultLocale: config.uiLanguage,
     localesPath,
   });
-  logger.info({ uiLanguage: config.uiLanguage, localesPath, i18nLocale: i18n.locale }, 'i18n initialized');
+  logger.info(
+    { uiLanguage: config.uiLanguage, localesPath, i18nLocale: i18n.locale },
+    'i18n initialized',
+  );
 
   // Initialize ConfigManager with two-phase hot-reload protocol.
   // Register self-contained services here; composer-level services register
@@ -182,12 +197,16 @@ export async function bootstrap(): Promise<BootstrapResult> {
 
   // ── Logger level ──
   configManager.registerService('logger', {
-    apply: async (c) => { logger.level = c.logging.level; },
+    apply: async (c) => {
+      logger.level = c.logging.level;
+    },
   });
 
   // ── Agent Team mode store ──
   configManager.registerService('teamMode', {
-    apply: async (c) => { teamModeStore.updateConfig(c.smart_agent_team); },
+    apply: async (c) => {
+      teamModeStore.updateConfig(c.smart_agent_team);
+    },
   });
 
   // ── i18n locale ──
@@ -282,19 +301,12 @@ export async function bootstrap(): Promise<BootstrapResult> {
     },
   });
 
-
   setVecLogger(logger);
   const memoryServices = await createMemoryServices(config, logger, db);
   const {
-    embeddingClient,
-    memoryRepository,
-    embeddingRepository,
-    memoryLinkRepo,
     memoryRetriever,
     memoryWriter,
-    memoryHygiene,
     memorySummarizer,
-    memoryDoctor,
     sessionRepository,
     messageRepository,
     processedMessageRepository,
@@ -303,21 +315,10 @@ export async function bootstrap(): Promise<BootstrapResult> {
     approvalRequestRepo,
     approvalDecisionRepository,
     personaStore,
-    personaDistiller,
-    personaAuditService,
-    sceneClusterer,
-    memoryChangeCallbacks,
-    offloadDir,
   } = memoryServices;
 
   const policyServices = createPolicyServices(config, db);
-  const {
-    approvalGate,
-    replyApprovalRegistry,
-    pathPolicy,
-    approvalResolution,
-    policyCenter,
-  } = policyServices;
+  const { approvalGate, replyApprovalRegistry, approvalResolution, policyCenter } = policyServices;
 
   const servicesRef: { current?: AppServices } = {};
   const toolServices = createToolServices({
@@ -400,15 +401,8 @@ export async function bootstrap(): Promise<BootstrapResult> {
     servicesRef,
     harnessServices,
   });
-  const {
-    agentFactory,
-    orchestrator,
-    orchestratorRef,
-    agentService,
-    cronServiceRef,
-    modelName,
-    userQuestionStore,
-  } = agentServicesResult;
+  const { agentFactory, orchestrator, agentService, cronServiceRef, modelName, userQuestionStore } =
+    agentServicesResult;
 
   const feishuRouter = new FeishuRouter({ logger, processedMessageRepository });
   feishuRouter.startCleanup(60_000);
@@ -427,7 +421,7 @@ export async function bootstrap(): Promise<BootstrapResult> {
     agentService,
     modelName,
   });
-  const { maintenanceScheduler, dreamCycle, cronService, jobRunner } = schedulerServices;
+  const { maintenanceScheduler, dreamCycle, cronService } = schedulerServices;
   cronServiceRef.current = cronService;
   servicesMap.set('cronService', cronService);
 
@@ -466,6 +460,13 @@ export async function bootstrap(): Promise<BootstrapResult> {
     },
   });
 
+  // Register the WebUI auth hook BEFORE extensions load. Fastify applies
+  // onRequest hooks only to routes registered after the hook itself, so any
+  // later registration would silently bypass authentication otherwise.
+  // Extensions (e.g. channel QR config routes) register directly on this
+  // instance during extensionManager.loadAll() below.
+  server.addHook('onRequest', webuiAuthHook);
+
   // Register server so extensions can access it (e.g. for webhook routes)
   servicesMap.set('server', server);
   servicesMap.set('subscriptionService', subscriptionService);
@@ -478,8 +479,15 @@ export async function bootstrap(): Promise<BootstrapResult> {
   // Channels register their UserQuestionSender implementations here during
   // extension startup. The ask_user_question tool looks up the sender via
   // getUserQuestionSender() in AppServices.
-  const userQuestionSenderRegistry = new Map<string, import('../agent/user-question-port.js').UserQuestionSender>();
-  function getUserQuestionSender(channel: string, _chatId: string, sessionId?: string): import('../agent/user-question-port.js').UserQuestionSender | undefined {
+  const userQuestionSenderRegistry = new Map<
+    string,
+    import('../agent/user-question-port.js').UserQuestionSender
+  >();
+  function getUserQuestionSender(
+    channel: string,
+    _chatId: string,
+    sessionId?: string,
+  ): import('../agent/user-question-port.js').UserQuestionSender | undefined {
     // Session-specific lookup first (e.g. WebUI SSE connections)
     if (sessionId) {
       const sessionKey = `${channel}:${sessionId}`;
@@ -497,18 +505,25 @@ export async function bootstrap(): Promise<BootstrapResult> {
 
   // Registry bridging harness approval prompts (SSE) to the decide endpoint
   // (POST /api/harness/proposals/:id/decide).
-  const harnessApprovalRegistry = new Map<string, (result: import('../harness/types.js').HarnessApprovalResult) => void>();
+  const harnessApprovalRegistry = new Map<
+    string,
+    (result: import('../harness/types.js').HarnessApprovalResult) => void
+  >();
   servicesMap.set('harnessApprovalRegistry', harnessApprovalRegistry);
 
   // ── Register Feishu UserQuestionSender ──
   if (feishuClient) {
-    const { createFeishuUserQuestionSender } = await import('../../extensions/channel-feishu/render/user-question-sender.js');
-    userQuestionSenderRegistry.set('feishu', createFeishuUserQuestionSender({
-      sendCard: (chatId: string, card: Record<string, unknown>) =>
-        feishuClient.sendApprovalCard(chatId, card),
-      updateCard: (messageId: string, card: Record<string, unknown>) =>
-        feishuClient.updateMessage(messageId, 'interactive', card),
-    }));
+    const { createFeishuUserQuestionSender } =
+      await import('../../extensions/channel-feishu/render/user-question-sender.js');
+    userQuestionSenderRegistry.set(
+      'feishu',
+      createFeishuUserQuestionSender({
+        sendCard: (chatId: string, card: Record<string, unknown>) =>
+          feishuClient.sendApprovalCard(chatId, card),
+        updateCard: (messageId: string, card: Record<string, unknown>) =>
+          feishuClient.updateMessage(messageId, 'interactive', card),
+      }),
+    );
   }
 
   // Now that all services are created, load extensions
@@ -648,7 +663,10 @@ export async function bootstrap(): Promise<BootstrapResult> {
         text,
         footer: parts.join(' · '),
       };
-      logger.info({ chatId, textLen: text.length, connectedClients: wsManager.connectedCount }, '[cron-delivery:webui] broadcasting');
+      logger.info(
+        { chatId, textLen: text.length, connectedClients: wsManager.connectedCount },
+        '[cron-delivery:webui] broadcasting',
+      );
       wsManager.broadcast(msg);
       logger.info({ chatId }, '[cron-delivery:webui] broadcast done');
     },
@@ -730,18 +748,20 @@ export async function bootstrap(): Promise<BootstrapResult> {
     // Validates all registered services, applies them in order, then
     // fires configEventBus for backward-compat listeners. Individual
     // apply failures are logged but do not block other services.
-    configManager.reload(newConfig).then(result => {
-      if (!result.success && result.errors.length > 0) {
-        logger.warn({ errors: result.errors }, 'Config reload completed with errors');
-      }
-    }).catch(err => {
-      logger.warn({ err }, 'Config reload unexpected failure');
-    });
+    configManager
+      .reload(newConfig)
+      .then((result) => {
+        if (!result.success && result.errors.length > 0) {
+          logger.warn({ errors: result.errors }, 'Config reload completed with errors');
+        }
+      })
+      .catch((err) => {
+        logger.warn({ err }, 'Config reload unexpected failure');
+      });
 
     // ── Log and notify ──────────────────────────────────────────────────
-    const restartMsg = restartReasons.length > 0
-      ? `; ${restartReasons.join('/')} require restart`
-      : '';
+    const restartMsg =
+      restartReasons.length > 0 ? `; ${restartReasons.join('/')} require restart` : '';
 
     logger.info(
       {
@@ -820,7 +840,18 @@ export async function bootstrap(): Promise<BootstrapResult> {
 
       // Start HTTP server (always, even with WS — serves /health and /webhook/card)
       const bindHost = process.env.OHMYAGENT_BIND_ADDRESS || '0.0.0.0';
-      await server.listen({ port: serverPort, host: bindHost });
+      try {
+        await server.listen({ port: serverPort, host: bindHost });
+      } catch (err) {
+        // Listen failure (e.g. port already in use) must not leave the process
+        // half-initialized with running channels/schedulers/timers — roll back
+        // via stop() so the caller's exit path finds a clean state.
+        logger.error({ err }, 'server.listen failed — rolling back started services');
+        await Promise.resolve(stop()).catch(() => {
+          /* best-effort rollback */
+        });
+        throw err;
+      }
       logger.info(`Server started on port ${serverPort}`);
     },
 
@@ -873,17 +904,21 @@ export async function bootstrap(): Promise<BootstrapResult> {
       // force-kills the process. Bound the wait, then force-close any
       // remaining connections so the process exits cleanly on its own.
       try {
-        await Promise.race([
-          server.close(),
-          new Promise((resolve) => setTimeout(resolve, 3000)),
-        ]);
-      } catch { /* already closed */ }
-      // Fastify's public types predate closeAllConnections (Node 18.2+);
-      // the runtime method exists on the underlying http.Server.
+        await Promise.race([server.close(), new Promise((resolve) => setTimeout(resolve, 3000))]);
+      } catch {
+        /* already closed */
+      }
       try {
+        // SAFETY: Fastify's public types predate closeAllConnections (Node 18.2+); the runtime method exists on the underlying http.Server.
         (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();
-      } catch { /* no-op */ }
-      try { db.close(); } catch { /* already closed or unreachable */ }
+      } catch {
+        /* no-op */
+      }
+      try {
+        db.close();
+      } catch {
+        /* already closed or unreachable */
+      }
       logger.info('[OhMyAgent] HTTP server + database closed');
 
       logger.info('[OhMyAgent] Shutdown complete');

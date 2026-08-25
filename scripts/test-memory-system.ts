@@ -76,10 +76,19 @@ async function main() {
   const embeddingClient = new EmbeddingClient(embeddingConfig);
   log('setup', `Embedding client: ${embeddingConfig.model} @ ${embeddingConfig.baseUrl}`);
 
-  const writer = new MemoryWriter(memoryRepo, embeddingRepo, embeddingClient, db, embeddingCacheRepo);
-  const retriever = new MemoryRetriever(
-    memoryRepo, embeddingRepo, embeddingClient, embeddingCacheRepo, db,
-  );
+  const writer = new MemoryWriter({
+    memoryRepository: memoryRepo,
+    embeddingRepository: embeddingRepo,
+    embeddingClient,
+    embeddingCacheRepo,
+  });
+  const retriever = new MemoryRetriever({
+    memoryRepository: memoryRepo,
+    embeddingRepository: embeddingRepo,
+    embeddingClient,
+    embeddingCacheRepo,
+    db,
+  });
 
   const hygiene = new MemoryHygiene(memoryRepo, db, { tempRetentionDays: 90, checkIntervalMs: 0 });
 
@@ -92,7 +101,12 @@ async function main() {
   log('cache', `Initial embedding cache entries: ${initialCacheCount}`);
 
   // Write first memory
-  const r1 = await writer.write({ content: '用户喜欢深色模式的主题配色', scope: 'user', scopeKey: 'test', kind: 'preference' });
+  const r1 = await writer.write({
+    content: '用户喜欢深色模式的主题配色',
+    scope: 'user',
+    scopeKey: 'test',
+    kind: 'preference',
+  });
   log('write', `Wrote memory: ${r1.id.slice(0, 8)}... (isDuplicate=${r1.isDuplicate})`);
 
   const cacheAfterFirst = embeddingCacheRepo.count();
@@ -101,7 +115,12 @@ async function main() {
   else fail('Embedding not cached!');
 
   // Write duplicate content — should use cache
-  const r2 = await writer.write({ content: '用户喜欢深色模式的主题配色', scope: 'user', scopeKey: 'test', kind: 'preference' });
+  const r2 = await writer.write({
+    content: '用户喜欢深色模式的主题配色',
+    scope: 'user',
+    scopeKey: 'test',
+    kind: 'preference',
+  });
   const cacheAfterSecond = embeddingCacheRepo.count();
   log('write', `Re-wrote same content: ${r2.id.slice(0, 8)}... (isDuplicate=${r2.isDuplicate})`);
   log('cache', `Cache entries after second write: ${cacheAfterSecond}`);
@@ -109,11 +128,36 @@ async function main() {
   else info(`Cache entries changed: ${cacheAfterFirst} → ${cacheAfterSecond}`);
 
   // Write more varied memories
-  await writer.write({ content: '数据库使用 SQLite + better-sqlite3 作为存储引擎', scope: 'user', scopeKey: 'test', kind: 'fact' });
-  await writer.write({ content: '用户偏好使用 pnpm 作为 Node.js 包管理器', scope: 'user', scopeKey: 'test', kind: 'preference' });
-  await writer.write({ content: '项目部署在 Termux Android 环境中，需要 aarch64 兼容', scope: 'user', scopeKey: 'test', kind: 'fact' });
-  await writer.write({ content: '记忆系统支持向量检索和全文搜索', scope: 'user', scopeKey: 'test', kind: 'fact' });
-  await writer.write({ content: 'PostgreSQL 是备选的数据库方案，但当前不使用', scope: 'user', scopeKey: 'test', kind: 'fact' });
+  await writer.write({
+    content: '数据库使用 SQLite + better-sqlite3 作为存储引擎',
+    scope: 'user',
+    scopeKey: 'test',
+    kind: 'fact',
+  });
+  await writer.write({
+    content: '用户偏好使用 pnpm 作为 Node.js 包管理器',
+    scope: 'user',
+    scopeKey: 'test',
+    kind: 'preference',
+  });
+  await writer.write({
+    content: '项目部署在 Termux Android 环境中，需要 aarch64 兼容',
+    scope: 'user',
+    scopeKey: 'test',
+    kind: 'fact',
+  });
+  await writer.write({
+    content: '记忆系统支持向量检索和全文搜索',
+    scope: 'user',
+    scopeKey: 'test',
+    kind: 'fact',
+  });
+  await writer.write({
+    content: 'PostgreSQL 是备选的数据库方案，但当前不使用',
+    scope: 'user',
+    scopeKey: 'test',
+    kind: 'fact',
+  });
 
   const totalWritten = memoryRepo.findByScope('user', 'test').length;
   log('write', `Total memories written: ${totalWritten}`);
@@ -123,27 +167,45 @@ async function main() {
   console.log(`\n${BOLD}─── 3. Phase 2: FTS5 Search ───${RESET}`);
 
   // Test Chinese keyword search
-  const resultsDB = await retriever.retrieve({ query: '数据库', topK: 5, scope: 'user', scopeKey: 'test' });
+  const resultsDB = await retriever.retrieve({
+    query: '数据库',
+    topK: 5,
+    scope: 'user',
+    scopeKey: 'test',
+  });
   log('fts5', `Search "数据库" → ${resultsDB.length} results:`);
   for (const r of resultsDB) {
-    log('fts5', `  score=${r.score.toFixed(4)} source=${getSource(r.id, resultsDB)} "${r.content.slice(0, 60)}..."`);
+    log(
+      'fts5',
+      `  score=${r.score.toFixed(4)} source=${getSource(r.id, resultsDB)} "${r.content.slice(0, 60)}..."`,
+    );
   }
-  if (resultsDB.length > 0 && resultsDB.some(r => r.content.includes('数据库'))) {
+  if (resultsDB.length > 0 && resultsDB.some((r) => r.content.includes('数据库'))) {
     pass('FTS5 Chinese keyword search works');
   } else {
     fail('FTS5 Chinese keyword search failed');
   }
 
   // Test English keyword
-  const resultsEN = await retriever.retrieve({ query: 'PostgreSQL', topK: 3, scope: 'user', scopeKey: 'test' });
-  if (resultsEN.length > 0 && resultsEN.some(r => r.content.includes('PostgreSQL'))) {
+  const resultsEN = await retriever.retrieve({
+    query: 'PostgreSQL',
+    topK: 3,
+    scope: 'user',
+    scopeKey: 'test',
+  });
+  if (resultsEN.length > 0 && resultsEN.some((r) => r.content.includes('PostgreSQL'))) {
     pass('FTS5 English keyword search works');
   } else {
     fail('FTS5 English keyword search failed');
   }
 
   // Test with Chinese stopwords
-  const resultsSW = await retriever.retrieve({ query: '帮我查一下数据库的配置', topK: 5, scope: 'user', scopeKey: 'test' });
+  const resultsSW = await retriever.retrieve({
+    query: '帮我查一下数据库的配置',
+    topK: 5,
+    scope: 'user',
+    scopeKey: 'test',
+  });
   log('query-exp', `Search with stopwords → ${resultsSW.length} results`);
   if (resultsSW.length > 0) pass('Query expansion: stopwords filtered, search still works');
   else fail('Query expansion: no results');
@@ -152,7 +214,12 @@ async function main() {
   console.log(`\n${BOLD}─── 4. Phase 3: RRF Hybrid Search ───${RESET}`);
 
   // Semantic search should complement keyword search via RRF
-  const resultsHybrid = await retriever.retrieve({ query: '数据存储方案', topK: 5, scope: 'user', scopeKey: 'test' });
+  const resultsHybrid = await retriever.retrieve({
+    query: '数据存储方案',
+    topK: 5,
+    scope: 'user',
+    scopeKey: 'test',
+  });
   log('rrf', `Hybrid search "数据存储方案" → ${resultsHybrid.length} results:`);
   for (const r of resultsHybrid) {
     log('rrf', `  score=${r.score.toFixed(6)} kind=${r.kind} "${r.content.slice(0, 60)}..."`);
@@ -161,8 +228,8 @@ async function main() {
   else fail('RRF hybrid search returned nothing');
 
   // Verify preference memories rank higher (exempt from temporal decay)
-  const prefsInResults = resultsHybrid.filter(r => r.kind === 'preference');
-  const factsInResults = resultsHybrid.filter(r => r.kind === 'fact');
+  const prefsInResults = resultsHybrid.filter((r) => r.kind === 'preference');
+  const factsInResults = resultsHybrid.filter((r) => r.kind === 'fact');
   if (prefsInResults.length > 0) {
     info(`Preferences in results: ${prefsInResults.length}, Facts: ${factsInResults.length}`);
     pass('Temporal decay: results include both preferences and facts');
@@ -172,10 +239,24 @@ async function main() {
   console.log(`\n${BOLD}─── 5. Query Result Cache ───${RESET}`);
 
   // Same query twice — second should return same results (cached)
-  const results1 = await retriever.retrieve({ query: 'pnpm 包管理', topK: 3, scope: 'user', scopeKey: 'test' });
-  const results2 = await retriever.retrieve({ query: 'pnpm 包管理', topK: 3, scope: 'user', scopeKey: 'test' });
+  const results1 = await retriever.retrieve({
+    query: 'pnpm 包管理',
+    topK: 3,
+    scope: 'user',
+    scopeKey: 'test',
+  });
+  const results2 = await retriever.retrieve({
+    query: 'pnpm 包管理',
+    topK: 3,
+    scope: 'user',
+    scopeKey: 'test',
+  });
 
-  if (results1.length > 0 && results1.length === results2.length && results1[0]?.id === results2[0]?.id) {
+  if (
+    results1.length > 0 &&
+    results1.length === results2.length &&
+    results1[0]?.id === results2[0]?.id
+  ) {
     pass('Query result cache: repeated query returns same results');
   } else if (results1.length === 0) {
     info('Query returned no results (expected if no matching memories)');
@@ -184,7 +265,12 @@ async function main() {
   }
 
   // Different scope → different cache key
-  const resultsOtherScope = await retriever.retrieve({ query: 'pnpm 包管理', topK: 3, scope: 'session', scopeKey: 'other' });
+  const resultsOtherScope = await retriever.retrieve({
+    query: 'pnpm 包管理',
+    topK: 3,
+    scope: 'session',
+    scopeKey: 'other',
+  });
   info(`Same query, different scope → ${resultsOtherScope.length} results (separate cache key)`);
   pass('Query cache: scope isolation works');
 

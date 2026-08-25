@@ -54,11 +54,22 @@ function triggerPattern(trigger: string): RegExp {
       // adjectives) between each pair of consecutive words. So "generate image"
       // matches "generate an image", "generate a nice image", "create a very
       // detailed beautiful image", etc.
+      //
+      // \b asserts a boundary between a word char and a non-word char, so a
+      // trigger that starts or ends with a non-word character (e.g. "c++",
+      // "#tag") can never match with \b on that side. Use lookaround anchors
+      // on non-word edges instead: (?<!\w) / (?!\w).
       const words = trigger.split(/\s+/);
+      const head = /\w/.test(words[0]![0]!) ? '\\b' : '(?<!\\w)';
+      const tail = /\w$/.test(words[words.length - 1]!) ? '\\b' : '(?!\\w)';
       if (words.length === 1) {
-        pattern = new RegExp(`\\b${escapeRegex(words[0]!)}\\b`, 'i');
+        pattern = new RegExp(`${head}${escapeRegex(words[0]!)}${tail}`, 'i');
       } else {
-        const segments = words.map((w) => `\\b${escapeRegex(w)}\\b`);
+        const segments = words.map((w, i) => {
+          const left = i === 0 ? head : '\\b';
+          const right = i === words.length - 1 ? tail : '\\b';
+          return `${left}${escapeRegex(w)}${right}`;
+        });
         // 0-3 intervening words per gap, e.g. articles + adjectives
         const filler = '(?:\\s+\\w+){0,3}';
         pattern = new RegExp(segments.join(`${filler}\\s+`), 'i');
@@ -94,10 +105,7 @@ function escapeRegex(str: string): string {
  * 4. If any explicit match exists, trigger-based matches are dropped (explicit = user intent)
  * 5. Results sorted by priority (higher first)
  */
-export function resolveSkillContext(
-  message: string,
-  skills: LoadedSkill[]
-): ResolvedSkill[] {
+export function resolveSkillContext(message: string, skills: LoadedSkill[]): ResolvedSkill[] {
   const results: ResolvedSkill[] = [];
 
   for (const skill of skills) {
@@ -130,10 +138,8 @@ export function resolveSkillContext(
   // If any explicit command matched, drop all trigger-based matches.
   // Explicit commands ($skill-id / /skill-id) represent clear user intent
   // and should not be diluted by incidental trigger matches.
-  const hasExplicit = results.some(r => r.matchType === 'explicit');
-  const filtered = hasExplicit
-    ? results.filter(r => r.matchType === 'explicit')
-    : results;
+  const hasExplicit = results.some((r) => r.matchType === 'explicit');
+  const filtered = hasExplicit ? results.filter((r) => r.matchType === 'explicit') : results;
 
   // Sort by priority descending (higher priority first)
   filtered.sort((a, b) => b.skill.manifest.priority - a.skill.manifest.priority);

@@ -20,17 +20,25 @@ import type { ApprovalRequestRepository } from '../memory/repositories/approval-
 interface PendingApprovalEntry {
   timer: ReturnType<typeof setTimeout>;
   sessionKey: string;
+  /** Risk level captured at create() — timeout-allow must never auto-approve high-risk requests. */
+  riskLevel?: string;
 }
 
 export class PendingApprovalStore {
   private pending = new Map<string, PendingApprovalEntry>();
   private events = new EventEmitter();
-  private onAutoReject?: (requestId: string, reason: 'timeout' | 'stale_after_restart' | 'expired_before_recovery' | 'steered') => void;
+  private onAutoReject?: (
+    requestId: string,
+    reason: 'timeout' | 'stale_after_restart' | 'expired_before_recovery' | 'steered',
+  ) => void;
   private onAutoApprove?: (requestId: string) => void;
   private timeoutAction: 'deny' | 'allow';
 
   constructor(options?: {
-    onAutoReject?: (requestId: string, reason: 'timeout' | 'stale_after_restart' | 'expired_before_recovery' | 'steered') => void;
+    onAutoReject?: (
+      requestId: string,
+      reason: 'timeout' | 'stale_after_restart' | 'expired_before_recovery' | 'steered',
+    ) => void;
     onAutoApprove?: (requestId: string) => void;
     timeoutAction?: 'deny' | 'allow';
   }) {
@@ -80,7 +88,7 @@ export class PendingApprovalStore {
       });
     }
 
-    return this._awaitDecision(requestId, timeoutMs, approvalRepo, sessionKey ?? '');
+    return this._awaitDecision(requestId, timeoutMs, approvalRepo, sessionKey ?? '', riskLevel);
   }
 
   setTimeoutAction(action: 'deny' | 'allow'): void {
@@ -140,7 +148,11 @@ export class PendingApprovalStore {
     return rejected;
   }
 
-  rejectAllForSession(sessionKey: string, approvalRepo?: ApprovalRequestRepository, reason: 'stopped_by_user' | 'steered' = 'stopped_by_user'): number {
+  rejectAllForSession(
+    sessionKey: string,
+    approvalRepo?: ApprovalRequestRepository,
+    reason: 'stopped_by_user' | 'steered' = 'stopped_by_user',
+  ): number {
     let count = 0;
     for (const [requestId, entry] of this.pending) {
       if (entry.sessionKey !== sessionKey) continue;
@@ -164,12 +176,15 @@ export class PendingApprovalStore {
     timeoutMs: number,
     approvalRepo?: ApprovalRequestRepository,
     sessionKey?: string,
+    riskLevel?: string,
   ): Promise<ApprovalDecisionType> {
     return new Promise<ApprovalDecisionType>((resolve) => {
       const timer = setTimeout(() => {
         this.events.off(requestId, handler);
         this.pending.delete(requestId);
-        if (this.timeoutAction === 'allow') {
+        // timeout_action: allow is a global fail-open convenience — but it must
+        // never auto-approve HIGH-RISK requests (e.g. dangerous shell commands).
+        if (this.timeoutAction === 'allow' && riskLevel !== 'high') {
           if (approvalRepo) {
             approvalRepo.update(requestId, { status: 'approved', reason: 'timeout_allow' });
           }
@@ -177,7 +192,10 @@ export class PendingApprovalStore {
           resolve('approve_once');
         } else {
           if (approvalRepo) {
-            approvalRepo.update(requestId, { status: 'rejected', reason: 'timeout' });
+            approvalRepo.update(requestId, {
+              status: 'rejected',
+              reason: this.timeoutAction === 'allow' ? 'timeout_high_risk' : 'timeout',
+            });
           }
           this.onAutoReject?.(requestId, 'timeout');
           resolve('reject_once');
@@ -191,7 +209,7 @@ export class PendingApprovalStore {
       };
 
       this.events.once(requestId, handler);
-      this.pending.set(requestId, { timer, sessionKey: sessionKey ?? '' });
+      this.pending.set(requestId, { timer, sessionKey: sessionKey ?? '', riskLevel });
     });
   }
 }

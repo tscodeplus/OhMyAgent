@@ -92,7 +92,10 @@ export class WechatPoller {
 
         // Check for session expiry in successful response (errcode -14)
         if ((resp as any).errcode === -14 || (resp as any).errcode === '-14') {
-          this.logger.error({ errcode: (resp as any).errcode, errmsg: (resp as any).errmsg }, 'WeChat session expired — stopping poller');
+          this.logger.error(
+            { errcode: (resp as any).errcode, errmsg: (resp as any).errmsg },
+            'WeChat session expired — stopping poller',
+          );
           this.running = false;
           return;
         }
@@ -100,17 +103,17 @@ export class WechatPoller {
         // Success — reset failure counter
         consecutiveFailures = 0;
 
-        // Save new cursor
-        if (resp.get_updates_buf !== undefined) {
-          cursor = resp.get_updates_buf;
-          await this.saveCursor(cursor);
-        }
-
-        // Process messages
+        // Process messages FIRST, then save the cursor. The server advances
+        // its cursor for us on the next poll only via get_updates_buf — saving
+        // it before processing meant a crash mid-batch permanently lost the
+        // whole batch (the cursor was already committed, no redelivery).
         if (resp.msgs && resp.msgs.length > 0) {
           this.logger.debug({ msgCount: resp.msgs.length }, 'WeChat poller received messages');
           for (const msg of resp.msgs) {
-            this.logger.debug({ from: msg.from_user_id, items: msg.item_list?.length }, 'Processing WeChat message');
+            this.logger.debug(
+              { from: msg.from_user_id, items: msg.item_list?.length },
+              'Processing WeChat message',
+            );
             // Persist context_token per sender
             if (msg.context_token && msg.from_user_id) {
               this.contextTokens.set(msg.from_user_id, msg.context_token);
@@ -125,12 +128,21 @@ export class WechatPoller {
             try {
               await onMessage(msg);
             } catch (err: unknown) {
+              // Handler errors are logged and swallowed — the message is
+              // considered delivered; only a process crash before the cursor
+              // save below triggers redelivery.
               this.logger.error(
                 { err, fromUserId: msg.from_user_id },
                 'WeChat message handler error',
               );
             }
           }
+        }
+
+        // Save new cursor only after the batch has been processed
+        if (resp.get_updates_buf !== undefined) {
+          cursor = resp.get_updates_buf;
+          await this.saveCursor(cursor);
         }
       } catch (err: unknown) {
         // Check for session expiry (errcode -14) — fatal
@@ -148,15 +160,9 @@ export class WechatPoller {
 
         // Transient error — exponential backoff
         consecutiveFailures++;
-        this.logger.warn(
-          { err, consecutiveFailures },
-          'WeChat poller transient error',
-        );
+        this.logger.warn({ err, consecutiveFailures }, 'WeChat poller transient error');
 
-        const delayIndex = Math.min(
-          consecutiveFailures - 1,
-          BACKOFF_DELAYS.length - 1,
-        );
+        const delayIndex = Math.min(consecutiveFailures - 1, BACKOFF_DELAYS.length - 1);
         const delayMs = BACKOFF_DELAYS[delayIndex];
 
         if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
@@ -203,11 +209,7 @@ export class WechatPoller {
   private async saveCursor(cursor: string): Promise<void> {
     try {
       await fs.mkdir(path.dirname(this.cursorFile), { recursive: true });
-      await fs.writeFile(
-        this.cursorFile,
-        JSON.stringify({ get_updates_buf: cursor }),
-        'utf-8',
-      );
+      await fs.writeFile(this.cursorFile, JSON.stringify({ get_updates_buf: cursor }), 'utf-8');
     } catch (err: unknown) {
       this.logger.error({ err }, 'Failed to save WeChat poll cursor');
     }
@@ -236,11 +238,7 @@ export class WechatPoller {
       for (const [key, value] of this.contextTokens) {
         obj[key] = value;
       }
-      await fs.writeFile(
-        this.contextTokensFile,
-        JSON.stringify(obj, null, 2),
-        'utf-8',
-      );
+      await fs.writeFile(this.contextTokensFile, JSON.stringify(obj, null, 2), 'utf-8');
     } catch (err: unknown) {
       this.logger.error({ err }, 'Failed to save WeChat context tokens');
     }
@@ -263,11 +261,7 @@ export class WechatPoller {
  * Build the cursor file path: {cursorDir}/sync-{sha256(token)[:8]}.json
  */
 function getCursorPath(cursorDir: string, botToken: string): string {
-  const hash = crypto
-    .createHash('sha256')
-    .update(botToken)
-    .digest('hex')
-    .slice(0, 8);
+  const hash = crypto.createHash('sha256').update(botToken).digest('hex').slice(0, 8);
   return path.join(cursorDir, `sync-${hash}.json`);
 }
 

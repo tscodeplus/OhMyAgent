@@ -1,5 +1,6 @@
 import path from 'node:path';
 import os from 'node:os';
+import { homedir } from 'node:os';
 
 /**
  * Check whether filePath is within the given root directory.
@@ -8,7 +9,9 @@ import os from 'node:os';
  */
 export function isWithinRoot(filePath: string, root: string): boolean {
   const relative = path.relative(root, filePath);
-  return relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative));
+  return (
+    relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative))
+  );
 }
 
 /**
@@ -41,4 +44,48 @@ export function normalizeRoots(roots: string[]): string[] {
     }
   }
   return result;
+}
+
+/**
+ * Key order for extracting a file-path argument from tool args. Both the
+ * approval-card rendering (before-tool-call) and the PolicyCenter reuse
+ * subject (policy-center) MUST use the same order — a divergent order makes
+ * the displayed path differ from the recorded approval subject when args
+ * contain both `path` and `filePath`.
+ */
+export const PATH_ARG_KEYS = [
+  'filePath',
+  'path',
+  'directory',
+  'imagePath',
+  'audioPath',
+  'cwd',
+  'outputPath',
+  'outputDir',
+] as const;
+
+/**
+ * Extract the first string-valued path argument from tool args using the
+ * canonical key order. Returns undefined when no path-like arg is present.
+ */
+export function extractPathArg(args: unknown): string | undefined {
+  if (!args || typeof args !== 'object') return undefined;
+  const record = args as Record<string, unknown>;
+  for (const key of PATH_ARG_KEYS) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  return undefined;
+}
+
+/**
+ * Expand a leading `~` or `~/` to the user's home directory.
+ * Bare `~` maps to the home dir itself; `~name` (another user's home) and
+ * all other inputs are returned UNCHANGED — callers decide whether/how to
+ * resolve relative paths (glob deny patterns must stay relative!).
+ */
+export function expandHomePath(rawPath: string): string {
+  if (rawPath === '~') return path.resolve(homedir());
+  if (rawPath.startsWith('~/')) return path.resolve(homedir(), rawPath.slice(2));
+  return rawPath;
 }

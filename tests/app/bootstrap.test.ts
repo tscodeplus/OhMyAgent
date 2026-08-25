@@ -340,6 +340,7 @@ vi.mock('../../extensions/channel-feishu/feishu-server.js', () => ({
     close: vi.fn(async () => {}),
     get: vi.fn(),
     post: vi.fn(),
+    addHook: vi.fn(),
   })),
 }));
 
@@ -477,8 +478,7 @@ describe('bootstrap', () => {
 
     const lastCall = vi.mocked(AgentService).mock.calls.at(-1);
     const replyDispatcherFactory = lastCall?.[1] as
-      | ((chatId: string, messageId?: string) => unknown)
-      | undefined;
+      ((chatId: string, messageId?: string) => unknown) | undefined;
     expect(replyDispatcherFactory).toBeTypeOf('function');
 
     replyDispatcherFactory?.('chat-1', 'msg-1');
@@ -530,23 +530,29 @@ describe('bootstrap', () => {
     const { services } = await bootstrap();
     const names = services.toolRegistry.names();
 
-    expect(names).toEqual(expect.arrayContaining([
-      'file_write',
-      'file_edit',
-      'glob',
-      'grep',
-      'web_fetch',
-      'tool_search',
-      'ask_user_question',
-      'brief',
-      'todo_write',
-      'sleep',
-      'config',
-    ]));
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'file_write',
+        'file_edit',
+        'glob',
+        'grep',
+        'web_fetch',
+        'tool_search',
+        'ask_user_question',
+        'brief',
+        'todo_write',
+        'sleep',
+        'config',
+      ]),
+    );
   });
 
   it('start() calls server.listen and wsClient.start', async () => {
-    const mockServer = { listen: vi.fn(async () => {}), close: vi.fn(async () => {}) };
+    const mockServer = {
+      listen: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      addHook: vi.fn(),
+    };
     vi.mocked(createFeishuServer).mockReturnValueOnce(mockServer as any);
 
     const mockWs = { start: vi.fn(async () => {}), stop: vi.fn() };
@@ -560,7 +566,11 @@ describe('bootstrap', () => {
   });
 
   it('stop() calls server.close, wsClient.stop, and db.close', async () => {
-    const mockServer = { listen: vi.fn(async () => {}), close: vi.fn(async () => {}) };
+    const mockServer = {
+      listen: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      addHook: vi.fn(),
+    };
     vi.mocked(createFeishuServer).mockReturnValueOnce(mockServer as any);
 
     const mockWs = { start: vi.fn(async () => {}), stop: vi.fn() };
@@ -582,10 +592,7 @@ describe('bootstrap', () => {
 
     await bootstrap();
 
-    expect(mockRouter.on).toHaveBeenCalledWith(
-      'im.message.receive_v1',
-      expect.any(Function),
-    );
+    expect(mockRouter.on).toHaveBeenCalledWith('im.message.receive_v1', expect.any(Function));
   });
 
   it('passes feishuAuth with verificationToken and encryptKey', async () => {
@@ -601,9 +608,7 @@ describe('bootstrap', () => {
   });
 
   it('returns handled toast and skips duplicate approval persistence', async () => {
-    const resolveApproval = vi.fn()
-      .mockReturnValueOnce(true)
-      .mockReturnValueOnce(false);
+    const resolveApproval = vi.fn().mockReturnValueOnce(true).mockReturnValueOnce(false);
     vi.mocked(createAgentFactory).mockReturnValueOnce({
       create: vi.fn(),
       resolveApproval,
@@ -628,8 +633,7 @@ describe('bootstrap', () => {
     await bootstrap();
 
     const wsOptions = vi.mocked(FeishuWSClient).mock.calls.at(-1)?.[0] as
-      | { cardActionHandler?: (callback: any) => Promise<any> }
-      | undefined;
+      { cardActionHandler?: (callback: any) => Promise<any> } | undefined;
     expect(wsOptions?.cardActionHandler).toBeTypeOf('function');
 
     const callback = {
@@ -647,12 +651,14 @@ describe('bootstrap', () => {
     const firstResult = await wsOptions?.cardActionHandler?.(callback);
     const secondResult = await wsOptions?.cardActionHandler?.(callback);
 
-    expect(firstResult).toEqual(expect.objectContaining({
-      toast: {
-        type: 'error',
-        content: i18n.t('bootstrap:toast.deniedOnce'),
-      },
-    }));
+    expect(firstResult).toEqual(
+      expect.objectContaining({
+        toast: {
+          type: 'error',
+          content: i18n.t('bootstrap:toast.deniedOnce'),
+        },
+      }),
+    );
     expect(secondResult).toEqual({
       toast: {
         type: 'info',
@@ -671,5 +677,4 @@ describe('bootstrap', () => {
     expect(approvalDecisionCreate).toHaveBeenCalledTimes(1);
     expect(approvalRequestUpdate).toHaveBeenCalledTimes(1);
   });
-
 });
