@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EventBridge } from '../../src/agent/event-bridge.js';
+import { changeI18nLocale } from '../../src/i18n/i18n-service.js';
 import type { ReplyDispatcher } from '../../src/app/types.js';
 
 /**
@@ -10,14 +11,12 @@ function createMockAgent() {
   let listener: ((event: any, signal: AbortSignal) => void | Promise<void>) | undefined;
 
   return {
-    subscribe: vi.fn(
-      (cb: (event: any, signal: AbortSignal) => void | Promise<void>) => {
-        listener = cb;
-        return () => {
-          listener = undefined;
-        };
-      },
-    ),
+    subscribe: vi.fn((cb: (event: any, signal: AbortSignal) => void | Promise<void>) => {
+      listener = cb;
+      return () => {
+        listener = undefined;
+      };
+    }),
     /** Helper: emit an event as if the real Agent did. */
     async emit(event: any) {
       if (!listener) throw new Error('No listener subscribed');
@@ -317,7 +316,14 @@ describe('EventBridge', () => {
         {
           role: 'assistant',
           stopReason: 'stop',
-          usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+          usage: {
+            input: 10,
+            output: 5,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 15,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
           content: [],
           api: 'openai-chat',
           provider: 'openai',
@@ -330,7 +336,12 @@ describe('EventBridge', () => {
     expect(dispatcher.onStart).toHaveBeenCalledTimes(1);
     expect(dispatcher.onTextDelta).toHaveBeenCalledWith('Hi');
     expect(dispatcher.onToolStart).toHaveBeenCalledWith('search', { q: 'test' }, 'tc-1');
-    expect(dispatcher.onToolEnd).toHaveBeenCalledWith('search', { content: [], details: null }, false, 'tc-1');
+    expect(dispatcher.onToolEnd).toHaveBeenCalledWith(
+      'search',
+      { content: [], details: null },
+      false,
+      'tc-1',
+    );
     expect(dispatcher.onReasoningDelta).toHaveBeenCalledWith('...');
     expect(dispatcher.onComplete).toHaveBeenCalledTimes(1);
   });
@@ -357,5 +368,88 @@ describe('EventBridge', () => {
 
     await expect(agent.emit({ type: 'agent_end', messages: [] })).resolves.toBeUndefined();
     expect(dispatcher.onError).toHaveBeenCalledWith(completeError);
+  });
+
+  // ---------------------------------------------------- <plan> display localization
+
+  function emitText(delta: string) {
+    return agent.emit({
+      type: 'message_update',
+      message: { role: 'assistant', content: [] },
+      assistantMessageEvent: {
+        type: 'text_delta',
+        contentIndex: 0,
+        delta,
+        partial: { role: 'assistant', content: [] },
+      },
+    });
+  }
+
+  function emittedText(): string {
+    return vi
+      .mocked(dispatcher.onTextDelta)
+      .mock.calls.map((c) => c[0])
+      .join('');
+  }
+
+  it('localizes well-known English plan headers/keywords under zh-CN', async () => {
+    await changeI18nLocale('zh-CN');
+    try {
+      bridge.start(agent as any);
+      await emitText(
+        '<plan>\n### Subtask Decomposition\n1. Search files\n\n### Parallel Strategy\nSequential (1 then 2)\n</plan>done',
+      );
+      const out = emittedText();
+      expect(out).toContain('### 子任务拆解');
+      expect(out).toContain('### 并行策略');
+      expect(out).toContain('顺序执行 (1 then 2)');
+      expect(out).not.toContain('Subtask Decomposition');
+      expect(out).not.toContain('Parallel Strategy');
+      // Content outside the <plan> block passes through untouched
+      expect(out.endsWith('done')).toBe(true);
+    } finally {
+      await changeI18nLocale('en');
+    }
+  });
+
+  it('localizes headers/keywords case-insensitively under zh-CN', async () => {
+    await changeI18nLocale('zh-CN');
+    try {
+      bridge.start(agent as any);
+      await emitText(
+        '<plan>\n### subtask decomposition\n1. Search files\n\n### parallel strategy\nsequential (1 then 2), mixed later\n</plan>',
+      );
+      const out = emittedText();
+      expect(out).toContain('### 子任务拆解');
+      expect(out).toContain('### 并行策略');
+      expect(out).toContain('顺序执行 (1 then 2)');
+      expect(out).toContain('混合');
+      expect(out).not.toContain('sequential');
+      expect(out).not.toContain('decomposition');
+    } finally {
+      await changeI18nLocale('en');
+    }
+  });
+
+  it('localizes plan headers split across streaming deltas', async () => {
+    await changeI18nLocale('zh-CN');
+    try {
+      bridge.start(agent as any);
+      await emitText('<plan>\n### Subtask Decomposit');
+      await emitText('ion\n1. Search files\n</plan>');
+      const out = emittedText();
+      expect(out).toContain('### 子任务拆解');
+      expect(out).not.toContain('Decomposition');
+    } finally {
+      await changeI18nLocale('en');
+    }
+  });
+
+  it('leaves plan content unchanged under the en locale', async () => {
+    bridge.start(agent as any);
+    await emitText('<plan>\n### Subtask Decomposition\n1. Search files\n</plan>');
+    const out = emittedText();
+    expect(out).toContain('### Subtask Decomposition');
+    expect(out).toContain('**Plan**');
   });
 });

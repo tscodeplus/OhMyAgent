@@ -76,6 +76,13 @@
     "saveFailed": "保存失败",
     "downloadImage": "下载图片",
     "taskPlan": "任务规划",
+    "planBlock": {
+      "subtaskDecomposition": "子任务拆解",
+      "parallelStrategy": "并行策略",
+      "allParallel": "全部并行",
+      "sequential": "顺序执行",
+      "mixed": "混合"
+    },
     "completed": "已完成",
     "error": "任务中断",
     "questionAnswered": "收到回答",

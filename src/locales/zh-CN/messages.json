@@ -20,7 +20,22 @@
     "busy": "当前会话正在处理大量消息，请稍后再试。"
   },
   "plan": {
-    "label": "任务规划"
+    "label": "任务规划",
+    "headers": {
+      "subtaskDecomposition": "子任务拆解",
+      "parallelStrategy": "并行策略"
+    },
+    "strategies": {
+      "allParallel": "全部并行",
+      "sequential": "顺序执行",
+      "mixed": "混合"
+    },
+    "dagSummary": {
+      "title": "plan_and_spawn 结果: {{task}}",
+      "error": "错误: {{message}}",
+      "duration": "耗时: {{seconds}}s",
+      "progress": "**进度**: {{done}}/{{total}} 完成"
+    }
   },
   "approval": {
     "approvedOnce": "已批准（仅此次）",

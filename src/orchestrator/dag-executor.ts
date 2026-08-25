@@ -17,6 +17,7 @@ import type { AgentManager } from '../agent/agent-manager.js';
 import type { Orchestrator } from './orchestrator.js';
 import type { Logger } from 'pino';
 import { waitForIdleWithTimeout } from '../shared/with-timeout.js';
+import { i18n } from '../i18n/index.js';
 import type {
   SubTaskDef,
   PlanAndSpawnInput,
@@ -404,7 +405,7 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
 
 function buildSummary(task: string, results: SubTaskResult[]): string {
   const lines: string[] = [
-    `## plan_and_spawn 结果: ${task}`,
+    i18n.t('messages:plan.dagSummary.title', { task }),
     '',
   ];
 
@@ -418,10 +419,10 @@ function buildSummary(task: string, results: SubTaskResult[]): string {
       lines.push(`   ${r.summary}`);
     }
     if (r.error) {
-      lines.push(`   错误: ${r.error}`);
+      lines.push(`   ${i18n.t('messages:plan.dagSummary.error', { message: r.error })}`);
     }
     if (r.durationMs) {
-      lines.push(`   耗时: ${(r.durationMs / 1000).toFixed(1)}s`);
+      lines.push(`   ${i18n.t('messages:plan.dagSummary.duration', { seconds: (r.durationMs / 1000).toFixed(1) })}`);
     }
     lines.push('');
   }
@@ -429,7 +430,7 @@ function buildSummary(task: string, results: SubTaskResult[]): string {
   const completed = results.filter(r => r.status === 'completed').length;
   const total = results.length;
   lines.push(`---`);
-  lines.push(`**进度**: ${completed}/${total} 完成`);
+  lines.push(i18n.t('messages:plan.dagSummary.progress', { done: completed, total }));
 
   return lines.join('\n');
 }

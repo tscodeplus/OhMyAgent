@@ -20,6 +20,9 @@ export class EventBridge {
   /** Track stripping state for <plan>...</plan> blocks (flat, no nesting). */
   private planDepth = 0;
   private planPartial = '';
+  /** Incomplete last line inside a <plan> block, held back so tokens split
+   *  across deltas are localized only after they are complete. */
+  private planLineBuffer = '';
   private agent?: Agent;
   /** Called before onComplete/onError/onAborted to persist state. */
   private preCompleteCallback?: () => Promise<void>;
@@ -95,12 +98,24 @@ export class EventBridge {
         this.thinkBuffer += fullDelta.slice(i, openIdx + 7);
         this.thinkDepth++;
         i = openIdx + 7;
-        continue;
       }
     }
 
     // Buffer the tail in case a <think> / </think> tag is split across deltas
-    const TAG_STARTS = ['<', '</', '<t', '</t', '<th', '</th', '<thi', '</thi', '<thin', '</thin', '<think', '</think'];
+    const TAG_STARTS = [
+      '<',
+      '</',
+      '<t',
+      '</t',
+      '<th',
+      '</th',
+      '<thi',
+      '</thi',
+      '<thin',
+      '</thin',
+      '<think',
+      '</think',
+    ];
     for (const prefix of TAG_STARTS) {
       if (fullDelta.endsWith(prefix) && fullDelta.length >= prefix.length) {
         result = result.slice(0, result.length - prefix.length);
@@ -159,7 +174,15 @@ export class EventBridge {
 
       // Inside plan, no close tag → prefix every line with "> "
       if (this.planDepth > 0 && closeIdx === -1) {
-        result += blockquoteLines(fullDelta.slice(i));
+        // Only emit complete lines; hold back the trailing partial line so
+        // headers/keywords split across deltas localize correctly.
+        this.planLineBuffer += fullDelta.slice(i);
+        const lastNewline = this.planLineBuffer.lastIndexOf('\n');
+        if (lastNewline !== -1) {
+          const complete = this.planLineBuffer.slice(0, lastNewline + 1);
+          this.planLineBuffer = this.planLineBuffer.slice(lastNewline + 1);
+          result += blockquoteLines(this.localizePlanContent(complete));
+        }
         break;
       }
 
@@ -178,7 +201,9 @@ export class EventBridge {
 
       // Exiting plan: blockquote the content before </plan>, then close
       if (this.planDepth > 0 && closeIdx !== -1 && (openIdx === -1 || closeIdx < openIdx)) {
-        result += blockquoteLines(fullDelta.slice(i, closeIdx));
+        this.planLineBuffer += fullDelta.slice(i, closeIdx);
+        result += blockquoteLines(this.localizePlanContent(this.planLineBuffer));
+        this.planLineBuffer = '';
         result += CLOSE_STYLED;
         this.planDepth = 0;
         i = closeIdx + CLOSE_LEN;
@@ -189,7 +214,6 @@ export class EventBridge {
       if (this.planDepth > 0 && openIdx !== -1) {
         result += blockquoteLines(fullDelta.slice(i, openIdx + OPEN_LEN));
         i = openIdx + OPEN_LEN;
-        continue;
       }
     }
 
@@ -214,6 +238,39 @@ export class EventBridge {
   private resetPlanFilter(): void {
     this.planDepth = 0;
     this.planPartial = '';
+    this.planLineBuffer = '';
+  }
+
+  /**
+   * Localize well-known English plan-template strings emitted by the model.
+   *
+   * The team-mode prompt layer is English by design (model-facing), but the
+   * <plan> block is rendered verbatim to the user — so its fixed section
+   * headers and strategy keywords are mapped via i18n at display time.
+   * Case-insensitive exact / word-boundary matching keeps this deterministic
+   * while tolerating model casing drift; unknown wording passes through
+   * untouched. For locales whose values equal the English originals (en),
+   * replacements are no-ops.
+   */
+  private localizePlanContent(content: string): string {
+    const tr = (key: string): string | null => {
+      const v = i18n.t(key);
+      return v && v !== key ? v : null;
+    };
+    const rules: Array<[RegExp, string]> = [];
+    const h1 = tr('messages:plan.headers.subtaskDecomposition');
+    if (h1) rules.push([/^### Subtask Decomposition.*$/im, `### ${h1}`]);
+    const h2 = tr('messages:plan.headers.parallelStrategy');
+    if (h2) rules.push([/^### Parallel Strategy.*$/im, `### ${h2}`]);
+    const s1 = tr('messages:plan.strategies.allParallel');
+    if (s1) rules.push([/\bAll-parallel\b/gi, s1]);
+    const s2 = tr('messages:plan.strategies.sequential');
+    if (s2) rules.push([/\bSequential\b/gi, s2]);
+    const s3 = tr('messages:plan.strategies.mixed');
+    if (s3) rules.push([/\bMixed\b/gi, s3]);
+    let out = content;
+    for (const [re, to] of rules) out = out.replace(re, to);
+    return out;
   }
 
   /**
@@ -238,7 +295,9 @@ export class EventBridge {
       const modelStr = `${stateModel.provider}/${stateModel.id}`;
       try {
         this.replyDispatcher.setModel(modelStr);
-      } catch { this.logger?.debug('Dispatcher setModel failed — continuing'); }
+      } catch {
+        this.logger?.debug('Dispatcher setModel failed — continuing');
+      }
     }
 
     this.unsubscribe = agent.subscribe(async (event: AgentEvent) => {
@@ -250,7 +309,9 @@ export class EventBridge {
           // already created the message bubble (beginTurn) before the
           // skill text_delta arrives. order: turn_start → skill text_delta.
           if (this.pendingSkillName) {
-            await this.dispatchSafely(() => this.replyDispatcher.onSkillActivated?.(this.pendingSkillName!));
+            await this.dispatchSafely(() =>
+              this.replyDispatcher.onSkillActivated?.(this.pendingSkillName!),
+            );
             this.pendingSkillName = undefined;
           }
           break;
@@ -273,7 +334,12 @@ export class EventBridge {
           break;
 
         case 'tool_execution_end':
-          this.replyDispatcher.onToolEnd(event.toolName, event.result, event.isError, event.toolCallId);
+          this.replyDispatcher.onToolEnd(
+            event.toolName,
+            event.result,
+            event.isError,
+            event.toolCallId,
+          );
           break;
 
         case 'agent_end': {
@@ -308,12 +374,16 @@ export class EventBridge {
 
           if (assistantMsg && assistantMsg.stopReason === 'error') {
             this.logger?.warn(
-              { err: new Error(assistantMsg.errorMessage ?? 'Agent error'), model: assistantMsg.model, provider: assistantMsg.provider },
+              {
+                err: new Error(assistantMsg.errorMessage ?? 'Agent error'),
+                model: assistantMsg.model,
+                provider: assistantMsg.provider,
+              },
               'Agent turn failed with provider/stream error',
             );
-            await this.dispatchSafely(() => this.replyDispatcher.onError(
-              new Error(assistantMsg.errorMessage ?? 'Agent error'),
-            ));
+            await this.dispatchSafely(() =>
+              this.replyDispatcher.onError(new Error(assistantMsg.errorMessage ?? 'Agent error')),
+            );
           } else if (assistantMsg && assistantMsg.stopReason === 'aborted') {
             this.logger?.warn(
               { model: assistantMsg.model, provider: assistantMsg.provider },
@@ -368,11 +438,25 @@ export class EventBridge {
 }
 
 function findLastAssistantMessage(
-  messages: Array<{ role: string; stopReason?: string; errorMessage?: string; usage?: any; provider?: string; model?: string }>,
+  messages: Array<{
+    role: string;
+    stopReason?: string;
+    errorMessage?: string;
+    usage?: any;
+    provider?: string;
+    model?: string;
+  }>,
 ) {
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i]!.role === 'assistant') {
-      return messages[i] as { role: 'assistant'; stopReason: string; errorMessage?: string; usage: any; provider?: string; model?: string };
+      return messages[i] as {
+        role: 'assistant';
+        stopReason: string;
+        errorMessage?: string;
+        usage: any;
+        provider?: string;
+        model?: string;
+      };
     }
   }
   return undefined;

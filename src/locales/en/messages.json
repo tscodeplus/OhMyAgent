@@ -20,7 +20,22 @@
     "busy": "This conversation is busy processing messages. Please try again shortly."
   },
   "plan": {
-    "label": "Plan"
+    "label": "Plan",
+    "headers": {
+      "subtaskDecomposition": "Subtask Decomposition",
+      "parallelStrategy": "Parallel Strategy"
+    },
+    "strategies": {
+      "allParallel": "All-parallel",
+      "sequential": "Sequential",
+      "mixed": "Mixed"
+    },
+    "dagSummary": {
+      "title": "plan_and_spawn result: {{task}}",
+      "error": "Error: {{message}}",
+      "duration": "Duration: {{seconds}}s",
+      "progress": "**Progress**: {{done}}/{{total}} completed"
+    }
   },
   "approval": {
     "approvedOnce": "Approved (this time)",

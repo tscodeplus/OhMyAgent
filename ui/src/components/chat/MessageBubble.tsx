@@ -29,12 +29,43 @@ interface MessageBubbleProps {
  * as a visually-distinct block with full markdown support (headings, lists,
  * code fences, etc.).
  */
-function formatPlanBlocks(content: string, label: string): string {
+function formatPlanBlocks(content: string, label: string, tr?: (key: string) => string): string {
   if (!content) return content;
+  // Localize well-known English plan-template headers/keywords emitted by
+  // the model (the server-side team-mode prompt is English by design, but
+  // the <plan> block is shown verbatim to the user). Case-insensitive
+  // exact / word-boundary matching keeps this deterministic while
+  // tolerating model casing drift; unknown wording passes through.
+  const localize = (inner: string): string => {
+    if (!tr) return inner;
+    const rules: Array<[RegExp, string, string]> = [
+      [
+        /^### Subtask Decomposition.*$/im,
+        'planBlock.subtaskDecomposition',
+        `### ${tr('planBlock.subtaskDecomposition')}`,
+      ],
+      [
+        /^### Parallel Strategy.*$/im,
+        'planBlock.parallelStrategy',
+        `### ${tr('planBlock.parallelStrategy')}`,
+      ],
+      [/\bAll-parallel\b/gi, 'planBlock.allParallel', tr('planBlock.allParallel')],
+      [/\bSequential\b/gi, 'planBlock.sequential', tr('planBlock.sequential')],
+      [/\bMixed\b/gi, 'planBlock.mixed', tr('planBlock.mixed')],
+    ];
+    let out = inner;
+    for (const [re, key, to] of rules) {
+      if (to && to !== key) out = out.replace(re, to);
+    }
+    return out;
+  };
   return content.replace(/<plan>([\s\S]*?)<\/plan>/g, (_: string, inner: string) => {
-    const trimmed = inner.trim();
+    const trimmed = localize(inner).trim();
     if (!trimmed) return '';
-    const lines = trimmed.split('\n').map(line => `> ${line}`).join('\n');
+    const lines = trimmed
+      .split('\n')
+      .map((line) => `> ${line}`)
+      .join('\n');
     return `\n\n> 📋 **${label}**\n> \n${lines}\n\n`;
   });
 }
@@ -46,7 +77,10 @@ function stripFileRefs(content: string): string {
   // Strip image refs: ![alt](url)
   let cleaned = content.replace(/!\[[^\]]*\]\([^)]+\)/g, '');
   // Strip file link refs: [name](/api/files/serve?path=...) and [name](/dl/...)
-  cleaned = cleaned.replace(/\[([^\]]+)\]\((\/(?:api\/files\/(?:serve|download)\?[^)\s]+|dl\/[^)\s]+))\)/g, '');
+  cleaned = cleaned.replace(
+    /\[([^\]]+)\]\((\/(?:api\/files\/(?:serve|download)\?[^)\s]+|dl\/[^)\s]+))\)/g,
+    '',
+  );
   return cleaned.trim();
 }
 
@@ -62,7 +96,9 @@ function withAuthUrl(url: string): string {
   if (!url.startsWith('/api/files/')) return url;
   const token = getToken();
   if (!token || url.includes('token=')) return url;
-  return url.includes('?') ? `${url}&token=${encodeURIComponent(token)}` : `${url}?token=${encodeURIComponent(token)}`;
+  return url.includes('?')
+    ? `${url}&token=${encodeURIComponent(token)}`
+    : `${url}?token=${encodeURIComponent(token)}`;
 }
 
 export default function MessageBubble({ message }: MessageBubbleProps) {
@@ -73,54 +109,65 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
   const { t } = useTranslation('common');
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   // Track images that need file-access approval
-  const [approvalStates, setApprovalStates] = useState<Record<string, {
-    approvalId: string;
-    path: string;
-    status: 'pending' | 'approved' | 'rejected';
-  }>>({});
+  const [approvalStates, setApprovalStates] = useState<
+    Record<
+      string,
+      {
+        approvalId: string;
+        path: string;
+        status: 'pending' | 'approved' | 'rejected';
+      }
+    >
+  >({});
 
-  const handleDownload = useCallback(async (url: string, filename: string) => {
-    // Serve endpoints need the WebUI token — anchor clicks can't set headers,
-    // so carry it in the query string (keep the raw URL for bridge parsing).
-    const authUrl = withAuthUrl(url);
-    if (isElectron()) {
-      const api = getElectronAPI();
-      if (!api) return;
-      // Desktop Bridge: download directly from the local filesystem
-      if (url.startsWith('/desktop-bridge-download')) {
-        const q = new URL(url, window.location.origin).searchParams;
-        const filePath = q.get('path') || '';
-        if (!filePath) { showToast(t('chat.invalidFilePath'), 'error'); return; }
-        const result = await api.saveLocalFile(filePath, filename);
-        if (result?.ok) {
-          showToast(t('chat.fileSaved'), 'success');
-        } else if (result?.error !== 'cancelled') {
-          showToast(t('chat.saveFailed'), 'error');
+  const handleDownload = useCallback(
+    async (url: string, filename: string) => {
+      // Serve endpoints need the WebUI token — anchor clicks can't set headers,
+      // so carry it in the query string (keep the raw URL for bridge parsing).
+      const authUrl = withAuthUrl(url);
+      if (isElectron()) {
+        const api = getElectronAPI();
+        if (!api) return;
+        // Desktop Bridge: download directly from the local filesystem
+        if (url.startsWith('/desktop-bridge-download')) {
+          const q = new URL(url, window.location.origin).searchParams;
+          const filePath = q.get('path') || '';
+          if (!filePath) {
+            showToast(t('chat.invalidFilePath'), 'error');
+            return;
+          }
+          const result = await api.saveLocalFile(filePath, filename);
+          if (result?.ok) {
+            showToast(t('chat.fileSaved'), 'success');
+          } else if (result?.error !== 'cancelled') {
+            showToast(t('chat.saveFailed'), 'error');
+          }
+        } else {
+          const result = await api.saveFileFromUrl(authUrl, filename);
+          if (result?.ok) {
+            showToast(t('chat.fileSaved'), 'success');
+          } else if (result?.error !== 'cancelled') {
+            showToast(t('chat.saveFailed'), 'error');
+          }
         }
       } else {
-        const result = await api.saveFileFromUrl(authUrl, filename);
-        if (result?.ok) {
-          showToast(t('chat.fileSaved'), 'success');
-        } else if (result?.error !== 'cancelled') {
-          showToast(t('chat.saveFailed'), 'error');
+        // WebUI: use browser download via temporary anchor.
+        // Append ?download=1 to serve URLs so the server sends
+        // Content-Disposition: attachment with the real filename.
+        let downloadUrl = authUrl;
+        if (authUrl.includes('/api/files/serve') && !authUrl.includes('download=1')) {
+          downloadUrl = authUrl.includes('?') ? `${authUrl}&download=1` : `${authUrl}?download=1`;
         }
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        if (filename && !downloadUrl.includes('download=1')) {
+          a.download = filename;
+        }
+        a.click();
       }
-    } else {
-      // WebUI: use browser download via temporary anchor.
-      // Append ?download=1 to serve URLs so the server sends
-      // Content-Disposition: attachment with the real filename.
-      let downloadUrl = authUrl;
-      if (authUrl.includes('/api/files/serve') && !authUrl.includes('download=1')) {
-        downloadUrl = authUrl.includes('?') ? `${authUrl}&download=1` : `${authUrl}?download=1`;
-      }
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      if (filename && !downloadUrl.includes('download=1')) {
-        a.download = filename;
-      }
-      a.click();
-    }
-  }, [showToast]);
+    },
+    [showToast],
+  );
 
   // Custom markdown rendering: desktop-bridge links → download buttons, images → constrained size
   const markdownComponents = {
@@ -149,7 +196,9 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
           const u = new URL(src, window.location.origin);
           const pathParam = u.searchParams.get('path');
           if (pathParam) return pathParam.split('/').pop() || alt || 'image.png';
-        } catch {}
+        } catch {
+          /* Ignore malformed URL — fall through to default */
+        }
         return alt || 'image.png';
       })();
       return (
@@ -168,7 +217,10 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
           </button>
           {/* Download button — bottom-right corner, visible on hover */}
           <button
-            onClick={(e) => { e.stopPropagation(); handleDownload(authSrc, imgFilename); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDownload(authSrc, imgFilename);
+            }}
             className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-1 rounded-lg bg-black/60 hover:bg-black/80 text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity"
           >
             <Download size={12} />
@@ -185,14 +237,19 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
           const fileName = q.get('name') || String(children ?? 'download');
           return (
             <button
-              onClick={(e) => { e.preventDefault(); handleDownload(href, fileName); }}
+              onClick={(e) => {
+                e.preventDefault();
+                handleDownload(href, fileName);
+              }}
               className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 dark:border-blue-800 px-2.5 py-1 text-sm text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
             >
               <Download size={14} />
               <span>{children}</span>
             </button>
           );
-        } catch {}
+        } catch {
+          /* Ignore malformed URL — fall through to default */
+        }
       }
       // Serve/download URLs → render as download button with real filename
       if (href && (href.includes('/api/files/serve') || href.includes('/api/files/download'))) {
@@ -201,12 +258,17 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
             const u = new URL(href, window.location.origin);
             const pathParam = u.searchParams.get('path');
             if (pathParam) return pathParam.split('/').pop() || String(children ?? 'download');
-          } catch {}
+          } catch {
+            /* Ignore malformed URL — fall through to default */
+          }
           return String(children ?? 'download');
         })();
         return (
           <button
-            onClick={(e) => { e.preventDefault(); handleDownload(href, fileName); }}
+            onClick={(e) => {
+              e.preventDefault();
+              handleDownload(href, fileName);
+            }}
             className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 dark:border-blue-800 px-2.5 py-1 text-sm text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
           >
             <Download size={14} />
@@ -214,7 +276,11 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
           </button>
         );
       }
-      return <a href={href} target="_blank" rel="noopener noreferrer" {...props}>{children}</a>;
+      return (
+        <a href={href} target="_blank" rel="noopener noreferrer" {...props}>
+          {children}
+        </a>
+      );
     },
   };
 
@@ -226,13 +292,15 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
       if (resp.status === 403) {
         const data = await resp.json().catch(() => null);
         if (data?.needsApproval) {
-          setApprovalStates(prev => ({
+          setApprovalStates((prev) => ({
             ...prev,
             [imgUrl]: { approvalId: data.approvalId, path: data.path, status: 'pending' },
           }));
         }
       }
-    } catch { /* ignore fetch errors */ }
+    } catch {
+      /* ignore fetch errors */
+    }
   }
 
   async function handleApprove(imgUrl: string) {
@@ -244,9 +312,11 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
         body: JSON.stringify({ approvalId: state.approvalId, decision: 'approve' }),
       });
       if ((resp as any).ok) {
-        setApprovalStates(prev => ({ ...prev, [imgUrl]: { ...state, status: 'approved' } }));
+        setApprovalStates((prev) => ({ ...prev, [imgUrl]: { ...state, status: 'approved' } }));
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   function handleReject(imgUrl: string) {
@@ -256,7 +326,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
       method: 'POST',
       body: JSON.stringify({ approvalId: state.approvalId, decision: 'reject' }),
     }).catch(() => {});
-    setApprovalStates(prev => ({ ...prev, [imgUrl]: { ...state, status: 'rejected' } }));
+    setApprovalStates((prev) => ({ ...prev, [imgUrl]: { ...state, status: 'rejected' } }));
   }
 
   function formatElapsed(ms: number): string {
@@ -300,14 +370,26 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
                 {message.segments.map((seg, i) =>
                   seg.type === 'text' ? (
                     <div key={i} className="markdown-content">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{formatPlanBlocks(seg.content || '', t('chat.taskPlan'))}</ReactMarkdown>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                        {formatPlanBlocks(seg.content || '', t('chat.taskPlan'), (k) =>
+                          t(`chat.${k}`),
+                        )}
+                      </ReactMarkdown>
                     </div>
                   ) : seg.type === 'tool_call' && seg.toolCall ? (
                     <ToolCallCard key={seg.toolCall.id} toolCall={seg.toolCall} />
                   ) : seg.type === 'skill' ? (
-                    <div key={`skill-${i}`} className="flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-sm">
+                    <div
+                      key={`skill-${i}`}
+                      className="flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
+                    >
                       <Zap size={14} className="text-amber-500 dark:text-amber-400 shrink-0" />
-                      <span className="text-neutral-700 dark:text-neutral-200">{t(`chat.${(seg.name || '').includes(' | ') ? 'skillMerged' : 'skillActivated'}`)}：<strong>{seg.name}</strong></span>
+                      <span className="text-neutral-700 dark:text-neutral-200">
+                        {t(
+                          `chat.${(seg.name || '').includes(' | ') ? 'skillMerged' : 'skillActivated'}`,
+                        )}
+                        ：<strong>{seg.name}</strong>
+                      </span>
                     </div>
                   ) : seg.type === 'media' && seg.media ? (
                     <div key={`media-${i}`} className="my-1">
@@ -332,13 +414,22 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
                         />
                       ) : (
                         <button
-                          onClick={() => handleDownload(seg.media!.url, seg.media!.name || 'download')}
+                          onClick={() =>
+                            handleDownload(seg.media!.url, seg.media!.name || 'download')
+                          }
                           className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors group"
                         >
-                          <Download size={14} className="text-neutral-400 group-hover:text-neutral-600 dark:group-hover:text-neutral-300" />
-                          <span className="text-neutral-700 dark:text-neutral-300">{seg.media.name}</span>
+                          <Download
+                            size={14}
+                            className="text-neutral-400 group-hover:text-neutral-600 dark:group-hover:text-neutral-300"
+                          />
+                          <span className="text-neutral-700 dark:text-neutral-300">
+                            {seg.media.name}
+                          </span>
                           {seg.media.size != null && (
-                            <span className="text-neutral-400 dark:text-neutral-500 text-xs">{formatFileSize(seg.media.size)}</span>
+                            <span className="text-neutral-400 dark:text-neutral-500 text-xs">
+                              {formatFileSize(seg.media.size)}
+                            </span>
                           )}
                         </button>
                       )}
@@ -351,7 +442,9 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
               // Used for API-fetched history which doesn't have segments.
               <>
                 <div className="markdown-content">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{formatPlanBlocks(message.content, t('chat.taskPlan'))}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                    {formatPlanBlocks(message.content, t('chat.taskPlan'), (k) => t(`chat.${k}`))}
+                  </ReactMarkdown>
                 </div>
                 {message.tool_calls && message.tool_calls.length > 0 && (
                   <div className="mt-2 space-y-2 w-full">
@@ -371,7 +464,9 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
             // strings like URLs with query params from overflowing the bubble.
             // Strip file reference markdown so raw `[filename](url)` doesn't show
             // alongside the download buttons rendered from the `files` array.
-            <div className="whitespace-pre-wrap break-words text-sm">{stripFileRefs(message.content)}</div>
+            <div className="whitespace-pre-wrap break-words text-sm">
+              {stripFileRefs(message.content)}
+            </div>
           )}
         </div>
 
@@ -381,20 +476,27 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
             {message.files.map((file, i) => {
               const isServeUrl = file.path.startsWith('/api/files/');
               const href = isServeUrl
-                ? (file.path.includes('?') ? `${file.path}&download=1` : `${file.path}?download=1`)
+                ? file.path.includes('?')
+                  ? `${file.path}&download=1`
+                  : `${file.path}?download=1`
                 : `/api/files/download?path=${encodeURIComponent(file.path)}`;
               return (
-              <button
-                key={i}
-                onClick={() => handleDownload(href, file.name)}
-                className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors group"
-              >
-                <Download size={14} className="text-neutral-400 group-hover:text-neutral-600 dark:group-hover:text-neutral-300" />
-                <span className="text-neutral-700 dark:text-neutral-300">{file.name}</span>
-                {file.size != null && (
-                  <span className="text-neutral-400 dark:text-neutral-500 text-xs">{formatFileSize(file.size)}</span>
-                )}
-              </button>
+                <button
+                  key={i}
+                  onClick={() => handleDownload(href, file.name)}
+                  className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors group"
+                >
+                  <Download
+                    size={14}
+                    className="text-neutral-400 group-hover:text-neutral-600 dark:group-hover:text-neutral-300"
+                  />
+                  <span className="text-neutral-700 dark:text-neutral-300">{file.name}</span>
+                  {file.size != null && (
+                    <span className="text-neutral-400 dark:text-neutral-500 text-xs">
+                      {formatFileSize(file.size)}
+                    </span>
+                  )}
+                </button>
               );
             })}
           </div>
@@ -402,93 +504,103 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
 
         {/* Generated images — fallback: extract from markdown content at render time.
             Skip for user messages — ReactMarkdown already renders images inline. */}
-        {!isUser && (() => {
-          const extracted: { url: string; alt?: string }[] = (message.images || []).filter(img => isChatMediaUrl(img.url));
-          if (extracted.length === 0 && message.content) {
-            // Extract images from markdown content as fallback
-            const imgRegex = /!\[([^\]]*)\]\(([^)\s]+)\)/g;
-            let m: RegExpExecArray | null;
-            while ((m = imgRegex.exec(message.content)) !== null) {
-              const url = m[2];
-              if (isChatMediaUrl(url)) {
-                extracted.push({ alt: m[1] || undefined, url });
+        {!isUser &&
+          (() => {
+            const extracted: { url: string; alt?: string }[] = (message.images || []).filter(
+              (img) => isChatMediaUrl(img.url),
+            );
+            if (extracted.length === 0 && message.content) {
+              // Extract images from markdown content as fallback
+              const imgRegex = /!\[([^\]]*)\]\(([^)\s]+)\)/g;
+              let m: RegExpExecArray | null;
+              while ((m = imgRegex.exec(message.content)) !== null) {
+                const url = m[2];
+                if (isChatMediaUrl(url)) {
+                  extracted.push({ alt: m[1] || undefined, url });
+                }
               }
             }
-          }
-          if (extracted.length === 0) return null;
-          return (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {extracted.map((img, i) => {
-              const approval = approvalStates[img.url];
-              const needsApproval = approval?.status === 'pending';
-              const wasRejected = approval?.status === 'rejected';
-              const imgKey = approval?.status === 'approved' ? `${img.url}-approved` : img.url;
-              // Extract filename from URL (e.g. /api/files/serve?path=foo.png → foo.png)
-              const imgFilename = (() => {
-                try {
-                  const u = new URL(img.url, window.location.origin);
-                  const pathParam = u.searchParams.get('path');
-                  if (pathParam) return pathParam.split('/').pop() || `image-${i + 1}.png`;
-                  const pathname = u.pathname;
-                  const name = pathname.split('/').pop();
-                  if (name && name !== 'serve') return name;
-                } catch {}
-                return img.alt || `image-${i + 1}.png`;
-              })();
-              return (
-                <div key={i} className="flex flex-col gap-1">
-                  <div className="relative group">
-                    <button
-                      onClick={() => !needsApproval && !wasRejected && setLightboxUrl(withAuthUrl(img.url))}
-                      className={`block max-w-[240px] rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 hover:opacity-90 transition-opacity ${needsApproval || wasRejected ? 'cursor-default opacity-50' : 'cursor-pointer'}`}
-                    >
-                      {wasRejected ? (
-                        <div className="w-[240px] h-[120px] flex items-center justify-center bg-neutral-100 dark:bg-neutral-800 text-sm text-neutral-500">
-                          Access denied
+            if (extracted.length === 0) return null;
+            return (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {extracted.map((img, i) => {
+                  const approval = approvalStates[img.url];
+                  const needsApproval = approval?.status === 'pending';
+                  const wasRejected = approval?.status === 'rejected';
+                  const imgKey = approval?.status === 'approved' ? `${img.url}-approved` : img.url;
+                  // Extract filename from URL (e.g. /api/files/serve?path=foo.png → foo.png)
+                  const imgFilename = (() => {
+                    try {
+                      const u = new URL(img.url, window.location.origin);
+                      const pathParam = u.searchParams.get('path');
+                      if (pathParam) return pathParam.split('/').pop() || `image-${i + 1}.png`;
+                      const pathname = u.pathname;
+                      const name = pathname.split('/').pop();
+                      if (name && name !== 'serve') return name;
+                    } catch {
+                      /* Ignore malformed URL — fall through to default */
+                    }
+                    return img.alt || `image-${i + 1}.png`;
+                  })();
+                  return (
+                    <div key={i} className="flex flex-col gap-1">
+                      <div className="relative group">
+                        <button
+                          onClick={() =>
+                            !needsApproval && !wasRejected && setLightboxUrl(withAuthUrl(img.url))
+                          }
+                          className={`block max-w-[240px] rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 hover:opacity-90 transition-opacity ${needsApproval || wasRejected ? 'cursor-default opacity-50' : 'cursor-pointer'}`}
+                        >
+                          {wasRejected ? (
+                            <div className="w-[240px] h-[120px] flex items-center justify-center bg-neutral-100 dark:bg-neutral-800 text-sm text-neutral-500">
+                              Access denied
+                            </div>
+                          ) : (
+                            <img
+                              key={imgKey}
+                              src={withAuthUrl(img.url)}
+                              alt={img.alt || 'Generated image'}
+                              className="w-full h-auto object-cover"
+                              loading="lazy"
+                              onError={() => handleImageError(img.url)}
+                            />
+                          )}
+                        </button>
+                        {/* Download button — bottom-right corner, visible on hover */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDownload(img.url, imgFilename);
+                          }}
+                          className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-1 rounded-lg bg-black/60 hover:bg-black/80 text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                          title={t('chat.downloadImage')}
+                        >
+                          <Download size={12} />
+                          <span>保存</span>
+                        </button>
+                      </div>
+                      {needsApproval && (
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => handleApprove(img.url)}
+                            className="text-xs px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => handleReject(img.url)}
+                            className="text-xs px-2 py-1 rounded bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-300 dark:hover:bg-neutral-600"
+                          >
+                            Reject
+                          </button>
                         </div>
-                      ) : (
-                        <img
-                          key={imgKey}
-                          src={withAuthUrl(img.url)}
-                          alt={img.alt || 'Generated image'}
-                          className="w-full h-auto object-cover"
-                          loading="lazy"
-                          onError={() => handleImageError(img.url)}
-                        />
                       )}
-                    </button>
-                    {/* Download button — bottom-right corner, visible on hover */}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDownload(img.url, imgFilename); }}
-                      className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-1 rounded-lg bg-black/60 hover:bg-black/80 text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                      title={t('chat.downloadImage')}
-                    >
-                      <Download size={12} />
-                      <span>保存</span>
-                    </button>
-                  </div>
-                  {needsApproval && (
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => handleApprove(img.url)}
-                        className="text-xs px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700"
-                      >
-                        Approve
-                      </button>
-                      <button
-                        onClick={() => handleReject(img.url)}
-                        className="text-xs px-2 py-1 rounded bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-300 dark:hover:bg-neutral-600"
-                      >
-                        Reject
-                      </button>
                     </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          );
-        })()}
+                  );
+                })}
+              </div>
+            );
+          })()}
 
         {/* Generated files (assistant only — user files rendered above) */}
         {!isUser && message.files && message.files.length > 0 && (
@@ -497,23 +609,34 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
               // If path is already a serve/download URL, use it directly.
               // /api/files/serve URLs need ?download=1 for attachment mode.
               // /dl/ URLs already serve with Content-Disposition: attachment for files.
-              const isServeUrl = file.path.startsWith('/api/files/') || file.path.startsWith('/dl/') || file.path.startsWith('/desktop-bridge-download');
+              const isServeUrl =
+                file.path.startsWith('/api/files/') ||
+                file.path.startsWith('/dl/') ||
+                file.path.startsWith('/desktop-bridge-download');
               const href = isServeUrl
-                ? (file.path.startsWith('/dl/') || file.path.startsWith('/desktop-bridge-download') ? file.path
-                  : (file.path.includes('?') ? `${file.path}&download=1` : `${file.path}?download=1`))
+                ? file.path.startsWith('/dl/') || file.path.startsWith('/desktop-bridge-download')
+                  ? file.path
+                  : file.path.includes('?')
+                    ? `${file.path}&download=1`
+                    : `${file.path}?download=1`
                 : `/api/files/download?path=${encodeURIComponent(file.path)}`;
               return (
-              <button
-                key={i}
-                onClick={() => handleDownload(href, file.name)}
-                className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors group"
-              >
-                <Download size={14} className="text-neutral-400 group-hover:text-neutral-600 dark:group-hover:text-neutral-300" />
-                <span className="text-neutral-700 dark:text-neutral-300">{file.name}</span>
-                {file.size != null && (
-                  <span className="text-neutral-400 dark:text-neutral-500 text-xs">{formatFileSize(file.size)}</span>
-                )}
-              </button>
+                <button
+                  key={i}
+                  onClick={() => handleDownload(href, file.name)}
+                  className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors group"
+                >
+                  <Download
+                    size={14}
+                    className="text-neutral-400 group-hover:text-neutral-600 dark:group-hover:text-neutral-300"
+                  />
+                  <span className="text-neutral-700 dark:text-neutral-300">{file.name}</span>
+                  {file.size != null && (
+                    <span className="text-neutral-400 dark:text-neutral-500 text-xs">
+                      {formatFileSize(file.size)}
+                    </span>
+                  )}
+                </button>
               );
             })}
           </div>
@@ -523,9 +646,11 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
           <div className="mt-2 w-full">
             <ApprovalCard
               approvalId={message.approval.approvalId}
-              toolName={message.approval.command.length > 50
-                ? message.approval.command.slice(0, 50) + '...'
-                : message.approval.command}
+              toolName={
+                message.approval.command.length > 50
+                  ? message.approval.command.slice(0, 50) + '...'
+                  : message.approval.command
+              }
               commandText={message.approval.command}
               riskLevel={message.approval.risk}
               reason={message.approval.reason || ''}
@@ -568,10 +693,13 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
               proposal={message.harnessImprovement}
               onDecision={async (action: string, editedValue?: string) => {
                 try {
-                  await apiRequest(`/api/harness/proposals/${message.harnessImprovement!.id}/decide`, {
-                    method: 'POST',
-                    body: JSON.stringify({ action, editedValue }),
-                  });
+                  await apiRequest(
+                    `/api/harness/proposals/${message.harnessImprovement!.id}/decide`,
+                    {
+                      method: 'POST',
+                      body: JSON.stringify({ action, editedValue }),
+                    },
+                  );
                 } catch (err) {
                   console.error('Failed to submit harness improvement decision:', err);
                 }
@@ -618,13 +746,19 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
               if (footer?.elapsed != null) parts.push(`耗时 ${formatElapsed(footer.elapsed)}`);
               if (footer?.model) parts.push(footer.model);
               if (footer?.showUsage && footer?.usage) {
-                const inputTokens = (footer.usage.input ?? 0) + (footer.usage.cacheRead ?? 0) + (footer.usage.cacheWrite ?? 0);
+                const inputTokens =
+                  (footer.usage.input ?? 0) +
+                  (footer.usage.cacheRead ?? 0) +
+                  (footer.usage.cacheWrite ?? 0);
                 parts.push(`↓${inputTokens} ↑${footer.usage.output ?? 0}`);
               }
               if (footer?.showCacheHitRate && footer?.usage) {
-                const promptTokens = (footer.usage.input ?? 0) + (footer.usage.cacheRead ?? 0) + (footer.usage.cacheWrite ?? 0);
+                const promptTokens =
+                  (footer.usage.input ?? 0) +
+                  (footer.usage.cacheRead ?? 0) +
+                  (footer.usage.cacheWrite ?? 0);
                 if (promptTokens > 0) {
-                  const rate = ((footer.usage.cacheRead ?? 0) / promptTokens * 100).toFixed(1);
+                  const rate = (((footer.usage.cacheRead ?? 0) / promptTokens) * 100).toFixed(1);
                   parts.push(`缓存命中 ${rate}%`);
                 }
               }

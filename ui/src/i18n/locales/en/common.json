@@ -75,6 +75,13 @@
     "saveFailed": "Save failed",
     "downloadImage": "Download image",
     "taskPlan": "Task Plan",
+    "planBlock": {
+      "subtaskDecomposition": "Subtask Decomposition",
+      "parallelStrategy": "Parallel Strategy",
+      "allParallel": "All-parallel",
+      "sequential": "Sequential",
+      "mixed": "Mixed"
+    },
     "completed": "Completed",
     "error": "Task interrupted",
     "questionAnswered": "Answer received",
