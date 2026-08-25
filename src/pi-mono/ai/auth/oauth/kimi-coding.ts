@@ -7,6 +7,7 @@
  */
 
 import { getProviderEnvValue } from "../../utils/provider-env.js";
+import { sleep } from "../../utils/sleep.js";
 import type { OAuthAuth, OAuthCredential, ProviderAuthInteraction } from "../types.js";
 import { pollOAuthDeviceCodeFlow } from "./device-code.js";
 
@@ -203,21 +204,6 @@ async function pollForToken(
 				message: `Kimi Code device token request failed (status ${response.status})${typeof error === "string" ? `: ${error}${description}` : ""}`,
 			};
 		},
-	});
-}
-
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-	return new Promise((resolve, reject) => {
-		signal.throwIfAborted();
-		const onAbort = () => {
-			clearTimeout(timeout);
-			reject(signal.reason);
-		};
-		const timeout = setTimeout(() => {
-			signal.removeEventListener("abort", onAbort);
-			resolve();
-		}, ms);
-		signal.addEventListener("abort", onAbort, { once: true });
 	});
 }
 

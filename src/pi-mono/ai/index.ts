@@ -10,7 +10,7 @@ export type { AnthropicEffort, AnthropicOptions, AnthropicThinkingDisplay } from
 export type { AzureOpenAIResponsesOptions } from "./api/azure-openai-responses.js";
 export type { BedrockOptions, BedrockThinkingDisplay } from "./api/bedrock-converse-stream.js";
 export type { GoogleOptions } from "./api/google-generative-ai.js";
-export type { GoogleThinkingLevel } from "./api/google-shared.js";
+export type { GoogleApiThinkingLevel, ResolvedGoogleThinkingLevel } from "./api/google-shared.js";
 export type { GoogleVertexOptions } from "./api/google-vertex.js";
 export * from "./api/lazy.js";
 export type { MistralOptions } from "./api/mistral-conversations.js";
