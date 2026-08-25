@@ -18,7 +18,7 @@
     "files": "Files"
   },
   "sidebar": {
- "projects": "Chat",
+    "projects": "Chat",
     "sessions": "Sessions",
     "newProject": "New Project",
     "newSession": "New Chat",
@@ -27,7 +27,7 @@
     "expand": "Expand sidebar",
     "collapseTools": "Collapse tools",
     "expandTools": "Expand tools",
- "noProjects": "No chats yet",
+    "noProjects": "No chats yet",
     "createFirst": "Create your first Project",
     "rename": "Rename",
     "delete": "Delete",
@@ -94,7 +94,8 @@
       "editLabel": "Modified Value",
       "editCancel": "Cancel",
       "editSubmit": "Submit Changes"
-    }
+    },
+    "steeredRejected": "Auto-rejected: new message received"
   },
   "project": {
     "defaultName": "Default Space",
@@ -336,7 +337,9 @@
           "modelCustom": "Specify Model",
           "modelPlaceholder": "Enter provider/modelId (e.g. deepseek/deepseek-v4-pro)"
         }
-      }
+      },
+      "agentOptIn": "Enable this agent's interactive Harness",
+      "agentOptInDesc": "When enabled, tool executions in this agent support step-by-step approval, feedback and intervention"
     },
     "memory": {
       "basic": "Basic",
@@ -724,7 +727,8 @@
       "running": "Running",
       "paused": "Paused",
       "completed": "Completed"
-    }
+    },
+    "operError": "Operation failed"
   },
   "skills": {
     "title": "Skills",
@@ -920,5 +924,15 @@
     "maximize": "Maximize",
     "restore": "Restore",
     "close": "Close"
+  },
+  "memory_page": {
+    "detail": "Memory Detail",
+    "content": "Content",
+    "deleted": "Deleted",
+    "deleteError": "Failed to delete",
+    "saved": "Saved",
+    "saveError": "Failed to save",
+    "save": "Save",
+    "cancel": "Cancel"
   }
 }

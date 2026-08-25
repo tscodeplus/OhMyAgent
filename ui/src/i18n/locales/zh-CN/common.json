@@ -18,7 +18,7 @@
     "files": "文件"
   },
   "sidebar": {
- "projects": "对话",
+    "projects": "对话",
     "sessions": "会话",
     "newProject": "新建空间",
     "newSession": "新对话",
@@ -27,7 +27,7 @@
     "expand": "展开侧边栏",
     "collapseTools": "收起工具",
     "expandTools": "展开工具",
- "noProjects": "还没有对话",
+    "noProjects": "还没有对话",
     "createFirst": "创建第一个 Project",
     "searchProject": "搜索空间...",
     "rename": "重命名",
@@ -95,7 +95,8 @@
       "editLabel": "修改后的值",
       "editCancel": "取消",
       "editSubmit": "提交修改"
-    }
+    },
+    "steeredRejected": "收到新消息，自动拒绝未审批项"
   },
   "project": {
     "defaultName": "默认空间",
@@ -259,7 +260,8 @@
       "apiKeyInherited": "API Key 继承自 Providers 配置。在此输入可覆盖。",
       "embeddingTitle": "向量模型",
       "embeddingModel": "模型",
-      "embeddingDimension": "维度"
+      "embeddingDimension": "维度",
+      "modelInput": "输入模态"
     },
     "agents": {
       "list": "Agent 列表",
@@ -337,7 +339,9 @@
           "modelCustom": "指定模型",
           "modelPlaceholder": "输入 provider/modelId（如 deepseek/deepseek-v4-pro）"
         }
-      }
+      },
+      "agentOptIn": "启用该 Agent 的交互式 Harness",
+      "agentOptInDesc": "启用后，该 Agent 的工具执行支持逐步审批、反馈和人工干预"
     },
     "memory": {
       "basic": "基础设置",
