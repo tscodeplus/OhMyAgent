@@ -294,7 +294,6 @@ export async function bootstrap(): Promise<BootstrapResult> {
     dataDir: path.dirname(config.database.path),
     logger,
   });
-  await subscriptionService.applyCredentialsToConfig(config);
   configManager.registerService('subscription', {
     apply: async (c) => {
       await subscriptionService.applyCredentialsToConfig(c);
@@ -304,9 +303,11 @@ export async function bootstrap(): Promise<BootstrapResult> {
   setVecLogger(logger);
 
   // Startup I/O that doesn't depend on each other runs in parallel:
-  // memory services (SQLite + vector init), skill registry file scan, and
-  // computer-use service bring-up. Each keeps its own error handling so a
-  // single failure degrades gracefully exactly as before.
+  // memory services (SQLite + vector init), skill registry file scan,
+  // computer-use service bring-up, and subscription credential injection.
+  // Credentials only write config.providerKeys, which none of the other three
+  // read during construction, so running them concurrently is race-free.
+  // Each keeps its own error handling so a single failure degrades gracefully.
   const skillRegistry = new SkillRegistry();
   const [memoryServices, , cuServicesInit] = await Promise.all([
     createMemoryServices(config, logger, db),
@@ -314,6 +315,9 @@ export async function bootstrap(): Promise<BootstrapResult> {
       logger.warn({ err }, 'Skill registry load failed — continuing without skills');
     }),
     createComputerUseServices(config, logger),
+    subscriptionService.applyCredentialsToConfig(config).catch((err) => {
+      logger.warn({ err }, 'Subscription credentials apply failed — continuing');
+    }),
   ]);
   const {
     memoryRetriever,

@@ -28,10 +28,7 @@ import type { CronDeliveryRegistry } from '../cron/delivery-registry.js';
 import type { FastifyInstance } from 'fastify';
 import type { VisionBridgeConfig } from '../vision-bridge/vision-bridge-types.js';
 import type { AgentConfig } from '../agent/config-types.js';
-import type {
-  OpenAICompletionsCompat,
-  OpenAIResponsesCompat,
-} from '../pi-mono/ai/types.js';
+import type { OpenAICompletionsCompat, OpenAIResponsesCompat } from '../pi-mono/ai/types.js';
 
 // ---------------------------------------------------------------------------
 // 1. AppConfig
@@ -47,7 +44,7 @@ export interface CustomModelConfig {
   contextWindow?: number;
   maxTokens?: number;
   /** Supported input modalities. Defaults to ["text"] if not set. */
-  input?: ("text" | "image" | "video")[];
+  input?: ('text' | 'image' | 'video')[];
   cost?: {
     input: number;
     output: number;
@@ -159,6 +156,8 @@ export interface AppConfig {
     maxOutputLength: number;
     /** v2: Tool profile for first-layer tool gating. */
     toolsProfile: ToolProfileId;
+    /** Include skills/tools catalog layers in the system prompt (disable for providers without prompt caching). */
+    systemPromptCatalogs: boolean;
     /** v2: Execution mode. Maps old strict->safe, balanced->balanced, relaxed->trusted. */
     shellExecMode: ExecMode;
     /** v2: Argument-aware allowlist. Format: "program" or "program:subcommand". */
@@ -490,6 +489,8 @@ export interface AgentRuntimeConfig {
   max_retries: number;
   /** Soft cap on tool-calling rounds per turn (0 disables). */
   max_tool_cycles: number;
+  /** HTTP-level first-response timeout for LLM requests in ms (0 disables). */
+  request_timeout_ms: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -584,8 +585,7 @@ export interface HardlinePatternEntry {
 
 /** v2: Result of hardline blocklist check. */
 export type HardlineCheckResult =
-  | { blocked: true; pattern: string; description: string }
-  | { blocked: false };
+  { blocked: true; pattern: string; description: string } | { blocked: false };
 
 /** v2: Dangerous command pattern for detection. */
 export interface DangerousPatternEntry {
@@ -610,11 +610,7 @@ export interface CommandClassification {
 }
 
 export type ApprovalDecisionType =
-  | 'approve_once'
-  | 'approve_session'
-  | 'approve_always'
-  | 'reject_once'
-  | 'reject_always';
+  'approve_once' | 'approve_session' | 'approve_always' | 'reject_once' | 'reject_always';
 export type ApprovalDecision = 'approved' | 'rejected' | 'requires_approval';
 
 export interface NormalizedShellCommand {
@@ -655,10 +651,7 @@ export interface ApprovalGate {
     sessionKey?: string,
     targetKind?: 'shell' | 'tool',
   ): Promise<void>;
-  getPolicy(
-    scope: string,
-    target: string,
-  ): Promise<ApprovalPolicy | null>;
+  getPolicy(scope: string, target: string): Promise<ApprovalPolicy | null>;
   createPolicy?(input: {
     id: string;
     scope: string;
@@ -689,12 +682,7 @@ export interface ToolRegistry {
 // ---------------------------------------------------------------------------
 
 export type MemoryScope = 'user' | 'chat' | 'session' | 'skill';
-export type MemoryKind =
-  | 'preference'
-  | 'fact'
-  | 'task'
-  | 'device_state'
-  | 'summary';
+export type MemoryKind = 'preference' | 'fact' | 'task' | 'device_state' | 'summary';
 export type RetrievalSource = 'vector' | 'text' | 'fallback' | 'cosine';
 
 export interface MemoryRecord {
@@ -712,15 +700,9 @@ export interface RetrievalResult {
 }
 
 export interface MemoryStore {
-  write(
-    record: MemoryRecord,
-    generateEmbedding?: boolean,
-  ): Promise<void>;
+  write(record: MemoryRecord, generateEmbedding?: boolean): Promise<void>;
   writeBatch(records: MemoryRecord[]): Promise<void>;
-  retrieve(
-    query: string,
-    queryEmbedding?: Float32Array,
-  ): Promise<RetrievalResult[]>;
+  retrieve(query: string, queryEmbedding?: Float32Array): Promise<RetrievalResult[]>;
   summarizeSession(sessionKey: string): Promise<void>;
 }
 
@@ -837,15 +819,18 @@ export interface ReplyDispatcher {
   /** Skill activation notification (when showSkillCalls is enabled). */
   onSkillActivated?(skillName: string): void;
   setApprovalStatus(status: string | null): void;
-  setApprovalRecords(records: Array<{
-    requestId: string;
-    command: string;
-    risk: 'low' | 'medium' | 'high';
-    status: 'pending' | 'approved' | 'rejected';
-    decision?: ApprovalDecisionType;
-    reason?: string;
-    updatedAt: number;
-  }>, expanded: boolean): void;
+  setApprovalRecords(
+    records: Array<{
+      requestId: string;
+      command: string;
+      risk: 'low' | 'medium' | 'high';
+      status: 'pending' | 'approved' | 'rejected';
+      decision?: ApprovalDecisionType;
+      reason?: string;
+      updatedAt: number;
+    }>,
+    expanded: boolean,
+  ): void;
   getReplyMessageId(): string | undefined;
   onComplete(usage?: Usage): void | Promise<void>;
   onError(error: Error): void | Promise<void>;
@@ -962,11 +947,21 @@ export interface AppServices {
    * Resolve a channel-specific UserQuestionSender.
    * Returns undefined if the channel doesn't support interactive questions.
    */
-  getUserQuestionSender?: (channel: string, chatId: string, sessionId?: string) => import('../agent/user-question-port.js').UserQuestionSender | undefined;
+  getUserQuestionSender?: (
+    channel: string,
+    chatId: string,
+    sessionId?: string,
+  ) => import('../agent/user-question-port.js').UserQuestionSender | undefined;
   /** Registry for channel UserQuestionSender instances (add/remove senders). */
-  userQuestionSenderRegistry?: Map<string, import('../agent/user-question-port.js').UserQuestionSender>;
+  userQuestionSenderRegistry?: Map<
+    string,
+    import('../agent/user-question-port.js').UserQuestionSender
+  >;
   /** Registry bridging harness approval prompts (SSE) to the decide endpoint. */
-  harnessApprovalRegistry?: Map<string, (result: import('../harness/types.js').HarnessApprovalResult) => void>;
+  harnessApprovalRegistry?: Map<
+    string,
+    (result: import('../harness/types.js').HarnessApprovalResult) => void
+  >;
   /** Self-Harness: automatic failure analysis and harness optimization services. */
   harness?: import('../harness/factory.js').HarnessServices;
 }
@@ -977,16 +972,28 @@ export interface AppServices {
 export type AgentSubServices = Pick<AppServices, 'agentFactory' | 'agentService' | 'agentManager'>;
 
 /** Memory-domain: retriever, writer, summarizer, and repositories. */
-export type MemorySubServices = Pick<AppServices,
-  'memoryRetriever' | 'memoryWriter' | 'memorySummarizer' |
-  'sessionRepository' | 'messageRepository' | 'episodeRepository' | 'toolRunRepository'
+export type MemorySubServices = Pick<
+  AppServices,
+  | 'memoryRetriever'
+  | 'memoryWriter'
+  | 'memorySummarizer'
+  | 'sessionRepository'
+  | 'messageRepository'
+  | 'episodeRepository'
+  | 'toolRunRepository'
 >;
 
 /** Skills-domain: registry, metrics, and proposal generator. */
-export type SkillsSubServices = Pick<AppServices, 'skillRegistry' | 'skillMetricsService' | 'proposalGenerator'>;
+export type SkillsSubServices = Pick<
+  AppServices,
+  'skillRegistry' | 'skillMetricsService' | 'proposalGenerator'
+>;
 
 /** Policy-domain: approval gate and policy center. */
 export type PolicySubServices = Pick<AppServices, 'approvalGate' | 'policyCenter'>;
 
 /** Tool-domain: registries and bridge. */
-export type ToolSubServices = Pick<AppServices, 'toolRegistry' | 'toolPlatformRegistry' | 'desktopBridgeRegistry'>;
+export type ToolSubServices = Pick<
+  AppServices,
+  'toolRegistry' | 'toolPlatformRegistry' | 'desktopBridgeRegistry'
+>;

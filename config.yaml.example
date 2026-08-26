@@ -116,6 +116,10 @@ channels:
 # --- Tools ---
 # tools:
 #   profile: standard             # minimal | standard | developer | full
+#   # Include skills/tools catalog layers in the system prompt. Disable (false)
+#   # for providers WITHOUT prompt caching to save per-turn tokens.
+#   # Env: SYSTEM_PROMPT_CATALOGS
+#   system_prompt_catalogs: true
 #   shell:
 #     enabled: true
 #     exec_mode: balanced         # safe | balanced | trusted
@@ -189,6 +193,15 @@ channels:
 #   tick_interval_ms: 30000
 #   data_dir: ./cron
 #   execution_timeout_ms: 600000
+
+# --- Agent Watchdog (optional) ---
+# agent:
+#   turn_timeout_sec: 300         # wall-clock cap per agent turn (0 disables)
+#   max_retries: 2                # transient provider/transport error retries
+#   max_tool_cycles: 25           # soft cap on tool-calling rounds per turn
+#   request_timeout_ms: 120000    # LLM first-response timeout (0 disables);
+#                                 # bounds connect + response headers only —
+#                                 # streaming generation is never cut off.
 
 # --- Extensions ---
 # extensions:

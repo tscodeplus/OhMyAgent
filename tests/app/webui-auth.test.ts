@@ -107,10 +107,7 @@ describe('webuiAuthHook exemption list', () => {
 
   it('rejects an invalid bearer token with 403', async () => {
     const reply = makeReply();
-    await webuiAuthHook(
-      makeRequest('/api/channels/wechat/qr/start', 'Bearer wrong-token'),
-      reply,
-    );
+    await webuiAuthHook(makeRequest('/api/channels/wechat/qr/start', 'Bearer wrong-token'), reply);
     expect(reply.statusCode).toBe(403);
   });
 });

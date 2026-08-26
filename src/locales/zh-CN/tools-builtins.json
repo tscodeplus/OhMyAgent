@@ -3,7 +3,8 @@
     "timedOut": "错误：命令执行超时或被中止",
     "error": "错误：{{message}}",
     "noOutput": "（无输出）",
-    "truncated": "[输出已截断：省略了 {{count}} 个字符]"
+    "truncated": "[输出已截断：省略了 {{count}} 个字符]",
+    "streamTruncated": "[...中间省略了 {{count}} 个字符...]"
   },
   "fileRead": {
     "accessDenied": "访问被拒绝：路径在允许目录之外",

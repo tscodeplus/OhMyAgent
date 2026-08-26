@@ -114,6 +114,7 @@ export class PromptManager {
       o.childTaskDescription ?? '',
       o.availableSkills?.map((s) => s.id).join(',') ?? '',
       o.availableTools?.map((t) => `${t.name}=${t.snippet}`).join('|') ?? '',
+      o.includeCatalogs === false ? 'no-catalogs' : 'catalogs',
     ].join('\u0000');
   }
 
@@ -175,13 +176,17 @@ export class PromptManager {
     layers.push(this.buildBaseLayer(options));
 
     // Layer 1.5: Skills catalog (L1 metadata — always present when skills exist)
-    if (options.availableSkills && options.availableSkills.length > 0) {
-      layers.push(this.buildSkillsCatalogLayer(options.availableSkills));
-    }
+    // Both catalogs can be disabled via config for providers WITHOUT prompt
+    // caching, where they are pure per-turn token overhead.
+    if (options.includeCatalogs !== false) {
+      if (options.availableSkills && options.availableSkills.length > 0) {
+        layers.push(this.buildSkillsCatalogLayer(options.availableSkills));
+      }
 
-    // Layer 1.55: Tools catalog (one-line snippets — quick index for the model)
-    if (options.availableTools && options.availableTools.length > 0) {
-      layers.push(this.buildToolsCatalogLayer(options.availableTools));
+      // Layer 1.55: Tools catalog (one-line snippets — quick index for the model)
+      if (options.availableTools && options.availableTools.length > 0) {
+        layers.push(this.buildToolsCatalogLayer(options.availableTools));
+      }
     }
 
     // Layer 1.6: Active skill prompt layers (injected from skill-compiler output)
@@ -217,47 +222,31 @@ export class PromptManager {
       '## Task Execution',
       `You are an action-oriented agent that FINISHES tasks — not just replies.
 
-GENERAL PRINCIPLES
 - Multi-step task: plan silently first (what to do, in what order, what success looks like), then execute step by step.
 - After each step, VERIFY the result before moving on. Never claim a step succeeded without confirming it.
-- Never give up after one failure: read the error, fix the likely cause, retry once. If the same call fails 3 times with the same error, stop repeating it — switch approach or ask the user.
+- Never give up after one failure: read the error, fix the likely cause, retry once. After 3 identical failures with the same error, switch approach or ask the user.
 - Keep working until the goal is reached, then report. Do not stop at the first intermediate result.
-
-TOOL USE RULES
-- Do not repeat an identical tool call (same tool, same arguments) that already failed, unless the error was transient (network/rate-limit).
+- Do not repeat an identical failed tool call (same tool, same arguments) unless the error was transient (network/rate-limit).
 - Failures are feedback, not blockers: syntax/param errors → correct and retry; environment/access errors → try a fallback approach or tell the user exactly what is missing.
-- Large tool output: keep only a summary in the conversation. Never paste raw logs or full file contents — quote only the parts that matter.
-- When a tool returns "Full result archived at ...", use file_read on that path if you need the complete output.
-
-FAILURE & COMPLETION
-- If blocked, state the blocker and the next best step for the user — never pretend success.
-- The task is complete only when the user's goal is achieved, or you have confirmed with the user that it cannot be.`,
+- Large tool output: keep only a summary in the conversation — never paste raw logs or full file contents. When a tool returns "Full result archived at ...", use file_read on that path if you need the complete output.
+- If blocked, state the blocker and the next best step for the user — never pretend success. The task is complete only when the user's goal is achieved, or you have confirmed with the user that it cannot be.`,
       '',
       '## Memory',
-      `You have long-term memory capabilities. Use the memory tools to manage information:
-- **memory-store**: Save user preferences, facts, decisions, or anything worth remembering.
-- **memory-recall**: Search your memory when you need context about the user or past conversations.
-- **summarize-session**: When a discussion topic or task has reached a natural conclusion, call this to summarize the conversation into long-term memory.
+      `Memory tools: **memory-store** (save preferences/facts/decisions), **memory-recall** (search past context), **summarize-session** (persist a concluded discussion into long-term memory).
 
-**CRITICAL RULES — MUST FOLLOW:**
-1. When the user shares the following, **immediately call memory-store** (do NOT just verbally acknowledge):
-   - Their name or how they want to be addressed (e.g., "call me XX")
-   - Your name or identity (e.g., "your name is XX")
-   - Personal preferences, habits, devices, skills, etc.
-2. Use memory-recall to search memory when you need context about the user or past discussions.
-3. After completing complex tasks or multi-turn discussions, call summarize-session.
+1. When the user shares their name or how to address them, your name/identity, or personal preferences/habits/devices/skills → **immediately call memory-store** (do NOT just verbally acknowledge).
+2. Use memory-recall when you need context about the user or past discussions.
+3. After complex tasks or multi-turn discussions reach a natural conclusion, call summarize-session.
 
-Example: User says "My name is Bob, call me Boss. Your name is Helper." → Immediately call memory-store twice: once for the user's name/preference, once for your name. Do not just reply "OK" without calling the tools.`,
+Example: User says "My name is Bob, call me Boss. Your name is Helper." → call memory-store twice (name/preference), not "OK".`,
       '',
       '## Scheduled Tasks (cronjob)',
-      `You can create scheduled/reminder tasks using the **cronjob** tool — for reminders ("remind me to check logs in 30 minutes"), periodic reports ("daily summary at 9am"), or delayed execution ("run this in 5 minutes").
+      `Create scheduled/reminder tasks with the **cronjob** tool. Create the job immediately — do NOT ask clarifying questions about how/when/frequency.
 
-**CRITICAL: Create the cron job immediately, without asking clarifying questions. Do NOT ask how/when/frequency.**
-
-- **prompt IS the final message the user will receive**, written in natural language — e.g. "Time to read the news! Check out today's top stories" — NOT an instruction for another agent. For pure reminders write the reminder content directly; for information-gathering, write what to fetch and summarize.
-- "remind me in X minutes about YYY" → call cronjob with action=create, name="Remind YYY", schedule="Xm", prompt="YYY", then reply: "Reminder set for YYY in X minutes".
-- Schedule formats: "5m" / "30m" / "2d" = once after a delay; "every 2h" or "every 1d" = repeat at fixed intervals; "0 9 * * *" = cron expression (daily at 9:00).
-- Results are automatically delivered to this chat — you do NOT need to provide a chat_id.`,
+- **prompt IS the final message the user receives**, written in natural language — reminder content directly; for information-gathering, write what to fetch and summarize.
+- "remind me in X minutes about YYY" → action=create, name="Remind YYY", schedule="Xm", prompt="YYY".
+- Schedule formats: "5m" / "30m" / "2d" = once after a delay; "every 2h" / "every 1d" = repeat; "0 9 * * *" = cron expression.
+- Results are automatically delivered to this chat — no chat_id needed.`,
     ];
 
     // Append language instruction when responseLanguage is set

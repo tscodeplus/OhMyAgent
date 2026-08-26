@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { existsSync, watch, type FSWatcher } from 'node:fs';
 import { config as dotenvConfig } from 'dotenv';
 import type { AppConfig } from './types.js';
-import type { HarnessConfig, ApprovalRule } from '../harness/types.js';
 import { loadYamlFile, yamlToAppConfigRaw } from './config-loader.js';
 import { envBool } from '../shared/env.js';
 import { ConfigError } from '../shared/errors.js';
@@ -157,6 +156,9 @@ const configSchema = z.object({
     maxOutputLength: z.coerce.number().int().positive().default(12000),
     // v2 fields
     toolsProfile: z.enum(['minimal', 'standard', 'advanced', 'full']).default('standard'),
+    // Include the skills/tools one-line catalog layers in the system prompt.
+    // Disable for providers WITHOUT prompt caching to save per-turn tokens.
+    systemPromptCatalogs: z.boolean().default(true),
     shellExecMode: z.enum(['safe', 'balanced', 'trusted']).default('balanced'),
     shellAllowlist: strListSchema(''),
     // deprecated v1 fields (kept for backward compat, mapped to v2 in loadConfig)
@@ -502,6 +504,12 @@ const configSchema = z.object({
       // Soft cap on tool-calling rounds per turn (0 disables). At the cap the
       // loop stops executing new tool calls and asks the model to reply.
       max_tool_cycles: z.coerce.number().int().nonnegative().default(25),
+      // HTTP-level first-response timeout for LLM requests in ms (0 disables).
+      // Bounds connect + response-headers wait; streaming bodies are not cut
+      // off mid-generation. A provider that accepts the connection but never
+      // responds fails fast here and is retried by the retrying stream wrapper
+      // instead of hanging until the turn watchdog fires.
+      request_timeout_ms: z.coerce.number().int().nonnegative().default(120_000),
     })
     .default({}),
   multimodal: z
@@ -831,7 +839,7 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
       defaultTimeoutMs: env.SHELL_COMMAND_TIMEOUT_MS,
       maxOutputLength: env.SHELL_MAX_OUTPUT_CHARS,
       toolsProfile: env.TOOLS_PROFILE,
-      shellExecMode: env.SHELL_EXEC_MODE,
+      systemPromptCatalogs: envBool(env.SYSTEM_PROMPT_CATALOGS, true),
       shellAllowlist: env.SHELL_ALLOWLIST,
       shellApprovalMode: env.SHELL_APPROVAL_MODE,
       shellApprovalWhitelist: env.SHELL_APPROVAL_WHITELIST,
@@ -1103,6 +1111,7 @@ function applyEnvOverrides(
     { env: env.SHELL_COMMAND_TIMEOUT_MS, field: 'defaultTimeoutMs' },
     { env: env.SHELL_MAX_OUTPUT_CHARS, field: 'maxOutputLength' },
     { env: env.TOOLS_PROFILE, field: 'toolsProfile' },
+    { env: env.SYSTEM_PROMPT_CATALOGS, field: 'systemPromptCatalogs' },
     { env: env.SHELL_EXEC_MODE, field: 'shellExecMode' },
     { env: env.SHELL_ALLOWLIST, field: 'shellAllowlist' },
     { env: env.SHELL_APPROVAL_MODE, field: 'shellApprovalMode' },
@@ -1202,7 +1211,7 @@ function applyEnvOverrides(
   // token-only env vars are for ${VAR} interpolation in config.yaml, not overrides.
   mergeEnvSection('telegram', [
     { env: env.TELEGRAM_ENABLED ?? env.TELEGRAM_MODE ?? env.TELEGRAM_PROXY_URL, field: 'enabled' },
-    ...(env.TELEGRAM_BOT_TOKEN !== undefined ? [{ env: '1', field: 'botToken' }] : []),
+    ...(env.TELEGRAM_BOT_TOKEN === undefined ? [] : [{ env: '1', field: 'botToken' }]),
     { env: env.TELEGRAM_BOT_NAME, field: 'botName' },
     { env: env.TELEGRAM_MODE, field: 'mode' },
     { env: env.TELEGRAM_WEBHOOK_URL, field: 'webhookUrl' },
@@ -1217,7 +1226,7 @@ function applyEnvOverrides(
   ]);
   mergeEnvSection('wechat', [
     { env: env.WECHAT_ENABLED, field: 'enabled' },
-    ...(env.WECHAT_BOT_TOKEN !== undefined ? [{ env: '1', field: 'botToken' }] : []),
+    ...(env.WECHAT_BOT_TOKEN === undefined ? [] : [{ env: '1', field: 'botToken' }]),
     { env: env.WECHAT_API_BASE, field: 'apiBase' },
     { env: env.WECHAT_CURSOR_DIR, field: 'cursorDir' },
     { env: env.WECHAT_TEXT_LIMIT, field: 'textLimit' },
@@ -1226,8 +1235,8 @@ function applyEnvOverrides(
   ]);
   mergeEnvSection('qq', [
     { env: env.QQ_ENABLED ?? env.QQ_APP_ID, field: 'enabled' },
-    ...(env.QQ_APP_ID !== undefined ? [{ env: '1', field: 'appId' }] : []),
-    ...(env.QQ_CLIENT_SECRET !== undefined ? [{ env: '1', field: 'clientSecret' }] : []),
+    ...(env.QQ_APP_ID === undefined ? [] : [{ env: '1', field: 'appId' }]),
+    ...(env.QQ_CLIENT_SECRET === undefined ? [] : [{ env: '1', field: 'clientSecret' }]),
     { env: env.QQ_SANDBOX, field: 'sandbox' },
     { env: env.QQ_ALLOWED_USERS, field: 'allowedUsers' },
     { env: env.QQ_ALLOWED_GROUPS, field: 'allowedGroups' },

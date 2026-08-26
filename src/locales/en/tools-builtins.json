@@ -3,7 +3,8 @@
     "timedOut": "Error: Command timed out or was aborted",
     "error": "Error: {{message}}",
     "noOutput": "(no output)",
-    "truncated": "[Output truncated: {{count}} characters omitted]"
+    "truncated": "[Output truncated: {{count}} characters omitted]",
+    "streamTruncated": "[... {{count}} characters of output discarded in between ...]"
   },
   "fileRead": {
     "accessDenied": "Access denied: path is outside allowed directories",

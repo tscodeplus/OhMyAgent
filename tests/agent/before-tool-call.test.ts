@@ -265,9 +265,7 @@ describe('createBeforeToolCall legacy fallback (no policyCenter)', () => {
       isAppApproved: vi.fn(() => true),
       approveApp: vi.fn(),
     };
-    const beforeToolCall = createBeforeToolCall(
-      makeLegacyDeps({ computerUseHost }),
-    );
+    const beforeToolCall = createBeforeToolCall(makeLegacyDeps({ computerUseHost }));
     await expect(
       beforeToolCall({
         toolCall: { name: 'computer_use' },

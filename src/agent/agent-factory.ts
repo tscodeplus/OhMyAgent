@@ -15,8 +15,6 @@ import type {
   ToolRegistry,
   ReplyDispatcher,
   ToolProfileId,
-  PatternType,
-  PolicyEffect,
 } from '../app/types.js';
 import type { SkillRegistry } from '../skills/skill-registry.js';
 import { getDefaultModel } from '../provider/pi-ai-setup.js';
@@ -62,7 +60,7 @@ import type { CreateChildAgent } from './tool-pipeline.js';
 const complianceTracker = new SkillComplianceTracker();
 /** Map of sessionId → reinforcement messages to inject in the next turn */
 const reinforcementMessages = new Map<string, string>();
-import { activeSkillForSession, activeSkillFeedbackIds, activateSkill } from './skill-activator.js';
+import { activeSkillForSession, activateSkill } from './skill-activator.js';
 
 function mergeProviderKeys(
   apiKeys: Record<string, string>,
@@ -309,7 +307,7 @@ export interface AgentFactoryServices {
 
 // ─── System Prompt ───
 
-function buildDefaultSystemPrompt(lang?: string): string {
+function buildDefaultSystemPrompt(_lang?: string): string {
   return [
     'You are OhMyAgent, a helpful AI assistant.',
     '',
@@ -485,7 +483,7 @@ export function createAgentFactory(
                 : undefined
           : undefined,
       });
-      let { compiled } = activation;
+      const { compiled } = activation;
       const resolvedSkillScope: ResolvedSkillScope = activation.scope;
       if (options) options.message = activation.cleanMessage;
       if (compiled) {
@@ -535,6 +533,10 @@ export function createAgentFactory(
         const teamModeMaxChildren =
           teamState?.config.max_children ?? configRef.current.smart_agent_team.max_children ?? 4;
 
+        // Config switch: providers without prompt caching can disable the
+        // skills/tools catalog layers to save per-turn tokens (T2).
+        const catalogsEnabled = configRef.current.tools.systemPromptCatalogs !== false;
+
         // One-line tool index for the system prompt (pi-style). Uses the
         // pre-pipeline tool set — names are stable across the pipeline, so
         // the snippets remain accurate for index purposes only.
@@ -542,19 +544,22 @@ export function createAgentFactory(
         // only tools this turn can actually execute — otherwise the model may
         // try to call profile-denied tools (wasted cycles) and every request
         // pays catalog tokens for unusable entries.
-        const allowedCatalogTools = PROFILE_TOOLS[effectiveProfile] || PROFILE_TOOLS.standard;
-        const catalogCandidates =
-          allowedCatalogTools[0] === '*' || effectiveProfile === 'full'
-            ? tools
-            : tools.filter(
-                (t: any) => allowedCatalogTools.includes(t.name) || t.name === 'computer_use',
-              );
-        const availableTools =
-          catalogCandidates.length > 0
-            ? catalogCandidates
-                .map((t: any) => ({ name: String(t.name ?? ''), snippet: toolOneLineSnippet(t) }))
-                .filter((t) => t.name.length > 0)
-            : undefined;
+        let availableTools: Array<{ name: string; snippet: string }> | undefined;
+        if (catalogsEnabled) {
+          const allowedCatalogTools = PROFILE_TOOLS[effectiveProfile] || PROFILE_TOOLS.standard;
+          const catalogCandidates =
+            allowedCatalogTools[0] === '*' || effectiveProfile === 'full'
+              ? tools
+              : tools.filter(
+                  (t: any) => allowedCatalogTools.includes(t.name) || t.name === 'computer_use',
+                );
+          availableTools =
+            catalogCandidates.length > 0
+              ? catalogCandidates
+                  .map((t: any) => ({ name: String(t.name ?? ''), snippet: toolOneLineSnippet(t) }))
+                  .filter((t) => t.name.length > 0)
+              : undefined;
+        }
 
         promptAssembly = promptManager.assemble({
           agentId: options?.agentId ?? agentConfig?.id,
@@ -567,6 +572,7 @@ export function createAgentFactory(
           channel: options?.channel,
           isTeamMode,
           teamModeMaxChildren,
+          includeCatalogs: catalogsEnabled,
           responseLanguage: resolveResponseLanguage(configRef.current),
         });
         systemPrompt = promptAssembly.systemPrompt;
@@ -717,9 +723,21 @@ export function createAgentFactory(
           messages: (options?.historyMessages ??
             []) as import('@earendil-works/pi-agent-core').AgentMessage[],
         },
-        streamFn: createRetryingStreamFn(streamSimple as any, {
-          maxRetries: options?.maxRetries ?? configRef.current.agent?.max_retries ?? 2,
-        }) as any,
+        streamFn: (() => {
+          const baseStreamFn = createRetryingStreamFn(streamSimple as any, {
+            maxRetries: options?.maxRetries ?? configRef.current.agent?.max_retries ?? 2,
+          }) as any;
+          // HTTP-level first-response timeout: bounds connect + response-headers
+          // wait so a provider that accepts the connection but never responds
+          // fails fast into the retry wrapper instead of hanging until the turn
+          // watchdog (turn_timeout_sec) fires. Streaming bodies are NOT cut off
+          // mid-generation — the OpenAI-compatible SDK applies the timeout only
+          // until the response starts. 0 disables.
+          const requestTimeoutMs = configRef.current.agent?.request_timeout_ms ?? 0;
+          if (requestTimeoutMs <= 0) return baseStreamFn;
+          return ((model: any, ctx: any, opts: any) =>
+            baseStreamFn(model, ctx, { timeoutMs: requestTimeoutMs, ...opts })) as any;
+        })(),
         maxToolCycles: configRef.current.agent?.max_tool_cycles,
         convertToLlm,
         transformContext: createTransformContext({

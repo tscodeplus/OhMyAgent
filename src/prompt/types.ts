@@ -49,6 +49,11 @@ export interface PromptAssemblyOptions {
   teamModeMaxChildren?: number;
   /** Active skill prompt layers (from skill-compiler output, injected into system prompt) */
   activeSkillLayers?: PromptLayer[];
+  /**
+   * Include the skills/tools catalog layers. Defaults to true; set false for
+   * providers without prompt caching to save per-turn catalog tokens.
+   */
+  includeCatalogs?: boolean;
 }
 
 export interface PromptAssemblyResult {
