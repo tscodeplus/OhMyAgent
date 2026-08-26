@@ -250,6 +250,7 @@ export function rebuildJiebaFts(db: Database.Database): number {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
 
+    let failed = 0;
     const tx = db.transaction(() => {
       let indexed = 0;
       for (const row of rows) {
@@ -265,15 +266,29 @@ export function rebuildJiebaFts(db: Database.Database): number {
             row.created_at,
           );
           indexed++;
-        } catch {
-          // Skip individual failures
+        } catch (err) {
+          // Skip the individual row but keep the failure observable — silent
+          // per-row drift between memories and the jieba index degrades
+          // recall quality invisibly.
+          failed++;
+          memoryObservability.record('memory.fts.failed', {
+            operation: 'rebuildJiebaFts',
+            memoryId: row.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
         }
       }
       return indexed;
     });
 
     return tx();
-  } catch {
+  } catch (err) {
+    // Whole-backfill failure must be observable too — previously a silent
+    // `catch { return 0 }` hid total jieba index drift from operators.
+    memoryObservability.record('memory.fts.failed', {
+      operation: 'rebuildJiebaFts',
+      error: err instanceof Error ? err.message : String(err),
+    });
     return 0;
   }
 }

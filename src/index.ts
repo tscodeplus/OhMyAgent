@@ -11,8 +11,42 @@ import { createLogger } from './app/logger.js';
 
 const logger = createLogger();
 
+/**
+ * Stop function assigned once bootstrap() has completed; process-level crash
+ * handlers use it to roll back already-started services before exiting.
+ */
+let stopServices: (() => Promise<void>) | undefined;
+
+/**
+ * Last-resort handler for unhandled promise rejections / uncaught exceptions.
+ *
+ * Without these handlers Node.js ≥20 crashes the process on an unhandled
+ * rejection with no cleanup: WebSocket connections, schedulers and timers
+ * are abandoned without a graceful stop(). We log the error, attempt a
+ * bounded rollback of started services, and exit non-zero.
+ */
+const fatal = (kind: 'uncaughtException' | 'unhandledRejection', err: unknown): void => {
+  logger.error({ err, kind }, `Fatal ${kind} — shutting down`);
+  void (async () => {
+    try {
+      // Bound the rollback so a hung stop() cannot block exit forever.
+      await Promise.race([
+        stopServices?.(),
+        new Promise((resolve) => setTimeout(resolve, 5_000).unref()),
+      ]);
+    } catch (error) {
+      logger.error({ error }, 'Error during crash-triggered shutdown');
+    }
+    process.exit(1);
+  })();
+};
+
+process.on('uncaughtException', (err) => fatal('uncaughtException', err));
+process.on('unhandledRejection', (reason) => fatal('unhandledRejection', reason));
+
 async function main() {
   const { services, start, stop } = await bootstrap();
+  stopServices = stop;
 
   // ─── Graceful shutdown ───
 

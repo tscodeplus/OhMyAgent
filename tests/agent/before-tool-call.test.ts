@@ -221,3 +221,58 @@ describe('createBeforeToolCall computer_use approval', () => {
     expect(createApproval).not.toHaveBeenCalled();
   });
 });
+
+describe('createBeforeToolCall legacy fallback (no policyCenter)', () => {
+  // Regression for review item P0 #5: in the legacy (backward-compat) path,
+  // non-app computer_use actions used to silently pass when
+  // handleComputerUseApproval returned undefined. They must now fail closed.
+  const makeLegacyDeps = (overrides: Record<string, unknown> = {}) => ({
+    approvalGate: {
+      evaluate: vi.fn(),
+      recordDecision: vi.fn(),
+      getPolicy: vi.fn(),
+    } as unknown as ApprovalGate,
+    approvalTimeoutMs: 30_000,
+    pendingApprovals: new PendingApprovalStore(),
+    sessionId: 'session-1',
+    chatId: 'chat-1',
+    resolvedSkillScope: { scope: 'global' as const, scopeKey: '' },
+    effectiveProfile: 'full',
+    shellMode: 'full' as const,
+    channel: 'telegram' as const, // no channelApprovalSender → no approval UI
+    ...overrides,
+  });
+
+  it('blocks non-app computer_use actions when no approval channel is available', async () => {
+    const beforeToolCall = createBeforeToolCall(makeLegacyDeps());
+    await expect(
+      beforeToolCall({
+        toolCall: { name: 'computer_use' },
+        args: { action: 'click_point', x: 10, y: 20 },
+      }),
+    ).resolves.toEqual(expect.objectContaining({ block: true }));
+
+    await expect(
+      beforeToolCall({
+        toolCall: { name: 'computer_use' },
+        args: { action: 'type_text', text: 'hi' },
+      }),
+    ).resolves.toEqual(expect.objectContaining({ block: true }));
+  });
+
+  it('still allows app actions that are already approved', async () => {
+    const computerUseHost = {
+      isAppApproved: vi.fn(() => true),
+      approveApp: vi.fn(),
+    };
+    const beforeToolCall = createBeforeToolCall(
+      makeLegacyDeps({ computerUseHost }),
+    );
+    await expect(
+      beforeToolCall({
+        toolCall: { name: 'computer_use' },
+        args: { action: 'open_app', target: 'notepad' },
+      }),
+    ).resolves.toBeUndefined();
+  });
+});

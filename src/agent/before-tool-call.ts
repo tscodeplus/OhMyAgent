@@ -1244,12 +1244,33 @@ export function createBeforeToolCall(deps: BeforeToolCallDeps) {
     const activeMessageId = deps.turnContext?.messageId ?? deps.messageId;
     const activeDispatcher = deps.turnContext?.replyDispatcher;
 
-    // ── Computer Use open_app approval ──
+    // ── Computer Use approval ──
     if (toolName === 'computer_use') {
-      return handleComputerUseApproval(
+      const cuArgs = context.args as { action?: string; target?: string };
+      const computerUseResult = await handleComputerUseApproval(
         deps,
-        context.args as { action?: string; target?: string },
+        cuArgs,
         activeChatId ?? '',
+        activeDispatcher,
+      );
+      if (computerUseResult) {
+        return computerUseResult;
+      }
+      const cuAction = cuArgs?.action;
+      if (cuAction === 'open_app' || cuAction === 'focus_app' || cuAction === 'close_app') {
+        // App actions: undefined from handleComputerUseApproval means the app
+        // was already approved (or got approved just now) — safe to allow.
+        return undefined;
+      }
+      // Non-app CU actions (click_point, type_text, press_key, …) are
+      // mutating/high-risk — fail closed through the generic approval path.
+      return handleGenericToolApproval(
+        deps,
+        toolName,
+        context.args,
+        `computer_use action "${cuAction ?? 'unknown'}" requires approval`,
+        activeChatId ?? '',
+        activeMessageId,
         activeDispatcher,
       );
     }

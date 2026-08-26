@@ -95,8 +95,16 @@ export function openDatabase(dbPath: string): Database.Database {
       }
     ).cnt;
     if (ftsCount < memCount) {
+      // Insert ONLY the rowids missing from the index — re-inserting all
+      // rows would duplicate already-indexed entries (FTS5 has no unique
+      // constraint) and skew BM25 ranking.
       const backfilled = db.transaction(() =>
-        db.exec('INSERT INTO memories_fts(rowid, content) SELECT rowid, content FROM memories'),
+        db.exec(
+          `INSERT INTO memories_fts(rowid, content)
+           SELECT m.rowid, m.content FROM memories m
+           LEFT JOIN memories_fts f ON f.rowid = m.rowid
+           WHERE f.rowid IS NULL`,
+        ),
       );
       try {
         backfilled();
