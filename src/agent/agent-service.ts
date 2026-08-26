@@ -70,6 +70,10 @@ export interface AgentServiceOptions {
    *  display it via API fetch even if the SSE stream is disconnected
    *  (page refresh, tab switch) before the agent completes. */
   eagerPersistUserMessage?: boolean;
+  /** Frontend-generated id for the user message. When set, the eagerly
+   *  persisted user message reuses this id so the WebUI can dedupe its
+   *  local streaming copy against the refetched API copy by exact id. */
+  clientMsgId?: string;
 }
 
 export interface AgentServicePersistenceOptions {
@@ -391,7 +395,9 @@ export class AgentService {
         try {
           const now = Date.now();
           this.persistence.messageRepository.create({
-            id: generateId(),
+            // Reuse the frontend's message id when provided — enables exact
+            // client/server deduplication in the WebUI merge step.
+            id: options.clientMsgId || generateId(),
             session_id: sessionId,
             role: 'user',
             content: input,

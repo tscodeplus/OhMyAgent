@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router-dom';
 import { Send, Paperclip, X, Loader2 } from 'lucide-react';
 import { createSSEClient, type SSEEvent } from '../../utils/sse-client';
-import { getToken } from '../../utils/api';
+import { apiRequest, getToken } from '../../utils/api';
+import { devLog } from '../../utils/logger';
 import { CHAT_MEDIA_TOOL_NAMES, isChatMediaUrl } from '../../utils/chatMedia';
 import type { Message, MessageApproval, UserQuestion, ToolCall, MessageFooter, MessageSegment, MediaSegmentItem, MessageFile } from '../../types/session';
 
@@ -21,6 +22,11 @@ interface ChatInputProps {
   onThinkingChange?: (thinking: boolean) => void;
   /** Called when the SSE stream completes (done or error). */
   onDone?: () => void;
+  /** Called when an assistant turn has fully completed (done/error received).
+   *  The server persists the turn content BEFORE dispatching those events,
+   *  so the parent can prune the local streaming bubble once its refetch
+   *  returns the same content under the server-generated id. */
+  onTurnPersisted?: (assistantMsgId: string) => void;
 }
 
 interface FileUploadItem {
@@ -33,6 +39,9 @@ interface FileUploadItem {
 }
 
 const sseClient = createSSEClient();
+
+/** Throttle interval for text_delta → React state updates (~20fps). */
+const DELTA_FLUSH_INTERVAL_MS = 50;
 
 /**
  * Generate a random UUID v4 string. Uses crypto.randomUUID() when available
@@ -56,7 +65,7 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export default function ChatInput({ projectId, sessionId, onMessages, onStreamStart, onThinkingChange, onDone }: ChatInputProps) {
+export default function ChatInput({ projectId, sessionId, onMessages, onStreamStart, onThinkingChange, onDone, onTurnPersisted }: ChatInputProps) {
   const { t } = useTranslation('common');
   const location = useLocation();
   const [input, setInput] = useState('');
@@ -87,8 +96,17 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
   // sending resets to false only when all turns have completed.
   const activeTurnsRef = useRef(0);
 
+  // Render-time mirror of fileUploads so retryFileUpload can read the latest
+  // item WITHOUT side effects inside a state updater (updaters must stay pure
+  // — React StrictMode runs them twice, which would double-upload files).
+  const fileUploadsRef = useRef<FileUploadItem[]>([]);
+
+  // Pending trailing flush timer for throttled text_delta updates.
+  const deltaFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // File upload state
   const [fileUploads, setFileUploads] = useState<FileUploadItem[]>([]);
+  fileUploadsRef.current = fileUploads;
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCounterRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -134,10 +152,44 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
     }
   }, [input, sessionId]);
 
+  // Reset the streaming state machine when switching sessions.
+  // This component is NOT remounted on route param changes (same Route
+  // position in the tree), so without this, a stream left running in
+  // session A keeps sending=true here — and sends in session B get
+  // hijacked into steer mode (no new SSE connection, no turn_start,
+  // no thinking indicator, no reply). Abort A's SSE and reset all refs;
+  // the agent keeps running server-side and the WS agent_turn_complete
+  // push refreshes A's history when the user returns.
+  const streamSessionResetRef = useRef(sessionId);
+  useEffect(() => {
+    if (streamSessionResetRef.current === sessionId) return;
+    streamSessionResetRef.current = sessionId;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    if (deltaFlushTimerRef.current) {
+      clearTimeout(deltaFlushTimerRef.current);
+      deltaFlushTimerRef.current = null;
+    }
+    assistantIdRef.current = '';
+    assistantContentRef.current = '';
+    assistantCreatedAtRef.current = '';
+    toolCallsRef.current = [];
+    runningToolsRef.current.clear();
+    segmentsRef.current = [];
+    flushedCleanLenRef.current = 0;
+    steerBubbleRef.current = false;
+    approvalMessagesRef.current.clear();
+    questionMessagesRef.current.clear();
+    activeTurnsRef.current = 0;
+    lastSseEventRef.current = Date.now();
+    autoSentRef.current = false;
+    setSending(false);
+  }, [sessionId]);
+
   /** Start a fresh turn — new assistant message bubble for this response. */
   const beginTurn = () => {
     const newId = uid();
-    console.log('[ChatInput] beginTurn', { newId: newId.slice(0, 8), prevId: assistantIdRef.current.slice(0, 8), activeTurns: activeTurnsRef.current + 1 });
+    devLog('[ChatInput] beginTurn', { newId: newId.slice(0, 8), prevId: assistantIdRef.current.slice(0, 8), activeTurns: activeTurnsRef.current + 1 });
     assistantIdRef.current = newId;
     assistantContentRef.current = '';
     assistantCreatedAtRef.current = new Date().toISOString();
@@ -220,17 +272,13 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
   }, []);
 
   const retryFileUpload = useCallback(async (id: string) => {
+    // Read the latest item from the render-time mirror — no side effects
+    // inside state updaters (StrictMode would run them twice).
+    const item = fileUploadsRef.current.find(u => u.id === id);
+    if (!item || item.status === 'uploading') return;
     setFileUploads(prev => prev.map(u => u.id === id ? { ...u, status: 'uploading' as const, error: undefined } : u));
-    // Get the item from current state via a ref-like pattern — use timeout to read latest
-    setFileUploads(prev => {
-      const item = prev.find(u => u.id === id);
-      if (item) {
-        uploadFile({ ...item, status: 'uploading' }).then(result => {
-          setFileUploads(p => p.map(u => u.id === id ? result : u));
-        });
-      }
-      return prev.map(u => u.id === id ? { ...u, status: 'uploading' as const, error: undefined } : u);
-    });
+    const result = await uploadFile({ ...item, status: 'uploading' });
+    setFileUploads(prev => prev.map(u => u.id === id ? result : u));
   }, [uploadFile]);
 
   /** Build file reference text and files array from uploaded files for the message.
@@ -273,6 +321,9 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
     setFileUploads([]);
 
     const userMessage: Message = {
+      // Reuse this id as clientMsgId so the server persists the user message
+      // under the SAME id — enables exact dedupe when the post-turn refetch
+      // returns the persisted copy.
       id: uid(),
       session_id: sessionId,
       role: 'user',
@@ -287,14 +338,52 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
     // and prevent the done handler from resetting the sending state.
 
     const streamStartTime = Date.now();
-    console.log('[ChatInput] SSE stream starting', { sessionId, messagePreview: messageText.slice(0, 40) });
+
+    // Trailing-flush throttle state for text_delta updates.
+    let lastDeltaFlushTs = 0;
+    const cancelPendingDeltaFlush = () => {
+      if (deltaFlushTimerRef.current) {
+        clearTimeout(deltaFlushTimerRef.current);
+        deltaFlushTimerRef.current = null;
+      }
+    };
+    devLog('[ChatInput] SSE stream starting', { sessionId, messagePreview: messageText.slice(0, 40) });
+
+    // ── Assistant bubble update helpers ──
+    // Strip reasoning blocks from the accumulated raw content.
+    const cleanAssistantContent = () =>
+      assistantContentRef.current
+        .replace(/<思考>[^]*?<\/思考>/g, '')
+        .replace(/<thinking>[^]*?<\/thinking>/gi, '');
+    const buildAssistantMessage = (extra?: Partial<Message>): Message => ({
+      id: assistantIdRef.current, session_id: sessionId, role: 'assistant',
+      content: assistantContentRef.current,
+      tool_calls: toolCallsRef.current.length > 0 ? [...toolCallsRef.current] : undefined,
+      segments: [...segmentsRef.current],
+      created_at: assistantCreatedAtRef.current,
+      ...extra,
+    });
+    const emitAssistantUpdate = () => {
+      const cleaned = cleanAssistantContent();
+      // Only the portion after the last flush point belongs to the
+      // current text segment (text after the most recent tool call).
+      const currentText = cleaned.slice(flushedCleanLenRef.current);
+      const lastSeg = segmentsRef.current[segmentsRef.current.length - 1];
+      if (lastSeg?.type === 'text') {
+        lastSeg.content = currentText;
+      } else if (currentText) {
+        segmentsRef.current.push({ type: 'text', content: currentText });
+      }
+      if (onMessages) {
+        onMessages([buildAssistantMessage({ content: cleaned })]);
+      }
+    };
 
     abortRef.current = sseClient.start(
       `/api/projects/${projectId}/chat`,
-      { sessionId, message: userMessage.content },
+      { sessionId, message: userMessage.content, clientMsgId: userMessage.id },
       (event: SSEEvent) => {
-        lastSseEventRef.current = Date.now();
-        console.log('[ChatInput] SSE event', { type: event.type, ts: Date.now() - streamStartTime });
+        devLog('[ChatInput] SSE event', { type: event.type, ts: Date.now() - streamStartTime });
         switch (event.type) {
           case 'turn_start':
             // Gateway received the message — start "thinking" indicator.
@@ -314,74 +403,61 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
             const skillName = event.data || '';
             if (skillName) {
               segmentsRef.current.push({ type: 'skill', name: skillName });
-              if (onMessages) {
-                onMessages([{
-                  id: assistantIdRef.current, session_id: sessionId, role: 'assistant',
-                  content: assistantContentRef.current,
-                  segments: [...segmentsRef.current],
-                  created_at: assistantCreatedAtRef.current,
-                }]);
+              cancelPendingDeltaFlush();
+              emitAssistantUpdate();
+            }
+            break;
+          }
+
+          case 'text_delta': {
+            assistantContentRef.current += event.data || '';
+            // Stop the "thinking" indicator once the assistant starts responding
+            onThinkingChange?.(false);
+            {
+              // Throttle React updates to ~20fps — every update re-renders and
+              // re-parses the full markdown of the active bubble, which gets
+              // expensive on long replies. The trailing timer guarantees the
+              // final delta always renders.
+              const now = Date.now();
+              if (now - lastDeltaFlushTs >= DELTA_FLUSH_INTERVAL_MS) {
+                lastDeltaFlushTs = now;
+                emitAssistantUpdate();
+              } else if (!deltaFlushTimerRef.current) {
+                deltaFlushTimerRef.current = setTimeout(() => {
+                  deltaFlushTimerRef.current = null;
+                  lastDeltaFlushTs = Date.now();
+                  emitAssistantUpdate();
+                }, DELTA_FLUSH_INTERVAL_MS);
               }
             }
             break;
           }
 
-          case 'text_delta':
-            assistantContentRef.current += event.data || '';
-            // Stop the "thinking" indicator once the assistant starts responding
-            onThinkingChange?.(false);
-            {
-              const cleaned = assistantContentRef.current
-                .replace(/<思考>[^]*?<\/思考>/g, '')
-                .replace(/<thinking>[^]*?<\/thinking>/gi, '');
-              // Only the portion after the last flush point belongs to the
-              // current text segment (text after the most recent tool call).
-              const currentText = cleaned.slice(flushedCleanLenRef.current);
-              const lastSeg = segmentsRef.current[segmentsRef.current.length - 1];
-              if (lastSeg?.type === 'text') {
-                lastSeg.content = currentText;
-              } else if (currentText) {
-                segmentsRef.current.push({ type: 'text', content: currentText });
-              }
-              if (onMessages) {
-                onMessages([{
-                  id: assistantIdRef.current, session_id: sessionId, role: 'assistant',
-                  content: cleaned,
-                  tool_calls: toolCallsRef.current.length > 0 ? [...toolCallsRef.current] : undefined,
-                  segments: [...segmentsRef.current],
-                  created_at: assistantCreatedAtRef.current,
-                }]);
-              }
-            }
-            break;
-
           case 'tool_call_start': {
             // Stop the "thinking" indicator since the assistant is now acting
             onThinkingChange?.(false);
+            cancelPendingDeltaFlush();
             const tc: ToolCall = {
               id: event.toolCallId || uid(),
               name: event.toolName || 'unknown',
-              arguments: (typeof event.data === 'string' ? JSON.parse(event.data) : event.data) || {},
+              // Malformed JSON args must not throw here — an exception would
+              // propagate through the SSE reader loop and kill the stream.
+              arguments: (() => {
+                try {
+                  return (typeof event.data === 'string' ? JSON.parse(event.data) : event.data) || {};
+                } catch {
+                  return { _raw: event.data };
+                }
+              })(),
               status: 'running',
             };
             runningToolsRef.current.set(tc.id, tc);
             toolCallsRef.current.push(tc);
             // Flush current cleaned text so the next text_delta starts a
             // fresh text segment after this tool call.
-            const cleaned = assistantContentRef.current
-              .replace(/<思考>[^]*?<\/思考>/g, '')
-              .replace(/<thinking>[^]*?<\/thinking>/gi, '');
-            flushedCleanLenRef.current = cleaned.length;
+            flushedCleanLenRef.current = cleanAssistantContent().length;
             segmentsRef.current.push({ type: 'tool_call', toolCall: tc });
-            if (onMessages) {
-              onMessages([{
-                id: assistantIdRef.current, session_id: sessionId, role: 'assistant',
-                content: assistantContentRef.current,
-                tool_calls: [...toolCallsRef.current],
-                segments: [...segmentsRef.current],
-                created_at: assistantCreatedAtRef.current,
-              }]);
-            }
+            emitAssistantUpdate();
             break;
           }
 
@@ -393,6 +469,7 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
               existing.output = event.data ?? '';
               runningToolsRef.current.delete(toolCallId);
             }
+            cancelPendingDeltaFlush();
             // Update the matching segment so the tool card re-renders
             // with the final status / output.
             if (existing) {
@@ -442,15 +519,7 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
                 }
               }
             }
-            if (onMessages) {
-              onMessages([{
-                id: assistantIdRef.current, session_id: sessionId, role: 'assistant',
-                content: assistantContentRef.current,
-                tool_calls: [...toolCallsRef.current],
-                segments: [...segmentsRef.current],
-                created_at: assistantCreatedAtRef.current,
-              }]);
-            }
+            emitAssistantUpdate();
             break;
           }
 
@@ -551,6 +620,7 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
             break;
 
           case 'done': {
+            cancelPendingDeltaFlush();
             const footer = (event as any).footer as MessageFooter | undefined;
             // Extract images from markdown in content and tool outputs
             const images: { url: string; alt?: string }[] = [];
@@ -575,7 +645,7 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
                 extractImages(tc.output);
               }
             }
-            if (images.length > 0) console.log('[ChatInput] done — extracted images', images.length, images.map(i => i.url.slice(0, 50)));
+            if (images.length > 0) devLog('[ChatInput] done — extracted images', images.length, images.map(i => i.url.slice(0, 50)));
             // Extract file download links
             const files: { name: string; path: string; size?: number }[] = [];
             const seenFiles = new Set<string>();
@@ -617,23 +687,24 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
               ? files.filter(f => !mediaUrls.has(f.path))
               : files;
             if (onMessages) {
-              onMessages([{
-                id: assistantIdRef.current, session_id: sessionId, role: 'assistant',
+              onMessages([buildAssistantMessage({
                 content: assistantContentRef.current,
-                tool_calls: toolCallsRef.current.length > 0 ? [...toolCallsRef.current] : undefined,
-                segments: [...segmentsRef.current],
                 footer: footer || undefined,
                 images: dedupedImages.length > 0 ? dedupedImages : undefined,
                 files: dedupedFiles.length > 0 ? dedupedFiles : undefined,
                 // Keep the original creation time so this bubble stays in
                 // its correct chronological position relative to user messages.
                 created_at: assistantCreatedAtRef.current || new Date().toISOString(),
-              }]);
+              })]);
             }
+            // The server persisted this turn's content BEFORE dispatching done
+            // (pre-complete callback) — mark the bubble so the parent can prune
+            // it once its refetch returns the persisted copy.
+            if (assistantIdRef.current) onTurnPersisted?.(assistantIdRef.current);
             // Only set sending=false when ALL turns have completed.
-            console.log('[ChatInput] done — endTurn', { activeTurns: activeTurnsRef.current });
+            devLog('[ChatInput] done — endTurn', { activeTurns: activeTurnsRef.current });
             if (endTurn()) {
-              console.log('[ChatInput] done — last turn, sending=false');
+              devLog('[ChatInput] done — last turn, sending=false');
               setSending(false);
               onDone?.();
             }
@@ -641,14 +712,23 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
           }
 
           case 'error': {
+            cancelPendingDeltaFlush();
             // Reset everything on stream error
             activeTurnsRef.current = 0;
             setSending(false);
             onDone?.();
+            const errorText = event.error || '';
+            // NOTE: deliberately NOT marking this bubble as persisted here.
+            // The EventBridge error path persists first, but the route-level
+            // catch path (execute() threw) sends 'error' WITHOUT persisting —
+            // marking then would let the post-error refetch delete an
+            // unpersisted bubble. The conservative fuzzy match in
+            // ChatView.handleRefetched covers the persisted case instead.
             // Surface the provider/stream error on the current bubble so the
             // task does not appear to "stop by itself" without explanation.
-            const errorText = event.error || '';
-            if (errorText && assistantCreatedAtRef.current && onMessages) {
+            // User-initiated stops arrive as "Aborted" — that's expected, not
+            // an error worth stamping onto the bubble.
+            if (errorText && errorText !== 'Aborted' && assistantCreatedAtRef.current && onMessages) {
               onMessages([{
                 id: assistantIdRef.current,
                 session_id: sessionId,
@@ -665,19 +745,26 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
         }
       },
       () => {
+        // Stream-level failure (network drop, HTTP error, heartbeat timeout).
+        cancelPendingDeltaFlush();
         activeTurnsRef.current = 0;
         setSending(false);
         onDone?.();
       },
+      // Heartbeat: feed the no-event watchdog from the RAW read loop so the
+      // server's ": ping" keepalive comments count too. Without this, long
+      // silent phases (running tools, approval/question waits) would trip the
+      // 60s timeout and kill the UI stream mid-turn.
+      () => { lastSseEventRef.current = Date.now(); },
     );
-  }, [projectId, sessionId, onMessages, onStreamStart, onDone, fileUploads, buildFileRefs]);
+  }, [projectId, sessionId, onMessages, onStreamStart, onDone, onTurnPersisted, fileUploads, buildFileRefs]);
 
   /** Send a steer message while the agent is already running. Does NOT abort
    *  the existing SSE — the steer response streams through the same connection. */
   const steerMessage = useCallback(async (messageText: string) => {
     if (!messageText.trim() || !projectId || !sessionId) return;
 
-    console.log('[ChatInput] steerMessage — queueing steer', { msg: messageText.slice(0, 30), activeTurns: activeTurnsRef.current });
+    devLog('[ChatInput] steerMessage — queueing steer', { msg: messageText.slice(0, 30), activeTurns: activeTurnsRef.current });
 
     // Signal that a new stream of output is starting (for the steer response).
     onStreamStart?.();
@@ -723,23 +810,62 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
     }
   }, [projectId, sessionId, onMessages, fileUploads, buildFileRefs]);
 
+  /** Send a slash command while the agent is already running.
+   *  Routes through POST /chat/steer so the RUNNING SSE connection is NOT
+   *  aborted — previously this path opened a second SSE which killed the
+   *  active stream's UI while the agent kept running server-side. The
+   *  command reply (when the command completes synchronously) is rendered
+   *  locally; steered/forwarded commands respond via the existing stream. */
+  const sendCommandViaSteer = useCallback(async (messageText: string) => {
+    if (!messageText.trim() || !projectId || !sessionId) return;
+    setInput('');
+    // Local echo of the command itself — the steer endpoint does not persist
+    // command messages, so without this the user's input would vanish from
+    // the conversation view.
+    if (onMessages) {
+      onMessages([{
+        id: uid(),
+        session_id: sessionId,
+        role: 'user',
+        content: messageText,
+        created_at: new Date().toISOString(),
+      }], false);
+    }
+    try {
+      const data = await apiRequest<{ ok: boolean; reply?: string }>(
+        `/api/projects/${projectId}/chat/steer`,
+        { method: 'POST', body: JSON.stringify({ sessionId, message: messageText }) },
+      );
+      if (data?.reply && onMessages) {
+        onMessages([{
+          id: uid(),
+          session_id: sessionId,
+          role: 'assistant',
+          content: data.reply,
+          created_at: new Date().toISOString(),
+        }], false);
+      }
+    } catch (err) {
+      console.warn('[ChatInput] command via steer failed:', err);
+    }
+  }, [projectId, sessionId, onMessages]);
+
   const handleSend = useCallback(() => {
     const text = textareaRef.current?.value ?? input;
     const hasFiles = fileUploads.some(u => u.status === 'done');
     if (!text.trim() && !hasFiles) return;
     if (sending) {
-      // Agent is running — route based on message type.
-      if (text.startsWith('/steer ') || text.startsWith('/queue ') || text.startsWith('/btw ')) {
-        steerMessage(text);
-      } else if (text.startsWith('/')) {
-        sendMessage(text, { preserveContent: true });
+      // Agent is running — never open a second SSE; route everything
+      // through the existing stream's steer channel.
+      if (text.startsWith('/')) {
+        sendCommandViaSteer(text);
       } else {
         steerMessage(text);
       }
     } else {
       sendMessage(text);
     }
-  }, [input, sendMessage, sending, steerMessage, fileUploads]);
+  }, [input, sendMessage, sending, steerMessage, sendCommandViaSteer, fileUploads]);
 
   // Auto-send initial message from navigation state (session was just created)
   useEffect(() => {
@@ -756,8 +882,12 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
   // leaking messages into a different conversation after a session switch.
   useEffect(() => {
     return () => {
-      console.log('[ChatInput] unmounting — aborting SSE stream');
+      devLog('[ChatInput] unmounting — aborting SSE stream');
       abortRef.current?.abort();
+      if (deltaFlushTimerRef.current) {
+        clearTimeout(deltaFlushTimerRef.current);
+        deltaFlushTimerRef.current = null;
+      }
       activeTurnsRef.current = 0;
       setSending(false);
     };

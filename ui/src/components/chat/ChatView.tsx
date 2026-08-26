@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Bot, Send } from 'lucide-react';
 import { apiRequest } from '../../utils/api';
 import { isElectron } from '../../utils/env';
+import { devLog } from '../../utils/logger';
 import { useProject } from '../../contexts/ProjectContext';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useToast } from '../ui/Toast';
@@ -12,6 +13,31 @@ import ChatInput from './ChatInput';
 
 import type { Session } from '../../types/session';
 import type { Message } from '../../types/session';
+
+/**
+ * Conservative duplicate detection between a live streaming message and the
+ * persisted API snapshot (used when ids differ, e.g. assistant bubbles).
+ * Only matches when the persisted copy was created at/after the live bubble
+ * started (persist happens at turn end) and contents overlap. Short contents
+ * are only matched exactly to avoid false positives like "好" vs "好的…".
+ */
+function fuzzyDuplicate(m: Message, fetched: Message[]): boolean {
+  // Assistant-only: user messages dedupe by exact id (clientMsgId echo).
+  // Fuzzy-matching users is risky — two identical short messages sent in
+  // quick succession (e.g. "继续") would falsely prune the live copy.
+  if (m.role !== 'assistant') return false;
+  const t = new Date(m.created_at).getTime();
+  return fetched.some(f => {
+    if (f.role !== 'assistant' || !f.content) return false;
+    const ft = new Date(f.created_at).getTime();
+    if (Math.abs(ft - t) > 30_000) return false;
+    if (ft < t - 2_000) return false;
+    if (f.content === m.content) return true;
+    const shorter = Math.min(f.content.length, m.content.length);
+    if (shorter < 16) return false;
+    return f.content.startsWith(m.content) || m.content.startsWith(f.content);
+  });
+}
 
 export default function ChatView() {
   const { projectId, sessionId } = useParams();
@@ -26,21 +52,35 @@ export default function ChatView() {
   const [isThinking, setIsThinking] = useState(false);
   const [refetchKey, setRefetchKey] = useState(0);
 
-  // Tracks whether a new SSE stream has started since the last refetch was
-  // triggered. Prevents handleRefetched from wiping freshly-added streaming
-  // messages when the user sends a new message during an in-flight API fetch.
-  const streamGenerationRef = useRef(0);
+  // Timestamp of the last streaming activity (SSE message arrival / stream
+  // start). Used to distinguish a live local stream from a dead one when a
+  // WebSocket agent_turn_complete arrives.
+  const lastStreamActivityRef = useRef(0);
+  // Bubbles whose SSE turn has fully completed (done/error received). Their
+  // content was persisted server-side BEFORE done was dispatched (pre-complete
+  // callback), so once the post-done refetch returns they exist under a
+  // server-generated id and the local copy can be pruned safely.
+  const completedBubblesRef = useRef(new Set<string>());
+  // Sessions with an in-flight agent turn whose LOCAL SSE was dropped
+  // (user navigated to another session mid-turn). Used to restore the
+  // thinking indicator when the user returns; entries are removed when
+  // the WS agent_turn_complete push arrives for that session.
+  const pendingTurnSessionsRef = useRef(new Set<string>());
 
   // Stable ref for the current session ID — checked in handleMessages to
   // drop late-arriving SSE events from a previous session after a switch.
   const currentSessionIdRef = useRef(sessionId);
   currentSessionIdRef.current = sessionId;
 
-  // Clear streaming messages when switching sessions to prevent
-  // approval records / tool calls from one session leaking into another.
+  // Clear streaming state when switching sessions. Restore the thinking
+  // indicator when returning to a session whose agent is still running
+  // server-side (its local SSE was dropped on leave; the WS completion
+  // push will clear the indicator and refresh the history).
   useEffect(() => {
     setStreamMessages([]);
-    setIsThinking(false);
+    setIsThinking(pendingTurnSessionsRef.current.has(sessionId ?? ''));
+    completedBubblesRef.current.clear();
+    lastStreamActivityRef.current = 0;
   }, [sessionId]);
 
   // Register/unregister with Desktop Bridge for remote tool execution.
@@ -58,6 +98,11 @@ export default function ChatView() {
     };
   }, [sessionId]);
 
+  /** Trigger an API refetch. */
+  const triggerRefetch = useCallback(() => {
+    setRefetchKey(k => k + 1);
+  }, []);
+
   // Listen for agent turn completion notifications via WebSocket.
   // When the SSE connection is lost mid-stream (page refresh, browser close,
   // navigation away), the agent keeps running on the server and persists
@@ -67,42 +112,73 @@ export default function ChatView() {
   useEffect(() => {
     return subscribe('agent_turn_complete', (data: any) => {
       if (data.sessionId === sessionId) {
-        console.log('[ChatView] agent_turn_complete via WS — triggering refetch');
-        setIsStreaming(false);
-        setRefetchKey(k => k + 1);
+        devLog('[ChatView] agent_turn_complete via WS — triggering refetch');
+        // Only drop the local "streaming" flag when no live SSE has been
+        // active recently — if our own connection is still receiving events,
+        // its own done handler owns that state transition.
+        if (Date.now() - lastStreamActivityRef.current > 5_000) {
+          setIsStreaming(false);
+          setIsThinking(false);
+        }
+        triggerRefetch();
       }
+      // The turn for this session is finished wherever it was started —
+      // drop its pending marker so a later visit shows no stale indicator.
+      pendingTurnSessionsRef.current.delete(data.sessionId);
     });
-  }, [subscribe, sessionId]);
+  }, [subscribe, sessionId, triggerRefetch]);
 
   const handleThinkingChange = useCallback((thinking: boolean) => {
     setIsThinking(thinking);
   }, []);
 
   const handleTurnDone = useCallback(() => {
-    console.log('[ChatView] handleTurnDone — switching to API mode');
+    devLog('[ChatView] handleTurnDone — switching to API mode');
     setIsStreaming(false);
     setIsThinking(false);
-    setRefetchKey(k => k + 1);
+    // The only attached stream belongs to the current session — its turn
+    // is over, so clear the pending marker (the WS push would also do it,
+    // but this keeps things tight when the WS message is delayed).
+    pendingTurnSessionsRef.current.delete(currentSessionIdRef.current ?? '');
+    triggerRefetch();
     // Don't clear streamMessages here — MessageList.onRefetched will do it
     // after the API fetch succeeds, preventing message flash/disappearance.
-  }, []);
+  }, [triggerRefetch]);
 
-  const handleRefetched = useCallback(() => {
-    console.log('[ChatView] handleRefetched — clearing streamMessages (API fetch succeeded)');
+  /** Prune streaming messages against a fresh API snapshot after a successful
+   *  refetch. A streaming message is dropped only when we know it exists in
+   *  the snapshot under another id:
+   *  - exact id match (user messages share the clientMsgId),
+   *  - its turn already emitted done/error (persist happens before those),
+   *  - conservative content-overlap fallback for lost connections.
+   *  This replaces the old all-or-nothing counter guard that could wipe
+   *  mid-turn content when the user sent a message during an in-flight fetch. */
+  const handleRefetched = useCallback((fetched?: Message[]) => {
+    devLog('[ChatView] handleRefetched — pruning streamMessages (API fetch succeeded)');
     setStreamMessages(prev => {
-      // Decrement counter if active; if a new stream has started since this
-      // refetch was triggered, keep streaming messages to avoid a gap.
-      if (streamGenerationRef.current > 0) {
-        streamGenerationRef.current--;
-        console.log('[ChatView] handleRefetched — skipped clear, new stream active (count=', streamGenerationRef.current, ')');
-        return prev;
+      const fetchedList = fetched ?? [];
+      const fetchedIds = new Set(fetchedList.map(m => m.id));
+      const kept = prev.filter(m => {
+        // Approval / pending question cards are streaming-only UI state — keep them.
+        if (m.approval || (m.userQuestion && m.userQuestion.status !== 'answered')) return true;
+        // Persisted under the same id (clientMsgId echo) — API copy wins.
+        if (fetchedIds.has(m.id)) return false;
+        // Turn completed before this refetch was triggered → already persisted
+        // under a server-generated id.
+        if (completedBubblesRef.current.has(m.id)) return false;
+        // Fallback for dead connections where done never arrived.
+        if (fetchedList.length > 0 && fuzzyDuplicate(m, fetchedList)) return false;
+        return true;
+      });
+      if (kept.length !== prev.length) {
+        devLog('[ChatView] handleRefetched pruned', { before: prev.length, after: kept.length });
       }
-      // Only keep approval and pending userQuestion messages (streaming-only, not persisted by API)
-      const kept = prev.filter(m => m.approval || (m.userQuestion && m.userQuestion.status !== 'answered'));
-      streamGenerationRef.current = 0;
-      if (kept.length > 0) console.log('[ChatView] keeping approval messages after refetch', kept.map(m => m.id.slice(0, 12)));
       return kept;
     });
+    // GC completed-bubble markers occasionally — they're small but unbounded.
+    if (completedBubblesRef.current.size > 100) {
+      completedBubblesRef.current.clear();
+    }
   }, []);
   // Track the initial message to auto-send after session creation
   const [initialMessage, setInitialMessage] = useState<string | undefined>(undefined);
@@ -131,6 +207,7 @@ export default function ChatView() {
     const curSid = currentSessionIdRef.current;
     msgs = msgs.filter(m => !m.session_id || m.session_id === curSid);
     if (msgs.length === 0) return;
+    lastStreamActivityRef.current = Date.now();
 
     setStreamMessages(prev => {
       // When a new user message arrives in a fresh turn (not steer/follow-up),
@@ -147,7 +224,6 @@ export default function ChatView() {
       const existing = new Map(base.map(m => [m.id, m]));
       for (const msg of msgs) {
         const old = existing.get(msg.id);
-        const isNew = !old;
         // Preserve tool_calls from old message if the new update
         // (e.g. text_delta) doesn't carry them — prevents tool cards
         // from being pushed to the bottom or disappearing.
@@ -155,25 +231,18 @@ export default function ChatView() {
           msg.tool_calls = old.tool_calls;
         }
         existing.set(msg.id, msg);
-        if (isNew) {
-          console.log('[ChatView] handleMessages — NEW message', { id: msg.id.slice(0, 8), role: msg.role, createdAt: msg.created_at, hasContent: !!msg.content, contentLen: msg.content?.length, hasSegments: !!(msg as any).segments });
-        }
       }
       const merged = Array.from(existing.values()).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-      console.log('[ChatView] streamMessages updated', { count: merged.length, order: merged.map(m => `${m.role[0]}:${m.id.slice(0, 8)}(${String(m.created_at ?? '').slice(11,19)})`), approvals: merged.filter(m => m.approval).length });
-      return merged;
+      // Pin pending approval / user-question cards to the END of the list.
+      // They represent a pause point waiting for user input, so any text the
+      // agent streams afterwards must render ABOVE the card, not below it.
+      const isPinned = (m: Message) =>
+        (m.approval && m.approval.status === 'pending') ||
+        (m.userQuestion && m.userQuestion.status === 'pending');
+      const pinnedCards = merged.filter(isPinned);
+      return pinnedCards.length > 0 ? [...merged.filter(m => !isPinned(m)), ...pinnedCards] : merged;
     });
   }, []);
-
-  // Wrapped version that also resets the stream generation counter.
-  // When a new user message arrives in a fresh turn, old streaming messages
-  // are cleared, so the counter guard in handleRefetched is no longer needed.
-  const handleMessagesWithReset = useCallback((msgs: Message[], clearPrevious?: boolean) => {
-    if (msgs.some(m => m.role === 'user') && clearPrevious !== false) {
-      streamGenerationRef.current = 0;
-    }
-    handleMessages(msgs, clearPrevious);
-  }, [handleMessages]);
 
   // No project selected
   if (!projectId) {
@@ -193,8 +262,14 @@ export default function ChatView() {
   if (sessionId) {
     return (
       <div className="flex h-full flex-col">
-        <MessageList projectId={projectId} sessionId={sessionId} streamingMessages={streamMessages} isStreaming={isStreaming} isThinking={isThinking} refetchKey={refetchKey} onRefetched={handleRefetched} />
-        <ChatInput projectId={projectId} sessionId={sessionId} onMessages={handleMessagesWithReset} onStreamStart={() => { setIsStreaming(true); streamGenerationRef.current++; }} onThinkingChange={handleThinkingChange} onDone={handleTurnDone} />
+        {/* MessageList keyed by sessionId: fresh fetch/pagination state per
+            session (also prevents the previous session's messages from
+            flashing while the new session's history loads).
+            ChatInput is deliberately NOT keyed — it holds the cross-session
+            input draft/upload caches. Its streaming state machine resets
+            itself via an internal sessionId-change effect instead. */}
+        <MessageList key={sessionId} projectId={projectId} sessionId={sessionId} streamingMessages={streamMessages} isStreaming={isStreaming} isThinking={isThinking} refetchKey={refetchKey} onRefetched={handleRefetched} />
+        <ChatInput projectId={projectId} sessionId={sessionId} onMessages={handleMessages} onStreamStart={() => { setIsStreaming(true); lastStreamActivityRef.current = Date.now(); if (sessionId) pendingTurnSessionsRef.current.add(sessionId); }} onThinkingChange={handleThinkingChange} onDone={handleTurnDone} onTurnPersisted={(msgId) => completedBubblesRef.current.add(msgId)} />
       </div>
     );
   }

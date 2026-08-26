@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Bot, User, Download, X, Zap } from 'lucide-react';
@@ -101,7 +101,7 @@ function withAuthUrl(url: string): string {
     : `${url}?token=${encodeURIComponent(token)}`;
 }
 
-export default function MessageBubble({ message }: MessageBubbleProps) {
+function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isAssistant = message.role === 'assistant';
   const footer = message.footer;
@@ -770,3 +770,8 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
     </div>
   );
 }
+
+// Memoized: during streaming, only the active bubble's message object changes
+// identity per delta — memo prevents every other bubble from re-rendering
+// (including full markdown re-parses) on each text_delta.
+export default React.memo(MessageBubble);

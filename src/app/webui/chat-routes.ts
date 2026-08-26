@@ -356,7 +356,18 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
   // SSE chat endpoint
   app.post('/api/projects/:projectId/chat', async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
-    const { sessionId, message: rawMessage } = request.body as { sessionId?: string; message?: string };
+    const { sessionId, message: rawMessage, clientMsgId } = request.body as {
+      sessionId?: string;
+      message?: string;
+      /** Frontend-generated message ID — reused as the persisted user message
+       *  id so the WebUI can dedupe its local streaming copy against the
+       *  refetched API copy (avoids double bubbles after turn completion). */
+      clientMsgId?: string;
+    };
+    // Only accept well-formed ids — never let arbitrary user input become a DB primary key.
+    const safeClientMsgId = typeof clientMsgId === 'string' && clientMsgId.length >= 8 && clientMsgId.length <= 64
+      ? clientMsgId
+      : undefined;
 
     if (!sessionId || !rawMessage?.trim()) {
       return reply.status(400).send({ error: 'Bad Request', message: 'sessionId and message are required' });
@@ -382,6 +393,17 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
       reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
     };
 
+    // SSE keepalive — write an SSE comment every 15s so the connection stays
+    // active during long silent phases (tool execution, approval/user-question
+    // waits) and proxies don't buffer/close idle streams. Comment lines are
+    // ignored by SSE parsers; the frontend feeds them to its heartbeat so a
+    // running tool no longer trips the client's 60s no-event timeout.
+    const pingTimer = setInterval(() => {
+      try { reply.raw.write(': ping\n\n'); } catch { /* connection already closed */ }
+    }, 15_000);
+    // 'close' fires when the response ends (including early slash-command returns).
+    reply.raw.on('close', () => clearInterval(pingTimer));
+
     try {
       // ── Slash command routing ──
       if (message.startsWith('/')) {
@@ -398,10 +420,11 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
               try {
                 const { v4: uuidv4 } = await import('uuid');
                 const now = Date.now();
-                // Always persist user command message
+                // Always persist user command message (reuse clientMsgId when provided
+                // so the frontend can dedupe its streaming copy against this row)
                 cfg.db.prepare(
                   "INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)",
-                ).run(uuidv4(), sessionId, rawMessage.trim(), now);
+                ).run(safeClientMsgId ?? uuidv4(), sessionId, rawMessage.trim(), now);
                 if (result.reply) {
                   cfg.db.prepare(
                     "INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, 'assistant', ?, ?)",
@@ -444,7 +467,7 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
                 const now = Date.now();
                 cfg.db.prepare(
                   "INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)",
-                ).run(uuidv4(), sessionId, rawMessage.trim(), now);
+                ).run(safeClientMsgId ?? uuidv4(), sessionId, rawMessage.trim(), now);
                 if (extResult.reply) {
                   cfg.db.prepare(
                     "INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, 'assistant', ?, ?)",
@@ -561,6 +584,7 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
         channelApprovalSender: approvalSender,
         extraTools: [createSendMediaTool()],
         eagerPersistUserMessage: true,
+        clientMsgId: safeClientMsgId,
         images,
         computerUseImageSender,
       });

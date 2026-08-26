@@ -5,6 +5,7 @@ import MessageBubble from './MessageBubble';
 import type { Message } from '../../types/session';
 import Spinner from '../ui/Spinner';
 import { CHAT_MEDIA_TOOL_NAMES, isChatMediaUrl } from '../../utils/chatMedia';
+import { devLog } from '../../utils/logger';
 
 interface MessageListProps {
   projectId?: string;
@@ -16,8 +17,9 @@ interface MessageListProps {
   isThinking?: boolean;
   /** Increment after each turn completes to refetch from API. */
   refetchKey?: number;
-  /** Called after a refetch completes successfully — signals ChatView to clean up streaming messages. */
-  onRefetched?: () => void;
+  /** Called after a refetch completes successfully with the fetched snapshot,
+   *  so ChatView can prune streaming messages that the snapshot supersedes. */
+  onRefetched?: (fetched: Message[]) => void;
 }
 
 const PAGE_SIZE = 50;
@@ -73,7 +75,7 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
             if (tc.output && CHAT_MEDIA_TOOL_NAMES.has(tc.name)) scan(tc.output);
           }
         }
-        if (images.length > 0) { msg.images = images; console.log('[MessageList] extracted images for msg', msg.id.slice(0, 8), images); }
+        if (images.length > 0) { msg.images = images; devLog('[MessageList] extracted images for msg', msg.id.slice(0, 8), images); }
       }
       // Fallback: extract file links from user message content (uploaded attachments)
       // in case the API response doesn't include them in msg.files
@@ -89,22 +91,27 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
             userFiles.push({ name: ufm[1], path: url });
           }
         }
-        if (userFiles.length > 0) { msg.files = userFiles; console.log('[MessageList] extracted files for user msg', msg.id.slice(0, 8), userFiles.length); }
+        if (userFiles.length > 0) { msg.files = userFiles; devLog('[MessageList] extracted files for user msg', msg.id.slice(0, 8), userFiles.length); }
       }
     }
     return data;
   }, []);
 
   // Fetch latest messages (initial load or after turn complete — replaces all messages)
+  // Sequence guard: rapid refetchKey bumps can overlap two requests; a stale
+  // response resolving late must never overwrite fresher data.
+  const fetchSeqRef = useRef(0);
   const fetchLatest = useCallback(async () => {
     if (!_projectId || !sessionId) return;
+    const seq = ++fetchSeqRef.current;
     setLoading(true);
     try {
       const data = await apiRequest<{ messages: Message[]; hasMore: boolean }>(
         `/api/projects/${_projectId}/sessions/${sessionId}?limit=${PAGE_SIZE}`
       );
+      if (seq !== fetchSeqRef.current) return; // superseded by a newer request
       formatResponse(data);
-      console.log('[MessageList] API fetch OK (latest)', { count: data.messages?.length, hasMore: data.hasMore, refetchKey });
+      devLog('[MessageList] API fetch OK (latest)', { count: data.messages?.length, hasMore: data.hasMore, refetchKey });
       setMessages(data.messages || []);
       setHasMore(data.hasMore ?? false);
       if (data.messages && data.messages.length > 0) {
@@ -112,18 +119,18 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
       } else {
         setOldestCreatedAt(undefined);
       }
-      onRefetched?.();
+      onRefetched?.(data.messages || []);
     } catch (e) {
-      console.log('[MessageList] API fetch FAILED', e);
+      devLog('[MessageList] API fetch FAILED', e);
     } finally {
-      setLoading(false);
+      if (seq === fetchSeqRef.current) setLoading(false);
     }
   }, [_projectId, sessionId, refetchKey, onRefetched, formatResponse]);
 
   // Load older messages (prepends to existing list, preserves scroll position)
   const loadMore = useCallback(async () => {
     if (!_projectId || !sessionId || !hasMore || loadingMore || !oldestCreatedAt) return;
-    console.log('[MessageList] loadMore triggered', { oldestCreatedAt });
+    devLog('[MessageList] loadMore triggered', { oldestCreatedAt });
     setLoadingMore(true);
     isLoadingMoreRef.current = true;
     // Record scrollHeight before DOM update so we can restore position
@@ -135,7 +142,7 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
         `/api/projects/${_projectId}/sessions/${sessionId}?before=${encodeURIComponent(oldestCreatedAt)}&limit=${PAGE_SIZE}`
       );
       formatResponse(data);
-      console.log('[MessageList] loadMore OK', { count: data.messages?.length, hasMore: data.hasMore });
+      devLog('[MessageList] loadMore OK', { count: data.messages?.length, hasMore: data.hasMore });
       const older = data.messages || [];
       setMessages(prev => [...older, ...prev]);
       setHasMore(data.hasMore ?? false);
@@ -143,7 +150,7 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
         setOldestCreatedAt(older[0].created_at);
       }
     } catch (e) {
-      console.log('[MessageList] loadMore FAILED', e);
+      devLog('[MessageList] loadMore FAILED', e);
     } finally {
       setLoadingMore(false);
       isLoadingMoreRef.current = false;
@@ -189,10 +196,30 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
     }
   }, [messages]);
 
-  // Auto-scroll to bottom when new messages arrive, thinking indicator shows,
-  // or streaming content changes. Skip when loading older history.
+  // Auto-follow: only stick to bottom when the user is already near it.
+  // Without this check, every streaming delta yanks the viewport back down
+  // while the user is scrolling through history. Reset to "following" when
+  // the session changes or a new user message is sent from the input.
+  const autoFollowRef = useRef(true);
+  const handleScrollFollow = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    autoFollowRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  }, []);
+
   useEffect(() => {
-    if (!isLoadingMoreRef.current) {
+    autoFollowRef.current = true;
+  }, [sessionId]);
+
+  // Auto-scroll to bottom when new messages arrive, thinking indicator shows,
+  // or streaming content changes — only while the user is following.
+  // Exception: the user's OWN newly-sent message always forces a scroll,
+  // even if they were reading history when they hit send.
+  useEffect(() => {
+    const lastExt = externalMessages?.[externalMessages.length - 1];
+    const forceFollow = lastExt?.role === 'user' && !isLoadingMoreRef.current;
+    if (forceFollow) autoFollowRef.current = true;
+    if (!isLoadingMoreRef.current && autoFollowRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, externalMessages, isThinking]);
@@ -211,7 +238,7 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
     const sorted = merged.sort((a, b) =>
       new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     );
-    console.log('[MessageList] displayMessages merge', {
+    devLog('[MessageList] displayMessages merge', {
       apiCount: messages.length,
       extCount: externalMessages.length,
       mergedCount: sorted.length,
@@ -220,7 +247,7 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
   }, [messages, externalMessages]);
 
   return (
-    <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-3 sm:px-4 py-2 sm:py-3">
+    <div ref={scrollContainerRef} onScroll={handleScrollFollow} className="flex-1 overflow-y-auto px-3 sm:px-4 py-2 sm:py-3">
       {/* Top sentinel for infinite scroll — IntersectionObserver watches this */}
       <div ref={topSentinelRef} className="h-px" />
 

@@ -46,13 +46,17 @@ export interface SSEClient {
     url: string,
     body: unknown,
     onEvent: (event: SSEEvent) => void,
-    onError?: (error: Error) => void
+    onError?: (error: Error) => void,
+    /** Called on every received chunk — including keepalive comment lines.
+     *  Use this to feed a heartbeat so long silent phases (running tools,
+     *  approval waits) don't trip client-side no-event timeouts. */
+    onChunk?: () => void
   ) => AbortController;
 }
 
 export function createSSEClient(): SSEClient {
   return {
-    start(url, body, onEvent, onError) {
+    start(url, body, onEvent, onError, onChunk) {
       const controller = new AbortController();
       const token = getToken();
 
@@ -87,6 +91,9 @@ export function createSSEClient(): SSEClient {
               if (done) break;
 
               buffer += decoder.decode(value, { stream: true });
+              // Feed the heartbeat for ANY received data (including the
+              // server's ": ping" keepalive comments) before parsing.
+              onChunk?.();
               const lines = buffer.split('\n');
               buffer = lines.pop() || '';
 
