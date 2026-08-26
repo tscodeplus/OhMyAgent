@@ -140,8 +140,8 @@ const deepseekCanvasSignatureBySession = new LRUCache<string, string>({
 // snapshot 'first' mode re-retrieved every turn and incremental compression
 // lost its previous summary. These live at module level instead.
 // All are bounded LRUs so a long-running gateway doesn't accumulate an entry
-// per session forever. Keys are namespaced by agentId where the cached value
-// is agent-specific.
+// per session forever. ALL keys are namespaced by agentId (nsSessionKey) so
+// agents sharing a sessionKey never read each other's injected state.
 
 /** Sessions that already had classic auto-recall triggered ('first' mode). */
 const autoRecalledSessions = new LRUCache<string, true>({ max: 2000 });
@@ -338,6 +338,11 @@ export function createTransformContext(options?: TransformOptions) {
   const autoRecallFrequency = options?.autoRecallFrequency ?? 'first';
   const sessionKey = options?.sessionKey;
   const agentId = options?.agentId;
+  // Session-scoped cache key namespaced by agentId: two agents sharing a
+  // sessionKey (mid-chat agent switch) never read each other's injected
+  // state — persona text, recall flags, canvas signatures, compression
+  // progress.
+  const nsSessionKey = `${agentId ?? '*'}:${sessionKey || 'default'}`;
   const snapshotMode =
     options?.snapshotMode ?? (autoRecallFrequency === 'every' ? 'every' : 'first');
 
@@ -385,7 +390,7 @@ export function createTransformContext(options?: TransformOptions) {
         // Skip very short messages — too vague for meaningful memory search
         if (query.trim().length >= 5) {
           try {
-            const cacheKey = `${agentId ?? '*'}:${sessionKey || 'default'}`;
+            const cacheKey = nsSessionKey;
             let memories: RetrievedMemory[];
             if (snapshotMode === 'first' && snapshotMemoryCache.has(cacheKey)) {
               memories = snapshotMemoryCache.get(cacheKey)!;
@@ -404,7 +409,7 @@ export function createTransformContext(options?: TransformOptions) {
               const memoryLines = buildMemoryLines(memories, query);
               if (memoryLines.length > 0) {
                 const memoryHint = `\n\n<memory_context>\nRelevant remembered information:\n${memoryLines.join('\n')}\n</memory_context>`;
-                const memoryKey = sessionKey || 'default';
+                const memoryKey = nsSessionKey;
                 const previous = deepseekMemorySignatureBySession.get(memoryKey);
                 const shouldInjectMemory =
                   cacheProfile !== 'deepseek' ||
@@ -444,7 +449,7 @@ export function createTransformContext(options?: TransformOptions) {
       const shouldRecall =
         autoRecall &&
         memoryRetriever &&
-        (autoRecallFrequency === 'every' || !autoRecalledSessions.has(sessionKey ?? ''));
+        (autoRecallFrequency === 'every' || !autoRecalledSessions.has(nsSessionKey));
 
       if (shouldRecall) {
         const lastUserMsg = [...result].reverse().find((m: any) => m.role === 'user');
@@ -464,7 +469,7 @@ export function createTransformContext(options?: TransformOptions) {
                 const memoryLines = buildMemoryLines(memories, query);
                 if (memoryLines.length > 0) {
                   const memoryHint = `\n\n<memory_context>\nRelevant remembered information:\n${memoryLines.join('\n')}\n</memory_context>`;
-                  const memoryKey = sessionKey || 'default';
+                  const memoryKey = nsSessionKey;
                   const previous = deepseekMemorySignatureBySession.get(memoryKey);
                   const shouldInjectMemory =
                     cacheProfile !== 'deepseek' ||
@@ -493,7 +498,7 @@ export function createTransformContext(options?: TransformOptions) {
                 'Memory retrieval failed — continuing without memory context',
               );
             }
-            autoRecalledSessions.set(sessionKey ?? '', true);
+            autoRecalledSessions.set(nsSessionKey, true);
           }
         }
       }
@@ -510,7 +515,7 @@ export function createTransformContext(options?: TransformOptions) {
         const currentPhase = options.mermaidCanvas.getCurrentPhase();
         const lastUserMsg = [...result].reverse().find((m: any) => m.role === 'user');
         const currentUserText = lastUserMsg ? getUserQueryText(lastUserMsg.content) : '';
-        const canvasKey = sessionKey || 'default';
+        const canvasKey = nsSessionKey;
         const canvasSignature = `${total}:${completed}:${currentPhase}`;
         const previousCanvasSignature = deepseekCanvasSignatureBySession.get(canvasKey);
         const shouldSkipCanvas =
@@ -599,7 +604,7 @@ export function createTransformContext(options?: TransformOptions) {
     // Injected once per session so the LLM knows file/shell tools will execute
     // on the user's local machine, not on the gateway server.
     if (options?.desktopBridgeReminderProvider) {
-      const bridgeKey = sessionKey || 'default';
+      const bridgeKey = nsSessionKey;
       const reminderText = options.desktopBridgeReminderProvider(sessionKey);
       if (reminderText) {
         const lastUserMsg = [...result].reverse().find((m: any) => m.role === 'user');
@@ -624,7 +629,7 @@ export function createTransformContext(options?: TransformOptions) {
     }
 
     if (options?.personaContextProvider) {
-      const personaKey = sessionKey || 'default';
+      const personaKey = nsSessionKey;
       const lastUserMsg = [...result].reverse().find((m: any) => m.role === 'user');
       if (lastUserMsg?.content) {
         try {
@@ -672,7 +677,7 @@ export function createTransformContext(options?: TransformOptions) {
 
       if (estimatedTokens > triggerThreshold) {
         try {
-          const previousSummary = lastCompressionSummaryBySession.get(sessionKey);
+          const previousSummary = lastCompressionSummaryBySession.get(nsSessionKey);
           const compressResult = await compressContext({
             messages: result as any,
             contextWindow: compressCfg.contextWindow,
@@ -711,9 +716,9 @@ export function createTransformContext(options?: TransformOptions) {
             messages.length = 0;
             messages.push(compressResult.summaryMessage, ...transcriptRecent);
             options?.onCompressed?.(messages);
-            lastCompressedIndexBySession.set(sessionKey, result.length);
+            lastCompressedIndexBySession.set(nsSessionKey, result.length);
             if (compressResult.summary) {
-              lastCompressionSummaryBySession.set(sessionKey, compressResult.summary);
+              lastCompressionSummaryBySession.set(nsSessionKey, compressResult.summary);
             }
             options?.logger?.info(
               {

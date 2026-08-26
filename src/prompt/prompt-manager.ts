@@ -102,9 +102,7 @@ export class PromptManager {
     if (o.activeSkillLayers && o.activeSkillLayers.length > 0) return null;
     const lang = o.uiLanguage ?? this.deps.uiLanguage;
     const agentId = o.agentId ?? '';
-    const override = agentId
-      ? (this.agentOverrideCache.get(`agent:${agentId}:${lang}`) ?? '')
-      : '';
+    const override = agentId ? (this.agentOverrideCache.get(`agent:${agentId}:${lang}`) ?? '') : '';
     return [
       o.isChildAgent ? 'child' : 'main',
       agentId,
@@ -127,8 +125,7 @@ export class PromptManager {
     const maxTokens =
       options.maxTokens ??
       Math.floor(
-        (this.deps.contextWindow ?? DEFAULT_CONTEXT_WINDOW) *
-          DEFAULT_MAX_SYSTEM_PROMPT_RATIO,
+        (this.deps.contextWindow ?? DEFAULT_CONTEXT_WINDOW) * DEFAULT_MAX_SYSTEM_PROMPT_RATIO,
       );
 
     const budgetWarnings: string[] = [];
@@ -266,7 +263,9 @@ Example: User says "My name is Bob, call me Boss. Your name is Helper." → Imme
     // Append language instruction when responseLanguage is set
     if (options.responseLanguage) {
       parts.push('');
-      parts.push(`IMPORTANT: You MUST respond in ${options.responseLanguage}. All memory entries, summaries, and user-facing output must also be in ${options.responseLanguage}.`);
+      parts.push(
+        `IMPORTANT: You MUST respond in ${options.responseLanguage}. All memory entries, summaries, and user-facing output must also be in ${options.responseLanguage}.`,
+      );
     }
 
     return {
@@ -287,7 +286,9 @@ Example: User says "My name is Bob, call me Boss. Your name is Helper." → Imme
     lines.push('## Skills');
     lines.push('');
 
-    lines.push('Skills are specialized instruction sets. Use the list below only to decide whether a skill fits the current task.');
+    lines.push(
+      'Skills are specialized instruction sets. Use the list below only to decide whether a skill fits the current task.',
+    );
     lines.push('');
 
     lines.push('<available_skills>');
@@ -327,7 +328,9 @@ When a skill fits the task, the full skill instructions are injected automatical
 
     lines.push('## Available tools');
     lines.push('');
-    lines.push('The tools below are available in this session. Full parameter schemas are provided through the API; this list is only a quick index of what exists.');
+    lines.push(
+      'The tools below are available in this session. Full parameter schemas are provided through the API; this list is only a quick index of what exists.',
+    );
     lines.push('');
     lines.push('<available_tools>');
     for (const tool of availableTools) {
@@ -348,10 +351,7 @@ When a skill fits the task, the full skill instructions are injected automatical
     };
   }
 
-  private buildAgentLayer(
-    agentId: string,
-    options: PromptAssemblyOptions,
-  ): PromptLayer | null {
+  private buildAgentLayer(agentId: string, options: PromptAssemblyOptions): PromptLayer | null {
     const lang = options.uiLanguage ?? this.deps.uiLanguage;
     const cacheKey = `agent:${agentId}:${lang}`;
 
@@ -441,13 +441,13 @@ Synthesize child agent results into one coherent, complete reply. **You are the 
   }
 
   renderTemplate(template: string, vars: Record<string, string>): string {
-    return template.replace(/\{\{(\w+)\}\}/g, (_, name) =>
-      vars[name] ?? `{{${name}}}`,
-    );
+    return template.replace(/\{\{(\w+)\}\}/g, (_, name) => vars[name] ?? `{{${name}}}`);
   }
 
   private buildChildModifierLayer(options: PromptAssemblyOptions): PromptLayer {
-    const taskDesc = options.childTaskDescription ?? 'Execute the sub-task assigned by the primary agent and return results.';
+    const taskDesc =
+      options.childTaskDescription ??
+      'Execute the sub-task assigned by the primary agent and return results.';
     return {
       name: 'child-modifier',
       content: `You are a sub-agent spawned by the primary agent. Your only responsibility is to complete the assigned sub-task and return results to the primary agent. Do not attempt to manage long-term memory, create scheduled tasks, or initiate approvals — those are handled by the primary agent.
@@ -461,10 +461,7 @@ ${taskDesc}`,
 
   // ── Merge & Sort ────────────────────────────────────────────────────────────
 
-  private mergeAndSort(
-    layers: PromptLayer[],
-    _options: PromptAssemblyOptions,
-  ): string {
+  private mergeAndSort(layers: PromptLayer[], _options: PromptAssemblyOptions): string {
     const sorted = [...layers].sort((a, b) => a.priority - b.priority);
 
     // Deduplicate: same name → later overwrites earlier
@@ -474,25 +471,21 @@ ${taskDesc}`,
     }
     const deduped = [...seen.values()].sort((a, b) => a.priority - b.priority);
 
-    return deduped.map(l => l.content).join('\n\n');
+    return deduped.map((l) => l.content).join('\n\n');
   }
 
   // ── Budget Trimming ─────────────────────────────────────────────────────────
 
-  private trimToBudget(
-    layers: PromptLayer[],
-    maxTokens: number,
-    warnings: string[],
-  ): string {
-    const stable = layers.filter(l => !l.volatile);
-    const volatile = layers.filter(l => l.volatile);
+  private trimToBudget(layers: PromptLayer[], maxTokens: number, warnings: string[]): string {
+    const stable = layers.filter((l) => !l.volatile);
+    const volatile = layers.filter((l) => l.volatile);
 
     const stableParts: string[] = stable
       .sort((a, b) => a.priority - b.priority)
-      .map(l => l.content);
+      .map((l) => l.content);
     const volatileParts: string[] = volatile
       .sort((a, b) => a.priority - b.priority)
-      .map(l => l.content);
+      .map((l) => l.content);
 
     // Start with stable layers only
     const included: string[] = [...stableParts];

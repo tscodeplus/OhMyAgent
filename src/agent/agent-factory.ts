@@ -123,7 +123,10 @@ function buildSummaryLLMConfig(config: AppConfig): SummaryLLMConfig {
 }
 
 function textBlockChars(blocks: Array<{ type?: string; text?: string }>): number {
-  return blocks.reduce((sum, block) => sum + (typeof block.text === 'string' ? block.text.length : 0), 0);
+  return blocks.reduce(
+    (sum, block) => sum + (typeof block.text === 'string' ? block.text.length : 0),
+    0,
+  );
 }
 
 function resolveResponseLanguage(config: AppConfig): string {
@@ -142,7 +145,8 @@ function shouldKeepFullToolResultInContext(toolName: string): boolean {
 
 /** Build a compact one-line "label: first sentence" snippet for the tools catalog layer. */
 function toolOneLineSnippet(tool: { name?: string; label?: string; description?: string }): string {
-  const label = typeof tool.label === 'string' && tool.label.length > 0 ? tool.label : tool.name ?? '';
+  const label =
+    typeof tool.label === 'string' && tool.label.length > 0 ? tool.label : (tool.name ?? '');
   const desc = typeof tool.description === 'string' ? tool.description : '';
   const firstLine = desc.split('\n')[0] ?? '';
   const firstSentence = firstLine.split(/(?<=[.!?。！？])\s/)[0]?.trim() ?? '';
@@ -166,7 +170,11 @@ export interface AgentCreateOptions {
    *  Threaded into approval request records as the requester so approval
    *  callbacks can verify the clicker is the requester. */
   senderId?: string;
-  historyMessages?: Array<{ role: string; content: string | Array<{ type: string; text?: string }>; timestamp: number }>;
+  historyMessages?: Array<{
+    role: string;
+    content: string | Array<{ type: string; text?: string }>;
+    timestamp: number;
+  }>;
   turnContext?: AgentTurnContext;
   channel?: string;
   computerUseAllowed?: boolean;
@@ -194,8 +202,16 @@ interface ResolvedSkillScope {
 export interface FeishuApprovalClient {
   sendApprovalCard(chatId: string, card: Record<string, unknown>): Promise<string>;
   recallMessage?(messageId: string): Promise<void>;
-  uploadImage?(image: Buffer | string, imageType?: 'message' | 'avatar'): Promise<{ imageKey: string }>;
-  uploadFile?(file: Buffer | string, fileName: string, fileType: string, duration?: number): Promise<{ fileKey: string }>;
+  uploadImage?(
+    image: Buffer | string,
+    imageType?: 'message' | 'avatar',
+  ): Promise<{ imageKey: string }>;
+  uploadFile?(
+    file: Buffer | string,
+    fileName: string,
+    fileType: string,
+    duration?: number,
+  ): Promise<{ fileKey: string }>;
   sendMessage?(params: {
     receive_id: string;
     receive_id_type: string;
@@ -238,7 +254,10 @@ export interface AgentFactoryOptions {
   policyCenter?: PolicyCenter;
   orchestratorFactory?: () => Orchestrator | undefined;
   getServices?: () => AppServices | undefined;
-  onApprovalAutoReject?: (requestId: string, reason: 'timeout' | 'stale_after_restart' | 'expired_before_recovery' | 'steered') => void;
+  onApprovalAutoReject?: (
+    requestId: string,
+    reason: 'timeout' | 'stale_after_restart' | 'expired_before_recovery' | 'steered',
+  ) => void;
   onApprovalAutoApprove?: (requestId: string) => void;
   logger?: Logger;
   promptManager?: PromptManager;
@@ -262,16 +281,18 @@ export interface AgentFactory {
   /** Reject all pending user questions for a session. Returns count. */
   rejectPendingQuestions(sessionKey: string): number;
   /** v9: Get compression model config for overflow recovery. */
-  getAutoCompressConfig(): {
-    contextWindow: number;
-    mainModelRef: string;
-    globalFallbackRefs: string[];
-    compressModelRef?: string;
-    compressFallbackRefs?: string[];
-    apiKeys: Record<string, string>;
-    baseUrls: Record<string, string>;
-    baseUrl?: string;
-  } | undefined;
+  getAutoCompressConfig():
+    | {
+        contextWindow: number;
+        mainModelRef: string;
+        globalFallbackRefs: string[];
+        compressModelRef?: string;
+        compressFallbackRefs?: string[];
+        apiKeys: Record<string, string>;
+        baseUrls: Record<string, string>;
+        baseUrl?: string;
+      }
+    | undefined;
 }
 
 /** Dependencies required by the factory. */
@@ -344,7 +365,15 @@ export function createAgentFactory(
   services: AgentFactoryServices,
   factoryOptions: AgentFactoryOptions = {},
 ): AgentFactory {
-  const { toolRegistry, skillRegistry, defaultModel, memoryRetriever, personaStore, agentManager, computerUseHost } = services;
+  const {
+    toolRegistry,
+    skillRegistry,
+    defaultModel,
+    memoryRetriever,
+    personaStore,
+    agentManager,
+    computerUseHost,
+  } = services;
   const configRef = { current: services.config };
   const {
     approvalGate,
@@ -416,7 +445,8 @@ export function createAgentFactory(
         tools = agentManager!.resolveTools(agentConfig);
       }
 
-      let systemPrompt = options?.systemPrompt ?? buildDefaultSystemPrompt(configRef.current.uiLanguage);
+      let systemPrompt =
+        options?.systemPrompt ?? buildDefaultSystemPrompt(configRef.current.uiLanguage);
 
       if (agentConfig && !options?.systemPrompt) {
         // Empty agent prompt → no override layer. The PromptManager base
@@ -431,9 +461,9 @@ export function createAgentFactory(
           agent_name: agentConfig.name ?? '',
           agent_id: agentConfig.id ?? '',
           // NOTE: no `current_time` here — dynamic dates are injected per-turn
-  // into the LAST user message by context-transform.ts instead. Keeping
-  // the system prompt byte-stable preserves provider prefix caching and
-  // avoids UTC-vs-local timezone mismatches (toISOString is UTC).
+          // into the LAST user message by context-transform.ts instead. Keeping
+          // the system prompt byte-stable preserves provider prefix caching and
+          // avoids UTC-vs-local timezone mismatches (toISOString is UTC).
           channel: options?.channel ?? 'unknown',
           ui_language: configRef.current.uiLanguage ?? 'zh-CN',
         });
@@ -449,14 +479,24 @@ export function createAgentFactory(
         approvalGate,
         logger,
         getServices: getServices
-          ? () => getServices() ? { skillMetricsService: getServices()!.skillMetricsService } : undefined
+          ? () =>
+              getServices()
+                ? { skillMetricsService: getServices()!.skillMetricsService }
+                : undefined
           : undefined,
       });
       let { compiled } = activation;
       const resolvedSkillScope: ResolvedSkillScope = activation.scope;
       if (options) options.message = activation.cleanMessage;
       if (compiled) {
-        logger?.info({ skillScope: resolvedSkillScope, hasPromptLayers: !!compiled.promptLayers?.length, allowedTools: compiled.allowedTools }, '[agent-factory] skill context applied to agent');
+        logger?.info(
+          {
+            skillScope: resolvedSkillScope,
+            hasPromptLayers: !!compiled.promptLayers?.length,
+            allowedTools: compiled.allowedTools,
+          },
+          '[agent-factory] skill context applied to agent',
+        );
       }
 
       // Assemble final system prompt via PromptManager (v5)
@@ -464,9 +504,11 @@ export function createAgentFactory(
       // Effective tools profile for this turn (skill override > explicit > global).
       // Computed before prompt assembly — used by the catalog filter inside the
       // assembly block AND by the runtime policy scope / tool pipeline below.
-      const skillProfile = (compiled?.toolsProfile) as ToolProfileId | undefined;
-      const globalProfile = defaultToolsProfile ?? configRef.current.tools.toolsProfile ?? 'standard';
-      const effectiveProfile: ToolProfileId = options?.toolsProfileOverride ?? skillProfile ?? globalProfile;
+      const skillProfile = compiled?.toolsProfile as ToolProfileId | undefined;
+      const globalProfile =
+        defaultToolsProfile ?? configRef.current.tools.toolsProfile ?? 'standard';
+      const effectiveProfile: ToolProfileId =
+        options?.toolsProfileOverride ?? skillProfile ?? globalProfile;
 
       let promptAssembly: ReturnType<PromptManager['assemble']> | undefined;
       if (promptManager && !options?.systemPrompt) {
@@ -475,7 +517,7 @@ export function createAgentFactory(
         if (skillRegistry?.isLoaded()) {
           const allSkills = skillRegistry.getSkills();
           if (allSkills.length > 0) {
-            availableSkills = allSkills.map(s => ({
+            availableSkills = allSkills.map((s) => ({
               id: s.manifest.id,
               name: s.manifest.name,
               description: s.manifest.description,
@@ -487,11 +529,11 @@ export function createAgentFactory(
         // v7: Agent Team mode — inject orchestrator role layer for primary agent
         const sessionId = options?.sessionId ?? 'default';
         const teamState = teamModeStore.get(sessionId);
-        const isTeamMode = (teamState?.enabled ?? configRef.current.smart_agent_team.enabled)
-          && !options?.isChildAgent;
-        const teamModeMaxChildren = teamState?.config.max_children
-          ?? configRef.current.smart_agent_team.max_children
-          ?? 4;
+        const isTeamMode =
+          (teamState?.enabled ?? configRef.current.smart_agent_team.enabled) &&
+          !options?.isChildAgent;
+        const teamModeMaxChildren =
+          teamState?.config.max_children ?? configRef.current.smart_agent_team.max_children ?? 4;
 
         // One-line tool index for the system prompt (pi-style). Uses the
         // pre-pipeline tool set — names are stable across the pipeline, so
@@ -504,12 +546,15 @@ export function createAgentFactory(
         const catalogCandidates =
           allowedCatalogTools[0] === '*' || effectiveProfile === 'full'
             ? tools
-            : tools.filter((t: any) => allowedCatalogTools.includes(t.name) || t.name === 'computer_use');
-        const availableTools = catalogCandidates.length > 0
-          ? catalogCandidates
-              .map((t: any) => ({ name: String(t.name ?? ''), snippet: toolOneLineSnippet(t) }))
-              .filter((t) => t.name.length > 0)
-          : undefined;
+            : tools.filter(
+                (t: any) => allowedCatalogTools.includes(t.name) || t.name === 'computer_use',
+              );
+        const availableTools =
+          catalogCandidates.length > 0
+            ? catalogCandidates
+                .map((t: any) => ({ name: String(t.name ?? ''), snippet: toolOneLineSnippet(t) }))
+                .filter((t) => t.name.length > 0)
+            : undefined;
 
         promptAssembly = promptManager.assemble({
           agentId: options?.agentId ?? agentConfig?.id,
@@ -536,7 +581,10 @@ export function createAgentFactory(
         const reinforcement = reinforcementMessages.get(sessionKey);
         if (reinforcement) {
           systemPrompt = `${systemPrompt}\n\n${reinforcement}`;
-          logger?.info({ sessionId: sessionKey }, 'Skill compliance reinforcement injected into system prompt');
+          logger?.info(
+            { sessionId: sessionKey },
+            'Skill compliance reinforcement injected into system prompt',
+          );
           // Clear after injection (per-turn reinforcement)
           reinforcementMessages.delete(sessionKey);
         }
@@ -554,9 +602,13 @@ export function createAgentFactory(
       if (turnContext) {
         if (compiled) {
           turnContext.effectiveMessage = options?.message;
-          turnContext.activatedSkillName = activation.activatedSkillNames ?? activation.scope.scopeKey;
+          turnContext.activatedSkillName =
+            activation.activatedSkillNames ?? activation.scope.scopeKey;
           turnContext.activatedSkillId = activation.scope.scopeKey;
-          logger?.info({ scopeKey: activation.scope.scopeKey, skillNames: turnContext.activatedSkillName }, '[agent-factory] skill activation names resolved');
+          logger?.info(
+            { scopeKey: activation.scope.scopeKey, skillNames: turnContext.activatedSkillName },
+            '[agent-factory] skill activation names resolved',
+          );
         } else {
           turnContext.effectiveMessage = undefined;
           turnContext.activatedSkillName = undefined;
@@ -567,21 +619,21 @@ export function createAgentFactory(
       // Initialize offloadStore for context offloading (P0)
       const offloadCfg = configRef.current.memory.offloading;
       const offloadBaseDir = offloadCfg?.refDir || path.dirname(configRef.current.database.path);
-      const offloadStore = offloadCfg?.enabled
-        ? new OffloadStore(offloadBaseDir)
-        : undefined;
+      const offloadStore = offloadCfg?.enabled ? new OffloadStore(offloadBaseDir) : undefined;
 
       // Initialize Mermaid canvas for task graph tracking (P1)
       const mermaidCanvasCfg = configRef.current.memory.mermaidCanvas;
       const mermaidCanvas = mermaidCanvasCfg?.enabled
-        ? (offloadStore && sessionId
-            ? MermaidCanvas.fromRecords(offloadStore.getSessionRecords(sessionId))
-            : new MermaidCanvas())
+        ? offloadStore && sessionId
+          ? MermaidCanvas.fromRecords(offloadStore.getSessionRecords(sessionId))
+          : new MermaidCanvas()
         : undefined;
       // Lazy phase tagger (initialized fire-and-forget in afterToolCall)
       let phaseTagger: MermaidPhaseTagger | undefined;
 
-      const effectiveShellMode = _shellEnabled ? shellModeForProfile(effectiveProfile) : 'read-only' as const;
+      const effectiveShellMode = _shellEnabled
+        ? shellModeForProfile(effectiveProfile)
+        : ('read-only' as const);
       const runtimePolicyScope: AgentPolicyScope = options?.policyScope ?? {
         toolsProfile: effectiveProfile,
         readRoots: [],
@@ -627,7 +679,8 @@ export function createAgentFactory(
         getServices,
         orchestratorFactory,
         createChildAgent: ((cfg, task, childOpts) => {
-          const childTools = agentManager!.resolveTools(cfg)
+          const childTools = agentManager!
+            .resolveTools(cfg)
             .filter((t: any) => t.name !== 'spawn_agent');
           return factory.create({
             agentId: cfg.id,
@@ -661,7 +714,8 @@ export function createAgentFactory(
           model,
           tools,
           thinkingLevel: thinkingLevel as import('@earendil-works/pi-ai').ThinkingLevel,
-          messages: (options?.historyMessages ?? []) as import('@earendil-works/pi-agent-core').AgentMessage[],
+          messages: (options?.historyMessages ??
+            []) as import('@earendil-works/pi-agent-core').AgentMessage[],
         },
         streamFn: createRetryingStreamFn(streamSimple as any, {
           maxRetries: options?.maxRetries ?? configRef.current.agent?.max_retries ?? 2,
@@ -734,12 +788,20 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
           // Auto-reload skill registry when a SKILL.md is written via file_write.
           // Agents may use file_write instead of skill_create, so we detect writes
           // to skills/*/SKILL.md and reload so the new skill is immediately active.
-          if (skillRegistry && context.toolCall.name === 'file_write' && result && !context.isError) {
+          if (
+            skillRegistry &&
+            context.toolCall.name === 'file_write' &&
+            result &&
+            !context.isError
+          ) {
             try {
               const fp = (context.args as Record<string, unknown>)?.filePath as string | undefined;
               if (fp && /(?:^|[\\/])skills[\\/][^\\/]+[\\/]SKILL\.md$/i.test(fp)) {
                 await skillRegistry.load('./skills');
-                logger?.info({ filePath: fp }, 'Skill registry auto-reloaded after file_write to SKILL.md');
+                logger?.info(
+                  { filePath: fp },
+                  'Skill registry auto-reloaded after file_write to SKILL.md',
+                );
               }
             } catch {
               logger?.debug('Skill registry auto-reload failed — continuing');
@@ -751,7 +813,10 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
           const activeSkill = activeSkillForSession.get(sessionKey);
           if (activeSkill && context.toolCall.name) {
             const toolCalls: Array<{ name: string; args: Record<string, unknown> }> = [
-              { name: context.toolCall.name, args: (context.args as Record<string, unknown>) ?? {} },
+              {
+                name: context.toolCall.name,
+                args: (context.args as Record<string, unknown>) ?? {},
+              },
             ];
             const complianceResult = complianceTracker.check(
               activeSkill.skillId,
@@ -773,9 +838,16 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
             if (!logger) return undefined;
             if (!phaseTagger) {
               const summaryConfig = buildSummaryLLMConfig(configRef.current);
-              createDistillerLLM(summaryConfig, logger).then(llm => {
-                phaseTagger = new MermaidPhaseTagger(llm, logger);
-              }).catch((err) => { logger.warn({ err }, 'Failed to create Mermaid phase-tagger LLM — phase tagging will be unavailable'); });
+              createDistillerLLM(summaryConfig, logger)
+                .then((llm) => {
+                  phaseTagger = new MermaidPhaseTagger(llm, logger);
+                })
+                .catch((err) => {
+                  logger.warn(
+                    { err },
+                    'Failed to create Mermaid phase-tagger LLM — phase tagging will be unavailable',
+                  );
+                });
             }
             return phaseTagger;
           };
@@ -786,18 +858,32 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
             if (!result) return undefined;
 
             // Normalize content to TextBlock array format
-            const formatted = typeof result.content === 'string'
-              ? [{ type: 'text' as const, text: result.content }]
-              : (Array.isArray(result.content) ? result.content : [{ type: 'text' as const, text: String(result.content ?? '') }]);
+            const formatted =
+              typeof result.content === 'string'
+                ? [{ type: 'text' as const, text: result.content }]
+                : Array.isArray(result.content)
+                  ? result.content
+                  : [{ type: 'text' as const, text: String(result.content ?? '') }];
 
             // Read existing records to determine the next sequence number
             const records = offloadStore.getSessionRecords(sessionId);
             const seq = records.length + 1;
 
-            const summary = summarizeToolResult(context.toolCall.name, context.args, formatted, context.isError);
+            const summary = summarizeToolResult(
+              context.toolCall.name,
+              context.args,
+              formatted,
+              context.isError,
+            );
             // Archive full result to offload store (for context trimming recovery)
             const record = offloadStore.writeToolResult(
-              sessionId, seq, context.toolCall.name, context.args, formatted, context.isError, summary
+              sessionId,
+              seq,
+              context.toolCall.name,
+              context.args,
+              formatted,
+              context.isError,
+              summary,
             );
             const resultChars = textBlockChars(formatted);
             // Large tool results are archived above and replaced in context
@@ -831,20 +917,27 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
 
             if (shouldCompactLargeResult) {
               const ref = `${offloadStore.getSessionDirPath(sessionId)}/${record.refPath}`;
-              logger?.info({
-                sessionId,
-                toolName: context.toolCall.name,
-                charsBefore: resultChars,
-                refPath: record.refPath,
-              }, 'Large tool result compacted and archived');
+              logger?.info(
+                {
+                  sessionId,
+                  toolName: context.toolCall.name,
+                  charsBefore: resultChars,
+                  refPath: record.refPath,
+                },
+                'Large tool result compacted and archived',
+              );
               return {
                 ...result,
-                content: [{
-                  type: 'text' as const,
-                  text: `[Tool result compressed]\n${summary}\n\nFull result archived at: ${ref}\nUse file_read on that path for the original output.`,
-                }],
+                content: [
+                  {
+                    type: 'text' as const,
+                    text: `[Tool result compressed]\n${summary}\n\nFull result archived at: ${ref}\nUse file_read on that path for the original output.`,
+                  },
+                ],
                 details: {
-                  ...(typeof result.details === 'object' && result.details !== null ? result.details : {}),
+                  ...(typeof result.details === 'object' && result.details !== null
+                    ? result.details
+                    : {}),
                   offloadRef: ref,
                   originalChars: resultChars,
                   compactedFor: cacheProfile === 'deepseek' ? 'deepseek-cache' : 'large-result',
@@ -859,10 +952,18 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
 
           // P1: Mermaid canvas update (when offloading is disabled)
           if (mermaidCanvasCfg?.enabled && mermaidCanvas && result) {
-            const fmt = typeof result.content === 'string'
-              ? [{ type: 'text' as const, text: result.content }]
-              : (Array.isArray(result.content) ? result.content : [{ type: 'text' as const, text: String(result.content ?? '') }]);
-            const toolSummary = summarizeToolResult(context.toolCall.name, context.args, fmt, context.isError);
+            const fmt =
+              typeof result.content === 'string'
+                ? [{ type: 'text' as const, text: result.content }]
+                : Array.isArray(result.content)
+                  ? result.content
+                  : [{ type: 'text' as const, text: String(result.content ?? '') }];
+            const toolSummary = summarizeToolResult(
+              context.toolCall.name,
+              context.args,
+              fmt,
+              context.isError,
+            );
             updateMermaidCanvas({
               canvas: mermaidCanvas,
               config: mermaidCanvasCfg ?? {},
@@ -910,7 +1011,7 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
               policyScope: runtimePolicyScope,
               policyAgentId: options?.policyAgentId,
               channelApprovalSender: options?.channelApprovalSender,
-              channel: (options?.channel as BeforeToolCallDeps['channel']),
+              channel: options?.channel as BeforeToolCallDeps['channel'],
               senderId: options?.senderId,
               logger,
             })
@@ -923,18 +1024,23 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
           try {
             // Count tool calls and spawn activity from this turn
             const toolCallCount = ctx.toolResults?.length ?? 0;
-            const didSpawn = ctx.toolResults?.some(
-              (tr) => tr.toolName === 'spawn_agent',
-            ) ?? false;
+            const didSpawn = ctx.toolResults?.some((tr) => tr.toolName === 'spawn_agent') ?? false;
 
             turnCounter.recordTurn(sessionId, { toolCallCount, didSpawn });
-            logger?.debug({ sessionId, toolCallCount, didSpawn }, '[P3] prepareNextTurn: turn recorded');
+            logger?.debug(
+              { sessionId, toolCallCount, didSpawn },
+              '[P3] prepareNextTurn: turn recorded',
+            );
 
             // Only evaluate reflection prompts when team mode is active
             const teamState = teamModeStore.get(sessionId);
-            const isTeamActive = teamState?.enabled ?? configRef.current.smart_agent_team?.enabled ?? false;
+            const isTeamActive =
+              teamState?.enabled ?? configRef.current.smart_agent_team?.enabled ?? false;
             if (!isTeamActive) {
-              logger?.debug({ sessionId, isTeamActive }, '[P3] prepareNextTurn: team mode not active, skip');
+              logger?.debug(
+                { sessionId, isTeamActive },
+                '[P3] prepareNextTurn: team mode not active, skip',
+              );
               return undefined;
             }
 
@@ -947,15 +1053,23 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
             if (!reflection && toolCallCount === 0) {
               // Check if the just-completed assistant message contains a <plan> block
               const assistantText = (ctx.message as any)?.content;
-              const hasPlanText = typeof assistantText === 'string'
-                ? assistantText.includes('<plan>')
-                : Array.isArray(assistantText)
-                  ? assistantText.some((block: any) =>
-                      block?.type === 'text' && typeof block?.text === 'string' && block.text.includes('<plan>'))
-                  : false;
+              const hasPlanText =
+                typeof assistantText === 'string'
+                  ? assistantText.includes('<plan>')
+                  : Array.isArray(assistantText)
+                    ? assistantText.some(
+                        (block: any) =>
+                          block?.type === 'text' &&
+                          typeof block?.text === 'string' &&
+                          block.text.includes('<plan>'),
+                      )
+                    : false;
 
               if (hasPlanText) {
-                logger?.info({ sessionId }, '[P3] prepareNextTurn: plan-only detected (model output plan but no tools called)');
+                logger?.info(
+                  { sessionId },
+                  '[P3] prepareNextTurn: plan-only detected (model output plan but no tools called)',
+                );
                 reflection = planOnlyReflection();
                 // Update debounce so we don't re-inject immediately
                 const state = turnCounter.get(sessionId);
@@ -965,11 +1079,21 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
 
             if (!reflection) {
               const state = turnCounter.get(sessionId);
-              logger?.debug({ sessionId, serialToolCalls: state.serialToolCalls, turnsSinceLastSpawn: state.turnsSinceLastSpawn }, '[P3] prepareNextTurn: no reflection triggered');
+              logger?.debug(
+                {
+                  sessionId,
+                  serialToolCalls: state.serialToolCalls,
+                  turnsSinceLastSpawn: state.turnsSinceLastSpawn,
+                },
+                '[P3] prepareNextTurn: no reflection triggered',
+              );
               return undefined;
             }
 
-            logger?.info({ sessionId, reflectionLen: reflection.length }, '[P3] prepareNextTurn: injecting reflection');
+            logger?.info(
+              { sessionId, reflectionLen: reflection.length },
+              '[P3] prepareNextTurn: injecting reflection',
+            );
 
             // Inject reflection as a user message at the END of the context
             // (not in systemPrompt). This preserves the prefix cache — only the
@@ -979,7 +1103,11 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
                 ...ctx.context,
                 messages: [
                   ...ctx.context.messages,
-                  { role: 'user', content: [{ type: 'text', text: reflection }], timestamp: Date.now() } as any,
+                  {
+                    role: 'user',
+                    content: [{ type: 'text', text: reflection }],
+                    timestamp: Date.now(),
+                  } as any,
                 ],
               },
             };
@@ -996,24 +1124,15 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
       return agent;
     },
 
-    resolveApproval(
-      requestId: string,
-      decision: ApprovalDecisionType,
-    ): boolean {
+    resolveApproval(requestId: string, decision: ApprovalDecisionType): boolean {
       return pendingApprovals.resolve(requestId, decision);
     },
 
-    resolveFirstPendingApproval(
-      sessionKey: string,
-      decision: ApprovalDecisionType,
-    ): boolean {
+    resolveFirstPendingApproval(sessionKey: string, decision: ApprovalDecisionType): boolean {
       return pendingApprovals.resolveFirstForSession(sessionKey, decision);
     },
 
-    resolveAllPendingApprovals(
-      sessionKey: string,
-      decision: ApprovalDecisionType,
-    ): number {
+    resolveAllPendingApprovals(sessionKey: string, decision: ApprovalDecisionType): number {
       return pendingApprovals.resolveAllForSession(sessionKey, decision);
     },
 
@@ -1034,7 +1153,12 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
     },
 
     rejectPendingQuestions(sessionKey: string): number {
-      return factoryOptions.userQuestionStore?.rejectAllForSession(sessionKey, 'User sent a new message') ?? 0;
+      return (
+        factoryOptions.userQuestionStore?.rejectAllForSession(
+          sessionKey,
+          'User sent a new message',
+        ) ?? 0
+      );
     },
 
     getAutoCompressConfig() {

@@ -9,9 +9,7 @@ import type {
 
 // ── Mock Helpers ───────────────────────────────────────────────────────────────
 
-function createMockDeps(
-  overrides?: Partial<PromptManagerDeps>,
-): PromptManagerDeps {
+function createMockDeps(overrides?: Partial<PromptManagerDeps>): PromptManagerDeps {
   return { uiLanguage: 'en', contextWindow: 200_000, ...overrides };
 }
 
@@ -146,8 +144,10 @@ describe('PromptManager', () => {
     it('uses default task description when childTaskDescription is omitted', () => {
       const result = pm.assemble({ isChildAgent: true });
 
-      const childLayer = result.layers.find(l => l.name === 'child-modifier')!;
-      expect(childLayer.content).toContain('Execute the sub-task assigned by the primary agent and return results.');
+      const childLayer = result.layers.find((l) => l.name === 'child-modifier')!;
+      expect(childLayer.content).toContain(
+        'Execute the sub-task assigned by the primary agent and return results.',
+      );
     });
 
     it('child modifier layer uses rolePrefix as prefix', () => {
@@ -156,8 +156,10 @@ describe('PromptManager', () => {
         childTaskDescription: 'Do the thing.',
       });
 
-      const content = result.layers.find(l => l.name === 'child-modifier')!.content;
-      expect(content).toContain('You are a sub-agent spawned by the primary agent. Your only responsibility is to complete the assigned sub-task and return results to the primary agent. Do not attempt to manage long-term memory, create scheduled tasks, or initiate approvals — those are handled by the primary agent.');
+      const content = result.layers.find((l) => l.name === 'child-modifier')!.content;
+      expect(content).toContain(
+        'You are a sub-agent spawned by the primary agent. Your only responsibility is to complete the assigned sub-task and return results to the primary agent. Do not attempt to manage long-term memory, create scheduled tasks, or initiate approvals — those are handled by the primary agent.',
+      );
       expect(content).toContain('Do the thing.');
     });
 
@@ -167,7 +169,7 @@ describe('PromptManager', () => {
       pm.registerAgentOverride('dup', 'second version');
 
       const result = pm.assemble({ agentId: 'dup' });
-      const agentLayer = result.layers.find(l => l.name === 'agent:dup')!;
+      const agentLayer = result.layers.find((l) => l.name === 'agent:dup')!;
       expect(agentLayer.content).toBe('second version');
     });
 
@@ -176,12 +178,22 @@ describe('PromptManager', () => {
     it('includes skills catalog layer when availableSkills has entries', () => {
       const result = pm.assemble({
         availableSkills: [
-          { id: 'researcher', name: 'Researcher', description: 'Search and look up information.', path: 'skills/researcher/SKILL.md' },
-          { id: 'code-review', name: 'Code Reviewer', description: 'Review code for bugs.', path: 'skills/code-review/SKILL.md' },
+          {
+            id: 'researcher',
+            name: 'Researcher',
+            description: 'Search and look up information.',
+            path: 'skills/researcher/SKILL.md',
+          },
+          {
+            id: 'code-review',
+            name: 'Code Reviewer',
+            description: 'Review code for bugs.',
+            path: 'skills/code-review/SKILL.md',
+          },
         ],
       });
 
-      const catalogLayer = result.layers.find(l => l.name === 'skills-catalog');
+      const catalogLayer = result.layers.find((l) => l.name === 'skills-catalog');
       expect(catalogLayer).toBeDefined();
       expect(catalogLayer!.priority).toBe(25);
       expect(catalogLayer!.volatile).toBe(false);
@@ -197,35 +209,44 @@ describe('PromptManager', () => {
 
     it('omits skills catalog layer when availableSkills is empty array', () => {
       const result = pm.assemble({ availableSkills: [] });
-      expect(result.layers.find(l => l.name === 'skills-catalog')).toBeUndefined();
+      expect(result.layers.find((l) => l.name === 'skills-catalog')).toBeUndefined();
     });
 
     it('omits skills catalog layer when availableSkills is undefined', () => {
       const result = pm.assemble({});
-      expect(result.layers.find(l => l.name === 'skills-catalog')).toBeUndefined();
+      expect(result.layers.find((l) => l.name === 'skills-catalog')).toBeUndefined();
     });
 
     it('skills catalog layer is stable (non-volatile), survives token budget trimming', () => {
       // Use child modifier as a volatile layer that can be trimmed
       const result = pm.assemble({
-        availableSkills: [{ id: 'researcher', name: 'R', description: 'D', path: 'skills/researcher/SKILL.md' }],
+        availableSkills: [
+          { id: 'researcher', name: 'R', description: 'D', path: 'skills/researcher/SKILL.md' },
+        ],
         isChildAgent: true,
         childTaskDescription: 'X'.repeat(100_000),
         maxTokens: 500,
       });
 
       // The catalog layer is volatile:false, so it should survive trimming
-      expect(result.layers.find(l => l.name === 'skills-catalog')).toBeDefined();
+      expect(result.layers.find((l) => l.name === 'skills-catalog')).toBeDefined();
       // The volatile child modifier layer should be trimmed
       expect(result.budgetWarnings.length).toBeGreaterThan(0);
     });
 
     it('single skill catalog format is correct', () => {
       const result = pm.assemble({
-        availableSkills: [{ id: 'single', name: 'Single Skill', description: 'Does one thing well.', path: 'skills/single/SKILL.md' }],
+        availableSkills: [
+          {
+            id: 'single',
+            name: 'Single Skill',
+            description: 'Does one thing well.',
+            path: 'skills/single/SKILL.md',
+          },
+        ],
       });
 
-      const catalogLayer = result.layers.find(l => l.name === 'skills-catalog')!;
+      const catalogLayer = result.layers.find((l) => l.name === 'skills-catalog')!;
       expect(catalogLayer.content).toContain('Single Skill');
       expect(catalogLayer.content).toContain('$single');
       expect(catalogLayer.content).not.toContain('skills/single/SKILL.md');
@@ -240,7 +261,7 @@ describe('PromptManager', () => {
       ];
       const result = pm.assemble({ availableSkills: skills });
 
-      const catalogLayer = result.layers.find(l => l.name === 'skills-catalog')!;
+      const catalogLayer = result.layers.find((l) => l.name === 'skills-catalog')!;
       for (const s of skills) {
         expect(catalogLayer.content).toContain(s.name);
         expect(catalogLayer.content).toContain(s.description);
@@ -491,7 +512,7 @@ describe('PromptManager', () => {
       });
 
       expect(result.budgetWarnings.length).toBeGreaterThanOrEqual(1);
-      const trimWarnings = result.budgetWarnings.filter(w =>
+      const trimWarnings = result.budgetWarnings.filter((w) =>
         w.includes('Trimmed volatile layer'),
       );
       expect(trimWarnings.length).toBeGreaterThanOrEqual(1);
@@ -526,20 +547,22 @@ describe('PromptManager', () => {
 
       const result = pm.assemble({
         agentId: 'agent-a',
-        availableSkills: [{ id: 'skill-x', name: 'Skill X', description: 'X desc.', path: 'skills/skill-x/SKILL.md' }],
+        availableSkills: [
+          {
+            id: 'skill-x',
+            name: 'Skill X',
+            description: 'X desc.',
+            path: 'skills/skill-x/SKILL.md',
+          },
+        ],
         isChildAgent: true,
         childTaskDescription: 'Do X and Y.',
       });
 
       // Priority order: base(0), skills-catalog(25), agent:a(50), child-modifier(200)
       expect(result.layers).toHaveLength(4);
-      const names = result.layers.map(l => l.name);
-      expect(names).toEqual([
-        'base',
-        'skills-catalog',
-        'agent:agent-a',
-        'child-modifier',
-      ]);
+      const names = result.layers.map((l) => l.name);
+      expect(names).toEqual(['base', 'skills-catalog', 'agent:agent-a', 'child-modifier']);
 
       expect(result.systemPrompt).toContain(getBaseContent());
       expect(result.systemPrompt).toContain('You are agent A.');
@@ -610,7 +633,7 @@ describe('ChildAgentPromptOptimizer', () => {
         taskDescription: 'Review the code.',
       });
 
-      const remainingNames = result.layers.map(l => l.name);
+      const remainingNames = result.layers.map((l) => l.name);
       // agent: and skill: layers are dropped entirely
       expect(remainingNames).not.toContain('agent:researcher');
       expect(remainingNames).not.toContain('skill:code-review');
@@ -635,7 +658,7 @@ describe('ChildAgentPromptOptimizer', () => {
         taskDescription: 'Do something.',
       });
 
-      const childRole = result.layers.find(l => l.name === 'child-role');
+      const childRole = result.layers.find((l) => l.name === 'child-role');
       expect(childRole).toBeDefined();
       expect(childRole!.priority).toBe(0);
       expect(result.layers[0].name).toBe('child-role');
@@ -665,7 +688,7 @@ describe('ChildAgentPromptOptimizer', () => {
         taskDescription: 'Do a task.',
       });
 
-      const remainingBase = result.layers.find(l => l.name === 'base');
+      const remainingBase = result.layers.find((l) => l.name === 'base');
       // Base should be processed and stripped but still present (had non-empty content after stripping)
       expect(remainingBase).toBeDefined();
       expect(remainingBase!.content).not.toContain('## Memory System');
@@ -697,7 +720,7 @@ describe('ChildAgentPromptOptimizer', () => {
         taskDescription: 'Execute task.',
       });
 
-      const remainingBase = result.layers.find(l => l.name === 'base');
+      const remainingBase = result.layers.find((l) => l.name === 'base');
       expect(remainingBase).toBeDefined();
       expect(remainingBase!.content).not.toContain('记忆系统');
       expect(remainingBase!.content).not.toContain('定时任务');
@@ -726,7 +749,7 @@ describe('ChildAgentPromptOptimizer', () => {
         taskDescription: 'task',
       });
 
-      const remainingBase = result.layers.find(l => l.name === 'base');
+      const remainingBase = result.layers.find((l) => l.name === 'base');
       expect(remainingBase).toBeUndefined();
     });
 
@@ -747,8 +770,8 @@ describe('ChildAgentPromptOptimizer', () => {
         taskDescription: 'task',
       });
 
-      expect(result.layers.map(l => l.name)).toContain('custom-layer');
-      expect(result.layers.map(l => l.name)).toContain('another-layer');
+      expect(result.layers.map((l) => l.name)).toContain('custom-layer');
+      expect(result.layers.map((l) => l.name)).toContain('another-layer');
     });
   });
 
@@ -775,7 +798,7 @@ describe('ChildAgentPromptOptimizer', () => {
         keepBlocks: ['agent:gpt'],
       });
 
-      const remainingNames = result.layers.map(l => l.name);
+      const remainingNames = result.layers.map((l) => l.name);
       // agent:gpt is kept because it's in keepBlocks
       expect(remainingNames).toContain('agent:gpt');
       // base is content-stripped but its content is non-empty, so it persists
@@ -807,7 +830,7 @@ describe('ChildAgentPromptOptimizer', () => {
         keepBlocks: ['agent:special'],
       });
 
-      expect(result.layers.map(l => l.name)).toContain('some-name');
+      expect(result.layers.map((l) => l.name)).toContain('some-name');
     });
   });
 
@@ -879,7 +902,7 @@ describe('ChildAgentPromptOptimizer', () => {
         taskDescription: 'task',
       });
 
-      const priorities = result.layers.map(l => l.priority);
+      const priorities = result.layers.map((l) => l.priority);
       // child-role is added at priority 0, and remaining layers should be sorted
       for (let i = 1; i < priorities.length; i++) {
         expect(priorities[i]).toBeGreaterThanOrEqual(priorities[i - 1]);
@@ -904,7 +927,7 @@ describe('ChildAgentPromptOptimizer', () => {
         taskDescription: 'Analyze the dataset and return insights.',
       });
 
-      const childRole = result.layers.find(l => l.name === 'child-role')!;
+      const childRole = result.layers.find((l) => l.name === 'child-role')!;
       expect(childRole.content).toContain('## Task');
       expect(childRole.content).toContain('Analyze the dataset and return insights.');
       // Child role uses i18n; with default mock t, the key appears as-is
@@ -930,7 +953,7 @@ describe('ChildAgentPromptOptimizer', () => {
         taskDescription: 'task',
       });
 
-      const remaining = result.layers.find(l => l.name === 'base');
+      const remaining = result.layers.find((l) => l.name === 'base');
       expect(remaining).toBeDefined();
       expect(remaining!.content).not.toContain('\n\n\n');
     });
@@ -950,7 +973,7 @@ describe('ChildAgentPromptOptimizer', () => {
         taskDescription: 'task',
       });
 
-      const remaining = result.layers.find(l => l.name === 'base');
+      const remaining = result.layers.find((l) => l.name === 'base');
       if (remaining) {
         // Should not have leading/trailing whitespace after trim
         expect(remaining.content).toBe(remaining.content.trim());
@@ -997,8 +1020,8 @@ describe('ChildAgentPromptOptimizer', () => {
       // Base is stripped (matched by /^base$/i), but its content after section
       // stripping may or may not remain. "You are an AI." has no ## sections
       // to strip, so it should persist.
-      expect(result.layers.map(l => l.name)).toContain('base');
-      expect(result.layers.map(l => l.name)).toContain('child-role');
+      expect(result.layers.map((l) => l.name)).toContain('base');
+      expect(result.layers.map((l) => l.name)).toContain('child-role');
     });
 
     it('custom strip patterns work via constructor', () => {
@@ -1019,9 +1042,9 @@ describe('ChildAgentPromptOptimizer', () => {
         taskDescription: 'task',
       });
 
-      expect(result.layers.map(l => l.name)).not.toContain('custom-foo');
-      expect(result.layers.map(l => l.name)).toContain('keep-me');
-      expect(result.layers.map(l => l.name)).toContain('child-role');
+      expect(result.layers.map((l) => l.name)).not.toContain('custom-foo');
+      expect(result.layers.map((l) => l.name)).toContain('keep-me');
+      expect(result.layers.map((l) => l.name)).toContain('child-role');
     });
   });
 });

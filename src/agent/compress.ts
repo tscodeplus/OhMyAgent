@@ -26,11 +26,14 @@ function estimateMessageTokens(m: AgentMessage): number {
     } else if (Array.isArray(m.content)) {
       for (const b of m.content) {
         if (b.type === 'text' && typeof b.text === 'string') chars += b.text.length;
-        else if (b.type === 'thinking' && typeof b.thinking === 'string') chars += b.thinking.length;
+        else if (b.type === 'thinking' && typeof b.thinking === 'string')
+          chars += b.thinking.length;
         // b.name may be missing on malformed toolCall blocks — dereference
         // only after the nullish check (b.name.length ?? 0 would throw).
-        else if (b.type === 'toolCall') chars += (b.name?.length ?? 0) + JSON.stringify(b.arguments ?? {}).length;
-        else if (b.type === 'image') chars += 4800; // image estimate
+        else if (b.type === 'toolCall')
+          chars += (b.name?.length ?? 0) + JSON.stringify(b.arguments ?? {}).length;
+        else if (b.type === 'image')
+          chars += 4800; // image estimate
         else chars += JSON.stringify(b).length;
       }
     }
@@ -59,6 +62,10 @@ export function estimateTokens(messages: AgentMessage[]): number {
  * WeakMap: entries vanish automatically when messages are dropped from the
  * transcript (e.g. after compression), so no manual eviction is needed.
  */
+// Memoization precondition: AgentMessage objects are treated as immutable
+// once added to a transcript (pi-mono replaces them, never mutates content
+// in place). If a message object were ever mutated after its first estimate,
+// the memoized value would be stale — the WeakMap entry dies with the object.
 const messageTokensMemo = new WeakMap<object, number>();
 
 export function estimateMessageTokensCached(m: AgentMessage): number {
@@ -111,14 +118,14 @@ function formatMessage(m: AgentMessage, index: number): string {
     content = m.content;
   } else if (Array.isArray(m.content)) {
     content = (m.content as { type: string; text?: string; name?: string }[])
-      .filter(b => b.type === 'text' && typeof b.text === 'string')
-      .map(b => b.text!)
+      .filter((b) => b.type === 'text' && typeof b.text === 'string')
+      .map((b) => b.text!)
       .join('\n');
   }
   if (!content.trim() && Array.isArray(m.content)) {
     const parts = (m.content as { type: string; name?: string }[])
-      .filter(b => b.type === 'toolCall')
-      .map(b => `[Tool: ${b.name}]`);
+      .filter((b) => b.type === 'toolCall')
+      .map((b) => `[Tool: ${b.name}]`);
     if (parts.length > 0) content = parts.join(', ');
   }
   if (!content.trim()) return '';
@@ -129,7 +136,8 @@ function formatMessage(m: AgentMessage, index: number): string {
 // Prompt templates — pi-style structured Markdown
 // ---------------------------------------------------------------------------
 
-const SYSTEM_PROMPT = 'You are a precise conversation analyst. Compress conversation history into a structured summary for another LLM to continue the work. Preserve exact file paths, function names, and error messages.';
+const SYSTEM_PROMPT =
+  'You are a precise conversation analyst. Compress conversation history into a structured summary for another LLM to continue the work. Preserve exact file paths, function names, and error messages.';
 
 const SUMMARIZATION_PROMPT = `Create a structured context checkpoint summary that another LLM will use to continue the work.
 
@@ -220,17 +228,37 @@ export interface CompressContextOutput {
  * 3. Generate structured summary of older messages via LLM
  * 4. Return summary message + split index
  */
-export async function compressContext(
-  input: CompressContextInput,
-): Promise<CompressContextOutput> {
-  const { messages, contextWindow, settings, sessionKey, mainModelRef, globalFallbackRefs, apiKeys, baseUrls, baseUrl, compressModelRef, compressFallbackRefs, previousSummary, logger } = input;
+export async function compressContext(input: CompressContextInput): Promise<CompressContextOutput> {
+  const {
+    messages,
+    contextWindow,
+    settings,
+    sessionKey,
+    mainModelRef,
+    globalFallbackRefs,
+    apiKeys,
+    baseUrls,
+    baseUrl,
+    compressModelRef,
+    compressFallbackRefs,
+    previousSummary,
+    logger,
+  } = input;
   const empty: CompressContextOutput = { summaryMessage: null, compressedIndex: 0, summary: '' };
 
   const estimatedTokens = estimateTokens(messages);
   const shouldTrigger = estimatedTokens > contextWindow - settings.reserveTokens;
 
   if (!shouldTrigger) {
-    logger?.debug({ sessionKey, estimatedTokens, contextWindow, threshold: contextWindow - settings.reserveTokens }, 'Compression not needed yet');
+    logger?.debug(
+      {
+        sessionKey,
+        estimatedTokens,
+        contextWindow,
+        threshold: contextWindow - settings.reserveTokens,
+      },
+      'Compression not needed yet',
+    );
     return empty;
   }
 
@@ -238,16 +266,14 @@ export async function compressContext(
   if (cutPoint <= 0) return empty;
 
   const oldMessages = messages.slice(0, cutPoint);
-  const compressibleMessages = oldMessages.filter(m => formatMessage(m, 0).length > 0);
+  const compressibleMessages = oldMessages.filter((m) => formatMessage(m, 0).length > 0);
   if (compressibleMessages.length < 4) return empty;
 
   // Model selection mirrors buildSummaryLLMConfig (memory_aux_models):
   //   configured → use it + its fallback chain
   //   not configured → use primary model + global fallback chain
   const modelRef = compressModelRef || mainModelRef;
-  const fallbackRefs = compressModelRef
-    ? (compressFallbackRefs ?? [])
-    : globalFallbackRefs;
+  const fallbackRefs = compressModelRef ? (compressFallbackRefs ?? []) : globalFallbackRefs;
 
   const modelConfig: AuxModelConfig = {
     modelRef,
@@ -257,15 +283,18 @@ export async function compressContext(
     baseUrl,
   };
 
-  logger?.info({
-    sessionKey,
-    totalMessages: messages.length,
-    compressCount: compressibleMessages.length,
-    keepCount: messages.length - cutPoint,
-    estimatedTokens,
-    contextWindow,
-    modelRef: modelConfig.modelRef,
-  }, 'Starting context compression');
+  logger?.info(
+    {
+      sessionKey,
+      totalMessages: messages.length,
+      compressCount: compressibleMessages.length,
+      keepCount: messages.length - cutPoint,
+      estimatedTokens,
+      contextWindow,
+      modelRef: modelConfig.modelRef,
+    },
+    'Starting context compression',
+  );
 
   try {
     const prompt = previousSummary
@@ -294,17 +323,25 @@ export async function compressContext(
 
     const summary = response.trim();
 
-    logger?.info({
-      sessionKey,
-      compressedCount: compressibleMessages.length,
-      keptCount: messages.length - cutPoint,
-      summaryLength: summary.length,
-    }, 'Context compression completed');
+    logger?.info(
+      {
+        sessionKey,
+        compressedCount: compressibleMessages.length,
+        keptCount: messages.length - cutPoint,
+        summaryLength: summary.length,
+      },
+      'Context compression completed',
+    );
 
     return {
       summaryMessage: {
         role: 'user',
-        content: [{ type: 'text', text: `\n\n---\n[Context Compression — Earlier Conversation Summary]\n${summary}\n---\n` }],
+        content: [
+          {
+            type: 'text',
+            text: `\n\n---\n[Context Compression — Earlier Conversation Summary]\n${summary}\n---\n`,
+          },
+        ],
       } as AgentMessage,
       compressedIndex: cutPoint,
       summary,
@@ -316,16 +353,24 @@ export async function compressContext(
     // messages at the cut point and keep the recent tail so the request can
     // still go out. The marker keeps the split visible to the model; summary
     // stays empty so a later turn can retry real summarization.
-    logger?.warn({
-      sessionKey,
-      err: err instanceof Error ? err.message : String(err),
-    }, 'Context compression failed, falling back to hard truncation');
+    logger?.warn(
+      {
+        sessionKey,
+        err: err instanceof Error ? err.message : String(err),
+      },
+      'Context compression failed, falling back to hard truncation',
+    );
     const recentMessages = messages.slice(cutPoint);
     if (recentMessages.length === 0) return empty;
     return {
       summaryMessage: {
         role: 'user',
-        content: [{ type: 'text', text: '\n\n---\n[Context Compression — Earlier Conversation Truncated (summarization failed)]\n---\n' }],
+        content: [
+          {
+            type: 'text',
+            text: '\n\n---\n[Context Compression — Earlier Conversation Truncated (summarization failed)]\n---\n',
+          },
+        ],
       } as AgentMessage,
       compressedIndex: cutPoint,
       summary: '',
