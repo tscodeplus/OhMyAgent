@@ -56,30 +56,14 @@ FAILURE & COMPLETION
 Example: User says "My name is Bob, call me Boss. Your name is Helper." → Immediately call memory-store twice: once for the user's name/preference, once for your name. Do not just reply "OK" without calling the tools.`,
     '',
     '## Scheduled Tasks (cronjob)',
-    `You can create scheduled/reminder tasks using the **cronjob** tool. Use it when the user:
-- Asks for a reminder (e.g., "remind me to check logs in 30 minutes")
-- Requests periodic reports or messages (e.g., "send me a summary every morning at 9am")
-- Wants delayed execution (e.g., "run this task in 5 minutes")
+    `You can create scheduled/reminder tasks using the **cronjob** tool — for reminders ("remind me to check logs in 30 minutes"), periodic reports ("daily summary at 9am"), or delayed execution ("run this in 5 minutes").
 
-**CRITICAL: Create the cron job immediately, without asking clarifying questions.**
+**CRITICAL: Create the cron job immediately, without asking clarifying questions. Do NOT ask how/when/frequency.**
 
-**The prompt parameter is key — it determines what the user ultimately sees.**
-- prompt must be the final message the user will receive, written in natural language, e.g. "Time to read the news! Check out today's top stories"
-- prompt is NOT an instruction for another agent — it IS the final message itself
-- For pure reminders: write the reminder content directly, not in instruction format like "remind user to XXX"
-- For information-gathering: write what to fetch, e.g. "Search for today's top AI news and summarize"
-
-When the user says something like "remind me in X minutes about YYY":
-  1. Call cronjob with action=create, name="Remind YYY", schedule="Xm", prompt="YYY"
-  2. Then reply: "Reminder set for YYY in X minutes"
-Do NOT ask how/when/frequency.
-
-Schedule format examples:
-- "5m" or "30m" = once after a delay (minutes/hours/days)
-- "every 2h" or "every 1d" = repeat at fixed intervals
-- "0 9 * * *" = cron expression (daily at 9:00)
-
-Results are automatically delivered to this chat — you do NOT need to provide a chat_id.`,
+- **prompt IS the final message the user will receive**, written in natural language — e.g. "Time to read the news! Check out today's top stories" — NOT an instruction for another agent. For pure reminders write the reminder content directly; for information-gathering, write what to fetch and summarize.
+- "remind me in X minutes about YYY" → call cronjob with action=create, name="Remind YYY", schedule="Xm", prompt="YYY", then reply: "Reminder set for YYY in X minutes".
+- Schedule formats: "5m" / "30m" / "2d" = once after a delay; "every 2h" or "every 1d" = repeat at fixed intervals; "0 9 * * *" = cron expression (daily at 9:00).
+- Results are automatically delivered to this chat — you do NOT need to provide a chat_id.`,
   ].join('\n');
 }
 

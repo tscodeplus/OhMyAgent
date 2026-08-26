@@ -35,6 +35,15 @@ export function createShellTool(options: ShellToolOptions = {}) {
               resolve({ content: [{ type: 'text', text: i18n.t('tools-builtins:shell.timedOut') }], isError: true });
               return;
             }
+            // Output buffer overflow (maxBuffer exceeded): Node still hands us
+            // the truncated stdout/stderr capture — return it instead of the
+            // unhelpful "stdout maxBuffer length exceeded" message, so the
+            // model can see what the command produced before the cap.
+            if ((error as any).code === 'ENOBUFS') {
+              const output = [stdout, stderr].filter(Boolean).join('\n') || error.message;
+              resolve({ content: [{ type: 'text', text: i18n.t('tools-builtins:shell.error', { message: truncateOutput(output, maxOutputLength) }) }], isError: true });
+              return;
+            }
             const output = stderr || error.message;
             resolve({ content: [{ type: 'text', text: i18n.t('tools-builtins:shell.error', { message: truncateOutput(output, maxOutputLength) }) }], isError: true });
             return;

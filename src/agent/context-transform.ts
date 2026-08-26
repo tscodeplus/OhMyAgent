@@ -21,7 +21,7 @@
 import type { MemoryRetriever, RetrievedMemory } from '../memory/memory-retriever.js';
 import type { MermaidCanvas } from '../runtime-artifacts/mermaid-canvas.js';
 import type { AutoCompressConfig } from '../app/types.js';
-import { compressContext, estimateTokens } from './compress.js';
+import { compressContext, estimateTokensCached } from './compress.js';
 import { extractPreferredName } from '../memory/persona-store.js';
 import { isPromptInjection } from '../memory/memory-filter.js';
 import { truncate } from '../shared/truncation.js';
@@ -133,6 +133,29 @@ const deepseekCanvasSignatureBySession = new LRUCache<string, string>({
   max: 2000,
   ttl: 1000 * 60 * 60 * 24,
 });
+
+// ── Session-scoped caches (module-level, bounded) ───────────────────────────
+// A fresh Agent + transformContext is created PER TURN on the channel hot path
+// (see agent-service.ts), so closure-level caches never hit across turns —
+// snapshot 'first' mode re-retrieved every turn and incremental compression
+// lost its previous summary. These live at module level instead.
+// All are bounded LRUs so a long-running gateway doesn't accumulate an entry
+// per session forever. Keys are namespaced by agentId where the cached value
+// is agent-specific.
+
+/** Sessions that already had classic auto-recall triggered ('first' mode). */
+const autoRecalledSessions = new LRUCache<string, true>({ max: 2000 });
+/** Snapshot-mode memory retrieval results, keyed by agentId:session. */
+const snapshotMemoryCache = new LRUCache<string, RetrievedMemory[]>({
+  max: 500,
+  ttl: 10 * 60_000,
+});
+const personaInjectedSessions = new LRUCache<string, true>({ max: 2000 });
+const personaTextBySession = new LRUCache<string, string>({ max: 2000 });
+const desktopBridgeInjectedSessions = new LRUCache<string, true>({ max: 2000 });
+/** v9: last compressed index + summary per session for incremental updates. */
+const lastCompressedIndexBySession = new LRUCache<string, number>({ max: 500 });
+const lastCompressionSummaryBySession = new LRUCache<string, string>({ max: 500 });
 
 function isMemoryRelevantRequest(text: string): boolean {
   return MEMORY_RELEVANT_PATTERNS.some((pattern) => pattern.test(text));
@@ -318,22 +341,11 @@ export function createTransformContext(options?: TransformOptions) {
   const snapshotMode =
     options?.snapshotMode ?? (autoRecallFrequency === 'every' ? 'every' : 'first');
 
-  // Track sessions that have already had auto-recall triggered
-  const recalledSessions = new Set<string>();
-  // Snapshot cache for session-scoped memory caching (V2)
-  const snapshotCache = new Map<string, RetrievedMemory[]>();
-  const personaInjectedSessions = new Set<string>();
-  const personaTextBySession = new Map<string, string>();
-  const desktopBridgeInjectedSessions = new Set<string>();
-
-  // Capture language for per-message date injection
+  // Capture language for per-message date injection (per-instance config,
+  // NOT session state — see module-level caches above for the hoisted ones)
   const dateLanguage = options?.dateLanguage;
   const cacheProfile = options?.cacheProfile ?? 'default';
   const dateGranularity = 'day';
-
-  // v9: Track last compressed index + summary per session for incremental updates
-  const lastCompressedIndexBySession = new Map<string, number>();
-  const lastCompressionSummaryBySession = new Map<string, string>();
 
   return async (messages: any[], _signal?: AbortSignal): Promise<any[]> => {
     const result = [...messages];
@@ -373,10 +385,10 @@ export function createTransformContext(options?: TransformOptions) {
         // Skip very short messages — too vague for meaningful memory search
         if (query.trim().length >= 5) {
           try {
-            const cacheKey = sessionKey || 'default';
+            const cacheKey = `${agentId ?? '*'}:${sessionKey || 'default'}`;
             let memories: RetrievedMemory[];
-            if (snapshotMode === 'first' && snapshotCache.has(cacheKey)) {
-              memories = snapshotCache.get(cacheKey)!;
+            if (snapshotMode === 'first' && snapshotMemoryCache.has(cacheKey)) {
+              memories = snapshotMemoryCache.get(cacheKey)!;
             } else {
               memories = await memoryRetriever.retrieveGrouped({
                 query,
@@ -384,7 +396,7 @@ export function createTransformContext(options?: TransformOptions) {
                 topK: 5,
               });
               if (snapshotMode === 'first') {
-                snapshotCache.set(cacheKey, memories);
+                snapshotMemoryCache.set(cacheKey, memories);
               }
             }
 
@@ -432,7 +444,7 @@ export function createTransformContext(options?: TransformOptions) {
       const shouldRecall =
         autoRecall &&
         memoryRetriever &&
-        (autoRecallFrequency === 'every' || !recalledSessions.has(sessionKey ?? ''));
+        (autoRecallFrequency === 'every' || !autoRecalledSessions.has(sessionKey ?? ''));
 
       if (shouldRecall) {
         const lastUserMsg = [...result].reverse().find((m: any) => m.role === 'user');
@@ -481,7 +493,7 @@ export function createTransformContext(options?: TransformOptions) {
                 'Memory retrieval failed — continuing without memory context',
               );
             }
-            recalledSessions.add(sessionKey ?? '');
+            autoRecalledSessions.set(sessionKey ?? '', true);
           }
         }
       }
@@ -597,7 +609,7 @@ export function createTransformContext(options?: TransformOptions) {
           // Inject once per session — the reminder is static so repeated injection
           // would just waste context tokens.
           if (!desktopBridgeInjectedSessions.has(bridgeKey)) {
-            desktopBridgeInjectedSessions.add(bridgeKey);
+            desktopBridgeInjectedSessions.set(bridgeKey, true);
             const bridgeBlock = { type: 'text' as const, text: `${reminderText}\n\n---\n` };
             const nextBlocks = [...blocks, bridgeBlock];
             result[idx] = { ...lastUserMsg, content: nextBlocks };
@@ -637,7 +649,7 @@ export function createTransformContext(options?: TransformOptions) {
               };
               const nextBlocks = [...blocks, personaBlock];
               result[idx] = { ...lastUserMsg, content: nextBlocks };
-              personaInjectedSessions.add(personaKey);
+              personaInjectedSessions.set(personaKey, true);
               personaTextBySession.set(personaKey, personaText);
             }
           }
@@ -653,7 +665,7 @@ export function createTransformContext(options?: TransformOptions) {
     // Hard truncation below is the safety net.
     const compressCfg = options?.compressConfig;
     if (compressCfg?.config.enabled && sessionKey) {
-      const estimatedTokens = estimateTokens(result);
+      const estimatedTokens = estimateTokensCached(result);
       const defaultThreshold = compressCfg.contextWindow - compressCfg.config.reserveTokens;
       const triggerThreshold =
         cacheProfile === 'deepseek' ? Math.min(defaultThreshold, 12000) : defaultThreshold;
@@ -686,7 +698,7 @@ export function createTransformContext(options?: TransformOptions) {
           if (compressResult.summaryMessage && compressResult.compressedIndex > 0) {
             const recentMessages = result.slice(compressResult.compressedIndex);
             const originalCount = result.length;
-            const tokensBefore = estimateTokens(result);
+            const tokensBefore = estimateTokensCached(result);
             result.length = 0;
             result.push(compressResult.summaryMessage, ...recentMessages);
             // Compact the caller's transcript in place (uses the pre-injection
@@ -710,7 +722,7 @@ export function createTransformContext(options?: TransformOptions) {
                 newCount: result.length,
                 compressedIndex: compressResult.compressedIndex,
                 tokensBefore,
-                tokensAfter: estimateTokens(result),
+                tokensAfter: estimateTokensCached(result),
               },
               'Context compressed',
             );

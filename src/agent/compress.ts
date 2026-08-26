@@ -47,6 +47,38 @@ export function estimateTokens(messages: AgentMessage[]): number {
 }
 
 // ---------------------------------------------------------------------------
+// Memoized estimation — per-message results cached by object identity
+// ---------------------------------------------------------------------------
+
+/**
+ * Message objects are stable across turns (agent state preserves the same
+ * AgentMessage instances), so memoizing by identity lets the per-turn
+ * compression-trigger check skip re-running JSON.stringify over every
+ * toolCall arguments blob in history. Only NEW messages pay the cost.
+ *
+ * WeakMap: entries vanish automatically when messages are dropped from the
+ * transcript (e.g. after compression), so no manual eviction is needed.
+ */
+const messageTokensMemo = new WeakMap<object, number>();
+
+export function estimateMessageTokensCached(m: AgentMessage): number {
+  if (m && typeof m === 'object') {
+    let cached = messageTokensMemo.get(m);
+    if (cached === undefined) {
+      cached = estimateMessageTokens(m);
+      messageTokensMemo.set(m, cached);
+    }
+    return cached;
+  }
+  return estimateMessageTokens(m);
+}
+
+/** Like {@link estimateTokens} but memoizes per-message results across turns. */
+export function estimateTokensCached(messages: AgentMessage[]): number {
+  return messages.reduce((sum, m) => sum + estimateMessageTokensCached(m), 0);
+}
+
+// ---------------------------------------------------------------------------
 // Cut point — walk backwards, keepRecentTokens budget
 // ---------------------------------------------------------------------------
 
@@ -58,7 +90,7 @@ export function estimateTokens(messages: AgentMessage[]): number {
 export function findCutPoint(messages: AgentMessage[], keepRecentTokens: number): number {
   let accumulated = 0;
   for (let i = messages.length - 1; i >= 0; i--) {
-    accumulated += estimateMessageTokens(messages[i]);
+    accumulated += estimateMessageTokensCached(messages[i]);
     if (accumulated >= keepRecentTokens) {
       // Don't cut at a toolResult — its toolCall is before it
       let cut = i;

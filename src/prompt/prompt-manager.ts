@@ -5,6 +5,7 @@ import type {
   PromptManagerDeps,
   CacheAnchor,
 } from './types.js';
+import { LRUCache } from 'lru-cache';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -63,6 +64,16 @@ function estimateTokensForText(text: string): number {
 export class PromptManager {
   private deps: PromptManagerDeps;
   private agentOverrideCache: Map<string, string> = new Map();
+  /**
+   * Memoized assemble() results. The assembled system prompt is byte-stable
+   * for a given (agent, language, skills fingerprint, tools fingerprint,
+   * team-mode) tuple, but the layer merge + char-by-char token estimation
+   * runs on every turn. Bounded LRU; bypassed when per-turn skill layers
+   * are present. Invalidated when an agent override changes.
+   */
+  private assembleCache: LRUCache<string, PromptAssemblyResult> = new LRUCache({
+    max: 50,
+  });
 
   constructor(deps: PromptManagerDeps) {
     this.deps = deps;
@@ -71,6 +82,44 @@ export class PromptManager {
   // ── Public API ──────────────────────────────────────────────────────────────
 
   assemble(options: PromptAssemblyOptions = {}): PromptAssemblyResult {
+    const cacheKey = this.assembleCacheKey(options);
+    if (cacheKey) {
+      const hit = this.assembleCache.get(cacheKey);
+      if (hit) return hit;
+    }
+    const result = this.assembleUncached(options);
+    if (cacheKey) this.assembleCache.set(cacheKey, result);
+    return result;
+  }
+
+  /**
+   * Cache key for assemble(). Returns null when the result must not be
+   * cached (per-turn active skill layers make the output dynamic).
+   * The registered agent override is folded into the key so a changed agent
+   * prompt naturally produces a new key without explicit invalidation.
+   */
+  private assembleCacheKey(o: PromptAssemblyOptions): string | null {
+    if (o.activeSkillLayers && o.activeSkillLayers.length > 0) return null;
+    const lang = o.uiLanguage ?? this.deps.uiLanguage;
+    const agentId = o.agentId ?? '';
+    const override = agentId
+      ? (this.agentOverrideCache.get(`agent:${agentId}:${lang}`) ?? '')
+      : '';
+    return [
+      o.isChildAgent ? 'child' : 'main',
+      agentId,
+      override,
+      lang,
+      o.responseLanguage ?? '',
+      o.channel ?? '',
+      o.isTeamMode ? `team:${o.teamModeMaxChildren ?? ''}` : '',
+      o.childTaskDescription ?? '',
+      o.availableSkills?.map((s) => s.id).join(',') ?? '',
+      o.availableTools?.map((t) => `${t.name}=${t.snippet}`).join('|') ?? '',
+    ].join('\u0000');
+  }
+
+  private assembleUncached(options: PromptAssemblyOptions): PromptAssemblyResult {
     const layers = this.collectLayers(options);
     const merged = this.mergeAndSort(layers, options);
     const tokenCount = estimateTokensForText(merged);
@@ -115,6 +164,9 @@ export class PromptManager {
         this.agentOverrideCache.delete(key);
       }
     }
+    // Assembled prompts embed the override content in their cache key;
+    // clear stale entries so memory doesn't hold dead prompts.
+    this.assembleCache.clear();
   }
 
   // ── Layer Collection ────────────────────────────────────────────────────────
@@ -201,30 +253,14 @@ FAILURE & COMPLETION
 Example: User says "My name is Bob, call me Boss. Your name is Helper." → Immediately call memory-store twice: once for the user's name/preference, once for your name. Do not just reply "OK" without calling the tools.`,
       '',
       '## Scheduled Tasks (cronjob)',
-      `You can create scheduled/reminder tasks using the **cronjob** tool. Use it when the user:
-- Asks for a reminder (e.g., "remind me to check logs in 30 minutes")
-- Requests periodic reports or messages (e.g., "send me a summary every morning at 9am")
-- Wants delayed execution (e.g., "run this task in 5 minutes")
+      `You can create scheduled/reminder tasks using the **cronjob** tool — for reminders ("remind me to check logs in 30 minutes"), periodic reports ("daily summary at 9am"), or delayed execution ("run this in 5 minutes").
 
-**CRITICAL: Create the cron job immediately, without asking clarifying questions.**
+**CRITICAL: Create the cron job immediately, without asking clarifying questions. Do NOT ask how/when/frequency.**
 
-**The prompt parameter is key — it determines what the user ultimately sees.**
-- prompt must be the final message the user will receive, written in natural language, e.g. "Time to read the news! Check out today's top stories"
-- prompt is NOT an instruction for another agent — it IS the final message itself
-- For pure reminders: write the reminder content directly, not in instruction format like "remind user to XXX"
-- For information-gathering: write what to fetch, e.g. "Search for today's top AI news and summarize"
-
-When the user says something like "remind me in X minutes about YYY":
-  1. Call cronjob with action=create, name="Remind YYY", schedule="Xm", prompt="YYY"
-  2. Then reply: "Reminder set for YYY in X minutes"
-Do NOT ask how/when/frequency.
-
-Schedule format examples:
-- "5m" or "30m" = once after a delay (minutes/hours/days)
-- "every 2h" or "every 1d" = repeat at fixed intervals
-- "0 9 * * *" = cron expression (daily at 9:00)
-
-Results are automatically delivered to this chat — you do NOT need to provide a chat_id.`,
+- **prompt IS the final message the user will receive**, written in natural language — e.g. "Time to read the news! Check out today's top stories" — NOT an instruction for another agent. For pure reminders write the reminder content directly; for information-gathering, write what to fetch and summarize.
+- "remind me in X minutes about YYY" → call cronjob with action=create, name="Remind YYY", schedule="Xm", prompt="YYY", then reply: "Reminder set for YYY in X minutes".
+- Schedule formats: "5m" / "30m" / "2d" = once after a delay; "every 2h" or "every 1d" = repeat at fixed intervals; "0 9 * * *" = cron expression (daily at 9:00).
+- Results are automatically delivered to this chat — you do NOT need to provide a chat_id.`,
     ];
 
     // Append language instruction when responseLanguage is set

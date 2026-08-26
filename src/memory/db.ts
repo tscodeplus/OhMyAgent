@@ -46,6 +46,10 @@ export function openDatabase(dbPath: string): Database.Database {
 
   // Enable WAL mode for better concurrent read performance
   db.pragma('journal_mode = WAL');
+  // NORMAL is safe under WAL and avoids an fsync on every commit
+  db.pragma('synchronous = NORMAL');
+  // ~8MB page cache (negative value = KiB)
+  db.pragma('cache_size = -8000');
 
   // Enable foreign keys
   db.pragma('foreign_keys = ON');

@@ -30,6 +30,7 @@ import { planStructuredQueries, extractSpeaker, augmentSlotQueries, DEFAULT_PLAN
 import type { PlannerConfig } from './query-planner.js';
 import { coverageMerge } from './coverage-merge.js';
 import type { SlotSourceLists } from './coverage-merge.js';
+import { LRUCache } from 'lru-cache';
 
 export interface RetrievalOptions {
   query: string;
@@ -79,12 +80,17 @@ async function concurrentMap<T, R>(
   const results: R[] = new Array(items.length);
   let nextIndex = 0;
 
-  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-    while (nextIndex < items.length) {
-      const i = nextIndex++;
-      results[i] = await fn(items[i], i);
-    }
-  });
+  const workers: Promise<void>[] = [];
+  for (let w = 0; w < Math.min(concurrency, items.length); w++) {
+    workers.push(
+      (async () => {
+        while (nextIndex < items.length) {
+          const i = nextIndex++;
+          results[i] = await fn(items[i], i);
+        }
+      })(),
+    );
+  }
 
   await Promise.all(workers);
   return results;
@@ -157,6 +163,16 @@ export class MemoryRetriever {
   private readonly recallConfig: RecallConfig;
   private readonly searchConcurrency: number;
   private queryCache: QueryResultCache;
+  /**
+   * Short-TTL cache for retrieveGrouped() results. retrieveGrouped bypasses
+   * the per-pool QueryResultCache (pool weighting transforms scores), so
+   * without this every call pays 3× (vector + FTS + term) synchronous scans.
+   * TTL is short (30s) so freshly written memories are picked up quickly.
+   */
+  private groupedCache = new LRUCache<string, RetrievedMemory[]>({
+    max: 300,
+    ttl: 30_000,
+  });
   private candidateSelector: CandidateSelector;
 
   constructor(options: MemoryRetrieverOptions) {
@@ -415,7 +431,6 @@ export class MemoryRetriever {
 
       // Prefer jieba FTS for Chinese text recall, fall back to original FTS5
       const results = ftsSearchJieba(this.db, options.query, limit, textScope, options.scopeKey);
-      const useJieba = results.length > 0;
 
       if (results.length > 0) {
         return results
@@ -566,7 +581,7 @@ export class MemoryRetriever {
       // Get highest score among existing results for decay weighting
       const maxScore = Math.max(...merged.map(r => r.score), 0.1);
 
-      for (const { target_entity, source_memory_id, confidence } of entities) {
+      for (const { target_entity, confidence } of entities) {
         if (confidence < 0.5) continue;
         const related = this.memoryLinkRepo!.findByEntity(target_entity);
         for (const link of related) {
@@ -825,6 +840,14 @@ export class MemoryRetriever {
     topK?: number;
     minScore?: number;
   }): Promise<RetrievedMemory[]> {
+    // Short-TTL result cache — retrieveGrouped bypasses the per-pool query
+    // cache, so repeated identical queries within the TTL window skip the
+    // 3× (vector + FTS + term) synchronous scans entirely.
+    const normalizedQuery = options.query.replace(/\s+/g, ' ').trim().toLowerCase();
+    const groupedKey = `${normalizedQuery}::a=${options.agentId}::k=${options.topK ?? ''}::min=${options.minScore ?? ''}`;
+    const cachedGrouped = this.groupedCache.get(groupedKey);
+    if (cachedGrouped) return cachedGrouped;
+
     const policy = agentAwareRecallPolicy({
       agentId: options.agentId,
       poolWeights: { current: 1.2, shared: 1.0, otherShared: 0.8 },
@@ -869,11 +892,12 @@ export class MemoryRetriever {
       }
     }
 
-    return Array.from(byId.values())
+    const merged = Array.from(byId.values())
       .sort((a, b) => b.score - a.score)
       .slice(0, topK);
+    this.groupedCache.set(groupedKey, merged);
+    return merged;
   }
-
 }
 
 function childMemoryIdsFromMetadata(metadataJson: string): string[] {

@@ -302,7 +302,19 @@ export async function bootstrap(): Promise<BootstrapResult> {
   });
 
   setVecLogger(logger);
-  const memoryServices = await createMemoryServices(config, logger, db);
+
+  // Startup I/O that doesn't depend on each other runs in parallel:
+  // memory services (SQLite + vector init), skill registry file scan, and
+  // computer-use service bring-up. Each keeps its own error handling so a
+  // single failure degrades gracefully exactly as before.
+  const skillRegistry = new SkillRegistry();
+  const [memoryServices, , cuServicesInit] = await Promise.all([
+    createMemoryServices(config, logger, db),
+    skillRegistry.load('./skills', logger).catch((err) => {
+      logger.warn({ err }, 'Skill registry load failed — continuing without skills');
+    }),
+    createComputerUseServices(config, logger),
+  ]);
   const {
     memoryRetriever,
     memoryWriter,
@@ -330,14 +342,6 @@ export async function bootstrap(): Promise<BootstrapResult> {
   });
   const { toolRegistry, toolPlatformRegistry } = toolServices;
 
-  // 9. Create skill registry
-  const skillRegistry = new SkillRegistry();
-  try {
-    await skillRegistry.load('./skills', logger);
-  } catch (err) {
-    logger.warn({ err }, 'Skill registry load failed — continuing without skills');
-  }
-
   // P1-4: Skill metrics service (tracks usage, success rates, feedback)
   const skillMetricsService = new SkillMetricsService(db);
   logger.info('Skill metrics service initialized (P1-4)');
@@ -348,7 +352,8 @@ export async function bootstrap(): Promise<BootstrapResult> {
   logger.info('Skill proposal generator initialized (P2-2)');
 
   // ── Computer Use (extracted to composers/computer-use-services.ts) ──
-  const cuServices = await createComputerUseServices(config, logger);
+  // Initialized in the parallel startup group above.
+  const cuServices = cuServicesInit;
   const { computerUseHost, agentManagerRef, cuaSettingsRef } = cuServices;
 
   const channelServices = createChannelServices({

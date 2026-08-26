@@ -38,6 +38,7 @@ import { createRetryingStreamFn } from './retrying-stream.js';
 import { createBeforeToolCall, type BeforeToolCallDeps } from './before-tool-call.js';
 import type { PolicyCenter } from '../policy/policy-center.js';
 import type { AgentPolicyScope } from '../policy/types.js';
+import { PROFILE_TOOLS } from '../policy/tool-visibility.js';
 import type { Orchestrator } from '../orchestrator/orchestrator.js';
 import type { Logger } from 'pino';
 import { OffloadStore } from '../runtime-artifacts/offload-store.js';
@@ -123,11 +124,6 @@ function buildSummaryLLMConfig(config: AppConfig): SummaryLLMConfig {
 
 function textBlockChars(blocks: Array<{ type?: string; text?: string }>): number {
   return blocks.reduce((sum, block) => sum + (typeof block.text === 'string' ? block.text.length : 0), 0);
-}
-
-function currentTimeTemplateValue(): string {
-  const now = new Date();
-  return now.toISOString().slice(0, 10);
 }
 
 function resolveResponseLanguage(config: AppConfig): string {
@@ -434,7 +430,10 @@ export function createAgentFactory(
         const renderedAgent = promptManager.renderTemplate(systemPrompt, {
           agent_name: agentConfig.name ?? '',
           agent_id: agentConfig.id ?? '',
-          current_time: currentTimeTemplateValue(),
+          // NOTE: no `current_time` here — dynamic dates are injected per-turn
+  // into the LAST user message by context-transform.ts instead. Keeping
+  // the system prompt byte-stable preserves provider prefix caching and
+  // avoids UTC-vs-local timezone mismatches (toISOString is UTC).
           channel: options?.channel ?? 'unknown',
           ui_language: configRef.current.uiLanguage ?? 'zh-CN',
         });
@@ -462,6 +461,13 @@ export function createAgentFactory(
 
       // Assemble final system prompt via PromptManager (v5)
       // Skip when caller provided an explicit systemPrompt override (e.g. cron delivery)
+      // Effective tools profile for this turn (skill override > explicit > global).
+      // Computed before prompt assembly — used by the catalog filter inside the
+      // assembly block AND by the runtime policy scope / tool pipeline below.
+      const skillProfile = (compiled?.toolsProfile) as ToolProfileId | undefined;
+      const globalProfile = defaultToolsProfile ?? configRef.current.tools.toolsProfile ?? 'standard';
+      const effectiveProfile: ToolProfileId = options?.toolsProfileOverride ?? skillProfile ?? globalProfile;
+
       let promptAssembly: ReturnType<PromptManager['assemble']> | undefined;
       if (promptManager && !options?.systemPrompt) {
         // Gather L1 metadata for skills catalog
@@ -490,8 +496,17 @@ export function createAgentFactory(
         // One-line tool index for the system prompt (pi-style). Uses the
         // pre-pipeline tool set — names are stable across the pipeline, so
         // the snippets remain accurate for index purposes only.
-        const availableTools = tools.length > 0
-          ? tools
+        // The catalog is filtered by the EFFECTIVE tools profile so it lists
+        // only tools this turn can actually execute — otherwise the model may
+        // try to call profile-denied tools (wasted cycles) and every request
+        // pays catalog tokens for unusable entries.
+        const allowedCatalogTools = PROFILE_TOOLS[effectiveProfile] || PROFILE_TOOLS.standard;
+        const catalogCandidates =
+          allowedCatalogTools[0] === '*' || effectiveProfile === 'full'
+            ? tools
+            : tools.filter((t: any) => allowedCatalogTools.includes(t.name) || t.name === 'computer_use');
+        const availableTools = catalogCandidates.length > 0
+          ? catalogCandidates
               .map((t: any) => ({ name: String(t.name ?? ''), snippet: toolOneLineSnippet(t) }))
               .filter((t) => t.name.length > 0)
           : undefined;
@@ -552,7 +567,6 @@ export function createAgentFactory(
       // Initialize offloadStore for context offloading (P0)
       const offloadCfg = configRef.current.memory.offloading;
       const offloadBaseDir = offloadCfg?.refDir || path.dirname(configRef.current.database.path);
-      const offloadDir = path.join(offloadBaseDir, 'offload');
       const offloadStore = offloadCfg?.enabled
         ? new OffloadStore(offloadBaseDir)
         : undefined;
@@ -567,9 +581,6 @@ export function createAgentFactory(
       // Lazy phase tagger (initialized fire-and-forget in afterToolCall)
       let phaseTagger: MermaidPhaseTagger | undefined;
 
-      const skillProfile = (compiled?.toolsProfile) as ToolProfileId | undefined;
-      const globalProfile = defaultToolsProfile ?? configRef.current.tools.toolsProfile ?? 'standard';
-      const effectiveProfile: ToolProfileId = options?.toolsProfileOverride ?? skillProfile ?? globalProfile;
       const effectiveShellMode = _shellEnabled ? shellModeForProfile(effectiveProfile) : 'read-only' as const;
       const runtimePolicyScope: AgentPolicyScope = options?.policyScope ?? {
         toolsProfile: effectiveProfile,
@@ -639,7 +650,6 @@ export function createAgentFactory(
       });
 
       tools = toolPipelineResult.tools;
-      const toolSearchAssembly = toolPipelineResult.toolSearchAssembly;
 
       // Declared before construction so the transform closure can write
       // compression results back to state. The transform only runs during

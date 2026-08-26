@@ -12,6 +12,10 @@ vi.mock('../../src/agent/compress.js', async () => {
     ...(actual as any),
     compressContext: mockCompressContext,
     estimateTokens: mockEstimateTokens,
+    // context-transform uses the memoized variant for the per-turn trigger
+    // check — both must be mocked so tests control the threshold decision.
+    estimateTokensCached: mockEstimateTokens,
+    estimateMessageTokensCached: mockEstimateTokens,
   };
 });
 
@@ -109,9 +113,11 @@ describe('createTransformContext', () => {
   });
 
   it('appends persona context for DeepSeek cache profile', async () => {
+    // Unique sessionKey — session caches are module-level now, so each test
+    // scenario needs its own session identity.
     const transform = createTransformContext({
       maxMessages: 5,
-      sessionKey: 's1',
+      sessionKey: 's1-deepseek-persona',
       cacheProfile: 'deepseek',
       personaContextProvider: () => '[用户画像]\n偏好简洁回复',
     });
