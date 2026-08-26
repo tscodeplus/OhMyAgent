@@ -17,7 +17,7 @@ const LABEL_DECISION: Record<string, string> = {
   'allow-once': 'approve_once',
   'allow-session': 'approve_session',
   'allow-always': 'approve_always',
-  'deny': 'reject_once',
+  deny: 'reject_once',
 };
 
 function enc(requestId: string, decision: string): string {
@@ -85,17 +85,19 @@ export function buildQuestionKeyboard(
 ): QQKeyboard {
   // Each option gets its own row to avoid horizontal truncation ("...")
   const rows = options.map((opt, i) => ({
-    buttons: [{
-      id: `q_${i}`,
-      render_data: { label: opt.label, visited_label: opt.label, style: 1 as const },
-      action: {
-        type: 1 as const,
-        permission: { type: 2 as const },
-        data: `question|${requestId}|${opt.value}`,
-        click_limit: 1,
+    buttons: [
+      {
+        id: `q_${i}`,
+        render_data: { label: opt.label, visited_label: opt.label, style: 1 as const },
+        action: {
+          type: 1 as const,
+          permission: { type: 2 as const },
+          data: `question|${requestId}|${opt.value}`,
+          click_limit: 1,
+        },
+        group_id: 'question',
       },
-      group_id: 'question',
-    }],
+    ],
   }));
 
   return {
@@ -119,4 +121,61 @@ export function parseQuestionCallback(
   const sepIdx = rest.indexOf('|');
   if (sepIdx < 0) return null;
   return { requestId: rest.slice(0, sepIdx), answer: rest.slice(sepIdx + 1) };
+}
+
+// ---------------------------------------------------------------------------
+// Harness improvement keyboard (task failure analysis proposals)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a QQ Keyboard for harness improvement proposal actions.
+ * Button data format: "harness:<proposalId>:<action>"
+ */
+export function buildHarnessKeyboard(
+  proposalId: string,
+  labels: { approve: string; reject: string; ignore: string },
+): QQKeyboard {
+  const make = (
+    id: string,
+    label: string,
+    action: 'approve' | 'reject' | 'dismiss',
+    style: 0 | 1,
+  ) => ({
+    id,
+    render_data: { label, visited_label: label, style },
+    action: {
+      type: 1 as const,
+      permission: { type: 2 as const },
+      data: `harness:${proposalId}:${action}`,
+      click_limit: 1,
+    },
+    group_id: 'harness',
+  });
+
+  return {
+    content: {
+      rows: [
+        {
+          buttons: [
+            make('approve', labels.approve, 'approve', 1),
+            make('reject', labels.reject, 'reject', 0),
+          ],
+        },
+        { buttons: [make('ignore', labels.ignore, 'dismiss', 0)] },
+      ],
+    },
+  };
+}
+
+/**
+ * Parse a harness improvement callback from button data.
+ * Format: "harness:<proposalId>:<action>"
+ * Returns null if the data is not a harness callback.
+ */
+export function parseHarnessCallback(
+  buttonData: string,
+): { proposalId: string; action: 'approve' | 'reject' | 'dismiss' } | null {
+  const m = buttonData.match(/^harness:(.+):(approve|reject|dismiss)$/);
+  if (!m) return null;
+  return { proposalId: m[1], action: m[2] as 'approve' | 'reject' | 'dismiss' };
 }

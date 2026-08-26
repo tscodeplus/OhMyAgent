@@ -16,6 +16,7 @@ import type { CommandDeps } from '../../src/commands/command-handler.js';
 import type { FooterConfig } from '../../src/app/types.js';
 import type { ExtensionAPI } from '../../src/extensions/types.js';
 import { handleCommand } from '../../src/commands/command-handler.js';
+import { harnessApprovalRegistry } from '../../src/harness/harness-approval-registry.js';
 import { buildMessageContext } from './message-context.js';
 import { StreamControllerImpl } from './stream-controller.js';
 import { TelegramReplyDispatcher } from './telegram-dispatcher.js';
@@ -44,8 +45,8 @@ export function setupMessageHandlers(
 
   // Log every non-message update to catch callback_query
   bot.use(async (ctx, next) => {
-    const keys = Object.keys(ctx.update).filter(k => k !== 'update_id');
-    if (keys.some(k => k !== 'message')) {
+    const keys = Object.keys(ctx.update).filter((k) => k !== 'update_id');
+    if (keys.some((k) => k !== 'message')) {
       logger.info({ updateKeys: keys }, 'Telegram non-message update');
     }
     await next();
@@ -69,7 +70,12 @@ export function setupMessageHandlers(
     if (!channelCtx) return;
 
     if (!isAllowed(channelCtx, config)) return;
-    if (isGroup(channelCtx) && !isMentioningBot(ctx, botUsername) && !isReplyToBot(ctx as any, botUsername)) return;
+    if (
+      isGroup(channelCtx) &&
+      !isMentioningBot(ctx, botUsername) &&
+      !isReplyToBot(ctx as any, botUsername)
+    )
+      return;
 
     const text = channelCtx.message.text;
     const sessionKey = `telegram:${(ctx as any).chat.id}`;
@@ -83,13 +89,20 @@ export function setupMessageHandlers(
 
     // ── All other slash commands → shared command handler ──
     if (text.startsWith('/')) {
-      const result = await handleCommand(text, sessionKey, commandDeps, String((ctx as any).message?.message_id ?? ''), chatId, {
-        // Operator identity for privileged commands (e.g. /permission):
-        // the admin check uses the sender + chat type (+ our channel id).
-        senderId: String((ctx as any).message?.from?.id ?? ''),
-        chatType: String((ctx as any).chat?.type ?? ''),
-        channel: 'telegram',
-      });
+      const result = await handleCommand(
+        text,
+        sessionKey,
+        commandDeps,
+        String((ctx as any).message?.message_id ?? ''),
+        chatId,
+        {
+          // Operator identity for privileged commands (e.g. /permission):
+          // the admin check uses the sender + chat type (+ our channel id).
+          senderId: String((ctx as any).message?.from?.id ?? ''),
+          chatType: String((ctx as any).chat?.type ?? ''),
+          channel: 'telegram',
+        },
+      );
 
       if (result) {
         // Command was recognized and handled
@@ -108,9 +121,25 @@ export function setupMessageHandlers(
           logger.info({ sessionKey, forwardText }, 'Forwarding to agent after command');
           const live = api.getConfig();
           // P1 M6: bounded queue — reject with a busy reply at capacity
-          if (!chatQueue.enqueue(sessionKey, () =>
-            executeAgent(forwardText, sessionKey, chatId, ctx, config, agentService, logger, bot, live.showToolCalls, live.showSkillCalls, live.footer, live.tools.fileRead.allowedRoots, live.tools.fileRead.deniedPatterns).catch(err => logger.error({ err }, 'Telegram queued agent failed')),
-          )) {
+          if (
+            !chatQueue.enqueue(sessionKey, () =>
+              executeAgent(
+                forwardText,
+                sessionKey,
+                chatId,
+                ctx,
+                config,
+                agentService,
+                logger,
+                bot,
+                live.showToolCalls,
+                live.showSkillCalls,
+                live.footer,
+                live.tools.fileRead.allowedRoots,
+                live.tools.fileRead.deniedPatterns,
+              ).catch((err) => logger.error({ err }, 'Telegram queued agent failed')),
+            )
+          ) {
             try {
               await (ctx as any).reply(i18n.t('messages:errors.busy'));
             } catch {
@@ -140,9 +169,25 @@ export function setupMessageHandlers(
     }
     const live = api.getConfig();
     // P1 M6: bounded queue — reject with a busy reply at capacity
-    if (!chatQueue.enqueue(sessionKey, () =>
-      executeAgent(text, sessionKey, chatId, ctx, config, agentService, logger, bot, live.showToolCalls, live.showSkillCalls, live.footer, live.tools.fileRead.allowedRoots, live.tools.fileRead.deniedPatterns).catch(err => logger.error({ err }, 'Telegram queued agent failed')),
-    )) {
+    if (
+      !chatQueue.enqueue(sessionKey, () =>
+        executeAgent(
+          text,
+          sessionKey,
+          chatId,
+          ctx,
+          config,
+          agentService,
+          logger,
+          bot,
+          live.showToolCalls,
+          live.showSkillCalls,
+          live.footer,
+          live.tools.fileRead.allowedRoots,
+          live.tools.fileRead.deniedPatterns,
+        ).catch((err) => logger.error({ err }, 'Telegram queued agent failed')),
+      )
+    ) {
       try {
         await (ctx as any).reply(i18n.t('messages:errors.busy'));
       } catch {
@@ -152,84 +197,105 @@ export function setupMessageHandlers(
   });
 
   // ── Media messages ──
-  bot.on(['message:photo', 'message:document', 'message:audio', 'message:voice', 'message:video', 'message:sticker'], async (ctx) => {
-    if (botUsername === 'bot') botUsername = (ctx as any).me?.username ?? 'bot';
-    const channelCtx = buildMessageContext(ctx, botUsername);
-    if (!channelCtx) return;
+  bot.on(
+    [
+      'message:photo',
+      'message:document',
+      'message:audio',
+      'message:voice',
+      'message:video',
+      'message:sticker',
+    ],
+    async (ctx) => {
+      if (botUsername === 'bot') botUsername = (ctx as any).me?.username ?? 'bot';
+      const channelCtx = buildMessageContext(ctx, botUsername);
+      if (!channelCtx) return;
 
-    if (!isAllowed(channelCtx, config)) return;
-    if (isGroup(channelCtx) && !isMentioningBot(ctx, botUsername) && !isReplyToBot(ctx as any, botUsername)) return;
+      if (!isAllowed(channelCtx, config)) return;
+      if (
+        isGroup(channelCtx) &&
+        !isMentioningBot(ctx, botUsername) &&
+        !isReplyToBot(ctx as any, botUsername)
+      )
+        return;
 
-    const chatIdNum = (ctx as any).chat?.id;
-    if (!chatIdNum) return;
+      const chatIdNum = (ctx as any).chat?.id;
+      if (!chatIdNum) return;
 
-    const msg = ctx.message as Record<string, unknown> | undefined;
-    const isAudio = msg?.voice !== undefined || msg?.audio !== undefined;
+      const msg = ctx.message as Record<string, unknown> | undefined;
+      const isAudio = msg?.voice !== undefined || msg?.audio !== undefined;
 
-    // v5 P2: Auto-transcribe voice/audio messages
-    let mediaText = channelCtx.message.text || '[Media]';
-    if (isAudio && sttTranscriber && sttConfig?.enabled && sttConfig.autoTranscribe !== false) {
-      const fileId = ((msg?.voice ?? msg?.audio) as Record<string, unknown>)?.file_id as string;
-      if (fileId) {
-        try {
-          const file = await bot.api.getFile(fileId);
-          const fileUrl = `https://api.telegram.org/file/bot${config.botToken}/${file.file_path}`;
-          // Prefer the Telegram-specific proxy used by grammY; fall back to global proxy envs.
-          let fetchOpts: RequestInit & { dispatcher?: any } = {};
-          const proxyUrl = config.proxyUrl || process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
-          if (proxyUrl) {
-            const { ProxyAgent } = await import('undici');
-            fetchOpts.dispatcher = new ProxyAgent(proxyUrl);
-          }
-          const resp = await fetch(fileUrl, fetchOpts);
-          if (resp.ok) {
-            const audioBuf = Buffer.from(await resp.arrayBuffer());
-            const tmpPath = join(tmpdir(), `tg-audio-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.ogg`);
-            await writeFile(tmpPath, audioBuf);
-            try {
-              const transcribed = await sttTranscriber(
-                tmpPath,
-                sttConfig.language ?? 'auto',
-              );
-              if (transcribed.trim()) mediaText = transcribed.trim();
-            } finally {
-              try { await unlink(tmpPath); } catch { /* cleanup */ }
+      // v5 P2: Auto-transcribe voice/audio messages
+      let mediaText = channelCtx.message.text || '[Media]';
+      if (isAudio && sttTranscriber && sttConfig?.enabled && sttConfig.autoTranscribe !== false) {
+        const fileId = ((msg?.voice ?? msg?.audio) as Record<string, unknown>)?.file_id as string;
+        if (fileId) {
+          try {
+            const file = await bot.api.getFile(fileId);
+            const fileUrl = `https://api.telegram.org/file/bot${config.botToken}/${file.file_path}`;
+            // Prefer the Telegram-specific proxy used by grammY; fall back to global proxy envs.
+            let fetchOpts: RequestInit & { dispatcher?: any } = {};
+            const proxyUrl = config.proxyUrl || process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+            if (proxyUrl) {
+              const { ProxyAgent } = await import('undici');
+              fetchOpts.dispatcher = new ProxyAgent(proxyUrl);
             }
+            const resp = await fetch(fileUrl, fetchOpts);
+            if (resp.ok) {
+              const audioBuf = Buffer.from(await resp.arrayBuffer());
+              const tmpPath = join(
+                tmpdir(),
+                `tg-audio-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.ogg`,
+              );
+              await writeFile(tmpPath, audioBuf);
+              try {
+                const transcribed = await sttTranscriber(tmpPath, sttConfig.language ?? 'auto');
+                if (transcribed.trim()) mediaText = transcribed.trim();
+              } finally {
+                try {
+                  await unlink(tmpPath);
+                } catch {
+                  /* cleanup */
+                }
+              }
+            }
+          } catch (err) {
+            logger.warn({ err }, 'Telegram audio transcription failed');
           }
-        } catch (err) {
-          logger.warn({ err }, 'Telegram audio transcription failed');
         }
       }
-    }
 
-    const live = api.getConfig();
-    const mediaSessionKey = `telegram:${chatIdNum}`;
-    const mediaChatId = String(chatIdNum);
-    // P1 M6: bounded queue — reject with a busy reply at capacity
-    if (!chatQueue.enqueue(mediaSessionKey, () =>
-      executeAgent(
-        mediaText,
-        mediaSessionKey,
-        mediaChatId,
-        ctx,
-        config,
-        agentService,
-        logger,
-        bot,
-        live.showToolCalls,
-        live.showSkillCalls,
-        live.footer,
-        live.tools.fileRead.allowedRoots,
-        live.tools.fileRead.deniedPatterns,
-      ).catch(err => logger.error({ err }, 'Telegram queued agent failed')),
-    )) {
-      try {
-        await (ctx as any).reply(i18n.t('messages:errors.busy'));
-      } catch {
-        // best-effort
+      const live = api.getConfig();
+      const mediaSessionKey = `telegram:${chatIdNum}`;
+      const mediaChatId = String(chatIdNum);
+      // P1 M6: bounded queue — reject with a busy reply at capacity
+      if (
+        !chatQueue.enqueue(mediaSessionKey, () =>
+          executeAgent(
+            mediaText,
+            mediaSessionKey,
+            mediaChatId,
+            ctx,
+            config,
+            agentService,
+            logger,
+            bot,
+            live.showToolCalls,
+            live.showSkillCalls,
+            live.footer,
+            live.tools.fileRead.allowedRoots,
+            live.tools.fileRead.deniedPatterns,
+          ).catch((err) => logger.error({ err }, 'Telegram queued agent failed')),
+        )
+      ) {
+        try {
+          await (ctx as any).reply(i18n.t('messages:errors.busy'));
+        } catch {
+          // best-effort
+        }
       }
-    }
-  });
+    },
+  );
 
   // ── Inline keyboard callbacks ──
   bot.on('callback_query:data', async (ctx) => {
@@ -254,7 +320,10 @@ export function setupMessageHandlers(
 
     if (action.type === 'approve') {
       const resolved = agentService.resolveApproval(action.requestId, action.decision);
-      logger.info({ requestId: action.requestId, decision: action.decision, resolved }, 'Telegram approval resolved');
+      logger.info(
+        { requestId: action.requestId, decision: action.decision, resolved },
+        'Telegram approval resolved',
+      );
 
       if (resolved) {
         const label = i18n.t(`telegram-approval:result.${action.decision}`);
@@ -262,10 +331,9 @@ export function setupMessageHandlers(
         try {
           const msg = cb.message;
           if (msg) {
-            await bot.api.editMessageText(msg.chat.id, msg.message_id,
-              `${emoji} ${label}`,
-              { reply_markup: undefined },
-            );
+            await bot.api.editMessageText(msg.chat.id, msg.message_id, `${emoji} ${label}`, {
+              reply_markup: undefined,
+            });
           }
         } catch (err) {
           logger.warn({ err }, 'Telegram callback: failed to edit message');
@@ -274,12 +342,43 @@ export function setupMessageHandlers(
         try {
           const msg = cb.message;
           if (msg) {
-            await bot.api.editMessageText(msg.chat.id, msg.message_id,
+            await bot.api.editMessageText(
+              msg.chat.id,
+              msg.message_id,
               i18n.t('telegram-approval:result.alreadyProcessed'),
               { reply_markup: undefined },
             );
           }
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
+    if (action.type === 'harness') {
+      const resolved = harnessApprovalRegistry.resolve(action.proposalId, action.action);
+      logger.info(
+        { proposalId: action.proposalId, decision: action.action, resolved },
+        'Telegram harness approval resolved',
+      );
+      const label =
+        action.action === 'approve'
+          ? i18n.t('bootstrap:toast.harnessApproved')
+          : action.action === 'reject'
+            ? i18n.t('bootstrap:toast.harnessRejected')
+            : i18n.t('bootstrap:toast.harnessIgnored');
+      try {
+        const msg = cb.message;
+        if (msg) {
+          await bot.api.editMessageText(
+            msg.chat.id,
+            msg.message_id,
+            resolved ? `✅ ${label}` : i18n.t('telegram-approval:result.alreadyProcessed'),
+            { reply_markup: undefined },
+          );
+        }
+      } catch (err) {
+        logger.warn({ err }, 'Telegram callback: failed to edit message');
       }
     }
 
@@ -287,35 +386,45 @@ export function setupMessageHandlers(
       try {
         const msg = cb.message;
         if (msg) {
-          await bot.api.editMessageText(msg.chat.id, msg.message_id,
+          await bot.api.editMessageText(
+            msg.chat.id,
+            msg.message_id,
             `已切换到 Agent: ${action.agentId}`,
             { reply_markup: undefined },
           );
         }
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
 
     if (action.type === 'stop') {
       try {
         const msg = cb.message;
         if (msg) {
-          await bot.api.editMessageText(msg.chat.id, msg.message_id,
-            '已停止。',
-            { reply_markup: undefined },
-          );
+          await bot.api.editMessageText(msg.chat.id, msg.message_id, '已停止。', {
+            reply_markup: undefined,
+          });
         }
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
 
     if (action.type === 'question_answer') {
       const resolved = agentService.resolveUserQuestion(action.requestId, action.answer);
-      logger.info({ requestId: action.requestId, answer: action.answer, resolved }, 'Telegram question answer resolved');
+      logger.info(
+        { requestId: action.requestId, answer: action.answer, resolved },
+        'Telegram question answer resolved',
+      );
 
       if (resolved) {
         try {
           const msg = cb.message;
           if (msg) {
-            await bot.api.editMessageText(msg.chat.id, msg.message_id,
+            await bot.api.editMessageText(
+              msg.chat.id,
+              msg.message_id,
               `🤔 问题已解决\n\n✅ 回答: ${action.answer}`,
               { reply_markup: undefined },
             );
@@ -327,12 +436,13 @@ export function setupMessageHandlers(
         try {
           const msg = cb.message;
           if (msg) {
-            await bot.api.editMessageText(msg.chat.id, msg.message_id,
-              '该问题已被回答或已超时。',
-              { reply_markup: undefined },
-            );
+            await bot.api.editMessageText(msg.chat.id, msg.message_id, '该问题已被回答或已超时。', {
+              reply_markup: undefined,
+            });
           }
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }
     }
   });
@@ -360,8 +470,22 @@ async function executeAgent(
 
   // StreamControllerImpl expects a Bot-like object (calls this.bot.api.xxx)
   // grammY's ctx.api is the same as bot.api — pass the Bot instance directly.
-  const streamCtrl = new StreamControllerImpl(bot, chatIdNum, config.streamIntervalMs, config.textLimit, logger);
-  const dispatcher = new TelegramReplyDispatcher(bot, chatIdNum, streamCtrl, config, showToolCalls, showSkillCalls, footerConfig);
+  const streamCtrl = new StreamControllerImpl(
+    bot,
+    chatIdNum,
+    config.streamIntervalMs,
+    config.textLimit,
+    logger,
+  );
+  const dispatcher = new TelegramReplyDispatcher(
+    bot,
+    chatIdNum,
+    streamCtrl,
+    config,
+    showToolCalls,
+    showSkillCalls,
+    footerConfig,
+  );
 
   try {
     const mediaTool = createTelegramMediaTool({
@@ -379,8 +503,22 @@ async function executeAgent(
       messageId: String((ctx as any).message?.message_id ?? ''),
       replyDispatcherOverride: dispatcher,
       replyDispatcherFactory: () => {
-        const freshStreamCtrl = new StreamControllerImpl(bot, chatIdNum, config.streamIntervalMs, config.textLimit, logger);
-        return new TelegramReplyDispatcher(bot, chatIdNum, freshStreamCtrl, config, showToolCalls, showSkillCalls, footerConfig);
+        const freshStreamCtrl = new StreamControllerImpl(
+          bot,
+          chatIdNum,
+          config.streamIntervalMs,
+          config.textLimit,
+          logger,
+        );
+        return new TelegramReplyDispatcher(
+          bot,
+          chatIdNum,
+          freshStreamCtrl,
+          config,
+          showToolCalls,
+          showSkillCalls,
+          footerConfig,
+        );
       },
       extraTools: [mediaTool],
       channel: 'telegram',
@@ -407,17 +545,10 @@ async function executeAgent(
     logger.error({ err }, 'Agent execution failed');
     try {
       await (ctx as any).reply('抱歉，处理消息时出现错误。');
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
-}
-
-function runAgentInBackground(task: Promise<void>, logger: Logger): void {
-  // Do not await agent execution in grammY middleware. Simple long polling
-  // processes updates sequentially, so awaiting an approval-blocked agent run
-  // prevents the callback_query that resolves the approval from being handled.
-  task.catch((err) => {
-    logger.error({ err }, 'Telegram background agent execution failed');
-  });
 }
 
 // ── Helpers ──
@@ -436,9 +567,9 @@ function isGroup(ctx: ReturnType<typeof buildMessageContext>): boolean {
 function isMentioningBot(ctx: any, botUsername: string): boolean {
   const entities = ctx.message?.entities ?? [];
   const text = ctx.message?.text ?? '';
-  return entities.some((e: any) =>
-    e.type === 'mention' &&
-    text.slice(e.offset, e.offset + e.length) === `@${botUsername}`
+  return entities.some(
+    (e: any) =>
+      e.type === 'mention' && text.slice(e.offset, e.offset + e.length) === `@${botUsername}`,
   );
 }
 
@@ -450,17 +581,17 @@ function isReplyToBot(ctx: any, botUsername: string): boolean {
 async function handleStart(ctx: any): Promise<void> {
   await ctx.reply(
     '🤖 <b>OhMyAgent Assistant</b>\n\n' +
-    'Send me a message to start a conversation.\n\n' +
-    '<b>Commands:</b>\n' +
-    '/agent — List / switch agents\n' +
-    '/stop — Stop current response\n' +
-    '/clear — Clear session history\n' +
-    '/new — Start fresh session\n' +
-    '/skill — List skills\n' +
-    '/cron — Manage cron jobs\n' +
-    '/steer — Steer running agent\n' +
-    '/btw — Inject follow-up message\n' +
-    '/extension — List extensions',
+      'Send me a message to start a conversation.\n\n' +
+      '<b>Commands:</b>\n' +
+      '/agent — List / switch agents\n' +
+      '/stop — Stop current response\n' +
+      '/clear — Clear session history\n' +
+      '/new — Start fresh session\n' +
+      '/skill — List skills\n' +
+      '/cron — Manage cron jobs\n' +
+      '/steer — Steer running agent\n' +
+      '/btw — Inject follow-up message\n' +
+      '/extension — List extensions',
     { parse_mode: 'HTML' },
   );
 }

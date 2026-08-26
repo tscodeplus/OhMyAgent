@@ -7,6 +7,7 @@
 
 import { i18n } from '../../i18n/index.js';
 import { generateId } from '../../shared/ids.js';
+import { harnessApprovalRegistry } from '../../harness/harness-approval-registry.js';
 import { renderApprovalResultCard } from '../../../extensions/channel-feishu/render/approval-card-renderer.js';
 import type { AgentFactory } from '../../agent/agent-factory.js';
 import type { ApprovalDecisionType } from '../types.js';
@@ -31,6 +32,33 @@ export function createWSCardActionHandler(
     const value = callback?.action?.value ?? {};
     const { action, requestId, command, risk } = value;
     const approvalTracker = opts.replyApprovalRegistry.get(callback?.context?.open_message_id);
+
+    // ── harness_improvement: task failure analysis proposal buttons ──
+    // These cards carry { proposalId, action } (no requestId) and route via
+    // the process-wide harness approval registry.
+    if (!requestId && value.proposalId && action) {
+      const proposalId = String(value.proposalId);
+      const harnessAction = String(action);
+      const resolved = harnessApprovalRegistry.resolve(
+        proposalId,
+        harnessAction as 'approve' | 'reject' | 'dismiss' | 'edit',
+      );
+      if (!resolved) {
+        return {
+          toast: { type: 'info', content: i18n.t('bootstrap:toast.alreadyHandled') },
+        };
+      }
+      const toastContent =
+        harnessAction === 'approve' ? i18n.t('bootstrap:toast.harnessApproved') :
+        harnessAction === 'reject' ? i18n.t('bootstrap:toast.harnessRejected') :
+        i18n.t('bootstrap:toast.harnessIgnored');
+      return {
+        toast: {
+          type: harnessAction === 'approve' ? 'success' : 'info',
+          content: toastContent,
+        },
+      };
+    }
 
     if (!requestId || !action) {
       return { code: 0 };

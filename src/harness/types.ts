@@ -300,7 +300,7 @@ export interface HarnessImprovementPrompt {
 /**
  * Possible outcomes when a user (or timeout) decides on an approval request.
  */
-export type ApprovalDecision = 'approve' | 'edit' | 'reject' | 'timeout';
+export type ApprovalDecision = 'approve' | 'edit' | 'reject' | 'dismiss' | 'timeout';
 
 /**
  * Result of a harness approval request — carries the decision plus any

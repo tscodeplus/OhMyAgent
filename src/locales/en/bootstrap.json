@@ -9,6 +9,9 @@
     "approvedSession": "Approved (this session)",
     "approvedAlways": "Approved (always allow)",
     "deniedOnce": "Denied (this time only)",
-    "deniedAlways": "Denied (always deny)"
+    "deniedAlways": "Denied (always deny)",
+    "harnessApproved": "Approved — applying the improvement proposal…",
+    "harnessRejected": "Improvement proposal rejected",
+    "harnessIgnored": "Improvement proposal ignored"
   }
 }

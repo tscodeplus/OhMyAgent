@@ -454,6 +454,15 @@ export async function bootstrap(): Promise<BootstrapResult> {
     },
     feishuRouter,
     logger,
+    // Card action callbacks arriving via HTTP webhook (approval buttons,
+    // harness improvement proposal buttons, question answers).
+    cardActionHandler: createWSCardActionHandler({
+      agentFactory,
+      replyApprovalRegistry,
+      approvalDecisionRepository,
+      approvalRequestRepo,
+      userQuestionStore,
+    }),
     rateLimit: {
       maxRequests: config.rateLimit.webhookMaxRequests,
       windowMs: config.rateLimit.webhookWindowMs,

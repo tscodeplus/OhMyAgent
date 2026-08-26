@@ -9,6 +9,9 @@
     "approvedSession": "已批准（本次会话）",
     "approvedAlways": "已批准（始终允许）",
     "deniedOnce": "已拒绝（仅此次）",
-    "deniedAlways": "已拒绝（始终拒绝）"
+    "deniedAlways": "已拒绝（始终拒绝）",
+    "harnessApproved": "已批准，正在应用改进方案…",
+    "harnessRejected": "已拒绝该改进方案",
+    "harnessIgnored": "已忽略该改进方案"
   }
 }

@@ -29,6 +29,7 @@ import { downloadInboundMedia, ILINK_CDN_HOST } from './wechat-media.js';
 import { createWechatMediaTool, sendWechatMediaBuffer } from './wechat-media-tool.js';
 import { createWechatApprovalSender } from './wechat-approval-sender.js';
 import { createWechatUserQuestionSender } from './user-question-sender.js';
+import { harnessApprovalRegistry } from '../../src/harness/harness-approval-registry.js';
 import type { UserQuestionSender } from '../../src/agent/user-question-port.js';
 import { resolveWechatErrorNotice } from './wechat-error.js';
 import { i18n } from '../../src/i18n/index.js';
@@ -87,169 +88,222 @@ export function setupMessageHandlers(
   const chatQueue = new ChatQueue();
   chatQueue.setLogger(logger);
 
-  poller.start(async (msg: ILMessage) => {
-    // Build ChannelContext
-    const channelCtx = buildMessageContext(msg);
-    if (!channelCtx) return;
+  poller
+    .start(async (msg: ILMessage) => {
+      // Build ChannelContext
+      const channelCtx = buildMessageContext(msg);
+      if (!channelCtx) return;
 
-    // Check access control
-    if (!isAllowed(channelCtx, config)) {
-      logger.debug(
-        { senderId: channelCtx.message.senderId },
-        'WeChat user not in allowedUsers, skipping',
-      );
-      return;
-    }
-
-    // Store context token for future replies
-    const senderId = channelCtx.message.senderId;
-    if (msg.context_token) {
-      tokenMap.set(senderId, {
-        token: msg.context_token,
-        toUserId: senderId,
-        expiresAt: Date.now() + CONTEXT_TOKEN_TTL_MS,
-      });
-    }
-
-    const text = channelCtx.message.text;
-    const sessionKey = `wechat:${senderId}`;
-    const messageId = channelCtx.message.id;
-
-    // ── Slash commands (local handler, unrecognized fall through) ──
-    if (text.startsWith('/') && commandDeps) {
-      const tokenEntry = tokenMap.get(senderId);
-      if (!tokenEntry) {
-        logger.warn({ senderId }, 'No context token for command reply');
+      // Check access control
+      if (!isAllowed(channelCtx, config)) {
+        logger.debug(
+          { senderId: channelCtx.message.senderId },
+          'WeChat user not in allowedUsers, skipping',
+        );
         return;
       }
 
-      const cmdResult = await handleSlashCommand(
-        text,
-        sessionKey,
-        commandDeps,
-        messageId,
-        senderId,
-      );
+      // Store context token for future replies
+      const senderId = channelCtx.message.senderId;
+      if (msg.context_token) {
+        tokenMap.set(senderId, {
+          token: msg.context_token,
+          toUserId: senderId,
+          expiresAt: Date.now() + CONTEXT_TOKEN_TTL_MS,
+        });
+      }
 
-      if (cmdResult.handled) {
-        if (cmdResult.reply) {
-          await sendChunkedText(
-            sender.apiBase,
-            sender.botToken,
-            tokenEntry.toUserId,
-            tokenEntry.token,
-            cmdResult.reply,
-            config.textLimit,
-            logger,
-          ).catch((err: unknown) => {
-            logger.error({ err }, 'Failed to send command reply');
-          });
+      const text = channelCtx.message.text;
+      const sessionKey = `wechat:${senderId}`;
+      const messageId = channelCtx.message.id;
+
+      // ── Slash commands (local handler, unrecognized fall through) ──
+      if (text.startsWith('/') && commandDeps) {
+        const tokenEntry = tokenMap.get(senderId);
+        if (!tokenEntry) {
+          logger.warn({ senderId }, 'No context token for command reply');
+          return;
         }
 
-        // /agent <id> <message> — forward remaining text + media to agent
-        if (cmdResult.forwardText) {
-          logger.info(
-            { sessionKey, forwardText: cmdResult.forwardText },
-            'Forwarding to agent after command',
-          );
-          const { finalText: fwdText, images: fwdImages } =
-            await processMessageMedia(msg, config, logger, sttTranscriber, sttConfig);
-          const fwdAgentText = fwdText
-            ? `${cmdResult.forwardText}\n${fwdText}`
-            : cmdResult.forwardText;
-          // P1 M6: bounded queue — reject with a busy reply at capacity
-          if (!chatQueue.enqueue(sessionKey, () =>
-            executeAgent(
-              fwdAgentText,
-              sessionKey,
-              senderId,
-              tokenEntry,
-              sender,
-              config,
-              agentService,
-              logger,
-              fwdImages,
-              api,
-            ).catch(err => logger.error({ err, sessionKey }, 'WeChat queued agent failed')),
-          )) {
+        const cmdResult = await handleSlashCommand(
+          text,
+          sessionKey,
+          commandDeps,
+          messageId,
+          senderId,
+        );
+
+        if (cmdResult.handled) {
+          if (cmdResult.reply) {
             await sendChunkedText(
               sender.apiBase,
               sender.botToken,
               tokenEntry.toUserId,
               tokenEntry.token,
-              i18n.t('messages:errors.busy'),
+              cmdResult.reply,
+              config.textLimit,
+              logger,
+            ).catch((err: unknown) => {
+              logger.error({ err }, 'Failed to send command reply');
+            });
+          }
+
+          // /agent <id> <message> — forward remaining text + media to agent
+          if (cmdResult.forwardText) {
+            logger.info(
+              { sessionKey, forwardText: cmdResult.forwardText },
+              'Forwarding to agent after command',
+            );
+            const { finalText: fwdText, images: fwdImages } = await processMessageMedia(
+              msg,
+              config,
+              logger,
+              sttTranscriber,
+              sttConfig,
+            );
+            const fwdAgentText = fwdText
+              ? `${cmdResult.forwardText}\n${fwdText}`
+              : cmdResult.forwardText;
+            // P1 M6: bounded queue — reject with a busy reply at capacity
+            if (
+              !chatQueue.enqueue(sessionKey, () =>
+                executeAgent(
+                  fwdAgentText,
+                  sessionKey,
+                  senderId,
+                  tokenEntry,
+                  sender,
+                  config,
+                  agentService,
+                  logger,
+                  fwdImages,
+                  api,
+                ).catch((err) => logger.error({ err, sessionKey }, 'WeChat queued agent failed')),
+              )
+            ) {
+              await sendChunkedText(
+                sender.apiBase,
+                sender.botToken,
+                tokenEntry.toUserId,
+                tokenEntry.token,
+                i18n.t('messages:errors.busy'),
+                config.textLimit,
+                logger,
+              ).catch(() => {});
+            }
+          }
+          return; // Command was handled
+        }
+        // Unrecognized command falls through to agent below
+      }
+
+      // ── Inbound media download ──
+      const { finalText, images } = await processMessageMedia(
+        msg,
+        config,
+        logger,
+        sttTranscriber,
+        sttConfig,
+      );
+      const agentText = finalText || text;
+
+      // ── Normal message → check pending harness approval, then question, then steer or execute ──
+      if (agentService.isRunning(sessionKey)) {
+        // Intercept numeric replies to a pending task failure analysis proposal
+        // (1=approve 2=reject 3=ignore) BEFORE question/steer handling.
+        const numeric = agentText.match(/^([123])$/);
+        if (numeric) {
+          const pendingHarness = harnessApprovalRegistry.findLatest('wechat', senderId);
+          if (pendingHarness) {
+            const decision =
+              numeric[1] === '1'
+                ? ('approve' as const)
+                : numeric[1] === '2'
+                  ? ('reject' as const)
+                  : ('dismiss' as const);
+            const resolved = harnessApprovalRegistry.resolve(pendingHarness.proposalId, decision);
+            if (resolved) {
+              const labels: Record<string, string> = {
+                approve: i18n.t('bootstrap:toast.harnessApproved'),
+                reject: i18n.t('bootstrap:toast.harnessRejected'),
+                dismiss: i18n.t('bootstrap:toast.harnessIgnored'),
+              };
+              const tokenEntry2 = tokenMap.get(senderId);
+              if (tokenEntry2) {
+                await sendChunkedText(
+                  sender.apiBase,
+                  sender.botToken,
+                  tokenEntry2.toUserId,
+                  tokenEntry2.token,
+                  `✅ ${labels[decision]}`,
+                  config.textLimit,
+                  logger,
+                ).catch(() => {});
+              }
+              return;
+            }
+          }
+        }
+
+        const resolved = agentService.resolveFirstPendingQuestion(sessionKey, agentText);
+        if (resolved) {
+          const tokenEntry2 = tokenMap.get(senderId);
+          if (tokenEntry2) {
+            await sendChunkedText(
+              sender.apiBase,
+              sender.botToken,
+              tokenEntry2.toUserId,
+              tokenEntry2.token,
+              '✅ 已收到回答',
               config.textLimit,
               logger,
             ).catch(() => {});
           }
+          return;
         }
-        return; // Command was handled
-      }
-      // Unrecognized command falls through to agent below
-    }
 
-    // ── Inbound media download ──
-    const { finalText, images } = await processMessageMedia(msg, config, logger, sttTranscriber, sttConfig);
-    const agentText = finalText || text;
-
-    // ── Normal message → check pending question first, then steer or execute ──
-    if (agentService.isRunning(sessionKey)) {
-      const resolved = agentService.resolveFirstPendingQuestion(sessionKey, agentText);
-      if (resolved) {
-        const tokenEntry2 = tokenMap.get(senderId);
-        if (tokenEntry2) {
-          await sendChunkedText(
-            sender.apiBase, sender.botToken,
-            tokenEntry2.toUserId, tokenEntry2.token,
-            '✅ 已收到回答',
-            config.textLimit, logger,
-          ).catch(() => {});
-        }
+        agentService.steer(sessionKey, agentText);
         return;
       }
 
-      agentService.steer(sessionKey, agentText);
-      return;
-    }
+      // ── Agent execution ──
+      const tokenEntry = tokenMap.get(senderId);
+      if (!tokenEntry) {
+        logger.warn({ senderId }, 'No context token available for reply — message skipped');
+        return;
+      }
 
-    // ── Agent execution ──
-    const tokenEntry = tokenMap.get(senderId);
-    if (!tokenEntry) {
-      logger.warn(
-        { senderId },
-        'No context token available for reply — message skipped',
-      );
-      return;
-    }
-
-    // P1 M6: bounded queue — reject with a busy reply at capacity
-    if (!chatQueue.enqueue(sessionKey, () =>
-      executeAgent(
-        agentText,
-        sessionKey,
-        senderId,
-        tokenEntry,
-        sender,
-        config,
-        agentService,
-        logger,
-        images,
-        api,
-      ).catch(err => logger.error({ err, sessionKey }, 'WeChat queued agent failed')),
-    )) {
-      await sendChunkedText(
-        sender.apiBase,
-        sender.botToken,
-        tokenEntry.toUserId,
-        tokenEntry.token,
-        i18n.t('messages:errors.busy'),
-        config.textLimit,
-        logger,
-      ).catch(() => {});
-    }
-  }).catch((err: Error) => {
-    logger.error({ err }, 'WeChat poller crashed');
-  });
+      // P1 M6: bounded queue — reject with a busy reply at capacity
+      if (
+        !chatQueue.enqueue(sessionKey, () =>
+          executeAgent(
+            agentText,
+            sessionKey,
+            senderId,
+            tokenEntry,
+            sender,
+            config,
+            agentService,
+            logger,
+            images,
+            api,
+          ).catch((err) => logger.error({ err, sessionKey }, 'WeChat queued agent failed')),
+        )
+      ) {
+        await sendChunkedText(
+          sender.apiBase,
+          sender.botToken,
+          tokenEntry.toUserId,
+          tokenEntry.token,
+          i18n.t('messages:errors.busy'),
+          config.textLimit,
+          logger,
+        ).catch(() => {});
+      }
+    })
+    .catch((err: Error) => {
+      logger.error({ err }, 'WeChat poller crashed');
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -272,6 +326,7 @@ async function executeAgent(
   const live = api.getConfig();
 
   const options: WechatReplyDispatcherOptions = {
+    chatId: senderId,
     showToolCalls: live.showToolCalls,
     showSkillCalls: live.showSkillCalls,
     footerConfig: live.footer,
@@ -296,7 +351,9 @@ async function executeAgent(
             context_token: tokenEntry.token,
           });
           typingTicket = cfg.typing_ticket;
-        } catch { /* ticket fetch is best-effort */ }
+        } catch {
+          /* ticket fetch is best-effort */
+        }
       }
       if (!typingTicket) return;
       await sendTyping(sender.apiBase, sender.botToken, {
@@ -319,7 +376,9 @@ async function executeAgent(
   const dispatcher = new WechatReplyDispatcher(options);
 
   // Register per-session UserQuestionSender for WeChat (declared outside try for finally access)
-  const senderRegistry = api.getService<Map<string, UserQuestionSender>>('userQuestionSenderRegistry');
+  const senderRegistry = api.getService<Map<string, UserQuestionSender>>(
+    'userQuestionSenderRegistry',
+  );
   const questionSenderKey = `wechat:${sessionKey}`;
 
   try {
@@ -330,10 +389,12 @@ async function executeAgent(
       contextToken: tokenEntry.token,
       aesKey: config.aesKey,
       logger,
-      allowedRoots: live.tools.fileRead.allowedRoots.length > 0
-        ? live.tools.fileRead.allowedRoots : undefined,
-      deniedPatterns: live.tools.fileRead.deniedPatterns.length > 0
-        ? live.tools.fileRead.deniedPatterns : undefined,
+      allowedRoots:
+        live.tools.fileRead.allowedRoots.length > 0 ? live.tools.fileRead.allowedRoots : undefined,
+      deniedPatterns:
+        live.tools.fileRead.deniedPatterns.length > 0
+          ? live.tools.fileRead.deniedPatterns
+          : undefined,
     });
     const mediaOptions = {
       apiBase: sender.apiBase,
@@ -342,10 +403,12 @@ async function executeAgent(
       contextToken: tokenEntry.token,
       aesKey: config.aesKey,
       logger,
-      allowedRoots: live.tools.fileRead.allowedRoots.length > 0
-        ? live.tools.fileRead.allowedRoots : undefined,
-      deniedPatterns: live.tools.fileRead.deniedPatterns.length > 0
-        ? live.tools.fileRead.deniedPatterns : undefined,
+      allowedRoots:
+        live.tools.fileRead.allowedRoots.length > 0 ? live.tools.fileRead.allowedRoots : undefined,
+      deniedPatterns:
+        live.tools.fileRead.deniedPatterns.length > 0
+          ? live.tools.fileRead.deniedPatterns
+          : undefined,
     };
 
     const wechatApprovalSender = createWechatApprovalSender({
@@ -394,9 +457,13 @@ async function executeAgent(
           footerConfig: live.footer,
           sendText: async (text: string) => {
             await sendChunkedText(
-              sender.apiBase, sender.botToken,
-              tokenEntry.toUserId, tokenEntry.token,
-              text, config.textLimit, logger,
+              sender.apiBase,
+              sender.botToken,
+              tokenEntry.toUserId,
+              tokenEntry.token,
+              text,
+              config.textLimit,
+              logger,
             );
           },
           startTyping: async () => {
@@ -407,7 +474,9 @@ async function executeAgent(
                   context_token: tokenEntry.token,
                 });
                 freshTypingTicket = cfg.typing_ticket;
-              } catch { /* best-effort */ }
+              } catch {
+                /* best-effort */
+              }
             }
             if (!freshTypingTicket) return;
             await sendTyping(sender.apiBase, sender.botToken, {
@@ -458,10 +527,7 @@ async function executeAgent(
 // Helpers
 // ---------------------------------------------------------------------------
 
-function isAllowed(
-  ctx: ReturnType<typeof buildMessageContext>,
-  config: WechatConfig,
-): boolean {
+function isAllowed(ctx: ReturnType<typeof buildMessageContext>, config: WechatConfig): boolean {
   if (!ctx) return false;
   if (config.allowedUsers.length === 0) return true;
   return config.allowedUsers.includes(ctx.message.senderId);
@@ -581,18 +647,9 @@ async function processMessageMedia(
 
     try {
       const ext = itemType === 'image' ? '.jpg' : itemType === 'voice' ? '.ogg' : '.bin';
-      const savePath = path.join(
-        mediaDir,
-        `${msg.client_id || Date.now()}-${item.type}${ext}`,
-      );
+      const savePath = path.join(mediaDir, `${msg.client_id || Date.now()}-${item.type}${ext}`);
 
-      await downloadInboundMedia(
-        item,
-        ILINK_CDN_HOST,
-        mediaParam.aes_key,
-        savePath,
-        logger,
-      );
+      await downloadInboundMedia(item, ILINK_CDN_HOST, mediaParam.aes_key, savePath, logger);
 
       if (itemType === 'image') {
         const rawBuffer = await fs.readFile(savePath);
@@ -609,7 +666,12 @@ async function processMessageMedia(
   // v5 P2: Voice handling — prefer WeChat built-in ASR, fall back to STT
   if (voiceText) {
     result.finalText = voiceText;
-  } else if (voicePath && sttTranscriber && sttConfig?.enabled && sttConfig.autoTranscribe !== false) {
+  } else if (
+    voicePath &&
+    sttTranscriber &&
+    sttConfig?.enabled &&
+    sttConfig.autoTranscribe !== false
+  ) {
     try {
       const transcribed = await sttTranscriber(voicePath, sttConfig.language ?? 'auto');
       if (transcribed.trim()) {
@@ -649,8 +711,10 @@ function bufferToImageContent(buffer: Buffer): ImageContent {
 function detectImageMime(buffer: Buffer): string {
   if (buffer.length < 4) return 'application/octet-stream';
   if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'image/jpeg';
-  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) return 'image/png';
+  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47)
+    return 'image/png';
   if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46) return 'image/gif';
-  if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46) return 'image/webp';
+  if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46)
+    return 'image/webp';
   return 'application/octet-stream';
 }

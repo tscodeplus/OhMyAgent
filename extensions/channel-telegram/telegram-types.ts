@@ -24,14 +24,11 @@ export type CallbackAction =
       type: 'approve';
       requestId: string;
       decision:
-        | 'approve_once'
-        | 'approve_session'
-        | 'approve_always'
-        | 'reject_once'
-        | 'reject_always';
+        'approve_once' | 'approve_session' | 'approve_always' | 'reject_once' | 'reject_always';
     }
   | { type: 'agent_switch'; agentId: string }
   | { type: 'stop' }
+  | { type: 'harness'; proposalId: string; action: 'approve' | 'reject' | 'dismiss' }
   | { type: 'question_answer'; requestId: string; answer: string };
 
 /**

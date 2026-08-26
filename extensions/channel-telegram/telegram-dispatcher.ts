@@ -9,16 +9,21 @@
 import type { ReplyDispatcher, Usage, FooterConfig } from '../../src/app/types.js';
 import type { TelegramConfig, StreamController } from './telegram-types.js';
 import type { ReplyContent } from '../../src/channel/types.js';
-import type { HarnessImprovementPrompt, ApprovalDecision, HarnessApprovalResult } from '../../src/harness/types.js';
+import type {
+  HarnessImprovementPrompt,
+  ApprovalDecision,
+  HarnessApprovalResult,
+} from '../../src/harness/types.js';
 import { summarizeToolInput } from '../../src/channel/tool-summary.js';
 import { formatUsageSummary } from '../../src/channel/usage-summary.js';
 import { i18n } from '../../src/i18n/index.js';
+import { harnessApprovalRegistry } from '../../src/harness/harness-approval-registry.js';
+import { encodeCallbackAction } from './inline-keyboard.js';
 
 export class TelegramReplyDispatcher implements ReplyDispatcher {
   private streamCtrl: StreamController;
   private bot: any;
   private chatId: number;
-  private config: TelegramConfig;
   private showToolCalls: boolean;
   private showSkillCalls: boolean;
   private footerConfig: FooterConfig;
@@ -28,7 +33,6 @@ export class TelegramReplyDispatcher implements ReplyDispatcher {
 
   private model = '';
   private agentName = '';
-  private approvalStatus: string | null = null;
   private justCompletedTool = false;
   private startTime = 0;
 
@@ -39,7 +43,7 @@ export class TelegramReplyDispatcher implements ReplyDispatcher {
     bot: any,
     chatId: number,
     streamCtrl: StreamController,
-    config: TelegramConfig,
+    _config: TelegramConfig,
     showToolCalls = true,
     showSkillCalls = true,
     footerConfig?: FooterConfig,
@@ -47,10 +51,16 @@ export class TelegramReplyDispatcher implements ReplyDispatcher {
     this.bot = bot;
     this.chatId = chatId;
     this.streamCtrl = streamCtrl;
-    this.config = config;
     this.showToolCalls = showToolCalls;
     this.showSkillCalls = showSkillCalls;
-    this.footerConfig = footerConfig ?? { showAgentName: true, showModel: true, showCompleted: false, showElapsed: true, showUsage: false, showCacheHitRate: false };
+    this.footerConfig = footerConfig ?? {
+      showAgentName: true,
+      showModel: true,
+      showCompleted: false,
+      showElapsed: true,
+      showUsage: false,
+      showCacheHitRate: false,
+    };
   }
 
   // ------------------------------------------------------------------
@@ -102,9 +112,7 @@ export class TelegramReplyDispatcher implements ReplyDispatcher {
     const truncated = summary.length > 100 ? summary.slice(0, 100) + '…' : summary;
     // No "> " prefix — Telegram uses HTML parse_mode where ">" is literal text,
     // and the Markdown→HTML converter doesn't handle blockquote syntax.
-    const text = truncated
-      ? `\n${icon} **${name}** — ${truncated}`
-      : `\n${icon} **${name}**`;
+    const text = truncated ? `\n${icon} **${name}** — ${truncated}` : `\n${icon} **${name}**`;
     this.buffer += text;
     this.streamCtrl.onDelta(text);
     this.justCompletedTool = true;
@@ -131,7 +139,6 @@ export class TelegramReplyDispatcher implements ReplyDispatcher {
   }
 
   setApprovalStatus(status: string | null): void {
-    this.approvalStatus = status;
     if (status) {
       // Append the status as a visible hint in the streaming output.
       // StreamController has no dedicated status-line API, so onDelta is the
@@ -166,7 +173,10 @@ export class TelegramReplyDispatcher implements ReplyDispatcher {
     if (this.footerConfig.showAgentName && this.agentName) footerParts.push(this.agentName);
     if (this.footerConfig.showElapsed && this.startTime) {
       const elapsedMs = Date.now() - this.startTime;
-      const elapsed = elapsedMs < 60_000 ? `${(elapsedMs / 1000).toFixed(1)}s` : `${Math.floor(elapsedMs / 60_000)}m ${Math.floor((elapsedMs % 60_000) / 1000)}s`;
+      const elapsed =
+        elapsedMs < 60_000
+          ? `${(elapsedMs / 1000).toFixed(1)}s`
+          : `${Math.floor(elapsedMs / 60_000)}m ${Math.floor((elapsedMs % 60_000) / 1000)}s`;
       footerParts.push(`耗时 ${elapsed}`);
     }
     if (this.footerConfig.showModel && this.model) footerParts.push(this.model);
@@ -197,12 +207,28 @@ export class TelegramReplyDispatcher implements ReplyDispatcher {
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
         this._harnessResolvers.delete(prompt.id);
+        harnessApprovalRegistry.remove(prompt.id);
         resolve({ decision: 'timeout' });
       }, timeoutMs ?? 120_000);
 
       this._harnessResolvers.set(prompt.id, (decision: ApprovalDecision) => {
         clearTimeout(timeout);
+        harnessApprovalRegistry.remove(prompt.id);
         resolve({ decision });
+      });
+
+      // Expose the resolver via the process-wide registry so the Telegram
+      // callback_query handler (which has no dispatcher reference) can route
+      // inline-keyboard clicks back here.
+      harnessApprovalRegistry.register({
+        proposalId: prompt.id,
+        channel: 'telegram',
+        chatId: String(this.chatId),
+        resolve: (decision) => {
+          const resolver = this._harnessResolvers.get(prompt.id);
+          this._harnessResolvers.delete(prompt.id);
+          resolver?.(decision);
+        },
       });
 
       // Send text message with inline keyboard
@@ -221,9 +247,30 @@ export class TelegramReplyDispatcher implements ReplyDispatcher {
       const inlineKeyboard = {
         inline_keyboard: [
           [
-            { text: i18n.t('harness:card.approveEmoji'), callback_data: `harness:${prompt.id}:approve` },
-            { text: i18n.t('harness:card.rejectButton'), callback_data: `harness:${prompt.id}:reject` },
-            { text: i18n.t('harness:card.ignoreText'), callback_data: `harness:${prompt.id}:dismiss` },
+            {
+              text: i18n.t('harness:card.approveEmoji'),
+              callback_data: encodeCallbackAction({
+                type: 'harness',
+                proposalId: prompt.id,
+                action: 'approve',
+              }),
+            },
+            {
+              text: i18n.t('harness:card.rejectButton'),
+              callback_data: encodeCallbackAction({
+                type: 'harness',
+                proposalId: prompt.id,
+                action: 'reject',
+              }),
+            },
+            {
+              text: i18n.t('harness:card.ignoreText'),
+              callback_data: encodeCallbackAction({
+                type: 'harness',
+                proposalId: prompt.id,
+                action: 'dismiss',
+              }),
+            },
           ],
         ],
       };
@@ -238,6 +285,8 @@ export class TelegramReplyDispatcher implements ReplyDispatcher {
   /**
    * Handle a callback query from a harness approval inline keyboard.
    * Returns true if the callback data was recognised and resolved.
+   * @deprecated Routed via harnessApprovalRegistry in message-handler instead;
+   * kept for direct dispatcher-level use/tests.
    */
   handleHarnessCallback(callbackData: string): boolean {
     const match = callbackData.match(/^harness:(.+):(.+)$/);
@@ -246,8 +295,7 @@ export class TelegramReplyDispatcher implements ReplyDispatcher {
     const resolver = this._harnessResolvers.get(proposalId);
     if (resolver) {
       this._harnessResolvers.delete(proposalId);
-      // Telegram has no native 'edit' flow — map 'dismiss' to 'timeout'
-      const decision: ApprovalDecision = action === 'dismiss' ? 'timeout' : action as ApprovalDecision;
+      const decision = action === 'dismiss' ? 'dismiss' : (action as ApprovalDecision);
       resolver(decision);
       return true;
     }

@@ -12,11 +12,17 @@
 import type { ReplyDispatcher, Usage, FooterConfig } from '../../src/app/types.js';
 import type { QQGateway, ReplyTracker } from './qq-gateway.js';
 import type { QQConfig } from './qq-types.js';
-import { sendChunkedText } from './send-message.js';
+import { sendChunkedText, sendKeyboardMessage } from './send-message.js';
+import { buildHarnessKeyboard } from './qq-keyboard.js';
+import { harnessApprovalRegistry } from '../../src/harness/harness-approval-registry.js';
 import { summarizeToolInput } from '../../src/channel/tool-summary.js';
 import { formatUsageSummary } from '../../src/channel/usage-summary.js';
 import { i18n } from '../../src/i18n/index.js';
-import type { HarnessImprovementPrompt, ApprovalDecision, HarnessApprovalResult } from '../../src/harness/types.js';
+import type {
+  HarnessImprovementPrompt,
+  ApprovalDecision,
+  HarnessApprovalResult,
+} from '../../src/harness/types.js';
 
 export class QQReplyDispatcher implements ReplyDispatcher {
   /** Accumulated text deltas + tool annotations. */
@@ -48,7 +54,14 @@ export class QQReplyDispatcher implements ReplyDispatcher {
   ) {
     this.showToolCalls = showToolCalls;
     this.showSkillCalls = showSkillCalls;
-    this.footerConfig = footerConfig ?? { showAgentName: true, showModel: true, showCompleted: false, showElapsed: true, showUsage: false, showCacheHitRate: false };
+    this.footerConfig = footerConfig ?? {
+      showAgentName: true,
+      showModel: true,
+      showCompleted: false,
+      showElapsed: true,
+      showUsage: false,
+      showCacheHitRate: false,
+    };
   }
 
   // ------------------------------------------------------------------
@@ -85,9 +98,7 @@ export class QQReplyDispatcher implements ReplyDispatcher {
     if (!this.showToolCalls) return;
     const summary = summarizeToolInput(name, args);
     const truncated = summary.length > 100 ? summary.slice(0, 100) + '…' : summary;
-    const line = truncated
-      ? `\n> ⏳ **${name}** — ${truncated}`
-      : `\n> ⏳ **${name}**`;
+    const line = truncated ? `\n> ⏳ **${name}** — ${truncated}` : `\n> ⏳ **${name}**`;
     this.buffer += line;
     this.hasContent = true;
     // Store exact line text so onToolEnd can replace it precisely
@@ -132,7 +143,9 @@ export class QQReplyDispatcher implements ReplyDispatcher {
   setApprovalStatus(status: string | null): void {
     if (status) {
       // QQ does not support message editing — send a brief status message.
-      sendChunkedText(this.gateway, `⏳ ${status}`, this.target, this.config.textLimit).catch(() => {});
+      sendChunkedText(this.gateway, `⏳ ${status}`, this.target, this.config.textLimit).catch(
+        () => {},
+      );
     }
   }
 
@@ -163,16 +176,35 @@ export class QQReplyDispatcher implements ReplyDispatcher {
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
         this._harnessResolvers.delete(prompt.id);
+        harnessApprovalRegistry.remove(prompt.id);
         resolve({ decision: 'timeout' });
       }, timeoutMs ?? 120_000);
 
       this._harnessResolvers.set(prompt.id, (decision: ApprovalDecision) => {
         clearTimeout(timeout);
+        harnessApprovalRegistry.remove(prompt.id);
         resolve({ decision });
       });
 
-      const text = [
-        i18n.t('harness:card.title'),
+      // Expose the resolver via the process-wide registry so the
+      // INTERACTION_CREATE handler (which has no dispatcher reference) can
+      // route keyboard button clicks back here.
+      harnessApprovalRegistry.register({
+        proposalId: prompt.id,
+        channel: 'qq',
+        chatId: this.target.openid ?? this.target.groupOpenid ?? '',
+        resolve: (decision) => {
+          const resolver = this._harnessResolvers.get(prompt.id);
+          this._harnessResolvers.delete(prompt.id);
+          resolver?.(decision);
+        },
+      });
+
+      // QQ text replies are queued behind the awaiting agent execution, so a
+      // numeric reply could never arrive in time — use interactive keyboard
+      // buttons (INTERACTION_CREATE) instead, like tool approvals do.
+      const markdown = [
+        `**${i18n.t('harness:card.title')}**`,
         '',
         `${i18n.t('harness:card.problem')}：${prompt.failureSummary}`,
         '',
@@ -180,37 +212,26 @@ export class QQReplyDispatcher implements ReplyDispatcher {
         prompt.detail.slice(0, 300),
         '',
         `${i18n.t('harness:card.impact')}：${prompt.impact.scope} | ${i18n.t('harness:card.risk')}：${prompt.impact.riskLevel}`,
-        '',
-        i18n.t('harness:card.replyNumberQQ'),
-        `1. ${i18n.t('harness:actions.approveApply')}`,
-        `2. ${i18n.t('harness:actions.reject')}`,
-        `3. ${i18n.t('harness:actions.ignore')}`,
       ].join('\n');
 
-      this.sendText(text);
+      const keyboard = buildHarnessKeyboard(prompt.id, {
+        approve: i18n.t('harness:card.approveAndApply'),
+        reject: i18n.t('harness:actions.reject'),
+        ignore: i18n.t('harness:actions.ignore'),
+      });
+
+      void sendKeyboardMessage(this.gateway, {
+        markdown,
+        keyboard,
+        target: this.target,
+      }).catch(() => {
+        // If sending fails, clean up and resolve as timeout
+        this._harnessResolvers.delete(prompt.id);
+        harnessApprovalRegistry.remove(prompt.id);
+        clearTimeout(timeout);
+        resolve({ decision: 'timeout' });
+      });
     });
-  }
-
-  tryHandleHarnessReply(text: string): boolean {
-    if (this._harnessResolvers.size === 0) return false;
-
-    const trimmed = text.trim();
-    let action: ApprovalDecision | null = null;
-
-    if (trimmed === '1') action = 'approve';
-    else if (trimmed === '2') action = 'reject';
-    else if (trimmed === '3') action = 'reject';
-
-    if (action) {
-      const [proposalId, resolver] = [...this._harnessResolvers.entries()][0] || [];
-      if (resolver) {
-        this._harnessResolvers.delete(proposalId);
-        resolver(action);
-        return true;
-      }
-    }
-
-    return false;
   }
 
   /** Attach a ReplyTracker to record replies after sending. */
@@ -230,7 +251,10 @@ export class QQReplyDispatcher implements ReplyDispatcher {
       if (this.footerConfig.showAgentName && this.agentName) parts.push(this.agentName);
       if (this.footerConfig.showElapsed && this.startTime) {
         const elapsedMs = Date.now() - this.startTime;
-        const elapsed = elapsedMs < 60_000 ? `${(elapsedMs / 1000).toFixed(1)}s` : `${Math.floor(elapsedMs / 60_000)}m ${Math.floor((elapsedMs % 60_000) / 1000)}s`;
+        const elapsed =
+          elapsedMs < 60_000
+            ? `${(elapsedMs / 1000).toFixed(1)}s`
+            : `${Math.floor(elapsedMs / 60_000)}m ${Math.floor((elapsedMs % 60_000) / 1000)}s`;
         parts.push(`耗时 ${elapsed}`);
       }
       if (this.footerConfig.showModel && this.model) parts.push(this.model);
@@ -263,7 +287,9 @@ export class QQReplyDispatcher implements ReplyDispatcher {
       ? i18n.t('messages:errors.timeout')
       : i18n.t('messages:errors.generic', { message: error.message });
 
-    await sendChunkedText(this.gateway, errorMsg, this.target, this.config.textLimit).catch(() => {});
+    await sendChunkedText(this.gateway, errorMsg, this.target, this.config.textLimit).catch(
+      () => {},
+    );
 
     // Record the reply for rate-limit tracking even on errors
     if (this.replyTracker && this.replyTrackerOpenid) {
@@ -281,10 +307,5 @@ export class QQReplyDispatcher implements ReplyDispatcher {
     if (this.replyTracker && this.replyTrackerOpenid) {
       this.replyTracker.recordMessageReply(this.replyTrackerOpenid);
     }
-  }
-
-  /** Send a text message to the target via the QQ gateway. */
-  private sendText(text: string): void {
-    sendChunkedText(this.gateway, text, this.target, this.config.textLimit).catch(() => {});
   }
 }

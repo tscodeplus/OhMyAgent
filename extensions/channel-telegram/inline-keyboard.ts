@@ -75,9 +75,7 @@ export function buildApprovalKeyboard(requestId: string): object {
  * Build an inline keyboard markup for switching agents.
  * One button per agent, each bearing the agent's display name.
  */
-export function buildAgentSwitchKeyboard(
-  agents: Array<{ id: string; name: string }>,
-): object {
+export function buildAgentSwitchKeyboard(agents: Array<{ id: string; name: string }>): object {
   return {
     inline_keyboard: agents.map((agent) => [
       {
@@ -167,6 +165,14 @@ export function parseCallbackAction(data: string): CallbackAction | null {
       return { type: 'stop' };
     }
 
+    if (record.type === 'harness') {
+      const proposalId = record.proposalId as string | undefined;
+      const action = record.action as string | undefined;
+      if (!proposalId || !action) return null;
+      if (action !== 'approve' && action !== 'reject' && action !== 'dismiss') return null;
+      return { type: 'harness', proposalId, action };
+    }
+
     if (record.type === 'question_answer') {
       // Accept both full (requestId, answer) and abbreviated (r, a) keys.
       const requestId = (record.requestId ?? record.r) as string | undefined;
@@ -188,9 +194,7 @@ export function parseCallbackAction(data: string): CallbackAction | null {
 /**
  * Parse an approval action, normalising abbreviated field names.
  */
-function parseApproveAction(
-  record: Record<string, unknown>,
-): CallbackAction | null {
+function parseApproveAction(record: Record<string, unknown>): CallbackAction | null {
   // Accept both full (requestId, decision) and abbreviated (i, d) keys.
   const requestId = (record.requestId ?? record.i) as string | undefined;
   const decision = (record.decision ?? record.d) as string | undefined;
@@ -215,7 +219,7 @@ function parseApproveAction(
     'reject_always',
   ] as const;
 
-  if (!validDecisions.includes(normalizedDecision as typeof validDecisions[number])) {
+  if (!validDecisions.includes(normalizedDecision as (typeof validDecisions)[number])) {
     return null;
   }
 

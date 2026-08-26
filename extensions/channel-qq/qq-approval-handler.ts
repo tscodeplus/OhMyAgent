@@ -10,9 +10,10 @@ import type { Logger } from 'pino';
 import type { AgentService } from '../../src/agent/agent-service.js';
 import type { QQGateway } from './qq-gateway.js';
 import type { QQInteractionEvent } from './qq-types.js';
-import { parseApprovalCallback } from './qq-keyboard.js';
+import { parseApprovalCallback, parseHarnessCallback } from './qq-keyboard.js';
 import { sendChunkedText } from './send-message.js';
 import { i18n } from '../../src/i18n/index.js';
+import { harnessApprovalRegistry } from '../../src/harness/harness-approval-registry.js';
 
 export interface QQApprovalHandlerOptions {
   agentService: AgentService;
@@ -35,17 +36,53 @@ export async function handleApprovalInteraction(
     try {
       await gateway.sendRestApi('PUT', `/interactions/${event.id}`, { code: 0 });
     } catch (err) {
-      logger.warn({ err, interactionId: event.id }, 'QQ interaction acknowledge failed, button may not be disabled');
+      logger.warn(
+        { err, interactionId: event.id },
+        'QQ interaction acknowledge failed, button may not be disabled',
+      );
     }
 
     const buttonData = event.data?.resolved?.button_data;
     if (!buttonData) return { code: 1, message: 'no button_data' };
 
+    // ── Harness improvement proposal buttons (task failure analysis) ──
+    const harnessParsed = parseHarnessCallback(buttonData);
+    if (harnessParsed) {
+      const resolved = harnessApprovalRegistry.resolve(
+        harnessParsed.proposalId,
+        harnessParsed.action,
+      );
+      logger.info(
+        { proposalId: harnessParsed.proposalId, decision: harnessParsed.action, resolved },
+        'QQ harness approval resolved',
+      );
+      if (resolved) {
+        const labels: Record<string, string> = {
+          approve: i18n.t('bootstrap:toast.harnessApproved'),
+          reject: i18n.t('bootstrap:toast.harnessRejected'),
+          dismiss: i18n.t('bootstrap:toast.harnessIgnored'),
+        };
+        const label = labels[harnessParsed.action] ?? harnessParsed.action;
+        await sendChunkedText(gateway, `✅ ${label}`, target, 2000).catch(() => {});
+        return { code: 0, message: 'ok' };
+      }
+      await sendChunkedText(
+        gateway,
+        i18n.t('qq-approval:result.alreadyProcessed'),
+        target,
+        2000,
+      ).catch(() => {});
+      return { code: 2, message: 'already resolved' };
+    }
+
     const parsed = parseApprovalCallback(buttonData);
     if (!parsed) return { code: 1, message: 'not an approval button' };
 
     const resolved = agentService.resolveApproval(parsed.requestId, parsed.decision);
-    logger.info({ requestId: parsed.requestId, decision: parsed.decision, resolved }, 'QQ approval resolved');
+    logger.info(
+      { requestId: parsed.requestId, decision: parsed.decision, resolved },
+      'QQ approval resolved',
+    );
 
     if (resolved) {
       const isApproved = parsed.decision.startsWith('approve');
@@ -61,7 +98,12 @@ export async function handleApprovalInteraction(
       return { code: 0, message: 'ok' };
     }
 
-    await sendChunkedText(gateway, i18n.t('qq-approval:result.alreadyProcessed'), target, 2000).catch(() => {});
+    await sendChunkedText(
+      gateway,
+      i18n.t('qq-approval:result.alreadyProcessed'),
+      target,
+      2000,
+    ).catch(() => {});
     return { code: 2, message: 'already resolved' };
   } catch (err) {
     logger.error({ err }, 'QQ approval interaction error');

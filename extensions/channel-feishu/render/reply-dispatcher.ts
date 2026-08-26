@@ -12,6 +12,7 @@ import type { Logger } from 'pino';
 import type { FooterConfig, Usage } from '../../../src/app/types.js';
 import { summarizeToolInput } from '../../../src/channel/tool-summary.js';
 import { i18n } from '../../../src/i18n/index.js';
+import { harnessApprovalRegistry } from '../../../src/harness/harness-approval-registry.js';
 
 export interface ReplyDispatcherOptions {
   feishuClient: any;
@@ -110,9 +111,7 @@ export class ReplyDispatcher {
     const summary = summarizeToolInput(name, args);
     const truncated = summary.length > 100 ? summary.slice(0, 100) + '…' : summary;
     const icon = isError ? '❌' : '✅';
-    const line = truncated
-      ? `\n> ${icon} **${name}** — ${truncated}`
-      : `\n> ${icon} **${name}**`;
+    const line = truncated ? `\n> ${icon} **${name}** — ${truncated}` : `\n> ${icon} **${name}**`;
     this.controller.appendDelta(line);
     // Update tool indicator status (triggers another flush, now includes the appended line)
     if (isError) {
@@ -145,14 +144,17 @@ export class ReplyDispatcher {
     // No-op: feishu approval cards are standalone, not embedded in the reply card
   }
 
-  setApprovalRecords(_records: Array<{
-    requestId: string;
-    command: string;
-    risk: 'low' | 'medium' | 'high';
-    status: 'pending' | 'approved' | 'rejected';
-    decision?: string;
-    updatedAt: number;
-  }>, _expanded: boolean): void {
+  setApprovalRecords(
+    _records: Array<{
+      requestId: string;
+      command: string;
+      risk: 'low' | 'medium' | 'high';
+      status: 'pending' | 'approved' | 'rejected';
+      decision?: string;
+      updatedAt: number;
+    }>,
+    _expanded: boolean,
+  ): void {
     // No-op: feishu approval cards are standalone, not embedded in the reply card
   }
 
@@ -198,12 +200,26 @@ export class ReplyDispatcher {
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
         this.harnessResolvers.delete(prompt.id);
+        harnessApprovalRegistry.remove(prompt.id);
         resolve({ decision: 'timeout' as const });
       }, timeoutMs ?? 120_000);
 
-      this.harnessResolvers.set(prompt.id, (decision: string) => {
+      const resolver = (decision: string) => {
         clearTimeout(timeout);
+        harnessApprovalRegistry.remove(prompt.id);
         resolve({ decision: decision as import('../../../src/harness/types.js').ApprovalDecision });
+      };
+      this.harnessResolvers.set(prompt.id, resolver);
+      // Also expose the resolver via the process-wide registry so the card
+      // action handler (which has no dispatcher reference) can route clicks.
+      harnessApprovalRegistry.register({
+        proposalId: prompt.id,
+        channel: 'feishu',
+        chatId: this.chatId,
+        resolve: (d) => {
+          this.harnessResolvers.delete(prompt.id);
+          resolver(d as string);
+        },
       });
 
       // Build a standalone interactive card (v1.0 format for msg_type:interactive)
@@ -214,7 +230,10 @@ export class ReplyDispatcher {
           template: 'wathet',
         },
         elements: [
-          { tag: 'markdown', content: `**${i18n.t('harness:card.problem')}**：${prompt.failureSummary}` },
+          {
+            tag: 'markdown',
+            content: `**${i18n.t('harness:card.problem')}**：${prompt.failureSummary}`,
+          },
           { tag: 'hr' },
           { tag: 'markdown', content: prompt.detail.slice(0, 500) },
           { tag: 'hr' },
@@ -250,17 +269,20 @@ export class ReplyDispatcher {
       };
 
       // Send the card via feishuClient.sendMessage (msg_type: interactive)
-      this.feishuClient.sendMessage({
-        receive_id: this.chatId,
-        receive_id_type: 'chat_id',
-        msg_type: 'interactive',
-        content: JSON.stringify(card),
-      }).catch(() => {
-        // If sending fails, clean up and resolve as timeout
-        this.harnessResolvers.delete(prompt.id);
-        clearTimeout(timeout);
-        resolve({ decision: 'timeout' as const });
-      });
+      this.feishuClient
+        .sendMessage({
+          receive_id: this.chatId,
+          receive_id_type: 'chat_id',
+          msg_type: 'interactive',
+          content: JSON.stringify(card),
+        })
+        .catch(() => {
+          // If sending fails, clean up and resolve as timeout
+          this.harnessResolvers.delete(prompt.id);
+          harnessApprovalRegistry.remove(prompt.id);
+          clearTimeout(timeout);
+          resolve({ decision: 'timeout' as const });
+        });
     });
   }
 

@@ -19,7 +19,12 @@ import { StreamingMarkdownFilter } from './markdown-filter.js';
 import { summarizeToolInput } from '../../src/channel/tool-summary.js';
 import { formatUsageSummary } from '../../src/channel/usage-summary.js';
 import { i18n } from '../../src/i18n/index.js';
-import type { HarnessImprovementPrompt, ApprovalDecision, HarnessApprovalResult } from '../../src/harness/types.js';
+import type {
+  HarnessImprovementPrompt,
+  ApprovalDecision,
+  HarnessApprovalResult,
+} from '../../src/harness/types.js';
+import { harnessApprovalRegistry } from '../../src/harness/harness-approval-registry.js';
 
 /** Typing keepalive interval in milliseconds. */
 const TYPING_KEEPALIVE_MS = 5000;
@@ -39,6 +44,9 @@ export interface WechatReplyDispatcherOptions {
   showSkillCalls?: boolean;
   /** Footer display configuration. */
   footerConfig?: FooterConfig;
+  /** Chat/user identifier — used to register pending harness approvals for
+   * numeric-reply interception in the inbound message handler. */
+  chatId?: string;
 }
 
 export class WechatReplyDispatcher implements ReplyDispatcher {
@@ -46,7 +54,6 @@ export class WechatReplyDispatcher implements ReplyDispatcher {
   private buffer = '';
   private model = '';
   private agentName = '';
-  private approvalStatus: string | null = null;
   private typingInterval?: ReturnType<typeof setInterval>;
   private justCompletedTool = false;
   private footerConfig: FooterConfig;
@@ -57,7 +64,14 @@ export class WechatReplyDispatcher implements ReplyDispatcher {
 
   constructor(private options: WechatReplyDispatcherOptions) {
     this.showSkillCalls = options.showSkillCalls !== false;
-    this.footerConfig = options.footerConfig ?? { showAgentName: true, showModel: true, showCompleted: false, showElapsed: true, showUsage: false, showCacheHitRate: false };
+    this.footerConfig = options.footerConfig ?? {
+      showAgentName: true,
+      showModel: true,
+      showCompleted: false,
+      showElapsed: true,
+      showUsage: false,
+      showCacheHitRate: false,
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -104,9 +118,7 @@ export class WechatReplyDispatcher implements ReplyDispatcher {
     if (this.options.showToolCalls === false) return;
     const summary = summarizeToolInput(name, args);
     const truncated = summary.length > 100 ? summary.slice(0, 100) + '…' : summary;
-    const line = truncated
-      ? `\n> ⏳ **${name}** — ${truncated}`
-      : `\n> ⏳ **${name}**`;
+    const line = truncated ? `\n> ⏳ **${name}** — ${truncated}` : `\n> ⏳ **${name}**`;
     this.buffer += line;
     const key = toolCallId ?? name;
     this.pendingToolLines.set(key, line);
@@ -143,8 +155,9 @@ export class WechatReplyDispatcher implements ReplyDispatcher {
     this.buffer += `> ⚡️ ${label} — **${skillName}**\n\n`;
   }
 
-  setApprovalStatus(status: string | null): void {
-    this.approvalStatus = status;
+  setApprovalStatus(_status: string | null): void {
+    // WeChat cannot edit sent messages — approval status is surfaced via the
+    // separate approval sender messages instead.
   }
 
   setApprovalRecords(
@@ -168,13 +181,32 @@ export class WechatReplyDispatcher implements ReplyDispatcher {
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
         this._harnessResolvers.delete(prompt.id);
+        harnessApprovalRegistry.remove(prompt.id);
         resolve({ decision: 'timeout' });
       }, timeoutMs ?? 120_000);
 
       this._harnessResolvers.set(prompt.id, (decision: ApprovalDecision) => {
         clearTimeout(timeout);
+        harnessApprovalRegistry.remove(prompt.id);
         resolve({ decision });
       });
+
+      // Expose the resolver via the process-wide registry so the inbound
+      // message handler can intercept numeric replies (1/2/3) — WeChat has no
+      // button mechanism, and queued text would otherwise arrive only after
+      // the awaiting execution (and thus the timeout) has finished.
+      if (this.options.chatId) {
+        harnessApprovalRegistry.register({
+          proposalId: prompt.id,
+          channel: 'wechat',
+          chatId: this.options.chatId,
+          resolve: (decision) => {
+            const resolver = this._harnessResolvers.get(prompt.id);
+            this._harnessResolvers.delete(prompt.id);
+            resolver?.(decision);
+          },
+        });
+      }
 
       const text = [
         i18n.t('harness:card.title'),
@@ -220,7 +252,10 @@ export class WechatReplyDispatcher implements ReplyDispatcher {
     if (this.footerConfig.showAgentName && this.agentName) footerParts.push(this.agentName);
     if (this.footerConfig.showElapsed && this.startTime) {
       const elapsedMs = Date.now() - this.startTime;
-      const elapsed = elapsedMs < 60_000 ? `${(elapsedMs / 1000).toFixed(1)}s` : `${Math.floor(elapsedMs / 60_000)}m ${Math.floor((elapsedMs % 60_000) / 1000)}s`;
+      const elapsed =
+        elapsedMs < 60_000
+          ? `${(elapsedMs / 1000).toFixed(1)}s`
+          : `${Math.floor(elapsedMs / 60_000)}m ${Math.floor((elapsedMs % 60_000) / 1000)}s`;
       footerParts.push(`耗时 ${elapsed}`);
     }
     if (this.footerConfig.showModel && this.model) footerParts.push(this.model);
