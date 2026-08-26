@@ -19,21 +19,36 @@ import { summarizeToolInput } from '../../../src/channel/tool-summary.js';
 
 export type CardState = 'idle' | 'creating' | 'streaming' | 'completed' | 'aborted' | 'error';
 
-const TERMINAL_STATES: ReadonlySet<CardState> = new Set(['completed', 'aborted', 'error']);
-
 export interface StreamingCardControllerOptions {
   feishuClient: {
     createCard(cardData: Record<string, unknown>): Promise<string>;
     sendCardByCardId(chatId: string, cardId: string, replyToMessageId?: string): Promise<string>;
-    streamCardContent(cardId: string, elementId: string, content: string, sequence: number): Promise<void>;
+    streamCardContent(
+      cardId: string,
+      elementId: string,
+      content: string,
+      sequence: number,
+    ): Promise<void>;
     setCardStreamingMode(cardId: string, streamingMode: boolean, sequence: number): Promise<void>;
     updateCard(cardId: string, cardData: Record<string, unknown>, sequence: number): Promise<void>;
     /** Fallback: update card via im.message.patch (non-CardKit). */
-    updateMessage?(messageId: string, msgType: string, card: Record<string, unknown>): Promise<void>;
+    updateMessage?(
+      messageId: string,
+      msgType: string,
+      card: Record<string, unknown>,
+    ): Promise<void>;
     /** Fallback: send a plain-text message when CardKit is unavailable. */
-    sendMessage?(params: { receive_id: string; receive_id_type: string; msg_type: string; content: string }): Promise<unknown>;
+    sendMessage?(params: {
+      receive_id: string;
+      receive_id_type: string;
+      msg_type: string;
+      content: string;
+    }): Promise<unknown>;
     /** Fallback: reply with a plain-text message. */
-    replyMessage?(messageId: string, params: { msg_type: string; content: string }): Promise<unknown>;
+    replyMessage?(
+      messageId: string,
+      params: { msg_type: string; content: string },
+    ): Promise<unknown>;
   };
   chatId: string;
   messageId?: string;
@@ -71,12 +86,22 @@ export class StreamingCardController {
   private lastFlushTime: number = 0;
   private flushInFlight: boolean = false;
   private flushRequested: boolean = false;
+  /**
+   * Set when Feishu terminally closed the card streaming session
+   * (200850 card streaming timeout / 300309 streaming mode is closed).
+   * Further streamCardContent calls are pointless — stop flushing and let
+   * complete()/fail() deliver the final content via card.update instead.
+   */
+  private streamBroken = false;
   // CardKit sequence — incremented before each API call.
   private sequence: number = 0;
   private cardOperationChain: Promise<void> = Promise.resolve();
 
   // Tool tracking (keyed by toolCallId for uniqueness; stores name for display)
-  private toolIndicators: Map<string, { name: string; status: 'running' | 'done' | 'error'; args?: unknown }> = new Map();
+  private toolIndicators: Map<
+    string,
+    { name: string; status: 'running' | 'done' | 'error'; args?: unknown }
+  > = new Map();
   // Thinking dot animation cycle (0, 1, 2 → '.', '..', '...')
   private thinkingDotCycle = 0;
   // Fast animation timer for thinking dots (~600ms vs normal 2000ms flush)
@@ -139,9 +164,33 @@ export class StreamingCardController {
     return this.sequence;
   }
 
+  /**
+   * Close streaming mode, tolerating failure. When Feishu already closed the
+   * session (streamBroken / 300309 / 200850) this call fails, but that must
+   * NOT abort terminal card delivery — the updateCard below is what actually
+   * shows the user the final content.
+   */
+  private async closeStreamingModeTolerant(): Promise<void> {
+    if (this.streamBroken) return; // session already closed server-side
+    try {
+      await this.enqueueCardOperation(async () => {
+        const seq1 = this.nextSeq();
+        await this.feishuClient.setCardStreamingMode(this.cardId!, false, seq1);
+      });
+    } catch (err) {
+      this.logger?.warn(
+        { err },
+        'setCardStreamingMode(false) failed — continuing with terminal card update',
+      );
+    }
+  }
+
   private enqueueCardOperation<T>(operation: () => Promise<T>): Promise<T> {
     const run = this.cardOperationChain.then(operation, operation);
-    this.cardOperationChain = run.then(() => undefined, () => undefined);
+    this.cardOperationChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
     return run;
   }
 
@@ -180,7 +229,9 @@ export class StreamingCardController {
             errCode: errAny?.code,
             errDataCode: (errAny?.data as Record<string, unknown>)?.code,
             errResponseCode: (errAny?.response as Record<string, unknown>)?.code,
-            errResponseDataCode: ((errAny?.response as Record<string, unknown>)?.data as Record<string, unknown>)?.code,
+            errResponseDataCode: (
+              (errAny?.response as Record<string, unknown>)?.data as Record<string, unknown>
+            )?.code,
             errKeys: Object.keys(sendErr as object).slice(0, 20),
             isCardIdInvalid: isCardIdInvalidError(sendErr),
           },
@@ -255,7 +306,10 @@ export class StreamingCardController {
     // real text. Don't use cancelScheduledFlush() here — it also kills the
     // flushTimer which may still be needed for subsequent delta flushes.
     if (!hadContent && this.pendingContent.trim().length > 0) {
-      this.logger?.debug({ pendingLen: this.pendingContent.length }, '[thinking-dots] first content arrived, stopping animation + flushing');
+      this.logger?.debug(
+        { pendingLen: this.pendingContent.length },
+        '[thinking-dots] first content arrived, stopping animation + flushing',
+      );
       this.stopThinkingAnimation();
       this.requestFlush();
     } else {
@@ -317,7 +371,12 @@ export class StreamingCardController {
     let text = '';
     for (const [name, info] of this.toolIndicators) {
       const summary = info.args ? summarizeToolInput(name, info.args) : '';
-      text += formatToolLine(info.status === 'running' ? 'running' : info.status === 'done' ? 'done' : 'error', name, summary) + '\n';
+      text +=
+        formatToolLine(
+          info.status === 'running' ? 'running' : info.status === 'done' ? 'done' : 'error',
+          name,
+          summary,
+        ) + '\n';
     }
     this.toolIndicators.clear();
     return text;
@@ -352,16 +411,24 @@ export class StreamingCardController {
 
     try {
       // Build the final answer text (strip any unclosed think tags)
-      const answer = this.buildFinalAnswer() || this.pendingThinking || i18n.t('feishu-cards:stream.noResponse');
+      const answer =
+        this.buildFinalAnswer() || this.pendingThinking || i18n.t('feishu-cards:stream.noResponse');
       const thinking = this.pendingThinking || undefined;
       const elapsedMs = this.startTime ? Date.now() - this.startTime : undefined;
-      this.finalCardSnapshot = { thinking, answer, elapsedMs, model: this.model, agentName: this.agentName, usage: this.usage };
+      this.finalCardSnapshot = {
+        thinking,
+        answer,
+        elapsedMs,
+        model: this.model,
+        agentName: this.agentName,
+        usage: this.usage,
+      };
 
-      // Close streaming mode first (official implementation pattern)
-      await this.enqueueCardOperation(async () => {
-        const seq1 = this.nextSeq();
-        await this.feishuClient.setCardStreamingMode(this.cardId!, false, seq1);
-      });
+      // Close streaming mode first (official implementation pattern).
+      // Tolerates failure: when Feishu already closed the session
+      // (streamBroken), skipping straight to updateCard is what delivers
+      // the final answer to the user.
+      await this.closeStreamingModeTolerant();
 
       // Replace with completed card (includes streaming_mode: false)
       const completedCard = this.buildTerminalCard();
@@ -372,7 +439,10 @@ export class StreamingCardController {
         });
       } catch (updateErr) {
         // CardKit card.update failed — fall back to im.message.patch
-        this.logger?.warn({ err: updateErr }, 'CardKit updateCard failed, falling back to im.message.patch');
+        this.logger?.warn(
+          { err: updateErr },
+          'CardKit updateCard failed, falling back to im.message.patch',
+        );
         if (this.messageId && this.feishuClient.updateMessage) {
           // Convert CardKit 2.0 format to standard interactive card format
           const standardCard = {
@@ -383,6 +453,7 @@ export class StreamingCardController {
       }
     } catch (err) {
       // Error during finalization — state remains 'completed'
+      this.logger?.debug({ err }, 'complete(): terminal card update failed');
     }
   }
 
@@ -428,10 +499,7 @@ export class StreamingCardController {
 
     try {
       // Close streaming mode first (official implementation pattern)
-      await this.enqueueCardOperation(async () => {
-        const seq1 = this.nextSeq();
-        await this.feishuClient.setCardStreamingMode(this.cardId!, false, seq1);
-      });
+      await this.closeStreamingModeTolerant();
 
       // Build error card (includes streaming_mode: false)
       const elapsedMs = this.startTime ? Date.now() - this.startTime : undefined;
@@ -448,6 +516,10 @@ export class StreamingCardController {
         await this.feishuClient.updateCard(this.cardId!, this.buildTerminalCard(), seq2);
       });
     } catch (err) {
+      // Finalization failed — the terminal state is already set above; keep
+      // the error silent as the user-facing fallback (im.message.patch /
+      // text reply) has already been attempted by complete()'s inner handler.
+      this.logger?.debug({ err }, 'fail(): terminal card update failed');
     }
   }
 
@@ -463,10 +535,7 @@ export class StreamingCardController {
 
     try {
       // Close streaming mode
-      await this.enqueueCardOperation(async () => {
-        const seq1 = this.nextSeq();
-        await this.feishuClient.setCardStreamingMode(this.cardId!, false, seq1);
-      });
+      await this.closeStreamingModeTolerant();
 
       // Keep answer content, discard thinking, append stop marker
       const elapsedMs = this.startTime ? Date.now() - this.startTime : undefined;
@@ -506,7 +575,37 @@ export class StreamingCardController {
     const THINK_CLOSE = '</think>';
 
     while (i < this.buffer.length) {
-      if (!this.thinkingTagOpen) {
+      if (this.thinkingTagOpen) {
+        // Inside thinking block — look for  tag
+        const closeIdx = this.buffer.indexOf(THINK_CLOSE, i);
+        if (closeIdx === -1) {
+          // No closing tag found — check for partial match at end
+          const remaining = this.buffer.slice(i);
+          const keepLen = partialTagAtEnd(remaining, THINK_CLOSE);
+          if (keepLen > 0) {
+            this.pendingThinking += remaining.slice(0, remaining.length - keepLen);
+            this.buffer = remaining.slice(remaining.length - keepLen);
+          } else {
+            this.pendingThinking += remaining;
+            this.buffer = '';
+          }
+          break;
+        }
+
+        // Append thinking content before the closing tag
+        this.pendingThinking += this.buffer.slice(i, closeIdx);
+
+        // Check if we have the full closing tag
+        if (closeIdx + THINK_CLOSE.length <= this.buffer.length) {
+          this.thinkingTagOpen = false;
+          i = closeIdx + THINK_CLOSE.length;
+        } else {
+          // Partial closing tag — keep only the partial tag in buffer
+          this.pendingThinking += this.buffer.slice(i, closeIdx);
+          this.buffer = this.buffer.slice(closeIdx);
+          break;
+        }
+      } else {
         // Looking for <think> tag
         const openIdx = this.buffer.indexOf(THINK_OPEN, i);
         if (openIdx === -1) {
@@ -537,36 +636,6 @@ export class StreamingCardController {
           this.buffer = this.buffer.slice(openIdx);
           break;
         }
-      } else {
-        // Inside thinking block — look for  tag
-        const closeIdx = this.buffer.indexOf(THINK_CLOSE, i);
-        if (closeIdx === -1) {
-          // No closing tag found — check for partial match at end
-          const remaining = this.buffer.slice(i);
-          const keepLen = partialTagAtEnd(remaining, THINK_CLOSE);
-          if (keepLen > 0) {
-            this.pendingThinking += remaining.slice(0, remaining.length - keepLen);
-            this.buffer = remaining.slice(remaining.length - keepLen);
-          } else {
-            this.pendingThinking += remaining;
-            this.buffer = '';
-          }
-          break;
-        }
-
-        // Append thinking content before the closing tag
-        this.pendingThinking += this.buffer.slice(i, closeIdx);
-
-        // Check if we have the full closing tag
-        if (closeIdx + THINK_CLOSE.length <= this.buffer.length) {
-          this.thinkingTagOpen = false;
-          i = closeIdx + THINK_CLOSE.length;
-        } else {
-          // Partial closing tag — keep only the partial tag in buffer
-          this.pendingThinking += this.buffer.slice(i, closeIdx);
-          this.buffer = this.buffer.slice(closeIdx);
-          break;
-        }
       }
     }
   }
@@ -574,7 +643,7 @@ export class StreamingCardController {
   // ─── Flush Logic ───
 
   private scheduleFlush(): void {
-    if (this.state !== 'streaming') return;
+    if (this.state !== 'streaming' || this.streamBroken) return;
 
     const now = Date.now();
     const elapsed = now - this.lastFlushTime;
@@ -600,7 +669,7 @@ export class StreamingCardController {
   }
 
   private requestFlush(): void {
-    if (this.state !== 'streaming' || !this.cardId) return;
+    if (this.state !== 'streaming' || !this.cardId || this.streamBroken) return;
     this.flushRequested = true;
     void this.drainFlushQueue();
   }
@@ -616,7 +685,10 @@ export class StreamingCardController {
         let flushSucceeded = false;
         try {
           const content = this.buildStreamContent();
-          this.logger?.debug({ content: content.slice(0, 80), cycle: this.thinkingDotCycle }, '[thinking-dots] flush');
+          this.logger?.debug(
+            { content: content.slice(0, 80), cycle: this.thinkingDotCycle },
+            '[thinking-dots] flush',
+          );
           await this.enqueueCardOperation(async () => {
             const seq = this.nextSeq();
             await this.feishuClient.streamCardContent(
@@ -632,6 +704,20 @@ export class StreamingCardController {
           if (this.logger) {
             const msg = err instanceof Error ? err.message : String(err);
             this.logger.warn({ err: msg.slice(0, 100) }, '[thinking-dots] flush error');
+            // Terminal streaming-session errors: Feishu closed the stream.
+            // Retrying is futile (and spams warnings every animation tick) —
+            // mark the stream broken and deliver remaining content via the
+            // terminal card at complete()/fail() time instead.
+            if (isFatalStreamError(err)) {
+              this.streamBroken = true;
+              this.stopThinkingAnimation();
+              this.flushRequested = false;
+              this.logger.warn(
+                { cardId: this.cardId },
+                '[thinking-dots] card streaming session closed by Feishu — stopping incremental flushes; final content will be delivered on completion',
+              );
+              break;
+            }
           }
         }
 
@@ -695,7 +781,7 @@ export class StreamingCardController {
    */
   private isThinkingOnly(): boolean {
     const hasContent = this.pendingContent.trim().length > 0;
-    const hasRunningTools = [...this.toolIndicators.values()].some(i => i.status === 'running');
+    const hasRunningTools = [...this.toolIndicators.values()].some((i) => i.status === 'running');
     const result = !hasContent && !hasRunningTools;
     this.logger?.debug({ hasContent, hasRunningTools, result }, '[thinking-dots] isThinkingOnly');
     return result;
@@ -711,7 +797,10 @@ export class StreamingCardController {
         this.logger?.debug('[thinking-dots] animation timer fired, requesting flush');
         this.requestFlush();
       } else {
-        this.logger?.debug({ state: this.state }, '[thinking-dots] animation timer fired but conditions not met');
+        this.logger?.debug(
+          { state: this.state },
+          '[thinking-dots] animation timer fired but conditions not met',
+        );
       }
     }, 600);
   }
@@ -732,15 +821,14 @@ export class StreamingCardController {
     // If there's remaining content in buffer that wasn't processed
     const leftover = this.buffer;
     let answer = this.pendingContent;
-    let thinking = this.pendingThinking;
 
     // Process any leftover buffer
     if (leftover) {
       if (!this.thinkingTagOpen) {
         answer += leftover;
-      } else {
-        thinking += leftover;
       }
+      // Leftover inside an unclosed <think> block is thinking content and
+      // intentionally excluded from the answer (pendingThinking already has it).
     }
 
     // Strip any incomplete/partial think tags from the answer
@@ -751,7 +839,8 @@ export class StreamingCardController {
 
   private buildTerminalCard(): Record<string, unknown> {
     const snapshot = this.finalCardSnapshot ?? {
-      answer: this.buildFinalAnswer() || this.pendingThinking || i18n.t('feishu-cards:stream.noResponse'),
+      answer:
+        this.buildFinalAnswer() || this.pendingThinking || i18n.t('feishu-cards:stream.noResponse'),
       thinking: this.pendingThinking || undefined,
       elapsedMs: this.startTime ? Date.now() - this.startTime : undefined,
       model: this.model,
@@ -763,10 +852,29 @@ export class StreamingCardController {
       footerConfig: this.footerConfig,
     });
   }
-
 }
 
 // ─── Helpers ───
+
+/**
+ * Check if an error indicates Feishu terminally closed the card streaming
+ * session:
+ *   - 200850: card streaming timeout (session expired, e.g. long-running turn)
+ *   - 300309: streaming mode is closed (already closed after a timeout/error)
+ * Matches both thrown Error messages from feishu-client ("CardKit
+ * streamCardContent error <code>: ...") and structured err.code / err.data.code.
+ */
+export function isFatalStreamError(err: unknown): boolean {
+  const codes = new Set([200850, 300309]);
+  const errAny = err as Record<string, unknown> | undefined;
+  const numeric = [
+    errAny?.code,
+    (errAny?.data as Record<string, unknown> | undefined)?.code,
+  ].filter((c): c is number => typeof c === 'number');
+  if (numeric.some((c) => codes.has(c))) return true;
+  const msg = err instanceof Error ? err.message : String(err ?? '');
+  return /error\s+(200850|300309)\b/.test(msg);
+}
 
 /**
  * Format a single tool call line for streaming display.
@@ -774,7 +882,11 @@ export class StreamingCardController {
  *   done    → > ✅ **Bash** — echo '...'
  *   error   → > ❌ **Bash** — echo '...'
  */
-function formatToolLine(status: 'running' | 'done' | 'error', name: string, summary: string): string {
+function formatToolLine(
+  status: 'running' | 'done' | 'error',
+  name: string,
+  summary: string,
+): string {
   const icon = status === 'done' ? '✅' : status === 'error' ? '❌' : '⏳';
   const truncated = summary.length > 100 ? summary.slice(0, 100) + '…' : summary;
   if (truncated) {
