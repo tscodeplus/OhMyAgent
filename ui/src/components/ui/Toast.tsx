@@ -23,21 +23,25 @@ interface Toast {
 }
 
 interface ToastContextValue {
-  showToast: (message: string, type?: ToastType, duration?: number, actions?: ToastAction[], markdown?: boolean) => void;
+  /** Returns the toast id — pass it to dismissToast to remove it early. */
+  showToast: (message: string, type?: ToastType, duration?: number, actions?: ToastAction[], markdown?: boolean) => number;
+  /** Remove a toast before its timer fires (needed for sticky, duration=0 toasts). */
+  dismissToast: (id: number) => void;
 }
 
-const ToastContext = createContext<ToastContextValue>({ showToast: () => {} });
+const ToastContext = createContext<ToastContextValue>({ showToast: () => -1, dismissToast: () => {} });
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const nextIdRef = useRef(1);
 
   const showToast = useCallback(
-    (message: string, type: ToastType = 'info', duration = 1500, actions?: ToastAction[], markdown?: boolean) => {
+    (message: string, type: ToastType = 'info', duration = 1500, actions?: ToastAction[], markdown?: boolean): number => {
       const id = nextIdRef.current++;
       // When actions are present, default to sticky (duration=0) unless explicitly set
       const effectiveDuration = actions && actions.length > 0 && duration === 1500 ? 0 : duration;
       setToasts((prev) => [...prev, { id, message, type, duration: effectiveDuration, actions, markdown }]);
+      return id;
     },
     [],
   );
@@ -47,7 +51,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <ToastContext.Provider value={{ showToast }}>
+    <ToastContext.Provider value={{ showToast, dismissToast: removeToast }}>
       {children}
       {toasts.length > 0 && (
         <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center gap-2 pointer-events-none bg-black/20 dark:bg-black/50">

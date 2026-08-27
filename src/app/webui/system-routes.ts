@@ -150,8 +150,10 @@ export function registerSystemRoutes(app: FastifyInstance): void {
   }
 
   # 2) Fallback: kill the process tree, restart pnpm dev
+  # Exclude our own pid ($PID) — this script is itself a child of MainPid.
   try {
     Get-CimInstance Win32_Process -Filter "ParentProcessId=$MainPid" -ErrorAction SilentlyContinue |
+      Where-Object { $_.ProcessId -ne $PID } |
       ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
   } catch { }
   try { Stop-Process -Id $MainPid -Force -ErrorAction SilentlyContinue } catch { }
@@ -226,8 +228,15 @@ export function registerSystemRoutes(app: FastifyInstance): void {
 
   # Kill children first (e.g. tsx's node worker holds the listening port),
   # then the process itself; wait for exit so the port is released before
-  # the new instance binds.
-  pkill -P "\$MAIN_PID" >/dev/null 2>&1 || true
+  # the new instance binds. NOTE: our own pid MUST be skipped — this script
+  # is itself a child of MAIN_PID, and pkill -P would kill the script
+  # mid-run (observed: script died at pkill, server never restarted).
+  CHILD_PIDS=$(pgrep -P "\$MAIN_PID" 2>/dev/null || true)
+  for cpid in \$CHILD_PIDS; do
+    if [ "\$cpid" != "\$\$" ]; then
+      kill "\$cpid" >/dev/null 2>&1 || true
+    fi
+  done
   kill "\$MAIN_PID" >/dev/null 2>&1 || true
   for _ in 1 2 3 4 5 6; do
     kill -0 "\$MAIN_PID" 2>/dev/null || break

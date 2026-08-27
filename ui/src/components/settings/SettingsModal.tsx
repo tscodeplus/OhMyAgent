@@ -15,6 +15,7 @@ import DesktopSettings from './tabs/DesktopSettings';
 import GatewaySettings from './tabs/GatewaySettings';
 import HarnessSettings from './tabs/HarnessSettings';
 import { isElectron } from '../../utils/env';
+import { getToken } from '../../utils/api';
 import Button from '../ui/Button';
 import { useToast, type ToastAction } from '../ui/Toast';
 import type { SettingsTabHandle } from './useConfigDirty';
@@ -77,7 +78,7 @@ const COMPONENT_MAP: Record<string, React.ComponentType<any>> = {
 
 export default function SettingsModal({ onClose }: SettingsModalProps) {
   const { t } = useTranslation('common');
-  const { showToast } = useToast();
+  const { showToast, dismissToast } = useToast();
   const [activeGroup, setActiveGroup] = useState<string>('general');
   const [saving, setSaving] = useState(false);
   const [dirtyTabs, setDirtyTabs] = useState<Set<string>>(new Set());
@@ -146,13 +147,24 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
   // systemd/schtasks) or replaying the original command line (pnpm dev,
   // ohmyagent start, …). Desktop-shell instances are rejected (409) and fall
   // back to the info toast, because only the shell can restart its sidecar.
+  // NOTE: the request must carry the WebUI token (same as perform-update) —
+  // a bare fetch gets 401 from webuiAuthHook and the restart never happens.
   const handleServerRestart = useCallback(async () => {
-    showToast(t('settings.restarting'), 'info', 0);
+    const progressToastId = showToast(t('settings.restarting'), 'info', 0);
+    /** Replace the sticky progress toast with a timed one. */
+    const swapToast = (message: string, type: 'info' | 'error') => {
+      dismissToast(progressToastId);
+      showToast(message, type, 6000);
+    };
     try {
-      const res = await fetch('/api/system/restart', { method: 'POST' });
+      const token = getToken();
+      const res = await fetch('/api/system/restart', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.ok) {
-        showToast(t('settings.restartNeeded'), 'info', 6000);
+        swapToast(t('settings.restartNeeded'), 'info');
         return;
       }
       try { sessionStorage.setItem('ohmyagent_restarted', '1'); } catch { /* noop */ }
@@ -172,11 +184,11 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
           // Server restarting — expected, keep polling
         }
       }
-      showToast(t('settings.restartFailed'), 'error', 6000);
+      swapToast(t('settings.restartFailed'), 'error');
     } catch {
-      showToast(t('settings.restartFailed'), 'error', 6000);
+      swapToast(t('settings.restartFailed'), 'error');
     }
-  }, [showToast, t]);
+  }, [showToast, dismissToast, t]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
