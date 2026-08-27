@@ -11,6 +11,19 @@
   "new": {
     "created": "Created a new session"
   },
+  "extension": {
+    "notEnabled": "Extension system is not enabled",
+    "noExtensions": "No extensions loaded",
+    "loadedHeader": "Loaded extensions ({{count}}):"
+  },
+  "agent": {
+    "notEnabled": "Agent manager is not enabled; cannot use /agent",
+    "noAgents": "No configured agents",
+    "available": "Available agents:",
+    "notFound": "Agent \"{{target}}\" not found. Use /agent to see the list.",
+    "switched": "Switched to {{name}} ({{model}})",
+    "processing": ", processing message..."
+  },
   "skill": {
     "notEnabled": "Skill system is not enabled",
     "noSkills": "No skills currently loaded",
@@ -53,7 +66,20 @@
     "testCardTitle": "⏰ Cron Job",
     "testCardBody": "## Markdown Rendering Test\n\n**Bold** *Italic* `Code`\n\n| Col A | Col B | Col C |\n|-------|-------|-------|\n| Val 1 | Val 2 | Val 3 |\n| Val 4 | Val 5 | Val 6 |\n\n```typescript\nconst x: number = 42;\n```",
     "testCardFooter": "MiniMax-M2.7 · Test",
-    "testCardSent": "Test card sent"
+    "testCardSent": "Test card sent",
+    "state": {
+      "idle": "Idle",
+      "running": "Running",
+      "paused": "Paused",
+      "completed": "Completed"
+    },
+    "runStatus": {
+      "success": "Success",
+      "error": "Error",
+      "timeout": "Timeout",
+      "cancelled": "Cancelled"
+    },
+    "na": "n/a"
   },
   "approve": {
     "noPending": "No pending approvals",
@@ -64,6 +90,11 @@
   "deny": {
     "noPending": "No pending approvals",
     "denied": "❌ Denied"
+  },
+  "answer": {
+    "usage": "Usage: /answer <your answer>",
+    "noPending": "No pending questions to answer.",
+    "answered": "✅ Answered: {{answer}}"
   },
   "permission": {
     "current": "Current permission mode: **{{current}}**\n\nAvailable modes:\n{{modes}}\n\nUse `/permission <mode>` to switch",

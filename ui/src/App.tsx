@@ -12,6 +12,7 @@ import DashboardView from './components/dashboard/DashboardView';
 import MemoryView from './components/memory/MemoryView';
 import CronView from './components/cron/CronView';
 import { apiRequest } from './utils/api';
+import { syncLanguageToServer } from './utils/syncLanguage';
 import type { Session } from './types/session';
 
 function HomePage() {
@@ -59,6 +60,18 @@ function HomePage() {
 export default function App() {
   const { isAuthenticated, isLoading, connectionError, remoteUrl, retryAuth } = useAuth();
   const { initialized } = useProject();
+
+  // Sync the WebUI's display language to the server once we're authenticated.
+  // The server renders slash-command/system text in its own i18n locale, which
+  // only updates from config.yaml. The frontend keeps its language in
+  // localStorage, so push it to the server on load (covers the case where the
+  // language was selected in a previous session and the dropdown's onChange
+  // never re-fires on a plain reload).
+  useEffect(() => {
+    if (isAuthenticated) {
+      void syncLanguageToServer();
+    }
+  }, [isAuthenticated]);
 
   // Still validating token / establishing connection. Don't gate the login
   // page on project bootstrap: ensure-default only fires once the auth token

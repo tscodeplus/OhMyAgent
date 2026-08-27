@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import i18n from '../../../i18n/config';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useConfigDirty, type SettingsTabHandle } from '../useConfigDirty';
+import { syncLanguageToServer } from '../../../utils/syncLanguage';
 import Input from '../../ui/Input';
 import Select from '../../ui/Select';
 import Toggle from '../../ui/Toggle';
@@ -65,9 +66,13 @@ export default function GeneralSettings({ tabId = 'general', registerHandle, onD
             label={t('settings.appearance.language')}
             value={i18n.language}
             onChange={(e) => {
-              i18n.changeLanguage(e.target.value).then(() => {
-                getElectronAPI()?.setDesktopLanguage(e.target.value);
+              const lang = e.target.value;
+              i18n.changeLanguage(lang).then(() => {
+                getElectronAPI()?.setDesktopLanguage(lang);
               });
+              // Persist to server config so server-generated text (slash
+              // command output, etc.) follows the chosen UI language.
+              void syncLanguageToServer(lang);
             }}
             options={[
               { value: 'en', label: 'English' },

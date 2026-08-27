@@ -11,6 +11,19 @@
   "new": {
     "created": "已创建新会话"
   },
+  "extension": {
+    "notEnabled": "扩展系统未启用",
+    "noExtensions": "没有已加载的扩展",
+    "loadedHeader": "已加载扩展 ({{count}}):"
+  },
+  "agent": {
+    "notEnabled": "未启用 Agent 管理器，无法使用 /agent 命令",
+    "noAgents": "当前没有已配置的 Agent",
+    "available": "可用 Agent：",
+    "notFound": "未找到 Agent \"{{target}}\"。使用 /agent 查看可用列表。",
+    "switched": "已切换到 {{name}}（{{model}}）",
+    "processing": "，正在处理消息..."
+  },
   "skill": {
     "notEnabled": "技能系统未启用",
     "noSkills": "当前没有已加载的技能",
@@ -53,7 +66,20 @@
     "testCardTitle": "⏰ 定时任务",
     "testCardBody": "## Markdown 渲染测试\n\n**粗体** *斜体* `代码`\n\n| 列A | 列B | 列C |\n|-----|-----|-----|\n| 值1 | 值2 | 值3 |\n| 值4 | 值5 | 值6 |\n\n```typescript\nconst x: number = 42;\n```",
     "testCardFooter": "MiniMax-M2.7 · 测试",
-    "testCardSent": "测试卡已发送"
+    "testCardSent": "测试卡已发送",
+    "state": {
+      "idle": "空闲",
+      "running": "运行中",
+      "paused": "已暂停",
+      "completed": "已完成"
+    },
+    "runStatus": {
+      "success": "成功",
+      "error": "失败",
+      "timeout": "超时",
+      "cancelled": "已取消"
+    },
+    "na": "无"
   },
   "approve": {
     "noPending": "当前没有待审批的操作",
@@ -64,6 +90,11 @@
   "deny": {
     "noPending": "当前没有待审批的操作",
     "denied": "❌ 已拒绝"
+  },
+  "answer": {
+    "usage": "用法: /answer <你的回答>",
+    "noPending": "当前没有待回答的问题",
+    "answered": "✅ 已回答: {{answer}}"
   },
   "permission": {
     "current": "当前权限模式：**{{current}}**\n\n可用模式：\n{{modes}}\n\n使用 `/permission <模式>` 切换",

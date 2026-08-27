@@ -132,6 +132,7 @@ export async function handleCommand(
     case '/btw':
       return await handleBtw(sessionKey, args, deps, messageId);
     case '/cron':
+    case '/cronjob':
       return await handleCron(args, deps, chatId);
     case '/team':
       return handleTeamCommand(args, sessionKey, deps);
@@ -275,13 +276,16 @@ async function handleCron(args: string, deps: CommandDeps, chatId?: string): Pro
       }
       const lines = jobs.map(j => {
         const status = j.enabled ? '▶' : '⏸';
-        const next = j.nextRunAt ? new Date(j.nextRunAt).toLocaleString('zh-CN') : i18n.t('commands:cron.completed');
-        const last = j.lastRunAt ? new Date(j.lastRunAt).toLocaleString('zh-CN') : i18n.t('commands:cron.notExecuted');
-        const end = j.endAt ? ` | ${i18n.t('commands:cron.fieldEnd')} ${new Date(j.endAt).toLocaleString('zh-CN')}` : '';
+        const locale = i18n.locale;
+        const next = j.nextRunAt ? new Date(j.nextRunAt).toLocaleString(locale) : i18n.t('commands:cron.completed');
+        const last = j.lastRunAt ? new Date(j.lastRunAt).toLocaleString(locale) : i18n.t('commands:cron.notExecuted');
+        const end = j.endAt ? ` | ${i18n.t('commands:cron.fieldEnd')} ${new Date(j.endAt).toLocaleString(locale)}` : '';
+        const stateLabel = i18n.t(`commands:cron.state.${j.state}`);
+        const lastStatusLabel = j.lastStatus ? i18n.t(`commands:cron.runStatus.${j.lastStatus}`) : i18n.t('commands:cron.na');
         return [
           `${status} \`${j.id}\` ${j.name}`,
           `  ${i18n.t('commands:cron.fieldSchedule')} ${j.scheduleText} | ${i18n.t('commands:cron.fieldNext')} ${next}${end}`,
-          `  ${i18n.t('commands:cron.fieldStatus')} ${j.state} | ${i18n.t('commands:cron.fieldLast')} ${last} (${j.lastStatus ?? 'n/a'})`,
+          `  ${i18n.t('commands:cron.fieldStatus')} ${stateLabel} | ${i18n.t('commands:cron.fieldLast')} ${last} (${lastStatusLabel})`,
           `  ${i18n.t('commands:cron.fieldPrompt')} ${j.prompt.slice(0, 80)}${j.prompt.length > 80 ? '...' : ''}`,
         ].join('\n');
       });
@@ -351,13 +355,13 @@ async function handleCron(args: string, deps: CommandDeps, chatId?: string): Pro
 
 function handleExtensionCommand(args: string, deps: CommandDeps): CommandResult {
   if (!deps.extensionManager) {
-    return { reply: '扩展系统未启用' };
+    return { reply: i18n.t('commands:extension.notEnabled') };
   }
 
   const extensions = deps.extensionManager.list();
 
   if (extensions.length === 0) {
-    return { reply: '没有已加载的扩展' };
+    return { reply: i18n.t('commands:extension.noExtensions') };
   }
 
   const lines = extensions.map(ext => {
@@ -365,26 +369,26 @@ function handleExtensionCommand(args: string, deps: CommandDeps): CommandResult 
     return `${statusIcon} \`${ext.manifest.id}\` — ${ext.manifest.name} v${ext.manifest.version} (${ext.manifest.kind})`;
   });
 
-  return { reply: `已加载扩展 (${extensions.length}):\n\n${lines.join('\n\n')}` };
+  return { reply: `${i18n.t('commands:extension.loadedHeader', { count: extensions.length })}\n\n${lines.join('\n\n')}` };
 }
 
 function handleAgentCommand(args: string, sessionKey: string, deps: CommandDeps): CommandResult {
   const agentManager = deps.agentManager;
 
   if (!agentManager) {
-    return { reply: '未启用 Agent 管理器，无法使用 /agent 命令' };
+    return { reply: i18n.t('commands:agent.notEnabled') };
   }
 
   const agents = agentManager.list();
 
   if (!args) {
     if (agents.length === 0) {
-      return { reply: '当前没有已配置的 Agent' };
+      return { reply: i18n.t('commands:agent.noAgents') };
     }
     const lines = agents.map((a) =>
       `- ${a.id} — ${a.description || a.name} (${a.model.primary})`
     );
-    return { reply: '可用 Agent：\n\n' + lines.join('\n\n') };
+    return { reply: `${i18n.t('commands:agent.available')}\n\n` + lines.join('\n\n') };
   }
 
   const parts = args.split(/\s+/);
@@ -393,7 +397,7 @@ function handleAgentCommand(args: string, sessionKey: string, deps: CommandDeps)
   const agent = agentManager.get(targetId);
 
   if (!agent) {
-    return { reply: `未找到 Agent "${targetId}"。使用 /agent 查看可用列表。` };
+    return { reply: i18n.t('commands:agent.notFound', { target: targetId }) };
   }
 
   // Switch session to this agent (via AgentService)
@@ -403,8 +407,8 @@ function handleAgentCommand(args: string, sessionKey: string, deps: CommandDeps)
 
   // If there's a message after the agent ID, forward it to the agent
   return {
-    reply: `已切换到 ${agent.name}（${agent.model.primary}）` +
-      (remainingMessage ? `，正在处理消息...` : ''),
+    reply: i18n.t('commands:agent.switched', { name: agent.name, model: agent.model.primary }) +
+      (remainingMessage ? i18n.t('commands:agent.processing') : ''),
     forwardText: remainingMessage || undefined,
   };
 }
@@ -522,7 +526,7 @@ function handleAnswer(
   if (!resolved) {
     return { reply: i18n.t('commands:answer.noPending') || 'No pending questions to answer.' };
   }
-  return { reply: i18n.t('commands:answer.answered') || `Answered: ${answer}` };
+  return { reply: i18n.t('commands:answer.answered', { answer }) || `Answered: ${answer}` };
 }
 
 // ── /permission command ───────────────────────────────────────────────────────
