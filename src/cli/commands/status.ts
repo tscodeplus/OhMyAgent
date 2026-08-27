@@ -21,7 +21,7 @@ export async function statusCommand(): Promise<void> {
       if (memory !== 'unknown') console.log(`  ${t('status.memory')}:     ${memory}`);
     }
     console.log(`  ${t('status.port')} ${PORT}:  ${t('status.portListening')}`);
-    console.log(`  /health:    \x1b[32m${t('status.healthOk')}\x1b[0m`);
+    console.log(`  Health:     \x1b[32m${t('status.healthOk')}\x1b[0m`);
     console.log(`  ${t('status.logFile')}:   ${LOG_FILE}`);
     if (pid) {
       console.log(`  ${t('status.pidFile')}:   ${PID_FILE}`);
@@ -44,7 +44,7 @@ export async function statusCommand(): Promise<void> {
 
   if (pid && isProcessAlive(pid)) {
     console.log(`  Process:    ${t('status.processAliveNoPort', { pid })}`);
-    console.log(`  /health:    \x1b[31m${t('status.healthUnreachable')}\x1b[0m`);
+    console.log(`  Health:     \x1b[31m${t('status.healthUnreachable')}\x1b[0m`);
     console.log('');
     return;
   }

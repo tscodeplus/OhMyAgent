@@ -43,15 +43,20 @@ export function checkPortInUse(): Promise<boolean> {
 
 export function checkHealthEndpoint(): Promise<boolean> {
   return new Promise((resolve) => {
+    // NOTE: the server's health endpoint is /api/health (auth-exempt in
+    // webui-auth.ts) and answers { ok: true, ... } — there is no /health
+    // route, so the old probe (path '/health', expecting status === 'ok')
+    // always failed and made `ohmyagent status` report "not running" even
+    // while the service was up.
     const req = request(
-      { hostname: '127.0.0.1', port: PORT, path: '/health', method: 'GET', timeout: 3000 },
+      { hostname: '127.0.0.1', port: PORT, path: '/api/health', method: 'GET', timeout: 3000 },
       (res) => {
         let body = '';
         res.on('data', (chunk) => (body += chunk));
         res.on('end', () => {
           try {
             const json = JSON.parse(body);
-            resolve(json.status === 'ok');
+            resolve(json.ok === true || json.status === 'ok');
           } catch {
             resolve(false);
           }
