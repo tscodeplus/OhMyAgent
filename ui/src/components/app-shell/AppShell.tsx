@@ -79,6 +79,18 @@ export default function AppShell() {
     });
   }, [subscribe, showToast, settingsOpen]);
 
+  // One-click service restart (SettingsModal): the flag is set right before
+  // the page reloads once /api/health responds again — confirm success here.
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem('ohmyagent_restarted') === '1') {
+        sessionStorage.removeItem('ohmyagent_restarted');
+        showToast(t('settings.restartDone'), 'success', 3000);
+      }
+    } catch { /* noop */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Desktop platform — the frameless caption differs per OS: macOS keeps its
   // native traffic lights (custom buttons hidden, sidebar clears them), while
   // Windows/Linux draw their own window controls at the top right.

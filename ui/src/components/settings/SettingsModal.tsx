@@ -16,7 +16,7 @@ import GatewaySettings from './tabs/GatewaySettings';
 import HarnessSettings from './tabs/HarnessSettings';
 import { isElectron } from '../../utils/env';
 import Button from '../ui/Button';
-import { useToast } from '../ui/Toast';
+import { useToast, type ToastAction } from '../ui/Toast';
 import type { SettingsTabHandle } from './useConfigDirty';
 
 /**
@@ -35,14 +35,11 @@ const RESTART_REQUIRED_TABS = new Set([
 /** Returns true if one-click restart is available (Electron desktop). */
 function canRestartService(): boolean {
   if (typeof window === 'undefined') return false;
-  const has = typeof window.electronAPI?.restartService === 'function';
-  console.log('[OhMyAgent] canRestartService:', has, {
-    hasElectronAPI: window.electronAPI !== undefined,
-    apiKeys: window.electronAPI ? Object.keys(window.electronAPI) : [],
-    restartServiceType: window.electronAPI ? typeof window.electronAPI.restartService : 'N/A',
-  });
-  return has;
+  return typeof window.electronAPI?.restartService === 'function';
 }
+
+/** Give up polling /api/health after this long and report failure. */
+const RESTART_POLL_TIMEOUT_MS = 90_000;
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -144,6 +141,43 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
     }
   }, [showToast, t]);
 
+  // WebUI (browser): restart via the server API. The server picks the right
+  // strategy for how it was started — service managers (runit/launchd/
+  // systemd/schtasks) or replaying the original command line (pnpm dev,
+  // ohmyagent start, …). Desktop-shell instances are rejected (409) and fall
+  // back to the info toast, because only the shell can restart its sidecar.
+  const handleServerRestart = useCallback(async () => {
+    showToast(t('settings.restarting'), 'info', 0);
+    try {
+      const res = await fetch('/api/system/restart', { method: 'POST' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        showToast(t('settings.restartNeeded'), 'info', 6000);
+        return;
+      }
+      try { sessionStorage.setItem('ohmyagent_restarted', '1'); } catch { /* noop */ }
+      // The server goes down for a moment — poll /api/health (public,
+      // auth-exempt) until it is back, then reload so the UI reconnects
+      // with fresh state.
+      const deadline = Date.now() + RESTART_POLL_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        try {
+          const health = await fetch('/api/health', { cache: 'no-store' });
+          if (health.ok) {
+            window.location.reload();
+            return;
+          }
+        } catch {
+          // Server restarting — expected, keep polling
+        }
+      }
+      showToast(t('settings.restartFailed'), 'error', 6000);
+    } catch {
+      showToast(t('settings.restartFailed'), 'error', 6000);
+    }
+  }, [showToast, t]);
+
   const handleSave = useCallback(async () => {
     setSaving(true);
     let savedCount = 0;
@@ -162,21 +196,14 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
       }
       if (savedCount > 0) {
         if (needsRestart) {
-          const canRestart = canRestartService();
-          console.log('[OhMyAgent] SettingsModal handleSave: needsRestart=true, canRestartService=', canRestart, {
-            savedTabs: [...dirtyTabs].filter(t => RESTART_REQUIRED_TABS.has(t)),
-            allDirtyTabs: [...dirtyTabs],
-            isElectronResult: isElectron(),
-          });
-          if (canRestart) {
-            // Electron: show toast with restart action button
-            showToast(t('settings.restartNeeded'), 'info', 0, [
-              { label: t('settings.restartNow'), onClick: handleRestart },
-            ]);
-          } else {
-            // WebUI: informational only — user restarts manually
-            showToast(t('settings.restartNeeded'), 'info', 6000);
-          }
+          // Both desktop and WebUI get a restart action; the button renders
+          // bottom-right of the toast. Desktop uses the shell IPC, WebUI
+          // goes through the server-side restart endpoint.
+          const restartNow: ToastAction = {
+            label: t('settings.restartNow'),
+            onClick: canRestartService() ? handleRestart : handleServerRestart,
+          };
+          showToast(t('settings.restartNeeded'), 'info', 0, [restartNow]);
         } else {
           showToast(t('settings.saved'), 'success');
         }
@@ -186,7 +213,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
     } finally {
       setSaving(false);
     }
-  }, [dirtyTabs, showToast, t, handleRestart]);
+  }, [dirtyTabs, showToast, t, handleRestart, handleServerRestart]);
 
   const handleCancel = useCallback(() => {
     // Cancel ALL registered tabs

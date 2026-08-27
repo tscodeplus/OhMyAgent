@@ -152,9 +152,10 @@
     "confirmDiscardChanges": "You have unsaved changes. Discard them?",
     "discard": "Discard",
     "restartNeeded": "Some settings require a service restart to take effect",
-    "restartNow": "Restart Service",
+    "restartNow": "Restart Service Now",
     "restarting": "Restarting service...",
     "restartDone": "Service restarted",
+    "restartFailed": "Service restart failed — please restart manually",
     "groups": {
       "general": "General",
       "agents": "Agents",

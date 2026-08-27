@@ -83,7 +83,185 @@ function detectMacOSProxy(): ProxyConfig {
   }
 }
 
+// ── Service restart (WebUI) ──────────────────────────────────────────────────
+
+/** Window during which repeated restart requests are collapsed into one. */
+const RESTART_DEDUP_WINDOW_MS = 15_000;
+let lastRestartRequestAt = 0;
+
+/** Test hook: clears the restart dedup guard. */
+export function _resetRestartGuardForTests(): void {
+  lastRestartRequestAt = 0;
+}
+
+/**
+ * POST /api/system/restart — restart the server from the WebUI, preserving
+ * whichever startup mode is in use. Like perform-update, the actual work
+ * runs in a detached script so this handler can reply before the process
+ * goes down.
+ *
+ * Startup modes, in the order the restart script handles them:
+ *   0. Desktop shell (Tauri sidecar) — rejected with 409. The shell owns the
+ *      process lifecycle; a self-kill from inside would surface the shell's
+ *      "service crashed" window instead of a restart. The WebUI inside the
+ *      shell window restarts via electronAPI.restartService() (Tauri IPC)
+ *      instead; browser access to a desktop instance falls back to manual.
+ *   1. runit `sv` (Termux service) — `sv force-restart ohmyagent`.
+ *   2. launchd (macOS service) — unload + load the LaunchAgent plist.
+ *   3. systemd --user (Linux service) — `systemctl --user restart`.
+ *   4. Task Scheduler (Windows service) — schtasks /End + /Run.
+ *   5. Fallback (pnpm dev, `ohmyagent start`, plain node/nohup) — kill the
+ *      process and replay its ORIGINAL command line, so a dev server stays
+ *      a dev server and a production start stays production.
+ */
 export function registerSystemRoutes(app: FastifyInstance): void {
+  app.post('/api/system/restart', async (_request, reply) => {
+    if (process.env.OMA_SIDECAR_CONTROL_PORT) {
+      return reply.status(409).send({ ok: false, error: 'desktop_shell' });
+    }
+
+    if (Date.now() - lastRestartRequestAt < RESTART_DEDUP_WINDOW_MS) {
+      return reply.status(409).send({ ok: false, error: 'restart_in_progress' });
+    }
+    lastRestartRequestAt = Date.now();
+
+    const projectRoot = findProjectRoot();
+    const mainPid = process.pid;
+
+    if (process.platform === 'win32') {
+      // ── Windows: PowerShell script ─────────────────────────────────
+      const scriptPath = path.join(projectRoot, '.restart-script.ps1');
+
+      const script = `# OhMyAgent service restart script (Windows)
+  param([int]$MainPid)
+
+  Start-Sleep -Seconds 1
+
+  # 1) Task Scheduler service mode — /End + /Run = stop + start
+  $task = schtasks /Query /TN "OhMyAgent" 2>$null
+  if ($LASTEXITCODE -eq 0 -and ("$task" -match 'OhMyAgent')) {
+    schtasks /End /TN "OhMyAgent" 2>$null | Out-Null
+    Start-Sleep -Seconds 2
+    schtasks /Run /TN "OhMyAgent" 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+      Remove-Item -Force '${scriptPath.replace(/'/g, "''")}'
+      exit 0
+    }
+  }
+
+  # 2) Fallback: kill the process tree, restart pnpm dev
+  try {
+    Get-CimInstance Win32_Process -Filter "ParentProcessId=$MainPid" -ErrorAction SilentlyContinue |
+      ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  } catch { }
+  try { Stop-Process -Id $MainPid -Force -ErrorAction SilentlyContinue } catch { }
+  Start-Sleep -Seconds 2
+
+  Start-Process -NoNewWindow pnpm -ArgumentList "dev"
+  Remove-Item -Force '${scriptPath.replace(/'/g, "''")}'
+  `;
+
+      try {
+        fs.writeFileSync(scriptPath, script, { mode: 0o700 });
+      } catch {
+        return reply.status(500).send({ ok: false, error: 'failed to write restart script' });
+      }
+
+      const child = spawn(
+        'powershell.exe',
+        ['-ExecutionPolicy', 'Bypass', '-File', scriptPath, '-MainPid', String(mainPid)],
+        { detached: true, stdio: 'ignore', cwd: projectRoot },
+      );
+      child.unref();
+
+      return reply.send({ ok: true });
+    }
+
+    // ── Linux / macOS / Termux: bash script ──────────────────────────
+    const scriptPath = path.join(projectRoot, '.restart-script.sh');
+
+    // Escape paths for safe interpolation into the bash script
+    const escProjectRoot = projectRoot.replace(/'/g, "'\\''");
+    const escScriptPath = scriptPath.replace(/'/g, "'\\''");
+
+    const script = `#!/usr/bin/env bash
+  # OhMyAgent service restart script (Linux / macOS / Termux)
+  MAIN_PID="$1"
+  sleep 1
+
+  is_termux() { [ -d /data/data/com.termux ] || [ -n "\${PREFIX:-}" ]; }
+
+  # 1) runit (sv) — Termux service mode
+  if command -v sv >/dev/null 2>&1; then
+    if [ -d "\${PREFIX:-}/var/service/ohmyagent" ]; then
+      sv force-restart ohmyagent >/dev/null 2>&1 && exit 0
+    elif is_termux; then
+      export SVDIR="\${PREFIX}/var/service"
+      sv force-restart ohmyagent >/dev/null 2>&1 && exit 0
+    fi
+  fi
+
+  # 2) launchd — macOS service mode
+  PLIST="$HOME/Library/LaunchAgents/com.ohmyagent.plist"
+  if [ "$(uname -s)" = "Darwin" ] && [ -f "$PLIST" ]; then
+    launchctl unload "$PLIST" >/dev/null 2>&1
+    launchctl load "$PLIST" >/dev/null 2>&1 && exit 0
+  fi
+
+  # 3) systemd — Linux service mode (Termux ships only a systemctl shim)
+  if command -v systemctl >/dev/null 2>&1 && ! is_termux; then
+    if systemctl --user is-enabled ohmyagent >/dev/null 2>&1; then
+      systemctl --user restart ohmyagent >/dev/null 2>&1 && exit 0
+    fi
+  fi
+
+  # 4) Fallback: kill the process and replay its original command line so the
+  # startup mode (pnpm dev, ohmyagent start, nohup …) survives the restart.
+  CMDLINE=""
+  if [ -r "/proc/\$MAIN_PID/cmdline" ]; then
+    CMDLINE=$(tr '\\0' ' ' < "/proc/\$MAIN_PID/cmdline")
+  elif command -v ps >/dev/null 2>&1; then
+    CMDLINE=$(ps -p "\$MAIN_PID" -o args= 2>/dev/null)
+  fi
+
+  # Kill children first (e.g. tsx's node worker holds the listening port),
+  # then the process itself; wait for exit so the port is released before
+  # the new instance binds.
+  pkill -P "\$MAIN_PID" >/dev/null 2>&1 || true
+  kill "\$MAIN_PID" >/dev/null 2>&1 || true
+  for _ in 1 2 3 4 5 6; do
+    kill -0 "\$MAIN_PID" 2>/dev/null || break
+    sleep 1
+  done
+  kill -9 "\$MAIN_PID" >/dev/null 2>&1 || true
+
+  cd '${escProjectRoot}' || exit 1
+  if [ -n "\$CMDLINE" ]; then
+    # Word splitting is intentional — replay argv.
+    # shellcheck disable=SC2086
+    nohup \$CMDLINE >/dev/null 2>&1 &
+  else
+    nohup pnpm dev >/dev/null 2>&1 &
+  fi
+  rm -f '${escScriptPath}'
+  `;
+
+    try {
+      fs.writeFileSync(scriptPath, script, { mode: 0o700 });
+    } catch {
+      return reply.status(500).send({ ok: false, error: 'failed to write restart script' });
+    }
+
+    const child = spawn('bash', [scriptPath, String(mainPid)], {
+      detached: true,
+      stdio: 'ignore',
+      cwd: projectRoot,
+    });
+    child.unref();
+
+    return reply.send({ ok: true });
+  });
+
   // ── Check for updates from GitHub ──────────────────────────────────────
   app.get('/api/system/check-update', async (request, reply) => {
     try {

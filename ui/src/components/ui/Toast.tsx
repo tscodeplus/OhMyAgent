@@ -5,7 +5,7 @@ import { X, CheckCircle, AlertCircle, Info } from 'lucide-react';
 
 type ToastType = 'success' | 'error' | 'info';
 
-interface ToastAction {
+export interface ToastAction {
   label: string;
   onClick: () => void;
   /** Render as a danger/confirm button (red) vs neutral (gray) */

@@ -156,6 +156,7 @@
     "restartNow": "立即重启服务",
     "restarting": "正在重启服务...",
     "restartDone": "服务已重启",
+    "restartFailed": "服务重启失败，请手动重启",
     "groups": {
       "general": "通用设置",
       "agents": "Agent 管理",
