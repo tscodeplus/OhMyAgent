@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ArrowDown } from 'lucide-react';
 import { apiRequest } from '../../utils/api';
 import MessageBubble from './MessageBubble';
 import type { Message } from '../../types/session';
@@ -23,6 +24,11 @@ interface MessageListProps {
 }
 
 const PAGE_SIZE = 50;
+/** Viewport is considered "at the bottom" (auto-follow resumes) within this distance. */
+const NEAR_BOTTOM_PX = 40;
+/** Scroll events landing within this window after a programmatic snap are
+ *  echoes of our own scroll — never treated as user intent. */
+const SNAP_GRACE_MS = 120;
 
 export default function MessageList({ projectId: _projectId, sessionId, streamingMessages: externalMessages, isStreaming, isThinking, refetchKey, onRefetched }: MessageListProps) {
   const { t } = useTranslation('common');
@@ -31,8 +37,10 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [oldestCreatedAt, setOldestCreatedAt] = useState<number | string | undefined>(undefined);
+  // True while the viewport is unpinned from the bottom — shows the
+  // jump-to-bottom button.
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
 
-  const bottomRef = useRef<HTMLDivElement>(null);
   const topSentinelRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const prevScrollHeightRef = useRef(0);
@@ -196,33 +204,120 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
     }
   }, [messages]);
 
-  // Auto-follow: only stick to bottom when the user is already near it.
-  // Without this check, every streaming delta yanks the viewport back down
-  // while the user is scrolling through history. Reset to "following" when
-  // the session changes or a new user message is sent from the input.
+  // ---- Auto-follow ("sticky bottom") -------------------------------------
+  //
+  // Streaming deltas continuously grow the message list; we pin the viewport
+  // to the bottom only while the user is actually "following". Three signals
+  // drive the flag:
+  //
+  // 1. wheel / touch gestures — unambiguous user intent captured at the event
+  //    level: an upward gesture unfollows immediately. This is what prevents
+  //    the old bug where programmatic smooth-scroll animation frames fed
+  //    scroll events back into the proximity check and re-armed following
+  //    mid-gesture, yanking the view back down on every streaming delta.
+  // 2. pure scroll events (scrollbar drag, PageUp/Home keys) — unfollow once
+  //    the viewport drifts more than NEAR_BOTTOM_PX from the bottom; rolling
+  //    back into that window re-arms following.
+  // 3. snaps are instant (no smooth animation), so no animation frames race
+  //    the gesture handlers between streaming deltas, and repeated deltas
+  //    are coalesced with rAF instead of stacking competing animations.
+
   const autoFollowRef = useRef(true);
+  const rafIdRef = useRef(0);
+  const lastTouchYRef = useRef<number | null>(null);
+  // Timestamp of the most recent programmatic snap.
+  const lastSnapAtRef = useRef(0);
+
+  // Single writer for follow state. setShowJumpToBottom bails out when the
+  // value is unchanged, so per-delta / per-scroll-tick calls don't re-render.
+  const setFollowing = useCallback((following: boolean) => {
+    autoFollowRef.current = following;
+    setShowJumpToBottom(!following);
+  }, []);
+
+  // Instant snap to bottom, coalesced to at most one scroll per frame.
+  // The guard inside the rAF callback is essential: a snap scheduled by a
+  // delta that arrived while still following must become a no-op if the
+  // user grabs the view before the frame fires — otherwise the next delta
+  // skips scrollToBottom() entirely and never cancels the stale rAF,
+  // letting it yank the viewport back down and (via the scroll handler)
+  // silently re-arm following.
+  const scrollToBottom = useCallback(() => {
+    cancelAnimationFrame(rafIdRef.current);
+    rafIdRef.current = requestAnimationFrame(() => {
+      if (!autoFollowRef.current) return;
+      const el = scrollContainerRef.current;
+      if (!el) return;
+      lastSnapAtRef.current = performance.now();
+      el.scrollTop = el.scrollHeight;
+    });
+  }, []);
+
+  useEffect(() => () => cancelAnimationFrame(rafIdRef.current), []);
+
+  // Gesture-level intent capture. passive:true is enough — we only observe,
+  // never preventDefault. On touch, finger moving DOWN the screen reveals
+  // earlier messages → unfollow; moving up is handled by the proximity rule.
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0) setFollowing(false);
+    };
+    const onTouchStart = (e: TouchEvent) => {
+      lastTouchYRef.current = e.touches[0]?.clientY ?? null;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      const y = e.touches[0]?.clientY ?? null;
+      const prev = lastTouchYRef.current;
+      if (y !== null && prev !== null && y > prev) setFollowing(false);
+      lastTouchYRef.current = y;
+    };
+
+    el.addEventListener('wheel', onWheel, { passive: true });
+    el.addEventListener('touchstart', onTouchStart, { passive: true });
+    el.addEventListener('touchmove', onTouchMove, { passive: true });
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+    };
+  }, [setFollowing]);
+
   const handleScrollFollow = useCallback(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
-    autoFollowRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-  }, []);
+    // Ignore echoes of our own snap — without this, the snap fired by the
+    // last following delta would re-arm following right after the user's
+    // grab-the-view gesture, restarting the pull-down loop.
+    if (performance.now() - lastSnapAtRef.current < SNAP_GRACE_MS) return;
+    setFollowing(el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX);
+  }, [setFollowing]);
 
+  // Reset to "following" when the session changes.
   useEffect(() => {
-    autoFollowRef.current = true;
-  }, [sessionId]);
+    setFollowing(true);
+  }, [sessionId, setFollowing]);
+
+  const handleJumpToBottom = useCallback(() => {
+    setFollowing(true);
+    const el = scrollContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [setFollowing]);
 
   // Auto-scroll to bottom when new messages arrive, thinking indicator shows,
   // or streaming content changes — only while the user is following.
-  // Exception: the user's OWN newly-sent message always forces a scroll,
+  // Exception: the user's OWN newly-sent message always forces a snap back,
   // even if they were reading history when they hit send.
   useEffect(() => {
     const lastExt = externalMessages?.[externalMessages.length - 1];
     const forceFollow = lastExt?.role === 'user' && !isLoadingMoreRef.current;
-    if (forceFollow) autoFollowRef.current = true;
-    if (!isLoadingMoreRef.current && autoFollowRef.current) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (forceFollow) setFollowing(true);
+    if (!isLoadingMoreRef.current && (forceFollow || autoFollowRef.current)) {
+      scrollToBottom();
     }
-  }, [messages, externalMessages, isThinking]);
+  }, [messages, externalMessages, isThinking, setFollowing, scrollToBottom]);
 
   // Merge API history with live streaming messages, deduplicating by ID.
   const displayMessages = useMemo(() => {
@@ -247,7 +342,22 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
   }, [messages, externalMessages]);
 
   return (
-    <div ref={scrollContainerRef} onScroll={handleScrollFollow} className="flex-1 overflow-y-auto px-3 sm:px-4 py-2 sm:py-3">
+    <div className="relative flex-1 min-h-0">
+      {/* Floating "back to bottom" pill — shown while reading history.
+          Doubles as the discoverable way back into "following" mode. */}
+      {showJumpToBottom && displayMessages.length > 0 && (
+        <button
+          type="button"
+          onClick={handleJumpToBottom}
+          aria-label={t('chat.backToBottom')}
+          title={t('chat.backToBottom')}
+          className="absolute left-1/2 bottom-4 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-4 py-2 text-xs font-medium text-neutral-700 shadow-lg transition-colors hover:bg-neutral-100 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
+        >
+          {t('chat.backToBottom')}
+          <ArrowDown className="h-3.5 w-3.5" strokeWidth={2} />
+        </button>
+      )}
+      <div ref={scrollContainerRef} onScroll={handleScrollFollow} className="h-full overflow-y-auto px-3 sm:px-4 py-2 sm:py-3">
       {/* Top sentinel for infinite scroll — IntersectionObserver watches this */}
       <div ref={topSentinelRef} className="h-px" />
 
@@ -293,7 +403,7 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
           </div>
         )}
       </div>
-      <div ref={bottomRef} />
+      </div>
     </div>
   );
 }

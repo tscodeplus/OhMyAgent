@@ -45,6 +45,7 @@
       "dragActive": "Release to upload"
     },
     "thinking": "Thinking",
+    "backToBottom": "Back to bottom",
     "toolCall": "Tool Call: ",
     "multiToolCalls": "Multi-round tool calls",
     "you": "You",
