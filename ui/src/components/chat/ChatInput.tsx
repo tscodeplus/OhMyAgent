@@ -923,7 +923,7 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
 
   return (
     <div
-      className={`shrink-0 border-t border-neutral-200 bg-white px-3 sm:px-4 py-2 sm:py-3 dark:border-neutral-800 dark:bg-neutral-950 relative ${
+      className={`shrink-0 border-t border-neutral-200 bg-white px-3 sm:px-4 py-2 sm:py-3 pb-safe dark:border-neutral-800 dark:bg-neutral-950 relative ${
         isDragOver ? 'ring-2 ring-blue-400 dark:ring-blue-500' : ''
       }`}
       onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}

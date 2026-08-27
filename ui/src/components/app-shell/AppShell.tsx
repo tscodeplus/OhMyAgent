@@ -254,7 +254,7 @@ export default function AppShell() {
   const sidebarEl = (
     <aside
       data-sidebar
-      className={`relative h-full w-full overflow-hidden border-r border-neutral-200 bg-neutral-50 text-neutral-900 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 ${isMac ? 'pt-8' : ''}`}
+      className={`relative h-full w-full overflow-hidden border-r border-neutral-200 bg-neutral-50 text-neutral-900 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 ${isMac ? 'pt-8' : 'pt-safe'}`}
     >
       {/* Expanded content */}
       <div className={`absolute inset-0 flex flex-col transition-opacity duration-200 ${sidebarVisible || mobileSidebar ? 'opacity-100' : 'pointer-events-none opacity-0'}`}>
@@ -378,12 +378,6 @@ export default function AppShell() {
         </div>
       )}
 
-      {/* Mobile floating toggle (no toolbar on small screens anymore) */}
-      <button type="button" onClick={() => setMobileSidebar(true)} aria-label={t('sidebar.expand')}
-        className="fixed left-3 top-3 z-40 inline-flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-200 bg-white/95 text-neutral-600 shadow-sm hover:bg-neutral-50 md:hidden dark:border-neutral-800 dark:bg-neutral-900/95 dark:text-neutral-300 dark:hover:bg-neutral-800">
-        <PanelLeftOpen className="h-4 w-4" strokeWidth={1.75} />
-      </button>
-
       {/* Desktop sidebar — the width animates between expanded and the 56px rail */}
       <div
         className="hidden shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out md:block"
@@ -392,13 +386,24 @@ export default function AppShell() {
         {sidebarEl}
       </div>
 
-      {/* Main — no top toolbar: content starts at the top (browser) or under a
-          transparent caption strip that doubles as the window drag region
-          (desktop shell) with window controls at the top right. */}
-      <main className="flex min-w-0 flex-1 flex-col">
-        <DesktopCaption mac={isMac} text={captionText} />
-        <div className="min-h-0 flex-1 overflow-hidden"><Outlet /></div>
-      </main>
+      {/* Main column — phones get a fixed-location top bar (drawer entry +
+          current page/session title) instead of a floating button that
+          overlays page content; desktop keeps content flush at the top
+          (browser) or under the drag-region caption strip (desktop shell). */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {/* Mobile top bar — md:hidden */}
+        <div className="flex h-11 shrink-0 items-center gap-1 border-b border-neutral-200 bg-white px-2 pt-safe md:hidden dark:border-neutral-800 dark:bg-neutral-950">
+          <button type="button" onClick={() => setMobileSidebar(true)} aria-label={t('sidebar.expand')}
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800">
+            <PanelLeftOpen className="h-4 w-4" strokeWidth={1.75} />
+          </button>
+          <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-neutral-700 dark:text-neutral-300">{captionText}</span>
+        </div>
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <DesktopCaption mac={isMac} text={captionText} />
+          <div className="min-h-0 flex-1 overflow-hidden"><Outlet /></div>
+        </main>
+      </div>
 
       {/* Chat navigation flyout — slides out beside the collapsed rail so the
           open conversation stays visible; conversation spaces + session list

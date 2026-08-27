@@ -289,7 +289,7 @@ export default function ChatView() {
       </div>
 
       {/* Input at bottom — same position/size as ChatInput */}
-      <div className="shrink-0 border-t border-neutral-200 bg-white px-3 sm:px-4 py-2 sm:py-3 dark:border-neutral-800 dark:bg-neutral-950">
+      <div className="shrink-0 border-t border-neutral-200 bg-white px-3 sm:px-4 py-2 sm:py-3 pb-safe dark:border-neutral-800 dark:bg-neutral-950">
         <div className="mx-auto flex max-w-3xl items-end gap-2 sm:gap-3">
           <textarea
             value={quickInput}

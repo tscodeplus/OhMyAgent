@@ -263,6 +263,10 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
     if (!el) return;
 
     const onWheel = (e: WheelEvent) => {
+      // Only unfollow when there is actually scrollable room above — avoids
+      // showing "back to bottom" on fully-visible (short) conversations.
+      const el = scrollContainerRef.current;
+      if (!el || el.scrollTop <= 0) return;
       if (e.deltaY < 0) setFollowing(false);
     };
     const onTouchStart = (e: TouchEvent) => {
@@ -271,6 +275,11 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
     const onTouchMove = (e: TouchEvent) => {
       const y = e.touches[0]?.clientY ?? null;
       const prev = lastTouchYRef.current;
+      // Finger moving DOWN reveals earlier messages → unfollow — but only
+      // when the view has actually left the bottom edge (scrollTop > 0);
+      // rubber-band overscroll past the newest message must not count.
+      const el = scrollContainerRef.current;
+      if (!el || el.scrollTop <= 0) return;
       if (y !== null && prev !== null && y > prev) setFollowing(false);
       lastTouchYRef.current = y;
     };

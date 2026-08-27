@@ -231,7 +231,9 @@ export default function CronView() {
       ) : jobs.length === 0 ? (
         <div className="text-center py-12 text-neutral-500 dark:text-neutral-400 text-sm">{t('cron.noJobs')}</div>
       ) : (
-        <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 overflow-hidden overflow-x-auto">
+        <>
+        {/* Desktop: full table (scrolls horizontally if needed) */}
+        <div className="hidden overflow-x-auto rounded-lg border border-neutral-200 md:block dark:border-neutral-800">
           <table className="w-full text-sm min-w-[600px]">
             <thead className="bg-neutral-100 dark:bg-neutral-800">
               <tr>
@@ -287,6 +289,46 @@ export default function CronView() {
             </tbody>
           </table>
         </div>
+
+        {/* Mobile: card list — same fields, no horizontal scrolling */}
+        <div className="space-y-2 md:hidden">
+          {jobs.map((job) => {
+            const jobHuman = cronToHuman(job.expression);
+            return (
+              <div key={job.id} className="rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{job.name}</p>
+                    {job.description && <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{job.description}</p>}
+                  </div>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${STATE_COLORS[job.state] || STATE_COLORS.idle}`}>
+                    {t(`cron.state.${job.state}`, { defaultValue: job.state })}
+                  </span>
+                </div>
+                <div className="mt-2 flex items-center gap-2 min-w-0">
+                  <code className="truncate text-xs text-neutral-600 dark:text-neutral-300">{job.expression}</code>
+                  {jobHuman && <span className="truncate text-[11px] text-neutral-500 dark:text-neutral-400">{jobHuman}</span>}
+                </div>
+                <div className="mt-2.5 flex items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="shrink-0 rounded bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+                      {CHANNEL_LABELS[job.channel || 'webui'] || job.channel || 'WebUI'}
+                    </span>
+                    <span className="truncate text-xs text-neutral-500 dark:text-neutral-400">
+                      {job.last_run_at ? formatRelativeTime(job.last_run_at) : '—'}
+                    </span>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button onClick={() => handleRunNow(job.id)} className="rounded p-2 hover:bg-neutral-100 dark:bg-neutral-800" title={t('cron.runNow')}><Play size={15} /></button>
+                    <button onClick={() => openEdit(job)} className="rounded p-2 hover:bg-neutral-100 dark:bg-neutral-800" title={t('cron.edit')}><Pencil size={15} /></button>
+                    <button onClick={() => handleDelete(job.id)} className="rounded p-2 text-danger hover:bg-neutral-100 dark:bg-neutral-800" title={t('cron.delete')}><Trash2 size={15} /></button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        </>
       )}
 
       {/* Editor Modal */}

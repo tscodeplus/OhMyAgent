@@ -25,10 +25,31 @@ body {
 /* Improve touch targets on mobile */
 @media (max-width: 639px) {
   button, a, [role="button"] {
-    min-height: 28px;
-    min-width: 28px;
+    min-height: 34px;
+    min-width: 34px;
   }
 }
+
+/* Hover-revealed controls never appear on touch devices — keep them
+   reachable on coarse pointers (message image actions etc.) */
+@media (pointer: coarse) {
+  .hover-reveal {
+    opacity: 1 !important;
+  }
+}
+
+/* Mobile bottom-sheet entrance for modals */
+@keyframes oma-sheet-up {
+  from { transform: translateY(24px); opacity: 0.4; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.animate-oma-sheet-up {
+  animation: oma-sheet-up 220ms ease-out;
+}
+
+/* Safe-area helpers for fixed/absolute UI that ignores body padding */
+.pt-safe { padding-top: env(safe-area-inset-top, 0px); }
+.pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
 
 html {
   color-scheme: light;

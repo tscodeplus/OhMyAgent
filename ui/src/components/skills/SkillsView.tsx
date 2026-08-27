@@ -282,7 +282,7 @@ export default function SkillsView() {
                 <div className="shrink-0 border-b border-neutral-200 px-4 sm:px-6 py-2 dark:border-neutral-800 flex items-center gap-2">
                   {/* Back button on mobile */}
                   <button type="button" onClick={handleBackToList}
-                    className="inline-flex sm:hidden h-7 w-7 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800">
+                    className="inline-flex sm:hidden h-8 w-8 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800">
                     <ArrowLeft className="h-3.5 w-3.5" strokeWidth={1.75} />
                   </button>
                   <div className="min-w-0">

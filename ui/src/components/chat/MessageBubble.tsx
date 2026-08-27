@@ -282,7 +282,7 @@ function MessageBubble({ message }: MessageBubbleProps) {
               e.stopPropagation();
               handleDownload(authSrc, imgFilename);
             }}
-            className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-1 rounded-lg bg-black/60 hover:bg-black/80 text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-1 rounded-lg bg-black/60 hover:bg-black/80 text-white text-xs opacity-0 group-hover:opacity-100 hover-reveal transition-opacity"
           >
             <Download size={12} />
             <span>保存</span>
@@ -640,7 +640,7 @@ function MessageBubble({ message }: MessageBubbleProps) {
                             e.stopPropagation();
                             handleDownload(img.url, imgFilename);
                           }}
-                          className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-1 rounded-lg bg-black/60 hover:bg-black/80 text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-1 rounded-lg bg-black/60 hover:bg-black/80 text-white text-xs opacity-0 group-hover:opacity-100 hover-reveal transition-opacity"
                           title={t('chat.downloadImage')}
                         >
                           <Download size={12} />
