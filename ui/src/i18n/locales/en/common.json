@@ -6,7 +6,9 @@
     "chat": "Chat",
     "skills": "Skills",
     "marketplace": "Marketplace",
-    "files": "Files"
+    "files": "Files",
+    "panels": "Panels",
+    "main": "Navigation"
   },
   "tabs": {
     "chat": "Chat",
@@ -25,8 +27,8 @@
     "settings": "Settings",
     "collapse": "Collapse sidebar",
     "expand": "Expand sidebar",
-    "collapseTools": "Collapse tools",
-    "expandTools": "Expand tools",
+    "collapsePanels": "Hide panels",
+    "expandPanels": "Show panels",
     "noProjects": "No chats yet",
     "createFirst": "Create your first Project",
     "rename": "Rename",

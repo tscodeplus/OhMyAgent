@@ -6,7 +6,9 @@
     "chat": "对话",
     "skills": "技能",
     "marketplace": "技能市场",
-    "files": "文件"
+    "files": "文件",
+    "panels": "功能面板",
+    "main": "主导航"
   },
   "tabs": {
     "chat": "对话",
@@ -25,8 +27,8 @@
     "settings": "设置",
     "collapse": "收起侧边栏",
     "expand": "展开侧边栏",
-    "collapseTools": "收起工具",
-    "expandTools": "展开工具",
+    "collapsePanels": "收起功能面板",
+    "expandPanels": "展开功能面板",
     "noProjects": "还没有对话",
     "createFirst": "创建第一个 Project",
     "searchProject": "搜索空间...",

@@ -270,22 +270,21 @@ export default function AppShell() {
           <ProjectList refreshKey={refreshKey} onRefresh={() => setRefreshKey(k => k + 1)} onCreateProject={() => setShowCreateProject(true)} />
         </div>
 
-        {/* Tools drawer — titleless: just an expand/collapse icon; collapsing
-            gives the chat section above the whole remaining space. */}
+        {/* Panels drawer — labelled expand/collapse row (the visible label
+            doubles as the toggle text); collapsing gives the chat section
+            above the whole remaining space. */}
         <div className="mt-4 shrink-0 border-t border-neutral-200/70 dark:border-neutral-800/70">
           {/* Whole row is the toggle — a full-width hit target with the
-              chevron pinned at the left (aligned with the chat-space
-              expand/collapse chevrons at x=18). */}
+              action label (“expand/collapse panels”) flush left beside the
+              rotating chevron: folded points right, expanded points down. */}
           <button type="button" onClick={toggleTools} aria-expanded={toolsOpen}
-            title={toolsOpen ? t('sidebar.collapseTools') : t('sidebar.expandTools')}
-            aria-label={toolsOpen ? t('sidebar.collapseTools') : t('sidebar.expandTools')}
-            className="flex w-full items-center justify-center pb-1 pt-0.5 text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100">
-            <span className="flex h-6 w-6 items-center justify-center rounded-md">
-              <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${toolsOpen ? 'rotate-180' : ''}`} strokeWidth={1.75} />
-            </span>
+            aria-label={toolsOpen ? t('sidebar.collapsePanels') : t('sidebar.expandPanels')}
+            className="flex h-8 w-full items-center gap-1.5 px-3 text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100">
+            <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${toolsOpen ? '' : '-rotate-90'}`} strokeWidth={1.75} />
+            <span className="truncate text-[13px]">{toolsOpen ? t('sidebar.collapsePanels') : t('sidebar.expandPanels')}</span>
           </button>
           {toolsOpen && (
-            <nav className="px-2 pb-1" aria-label="Tools" role="tablist">
+            <nav className="px-2 pb-1" aria-label={t('nav.panels')} role="tablist">
               <div className="space-y-0">
                 {TOOL_TABS.map(tab => {
                   const Icon = tab.icon;
@@ -326,7 +325,7 @@ export default function AppShell() {
           <PanelLeftOpen className="hidden h-[18px] w-[18px] group-hover:block" strokeWidth={1.75} />
         </button>
 
-        <nav className="mt-3 flex flex-col items-center gap-1" aria-label="Tools" role="tablist">
+        <nav className="mt-3 flex flex-col items-center gap-1" aria-label={t('nav.main')} role="tablist">
           {RAIL_TABS.map(tab => {
             const Icon = tab.icon;
             const active = isTabActive(tab) || (tab.id === 'chat' && chatNavOpen);
