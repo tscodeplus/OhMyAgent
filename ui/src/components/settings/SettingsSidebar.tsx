@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../../lib/utils';
 
@@ -5,9 +6,11 @@ interface SettingsSidebarProps {
   groups: readonly { id: string; labelKey: string }[];
   activeGroup: string;
   onSelect: (id: string) => void;
+  /** Rendered beside the picker on phones only (e.g. save/cancel/close). */
+  mobileActions?: ReactNode;
 }
 
-export default function SettingsSidebar({ groups, activeGroup, onSelect }: SettingsSidebarProps) {
+export default function SettingsSidebar({ groups, activeGroup, onSelect, mobileActions }: SettingsSidebarProps) {
   const { t } = useTranslation('common');
 
   return (
@@ -31,12 +34,13 @@ export default function SettingsSidebar({ groups, activeGroup, onSelect }: Setti
         ))}
       </nav>
 
-      {/* Mobile: select dropdown */}
-      <div className="sm:hidden px-3 py-2">
+      {/* Mobile: single header row — section picker (shortened) shares the
+          line with the dialog actions; no duplicate group-title row below. */}
+      <div className="sm:hidden flex items-center gap-2 px-3 py-2 min-w-0">
         <select
           value={activeGroup}
           onChange={(e) => onSelect(e.target.value)}
-          className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-blue-500/30 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+          className="min-w-0 flex-1 rounded-lg border border-neutral-200 bg-white px-2.5 py-2 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-blue-500/30 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
         >
           {groups.map((group) => (
             <option key={group.id} value={group.id}>
@@ -44,6 +48,7 @@ export default function SettingsSidebar({ groups, activeGroup, onSelect }: Setti
             </option>
           ))}
         </select>
+        {mobileActions}
       </div>
     </>
   );

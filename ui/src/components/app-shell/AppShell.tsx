@@ -142,13 +142,17 @@ export default function AppShell() {
 
   const toggleSidebar = useCallback(() => {
     if (narrow) {
-      // Narrow: flip the re-expand override; the wide preference is untouched,
-      // so widening the window restores it (reference behavior).
+      // Inside the mobile drawer the button means "dismiss the drawer";
+      // outside it flips the re-expand override (wide preference untouched).
+      if (mobileSidebar) {
+        setMobileSidebar(false);
+        return;
+      }
       setNarrowExpanded(v => !v);
       return;
     }
     setSidebarOpen(v => { const n = !v; try { localStorage.setItem('oma-sidebar-collapsed', String(!n)); } catch {} return n; });
-  }, [narrow]);
+  }, [narrow, mobileSidebar]);
 
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault(); const sx = e.clientX; const sw = sidebarWidth; setIsResizing(true);

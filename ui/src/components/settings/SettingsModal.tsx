@@ -203,6 +203,30 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
     }
   }, [hasGlobalDirty, onClose]);
 
+  // Shared dialog actions (cancel/save/close) — desktop keeps them in the
+  // content header; phones render them inline beside the section picker.
+  const dialogActions = (
+    <div className="flex items-center gap-1.5 shrink-0">
+      <Button variant="secondary" size="sm" onClick={handleCancel}>
+        {t('common.cancel')}
+      </Button>
+      <Button
+        variant={hasGlobalDirty ? 'danger' : 'primary'}
+        size="sm"
+        onClick={handleSave}
+        loading={saving}
+      >
+        {t('settings.save')}
+      </Button>
+      <button
+        onClick={handleClose}
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+      >
+        <X className="h-4 w-4" strokeWidth={1.75} />
+      </button>
+    </div>
+  );
+
   // Tab switching is always allowed — no confirmation.
   const handleSidebarSelect = useCallback((id: string) => {
     setActiveGroup(id);
@@ -217,7 +241,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
       <div className="relative flex max-sm:flex-col h-[85vh] max-sm:h-full max-sm:max-h-full w-full max-w-[860px] max-sm:max-w-none overflow-hidden rounded-xl max-sm:rounded-none border border-neutral-200 max-sm:border-0 bg-white shadow-2xl dark:border-neutral-800 dark:bg-neutral-950">
         {/* Side nav */}
         <div className="flex w-[180px] max-sm:w-full max-sm:h-auto shrink-0 flex-col border-r max-sm:border-r-0 max-sm:border-b border-neutral-200 bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-900/50">
-          <div className="flex h-12 max-sm:h-9 items-center px-4 max-sm:px-3 border-b max-sm:border-b-0 border-neutral-200 dark:border-neutral-800 shrink-0">
+          <div className="flex h-12 max-sm:h-9 items-center px-4 max-sm:px-3 border-b max-sm:border-b-0 max-sm:hidden border-neutral-200 dark:border-neutral-800 shrink-0">
             <h2 className="text-[13px] font-semibold text-neutral-900 dark:text-neutral-100 whitespace-nowrap">
               {t('settings.title')}
             </h2>
@@ -226,34 +250,19 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
             groups={visibleGroups}
             activeGroup={activeGroup}
             onSelect={handleSidebarSelect}
+            mobileActions={dialogActions}
           />
         </div>
 
         {/* Content */}
         <div className="flex flex-1 flex-col min-w-0 min-h-0">
-          <div className="flex h-12 max-sm:h-9 items-center justify-between px-6 max-sm:px-3 border-b border-neutral-200 dark:border-neutral-800">
+          {/* Desktop-only content header — phones fold the actions into the
+              picker row above instead, so the group name isn't shown twice. */}
+          <div className="hidden sm:flex h-12 items-center justify-between px-6 border-b border-neutral-200 dark:border-neutral-800">
             <h3 className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300 truncate">
               {t(visibleGroups.find(g => g.id === activeGroup)?.labelKey || '')}
             </h3>
-            <div className="flex items-center gap-2">
-              <Button variant="secondary" size="sm" onClick={handleCancel}>
-                {t('common.cancel')}
-              </Button>
-              <Button
-                variant={hasGlobalDirty ? 'danger' : 'primary'}
-                size="sm"
-                onClick={handleSave}
-                loading={saving}
-              >
-                {t('settings.save')}
-              </Button>
-              <button
-                onClick={handleClose}
-                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
-              >
-                <X className="h-4 w-4" strokeWidth={1.75} />
-              </button>
-            </div>
+            {dialogActions}
           </div>
           <div className="flex-1 overflow-y-auto p-6 max-sm:p-4">
             {/* Tabs that support save/cancel stay mounted once visited */}
