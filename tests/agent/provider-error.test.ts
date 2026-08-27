@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { classifyProviderError, toChatError } from '../../src/agent/provider-error.js';
+import { classifyProviderError, toChatError, formatProviderError } from '../../src/agent/provider-error.js';
+import { i18n, setI18n, type I18nService } from '../../src/i18n/index.js';
 
 describe('classifyProviderError', () => {
   it('classifies 404 / not-found as model_not_found', () => {
@@ -27,6 +28,27 @@ describe('classifyProviderError', () => {
   it('falls back to unknown for unrecognized errors', () => {
     expect(classifyProviderError('500 Internal Server Error')).toBe('unknown');
     expect(classifyProviderError('something weird happened')).toBe('unknown');
+  });
+});
+
+describe('formatProviderError', () => {
+  it('renders an English friendly message + model + raw by default (fallback locale)', () => {
+    const out = formatProviderError('404 status code (no body)', 'nvidia/moonshotai/kimi-k2.6');
+    expect(out).toContain('Model or API key misconfigured');
+    expect(out).toContain('(nvidia/moonshotai/kimi-k2.6)');
+    expect(out).toContain('Raw error: 404 status code (no body)');
+  });
+
+  it('renders a Chinese friendly message + raw line when locale is zh-CN', () => {
+    const prev = i18n;
+    setI18n({ t: (k: string) => k, locale: 'zh-CN' } as I18nService);
+    try {
+      const out = formatProviderError('429 Too Many Requests');
+      expect(out).toContain('服务限流');
+      expect(out).toContain('原始错误：429 Too Many Requests');
+    } finally {
+      setI18n(prev);
+    }
   });
 });
 

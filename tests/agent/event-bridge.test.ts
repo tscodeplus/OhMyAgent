@@ -227,7 +227,8 @@ describe('EventBridge', () => {
     expect(dispatcher.onError).toHaveBeenCalledTimes(1);
     const err = (dispatcher.onError as any).mock.calls[0][0];
     expect(err).toBeInstanceOf(Error);
-    expect(err.message).toBe('Rate limit exceeded');
+    expect(err.message).toContain('Rate limit exceeded');
+    expect(err.message).toContain('openai/gpt-4o');
     expect(dispatcher.onComplete).not.toHaveBeenCalled();
   });
 
@@ -279,7 +280,7 @@ describe('EventBridge', () => {
       ],
     });
     const err = (dispatcher.onError as any).mock.calls[0][0];
-    expect(err.message).toBe('Agent error');
+    expect(err.message).toContain('Agent error');
   });
 
   // ------------------------------------------------------------------ multiple events in sequence

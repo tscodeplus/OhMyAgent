@@ -11,6 +11,8 @@
  * raw error stays in server logs but is NOT shown to the user.
  */
 
+import { i18n } from '../i18n/index.js';
+
 export type ProviderErrorKind =
   | 'rate_limited'
   | 'model_not_found'
@@ -55,4 +57,46 @@ export function toChatError(rawError: string, modelRef?: string): ChatProviderEr
     rawError,
     failedModels: modelRef ? [modelRef] : undefined,
   };
+}
+
+/** Friendly, channel-safe messages per category, keyed by locale. */
+const FRIENDLY_BY_LOCALE: Record<'zh-CN' | 'en', Record<ProviderErrorKind, string>> = {
+  'zh-CN': {
+    rate_limited: '服务限流，请稍后重试（或检查 API Key / 降低并发）',
+    model_not_found: '模型或密钥配置有误：请检查 provider、模型名与 API Key 是否有效',
+    auth: '鉴权失败：请检查 API Key 是否有效',
+    network: '网络连接异常，请稍后重试',
+    unknown: '模型调用失败，请稍后重试或检查配置',
+  },
+  en: {
+    rate_limited: 'Rate limited — please retry later (or check the API key / reduce concurrency)',
+    model_not_found: 'Model or API key misconfigured: check the provider, model name, and API key',
+    auth: 'Authentication failed: check that the API key is valid',
+    network: 'Network error — please retry later',
+    unknown: 'Model call failed — please retry later or check the configuration',
+  },
+};
+
+function currentLocale(): 'zh-CN' | 'en' {
+  const loc = (i18n.locale || 'zh-CN').toLowerCase();
+  return loc.startsWith('en') ? 'en' : 'zh-CN';
+}
+
+/**
+ * Build a friendly, channel-safe error message from a raw provider/stream error.
+ * Used by non-WebUI channels (Feishu/Telegram/WeChat/QQ) whose reply dispatchers
+ * render `error.message` directly. Unlike the WebUI bubble (which keeps the raw
+ * error in a collapsible "details" section), channels have no collapse, so the
+ * failed model and the raw error are appended as separate lines.
+ */
+export function formatProviderError(rawError: string, modelRef?: string): string {
+  const kind = classifyProviderError(rawError);
+  const locale = currentLocale();
+  const friendly = FRIENDLY_BY_LOCALE[locale][kind];
+  const sep = locale === 'en' ? ': ' : '：';
+  const detailLabel = locale === 'en' ? 'Raw error' : '原始错误';
+  const lines = [friendly];
+  if (modelRef) lines.push(locale === 'en' ? `(${modelRef})` : `（${modelRef}）`);
+  lines.push(`${detailLabel}${sep}${rawError}`);
+  return lines.join('\n');
 }
