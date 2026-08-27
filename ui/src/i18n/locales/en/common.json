@@ -85,6 +85,12 @@
     },
     "completed": "Completed",
     "error": "Task interrupted",
+    "errorRateLimited": "Rate limited — please retry later (or check the API key / reduce concurrency)",
+    "errorModelNotFound": "Model or API key misconfigured: check the provider, model name, and API key",
+    "errorAuth": "Authentication failed: check that the API key is valid",
+    "errorNetwork": "Network error — please retry later",
+    "errorUnknown": "Model call failed — please retry later or check the configuration",
+    "errorDetail": "Details",
     "questionAnswered": "Answer received",
     "questionPlaceholder": "Type your answer...",
     "harnessImprovement": {

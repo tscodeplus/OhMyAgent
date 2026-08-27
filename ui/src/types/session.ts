@@ -49,8 +49,26 @@ export interface Message {
   files?: MessageFile[];
   /** Skill name that was activated for this message (from metadata). */
   skill_activated?: string;
-  /** Provider/stream error that ended this message's turn (from metadata). */
-  error?: string;
+  /** Provider/stream error that ended this message's turn (from metadata).
+   *  Legacy rows store a raw string; new rows store a structured object. */
+  error?: string | ChatProviderError;
+}
+
+/** Category of a provider/stream failure, for friendly WebUI surfacing. */
+export type ProviderErrorKind =
+  | 'rate_limited'
+  | 'model_not_found'
+  | 'auth'
+  | 'network'
+  | 'unknown';
+
+/** Structured provider error shown in the chat bubble (friendly + raw detail). */
+export interface ChatProviderError {
+  kind: ProviderErrorKind;
+  /** Raw provider error, e.g. "404 status code (no body)" — shown in a collapsible detail. */
+  rawError: string;
+  /** Models attempted before failure, e.g. ["nvidia/moonshotai/kimi-k2.6"]. */
+  failedModels?: string[];
 }
 
 export interface MediaSegmentItem {

@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Bot, User, Download, X, Zap } from 'lucide-react';
-import type { Message, MessageSegment, ToolCall } from '../../types/session';
+import type { Message, MessageSegment, ToolCall, ChatProviderError } from '../../types/session';
 import ToolCallCard from './ToolCallCard';
 import ToolCallsGroup from './ToolCallsGroup';
 import ApprovalCard, { type ApprovalDecision } from './ApprovalCard';
@@ -778,12 +778,38 @@ function MessageBubble({ message }: MessageBubbleProps) {
 
         {/* Footer — matches Feishu buildCompletedCard format:
             agentName · 已完成 · 耗时 xs · model · ↓ in ↑ out · 缓存命中 xx% */}
-        {message.error && (
-          <div className="mt-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-400">
-            <span className="font-medium">⚠️ {t('chat.error')}：</span>
-            <span className="break-all">{message.error}</span>
-          </div>
-        )}
+        {message.error && (() => {
+          const err: ChatProviderError =
+            typeof message.error === 'string'
+              ? { kind: 'unknown', rawError: message.error }
+              : message.error;
+          const kindKey: Record<ChatProviderError['kind'], string> = {
+            rate_limited: 'chat.errorRateLimited',
+            model_not_found: 'chat.errorModelNotFound',
+            auth: 'chat.errorAuth',
+            network: 'chat.errorNetwork',
+            unknown: 'chat.errorUnknown',
+          };
+          return (
+            <div className="mt-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-400">
+              <span className="font-medium">⚠️ {t('chat.error')}：</span>
+              <span className="break-all">{t(kindKey[err.kind])}</span>
+              {err.failedModels && err.failedModels.length > 0 && (
+                <span className="ml-1 opacity-80">（{err.failedModels.join(' → ')}）</span>
+              )}
+              {err.rawError && (
+                <details className="mt-1">
+                  <summary className="cursor-pointer select-none opacity-70 hover:opacity-100">
+                    {t('chat.errorDetail')}
+                  </summary>
+                  <div className="mt-1 break-all font-mono text-[11px] leading-relaxed opacity-80">
+                    {err.rawError}
+                  </div>
+                </details>
+              )}
+            </div>
+          );
+        })()}
         {/* Image lightbox */}
         {lightboxUrl && (
           <div

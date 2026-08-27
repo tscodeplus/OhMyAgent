@@ -14,6 +14,7 @@ import { generateId } from '../shared/ids.js';
 import { extractText, extractUserText } from '../shared/text-extract.js';
 import { CHAT_MEDIA_TOOL_NAMES, isChatMediaUrl } from '../shared/chat-media.js';
 import { i18n } from '../i18n/index.js';
+import { toChatError } from './provider-error.js';
 
 // ── Types ──
 
@@ -68,6 +69,24 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
     const newMessages = batchMessages.filter(
       (msg) => msg.role === 'user' || msg.role === 'assistant',
     );
+
+    // Whether the turn's FINAL assistant message delivered text. A turn that
+    // only emitted tool calls but never a final answer did NOT recover, so its
+    // transient provider error must still be surfaced.
+    const hasText = (m?: { content?: any }): boolean => {
+      if (!m || !m.content) return false;
+      if (Array.isArray(m.content)) {
+        return m.content.some((b: any) => b.type === 'text' && b.text?.trim());
+      }
+      return typeof m.content === 'string' && m.content.trim().length > 0;
+    };
+    const lastAssistant = [...newMessages].reverse().find((m) => m.role === 'assistant');
+    const turnSucceeded = hasText(lastAssistant);
+
+    const modelRefOf = (model?: string, provider?: string): string | undefined => {
+      if (!model) return undefined;
+      return provider && !model.startsWith(`${provider}/`) ? `${provider}/${model}` : model;
+    };
 
     // Pre-scan: extract images/files from toolResult messages in this batch
     const batchImages: Array<{ url: string; alt?: string }> = [];
@@ -212,8 +231,8 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
       // A failed provider stream carries a zero-initialized usage that never
       // saw its final usage chunk — persist the error instead so the UI never
       // shows a misleading "↓0 ↑0" footer for a response that consumed tokens.
-      if (pending.errorMessage) {
-        meta.error = pending.errorMessage;
+      if (pending.errorMessage && !turnSucceeded) {
+        meta.error = toChatError(pending.errorMessage, modelRefOf(pending.model, pending.provider));
       } else if (pending.usage) {
         meta.usage = {
           input: pending.usage.input ?? 0,
@@ -319,8 +338,8 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
               runtime.skillActivatedName = undefined;
             }
             const errMsg = (msg as { errorMessage?: string }).errorMessage;
-            if (errMsg) {
-              meta.error = errMsg;
+            if (errMsg && !turnSucceeded) {
+              meta.error = toChatError(errMsg, modelRefOf(msg.model, (msg as unknown as StreamMessageMeta).provider));
             } else if (msg.usage) {
               meta.usage = {
                 input: msg.usage.input ?? 0,

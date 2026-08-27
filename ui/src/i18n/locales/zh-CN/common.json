@@ -86,6 +86,12 @@
     },
     "completed": "已完成",
     "error": "任务中断",
+    "errorRateLimited": "服务限流，请稍后重试（或检查 API Key / 降低并发）",
+    "errorModelNotFound": "模型或密钥配置有误：请检查 provider、模型名与 API Key 是否有效",
+    "errorAuth": "鉴权失败：请检查 API Key 是否有效",
+    "errorNetwork": "网络连接异常，请稍后重试",
+    "errorUnknown": "模型调用失败，请稍后重试或检查配置",
+    "errorDetail": "详情",
     "questionAnswered": "收到回答",
     "questionPlaceholder": "输入你的回答...",
     "harnessImprovement": {
