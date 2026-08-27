@@ -215,6 +215,11 @@ export default function AppShell() {
   // in all cases.
   useEffect(() => { setChatNavOpen(false); }, [location.key]);
 
+  // Same idea for the mobile drawer: retract once navigation happens
+  // (space/session selected) — while purely internal taps (tools drawer
+  // toggle, collapse, project menus) leave it open.
+  useEffect(() => { setMobileSidebar(false); }, [location.key]);
+
   // Expanding the sidebar reveals the full conversation list — the flyout
   // would just overlap it, so close it.
   useEffect(() => { if (sidebarVisible) setChatNavOpen(false); }, [sidebarVisible]);
@@ -316,8 +321,10 @@ export default function AppShell() {
         </div>
       </div>
 
-      {/* Collapsed rail — 56px icon column, mimics deepseek-harness-desktop */}
-      <div className={`absolute inset-0 flex flex-col items-center px-[10px] pb-2 pt-[18px] transition-opacity duration-200 ${sidebarVisible && !mobileSidebar ? 'pointer-events-none opacity-0' : 'opacity-100'}`}>
+      {/* Collapsed rail — 56px icon column, mimics deepseek-harness-desktop.
+          Hidden whenever the expanded layer shows: desktop-expanded OR the
+          mobile drawer (it must not sit on top of the drawer blocking taps). */}
+      <div className={`absolute inset-0 flex flex-col items-center px-[10px] pb-2 pt-[18px] transition-opacity duration-200 ${sidebarVisible || mobileSidebar ? 'pointer-events-none opacity-0' : 'opacity-100'}`}>
         {/* Rail logo: brand mark at rest, expand affordance on hover */}
         <button type="button" onClick={toggleSidebar} title={t('sidebar.expand')} aria-label={t('sidebar.expand')}
           className="group flex h-9 w-9 items-center justify-center rounded-full text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800">
@@ -367,7 +374,7 @@ export default function AppShell() {
       {mobileSidebar && (
         <div className="fixed inset-0 z-50 flex md:hidden">
           <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setMobileSidebar(false)} />
-          <div className="relative h-full w-[85vw] max-w-sm" onClick={e => { e.stopPropagation(); setMobileSidebar(false); }}>{sidebarEl}</div>
+          <div className="relative h-full w-[85vw] max-w-sm">{sidebarEl}</div>
         </div>
       )}
 
