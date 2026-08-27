@@ -42,6 +42,29 @@ function canRestartService(): boolean {
 /** Give up polling /api/health after this long and report failure. */
 const RESTART_POLL_TIMEOUT_MS = 90_000;
 
+/** Poll /api/health (public, auth-exempt) until the restarted server is back. */
+async function waitUntilHealthy(): Promise<boolean> {
+  const deadline = Date.now() + RESTART_POLL_TIMEOUT_MS;
+  let sawDown = false;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    try {
+      const health = await fetch('/api/health', { cache: 'no-store' });
+      if (health.ok) {
+        // Desktop: the shell IPC returns before the old sidecar is even
+        // killed, so an early OK may still be the OLD process. Only trust
+        // a success once we have seen the server go down.
+        if (sawDown) return true;
+        continue;
+      }
+    } catch {
+      // Server restarting — expected, keep polling
+    }
+    sawDown = true;
+  }
+  return false;
+}
+
 interface SettingsModalProps {
   onClose: () => void;
 }
@@ -130,17 +153,32 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
   const handleRestart = useCallback(async () => {
     if (!canRestartService()) return;
 
-    showToast(t('settings.restarting'), 'info', 2000);
+    // The shell restarts only the sidecar — the WebView itself stays alive,
+    // so nothing reloads on its own. Keep a sticky progress toast up, then
+    // poll /api/health until the new sidecar answers and reload the page so
+    // AppShell confirms with the same "service restarted" toast as the
+    // WebUI flow.
+    const progressToastId = showToast(t('settings.restarting'), 'info', 0);
+    const failToast = (message: string) => {
+      dismissToast(progressToastId);
+      showToast(message, 'error', 6000);
+    };
     try {
       const result = await window.electronAPI!.restartService();
       if (!result?.ok) {
-        showToast(result?.error || t('settings.saveError'), 'error');
+        failToast(result?.error || t('settings.restartFailed'));
+        return;
       }
-      // On success the app exits and relaunches — the page will reload.
+      try { sessionStorage.setItem('ohmyagent_restarted', '1'); } catch { /* noop */ }
+      if (await waitUntilHealthy()) {
+        window.location.reload();
+        return;
+      }
+      failToast(t('settings.restartFailed'));
     } catch {
-      showToast(t('settings.saveError'), 'error');
+      failToast(t('settings.restartFailed'));
     }
-  }, [showToast, t]);
+  }, [showToast, dismissToast, t]);
 
   // WebUI (browser): restart via the server API. The server picks the right
   // strategy for how it was started — service managers (runit/launchd/
@@ -168,21 +206,11 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
         return;
       }
       try { sessionStorage.setItem('ohmyagent_restarted', '1'); } catch { /* noop */ }
-      // The server goes down for a moment — poll /api/health (public,
-      // auth-exempt) until it is back, then reload so the UI reconnects
-      // with fresh state.
-      const deadline = Date.now() + RESTART_POLL_TIMEOUT_MS;
-      while (Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-        try {
-          const health = await fetch('/api/health', { cache: 'no-store' });
-          if (health.ok) {
-            window.location.reload();
-            return;
-          }
-        } catch {
-          // Server restarting — expected, keep polling
-        }
+      // The server goes down for a moment — poll until it is back, then
+      // reload so the UI reconnects with fresh state.
+      if (await waitUntilHealthy()) {
+        window.location.reload();
+        return;
       }
       swapToast(t('settings.restartFailed'), 'error');
     } catch {
