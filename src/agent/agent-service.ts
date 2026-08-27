@@ -24,7 +24,7 @@ import { EventBridge } from './event-bridge.js';
 import type { ImageContent } from '../pi-mono/ai/types.js';
 import type { VisionBridgeService } from '../vision-bridge/vision-bridge-service.js';
 import { persistMessages } from './message-persister.js';
-import { formatProviderError } from './provider-error.js';
+import { buildFriendlyErrorMessage } from './provider-error.js';
 import { recoverFromOverflow } from './overflow-recovery.js';
 import { waitForIdleWithTimeout } from '../shared/with-timeout.js';
 import { subscribeToolRunAudit } from './tool-audit.js';
@@ -650,7 +650,7 @@ export class AgentService {
       );
       // agent_end will never fire — deliver the error card ourselves.
       try {
-        await runtime.turnContext.replyDispatcher?.onError(new Error(formatProviderError(message)));
+        await runtime.turnContext.replyDispatcher?.onError(new Error(buildFriendlyErrorMessage(message)));
       } catch {
         // Best-effort — the turn is already failing.
       }

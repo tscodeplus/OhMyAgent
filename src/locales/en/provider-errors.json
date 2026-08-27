@@ -1,0 +1,9 @@
+{
+  "rate_limited": "Rate limited — please retry later (or check the API key / reduce concurrency)",
+  "model_not_found": "Model or API key misconfigured: check the provider, model name, and API key",
+  "auth": "Authentication failed: check that the API key is valid",
+  "network": "Network error — please retry later",
+  "unknown": "Model call failed — please retry later or check the configuration",
+  "model_ref": "({{model}})",
+  "raw_error_label": "Raw error: "
+}

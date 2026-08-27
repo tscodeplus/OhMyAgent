@@ -9,7 +9,7 @@ import type { ReplyDispatcher, Usage } from '../app/types.js';
 import type { Logger } from 'pino';
 import { computeCacheHitRate } from '../channel/usage-summary.js';
 import { i18n } from '../i18n/index.js';
-import { formatProviderError } from './provider-error.js';
+import { buildFriendlyErrorMessage, qualifyModelRef } from './provider-error.js';
 
 export class EventBridge {
   private unsubscribe?: () => void;
@@ -382,15 +382,9 @@ export class EventBridge {
               },
               'Agent turn failed with provider/stream error',
             );
-            const failedModelRef =
-              assistantMsg.provider && assistantMsg.model
-                ? assistantMsg.model.startsWith(`${assistantMsg.provider}/`)
-                  ? assistantMsg.model
-                  : `${assistantMsg.provider}/${assistantMsg.model}`
-                : assistantMsg.model;
-            const friendlyMsg = formatProviderError(
+            const friendlyMsg = buildFriendlyErrorMessage(
               assistantMsg.errorMessage ?? 'Agent error',
-              failedModelRef,
+              qualifyModelRef(assistantMsg.provider, assistantMsg.model),
             );
             await this.dispatchSafely(() =>
               this.replyDispatcher.onError(new Error(friendlyMsg)),

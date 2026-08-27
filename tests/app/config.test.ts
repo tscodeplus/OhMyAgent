@@ -183,6 +183,55 @@ computer_use:
   });
 });
 
+describe('uiLanguage precedence (env is default-only)', () => {
+  it('an explicit ui_language in config.yaml wins over the UI_LANGUAGE env var', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oma-lang-'));
+    try {
+      const configPath = join(dir, 'config.yaml');
+      writeFileSync(configPath, 'ui_language: zh-CN\n', 'utf-8');
+      resetConfig();
+
+      const config = loadConfig({ UI_LANGUAGE: 'en' }, configPath);
+      // The WebUI language sync writes ui_language at runtime; a leftover
+      // UI_LANGUAGE in .env must not silently undo that choice.
+      expect(config.uiLanguage).toBe('zh-CN');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      resetConfig();
+    }
+  });
+
+  it('UI_LANGUAGE applies as default when config.yaml omits ui_language', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oma-lang-'));
+    try {
+      const configPath = join(dir, 'config.yaml');
+      writeFileSync(configPath, 'feishu:\n  enabled: false\n', 'utf-8');
+      resetConfig();
+
+      const config = loadConfig({ UI_LANGUAGE: 'zh-CN' }, configPath);
+      expect(config.uiLanguage).toBe('zh-CN');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      resetConfig();
+    }
+  });
+
+  it('config.yaml without env still resolves its own ui_language', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oma-lang-'));
+    try {
+      const configPath = join(dir, 'config.yaml');
+      writeFileSync(configPath, 'ui_language: en\n', 'utf-8');
+      resetConfig();
+
+      const config = loadConfig({}, configPath);
+      expect(config.uiLanguage).toBe('en');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      resetConfig();
+    }
+  });
+});
+
 describe('startConfigWatcher', () => {
   beforeEach(() => {
     resetConfig();

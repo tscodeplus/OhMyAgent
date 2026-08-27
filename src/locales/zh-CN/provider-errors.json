@@ -1,0 +1,9 @@
+{
+  "rate_limited": "服务限流，请稍后重试（或检查 API Key / 降低并发）",
+  "model_not_found": "模型或密钥配置有误：请检查 provider、模型名与 API Key 是否有效",
+  "auth": "鉴权失败：请检查 API Key 是否有效",
+  "network": "网络连接异常，请稍后重试",
+  "unknown": "模型调用失败，请稍后重试或检查配置",
+  "model_ref": "（{{model}}）",
+  "raw_error_label": "原始错误："
+}

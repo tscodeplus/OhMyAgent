@@ -14,7 +14,7 @@ import { generateId } from '../shared/ids.js';
 import { extractText, extractUserText } from '../shared/text-extract.js';
 import { CHAT_MEDIA_TOOL_NAMES, isChatMediaUrl } from '../shared/chat-media.js';
 import { i18n } from '../i18n/index.js';
-import { toChatError } from './provider-error.js';
+import { toChatError, qualifyModelRef } from './provider-error.js';
 
 // ── Types ──
 
@@ -82,11 +82,6 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
     };
     const lastAssistant = [...newMessages].reverse().find((m) => m.role === 'assistant');
     const turnSucceeded = hasText(lastAssistant);
-
-    const modelRefOf = (model?: string, provider?: string): string | undefined => {
-      if (!model) return undefined;
-      return provider && !model.startsWith(`${provider}/`) ? `${provider}/${model}` : model;
-    };
 
     // Pre-scan: extract images/files from toolResult messages in this batch
     const batchImages: Array<{ url: string; alt?: string }> = [];
@@ -232,7 +227,7 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
       // saw its final usage chunk — persist the error instead so the UI never
       // shows a misleading "↓0 ↑0" footer for a response that consumed tokens.
       if (pending.errorMessage && !turnSucceeded) {
-        meta.error = toChatError(pending.errorMessage, modelRefOf(pending.model, pending.provider));
+        meta.error = toChatError(pending.errorMessage, qualifyModelRef(pending.provider, pending.model));
       } else if (pending.usage) {
         meta.usage = {
           input: pending.usage.input ?? 0,
@@ -241,11 +236,8 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
           cacheWrite: pending.usage.cacheWrite ?? 0,
         };
       }
-      if (pending.model) {
-        meta.model = pending.provider
-          ? (pending.model.startsWith(`${pending.provider}/`) ? pending.model : `${pending.provider}/${pending.model}`)
-          : pending.model;
-      }
+      const pendingModelRef = qualifyModelRef(pending.provider, pending.model);
+      if (pendingModelRef) meta.model = pendingModelRef;
       const agentName = agent.ohmyagent_agentName || runtime.agentName;
       if (agentName) meta.agentName = agentName;
       if (runtime.turnElapsed) meta.elapsed = runtime.turnElapsed;
@@ -339,7 +331,7 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
             }
             const errMsg = (msg as { errorMessage?: string }).errorMessage;
             if (errMsg && !turnSucceeded) {
-              meta.error = toChatError(errMsg, modelRefOf(msg.model, (msg as unknown as StreamMessageMeta).provider));
+              meta.error = toChatError(errMsg, qualifyModelRef((msg as unknown as StreamMessageMeta).provider, msg.model));
             } else if (msg.usage) {
               meta.usage = {
                 input: msg.usage.input ?? 0,
@@ -348,12 +340,8 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
                 cacheWrite: msg.usage.cacheWrite ?? 0,
               };
             }
-            if (msg.model) {
-              const prov = (msg as unknown as StreamMessageMeta).provider;
-              meta.model = prov
-                ? (msg.model.startsWith(`${prov}/`) ? msg.model : `${prov}/${msg.model}`)
-                : msg.model;
-            }
+            const msgModelRef = qualifyModelRef((msg as unknown as StreamMessageMeta).provider, msg.model);
+            if (msgModelRef) meta.model = msgModelRef;
             const agentName = agent.ohmyagent_agentName || runtime.agentName;
             if (agentName) meta.agentName = agentName;
             if (runtime.turnElapsed) meta.elapsed = runtime.turnElapsed;

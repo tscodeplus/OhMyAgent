@@ -745,6 +745,8 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
     logging: {
       level: env.LOG_LEVEL,
     },
+    // Default only — an explicit `ui_language` in config.yaml takes precedence
+    // over this (see the ui_language handling in applyEnvOverrides).
     uiLanguage: env.UI_LANGUAGE,
     showToolCalls: envBool(env.SHOW_TOOL_CALLS, true),
     showSkillCalls: envBool(env.SHOW_SKILL_CALLS, true),
@@ -996,6 +998,8 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
 function applyEnvOverrides(
   raw: Record<string, unknown>,
   env: Record<string, string | undefined>,
+  /** Original parsed YAML root — used to detect explicitly-set keys (see ui_language below). */
+  yamlRoot?: Record<string, unknown> | null,
 ): void {
   // For simplicity, re-build the env raw and merge only defined top-level keys.
   // This avoids field-by-field tracking. The zod schema handles defaults for missing values.
@@ -1255,7 +1259,15 @@ function applyEnvOverrides(
     ).level;
   }
   if (env.UI_LANGUAGE !== undefined) {
-    raw.uiLanguage = envRaw.uiLanguage;
+    // ui_language is the ONE exception to "env overrides YAML": the env var only
+    // fills the default when config.yaml does not set it explicitly. The WebUI
+    // language sync writes ui_language into config.yaml at runtime; if .env
+    // could override that, every language switch would be silently undone on
+    // deployments that keep UI_LANGUAGE in their environment (Termux/desktop).
+    const yamlSetsUiLanguage = yamlRoot != null && Object.prototype.hasOwnProperty.call(yamlRoot, 'ui_language');
+    if (!yamlSetsUiLanguage) {
+      raw.uiLanguage = envRaw.uiLanguage;
+    }
   }
   if (env.SHOW_TOOL_CALLS !== undefined) {
     raw.showToolCalls = envRaw.showToolCalls;
@@ -1289,7 +1301,9 @@ function applyEnvOverrides(
  * Priority: process.env > config.yaml > defaults
  *
  * 1. If config.yaml exists, it's the base config.
- * 2. Environment variables override config.yaml values.
+ * 2. Environment variables override config.yaml values — EXCEPT ui_language,
+ *    where an explicit YAML value wins and the env var only supplies a default
+ *    (the WebUI language sync writes it at runtime; see applyEnvOverrides).
  * 3. If config.yaml doesn't exist, falls back to environment variables (backward compat).
  *
  * Result is cached — subsequent calls return the same instance.
@@ -1319,7 +1333,7 @@ export function loadConfig(
 
     if (yamlConfig) {
       raw = yamlToAppConfigRaw(yamlConfig);
-      applyEnvOverrides(raw, env);
+      applyEnvOverrides(raw, env, yamlConfig);
     } else {
       raw = buildRawFromEnv(env);
     }
