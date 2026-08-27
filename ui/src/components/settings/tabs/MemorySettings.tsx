@@ -70,7 +70,7 @@ export default function MemorySettings({
               options={[{ value: 'every', label: t('settings.memory.every_msg') }, { value: 'first', label: t('settings.memory.first_only') }]} />
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           <Input label={t("settings.memory.recallTopK")} type="number" value={getField('memory.recallTopK', String(mem.recallTopK ?? '')) as string}
             onChange={(e) => setField('memory.recallTopK', e.target.value)} />
           <Input label={t("settings.memory.minScore")} type="number" value={getField('memory.recallMinScore', String(mem.recallMinScore ?? '')) as string}
@@ -78,7 +78,7 @@ export default function MemorySettings({
           <Input label={t("settings.memory.maxCaptureChars")} type="number" value={getField('memory.captureMaxChars', String(mem.captureMaxChars ?? '')) as string}
             onChange={(e) => setField('memory.captureMaxChars', e.target.value)} />
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           <Input label={t("settings.memory.summarizeInterval")} type="number" value={getField('memory.summarizeInterval', String(mem.summarizeInterval ?? '')) as string}
             onChange={(e) => setField('memory.summarizeInterval', e.target.value)} />
           <Input label={t("settings.memory.decayHalfLife")} type="number" value={getField('memory.decayHalfLifeDays', String(mem.decayHalfLifeDays ?? '')) as string}
@@ -87,7 +87,7 @@ export default function MemorySettings({
             onChange={(e) => setField('memory.outputLanguage', e.target.value)}
             options={['Auto', 'English', 'Japanese', 'Simplified Chinese', 'Traditional Chinese'].map(v => ({ value: v, label: v }))} />
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           <Input label={t("settings.memory.historyLoadCount")} type="number" value={getField('memory.historyLoadCount', String(mem.historyLoadCount ?? '')) as string}
             onChange={(e) => setField('memory.historyLoadCount', e.target.value)} />
           <Input label={t("settings.memory.historyMaxTokens")} type="number" value={getField('memory.historyMaxTokens', String(mem.historyMaxTokens ?? '')) as string}
@@ -131,7 +131,7 @@ export default function MemorySettings({
         <FieldRow label={t("settings.memory.enabled")}>
           <Toggle checked={getField('memory.offloading.enabled', !!(mem.offloading as Record<string, unknown>)?.enabled) as boolean} onChange={(v) => setField('memory.offloading.enabled', v)} />
         </FieldRow>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           <Input label={t("settings.memory.maxRefs")} type="number" value={getField('memory.offloading.maxRefsInContext', String((mem.offloading as Record<string, unknown>)?.maxRefsInContext ?? '')) as string}
             onChange={(e) => setField('memory.offloading.maxRefsInContext', e.target.value)} />
           <Input label={t("settings.memory.preserveMsgs")} type="number" value={getField('memory.offloading.preserveInMessages', String((mem.offloading as Record<string, unknown>)?.preserveInMessages ?? '')) as string}
@@ -159,7 +159,7 @@ export default function MemorySettings({
         <FieldRow label={t("settings.memory.enabled")}>
           <Toggle checked={getField('memory.mermaidCanvas.enabled', !!(mem.mermaidCanvas as Record<string, unknown>)?.enabled) as boolean} onChange={(v) => setField('memory.mermaidCanvas.enabled', v)} />
         </FieldRow>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           <Select label={t("settings.memory.injectFormat")} value={getField('memory.mermaidCanvas.injectFormat', String((mem.mermaidCanvas as Record<string, unknown>)?.injectFormat || 'summary')) as string}
             onChange={(e) => setField('memory.mermaidCanvas.injectFormat', e.target.value)}
             options={[{ value: 'full', label: t('settings.memory.keyword_full') }, { value: 'summary', label: t('settings.memory.keyword_summary') }]} />
@@ -199,7 +199,7 @@ export default function MemorySettings({
             onChange={(e) => setField('memory.dreamCycle.minute', e.target.value)}
             options={[0, 15, 30, 45].map(v => ({ value: String(v), label: String(v).padStart(2, '0') }))} />
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           <Input label={t("settings.memory.dreamCycle.windowGraceMinutes")} type="number" value={getField('memory.dreamCycle.windowGraceMinutes', String((mem.dreamCycle as Record<string, unknown>)?.windowGraceMinutes ?? '')) as string}
             onChange={(e) => setField('memory.dreamCycle.windowGraceMinutes', e.target.value)} />
           <Input label={t("settings.memory.dreamCycle.phaseTimeoutMs")} type="number" value={getField('memory.dreamCycle.phaseTimeoutMs', String((mem.dreamCycle as Record<string, unknown>)?.phaseTimeoutMs ?? '')) as string}
@@ -216,7 +216,7 @@ export default function MemorySettings({
         </FieldRow>
         <Input label={t("settings.memory.interval")} type="number" value={getField('memory.maintenance.intervalMs', String((mem.maintenance as Record<string, unknown>)?.intervalMs ?? '')) as string}
           onChange={(e) => setField('memory.maintenance.intervalMs', e.target.value)} />
-        <div className="grid grid-cols-4 gap-x-4 gap-y-1.5">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1.5">
           {['embedding_backfill', 'embedding_cache_trim', 'entity_backfill',
             'persona_consistency', 'offload_hygiene', 'memory_doctor'].map(job => {
               const jobs = ((mem.maintenance as Record<string, unknown>)?.jobs as Record<string, boolean>) || {};

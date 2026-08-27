@@ -547,7 +547,7 @@ export default function ApprovalRulesEditor({
             <label className="block text-[13px] font-medium text-neutral-700 dark:text-neutral-300 mb-1.5">
               Change Types
             </label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {CHANGE_TYPE_OPTIONS.map((opt) => (
                 <label
                   key={opt.value}
@@ -634,7 +634,7 @@ export default function ApprovalRulesEditor({
               <h4 className="text-xs font-semibold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider">
                 Auto-Rollback Settings
               </h4>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <Input
                   label="Observation Window"
                   type="number"

@@ -439,7 +439,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                         const defaultBaseUrl = builtinProviders[name] || undefined;
                         const resolvedBaseUrl = entry.baseUrl || defaultBaseUrl;
                         return source === 'providerKeys' ? (
-                          <div className="grid grid-cols-3 gap-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                             <Input label={t('settings.models.providerName')} value={name}
                               onChange={(e) => updateProviderKeyName(name, e.target.value)}
                               placeholder="e.g. deepseek" />
@@ -453,7 +453,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                             </div>
                           </div>
                         ) : (
-                          <div className="grid grid-cols-3 gap-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                             <div>
                               <label className="text-[11px] font-medium text-neutral-500">{t('settings.models.providerName')}</label>
                               <p className="text-sm text-neutral-700 dark:text-neutral-200 mt-1">{name}</p>
@@ -521,7 +521,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                   </div>
                   {expandedCustom.has(pIdx) && (
                     <div className="px-3 py-3 space-y-3 border-t border-neutral-100 dark:border-neutral-800">
-                      <div className="grid grid-cols-3 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <Input label={t('settings.models.providerName')} value={cp.provider}
                           onChange={(e) => updateCustomProvider(pIdx, 'provider', e.target.value)}
                           placeholder="e.g. openrouter" />
@@ -746,7 +746,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
       {/* ── Add Builtin Provider Modal ── */}
       {showBuiltinModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowBuiltinModal(false)}>
-          <div className="bg-white dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-800 shadow-xl w-[420px] p-5" onClick={e => e.stopPropagation()}>
+          <div className="bg-white dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-800 shadow-xl mx-4 w-full max-w-[420px] p-5" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t('settings.models.addProviderKey')}</h3>
               <button onClick={() => setShowBuiltinModal(false)} className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"><X size={16} /></button>
@@ -786,7 +786,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
       {/* ── Add Custom Provider Modal ── */}
       {showCustomModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowCustomModal(false)}>
-          <div className="bg-white dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-800 shadow-xl w-[420px] p-5" onClick={e => e.stopPropagation()}>
+          <div className="bg-white dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-800 shadow-xl mx-4 w-full max-w-[420px] p-5" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t('settings.models.addProvider')}</h3>
               <button onClick={() => setShowCustomModal(false)} className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"><X size={16} /></button>
