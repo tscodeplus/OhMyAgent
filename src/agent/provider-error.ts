@@ -41,7 +41,7 @@ export function classifyProviderError(rawError: string): ProviderErrorKind {
   if (/401|403|unauthor|forbidden|invalid api[_\s-]?key|api[_\s-]?key|authentication|not authenticated/i.test(e)) {
     return 'auth';
   }
-  if (/404|not found|function .* not found|no such model|unknown model|invalid model|model .* (not|doesn.t) (exist|found)/i.test(e)) {
+  if (/404|not found|function .* not found|no such model|unknown model|invalid model|model .* (not|doesn.t) (exist|found)|not supported|unsupported model/i.test(e)) {
     return 'model_not_found';
   }
   if (/econnreset|etimedout|timeout|network|enotfound|socket|connection|dns|502|503|504|bad gateway|service unavailable|gateway/i.test(e)) {
