@@ -2,8 +2,9 @@ import React, { useState, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Bot, User, Download, X, Zap } from 'lucide-react';
-import type { Message } from '../../types/session';
+import type { Message, MessageSegment, ToolCall } from '../../types/session';
 import ToolCallCard from './ToolCallCard';
+import ToolCallsGroup from './ToolCallsGroup';
 import ApprovalCard, { type ApprovalDecision } from './ApprovalCard';
 import UserQuestionCard from './UserQuestionCard';
 import HarnessImprovementCard from './HarnessImprovementCard';
@@ -99,6 +100,66 @@ function withAuthUrl(url: string): string {
   return url.includes('?')
     ? `${url}&token=${encodeURIComponent(token)}`
     : `${url}?token=${encodeURIComponent(token)}`;
+}
+
+/**
+ * Group consecutive `tool_call` segments so that runs of 2+ are folded
+ * together under a single "多轮工具调用" (multi-round tool calls) component,
+ * while single tool calls stay as standalone cards. Non-tool segments keep
+ * their own slot in the timeline.
+ *
+ * Whitespace-only text segments between tool calls are treated as transparent
+ * (absorbed into the run) — the model often emits a bare "\n\n" between
+ * successive tool calls, and that should NOT split the fold. Real text
+ * content, however, breaks the run so genuinely separated calls stay apart.
+ */
+type SegmentRenderGroup =
+  | { type: 'toolGroup'; toolCalls: ToolCall[] }
+  | { type: 'item'; seg: MessageSegment; i: number };
+
+/** A text segment with no visible content (blank / whitespace only). */
+const isWhitespaceText = (seg: MessageSegment): boolean =>
+  seg.type === 'text' && !(seg.content && seg.content.trim());
+
+function buildSegmentGroups(segments: MessageSegment[]): SegmentRenderGroup[] {
+  const groups: SegmentRenderGroup[] = [];
+  let i = 0;
+  while (i < segments.length) {
+    const seg = segments[i];
+    if (seg.type === 'tool_call' && seg.toolCall) {
+      const calls: ToolCall[] = [seg.toolCall];
+      let j = i + 1;
+      // Absorb whitespace-only text between tool calls so runs like
+      // [tool_call, "\n\n", tool_call] count as consecutive and fold.
+      while (j < segments.length) {
+        const nxt = segments[j];
+        if (nxt.type === 'tool_call' && nxt.toolCall) {
+          calls.push(nxt.toolCall);
+          j++;
+        } else if (isWhitespaceText(nxt)) {
+          j++;
+        } else {
+          break;
+        }
+      }
+      if (calls.length >= 2) {
+        groups.push({ type: 'toolGroup', toolCalls: calls });
+      } else {
+        groups.push({ type: 'item', seg, i });
+      }
+      i = j;
+    } else {
+      // Whitespace-only text carries no visible content — drop it so it
+      // doesn't leave empty gaps in the timeline.
+      if (isWhitespaceText(seg)) {
+        i++;
+        continue;
+      }
+      groups.push({ type: 'item', seg, i });
+      i++;
+    }
+  }
+  return groups;
 }
 
 function MessageBubble({ message }: MessageBubbleProps) {
@@ -367,8 +428,13 @@ function MessageBubble({ message }: MessageBubbleProps) {
               // Render segments in chronological order so tool calls appear
               // interleaved with text rather than all at the bottom.
               <div className="space-y-2">
-                {message.segments.map((seg, i) =>
-                  seg.type === 'text' ? (
+                {buildSegmentGroups(message.segments).map((g, gi) => {
+                  if (g.type === 'toolGroup') {
+                    return <ToolCallsGroup key={g.toolCalls[0].id} toolCalls={g.toolCalls} />;
+                  }
+                  const seg = g.seg;
+                  const i = g.i;
+                  return seg.type === 'text' ? (
                     <div key={i} className="markdown-content">
                       <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                         {formatPlanBlocks(seg.content || '', t('chat.taskPlan'), (k) =>
@@ -434,8 +500,8 @@ function MessageBubble({ message }: MessageBubbleProps) {
                         </button>
                       )}
                     </div>
-                  ) : null,
-                )}
+                  ) : null;
+                })}
               </div>
             ) : (
               // Legacy rendering: all text first, then tool cards at the bottom.
@@ -448,9 +514,11 @@ function MessageBubble({ message }: MessageBubbleProps) {
                 </div>
                 {message.tool_calls && message.tool_calls.length > 0 && (
                   <div className="mt-2 space-y-2 w-full">
-                    {message.tool_calls.map((tc) => (
-                      <ToolCallCard key={tc.id} toolCall={tc} />
-                    ))}
+                    {message.tool_calls.length >= 2 ? (
+                      <ToolCallsGroup toolCalls={message.tool_calls} />
+                    ) : (
+                      <ToolCallCard key={message.tool_calls[0].id} toolCall={message.tool_calls[0]} />
+                    )}
                   </div>
                 )}
               </>

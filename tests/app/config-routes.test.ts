@@ -10,6 +10,7 @@ import Fastify from 'fastify';
 // ─── Mock pi-mono compat before importing the routes ───
 
 const mockGetProviders = vi.fn(() => ['openai', 'deepseek', 'nvidia']);
+const mockGetBuiltinProviders = vi.fn(() => ['openai', 'deepseek', 'nvidia']);
 const mockGetModels = vi.fn((provider: string) => {
   const models: Record<string, any[]> = {
     openai: [{ id: 'gpt-4', baseUrl: 'https://api.openai.com/v1' }],
@@ -24,6 +25,7 @@ vi.mock('../../src/pi-mono/ai/compat.js', async (importOriginal) => {
   return {
     ...actual,
     getProviders: (...args: any[]) => mockGetProviders(...args),
+    getBuiltinProviders: (...args: any[]) => mockGetBuiltinProviders(...args),
     getModels: (...args: any[]) => mockGetModels(...args),
   };
 });
@@ -72,7 +74,7 @@ describe('GET /api/providers', () => {
   });
 
   it('returns undefined baseUrl when provider has no models', async () => {
-    mockGetProviders.mockReturnValue(['empty-provider']);
+    mockGetBuiltinProviders.mockReturnValue(['empty-provider']);
     mockGetModels.mockReturnValue([]);
 
     const res = await app.inject({ method: 'GET', url: '/api/providers' });
@@ -82,7 +84,7 @@ describe('GET /api/providers', () => {
   });
 
   it('returns empty providers array when no providers registered', async () => {
-    mockGetProviders.mockReturnValue([]);
+    mockGetBuiltinProviders.mockReturnValue([]);
 
     const res = await app.inject({ method: 'GET', url: '/api/providers' });
     const body = JSON.parse(res.body);

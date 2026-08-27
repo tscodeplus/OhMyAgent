@@ -41,6 +41,7 @@ import { piMessagesApi } from "./api/pi-messages.lazy.js";
 import { getEnvApiKey } from "./env-api-keys.js";
 import type { ModelsApiStreamOptions } from "./models.js";
 import { builtinModels, getBuiltinModel, getBuiltinModels, getBuiltinProviders } from "./providers/all.js";
+export { getBuiltinProviders } from "./providers/all.js";
 
 export type { BuiltinProvider } from "./providers/all.js";
 

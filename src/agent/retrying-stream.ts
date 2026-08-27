@@ -5,6 +5,9 @@ import {
 } from '@earendil-works/pi-ai';
 import type { StreamFn } from '@earendil-works/pi-agent-core';
 import { AssistantMessageEventStream } from '../pi-mono/ai/utils/event-stream.js';
+import { createLogger } from '../app/logger.js';
+
+const logger = createLogger();
 
 export interface RetryingStreamOptions {
   /** Maximum retry attempts for transient provider/transport errors (0 disables). */
@@ -160,6 +163,10 @@ export function createRetryingStreamFn(
             lastPartial,
           );
           if (attempt >= maxRetries) {
+            logger.error(
+              { provider: model.provider, model: model.id, maxRetries, errorMessage: err.errorMessage },
+              `Model ${model.provider}/${model.id} stream failed: ended without terminal event after ${maxRetries} retries`,
+            );
             out.push({ type: 'error', reason: 'error', error: err });
             out.end(err);
             return;
@@ -169,14 +176,38 @@ export function createRetryingStreamFn(
 
         // Terminal error — retry only transient failures.
         if (attempt >= maxRetries || !isRetryableAssistantError(terminal)) {
+          logger.error(
+            {
+              provider: model.provider,
+              model: model.id,
+              attempt,
+              maxRetries,
+              retryable: isRetryableAssistantError(terminal),
+              errorMessage: terminal.errorMessage,
+            },
+            `Model ${model.provider}/${model.id} stream failed: ${isRetryableAssistantError(terminal) ? `retries exhausted (${maxRetries})` : 'non-retryable error'}`,
+          );
           out.push(terminalEvent ?? { type: 'error', reason: 'error', error: terminal });
           out.end(terminal);
           return;
         }
 
+        const retryDelayMs = baseDelayMs * 2 ** attempt;
+        logger.warn(
+          {
+            provider: model.provider,
+            model: model.id,
+            retry: attempt + 1,
+            maxRetries,
+            delayMs: retryDelayMs,
+            errorMessage: terminal.errorMessage,
+          },
+          `Retrying model ${model.provider}/${model.id} after transient error (retry ${attempt + 1}/${maxRetries}, backoff ${retryDelayMs}ms)`,
+        );
+
         attempt++;
         try {
-          await abortableSleep(baseDelayMs * 2 ** (attempt - 1), streamOptions?.signal);
+          await abortableSleep(retryDelayMs, streamOptions?.signal);
         } catch {
           // Aborted during backoff — report the original error.
           out.push(terminalEvent ?? { type: 'error', reason: 'error', error: terminal });

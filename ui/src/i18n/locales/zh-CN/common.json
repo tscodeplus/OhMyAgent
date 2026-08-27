@@ -47,6 +47,7 @@
     },
     "thinking": "思考中",
     "toolCall": "工具调用：",
+    "multiToolCalls": "多轮工具调用",
     "you": "你",
     "assistant": "助手",
     "newSession": "新对话",

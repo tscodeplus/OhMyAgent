@@ -12,6 +12,9 @@ import type { Api } from '../pi-mono/ai/types.js';
 import { getDefaultModel } from '../provider/pi-ai-setup.js';
 import type { AppConfig } from '../app/types.js';
 import type { ResolvedAgentConfig } from './config-types.js';
+import { createLogger } from '../app/logger.js';
+
+const logger = createLogger();
 
 // ── Types ──
 
@@ -105,7 +108,17 @@ export function resolveModel(options: {
   // 2. Agent config model.primary overrides the default (but NOT an explicit override)
   if (agentConfig?.model.primary && !explicitModel) {
     const agentModel = resolveModelRef(agentConfig.model.primary);
-    if (agentModel) model = agentModel;
+    if (agentModel) {
+      model = agentModel;
+    } else {
+      // Primary ref is unresolvable (bad provider/model name, or a model not
+      // registered under its provider's `models:` list). Don't fail silently —
+      // surface it so a typo'd primary doesn't get swallowed by the default model.
+      logger.warn(
+        { primary: agentConfig.model.primary },
+        `Primary model "${agentConfig.model.primary}" could not be resolved; falling back to default model`,
+      );
+    }
   }
 
   // 3. Derive metadata from the resolved model
@@ -122,10 +135,19 @@ export function resolveModel(options: {
     config.defaultReasoningLevel ??
     'off';
 
-  // 5. Resolve fallback model chain
-  const fallbackModels: ModelInstance[] = (config.fallbackModels ?? [])
-    .map(ref => resolveModelRef(ref))
-    .filter((m): m is ModelInstance => m !== undefined);
+  // 5. Resolve fallback model chain.
+  // A fallback ref that fails to resolve (e.g. a model listed in fallback_models
+  // but not registered under its provider's `models:` list, or a provider with no
+  // key) is dropped — but we warn so the silent degradation is visible.
+  const fallbackModels: ModelInstance[] = [];
+  for (const ref of config.fallbackModels ?? []) {
+    const m = resolveModelRef(ref);
+    if (m === undefined) {
+      logger.warn({ ref }, `Fallback model "${ref}" could not be resolved and will be dropped from the fallback chain`);
+    } else {
+      fallbackModels.push(m);
+    }
+  }
 
   // 6. Resolve context window size
   const contextWindow = resolveModelContextLength(model);

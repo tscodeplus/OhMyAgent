@@ -10,7 +10,7 @@ import type { FastifyInstance } from 'fastify';
 import type { AppConfig } from '../types.js';
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { load as parseYaml, dump as dumpYaml } from 'js-yaml';
-import { getModels, getProviders } from '@earendil-works/pi-ai';
+import { getModels, getProviders, getBuiltinProviders } from '@earendil-works/pi-ai';
 import { resetConfig, loadConfig, startConfigWatcher } from '../config.js';
 import { jsConfigToYaml } from '../config-loader.js';
 
@@ -154,7 +154,12 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
   // Return the list of built-in pi-mono providers so the frontend never
   // needs a hardcoded copy that drifts out of sync.
   app.get('/api/providers', async (_request, reply) => {
-    const providers = getProviders().map(p => {
+    // Only expose pi-mono *builtin* providers here. Custom providers are configured
+    // separately (config.customProviders) and must not appear in the "Builtin
+    // Providers" list shown in Settings → Models & Routing → Model Providers.
+    // (Using getBuiltinProviders — not getProviders() minus custom — so providers
+    // that are both builtin and custom-configured, e.g. nvidia, stay listed.)
+    const providers = getBuiltinProviders().map((p) => {
       const models = getModels(p as any);
       const defaultBaseUrl = (models[0] as any)?.baseUrl || undefined;
       return { id: p, name: p, baseUrl: defaultBaseUrl };
