@@ -36,7 +36,9 @@ import {
   generateSessionTitle,
   isPlaceholderTitle,
   parseSessionMetadata,
+  type TitleModelCandidate,
 } from './session-title.js';
+import { getModel } from '@earendil-works/pi-ai';
 
 export interface AgentServiceOptions {
   sessionId?: string;
@@ -1020,7 +1022,7 @@ export class AgentService {
         // only auto-injects keys for well-known env vars, so custom providers
         // (e.g. agnes) would otherwise fail and silently fall back to the
         // user's first message as the title.
-        const state = agent.state as { model?: { provider?: string; apiKey?: string } };
+        const state = agent.state as { model?: { provider?: string; id?: string; apiKey?: string } };
         const model = state.model;
         let apiKey: string | undefined = model?.apiKey;
         if (model?.provider && agent.getApiKey) {
@@ -1028,7 +1030,29 @@ export class AgentService {
           if (resolved) apiKey = resolved;
         }
 
-        const title = await generateSessionTitle({ model, message: source, apiKey, logger });
+        // Build the fallback chain (global fallback_models). The main agent
+        // loop fail-swaps to these models, so without them here a broken
+        // primary model silently degrades the title to the raw first message.
+        const fallbackModels: TitleModelCandidate[] = [];
+        for (const ref of this.getServices?.()?.config?.fallbackModels ?? []) {
+          const slashIdx = ref.indexOf('/');
+          if (slashIdx <= 0) continue;
+          const provider = ref.slice(0, slashIdx);
+          const id = ref.slice(slashIdx + 1);
+          if (model?.provider === provider && model?.id === id) continue; // primary already tried
+          try {
+            const fb = getModel(provider as never, id as never) as unknown as
+              | (Record<string, unknown> & { apiKey?: string })
+              | undefined;
+            if (!fb) continue;
+            const fbKey = (fb as { apiKey?: string }).apiKey ?? (agent.getApiKey ? await agent.getApiKey(provider) : undefined);
+            fallbackModels.push({ model: fb, apiKey: fbKey });
+          } catch {
+            // Unknown model ref — skip it
+          }
+        }
+
+        const title = await generateSessionTitle({ model, message: source, apiKey, fallbackModels, logger });
         if (!title) return;
 
         // Re-check before writing: a manual rename that landed while the LLM

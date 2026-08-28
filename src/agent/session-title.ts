@@ -263,6 +263,13 @@ function extractText(message: {
     .join('');
 }
 
+/** One candidate model for title generation. */
+export interface TitleModelCandidate {
+  model: unknown;
+  /** API key for this candidate's provider (see GenerateTitleOptions.apiKey). */
+  apiKey?: string;
+}
+
 export interface GenerateTitleOptions {
   /** The conversation's resolved model (agent.state.model). */
   model: unknown;
@@ -275,27 +282,31 @@ export interface GenerateTitleOptions {
    * `agnes` would otherwise fail with "No API key for provider").
    */
   apiKey?: string;
+  /**
+   * Ordered fallback candidates tried when the primary model call fails
+   * (network/provider error or unparseable output). A result that is only
+   * over-tolerance still counts: it is used in truncated form rather than
+   * triggering the next candidate.
+   */
+  fallbackModels?: TitleModelCandidate[];
   logger?: Logger;
 }
 
 /**
- * Generate a title for the conversation using the conversation's own model.
- * Never throws: returns null when generation fails, in which case callers
- * may fall back to fallbackTitle() themselves (generateSessionTitle already
- * applies that fallback internally). Over-tolerance LLM output triggers one
- * corrective compression retry before settling for the locally truncated
- * title.
+ * One completeSimple attempt (+ compress retry if over-tolerance) with a
+ * single model. Returns null when the model produced nothing usable, so the
+ * caller can move on to the next candidate.
  */
-export async function generateSessionTitle(options: GenerateTitleOptions): Promise<string | null> {
-  const { model, message, logger } = options;
-  const input = cleanTitleInput(message);
-  if (!input) return null;
-
-  const { systemPrompt, prompt } = buildTitlePrompt(input);
+async function generateTitleWithModel(
+  model: unknown,
+  apiKey: string | undefined,
+  systemPrompt: string,
+  prompt: string,
+  logger?: Logger,
+): Promise<string | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TITLE_TIMEOUT_MS);
-
-  const callOpts = { temperature: 0.3, maxTokens: 64, signal: controller.signal, apiKey: options.apiKey };
+  const callOpts = { temperature: 0.3, maxTokens: 64, signal: controller.signal, apiKey };
 
   try {
     const result = await completeSimple(
@@ -308,45 +319,69 @@ export async function generateSessionTitle(options: GenerateTitleOptions): Promi
     );
     const parsed = parseTitleResponse(extractText(result));
     if (!parsed) {
-      logger?.debug({ modelId: (model as { id?: string })?.id }, 'Title response unparseable, using fallback');
-    } else if (!parsed.overTolerance) {
-      return parsed.title;
-    } else {
-      // One corrective retry: let the model compress its own title instead of
-      // trusting a local mid-word cut.
-      try {
-        const retry = await completeSimple(
-          model as Parameters<typeof completeSimple>[0],
-          {
-            systemPrompt,
-            messages: [
-              { role: 'user' as const, content: prompt, timestamp: Date.now() },
-              // Reuse the first reply as-is: it is already a complete AssistantMessage.
-              result,
-              { role: 'user' as const, content: COMPRESS_PROMPT, timestamp: Date.now() },
-            ],
-          },
-          callOpts,
-        );
-        const second = parseTitleResponse(extractText(retry));
-        if (second && !second.overTolerance) return second.title;
-      } catch (err) {
-        logger?.debug(
-          { err: err instanceof Error ? err.message : String(err) },
-          'Title compression retry failed, using truncated first attempt',
-        );
-      }
-      // parseTitleResponse already truncated the first attempt to budget.
-      return parsed.title;
+      logger?.debug({ modelId: (model as { id?: string })?.id }, 'Title response unparseable');
+      return null;
     }
+    if (!parsed.overTolerance) return parsed.title;
+
+    // One corrective retry: let the model compress its own title instead of
+    // trusting a local mid-word cut.
+    try {
+      const retry = await completeSimple(
+        model as Parameters<typeof completeSimple>[0],
+        {
+          systemPrompt,
+          messages: [
+            { role: 'user' as const, content: prompt, timestamp: Date.now() },
+            // Reuse the first reply as-is: it is already a complete AssistantMessage.
+            result,
+            { role: 'user' as const, content: COMPRESS_PROMPT, timestamp: Date.now() },
+          ],
+        },
+        callOpts,
+      );
+      const second = parseTitleResponse(extractText(retry));
+      if (second && !second.overTolerance) return second.title;
+    } catch (err) {
+      logger?.debug(
+        { err: err instanceof Error ? err.message : String(err) },
+        'Title compression retry failed, using truncated first attempt',
+      );
+    }
+    // parseTitleResponse already truncated the first attempt to budget.
+    return parsed.title;
   } catch (err) {
     logger?.debug(
-      { err: err instanceof Error ? err.message : String(err) },
-      'Session title generation failed, using fallback',
+      { err: err instanceof Error ? err.message : String(err), modelId: (model as { id?: string })?.id },
+      'Title model call failed',
     );
+    return null;
   } finally {
     clearTimeout(timeout);
   }
+}
 
+/**
+ * Generate a title for the conversation, trying the conversation's own model
+ * first and then any fallback candidates. Never throws: returns null when
+ * every candidate fails, in which case callers may fall back to
+ * fallbackTitle() themselves (generateSessionTitle already applies that
+ * fallback internally).
+ */
+export async function generateSessionTitle(options: GenerateTitleOptions): Promise<string | null> {
+  const { model, message, logger } = options;
+  const input = cleanTitleInput(message);
+  if (!input) return null;
+
+  const { systemPrompt, prompt } = buildTitlePrompt(input);
+  const candidates: TitleModelCandidate[] = [
+    { model, apiKey: options.apiKey },
+    ...(options.fallbackModels ?? []),
+  ];
+  for (const candidate of candidates) {
+    if (!candidate?.model) continue;
+    const title = await generateTitleWithModel(candidate.model, candidate.apiKey, systemPrompt, prompt, logger);
+    if (title) return title;
+  }
   return fallbackTitle(input);
 }

@@ -275,6 +275,47 @@ describe('generateSessionTitle', () => {
     expect(titleWidth(title!)).toBeLessThanOrEqual(MAX_TITLE_WIDTH);
   });
 
+  it('tries fallback models in order when the primary call fails', async () => {
+    const fallbackA = { provider: 'other', id: 'fallback-a', api: 'openai-completions' };
+    const fallbackB = { provider: 'other', id: 'fallback-b', api: 'openai-completions' };
+    mockCompleteSimple
+      .mockRejectedValueOnce(new Error('Upstream request failed: [404]')) // primary
+      .mockRejectedValueOnce(new Error('also broken')) // fallback A
+      .mockResolvedValueOnce({
+        // fallback B succeeds
+        stopReason: 'stop',
+        content: [{ type: 'text', text: '{"title":"北京周末有雨吗"}' }],
+      });
+
+    const title = await generateSessionTitle({
+      model,
+      message: '你好，北京周末有雨吗？',
+      fallbackModels: [
+        { model: fallbackA, apiKey: 'k-a' },
+        { model: fallbackB, apiKey: 'k-b' },
+      ],
+    });
+
+    expect(title).toBe('北京周末有雨吗');
+    expect(mockCompleteSimple).toHaveBeenCalledTimes(3);
+    expect(mockCompleteSimple.mock.calls[1][0]).toBe(fallbackA);
+    expect(mockCompleteSimple.mock.calls[2][0]).toBe(fallbackB);
+    expect(mockCompleteSimple.mock.calls[2][2]).toMatchObject({ apiKey: 'k-b' });
+  });
+
+  it('settles for fallbackTitle when every candidate fails', async () => {
+    mockCompleteSimple.mockRejectedValue(new Error('provider down'));
+
+    const title = await generateSessionTitle({
+      model,
+      message: '你好，北京周末有雨吗？',
+      fallbackModels: [{ model: { provider: 'x', id: 'y' } }],
+    });
+
+    expect(title).toBe('你好，北京周末有雨吗？'); // fallbackTitle: whole first message
+    expect(mockCompleteSimple).toHaveBeenCalledTimes(2);
+  });
+
   it('falls back to the first message when the LLM call fails (e.g. missing apiKey)', async () => {
     mockCompleteSimple.mockRejectedValue(new Error('No API key for provider: agnes'));
 
