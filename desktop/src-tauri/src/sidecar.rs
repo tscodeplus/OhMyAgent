@@ -182,9 +182,24 @@ pub async fn init(app: &AppHandle) {
     let ctl_token = uuid::Uuid::new_v4().to_string();
     let ctl_port = crate::ctl_server::start(app.clone(), ctl_token.clone());
     let sidecar_api_port = reserve_port();
-    // Per-shell-process WebUI token; the gateway enforces it via
-    // OMA_WEBUI_TOKEN (fail-closed: without the injection the WebUI 401s).
-    let webui_token = uuid::Uuid::new_v4().to_string();
+    // Persistent WebUI token: generated once on first run, then stored in
+    // desktop-config.json and reused across restarts. The desktop WebUI still
+    // auto-login (control API → OMA_WEBUI_TOKEN injection chain); the stored
+    // value is what a web browser user enters to reach the same server.
+    let config_path = crate::config::config_path(app);
+    let mut desktop_cfg = DesktopConfig::load(&config_path);
+    let webui_token = if desktop_cfg.webui_token.trim().is_empty() {
+        let generated = uuid::Uuid::new_v4().to_string();
+        desktop_cfg.webui_token = generated.clone();
+        if let Err(e) = desktop_cfg.save(&config_path) {
+            log::warn!("sidecar: failed to persist webui token: {e}");
+        } else {
+            log::info!("sidecar: webui token generated and saved to desktop-config.json");
+        }
+        generated
+    } else {
+        desktop_cfg.webui_token.trim().to_string()
+    };
 
     let state = Arc::new(SidecarState {
         status: RwLock::new(SidecarStatus {
@@ -356,7 +371,11 @@ fn spawn_sidecar(
         .current_dir(&sidecar_dir)
         .env("OHMYAGENT_HOME", &data_dir)
         .env("OHMYAGENT_PORT", cfg.server_port.to_string())
-        .env("OHMYAGENT_BIND_ADDRESS", "127.0.0.1")
+        // Listen on all interfaces so other LAN devices can reach the server;
+        // every /api + /ws request is token-gated by webui-auth (OMA_WEBUI_TOKEN
+        // above, persisted in desktop-config.json). The sidecar control API and
+        // the shell ctl server stay bound to 127.0.0.1 regardless.
+        .env("OHMYAGENT_BIND_ADDRESS", "0.0.0.0")
         .env("DATABASE_PATH", &db_path)
         .env("CONFIG_FILE", &config_file)
         .env("OHMYAGENT_LOG_DIR", &log_dir)

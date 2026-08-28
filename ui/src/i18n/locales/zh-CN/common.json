@@ -651,6 +651,12 @@
       "gatewayUnreachable": "网关无法连接或不在线",
       "local": "本地网关",
       "localStatus": "使用本地嵌入式服务器。如需连接其他实例，请启用上方的「远程网关」。",
+      "accessUrls": "访问地址",
+      "webAccessToken": "Web 访问令牌",
+      "tokenStoredHint": "令牌已保存到 desktop-config.json（webuiToken 字段）。局域网内设备可使用上方地址 + 此令牌登录。",
+      "copy": "复制",
+      "copyToken": "复制令牌",
+      "copied": "已复制",
       "restartHint": "修改将在重启应用后生效。"
     },
     "testConnection": "测试模型连接",

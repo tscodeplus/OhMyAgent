@@ -85,6 +85,11 @@ pub struct DesktopConfig {
     pub theme: String,
     pub language: Option<String>,
     pub first_run_done: bool,
+    /// Persistent WebUI access token for local mode. Generated once on first
+    /// run and reused across restarts so the user can look it up here and log
+    /// in from a web browser. The desktop WebUI itself never asks for it — it
+    /// auto-login via the shell → sidecar control API chain.
+    pub webui_token: String,
     pub gateway: GatewayConfig,
 }
 
@@ -96,6 +101,7 @@ impl Default for DesktopConfig {
             theme: "system".into(),
             language: None,
             first_run_done: false,
+            webui_token: String::new(),
             gateway: GatewayConfig::default(),
         }
     }

@@ -23,6 +23,13 @@ export interface DesktopConfig {
   /** UI language ('en' or 'zh-CN'), persisted across restarts. */
   language?: 'en' | 'zh-CN';
   firstRunDone: boolean;
+  /**
+   * WebUI access token for local mode — shell-owned (generated once on first
+   * run, injected to the gateway as OMA_WEBUI_TOKEN). The sidecar never
+   * writes it; it just round-trips the field so saves don't drop it. Users
+   * can read it here to log in from a web browser.
+   */
+  webuiToken?: string;
   gateway: GatewayDesktopConfig;
 }
 

@@ -825,9 +825,17 @@ export async function bootstrap(): Promise<BootstrapResult> {
     services,
 
     start: async () => {
-      // Print WebUI access info
+      // Print WebUI access info. When the token is injected via env (desktop
+      // shell persists it in desktop-config.json; ops set WEBUI_TOKEN) the
+      // value is already known to the operator — don't also write it into
+      // long-lived application logs. Only the ephemeral generated token is
+      // logged, since that's the only place it appears.
       const webuiToken = getWebUIToken();
-      logger.info({ token: webuiToken }, 'WebUI token (use this to log in)');
+      if (process.env.OMA_WEBUI_TOKEN || process.env.WEBUI_TOKEN) {
+        logger.info('WebUI token: injected via environment (OMA_WEBUI_TOKEN / WEBUI_TOKEN)');
+      } else {
+        logger.info({ token: webuiToken }, 'WebUI token (use this to log in)');
+      }
 
       // V2: Start all channels (via extensions)
       try {

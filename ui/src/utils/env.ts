@@ -37,6 +37,8 @@ declare global {
       resetGatewayConfig: () => Promise<{ ok: boolean }>;
       /** WebUI gateway token for local mode (injected by the shell, served by the sidecar control API). */
       getWebUIToken: () => Promise<string>;
+      /** Local-mode web access info: { token, port, addresses } (LAN reachability + persisted token). */
+      getWebAccessInfo: () => Promise<{ token: string; port: number; addresses: string[] }>;
       // Gateway chooser (remote-connection retry): open the chooser window with
       // the given error banner text; reload the WebUI after it saves.
       openGatewayChooser: (error?: string) => Promise<void>;

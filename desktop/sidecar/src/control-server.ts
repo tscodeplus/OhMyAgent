@@ -11,6 +11,7 @@
 //   PUT    /_desktop/gateway-config           → partial merge
 //   PUT    /_desktop/language  {lang}
 //   GET    /_desktop/user-data-path           → { path }
+//   GET    /_desktop/webui-token              → { token, port, addresses }
 //   GET    /_desktop/events                   → SSE (updater events)
 //   POST   /_desktop/updater/check|download|cancel|install
 //   POST   /_desktop/bridge/session/:id       → register
@@ -29,6 +30,7 @@ import { URL } from 'node:url';
 import { EventEmitter } from 'node:events';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import os from 'node:os';
 
 import {
   getGatewayConfig,
@@ -189,7 +191,22 @@ async function handle(req: IncomingMessage, res: ServerResponse, opts: ControlSe
       // WebUI gateway token for local mode — injected by the shell (prod) or
       // dev-sidecar (dev) as OMA_WEBUI_TOKEN. Served through the control API
       // (already ctl-token-gated) so the WebUI never needs to know it a priori.
-      json(res, 200, { token: process.env.OMA_WEBUI_TOKEN ?? 'dev' });
+      // Also returns where the server is reachable: the shell binds the
+      // gateway to 0.0.0.0, so LAN devices can log in with this token at any
+      // of the returned addresses. The token itself is persisted by the shell
+      // in desktop-config.json (webuiToken field).
+      const port = Number(process.env.OHMYAGENT_PORT ?? '9191');
+      const addresses: string[] = [];
+      for (const nets of Object.values(os.networkInterfaces())) {
+        for (const net of nets ?? []) {
+          if (net.family === 'IPv4' && !net.internal) addresses.push(net.address);
+        }
+      }
+      json(res, 200, {
+        token: process.env.OMA_WEBUI_TOKEN ?? 'dev',
+        port,
+        addresses,
+      });
       return;
     }
 

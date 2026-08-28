@@ -64,7 +64,8 @@ const controlServer = createControlServer({ port: controlPort, token: controlTok
 try {
   await start();
   const port = process.env.OHMYAGENT_PORT ?? '9191';
-  console.log(`[sidecar] gateway started on 127.0.0.1:${port} (control api :${controlPort})`);
+  const bind = process.env.OHMYAGENT_BIND_ADDRESS || '0.0.0.0';
+  console.log(`[sidecar] gateway started on ${bind}:${port} (control api :${controlPort})`);
 } catch (err) {
   console.error('[sidecar] gateway start failed:', err);
   process.exit(1);

@@ -646,6 +646,12 @@
       "gatewayUnreachable": "Cannot connect to gateway",
       "local": "Local Gateway",
       "localStatus": "Using the embedded local server. Enable \"Remote Gateway\" above to connect to another instance.",
+      "accessUrls": "Access URLs",
+      "webAccessToken": "Web Access Token",
+      "tokenStoredHint": "Saved in desktop-config.json (webuiToken). Other devices on the LAN can log in with a URL above plus this token.",
+      "copy": "Copy",
+      "copyToken": "Copy Token",
+      "copied": "Copied",
       "restartHint": "Changes take effect after restarting the app."
     },
     "testConnection": "Test Connection",

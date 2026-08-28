@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Check, Copy } from 'lucide-react';
 import { getElectronAPI, isElectron } from '../../../utils/env';
+import { copyTextToClipboard } from '../../../utils/clipboard';
 import Toggle from '../../ui/Toggle';
 import Input from '../../ui/Input';
 import Button from '../../ui/Button';
@@ -34,6 +36,10 @@ export default function GatewaySettings({ registerHandle, onDirtyChange }: Gatew
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
+  // Local-mode web access info (desktop only): persisted token + LAN addresses
+  const [webAccessInfo, setWebAccessInfo] = useState<{ token: string; port: number; addresses: string[] } | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
   // Dirty check
   const isDirty = useMemo(() => {
     return mode !== savedConfig.mode
@@ -60,6 +66,10 @@ export default function GatewaySettings({ registerHandle, onDirtyChange }: Gatew
         setRemoteUrl(cfg.remoteUrl);
         setRemoteToken(cfg.remoteToken);
       }
+      // Non-fatal: the info block just stays hidden when unavailable.
+      try {
+        setWebAccessInfo(await api.getWebAccessInfo());
+      } catch { /* older sidecar / control API down */ }
     } catch (err) {
       console.error('[GatewaySettings] Failed to load gateway config:', err);
     } finally {
@@ -110,6 +120,13 @@ export default function GatewaySettings({ registerHandle, onDirtyChange }: Gatew
     registerHandle?.(TAB_ID, handle);
     return () => registerHandle?.(TAB_ID, null);
   }, []); // Only on mount/unmount
+
+  // ── Copy to clipboard (token / access URLs) ──
+  const handleCopy = useCallback(async (key: string, text: string) => {
+    await copyTextToClipboard(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey((cur) => (cur === key ? null : cur)), 2000);
+  }, []);
 
   // ── Test connection ──
   const handleTestConnection = useCallback(async () => {
@@ -257,6 +274,76 @@ export default function GatewaySettings({ registerHandle, onDirtyChange }: Gatew
             <p className="text-sm text-neutral-600 dark:text-neutral-400">
               {t('settings.gateway.localStatus', 'Using the embedded local server. Enable "Remote Gateway" above to connect to another instance.')}
             </p>
+
+            {webAccessInfo && (
+              <div className="mt-4 space-y-4 border-t border-neutral-200 dark:border-neutral-800 pt-4">
+                {/* Access URLs (localhost + LAN) */}
+                <div>
+                  <p className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300 mb-1.5">
+                    {t('settings.gateway.accessUrls', 'Access URLs')}
+                  </p>
+                  <div className="space-y-1.5">
+                    {[...new Set([`http://localhost:${webAccessInfo.port}/webui/`,
+                      ...webAccessInfo.addresses.map((ip) => `http://${ip}:${webAccessInfo.port}/webui/`)])].map((url) => (
+                      <div key={url} className="flex items-center justify-between gap-2">
+                        <code className="truncate rounded bg-neutral-100 px-2 py-1 text-xs text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
+                          {url}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={() => handleCopy(url, url)}
+                          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-neutral-400 hover:text-neutral-600 dark:text-neutral-500 dark:hover:text-neutral-300"
+                          title={t('settings.gateway.copy', 'Copy') || ''}
+                        >
+                          {copiedKey === url ? <Check size={15} className="text-emerald-500" /> : <Copy size={15} />}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Web access token — masked like an API key, eye icon reveals */}
+                <div>
+                  <PasswordInput
+                    label={t('settings.gateway.webAccessToken', 'Web Access Token')}
+                    value={webAccessInfo.token}
+                    onChange={() => { /* read-only display */ }}
+                  />
+                  <div className="mt-1.5 flex items-center justify-between gap-2">
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                      {t('settings.gateway.tokenStoredHint', 'Saved in desktop-config.json (webuiToken). Other devices on the LAN can log in with a URL above plus this token.')}
+                    </p>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className={`shrink-0 whitespace-nowrap ${
+                        copiedKey === 'token'
+                          // copied state: full success-toast palette
+                          // (Toast.tsx success variant); "!" overrides the
+                          // variant's neutral bg/border/text (Tailwind v4)
+                          ? 'border-emerald-300! bg-emerald-50! text-emerald-700! dark:border-emerald-700! dark:bg-emerald-950! dark:text-emerald-300!'
+                          : ''
+                      }`}
+                      // blur immediately: the default blue focus ring must not
+                      // linger after the label reverts to Copy Token
+                      onClick={(e) => {
+                        e.currentTarget.blur();
+                        handleCopy('token', webAccessInfo.token);
+                      }}
+                    >
+                      {copiedKey === 'token' ? (
+                        <>
+                          <Check size={12} strokeWidth={2.5} />
+                          {t('settings.gateway.copied', 'Copied')}
+                        </>
+                      ) : (
+                        t('settings.gateway.copyToken', 'Copy Token')
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </section>
       )}
