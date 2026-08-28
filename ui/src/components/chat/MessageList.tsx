@@ -360,7 +360,7 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
           onClick={handleJumpToBottom}
           aria-label={t('chat.backToBottom')}
           title={t('chat.backToBottom')}
-          className="absolute left-1/2 bottom-4 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-4 py-2 text-xs font-medium text-neutral-700 shadow-lg transition-colors hover:bg-neutral-100 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
+          className="absolute left-1/2 bottom-4 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-neutral-200/60 bg-white/45 px-4 py-2 text-xs font-medium text-neutral-700 shadow-lg backdrop-blur-[2px] transition-colors hover:bg-white/75 dark:border-neutral-600/60 dark:bg-neutral-800/45 dark:text-neutral-200 dark:hover:bg-neutral-700/60"
         >
           {t('chat.backToBottom')}
           <ArrowDown className="h-3.5 w-3.5" strokeWidth={2} />
