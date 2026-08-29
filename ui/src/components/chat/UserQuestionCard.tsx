@@ -114,7 +114,7 @@ export default function UserQuestionCard({
           }}
           placeholder={t('chat.questionPlaceholder', '输入你的回答...')}
           disabled={submitting}
-          className="flex-1 text-sm rounded-lg border border-neutral-300 bg-white px-3 py-1.5 placeholder:text-neutral-400 focus:border-blue-400 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder:text-neutral-500"
+          className="flex-1 text-sm rounded-lg border border-neutral-300 bg-white px-3 py-1.5 placeholder:text-neutral-400 focus:border-blue-400 focus:outline-none dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder:text-neutral-500"
         />
         <Button
           size="sm"

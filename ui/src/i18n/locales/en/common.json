@@ -171,7 +171,13 @@
       "appearance": "Appearance",
       "gateway": "Gateway",
       "about": "About",
-      "subscriptions": "Subscription Login"
+      "subscriptions": "Subscription Login",
+      "groupGeneral": "General",
+      "groupAgent": "Agents",
+      "groupIntegration": "Integrations",
+      "groupSystem": "System",
+      "unsavedBadge": "Unsaved changes",
+      "searchPlaceholder": "Search settings..."
     },
     "subscriptions": {
       "description": "Sign in to use Claude Pro/Max, ChatGPT Plus/Pro, or GitHub Copilot models.",
@@ -248,6 +254,14 @@
       "globalDefaults": "Global Defaults",
       "globalDefaultsDesc": "These defaults apply to all Agents unless overridden by per-agent settings.",
       "defaultReasoningLevel": "Default Reasoning Level",
+      "reasoningLevels": {
+        "xhigh": "Very High",
+        "high": "High",
+        "medium": "Medium",
+        "low": "Low",
+        "minimal": "Minimal",
+        "off": "Off"
+      },
       "customProviders": "Custom Providers",
       "customProvidersDesc": "Define additional AI providers with their models",
       "addProvider": "Add Provider",

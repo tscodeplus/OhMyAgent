@@ -247,7 +247,7 @@ export default function SubscriptionsSettings() {
         return (
           <div
             key={sub.providerId}
-            className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2"
+            className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2"
           >
             <div className="flex items-center justify-between">
               <div className="flex-1 min-w-0">

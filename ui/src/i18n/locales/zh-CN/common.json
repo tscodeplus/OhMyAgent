@@ -172,7 +172,13 @@
       "appearance": "外观设置",
       "gateway": "网关连接",
       "about": "关于",
-      "subscriptions": "订阅登录"
+      "subscriptions": "订阅登录",
+      "groupGeneral": "常规",
+      "groupAgent": "智能体",
+      "groupIntegration": "集成",
+      "groupSystem": "系统",
+      "unsavedBadge": "有未保存的更改",
+      "searchPlaceholder": "搜索设置..."
     },
     "subscriptions": {
       "description": "登录 AI 订阅以使用 Claude Pro/Max、ChatGPT Plus/Pro 或 GitHub Copilot 的模型。",
@@ -250,6 +256,14 @@
       "globalDefaults": "全局默认值",
       "globalDefaultsDesc": "这些默认值对所有 Agent 生效，可被单个 Agent 的设置覆盖。",
       "defaultReasoningLevel": "默认推理等级",
+      "reasoningLevels": {
+        "xhigh": "极高",
+        "high": "高",
+        "medium": "中",
+        "low": "低",
+        "minimal": "最小",
+        "off": "关闭"
+      },
       "customProviders": "自定义供应商",
       "customProvidersDesc": "添加额外的 AI 提供商及其模型",
       "addProvider": "添加供应商",

@@ -198,7 +198,7 @@ export default function SkillsView() {
   return (
     <div className="flex h-full flex-col bg-white dark:bg-neutral-950">
       {/* Header with sub-tabs */}
-      <div className="flex h-10 shrink-0 items-center justify-between border-b border-neutral-200 px-3 sm:px-6 dark:border-neutral-700">
+      <div className="flex h-10 shrink-0 items-center justify-between border-b border-neutral-200 px-3 sm:px-6 dark:border-neutral-800">
         <div className="flex items-center gap-3">
           {subTabs.map((tab) => {
             const Icon = tab.icon;
@@ -241,7 +241,7 @@ export default function SkillsView() {
       {activeTab === 'manage' && (
         <div className="flex min-h-0 flex-1">
           {/* Left: Skill List — hidden on mobile when editor is shown */}
-          <div className={`flex w-72 max-sm:w-full shrink-0 flex-col border-r max-sm:border-r-0 border-neutral-200 dark:border-neutral-700 ${mobileShowEditor ? 'max-sm:hidden' : ''}`}>
+          <div className={`flex w-72 max-sm:w-full shrink-0 flex-col border-r max-sm:border-r-0 border-neutral-200 dark:border-neutral-800 ${mobileShowEditor ? 'max-sm:hidden' : ''}`}>
             <div className="min-h-0 flex-1 overflow-y-auto py-2 text-[13px]">
               {loading ? (
                 <div className="flex items-center justify-center gap-2 py-6 text-neutral-500 dark:text-neutral-400">
@@ -279,7 +279,7 @@ export default function SkillsView() {
             {activeSkill ? (
               <>
                 {/* Info bar */}
-                <div className="shrink-0 border-b border-neutral-200 px-4 sm:px-6 py-2 dark:border-neutral-700 flex items-center gap-2">
+                <div className="shrink-0 border-b border-neutral-200 px-4 sm:px-6 py-2 dark:border-neutral-800 flex items-center gap-2">
                   {/* Back button on mobile */}
                   <button type="button" onClick={handleBackToList}
                     className="inline-flex sm:hidden h-8 w-8 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800">
@@ -298,12 +298,12 @@ export default function SkillsView() {
                     <textarea
                       value={editorContent}
                       onChange={(e) => setEditorContent(e.target.value)}
-                      className="w-full h-full resize-none rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 font-mono"
+                      className="w-full h-full resize-none rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-100 font-mono"
                     />
                   )}
                 </div>
                 {/* Footer */}
-                <div className="flex shrink-0 items-center justify-between border-t border-neutral-200 px-4 sm:px-6 py-2 dark:border-neutral-700">
+                <div className="flex shrink-0 items-center justify-between border-t border-neutral-200 px-4 sm:px-6 py-2 dark:border-neutral-800">
                   <Button variant="danger" size="sm" onClick={handleDelete}>
                     <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
                     <span>{t('skills.delete')}</span>

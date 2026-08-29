@@ -289,7 +289,7 @@ export default function ChatView() {
       </div>
 
       {/* Input at bottom — same position/size as ChatInput */}
-      <div className="shrink-0 border-t border-neutral-200 bg-white px-3 sm:px-4 py-2 sm:py-3 pb-safe dark:border-neutral-700 dark:bg-neutral-950">
+      <div className="shrink-0 border-t border-neutral-200 bg-white px-3 sm:px-4 py-2 sm:py-3 pb-safe dark:border-neutral-800 dark:bg-neutral-950">
         <div className="mx-auto flex max-w-3xl items-end gap-2 sm:gap-3">
           <textarea
             value={quickInput}
@@ -299,7 +299,7 @@ export default function ChatView() {
             }}
             placeholder={t('chat.input.placeholder')}
             rows={3}
-            className="flex-1 resize-none rounded-xl border border-neutral-300 bg-white px-3 sm:px-4 py-2.5 sm:py-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+            className="flex-1 resize-none rounded-xl border border-neutral-300 bg-white px-3 sm:px-4 py-2.5 sm:py-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
           />
           <button
             onClick={creating ? undefined : handleQuickStart}
@@ -307,7 +307,7 @@ export default function ChatView() {
             className={`shrink-0 inline-flex h-10 w-10 items-center justify-center rounded-xl transition-colors disabled:opacity-30 ${
               quickInput.trim()
                 ? 'border border-blue-500 bg-blue-500 text-white hover:bg-blue-600 dark:border-blue-400 dark:bg-blue-400 dark:hover:bg-blue-500'
-                : 'border border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700'
+                : 'border border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700'
             }`}
             aria-label={t('chat.send')}
           >

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import i18n from '../../../i18n/config';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useConfigDirty, type SettingsTabHandle } from '../useConfigDirty';
+import { SettingsSection, SettingsCard } from '../SettingsSection';
 import { syncLanguageToServer } from '../../../utils/syncLanguage';
 import Input from '../../ui/Input';
 import Select from '../../ui/Select';
@@ -48,9 +49,8 @@ export default function GeneralSettings({ tabId = 'general', registerHandle, onD
   return (
     <div className="space-y-6">
       {/* ── Appearance (immediate — not part of save/cancel) ── */}
-      <section>
-        <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.appearance.title')}</h3>
-        <div className="space-y-3 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
+      <SettingsSection title={t('settings.appearance.title')}>
+        <SettingsCard>
           <Select
             label={t('settings.appearance.theme')}
             value={themeMode}
@@ -70,8 +70,6 @@ export default function GeneralSettings({ tabId = 'general', registerHandle, onD
               i18n.changeLanguage(lang).then(() => {
                 getElectronAPI()?.setDesktopLanguage(lang);
               });
-              // Persist to server config so server-generated text (slash
-              // command output, etc.) follows the chosen UI language.
               void syncLanguageToServer(lang);
             }}
             options={[
@@ -88,21 +86,21 @@ export default function GeneralSettings({ tabId = 'general', registerHandle, onD
               { value: 'name', label: t('settings.appearance.sortByName') },
             ]}
           />
-        </div>
-      </section>
+        </SettingsCard>
+      </SettingsSection>
 
       {/* ── Log Level ── */}
-      <section className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
+      <SettingsCard>
         <Select
           label={t('settings.general.logLevel')}
           value={getField('logging.level', logging.level || 'info') as string}
           onChange={(e) => setField('logging.level', e.target.value)}
           options={['debug', 'error', 'fatal', 'info', 'trace', 'warn'].map(v => ({ value: v, label: v }))}
         />
-      </section>
+      </SettingsCard>
 
       {/* ── Show Tool Calls ── */}
-      <section className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
+      <SettingsCard>
         <div className="flex items-center justify-between">
           <div>
             <label className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{t('settings.general.showToolCalls')}</label>
@@ -113,10 +111,10 @@ export default function GeneralSettings({ tabId = 'general', registerHandle, onD
             onChange={(v) => setField('showToolCalls', v)}
           />
         </div>
-      </section>
+      </SettingsCard>
 
       {/* ── Show Skill Calls ── */}
-      <section className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
+      <SettingsCard>
         <div className="flex items-center justify-between">
           <div>
             <label className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{t('settings.general.showSkillCalls')}</label>
@@ -127,12 +125,11 @@ export default function GeneralSettings({ tabId = 'general', registerHandle, onD
             onChange={(v) => setField('showSkillCalls', v)}
           />
         </div>
-      </section>
+      </SettingsCard>
 
       {/* ── Footer ── */}
-      <section>
-        <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.footer.title')}</h3>
-        <div className="space-y-3 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
+      <SettingsSection title={t('settings.footer.title')}>
+        <SettingsCard>
           {[
             { key: 'showAgentName', label: t('settings.footer.showAgentName') },
             { key: 'showModel', label: t('settings.footer.showModel') },
@@ -150,13 +147,12 @@ export default function GeneralSettings({ tabId = 'general', registerHandle, onD
               />
             </div>
           ))}
-        </div>
-      </section>
+        </SettingsCard>
+      </SettingsSection>
 
       {/* ── Advanced ── */}
-      <section>
-        <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.general.advanced')}</h3>
-        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
+      <SettingsSection title={t('settings.general.advanced')}>
+        <SettingsCard className="space-y-4">
           <Input
             label={t('settings.general.databasePath')}
             value={getField('database.path', dbPath) as string}
@@ -176,8 +172,8 @@ export default function GeneralSettings({ tabId = 'general', registerHandle, onD
               onChange={(e) => setField('rateLimit.webhookWindowMs', e.target.value)}
             />
           </div>
-        </div>
-      </section>
+        </SettingsCard>
+      </SettingsSection>
     </div>
   );
 }

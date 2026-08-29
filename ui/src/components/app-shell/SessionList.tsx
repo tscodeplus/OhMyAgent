@@ -176,7 +176,7 @@ export default function SessionList({ projectId, onSessionSelect }: SessionListP
 
       {contextMenu && (
         <div role="menu" onClick={e => e.stopPropagation()}
-          className="fixed z-50 w-44 rounded-lg border border-neutral-200 bg-white p-1 shadow-lg dark:border-neutral-700 dark:bg-neutral-900"
+          className="fixed z-50 w-44 rounded-lg border border-neutral-200 bg-white p-1 shadow-lg dark:border-neutral-800 dark:bg-neutral-900"
           style={{ left: contextMenu.x, top: contextMenu.y }}>
           <button type="button" role="menuitem" onClick={() => { setRenamingId(contextMenu.session.id); setRenameDraft(sessionTitle(contextMenu.session)); setContextMenu(null); }}
             className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] text-neutral-800 hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-neutral-800">
@@ -196,7 +196,7 @@ export default function SessionList({ projectId, onSessionSelect }: SessionListP
       {tip && (
         <div
           role="tooltip"
-          className="pointer-events-none fixed z-[70] whitespace-nowrap rounded-md border border-neutral-200 bg-white px-2.5 py-1 text-[12.5px] leading-snug text-neutral-900 shadow-lg dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+          className="pointer-events-none fixed z-[70] whitespace-nowrap rounded-md border border-neutral-200 bg-white px-2.5 py-1 text-[12.5px] leading-snug text-neutral-900 shadow-lg dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
           style={{ left: tip.left, top: tip.top }}
         >
           {tip.title}

@@ -166,7 +166,7 @@ export default function TemplateBrowser({ open, onClose, onImport }: TemplateBro
     >
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {/* Source tabs */}
-        <div className="shrink-0 flex gap-1 mb-3 border-b border-neutral-200 dark:border-neutral-700">
+        <div className="shrink-0 flex gap-1 mb-3 border-b border-neutral-200 dark:border-neutral-800">
           <button
             className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
               source === 'en'
@@ -194,7 +194,7 @@ export default function TemplateBrowser({ open, onClose, onImport }: TemplateBro
           <select
             value={division}
             onChange={(e) => setDivision(e.target.value)}
-            className="px-3 py-1.5 text-sm rounded-lg border border-neutral-300 bg-white dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+            className="px-3 py-1.5 text-sm rounded-lg border border-neutral-300 bg-white dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
           >
             <option value="">{t(`${prefix}.templateAllDivisions`)}</option>
             {divisions.map((d) => (
@@ -204,7 +204,7 @@ export default function TemplateBrowser({ open, onClose, onImport }: TemplateBro
           <div className="relative flex-1">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
             <input
-              className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-neutral-300 bg-white dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+              className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-neutral-300 bg-white dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
               placeholder={t(`${prefix}.templateSearchPlaceholder`)}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -215,7 +215,7 @@ export default function TemplateBrowser({ open, onClose, onImport }: TemplateBro
         {/* Main content: list + preview */}
         <div className="flex-1 min-h-0 flex gap-4">
           {/* Template list */}
-          <div className="w-1/2 overflow-y-auto rounded-lg border border-neutral-200 dark:border-neutral-700">
+          <div className="w-1/2 overflow-y-auto rounded-lg border border-neutral-200 dark:border-neutral-800">
             {loading ? (
               <div className="flex items-center justify-center h-full py-12">
                 <Spinner />
@@ -229,7 +229,7 @@ export default function TemplateBrowser({ open, onClose, onImport }: TemplateBro
                 <div
                   key={tpl.id}
                   onClick={() => handleSelect(tpl)}
-                  className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer border-b border-neutral-100 dark:border-neutral-700 last:border-b-0 transition-colors ${
+                  className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer border-b border-neutral-100 dark:border-neutral-800 last:border-b-0 transition-colors ${
                     selectedId === tpl.id
                       ? 'bg-blue-50 dark:bg-blue-950/30'
                       : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/50'
@@ -253,7 +253,7 @@ export default function TemplateBrowser({ open, onClose, onImport }: TemplateBro
           </div>
 
           {/* Preview panel */}
-          <div className="w-1/2 overflow-y-auto rounded-lg border border-neutral-200 dark:border-neutral-700 p-4">
+          <div className="w-1/2 overflow-y-auto rounded-lg border border-neutral-200 dark:border-neutral-800 p-4">
             {!selectedId && (
               <div className="flex items-center justify-center h-full text-sm text-neutral-400">
                 {t(`${prefix}.templatePreview`)}
@@ -283,7 +283,7 @@ export default function TemplateBrowser({ open, onClose, onImport }: TemplateBro
                   readOnly
                   value={previewContent}
                   rows={18}
-                  className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 resize-none focus:outline-none"
+                  className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 resize-none focus:outline-none"
                 />
               </div>
             )}

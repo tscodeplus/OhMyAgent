@@ -18,7 +18,7 @@ const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
         <textarea
           ref={ref}
           id={textareaId}
-          className={`block w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none resize-y min-h-[80px] dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 ${error ? 'border-red-500' : ''} ${className}`}
+          className={`block w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none resize-y min-h-[80px] dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-100 ${error ? 'border-red-500' : ''} ${className}`}
           {...props}
         />
         {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}

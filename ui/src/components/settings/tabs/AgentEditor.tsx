@@ -9,6 +9,7 @@ import Textarea from '../../ui/Textarea';
 import Toggle from '../../ui/Toggle';
 import type { Agent } from '../../../types/agent';
 import TemplateBrowser from './TemplateBrowser';
+import ModelRefInput from '../ModelRefInput';
 
 const PROFILE_OPTIONS = [
   { value: 'advanced', label: 'Advanced' },
@@ -134,7 +135,7 @@ export default function AgentEditor({ agent, onSave, onCancel, registerHandle, o
     <div className="space-y-6">
       <h3 className="text-sm font-semibold">{isNew ? t('settings.agents.new') : t('settings.agents.edit') + ': ' + agent?.name}</h3>
 
-      <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
+      <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
         <div className="grid grid-cols-2 gap-4">
           {isNew && (
             <div>
@@ -188,7 +189,7 @@ export default function AgentEditor({ agent, onSave, onCancel, registerHandle, o
             placeholder={t("settings.agents.promptPlaceholder")}
           />
         </div>
-        <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
           <div className="flex items-center justify-between">
             <div>
               <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300">
@@ -211,13 +212,13 @@ export default function AgentEditor({ agent, onSave, onCancel, registerHandle, o
             value={form.profile}
             onChange={(e) => setForm({ ...form, profile: e.target.value })}
           />
-          <Input
-            label={t("settings.agents.defaultModel")}
-            value={form.model}
-            onChange={(e) => setForm({ ...form, model: e.target.value })}
-            placeholder={t("settings.agents.modelPlaceholder")}
-          />
         </div>
+        <ModelRefInput
+          value={form.model}
+          onChange={(v) => setForm({ ...form, model: v })}
+          label={t("settings.agents.defaultModel")}
+          placeholder={t("settings.agents.modelPlaceholder")}
+        />
       </div>
 
       <TemplateBrowser

@@ -285,7 +285,7 @@ export default function ApprovalRulesEditor({
 
       {/* Rules Table */}
       {rules.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 p-8 text-center">
+        <div className="rounded-lg border border-dashed border-neutral-300 dark:border-neutral-800 p-8 text-center">
           <Shield size={32} className="mx-auto mb-2 text-neutral-400" />
           <p className="text-sm text-neutral-500 dark:text-neutral-400">
             No approval rules configured.
@@ -297,7 +297,7 @@ export default function ApprovalRulesEditor({
           )}
         </div>
       ) : (
-        <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 overflow-hidden">
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-neutral-100 dark:bg-neutral-800">
               <tr>
@@ -444,7 +444,7 @@ export default function ApprovalRulesEditor({
           </div>
 
           {/* Enabled */}
-          <div className="flex items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-700 px-4 py-3">
+          <div className="flex items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-800 px-4 py-3">
             <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
               Rule Enabled
             </span>
@@ -471,7 +471,7 @@ export default function ApprovalRulesEditor({
                   }
                 }}
                 placeholder="Type skill ID and press Enter"
-                className="flex-1 rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                className="flex-1 rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-100"
               />
               <Button size="sm" variant="secondary" onClick={addSkillTag}>
                 Add
@@ -515,7 +515,7 @@ export default function ApprovalRulesEditor({
                   }
                 }}
                 placeholder="Type agent ID and press Enter"
-                className="flex-1 rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                className="flex-1 rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-100"
               />
               <Button size="sm" variant="secondary" onClick={addAgentTag}>
                 Add
@@ -630,7 +630,7 @@ export default function ApprovalRulesEditor({
 
           {/* Auto-Rollback (only for auto_apply) */}
           {form.action === 'auto_apply' && (
-            <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 p-4 space-y-3">
+            <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800/50 p-4 space-y-3">
               <h4 className="text-xs font-semibold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider">
                 Auto-Rollback Settings
               </h4>

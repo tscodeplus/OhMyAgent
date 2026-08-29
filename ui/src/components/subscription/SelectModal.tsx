@@ -71,7 +71,7 @@ export default function SelectModal({
 
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-700 shadow-xl p-6 max-w-sm w-full mx-4">
+      <div className="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 shadow-xl p-6 max-w-sm w-full mx-4">
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
@@ -97,7 +97,7 @@ export default function SelectModal({
               key={opt.id}
               onClick={() => handleSelect(opt.id)}
               disabled={submitting}
-              className="w-full text-left px-4 py-3 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-700 disabled:opacity-50 text-sm font-medium text-neutral-900 dark:text-neutral-100 transition-colors"
+              className="w-full text-left px-4 py-3 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-700 disabled:opacity-50 text-sm font-medium text-neutral-900 dark:text-neutral-100 transition-colors"
             >
               {translateOptionLabel(opt.label, t)}
             </button>

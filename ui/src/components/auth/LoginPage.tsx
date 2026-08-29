@@ -32,7 +32,7 @@ export default function LoginPage() {
       <DesktopCaption mac={platform === 'macos'} text={t('auth.title')} />
       <div className="flex min-h-0 flex-1 items-center justify-center">
         <div className="w-full max-w-sm mx-4">
-          <div className="rounded-xl border border-neutral-200 bg-white p-8 dark:border-neutral-700 dark:bg-neutral-900">
+          <div className="rounded-xl border border-neutral-200 bg-white p-8 dark:border-neutral-800 dark:bg-neutral-900">
             <div className="mb-10 text-center">
               <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
                 {t('auth.title')}
@@ -54,7 +54,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-neutral-300 bg-white px-4 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-neutral-300 bg-white px-4 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
               >
                 {loading ? (
                   <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">

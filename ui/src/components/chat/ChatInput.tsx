@@ -923,7 +923,7 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
 
   return (
     <div
-      className={`shrink-0 border-t border-neutral-200 bg-white px-3 sm:px-4 py-2 sm:py-3 pb-safe dark:border-neutral-700 dark:bg-neutral-950 relative ${
+      className={`shrink-0 border-t border-neutral-200 bg-white px-3 sm:px-4 py-2 sm:py-3 pb-safe dark:border-neutral-800 dark:bg-neutral-950 relative ${
         isDragOver ? 'ring-2 ring-blue-400 dark:ring-blue-500' : ''
       }`}
       onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
@@ -969,7 +969,7 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
               className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs ${
                 item.status === 'error'
                   ? 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'
-                  : 'border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300'
+                  : 'border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300'
               }`}
             >
               {item.status === 'uploading' && <Loader2 size={12} className="animate-spin shrink-0" />}
@@ -1019,7 +1019,7 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck={false}
-          className="w-full resize-none rounded-xl border border-neutral-300 bg-white px-3 sm:px-4 py-2.5 sm:py-3 pr-[72px] sm:pr-[80px] text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+          className="w-full resize-none rounded-xl border border-neutral-300 bg-white px-3 sm:px-4 py-2.5 sm:py-3 pr-[72px] sm:pr-[80px] text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none disabled:opacity-50 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
         />
 
         {/* Buttons positioned at bottom-right inside the textarea */}

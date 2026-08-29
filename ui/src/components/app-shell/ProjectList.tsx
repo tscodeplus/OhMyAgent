@@ -269,7 +269,7 @@ export default function ProjectList({ refreshKey, onRefresh, onCreateProject }: 
         <div
           role="menu"
           onClick={e => e.stopPropagation()}
-          className="fixed z-50 w-44 rounded-lg border border-neutral-200 bg-white p-1 shadow-lg dark:border-neutral-700 dark:bg-neutral-900"
+          className="fixed z-50 w-44 rounded-lg border border-neutral-200 bg-white p-1 shadow-lg dark:border-neutral-800 dark:bg-neutral-900"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           <button

@@ -5,6 +5,7 @@ import Input from '../../ui/Input';
 import Select from '../../ui/Select';
 import Toggle from '../../ui/Toggle';
 import Spinner from '../../ui/Spinner';
+import ModelRefInput from '../ModelRefInput';
 
 interface MultimodalSettingsProps {
   tabId?: string;
@@ -31,7 +32,7 @@ export default function MultimodalSettings({ tabId = 'multimodal', registerHandl
   return (
     <div className="space-y-3">
       {/* Master switch */}
-      <div className="flex items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-4 py-3">
+      <div className="flex items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-4 py-3">
         <div>
           <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t("settings.multimodal.title")}</h3>
         </div>
@@ -47,7 +48,7 @@ export default function MultimodalSettings({ tabId = 'multimodal', registerHandl
         {(() => {
           const bri = (mm.image as Record<string, unknown>)?.bridge as Record<string, unknown> || {};
           return <>
-            <div className="mt-3 pt-3 border-t border-neutral-200 dark:border-neutral-700">
+            <div className="mt-3 pt-3 border-t border-neutral-200 dark:border-neutral-800">
               <h4 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 mb-2">{t('settings.vision.title')}</h4>
             </div>
             <div className="flex items-center justify-between">
@@ -55,8 +56,8 @@ export default function MultimodalSettings({ tabId = 'multimodal', registerHandl
               <Toggle checked={getField('multimodal.image.bridge.enabled', !!bri.enabled) as boolean}
                 onChange={(v) => setField('multimodal.image.bridge.enabled', v)} />
             </div>
-            <Input label={t('settings.vision.modelRef')} value={getField('multimodal.image.bridge.modelRef', String(bri.modelRef || '')) as string}
-              onChange={(e) => setField('multimodal.image.bridge.modelRef', e.target.value)} />
+            <ModelRefInput label={t('settings.vision.modelRef')} value={getField('multimodal.image.bridge.modelRef', String(bri.modelRef || '')) as string}
+              onChange={(v) => setField('multimodal.image.bridge.modelRef', v)} />
             <Input label={t('settings.vision.apiKey')} value={getField('multimodal.image.bridge.apiKey', String(bri.apiKey || '')) as string}
               onChange={(e) => setField('multimodal.image.bridge.apiKey', e.target.value)} type="password" />
             <Input label="Base URL" value={getField('multimodal.image.bridge.baseUrl', String(bri.baseUrl || '')) as string}
@@ -75,8 +76,8 @@ export default function MultimodalSettings({ tabId = 'multimodal', registerHandl
           <Toggle checked={getField('multimodal.imageGeneration.enabled', !!((mm.imageGeneration as Record<string, unknown>)?.enabled)) as boolean}
             onChange={(v) => setField('multimodal.imageGeneration.enabled', v)} />
         </div>
-        <Input label={t('settings.multimodal.modelRef')} value={getField('multimodal.imageGeneration.modelRef', String((mm.imageGeneration as Record<string, unknown>)?.modelRef || '')) as string}
-          onChange={(e) => setField('multimodal.imageGeneration.modelRef', e.target.value)} />
+        <ModelRefInput label={t('settings.multimodal.modelRef')} value={getField('multimodal.imageGeneration.modelRef', String((mm.imageGeneration as Record<string, unknown>)?.modelRef || '')) as string}
+          onChange={(v) => setField('multimodal.imageGeneration.modelRef', v)} />
         <Input label={t("settings.multimodal.outputDir")} value={getField('multimodal.imageGeneration.outputDir', String((mm.imageGeneration as Record<string, unknown>)?.outputDir || '')) as string}
           onChange={(e) => setField('multimodal.imageGeneration.outputDir', e.target.value)} />
         <Input label={t("settings.multimodal.maxPromptChars")} type="number" value={getField('multimodal.imageGeneration.maxPromptChars', String((mm.imageGeneration as Record<string, unknown>)?.maxPromptChars || '')) as string}
@@ -89,8 +90,8 @@ export default function MultimodalSettings({ tabId = 'multimodal', registerHandl
           <Toggle checked={getField('multimodal.videoGeneration.enabled', !!((mm.videoGeneration as Record<string, unknown>)?.enabled)) as boolean}
             onChange={(v) => setField('multimodal.videoGeneration.enabled', v)} />
         </div>
-        <Input label={t('settings.multimodal.modelRef')} value={getField('multimodal.videoGeneration.modelRef', String((mm.videoGeneration as Record<string, unknown>)?.modelRef || '')) as string}
-          onChange={(e) => setField('multimodal.videoGeneration.modelRef', e.target.value)} />
+        <ModelRefInput label={t('settings.multimodal.modelRef')} value={getField('multimodal.videoGeneration.modelRef', String((mm.videoGeneration as Record<string, unknown>)?.modelRef || '')) as string}
+          onChange={(v) => setField('multimodal.videoGeneration.modelRef', v)} />
         <Input label={t("settings.multimodal.outputDir")} value={getField('multimodal.videoGeneration.outputDir', String((mm.videoGeneration as Record<string, unknown>)?.outputDir || '')) as string}
           onChange={(e) => setField('multimodal.videoGeneration.outputDir', e.target.value)} />
         <Input label={t("settings.multimodal.maxPromptChars")} type="number" value={getField('multimodal.videoGeneration.maxPromptChars', String((mm.videoGeneration as Record<string, unknown>)?.maxPromptChars || '')) as string}

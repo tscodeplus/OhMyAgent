@@ -17,6 +17,8 @@ export interface UseConfigDirtyResult {
   config: Record<string, unknown> | null;
   loading: boolean;
   dirtyCount: number;
+  /** Paths of currently dirty fields (useful for sub-tab dirty badges). */
+  dirtyPaths: string[];
   fetchConfig: (showLoading?: boolean) => Promise<void>;
   getField: <T>(path: string, fallback: T) => T;
   setField: (path: string, value: unknown) => void;
@@ -154,5 +156,5 @@ export function useConfigDirty(
     return () => registerHandle?.(tabId, null);
   }, [tabId]); // Only re-register on mount/unmount or tabId change
 
-  return { config, loading, dirtyCount, fetchConfig, getField, setField, save, cancel };
+  return { config, loading, dirtyCount, dirtyPaths: Object.keys(dirtyFields), fetchConfig, getField, setField, save, cancel };
 }

@@ -11,13 +11,13 @@ import QRCodeModal from '../QRCodeModal';
 function ChannelCard({ name, children }: { name: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="border border-neutral-200 dark:border-neutral-700 rounded-lg overflow-hidden">
+    <div className="border border-neutral-200 dark:border-neutral-800 rounded-lg overflow-hidden">
       <button onClick={() => setOpen(!open)}
         className="flex items-center gap-2 w-full px-4 py-2.5 text-sm font-medium text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 transition-colors">
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         {name}
       </button>
-      {open && <div className="px-4 py-3 space-y-3 border-t border-neutral-200 dark:border-neutral-700">{children}</div>}
+      {open && <div className="px-4 py-3 space-y-3 border-t border-neutral-200 dark:border-neutral-800">{children}</div>}
     </div>
   );
 }

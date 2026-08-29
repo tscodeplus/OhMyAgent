@@ -40,6 +40,8 @@ export interface ModelPickerProps {
   onTestConnection?: () => Promise<boolean>;
   /** Hide the metadata badges (reasoning / context window / api) under the selected model */
   showMetaBadges?: boolean;
+  /** List of provider IDs that have API keys configured — shows status dots in the provider dropdown */
+  configuredProviders?: string[];
   className?: string;
 }
 
@@ -66,6 +68,7 @@ export default function ModelPicker({
   showTestButton = false,
   onTestConnection,
   showMetaBadges = true,
+  configuredProviders,
   className = '',
 }: ModelPickerProps) {
   const { t } = useTranslation('common');
@@ -168,7 +171,14 @@ export default function ModelPicker({
         label={providerLabel}
         value={provider}
         onChange={e => onChangeProvider(e.target.value)}
-        options={providers}
+        options={providers
+          .filter(p => !configuredProviders || configuredProviders.includes(p.value) || p.value === provider)
+          .map(p => ({
+            value: p.value,
+            label: configuredProviders?.includes(p.value)
+              ? `${p.label} ✓`
+              : p.label,
+          }))}
       />
 
       {/* Model combobox */}
@@ -181,10 +191,10 @@ export default function ModelPicker({
         <button
           type="button"
           onClick={() => setOpen(!open)}
-          className="flex items-center w-full rounded-lg border border-neutral-300 bg-white px-3 py-2.5 text-sm text-left text-neutral-900 hover:border-neutral-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+          className="flex items-center w-full rounded-lg border border-neutral-300 bg-white px-3 py-2.5 text-sm text-left text-neutral-900 hover:border-neutral-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-100"
         >
           <span className="flex-1 truncate">
-            {model || <span className="text-neutral-400">{modelPlaceholder || '—'}</span>}
+            {selectedModel?.name || model || <span className="text-neutral-400">{modelPlaceholder || '—'}</span>}
           </span>
           {loadingModels ? (
             <Loader2 size={14} className="animate-spin text-neutral-400" />
@@ -214,8 +224,8 @@ export default function ModelPicker({
 
         {/* Dropdown */}
         {open && (
-          <div className="absolute z-50 mt-1 w-full rounded-lg border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-800 max-h-72 flex flex-col">
-            <div className="flex items-center gap-2 px-3 py-2 border-b border-neutral-200 dark:border-neutral-700">
+          <div className="absolute z-50 mt-1 w-full rounded-lg border border-neutral-200 bg-white shadow-lg dark:border-neutral-800 dark:bg-neutral-800 max-h-72 flex flex-col">
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-neutral-200 dark:border-neutral-800">
               <Search size={14} className="text-neutral-400 shrink-0" />
               <input
                 ref={searchRef}
@@ -248,7 +258,7 @@ export default function ModelPicker({
               )}
             </div>
             {/* Custom model id fallback */}
-            <div className="border-t border-neutral-200 dark:border-neutral-700 px-3 py-2">
+            <div className="border-t border-neutral-200 dark:border-neutral-800 px-3 py-2">
               <input
                 value={model}
                 onChange={e => handleCustomModel(e.target.value)}
@@ -267,7 +277,7 @@ export default function ModelPicker({
             type="button"
             onClick={handleTest}
             disabled={testing || !model}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-40 transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-40 transition-colors"
           >
             {testing ? <Loader2 size={12} className="animate-spin" /> : <AlertCircle size={12} />}
             {t('settings.models.testConnection')}

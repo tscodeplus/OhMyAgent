@@ -1,7 +1,8 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X } from 'lucide-react';
+import { X, Info, Bot, Cpu, Workflow, Share2, Globe, Image as ImageIcon, Monitor, Wrench, BrainCircuit, Network, SlidersHorizontal, Settings2, Plug, AlertCircle, type LucideIcon } from 'lucide-react';
 import SettingsSidebar from './SettingsSidebar';
+import SettingsSearch from './SettingsSearch';
 import GeneralSettings from './tabs/GeneralSettings';
 import ModelSettings from './tabs/ModelSettings';
 import ChannelsSettings from './tabs/ChannelsSettings';
@@ -69,20 +70,42 @@ interface SettingsModalProps {
   onClose: () => void;
 }
 
-export const SETTINGS_GROUPS = [
-  { id: 'general', labelKey: 'settings.groups.general' },
-  { id: 'models', labelKey: 'settings.groups.models' },
-  { id: 'agents', labelKey: 'settings.groups.agents' },
-  { id: 'harness', labelKey: 'settings.groups.harness' },
-  { id: 'channels', labelKey: 'settings.groups.channels' },
-  { id: 'tools', labelKey: 'settings.groups.toolsPolicy' },
-  { id: 'websearch', labelKey: 'settings.groups.websearch' },
-  { id: 'memory', labelKey: 'settings.groups.memory' },
-  { id: 'multimodal', labelKey: 'settings.groups.multimodal' },
-  { id: 'computer', labelKey: 'settings.groups.computer' },
-  { id: 'gateway', labelKey: 'settings.groups.gateway' },
-  { id: 'about', labelKey: 'settings.groups.about' },
+export type SettingsGroupId = 'general' | 'agent' | 'integration' | 'system';
+
+export interface SettingsTabDef {
+  id: string;
+  labelKey: string;
+  group: SettingsGroupId;
+  icon: LucideIcon;
+}
+
+/** Sidebar tab order + 4-group clustering (P3). */
+export const SETTINGS_GROUPS: readonly SettingsTabDef[] = [
+  // ── 📌 常规 ──
+  { id: 'general', labelKey: 'settings.groups.general', group: 'general', icon: SlidersHorizontal },
+  // ── 🤖 智能体 ──
+  { id: 'models', labelKey: 'settings.groups.models', group: 'agent', icon: Cpu },
+  { id: 'agents', labelKey: 'settings.groups.agents', group: 'agent', icon: Bot },
+  { id: 'harness', labelKey: 'settings.groups.harness', group: 'agent', icon: Workflow },
+  // ── 🔌 集成 ──
+  { id: 'channels', labelKey: 'settings.groups.channels', group: 'integration', icon: Share2 },
+  { id: 'websearch', labelKey: 'settings.groups.websearch', group: 'integration', icon: Globe },
+  { id: 'multimodal', labelKey: 'settings.groups.multimodal', group: 'integration', icon: ImageIcon },
+  { id: 'computer', labelKey: 'settings.groups.computer', group: 'integration', icon: Monitor },
+  // ── ⚙️ 系统 ──
+  { id: 'tools', labelKey: 'settings.groups.toolsPolicy', group: 'system', icon: Wrench },
+  { id: 'memory', labelKey: 'settings.groups.memory', group: 'system', icon: BrainCircuit },
+  { id: 'gateway', labelKey: 'settings.groups.gateway', group: 'system', icon: Network },
+  { id: 'about', labelKey: 'settings.groups.about', group: 'system', icon: Info },
 ] as const;
+
+/** Group titles shown as section headers in the sidebar / <optgroup> on mobile. */
+export const SETTINGS_GROUP_DEFS: Record<SettingsGroupId, { labelKey: string; icon: LucideIcon }> = {
+  general: { labelKey: 'settings.groups.groupGeneral', icon: Settings2 },
+  agent: { labelKey: 'settings.groups.groupAgent', icon: Bot },
+  integration: { labelKey: 'settings.groups.groupIntegration', icon: Plug },
+  system: { labelKey: 'settings.groups.groupSystem', icon: Settings2 },
+};
 
 const COMPONENT_MAP: Record<string, React.ComponentType<any>> = {
   general: GeneralSettings,
@@ -103,8 +126,10 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
   const { t } = useTranslation('common');
   const { showToast, dismissToast } = useToast();
   const [activeGroup, setActiveGroup] = useState<string>('general');
+  const [modelSubTab, setModelSubTab] = useState<string | undefined>();
   const [saving, setSaving] = useState(false);
   const [dirtyTabs, setDirtyTabs] = useState<Set<string>>(new Set());
+  const [restartRequiredTabs, setRestartRequiredTabs] = useState<Set<string>>(new Set());
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
 
   // Track which tabs have been visited so they stay mounted (preserves dirty state).
@@ -231,6 +256,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
           savedCount++;
           if (handle.needsRestart?.() ?? RESTART_REQUIRED_TABS.has(tabId)) {
             needsRestart = true;
+            setRestartRequiredTabs(prev => new Set([...prev, tabId]));
           }
         }
       }
@@ -305,10 +331,10 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 max-sm:p-0 sm:p-4 backdrop-blur-sm">
-      <div className="relative flex max-sm:flex-col h-[85vh] max-sm:h-full max-sm:max-h-full w-full max-w-[860px] max-sm:max-w-none overflow-hidden rounded-xl max-sm:rounded-none border border-neutral-200 max-sm:border-0 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-950">
+      <div className="relative flex max-sm:flex-col h-[85vh] max-sm:h-full max-sm:max-h-full w-full max-w-4xl max-sm:max-w-none overflow-hidden rounded-xl max-sm:rounded-none border border-neutral-300 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-950">
         {/* Side nav */}
-        <div className="flex w-[180px] max-sm:w-full max-sm:h-auto shrink-0 flex-col border-r max-sm:border-r-0 max-sm:border-b border-neutral-200 bg-neutral-50/80 dark:border-neutral-700 dark:bg-neutral-900/50">
-          <div className="flex h-12 max-sm:h-9 items-center px-4 max-sm:px-3 border-b max-sm:border-b-0 max-sm:hidden border-neutral-200 dark:border-neutral-700 shrink-0">
+        <div className="flex w-[180px] max-sm:w-full max-sm:h-auto shrink-0 flex-col border-r max-sm:border-r-0 max-sm:border-b border-neutral-200 bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-900/50">
+          <div className="flex h-12 max-sm:h-9 items-center px-4 max-sm:px-3 border-b max-sm:border-b-0 max-sm:hidden border-neutral-200 dark:border-neutral-800 shrink-0">
             <h2 className="text-[13px] font-semibold text-neutral-900 dark:text-neutral-100 whitespace-nowrap">
               {t('settings.title')}
             </h2>
@@ -317,6 +343,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
             groups={visibleGroups}
             activeGroup={activeGroup}
             onSelect={handleSidebarSelect}
+            dirtyTabs={dirtyTabs}
             mobileActions={dialogActions}
           />
         </div>
@@ -325,13 +352,30 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
         <div className="flex flex-1 flex-col min-w-0 min-h-0">
           {/* Desktop-only content header — phones fold the actions into the
               picker row above instead, so the group name isn't shown twice. */}
-          <div className="hidden sm:flex h-12 items-center justify-between px-6 border-b border-neutral-200 dark:border-neutral-700">
+          <div className="hidden sm:flex h-12 items-center justify-between gap-3 px-6 border-b border-neutral-200 dark:border-neutral-800">
             <h3 className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300 truncate">
               {t(visibleGroups.find(g => g.id === activeGroup)?.labelKey || '')}
             </h3>
-            {dialogActions}
+            <div className="flex items-center gap-2">
+              <SettingsSearch onSelect={(tabId, subTabId) => { setActiveGroup(tabId); if (subTabId) setModelSubTab(subTabId); }} />
+              {dialogActions}
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto p-6 max-sm:p-4">
+            {/* Restart-required banner */}
+            {restartRequiredTabs.size > 0 && (
+              <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 mb-4 dark:border-amber-800 dark:bg-amber-900/20">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <p className="text-sm text-amber-800 dark:text-amber-200">
+                    {t('settings.restartNeeded')}
+                  </p>
+                </div>
+                <Button variant="secondary" size="sm" onClick={canRestartService() ? handleRestart : handleServerRestart}>
+                  {t('settings.restartNow')}
+                </Button>
+              </div>
+            )}
             {/* Tabs that support save/cancel stay mounted once visited */}
             {mountedTabs.has('general') && (
               <div style={{ display: activeGroup === 'general' ? undefined : 'none' }}>
@@ -340,7 +384,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
             )}
             {mountedTabs.has('models') && (
               <div style={{ display: activeGroup === 'models' ? undefined : 'none' }}>
-                <ModelSettings {...tabProps} />
+                <ModelSettings {...tabProps} initialSubTab={modelSubTab} />
               </div>
             )}
             {mountedTabs.has('channels') && (
@@ -400,7 +444,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
       {/* ── Close confirmation dialog ── */}
       {showCloseConfirm && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40">
-          <div className="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-700 shadow-xl p-6 max-w-sm w-full mx-4">
+          <div className="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 shadow-xl p-6 max-w-sm w-full mx-4">
             <p className="text-sm text-neutral-900 dark:text-neutral-100 mb-4">
               {t('settings.confirmDiscardChanges')}
             </p>

@@ -430,7 +430,7 @@ export default function DesktopSettings() {
         </div>
 
         {/* ── GitHub repo link + Submit Issue button ── */}
-        <div className="flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-3 mb-3">
+        <div className="flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3 mb-3">
           <span className="text-xs text-neutral-500 dark:text-neutral-400 shrink-0 font-semibold">
             {t('settings.about.githubRepo')}
           </span>

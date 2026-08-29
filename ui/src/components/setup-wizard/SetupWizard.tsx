@@ -291,9 +291,9 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
       {/* Card */}
-      <div className="relative flex w-full max-w-2xl flex-col rounded-2xl border border-neutral-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900 max-h-[92vh]">
+      <div className="relative flex w-full max-w-2xl flex-col rounded-2xl border border-neutral-200 bg-white shadow-2xl dark:border-neutral-800 dark:bg-neutral-900 max-h-[92vh]">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-200 dark:border-neutral-700 shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-200 dark:border-neutral-800 shrink-0">
           <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
             {t('setupWizard.title')}
           </h2>
@@ -458,7 +458,7 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
                 value={state.reasoningModelId}
                 onChange={(e) => update({ reasoningModelId: e.target.value })}
               />
-              <div className="flex items-center justify-between rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800/50">
+              <div className="flex items-center justify-between rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 dark:border-neutral-800 dark:bg-neutral-800/50">
                 <Button
                   variant="secondary"
                   size="sm"
@@ -517,7 +517,7 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
                 value={state.embeddingModel}
                 onChange={(e) => update({ embeddingModel: e.target.value })}
               />
-              <div className="flex items-center justify-end rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800/50">
+              <div className="flex items-center justify-end rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 dark:border-neutral-800 dark:bg-neutral-800/50">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -547,7 +547,7 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
                 {reviewItems.map((item) => (
                   <div
                     key={item.step}
-                    className="flex items-center justify-between rounded-lg border border-neutral-200 px-4 py-3 dark:border-neutral-700"
+                    className="flex items-center justify-between rounded-lg border border-neutral-200 px-4 py-3 dark:border-neutral-800"
                   >
                     <div className="flex flex-col min-w-0">
                       <span className="text-xs text-neutral-400">{item.label}</span>
@@ -575,7 +575,7 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-neutral-200 dark:border-neutral-700 shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-t border-neutral-200 dark:border-neutral-800 shrink-0">
           <div>
             {currentStep > 1 && (
               <Button variant="secondary" size="md" onClick={handleBack}>
@@ -602,7 +602,7 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
       {/* Close confirmation dialog */}
       {showCloseConfirm && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/30">
-          <div className="w-full max-w-sm rounded-xl border border-neutral-200 bg-white p-6 shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
+          <div className="w-full max-w-sm rounded-xl border border-neutral-200 bg-white p-6 shadow-xl dark:border-neutral-800 dark:bg-neutral-900">
             <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
               {t('setupWizard.closeConfirmTitle')}
             </h3>

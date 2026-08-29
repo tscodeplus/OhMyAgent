@@ -266,7 +266,7 @@ function MessageBubble({ message }: MessageBubbleProps) {
         <div className="relative group max-w-[240px]">
           <button
             onClick={() => authSrc && setLightboxUrl(authSrc)}
-            className="block w-full rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 hover:opacity-90 transition-opacity cursor-pointer"
+            className="block w-full rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-800 hover:opacity-90 transition-opacity cursor-pointer"
           >
             <img
               src={authSrc}
@@ -447,7 +447,7 @@ function MessageBubble({ message }: MessageBubbleProps) {
                   ) : seg.type === 'skill' ? (
                     <div
                       key={`skill-${i}`}
-                      className="flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
+                      className="flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
                     >
                       <Zap size={14} className="text-amber-500 dark:text-amber-400 shrink-0" />
                       <span className="text-neutral-700 dark:text-neutral-200">
@@ -462,7 +462,7 @@ function MessageBubble({ message }: MessageBubbleProps) {
                       {seg.media.type === 'image' ? (
                         <button
                           onClick={() => setLightboxUrl(withAuthUrl(seg.media!.url))}
-                          className="block max-w-[240px] rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 hover:opacity-90 transition-opacity cursor-pointer"
+                          className="block max-w-[240px] rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-800 hover:opacity-90 transition-opacity cursor-pointer"
                         >
                           <img
                             src={withAuthUrl(seg.media.url)}
@@ -475,7 +475,7 @@ function MessageBubble({ message }: MessageBubbleProps) {
                         <video
                           src={withAuthUrl(seg.media.url)}
                           controls
-                          className="max-w-full rounded-lg border border-neutral-200 dark:border-neutral-700"
+                          className="max-w-full rounded-lg border border-neutral-200 dark:border-neutral-800"
                           style={{ maxHeight: '300px' }}
                         />
                       ) : (
@@ -483,7 +483,7 @@ function MessageBubble({ message }: MessageBubbleProps) {
                           onClick={() =>
                             handleDownload(seg.media!.url, seg.media!.name || 'download')
                           }
-                          className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors group"
+                          className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-800 px-3 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors group"
                         >
                           <Download
                             size={14}
@@ -552,7 +552,7 @@ function MessageBubble({ message }: MessageBubbleProps) {
                 <button
                   key={i}
                   onClick={() => handleDownload(href, file.name)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors group"
+                  className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-800 px-3 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors group"
                 >
                   <Download
                     size={14}
@@ -617,7 +617,7 @@ function MessageBubble({ message }: MessageBubbleProps) {
                           onClick={() =>
                             !needsApproval && !wasRejected && setLightboxUrl(withAuthUrl(img.url))
                           }
-                          className={`block max-w-[240px] rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 hover:opacity-90 transition-opacity ${needsApproval || wasRejected ? 'cursor-default opacity-50' : 'cursor-pointer'}`}
+                          className={`block max-w-[240px] rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-800 hover:opacity-90 transition-opacity ${needsApproval || wasRejected ? 'cursor-default opacity-50' : 'cursor-pointer'}`}
                         >
                           {wasRejected ? (
                             <div className="w-[240px] h-[120px] flex items-center justify-center bg-neutral-100 dark:bg-neutral-800 text-sm text-neutral-500">
@@ -692,7 +692,7 @@ function MessageBubble({ message }: MessageBubbleProps) {
                 <button
                   key={i}
                   onClick={() => handleDownload(href, file.name)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors group"
+                  className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-800 px-3 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors group"
                 >
                   <Download
                     size={14}

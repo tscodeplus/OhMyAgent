@@ -197,7 +197,7 @@ export default function GatewaySettings({ registerHandle, onDirtyChange }: Gatew
           {t('settings.gateway.title', 'Gateway Connection')}
         </h3>
 
-        <div className="flex items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4 mb-3">
+        <div className="flex items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 mb-3">
           <div>
             <label className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
               {t('settings.gateway.remote', 'Remote Gateway')}
@@ -227,7 +227,7 @@ export default function GatewaySettings({ registerHandle, onDirtyChange }: Gatew
           <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">
             {t('settings.gateway.remoteConfig', 'Remote Gateway Configuration')}
           </h3>
-          <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
+          <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
             <Input
               label={t('settings.gateway.url', 'Gateway URL')}
               placeholder={t('settings.gateway.urlPlaceholder', 'http://192.168.1.100:9191') || ''}
@@ -270,13 +270,13 @@ export default function GatewaySettings({ registerHandle, onDirtyChange }: Gatew
           <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">
             {t('settings.gateway.local', 'Local Gateway')}
           </h3>
-          <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
+          <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
             <p className="text-sm text-neutral-600 dark:text-neutral-400">
               {t('settings.gateway.localStatus', 'Using the embedded local server. Enable "Remote Gateway" above to connect to another instance.')}
             </p>
 
             {webAccessInfo && (
-              <div className="mt-4 space-y-4 border-t border-neutral-200 dark:border-neutral-700 pt-4">
+              <div className="mt-4 space-y-4 border-t border-neutral-200 dark:border-neutral-800 pt-4">
                 {/* Access URLs (localhost + LAN) */}
                 <div>
                   <p className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300 mb-1.5">

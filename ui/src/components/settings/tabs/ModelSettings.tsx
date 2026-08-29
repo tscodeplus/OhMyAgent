@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, Trash2, ChevronDown, ChevronRight, X } from 'lucide-react';
+import { Plus, Trash2, ChevronDown, ChevronRight, X, CreditCard, Plug, Route, BrainCircuit, type LucideIcon } from 'lucide-react';
 import { apiRequest } from '../../../utils/api';
 import { useToast } from '../../ui/Toast';
 import { useConfigDirty, type SettingsTabHandle } from '../useConfigDirty';
@@ -10,16 +10,18 @@ import Toggle from '../../ui/Toggle';
 import Spinner from '../../ui/Spinner';
 import SubscriptionsSettings from './SubscriptionsSettings';
 import ModelPicker from '../ModelPicker';
+import ModelRefInput from '../ModelRefInput';
+import { SettingsSection, SettingsCard } from '../SettingsSection';
 
 /* ───────── Sub-tabs for the Models tab ───────── */
 
 type ModelSubTab = 'subscription' | 'providers' | 'router' | 'auxiliary';
 
-const MODEL_SUB_TABS: Array<{ id: ModelSubTab; labelKey: string }> = [
-  { id: 'subscription', labelKey: 'settings.models.subtabs.subscription' },
-  { id: 'providers', labelKey: 'settings.models.subtabs.providers' },
-  { id: 'router', labelKey: 'settings.models.subtabs.router' },
-  { id: 'auxiliary', labelKey: 'settings.models.subtabs.auxiliary' },
+const MODEL_SUB_TABS: Array<{ id: ModelSubTab; labelKey: string; icon: LucideIcon }> = [
+  { id: 'subscription', labelKey: 'settings.models.subtabs.subscription', icon: CreditCard },
+  { id: 'providers', labelKey: 'settings.models.subtabs.providers', icon: Plug },
+  { id: 'router', labelKey: 'settings.models.subtabs.router', icon: Route },
+  { id: 'auxiliary', labelKey: 'settings.models.subtabs.auxiliary', icon: BrainCircuit },
 ];
 
 interface ProviderModel {
@@ -51,15 +53,29 @@ interface ModelSettingsProps {
   tabId?: string;
   registerHandle?: (tabId: string, handle: SettingsTabHandle | null) => void;
   onDirtyChange?: (tabId: string, dirty: boolean) => void;
+  initialSubTab?: string;
 }
 
-export default function ModelSettings({ tabId = 'models', registerHandle, onDirtyChange }: ModelSettingsProps) {
+function HealthItem({ label, ok, warn }: { label: string; ok: boolean; warn?: boolean }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className={`h-2 w-2 rounded-full ${ok ? 'bg-green-500' : warn ? 'bg-amber-500' : 'bg-red-500'}`} />
+      <span className="text-xs text-neutral-600 dark:text-neutral-400">{label}</span>
+    </div>
+  );
+}
+
+export default function ModelSettings({ tabId = 'models', registerHandle, onDirtyChange, initialSubTab }: ModelSettingsProps) {
   const { t } = useTranslation('common');
   const { showToast } = useToast();
-  const { config, loading, getField, setField, save: saveSimple, cancel: cancelSimple, fetchConfig, dirtyCount } = useConfigDirty(tabId, undefined, undefined);
+  const { config, loading, getField, setField, save: saveSimple, cancel: cancelSimple, fetchConfig, dirtyCount, dirtyPaths } = useConfigDirty(tabId, undefined, undefined);
 
   /* ─── Sub-tab state ─── */
-  const [activeSubTab, setActiveSubTab] = useState<ModelSubTab>('subscription');
+  const [activeSubTab, setActiveSubTab] = useState<ModelSubTab>((initialSubTab as ModelSubTab) || 'subscription');
+
+  useEffect(() => {
+    if (initialSubTab) setActiveSubTab(initialSubTab as ModelSubTab);
+  }, [initialSubTab]);
 
   /* ─── Built-in providers fetched from pi-mono (avoids drift) ─── */
   const [builtinProviders, setBuiltinProviders] = useState<Record<string, string>>({});
@@ -305,10 +321,22 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
   const embedding = (config.embedding as Record<string, unknown>) || {};
   const memoryAux = (config.memoryAuxModels as Record<string, unknown>) || {};
 
-  const selectedProvider = piAi.provider || 'deepseek';
+  const selectedProvider = getField('piAi.provider', piAi.provider || 'deepseek') as string;
   const selectedPkEntry = providerKeys[selectedProvider];
   const selectedCustom = customProviders.find(cp => cp.provider === selectedProvider);
-  const hasProviderKey = !!selectedPkEntry || !!selectedCustom;
+  const hasProviderKey = !!(selectedPkEntry?.apiKey || selectedCustom?.apiKey);
+
+  const configuredProviders: string[] = (() => {
+    const ids = new Set<string>();
+    for (const [name, entry] of Object.entries(providerKeys)) {
+      if (entry.apiKey) ids.add(name);
+    }
+    if (piAi.provider && piAi.apiKey) ids.add(piAi.provider);
+    for (const cp of customProviders) {
+      if (cp.apiKey) ids.add(cp.provider);
+    }
+    return Array.from(ids);
+  })();
 
   // Build merged provider keys view: providerKeys entries + piAi provider if it has a key
   const builtinEntries: Array<{ name: string; entry: ProviderKeyEntry; source: 'providerKeys' | 'piAi' | 'custom' }> = [];
@@ -331,27 +359,62 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
   // Show builtin entries that have API key, OR are empty (being edited)
   const displayBuiltin = builtinEntries.filter(b => b.entry.apiKey || b.name);
 
+  /* ─── Sub-tab dirty state (for badges) ───
+     providers: providerKeys/customProviders are deferred-save (own flags);
+     router: piAi.* / fallbackModels / defaultReasoningLevel;
+     auxiliary: memoryAuxModels.* / embedding.*. */
+  const subTabDirty: Record<ModelSubTab, boolean> = {
+    subscription: false,
+    providers: providerKeysDirty || customProvidersDirty,
+    router: dirtyPaths.some(p =>
+      p === 'fallbackModels' || p === 'defaultReasoningLevel' || p.startsWith('piAi.')),
+    auxiliary: dirtyPaths.some(p =>
+      p.startsWith('memoryAuxModels.') || p.startsWith('embedding.')),
+  };
+
   return (
     <div className="space-y-3">
 
-      {/* ── Sub-tab bar ── */}
-      <div className="flex gap-1 border-b border-neutral-200 dark:border-neutral-700" role="tablist">
-        {MODEL_SUB_TABS.map(st => (
-          <button
-            key={st.id}
-            type="button"
-            role="tab"
-            aria-selected={activeSubTab === st.id}
-            onClick={() => setActiveSubTab(st.id)}
-            className={`px-3 py-2 text-[13px] border-b-2 -mb-px transition-colors ${
-              activeSubTab === st.id
-                ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400 font-medium'
-                : 'border-transparent text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100'
-            }`}
-          >
-            {t(st.labelKey)}
-          </button>
-        ))}
+      {/* ── Health status bar ── */}
+      <div className="flex items-center gap-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50 px-3 py-2">
+        <HealthItem
+          label={t('settings.models.title')}
+          ok={!!(piAi.provider && (piAi.apiKey || hasProviderKey))}
+        />
+        <span className="h-4 w-px bg-neutral-200 dark:bg-neutral-700" />
+        <HealthItem
+          label={t('settings.models.embeddingTitle')}
+          ok={!!(embedding.model && embedding.apiKey)}
+          warn={!embedding.model}
+        />
+      </div>
+
+      {/* ── Sub-tab bar (segmented control) ── */}
+      <div className="flex gap-1 p-1 rounded-lg bg-neutral-100 dark:bg-neutral-800" role="tablist">
+        {MODEL_SUB_TABS.map(st => {
+          const Icon = st.icon;
+          const active = activeSubTab === st.id;
+          return (
+            <button
+              key={st.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setActiveSubTab(st.id)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-[13px] rounded-md transition-all ${
+                active
+                  ? 'bg-white dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100 shadow-sm font-medium'
+                  : 'text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100'
+              }`}
+            >
+              <Icon size={14} strokeWidth={1.75} />
+              <span>{t(st.labelKey)}</span>
+              {subTabDirty[st.id] && !active && (
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* ── Sub-tab: Subscription logins ── */}
@@ -374,7 +437,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
           </div>
 
           {displayBuiltin.length === 0 ? (
-            <p className="text-xs text-neutral-400 dark:text-neutral-500 py-3 text-center border border-dashed border-neutral-200 dark:border-neutral-700 rounded-lg">
+            <p className="text-xs text-neutral-400 dark:text-neutral-500 py-3 text-center border border-dashed border-neutral-200 dark:border-neutral-800 rounded-lg">
               {t('settings.models.noProviderKeys')}
             </p>
           ) : (
@@ -387,13 +450,14 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                   return next;
                 });
                 return (
-                <div key={name || '__new__'} className="rounded-lg border border-neutral-100 dark:border-neutral-700 overflow-hidden">
+                <div key={name || '__new__'} className="rounded-lg border border-neutral-100 dark:border-neutral-800 overflow-hidden">
                   {/* Header */}
                   <div className="flex items-center gap-2 px-3 py-2 bg-neutral-50 dark:bg-neutral-950/50">
                     <button onClick={toggle}
                       className="text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 transition-colors">
                       {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                     </button>
+                    <span className={`h-2 w-2 rounded-full shrink-0 ${entry.apiKey ? 'bg-green-500' : 'bg-neutral-300 dark:bg-neutral-600'}`} />
                     <span className="text-xs font-medium text-neutral-700 dark:text-neutral-200 flex-1 truncate">
                       {name || t('settings.models.newProvider')}
                     </span>
@@ -424,7 +488,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                   </div>
                   {/* Expanded body */}
                   {isExpanded && (
-                    <div className="px-3 py-3 space-y-3 border-t border-neutral-100 dark:border-neutral-700">
+                    <div className="px-3 py-3 space-y-3 border-t border-neutral-100 dark:border-neutral-800">
                       {(() => {
                         const defaultBaseUrl = builtinProviders[name] || undefined;
                         const resolvedBaseUrl = entry.baseUrl || defaultBaseUrl;
@@ -473,7 +537,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
         </div>
 
         {/* ── Custom Providers ── */}
-        <div className="border-t border-neutral-200 dark:border-neutral-700 pt-3">
+        <div className="border-t border-neutral-200 dark:border-neutral-800 pt-3">
           <div className="flex items-center justify-between mb-2">
             <h4 className="text-xs font-semibold text-neutral-600 dark:text-neutral-400">
               {t('settings.models.customProviders')}
@@ -485,13 +549,13 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
           </div>
 
           {customProviders.length === 0 ? (
-            <p className="text-xs text-neutral-400 dark:text-neutral-500 py-3 text-center border border-dashed border-neutral-200 dark:border-neutral-700 rounded-lg">
+            <p className="text-xs text-neutral-400 dark:text-neutral-500 py-3 text-center border border-dashed border-neutral-200 dark:border-neutral-800 rounded-lg">
               {t('settings.models.noProviders')}
             </p>
           ) : (
             <div className="space-y-2">
               {customProviders.map((cp, pIdx) => (
-                <div key={pIdx} className="rounded-lg border border-neutral-100 dark:border-neutral-700 overflow-hidden">
+                <div key={pIdx} className="rounded-lg border border-neutral-100 dark:border-neutral-800 overflow-hidden">
                   <div className="flex items-center gap-2 px-3 py-2 bg-neutral-50 dark:bg-neutral-950/50">
                     <button onClick={() => toggleCustomProvider(pIdx)}
                       className="text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 transition-colors">
@@ -510,7 +574,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                     </button>
                   </div>
                   {expandedCustom.has(pIdx) && (
-                    <div className="px-3 py-3 space-y-3 border-t border-neutral-100 dark:border-neutral-700">
+                    <div className="px-3 py-3 space-y-3 border-t border-neutral-100 dark:border-neutral-800">
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <Input label={t('settings.models.providerName')} value={cp.provider}
                           onChange={(e) => updateCustomProvider(pIdx, 'provider', e.target.value)}
@@ -522,7 +586,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                           placeholder="e.g. https://api.example.com/v1" />
                       </div>
                       {/* Models */}
-                      <div className="border-t border-neutral-100 dark:border-neutral-700 pt-3">
+                      <div className="border-t border-neutral-100 dark:border-neutral-800 pt-3">
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
                             {t('settings.models.models')}
@@ -539,7 +603,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                         ) : (
                           <div className="space-y-2">
                             {cp.models.map((model, mIdx) => (
-                              <div key={mIdx} className="rounded border border-neutral-100 dark:border-neutral-700 p-2.5 bg-neutral-50/50 dark:bg-neutral-950/30">
+                              <div key={mIdx} className="rounded border border-neutral-100 dark:border-neutral-800 p-2.5 bg-neutral-50/50 dark:bg-neutral-950/30">
                                 <div className="flex items-center justify-between mb-2">
                                   <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
                                     {model.name || model.id || `Model #${mIdx + 1}`}
@@ -591,12 +655,12 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                                       value={model.reasoningLevel || 'off'}
                                       onChange={(e) => updateModel(pIdx, mIdx, 'reasoningLevel', e.target.value)}
                                       options={[
-                                        { value: 'high', label: 'high' },
-                                        { value: 'low', label: 'low' },
-                                        { value: 'medium', label: 'medium' },
-                                        { value: 'minimal', label: 'minimal' },
-                                        { value: 'off', label: 'off' },
-                                        { value: 'xhigh', label: 'xhigh' },
+                                        { value: 'high', label: t('settings.models.reasoningLevels.high') },
+                                        { value: 'low', label: t('settings.models.reasoningLevels.low') },
+                                        { value: 'medium', label: t('settings.models.reasoningLevels.medium') },
+                                        { value: 'minimal', label: t('settings.models.reasoningLevels.minimal') },
+                                        { value: 'off', label: t('settings.models.reasoningLevels.off') },
+                                        { value: 'xhigh', label: t('settings.models.reasoningLevels.xhigh') },
                                       ]} />
                                   </div>
                                   <Input label={t('settings.models.modelContextWindow')} type="number"
@@ -648,123 +712,124 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
       {/* ── Sub-tab: Router — primary model / fallback / default reasoning ── */}
       <div style={{ display: activeSubTab === 'router' ? undefined : 'none' }} className="space-y-6">
         {/* Primary Model */}
-        <section>
-          <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.models.title')}</h3>
-          <div className="space-y-3 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
-            <ModelPicker
-              provider={selectedProvider}
-              model={getField('piAi.model', piAi.model || '') as string}
-              extraProviders={extraProviderOptions}
-              onChangeProvider={(v) => setField('piAi.provider', v)}
-              onChangeModel={(v) => setField('piAi.model', v)}
-              providerLabel={t('settings.models.provider')}
-              modelLabel={t('settings.models.model')}
-              showMetaBadges={false}
-            />
-            <Input label={t('settings.models.reasoningModel')}
-              value={getField('piAi.reasoningModel', piAi.reasoningModel || '') as string}
-              onChange={(e) => setField('piAi.reasoningModel', e.target.value)}
-              placeholder={t('settings.models.reasoningModelPlaceholder')} />
-            <Input label={t('settings.models.apiKey')} type="password"
-              value={getField('piAi.apiKey', piAi.apiKey || '') as string}
-              onChange={(e) => setField('piAi.apiKey', e.target.value)}
-              placeholder={
-                selectedPkEntry?.apiKey ? t('settings.models.apiKeyFromBuiltin') :
-                selectedCustom?.apiKey ? t('settings.models.apiKeyFromCustom2') :
-                undefined
-              } />
-            {hasProviderKey && !piAi.apiKey && (
-              <p className="text-[11px] text-green-600 dark:text-green-400">
-                {t('settings.models.apiKeyInherited')}
-              </p>
-            )}
-            {!hasProviderKey && !piAi.apiKey && (
-              <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                {t('settings.models.apiKeyNotConfigured')}
-              </p>
-            )}
-            <Input label={t('settings.models.baseUrl')}
-              value={getField('piAi.baseUrl', piAi.baseUrl || '') as string}
-              onChange={(e) => setField('piAi.baseUrl', e.target.value)}
-              placeholder={
-                selectedPkEntry?.baseUrl ? t('settings.models.baseUrlFromBuiltin') :
-                selectedCustom?.baseUrl ? t('settings.models.baseUrlFromCustom2') :
-                undefined
-              } />
-          </div>
-        </section>
+        <SettingsSection title={t('settings.models.title')}>
+          <SettingsCard>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-3">
+                <ModelPicker
+                  provider={selectedProvider}
+                  model={getField('piAi.model', piAi.model || '') as string}
+                  extraProviders={extraProviderOptions}
+                  onChangeProvider={(v) => setField('piAi.provider', v)}
+                  onChangeModel={(v) => setField('piAi.model', v)}
+                  providerLabel={t('settings.models.provider')}
+                  modelLabel={t('settings.models.model')}
+                  showMetaBadges={false}
+                  configuredProviders={configuredProviders}
+                />
+                <Input label={t('settings.models.reasoningModel')}
+                  value={getField('piAi.reasoningModel', piAi.reasoningModel || '') as string}
+                  onChange={(e) => setField('piAi.reasoningModel', e.target.value)}
+                  placeholder={t('settings.models.reasoningModelPlaceholder')} />
+              </div>
+              <div className="space-y-3">
+                <Input label={t('settings.models.apiKey')} type="password"
+                  value={getField('piAi.apiKey', piAi.apiKey || '') as string}
+                  onChange={(e) => setField('piAi.apiKey', e.target.value)}
+                  placeholder={
+                    selectedPkEntry?.apiKey ? t('settings.models.apiKeyFromBuiltin') :
+                    selectedCustom?.apiKey ? t('settings.models.apiKeyFromCustom2') :
+                    undefined
+                  } />
+                {hasProviderKey ? (
+                  <p className="text-[11px] text-green-600 dark:text-green-400">
+                    {t('settings.models.apiKeyInherited')}
+                  </p>
+                ) : !piAi.apiKey && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                    {t('settings.models.apiKeyNotConfigured')}
+                  </p>
+                )}
+                <Input label={t('settings.models.baseUrl')}
+                  value={getField('piAi.baseUrl', piAi.baseUrl || '') as string}
+                  onChange={(e) => setField('piAi.baseUrl', e.target.value)}
+                  placeholder={
+                    selectedPkEntry?.baseUrl ? t('settings.models.baseUrlFromBuiltin') :
+                    selectedCustom?.baseUrl ? t('settings.models.baseUrlFromCustom2') :
+                    undefined
+                  } />
+              </div>
+            </div>
+          </SettingsCard>
+        </SettingsSection>
 
         {/* Fallback Models */}
-        <section>
-          <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.models.fallbackModels')}</h3>
-          <div className="space-y-3 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
-          <Input label={t('settings.models.fallbackModelsHint')}
-            value={(getField('fallbackModels', fallbackModels) as string[]).join(', ')}
-            onChange={(e) => setField('fallbackModels', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
-            placeholder="e.g. gpt-4o, claude-sonnet-4-6" />
-          </div>
-        </section>
+        <SettingsSection title={t('settings.models.fallbackModels')}>
+          <SettingsCard>
+            <Input label={t('settings.models.fallbackModelsHint')}
+              value={(getField('fallbackModels', fallbackModels) as string[]).join(', ')}
+              onChange={(e) => setField('fallbackModels', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+              placeholder="e.g. gpt-4o, claude-sonnet-4-6" />
+          </SettingsCard>
+        </SettingsSection>
 
         {/* Default Reasoning Level */}
-        <section>
-          <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.models.defaultReasoningLevel')}</h3>
-          <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
-          <Select
-            label={t('settings.models.defaultReasoningLevel')}
-            value={getField('defaultReasoningLevel', defReasoningLevel || 'off') as string}
-            onChange={(e) => setField('defaultReasoningLevel', e.target.value)}
-            options={[
-              { value: 'high', label: 'high' },
-              { value: 'low', label: 'low' },
-              { value: 'medium', label: 'medium' },
-              { value: 'minimal', label: 'minimal' },
-              { value: 'off', label: 'off' },
-              { value: 'xhigh', label: 'xhigh' },
-            ]}
-          />
-          </div>
-        </section>
+        <SettingsSection title={t('settings.models.defaultReasoningLevel')}>
+          <SettingsCard>
+            <Select
+              label={t('settings.models.defaultReasoningLevel')}
+              value={getField('defaultReasoningLevel', defReasoningLevel || 'off') as string}
+              onChange={(e) => setField('defaultReasoningLevel', e.target.value)}
+              options={[
+                { value: 'high', label: t('settings.models.reasoningLevels.high') },
+                { value: 'low', label: t('settings.models.reasoningLevels.low') },
+                { value: 'medium', label: t('settings.models.reasoningLevels.medium') },
+                { value: 'minimal', label: t('settings.models.reasoningLevels.minimal') },
+                { value: 'off', label: t('settings.models.reasoningLevels.off') },
+                { value: 'xhigh', label: t('settings.models.reasoningLevels.xhigh') },
+              ]}
+            />
+          </SettingsCard>
+        </SettingsSection>
       </div>
 
       {/* ── Sub-tab: Auxiliary — memory aux models + embedding ── */}
       <div style={{ display: activeSubTab === 'auxiliary' ? undefined : 'none' }} className="space-y-6">
-        <section>
-          <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.models.memoryAuxModels')}</h3>
-          <div className="space-y-3 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
-        <Input label={t('settings.models.memoryAuxPrimary')}
-          value={getField('memoryAuxModels.primary', (memoryAux.primary as string) || '') as string}
-          onChange={(e) => setField('memoryAuxModels.primary', e.target.value)}
-          placeholder="e.g. deepseek-chat" />
-        <Input label={t('settings.models.fallbackModels')}
-          value={(getField('memoryAuxModels.fallback_models', (memoryAux.fallback_models as string[]) || []) as string[]).join(', ')}
-          onChange={(e) => setField('memoryAuxModels.fallback_models', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
-          placeholder="e.g. gpt-4o-mini" />
-          </div>
-        </section>
+        <SettingsSection title={t('settings.models.memoryAuxModels')}>
+          <SettingsCard>
+            <ModelRefInput label={t('settings.models.memoryAuxPrimary')}
+              value={getField('memoryAuxModels.primary', (memoryAux.primary as string) || '') as string}
+              onChange={(v) => setField('memoryAuxModels.primary', v)}
+              placeholder="e.g. deepseek-chat" />
+            <Input label={t('settings.models.fallbackModels')}
+              value={(getField('memoryAuxModels.fallback_models', (memoryAux.fallback_models as string[]) || []) as string[]).join(', ')}
+              onChange={(e) => setField('memoryAuxModels.fallback_models', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+              placeholder="e.g. gpt-4o-mini" />
+          </SettingsCard>
+        </SettingsSection>
 
-        <section>
-          <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.models.embeddingTitle')}</h3>
-          <div className="space-y-3 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
-        <Input label="Base URL"
-          value={getField('embedding.baseUrl', (embedding.baseUrl as string) || '') as string}
-          onChange={(e) => setField('embedding.baseUrl', e.target.value)} />
-        <Input label="API Key" type="password"
-          value={getField('embedding.apiKey', (embedding.apiKey as string) || '') as string}
-          onChange={(e) => setField('embedding.apiKey', e.target.value)} />
-        <Input label={t('settings.models.embeddingModel')}
-          value={getField('embedding.model', (embedding.model as string) || '') as string}
-          onChange={(e) => setField('embedding.model', e.target.value)} />
-        <Input label={t('settings.models.embeddingDimension')} type="number"
-          value={getField('embedding.dimension', embedding.dimension ? String(embedding.dimension) : '') as string}
-          onChange={(e) => setField('embedding.dimension', e.target.value)} />
-          </div>
-        </section>
+        <SettingsSection title={t('settings.models.embeddingTitle')}>
+          <SettingsCard>
+            <Input label="Base URL"
+              value={getField('embedding.baseUrl', (embedding.baseUrl as string) || '') as string}
+              onChange={(e) => setField('embedding.baseUrl', e.target.value)} />
+            <Input label="API Key" type="password"
+              value={getField('embedding.apiKey', (embedding.apiKey as string) || '') as string}
+              onChange={(e) => setField('embedding.apiKey', e.target.value)} />
+            <Input label={t('settings.models.embeddingModel')}
+              value={getField('embedding.model', (embedding.model as string) || '') as string}
+              onChange={(e) => setField('embedding.model', e.target.value)} />
+            <Input label={t('settings.models.embeddingDimension')} type="number"
+              value={getField('embedding.dimension', embedding.dimension ? String(embedding.dimension) : '') as string}
+              onChange={(e) => setField('embedding.dimension', e.target.value)} />
+          </SettingsCard>
+        </SettingsSection>
       </div>
 
       {/* ── Add Builtin Provider Modal ── */}
       {showBuiltinModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowBuiltinModal(false)}>
-          <div className="bg-white dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-700 shadow-xl mx-4 w-full max-w-[420px] p-5" onClick={e => e.stopPropagation()}>
+          <div className="bg-white dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-800 shadow-xl mx-4 w-full max-w-[420px] p-5" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t('settings.models.addProviderKey')}</h3>
               <button onClick={() => setShowBuiltinModal(false)} className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"><X size={16} /></button>
@@ -789,7 +854,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
             </div>
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={() => setShowBuiltinModal(false)}
-                className="px-3 py-1.5 text-xs rounded border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors">
+                className="px-3 py-1.5 text-xs rounded border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors">
                 {t('common.cancel')}
               </button>
               <button onClick={addProviderKey} disabled={!newBuiltinForm.provider || !newBuiltinForm.apiKey}
@@ -804,7 +869,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
       {/* ── Add Custom Provider Modal ── */}
       {showCustomModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowCustomModal(false)}>
-          <div className="bg-white dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-700 shadow-xl mx-4 w-full max-w-[420px] p-5" onClick={e => e.stopPropagation()}>
+          <div className="bg-white dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-800 shadow-xl mx-4 w-full max-w-[420px] p-5" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t('settings.models.addProvider')}</h3>
               <button onClick={() => setShowCustomModal(false)} className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"><X size={16} /></button>
@@ -821,7 +886,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
             </div>
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={() => setShowCustomModal(false)}
-                className="px-3 py-1.5 text-xs rounded border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors">
+                className="px-3 py-1.5 text-xs rounded border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors">
                 {t('common.cancel')}
               </button>
               <button onClick={addCustomProviderHandler} disabled={!newCustomForm.provider || !newCustomForm.apiKey}

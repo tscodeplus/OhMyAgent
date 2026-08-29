@@ -122,8 +122,8 @@ export default function HarnessImprovementCard({
 
   if (status === 'editing') {
     return (
-      <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 overflow-hidden">
-        <div className="px-4 py-3 border-b border-neutral-200 dark:border-neutral-700">
+      <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 overflow-hidden">
+        <div className="px-4 py-3 border-b border-neutral-200 dark:border-neutral-800">
           <div className="flex items-center gap-2">
             <Edit3 size={15} className="text-neutral-500 dark:text-neutral-400" />
             <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
@@ -178,9 +178,9 @@ export default function HarnessImprovementCard({
         : 'text-green-600 dark:text-green-400';
 
   return (
-    <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 overflow-hidden">
+    <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 overflow-hidden">
       {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800/50">
         <Edit3 size={15} className="text-neutral-500 dark:text-neutral-400" />
         <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
           {t('chat.harnessImprovement.title')}
@@ -204,8 +204,8 @@ export default function HarnessImprovementCard({
         )}
 
         {/* Diff Section */}
-        <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 overflow-hidden">
-          <div className="px-3 py-1.5 text-xs font-medium text-neutral-500 dark:text-neutral-400 bg-neutral-100 dark:bg-neutral-800 border-b border-neutral-200 dark:border-neutral-700">
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+          <div className="px-3 py-1.5 text-xs font-medium text-neutral-500 dark:text-neutral-400 bg-neutral-100 dark:bg-neutral-800 border-b border-neutral-200 dark:border-neutral-800">
             {t('chat.harnessImprovement.diff')}
             {proposal.diff.surface && (
               <span className="ml-1.5 text-neutral-400 dark:text-neutral-500 font-normal">
@@ -248,7 +248,7 @@ export default function HarnessImprovementCard({
       </div>
 
       {/* Actions */}
-      <div className="flex flex-wrap gap-1.5 sm:gap-2 px-4 py-3 border-t border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50">
+      <div className="flex flex-wrap gap-1.5 sm:gap-2 px-4 py-3 border-t border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800/50">
         {proposal.actions.map((action) => {
           const icon =
             action.style === 'primary' ? (

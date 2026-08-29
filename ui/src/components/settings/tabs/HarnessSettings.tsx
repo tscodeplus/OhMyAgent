@@ -7,6 +7,7 @@ import Select from '../../ui/Select';
 import Spinner from '../../ui/Spinner';
 import Button from '../../ui/Button';
 import { useToast } from '../../ui/Toast';
+import ModelRefInput from '../ModelRefInput';
 
 interface HarnessSettingsProps {
   tabId?: string;
@@ -68,7 +69,7 @@ export default function HarnessSettings({ tabId = 'harness', registerHandle, onD
   const rateLimit = (harness.rateLimit as Record<string, number>) || {};
   const proposal = (harness.proposal as Record<string, string>) || {};
 
-  const sectionCardClass = 'rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4';
+  const sectionCardClass = 'rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4';
   const sectionTitleClass = 'text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3';
 
   return (
@@ -200,9 +201,9 @@ export default function HarnessSettings({ tabId = 'harness', registerHandle, onD
             }}
           />
           {proposalModelMode === 'custom' && (
-            <Input
+            <ModelRefInput
               value={getField('harness.proposal.model', (proposal.model || '') as string) as string}
-              onChange={(e) => setField('harness.proposal.model', e.target.value)}
+              onChange={(v) => setField('harness.proposal.model', v)}
               placeholder={t('settings.harness.interactive.proposal.modelPlaceholder')}
             />
           )}
