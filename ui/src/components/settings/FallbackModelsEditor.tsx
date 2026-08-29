@@ -20,8 +20,9 @@ interface FallbackModelsEditorProps {
   extraProviders?: ProviderOption[];
 }
 
-function SortableItem({ item, onUpdate, onRemove, configuredProviders, extraProviders }: {
+function SortableItem({ item, index, onUpdate, onRemove, configuredProviders, extraProviders }: {
   item: FallbackModel;
+  index: number;
   onUpdate: (id: string, item: FallbackModel) => void;
   onRemove: (id: string) => void;
   configuredProviders?: string[];
@@ -49,6 +50,9 @@ function SortableItem({ item, onUpdate, onRemove, configuredProviders, extraProv
       >
         <GripVertical size={16} />
       </button>
+      <span className="mt-2 flex-shrink-0 w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 flex items-center justify-center text-[10px] font-bold">
+        {index + 1}
+      </span>
       <div className="flex-1 min-w-0">
         <ModelPicker
           provider={item.provider}
@@ -158,10 +162,11 @@ export default function FallbackModelsEditor({ value, onChange, configuredProvid
     <div className="space-y-3">
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={items.map(i => i.id)} strategy={verticalListSortingStrategy}>
-          {items.map((item) => (
+          {items.map((item, idx) => (
             <SortableItem
               key={item.id}
               item={item}
+              index={idx}
               onUpdate={handleUpdate}
               onRemove={handleRemove}
               configuredProviders={configuredProviders}
