@@ -73,7 +73,8 @@ export default function ModelPicker({
 }: ModelPickerProps) {
   const { t } = useTranslation('common');
 
-  const [providers, setProviders] = useState<ProviderOption[]>(fallbackProviders);
+  // Provider list fetched once on mount; derived `providers` below merges extras.
+  const [apiProviders, setApiProviders] = useState<ProviderOption[]>([]);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [manualRefresh, setManualRefresh] = useState(false);
@@ -88,17 +89,27 @@ export default function ModelPicker({
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
-  /* Fetch provider list */
+  /* Fetch provider list once on mount. Using a mount-only effect (not depending on
+     fallbackProviders/extraProviders identity) avoids a re-fetch-on-every-render loop
+     when a parent passes a fresh array each render. */
   useEffect(() => {
+    let cancelled = false;
     apiRequest<{ providers: Array<{ id: string; name: string; baseUrl?: string }> }>('/api/providers')
       .then(data => {
-        setProviders([
-          ...data.providers.map(p => ({ value: p.id, label: p.name, baseUrl: p.baseUrl })),
-          ...extraProviders,
-        ]);
+        if (!cancelled) {
+          setApiProviders(data.providers.map(p => ({ value: p.id, label: p.name, baseUrl: p.baseUrl })));
+        }
       })
-      .catch(() => setProviders([...fallbackProviders, ...extraProviders]));
-  }, [fallbackProviders, extraProviders]);
+      .catch(() => {
+        if (!cancelled) setApiProviders(fallbackProviders);
+      });
+    return () => { cancelled = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const providers = useMemo(
+    () => [...apiProviders, ...extraProviders],
+    [apiProviders, extraProviders],
+  );
 
   /* Fetch models for a given provider */
   const fetchModels = useCallback((providerId: string, isManual = false) => {

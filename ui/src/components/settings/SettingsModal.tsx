@@ -164,9 +164,15 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
     }
   }, []);
 
-  // Called by each tab to report dirty state changes
+  // Called by each tab to report dirty state changes.
+  // IMPORTANT: return the previous reference when nothing changed — otherwise
+  // a tab that reports dirty state on every render (e.g. one passing an inline
+  // onDirtyChange to useConfigDirty) would force a new Set every time and spin
+  // React in an endless re-render loop.
   const handleDirtyChange = useCallback((tabId: string, dirty: boolean) => {
     setDirtyTabs(prev => {
+      const has = prev.has(tabId);
+      if (has === dirty) return prev;
       const next = new Set(prev);
       if (dirty) next.add(tabId); else next.delete(tabId);
       return next;
