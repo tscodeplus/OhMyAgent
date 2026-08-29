@@ -82,6 +82,8 @@ export default function ModelPicker({
   const [search, setSearch] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  // Set while we programmatically focus the input (on open) so onFocus doesn't wipe typed text.
+  const programmaticFocus = useRef(false);
 
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -152,7 +154,11 @@ export default function ModelPicker({
   }, [open]);
 
   useEffect(() => {
-    if (open) searchRef.current?.focus();
+    if (open) {
+      programmaticFocus.current = true;
+      searchRef.current?.focus();
+      programmaticFocus.current = false;
+    }
   }, [open]);
 
   const filteredModels = useMemo(() => {
@@ -244,7 +250,9 @@ export default function ModelPicker({
             }}
             onFocus={() => {
               setOpen(true);
-              setSearch(model || '');
+              // Only clear on a genuine user focus, not the programmatic focus
+              // triggered by the open effect (which would erase typed text).
+              if (!programmaticFocus.current) setSearch('');
             }}
             placeholder={modelPlaceholder || t('settings.models.customModelPlaceholder')}
             className="flex-1 px-3 py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 bg-transparent focus:outline-none dark:text-neutral-100"
@@ -254,7 +262,11 @@ export default function ModelPicker({
           ) : (
             <button
               type="button"
-              onClick={() => setOpen(!open)}
+              onClick={() => {
+                const next = !open;
+                setOpen(next);
+                if (next) setSearch('');
+              }}
               className="px-2 py-2.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
             >
               <ChevronDown size={14} />

@@ -90,7 +90,12 @@ export const getModels = (providerId: string): Model<Api>[] => {
 	const custom = pendingCustomModels.get(providerId) ?? [];
 	try {
 		const builtin = getBuiltinModels(providerId as any) as Model<Api>[];
-		return [...custom, ...builtin];
+		if (custom.length === 0) return builtin;
+		// A provider can be both builtin and custom-configured (e.g. nvidia's
+		// multi-vendor catalog overlaps user-added models). Drop builtin entries
+		// whose id collides with a custom model so the list isn't duplicated.
+		const customIds = new Set(custom.map((m) => m.id));
+		return [...custom, ...builtin.filter((m) => !customIds.has(m.id))];
 	} catch {
 		return custom;
 	}
