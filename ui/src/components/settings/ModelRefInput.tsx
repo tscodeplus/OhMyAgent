@@ -31,7 +31,9 @@ export default function ModelRefInput({
     if (slashIdx > 0) {
       return { provider: value.slice(0, slashIdx), model: value.slice(slashIdx + 1) };
     }
-    return { provider: '', model: value };
+    // No slash yet → only a provider has been chosen (model not picked).
+    // Treat the value as the provider so the picker can fetch its model catalog.
+    return { provider: value, model: '' };
   }, [value]);
 
   const handleChangeProvider = (newProvider: string) => {

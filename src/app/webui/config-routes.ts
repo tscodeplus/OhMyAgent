@@ -167,6 +167,34 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
     return reply.send({ providers });
   });
 
+  // Return only providers that have an API key configured (provider_keys,
+  // custom_providers, or the primary piAi provider). Lets the Agent editor's
+  // model picker show only usable providers instead of the full builtin list.
+  app.get('/api/providers/configured', async (_request, reply) => {
+    const config = cfg.getConfig();
+    const ids = new Set<string>();
+
+    const providerKeys = config.providerKeys as Record<string, { apiKey?: string; baseUrl?: string }> | undefined;
+    if (providerKeys) {
+      for (const [name, entry] of Object.entries(providerKeys)) {
+        if (entry?.apiKey) ids.add(name);
+      }
+    }
+
+    const piAi = config.piAi as { provider?: string; apiKey?: string } | undefined;
+    if (piAi?.provider && piAi?.apiKey) ids.add(piAi.provider);
+
+    const customProviders = config.customProviders as Array<{ provider: string; apiKey?: string }> | undefined;
+    if (customProviders) {
+      for (const cp of customProviders) {
+        if (cp.apiKey) ids.add(cp.provider);
+      }
+    }
+
+    const providers = [...ids].map((id) => ({ id, name: id }));
+    return reply.send({ providers });
+  });
+
   // Return the catalog of models for a given provider (builtin + custom).
   // Powers the searchable model dropdown in Settings → Models & Routing.
   app.get('/api/providers/:id/models', async (request, reply) => {

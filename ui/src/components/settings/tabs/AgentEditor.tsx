@@ -44,6 +44,16 @@ export default function AgentEditor({ agent, onSave, onCancel, registerHandle, o
 
   const [form, setForm] = useState(initialForm);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  // undefined = not yet loaded → ModelPicker shows all providers (no filtering)
+  const [configuredProviders, setConfiguredProviders] = useState<string[] | undefined>(undefined);
+
+  // Fetch providers that have an API key configured so the model picker only
+  // offers usable providers. On failure we leave it undefined (show all).
+  useEffect(() => {
+    apiRequest<{ providers: Array<{ id: string }> }>('/api/providers/configured')
+      .then((data) => setConfiguredProviders(data.providers.map((p) => p.id)))
+      .catch(() => setConfiguredProviders(undefined));
+  }, []);
 
   const isDirty = useCallback(() => {
     return (
@@ -133,7 +143,19 @@ export default function AgentEditor({ agent, onSave, onCancel, registerHandle, o
 
   return (
     <div className="space-y-6">
-      <h3 className="text-sm font-semibold">{isNew ? t('settings.agents.new') : t('settings.agents.edit') + ': ' + agent?.name}</h3>
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold">{isNew ? t('settings.agents.new') : t('settings.agents.edit') + ': ' + agent?.name}</h3>
+        <button
+          type="button"
+          onClick={handleCancel}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-neutral-300 bg-white text-neutral-600 hover:bg-neutral-50 hover:border-neutral-400 transition-colors dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+          </svg>
+          {t('setupWizard.goBack')}
+        </button>
+      </div>
 
       <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
         <div className="grid grid-cols-2 gap-4">
@@ -218,6 +240,7 @@ export default function AgentEditor({ agent, onSave, onCancel, registerHandle, o
           onChange={(v) => setForm({ ...form, model: v })}
           label={t("settings.agents.defaultModel")}
           placeholder={t("settings.agents.modelPlaceholder")}
+          configuredProviders={configuredProviders}
         />
       </div>
 
