@@ -189,6 +189,91 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
     }
   });
 
+  // Fetch models live from the provider's API (for providers that support /models endpoint)
+  app.get('/api/providers/:id/models/live', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const config = cfg.getConfig();
+
+    // Get API key and base URL from provider_keys or custom_providers
+    let apiKey: string | undefined;
+    let baseUrl: string | undefined;
+
+    // Check providerKeys first
+    const providerKeys = config.providerKeys as Record<string, { apiKey?: string; baseUrl?: string }> | undefined;
+    if (providerKeys?.[id]) {
+      apiKey = providerKeys[id].apiKey;
+      baseUrl = providerKeys[id].baseUrl;
+    }
+
+    // Check customProviders
+    if (!apiKey) {
+      const customProviders = config.customProviders as Array<{ provider: string; apiKey?: string; baseUrl?: string }> | undefined;
+      const custom = customProviders?.find(cp => cp.provider === id);
+      if (custom) {
+        apiKey = custom.apiKey;
+        baseUrl = custom.baseUrl;
+      }
+    }
+
+    if (!apiKey) {
+      return reply.status(400).send({ error: 'No API key configured for this provider' });
+    }
+
+    // Default base URLs for known providers
+    if (!baseUrl) {
+      const knownBaseUrls: Record<string, string> = {
+        'openai': 'https://api.openai.com/v1',
+        'anthropic': 'https://api.anthropic.com',
+        'deepseek': 'https://api.deepseek.com',
+        'google': 'https://generativelanguage.googleapis.com',
+        'openrouter': 'https://openrouter.ai/api/v1',
+      };
+      baseUrl = knownBaseUrls[id];
+    }
+
+    if (!baseUrl) {
+      return reply.status(400).send({ error: 'Base URL not configured for this provider' });
+    }
+
+    try {
+      // Try to fetch from /models endpoint (OpenAI-compatible)
+      const url = `${baseUrl.replace(/\/$/, '')}/models`;
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        return reply.status(response.status).send({
+          error: `Provider API returned ${response.status}: ${response.statusText}`
+        });
+      }
+
+      const data = await response.json() as { data?: Array<{ id: string; object?: string }> };
+
+      if (!data.data || !Array.isArray(data.data)) {
+        return reply.send({ provider: id, models: [] });
+      }
+
+      // Map to our format
+      const models = data.data.map(m => ({
+        id: m.id,
+        name: m.id,
+        api: 'openai-completions',
+        reasoning: false,
+        input: ['text'],
+      }));
+
+      return reply.send({ provider: id, models, live: true });
+    } catch (error) {
+      return reply.status(500).send({
+        error: `Failed to fetch models: ${error instanceof Error ? error.message : 'Unknown error'}`
+      });
+    }
+  });
+
   // Check if first-run setup wizard should be shown
   app.get('/api/config/minimal-check', async (_request, reply) => {
     const config = cfg.getConfig();

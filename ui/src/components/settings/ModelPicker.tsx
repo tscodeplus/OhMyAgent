@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Search, ChevronDown, Check, Zap, AlertCircle, Loader2 } from 'lucide-react';
+import { Search, ChevronDown, Check, Zap, AlertCircle, Loader2, RefreshCw } from 'lucide-react';
 import { apiRequest } from '../../utils/api';
 import Select from '../ui/Select';
 
@@ -76,6 +76,7 @@ export default function ModelPicker({
   const [providers, setProviders] = useState<ProviderOption[]>(fallbackProviders);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
+  const [manualRefresh, setManualRefresh] = useState(false);
 
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -97,20 +98,35 @@ export default function ModelPicker({
       .catch(() => setProviders([...fallbackProviders, ...extraProviders]));
   }, [fallbackProviders, extraProviders]);
 
-  /* Fetch models when provider changes */
-  useEffect(() => {
-    if (!provider) return;
+  /* Fetch models for a given provider */
+  const fetchModels = useCallback((providerId: string, isManual = false) => {
+    if (!providerId) return;
     setLoadingModels(true);
     setModels([]);
     onModelMeta?.(null);
-    apiRequest<{ provider: string; models: ModelInfo[] }>(`/api/providers/${encodeURIComponent(provider)}/models`)
+    if (isManual) setManualRefresh(true);
+
+    // Use live endpoint for manual refresh, static endpoint otherwise
+    const endpoint = isManual ? `/api/providers/${encodeURIComponent(providerId)}/models/live` : `/api/providers/${encodeURIComponent(providerId)}/models`;
+
+    apiRequest<{ provider: string; models: ModelInfo[]; live?: boolean }>(endpoint)
       .then(data => {
         setModels(data.models);
         const found = data.models.find(m => m.id === model);
         if (found) onModelMeta?.(found);
       })
       .catch(() => setModels([]))
-      .finally(() => setLoadingModels(false));
+      .finally(() => {
+        setLoadingModels(false);
+        if (isManual) {
+          setTimeout(() => setManualRefresh(false), 1500);
+        }
+      });
+  }, [model, onModelMeta]);
+
+  /* Fetch models when provider changes */
+  useEffect(() => {
+    fetchModels(provider);
   }, [provider]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Auto-select first provider when provider is empty */
@@ -178,42 +194,81 @@ export default function ModelPicker({
 
   return (
     <div className={`space-y-3 ${className}`}>
-      {/* Provider select */}
-      <Select
-        label={providerLabel}
-        value={provider}
-        onChange={e => onChangeProvider(e.target.value)}
-        options={providers
-          .filter(p => !configuredProviders || configuredProviders.includes(p.value) || p.value === provider)
-          .map(p => ({
-            value: p.value,
-            label: configuredProviders?.includes(p.value)
-              ? `${p.label} ✓`
-              : p.label,
-          }))}
-      />
+      {/* Provider select with refresh button */}
+      <div className="flex items-end gap-2">
+        <div className="flex-1">
+          <Select
+            label={providerLabel}
+            value={provider}
+            onChange={e => onChangeProvider(e.target.value)}
+            options={providers
+              .filter(p => !configuredProviders || configuredProviders.includes(p.value) || p.value === provider)
+              .map(p => ({
+                value: p.value,
+                label: configuredProviders?.includes(p.value)
+                  ? `${p.label} ✓`
+                  : p.label,
+              }))}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => fetchModels(provider, true)}
+          disabled={!provider || loadingModels}
+          className="flex items-center gap-1.5 px-3 py-2.5 text-xs rounded-lg border border-neutral-300 bg-white text-neutral-600 hover:bg-neutral-50 hover:border-neutral-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
+          title={t('settings.models.fetchModels')}
+        >
+          {loadingModels ? (
+            <Loader2 size={14} className="animate-spin" />
+          ) : (
+            <RefreshCw size={14} className={manualRefresh ? 'text-green-500' : ''} />
+          )}
+          <span className="hidden sm:inline">{manualRefresh ? t('settings.models.modelsRefreshed') : t('settings.models.fetchModels')}</span>
+        </button>
+      </div>
 
-      {/* Model combobox */}
+      {/* Model combobox with editable input */}
       <div ref={containerRef} className="relative">
         {modelLabel && (
           <label className="block text-[13px] font-medium text-neutral-700 dark:text-neutral-300 mb-1.5">
             {modelLabel}
           </label>
         )}
-        <button
-          type="button"
-          onClick={() => setOpen(!open)}
-          className="flex items-center w-full rounded-lg border border-neutral-300 bg-white px-3 py-2.5 text-sm text-left text-neutral-900 hover:border-neutral-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-100"
-        >
-          <span className="flex-1 truncate">
-            {selectedModel?.name || model || <span className="text-neutral-400">{modelPlaceholder || '—'}</span>}
-          </span>
+        <div className="flex items-center w-full rounded-lg border border-neutral-300 bg-white dark:border-neutral-800 dark:bg-neutral-800">
+          <input
+            type="text"
+            value={open ? search : (selectedModel?.name || model || '')}
+            onChange={e => {
+              if (!open) setOpen(true);
+              setSearch(e.target.value);
+            }}
+            onFocus={() => {
+              setOpen(true);
+              setSearch(model || '');
+            }}
+            placeholder={modelPlaceholder || t('settings.models.customModelPlaceholder')}
+            className="flex-1 px-3 py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 bg-transparent focus:outline-none dark:text-neutral-100"
+          />
           {loadingModels ? (
-            <Loader2 size={14} className="animate-spin text-neutral-400" />
+            <Loader2 size={14} className="animate-spin text-neutral-400 mr-3" />
           ) : (
-            <ChevronDown size={14} className="text-neutral-400" />
+            <button
+              type="button"
+              onClick={() => setOpen(!open)}
+              className="px-2 py-2.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+            >
+              <ChevronDown size={14} />
+            </button>
           )}
-        </button>
+        </div>
+
+        {/* Custom model indicator */}
+        {model && !selectedModel && (
+          <div className="flex items-center gap-1.5 mt-1.5">
+            <AlertCircle size={12} className="text-amber-500" />
+            <span className="text-[11px] text-amber-600 dark:text-amber-400">{t('settings.models.customModel')}: {model}</span>
+          </div>
+        )}
 
         {/* Metadata badges for the selected known model */}
         {showMetaBadges && selectedModel && (
@@ -237,21 +292,26 @@ export default function ModelPicker({
         {/* Dropdown */}
         {open && (
           <div className="absolute z-50 mt-1 w-full rounded-lg border border-neutral-200 bg-white shadow-lg dark:border-neutral-800 dark:bg-neutral-800 max-h-72 flex flex-col">
-            <div className="flex items-center gap-2 px-3 py-2 border-b border-neutral-200 dark:border-neutral-800">
-              <Search size={14} className="text-neutral-400 shrink-0" />
-              <input
-                ref={searchRef}
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder={t('settings.models.searchModels')}
-                className="flex-1 bg-transparent text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none dark:text-neutral-100"
-              />
-            </div>
             <div className="overflow-y-auto flex-1">
               {filteredModels.length === 0 ? (
-                <p className="px-3 py-4 text-xs text-neutral-500 dark:text-neutral-400 text-center">
-                  {t('settings.models.noModelsFound')}
-                </p>
+                <div className="px-3 py-4 text-center">
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-2">
+                    {t('settings.models.noModelsFound')}
+                  </p>
+                  {search.trim() && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleCustomModel(search.trim());
+                        setOpen(false);
+                        setSearch('');
+                      }}
+                      className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                    >
+                      {t('settings.models.customModel')}: <span className="font-mono">{search.trim()}</span>
+                    </button>
+                  )}
+                </div>
               ) : (
                 filteredModels.map(m => (
                   <button
@@ -263,21 +323,29 @@ export default function ModelPicker({
                     }`}
                   >
                     <span className="flex-1 truncate text-neutral-900 dark:text-neutral-100">{m.name}</span>
+                    <span className="text-[10px] text-neutral-400 font-mono">{m.id}</span>
                     {m.reasoning && <Zap size={12} className="text-purple-500 shrink-0" />}
                     {m.id === model && <Check size={14} className="text-blue-600 shrink-0" />}
                   </button>
                 ))
               )}
             </div>
-            {/* Custom model id fallback */}
-            <div className="border-t border-neutral-200 dark:border-neutral-800 px-3 py-2">
-              <input
-                value={model}
-                onChange={e => handleCustomModel(e.target.value)}
-                placeholder={t('settings.models.customModelPlaceholder')}
-                className="w-full bg-transparent text-xs text-neutral-700 placeholder:text-neutral-400 focus:outline-none dark:text-neutral-300"
-              />
-            </div>
+            {/* Use custom model if typed */}
+            {search.trim() && !filteredModels.some(m => m.id === search.trim()) && (
+              <div className="border-t border-neutral-200 dark:border-neutral-800 px-3 py-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleCustomModel(search.trim());
+                    setOpen(false);
+                    setSearch('');
+                  }}
+                  className="w-full text-left text-xs text-neutral-600 dark:text-neutral-400 hover:text-blue-600 dark:hover:text-blue-400"
+                >
+                  {t('settings.models.customModel')}: <span className="font-mono">{search.trim()}</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
