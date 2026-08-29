@@ -91,11 +91,18 @@ export function createImageToTextToolDefinition(): ToolDefinition {
       const provider = modelRef.slice(0, idx);
       const modelId = modelRef.slice(idx + 1);
 
-      // Resolve API key: bridge config → legacy visionBridge → customProviders
+      // Resolve API key: bridge config → legacy visionBridge → customProviders → providerKeys.
+      // The last two mirror how image/video generation resolve credentials, so a single
+      // global provider key (configured under Models & Routing) works for all three
+      // multimodal sections and the bridge no longer needs its own API Key field.
       let apiKey: string | undefined = String(bridgeCfg.apiKey ?? legacyVision.apiKey ?? '') || undefined;
       if (!apiKey && config.customProviders) {
         const cp = config.customProviders.find(p => p.provider === provider);
         apiKey = cp?.apiKey;
+      }
+      if (!apiKey && config.providerKeys) {
+        const pk = config.providerKeys[provider];
+        apiKey = pk?.apiKey;
       }
 
       // Dynamically import pi-ai (avoids circular dependency at module level)

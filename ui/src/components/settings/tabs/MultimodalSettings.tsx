@@ -96,10 +96,6 @@ export default function MultimodalSettings({ tabId = 'multimodal', registerHandl
               value={getField('multimodal.image.bridge.modelRef', String(bri.modelRef || '')) as string}
               onChange={(v) => setField('multimodal.image.bridge.modelRef', v)}
             />
-            <Input label={t('settings.vision.apiKey')} value={getField('multimodal.image.bridge.apiKey', String(bri.apiKey || '')) as string}
-              onChange={(e) => setField('multimodal.image.bridge.apiKey', e.target.value)} type="password" />
-            <Input label="Base URL" value={getField('multimodal.image.bridge.baseUrl', String(bri.baseUrl || '')) as string}
-              onChange={(e) => setField('multimodal.image.bridge.baseUrl', e.target.value)} />
             <Input label={t('settings.vision.timeout')} type="number" value={getField('multimodal.image.bridge.timeoutMs', String(bri.timeoutMs || 120000)) as string}
               onChange={(e) => setField('multimodal.image.bridge.timeoutMs', e.target.value)} />
             <Input label={t('settings.vision.maxNoteChars')} type="number" value={getField('multimodal.image.bridge.maxNoteChars', String(bri.maxNoteChars || 3200)) as string}
