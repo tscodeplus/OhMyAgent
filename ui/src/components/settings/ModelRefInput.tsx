@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import ModelPicker from './ModelPicker';
 import type { ProviderOption } from './ModelPicker';
 
@@ -9,6 +10,7 @@ interface ModelRefInputProps {
   placeholder?: string;
   extraProviders?: ProviderOption[];
   showMetaBadges?: boolean;
+  configuredProviders?: string[];
   className?: string;
 }
 
@@ -19,8 +21,11 @@ export default function ModelRefInput({
   placeholder,
   extraProviders,
   showMetaBadges = false,
+  configuredProviders,
   className,
 }: ModelRefInputProps) {
+  const { t } = useTranslation('common');
+
   const { provider, model } = useMemo(() => {
     const slashIdx = value.indexOf('/');
     if (slashIdx > 0) {
@@ -51,12 +56,13 @@ export default function ModelRefInput({
       model={model}
       onChangeProvider={handleChangeProvider}
       onChangeModel={handleChangeModel}
-      providerLabel={label ? `${label} — Provider` : undefined}
-      modelLabel={label ? `${label} — Model` : undefined}
+      providerLabel={label ? `${label} — ${t('settings.models.provider')}` : undefined}
+      modelLabel={label ? `${label} — ${t('settings.models.model')}` : undefined}
       modelPlaceholder={placeholder}
       extraProviders={extraProviders}
       showMetaBadges={showMetaBadges}
       showTestButton={false}
+      configuredProviders={configuredProviders}
       className={className}
     />
   );

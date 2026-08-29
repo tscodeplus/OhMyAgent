@@ -727,10 +727,6 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                   showMetaBadges={false}
                   configuredProviders={configuredProviders}
                 />
-                <Input label={t('settings.models.reasoningModel')}
-                  value={getField('piAi.reasoningModel', piAi.reasoningModel || '') as string}
-                  onChange={(e) => setField('piAi.reasoningModel', e.target.value)}
-                  placeholder={t('settings.models.reasoningModelPlaceholder')} />
               </div>
               <div className="space-y-3">
                 <Input label={t('settings.models.apiKey')} type="password"
@@ -750,15 +746,19 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                     {t('settings.models.apiKeyNotConfigured')}
                   </p>
                 )}
-                <Input label={t('settings.models.baseUrl')}
-                  value={getField('piAi.baseUrl', piAi.baseUrl || '') as string}
-                  onChange={(e) => setField('piAi.baseUrl', e.target.value)}
-                  placeholder={
-                    selectedPkEntry?.baseUrl ? t('settings.models.baseUrlFromBuiltin') :
-                    selectedCustom?.baseUrl ? t('settings.models.baseUrlFromCustom2') :
-                    undefined
-                  } />
               </div>
+              <Input label={t('settings.models.reasoningModel')}
+                value={getField('piAi.reasoningModel', piAi.reasoningModel || '') as string}
+                onChange={(e) => setField('piAi.reasoningModel', e.target.value)}
+                placeholder={t('settings.models.reasoningModelPlaceholder')} />
+              <Input label={t('settings.models.baseUrl')}
+                value={getField('piAi.baseUrl', piAi.baseUrl || '') as string}
+                onChange={(e) => setField('piAi.baseUrl', e.target.value)}
+                placeholder={
+                  selectedPkEntry?.baseUrl ? t('settings.models.baseUrlFromBuiltin') :
+                  selectedCustom?.baseUrl ? t('settings.models.baseUrlFromCustom2') :
+                  undefined
+                } />
             </div>
           </SettingsCard>
         </SettingsSection>
@@ -800,7 +800,9 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
             <ModelRefInput label={t('settings.models.memoryAuxPrimary')}
               value={getField('memoryAuxModels.primary', (memoryAux.primary as string) || '') as string}
               onChange={(v) => setField('memoryAuxModels.primary', v)}
-              placeholder="e.g. deepseek-chat" />
+              placeholder="e.g. deepseek-chat"
+              configuredProviders={configuredProviders}
+              extraProviders={extraProviderOptions} />
             <Input label={t('settings.models.fallbackModels')}
               value={(getField('memoryAuxModels.fallback_models', (memoryAux.fallback_models as string[]) || []) as string[]).join(', ')}
               onChange={(e) => setField('memoryAuxModels.fallback_models', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
