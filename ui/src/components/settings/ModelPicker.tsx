@@ -42,6 +42,10 @@ export interface ModelPickerProps {
   showMetaBadges?: boolean;
   /** List of provider IDs that have API keys configured — shows status dots in the provider dropdown */
   configuredProviders?: string[];
+  /** Optional node rendered at the far right of the provider row (e.g. a remove button) */
+  providerRowTrailing?: React.ReactNode;
+  /** Compact variant: tighter spacing and input padding */
+  dense?: boolean;
   className?: string;
 }
 
@@ -69,6 +73,8 @@ export default function ModelPicker({
   onTestConnection,
   showMetaBadges = true,
   configuredProviders,
+  dense = false,
+  providerRowTrailing,
   className = '',
 }: ModelPickerProps) {
   const { t } = useTranslation('common');
@@ -210,12 +216,13 @@ export default function ModelPicker({
   }, [onTestConnection, t]);
 
   return (
-    <div className={`space-y-3 ${className}`}>
+    <div className={`${dense ? 'space-y-3 sm:space-y-1.5' : 'space-y-3'} ${className}`}>
       {/* Provider select with refresh button */}
       <div className="flex items-end gap-2">
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <Select
             label={providerLabel}
+            dense={dense}
             value={provider}
             onChange={e => onChangeProvider(e.target.value)}
             options={providers
@@ -232,7 +239,7 @@ export default function ModelPicker({
           type="button"
           onClick={() => fetchModels(provider, true)}
           disabled={!provider || loadingModels}
-          className="flex items-center gap-1.5 px-3 py-2.5 text-xs rounded-lg border border-neutral-300 bg-white text-neutral-600 hover:bg-neutral-50 hover:border-neutral-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
+          className="shrink-0 flex items-center gap-1.5 px-3 py-2.5 text-xs rounded-lg border border-neutral-300 bg-white text-neutral-600 hover:bg-neutral-50 hover:border-neutral-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
           title={t('settings.models.fetchModels')}
         >
           {loadingModels ? (
@@ -242,12 +249,15 @@ export default function ModelPicker({
           )}
           <span className="hidden sm:inline">{manualRefresh ? t('settings.models.modelsRefreshed') : t('settings.models.fetchModels')}</span>
         </button>
+        {providerRowTrailing && (
+          <div className="self-start sm:-mt-1">{providerRowTrailing}</div>
+        )}
       </div>
 
       {/* Model combobox with editable input */}
       <div ref={containerRef} className="relative">
         {modelLabel && (
-          <label className="block text-[13px] font-medium text-neutral-700 dark:text-neutral-300 mb-1.5">
+          <label className={`block text-[13px] font-medium text-neutral-700 dark:text-neutral-300 ${dense ? 'mb-1.5 sm:mb-1' : 'mb-1.5'}`}>
             {modelLabel}
           </label>
         )}
@@ -266,7 +276,7 @@ export default function ModelPicker({
               if (!programmaticFocus.current) setSearch('');
             }}
             placeholder={modelPlaceholder || t('settings.models.customModelPlaceholder')}
-            className="flex-1 px-3 py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 bg-transparent focus:outline-none dark:text-neutral-100"
+            className={`flex-1 px-3 text-sm text-neutral-900 placeholder:text-neutral-400 bg-transparent focus:outline-none dark:text-neutral-100 ${dense ? 'py-2.5 sm:py-2' : 'py-2.5'}`}
           />
           {loadingModels ? (
             <Loader2 size={14} className="animate-spin text-neutral-400 mr-3" />

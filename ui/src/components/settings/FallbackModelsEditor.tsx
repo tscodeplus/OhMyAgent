@@ -40,14 +40,17 @@ function SortableItem({ item, index, onUpdate, onRemove, configuredProviders, ex
   };
 
   return (
-    <div ref={setNodeRef} style={style} className="flex flex-col gap-2 rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900 sm:flex-row sm:items-start sm:gap-2">
-      <div className="flex items-center gap-2 sm:contents">
+    <div ref={setNodeRef} style={style} className="flex flex-col gap-2 rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900 sm:flex-row sm:items-center sm:gap-4 sm:p-2">
+      {/* Mobile: top strip with drag handle + number + remove button (original layout).
+          Desktop: left gutter with handle + number centered; the remove button moves into
+          the provider row via providerRowTrailing. */}
+      <div className="flex items-center gap-2 sm:flex-row sm:items-center sm:justify-center sm:gap-1 sm:w-11 sm:shrink-0">
         <button
           type="button"
           {...attributes}
           {...listeners}
-          className="cursor-grab touch-none text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 sm:mt-2"
-          title={t('common.dragToReorder')}
+          className="cursor-grab touch-none text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+          title={t('settings.websearch.dragToReorder')}
         >
           <GripVertical size={16} />
         </button>
@@ -58,13 +61,13 @@ function SortableItem({ item, index, onUpdate, onRemove, configuredProviders, ex
         <button
           type="button"
           onClick={() => onRemove(item.id)}
-          className="text-neutral-400 hover:text-red-500 dark:hover:text-red-400 sm:mt-2"
-          title={t('common.remove')}
+          className="text-neutral-400 hover:text-red-500 dark:hover:text-red-400 sm:hidden"
+          title={t('chat.input.remove')}
         >
           <X size={16} />
         </button>
       </div>
-      <div className="flex-1 min-w-0">
+      <div className="min-w-0 flex-1">
         <ModelPicker
           provider={item.provider}
           model={item.model}
@@ -74,9 +77,20 @@ function SortableItem({ item, index, onUpdate, onRemove, configuredProviders, ex
           modelLabel={t('settings.models.fallbackModel')}
           showMetaBadges={false}
           showTestButton={false}
+          dense
           configuredProviders={configuredProviders}
           extraProviders={extraProviders}
           className="space-y-2"
+          providerRowTrailing={
+            <button
+              type="button"
+              onClick={() => onRemove(item.id)}
+              className="hidden sm:flex items-center justify-center rounded-md p-1.5 text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40"
+              title={t('chat.input.remove')}
+            >
+              <X size={16} />
+            </button>
+          }
         />
       </div>
     </div>
