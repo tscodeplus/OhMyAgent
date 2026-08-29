@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { apiRequest } from '../../../utils/api';
 import { useConfigDirty, type SettingsTabHandle } from '../useConfigDirty';
 import AccordionItem from '../../ui/AccordionItem';
@@ -37,6 +37,26 @@ export default function MultimodalSettings({ tabId = 'multimodal', registerHandl
       .catch(() => setConfiguredProviders(undefined));
   }, []);
 
+  // Surface custom providers (e.g. "agnes") in the provider dropdown, exactly like
+  // the Model/Routing and Agent editor pickers do via the extraProviders prop.
+  const [builtinProviders, setBuiltinProviders] = useState<Record<string, string>>({});
+  useEffect(() => {
+    apiRequest<{ providers: Array<{ id: string; name: string; baseUrl?: string }> }>('/api/providers')
+      .then((data) => {
+        const map: Record<string, string> = {};
+        for (const p of data.providers) if (p.baseUrl) map[p.id] = p.baseUrl;
+        setBuiltinProviders(map);
+      })
+      .catch(() => setBuiltinProviders({}));
+  }, []);
+  const customProviders = (config?.customProviders as Array<{ provider: string }>) || [];
+  const extraProviderOptions = useMemo(
+    () => customProviders
+      .filter((cp) => cp.provider && !builtinProviders[cp.provider])
+      .map((cp) => ({ value: cp.provider, label: `custom/${cp.provider}` })),
+    [customProviders, builtinProviders],
+  );
+
   if (loading) return <div className="flex justify-center py-8"><Spinner /></div>;
   if (!config) return <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('common.error')}</p>;
   const mm = (config.multimodal as Record<string, unknown>) || {};
@@ -72,6 +92,7 @@ export default function MultimodalSettings({ tabId = 'multimodal', registerHandl
               providerLabel={t('settings.models.provider')}
               modelLabel={t('settings.models.fallbackModel')}
               configuredProviders={configuredProviders}
+              extraProviders={extraProviderOptions}
               value={getField('multimodal.image.bridge.modelRef', String(bri.modelRef || '')) as string}
               onChange={(v) => setField('multimodal.image.bridge.modelRef', v)}
             />
@@ -97,6 +118,7 @@ export default function MultimodalSettings({ tabId = 'multimodal', registerHandl
           providerLabel={t('settings.models.provider')}
           modelLabel={t('settings.models.fallbackModel')}
           configuredProviders={configuredProviders}
+          extraProviders={extraProviderOptions}
           value={getField('multimodal.imageGeneration.modelRef', String((mm.imageGeneration as Record<string, unknown>)?.modelRef || '')) as string}
           onChange={(v) => setField('multimodal.imageGeneration.modelRef', v)}
         />
@@ -116,6 +138,7 @@ export default function MultimodalSettings({ tabId = 'multimodal', registerHandl
           providerLabel={t('settings.models.provider')}
           modelLabel={t('settings.models.fallbackModel')}
           configuredProviders={configuredProviders}
+          extraProviders={extraProviderOptions}
           value={getField('multimodal.videoGeneration.modelRef', String((mm.videoGeneration as Record<string, unknown>)?.modelRef || '')) as string}
           onChange={(v) => setField('multimodal.videoGeneration.modelRef', v)}
         />
