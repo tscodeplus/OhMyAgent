@@ -222,6 +222,19 @@
       "loggingAndDisplay": "Logging & Display"
     },
     "models": {
+      "subtabs": {
+        "subscription": "Subscription Logins",
+        "providers": "Providers",
+        "router": "Model Routing",
+        "auxiliary": "Auxiliary Models"
+      },
+      "reasoning": "Reasoning",
+      "searchModels": "Search models…",
+      "noModelsFound": "No matching models found",
+      "customModelPlaceholder": "Or type a custom model ID",
+      "testConnection": "Test Connection",
+      "testSuccess": "Connection successful",
+      "testFailed": "Connection failed: {{error}}",
       "title": "Primary Model",
       "provider": "Provider",
       "model": "Primary Model",

@@ -224,6 +224,19 @@
       "uiLanguage": "界面语言"
     },
     "models": {
+      "subtabs": {
+        "subscription": "订阅登录",
+        "providers": "供应商",
+        "router": "模型路由",
+        "auxiliary": "辅助模型"
+      },
+      "reasoning": "推理",
+      "searchModels": "搜索模型…",
+      "noModelsFound": "未找到匹配的模型",
+      "customModelPlaceholder": "或直接输入自定义模型 ID",
+      "testConnection": "测试连接",
+      "testSuccess": "连接成功",
+      "testFailed": "连接失败：{{error}}",
       "title": "主模型",
       "provider": "供应商",
       "model": "主模型",

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, Trash2, ChevronDown, ChevronRight, X } from 'lucide-react';
 import { apiRequest } from '../../../utils/api';
@@ -9,6 +9,18 @@ import Select from '../../ui/Select';
 import Toggle from '../../ui/Toggle';
 import Spinner from '../../ui/Spinner';
 import SubscriptionsSettings from './SubscriptionsSettings';
+import ModelPicker from '../ModelPicker';
+
+/* ───────── Sub-tabs for the Models tab ───────── */
+
+type ModelSubTab = 'subscription' | 'providers' | 'router' | 'auxiliary';
+
+const MODEL_SUB_TABS: Array<{ id: ModelSubTab; labelKey: string }> = [
+  { id: 'subscription', labelKey: 'settings.models.subtabs.subscription' },
+  { id: 'providers', labelKey: 'settings.models.subtabs.providers' },
+  { id: 'router', labelKey: 'settings.models.subtabs.router' },
+  { id: 'auxiliary', labelKey: 'settings.models.subtabs.auxiliary' },
+];
 
 interface ProviderModel {
   id: string;
@@ -33,32 +45,6 @@ interface ProviderKeyEntry {
   baseUrl?: string;
 }
 
-/* ───────── Accordion helper ───────── */
-
-function AccordionItem({ title, defaultOpen = false, children }: {
-  title: string;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div className="border border-neutral-200 dark:border-neutral-800 rounded-lg overflow-hidden">
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 w-full px-4 py-2.5 text-sm font-medium text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 transition-colors"
-      >
-        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        {title}
-      </button>
-      {open && (
-        <div className="px-4 py-3 space-y-3 border-t border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
-          {children}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* ───────── Main component ───────── */
 
 interface ModelSettingsProps {
@@ -71,6 +57,9 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
   const { t } = useTranslation('common');
   const { showToast } = useToast();
   const { config, loading, getField, setField, save: saveSimple, cancel: cancelSimple, fetchConfig, dirtyCount } = useConfigDirty(tabId, undefined, undefined);
+
+  /* ─── Sub-tab state ─── */
+  const [activeSubTab, setActiveSubTab] = useState<ModelSubTab>('subscription');
 
   /* ─── Built-in providers fetched from pi-mono (avoids drift) ─── */
   const [builtinProviders, setBuiltinProviders] = useState<Record<string, string>>({});
@@ -93,6 +82,15 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
   const [providerKeysDirty, setProviderKeysDirty] = useState(false);
   const [customProvidersDirty, setCustomProvidersDirty] = useState(false);
   const [customProvidersNeedsRestart, setCustomProvidersNeedsRestart] = useState(false);
+
+  /* Custom providers as extra options for ModelPicker (labelled custom/<name>).
+     Must stay BEFORE the conditional early-returns below (Rules of Hooks). */
+  const extraProviderOptions = useMemo(
+    () => customProviders
+      .filter(cp => cp.provider && !builtinProviders[cp.provider])
+      .map(cp => ({ value: cp.provider, label: `custom/${cp.provider}` })),
+    [customProviders, builtinProviders],
+  );
 
   /* ─── UI state (kept as-is) ─── */
   const [expandedCustom, setExpandedCustom] = useState<Set<number>>(new Set());
@@ -312,14 +310,6 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
   const selectedCustom = customProviders.find(cp => cp.provider === selectedProvider);
   const hasProviderKey = !!selectedPkEntry || !!selectedCustom;
 
-  const providerOptions = [
-    ...Object.keys(builtinProviders).map(v => ({ value: v, label: v })),
-    ...customProviders.filter(cp => cp.provider && !builtinProviders[cp.provider]).map(cp => ({
-      value: cp.provider,
-      label: `custom/${cp.provider}`,
-    })),
-  ];
-
   // Build merged provider keys view: providerKeys entries + piAi provider if it has a key
   const builtinEntries: Array<{ name: string; entry: ProviderKeyEntry; source: 'providerKeys' | 'piAi' | 'custom' }> = [];
 
@@ -344,33 +334,33 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
   return (
     <div className="space-y-3">
 
-      {/* 1. Global Defaults */}
-      <AccordionItem title={t('settings.models.globalDefaults')}>
-        <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('settings.models.globalDefaultsDesc')}</p>
-        <Select
-          label={t('settings.models.defaultReasoningLevel')}
-          value={getField('defaultReasoningLevel', defReasoningLevel || 'off') as string}
-          onChange={(e) => setField('defaultReasoningLevel', e.target.value)}
-          options={[
-            { value: 'high', label: 'high' },
-            { value: 'low', label: 'low' },
-            { value: 'medium', label: 'medium' },
-            { value: 'minimal', label: 'minimal' },
-            { value: 'off', label: 'off' },
-            { value: 'xhigh', label: 'xhigh' },
-          ]}
-        />
-      </AccordionItem>
+      {/* ── Sub-tab bar ── */}
+      <div className="flex gap-1 border-b border-neutral-200 dark:border-neutral-700" role="tablist">
+        {MODEL_SUB_TABS.map(st => (
+          <button
+            key={st.id}
+            type="button"
+            role="tab"
+            aria-selected={activeSubTab === st.id}
+            onClick={() => setActiveSubTab(st.id)}
+            className={`px-3 py-2 text-[13px] border-b-2 -mb-px transition-colors ${
+              activeSubTab === st.id
+                ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400 font-medium'
+                : 'border-transparent text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100'
+            }`}
+          >
+            {t(st.labelKey)}
+          </button>
+        ))}
+      </div>
 
-      {/* 2. Providers (Builtin + Custom) */}
-      <AccordionItem title={t('settings.models.providers')}>
-        <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('settings.models.providersDesc')}</p>
+      {/* ── Sub-tab: Subscription logins ── */}
+      <div style={{ display: activeSubTab === 'subscription' ? undefined : 'none' }} className="space-y-3 pt-3">
+        <SubscriptionsSettings />
+      </div>
 
-        {/* ── Subscription logins ── */}
-        <div className="mb-4">
-          <SubscriptionsSettings />
-        </div>
-
+      {/* ── Sub-tab: Providers (Builtin + Custom) ── */}
+      <div style={{ display: activeSubTab === 'providers' ? undefined : 'none' }} className="space-y-3">
         {/* ── Builtin Providers ── */}
         <div>
           <div className="flex items-center justify-between mb-2">
@@ -384,7 +374,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
           </div>
 
           {displayBuiltin.length === 0 ? (
-            <p className="text-xs text-neutral-400 dark:text-neutral-500 py-3 text-center border border-dashed border-neutral-200 dark:border-neutral-800 rounded-lg">
+            <p className="text-xs text-neutral-400 dark:text-neutral-500 py-3 text-center border border-dashed border-neutral-200 dark:border-neutral-700 rounded-lg">
               {t('settings.models.noProviderKeys')}
             </p>
           ) : (
@@ -397,7 +387,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                   return next;
                 });
                 return (
-                <div key={name || '__new__'} className="rounded-lg border border-neutral-100 dark:border-neutral-800 overflow-hidden">
+                <div key={name || '__new__'} className="rounded-lg border border-neutral-100 dark:border-neutral-700 overflow-hidden">
                   {/* Header */}
                   <div className="flex items-center gap-2 px-3 py-2 bg-neutral-50 dark:bg-neutral-950/50">
                     <button onClick={toggle}
@@ -434,7 +424,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                   </div>
                   {/* Expanded body */}
                   {isExpanded && (
-                    <div className="px-3 py-3 space-y-3 border-t border-neutral-100 dark:border-neutral-800">
+                    <div className="px-3 py-3 space-y-3 border-t border-neutral-100 dark:border-neutral-700">
                       {(() => {
                         const defaultBaseUrl = builtinProviders[name] || undefined;
                         const resolvedBaseUrl = entry.baseUrl || defaultBaseUrl;
@@ -483,7 +473,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
         </div>
 
         {/* ── Custom Providers ── */}
-        <div className="border-t border-neutral-200 dark:border-neutral-800 pt-3">
+        <div className="border-t border-neutral-200 dark:border-neutral-700 pt-3">
           <div className="flex items-center justify-between mb-2">
             <h4 className="text-xs font-semibold text-neutral-600 dark:text-neutral-400">
               {t('settings.models.customProviders')}
@@ -495,13 +485,13 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
           </div>
 
           {customProviders.length === 0 ? (
-            <p className="text-xs text-neutral-400 dark:text-neutral-500 py-3 text-center border border-dashed border-neutral-200 dark:border-neutral-800 rounded-lg">
+            <p className="text-xs text-neutral-400 dark:text-neutral-500 py-3 text-center border border-dashed border-neutral-200 dark:border-neutral-700 rounded-lg">
               {t('settings.models.noProviders')}
             </p>
           ) : (
             <div className="space-y-2">
               {customProviders.map((cp, pIdx) => (
-                <div key={pIdx} className="rounded-lg border border-neutral-100 dark:border-neutral-800 overflow-hidden">
+                <div key={pIdx} className="rounded-lg border border-neutral-100 dark:border-neutral-700 overflow-hidden">
                   <div className="flex items-center gap-2 px-3 py-2 bg-neutral-50 dark:bg-neutral-950/50">
                     <button onClick={() => toggleCustomProvider(pIdx)}
                       className="text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 transition-colors">
@@ -520,7 +510,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                     </button>
                   </div>
                   {expandedCustom.has(pIdx) && (
-                    <div className="px-3 py-3 space-y-3 border-t border-neutral-100 dark:border-neutral-800">
+                    <div className="px-3 py-3 space-y-3 border-t border-neutral-100 dark:border-neutral-700">
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <Input label={t('settings.models.providerName')} value={cp.provider}
                           onChange={(e) => updateCustomProvider(pIdx, 'provider', e.target.value)}
@@ -532,7 +522,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                           placeholder="e.g. https://api.example.com/v1" />
                       </div>
                       {/* Models */}
-                      <div className="border-t border-neutral-100 dark:border-neutral-800 pt-3">
+                      <div className="border-t border-neutral-100 dark:border-neutral-700 pt-3">
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
                             {t('settings.models.models')}
@@ -549,7 +539,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                         ) : (
                           <div className="space-y-2">
                             {cp.models.map((model, mIdx) => (
-                              <div key={mIdx} className="rounded border border-neutral-100 dark:border-neutral-800 p-2.5 bg-neutral-50/50 dark:bg-neutral-950/30">
+                              <div key={mIdx} className="rounded border border-neutral-100 dark:border-neutral-700 p-2.5 bg-neutral-50/50 dark:bg-neutral-950/30">
                                 <div className="flex items-center justify-between mb-2">
                                   <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
                                     {model.name || model.id || `Model #${mIdx + 1}`}
@@ -653,25 +643,24 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
             </div>
           )}
         </div>
-      </AccordionItem>
+      </div>
 
-      {/* 3. Models Router */}
-      <AccordionItem title={t('settings.models.modelsRouter')}>
-        <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('settings.models.modelsRouterDesc')}</p>
-
+      {/* ── Sub-tab: Router — primary model / fallback / default reasoning ── */}
+      <div style={{ display: activeSubTab === 'router' ? undefined : 'none' }} className="space-y-6">
         {/* Primary Model */}
-        <div className="rounded border border-neutral-100 dark:border-neutral-800 p-3">
-          <h4 className="text-xs font-semibold text-neutral-600 dark:text-neutral-400 mb-3">{t('settings.models.title')}</h4>
-          <div className="space-y-3">
-            <Select
-              label={t('settings.models.provider')}
-              value={getField('piAi.provider', selectedProvider) as string}
-              onChange={(e) => setField('piAi.provider', e.target.value)}
-              options={providerOptions}
+        <section>
+          <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.models.title')}</h3>
+          <div className="space-y-3 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
+            <ModelPicker
+              provider={selectedProvider}
+              model={getField('piAi.model', piAi.model || '') as string}
+              extraProviders={extraProviderOptions}
+              onChangeProvider={(v) => setField('piAi.provider', v)}
+              onChangeModel={(v) => setField('piAi.model', v)}
+              providerLabel={t('settings.models.provider')}
+              modelLabel={t('settings.models.model')}
+              showMetaBadges={false}
             />
-            <Input label={t('settings.models.model')}
-              value={getField('piAi.model', piAi.model || '') as string}
-              onChange={(e) => setField('piAi.model', e.target.value)} />
             <Input label={t('settings.models.reasoningModel')}
               value={getField('piAi.reasoningModel', piAi.reasoningModel || '') as string}
               onChange={(e) => setField('piAi.reasoningModel', e.target.value)}
@@ -703,20 +692,45 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                 undefined
               } />
           </div>
-        </div>
+        </section>
 
         {/* Fallback Models */}
-        <div className="rounded border border-neutral-100 dark:border-neutral-800 p-3">
-          <h4 className="text-xs font-semibold text-neutral-600 dark:text-neutral-400 mb-3">{t('settings.models.fallbackModels')}</h4>
+        <section>
+          <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.models.fallbackModels')}</h3>
+          <div className="space-y-3 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
           <Input label={t('settings.models.fallbackModelsHint')}
             value={(getField('fallbackModels', fallbackModels) as string[]).join(', ')}
             onChange={(e) => setField('fallbackModels', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
             placeholder="e.g. gpt-4o, claude-sonnet-4-6" />
-        </div>
-      </AccordionItem>
+          </div>
+        </section>
 
-      {/* 4. Memory Aux Models */}
-      <AccordionItem title={t('settings.models.memoryAuxModels')}>
+        {/* Default Reasoning Level */}
+        <section>
+          <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.models.defaultReasoningLevel')}</h3>
+          <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
+          <Select
+            label={t('settings.models.defaultReasoningLevel')}
+            value={getField('defaultReasoningLevel', defReasoningLevel || 'off') as string}
+            onChange={(e) => setField('defaultReasoningLevel', e.target.value)}
+            options={[
+              { value: 'high', label: 'high' },
+              { value: 'low', label: 'low' },
+              { value: 'medium', label: 'medium' },
+              { value: 'minimal', label: 'minimal' },
+              { value: 'off', label: 'off' },
+              { value: 'xhigh', label: 'xhigh' },
+            ]}
+          />
+          </div>
+        </section>
+      </div>
+
+      {/* ── Sub-tab: Auxiliary — memory aux models + embedding ── */}
+      <div style={{ display: activeSubTab === 'auxiliary' ? undefined : 'none' }} className="space-y-6">
+        <section>
+          <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.models.memoryAuxModels')}</h3>
+          <div className="space-y-3 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
         <Input label={t('settings.models.memoryAuxPrimary')}
           value={getField('memoryAuxModels.primary', (memoryAux.primary as string) || '') as string}
           onChange={(e) => setField('memoryAuxModels.primary', e.target.value)}
@@ -725,10 +739,12 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
           value={(getField('memoryAuxModels.fallback_models', (memoryAux.fallback_models as string[]) || []) as string[]).join(', ')}
           onChange={(e) => setField('memoryAuxModels.fallback_models', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
           placeholder="e.g. gpt-4o-mini" />
-      </AccordionItem>
+          </div>
+        </section>
 
-      {/* 5. Embedding Model */}
-      <AccordionItem title={t('settings.models.embeddingTitle')}>
+        <section>
+          <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.models.embeddingTitle')}</h3>
+          <div className="space-y-3 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
         <Input label="Base URL"
           value={getField('embedding.baseUrl', (embedding.baseUrl as string) || '') as string}
           onChange={(e) => setField('embedding.baseUrl', e.target.value)} />
@@ -741,12 +757,14 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
         <Input label={t('settings.models.embeddingDimension')} type="number"
           value={getField('embedding.dimension', embedding.dimension ? String(embedding.dimension) : '') as string}
           onChange={(e) => setField('embedding.dimension', e.target.value)} />
-      </AccordionItem>
+          </div>
+        </section>
+      </div>
 
       {/* ── Add Builtin Provider Modal ── */}
       {showBuiltinModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowBuiltinModal(false)}>
-          <div className="bg-white dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-800 shadow-xl mx-4 w-full max-w-[420px] p-5" onClick={e => e.stopPropagation()}>
+          <div className="bg-white dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-700 shadow-xl mx-4 w-full max-w-[420px] p-5" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t('settings.models.addProviderKey')}</h3>
               <button onClick={() => setShowBuiltinModal(false)} className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"><X size={16} /></button>
@@ -786,7 +804,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
       {/* ── Add Custom Provider Modal ── */}
       {showCustomModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowCustomModal(false)}>
-          <div className="bg-white dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-800 shadow-xl mx-4 w-full max-w-[420px] p-5" onClick={e => e.stopPropagation()}>
+          <div className="bg-white dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-700 shadow-xl mx-4 w-full max-w-[420px] p-5" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t('settings.models.addProvider')}</h3>
               <button onClick={() => setShowCustomModal(false)} className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"><X size={16} /></button>

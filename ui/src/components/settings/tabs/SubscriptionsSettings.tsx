@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useWebSocket } from '../../../contexts/WebSocketContext';
 import { useToast } from '../../ui/Toast';
 import { apiRequest } from '../../../utils/api';
@@ -50,7 +49,6 @@ export default function SubscriptionsSettings() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loginStage, setLoginStage] = useState<Record<string, LoginStage>>({});
-  const [collapsed, setCollapsed] = useState(true);
 
   // ── Fetch subscription statuses ─────────────────────────────────────
 
@@ -242,29 +240,14 @@ export default function SubscriptionsSettings() {
 
   return (
     <div className="space-y-1.5">
-      {/* Collapse toggle */}
-      <button
-        onClick={() => setCollapsed((v) => !v)}
-        className="flex items-center gap-1 text-xs font-semibold text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200 transition-colors"
-      >
-        {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-        {t('settings.groups.subscriptions')}
-      </button>
-
-      {!collapsed && (
-        <>
-          <p className="text-xs text-neutral-500 dark:text-neutral-400">
-            {t('settings.subscriptions.description')}
-          </p>
-
-          {subscriptions.map((sub) => {
+      {subscriptions.map((sub) => {
         const stage = loginStage[sub.providerId] || { type: 'idle' };
         const isBusy = stage.type !== 'idle' && stage.type !== 'error';
 
         return (
           <div
             key={sub.providerId}
-            className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2"
+            className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2"
           >
             <div className="flex items-center justify-between">
               <div className="flex-1 min-w-0">
@@ -379,8 +362,6 @@ export default function SubscriptionsSettings() {
             return null;
         }
       })}
-        </>
-      )}
     </div>
   );
 }

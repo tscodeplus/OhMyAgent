@@ -167,6 +167,28 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
     return reply.send({ providers });
   });
 
+  // Return the catalog of models for a given provider (builtin + custom).
+  // Powers the searchable model dropdown in Settings → Models & Routing.
+  app.get('/api/providers/:id/models', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    try {
+      const models = getModels(id as any).map((m: any) => ({
+        id: m.id,
+        name: m.name || m.id,
+        api: m.api,
+        baseUrl: m.baseUrl || undefined,
+        reasoning: !!m.reasoning,
+        input: Array.isArray(m.input) ? m.input : [],
+        contextWindow: m.contextWindow || undefined,
+        maxTokens: m.maxTokens || undefined,
+        thinkingLevelMap: m.thinkingLevelMap || undefined,
+      }));
+      return reply.send({ provider: id, models });
+    } catch {
+      return reply.send({ provider: id, models: [] });
+    }
+  });
+
   // Check if first-run setup wizard should be shown
   app.get('/api/config/minimal-check', async (_request, reply) => {
     const config = cfg.getConfig();

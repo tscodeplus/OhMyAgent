@@ -92,3 +92,91 @@ describe('GET /api/providers', () => {
     expect(body.providers).toEqual([]);
   });
 });
+
+describe('GET /api/providers/:id/models', () => {
+  let app: ReturnType<typeof Fastify>;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+
+    app = Fastify({ logger: false });
+
+    registerConfigRoutes(app, {
+      getConfig: () => ({ piAi: { provider: 'openai', model: 'gpt-4' } } as any),
+      configPath: '/tmp/test-config.yaml',
+    });
+
+    await app.ready();
+  });
+
+  it('returns serialized model catalog for a known provider', async () => {
+    mockGetModels.mockReturnValue([
+      {
+        id: 'deepseek-v4-flash',
+        name: 'DeepSeek V4 Flash',
+        api: 'openai-completions',
+        baseUrl: 'https://api.deepseek.com',
+        reasoning: true,
+        input: ['text'],
+        contextWindow: 1_000_000,
+        maxTokens: 384_000,
+        thinkingLevelMap: { low: 'low' },
+        cost: { input: 0.14 },
+        compat: { maxTokensField: 'max_tokens' },
+      },
+    ]);
+
+    const res = await app.inject({ method: 'GET', url: '/api/providers/deepseek/models' });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.provider).toBe('deepseek');
+    expect(body.models).toHaveLength(1);
+    // Known metadata fields are surfaced…
+    expect(body.models[0]).toMatchObject({
+      id: 'deepseek-v4-flash',
+      name: 'DeepSeek V4 Flash',
+      api: 'openai-completions',
+      baseUrl: 'https://api.deepseek.com',
+      reasoning: true,
+      input: ['text'],
+      contextWindow: 1_000_000,
+      maxTokens: 384_000,
+    });
+    // …while heavy internals (cost/compat) are stripped out.
+    expect(body.models[0].cost).toBeUndefined();
+    expect(body.models[0].compat).toBeUndefined();
+  });
+
+  it('normalizes missing fields (reasoning false, input empty array)', async () => {
+    mockGetModels.mockReturnValue([{ id: 'bare-model', name: undefined, api: 'openai-completions' }]);
+
+    const res = await app.inject({ method: 'GET', url: '/api/providers/x/models' });
+    const body = JSON.parse(res.body);
+
+    expect(body.models[0]).toEqual({
+      id: 'bare-model',
+      name: 'bare-model',
+      api: 'openai-completions',
+      baseUrl: undefined,
+      reasoning: false,
+      input: [],
+      contextWindow: undefined,
+      maxTokens: undefined,
+      thinkingLevelMap: undefined,
+    });
+  });
+
+  it('returns empty models array for unknown provider', async () => {
+    mockGetModels.mockImplementation(() => {
+      throw new Error('unknown provider');
+    });
+
+    const res = await app.inject({ method: 'GET', url: '/api/providers/nope/models' });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.provider).toBe('nope');
+    expect(body.models).toEqual([]);
+  });
+});
