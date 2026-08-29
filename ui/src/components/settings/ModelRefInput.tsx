@@ -7,6 +7,9 @@ interface ModelRefInputProps {
   value: string;
   onChange: (modelRef: string) => void;
   label?: string;
+  /** Override the provider/model labels (otherwise derived from `label`). */
+  providerLabel?: string;
+  modelLabel?: string;
   placeholder?: string;
   extraProviders?: ProviderOption[];
   showMetaBadges?: boolean;
@@ -18,6 +21,8 @@ export default function ModelRefInput({
   value,
   onChange,
   label,
+  providerLabel,
+  modelLabel,
   placeholder,
   extraProviders,
   showMetaBadges = false,
@@ -58,8 +63,8 @@ export default function ModelRefInput({
       model={model}
       onChangeProvider={handleChangeProvider}
       onChangeModel={handleChangeModel}
-      providerLabel={label ? `${label} — ${t('settings.models.provider')}` : undefined}
-      modelLabel={label ? `${label} — ${t('settings.models.model')}` : undefined}
+      providerLabel={providerLabel ?? (label ? `${label} — ${t('settings.models.provider')}` : undefined)}
+      modelLabel={modelLabel ?? (label ? `${label} — ${t('settings.models.model')}` : undefined)}
       modelPlaceholder={placeholder}
       extraProviders={extraProviders}
       showMetaBadges={showMetaBadges}
