@@ -250,6 +250,7 @@
       "title": "主模型",
       "provider": "供应商",
       "model": "主模型",
+      "fallbackModel": "模型",
       "reasoningModel": "推理模型",
       "apiKey": "API Key",
       "baseUrl": "Base URL",

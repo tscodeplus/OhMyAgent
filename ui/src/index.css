@@ -45,7 +45,7 @@ body {
 
 /* Improve touch targets on mobile */
 @media (max-width: 639px) {
-  button, a, [role="button"] {
+  button:not([role="switch"]), a, [role="button"] {
     min-height: 34px;
     min-width: 34px;
   }

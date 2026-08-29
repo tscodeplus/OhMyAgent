@@ -71,7 +71,7 @@ function SortableItem({ item, index, onUpdate, onRemove, configuredProviders, ex
           onChangeProvider={(provider) => onUpdate(item.id, { ...item, provider })}
           onChangeModel={(model) => onUpdate(item.id, { ...item, model })}
           providerLabel={t('settings.models.provider')}
-          modelLabel={t('settings.models.model')}
+          modelLabel={t('settings.models.fallbackModel')}
           showMetaBadges={false}
           showTestButton={false}
           configuredProviders={configuredProviders}

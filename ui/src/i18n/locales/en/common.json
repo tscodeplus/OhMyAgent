@@ -248,6 +248,7 @@
       "title": "Primary Model",
       "provider": "Provider",
       "model": "Primary Model",
+      "fallbackModel": "Model",
       "reasoningModel": "Reasoning Model",
       "apiKey": "API Key",
       "baseUrl": "Base URL",
