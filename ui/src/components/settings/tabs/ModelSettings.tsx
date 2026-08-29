@@ -806,10 +806,17 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
               placeholder="e.g. deepseek-chat"
               configuredProviders={configuredProviders}
               extraProviders={extraProviderOptions} />
-            <Input label={t('settings.models.fallbackModels')}
-              value={(getField('memoryAuxModels.fallback_models', (memoryAux.fallback_models as string[]) || []) as string[]).join(', ')}
-              onChange={(e) => setField('memoryAuxModels.fallback_models', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
-              placeholder="e.g. gpt-4o-mini" />
+            <div className="pt-2">
+              <label className="block text-[13px] font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+                {t('settings.models.fallbackModels')}
+              </label>
+              <FallbackModelsEditor
+                value={getField('memoryAuxModels.fallback_models', (memoryAux.fallback_models as string[]) || []) as string[]}
+                onChange={(v) => setField('memoryAuxModels.fallback_models', v)}
+                configuredProviders={configuredProviders}
+                extraProviders={extraProviderOptions}
+              />
+            </div>
           </SettingsCard>
         </SettingsSection>
 
