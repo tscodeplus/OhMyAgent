@@ -60,7 +60,7 @@ export default function MemorySettings({
     <div className="space-y-3">
       {/* 1. Basic */}
       <AccordionItem title={t("settings.memory.basic")}>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <label className="flex items-center gap-2 text-sm cursor-pointer">
             <Toggle checked={getField('memory.autoRecall', !!mem.autoRecall) as boolean} onChange={(v) => setField('memory.autoRecall', v)} />
             <span className="text-neutral-700 dark:text-neutral-300">{t("settings.memory.autoRecall")}</span>
@@ -97,7 +97,7 @@ export default function MemorySettings({
 
       {/* 2. Embedding cache */}
       <AccordionItem title={t("settings.memory.embedding")}>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input label={t("settings.memory.cacheMaxEntries")} type="number" value={getField('memory.embeddingCacheMaxEntries', String(mem.embeddingCacheMaxEntries ?? '')) as string}
             onChange={(e) => setField('memory.embeddingCacheMaxEntries', e.target.value)} />
           <Input label={t("settings.memory.queryTimeout")} type="number" value={getField('memory.queryEmbeddingTimeoutMs', String(mem.queryEmbeddingTimeoutMs ?? '')) as string}
@@ -107,7 +107,7 @@ export default function MemorySettings({
 
       {/* 3. Hygiene */}
       <AccordionItem title={t("settings.memory.hygiene")}>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FieldRow label={t("settings.memory.enabled")}>
             <Toggle checked={getField('memory.hygiene.enabled', !!(mem.hygiene as Record<string, unknown>)?.enabled) as boolean} onChange={(v) => setField('memory.hygiene.enabled', v)} />
           </FieldRow>
@@ -118,7 +118,7 @@ export default function MemorySettings({
 
       {/* 4. Circuit breaker */}
       <AccordionItem title={t("settings.memory.circuitBreaker")}>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input label={t("settings.memory.failureThreshold")} type="number" value={getField('memory.embeddingCircuitBreaker.failureThreshold', String((mem.embeddingCircuitBreaker as Record<string, unknown>)?.failureThreshold ?? '')) as string}
             onChange={(e) => setField('memory.embeddingCircuitBreaker.failureThreshold', e.target.value)} />
           <Input label={t("settings.memory.cooldownSec")} type="number" value={getField('memory.embeddingCircuitBreaker.cooldownSec', String((mem.embeddingCircuitBreaker as Record<string, unknown>)?.cooldownSec ?? '')) as string}
@@ -146,7 +146,7 @@ export default function MemorySettings({
         <FieldRow label={t("settings.memory.enabled")}>
           <Toggle checked={getField('memory.persona.enabled', !!(mem.persona as Record<string, unknown>)?.enabled) as boolean} onChange={(v) => setField('memory.persona.enabled', v)} />
         </FieldRow>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input label={t("settings.memory.distillThreshold")} type="number" value={getField('memory.persona.distillThreshold', String((mem.persona as Record<string, unknown>)?.distillThreshold ?? '')) as string}
             onChange={(e) => setField('memory.persona.distillThreshold', e.target.value)} />
           <Input label={t("settings.memory.minDistillInterval")} type="number" value={getField('memory.persona.minDistillIntervalHours', String((mem.persona as Record<string, unknown>)?.minDistillIntervalHours ?? '')) as string}
@@ -176,7 +176,7 @@ export default function MemorySettings({
         <FieldRow label={t("settings.memory.enabled")}>
           <Toggle checked={getField('memory.sceneClustering.enabled', !!(mem.sceneClustering as Record<string, unknown>)?.enabled) as boolean} onChange={(v) => setField('memory.sceneClustering.enabled', v)} />
         </FieldRow>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input label={t("settings.memory.windowDays")} type="number" value={getField('memory.sceneClustering.windowDays', String((mem.sceneClustering as Record<string, unknown>)?.windowDays ?? '')) as string}
             onChange={(e) => setField('memory.sceneClustering.windowDays', e.target.value)} />
           <Input label={t("settings.memory.minMemories")} type="number" value={getField('memory.sceneClustering.minMemories', String((mem.sceneClustering as Record<string, unknown>)?.minMemories ?? '')) as string}
@@ -191,7 +191,7 @@ export default function MemorySettings({
         </FieldRow>
         <Input label={t("settings.memory.dreamCycle.timezone")} placeholder={t("settings.memory.dreamCycle.timezonePlaceholder")} value={getField('memory.dreamCycle.timezone', String((mem.dreamCycle as Record<string, unknown>)?.timezone ?? '')) as string}
           onChange={(e) => setField('memory.dreamCycle.timezone', e.target.value)} />
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Select label={t("settings.memory.dreamCycle.hour")} value={getField('memory.dreamCycle.hour', String((mem.dreamCycle as Record<string, unknown>)?.hour ?? 2)) as string}
             onChange={(e) => setField('memory.dreamCycle.hour', e.target.value)}
             options={Array.from({ length: 24 }, (_, i) => ({ value: String(i), label: `${i}:00` }))} />
@@ -235,7 +235,7 @@ export default function MemorySettings({
         <FieldRow label={t("settings.memory.enabled")}>
           <Toggle checked={getField('memory.autoCompress.enabled', !!(mem.autoCompress as Record<string, unknown>)?.enabled) as boolean} onChange={(v) => setField('memory.autoCompress.enabled', v)} />
         </FieldRow>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input label={t("settings.memory.reserveTokens")} type="number" value={getField('memory.autoCompress.reserveTokens', String((mem.autoCompress as Record<string, unknown>)?.reserveTokens ?? '')) as string}
             onChange={(e) => setField('memory.autoCompress.reserveTokens', e.target.value)} />
           <Input label={t("settings.memory.keepRecentTokens")} type="number" value={getField('memory.autoCompress.keepRecentTokens', String((mem.autoCompress as Record<string, unknown>)?.keepRecentTokens ?? '')) as string}

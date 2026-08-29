@@ -54,7 +54,7 @@ export default function ToolsSettings() {
           <Select label={t('settings.tools.execMode')} value={String(tools.shellExecMode || 'balanced')}
             onChange={(e) => saveField('tools.shellExecMode', e.target.value)}
             options={[{ value: 'balanced', label: t('settings.tools.opt_balanced') }, { value: 'safe', label: t('settings.policy.mode') + ': safe' }, { value: 'trusted', label: 'trusted' }]} />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input label={t('settings.tools.defaultTimeout')} type="number" value={defaultTimeout}
               onChange={(e) => setDefaultTimeout(e.target.value)}
               onBlur={() => saveField('tools.defaultTimeoutMs', Number(defaultTimeout))} />
@@ -71,7 +71,7 @@ export default function ToolsSettings() {
       <section>
         <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.tools.approval')}</h3>
         <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input label={t('settings.tools.approvalTimeout')} type="number" value={approvalTimeout}
               onChange={(e) => setApprovalTimeout(e.target.value)}
               onBlur={() => saveField('tools.shellApprovalTimeoutSec', Number(approvalTimeout))} />

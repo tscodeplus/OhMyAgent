@@ -176,7 +176,7 @@ export default function WebSearchSettings({ tabId = 'websearch', registerHandle,
               </div>
             )}
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input label={t("settings.websearch.searchTimeout")} type="number" value={getField('webSearch.searchTimeoutMs', String(ws.searchTimeoutMs ?? '')) as string}
               onChange={(e) => setField('webSearch.searchTimeoutMs', e.target.value)} />
             <Input label={t("settings.websearch.maxResults")} type="number" value={getField('webSearch.maxResults', String(ws.maxResults ?? '')) as string}

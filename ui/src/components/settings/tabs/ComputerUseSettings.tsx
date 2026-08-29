@@ -51,7 +51,7 @@ export default function ComputerUseSettings({ tabId = 'computer', registerHandle
         <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
           <Input label="Host" value={getField('computerUse.ssh.host', String(cuSsh.host || '')) as string}
             onChange={(e) => setField('computerUse.ssh.host', e.target.value)} />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input label="User" value={getField('computerUse.ssh.user', String(cuSsh.user || '')) as string}
               onChange={(e) => setField('computerUse.ssh.user', e.target.value)} />
             <Input label="Port" type="number" value={getField('computerUse.ssh.port', String(cuSsh.port || 22)) as string}

@@ -158,7 +158,7 @@ export default function GeneralSettings({ tabId = 'general', registerHandle, onD
             value={getField('database.path', dbPath) as string}
             onChange={(e) => setField('database.path', e.target.value)}
           />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label={t('settings.general.rateLimit')}
               type="number"

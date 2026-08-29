@@ -40,19 +40,30 @@ function SortableItem({ item, index, onUpdate, onRemove, configuredProviders, ex
   };
 
   return (
-    <div ref={setNodeRef} style={style} className="flex items-start gap-2 rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
-      <button
-        type="button"
-        {...attributes}
-        {...listeners}
-        className="mt-2 cursor-grab touch-none text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
-        title={t('common.dragToReorder')}
-      >
-        <GripVertical size={16} />
-      </button>
-      <span className="mt-2 flex-shrink-0 w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 flex items-center justify-center text-[10px] font-bold">
-        {index + 1}
-      </span>
+    <div ref={setNodeRef} style={style} className="flex flex-col gap-2 rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900 sm:flex-row sm:items-start sm:gap-2">
+      <div className="flex items-center gap-2 sm:contents">
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          className="cursor-grab touch-none text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 sm:mt-2"
+          title={t('common.dragToReorder')}
+        >
+          <GripVertical size={16} />
+        </button>
+        <span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 flex items-center justify-center text-[10px] font-bold">
+          {index + 1}
+        </span>
+        <div className="flex-1 sm:hidden" />
+        <button
+          type="button"
+          onClick={() => onRemove(item.id)}
+          className="text-neutral-400 hover:text-red-500 dark:hover:text-red-400 sm:mt-2"
+          title={t('common.remove')}
+        >
+          <X size={16} />
+        </button>
+      </div>
       <div className="flex-1 min-w-0">
         <ModelPicker
           provider={item.provider}
@@ -68,14 +79,6 @@ function SortableItem({ item, index, onUpdate, onRemove, configuredProviders, ex
           className="space-y-2"
         />
       </div>
-      <button
-        type="button"
-        onClick={() => onRemove(item.id)}
-        className="mt-2 text-neutral-400 hover:text-red-500 dark:hover:text-red-400"
-        title={t('common.remove')}
-      >
-        <X size={16} />
-      </button>
     </div>
   );
 }

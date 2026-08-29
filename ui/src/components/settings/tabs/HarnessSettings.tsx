@@ -98,7 +98,7 @@ export default function HarnessSettings({ tabId = 'harness', registerHandle, onD
       {/* ── Section 2: Trigger Conditions ── */}
       <section>
         <h3 className={sectionTitleClass}>{t('settings.harness.interactive.trigger.title')}</h3>
-        <div className={`${sectionCardClass} grid grid-cols-2 gap-4`}>
+        <div className={`${sectionCardClass} grid grid-cols-1 sm:grid-cols-2 gap-4`}>
           <Input
             label={t('settings.harness.interactive.trigger.minIdenticalRetries')}
             type="number"
@@ -165,7 +165,7 @@ export default function HarnessSettings({ tabId = 'harness', registerHandle, onD
       <section>
         <h3 className={sectionTitleClass}>{t('settings.harness.interactive.rateLimit.title')}</h3>
         <div className={`${sectionCardClass} space-y-4`}>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label={t('settings.harness.interactive.rateLimit.maxPerDay')}
               type="number"

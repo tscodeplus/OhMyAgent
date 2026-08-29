@@ -152,8 +152,8 @@ export default function AgentSettings({ tabId = 'agents', registerHandle, onDirt
           </Button>
         </div>
 
-        <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 overflow-x-auto">
+          <table className="w-full text-sm max-sm:min-w-[640px]">
             <thead className="bg-neutral-100 dark:bg-neutral-800">
               <tr>
                 <th className="text-left px-4 py-2.5 font-medium">ID</th>

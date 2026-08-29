@@ -391,7 +391,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
       </div>
 
       {/* ── Sub-tab bar (segmented control) ── */}
-      <div className="flex gap-1 p-1 rounded-lg bg-neutral-100 dark:bg-neutral-800" role="tablist">
+      <div className="flex gap-1 p-1 rounded-lg bg-neutral-100 dark:bg-neutral-800 max-sm:overflow-x-auto" role="tablist">
         {MODEL_SUB_TABS.map(st => {
           const Icon = st.icon;
           const active = activeSubTab === st.id;
@@ -402,7 +402,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
               role="tab"
               aria-selected={active}
               onClick={() => setActiveSubTab(st.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-[13px] rounded-md transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-[13px] rounded-md transition-all whitespace-nowrap shrink-0 ${
                 active
                   ? 'bg-white dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100 shadow-sm font-medium'
                   : 'text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100'
@@ -614,7 +614,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                                     <Trash2 size={11} />
                                   </button>
                                 </div>
-                                <div className="grid grid-cols-2 gap-2">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                   <Input label={t('settings.models.modelId')} value={model.id}
                                     onChange={(e) => updateModel(pIdx, mIdx, 'id', e.target.value)}
                                     placeholder="e.g. gpt-4o" />

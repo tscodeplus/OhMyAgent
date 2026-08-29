@@ -158,7 +158,7 @@ export default function AgentEditor({ agent, onSave, onCancel, registerHandle, o
       </div>
 
       <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {isNew && (
             <div>
               <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1.5">
@@ -227,7 +227,7 @@ export default function AgentEditor({ agent, onSave, onCancel, registerHandle, o
             />
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Select
             label={t("settings.agents.profile")}
             options={PROFILE_OPTIONS}

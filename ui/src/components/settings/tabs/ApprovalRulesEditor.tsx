@@ -297,8 +297,8 @@ export default function ApprovalRulesEditor({
           )}
         </div>
       ) : (
-        <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 overflow-x-auto">
+          <table className="w-full text-sm max-sm:min-w-[680px]">
             <thead className="bg-neutral-100 dark:bg-neutral-800">
               <tr>
                 <th className="text-left px-4 py-2.5 font-medium text-neutral-700 dark:text-neutral-300 w-10"></th>
@@ -426,7 +426,7 @@ export default function ApprovalRulesEditor({
       >
         <div className="space-y-5">
           {/* Name & Priority */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Rule Name"
               value={form.name}

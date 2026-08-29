@@ -48,7 +48,7 @@ export default function ToolsPolicySettings({ tabId = 'tools', registerHandle, o
         <Select label={t("settings.policy.modeLabel")} value={getField('policy.mode', str(policy.mode, 'balanced')) as string}
           onChange={(e) => setField('policy.mode', e.target.value)}
           options={[{ value: 'bypass', label: t('settings.policy.opt_bypass') }, { value: 'permissive', label: t('settings.policy.opt_permissive') }, { value: 'balanced', label: t('settings.policy.opt_balanced') }, { value: 'safe', label: t('settings.policy.opt_safe') }]} />
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input label={t("settings.policy.approvalTimeout")} type="number" value={getField('policy.approval.timeoutSec', str(approval.timeoutSec, '')) as string}
             onChange={(e) => setField('policy.approval.timeoutSec', e.target.value)} />
           <Select label={t("settings.policy.timeoutAction")} value={getField('policy.approval.timeoutAction', str(approval.timeoutAction, 'deny')) as string}
@@ -65,7 +65,7 @@ export default function ToolsPolicySettings({ tabId = 'tools', registerHandle, o
         <Select label={t('settings.tools.execMode')} value={getField('tools.shellExecMode', str(tools.shellExecMode, 'balanced')) as string}
           onChange={(e) => setField('tools.shellExecMode', e.target.value)}
           options={[{ value: 'balanced', label: t('settings.tools.opt_balanced') }, { value: 'safe', label: 'safe' }, { value: 'trusted', label: 'trusted' }]} />
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input label={t('settings.tools.defaultTimeout')} type="number" value={getField('tools.defaultTimeoutMs', str(tools.defaultTimeoutMs, '')) as string}
             onChange={(e) => setField('tools.defaultTimeoutMs', e.target.value)} />
           <Input label={t('settings.tools.maxOutput')} type="number" value={getField('tools.maxOutputLength', str(tools.maxOutputLength, '')) as string}
@@ -77,7 +77,7 @@ export default function ToolsPolicySettings({ tabId = 'tools', registerHandle, o
       </AccordionItem>
 
       <AccordionItem title={t('settings.tools.shellApproval')}>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input label={t('settings.tools.approvalTimeout')} type="number" value={getField('tools.shellApprovalTimeoutSec', str(tools.shellApprovalTimeoutSec, '')) as string}
             onChange={(e) => setField('tools.shellApprovalTimeoutSec', e.target.value)} />
           <Select label={t('settings.tools.timeoutAction')} value={getField('tools.shellApprovalTimeoutAction', str(tools.shellApprovalTimeoutAction, 'deny')) as string}
