@@ -91,6 +91,11 @@ export default function ModelPicker({
   const searchRef = useRef<HTMLInputElement>(null);
   // Set while we programmatically focus the input (on open) so onFocus doesn't wipe typed text.
   const programmaticFocus = useRef(false);
+  // Outcome of the last manual (live) refresh: 'ok' | 'failed' | null. Shown as a
+  // hint so the user knows whether the live fetch succeeded or fell back to the
+  // static catalog.
+  const [liveResult, setLiveResult] = useState<'ok' | 'failed' | null>(null);
+  const liveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -121,8 +126,15 @@ export default function ModelPicker({
   const fetchModels = useCallback((providerId: string, isManual = false) => {
     if (!providerId) return;
     setLoadingModels(true);
-    setModels([]);
-    onModelMeta?.(null);
+    // Only blank for the automatic (static) fetch; a manual live refresh should
+    // keep the already-loaded catalog visible on failure/empty.
+    if (!isManual) {
+      setModels([]);
+      onModelMeta?.(null);
+    } else {
+      if (liveTimer.current) clearTimeout(liveTimer.current);
+      setLiveResult(null);
+    }
     if (isManual) setManualRefresh(true);
 
     // Use live endpoint for manual refresh, static endpoint otherwise
@@ -130,15 +142,28 @@ export default function ModelPicker({
 
     apiRequest<{ provider: string; models: ModelInfo[]; live?: boolean }>(endpoint)
       .then(data => {
+        // Manual (live) refresh returned nothing usable → keep the static catalog
+        // and flag the failure so the UI can show a hint.
+        if (isManual && (!data.models || data.models.length === 0)) {
+          setLiveResult('failed');
+          return;
+        }
         setModels(data.models);
         const found = data.models.find(m => m.id === model);
         if (found) onModelMeta?.(found);
+        if (isManual) setLiveResult('ok');
       })
-      .catch(() => setModels([]))
+      .catch(() => {
+        // Live refresh failure: keep the static catalog visible.
+        if (!isManual) setModels([]);
+        else setLiveResult('failed');
+      })
       .finally(() => {
         setLoadingModels(false);
         if (isManual) {
           setTimeout(() => setManualRefresh(false), 1500);
+          if (liveTimer.current) clearTimeout(liveTimer.current);
+          liveTimer.current = setTimeout(() => setLiveResult(null), 4000);
         }
       });
   }, [model, onModelMeta]);
@@ -238,21 +263,38 @@ export default function ModelPicker({
         <button
           type="button"
           onClick={() => fetchModels(provider, true)}
+          onMouseDown={(e) => e.stopPropagation()}
           disabled={!provider || loadingModels}
           className="shrink-0 flex items-center gap-1.5 px-3 py-2.5 text-xs rounded-lg border border-neutral-300 bg-white text-neutral-600 hover:bg-neutral-50 hover:border-neutral-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
           title={t('settings.models.fetchModels')}
         >
           {loadingModels ? (
             <Loader2 size={14} className="animate-spin" />
+          ) : liveResult === 'ok' ? (
+            <Check size={14} className="text-green-500" />
+          ) : liveResult === 'failed' ? (
+            <AlertCircle size={14} className="text-amber-500" />
           ) : (
             <RefreshCw size={14} className={manualRefresh ? 'text-green-500' : ''} />
           )}
-          <span className="hidden sm:inline">{manualRefresh ? t('settings.models.modelsRefreshed') : t('settings.models.fetchModels')}</span>
+          <span className="hidden sm:inline">
+            {liveResult === 'ok'
+              ? t('settings.models.liveFetched')
+              : liveResult === 'failed'
+                ? t('settings.models.liveFetchFailed')
+                : t('settings.models.fetchModels')}
+          </span>
         </button>
         {providerRowTrailing && (
           <div className="self-start sm:-mt-1">{providerRowTrailing}</div>
         )}
       </div>
+      {liveResult === 'failed' && (
+        <p className="flex items-center gap-1.5 mt-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+          <AlertCircle size={12} className="shrink-0" />
+          {t('settings.models.liveFetchFailedHint')}
+        </p>
+      )}
 
       {/* Model combobox with editable input */}
       <div ref={containerRef} className="relative">

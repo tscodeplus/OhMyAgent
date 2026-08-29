@@ -11,6 +11,7 @@ import type { AppConfig } from '../types.js';
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { load as parseYaml, dump as dumpYaml } from 'js-yaml';
 import { getModels, getProviders, getBuiltinProviders } from '@earendil-works/pi-ai';
+import { ensureV1BaseUrl } from '../../utils/base-url.js';
 import { resetConfig, loadConfig, startConfigWatcher } from '../config.js';
 import { jsConfigToYaml } from '../config-loader.js';
 
@@ -225,6 +226,7 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
     // Get API key and base URL from provider_keys or custom_providers
     let apiKey: string | undefined;
     let baseUrl: string | undefined;
+    let api: string | undefined;
 
     // Check providerKeys first
     const providerKeys = config.providerKeys as Record<string, { apiKey?: string; baseUrl?: string }> | undefined;
@@ -248,6 +250,17 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
     }
 
     // Default base URLs for known providers
+    // Fall back to the catalog's base URL (already carries the correct /v1 path)
+    // when neither provider_keys nor custom_providers supplied one.
+    if (!baseUrl) {
+      const catalog = getModels(id as never) as Array<{ baseUrl?: string; api?: string }>;
+      const first = catalog?.[0];
+      if (first?.baseUrl) {
+        baseUrl = first.baseUrl;
+        api = first.api as string;
+      }
+    }
+
     if (!baseUrl) {
       const knownBaseUrls: Record<string, string> = {
         'openai': 'https://api.openai.com/v1',
@@ -262,6 +275,11 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
     if (!baseUrl) {
       return reply.status(400).send({ error: 'Base URL not configured for this provider' });
     }
+
+    // Intelligently ensure OpenAI-compatible URLs end with /v1 (e.g. opencode's
+    // built-in provider base URL omits it, so the live fetch would otherwise
+    // hit the wrong path).
+    baseUrl = ensureV1BaseUrl(baseUrl, api) ?? baseUrl;
 
     try {
       // Try to fetch from /models endpoint (OpenAI-compatible)
@@ -279,20 +297,24 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
         });
       }
 
-      const data = await response.json() as { data?: Array<{ id: string; object?: string }> };
+      const data = await response.json() as any;
+      const rawList = Array.isArray(data) ? data : (data?.data ?? []);
 
-      if (!data.data || !Array.isArray(data.data)) {
+      if (!Array.isArray(rawList) || rawList.length === 0) {
         return reply.send({ provider: id, models: [] });
       }
 
-      // Map to our format
-      const models = data.data.map(m => ({
-        id: m.id,
-        name: m.id,
-        api: 'openai-completions',
-        reasoning: false,
-        input: ['text'],
-      }));
+      // Map to our format (OpenAI-compatible {id} entries)
+      const models = rawList
+        .map((m: any) => ({ id: m?.id ?? m?.name ?? m?.model, name: m?.id ?? m?.name ?? m?.model }))
+        .filter((m: { id?: string }) => m.id)
+        .map(m => ({
+          id: m.id,
+          name: m.name,
+          api: 'openai-completions',
+          reasoning: false,
+          input: ['text'],
+        }));
 
       return reply.send({ provider: id, models, live: true });
     } catch (error) {

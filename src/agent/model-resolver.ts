@@ -10,6 +10,7 @@
 import { getModel, type Model, type KnownProvider } from '@earendil-works/pi-ai';
 import type { Api } from '../pi-mono/ai/types.js';
 import { getDefaultModel } from '../provider/pi-ai-setup.js';
+import { ensureV1BaseUrl } from '../utils/base-url.js';
 import type { AppConfig } from '../app/types.js';
 import type { ResolvedAgentConfig } from './config-types.js';
 import { createLogger } from '../app/logger.js';
@@ -157,19 +158,25 @@ export function resolveModel(options: {
     // 7a. baseUrl override — priority mirrors getApiKey in agent-factory.ts.
     //    Dynamically-cloned models (from getModel's fallback path) inherit the
     //    template's built-in baseUrl, which may differ from the user's gateway.
+    //    Normalize OpenAI-compatible URLs so a missing `/v1` segment is added
+    //    (some built-in provider base URLs omit it, e.g. opencode).
     const cp = config.customProviders?.find(p => p.provider === modelProvider);
+    let resolvedBaseUrl = (model as any).baseUrl as string | undefined;
     if (cp?.baseUrl) {
       // 1. Custom provider baseUrl
-      (model as any).baseUrl = cp.baseUrl;
+      resolvedBaseUrl = cp.baseUrl;
     } else {
       const pk = config.providerKeys?.[modelProvider ?? ''];
       if (pk?.baseUrl) {
         // 2. Built-in provider_keys baseUrl
-        (model as any).baseUrl = pk.baseUrl;
+        resolvedBaseUrl = pk.baseUrl;
       } else if (modelProvider === config.piAi.provider && config.piAi.baseUrl) {
         // 3. piAi.baseUrl (only for the primary provider)
-        (model as any).baseUrl = config.piAi.baseUrl;
+        resolvedBaseUrl = config.piAi.baseUrl;
       }
+    }
+    if (resolvedBaseUrl) {
+      (model as any).baseUrl = ensureV1BaseUrl(resolvedBaseUrl, (model as any).api as string | undefined);
     }
 
     // 7b. Strip NVCF-POLL-SECONDS header inherited from the template model.

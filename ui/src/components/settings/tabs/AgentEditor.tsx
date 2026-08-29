@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { apiRequest } from '../../../utils/api';
 import { useToast } from '../../ui/Toast';
@@ -46,6 +46,9 @@ export default function AgentEditor({ agent, onSave, onCancel, registerHandle, o
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   // undefined = not yet loaded → ModelPicker shows all providers (no filtering)
   const [configuredProviders, setConfiguredProviders] = useState<string[] | undefined>(undefined);
+  // Built-in provider list (from pi-mono), used to distinguish custom providers
+  // from built-ins when building the extra provider options.
+  const [builtinProviders, setBuiltinProviders] = useState<Record<string, string>>({});
 
   // Fetch providers that have an API key configured so the model picker only
   // offers usable providers. On failure we leave it undefined (show all).
@@ -54,6 +57,28 @@ export default function AgentEditor({ agent, onSave, onCancel, registerHandle, o
       .then((data) => setConfiguredProviders(data.providers.map((p) => p.id)))
       .catch(() => setConfiguredProviders(undefined));
   }, []);
+
+  // Built-in providers (avoids drift from pi-mono's catalog).
+  useEffect(() => {
+    apiRequest<{ providers: Array<{ id: string; name: string; baseUrl?: string }> }>('/api/providers')
+      .then((data) => {
+        const map: Record<string, string> = {};
+        for (const p of data.providers) {
+          if (p.baseUrl) map[p.id] = p.baseUrl;
+        }
+        setBuiltinProviders(map);
+      })
+      .catch(() => setBuiltinProviders({}));
+  }, []);
+
+  // Custom providers (configured but not built-in) as extra dropdown options,
+  // mirroring the Model/Routing tab's main-model provider list.
+  const extraProviderOptions = useMemo(
+    () => (configuredProviders ?? [])
+      .filter((id) => !builtinProviders[id])
+      .map((id) => ({ value: id, label: `custom/${id}` })),
+    [configuredProviders, builtinProviders],
+  );
 
   const isDirty = useCallback(() => {
     return (
@@ -241,6 +266,7 @@ export default function AgentEditor({ agent, onSave, onCancel, registerHandle, o
           label={t("settings.agents.defaultModel")}
           placeholder={t("settings.agents.modelPlaceholder")}
           configuredProviders={configuredProviders}
+          extraProviders={extraProviderOptions}
         />
       </div>
 
