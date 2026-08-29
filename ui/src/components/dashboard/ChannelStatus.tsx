@@ -40,7 +40,7 @@ export default function ChannelStatus() {
       {channels.map((ch) => (
         <div
           key={ch.name}
-          className="flex items-center gap-3 rounded-lg border border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900"
+          className="flex items-center gap-3 rounded-lg border border-neutral-200 bg-white px-4 py-3 dark:border-neutral-700 dark:bg-neutral-900"
         >
           {statusDot(ch.status)}
           <div>

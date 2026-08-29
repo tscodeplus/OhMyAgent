@@ -35,7 +35,7 @@ export default function ComputerUseSettings({ tabId = 'computer', registerHandle
     <div className="space-y-6">
       <section>
         <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t("settings.computer.title")}</h3>
-        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
           <div className="flex items-center justify-between">
             <label className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{t("settings.computer.enabled")}</label>
             <Toggle checked={getField('computerUse.enabled', !!cu.enabled) as boolean} onChange={(v) => setField('computerUse.enabled', v)} />
@@ -48,7 +48,7 @@ export default function ComputerUseSettings({ tabId = 'computer', registerHandle
 
       <section>
         <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t("settings.computer.ssh")}</h3>
-        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
           <Input label="Host" value={getField('computerUse.ssh.host', String(cuSsh.host || '')) as string}
             onChange={(e) => setField('computerUse.ssh.host', e.target.value)} />
           <div className="grid grid-cols-2 gap-4">
@@ -66,7 +66,7 @@ export default function ComputerUseSettings({ tabId = 'computer', registerHandle
 
       <section>
         <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t("settings.computer.node")}</h3>
-        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
           <Input label="URL" value={getField('computerUse.node.url', String(cuNode.url || '')) as string}
             onChange={(e) => setField('computerUse.node.url', e.target.value)} />
         </div>

@@ -229,7 +229,7 @@ export default function TemplateBrowser({ open, onClose, onImport }: TemplateBro
                 <div
                   key={tpl.id}
                   onClick={() => handleSelect(tpl)}
-                  className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer border-b border-neutral-100 dark:border-neutral-800 last:border-b-0 transition-colors ${
+                  className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer border-b border-neutral-100 dark:border-neutral-700 last:border-b-0 transition-colors ${
                     selectedId === tpl.id
                       ? 'bg-blue-50 dark:bg-blue-950/30'
                       : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/50'

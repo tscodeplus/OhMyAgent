@@ -81,7 +81,7 @@ export default function ConnectionErrorPage({
 
           {/* ── Remote URL ── */}
           {remoteUrl && (
-            <div className="mb-6 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 px-4 py-3">
+            <div className="mb-6 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900 px-4 py-3">
               <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">
                 {t('auth.remoteUrlLabel', '目标网关')}
               </p>

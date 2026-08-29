@@ -50,7 +50,7 @@ export default function GeneralSettings({ tabId = 'general', registerHandle, onD
       {/* ── Appearance (immediate — not part of save/cancel) ── */}
       <section>
         <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.appearance.title')}</h3>
-        <div className="space-y-3 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+        <div className="space-y-3 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
           <Select
             label={t('settings.appearance.theme')}
             value={themeMode}
@@ -92,7 +92,7 @@ export default function GeneralSettings({ tabId = 'general', registerHandle, onD
       </section>
 
       {/* ── Log Level ── */}
-      <section className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+      <section className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
         <Select
           label={t('settings.general.logLevel')}
           value={getField('logging.level', logging.level || 'info') as string}
@@ -102,7 +102,7 @@ export default function GeneralSettings({ tabId = 'general', registerHandle, onD
       </section>
 
       {/* ── Show Tool Calls ── */}
-      <section className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+      <section className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
         <div className="flex items-center justify-between">
           <div>
             <label className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{t('settings.general.showToolCalls')}</label>
@@ -116,7 +116,7 @@ export default function GeneralSettings({ tabId = 'general', registerHandle, onD
       </section>
 
       {/* ── Show Skill Calls ── */}
-      <section className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+      <section className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
         <div className="flex items-center justify-between">
           <div>
             <label className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{t('settings.general.showSkillCalls')}</label>
@@ -132,7 +132,7 @@ export default function GeneralSettings({ tabId = 'general', registerHandle, onD
       {/* ── Footer ── */}
       <section>
         <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.footer.title')}</h3>
-        <div className="space-y-3 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+        <div className="space-y-3 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
           {[
             { key: 'showAgentName', label: t('settings.footer.showAgentName') },
             { key: 'showModel', label: t('settings.footer.showModel') },
@@ -156,7 +156,7 @@ export default function GeneralSettings({ tabId = 'general', registerHandle, onD
       {/* ── Advanced ── */}
       <section>
         <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.general.advanced')}</h3>
-        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
           <Input
             label={t('settings.general.databasePath')}
             value={getField('database.path', dbPath) as string}

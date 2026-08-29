@@ -46,7 +46,7 @@ export default function ToolsSettings() {
     <div className="space-y-6">
       <section>
         <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.tools.shell')}</h3>
-        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
           <div className="flex items-center justify-between">
             <label className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{t('settings.tools.shellEnabled')}</label>
             <Toggle checked={!!tools.shellEnabled} onChange={(v) => saveField('tools.shellEnabled', v)} />
@@ -70,7 +70,7 @@ export default function ToolsSettings() {
 
       <section>
         <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.tools.approval')}</h3>
-        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
           <div className="grid grid-cols-2 gap-4">
             <Input label={t('settings.tools.approvalTimeout')} type="number" value={approvalTimeout}
               onChange={(e) => setApprovalTimeout(e.target.value)}
@@ -87,7 +87,7 @@ export default function ToolsSettings() {
 
       <section>
         <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.tools.fileRead')}</h3>
-        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
           <Input label={t('settings.tools.allowedRoots')} value={allowedRoots}
             onChange={(e) => setAllowedRoots(e.target.value)}
             onBlur={() => saveField('tools.fileRead.allowedRoots', allowedRoots.split(',').map(s => s.trim()).filter(Boolean))} />

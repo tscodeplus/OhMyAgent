@@ -31,7 +31,7 @@ export default function MultimodalSettings({ tabId = 'multimodal', registerHandl
   return (
     <div className="space-y-3">
       {/* Master switch */}
-      <div className="flex items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-4 py-3">
+      <div className="flex items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-4 py-3">
         <div>
           <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t("settings.multimodal.title")}</h3>
         </div>

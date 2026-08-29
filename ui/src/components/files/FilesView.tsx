@@ -636,7 +636,7 @@ export default function FilesView() {
   return (
     <div className="flex h-full flex-col bg-white dark:bg-neutral-950">
       {/* ---- Root Selector ---- */}
-      <div className="shrink-0 border-b border-neutral-200 dark:border-neutral-800">
+      <div className="shrink-0 border-b border-neutral-200 dark:border-neutral-700">
         <div className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-6 py-2">
           <span className="text-[12px] font-medium text-neutral-500 dark:text-neutral-400 shrink-0">
             {t('files.rootDir')}:
@@ -664,7 +664,7 @@ export default function FilesView() {
                 onClick={(e) => e.stopPropagation()}
               >
                 {/* Browser header */}
-                <div className="flex items-center gap-1 border-b border-neutral-100 px-2 py-1.5 dark:border-neutral-800">
+                <div className="flex items-center gap-1 border-b border-neutral-100 px-2 py-1.5 dark:border-neutral-700">
                   <button
                     type="button"
                     onClick={navigateBack}
@@ -711,7 +711,7 @@ export default function FilesView() {
                   )}
                 </div>
                 {/* Quick roots */}
-                <div className="border-t border-neutral-100 dark:border-neutral-800 px-2 py-1.5">
+                <div className="border-t border-neutral-100 dark:border-neutral-700 px-2 py-1.5">
                   <div className="flex flex-wrap gap-1">
                     {platformInfo.suggestedRoots.slice(0, 4).map((r) => (
                       <button
@@ -733,7 +733,7 @@ export default function FilesView() {
       </div>
 
       {/* ---- Toolbar ---- */}
-      <div className="flex shrink-0 items-center gap-0.5 sm:gap-1 flex-wrap border-b border-neutral-200 px-2 sm:px-3 py-1 dark:border-neutral-800">
+      <div className="flex shrink-0 items-center gap-0.5 sm:gap-1 flex-wrap border-b border-neutral-200 px-2 sm:px-3 py-1 dark:border-neutral-700">
         <button
           type="button"
           onClick={() => handleNewFile(rootPath, 0)}
@@ -767,7 +767,7 @@ export default function FilesView() {
             )}
           </button>
           {uploadMenuOpen && (
-            <div className="absolute left-0 top-8 z-20 w-36 rounded-md border border-neutral-200 bg-white py-1 text-[12px] shadow-lg dark:border-neutral-800 dark:bg-neutral-950">
+            <div className="absolute left-0 top-8 z-20 w-36 rounded-md border border-neutral-200 bg-white py-1 text-[12px] shadow-lg dark:border-neutral-700 dark:bg-neutral-950">
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setUploadMenuOpen(false); fileInputRef.current?.click(); }}
@@ -841,7 +841,7 @@ export default function FilesView() {
       <div className="min-h-0 flex-1 flex max-sm:flex-col">
         {/* File Tree — stacks on mobile, split on desktop */}
         <div
-          className={`min-h-0 overflow-y-auto py-2 text-[13px] ${selectedFile ? 'w-1/2 max-sm:w-full border-r max-sm:border-r-0 max-sm:border-b border-neutral-200 dark:border-neutral-800 max-sm:flex-[0_0_40%]' : 'flex-1'}`}
+          className={`min-h-0 overflow-y-auto py-2 text-[13px] ${selectedFile ? 'w-1/2 max-sm:w-full border-r max-sm:border-r-0 max-sm:border-b border-neutral-200 dark:border-neutral-700 max-sm:flex-[0_0_40%]' : 'flex-1'}`}
           onContextMenu={handleBlankContextMenu}
         >
           {loading && files.length === 0 ? (
@@ -948,7 +948,7 @@ export default function FilesView() {
         {/* File Preview / Editor — full-width on mobile */}
         {selectedFile && (
           <div className="flex w-1/2 max-sm:w-full min-h-0 flex-col max-sm:flex-1">
-            <div className="flex shrink-0 items-center justify-between border-b border-neutral-200 px-4 py-2 dark:border-neutral-800">
+            <div className="flex shrink-0 items-center justify-between border-b border-neutral-200 px-4 py-2 dark:border-neutral-700">
               <div className="min-w-0 flex-1">
                 <h3 className="truncate text-[13px] font-medium text-neutral-900 dark:text-neutral-100">
                   {selectedFile.split('/').pop()}
@@ -982,7 +982,7 @@ export default function FilesView() {
                     className="w-full h-full resize-none rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 font-mono"
                   />
                 </div>
-                <div className="flex shrink-0 items-center justify-end gap-2 border-t border-neutral-200 px-4 py-2 dark:border-neutral-800">
+                <div className="flex shrink-0 items-center justify-end gap-2 border-t border-neutral-200 px-4 py-2 dark:border-neutral-700">
                   {fileContent !== fileOrigContent && (
                     <Button variant="ghost" size="sm" onClick={() => setFileContent(fileOrigContent)}>
                       {t('skills.revert')}
@@ -1033,7 +1033,7 @@ export default function FilesView() {
                     <FolderPlus className={menuIconClass} strokeWidth={1.75} />
                     {t('files.newFolder')}
                   </button>
-                  <div className="my-1 border-t border-neutral-100 dark:border-neutral-800" />
+                  <div className="my-1 border-t border-neutral-100 dark:border-neutral-700" />
                 </>
               ) : (
                 <button type="button" role="menuitem"
@@ -1055,7 +1055,7 @@ export default function FilesView() {
                 <ClipboardCopy className={menuIconClass} strokeWidth={1.75} />
                 {t('files.copyPath')}
               </button>
-              <div className="my-1 border-t border-neutral-100 dark:border-neutral-800" />
+              <div className="my-1 border-t border-neutral-100 dark:border-neutral-700" />
               <button type="button" role="menuitem"
                 onClick={() => handleDelete(contextMenu.node!)}
                 className={cn(menuItemClass, 'text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30')}>

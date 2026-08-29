@@ -68,7 +68,7 @@ export default function HarnessSettings({ tabId = 'harness', registerHandle, onD
   const rateLimit = (harness.rateLimit as Record<string, number>) || {};
   const proposal = (harness.proposal as Record<string, string>) || {};
 
-  const sectionCardClass = 'rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4';
+  const sectionCardClass = 'rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4';
   const sectionTitleClass = 'text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3';
 
   return (

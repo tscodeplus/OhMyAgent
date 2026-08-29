@@ -48,7 +48,7 @@ export default function DashboardView() {
         {cards.map((card, i) => {
           const Icon = card.icon;
           return (
-            <div key={i} className="rounded-xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
+            <div key={i} className="rounded-xl border border-neutral-200 bg-white p-5 dark:border-neutral-700 dark:bg-neutral-900">
               <div className="flex items-center gap-3">
                 <div className={`inline-flex h-10 w-10 items-center justify-center rounded-lg ${card.bg}`}>
                   <Icon className={`h-5 w-5 ${card.color}`} strokeWidth={1.75} />

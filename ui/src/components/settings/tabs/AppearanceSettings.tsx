@@ -27,7 +27,7 @@ export default function AppearanceSettings() {
     <div className="space-y-8">
       <section>
         <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.appearance.title')}</h3>
-        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
           <Select
             label={t('settings.appearance.theme')}
             value={themeMode}
@@ -53,7 +53,7 @@ export default function AppearanceSettings() {
 
       <section>
         <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.appearance.projectSort')}</h3>
-        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
           <Select
             label={t('settings.appearance.sortLabel')}
             value={projectSortOrder}

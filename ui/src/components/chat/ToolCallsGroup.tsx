@@ -27,7 +27,7 @@ export default function ToolCallsGroup({ toolCalls }: ToolCallsGroupProps) {
   }
 
   return (
-    <div className="border border-neutral-200 dark:border-neutral-800 rounded-lg overflow-hidden bg-white dark:bg-neutral-900">
+    <div className="border border-neutral-200 dark:border-neutral-700 rounded-lg overflow-hidden bg-white dark:bg-neutral-900">
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex items-center gap-2 w-full px-3 py-2 text-sm  text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 transition-colors"
@@ -38,7 +38,7 @@ export default function ToolCallsGroup({ toolCalls }: ToolCallsGroupProps) {
         <span className="text-xs text-neutral-400 dark:text-neutral-500">({toolCalls.length})</span>
       </button>
       {expanded && (
-        <div className="px-3 py-2 border-t border-neutral-200 dark:border-neutral-800 space-y-2">
+        <div className="px-3 py-2 border-t border-neutral-200 dark:border-neutral-700 space-y-2">
           {toolCalls.map((tc) => (
             <ToolCallCard key={tc.id} toolCall={tc} />
           ))}

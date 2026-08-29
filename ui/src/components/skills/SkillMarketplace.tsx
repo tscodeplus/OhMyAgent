@@ -182,7 +182,7 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* Search bar */}
-      <div className="shrink-0 border-b border-neutral-200 px-3 sm:px-6 py-2.5 dark:border-neutral-800">
+      <div className="shrink-0 border-b border-neutral-200 px-3 sm:px-6 py-2.5 dark:border-neutral-700">
         <div className="flex gap-2">
           {/* Source filter */}
           <select
@@ -222,7 +222,7 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
       {/* Main content: list + detail */}
       <div className="flex min-h-0 flex-1">
         {/* Left: Skill list */}
-        <div className="w-[42%] max-sm:w-full shrink-0 flex flex-col border-r border-neutral-200 dark:border-neutral-800">
+        <div className="w-[42%] max-sm:w-full shrink-0 flex flex-col border-r border-neutral-200 dark:border-neutral-700">
           <div className="min-h-0 flex-1 overflow-y-auto">
             {isLoading ? (
               <div className="flex items-center justify-center gap-2 py-12 text-neutral-500 dark:text-neutral-400">
@@ -297,7 +297,7 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
           {selected ? (
             <>
               {/* Info header */}
-              <div className="shrink-0 border-b border-neutral-200 px-4 sm:px-6 py-3 dark:border-neutral-800">
+              <div className="shrink-0 border-b border-neutral-200 px-4 sm:px-6 py-3 dark:border-neutral-700">
                 <div className="flex items-start gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-sm font-bold text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">
                     {getInitials(selected.name)}
@@ -349,7 +349,7 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
               </div>
 
               {/* Actions footer */}
-              <div className="flex shrink-0 items-center justify-between border-t border-neutral-200 px-4 sm:px-6 py-2.5 dark:border-neutral-800">
+              <div className="flex shrink-0 items-center justify-between border-t border-neutral-200 px-4 sm:px-6 py-2.5 dark:border-neutral-700">
                 <a
                   href={selected.url}
                   target="_blank"

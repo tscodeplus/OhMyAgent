@@ -270,7 +270,7 @@ export default function AppShell() {
   const sidebarEl = (
     <aside
       data-sidebar
-      className={`relative h-full w-full overflow-hidden border-r border-neutral-200 bg-neutral-50 text-neutral-900 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 ${isMac ? 'pt-8' : 'pt-safe'}`}
+      className={`relative h-full w-full overflow-hidden border-r border-neutral-200 bg-neutral-50 text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 ${isMac ? 'pt-8' : 'pt-safe'}`}
     >
       {/* Expanded content */}
       <div className={`absolute inset-0 flex flex-col transition-opacity duration-200 ${sidebarVisible || mobileSidebar ? 'opacity-100' : 'pointer-events-none opacity-0'}`}>
@@ -294,7 +294,7 @@ export default function AppShell() {
         {/* Panels drawer — labelled expand/collapse row (the visible label
             doubles as the toggle text); collapsing gives the chat section
             above the whole remaining space. */}
-        <div className="mt-4 shrink-0 border-t border-neutral-200/70 dark:border-neutral-800/70">
+        <div className="mt-4 shrink-0 border-t border-neutral-200/70 dark:border-neutral-700/70">
           {/* Whole row is the toggle — a full-width hit target with the
               action label (“expand/collapse panels”) flush left beside the
               rotating chevron: folded points right, expanded points down. */}
@@ -328,7 +328,7 @@ export default function AppShell() {
         </div>
 
         {/* Settings */}
-        <div className="shrink-0 border-t border-neutral-200 px-2 py-2 dark:border-neutral-800">
+        <div className="shrink-0 border-t border-neutral-200 px-2 py-2 dark:border-neutral-700">
           <button type="button" onClick={() => setSettingsOpen(true)}
             className="flex h-9 w-full items-center justify-start gap-2 rounded-lg px-6 text-[13px] font-medium text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100">
             <SettingsIcon className="h-4 w-4" strokeWidth={1.75} />
@@ -408,7 +408,7 @@ export default function AppShell() {
           (browser) or under the drag-region caption strip (desktop shell). */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* Mobile top bar — md:hidden */}
-        <div className="flex h-11 shrink-0 items-center gap-1 border-b border-neutral-200 bg-white px-2 pt-safe md:hidden dark:border-neutral-800 dark:bg-neutral-950">
+        <div className="flex h-11 shrink-0 items-center gap-1 border-b border-neutral-200 bg-white px-2 pt-safe md:hidden dark:border-neutral-700 dark:bg-neutral-950">
           <button type="button" onClick={() => setMobileSidebar(true)} aria-label={t('sidebar.expand')}
             className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800">
             <PanelLeftOpen className="h-4 w-4" strokeWidth={1.75} />
@@ -427,7 +427,7 @@ export default function AppShell() {
       <div
         ref={chatNavRef}
         aria-label={t('sidebar.projects')}
-        className={`absolute inset-y-0 left-0 z-30 hidden w-[300px] flex-col border-r border-neutral-200 bg-white shadow-2xl transition-[transform,opacity] duration-200 ease-out md:flex dark:border-neutral-800 dark:bg-neutral-900 ${
+        className={`absolute inset-y-0 left-0 z-30 hidden w-[300px] flex-col border-r border-neutral-200 bg-white shadow-2xl transition-[transform,opacity] duration-200 ease-out md:flex dark:border-neutral-700 dark:bg-neutral-900 ${
           chatNavOpen ? 'translate-x-14 opacity-100' : 'pointer-events-none -translate-x-full opacity-0'
         }`}
       >

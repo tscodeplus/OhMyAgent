@@ -152,7 +152,7 @@ export default function AgentSettings({ tabId = 'agents', registerHandle, onDirt
           </Button>
         </div>
 
-        <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-neutral-100 dark:bg-neutral-800">
               <tr>
@@ -202,7 +202,7 @@ export default function AgentSettings({ tabId = 'agents', registerHandle, onDirt
       {/* ── Orchestrator ── */}
       <section>
         <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.policy.orchestrator')}</h3>
-        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
           <div className="flex items-center justify-between">
             <label className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{t("settings.policy.orchestratorEnabled")}</label>
             <Toggle checked={getField('orchestrator.enabled', !!orchestrator.enabled) as boolean} onChange={(v) => setField('orchestrator.enabled', v)} />
@@ -220,7 +220,7 @@ export default function AgentSettings({ tabId = 'agents', registerHandle, onDirt
       {/* ── Smart Agent Team ── */}
       <section>
         <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.policy.smartTeam')}</h3>
-        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
           <div className="flex items-center justify-between">
             <label className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{t("settings.policy.smartTeamEnabled")}</label>
             <Toggle checked={getField('smart_agent_team.enabled', !!smartTeam.enabled) as boolean} onChange={(v) => setField('smart_agent_team.enabled', v)} />

@@ -103,7 +103,7 @@ export default function WebSearchSettings({ tabId = 'websearch', registerHandle,
     <div className="space-y-6">
       <section>
         <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t("settings.websearch.provider")}</h3>
-        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
           <div className="flex flex-col gap-1.5">
             <label className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300">
               {t("settings.websearch.providerOrder")}
@@ -187,7 +187,7 @@ export default function WebSearchSettings({ tabId = 'websearch', registerHandle,
 
       <section>
         <h3 className="text-sm font-semibold mb-3">API Keys</h3>
-        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+        <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
           {['anysearch', 'baidu', 'exa', 'tavily'].map(provider => {
             const path = `webSearch.${provider}ApiKey`;
             const fallback = String((ws[`${provider}ApiKey`] as string) || '');

@@ -297,7 +297,7 @@ export default function ApprovalRulesEditor({
           )}
         </div>
       ) : (
-        <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-neutral-100 dark:bg-neutral-800">
               <tr>

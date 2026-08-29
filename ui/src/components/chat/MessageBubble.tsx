@@ -447,7 +447,7 @@ function MessageBubble({ message }: MessageBubbleProps) {
                   ) : seg.type === 'skill' ? (
                     <div
                       key={`skill-${i}`}
-                      className="flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
+                      className="flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
                     >
                       <Zap size={14} className="text-amber-500 dark:text-amber-400 shrink-0" />
                       <span className="text-neutral-700 dark:text-neutral-200">

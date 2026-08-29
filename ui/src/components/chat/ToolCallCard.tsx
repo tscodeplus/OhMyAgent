@@ -18,7 +18,7 @@ export default function ToolCallCard({ toolCall }: ToolCallCardProps) {
   };
 
   return (
-    <div className="border border-neutral-200 dark:border-neutral-800 rounded-lg overflow-hidden bg-white dark:bg-neutral-900">
+    <div className="border border-neutral-200 dark:border-neutral-700 rounded-lg overflow-hidden bg-white dark:bg-neutral-900">
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex items-center gap-2 w-full px-3 py-2 text-sm  text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 transition-colors"
@@ -29,7 +29,7 @@ export default function ToolCallCard({ toolCall }: ToolCallCardProps) {
         {statusIcon[toolCall.status]}
       </button>
       {expanded && (
-        <div className="px-4 py-2 border-t border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800/50 text-xs space-y-2">
+        <div className="px-4 py-2 border-t border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800/50 text-xs space-y-2">
           <div>
             <span className="font-semibold text-neutral-500 dark:text-neutral-400">Parameters:</span>
             <pre className="mt-1 whitespace-pre-wrap text-neutral-900 dark:text-neutral-100">

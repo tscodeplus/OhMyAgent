@@ -176,7 +176,7 @@ export default function MemoryView() {
       <h1 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6">{t('memory.title')}</h1>
 
       {/* Persona Section */}
-      <div className="mb-6 rounded-lg border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+      <div className="mb-6 rounded-lg border border-neutral-200 dark:border-neutral-700 overflow-hidden">
         <button
           type="button"
           onClick={() => setShowPersona(!showPersona)}
@@ -192,7 +192,7 @@ export default function MemoryView() {
           {showPersona ? <ChevronDown size={14} className="ml-auto" /> : <ChevronRight size={14} className="ml-auto" />}
         </button>
         {showPersona && (
-          <div className="px-4 py-3 space-y-4 border-t border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 max-h-[50vh] overflow-y-auto">
+          <div className="px-4 py-3 space-y-4 border-t border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 max-h-[50vh] overflow-y-auto">
             {personaLoading ? (
               <div className="flex justify-center py-4"><Spinner /></div>
             ) : (
@@ -316,7 +316,7 @@ export default function MemoryView() {
           {memories.map((mem) => (
             <div
               key={mem.id}
-              className={`rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 cursor-pointer hover:shadow-sm transition-shadow ${
+              className={`rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4 cursor-pointer hover:shadow-sm transition-shadow ${
                 selectedMemory?.id === mem.id ? 'ring-2 ring-primary' : ''
               }`}
               onClick={() => { setSelectedMemory(mem); setIsEditing(false); }}
@@ -359,8 +359,8 @@ export default function MemoryView() {
 
       {/* Detail Drawer */}
       {selectedMemory && (
-        <div className="fixed inset-y-0 right-0 z-[90] w-full sm:w-[400px] max-w-full sm:max-w-[90vw] bg-white dark:bg-neutral-900 border-l border-neutral-200 dark:border-neutral-800 shadow-2xl overflow-y-auto">
-          <div className="flex items-center justify-between p-4 border-b border-neutral-200 dark:border-neutral-800">
+        <div className="fixed inset-y-0 right-0 z-[90] w-full sm:w-[400px] max-w-full sm:max-w-[90vw] bg-white dark:bg-neutral-900 border-l border-neutral-200 dark:border-neutral-700 shadow-2xl overflow-y-auto">
+          <div className="flex items-center justify-between p-4 border-b border-neutral-200 dark:border-neutral-700">
             <h3 className="font-semibold">{t("memory_page.detail")}</h3>
             <div className="flex items-center gap-1">
               {!isEditing && (
@@ -387,7 +387,7 @@ export default function MemoryView() {
               <p className="text-sm whitespace-pre-wrap">{selectedMemory.content}</p>
             )}
 
-            <div className="space-y-2 text-sm border-t border-neutral-200 dark:border-neutral-800 pt-3">
+            <div className="space-y-2 text-sm border-t border-neutral-200 dark:border-neutral-700 pt-3">
               <div className="flex justify-between"><span className="text-neutral-500 dark:text-neutral-400">Scope</span><span>{selectedMemory.scope}</span></div>
               <div className="flex justify-between"><span className="text-neutral-500 dark:text-neutral-400">Scope Key</span><span className="text-xs font-mono">{selectedMemory.scope_key}</span></div>
               <div className="flex justify-between"><span className="text-neutral-500 dark:text-neutral-400">Kind</span><span>{selectedMemory.kind}</span></div>

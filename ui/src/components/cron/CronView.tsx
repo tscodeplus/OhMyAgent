@@ -233,7 +233,7 @@ export default function CronView() {
       ) : (
         <>
         {/* Desktop: full table (scrolls horizontally if needed) */}
-        <div className="hidden overflow-x-auto rounded-lg border border-neutral-200 md:block dark:border-neutral-800">
+        <div className="hidden overflow-x-auto rounded-lg border border-neutral-200 md:block dark:border-neutral-700">
           <table className="w-full text-sm min-w-[600px]">
             <thead className="bg-neutral-100 dark:bg-neutral-800">
               <tr>
@@ -295,7 +295,7 @@ export default function CronView() {
           {jobs.map((job) => {
             const jobHuman = cronToHuman(job.expression);
             return (
-              <div key={job.id} className="rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
+              <div key={job.id} className="rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-700 dark:bg-neutral-900">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">{job.name}</p>
