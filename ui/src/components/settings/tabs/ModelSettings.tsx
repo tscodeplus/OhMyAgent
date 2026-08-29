@@ -11,6 +11,7 @@ import Spinner from '../../ui/Spinner';
 import SubscriptionsSettings from './SubscriptionsSettings';
 import ModelPicker from '../ModelPicker';
 import ModelRefInput from '../ModelRefInput';
+import FallbackModelsEditor from '../FallbackModelsEditor';
 import { SettingsSection, SettingsCard } from '../SettingsSection';
 
 /* ───────── Sub-tabs for the Models tab ───────── */
@@ -766,10 +767,12 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
         {/* Fallback Models */}
         <SettingsSection title={t('settings.models.fallbackModels')}>
           <SettingsCard>
-            <Input label={t('settings.models.fallbackModelsHint')}
-              value={(getField('fallbackModels', fallbackModels) as string[]).join(', ')}
-              onChange={(e) => setField('fallbackModels', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
-              placeholder="e.g. gpt-4o, claude-sonnet-4-6" />
+            <FallbackModelsEditor
+              value={getField('fallbackModels', fallbackModels) as string[]}
+              onChange={(v) => setField('fallbackModels', v)}
+              configuredProviders={configuredProviders}
+              extraProviders={extraProviderOptions}
+            />
           </SettingsCard>
         </SettingsSection>
 

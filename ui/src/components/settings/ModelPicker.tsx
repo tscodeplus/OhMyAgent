@@ -113,6 +113,18 @@ export default function ModelPicker({
       .finally(() => setLoadingModels(false));
   }, [provider]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /* Auto-select first provider when provider is empty */
+  useEffect(() => {
+    if (!provider && providers.length > 0) {
+      const firstAvailable = configuredProviders
+        ? providers.find(p => configuredProviders.includes(p.value))
+        : providers[0];
+      if (firstAvailable) {
+        onChangeProvider(firstAvailable.value);
+      }
+    }
+  }, [provider, providers, configuredProviders, onChangeProvider]);
+
   /* Close combobox on outside click */
   useEffect(() => {
     if (!open) return;
