@@ -23,6 +23,13 @@ import {
 let tmpDir: string;
 
 beforeEach(() => {
+  // Start every test from a clean secret environment — the shell / CI may
+  // export FEISHU_APP_SECRET (or a download secret), which would take the
+  // env branch in getSecret() and skip the file-persistence path under test.
+  delete process.env.OHMYAGENT_DOWNLOAD_SECRET;
+  delete process.env.OHMYAGENT_DOWNLOAD_SECRET_FILE;
+  delete process.env.FEISHU_APP_SECRET;
+  resetDownloadSecret();
   tmpDir = mkdtempSync(join(tmpdir(), 'download-token-test-'));
 });
 
