@@ -39,7 +39,7 @@
 | ai/api/openai-codex-responses.ts | tsc `body: sseBody as BodyInit` | 上游未变，直接恢复本地版 |
 | ai/providers/xai.ts | `Provider<"openai-completions" \| "openai-responses">` | 上游未变，直接恢复本地版 |
 | ai/utils/oauth/* | 本地独有 OAuth 兼容层 | 保留（不在上游） |
-| ai/providers/data/* | 生成产物（39 个 JSON，v0.84.4 无变化） | 保留 |
+| ai/providers/data/* | 生成产物（39 个 JSON + .manifest.json） | **从 npm pack v0.84.4 提取覆盖**（见步骤 4 补充说明） |
 
 上游有变更、本地无补丁的 4 个文件直接采用上游版：`ai/api/mistral-conversations.ts`、`ai/api/openai-completions.ts`、`ai/providers/cloudflare-ai-gateway.ts`、`ai/image-models.generated.ts`（另 `ai/types.ts` 为注释变更，同上游版）。
 
@@ -67,13 +67,28 @@ find src/pi-mono -name "*.ts" -exec sed -i \
 
 0 处新增。v0.84.4 上游 `cloudflare-ai-gateway.ts` 已自行改为 tsc 友好的显式泛型；本地 bedrock/openai-codex 断言照旧恢复。
 
+### 4b. 补充修正：providers/data 生成产物同步（2026-08-30）
+
+**问题**：首次升级后内置 DeepSeek provider 默认模型列表缺少 `deepseek-v4-flash-vision-exp`，需点击「获取模型列表」才能看到，与 v0.84.4 release notes 不符。
+
+**根因**：上游 git 仓库不跟踪 `packages/ai/src/providers/data/*.json`（生成产物，发布时由 `npm run generate-models` 生成后打进 npm 包），因此 `git diff v0.84.3 v0.84.4` 对该目录为空，首轮升级未触发数据同步。而 v0.84.3 升级记录中该目录是从 **npm pack v0.84.3** 提取并提交到本仓库的，本仓库是跟踪这些文件的。
+
+**修复**：从 npm 发布的 `@earendil-works/pi-ai@0.84.4` tarball 提取 `dist/providers/data/`（40 个文件，含 `.manifest.json`）整体覆盖本仓库 `src/pi-mono/ai/providers/data/`。变更内容即 v0.84.4 发布时的生成产物：
+
+- `deepseek.json` — **新增 `deepseek-v4-flash-vision-exp`**（视觉输入 experimental，`generate-models.ts` 硬编码）
+- `openrouter.json` 等十数份 — 发布时在线拉取的模型清单刷新（新模型增、下线模型删、OpenRouter `thinkingLevelMap`、cloudflare workers-ai 透传镜像等）
+- 其余十几份与 v0.84.3 逐字节一致
+
+**教训**：`ai/` 包升级时 `providers/data/` 必须以 **npm pack 发布包**（而非上游 git tag）为基准提取，不能因 git diff 为空而跳过。
+
 ## 验证
 
 - `pnpm build` — 0 错误
 - `pnpm test:ai` — **191 文件 / 2989 测试通过**（3 跳过，环境相关），exit 0
+- 数据同步后运行时验证：`getModels('deepseek')` 返回 `deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` / `deepseek-v4-pro`，默认模型选择器直接可见该视觉模型
 
 ## 后续注意事项
 
 - `prepareNextTurn` 惰性化后，`shouldStopAfterTurn` 语义变为「先于 `prepareNextTurn` 运行」；本项目两个 hook 无顺序依赖，无需适配
 - harness `taskkill.exe` 绝对路径修复（可怜的 Windows 场景）与 `search/` 演进继续维持不嵌入策略
-- 上游 v0.84.4 已含 DeepSeek v4 Flash Vision（experimental）模型数据（`image-models.generated.ts`），如需使用请自行配置 DeepSeek API Key
+- DeepSeek v4 Flash Vision（experimental）为视觉输入模型（`input: ["text","image"]`），按上游定价与 `deepseek-v4-flash` 一致；如需使用请自行配置 DeepSeek API Key
