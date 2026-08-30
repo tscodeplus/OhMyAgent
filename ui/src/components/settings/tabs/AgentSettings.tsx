@@ -24,67 +24,69 @@ export default function AgentSettings({ tabId = 'agents', registerHandle, onDirt
   const [agentsLoading, setAgentsLoading] = useState(true);
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
   const [isNew, setIsNew] = useState(false);
+  // Whether the AgentEditor pane is visible. After clicking "back" the editor
+  // stays MOUNTED but hidden, so its draft survives until the modal's global
+  // Save/Cancel is used (same stash semantics as the other settings tabs).
+  const [editorVisible, setEditorVisible] = useState(true);
   const isEditing = !!(editingAgent || isNew);
 
-  // AgentEditor handle — populated by AgentEditor via registerHandle prop
+  // Handles captured from children (AgentEditor + useConfigDirty). The modal
+  // only ever receives ONE composite handle (registered below) that covers
+  // both the pending agent draft and this tab's config fields.
   const editorHandleRef = useRef<SettingsTabHandle | null>(null);
-  // Config dirty handle from useConfigDirty
   const configHandleRef = useRef<SettingsTabHandle | null>(null);
-  // Whether the config (non-editor) part is dirty
+  const [editorDirty, setEditorDirty] = useState(false);
   const [configDirty, setConfigDirty] = useState(false);
 
   const { config, loading: configLoading, getField, setField } = useConfigDirty(
     tabId,
-    // Capture config handle + dirty state
+    // Capture the config handle locally — do NOT forward it to the modal,
+    // this tab registers its own combined handle below.
     (tid: string, handle: SettingsTabHandle | null) => {
       configHandleRef.current = handle;
-      if (!isEditing && registerHandle) {
-        registerHandle(tid, handle);
-      }
     },
     (tid: string, dirty: boolean) => {
       setConfigDirty(dirty);
-      if (!isEditing) {
-        onDirtyChange?.(tid, dirty);
-      }
     },
   );
 
-  // When AgentEditor registers its handle, wire it to SettingsModal
+  // Capture the AgentEditor handle locally (same reasoning as above).
   const handleEditorRegister = useCallback((tid: string, handle: SettingsTabHandle | null) => {
     editorHandleRef.current = handle;
-    if (isEditing && registerHandle) {
-      registerHandle(tabId, handle);
-    }
-  }, [isEditing, registerHandle, tabId]);
+  }, []);
 
-  // Report dirty state: from editor if editing, otherwise from config
-  useEffect(() => {
-    if (isEditing) {
-      // We don't know editor's dirty state here — it reports via onDirtyChange
-      // from AgentEditor's own tracking. The SettingsModal will check isDirty().
-    } else {
-      onDirtyChange?.(tabId, configDirty);
-    }
-  }, [isEditing, configDirty, onDirtyChange, tabId]);
-
-  // When switching to/from editing mode, re-register the correct handle
+  // Register ONE composite handle with the SettingsModal. The modal's global
+  // Save/Cancel therefore covers BOTH the agent draft (AgentEditor) and the
+  // config fields of this tab — even after the user clicks "back" (which only
+  // hides the editor, keeping the draft alive until Save/Cancel is pressed).
   useEffect(() => {
     if (!registerHandle) return;
-    if (isEditing) {
-      if (editorHandleRef.current) {
-        registerHandle(tabId, editorHandleRef.current);
-      } else {
-        registerHandle(tabId, null);
-      }
-    } else {
-      if (configHandleRef.current) {
-        registerHandle(tabId, configHandleRef.current);
-      } else {
-        registerHandle(tabId, null);
-      }
-    }
-  }, [isEditing, registerHandle, tabId]);
+    const combined: SettingsTabHandle = {
+      save: async (opts) => {
+        if (editorHandleRef.current?.isDirty()) {
+          await editorHandleRef.current.save(opts);
+        }
+        if (configHandleRef.current?.isDirty()) {
+          await configHandleRef.current.save(opts);
+        }
+      },
+      cancel: () => {
+        editorHandleRef.current?.cancel();
+        configHandleRef.current?.cancel();
+      },
+      isDirty: () =>
+        !!editorHandleRef.current?.isDirty() || !!configHandleRef.current?.isDirty(),
+      needsRestart: () => configHandleRef.current?.needsRestart?.() ?? false,
+    };
+    registerHandle(tabId, combined);
+    return () => registerHandle(tabId, null);
+  }, [registerHandle, tabId]);
+
+  // Report the combined dirty state to the modal (drives the sidebar badge
+  // and the unsaved-changes confirmation on close).
+  useEffect(() => {
+    onDirtyChange?.(tabId, editorDirty || configDirty);
+  }, [tabId, editorDirty, configDirty, onDirtyChange]);
 
   const fetchAgents = useCallback(async () => {
     setAgentsLoading(true);
@@ -115,39 +117,57 @@ export default function AgentSettings({ tabId = 'agents', registerHandle, onDirt
     }
   };
 
+  // Closing the editor (after save/cancel) unmounts it and drops the draft.
+  // After "back" the editor stays hidden instead — the draft is preserved
+  // until the modal's global Save/Cancel is pressed.
+  const closeEditor = useCallback((saved: boolean) => {
+    setEditingAgent(null);
+    setIsNew(false);
+    setEditorVisible(true);
+    setEditorDirty(false);
+    if (saved) fetchAgents();
+  }, [fetchAgents]);
+
+  const startNewAgent = useCallback(() => {
+    setEditingAgent(null);
+    setIsNew(true);
+    setEditorVisible(true);
+  }, []);
+
+  const startEditAgent = useCallback((agent: Agent) => {
+    setEditingAgent(agent);
+    setIsNew(false);
+    setEditorVisible(true);
+  }, []);
+
   if (configLoading) return <div className="flex justify-center py-8"><Spinner /></div>;
   if (!config) return <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('common.error')}</p>;
-
-  if (editingAgent || isNew) {
-    return (
-      <AgentEditor
-        agent={editingAgent}
-        registerHandle={handleEditorRegister}
-        onDirtyChange={(dirty) => onDirtyChange?.(tabId, dirty)}
-        onSave={() => {
-          setEditingAgent(null);
-          setIsNew(false);
-          fetchAgents();
-          onDirtyChange?.(tabId, false);
-        }}
-        onCancel={() => {
-          setEditingAgent(null);
-          setIsNew(false);
-          onDirtyChange?.(tabId, false);
-        }}
-      />
-    );
-  }
 
   const orchestrator = (config?.orchestrator as Record<string, unknown>) || {};
   const smartTeam = (config?.smart_agent_team as Record<string, unknown>) || {};
 
   return (
-    <div className="space-y-6">
+    <>
+      {isEditing && (
+        <div style={{ display: editorVisible ? undefined : 'none' }}>
+          <AgentEditor
+            key={editingAgent?.id ?? 'new'}
+            agent={editingAgent}
+            registerHandle={handleEditorRegister}
+            onDirtyChange={(dirty) => setEditorDirty(dirty)}
+            onBack={() => setEditorVisible(false)}
+            onSave={() => closeEditor(true)}
+            onCancel={() => closeEditor(false)}
+          />
+        </div>
+      )}
+
+      {(!isEditing || !editorVisible) && (
+        <div className="space-y-6">
       <div>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold">{t("settings.agents.list")}</h3>
-          <Button size="sm" onClick={() => setIsNew(true)}>
+          <Button size="sm" onClick={startNewAgent}>
             <Plus size={14} /> {t("settings.agents.new")}
           </Button>
         </div>
@@ -177,7 +197,7 @@ export default function AgentSettings({ tabId = 'agents', registerHandle, onDirt
                   <td className="px-4 py-2.5 text-right">
                     <div className="flex items-center justify-end gap-1">
                       <button
-                        onClick={() => setEditingAgent(agent)}
+                        onClick={() => startEditAgent(agent)}
                         className="p-1.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-600 dark:text-neutral-300"
                       >
                         <Pencil size={14} />
@@ -230,6 +250,8 @@ export default function AgentSettings({ tabId = 'agents', registerHandle, onDirt
             onChange={(e) => setField('smart_agent_team.max_children', e.target.value)} />
         </div>
       </section>
-    </div>
+        </div>
+      )}
+    </>
   );
 }

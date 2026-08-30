@@ -22,11 +22,14 @@ interface AgentEditorProps {
   agent?: Agent | null;
   onSave: () => void;
   onCancel: () => void;
+  /** "Back" keeps the current draft alive — the editor stays mounted (hidden)
+   *  so the changes survive until the modal's global Save/Cancel is pressed. */
+  onBack?: () => void;
   registerHandle?: (tabId: string, handle: SettingsTabHandle | null) => void;
   onDirtyChange?: (dirty: boolean) => void;
 }
 
-export default function AgentEditor({ agent, onSave, onCancel, registerHandle, onDirtyChange }: AgentEditorProps) {
+export default function AgentEditor({ agent, onSave, onCancel, onBack, registerHandle, onDirtyChange }: AgentEditorProps) {
   const { t } = useTranslation('common');
   const { showToast } = useToast();
   const isNew = !agent;
@@ -146,6 +149,17 @@ export default function AgentEditor({ agent, onSave, onCancel, registerHandle, o
     onCancel();
   }, [initialForm, onCancel]);
 
+  // "Back" hides the editor without touching the form, so the draft stays
+  // stashed until the modal's Save/Cancel is used. Falls back to a hard
+  // cancel (reset + close) for callers that have no draft-preserving back.
+  const handleBack = useCallback(() => {
+    if (onBack) {
+      onBack();
+    } else {
+      handleCancel();
+    }
+  }, [onBack, handleCancel]);
+
   // Register this editor's handle with the settings modal
   const saveRef = useRef(handleSave);
   saveRef.current = handleSave;
@@ -172,7 +186,7 @@ export default function AgentEditor({ agent, onSave, onCancel, registerHandle, o
         <h3 className="text-sm font-semibold">{isNew ? t('settings.agents.new') : t('settings.agents.edit') + ': ' + agent?.name}</h3>
         <button
           type="button"
-          onClick={handleCancel}
+          onClick={handleBack}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-neutral-300 bg-white text-neutral-600 hover:bg-neutral-50 hover:border-neutral-400 transition-colors dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
         >
           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
