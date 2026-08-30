@@ -224,6 +224,7 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	 *
 	 * If it returns true, the loop emits `agent_end` and exits before polling steering or follow-up queues,
 	 * without starting another LLM call. The current assistant response and any tool executions finish normally.
+	 * This callback sees the completed-turn context and runs before `prepareNextTurn`.
 	 *
 	 * Use this to request a graceful stop after the current turn, e.g. before context gets too full.
 	 *
@@ -232,8 +233,8 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	shouldStopAfterTurn?: (context: ShouldStopAfterTurnContext) => boolean | Promise<boolean>;
 
 	/**
-	 * Called after `turn_end` and before the loop decides whether another provider request should start.
-	 * Return replacement context/model/thinking state to affect the next turn in this run.
+	 * Called after `turn_end` when the loop will continue, immediately before the next turn starts.
+	 * Return replacement context/model/thinking state to affect that turn.
 	 * Return undefined to keep using the current context/config.
 	 */
 	prepareNextTurn?: (
@@ -394,8 +395,6 @@ export type AgentToolUpdateCallback<T = any> = (partialResult: AgentToolResult<T
 
 /** Tool definition used by the agent runtime. */
 export interface AgentTool<TParameters extends TSchema = TSchema, TDetails = any> extends Tool<TParameters> {
-	/** OhMyAgent extension: whether this tool is deferred (loaded dynamically). */
-	deferred?: boolean;
 	/** Human-readable label for UI display. */
 	label: string;
 	/**
@@ -418,6 +417,8 @@ export interface AgentTool<TParameters extends TSchema = TSchema, TDetails = any
 	 * If omitted, the default execution mode applies.
 	 */
 	executionMode?: ToolExecutionMode;
+	/** OhMyAgent extension: whether this tool is deferred (loaded dynamically). */
+	deferred?: boolean;
 }
 
 /** Context snapshot passed into the low-level agent loop. */
