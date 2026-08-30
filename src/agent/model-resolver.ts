@@ -9,7 +9,7 @@
 
 import { getModel, type Model, type KnownProvider } from '@earendil-works/pi-ai';
 import type { Api } from '../pi-mono/ai/types.js';
-import { getDefaultModel } from '../provider/pi-ai-setup.js';
+import { getDefaultModel, ensureModelRegistered } from '../provider/pi-ai-setup.js';
 import { ensureV1BaseUrl } from '../utils/base-url.js';
 import type { AppConfig } from '../app/types.js';
 import type { ResolvedAgentConfig } from './config-types.js';
@@ -42,12 +42,20 @@ export interface ResolvedModel {
  * Encapsulates the runtime string-split + getModel call so callers
  * don't need their own `as any` casts.
  */
-function resolveModelRef(ref: string): ModelInstance | undefined {
+function resolveModelRef(ref: string, config?: AppConfig): ModelInstance | undefined {
   const idx = ref.indexOf('/');
   if (idx === -1) return undefined;
+  const provider = ref.slice(0, idx);
+  const modelId = ref.slice(idx + 1);
+  // Custom-provider models picked from a provider's live model list may not be
+  // in the provider's `models:` config — synthesize + register them on demand.
+  if (config) {
+    const dynamic = ensureModelRegistered(config, provider, modelId);
+    if (dynamic) return dynamic as ModelInstance;
+  }
   return getModel(
-    ref.slice(0, idx) as KnownProvider,
-    ref.slice(idx + 1) as never,
+    provider as KnownProvider,
+    modelId as never,
   ) as ModelInstance | undefined;
 }
 
@@ -108,7 +116,7 @@ export function resolveModel(options: {
 
   // 2. Agent config model.primary overrides the default (but NOT an explicit override)
   if (agentConfig?.model.primary && !explicitModel) {
-    const agentModel = resolveModelRef(agentConfig.model.primary);
+    const agentModel = resolveModelRef(agentConfig.model.primary, config);
     if (agentModel) {
       model = agentModel;
     } else {
@@ -142,7 +150,7 @@ export function resolveModel(options: {
   // key) is dropped — but we warn so the silent degradation is visible.
   const fallbackModels: ModelInstance[] = [];
   for (const ref of config.fallbackModels ?? []) {
-    const m = resolveModelRef(ref);
+    const m = resolveModelRef(ref, config);
     if (m === undefined) {
       logger.warn({ ref }, `Fallback model "${ref}" could not be resolved and will be dropped from the fallback chain`);
     } else {

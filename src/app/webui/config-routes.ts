@@ -227,6 +227,10 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
     let apiKey: string | undefined;
     let baseUrl: string | undefined;
     let api: string | undefined;
+    // API type inherited from a custom provider's configured models — used to
+    // tag the live-fetched model entries so they resolve to the right API
+    // provider at call time (defaults to openai-completions below).
+    let customApi: string | undefined;
 
     // Check providerKeys first
     const providerKeys = config.providerKeys as Record<string, { apiKey?: string; baseUrl?: string }> | undefined;
@@ -237,11 +241,15 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
 
     // Check customProviders
     if (!apiKey) {
-      const customProviders = config.customProviders as Array<{ provider: string; apiKey?: string; baseUrl?: string }> | undefined;
+      const customProviders = config.customProviders as Array<{ provider: string; apiKey?: string; baseUrl?: string; models?: Array<{ api?: string }> }> | undefined;
       const custom = customProviders?.find(cp => cp.provider === id);
       if (custom) {
         apiKey = custom.apiKey;
         baseUrl = custom.baseUrl;
+        // Inherit the API type from the provider's configured models so models
+        // picked from the live list get registered/used with the correct API
+        // (virtually all custom gateways are OpenAI-compatible).
+        customApi = custom.models?.find(m => m.api)?.api;
       }
     }
 
@@ -311,7 +319,7 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
         .map(m => ({
           id: m.id,
           name: m.name,
-          api: 'openai-completions',
+          api: customApi ?? 'openai-completions',
           reasoning: false,
           input: ['text'],
         }));

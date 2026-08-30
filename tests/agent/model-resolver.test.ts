@@ -18,6 +18,7 @@ vi.mock('@earendil-works/pi-ai', () => ({
 
 vi.mock('../../src/provider/pi-ai-setup.js', () => ({
   getDefaultModel: vi.fn(),
+  ensureModelRegistered: vi.fn(),
 }));
 
 // ─── Helpers ───
