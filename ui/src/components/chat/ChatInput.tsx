@@ -126,6 +126,8 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCounterRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  /** True while the native file-picker dialog is open (attachment button lit). */
+  const [attachActive, setAttachActive] = useState(false);
 
   // Per-session cache — preserves input text and file uploads when switching conversations
   const inputCacheRef = useRef<Map<string, string>>(new Map());
@@ -1029,6 +1031,20 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
   // Reset the highlight whenever the filtered list content changes.
   useEffect(() => { setSlashIndex(0); }, [slashQuery, slashActive]);
 
+  // Drop the attachment button's active style when the native file dialog
+  // closes — the dialog blurs the window while open, and focus fires on close.
+  // The input's 'cancel' event (dismiss without picking) also clears it.
+  useEffect(() => {
+    if (!attachActive) return;
+    const clear = () => setAttachActive(false);
+    window.addEventListener('focus', clear);
+    fileInputRef.current?.addEventListener('cancel', clear);
+    return () => {
+      window.removeEventListener('focus', clear);
+      fileInputRef.current?.removeEventListener('cancel', clear);
+    };
+  }, [attachActive]);
+
   // Keep the highlighted item visible while navigating with arrow keys.
   useEffect(() => {
     slashListRef.current
@@ -1160,10 +1176,12 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
 
   return (
     <div
-      className={`relative bg-white dark:bg-neutral-950 ${
+      className={`chat-input-theme relative bg-white dark:bg-neutral-950 ${
         centered
           ? 'flex min-h-0 flex-1 flex-col justify-center px-3 pb-[14vh] sm:px-4'
-          : 'shrink-0 px-3 py-2 pb-safe sm:px-4 sm:py-3'
+          /* Bottom padding keeps the input lifted off the page edge (the old
+             pb-safe left 0px there); safe-area inset is honored on top of it. */
+          : 'shrink-0 px-3 pt-0 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] sm:px-4 sm:pb-[calc(env(safe-area-inset-bottom,0px)+22px)]'
       } ${isDragOver ? 'ring-2 ring-blue-400 dark:ring-blue-500' : ''}`}
       onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
       onDragEnter={e => {
@@ -1252,7 +1270,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
           type="file"
           multiple
           className="hidden"
-          onChange={e => { if (e.target.files && e.target.files.length > 0) handleFilesSelected(e.target.files); e.target.value = ''; }}
+          onChange={e => { setAttachActive(false); if (e.target.files && e.target.files.length > 0) handleFilesSelected(e.target.files); e.target.value = ''; }}
         />
 
         {/* Anchor wrapper — the palette and the corner buttons are positioned
@@ -1328,11 +1346,18 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
         {/* Corner buttons — bottom-right inside the textarea */}
         <div className="absolute right-1 bottom-1.5 flex items-center gap-1">
           {/* Attachment button — unified style: no border when idle, blue
-              background + white icon on hover. */}
+              background + white icon while the native file-picker dialog is
+              open (same active style as the slash button). The dialog steals
+              window focus; when it closes, focus returns and we drop the
+              active style. */}
           <button
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => { if (attachActive) return; setAttachActive(true); fileInputRef.current?.click(); }}
             disabled={!projectId || (!sessionId && !onQuickStart)}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-transparent text-neutral-400 transition-colors hover:bg-neutral-200 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-500 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
+            className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
+              attachActive
+                ? 'border-blue-500 bg-blue-500 text-white dark:border-blue-400 dark:bg-blue-400 dark:text-white'
+                : 'border-transparent text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-700 dark:hover:text-neutral-200'
+            }`}
             aria-label={t('chat.input.attachFiles')}
           >
             <Paperclip size={16} />
