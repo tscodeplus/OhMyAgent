@@ -12,6 +12,7 @@ import Modal from '../../ui/Modal';
 import Button from '../../ui/Button';
 import SubscriptionsSettings from './SubscriptionsSettings';
 import ModelPicker from '../ModelPicker';
+import ModelIdCombobox from '../ModelIdCombobox';
 import ModelRefInput from '../ModelRefInput';
 import FallbackModelsEditor from '../FallbackModelsEditor';
 import { SettingsSection, SettingsCard } from '../SettingsSection';
@@ -589,6 +590,11 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                     <span className="text-[11px] text-neutral-400 dark:text-neutral-500">
                       {cp.models.length}{t('settings.models.modelsCount')}
                     </span>
+                    <button onClick={() => openAddModelModal(pIdx)}
+                      className="flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
+                      title={t('settings.models.addModel')}>
+                      <Plus size={11} />{t('settings.models.addModel')}
+                    </button>
                     <button onClick={() => removeCustomProvider(pIdx)}
                       className="text-neutral-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
                       title={t('settings.models.removeProvider')}>
@@ -630,22 +636,25 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                                   <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
                                     {model.name || model.id || `Model #${mIdx + 1}`}
                                   </span>
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-1">
                                     <button onClick={() => openCopyModelModal(pIdx, mIdx)}
-                                      className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+                                      className="no-min-tap p-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
                                       title={t('settings.models.copyModel')}>
                                       <Copy size={11} />
                                     </button>
                                     <button onClick={() => removeModel(pIdx, mIdx)}
-                                      className="text-neutral-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                                      className="no-min-tap p-1 text-neutral-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
                                       title={t('settings.models.deleteModel')}>
                                       <Trash2 size={11} />
                                     </button>
                                   </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-2">
-                                  <Input label={t('settings.models.modelId')} value={model.id}
-                                    onChange={(e) => updateModel(pIdx, mIdx, 'id', e.target.value)}
+                                  <ModelIdCombobox
+                                    provider={cp.provider}
+                                    label={t('settings.models.modelId')}
+                                    value={model.id}
+                                    onChange={(id) => updateModel(pIdx, mIdx, 'id', id)}
                                     placeholder="e.g. gpt-4o" />
                                   <Input label={t('settings.models.modelName')} value={model.name}
                                     onChange={(e) => updateModel(pIdx, mIdx, 'name', e.target.value)}
@@ -675,8 +684,8 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                                         options={options} />
                                     );
                                   })()}
-                                  <div className="flex items-center gap-4">
-                                    <div className="flex items-center gap-1.5 mt-[22px]">
+                                  <div className="flex items-end gap-4">
+                                    <div className="flex items-center gap-1.5 pb-[9px]">
                                       <Toggle checked={!!model.reasoning}
                                         onChange={(v) => updateModel(pIdx, mIdx, 'reasoning', v)} />
                                       <span className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-400">{t('settings.models.modelReasoning')}</span>
@@ -957,8 +966,11 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
         {modalModel && (
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
-              <Input label={t('settings.models.modelId')} value={modalModel.id}
-                onChange={(e) => setModalModel({ ...modalModel, id: e.target.value })}
+              <ModelIdCombobox
+                provider={customProviders[modalProviderIdx]?.provider || ''}
+                label={t('settings.models.modelId')}
+                value={modalModel.id}
+                onChange={(id) => setModalModel({ ...modalModel, id })}
                 placeholder="e.g. gpt-4o" />
               <Input label={t('settings.models.modelName')} value={modalModel.name}
                 onChange={(e) => setModalModel({ ...modalModel, name: e.target.value })}
@@ -979,8 +991,8 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                   'openai-completions',
                   'openai-responses',
                 ].map(api => ({ value: api, label: api }))} />
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-1.5">
+              <div className="flex items-end gap-4">
+                <div className="flex items-center gap-1.5 pb-[9px]">
                   <Toggle checked={!!modalModel.reasoning}
                     onChange={(v) => setModalModel({ ...modalModel, reasoning: v })} />
                   <span className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-400">{t('settings.models.modelReasoning')}</span>

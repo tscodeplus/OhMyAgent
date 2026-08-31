@@ -43,9 +43,10 @@ body {
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
-/* Improve touch targets on mobile */
+/* Improve touch targets on mobile
+   (.no-min-tap opts out for compact icon buttons in tight rows) */
 @media (max-width: 639px) {
-  button:not([role="switch"]), a, [role="button"] {
+  button:not([role="switch"]):not(.no-min-tap), a, [role="button"] {
     min-height: 34px;
     min-width: 34px;
   }

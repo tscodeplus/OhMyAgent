@@ -328,10 +328,10 @@ export default function AppShell() {
         </div>
 
         {/* Settings */}
-        <div className="shrink-0 border-t border-neutral-200 px-2 py-2 dark:border-neutral-800">
+        <div className="shrink-0 border-t border-neutral-200 px-2 py-1 dark:border-neutral-800">
           <button type="button" onClick={() => setSettingsOpen(true)}
-            className="flex h-9 w-full items-center justify-start gap-2 rounded-lg px-6 text-[13px] font-medium text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100">
-            <SettingsIcon className="h-4 w-4" strokeWidth={1.75} />
+            className="flex h-10 w-full items-center justify-start gap-2 rounded-lg px-6 text-sm font-medium text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100">
+            <SettingsIcon className="h-[18px] w-[18px]" strokeWidth={1.75} />
             <span>{t('sidebar.settings')}</span>
           </button>
         </div>
