@@ -695,12 +695,13 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                                       value={model.reasoningLevel || 'off'}
                                       onChange={(e) => updateModel(pIdx, mIdx, 'reasoningLevel', e.target.value)}
                                       options={[
-                                        { value: 'off', label: 'Off' },
-                                        { value: 'minimal', label: 'Minimal' },
-                                        { value: 'low', label: 'Low' },
-                                        { value: 'medium', label: 'Medium' },
-                                        { value: 'high', label: 'High' },
-                                        { value: 'xhigh', label: 'Very High' },
+                                        { value: 'off', label: 'off' },
+                                        { value: 'minimal', label: 'minimal' },
+                                        { value: 'low', label: 'low' },
+                                        { value: 'medium', label: 'medium' },
+                                        { value: 'high', label: 'high' },
+                                        { value: 'xhigh', label: 'xhigh' },
+                                        { value: 'max', label: 'max' },
                                       ]} />
                                     </div>
                                   </div>
@@ -824,12 +825,13 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
               value={getField('defaultReasoningLevel', defReasoningLevel || 'off') as string}
               onChange={(e) => setField('defaultReasoningLevel', e.target.value)}
               options={[
-                { value: 'off', label: 'Off' },
-                { value: 'minimal', label: 'Minimal' },
-                { value: 'low', label: 'Low' },
-                { value: 'medium', label: 'Medium' },
-                { value: 'high', label: 'High' },
-                { value: 'xhigh', label: 'Very High' },
+                { value: 'off', label: 'off' },
+                { value: 'minimal', label: 'minimal' },
+                { value: 'low', label: 'low' },
+                { value: 'medium', label: 'medium' },
+                { value: 'high', label: 'high' },
+                { value: 'xhigh', label: 'xhigh' },
+                { value: 'max', label: 'max' },
               ]}
             />
           </SettingsCard>
@@ -1002,12 +1004,13 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                     value={modalModel.reasoningLevel || 'off'}
                     onChange={(e) => setModalModel({ ...modalModel, reasoningLevel: e.target.value })}
                     options={[
-                      { value: 'off', label: 'Off' },
-                      { value: 'minimal', label: 'Minimal' },
-                      { value: 'low', label: 'Low' },
-                      { value: 'medium', label: 'Medium' },
-                      { value: 'high', label: 'High' },
-                      { value: 'xhigh', label: 'Very High' },
+                      { value: 'off', label: 'off' },
+                      { value: 'minimal', label: 'minimal' },
+                      { value: 'low', label: 'low' },
+                      { value: 'medium', label: 'medium' },
+                      { value: 'high', label: 'high' },
+                      { value: 'xhigh', label: 'xhigh' },
+                      { value: 'max', label: 'max' },
                     ]} />
                 </div>
               </div>

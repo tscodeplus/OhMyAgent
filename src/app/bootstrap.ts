@@ -117,6 +117,12 @@ function registerCustomProviders(config: AppConfig, logger: AppServices['logger'
         provider: cp.provider,
         baseUrl: cp.baseUrl,
         reasoning: m.reasoning ?? false,
+        // Direct 7-level pass-through: expose pi-mono's full ThinkingLevel set
+        // (incl. xhigh/max) for custom models without per-provider remapping —
+        // the identity map just marks xhigh/max as supported so
+        // clampThinkingLevel forwards the requested level verbatim. Builtin
+        // models keep their curated capability maps from the model catalog.
+        thinkingLevelMap: { xhigh: 'xhigh', max: 'max' },
         input: m.input ?? ['text'],
         cost: {
           input: m.cost?.input ?? 0,
