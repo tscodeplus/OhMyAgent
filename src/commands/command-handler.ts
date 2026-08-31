@@ -220,7 +220,7 @@ async function handleSkill(args: string, deps: CommandDeps): Promise<CommandResu
       return { reply: i18n.t('commands:skill.noSkills') };
     }
     const lines = skills.map(
-      (s) => `- $${s.manifest.id} — ${s.manifest.description}`,
+      (s) => `- $${s.manifest.id}（或 /skill:${s.manifest.id}）— ${s.manifest.description}`,
     );
     return { reply: i18n.t('commands:skill.list', { list: lines.join('\n\n') }) };
   }
@@ -233,7 +233,7 @@ async function handleSkill(args: string, deps: CommandDeps): Promise<CommandResu
   }
 
   return {
-    reply: i18n.t('commands:skill.info', { command: `$${skill.manifest.id}`, name: skill.manifest.name, desc: skill.manifest.description }),
+    reply: i18n.t('commands:skill.info', { command: `$${skill.manifest.id} 或 /skill:${skill.manifest.id}`, name: skill.manifest.name, desc: skill.manifest.description }),
   };
 }
 

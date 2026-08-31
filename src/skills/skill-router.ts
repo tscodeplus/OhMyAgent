@@ -19,15 +19,15 @@ const explicitCommandCache = new LRUCache<string, RegExp>({ max: 500, ttl: 1000 
 const triggerCache = new LRUCache<string, RegExp>({ max: 1000, ttl: 1000 * 60 * 60 });
 
 /**
- * Check if a message contains a `$skill-id` token anywhere, or starts with `/skill-id`.
- * Returns true if the skill id is referenced via $ or / syntax.
+ * Check if a message contains a `$skill-id` token anywhere, or starts with `/skill:skill-id`.
+ * Returns true if the skill id is referenced via $ or /skill: syntax.
  */
 function matchExplicitCommand(message: string, skillId: string): boolean {
   let pattern = explicitCommandCache.get(skillId);
   if (!pattern) {
-    // Match $skill-id anywhere OR /skill-id at the start of the message
+    // Match $skill-id anywhere OR /skill:skill-id at the start of the message
     pattern = new RegExp(
-      `(?:^/${escapeRegex(skillId)}(?:\\s|$))|(?:\\$${escapeRegex(skillId)}(?:\\s|$))`,
+      `(?:^/skill:${escapeRegex(skillId)}(?:\\s|$))|(?:\\$${escapeRegex(skillId)}(?:\\s|$))`,
     );
     explicitCommandCache.set(skillId, pattern);
   }
@@ -99,7 +99,7 @@ function escapeRegex(str: string): string {
  * Resolve which skill(s) to activate based on user message.
  *
  * Resolution logic:
- * 1. Explicit command: message contains `$skill-id` or starts with `/skill-id`
+ * 1. Explicit command: message contains `$skill-id` or starts with `/skill:skill-id`
  * 2. Trigger matching: trigger word appears in message (case-insensitive, word boundary)
  * 3. Disabled skills are excluded
  * 4. If any explicit match exists, trigger-based matches are dropped (explicit = user intent)
@@ -114,7 +114,7 @@ export function resolveSkillContext(message: string, skills: LoadedSkill[]): Res
       continue;
     }
 
-    // Check explicit command ($skill-id or /skill-id)
+    // Check explicit command ($skill-id or /skill:skill-id)
     if (matchExplicitCommand(message, skill.manifest.id)) {
       results.push({
         skill,
@@ -136,7 +136,7 @@ export function resolveSkillContext(message: string, skills: LoadedSkill[]): Res
   }
 
   // If any explicit command matched, drop all trigger-based matches.
-  // Explicit commands ($skill-id / /skill-id) represent clear user intent
+  // Explicit commands ($skill-id / /skill:skill-id) represent clear user intent
   // and should not be diluted by incidental trigger matches.
   const hasExplicit = results.some((r) => r.matchType === 'explicit');
   const filtered = hasExplicit ? results.filter((r) => r.matchType === 'explicit') : results;

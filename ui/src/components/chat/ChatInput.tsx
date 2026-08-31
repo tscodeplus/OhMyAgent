@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router-dom';
-import { Send, Paperclip, X, Loader2, Bot } from 'lucide-react';
+import { Send, Paperclip, X, Loader2, Bot, Square } from 'lucide-react';
 import { createSSEClient, type SSEEvent } from '../../utils/sse-client';
 import { apiRequest, getToken } from '../../utils/api';
 import { devLog } from '../../utils/logger';
@@ -142,10 +142,14 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
   const [slashIndex, setSlashIndex] = useState(0);
   const [skills, setSkills] = useState<Array<{ slug: string; name: string; description: string }>>([]);
   const slashListRef = useRef<HTMLDivElement>(null);
-  // Pixel max-height for the DOWNWARD-opening palette (centered mode), capped
-  // to the space below the textarea so its bottom edge never falls off-screen
-  // (where the last commands would be unreachable even by scrolling).
-  const [downMaxH, setDownMaxH] = useState<number | null>(null);
+  // Palette opening direction + pixel max-height, measured from the textarea:
+  // the palette opens toward whichever side has more room (downward in
+  // centered mode, upward when docked at the bottom) and is capped to that
+  // side's space so its bottom edge (border included) never falls off-screen
+  // — where the last commands would be unreachable even by scrolling.
+  const [slashUp, setSlashUp] = useState(false);
+  const [slashMaxH, setSlashMaxH] = useState<number | null>(null);
+  const slashBtnRef = useRef<HTMLButtonElement>(null);
 
   // Load available skills once so they can be offered as /skill-id commands.
   useEffect(() => {
@@ -964,9 +968,8 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
   // ── Slash command palette logic ──
   // Built-in commands and skill commands are two separate groups: the
   // dropdown renders them under their own section headers, each sorted A-Z.
-  // NOTE: skills are inserted as "/skill-id" — the backend skill router only
-  // recognizes "/skill-id" (start of message) or "$skill-id" (anywhere), so a
-  // "/skill:id" prefix would not activate the skill.
+  // NOTE: skills are inserted as "/skill:<slug>" — the backend skill router
+  // only recognizes "/skill:<slug>" (start of message) or "$<slug>" (anywhere).
   const builtInCommands = useMemo<SlashCommand[]>(() => [
     { id: 'agents', description: t('chat.slash.agents') },
     { id: 'btw', description: t('chat.slash.btw') },
@@ -983,7 +986,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
   ], [t]);
 
   const skillCommands = useMemo<SlashCommand[]>(() => skills.map(s => ({
-    id: s.slug,
+    id: `skill:${s.slug}`,
     name: s.name,
     description: s.description || t('chat.slash.skillDefault'),
     skill: true,
@@ -1033,21 +1036,44 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
       ?.scrollIntoView({ block: 'nearest' });
   }, [slashIndex, filteredSlash.length, slashVisible]);
 
-  // Measure the space below the textarea while the palette opens downward.
+  // Measure the space above/below the palette anchor (the wrapper around the
+  // textarea — NOT the textarea itself: the inline-block descender gap makes
+  // the wrapper a few px taller, which used to push the palette's bottom edge
+  // off-screen on short viewports).
   useEffect(() => {
-    if (!slashVisible || !centered) { setDownMaxH(null); return; }
+    if (!slashVisible) { setSlashMaxH(null); return; }
     const compute = () => {
-      const rect = textareaRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      // viewport − textarea bottom − palette top margin (mt-2 = 8px) − a little slack
-      const avail = window.innerHeight - rect.bottom - 8 - 4;
-      setDownMaxH(Math.max(140, Math.min(256, Math.floor(avail))));
+      const anchor = textareaRef.current?.parentElement;
+      if (!anchor) return;
+      const rect = anchor.getBoundingClientRect();
+      const below = window.innerHeight - rect.bottom - 12; // top margin (mt-2) + slack
+      const above = rect.top - 12;                         // bottom margin (mb-2) + slack
+      // Prefer downward; flip upward only when below is too tight and above has room.
+      const up = below < 200 && above > below;
+      setSlashUp(up);
+      setSlashMaxH(Math.max(96, Math.floor(Math.min(256, up ? above : below))));
     };
     compute();
     window.addEventListener('resize', compute);
     return () => window.removeEventListener('resize', compute);
-  }, [slashVisible, centered]);
+  }, [slashVisible]);
 
+  // Close the palette when clicking anywhere outside it, outside the slash
+  // button, and outside the textarea (the textarea's blur alone misses clicks
+  // on elements that don't take focus, e.g. plain divs).
+  useEffect(() => {
+    if (!slashVisible) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (slashListRef.current?.contains(t)) return;
+      if (slashBtnRef.current?.contains(t)) return; // slash button toggles via its own onClick
+      if (textareaRef.current?.contains(t)) return;
+      setSlashOpen(false);
+      setSlashHidden(true);
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, [slashVisible]);
   /** Fill the input with the selected command (replacing a leading partial). */
   const applySlash = useCallback((cmd: SlashCommand) => {
     const cur = textareaRef.current?.value ?? input;
@@ -1136,8 +1162,8 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
     <div
       className={`relative bg-white dark:bg-neutral-950 ${
         centered
-          ? 'flex min-h-0 flex-1 flex-col justify-center px-3 pb-[8vh] sm:px-4'
-          : 'shrink-0 border-t border-neutral-200 px-3 py-2 pb-safe sm:px-4 sm:py-3 dark:border-neutral-800'
+          ? 'flex min-h-0 flex-1 flex-col justify-center px-3 pb-[14vh] sm:px-4'
+          : 'shrink-0 px-3 py-2 pb-safe sm:px-4 sm:py-3'
       } ${isDragOver ? 'ring-2 ring-blue-400 dark:ring-blue-500' : ''}`}
       onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
       onDragEnter={e => {
@@ -1249,18 +1275,19 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck={false}
-          className="w-full resize-none rounded-xl border border-neutral-300 bg-white py-2.5 pl-3 pr-[120px] text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none disabled:opacity-50 sm:py-3 sm:pl-4 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-600"
+          className="block w-full resize-none rounded-xl border border-neutral-300 bg-white py-2.5 pl-3 pr-[88px] text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none disabled:opacity-50 sm:py-3 sm:pl-4 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-600"
         />
 
-        {/* Slash command palette — opens away from the nearest screen edge
-            (upward when docked at the bottom, downward in centered mode).
+        {/* Slash command palette — opens toward whichever side of the textarea
+            has more room (auto-flips when either side is too tight), with its
+            height capped to that side so the bottom edge always stays visible.
             Commands and skills render as two A-Z sorted sections. */}
         {slashVisible && (
           <div
             ref={slashListRef}
-            style={centered && downMaxH != null ? { maxHeight: downMaxH } : undefined}
+            style={slashMaxH != null ? { maxHeight: slashMaxH } : undefined}
             className={`absolute right-0 left-0 z-20 max-h-[min(16rem,40vh)] overflow-y-auto rounded-xl border border-neutral-200 bg-white py-1 shadow-xl dark:border-neutral-700 dark:bg-neutral-900 ${
-              centered ? 'top-full mt-2' : 'bottom-full mb-2'
+              slashUp ? 'bottom-full mb-2' : 'top-full mt-2'
             }`}
           >
             {filteredCommands.length > 0 && (
@@ -1278,55 +1305,72 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
           </div>
         )}
 
+        {/* Slash command button — bottom-left inside the textarea (small circle).
+            Unified style: no border when idle, blue background + white icon on
+            hover. */}
+        <button
+          ref={slashBtnRef}
+          type="button"
+          onMouseDown={e => e.preventDefault()}
+          onClick={() => { setSlashOpen(o => !o); setSlashHidden(false); }}
+          disabled={!projectId || (!sessionId && !onQuickStart)}
+          aria-label={t('chat.input.slashCommands')}
+          title={t('chat.input.slashCommands')}
+          className={`absolute bottom-2 left-1.5 inline-flex h-6 w-6 items-center justify-center rounded-full border text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
+            slashActive
+              ? 'border-blue-500 bg-blue-500 text-white dark:border-blue-400 dark:bg-blue-400 dark:text-white'
+              : 'border-transparent text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-700 dark:hover:text-neutral-200'
+          }`}
+        >
+          /
+        </button>
+
         {/* Corner buttons — bottom-right inside the textarea */}
         <div className="absolute right-1 bottom-2 flex items-center gap-1">
-          {/* Slash command button */}
-          <button
-            type="button"
-            onMouseDown={e => e.preventDefault()}
-            onClick={() => { setSlashOpen(o => !o); setSlashHidden(false); }}
-            disabled={!projectId || (!sessionId && !onQuickStart)}
-            aria-label={t('chat.input.slashCommands')}
-            title={t('chat.input.slashCommands')}
-            className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border text-[15px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
-              slashActive
-                ? 'border-blue-300 bg-blue-50 text-blue-600 dark:border-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
-                : 'border-neutral-200 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:border-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-300'
-            }`}
-          >
-            /
-          </button>
-
-          {/* Attachment button */}
+          {/* Attachment button — unified style: no border when idle, blue
+              background + white icon on hover. */}
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={!projectId || (!sessionId && !onQuickStart)}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 hover:text-neutral-600 hover:bg-neutral-100 disabled:opacity-30 disabled:cursor-not-allowed dark:text-neutral-500 dark:hover:text-neutral-300 dark:hover:bg-neutral-800 transition-colors"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-transparent text-neutral-400 transition-colors hover:bg-neutral-200 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-500 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
             aria-label={t('chat.input.attachFiles')}
           >
             <Paperclip size={16} />
           </button>
 
-          {/* Send button */}
-          <button
-            onClick={() => {
-              const text = textareaRef.current?.value.trim() || input.trim();
-              if (text || hasDoneFiles) {
-                handleSend();
-              } else if (sessionId) {
-                sendMessage('/stop');
-              }
-            }}
-            disabled={(!hasInput && !hasDoneFiles && !sending) || !projectId || hasUploading || (!sessionId && !onQuickStart)}
-            className={`inline-flex h-8 w-8 items-center justify-center rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
-              hasInput || hasDoneFiles
-                ? 'bg-blue-500 text-white hover:bg-blue-600 dark:bg-blue-400 dark:hover:bg-blue-500'
-                : 'text-neutral-400 hover:text-neutral-600 hover:bg-neutral-100 dark:text-neutral-500 dark:hover:text-neutral-300 dark:hover:bg-neutral-800'
-            }`}
-            aria-label={t('chat.send')}
-          >
-            <Send size={16} />
-          </button>
+          {/* Send button — circular when active (blue background). While the
+              agent is running it turns into a stop button (bigger square icon,
+              same active-blue background); clicking stops the agent. */}
+          {sending && sessionId ? (
+            <button
+              onClick={() => sendMessage('/stop')}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-blue-500 text-white transition-colors hover:bg-blue-600 dark:bg-blue-400 dark:hover:bg-blue-500"
+              aria-label={t('chat.slash.stop')}
+              title={t('chat.slash.stop')}
+            >
+              <Square size={13} fill="currentColor" />
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                const text = textareaRef.current?.value.trim() || input.trim();
+                if (text || hasDoneFiles) {
+                  handleSend();
+                } else if (sessionId) {
+                  sendMessage('/stop');
+                }
+              }}
+              disabled={(!hasInput && !hasDoneFiles && !sending) || !projectId || hasUploading || (!sessionId && !onQuickStart)}
+              className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
+                hasInput || hasDoneFiles
+                  ? 'border-blue-500 bg-blue-500 text-white hover:border-blue-600 hover:bg-blue-600 dark:border-blue-400 dark:bg-blue-400 dark:hover:border-blue-500 dark:hover:bg-blue-500'
+                  : 'border-transparent text-neutral-400 dark:text-neutral-500'
+              }`}
+              aria-label={t('chat.send')}
+            >
+              <Send size={16} />
+            </button>
+          )}
         </div>
         </div>
       </div>

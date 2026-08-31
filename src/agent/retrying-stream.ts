@@ -94,6 +94,25 @@ export function createRetryingStreamFn(
   return (model, context, streamOptions) => {
     const out = new AssistantMessageEventStream();
 
+    /** Terminal-error exit. Converts abort-class failures (user /stop, SSE
+     *  disconnect) into a graceful 'aborted' stop so the event bridge and UI
+     *  treat them as a normal abort instead of a provider error bubble
+     *  ("任务中断：模型调用失败…"). */
+    const finishWithError = (event: AssistantMessageEvent | undefined, err: AssistantMessage): void => {
+      const aborted =
+        streamOptions?.signal?.aborted === true
+        || /^aborted$/i.test(err.errorMessage ?? '')
+        || /^request aborted$/i.test(err.errorMessage ?? '');
+      if (aborted) {
+        const graceful: AssistantMessage = { ...err, stopReason: 'aborted', errorMessage: undefined };
+        out.push({ type: 'error', reason: 'aborted', error: graceful });
+        out.end(graceful);
+        return;
+      }
+      out.push(event ?? { type: 'error', reason: 'error', error: err });
+      out.end(err);
+    };
+
     void (async () => {
       let attempt = 0;
       // Only the first attempt's start event may be forwarded — the agent
@@ -107,8 +126,7 @@ export function createRetryingStreamFn(
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           const err = createErrorMessage(model, message);
-          out.push({ type: 'error', reason: 'error', error: err });
-          out.end(err);
+          finishWithError(undefined, err);
           return;
         }
 
@@ -167,8 +185,7 @@ export function createRetryingStreamFn(
               { provider: model.provider, model: model.id, maxRetries, errorMessage: err.errorMessage },
               `Model ${model.provider}/${model.id} stream failed: ended without terminal event after ${maxRetries} retries`,
             );
-            out.push({ type: 'error', reason: 'error', error: err });
-            out.end(err);
+            finishWithError(undefined, err);
             return;
           }
           terminal = err;
@@ -187,8 +204,7 @@ export function createRetryingStreamFn(
             },
             `Model ${model.provider}/${model.id} stream failed: ${isRetryableAssistantError(terminal) ? `retries exhausted (${maxRetries})` : 'non-retryable error'}`,
           );
-          out.push(terminalEvent ?? { type: 'error', reason: 'error', error: terminal });
-          out.end(terminal);
+          finishWithError(terminalEvent, terminal);
           return;
         }
 
@@ -210,8 +226,7 @@ export function createRetryingStreamFn(
           await abortableSleep(retryDelayMs, streamOptions?.signal);
         } catch {
           // Aborted during backoff — report the original error.
-          out.push(terminalEvent ?? { type: 'error', reason: 'error', error: terminal });
-          out.end(terminal);
+          finishWithError(terminalEvent, terminal);
           return;
         }
       }

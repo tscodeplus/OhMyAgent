@@ -285,7 +285,7 @@ Example: User says "My name is Bob, call me Boss. Your name is Helper." → call
       lines.push('  <skill>');
       lines.push(`    <name>${escapeXml(skill.name)}</name>`);
       lines.push(`    <id>${escapeXml(skill.id)}</id>`);
-      lines.push(`    <trigger>$${escapeXml(skill.id)}</trigger>`);
+      lines.push(`    <trigger>$${escapeXml(skill.id)} or /skill:${escapeXml(skill.id)}</trigger>`);
       lines.push(`    <description>${escapeXml(skill.description)}</description>`);
       lines.push('  </skill>');
     }
@@ -294,7 +294,7 @@ Example: User says "My name is Bob, call me Boss. Your name is Helper." → call
     lines.push('');
     lines.push(`### How to use skills
 
-If the user names \`$<skill-id>\` or \`/<skill-id>\` or the task clearly matches a listed description, use that skill for this turn. When a skill is activated, follow the loaded skill instructions; choose the smallest useful set and say which skill you are using. If no skill fits, continue normally.
+If the user names \`$<skill-id>\` or \`/skill:<skill-id>\` or the task clearly matches a listed description, use that skill for this turn. When a skill is activated, follow the loaded skill instructions; choose the smallest useful set and say which skill you are using. If no skill fits, continue normally.
 
 When a skill fits the task, the full skill instructions are injected automatically; you may also read the complete SKILL.md via file_read on its path if the injected instructions are insufficient.
 

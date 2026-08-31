@@ -147,37 +147,37 @@ describe('resolveSkillContext', () => {
     expect(results[0].matchType).toBe('explicit');
   });
 
-  it('matches explicit /skill-id prefix command', () => {
+  it('matches explicit /skill:skill-id prefix command', () => {
     const skills = [
       makeSkill({ id: 'android-operator', manifest: { triggers: ['adb'], priority: 1 } }),
     ];
 
-    const results = resolveSkillContext('/android-operator do something', skills);
+    const results = resolveSkillContext('/skill:android-operator do something', skills);
 
     expect(results).toHaveLength(1);
     expect(results[0].skill.manifest.id).toBe('android-operator');
     expect(results[0].matchType).toBe('explicit');
   });
 
-  it('matches /skill-id at start of message without trailing content', () => {
+  it('matches /skill:skill-id at start of message without trailing content', () => {
     const skills = [
       makeSkill({ id: 'my-skill', manifest: { triggers: ['test'], priority: 1 } }),
     ];
 
-    const results = resolveSkillContext('/my-skill', skills);
+    const results = resolveSkillContext('/skill:my-skill', skills);
 
     expect(results).toHaveLength(1);
     expect(results[0].matchType).toBe('explicit');
   });
 
-  it('does not match /skill-id in the middle of a message', () => {
+  it('does not match /skill:skill-id in the middle of a message', () => {
     const skills = [
       makeSkill({ id: 'my-skill', manifest: { triggers: ['test'], priority: 1 } }),
     ];
 
-    const results = resolveSkillContext('try /my-skill in message', skills);
+    const results = resolveSkillContext('try /skill:my-skill in message', skills);
 
-    // /skill-id is only matched at the start; $skill-id matches anywhere
+    // /skill:skill-id is only matched at the start; $skill-id matches anywhere
     expect(results).toHaveLength(0);
   });
 

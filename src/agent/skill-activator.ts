@@ -69,7 +69,7 @@ export const activeSkillFeedbackIds = new LRUCache<
  *   1. Compiles the skill context
  *   2. Stores active skill for compliance tracking
  *   3. Records activation for metrics
- *   4. Strips $skill-id / /skill-id tokens from the message
+ *   4. Strips $skill-id / /skill:skill-id tokens from the message
  *   5. Registers skill-level approval overrides
  *
  * Returns the compiled context, scope, and cleaned message.
@@ -129,10 +129,10 @@ export function activateSkill(
     activeSkillFeedbackIds.set(sessionId, { feedbackId: skillFeedbackId, startTime: Date.now() });
   }
 
-  // Strip $skill-id and /skill-id tokens from the user message
+  // Strip $skill-id and /skill:skill-id tokens from the user message
   const escapedId = skill.manifest.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   let cleanMessage = message
-    .replace(new RegExp(`(?:^/${escapedId}\\s*)|(?:\\$${escapedId}\\s*)`, 'gi'), '')
+    .replace(new RegExp(`(?:^/skill:${escapedId}\\s*)|(?:\\$${escapedId}\\s*)`, 'gi'), '')
     .trim();
   if (!cleanMessage) {
     cleanMessage = 'I am ready to help with this skill.';
