@@ -106,18 +106,10 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
   const [modalOpen, setModalOpen] = useState(false);
   const [modalProviderIdx, setModalProviderIdx] = useState<number>(0);
   const [modalModel, setModalModel] = useState<ProviderModel | null>(null);
-  const [modalOnSave, setModalOnSave] = useState<() => void>(() => {});
 
   const openAddModelModal = (pIdx: number) => {
     setModalProviderIdx(pIdx);
     setModalModel({ id: '', name: '', api: 'openai-completions', reasoning: false });
-    setModalOnSave(() => () => {
-      setCustomProviders(prev => prev.map((p, i) =>
-        i === pIdx ? { ...p, models: [...p.models, { ...modalModel! }] } : p
-      ));
-      setCustomProvidersDirty(true);
-      setCustomProvidersNeedsRestart(true);
-    });
     setModalOpen(true);
   };
 
@@ -125,19 +117,16 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
     const modelToCopy = customProviders[pIdx].models[mIdx];
     setModalProviderIdx(pIdx);
     setModalModel({ ...modelToCopy, id: '', name: '' });
-    setModalOnSave(() => () => {
-      setCustomProviders(prev => prev.map((p, i) =>
-        i === pIdx ? { ...p, models: [...p.models, { ...modalModel! }] } : p
-      ));
-      setCustomProvidersDirty(true);
-      setCustomProvidersNeedsRestart(true);
-    });
     setModalOpen(true);
   };
 
   const handleModalSave = () => {
     if (modalModel && modalModel.id.trim()) {
-      modalOnSave();
+      setCustomProviders(prev => prev.map((p, i) =>
+        i === modalProviderIdx ? { ...p, models: [...p.models, { ...modalModel }] } : p
+      ));
+      setCustomProvidersDirty(true);
+      setCustomProvidersNeedsRestart(true);
       setModalOpen(false);
     }
   };
@@ -990,7 +979,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                   'openai-completions',
                   'openai-responses',
                 ].map(api => ({ value: api, label: api }))} />
-              <div className="flex items-end gap-4 pb-[22px]">
+              <div className="flex items-center gap-4">
                 <div className="flex items-center gap-1.5">
                   <Toggle checked={!!modalModel.reasoning}
                     onChange={(v) => setModalModel({ ...modalModel, reasoning: v })} />
