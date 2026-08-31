@@ -1181,7 +1181,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
           ? 'flex min-h-0 flex-1 flex-col justify-center px-3 pb-[14vh] sm:px-4'
           /* Bottom padding keeps the input lifted off the page edge (the old
              pb-safe left 0px there); safe-area inset is honored on top of it. */
-          : 'shrink-0 px-3 pt-0 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] sm:px-4 sm:pb-[calc(env(safe-area-inset-bottom,0px)+22px)]'
+          : 'shrink-0 px-3 pt-0 pb-[calc(env(safe-area-inset-bottom,0px)+8px)] sm:px-4 sm:pb-[calc(env(safe-area-inset-bottom,0px)+12px)]'
       } ${isDragOver ? 'ring-2 ring-blue-400 dark:ring-blue-500' : ''}`}
       onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
       onDragEnter={e => {

@@ -24,21 +24,21 @@ html.dark {
   --color-neutral-500: #6e7681; /* placeholder / disabled */
 }
 
-/* Experimental preview: ChatGLM-app-style palette scoped to the chat input
-   only (class applied on the ChatInput root). Same values as the earlier
-   global dark-theme trial; everything outside the input uses the GitHub
-   Dark palette above. */
+/* Experimental preview: palette scoped to the chat input only (class applied
+   on the ChatInput root), sampled from the user's reference table header:
+   header/cell bg #21262d · border #3f4650 · page bg #0d1117 · text #c9d1d9.
+   Everything outside the input uses the global dark palette. */
 html.dark .chat-input-theme {
-  --color-neutral-950: #101010; /* app canvas (sampled page background) */
-  --color-neutral-900: #222222; /* cards / panels (sampled card & drawer) */
-  --color-neutral-800: #2c2d2e; /* inputs, hover fills (sampled input box) */
-  --color-neutral-700: #3a3b3c;
-  --color-neutral-600: #454647;
-  --color-neutral-50: #fafafa;
-  --color-neutral-100: #f5f5f5;
-  --color-neutral-200: #d4d4d4;
-  --color-neutral-400: #9c9c9c;
-  --color-neutral-500: #6f6f6f;
+  --color-neutral-950: #0d1117; /* wrapper canvas (= table page bg, matches global) */
+  --color-neutral-900: #21262d; /* textarea / palette fills (= header bg) */
+  --color-neutral-800: #3f4650; /* input border (= table border) */
+  --color-neutral-700: #2e353d; /* hover fills, derived from header bg */
+  --color-neutral-600: #4a525a; /* focused border, one step lighter */
+  --color-neutral-50: #f0f6fc;
+  --color-neutral-100: #e6edf3; /* typed text, brighter than header text */
+  --color-neutral-200: #c9d1d9; /* secondary text (= sampled header text) */
+  --color-neutral-400: #8b949e; /* placeholder */
+  --color-neutral-500: #6e7681;
   /* accent: sky blue sampled from the app's text cursor (#49b3fc) */
   --color-blue-300: #8ed0fd;
   --color-blue-400: #49b3fc;
