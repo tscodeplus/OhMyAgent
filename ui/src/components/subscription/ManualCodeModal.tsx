@@ -74,7 +74,7 @@ export default function ManualCodeModal({
             value={value}
             onChange={(e) => { setValue(e.target.value); setError(''); }}
             placeholder={t('settings.subscriptions.manualCodePlaceholder')}
-            className="w-full rounded-lg border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-neutral-800 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none h-24"
+            className="w-full rounded-lg border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-neutral-800 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none resize-none h-24"
             autoFocus
           />
 

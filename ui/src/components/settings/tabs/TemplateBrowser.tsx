@@ -4,6 +4,7 @@ import { apiRequest } from '../../../utils/api';
 import { useToast } from '../../ui/Toast';
 import Modal from '../../ui/Modal';
 import Button from '../../ui/Button';
+import Select from '../../ui/Select';
 import Spinner from '../../ui/Spinner';
 import { Search } from 'lucide-react';
 
@@ -191,20 +192,19 @@ export default function TemplateBrowser({ open, onClose, onImport }: TemplateBro
 
         {/* Filters */}
         <div className="shrink-0 flex gap-2 mb-3">
-          <select
+          <Select
+            dense
             value={division}
             onChange={(e) => setDivision(e.target.value)}
-            className="px-3 py-1.5 text-sm rounded-lg border border-neutral-300 bg-white dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-          >
-            <option value="">{t(`${prefix}.templateAllDivisions`)}</option>
-            {divisions.map((d) => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </select>
+            options={[
+              { value: '', label: t(`${prefix}.templateAllDivisions`) },
+              ...divisions.map((d) => ({ value: d, label: d })),
+            ]}
+          />
           <div className="relative flex-1">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
             <input
-              className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-neutral-300 bg-white dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+              className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-neutral-300 bg-white dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-200 focus:outline-none"
               placeholder={t(`${prefix}.templateSearchPlaceholder`)}
               value={search}
               onChange={(e) => setSearch(e.target.value)}

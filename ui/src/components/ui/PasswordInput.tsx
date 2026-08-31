@@ -33,7 +33,7 @@ const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
             onChange={onChange}
             placeholder={placeholder}
             autoFocus={autoFocus}
-            className={`block w-full rounded-lg border border-neutral-300 bg-white py-3 pl-4 pr-10 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-100 ${error ? 'border-red-500' : ''} ${className}`}
+            className={`block w-full rounded-lg border border-neutral-300 bg-white py-3 pl-4 pr-10 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-100 ${error ? 'border-red-500' : ''} ${className}`}
           />
           <button
             type="button"

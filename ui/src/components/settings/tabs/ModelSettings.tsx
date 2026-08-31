@@ -726,7 +726,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                                               type="checkbox"
                                               checked={checked}
                                               onChange={() => toggleModelInput(pIdx, mIdx, inputType)}
-                                              className="w-4 h-4 rounded border-neutral-300 dark:border-neutral-600 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                              className="w-4 h-4 rounded border-neutral-300 dark:border-neutral-600 text-blue-600 focus-visible:ring-blue-500 cursor-pointer"
                                             />
                                             <span className="text-[13px] text-neutral-700 dark:text-neutral-300">
                                               {inputType}
@@ -1042,7 +1042,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                           : [...current, inputType];
                         setModalModel({ ...modalModel, input: updated });
                       }}
-                      className="w-4 h-4 rounded border-neutral-300 dark:border-neutral-600 text-blue-600 focus:ring-blue-500 cursor-pointer" />
+                      className="w-4 h-4 rounded border-neutral-300 dark:border-neutral-600 text-blue-600 focus-visible:ring-blue-500 cursor-pointer" />
                     <span className="text-[13px] text-neutral-700 dark:text-neutral-300">{inputType}</span>
                   </label>
                 ))}

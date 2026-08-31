@@ -52,6 +52,25 @@ html.dark .chat-input-theme {
 
 html, body, #root { height: 100%; width: 100%; }
 
+/* Focus indicator policy — matches the slash-command palette: mouse clicks
+   never leave a focus outline on triggers/dropdowns (the "ring after click"
+   effect); keyboard navigation keeps the browser's :focus-visible indicator
+   plus the focus-visible:ring utilities used across the app. */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Chrome/Safari always match :focus-visible on <select>/<input>/<textarea>
+   even for plain mouse clicks, so the UA focus ring (white-on-dark /
+   black-on-light adaptive outline) still shows after clicking a dropdown.
+   Remove the UA outline on form fields unconditionally — focus feedback
+   comes from the caret and the border-color focus styles instead. */
+select:focus,
+input:focus,
+textarea:focus {
+  outline: none;
+}
+
 /* Use dynamic viewport height on mobile to account for Safari's
    collapsing address bar. Falls back to 100vh on unsupported browsers. */
 @supports (height: 100dvh) {

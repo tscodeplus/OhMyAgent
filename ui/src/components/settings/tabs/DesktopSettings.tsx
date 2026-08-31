@@ -474,7 +474,7 @@ export default function DesktopSettings() {
                 checked={includeBeta}
                 onChange={(e) => { setIncludeBeta(e.target.checked); saveIncludeBeta(e.target.checked); }}
                 disabled={isChecking || isDownloading}
-                className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-indigo-500 focus:ring-indigo-500 cursor-pointer"
+                className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-indigo-500 focus-visible:ring-indigo-500 cursor-pointer"
               />
               <span className="text-xs text-neutral-600 dark:text-neutral-400">
                 {t('settings.about.includeBeta')}

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../../lib/utils';
+import Select from '../ui/Select';
 import type { SettingsTabDef, SettingsGroupId } from './SettingsModal';
 import { SETTINGS_GROUP_DEFS } from './SettingsModal';
 
@@ -79,21 +80,15 @@ export default function SettingsSidebar({ groups, activeGroup, onSelect, dirtyTa
       {/* Mobile: single header row — section picker (shortened) shares the
           line with the dialog actions; grouped via <optgroup>. */}
       <div className="sm:hidden flex items-center gap-2 px-3 py-2 min-w-0">
-        <select
+        <Select
           value={activeGroup}
           onChange={(e) => onSelect(e.target.value)}
-          className="min-w-0 flex-1 rounded-lg border border-neutral-200 bg-white px-2.5 py-2 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-blue-500/30 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
-        >
-          {grouped.map(({ id, tabs }) => (
-            <optgroup key={id} label={t(SETTINGS_GROUP_DEFS[id].labelKey)}>
-              {tabs.map((tab) => (
-                <option key={tab.id} value={tab.id}>
-                  {t(tab.labelKey)}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
+          className="min-w-0 flex-1"
+          groups={grouped.map(({ id, tabs }) => ({
+            label: t(SETTINGS_GROUP_DEFS[id].labelKey),
+            options: tabs.map((tab) => ({ value: tab.id, label: t(tab.labelKey) })),
+          }))}
+        />
         {mobileActions}
       </div>
     </>

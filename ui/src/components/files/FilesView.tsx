@@ -611,7 +611,7 @@ export default function FilesView() {
         onBlur={handleInlineBlur}
         className={cn(
           'min-w-0 flex-1 rounded border px-1.5 py-0.5 text-[13px] outline-none',
-          'border-blue-400 bg-white text-neutral-900 focus:ring-1 focus:ring-blue-400',
+          'border-blue-400 bg-white text-neutral-900',
           'dark:border-blue-500 dark:bg-neutral-900 dark:text-neutral-100',
         )}
       />
@@ -892,7 +892,7 @@ export default function FilesView() {
                           onBlur={handleInlineBlur}
                           className={cn(
                             'min-w-0 flex-1 rounded border px-1.5 py-0.5 text-[13px] outline-none',
-                            'border-blue-400 bg-white text-neutral-900 focus:ring-1 focus:ring-blue-400',
+                            'border-blue-400 bg-white text-neutral-900',
                             'dark:border-blue-500 dark:bg-neutral-900 dark:text-neutral-100',
                           )}
                         />

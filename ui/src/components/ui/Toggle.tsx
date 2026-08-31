@@ -16,7 +16,7 @@ export default function Toggle({ checked, onChange, ariaLabel, disabled = false 
       onClick={() => onChange(!checked)}
       className={`
         relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border transition-colors duration-200
-        focus:outline-none focus:ring-2 focus:ring-blue-500/30
+        focus:outline-none
         ${checked ? 'border-blue-500 bg-blue-500' : 'border-neutral-300 bg-neutral-200 dark:border-neutral-600 dark:bg-neutral-700'}
         ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
       `}

@@ -4,6 +4,7 @@ import { Search, ExternalLink, Download, Check, Loader2, Package, TrendingUp } f
 import { apiRequest } from '../../utils/api';
 import { useToast } from '../ui/Toast';
 import Button from '../ui/Button';
+import Select from '../ui/Select';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -185,21 +186,23 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
       <div className="shrink-0 border-b border-neutral-200 px-3 sm:px-6 py-2.5 dark:border-neutral-800">
         <div className="flex gap-2">
           {/* Source filter */}
-          <select
+          <Select
+            compact
             value={source}
             onChange={(e) => setSource(e.target.value as SourceFilter)}
-            className="h-8 shrink-0 rounded-md border border-neutral-300 bg-white px-2.5 text-xs text-neutral-700 dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-300 focus:outline-none focus:ring-2 focus:ring-violet-500/20"
-          >
-            <option value="all">{t('marketplace.sourceAll')}</option>
-            <option value="skills.sh">{t('marketplace.sourceSkillsSh')}</option>
-            <option value="skillhub">{t('marketplace.sourceSkillhub')}</option>
-          </select>
+            className="shrink-0"
+            options={[
+              { value: 'all', label: t('marketplace.sourceAll') },
+              { value: 'skills.sh', label: t('marketplace.sourceSkillsSh') },
+              { value: 'skillhub', label: t('marketplace.sourceSkillhub') },
+            ]}
+          />
 
           {/* Search input */}
           <div className="relative flex-1">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-400" />
             <input
-              className="w-full h-8 pl-7.5 pr-3 text-xs rounded-md border border-neutral-300 bg-white dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-2 focus:ring-violet-500/20"
+              className="w-full h-8 pl-7.5 pr-3 text-xs rounded-md border border-neutral-300 bg-white dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-200 focus:outline-none"
               placeholder={t('marketplace.searchPlaceholder')}
               value={query}
               onChange={(e) => setQuery(e.target.value)}

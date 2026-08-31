@@ -565,7 +565,7 @@ export default function ApprovalRulesEditor({
                         ) as ChangeType[],
                       })
                     }
-                    className="rounded border-neutral-300 text-blue-500 focus:ring-blue-500/30 dark:border-neutral-600"
+                    className="rounded border-neutral-300 text-blue-500 focus-visible:ring-blue-500/30 dark:border-neutral-600"
                   />
                   {opt.label}
                 </label>
@@ -596,7 +596,7 @@ export default function ApprovalRulesEditor({
                         ) as RiskLevel[],
                       })
                     }
-                    className="rounded border-neutral-300 text-blue-500 focus:ring-blue-500/30 dark:border-neutral-600"
+                    className="rounded border-neutral-300 text-blue-500 focus-visible:ring-blue-500/30 dark:border-neutral-600"
                   />
                   {opt.label}
                 </label>
@@ -620,7 +620,7 @@ export default function ApprovalRulesEditor({
                     name="approval-action"
                     checked={form.action === opt.value}
                     onChange={() => setForm({ ...form, action: opt.value })}
-                    className="border-neutral-300 text-blue-500 focus:ring-blue-500/30 dark:border-neutral-600"
+                    className="border-neutral-300 text-blue-500 focus-visible:ring-blue-500/30 dark:border-neutral-600"
                   />
                   {opt.label}
                 </label>

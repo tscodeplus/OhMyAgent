@@ -141,7 +141,7 @@ export default function HarnessSettings({ tabId = 'harness', registerHandle, onD
                   value={preset.value}
                   checked={currentMode === preset.value}
                   onChange={(e) => setField('harness.interactive.approval.mode', e.target.value)}
-                  className="h-4 w-4 accent-blue-500 dark:accent-blue-400 border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-700 text-blue-500 dark:text-blue-400 focus:ring-blue-500/30 dark:focus:ring-blue-400/30"
+                  className="h-4 w-4 accent-blue-500 dark:accent-blue-400 border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-700 text-blue-500 dark:text-blue-400 focus-visible:ring-blue-500/30 dark:focus-visible:ring-blue-400/30"
                 />
                 <span className="text-sm text-neutral-700 dark:text-neutral-300">
                   {t(preset.labelKey)}

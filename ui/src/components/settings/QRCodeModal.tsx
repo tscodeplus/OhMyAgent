@@ -285,7 +285,7 @@ export default function QRCodeModal({
               value={botName}
               onChange={(e) => setBotName(e.target.value)}
               placeholder={t('settings.channels.botNamePlaceholder')}
-              className="flex-1 px-2 py-1.5 text-sm border border-neutral-300 dark:border-neutral-600 rounded-md bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 px-2 py-1.5 text-sm border border-neutral-300 dark:border-neutral-600 rounded-md bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none"
             />
           </div>
         )}
@@ -351,7 +351,7 @@ export default function QRCodeModal({
                   value={manualToken}
                   onChange={(e) => setManualToken(e.target.value)}
                   placeholder={t('settings.channels.qrManualTokenPlaceholder')}
-                  className="w-full px-2 py-1.5 text-sm border border-neutral-300 dark:border-neutral-600 rounded-md bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-2 py-1.5 text-sm border border-neutral-300 dark:border-neutral-600 rounded-md bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none"
                 />
                 <button
                   onClick={handleInlineConfirm}
@@ -381,14 +381,14 @@ export default function QRCodeModal({
                   value={manualAppId}
                   onChange={(e) => setManualAppId(e.target.value)}
                   placeholder={t('settings.channels.qqAppIdPlaceholder')}
-                  className="w-full px-2 py-1.5 text-sm border border-neutral-300 dark:border-neutral-600 rounded-md bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-2 py-1.5 text-sm border border-neutral-300 dark:border-neutral-600 rounded-md bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none"
                 />
                 <input
                   type="password"
                   value={manualAppSecret}
                   onChange={(e) => setManualAppSecret(e.target.value)}
                   placeholder={t('settings.channels.qqClientSecretPlaceholder')}
-                  className="w-full px-2 py-1.5 text-sm border border-neutral-300 dark:border-neutral-600 rounded-md bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-2 py-1.5 text-sm border border-neutral-300 dark:border-neutral-600 rounded-md bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none"
                 />
                 <button
                   onClick={handleInlineConfirm}

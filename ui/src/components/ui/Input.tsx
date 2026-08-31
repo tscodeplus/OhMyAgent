@@ -25,7 +25,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
             ref={ref}
             id={inputId}
             type={inputType}
-            className={`block w-full rounded-lg border border-neutral-300 bg-white py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-100 ${isPassword ? 'pl-4 pr-10' : 'px-3'} ${error ? 'border-red-500' : ''} ${className}`}
+            className={`block w-full rounded-lg border border-neutral-300 bg-white py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-100 ${isPassword ? 'pl-4 pr-10' : 'px-3'} ${error ? 'border-red-500' : ''} ${className}`}
             {...props}
           />
           {isPassword && (
