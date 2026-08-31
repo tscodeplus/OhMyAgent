@@ -282,6 +282,8 @@
       "addModel": "Add Model",
       "copyModel": "Copy Model",
       "deleteModel": "Delete Model",
+      "modelAdded": "Added, please fill in the model details below",
+      "modelCopied": "Copied, please edit/fill in the model details below",
       "modelId": "Model ID",
       "modelName": "Model Name",
       "modelApi": "API Type",

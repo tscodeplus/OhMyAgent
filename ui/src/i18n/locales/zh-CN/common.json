@@ -284,6 +284,8 @@
       "addModel": "添加模型",
       "copyModel": "复制模型",
       "deleteModel": "删除模型",
+      "modelAdded": "已添加，请在下方补充模型细节",
+      "modelCopied": "已复制，请在下方编辑/补充模型细节",
       "modelId": "模型 ID",
       "modelName": "模型名称",
       "modelApi": "API 类型",

@@ -211,6 +211,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
     setCustomProviders(updated);
     setCustomProvidersDirty(true);
     setCustomProvidersNeedsRestart(true);
+    showToast(t('settings.models.modelAdded'), 'success', 2000);
   };
 
   const removeModel = (pIdx: number, mIdx: number) => {
@@ -232,6 +233,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
     setCustomProviders(updated);
     setCustomProvidersDirty(true);
     setCustomProvidersNeedsRestart(true);
+    showToast(t('settings.models.modelCopied'), 'success', 2000);
   };
 
   const updateModel = (pIdx: number, mIdx: number, field: keyof ProviderModel, value: unknown) => {
