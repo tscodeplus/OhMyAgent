@@ -398,7 +398,9 @@ export default function ModelPicker({
                     }`}
                   >
                     <span className="flex-1 truncate text-neutral-900 dark:text-neutral-100">{m.name}</span>
-                    <span className="text-[10px] text-neutral-400 font-mono">{m.id}</span>
+                    {m.id !== m.name && (
+                      <span className="hidden sm:inline text-[10px] text-neutral-400 font-mono">{m.id}</span>
+                    )}
                     {m.reasoning && <Zap size={12} className="text-purple-500 shrink-0" />}
                     {m.id === model && <Check size={14} className="text-blue-600 shrink-0" />}
                   </button>
