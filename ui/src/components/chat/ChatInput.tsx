@@ -1316,7 +1316,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
           disabled={!projectId || (!sessionId && !onQuickStart)}
           aria-label={t('chat.input.slashCommands')}
           title={t('chat.input.slashCommands')}
-          className={`absolute bottom-2 left-1.5 inline-flex h-6 w-6 items-center justify-center rounded-full border text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
+          className={`absolute bottom-1.5 left-1.5 inline-flex h-6 w-6 items-center justify-center rounded-full border text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
             slashActive
               ? 'border-blue-500 bg-blue-500 text-white dark:border-blue-400 dark:bg-blue-400 dark:text-white'
               : 'border-transparent text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-700 dark:hover:text-neutral-200'
@@ -1326,7 +1326,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
         </button>
 
         {/* Corner buttons — bottom-right inside the textarea */}
-        <div className="absolute right-1 bottom-2 flex items-center gap-1">
+        <div className="absolute right-1 bottom-1.5 flex items-center gap-1">
           {/* Attachment button — unified style: no border when idle, blue
               background + white icon on hover. */}
           <button
