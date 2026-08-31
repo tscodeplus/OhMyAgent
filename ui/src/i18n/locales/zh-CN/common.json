@@ -166,7 +166,7 @@
       "toolsPolicy": "工具和审批策略",
       "channels": "渠道管理",
       "websearch": "网络搜索",
-      "computer": "AI 操作电脑",
+      "computer": "电脑使用",
       "vision": "视觉桥接",
       "multimodal": "多模态",
       "appearance": "外观设置",
@@ -280,7 +280,10 @@
       "providerApiKey": "API Key",
       "providerBaseUrl": "Base URL",
       "models": "模型列表",
+      "modelsCount": " 个模型",
       "addModel": "添加模型",
+      "copyModel": "复制模型",
+      "deleteModel": "删除模型",
       "modelId": "模型 ID",
       "modelName": "模型名称",
       "modelApi": "API 类型",
@@ -565,7 +568,7 @@
       "opt_allow": "允许"
     },
     "computer": {
-      "title": "AI 操作电脑",
+      "title": "电脑使用",
       "enabled": "启用",
       "provider": "Provider",
       "ssh": "SSH 配置",

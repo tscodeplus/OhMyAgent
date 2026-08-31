@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, Trash2, ChevronDown, ChevronRight, X, CreditCard, Plug, Route, BrainCircuit, type LucideIcon } from 'lucide-react';
+import { Plus, Trash2, ChevronDown, ChevronRight, X, CreditCard, Plug, Route, BrainCircuit, Copy, type LucideIcon } from 'lucide-react';
 import { apiRequest } from '../../../utils/api';
 import { useToast } from '../../ui/Toast';
 import { useConfigDirty, type SettingsTabHandle } from '../useConfigDirty';
@@ -217,6 +217,17 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
     const updated = customProviders.map((p, i) => {
       if (i !== pIdx) return p;
       return { ...p, models: p.models.filter((_, mi) => mi !== mIdx) };
+    });
+    setCustomProviders(updated);
+    setCustomProvidersDirty(true);
+    setCustomProvidersNeedsRestart(true);
+  };
+
+  const copyModel = (pIdx: number, mIdx: number) => {
+    const modelToCopy = customProviders[pIdx].models[mIdx];
+    const updated = customProviders.map((p, i) => {
+      if (i !== pIdx) return p;
+      return { ...p, models: [...p.models, { ...modelToCopy, id: '', name: '' }] };
     });
     setCustomProviders(updated);
     setCustomProvidersDirty(true);
@@ -566,7 +577,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                       {cp.provider || `Provider #${pIdx + 1}`}
                     </span>
                     <span className="text-[11px] text-neutral-400 dark:text-neutral-500">
-                      {cp.models.length} {t('settings.models.models').toLowerCase()}
+                      {cp.models.length}{t('settings.models.modelsCount')}
                     </span>
                     <button onClick={() => removeCustomProvider(pIdx)}
                       className="text-neutral-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
@@ -609,12 +620,20 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                                   <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
                                     {model.name || model.id || `Model #${mIdx + 1}`}
                                   </span>
-                                  <button onClick={() => removeModel(pIdx, mIdx)}
-                                    className="text-neutral-400 hover:text-red-500 dark:hover:text-red-400 transition-colors">
-                                    <Trash2 size={11} />
-                                  </button>
+                                  <div className="flex items-center gap-2">
+                                    <button onClick={() => copyModel(pIdx, mIdx)}
+                                      className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+                                      title={t('settings.models.copyModel')}>
+                                      <Copy size={11} />
+                                    </button>
+                                    <button onClick={() => removeModel(pIdx, mIdx)}
+                                      className="text-neutral-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                                      title={t('settings.models.deleteModel')}>
+                                      <Trash2 size={11} />
+                                    </button>
+                                  </div>
                                 </div>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <div className="grid grid-cols-2 gap-2">
                                   <Input label={t('settings.models.modelId')} value={model.id}
                                     onChange={(e) => updateModel(pIdx, mIdx, 'id', e.target.value)}
                                     placeholder="e.g. gpt-4o" />
@@ -647,22 +666,24 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                                     );
                                   })()}
                                   <div className="flex items-center gap-4">
-                                    <div className="flex items-center gap-1.5">
+                                    <div className="flex items-center gap-1.5 mt-[22px]">
                                       <Toggle checked={!!model.reasoning}
                                         onChange={(v) => updateModel(pIdx, mIdx, 'reasoning', v)} />
                                       <span className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-400">{t('settings.models.modelReasoning')}</span>
                                     </div>
+                                    <div className="flex-1">
                                     <Select label={t('settings.models.modelReasoningLevel')}
                                       value={model.reasoningLevel || 'off'}
                                       onChange={(e) => updateModel(pIdx, mIdx, 'reasoningLevel', e.target.value)}
                                       options={[
-                                        { value: 'high', label: t('settings.models.reasoningLevels.high') },
-                                        { value: 'low', label: t('settings.models.reasoningLevels.low') },
-                                        { value: 'medium', label: t('settings.models.reasoningLevels.medium') },
-                                        { value: 'minimal', label: t('settings.models.reasoningLevels.minimal') },
-                                        { value: 'off', label: t('settings.models.reasoningLevels.off') },
-                                        { value: 'xhigh', label: t('settings.models.reasoningLevels.xhigh') },
+                                        { value: 'off', label: 'Off' },
+                                        { value: 'minimal', label: 'Minimal' },
+                                        { value: 'low', label: 'Low' },
+                                        { value: 'medium', label: 'Medium' },
+                                        { value: 'high', label: 'High' },
+                                        { value: 'xhigh', label: 'Very High' },
                                       ]} />
+                                    </div>
                                   </div>
                                   <Input label={t('settings.models.modelContextWindow')} type="number"
                                     value={model.contextWindow ? String(model.contextWindow) : ''}
@@ -784,12 +805,12 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
               value={getField('defaultReasoningLevel', defReasoningLevel || 'off') as string}
               onChange={(e) => setField('defaultReasoningLevel', e.target.value)}
               options={[
-                { value: 'high', label: t('settings.models.reasoningLevels.high') },
-                { value: 'low', label: t('settings.models.reasoningLevels.low') },
-                { value: 'medium', label: t('settings.models.reasoningLevels.medium') },
-                { value: 'minimal', label: t('settings.models.reasoningLevels.minimal') },
-                { value: 'off', label: t('settings.models.reasoningLevels.off') },
-                { value: 'xhigh', label: t('settings.models.reasoningLevels.xhigh') },
+                { value: 'off', label: 'Off' },
+                { value: 'minimal', label: 'Minimal' },
+                { value: 'low', label: 'Low' },
+                { value: 'medium', label: 'Medium' },
+                { value: 'high', label: 'High' },
+                { value: 'xhigh', label: 'Very High' },
               ]}
             />
           </SettingsCard>
