@@ -8,6 +8,8 @@ import Input from '../../ui/Input';
 import Select from '../../ui/Select';
 import Toggle from '../../ui/Toggle';
 import Spinner from '../../ui/Spinner';
+import Modal from '../../ui/Modal';
+import Button from '../../ui/Button';
 import SubscriptionsSettings from './SubscriptionsSettings';
 import ModelPicker from '../ModelPicker';
 import ModelRefInput from '../ModelRefInput';
@@ -99,6 +101,46 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
   const [providerKeysDirty, setProviderKeysDirty] = useState(false);
   const [customProvidersDirty, setCustomProvidersDirty] = useState(false);
   const [customProvidersNeedsRestart, setCustomProvidersNeedsRestart] = useState(false);
+
+  /* ─── Add/Edit Model Modal ─── */
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalProviderIdx, setModalProviderIdx] = useState<number>(0);
+  const [modalModel, setModalModel] = useState<ProviderModel | null>(null);
+  const [modalOnSave, setModalOnSave] = useState<() => void>(() => {});
+
+  const openAddModelModal = (pIdx: number) => {
+    setModalProviderIdx(pIdx);
+    setModalModel({ id: '', name: '', api: 'openai-completions', reasoning: false });
+    setModalOnSave(() => () => {
+      setCustomProviders(prev => prev.map((p, i) =>
+        i === pIdx ? { ...p, models: [...p.models, { ...modalModel! }] } : p
+      ));
+      setCustomProvidersDirty(true);
+      setCustomProvidersNeedsRestart(true);
+    });
+    setModalOpen(true);
+  };
+
+  const openCopyModelModal = (pIdx: number, mIdx: number) => {
+    const modelToCopy = customProviders[pIdx].models[mIdx];
+    setModalProviderIdx(pIdx);
+    setModalModel({ ...modelToCopy, id: '', name: '' });
+    setModalOnSave(() => () => {
+      setCustomProviders(prev => prev.map((p, i) =>
+        i === pIdx ? { ...p, models: [...p.models, { ...modalModel! }] } : p
+      ));
+      setCustomProvidersDirty(true);
+      setCustomProvidersNeedsRestart(true);
+    });
+    setModalOpen(true);
+  };
+
+  const handleModalSave = () => {
+    if (modalModel && modalModel.id.trim()) {
+      modalOnSave();
+      setModalOpen(false);
+    }
+  };
 
   /* Custom providers as extra options for ModelPicker (labelled custom/<name>).
      Must stay BEFORE the conditional early-returns below (Rules of Hooks). */
@@ -203,17 +245,6 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
 
   /* ─── Custom Provider Models ─── */
 
-  const addModel = (pIdx: number) => {
-    const updated = customProviders.map((p, i) => {
-      if (i !== pIdx) return p;
-      return { ...p, models: [...p.models, { id: '', name: '', api: 'openai-completions', reasoning: false }] };
-    });
-    setCustomProviders(updated);
-    setCustomProvidersDirty(true);
-    setCustomProvidersNeedsRestart(true);
-    showToast(t('settings.models.modelAdded'), 'success', 2000);
-  };
-
   const removeModel = (pIdx: number, mIdx: number) => {
     const updated = customProviders.map((p, i) => {
       if (i !== pIdx) return p;
@@ -222,18 +253,6 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
     setCustomProviders(updated);
     setCustomProvidersDirty(true);
     setCustomProvidersNeedsRestart(true);
-  };
-
-  const copyModel = (pIdx: number, mIdx: number) => {
-    const modelToCopy = customProviders[pIdx].models[mIdx];
-    const updated = customProviders.map((p, i) => {
-      if (i !== pIdx) return p;
-      return { ...p, models: [...p.models, { ...modelToCopy, id: '', name: '' }] };
-    });
-    setCustomProviders(updated);
-    setCustomProvidersDirty(true);
-    setCustomProvidersNeedsRestart(true);
-    showToast(t('settings.models.modelCopied'), 'success', 2000);
   };
 
   const updateModel = (pIdx: number, mIdx: number, field: keyof ProviderModel, value: unknown) => {
@@ -605,7 +624,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                           <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
                             {t('settings.models.models')}
                           </span>
-                          <button onClick={() => addModel(pIdx)}
+                          <button onClick={() => openAddModelModal(pIdx)}
                             className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors">
                             <Plus size={12} />{t('settings.models.addModel')}
                           </button>
@@ -623,7 +642,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
                                     {model.name || model.id || `Model #${mIdx + 1}`}
                                   </span>
                                   <div className="flex items-center gap-2">
-                                    <button onClick={() => copyModel(pIdx, mIdx)}
+                                    <button onClick={() => openCopyModelModal(pIdx, mIdx)}
                                       className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
                                       title={t('settings.models.copyModel')}>
                                       <Copy size={11} />
@@ -932,6 +951,102 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
           </div>
         </div>
       )}
+
+      {/* ── Add/Copy Model Modal ── */}
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={t('settings.models.addModel')}
+        size="lg"
+        footer={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setModalOpen(false)}>{t('common.cancel')}</Button>
+            <Button size="sm" onClick={handleModalSave} disabled={!modalModel?.id.trim()}>{t('common.save')}</Button>
+          </>
+        }
+      >
+        {modalModel && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <Input label={t('settings.models.modelId')} value={modalModel.id}
+                onChange={(e) => setModalModel({ ...modalModel, id: e.target.value })}
+                placeholder="e.g. gpt-4o" />
+              <Input label={t('settings.models.modelName')} value={modalModel.name}
+                onChange={(e) => setModalModel({ ...modalModel, name: e.target.value })}
+                placeholder="e.g. GPT-4o" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Select label={t('settings.models.modelApi')}
+                value={modalModel.api}
+                onChange={(e) => setModalModel({ ...modalModel, api: e.target.value })}
+                options={[
+                  'anthropic-messages',
+                  'azure-openai-responses',
+                  'bedrock-converse-stream',
+                  'google-generative-ai',
+                  'google-vertex',
+                  'mistral-conversations',
+                  'openai-codex-responses',
+                  'openai-completions',
+                  'openai-responses',
+                ].map(api => ({ value: api, label: api }))} />
+              <div className="flex items-end gap-4 pb-[22px]">
+                <div className="flex items-center gap-1.5">
+                  <Toggle checked={!!modalModel.reasoning}
+                    onChange={(v) => setModalModel({ ...modalModel, reasoning: v })} />
+                  <span className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-400">{t('settings.models.modelReasoning')}</span>
+                </div>
+                <div className="flex-1">
+                  <Select label={t('settings.models.modelReasoningLevel')}
+                    value={modalModel.reasoningLevel || 'off'}
+                    onChange={(e) => setModalModel({ ...modalModel, reasoningLevel: e.target.value })}
+                    options={[
+                      { value: 'off', label: 'Off' },
+                      { value: 'minimal', label: 'Minimal' },
+                      { value: 'low', label: 'Low' },
+                      { value: 'medium', label: 'Medium' },
+                      { value: 'high', label: 'High' },
+                      { value: 'xhigh', label: 'Very High' },
+                    ]} />
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Input label={t('settings.models.modelContextWindow')} type="number"
+                value={modalModel.contextWindow ? String(modalModel.contextWindow) : ''}
+                onChange={(e) => setModalModel({ ...modalModel, contextWindow: e.target.value ? Number(e.target.value) : undefined })}
+                placeholder="e.g. 128000" />
+              <Input label={t('settings.models.modelMaxTokens')} type="number"
+                value={modalModel.maxTokens ? String(modalModel.maxTokens) : ''}
+                onChange={(e) => setModalModel({ ...modalModel, maxTokens: e.target.value ? Number(e.target.value) : undefined })}
+                placeholder="e.g. 16384" />
+            </div>
+            <div>
+              <label className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300 block mb-1.5">
+                {t('settings.models.modelInput')}
+              </label>
+              <div className="flex items-center gap-4">
+                {(['text', 'image', 'video'] as const).map(inputType => (
+                  <label key={inputType} className="flex items-center gap-1.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={(modalModel.input || []).includes(inputType)}
+                      onChange={() => {
+                        const current = modalModel.input || [];
+                        const updated = current.includes(inputType)
+                          ? current.filter(t => t !== inputType)
+                          : [...current, inputType];
+                        setModalModel({ ...modalModel, input: updated });
+                      }}
+                      className="w-4 h-4 rounded border-neutral-300 dark:border-neutral-600 text-blue-600 focus:ring-blue-500 cursor-pointer" />
+                    <span className="text-[13px] text-neutral-700 dark:text-neutral-300">{inputType}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
