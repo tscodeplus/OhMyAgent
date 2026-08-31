@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Bot, Send } from 'lucide-react';
+import { Bot } from 'lucide-react';
 import { apiRequest } from '../../utils/api';
 import { isElectron } from '../../utils/env';
 import { devLog } from '../../utils/logger';
@@ -45,8 +45,6 @@ export default function ChatView() {
   const { t } = useTranslation('common');
   const { showToast } = useToast();
   const { bumpSessionsRefreshKey } = useProject();
-  const [quickInput, setQuickInput] = useState('');
-  const [creating, setCreating] = useState(false);
   const [streamMessages, setStreamMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
@@ -76,8 +74,13 @@ export default function ChatView() {
   // indicator when returning to a session whose agent is still running
   // server-side (its local SSE was dropped on leave; the WS completion
   // push will clear the indicator and refresh the history).
+  // isStreaming must also be reset here — it is NOT session-scoped, and a
+  // stale true value (sent in session A, immediately switched to empty
+  // session B) would wrongly force the bottom-docked input instead of the
+  // centered new-session layout.
   useEffect(() => {
     setStreamMessages([]);
+    setIsStreaming(false);
     setIsThinking(pendingTurnSessionsRef.current.has(sessionId ?? ''));
     completedBubblesRef.current.clear();
     lastStreamActivityRef.current = 0;
@@ -180,25 +183,36 @@ export default function ChatView() {
       completedBubblesRef.current.clear();
     }
   }, []);
-  // Track the initial message to auto-send after session creation
-  const [initialMessage, setInitialMessage] = useState<string | undefined>(undefined);
+  // Sessions known to hold history messages. A session NOT in this set (and
+  // with no live streaming messages) is treated as a brand-new conversation:
+  // its input renders centered (slightly below middle) instead of at the
+  // bottom, and switches back to the bottom dock once the first message is
+  // sent. Entries are only added (never removed) so returning to a session
+  // with history doesn't flash the centered layout while the history fetches.
+  const [nonEmptySessions, setNonEmptySessions] = useState<Set<string>>(() => new Set());
+  const handleHistoryCount = useCallback((sid: string, count: number) => {
+    if (count <= 0) return;
+    setNonEmptySessions(prev => {
+      if (prev.has(sid)) return prev;
+      const next = new Set(prev);
+      next.add(sid);
+      return next;
+    });
+  }, []);
 
-  const handleQuickStart = useCallback(async () => {
-    if (!projectId || !quickInput.trim()) return;
-    const msg = quickInput.trim();
-    setCreating(true);
+  /** Create a session and navigate to it; the typed text rides along via
+   *  navigation state and ChatInput auto-sends it as the first message.
+   *  Called by ChatInput when the user sends with no session selected. */
+  const handleQuickStart = useCallback(async (text: string) => {
+    if (!projectId || !text.trim()) return;
     try {
       const session = await apiRequest<Session>(`/api/projects/${projectId}/sessions`, { method: 'POST' });
-      // Pass the initial message so ChatInput can auto-send it
-      setInitialMessage(msg);
-      setQuickInput('');
       bumpSessionsRefreshKey();
-      navigate(`/p/${projectId}/s/${session.id}`, { state: { initialMessage: msg } });
+      navigate(`/p/${projectId}/s/${session.id}`, { state: { initialMessage: text.trim() } });
     } catch {
       showToast(t('chat.createSessionError'), 'error');
-      setCreating(false);
     }
-  }, [projectId, quickInput, navigate, showToast, t]);
+  }, [projectId, navigate, bumpSessionsRefreshKey, showToast, t]);
 
   const handleMessages = useCallback((msgs: Message[], clearPrevious?: boolean) => {
     // Drop messages that don't belong to the currently-viewed session.
@@ -258,70 +272,53 @@ export default function ChatView() {
     );
   }
 
-  // Existing session — show full chat
-  if (sessionId) {
-    return (
-      <div className="flex h-full flex-col">
-        {/* MessageList keyed by sessionId: fresh fetch/pagination state per
-            session (also prevents the previous session's messages from
-            flashing while the new session's history loads).
-            ChatInput is deliberately NOT keyed — it holds the cross-session
-            input draft/upload caches. Its streaming state machine resets
-            itself via an internal sessionId-change effect instead. */}
-        <MessageList key={sessionId} projectId={projectId} sessionId={sessionId} streamingMessages={streamMessages} isStreaming={isStreaming} isThinking={isThinking} refetchKey={refetchKey} onRefetched={handleRefetched} />
-        <ChatInput projectId={projectId} sessionId={sessionId} onMessages={handleMessages} onStreamStart={() => { setIsStreaming(true); lastStreamActivityRef.current = Date.now(); if (sessionId) pendingTurnSessionsRef.current.add(sessionId); }} onThinkingChange={handleThinkingChange} onDone={handleTurnDone} onTurnPersisted={(msgId) => completedBubblesRef.current.add(msgId)} />
-      </div>
-    );
-  }
-
-  // No session yet — show welcome + input at the bottom (same position as ChatInput)
+  // Chat view. The no-session (welcome) case and the empty new-session case
+  // both render the SAME ChatInput centered — no-session just adds quick-start
+  // mode (send creates a session first). Keeping a single return with the
+  // same child structure keeps ChatInput mounted across the welcome → session
+  // navigation, so drafts and pre-session file uploads survive.
+  //
+  // MessageList is keyed by sessionId: fresh fetch/pagination state per
+  // session (also prevents the previous session's messages from flashing
+  // while the new session's history loads).
+  // ChatInput is deliberately NOT keyed — it holds the cross-session
+  // input draft/upload caches. Its streaming state machine resets
+  // itself via an internal sessionId-change effect instead.
+  const centeredNewSession =
+    !sessionId ||
+    (!nonEmptySessions.has(sessionId) &&
+      streamMessages.length === 0 &&
+      !isThinking &&
+      !isStreaming);
   return (
     <div className="flex h-full flex-col">
-      {/* Welcome area fills the space above the input */}
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center px-8">
-          <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-neutral-100 dark:bg-neutral-800 mb-4">
-            <Bot className="h-8 w-8 text-neutral-400 dark:text-neutral-500" strokeWidth={1.5} />
-          </div>
-          <h2 className="text-[15px] font-semibold text-neutral-800 dark:text-neutral-200 mb-1">{t('chat.startNew')}</h2>
-          <p className="text-[13px] text-neutral-500 dark:text-neutral-400">{t('chat.welcomeDesc')}</p>
-        </div>
-      </div>
-
-      {/* Input at bottom — same position/size as ChatInput */}
-      <div className="shrink-0 border-t border-neutral-200 bg-white px-3 sm:px-4 py-2 sm:py-3 pb-safe dark:border-neutral-800 dark:bg-neutral-950">
-        <div className="mx-auto flex max-w-3xl items-end gap-2 sm:gap-3">
-          <textarea
-            value={quickInput}
-            onChange={e => setQuickInput(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleQuickStart(); }
-            }}
-            placeholder={t('chat.input.placeholder')}
-            rows={3}
-            className="flex-1 resize-none rounded-xl border border-neutral-300 bg-white px-3 sm:px-4 py-2.5 sm:py-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
+      <div className={centeredNewSession ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}>
+        {sessionId && (
+          <MessageList
+            key={sessionId}
+            projectId={projectId}
+            sessionId={sessionId}
+            streamingMessages={streamMessages}
+            isStreaming={isStreaming}
+            isThinking={isThinking}
+            refetchKey={refetchKey}
+            onRefetched={handleRefetched}
+            hideEmptyState={centeredNewSession}
+            onHistoryCount={handleHistoryCount}
           />
-          <button
-            onClick={creating ? undefined : handleQuickStart}
-            disabled={creating || !quickInput.trim()}
-            className={`shrink-0 inline-flex h-10 w-10 items-center justify-center rounded-xl transition-colors disabled:opacity-30 ${
-              quickInput.trim()
-                ? 'border border-blue-500 bg-blue-500 text-white hover:bg-blue-600 dark:border-blue-400 dark:bg-blue-400 dark:hover:bg-blue-500'
-                : 'border border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700'
-            }`}
-            aria-label={t('chat.send')}
-          >
-            {creating ? (
-              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
-                <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" className="opacity-75" />
-              </svg>
-            ) : (
-              <Send size={16} />
-            )}
-          </button>
-        </div>
+        )}
       </div>
+      <ChatInput
+        projectId={projectId}
+        sessionId={sessionId}
+        centered={centeredNewSession}
+        onQuickStart={handleQuickStart}
+        onMessages={handleMessages}
+        onStreamStart={() => { setIsStreaming(true); lastStreamActivityRef.current = Date.now(); if (sessionId) pendingTurnSessionsRef.current.add(sessionId); }}
+        onThinkingChange={handleThinkingChange}
+        onDone={handleTurnDone}
+        onTurnPersisted={(msgId) => completedBubblesRef.current.add(msgId)}
+      />
     </div>
   );
 }

@@ -21,6 +21,12 @@ interface MessageListProps {
   /** Called after a refetch completes successfully with the fetched snapshot,
    *  so ChatView can prune streaming messages that the snapshot supersedes. */
   onRefetched?: (fetched: Message[]) => void;
+  /** Hide the "send a message to start" empty state (used when ChatInput is
+   *  rendered centered in new-session mode). */
+  hideEmptyState?: boolean;
+  /** Reports the loaded history message count per session (after fetch).
+   *  Used by ChatView to detect brand-new (empty) sessions. */
+  onHistoryCount?: (sessionId: string, count: number) => void;
 }
 
 const PAGE_SIZE = 50;
@@ -30,7 +36,7 @@ const NEAR_BOTTOM_PX = 40;
  *  echoes of our own scroll — never treated as user intent. */
 const SNAP_GRACE_MS = 120;
 
-export default function MessageList({ projectId: _projectId, sessionId, streamingMessages: externalMessages, isStreaming, isThinking, refetchKey, onRefetched }: MessageListProps) {
+export default function MessageList({ projectId: _projectId, sessionId, streamingMessages: externalMessages, isStreaming, isThinking, refetchKey, onRefetched, hideEmptyState, onHistoryCount }: MessageListProps) {
   const { t } = useTranslation('common');
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
@@ -194,6 +200,12 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [hasMore]);
+
+  // Report the loaded history count (after fetch, not during loading) so the
+  // parent can detect empty/new sessions.
+  useEffect(() => {
+    if (sessionId && !loading) onHistoryCount?.(sessionId, messages.length);
+  }, [sessionId, loading, messages.length, onHistoryCount]);
 
   // Restore scroll position after prepending older messages
   useEffect(() => {
@@ -385,7 +397,7 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
       )}
 
       {/* Empty state */}
-      {!loading && displayMessages.length === 0 && !isThinking && (
+      {!loading && displayMessages.length === 0 && !isThinking && !hideEmptyState && (
         <div className="flex items-center justify-center h-full text-neutral-500 dark:text-neutral-400 text-sm">
           {t("chat.sendMessage")}
         </div>

@@ -1,16 +1,32 @@
-import { useState, useCallback, useRef, useEffect, type KeyboardEvent } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router-dom';
-import { Send, Paperclip, X, Loader2 } from 'lucide-react';
+import { Send, Paperclip, X, Loader2, Bot } from 'lucide-react';
 import { createSSEClient, type SSEEvent } from '../../utils/sse-client';
 import { apiRequest, getToken } from '../../utils/api';
 import { devLog } from '../../utils/logger';
 import { CHAT_MEDIA_TOOL_NAMES, isChatMediaUrl } from '../../utils/chatMedia';
 import type { Message, MessageApproval, UserQuestion, ToolCall, MessageFooter, MessageSegment, MediaSegmentItem, MessageFile } from '../../types/session';
 
+interface SlashCommand {
+  id: string;
+  /** Optional display name (skills carry their manifest name). */
+  name?: string;
+  description: string;
+  /** True for skill-trigger commands (rendered in a different accent). */
+  skill?: boolean;
+}
+
 interface ChatInputProps {
   projectId?: string;
   sessionId?: string;
+  /** True when the session has no messages yet — renders the input centered
+   *  (slightly below middle) instead of docked to the bottom. */
+  centered?: boolean;
+  /** Called when the user sends a message while NO session exists yet:
+   *  the gateway creates a session and navigates to it; the typed text is
+   *  auto-sent as the first message via navigation state. */
+  onQuickStart?: (text: string) => void;
   /** Called when new messages arrive (streaming or user).
    *  Optional second param controls whether previous streaming messages
    *  are cleared. Default true — pass false for steer/follow-up to
@@ -65,7 +81,7 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export default function ChatInput({ projectId, sessionId, onMessages, onStreamStart, onThinkingChange, onDone, onTurnPersisted }: ChatInputProps) {
+export default function ChatInput({ projectId, sessionId, centered, onQuickStart, onMessages, onStreamStart, onThinkingChange, onDone, onTurnPersisted }: ChatInputProps) {
   const { t } = useTranslation('common');
   const location = useLocation();
   const [input, setInput] = useState('');
@@ -115,6 +131,30 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
   const inputCacheRef = useRef<Map<string, string>>(new Map());
   const fileUploadsCacheRef = useRef<Map<string, FileUploadItem[]>>(new Map());
   const prevSessionIdRef = useRef(sessionId);
+
+  // ── Slash command palette ──
+  // Open state is only used for the explicit "/" button — typing "/" as the
+  // whole input auto-activates the palette via slashTokenMatch below.
+  const [slashOpen, setSlashOpen] = useState(false);
+  // Set on blur / Escape / send — suppresses the palette until the input
+  // changes again or the textarea regains focus.
+  const [slashHidden, setSlashHidden] = useState(false);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [skills, setSkills] = useState<Array<{ slug: string; name: string; description: string }>>([]);
+  const slashListRef = useRef<HTMLDivElement>(null);
+  // Pixel max-height for the DOWNWARD-opening palette (centered mode), capped
+  // to the space below the textarea so its bottom edge never falls off-screen
+  // (where the last commands would be unreachable even by scrolling).
+  const [downMaxH, setDownMaxH] = useState<number | null>(null);
+
+  // Load available skills once so they can be offered as /skill-id commands.
+  useEffect(() => {
+    let cancelled = false;
+    apiRequest<{ skills: Array<{ slug: string; name: string; description: string }> }>('/api/skills')
+      .then(data => { if (!cancelled) setSkills(data?.skills ?? []); })
+      .catch(() => { /* skills list is optional — ignore failures */ });
+    return () => { cancelled = true; };
+  }, []);
 
   // Save/restore input and file uploads when sessionId changes
   useEffect(() => {
@@ -854,6 +894,17 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
     const text = textareaRef.current?.value ?? input;
     const hasFiles = fileUploads.some(u => u.status === 'done');
     if (!text.trim() && !hasFiles) return;
+    setSlashOpen(false);
+    setSlashHidden(true);
+    if (!sessionId) {
+      // No session yet — hand the text to the parent which creates a session
+      // and navigates; the text is auto-sent as the first message afterwards.
+      if (onQuickStart && text.trim()) {
+        setInput('');
+        onQuickStart(text);
+      }
+      return;
+    }
     if (sending) {
       // Agent is running — never open a second SSE; route everything
       // through the existing stream's steer channel.
@@ -865,7 +916,7 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
     } else {
       sendMessage(text);
     }
-  }, [input, sendMessage, sending, steerMessage, sendCommandViaSteer, fileUploads]);
+  }, [input, sendMessage, sending, steerMessage, sendCommandViaSteer, fileUploads, sessionId, onQuickStart]);
 
   // Auto-send initial message from navigation state (session was just created)
   useEffect(() => {
@@ -910,9 +961,141 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
     return () => clearInterval(interval);
   }, [sending]);
 
+  // ── Slash command palette logic ──
+  // Built-in commands and skill commands are two separate groups: the
+  // dropdown renders them under their own section headers, each sorted A-Z.
+  // NOTE: skills are inserted as "/skill-id" — the backend skill router only
+  // recognizes "/skill-id" (start of message) or "$skill-id" (anywhere), so a
+  // "/skill:id" prefix would not activate the skill.
+  const builtInCommands = useMemo<SlashCommand[]>(() => [
+    { id: 'agents', description: t('chat.slash.agents') },
+    { id: 'btw', description: t('chat.slash.btw') },
+    { id: 'clear', description: t('chat.slash.clear') },
+    { id: 'cron', description: t('chat.slash.cron') },
+    { id: 'extension', description: t('chat.slash.extension') },
+    { id: 'new', description: t('chat.slash.new') },
+    { id: 'permission', description: t('chat.slash.permission') },
+    { id: 'queue', description: t('chat.slash.queue') },
+    { id: 'skills', description: t('chat.slash.skills') },
+    { id: 'steer', description: t('chat.slash.steer') },
+    { id: 'stop', description: t('chat.slash.stop') },
+    { id: 'team', description: t('chat.slash.team') },
+  ], [t]);
+
+  const skillCommands = useMemo<SlashCommand[]>(() => skills.map(s => ({
+    id: s.slug,
+    name: s.name,
+    description: s.description || t('chat.slash.skillDefault'),
+    skill: true,
+  })), [skills, t]);
+
+  // The palette is active when the whole input is exactly "/token" (typing a
+  // command, no space yet) or when the user opened it via the "/" button with
+  // an empty input. Once args are typed (space) it hides so Enter sends normally.
+  const slashTokenMatch = /^\/([^\s/]*)$/.exec(input);
+  const slashQuery = slashTokenMatch ? slashTokenMatch[1] : (slashOpen && input === '' ? '' : null);
+  const slashActive = slashQuery !== null;
+
+  const matchesSlashQuery = useCallback((c: SlashCommand, q: string) =>
+    c.id.toLowerCase().includes(q) ||
+    (c.name ?? '').toLowerCase().includes(q) ||
+    c.description.toLowerCase().includes(q), []);
+
+  const filteredCommands = useMemo(() => {
+    const q = (slashQuery ?? '').trim().toLowerCase();
+    return builtInCommands
+      .filter(c => !q || matchesSlashQuery(c, q))
+      .sort((a, b) => a.id.localeCompare(b.id, undefined, { sensitivity: 'base' }));
+  }, [builtInCommands, slashQuery, matchesSlashQuery]);
+
+  const filteredSkillCommands = useMemo(() => {
+    const q = (slashQuery ?? '').trim().toLowerCase();
+    return skillCommands
+      .filter(c => !q || matchesSlashQuery(c, q))
+      .sort((a, b) => a.id.localeCompare(b.id, undefined, { sensitivity: 'base' }));
+  }, [skillCommands, slashQuery, matchesSlashQuery]);
+
+  /** Flat list for keyboard navigation: commands first, then skills. */
+  const filteredSlash = useMemo(
+    () => [...filteredCommands, ...filteredSkillCommands],
+    [filteredCommands, filteredSkillCommands],
+  );
+
+  const slashVisible = slashActive && !slashHidden && filteredSlash.length > 0;
+
+  // Reset the highlight whenever the filtered list content changes.
+  useEffect(() => { setSlashIndex(0); }, [slashQuery, slashActive]);
+
+  // Keep the highlighted item visible while navigating with arrow keys.
+  useEffect(() => {
+    slashListRef.current
+      ?.querySelector(`[data-slash-idx="${slashIndex}"]`)
+      ?.scrollIntoView({ block: 'nearest' });
+  }, [slashIndex, filteredSlash.length, slashVisible]);
+
+  // Measure the space below the textarea while the palette opens downward.
+  useEffect(() => {
+    if (!slashVisible || !centered) { setDownMaxH(null); return; }
+    const compute = () => {
+      const rect = textareaRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      // viewport − textarea bottom − palette top margin (mt-2 = 8px) − a little slack
+      const avail = window.innerHeight - rect.bottom - 8 - 4;
+      setDownMaxH(Math.max(140, Math.min(256, Math.floor(avail))));
+    };
+    compute();
+    window.addEventListener('resize', compute);
+    return () => window.removeEventListener('resize', compute);
+  }, [slashVisible, centered]);
+
+  /** Fill the input with the selected command (replacing a leading partial). */
+  const applySlash = useCallback((cmd: SlashCommand) => {
+    const cur = textareaRef.current?.value ?? input;
+    const next = cur.startsWith('/')
+      ? cur.replace(/^\/[^\s/]*/, `/${cmd.id} `)
+      : (cur ? `/${cmd.id} ${cur}` : `/${cmd.id} `);
+    setInput(next);
+    setSlashOpen(false);
+    setSlashHidden(true);
+    setSlashIndex(0);
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current;
+      if (ta) {
+        ta.focus();
+        const len = ta.value.length;
+        ta.setSelectionRange(len, len);
+      }
+    });
+  }, [input]);
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (slashActive && filteredSlash.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSlashIndex(i => (i + 1) % filteredSlash.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSlashIndex(i => (i - 1 + filteredSlash.length) % filteredSlash.length);
+        return;
+      }
+      if ((e.key === 'Enter' || e.key === 'Tab') && !e.nativeEvent.isComposing) {
+        e.preventDefault();
+        applySlash(filteredSlash[Math.min(slashIndex, filteredSlash.length - 1)]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setSlashOpen(false);
+        setSlashHidden(true);
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
+      setSlashOpen(false);
+      setSlashHidden(true);
       handleSend();
     }
   };
@@ -921,11 +1104,41 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
   const hasDoneFiles = fileUploads.some(u => u.status === 'done');
   const hasUploading = fileUploads.some(u => u.status === 'uploading');
 
+  /** One row of the slash command dropdown. `idx` is the flat keyboard-nav index. */
+  const renderSlashItem = (c: SlashCommand, idx: number) => (
+    <button
+      key={`${c.skill ? 'skill' : 'cmd'}-${c.id}`}
+      type="button"
+      data-slash-idx={idx}
+      onMouseDown={e => e.preventDefault()}
+      onClick={() => applySlash(c)}
+      onMouseEnter={() => setSlashIndex(idx)}
+      className={`flex w-full items-baseline gap-2 px-3 py-2 text-left transition-colors ${
+        idx === slashIndex ? 'bg-neutral-100 dark:bg-neutral-800' : ''
+      }`}
+    >
+      <span
+        className={`shrink-0 font-mono text-[13px] ${
+          c.skill
+            ? 'text-emerald-600 dark:text-emerald-400'
+            : 'text-blue-600 dark:text-blue-400'
+        }`}
+      >
+        /{c.id}
+      </span>
+      <span className="truncate text-xs text-neutral-500 dark:text-neutral-400">
+        {c.name ? `${c.name} — ${c.description}` : c.description}
+      </span>
+    </button>
+  );
+
   return (
     <div
-      className={`shrink-0 border-t border-neutral-200 bg-white px-3 sm:px-4 py-2 sm:py-3 pb-safe dark:border-neutral-800 dark:bg-neutral-950 relative ${
-        isDragOver ? 'ring-2 ring-blue-400 dark:ring-blue-500' : ''
-      }`}
+      className={`relative bg-white dark:bg-neutral-950 ${
+        centered
+          ? 'flex min-h-0 flex-1 flex-col justify-center px-3 pb-[8vh] sm:px-4'
+          : 'shrink-0 border-t border-neutral-200 px-3 py-2 pb-safe sm:px-4 sm:py-3 dark:border-neutral-800'
+      } ${isDragOver ? 'ring-2 ring-blue-400 dark:ring-blue-500' : ''}`}
       onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
       onDragEnter={e => {
         e.preventDefault();
@@ -996,7 +1209,17 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
         </div>
       )}
 
-      <div className="mx-auto max-w-3xl relative">
+      <div className="relative mx-auto w-full max-w-3xl">
+        {/* Welcome header — only shown in centered (new session) mode */}
+        {centered && (
+          <div className="mb-5 text-center">
+            <div className="mb-3 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-neutral-100 dark:bg-neutral-800">
+              <Bot className="h-7 w-7 text-neutral-400 dark:text-neutral-500" strokeWidth={1.5} />
+            </div>
+            <h2 className="text-[15px] font-semibold text-neutral-800 dark:text-neutral-200">{t('chat.startNew')}</h2>
+          </div>
+        )}
+
         {/* Hidden file input */}
         <input
           ref={fileInputRef}
@@ -1006,28 +1229,78 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
           onChange={e => { if (e.target.files && e.target.files.length > 0) handleFilesSelected(e.target.files); e.target.value = ''; }}
         />
 
+        {/* Anchor wrapper — the palette and the corner buttons are positioned
+            relative to the textarea itself, not the outer column, so the
+            palette's bottom edge always hugs the input. */}
+        <div className="relative">
+
         <textarea
           ref={textareaRef}
           value={input}
-          onChange={e => setInput(e.target.value)}
+          onChange={e => { setInput(e.target.value); setSlashHidden(false); }}
           onKeyDown={handleKeyDown}
+          onFocus={() => setSlashHidden(false)}
+          onBlur={() => { setSlashOpen(false); setSlashHidden(true); }}
           placeholder={t('chat.input.placeholder')}
-          rows={3}
-          disabled={!projectId || !sessionId}
+          rows={4}
+          disabled={!projectId || (!sessionId && !onQuickStart)}
           enterKeyHint="send"
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck={false}
-          className="w-full resize-none rounded-xl border border-neutral-300 bg-white px-3 sm:px-4 py-2.5 sm:py-3 pr-[72px] sm:pr-[80px] text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none disabled:opacity-50 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
+          className="w-full resize-none rounded-xl border border-neutral-300 bg-white py-2.5 pl-3 pr-[120px] text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none disabled:opacity-50 sm:py-3 sm:pl-4 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-600"
         />
 
-        {/* Buttons positioned at bottom-right inside the textarea */}
-        <div className="absolute bottom-2 right-2 flex items-center gap-1">
+        {/* Slash command palette — opens away from the nearest screen edge
+            (upward when docked at the bottom, downward in centered mode).
+            Commands and skills render as two A-Z sorted sections. */}
+        {slashVisible && (
+          <div
+            ref={slashListRef}
+            style={centered && downMaxH != null ? { maxHeight: downMaxH } : undefined}
+            className={`absolute right-0 left-0 z-20 max-h-[min(16rem,40vh)] overflow-y-auto rounded-xl border border-neutral-200 bg-white py-1 shadow-xl dark:border-neutral-700 dark:bg-neutral-900 ${
+              centered ? 'top-full mt-2' : 'bottom-full mb-2'
+            }`}
+          >
+            {filteredCommands.length > 0 && (
+              <div className="px-3 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+                {t('chat.slash.commandsHeader')}
+              </div>
+            )}
+            {filteredCommands.map((c, i) => renderSlashItem(c, i))}
+            {filteredSkillCommands.length > 0 && (
+              <div className="px-3 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+                {t('chat.slash.skillsHeader')}
+              </div>
+            )}
+            {filteredSkillCommands.map((c, i) => renderSlashItem(c, filteredCommands.length + i))}
+          </div>
+        )}
+
+        {/* Corner buttons — bottom-right inside the textarea */}
+        <div className="absolute right-1 bottom-2 flex items-center gap-1">
+          {/* Slash command button */}
+          <button
+            type="button"
+            onMouseDown={e => e.preventDefault()}
+            onClick={() => { setSlashOpen(o => !o); setSlashHidden(false); }}
+            disabled={!projectId || (!sessionId && !onQuickStart)}
+            aria-label={t('chat.input.slashCommands')}
+            title={t('chat.input.slashCommands')}
+            className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border text-[15px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
+              slashActive
+                ? 'border-blue-300 bg-blue-50 text-blue-600 dark:border-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+                : 'border-neutral-200 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:border-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-300'
+            }`}
+          >
+            /
+          </button>
+
           {/* Attachment button */}
           <button
             onClick={() => fileInputRef.current?.click()}
-            disabled={!projectId || !sessionId}
+            disabled={!projectId || (!sessionId && !onQuickStart)}
             className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 hover:text-neutral-600 hover:bg-neutral-100 disabled:opacity-30 disabled:cursor-not-allowed dark:text-neutral-500 dark:hover:text-neutral-300 dark:hover:bg-neutral-800 transition-colors"
             aria-label={t('chat.input.attachFiles')}
           >
@@ -1040,11 +1313,11 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
               const text = textareaRef.current?.value.trim() || input.trim();
               if (text || hasDoneFiles) {
                 handleSend();
-              } else {
+              } else if (sessionId) {
                 sendMessage('/stop');
               }
             }}
-            disabled={(!hasInput && !hasDoneFiles && !sending) || !projectId || !sessionId || hasUploading}
+            disabled={(!hasInput && !hasDoneFiles && !sending) || !projectId || hasUploading || (!sessionId && !onQuickStart)}
             className={`inline-flex h-8 w-8 items-center justify-center rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
               hasInput || hasDoneFiles
                 ? 'bg-blue-500 text-white hover:bg-blue-600 dark:bg-blue-400 dark:hover:bg-blue-500'
@@ -1054,6 +1327,7 @@ export default function ChatInput({ projectId, sessionId, onMessages, onStreamSt
           >
             <Send size={16} />
           </button>
+        </div>
         </div>
       </div>
     </div>

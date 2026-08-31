@@ -44,7 +44,8 @@
       "uploadFailed": "Upload failed",
       "retry": "Retry",
       "remove": "Remove",
-      "dragActive": "Release to upload"
+      "dragActive": "Release to upload",
+      "slashCommands": "Slash commands"
     },
     "thinking": "Thinking",
     "backToBottom": "Back to bottom",
@@ -59,7 +60,6 @@
     "stop": "Stop",
     "model": "Model",
     "startNew": "Start a New Chat",
-    "welcomeDesc": "Type a message below to begin",
     "noProject": "Select or create a Project first",
     "approved": "Approved",
     "rejected": "Rejected",
@@ -112,7 +112,24 @@
       "editCancel": "Cancel",
       "editSubmit": "Submit Changes"
     },
-    "steeredRejected": "Auto-rejected: new message received"
+    "steeredRejected": "Auto-rejected: new message received",
+    "slash": {
+      "stop": "Stop the current task",
+      "new": "Create a new session",
+      "clear": "Clear the current session context",
+      "steer": "Inject guidance into the running task",
+      "queue": "Queue a message to run after the current task",
+      "btw": "Ask aside without interrupting the current task",
+      "agents": "List or switch agents",
+      "skills": "List loaded skills",
+      "cron": "Manage cron jobs",
+      "team": "Toggle agent team mode",
+      "extension": "List loaded extensions",
+      "permission": "View or set approval permission mode",
+      "skillDefault": "Skill",
+      "commandsHeader": "Commands",
+      "skillsHeader": "Skills"
+    }
   },
   "project": {
     "defaultName": "Default Space",

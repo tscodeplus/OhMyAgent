@@ -45,7 +45,8 @@
       "uploadFailed": "上传失败",
       "retry": "重试",
       "remove": "删除",
-      "dragActive": "松开以上传"
+      "dragActive": "松开以上传",
+      "slashCommands": "斜杠命令"
     },
     "thinking": "思考中",
     "backToBottom": "回到底部",
@@ -60,7 +61,6 @@
     "stop": "停止生成",
     "model": "模型",
     "startNew": "开始新对话",
-    "welcomeDesc": "在下方输入消息开始对话",
     "noProject": "请先选择或创建一个对话空间",
     "approved": "已批准",
     "rejected": "已拒绝",
@@ -113,7 +113,24 @@
       "editCancel": "取消",
       "editSubmit": "提交修改"
     },
-    "steeredRejected": "收到新消息，自动拒绝未审批项"
+    "steeredRejected": "收到新消息，自动拒绝未审批项",
+    "slash": {
+      "stop": "停止当前任务",
+      "new": "创建新会话",
+      "clear": "清空当前会话上下文",
+      "steer": "向运行中的任务插入补充指令",
+      "queue": "将消息排入队列，当前任务结束后执行",
+      "btw": "顺带提问，不打断当前任务",
+      "agents": "查看或切换智能体",
+      "skills": "查看已加载的技能",
+      "cron": "管理定时任务",
+      "team": "智能体团队模式开关",
+      "extension": "查看已加载的扩展",
+      "permission": "查看或设置审批权限模式",
+      "skillDefault": "技能",
+      "commandsHeader": "命令",
+      "skillsHeader": "技能"
+    }
   },
   "project": {
     "defaultName": "默认空间",
