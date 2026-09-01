@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router-dom';
-import { Send, Paperclip, X, Loader2, Bot, Square, ChevronDown, Check, Brain, Plus } from 'lucide-react';
+import { Send, Paperclip, X, Loader2, Bot, Square, ChevronDown, Check, Brain, Settings } from 'lucide-react';
 import { createSSEClient, type SSEEvent } from '../../utils/sse-client';
 import { apiRequest, getToken } from '../../utils/api';
 import { useSettings } from '../../contexts/SettingsContext';
@@ -1552,7 +1552,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
             </button>
             {agentMenuOpen && (
               <div className="absolute bottom-full left-0 z-30 mb-2 max-h-64 w-56 overflow-y-auto rounded-xl border border-neutral-200 bg-white py-1 shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
-                <div className="flex items-center justify-between gap-2 pb-1 pe-1.5 ps-3 pt-1.5">
+                <div className="flex items-center justify-between gap-2 pb-1 pe-2 ps-3 pt-1.5">
                   <span className="text-[11px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
                     {t('chat.input.agentMenuHeader')}
                   </span>
@@ -1564,7 +1564,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
                     title={t('chat.input.manageAgents')}
                     className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
                   >
-                    <Plus size={13} />
+                    <Settings size={13} />
                   </button>
                 </div>
                 {agents.map(a => (
@@ -1607,7 +1607,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
                 {/* Keyword search — filters the model list as you type.
                     The + button on the right opens settings on the providers
                     sub-tab for adding providers/models. */}
-                <div className="sticky top-0 z-10 flex items-center gap-1 bg-white px-2 pb-1.5 pt-1.5 dark:bg-neutral-900">
+                <div className="sticky top-0 z-10 flex items-center gap-1 bg-white pe-1.5 ps-2 pb-1.5 pt-1.5 dark:bg-neutral-900">
                   <input
                     ref={modelSearchRef}
                     type="text"
@@ -1633,7 +1633,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
                     title={t('chat.input.manageProviders')}
                     className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
                   >
-                    <Plus size={14} />
+                    <Settings size={14} />
                   </button>
                 </div>
                 <div className="max-h-56 overflow-y-auto">
