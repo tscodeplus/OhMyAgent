@@ -411,17 +411,13 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
           <MessageBubble key={msg.id} message={msg} />
         ))}
         {/* Stream retry/fallback status — a model attempt failed and the
-            gateway is retrying or switching to the next fallback model. */}
+            gateway is retrying or switching to the next fallback model.
+            Inline row: icon pinned to the first text line ((20px line-height
+            − 14px icon) / 2 = 3px), hanging indent when the text wraps. */}
         {retryStatus && (
-          <div className="flex gap-3">
-            <div className="shrink-0 flex h-7 w-7 items-center justify-center rounded-full bg-amber-50 text-amber-500 dark:bg-amber-950/40 dark:text-amber-400">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 text-sm text-amber-600 dark:text-amber-400">
-                {retryStatus}
-              </div>
-            </div>
+          <div className="flex items-start gap-2 px-1 text-sm text-amber-600 dark:text-amber-400">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="mt-[3px] shrink-0"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+            <span className="min-w-0">{retryStatus}</span>
           </div>
         )}
         {/* Thinking indicator — shown in message flow like Feishu/Lark */}

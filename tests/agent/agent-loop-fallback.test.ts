@@ -225,4 +225,37 @@ describe('agentLoop fallback stream_retry events', () => {
 		expect(finalAssistant.model).toBe('model-0');
 		expect(events.at(-1)?.type).toBe('agent_end');
 	});
+
+	it('pins a successful fallback model for the rest of the run (sticky fallback)', async () => {
+		const m0 = fakeModel('prov0', 'model-0');
+		const m1 = fakeModel('prov1', 'model-1');
+
+		const streamFn = vi.fn((model: any) => {
+			if (model.id === 'model-0') return errorStream(modelMessage(model), 'boom 0');
+			return okStream(modelMessage(model));
+		});
+
+		// Two steering messages → two turns: turn 1 fails over to model-1,
+		// turn 2 must call model-1 directly (pinned) instead of retrying the
+		// failing primary first.
+		let steeringCalls = 0;
+		const config: AgentLoopConfig = {
+			...makeConfig(m0, [m1]),
+			getSteeringMessages: async () =>
+				steeringCalls++ < 2
+					? [{ role: 'user', content: `steer ${steeringCalls}`, timestamp: Date.now() } as any]
+					: [],
+		};
+
+		const { events } = await run(config, streamFn);
+
+		// Call order proves stickiness: turn 1 = model-0 (fail) → model-1;
+		// turn 2 = model-1 only, no model-0 retry.
+		expect(streamFn.mock.calls.map((c: any[]) => c[0].id)).toEqual(['model-0', 'model-1', 'model-1']);
+
+		// Only turn 1 produced a fallback event.
+		const retries = events.filter((e) => e.type === 'stream_retry');
+		expect(retries).toHaveLength(1);
+		expect(events.at(-1)?.type).toBe('agent_end');
+	});
 });

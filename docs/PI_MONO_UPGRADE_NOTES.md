@@ -59,6 +59,7 @@ cp package/dist/providers/data/. src/pi-mono/ai/providers/data/
 | 文件 | 扩展点 | 说明 |
 |---|---|---|
 | agent-loop.ts | fallback 多模型重试 | `streamAssistantResponse` 内 `models = [config.model, ...config.fallbackModels]` 串行重试循环 |
+| agent-loop.ts | sticky fallback | 成功应答后把实际使用的 fallback 模型钉住为本 run 后续 turn 的首选（run 内有效，下条用户消息重新从主模型开始） |
 | agent-loop.ts | `emitFallback` + retry-scope `stream_retry` 事件 | fallback 切换发 `stream_retry`（scope=fallback）；通过 `onStreamRetry` 选项把 retrying-stream 的重试进度转为 `stream_retry`（scope=retry）。**注意**：terminal 事件 case 内不可用裸 `continue` 切换模型（它作用于 for-await 而非模型循环），必须 `break` + `finalized` 标志（2026-09 修复的双发 `message_end` bug，见 tests/agent/agent-loop-fallback.test.ts） |
 | agent-loop.ts | 工具循环守卫 | failureStreak / maxToolCycles 诊断注入 + compactToolsForPrompt（deferred 工具过滤） |
 | agent/types.ts | `AgentEvent` 扩展 | `stream_retry` 事件成员（scope/failedProvider/failedModel/provider/model/attempt/maxRetries/delayMs/errorMessage） |

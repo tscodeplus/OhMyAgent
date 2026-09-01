@@ -229,6 +229,23 @@ async function runLoop(
 				return;
 			}
 
+			// ── OhMyAgent extension: sticky fallback ──
+			// The fallback loop in streamAssistantResponse is per-LLM-call:
+			// without stickiness, every subsequent tool round would start from
+			// the configured primary again and re-walk the whole failure chain
+			// (retry + fallback per round) while the primary is down. Once a
+			// fallback model actually answered, pin it for the rest of THIS run.
+			// Scoped to the run on purpose: the next user message starts fresh
+			// from the configured primary, so a recovered primary is picked up
+			// again and the user's model choice stays authoritative.
+			if (message.provider && message.model) {
+				const pool = [config.model, ...(config.fallbackModels ?? [])];
+				const used = pool.find((m) => m.provider === message.provider && m.id === message.model);
+				if (used && used !== config.model) {
+					config = { ...config, model: used };
+				}
+			}
+
 			// Check for tool calls
 			const toolCalls = message.content.filter((c) => c.type === "toolCall");
 
