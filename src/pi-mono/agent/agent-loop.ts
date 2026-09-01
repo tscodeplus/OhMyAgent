@@ -364,6 +364,30 @@ async function streamAssistantResponse(
 	const baseLen = context.messages.length;
 	let lastError: AssistantMessage | null = null;
 
+	// Notify subscribers that a model attempt failed and the loop is moving to
+	// the next fallback model (OhMyAgent extension — feeds inactivity watchdogs
+	// and UI status surfaces, which would otherwise see total silence).
+	const emitFallback = async (
+		failedModel: { provider: string; id: string },
+		nextIndex: number,
+		errorMessage?: string,
+	): Promise<void> => {
+		const next = models[nextIndex];
+		if (!next) return;
+		await emit({
+			type: "stream_retry",
+			scope: "fallback",
+			failedProvider: failedModel.provider,
+			failedModel: failedModel.id,
+			provider: next.provider,
+			model: next.id,
+			attempt: nextIndex + 1,
+			maxRetries: models.length - 1,
+			delayMs: 0,
+			errorMessage,
+		});
+	};
+
 	for (let attempt = 0; attempt < models.length; attempt++) {
 		const model = models[attempt];
 
@@ -378,6 +402,20 @@ async function streamAssistantResponse(
 			...config,
 			apiKey: resolvedApiKey,
 			signal,
+			// Retry progress from the retrying stream wrapper (OhMyAgent).
+			onStreamRetry: (info) =>
+				emit({
+					type: "stream_retry",
+					scope: "retry",
+					failedProvider: model.provider,
+					failedModel: model.id,
+					provider: model.provider,
+					model: model.id,
+					attempt: info.attempt,
+					maxRetries: info.maxRetries,
+					delayMs: info.delayMs,
+					errorMessage: info.errorMessage,
+				}),
 		});
 
 		let partialMessage: AssistantMessage | null = null;
@@ -427,6 +465,7 @@ async function streamAssistantResponse(
 					if (finalMessage.stopReason === "error") {
 						lastError = finalMessage;
 						if (attempt < models.length - 1) {
+							await emitFallback(model, attempt + 1, finalMessage.errorMessage);
 							continue; // try next fallback model
 						}
 					}
@@ -446,6 +485,7 @@ async function streamAssistantResponse(
 		if (finalMessage.stopReason === "error") {
 			lastError = finalMessage;
 			if (attempt < models.length - 1) {
+				await emitFallback(model, attempt + 1, finalMessage.errorMessage);
 				continue; // try next fallback
 			}
 		}

@@ -818,6 +818,19 @@ export interface ReplyDispatcher {
   setAgentName(name: string): void;
   /** Skill activation notification (when showSkillCalls is enabled). */
   onSkillActivated?(skillName: string): void;
+  /**
+   * Stream retry/fallback progress (OhMyAgent). Optional — channels without a
+   * transient status surface simply skip implementation. Fired when a model
+   * attempt fails and the loop retries it or moves to the next fallback model.
+   */
+  onStreamRetry?(info: {
+    scope: 'retry' | 'fallback';
+    failedModel: string;
+    model: string;
+    attempt: number;
+    maxRetries: number;
+    delayMs: number;
+  }): void;
   setApprovalStatus(status: string | null): void;
   setApprovalRecords(
     records: Array<{

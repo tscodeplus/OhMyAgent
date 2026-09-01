@@ -508,8 +508,10 @@ const configSchema = z.object({
       // Bounds connect + response-headers wait; streaming bodies are not cut
       // off mid-generation. A provider that accepts the connection but never
       // responds fails fast here and is retried by the retrying stream wrapper
-      // instead of hanging until the turn watchdog fires.
-      request_timeout_ms: z.coerce.number().int().nonnegative().default(120_000),
+      // instead of hanging. 60s: well above any sane TTFB (SSE headers are
+      // sent immediately by healthy gateways), while halving the worst-case
+      // silent failover cost of a fully-down fallback chain vs. the old 120s.
+      request_timeout_ms: z.coerce.number().int().nonnegative().default(60_000),
     })
     .default({}),
   multimodal: z

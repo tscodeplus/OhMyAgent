@@ -104,6 +104,17 @@ class SSEReplyDispatcher implements ReplyDispatcher {
     // metadata for survival across page refreshes.
     this.callback({ type: 'skill_activated', data: skillName });
   }
+  onStreamRetry(info: {
+    scope: 'retry' | 'fallback';
+    failedModel: string;
+    model: string;
+    attempt: number;
+    maxRetries: number;
+    delayMs: number;
+  }): void {
+    // Transient status — the WebUI renders it as a streaming indicator line.
+    this.callback({ type: 'stream_retry', data: JSON.stringify(info) });
+  }
   setApprovalStatus(status: string | null): void {
     if (status) {
       this.callback({ type: 'approval_status', data: status });

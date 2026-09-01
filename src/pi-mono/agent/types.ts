@@ -450,6 +450,27 @@ export type AgentEvent =
 	// Only emitted for assistant messages during streaming
 	| { type: "message_update"; message: AgentMessage; assistantMessageEvent: AssistantMessageEvent }
 	| { type: "message_end"; message: AgentMessage }
+	// Stream retry/fallback progress (OhMyAgent extension). Emitted when a model
+	// attempt fails and the loop is about to retry the same model (scope=retry,
+	// via the retrying stream wrapper) or move to the next fallback model
+	// (scope=fallback). Feeds inactivity watchdogs and UI status surfaces.
+	| {
+			type: "stream_retry";
+			scope: "retry" | "fallback";
+			/** Provider/model that just failed. */
+			failedProvider: string;
+			failedModel: string;
+			/** Provider/model about to be attempted (same as failed for scope=retry). */
+			provider: string;
+			model: string;
+			/** 1-based number of the attempt about to run. */
+			attempt: number;
+			/** Retry budget (retry scope) or remaining fallback count (fallback scope). */
+			maxRetries: number;
+			/** Backoff delay in ms before the next attempt starts (0 = immediate). */
+			delayMs: number;
+			errorMessage?: string;
+	  }
 	// Tool execution lifecycle
 	| { type: "tool_execution_start"; toolCallId: string; toolName: string; args: any }
 	| { type: "tool_execution_update"; toolCallId: string; toolName: string; args: any; partialResult: any }

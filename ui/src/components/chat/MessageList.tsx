@@ -16,6 +16,8 @@ interface MessageListProps {
   isStreaming?: boolean;
   /** True while the gateway is thinking (turn_start received, no response yet). */
   isThinking?: boolean;
+  /** Transient stream retry/fallback status line (null/undefined = hidden). */
+  retryStatus?: string | null;
   /** Increment after each turn completes to refetch from API. */
   refetchKey?: number;
   /** Called after a refetch completes successfully with the fetched snapshot,
@@ -36,7 +38,7 @@ const NEAR_BOTTOM_PX = 40;
  *  echoes of our own scroll — never treated as user intent. */
 const SNAP_GRACE_MS = 120;
 
-export default function MessageList({ projectId: _projectId, sessionId, streamingMessages: externalMessages, isStreaming, isThinking, refetchKey, onRefetched, hideEmptyState, onHistoryCount }: MessageListProps) {
+export default function MessageList({ projectId: _projectId, sessionId, streamingMessages: externalMessages, isStreaming, isThinking, retryStatus, refetchKey, onRefetched, hideEmptyState, onHistoryCount }: MessageListProps) {
   const { t } = useTranslation('common');
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
@@ -328,7 +330,8 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
   }, [setFollowing]);
 
   // Auto-scroll to bottom when new messages arrive, thinking indicator shows,
-  // or streaming content changes — only while the user is following.
+  // retry status appears, or streaming content changes — only while the user
+  // is following.
   // Exception: the user's OWN newly-sent message always forces a snap back,
   // even if they were reading history when they hit send.
   useEffect(() => {
@@ -338,7 +341,7 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
     if (!isLoadingMoreRef.current && (forceFollow || autoFollowRef.current)) {
       scrollToBottom();
     }
-  }, [messages, externalMessages, isThinking, setFollowing, scrollToBottom]);
+  }, [messages, externalMessages, isThinking, retryStatus, setFollowing, scrollToBottom]);
 
   // Merge API history with live streaming messages, deduplicating by ID.
   const displayMessages = useMemo(() => {
@@ -407,6 +410,20 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
         {displayMessages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} />
         ))}
+        {/* Stream retry/fallback status — a model attempt failed and the
+            gateway is retrying or switching to the next fallback model. */}
+        {retryStatus && (
+          <div className="flex gap-3">
+            <div className="shrink-0 flex h-7 w-7 items-center justify-center rounded-full bg-amber-50 text-amber-500 dark:bg-amber-950/40 dark:text-amber-400">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 text-sm text-amber-600 dark:text-amber-400">
+                {retryStatus}
+              </div>
+            </div>
+          </div>
+        )}
         {/* Thinking indicator — shown in message flow like Feishu/Lark */}
         {isThinking && (
           <div className="flex gap-3">

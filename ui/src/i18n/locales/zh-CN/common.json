@@ -56,6 +56,8 @@
       "modelSearchNoMatch": "没有匹配的模型"
     },
     "thinking": "思考中",
+    "streamRetryRetry": "模型 {{failed}} 暂时调用失败，正在重试（第 {{attempt}}/{{max}} 次）…",
+    "streamRetryFallback": "模型 {{failed}} 调用失败，已切换到 {{model}}…",
     "backToBottom": "回到底部",
     "toolCall": "工具调用：",
     "multiToolCalls": "多轮工具调用",

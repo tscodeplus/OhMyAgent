@@ -221,6 +221,24 @@ export function createRetryingStreamFn(
           `Retrying model ${model.provider}/${model.id} after transient error (retry ${attempt + 1}/${maxRetries}, backoff ${retryDelayMs}ms)`,
         );
 
+        // Notify the host before the silent backoff window — the callback
+        // feeds the agent's inactivity watchdog and can surface retry status
+        // to users. Never let a callback error break the retry loop.
+        if (streamOptions?.onStreamRetry) {
+          try {
+            await streamOptions.onStreamRetry({
+              provider: model.provider,
+              model: model.id,
+              attempt: attempt + 1,
+              maxRetries,
+              delayMs: retryDelayMs,
+              errorMessage: terminal.errorMessage,
+            });
+          } catch {
+            /* best-effort */
+          }
+        }
+
         attempt++;
         try {
           await abortableSleep(retryDelayMs, streamOptions?.signal);

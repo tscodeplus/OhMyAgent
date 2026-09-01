@@ -143,4 +143,50 @@ describe('createRetryingStreamFn', () => {
 		expect(base).toHaveBeenCalledTimes(1);
 		expect(result.stopReason).toBe('error');
 	});
+
+	it('invokes onStreamRetry before each retry backoff and forwards attempt counters', async () => {
+		const errorStream = () => makeStream([startEvent(), errorEvent('503 service unavailable')]);
+		const base = vi.fn().mockReturnValue(errorStream());
+		const onStreamRetry = vi.fn().mockResolvedValue(undefined);
+		const wrapped = createRetryingStreamFn(base, { maxRetries: 2, baseDelayMs: 1 })(
+			model,
+			context,
+			{ onStreamRetry } as any,
+		);
+
+		const { events, result } = await collect(wrapped);
+
+		expect(base).toHaveBeenCalledTimes(3); // initial + 2 retries
+		expect(result.stopReason).toBe('error');
+		// One callback per retry (not per attempt), with 1-based attempt numbers.
+		expect(onStreamRetry).toHaveBeenCalledTimes(2);
+		expect(onStreamRetry).toHaveBeenNthCalledWith(1, {
+			provider: model.provider,
+			model: model.id,
+			attempt: 1,
+			maxRetries: 2,
+			delayMs: 1,
+			errorMessage: '503 service unavailable',
+		});
+		expect(onStreamRetry).toHaveBeenNthCalledWith(2, expect.objectContaining({ attempt: 2 }));
+		// The callback must not leak any events into the stream — consumers only
+		// see the protocol events (start forwarded once + terminal error).
+		expect(events.filter((e) => e.type === 'start')).toHaveLength(1);
+		expect(events.at(-1)?.type).toBe('error');
+	});
+
+	it('does not invoke onStreamRetry for non-retryable failures', async () => {
+		const base = vi.fn().mockReturnValue(makeStream([startEvent(), errorEvent('insufficient_quota')]));
+		const onStreamRetry = vi.fn().mockResolvedValue(undefined);
+		const wrapped = createRetryingStreamFn(base, { maxRetries: 2, baseDelayMs: 1 })(
+			model,
+			context,
+			{ onStreamRetry } as any,
+		);
+
+		await collect(wrapped);
+
+		expect(base).toHaveBeenCalledTimes(1);
+		expect(onStreamRetry).not.toHaveBeenCalled();
+	});
 });

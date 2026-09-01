@@ -319,6 +319,29 @@ export interface SimpleStreamOptions extends StreamOptions {
 	deferred?: boolean | { window?: "15m" | "1h" | "24h" };
 	/** Custom token budgets for thinking levels (token-based providers only) */
 	thinkingBudgets?: ThinkingBudgets;
+	/**
+	 * OhMyAgent extension: notified by the retrying stream wrapper right before
+	 * it sleeps the backoff delay for a retryable failure. Lets hosts feed
+	 * inactivity watchdogs and surface retry status to users. Provider adapters
+	 * ignore this field. Errors thrown by the callback are swallowed.
+	 */
+	onStreamRetry?: (info: StreamRetryInfo) => void | Promise<void>;
+}
+
+/** Payload of the {@link SimpleStreamOptions.onStreamRetry} callback. */
+export interface StreamRetryInfo {
+	/** Provider slug of the model that just failed. */
+	provider: string;
+	/** Model id that just failed. */
+	model: string;
+	/** 1-based number of the retry attempt about to run. */
+	attempt: number;
+	/** Total retry budget (excludes the initial attempt). */
+	maxRetries: number;
+	/** Backoff delay in ms before the next attempt starts. */
+	delayMs: number;
+	/** Raw error message of the failed attempt. */
+	errorMessage?: string;
 }
 
 // Generic StreamFunction with typed options.

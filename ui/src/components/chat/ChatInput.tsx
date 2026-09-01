@@ -36,6 +36,9 @@ interface ChatInputProps {
   onStreamStart?: () => void;
   /** Called when the gateway starts thinking (turn_start) / stops (first response content). */
   onThinkingChange?: (thinking: boolean) => void;
+  /** Stream retry/fallback status line (null = clear). Shown while a model
+   *  attempt failed and the gateway is retrying or switching to a fallback. */
+  onRetryStatusChange?: (status: string | null) => void;
   /** Called when the SSE stream completes (done or error). */
   onDone?: () => void;
   /** Called when an assistant turn has fully completed (done/error received).
@@ -93,7 +96,7 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export default function ChatInput({ projectId, sessionId, centered, onQuickStart, onMessages, onStreamStart, onThinkingChange, onDone, onTurnPersisted }: ChatInputProps) {
+export default function ChatInput({ projectId, sessionId, centered, onQuickStart, onMessages, onStreamStart, onThinkingChange, onRetryStatusChange, onDone, onTurnPersisted }: ChatInputProps) {
   const { t } = useTranslation('common');
   const location = useLocation();
   const [input, setInput] = useState('');
@@ -582,6 +585,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
           case 'skill_activated': {
             // Stop the "thinking" indicator — skill activation is a response
             onThinkingChange?.(false);
+            onRetryStatusChange?.(null);
             const skillName = event.data || '';
             if (skillName) {
               segmentsRef.current.push({ type: 'skill', name: skillName });
@@ -595,6 +599,8 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
             assistantContentRef.current += event.data || '';
             // Stop the "thinking" indicator once the assistant starts responding
             onThinkingChange?.(false);
+            // Model recovered — clear any retry/fallback status line.
+            onRetryStatusChange?.(null);
             {
               // Throttle React updates to ~20fps — every update re-renders and
               // re-parses the full markdown of the active bubble, which gets
@@ -615,9 +621,36 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
             break;
           }
 
+          case 'stream_retry': {
+            // A model attempt failed — the gateway is retrying it or has
+            // switched to the next fallback model. Show a transient status so
+            // the silent retry/fallback window doesn't look like a hang.
+            onThinkingChange?.(false);
+            try {
+              const info = (typeof event.data === 'string' ? JSON.parse(event.data) : event.data) as
+                | { scope?: string; failedModel?: string; model?: string; attempt?: number; maxRetries?: number }
+                | null
+                | undefined;
+              if (info && typeof info === 'object') {
+                const failed = info.failedModel || '';
+                if (info.scope === 'fallback') {
+                  onRetryStatusChange?.(t('chat.streamRetryFallback', { failed, model: info.model || '' }));
+                } else {
+                  onRetryStatusChange?.(
+                    t('chat.streamRetryRetry', { failed, attempt: info.attempt ?? 1, max: (info.maxRetries ?? 0) + 1 }),
+                  );
+                }
+              }
+            } catch {
+              /* ignore malformed retry status */
+            }
+            break;
+          }
+
           case 'tool_call_start': {
             // Stop the "thinking" indicator since the assistant is now acting
             onThinkingChange?.(false);
+            onRetryStatusChange?.(null);
             cancelPendingDeltaFlush();
             const tc: ToolCall = {
               id: event.toolCallId || uid(),
@@ -803,6 +836,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
 
           case 'done': {
             cancelPendingDeltaFlush();
+            onRetryStatusChange?.(null);
             const footer = (event as any).footer as MessageFooter | undefined;
             // Extract images from markdown in content and tool outputs
             const images: { url: string; alt?: string }[] = [];
@@ -895,6 +929,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
 
           case 'error': {
             cancelPendingDeltaFlush();
+            onRetryStatusChange?.(null);
             // Reset everything on stream error
             activeTurnsRef.current = 0;
             setSending(false);
@@ -1098,6 +1133,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
         abortRef.current?.abort();
         activeTurnsRef.current = 0;
         setSending(false);
+        onRetryStatusChange?.(null);
       }
     }, 10_000);
     return () => clearInterval(interval);

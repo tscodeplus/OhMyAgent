@@ -55,6 +55,8 @@
       "modelSearchNoMatch": "No matching model"
     },
     "thinking": "Thinking",
+    "streamRetryRetry": "Model {{failed}} failed temporarily, retrying (attempt {{attempt}}/{{max}})…",
+    "streamRetryFallback": "Model {{failed}} failed, switching to {{model}}…",
     "backToBottom": "Back to bottom",
     "toolCall": "Tool Call: ",
     "multiToolCalls": "Multi-round tool calls",

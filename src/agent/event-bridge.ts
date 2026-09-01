@@ -334,6 +334,24 @@ export class EventBridge {
           this.replyDispatcher.onToolStart(event.toolName, event.args, event.toolCallId);
           break;
 
+        case 'stream_retry':
+          // Transient retry/fallback status — best-effort, channels without a
+          // status surface simply ignore it. Raw errors stay in server logs;
+          // only the failed model and progress counters are forwarded.
+          try {
+            this.replyDispatcher.onStreamRetry?.({
+              scope: event.scope,
+              failedModel: `${event.failedProvider}/${event.failedModel}`,
+              model: `${event.provider}/${event.model}`,
+              attempt: event.attempt,
+              maxRetries: event.maxRetries,
+              delayMs: event.delayMs,
+            });
+          } catch {
+            /* best-effort */
+          }
+          break;
+
         case 'tool_execution_end':
           this.replyDispatcher.onToolEnd(
             event.toolName,

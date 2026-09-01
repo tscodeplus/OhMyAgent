@@ -13,6 +13,7 @@ export type SSEEventType =
   | 'approval_resolved'
   | 'approval_status'
   | 'skill_activated'
+  | 'stream_retry'
   | 'user_question'
   | 'user_question_resolved'
   | 'harness_improvement';

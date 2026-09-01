@@ -619,6 +619,11 @@ export class AgentService {
       'tool_execution_start',
       'tool_execution_end',
       'turn_end',
+      // Retry/fallback progress: silent retry backoffs and model switches
+      // must keep the turn alive, otherwise a chain of failing fallback
+      // models (each waiting out its request timeout in silence) would trip
+      // the watchdog before the chain is exhausted.
+      'stream_retry',
     ]);
     const unsubscribeActivity = agent.subscribe((event) => {
       if (ACTIVITY_EVENTS.has(event.type)) armTimer();

@@ -48,6 +48,8 @@ export default function ChatView() {
   const [streamMessages, setStreamMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
+  /** Transient stream retry/fallback status line (null = hidden). */
+  const [retryStatus, setRetryStatus] = useState<string | null>(null);
   const [refetchKey, setRefetchKey] = useState(0);
 
   // Timestamp of the last streaming activity (SSE message arrival / stream
@@ -135,10 +137,15 @@ export default function ChatView() {
     setIsThinking(thinking);
   }, []);
 
+  const handleRetryStatusChange = useCallback((status: string | null) => {
+    setRetryStatus(status);
+  }, []);
+
   const handleTurnDone = useCallback(() => {
     devLog('[ChatView] handleTurnDone — switching to API mode');
     setIsStreaming(false);
     setIsThinking(false);
+    setRetryStatus(null);
     // The only attached stream belongs to the current session — its turn
     // is over, so clear the pending marker (the WS push would also do it,
     // but this keeps things tight when the WS message is delayed).
@@ -301,6 +308,7 @@ export default function ChatView() {
             streamingMessages={streamMessages}
             isStreaming={isStreaming}
             isThinking={isThinking}
+            retryStatus={retryStatus}
             refetchKey={refetchKey}
             onRefetched={handleRefetched}
             hideEmptyState={centeredNewSession}
@@ -316,6 +324,7 @@ export default function ChatView() {
         onMessages={handleMessages}
         onStreamStart={() => { setIsStreaming(true); lastStreamActivityRef.current = Date.now(); if (sessionId) pendingTurnSessionsRef.current.add(sessionId); }}
         onThinkingChange={handleThinkingChange}
+        onRetryStatusChange={handleRetryStatusChange}
         onDone={handleTurnDone}
         onTurnPersisted={(msgId) => completedBubblesRef.current.add(msgId)}
       />
