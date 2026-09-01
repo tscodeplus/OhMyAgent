@@ -1534,7 +1534,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
             overlapping the attachment button — auto-width is preserved for
             short names. Mobile uses tighter left offset/gap to keep the
             three pills visually adjacent. */}
-        <div ref={selectorRef} className="absolute bottom-1.5 left-8 flex max-w-[calc(100%-6rem)] items-center gap-0 sm:gap-1">
+        <div ref={selectorRef} className="absolute bottom-1.5 left-[30px] flex max-w-[calc(100%-6rem)] items-center gap-0 sm:left-9 sm:gap-1">
           {/* Agent selector */}
           <div className="relative shrink-0">
             <button
@@ -1544,7 +1544,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
               disabled={!projectId || (!sessionId && !onQuickStart) || agents.length === 0}
               aria-label={t('chat.input.agentSelector')}
               title={t('chat.input.agentSelector')}
-              className="inline-flex h-6 max-w-[130px] items-center gap-0.5 rounded-full border border-transparent px-1.5 text-[11px] font-medium text-neutral-500 transition-colors hover:bg-neutral-200 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200 sm:gap-1 sm:max-w-[160px] sm:px-2"
+              className="inline-flex h-6 max-w-[130px] items-center gap-0.5 rounded-full border border-transparent px-1 text-[11px] font-medium text-neutral-500 transition-colors hover:bg-neutral-200 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200 sm:gap-1 sm:max-w-[160px] sm:px-2"
             >
               <Bot size={12} className="shrink-0" />
               <span className="truncate">{effectiveAgent?.name ?? t('chat.input.agentDefault')}</span>
@@ -1596,7 +1596,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
               disabled={!projectId || (!sessionId && !onQuickStart) || modelGroups.length === 0}
               aria-label={t('chat.input.modelSelector')}
               title={t('chat.input.modelSelector')}
-              className="inline-flex h-6 min-w-0 max-w-full items-center gap-0.5 rounded-full border border-transparent px-1.5 text-[11px] font-medium text-neutral-500 transition-colors hover:bg-neutral-200 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200 sm:gap-1 sm:px-2"
+              className="inline-flex h-6 min-w-0 max-w-full items-center gap-0.5 rounded-full border border-transparent px-1 text-[11px] font-medium text-neutral-500 transition-colors hover:bg-neutral-200 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200 sm:gap-1 sm:px-2"
             >
               <Brain size={12} className="shrink-0" />
               <span className="min-w-0 truncate">{effectiveModel ?? t('chat.input.modelDefault')}</span>
