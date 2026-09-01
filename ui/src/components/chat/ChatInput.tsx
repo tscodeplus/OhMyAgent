@@ -1527,7 +1527,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
               title={t('chat.input.modelSelector')}
               className="inline-flex h-6 max-w-[60vw] items-center gap-1 rounded-full border border-transparent px-2 text-[11px] font-medium text-neutral-500 transition-colors hover:bg-neutral-200 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200 sm:max-w-none"
             >
-              <span className="shrink-0 text-[11px] leading-none">🧠</span>
+              <span className="shrink-0 text-[11px] leading-none grayscale">🧠</span>
               <span className="whitespace-nowrap">{effectiveModel ?? t('chat.input.modelDefault')}</span>
               <ChevronDown size={11} className="shrink-0 opacity-60" />
             </button>
