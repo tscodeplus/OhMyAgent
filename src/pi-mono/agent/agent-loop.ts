@@ -420,6 +420,12 @@ async function streamAssistantResponse(
 
 		let partialMessage: AssistantMessage | null = null;
 		let addedPartial = false;
+		// Set when the terminal-event case below fully finalized this attempt
+		// (message_start/end emitted) and chose to fall through to the next
+		// fallback model. The defensive no-terminal-event handling after the
+		// loop must not re-run in that case — it would double-emit message_end
+		// and double-push the message.
+		let finalized = false;
 
 		for await (const event of response) {
 			switch (event.type) {
@@ -462,11 +468,16 @@ async function streamAssistantResponse(
 						await emit({ type: "message_start", message: { ...finalMessage } });
 					}
 					await emit({ type: "message_end", message: finalMessage });
+					finalized = true;
 					if (finalMessage.stopReason === "error") {
 						lastError = finalMessage;
 						if (attempt < models.length - 1) {
 							await emitFallback(model, attempt + 1, finalMessage.errorMessage);
-							continue; // try next fallback model
+							// Exit the event loop; `finalized` makes the code after
+							// the loop advance to the next fallback model instead of
+							// re-finalizing this attempt. (A bare `continue` here
+							// would continue the for-await loop, not the model loop.)
+							break;
 						}
 					}
 					return finalMessage;
@@ -474,6 +485,12 @@ async function streamAssistantResponse(
 			}
 		}
 
+		if (finalized) {
+			// Terminal event handled inside the loop; advance to the next model.
+			continue;
+		}
+
+		// Defensive: stream ended without a terminal event.
 		const finalMessage = await response.result();
 		if (addedPartial) {
 			context.messages[context.messages.length - 1] = finalMessage;

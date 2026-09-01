@@ -47,7 +47,47 @@ cp package/dist/providers/data/. src/pi-mono/ai/providers/data/
   应返回含该模型的列表。
 - 重新 build + test。
 
-## 3. 速查 — v0.84.4 实证
+## 3. 本地补丁盘点（每次升级必须重新确认的 OhMyAgent 扩展点）
+
+上游同步会整体覆盖 `src/pi-mono/`，以下本地扩展在合并后必须逐一确认仍然
+存在（`pnpm lint` + `pnpm test:ai` 全绿只是必要条件，逐项 grep 更可靠）。
+各升级记录文档（`PI_MONO_UPGRADE_v*.md`）中的补丁表以升级当时为准，可能
+落后于本节。
+
+### agent 包（src/pi-mono/agent/）
+
+| 文件 | 扩展点 | 说明 |
+|---|---|---|
+| agent-loop.ts | fallback 多模型重试 | `streamAssistantResponse` 内 `models = [config.model, ...config.fallbackModels]` 串行重试循环 |
+| agent-loop.ts | `emitFallback` + retry-scope `stream_retry` 事件 | fallback 切换发 `stream_retry`（scope=fallback）；通过 `onStreamRetry` 选项把 retrying-stream 的重试进度转为 `stream_retry`（scope=retry）。**注意**：terminal 事件 case 内不可用裸 `continue` 切换模型（它作用于 for-await 而非模型循环），必须 `break` + `finalized` 标志（2026-09 修复的双发 `message_end` bug，见 tests/agent/agent-loop-fallback.test.ts） |
+| agent-loop.ts | 工具循环守卫 | failureStreak / maxToolCycles 诊断注入 + compactToolsForPrompt（deferred 工具过滤） |
+| agent/types.ts | `AgentEvent` 扩展 | `stream_retry` 事件成员（scope/failedProvider/failedModel/provider/model/attempt/maxRetries/delayMs/errorMessage） |
+| agent/types.ts | 配置字段 | `AgentLoopConfig.fallbackModels`、`maxToolCycles`、`deferred` |
+| agent/agent.ts | 运行时字段 | `fallbackModels`、`getApiKey`、streamFn 别名、`ohmyagent_agentName` |
+
+### ai 包（src/pi-mono/ai/）
+
+| 文件 | 扩展点 | 说明 |
+|---|---|---|
+| types.ts | `SimpleStreamOptions.onStreamRetry` + `StreamRetryInfo` | 重试进度回调（由 src/agent/retrying-stream.ts 消费，provider 适配器忽略） |
+| compat.ts | `registerModel` 自定义模型注册表 | 自定义 provider 模型注册 |
+| api/bedrock-converse-stream.ts、api/openai-codex-responses.ts | tsc 断言 | `as any` 类型兼容补丁 |
+| providers/xai.ts | Provider 泛型放宽 | `Provider<"openai-completions" \| "openai-responses">` |
+| utils/oauth/* | 本地独有 OAuth 兼容层 | 不在上游，直接保留 |
+
+相关测试（升级后必须全绿，它们覆盖上述多数扩展点）：
+
+- `tests/agent/agent-loop-fallback.test.ts` — fallback/retry 事件、切换次序、终态语义
+- `tests/agent/retrying-stream.test.ts` — 重试包装器 + `onStreamRetry` 回调
+- `tests/w0/pi-mono-import.test.ts` — 嵌入路径与导出完整性
+
+### 消费端（非 pi-mono，但依赖上述扩展点）
+
+- `src/agent/agent-service.ts` — 看门狗 `ACTIVITY_EVENTS` 含 `stream_retry`
+- `src/agent/event-bridge.ts` — `stream_retry` 分发到 `ReplyDispatcher.onStreamRetry`
+- `src/app/webui/chat-routes.ts` + `ui/src/components/chat/*` — WebUI 重试状态线
+
+## 4. 速查 — v0.84.4 实证
 
 - `deepseek.json` 新增 `deepseek-v4-flash-vision-exp`
   （`generate-models.ts` 硬编码，`generate-models` 在发布时写入）
