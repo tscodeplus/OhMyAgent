@@ -587,6 +587,31 @@ if ! ${hasPnpm ? 'pnpm install' : 'npm install'} > "\$INSTALL_LOG" 2>&1; then
 fi
 rm -f "\$INSTALL_LOG"
 
+# ── sharp: rebuild against system libvips if the binary is missing ──
+# pnpm install above intentionally skips sharp's build script (it fails on
+# Termux). The compiled binary from a previous deploy survives incremental
+# installs, but a node_modules purge wipes it. Detect that and rebuild
+# manually — same as scripts/deploy-termux.sh step 3b. Non-fatal if it
+# fails: sharp is optional at runtime (nut-js screenshots degrade
+# gracefully). Check with a real conversion, not just require('sharp') —
+# the JS entry loads even when the native binding is absent.
+if is_termux; then
+  write_status "installing" "" 40
+  if node -e "require('sharp')({create:{width:1,height:1,channels:3,background:'#000'}}).png().toBuffer().then(()=>process.exit(0),()=>process.exit(1))" >/dev/null 2>&1; then
+    echo "  sharp native binary already available"
+  else
+    echo "  Rebuilding sharp against system libvips..."
+    pkg install -y pkg-config binutils xorgproto libvips >/dev/null 2>&1 || true
+    pnpm add -D --ignore-scripts node-addon-api node-gyp >/dev/null 2>&1 || true
+    SHARP_PKG_DIR=$(find node_modules/.pnpm -maxdepth 1 -type d -name 'sharp@*' 2>/dev/null | head -1)/node_modules/sharp
+    # pnpm rebuild silently skips sharp (not in the build allow-list on the
+    # device), so run sharp's own build script directly. Needs
+    # ANDROID_NDK_HOME (set above) or node-gyp fails with
+    # "Undefined variable android_ndk_path in binding.gyp".
+    (cd "\$SHARP_PKG_DIR" && SHARP_FORCE_GLOBAL_LIBVIPS=1 npm run build) >/dev/null 2>&1 || true
+  fi
+fi
+
 # ── Rebuild better-sqlite3 if on Android ──
 if is_termux; then
   if [ -z "$(find node_modules -name better_sqlite3.node -path '*/better-sqlite3/*' 2>/dev/null | head -1)" ]; then
