@@ -47,12 +47,15 @@ export function registerAgentRoutes(app: FastifyInstance, cfg: AgentRouteConfig)
     // When no agents are configured, expose the built-in fallback so users
     // can still create projects. Mirrors AgentManager.getDefault() behavior.
     if (agents.length === 0) {
+      // Empty ref (fresh install, piAi unconfigured) → undefined so the UI
+      // shows its placeholder instead of a dangling "/".
+      const hasPrimary = !!(config.piAi?.provider && config.piAi?.model);
       agents.push({
         id: 'default',
         name: 'Default',
         description: undefined,
         systemPrompt: '',
-        model: config.piAi ? `${config.piAi.provider}/${config.piAi.model}` : undefined,
+        model: hasPrimary ? `${config.piAi.provider}/${config.piAi.model}` : undefined,
         fallbackModels: undefined,
         reasoningLevel: undefined,
         transport: undefined,
