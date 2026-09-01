@@ -99,6 +99,7 @@ export async function registerWebUIRoutes(
     getShowSkillCalls: () => cfg.getConfig().showSkillCalls,
     getShowToolCalls: () => cfg.getConfig().showToolCalls,
     agentManager: cfg.services.agentManager,
+    getConfig: () => cfg.getConfig(),
     commandDeps: {
       agentService: cfg.services.agentService,
       skillRegistry: cfg.services.skillRegistry

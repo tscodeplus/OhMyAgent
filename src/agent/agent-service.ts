@@ -66,6 +66,10 @@ export interface AgentServiceOptions {
   extraTools?: any[];
   /** V2: agent ID for config-based model selection. Used by cron to use the creating agent's model. */
   agentId?: string;
+  /** Explicit model override for this turn (ModelInstance). When set it wins
+   *  over the agent config's primary model (resolveModel priority 1). Used by
+   *  the WebUI chat input's model selector. */
+  model?: any;
   /** Cron permission snapshot: false removes Computer Use for this run. */
   computerUseAllowed?: boolean;
   /** Persist the user message BEFORE starting agent execution. When true,

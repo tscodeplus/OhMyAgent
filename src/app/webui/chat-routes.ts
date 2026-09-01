@@ -12,6 +12,8 @@ import type { AgentService } from '../../agent/agent-service.js';
 import type { ReplyDispatcher, Usage, FooterConfig } from '../types.js';
 import type { ProjectStore } from './project-store.js';
 import type { AgentManager } from '../../agent/agent-manager.js';
+import type { AppConfig } from '../../app/types.js';
+import { resolveModelRef } from '../../agent/model-resolver.js';
 import type { ApprovalDecisionType } from '../types.js';
 import type { CommandDeps } from '../../commands/command-handler.js';
 import type { CommandRegistry } from '../../commands/command-registry.js';
@@ -312,6 +314,9 @@ export interface ChatRouteConfig {
   /** Lazy getter for showToolCalls. */
   getShowToolCalls?: () => boolean;
   agentManager?: AgentManager;
+  /** Lazy getter for the app config — used to resolve the chat input's
+   *  model override (provider/modelId ref → ModelInstance). */
+  getConfig?: () => AppConfig;
   commandDeps?: CommandDeps;
   commandRegistry?: CommandRegistry;
   wsManager?: WebSocketManager;
@@ -356,13 +361,20 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
   // SSE chat endpoint
   app.post('/api/projects/:projectId/chat', async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
-    const { sessionId, message: rawMessage, clientMsgId } = request.body as {
+    const { sessionId, message: rawMessage, clientMsgId, agentId: requestedAgentId, model: requestedModelRef } = request.body as {
       sessionId?: string;
       message?: string;
       /** Frontend-generated message ID — reused as the persisted user message
        *  id so the WebUI can dedupe its local streaming copy against the
        *  refetched API copy (avoids double bubbles after turn completion). */
       clientMsgId?: string;
+      /** Chat input's agent selector: overrides the project's default agent
+       *  for this turn (and sticks for the session, like the /agents command). */
+      agentId?: string;
+      /** Chat input's model selector: "provider/modelId" ref. Resolved into a
+       *  ModelInstance and passed as an explicit model override (wins over the
+       *  agent's primary model). */
+      model?: string;
     };
     // Only accept well-formed ids — never let arbitrary user input become a DB primary key.
     const safeClientMsgId = typeof clientMsgId === 'string' && clientMsgId.length >= 8 && clientMsgId.length <= 64
@@ -379,6 +391,28 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
     const project = cfg.projectStore.getById(projectId);
     if (!project) {
       return reply.status(404).send({ error: 'Not Found', message: 'Project not found' });
+    }
+
+    // ── Chat input selectors (agent / model) ──
+    // Agent: only accept ids the manager actually knows — anything else falls
+    // back to the project's default agent. When the user explicitly picked an
+    // agent we ALSO pin it to the session map so steer/follow-up turns (which
+    // read the session map, not the per-turn option) keep using it.
+    let effectiveAgentId = project.agent_id;
+    if (requestedAgentId && cfg.agentManager?.get(requestedAgentId)) {
+      effectiveAgentId = requestedAgentId;
+      // Always pin (even back to the project default) so switching back
+      // clears a previous session-level override.
+      cfg.agentService.setSessionAgentId(sessionId, effectiveAgentId);
+    }
+    // Model: resolve the "provider/modelId" ref into a ModelInstance here so
+    // an unresolvable selection degrades to the agent's primary model instead
+    // of failing the turn.
+    const explicitModel = requestedModelRef
+      ? resolveModelRef(requestedModelRef, cfg.getConfig?.())
+      : undefined;
+    if (requestedModelRef && !explicitModel) {
+      app.log.warn({ model: requestedModelRef }, '[chat] Model override could not be resolved — using agent default');
     }
 
     // Set SSE headers
@@ -578,7 +612,8 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
       await cfg.agentService.execute(message, {
         sessionId: sessionId,
         chatId: `webui:${projectId}`,
-        agentId: project.agent_id,
+        agentId: effectiveAgentId,
+        model: explicitModel,
         replyDispatcherOverride: dispatcher,
         channel: 'webui',
         channelApprovalSender: approvalSender,

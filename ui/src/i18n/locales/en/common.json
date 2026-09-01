@@ -45,7 +45,12 @@
       "retry": "Retry",
       "remove": "Remove",
       "dragActive": "Release to upload",
-      "slashCommands": "Slash commands"
+      "slashCommands": "Slash commands",
+      "agentSelector": "Agent",
+      "agentMenuHeader": "Agents",
+      "agentDefault": "Agent",
+      "modelSelector": "Model",
+      "modelDefault": "Model"
     },
     "thinking": "Thinking",
     "backToBottom": "Back to bottom",

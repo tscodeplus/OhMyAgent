@@ -42,7 +42,7 @@ export interface ResolvedModel {
  * Encapsulates the runtime string-split + getModel call so callers
  * don't need their own `as any` casts.
  */
-function resolveModelRef(ref: string, config?: AppConfig): ModelInstance | undefined {
+export function resolveModelRef(ref: string, config?: AppConfig): ModelInstance | undefined {
   const idx = ref.indexOf('/');
   if (idx === -1) return undefined;
   const provider = ref.slice(0, idx);

@@ -46,7 +46,12 @@
       "retry": "重试",
       "remove": "删除",
       "dragActive": "松开以上传",
-      "slashCommands": "斜杠命令"
+      "slashCommands": "斜杠命令",
+      "agentSelector": "智能体",
+      "agentMenuHeader": "智能体",
+      "agentDefault": "智能体",
+      "modelSelector": "模型",
+      "modelDefault": "模型"
     },
     "thinking": "思考中",
     "backToBottom": "回到底部",

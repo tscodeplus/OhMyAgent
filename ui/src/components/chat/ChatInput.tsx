@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router-dom';
-import { Send, Paperclip, X, Loader2, Bot, Square } from 'lucide-react';
+import { Send, Paperclip, X, Loader2, Bot, Square, ChevronDown, Check, Cpu } from 'lucide-react';
 import { createSSEClient, type SSEEvent } from '../../utils/sse-client';
 import { apiRequest, getToken } from '../../utils/api';
 import { devLog } from '../../utils/logger';
@@ -52,6 +52,18 @@ interface FileUploadItem {
   path?: string;
   size?: number;
   error?: string;
+}
+
+interface AgentOption {
+  id: string;
+  name: string;
+  /** Primary model ref ("provider/modelId") — the model dropdown's default. */
+  model?: string;
+}
+
+interface ModelGroup {
+  provider: string;
+  models: Array<{ id: string; name: string }>;
 }
 
 const sseClient = createSSEClient();
@@ -133,6 +145,86 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
   const inputCacheRef = useRef<Map<string, string>>(new Map());
   const fileUploadsCacheRef = useRef<Map<string, FileUploadItem[]>>(new Map());
   const prevSessionIdRef = useRef(sessionId);
+
+  // ── Agent / Model selectors (right of the slash button) ──
+  const [agents, setAgents] = useState<AgentOption[]>([]);
+  const [projectAgentId, setProjectAgentId] = useState<string | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  const [modelGroups, setModelGroups] = useState<ModelGroup[]>([]);
+  const [agentMenuOpen, setAgentMenuOpen] = useState(false);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const selectorRef = useRef<HTMLDivElement>(null);
+
+  // Project's default agent — the agent dropdown's initial value.
+  useEffect(() => {
+    if (!projectId) { setProjectAgentId(null); return; }
+    let cancelled = false;
+    apiRequest<{ agent_id?: string }>(`/api/projects/${projectId}`)
+      .then(data => { if (!cancelled) setProjectAgentId(data?.agent_id ?? null); })
+      .catch(() => { if (!cancelled) setProjectAgentId(null); });
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  // Configured agents list.
+  useEffect(() => {
+    let cancelled = false;
+    apiRequest<AgentOption[]>('/api/agents')
+      .then(data => { if (!cancelled) setAgents(Array.isArray(data) ? data : []); })
+      .catch(() => { if (!cancelled) setAgents([]); });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Model catalog grouped by configured provider (builtin with key + custom).
+  useEffect(() => {
+    let cancelled = false;
+    apiRequest<{ providers: Array<{ id: string }> }>('/api/providers/configured')
+      .then(async (data) => {
+        const providers = data?.providers ?? [];
+        const groups = await Promise.all(providers.map(async (p) => {
+          try {
+            const res = await apiRequest<{ models: Array<{ id: string; name?: string }> }>(`/api/providers/${p.id}/models`);
+            return { provider: p.id, models: (res?.models ?? []).map(m => ({ id: m.id, name: m.name || m.id })) };
+          } catch {
+            return { provider: p.id, models: [] };
+          }
+        }));
+        if (!cancelled) setModelGroups(groups.filter(g => g.models.length > 0));
+      })
+      .catch(() => { if (!cancelled) setModelGroups([]); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const effectiveAgentId = selectedAgentId ?? projectAgentId ?? agents[0]?.id ?? null;
+  const effectiveAgent = agents.find(a => a.id === effectiveAgentId) ?? null;
+  /** Model shown/used: explicit pick, else the selected agent's primary. */
+  const effectiveModel = selectedModel ?? effectiveAgent?.model ?? null;
+
+  // Switching agent resets the model to that agent's primary (unless the user
+  // had explicitly picked a model — then keep it; the backend still honors it).
+  const handleSelectAgent = useCallback((id: string) => {
+    setSelectedAgentId(id);
+    setAgentMenuOpen(false);
+    const next = agents.find(a => a.id === id);
+    if (next?.model) setSelectedModel(null); // fall back to the new agent's primary
+  }, [agents]);
+
+  const handleSelectModel = useCallback((ref: string) => {
+    setSelectedModel(ref);
+    setModelMenuOpen(false);
+  }, []);
+
+  // Close either selector when clicking outside it.
+  useEffect(() => {
+    if (!agentMenuOpen && !modelMenuOpen) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      if (selectorRef.current?.contains(e.target as Node)) return;
+      setAgentMenuOpen(false);
+      setModelMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, [agentMenuOpen, modelMenuOpen]);
 
   // ── Slash command palette ──
   // Open state is only used for the explicit "/" button — typing "/" as the
@@ -348,7 +440,6 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
 
   const sendMessage = useCallback((messageText: string, opts?: { preserveContent?: boolean }) => {
     if (!messageText.trim() || !projectId || !sessionId) return;
-    // Abort any running SSE stream before starting a new one
     abortRef.current?.abort();
     setSending(true);
     // Don't clear existing streaming content when sending slash commands
@@ -427,7 +518,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
 
     abortRef.current = sseClient.start(
       `/api/projects/${projectId}/chat`,
-      { sessionId, message: userMessage.content, clientMsgId: userMessage.id },
+      { sessionId, message: userMessage.content, clientMsgId: userMessage.id, agentId: effectiveAgentId ?? undefined, model: effectiveModel ?? undefined },
       (event: SSEEvent) => {
         devLog('[ChatInput] SSE event', { type: event.type, ts: Date.now() - streamStartTime });
         switch (event.type) {
@@ -803,7 +894,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
       // 60s timeout and kill the UI stream mid-turn.
       () => { lastSseEventRef.current = Date.now(); },
     );
-  }, [projectId, sessionId, onMessages, onStreamStart, onDone, onTurnPersisted, fileUploads, buildFileRefs]);
+  }, [projectId, sessionId, onMessages, onStreamStart, onDone, onTurnPersisted, fileUploads, buildFileRefs, effectiveAgentId, effectiveModel]);
 
   /** Send a steer message while the agent is already running. Does NOT abort
    *  the existing SSE — the steer response streams through the same connection. */
@@ -1342,6 +1433,97 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
         >
           /
         </button>
+
+        {/* Agent + Model selectors — immediately to the right of the slash
+            button, bottom-left inside the textarea. Each opens a compact
+            menu; the agent menu lists configured agents (default: the
+            session project's default agent) and the model menu lists models
+            from configured builtin/custom providers (default: the selected
+            agent's primary model). Selections travel in the POST body. */}
+        <div ref={selectorRef} className="absolute bottom-1.5 left-9 flex items-center gap-1">
+          {/* Agent selector */}
+          <div className="relative">
+            <button
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => { setAgentMenuOpen(o => !o); setModelMenuOpen(false); }}
+              disabled={!projectId || (!sessionId && !onQuickStart) || agents.length === 0}
+              aria-label={t('chat.input.agentSelector')}
+              title={t('chat.input.agentSelector')}
+              className="inline-flex h-6 max-w-[130px] items-center gap-1 rounded-full border border-transparent px-2 text-[11px] font-medium text-neutral-500 transition-colors hover:bg-neutral-200 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200 sm:max-w-[160px]"
+            >
+              <Bot size={12} className="shrink-0" />
+              <span className="truncate">{effectiveAgent?.name ?? t('chat.input.agentDefault')}</span>
+              <ChevronDown size={11} className="shrink-0 opacity-60" />
+            </button>
+            {agentMenuOpen && (
+              <div className="absolute bottom-full left-0 z-30 mb-2 max-h-64 w-56 overflow-y-auto rounded-xl border border-neutral-200 bg-white py-1 shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
+                <div className="px-3 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+                  {t('chat.input.agentMenuHeader')}
+                </div>
+                {agents.map(a => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => handleSelectAgent(a.id)}
+                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
+                      a.id === effectiveAgentId ? 'bg-neutral-100 dark:bg-neutral-800' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800'
+                    }`}
+                  >
+                    <span className="min-w-0 flex-1 truncate text-neutral-800 dark:text-neutral-200">{a.name}</span>
+                    {a.id === effectiveAgentId && <Check size={12} className="shrink-0 text-blue-500" />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Model selector */}
+          <div className="relative">
+            <button
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => { setModelMenuOpen(o => !o); setAgentMenuOpen(false); }}
+              disabled={!projectId || (!sessionId && !onQuickStart) || modelGroups.length === 0}
+              aria-label={t('chat.input.modelSelector')}
+              title={t('chat.input.modelSelector')}
+              className="inline-flex h-6 max-w-[150px] items-center gap-1 rounded-full border border-transparent px-2 text-[11px] font-medium text-neutral-500 transition-colors hover:bg-neutral-200 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200 sm:max-w-[190px]"
+            >
+              <Cpu size={12} className="shrink-0" />
+              <span className="truncate">{effectiveModel ?? t('chat.input.modelDefault')}</span>
+              <ChevronDown size={11} className="shrink-0 opacity-60" />
+            </button>
+            {modelMenuOpen && (
+              <div className="absolute bottom-full left-0 z-30 mb-2 max-h-72 w-64 overflow-y-auto rounded-xl border border-neutral-200 bg-white py-1 shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
+                {modelGroups.map(g => (
+                  <div key={g.provider}>
+                    <div className="px-3 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+                      {g.provider}
+                    </div>
+                    {g.models.map(m => {
+                      const ref = `${g.provider}/${m.id}`;
+                      return (
+                        <button
+                          key={ref}
+                          type="button"
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => handleSelectModel(ref)}
+                          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
+                            ref === effectiveModel ? 'bg-neutral-100 dark:bg-neutral-800' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800'
+                          }`}
+                        >
+                          <span className="min-w-0 flex-1 truncate text-neutral-800 dark:text-neutral-200">{m.name}</span>
+                          {ref === effectiveModel && <Check size={12} className="shrink-0 text-blue-500" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* Corner buttons — bottom-right inside the textarea */}
         <div className="absolute right-1 bottom-1.5 flex items-center gap-1">
