@@ -52,7 +52,9 @@
       "modelSelector": "Model",
       "modelDefault": "Model",
       "modelSearch": "Search models…",
-      "modelSearchNoMatch": "No matching model"
+      "modelSearchNoMatch": "No matching model",
+      "manageAgents": "Manage agents",
+      "manageProviders": "Manage models & providers"
     },
     "thinking": "Thinking",
     "streamRetryRetry": "Model {{failed}} failed temporarily, retrying (attempt {{attempt}}/{{max}})…",

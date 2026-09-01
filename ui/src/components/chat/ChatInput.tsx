@@ -1,9 +1,10 @@
 import { useState, useCallback, useRef, useEffect, useMemo, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router-dom';
-import { Send, Paperclip, X, Loader2, Bot, Square, ChevronDown, Check, Brain } from 'lucide-react';
+import { Send, Paperclip, X, Loader2, Bot, Square, ChevronDown, Check, Brain, Plus } from 'lucide-react';
 import { createSSEClient, type SSEEvent } from '../../utils/sse-client';
 import { apiRequest, getToken } from '../../utils/api';
+import { useSettings } from '../../contexts/SettingsContext';
 import { devLog } from '../../utils/logger';
 import { CHAT_MEDIA_TOOL_NAMES, isChatMediaUrl } from '../../utils/chatMedia';
 import type { Message, MessageApproval, UserQuestion, ToolCall, MessageFooter, MessageSegment, MediaSegmentItem, MessageFile } from '../../types/session';
@@ -98,6 +99,7 @@ function formatFileSize(bytes: number): string {
 
 export default function ChatInput({ projectId, sessionId, centered, onQuickStart, onMessages, onStreamStart, onThinkingChange, onRetryStatusChange, onDone, onTurnPersisted }: ChatInputProps) {
   const { t } = useTranslation('common');
+  const { openSettings } = useSettings();
   const location = useLocation();
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -1542,8 +1544,20 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
             </button>
             {agentMenuOpen && (
               <div className="absolute bottom-full left-0 z-30 mb-2 max-h-64 w-56 overflow-y-auto rounded-xl border border-neutral-200 bg-white py-1 shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
-                <div className="px-3 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-                  {t('chat.input.agentMenuHeader')}
+                <div className="flex items-center justify-between gap-2 pb-1 pe-1.5 ps-3 pt-1.5">
+                  <span className="text-[11px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+                    {t('chat.input.agentMenuHeader')}
+                  </span>
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => { setAgentMenuOpen(false); openSettings('agents'); }}
+                    aria-label={t('chat.input.manageAgents')}
+                    title={t('chat.input.manageAgents')}
+                    className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                  >
+                    <Plus size={13} />
+                  </button>
                 </div>
                 {agents.map(a => (
                   <button
@@ -1580,8 +1594,10 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
             </button>
             {modelMenuOpen && (
               <div className="absolute bottom-full left-0 z-30 mb-2 max-h-72 w-64 overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
-                {/* Keyword search — filters the model list as you type */}
-                <div className="sticky top-0 z-10 bg-white px-2 pb-1.5 pt-1.5 dark:bg-neutral-900">
+                {/* Keyword search — filters the model list as you type.
+                    The + button on the right opens settings on the providers
+                    sub-tab for adding providers/models. */}
+                <div className="sticky top-0 z-10 flex items-center gap-1 bg-white px-2 pb-1.5 pt-1.5 dark:bg-neutral-900">
                   <input
                     ref={modelSearchRef}
                     type="text"
@@ -1597,8 +1613,18 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
                       }
                     }}
                     placeholder={t('chat.input.modelSearch')}
-                    className="w-full rounded-md border border-neutral-300 bg-neutral-50 px-2 py-1 text-xs text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-neutral-600"
+                    className="min-w-0 flex-1 rounded-md border border-neutral-300 bg-neutral-50 px-2 py-1 text-xs text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-neutral-600"
                   />
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => { setModelMenuOpen(false); openSettings('models', 'providers'); }}
+                    aria-label={t('chat.input.manageProviders')}
+                    title={t('chat.input.manageProviders')}
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                  >
+                    <Plus size={14} />
+                  </button>
                 </div>
                 <div className="max-h-56 overflow-y-auto">
                 {filteredModelGroups.length === 0 && (

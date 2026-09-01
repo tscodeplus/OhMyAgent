@@ -68,6 +68,10 @@ async function waitUntilHealthy(): Promise<boolean> {
 
 interface SettingsModalProps {
   onClose: () => void;
+  /** Open directly on this tab (e.g. deep-links from chat selectors). */
+  initialTab?: string;
+  /** Optional sub-tab inside initialTab (e.g. 'providers' in 'models'). */
+  initialSubTab?: string;
 }
 
 export type SettingsGroupId = 'general' | 'agent' | 'integration' | 'system';
@@ -122,11 +126,18 @@ const COMPONENT_MAP: Record<string, React.ComponentType<any>> = {
   about: DesktopSettings,
 };
 
-export default function SettingsModal({ onClose }: SettingsModalProps) {
+export default function SettingsModal({ onClose, initialTab, initialSubTab }: SettingsModalProps) {
   const { t } = useTranslation('common');
   const { showToast, dismissToast } = useToast();
-  const [activeGroup, setActiveGroup] = useState<string>('general');
-  const [modelSubTab, setModelSubTab] = useState<string | undefined>();
+  const [activeGroup, setActiveGroup] = useState<string>(initialTab || 'general');
+  const [modelSubTab, setModelSubTab] = useState<string | undefined>(initialSubTab);
+
+  // Re-sync when the requested tab changes while the modal is open
+  // (e.g. opening the modal twice in one session with different tabs).
+  useEffect(() => {
+    if (initialTab) setActiveGroup(initialTab);
+    if (initialSubTab) setModelSubTab(initialSubTab);
+  }, [initialTab, initialSubTab]);
   const [saving, setSaving] = useState(false);
   const [dirtyTabs, setDirtyTabs] = useState<Set<string>>(new Set());
   const [restartRequiredTabs, setRestartRequiredTabs] = useState<Set<string>>(new Set());

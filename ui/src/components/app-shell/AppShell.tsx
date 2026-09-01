@@ -49,7 +49,7 @@ export default function AppShell() {
   const location = useLocation();
   const { projectId, sessionId } = useParams();
   const { selectedProjectId, setSelectedProjectId } = useProject();
-  const { settingsOpen, setSettingsOpen } = useSettings();
+  const { settingsOpen, settingsTab, settingsSubTab, setSettingsOpen } = useSettings();
   const { showToast } = useToast();
   const { subscribe } = useWebSocket();
   // Chat navigation flyout (collapsed rail): conversation spaces + sessions
@@ -436,7 +436,13 @@ export default function AppShell() {
         </div>
       </div>
 
-      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && (
+        <SettingsModal
+          onClose={() => setSettingsOpen(false)}
+          initialTab={settingsTab ?? undefined}
+          initialSubTab={settingsSubTab ?? undefined}
+        />
+      )}
       {showSetupWizard && wizardData && (
         <SetupWizard
           initialLanguage={wizardData.language}
