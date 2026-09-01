@@ -16,10 +16,29 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import rehypeSanitize from 'rehype-sanitize';
+import rehypeStringify from 'rehype-stringify';
+import remarkGfm from 'remark-gfm';
+import remarkParse from 'remark-parse';
+import remarkRehype from 'remark-rehype';
+import { unified } from 'unified';
+
 import { broadcastEvent, cachePage } from './control-server.js';
 import { loadConfig } from './config.js';
 import { getT, interpolate } from './i18n.js';
 import { fetchWithProxy } from './net.js';
+
+// Markdown → HTML renderer for release notes. Same GFM engine the WebUI uses
+// (react-markdown + remark-gfm share this micromark-based pipeline), so tray
+// dialogs and the WebUI toast render release notes identically — tables,
+// task lists, strikethrough and all. Like react-markdown's defaults, raw HTML
+// is dropped (remark-rehype default) and the output is sanitized.
+const markdownProcessor = unified()
+  .use(remarkParse)
+  .use(remarkGfm)
+  .use(remarkRehype)
+  .use(rehypeSanitize)
+  .use(rehypeStringify);
 
 // ---------------------------------------------------------------------------
 // Version compare + latest.yml parser (verbatim from desktop/src/updater.ts)
@@ -706,7 +725,7 @@ export class AppUpdater {
             releaseUrl: result.release.html_url || '',
             files: result.updateInfo.files?.map((f) => ({ url: f.url, sha512: f.sha512 })) || [],
           };
-          this.showUpdateDialogForTray({
+          await this.showUpdateDialogForTray({
             version: result.latestVersion,
             releaseNotes: result.release.body,
           });
@@ -795,9 +814,12 @@ export class AppUpdater {
   }
 
   /** Update-available dialog with release notes. */
-  private showUpdateDialogForTray(info: { version: string; releaseNotes?: string | null }): void {
+  private async showUpdateDialogForTray(info: {
+    version: string;
+    releaseNotes?: string | null;
+  }): Promise<void> {
     const version = info.version;
-    const notesHtml = this.getReleaseNotesHtml(info.releaseNotes);
+    const notesHtml = await this.getReleaseNotesHtml(info.releaseNotes);
     const isDark = this.isDarkTheme();
 
     const bg = isDark ? '#1e1e2e' : '#ffffff';
@@ -837,6 +859,13 @@ export class AppUpdater {
   .content pre{background:${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'};
                padding:10px 14px;border-radius:6px;overflow-x:auto;margin:8px 0;
                font-size:12px;line-height:1.5}
+  .content img{max-width:100%;border-radius:6px}
+  .content table{border-collapse:collapse;margin:8px 0;font-size:12px;width:100%}
+  .content th,.content td{border:1px solid ${border};padding:5px 10px;text-align:left;vertical-align:top}
+  .content th{background:${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)'};font-weight:600}
+  .content blockquote{margin:6px 0;padding:2px 12px;border-left:3px solid ${border};color:${muted}}
+  .content input[type=checkbox]{margin-right:5px;vertical-align:middle}
+  .content hr{border:none;border-top:1px solid ${border};margin:10px 0}
   .content::-webkit-scrollbar{width:5px}
   .content::-webkit-scrollbar-track{background:transparent}
   .content::-webkit-scrollbar-thumb{background:${scrollThumb};border-radius:3px}
@@ -993,12 +1022,15 @@ export class AppUpdater {
   }
 
   /**
-   * Convert GitHub-flavored Markdown release notes to HTML (verbatim from
-   * desktop/src/updater.ts).
+   * Render GitHub-flavored Markdown release notes to HTML using the same
+   * remark/GFM engine as the WebUI toast (react-markdown + remark-gfm), so
+   * both surfaces display notes identically (tables, task lists, etc.).
+   * Raw HTML is dropped (remark-rehype default, same as react-markdown's
+   * default) and the output is sanitized before serialization.
    */
-  private getReleaseNotesHtml(
+  private async getReleaseNotesHtml(
     notes: string | Array<string | { note: string | null }> | null | undefined,
-  ): string {
+  ): Promise<string> {
     if (!notes) return '';
     const text = Array.isArray(notes)
       ? notes.map((n) => (typeof n === 'string' ? n : (n.note ?? ''))).join('\n')
@@ -1006,65 +1038,24 @@ export class AppUpdater {
     const trimmed = text.trim();
     if (!trimmed) return '';
 
-    if (/<[a-z][\s\S]*>/i.test(trimmed)) {
-      const sanitized = trimmed
-        .replace(/<script[\s\S]*?<\/script>/gi, '')
-        .replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
-        .replace(/<object[\s\S]*?<\/object>/gi, '')
-        .replace(/<embed[\s\S]*?>/gi, '')
-        .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
-        .replace(/\son\w+\s*=\s*'[^']*'/gi, '');
-      return sanitized.length > 3000 ? sanitized.slice(0, 3000) + '…' : sanitized;
+    // Truncate raw markdown the same way the WebUI toast does before rendering
+    const maxLen = 2000;
+    const markdown =
+      trimmed.length > maxLen
+        ? trimmed.slice(0, maxLen).replace(/\n[^\n]*$/, '') + '\n\n…'
+        : trimmed;
+
+    try {
+      return String(await markdownProcessor.process(markdown));
+    } catch (err: unknown) {
+      // Never let a renderer failure blank the dialog — fall back to
+      // escaped plain text with preserved line breaks.
+      const escaped = markdown
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      return `<p>${escaped.replace(/\n/g, '<br>')}</p>`;
     }
-
-    let html = trimmed.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-
-    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_m, _lang, code) => {
-      const escaped = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      return `<pre><code>${escaped}</code></pre>`;
-    });
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-    html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
-    html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-    html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-    html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
-    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '<em>$1</em>');
-    html = html.replace(/___(.+?)___/g, '<strong><em>$1</em></strong>');
-    html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
-    html = html.replace(/(?<!_)_([^_\n]+)_(?!_)/g, '<em>$1</em>');
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
-    html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img alt="$1" src="$2">');
-    html = html.replace(/^[-*_]{3,}\s*$/gm, '<hr>');
-    html = html.replace(/((?:^[-*] .+(?:\n|$))+)/gm, (block) => {
-      const items = block
-        .trim()
-        .split('\n')
-        .map((line) => `<li>${line.replace(/^[-*] /, '')}</li>`)
-        .join('');
-      return `<ul>${items}</ul>`;
-    });
-    html = html.replace(/((?:^\d+\. .+(?:\n|$))+)/gm, (block) => {
-      const items = block
-        .trim()
-        .split('\n')
-        .map((line) => `<li>${line.replace(/^\d+\. /, '')}</li>`)
-        .join('');
-      return `<ol>${items}</ol>`;
-    });
-    const parts = html.split(/\n{2,}/);
-    html = parts
-      .map((part) => {
-        const trimmedPart = part.trim();
-        if (!trimmedPart) return '';
-        if (/^<(h[1-4]|ul|ol|pre|hr|blockquote)/.test(trimmedPart)) return trimmedPart;
-        return `<p>${trimmedPart.replace(/\n/g, '<br>')}</p>`;
-      })
-      .filter(Boolean)
-      .join('');
-
-    return html.length > 3000 ? html.slice(0, 3000) + '…' : html;
   }
 }
 
