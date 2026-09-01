@@ -547,17 +547,48 @@ fi
 
 # ── Termux / Android environment ──
 unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY 2>/dev/null || true
-if [ -n "\${ANDROID_ROOT:-}" ] || [ -n "\${PREFIX:-}" ]; then
+# ANDROID_ROOT is not always set on Termux; the runtime service environment
+# (runit run script) does not export PREFIX either, so detect the device by
+# its well-known directory too.
+is_termux() { [ -d /data/data/com.termux ] || [ -n "\${PREFIX:-}" ]; }
+if is_termux; then
   export ANDROID_NDK_HOME="\${PREFIX:-/data/data/com.termux/files/usr}"
   export npm_config_nodedir="\${PREFIX:-/data/data/com.termux/files/usr}"
+  # sharp has no prebuilt binary for Termux and its source build (needs
+  # libvips + node-addon-api) fails, aborting the whole pnpm install.
+  # Drop sharp from the build allow-list on the device (pnpm 11 allowBuilds
+  # map / pnpm 10 onlyBuiltDependencies list / .npmrc array entries). It is
+  # optional at runtime (nut-js screenshots degrade gracefully) — same
+  # workaround as scripts/deploy-termux.sh.
+  sed -i '/sharp/d' pnpm-workspace.yaml 2>/dev/null || true
+  sed -i '/sharp/d' .npmrc 2>/dev/null || true
 fi
 
 # ── Install dependencies ──
 write_status "installing" "" 30
-${hasPnpm ? 'pnpm install' : 'npm install'} 2>&1 || { write_status "error" "pnpm install failed" 30; exit 1; }
+# Keep the install log for post-mortem debugging (data/update-install.log).
+# Over a detached script there is no TTY; when pnpm decides the existing
+# modules dir (e.g. an older pnpm layout) must be purged it can abort with
+# ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY. In that case wipe node_modules
+# and reinstall from scratch (the pnpm store cache keeps this fast); other
+# failures are reported as-is.
+INSTALL_LOG="data/update-install.log"
+if ! ${hasPnpm ? 'pnpm install' : 'npm install'} > "\$INSTALL_LOG" 2>&1; then
+  if grep -q "NO_TTY" "\$INSTALL_LOG" 2>/dev/null; then
+    rm -rf node_modules
+    if ! ${hasPnpm ? 'pnpm install' : 'npm install'} > "\$INSTALL_LOG" 2>&1; then
+      write_status "error" "pnpm install failed" 30
+      exit 1
+    fi
+  else
+    write_status "error" "pnpm install failed" 30
+    exit 1
+  fi
+fi
+rm -f "\$INSTALL_LOG"
 
 # ── Rebuild better-sqlite3 if on Android ──
-if [ -n "\${ANDROID_ROOT:-}" ]; then
+if is_termux; then
   if [ -z "$(find node_modules -name better_sqlite3.node -path '*/better-sqlite3/*' 2>/dev/null | head -1)" ]; then
     write_status "installing" "" 40
     pnpm rebuild better-sqlite3 2>&1 || true
@@ -571,13 +602,22 @@ pnpm build 2>&1 || { write_status "error" "pnpm build failed" 60; exit 1; }
 # ── Build WebUI ──
 write_status "building_ui" "" 80
 if [ -f ui/package.json ]; then
-  cd ui && pnpm install 2>&1 && pnpm build 2>&1 && cd ..
+  (
+    cd ui || exit 1
+    # Same no-TTY purge fallback as the root install above.
+    if ! pnpm install > ../data/update-ui-install.log 2>&1; then
+      if grep -q "NO_TTY" ../data/update-ui-install.log 2>/dev/null; then
+        rm -rf node_modules
+        pnpm install >> ../data/update-ui-install.log 2>&1 || exit 1
+      else
+        exit 1
+      fi
+    fi
+    rm -f ../data/update-ui-install.log
+    pnpm build 2>&1
+  ) || { write_status "error" "WebUI build failed" 80; exit 1; }
 else
-  pnpm build:ui 2>&1
-fi
-if [ $? -ne 0 ]; then
-  write_status "error" "WebUI build failed" 80
-  exit 1
+  pnpm build:ui 2>&1 || { write_status "error" "WebUI build failed" 80; exit 1; }
 fi
 
 # ── Restart service ──
