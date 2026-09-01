@@ -1525,10 +1525,18 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
             menu; the agent menu lists configured agents (default: the
             session project's default agent) and the model menu lists models
             from configured builtin/custom providers (default: the selected
-            agent's primary model). Selections travel in the POST body. */}
-        <div ref={selectorRef} className="absolute bottom-1.5 left-9 flex items-center gap-1">
+            agent's primary model). Selections travel in the POST body.
+
+            The row is capped to leave room for the right-side corner buttons
+            (attach + send, ~6rem from the right edge). When the model ref is
+            too long to fit, the flex row shrinks the model button (the agent
+            button never shrinks) and the ref text truncates instead of
+            overlapping the attachment button — auto-width is preserved for
+            short names. Mobile uses tighter left offset/gap to keep the
+            three pills visually adjacent. */}
+        <div ref={selectorRef} className="absolute bottom-1.5 left-8 flex max-w-[calc(100%-6rem)] items-center gap-0.5 sm:left-9 sm:gap-1">
           {/* Agent selector */}
-          <div className="relative">
+          <div className="relative shrink-0">
             <button
               type="button"
               onMouseDown={e => e.preventDefault()}
@@ -1577,8 +1585,10 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
             )}
           </div>
 
-          {/* Model selector */}
-          <div className="relative">
+          {/* Model selector — min-w-0 lets the flex row shrink this pill
+              (never the agent pill) when the combined width would reach the
+              right-side corner buttons; the ref text truncates. */}
+          <div className="relative min-w-0">
             <button
               type="button"
               onMouseDown={e => e.preventDefault()}
@@ -1586,10 +1596,10 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
               disabled={!projectId || (!sessionId && !onQuickStart) || modelGroups.length === 0}
               aria-label={t('chat.input.modelSelector')}
               title={t('chat.input.modelSelector')}
-              className="inline-flex h-6 max-w-[60vw] items-center gap-1 rounded-full border border-transparent px-2 text-[11px] font-medium text-neutral-500 transition-colors hover:bg-neutral-200 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200 sm:max-w-none"
+              className="inline-flex h-6 min-w-0 max-w-full items-center gap-1 rounded-full border border-transparent px-2 text-[11px] font-medium text-neutral-500 transition-colors hover:bg-neutral-200 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
             >
               <Brain size={12} className="shrink-0" />
-              <span className="whitespace-nowrap">{effectiveModel ?? t('chat.input.modelDefault')}</span>
+              <span className="min-w-0 truncate">{effectiveModel ?? t('chat.input.modelDefault')}</span>
               <ChevronDown size={11} className="shrink-0 opacity-60" />
             </button>
             {modelMenuOpen && (
