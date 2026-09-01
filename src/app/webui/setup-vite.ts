@@ -72,7 +72,12 @@ export async function setupWebUIMiddleware(options: {
       const sendIndexHtml = async (reqUrl: string, reply: any) => {
         const raw = readFileSync(indexHtmlPath, 'utf-8');
         const transformed = await viteDevServer!.transformIndexHtml(reqUrl, raw);
-        return reply.type('text/html').send(transformed);
+        // no-cache (must revalidate) so Safari/iOS doesn't serve stale HTML
+        // after source changes — the desktop browser hides this problem.
+        return reply
+          .type('text/html')
+          .header('Cache-Control', 'no-cache')
+          .send(transformed);
       };
 
       server.get('/webui', (_, reply) => sendIndexHtml('/webui', reply));
@@ -132,6 +137,15 @@ export async function setupWebUIMiddleware(options: {
       root: uiDist,
       prefix: '/webui/',
       wildcard: false,
+      // Entry HTML must always revalidate (Safari aggressively caches it);
+      // Vite-emitted assets have content hashes, so they can be immutable.
+      setHeaders: (res, pathString) => {
+        if (pathString.endsWith('.html')) {
+          res.setHeader('Cache-Control', 'no-cache');
+        } else if (pathString.includes(`${path.sep}assets${path.sep}`)) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        }
+      },
     });
 
     // SPA fallback: serve index.html for /webui/* routes not matching a static file

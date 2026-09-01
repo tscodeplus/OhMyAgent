@@ -75,7 +75,7 @@ export default function ModelSettings({ tabId = 'models', registerHandle, onDirt
   const { config, loading, getField, setField, save: saveSimple, cancel: cancelSimple, fetchConfig, dirtyCount, dirtyPaths } = useConfigDirty(tabId, undefined, undefined);
 
   /* ─── Sub-tab state ─── */
-  const [activeSubTab, setActiveSubTab] = useState<ModelSubTab>((initialSubTab as ModelSubTab) || 'subscription');
+  const [activeSubTab, setActiveSubTab] = useState<ModelSubTab>((initialSubTab as ModelSubTab) || 'providers');
 
   useEffect(() => {
     if (initialSubTab) setActiveSubTab(initialSubTab as ModelSubTab);
