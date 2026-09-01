@@ -791,14 +791,14 @@ function MessageBubble({ message }: MessageBubbleProps) {
             unknown: 'chat.errorUnknown',
           };
           return (
-            <div className="mt-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-400">
+            <div className="mt-1.5 rounded-lg border border-neutral-200 px-3 py-2 text-xs text-red-600/80 dark:border-neutral-700/60 dark:text-red-400/80">
               <span className="font-medium">⚠️ {t('chat.error')}：</span>
               <span className="break-all">{t(kindKey[err.kind])}</span>
               {err.failedModels && err.failedModels.length > 0 && (
                 <span className="ml-1 opacity-80">（{err.failedModels.join(' → ')}）</span>
               )}
               {err.rawError && (
-                <details className="mt-1">
+                <details className="mt-1 text-neutral-500 dark:text-neutral-400">
                   <summary className="cursor-pointer select-none opacity-70 hover:opacity-100">
                     {t('chat.errorDetail')}
                   </summary>

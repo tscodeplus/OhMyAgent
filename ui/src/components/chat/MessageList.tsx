@@ -415,8 +415,8 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
             Inline row: icon pinned to the first text line ((20px line-height
             − 14px icon) / 2 = 3px), hanging indent when the text wraps. */}
         {retryStatus && (
-          <div className="flex items-start gap-2 px-1 text-sm text-amber-600 dark:text-amber-400">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="mt-[3px] shrink-0"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+          <div className="flex items-start gap-2 px-1 text-sm text-neutral-500 dark:text-neutral-400">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="mt-[3px] shrink-0 text-amber-600 dark:text-amber-400"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
             <span className="min-w-0">{retryStatus}</span>
           </div>
         )}
