@@ -1,6 +1,6 @@
 {
   "name": "ohmyagent-desktop",
-  "version": "3.2.0",
+  "version": "3.2.1",
   "description": "OhMyAgent Desktop — Tauri shell for local and remote Agent Gateway",
   "homepage": "https://github.com/tscodeplus/OhMyAgent",
   "author": "tscodeplus",
