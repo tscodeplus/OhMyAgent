@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router-dom';
-import { Send, Paperclip, X, Loader2, Bot, Square, ChevronDown, Check } from 'lucide-react';
+import { Send, Paperclip, X, Loader2, Bot, Square, ChevronDown, Check, Brain } from 'lucide-react';
 import { createSSEClient, type SSEEvent } from '../../utils/sse-client';
 import { apiRequest, getToken } from '../../utils/api';
 import { devLog } from '../../utils/logger';
@@ -189,7 +189,15 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
             return { provider: p.id, models: [] };
           }
         }));
-        if (!cancelled) setModelGroups(groups.filter(g => g.models.length > 0));
+        // Sort providers A-Z, and each provider's models A-Z (by display name).
+        const sorted = groups
+          .filter(g => g.models.length > 0)
+          .sort((a, b) => a.provider.localeCompare(b.provider, undefined, { sensitivity: 'base' }))
+          .map(g => ({
+            ...g,
+            models: [...g.models].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true })),
+          }));
+        if (!cancelled) setModelGroups(sorted);
       })
       .catch(() => { if (!cancelled) setModelGroups([]); });
     return () => { cancelled = true; };
@@ -1527,7 +1535,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
               title={t('chat.input.modelSelector')}
               className="inline-flex h-6 max-w-[60vw] items-center gap-1 rounded-full border border-transparent px-2 text-[11px] font-medium text-neutral-500 transition-colors hover:bg-neutral-200 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200 sm:max-w-none"
             >
-              <span className="shrink-0 text-[11px] leading-none grayscale">🧠</span>
+              <Brain size={12} className="shrink-0" />
               <span className="whitespace-nowrap">{effectiveModel ?? t('chat.input.modelDefault')}</span>
               <ChevronDown size={11} className="shrink-0 opacity-60" />
             </button>
