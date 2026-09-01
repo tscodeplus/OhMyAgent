@@ -370,6 +370,9 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
     lastSseEventRef.current = Date.now();
     autoSentRef.current = false;
     setSending(false);
+    // A mid-retry status line belongs to the old session's stream — don't
+    // let it bleed into the newly selected session.
+    onRetryStatusChange?.(null);
   }, [sessionId]);
 
   /** Start a fresh turn — new assistant message bubble for this response. */
