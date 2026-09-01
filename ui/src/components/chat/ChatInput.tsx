@@ -1620,8 +1620,11 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
 
           {/* Send button — circular when active (blue background). While the
               agent is running it turns into a stop button (bigger square icon,
-              same active-blue background); clicking stops the agent. */}
-          {sending && sessionId ? (
+              same active-blue background); clicking stops the agent. But if
+              the user has typed new content (or attached files) while the
+              agent is running, show the send button instead — sending then
+              routes through steer, not abort. */}
+          {sending && sessionId && !hasInput && !hasDoneFiles ? (
             <button
               onClick={() => sendMessage('/stop')}
               className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-blue-500 text-white transition-colors hover:bg-blue-600 dark:bg-blue-400 dark:hover:bg-blue-500"
@@ -1636,11 +1639,11 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
                 const text = textareaRef.current?.value.trim() || input.trim();
                 if (text || hasDoneFiles) {
                   handleSend();
-                } else if (sessionId) {
+                } else if (sessionId && !sending) {
                   sendMessage('/stop');
                 }
               }}
-              disabled={(!hasInput && !hasDoneFiles && !sending) || !projectId || hasUploading || (!sessionId && !onQuickStart)}
+              disabled={(!hasInput && !hasDoneFiles) || !projectId || hasUploading || (!sessionId && !onQuickStart)}
               className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
                 hasInput || hasDoneFiles
                   ? 'border-blue-500 bg-blue-500 text-white hover:border-blue-600 hover:bg-blue-600 dark:border-blue-400 dark:bg-blue-400 dark:hover:border-blue-500 dark:hover:bg-blue-500'
