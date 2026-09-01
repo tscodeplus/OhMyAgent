@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router-dom';
-import { Send, Paperclip, X, Loader2, Bot, Square, ChevronDown, Check, Cpu } from 'lucide-react';
+import { Send, Paperclip, X, Loader2, Bot, Square, ChevronDown, Check } from 'lucide-react';
 import { createSSEClient, type SSEEvent } from '../../utils/sse-client';
 import { apiRequest, getToken } from '../../utils/api';
 import { devLog } from '../../utils/logger';
@@ -213,6 +213,43 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
     setSelectedModel(ref);
     setModelMenuOpen(false);
   }, []);
+
+  // Model menu keyword search: filters the provider/model list while typing
+  // (case-insensitive match on provider, model id, or display name).
+  const [modelSearch, setModelSearch] = useState('');
+  const modelSearchRef = useRef<HTMLInputElement>(null);
+  const filteredModelGroups = useMemo(() => {
+    const q = modelSearch.trim().toLowerCase();
+    if (!q) return modelGroups;
+    return modelGroups
+      .map(g => ({
+        provider: g.provider,
+        models: g.models.filter(
+          m =>
+            m.id.toLowerCase().includes(q) ||
+            m.name.toLowerCase().includes(q) ||
+            g.provider.toLowerCase().includes(q),
+        ),
+      }))
+      .filter(g => g.models.length > 0);
+  }, [modelGroups, modelSearch]);
+  /** First match in filtered order — selected by Enter in the search box. */
+  const firstFilteredModelRef = useMemo(() => {
+    for (const g of filteredModelGroups) {
+      for (const m of g.models) {
+        return `${g.provider}/${m.id}`;
+      }
+    }
+    return null;
+  }, [filteredModelGroups]);
+
+  // Fresh search on every menu open; focus the search box for typing.
+  useEffect(() => {
+    if (modelMenuOpen) {
+      setModelSearch('');
+      requestAnimationFrame(() => modelSearchRef.current?.focus());
+    }
+  }, [modelMenuOpen]);
 
   // Close either selector when clicking outside it.
   useEffect(() => {
@@ -1488,15 +1525,41 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
               disabled={!projectId || (!sessionId && !onQuickStart) || modelGroups.length === 0}
               aria-label={t('chat.input.modelSelector')}
               title={t('chat.input.modelSelector')}
-              className="inline-flex h-6 max-w-[150px] items-center gap-1 rounded-full border border-transparent px-2 text-[11px] font-medium text-neutral-500 transition-colors hover:bg-neutral-200 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200 sm:max-w-[190px]"
+              className="inline-flex h-6 max-w-[60vw] items-center gap-1 rounded-full border border-transparent px-2 text-[11px] font-medium text-neutral-500 transition-colors hover:bg-neutral-200 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200 sm:max-w-none"
             >
-              <Cpu size={12} className="shrink-0" />
-              <span className="truncate">{effectiveModel ?? t('chat.input.modelDefault')}</span>
+              <span className="shrink-0 text-[11px] leading-none">🧠</span>
+              <span className="whitespace-nowrap">{effectiveModel ?? t('chat.input.modelDefault')}</span>
               <ChevronDown size={11} className="shrink-0 opacity-60" />
             </button>
             {modelMenuOpen && (
-              <div className="absolute bottom-full left-0 z-30 mb-2 max-h-72 w-64 overflow-y-auto rounded-xl border border-neutral-200 bg-white py-1 shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
-                {modelGroups.map(g => (
+              <div className="absolute bottom-full left-0 z-30 mb-2 max-h-72 w-64 overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
+                {/* Keyword search — filters the model list as you type */}
+                <div className="sticky top-0 z-10 bg-white px-2 pb-1.5 pt-1.5 dark:bg-neutral-900">
+                  <input
+                    ref={modelSearchRef}
+                    type="text"
+                    value={modelSearch}
+                    onChange={e => setModelSearch(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && firstFilteredModelRef) {
+                        e.preventDefault();
+                        handleSelectModel(firstFilteredModelRef);
+                      } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        setModelMenuOpen(false);
+                      }
+                    }}
+                    placeholder={t('chat.input.modelSearch')}
+                    className="w-full rounded-md border border-neutral-300 bg-neutral-50 px-2 py-1 text-xs text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-neutral-600"
+                  />
+                </div>
+                <div className="max-h-56 overflow-y-auto">
+                {filteredModelGroups.length === 0 && (
+                  <div className="px-3 py-2 text-xs text-neutral-400 dark:text-neutral-500">
+                    {t('chat.input.modelSearchNoMatch')}
+                  </div>
+                )}
+                {filteredModelGroups.map(g => (
                   <div key={g.provider}>
                     <div className="px-3 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
                       {g.provider}
@@ -1520,6 +1583,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
                     })}
                   </div>
                 ))}
+                </div>
               </div>
             )}
           </div>
@@ -1541,6 +1605,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
                 : 'border-transparent text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-700 dark:hover:text-neutral-200'
             }`}
             aria-label={t('chat.input.attachFiles')}
+            title={t('chat.input.attachFiles')}
           >
             <Paperclip size={16} />
           </button>

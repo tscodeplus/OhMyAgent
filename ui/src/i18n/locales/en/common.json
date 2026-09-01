@@ -50,7 +50,9 @@
       "agentMenuHeader": "Agents",
       "agentDefault": "Agent",
       "modelSelector": "Model",
-      "modelDefault": "Model"
+      "modelDefault": "Model",
+      "modelSearch": "Search models…",
+      "modelSearchNoMatch": "No matching model"
     },
     "thinking": "Thinking",
     "backToBottom": "Back to bottom",
