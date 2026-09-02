@@ -227,56 +227,57 @@ export class ReplyDispatcher {
         },
       });
 
-      // Build a standalone interactive card (v1.0 format for msg_type:interactive)
+      // Build a standalone interactive card (Feishu card JSON 2.0). The
+      // markdown elements are already 2.0-native; buttons are wrapped into
+      // column_set rows since 2.0 dropped the 1.0 `action` container.
+      const harnessButtons = [
+        { text: i18n.t('harness:card.approveAndApply'), type: 'primary', action: 'approve' },
+        { text: i18n.t('harness:actions.editApply'), type: 'default', action: 'edit' },
+        { text: i18n.t('harness:card.rejectEmoji'), type: 'danger', action: 'reject' },
+        { text: i18n.t('harness:card.ignoreText'), type: 'default', action: 'dismiss' },
+      ].map(({ text, type, action }) => ({
+        tag: 'button',
+        text: { tag: 'plain_text', content: text },
+        type,
+        value: { proposalId: prompt.id, action },
+        behaviors: [{ type: 'callback', value: { proposalId: prompt.id, action } }],
+      }));
+      const buttonRows: Record<string, unknown>[] = [];
+      for (let i = 0; i < harnessButtons.length; i += 2) {
+        buttonRows.push({
+          tag: 'column_set',
+          flex_mode: 'bisect',
+          horizontal_spacing: '8px',
+          columns: harnessButtons.slice(i, i + 2).map((button) => ({
+            tag: 'column',
+            width: 'auto',
+            elements: [button],
+          })),
+        });
+      }
       const card: Record<string, unknown> = {
-        config: { wide_screen_mode: true },
+        schema: '2.0',
         header: {
           title: { tag: 'plain_text', content: i18n.t('harness:card.title') },
           template: 'wathet',
         },
-        elements: [
-          {
-            tag: 'markdown',
-            content: `**${i18n.t('harness:card.problem')}**：${prompt.failureSummary}`,
-          },
-          { tag: 'hr' },
-          { tag: 'markdown', content: prompt.detail.slice(0, 500) },
-          { tag: 'hr' },
-          {
-            tag: 'markdown',
-            content: `**${i18n.t('harness:card.scope')}**：${prompt.impact.scope}\n**${i18n.t('harness:card.riskLevel')}**：${prompt.impact.riskLevel}\n**${i18n.t('harness:card.expectedEffect')}**：${prompt.impact.expectedEffect}`,
-          },
-          { tag: 'hr' },
-          {
-            tag: 'action',
-            actions: [
-              {
-                tag: 'button',
-                text: { tag: 'plain_text', content: i18n.t('harness:card.approveAndApply') },
-                type: 'primary',
-                value: { proposalId: prompt.id, action: 'approve' },
-              },
-              {
-                tag: 'button',
-                text: { tag: 'plain_text', content: i18n.t('harness:actions.editApply') },
-                type: 'default',
-                value: { proposalId: prompt.id, action: 'edit' },
-              },
-              {
-                tag: 'button',
-                text: { tag: 'plain_text', content: i18n.t('harness:card.rejectEmoji') },
-                type: 'danger',
-                value: { proposalId: prompt.id, action: 'reject' },
-              },
-              {
-                tag: 'button',
-                text: { tag: 'plain_text', content: i18n.t('harness:card.ignoreText') },
-                type: 'default',
-                value: { proposalId: prompt.id, action: 'dismiss' },
-              },
-            ],
-          },
-        ],
+        body: {
+          elements: [
+            {
+              tag: 'markdown',
+              content: `**${i18n.t('harness:card.problem')}**：${prompt.failureSummary}`,
+            },
+            { tag: 'hr' },
+            { tag: 'markdown', content: prompt.detail.slice(0, 500) },
+            { tag: 'hr' },
+            {
+              tag: 'markdown',
+              content: `**${i18n.t('harness:card.scope')}**：${prompt.impact.scope}\n**${i18n.t('harness:card.riskLevel')}**：${prompt.impact.riskLevel}\n**${i18n.t('harness:card.expectedEffect')}**：${prompt.impact.expectedEffect}`,
+            },
+            { tag: 'hr' },
+            ...buttonRows,
+          ],
+        },
       };
 
       // Send the card via feishuClient.sendMessage (msg_type: interactive)

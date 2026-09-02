@@ -21,6 +21,7 @@ import type {
   UserQuestionSender,
   UserQuestionOption,
 } from '../../../src/agent/user-question-port.js';
+import { buildCard20, button20, buttonRow20 } from './card20.js';
 
 export interface FeishuUserQuestionDeps {
   /** Send an interactive card and return its message_id. */
@@ -41,63 +42,41 @@ export function createFeishuUserQuestionSender(deps: FeishuUserQuestionDeps): Us
 
       // Question text
       elements.push({
-        tag: 'div',
-        text: {
-          tag: 'lark_md',
-          content: `**${question}**`,
-        },
+        tag: 'markdown',
+        content: `**${question}**`,
       });
 
       if (options && options.length > 0) {
         // Hint for free-text input
         elements.push({
-          tag: 'div',
-          text: {
-            tag: 'lark_md',
-            content: '_你也可以直接回复文字回答_',
-          },
+          tag: 'markdown',
+          content: '_你也可以直接回复文字回答_',
         });
         elements.push({ tag: 'hr' });
 
-        // Action buttons — one per option
+        // Action buttons — one per option.
         // Use the human-readable label as the answer value so the result
         // card shows "你的回答: 中餐" instead of "你的回答: opt_0".
-        const actions: Record<string, unknown>[] = options.map((opt) => ({
-          tag: 'button',
-          text: { tag: 'plain_text', content: opt.label },
-          type: 'primary',
-          value: {
-            action: 'answer_question',
-            requestId,
-            answer: opt.label,
-          },
-        }));
-
-        elements.push({
-          tag: 'action',
-          actions,
-        });
+        elements.push(
+          ...buttonRow20(
+            options.map((opt) =>
+              button20(opt.label, 'primary', {
+                action: 'answer_question',
+                requestId,
+                answer: opt.label,
+              }),
+            ),
+          ),
+        );
       } else {
         // No options — hint for text reply
         elements.push({
-          tag: 'div',
-          text: {
-            tag: 'lark_md',
-            content: '_请直接回复你的回答_',
-          },
+          tag: 'markdown',
+          content: '_请直接回复你的回答_',
         });
       }
 
-      const card = {
-        header: {
-          title: {
-            tag: 'plain_text',
-            content: '🤔 需要你的回答',
-          },
-          template: 'blue',
-        },
-        elements,
-      };
+      const card = buildCard20('🤔 需要你的回答', 'blue', elements);
 
       try {
         const messageId = await deps.sendCard(chatId, card);
@@ -118,21 +97,12 @@ export function createFeishuUserQuestionSender(deps: FeishuUserQuestionDeps): Us
       // If the user clicked a button, ws-card-action-handler already replaced
       // the card — this update is redundant but harmless. If the user typed
       // a text answer, this is the only UI update.
-      const resultCard = {
-        header: {
-          title: { tag: 'plain_text', content: '✅ 回答已收到' },
-          template: 'green' as const,
+      const resultCard = buildCard20('✅ 回答已收到', 'green', [
+        {
+          tag: 'markdown',
+          content: `**你的回答**: ${String(answer)}`,
         },
-        elements: [
-          {
-            tag: 'div',
-            text: {
-              tag: 'lark_md',
-              content: `**你的回答**: ${String(answer)}`,
-            },
-          },
-        ],
-      };
+      ]);
 
       try {
         await deps.updateCard(cardMessageId, resultCard);

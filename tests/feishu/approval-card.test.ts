@@ -7,6 +7,32 @@ import {
 } from '../../extensions/channel-feishu/render/approval-card-renderer.js';
 import type { ApprovalRequest } from '../../extensions/channel-feishu/render/approval-card-renderer.js';
 
+// ─── 2.0 structure helpers ───
+
+/** Recursively collect every `button` element from a JSON 2.0 card body. */
+function findButtons(node: unknown): Array<Record<string, unknown>> {
+  const found: Array<Record<string, unknown>> = [];
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(walk);
+      return;
+    }
+    if (value && typeof value === 'object') {
+      const obj = value as Record<string, unknown>;
+      if (obj.tag === 'button') found.push(obj);
+      Object.values(obj).forEach(walk);
+    }
+  };
+  walk(node);
+  return found;
+}
+
+function bodyElements(card: Record<string, unknown>): Array<Record<string, unknown>> {
+  const body = card.body as Record<string, unknown>;
+  return body.elements as Array<Record<string, unknown>>;
+}
+
+
 // ─── renderApprovalCard ───
 
 describe('renderApprovalCard', () => {
@@ -21,9 +47,10 @@ describe('renderApprovalCard', () => {
   it('returns a valid Feishu interactive card structure', () => {
     const card = renderApprovalCard(baseRequest) as Record<string, unknown>;
 
-    expect(card.config).toEqual({ wide_screen_mode: true });
+    expect(card.schema).toBe('2.0');
     expect(card.header).toBeDefined();
-    expect(card.elements).toBeInstanceOf(Array);
+    expect(card.config).toBeUndefined();
+    expect(bodyElements(card)).toBeInstanceOf(Array);
   });
 
   it('sets header title to "Shell Command Approval"', () => {
@@ -37,47 +64,47 @@ describe('renderApprovalCard', () => {
 
   it('includes the command in the card body', () => {
     const card = renderApprovalCard(baseRequest) as Record<string, unknown>;
-    const elements = card.elements as Array<Record<string, unknown>>;
+    const elements = bodyElements(card);
     const firstEl = elements[0] as Record<string, unknown>;
-    const text = firstEl.text as Record<string, unknown>;
 
-    expect(text.content).toContain('adb shell ls');
+    expect(firstEl.tag).toBe('markdown');
+    expect(firstEl.content).toContain('adb shell ls');
   });
 
   it('includes description when provided', () => {
     const req: ApprovalRequest = { ...baseRequest, description: 'List files' };
     const card = renderApprovalCard(req) as Record<string, unknown>;
-    const elements = card.elements as Array<Record<string, unknown>>;
+    const elements = bodyElements(card);
     const descEl = elements[2] as Record<string, unknown>; // index 2 after command + risk
-    const text = descEl.text as Record<string, unknown>;
 
-    expect(text.content).toContain('List files');
+    expect(descEl.tag).toBe('markdown');
+    expect(descEl.content).toContain('List files');
   });
 
   it('omits description element when not provided', () => {
     const card = renderApprovalCard(baseRequest) as Record<string, unknown>;
-    const elements = card.elements as Array<Record<string, unknown>>;
+    const elements = bodyElements(card);
 
-    // Should have: div(command), div(risk), hr, action = 4
-    // (no description div)
-    expect(elements).toHaveLength(4);
+    // Should have: markdown(command), markdown(risk), hr, 2 button column_set rows
+    // (no description element)
+    expect(elements).toHaveLength(5);
   });
 
   it('contains four action buttons with correct values', () => {
     const card = renderApprovalCard(baseRequest) as Record<string, unknown>;
-    const elements = card.elements as Array<Record<string, unknown>>;
-    const actionEl = elements[elements.length - 1] as Record<string, unknown>;
-    const actions = actionEl.actions as Array<Record<string, unknown>>;
+    const buttons = findButtons(bodyElements(card));
 
-    expect(actions).toHaveLength(4);
+    expect(buttons).toHaveLength(4);
 
     const expectedActions = ['approve_once', 'approve_session', 'approve_always', 'reject_once'];
 
     for (let i = 0; i < expectedActions.length; i++) {
-      const btn = actions[i] as Record<string, unknown>;
-      const value = btn.value as Record<string, unknown>;
+      const value = buttons[i].value as Record<string, unknown>;
       expect(value.action).toBe(expectedActions[i]);
       expect(value.requestId).toBe('req-001');
+      // 2.0 callbacks: behaviors must mirror the legacy value.
+      const behaviors = buttons[i].behaviors as Array<Record<string, unknown>>;
+      expect(behaviors[0]).toMatchObject({ type: 'callback', value });
     }
   });
 });
@@ -135,17 +162,16 @@ describe('renderApprovalQueueCard', () => {
     const header = card.header as Record<string, unknown>;
     expect((header.title as Record<string, unknown>).content).toBe('Reply Approval Queue');
 
-    const elements = card.elements as Array<Record<string, unknown>>;
-    const summary = elements[0]?.text as Record<string, unknown>;
+    const elements = bodyElements(card);
+    const summary = elements[0] as Record<string, unknown>;
+    expect(summary.tag).toBe('markdown');
     expect(summary.content).toBe(i18n.t('feishu-cards:overview.summary', { total: 2, pending: 1 }));
     expect(elements.some((element) => element.tag === 'hr')).toBe(true);
 
-    const actionEl = elements.find((element) => element.tag === 'action');
-    expect(actionEl).toBeDefined();
-    const actions = actionEl?.actions as Array<Record<string, unknown>>;
-    expect(actions[0]?.value).toMatchObject({ requestId: 'req-2', action: 'approve_once' });
+    const buttons = findButtons(elements);
+    expect(buttons[0]?.value).toMatchObject({ requestId: 'req-2', action: 'approve_once' });
 
-    const historyEl = elements[elements.length - 1]?.text as Record<string, unknown>;
+    const historyEl = elements[elements.length - 1] as Record<string, unknown>;
     expect(historyEl.content).toContain('adb shell screencap');
     expect(historyEl.content).toContain('adb pull');
   });
@@ -192,20 +218,17 @@ describe('renderApprovalQueueCard', () => {
     );
     expect(header.template).toBe('green');
 
-    const elements = card.elements as Array<Record<string, unknown>>;
-    const actionEls = elements.filter((element) => element.tag === 'action');
-    expect(actionEls).toHaveLength(0);
+    const elements = bodyElements(card);
+    expect(findButtons(elements)).toHaveLength(0);
 
-    const statusEl = elements.find((element) => {
-      const text = element.text as Record<string, unknown> | undefined;
-      return (
-        typeof text?.content === 'string' &&
-        text.content.includes(i18n.t('feishu-cards:overview.allDone'))
-      );
-    });
+    const statusEl = elements.find(
+      (element) =>
+        typeof element.content === 'string' &&
+        element.content.includes(i18n.t('feishu-cards:overview.allDone')),
+    );
     expect(statusEl).toBeDefined();
 
-    const historyEl = elements[elements.length - 1]?.text as Record<string, unknown>;
+    const historyEl = elements[elements.length - 1] as Record<string, unknown>;
     expect(historyEl.content).toContain(i18n.t('feishu-cards:status.approvedOnce'));
     expect(historyEl.content).toContain(i18n.t('feishu-cards:status.rejectedOnce'));
     expect(historyEl.content).toContain(i18n.t('feishu-cards:status.rejectedAlways'));
@@ -253,16 +276,11 @@ describe('renderApprovalQueueCard', () => {
       { expanded: true, initialVisibleCount: 3 },
     ) as Record<string, unknown>;
 
-    const elements = card.elements as Array<Record<string, unknown>>;
-    const actionEl = elements.find(
-      (element) =>
-        element.tag === 'action' &&
-        Array.isArray(element.actions) &&
-        (element.actions as Array<Record<string, unknown>>)[0]?.value &&
-        ((element.actions as Array<Record<string, unknown>>)[0]?.value as Record<string, unknown>)
-          .action === 'collapse_history',
+    const elements = bodyElements(card);
+    const collapseButton = findButtons(elements).find(
+      (button) => (button.value as Record<string, unknown>).action === 'collapse_history',
     );
-    expect(actionEl).toBeDefined();
+    expect(collapseButton).toBeDefined();
   });
 });
 

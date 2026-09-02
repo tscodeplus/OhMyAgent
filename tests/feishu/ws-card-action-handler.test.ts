@@ -205,15 +205,20 @@ describe('createWSCardActionHandler — harness improvement (task failure analys
 
     // Proposal stays pending until the form is submitted.
     expect(harnessApprovalRegistry.has('prop-1')).toBe(true);
-    const card = (result as { card?: { data: { elements: Array<Record<string, any>> } } }).card;
+    const card = (
+      result as { card?: { data: { body: { elements: Array<Record<string, any>> } } } }
+    ).card;
     expect(card).toBeDefined();
-    const form = card!.data.elements.find((el) => el.tag === 'form');
+    expect(card!.data.schema).toBe('2.0');
+    const form = card!.data.body.elements.find((el) => el.tag === 'form');
     expect(form).toBeDefined();
     const input = form.elements.find((el) => el.tag === 'input');
     expect(input.name).toBe('editedValue');
     expect(input.default_value).toBe('current skill content');
+    // JSON 2.0 gives the edit input multiline support.
+    expect(input.input_type).toBe('multiline_text');
     const submit = form.elements.find((el) => el.tag === 'button');
-    expect(submit.action_type).toBe('form_submit');
+    expect(submit.form_action_type).toBe('submit');
     expect(submit.value).toEqual({ proposalId: 'prop-1', action: 'edit_submit' });
   });
 

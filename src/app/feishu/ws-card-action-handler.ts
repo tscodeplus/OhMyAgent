@@ -13,6 +13,7 @@ import {
   renderHarnessEditCard,
   renderHarnessResultCard,
 } from '../../../extensions/channel-feishu/render/approval-card-renderer.js';
+import { buildCard20 } from '../../../extensions/channel-feishu/render/card20.js';
 import type { AgentFactory } from '../../agent/agent-factory.js';
 import type { ApprovalDecisionType } from '../types.js';
 import type { ApprovalDecisionRepository } from '../../memory/repositories/approval-decision-repository.js';
@@ -129,10 +130,9 @@ export function createWSCardActionHandler(opts: WSCardActionHandlerOptions): (
           toast: { type: 'info', content: i18n.t('bootstrap:toast.alreadyHandled') },
           card: {
             type: 'raw',
-            data: {
-              header: { title: { tag: 'plain_text', content: '✅ 已回答' }, template: 'green' },
-              elements: [{ tag: 'div', text: { tag: 'lark_md', content: '你的回答已收到。' } }],
-            },
+            data: buildCard20('✅ 已回答', 'green', [
+              { tag: 'markdown', content: '你的回答已收到。' },
+            ]),
           },
         };
       }
@@ -140,15 +140,9 @@ export function createWSCardActionHandler(opts: WSCardActionHandlerOptions): (
         toast: { type: 'success', content: '回答已提交' },
         card: {
           type: 'raw',
-          data: {
-            header: { title: { tag: 'plain_text', content: '✅ 回答已收到' }, template: 'green' },
-            elements: [
-              {
-                tag: 'div',
-                text: { tag: 'lark_md', content: `**你的回答**: ${String(value.answer)}` },
-              },
-            ],
-          },
+          data: buildCard20('✅ 回答已收到', 'green', [
+            { tag: 'markdown', content: `**你的回答**: ${String(value.answer)}` },
+          ]),
         },
       };
     }

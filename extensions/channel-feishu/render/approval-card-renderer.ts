@@ -9,6 +9,7 @@ import type { ApprovalDecisionType } from '../../../src/app/types.js';
 import type { ReplyApprovalRecord } from './approval-tracker.js';
 import { truncateCommand } from './cardkit-builder.js';
 import { i18n } from '../../../src/i18n/index.js';
+import { buildCard20, button20, buttonRow20 } from './card20.js';
 
 // ─── Types ───
 
@@ -34,7 +35,7 @@ export interface ApprovalRequest {
  */
 export { assessCommandRisk };
 
-// ─── Card Rendering ───
+// ─── Card Rendering (Feishu card JSON 2.0) ───
 
 const RISK_HEADER_TEMPLATE: Record<string, string> = {
   low: 'green',
@@ -74,45 +75,33 @@ export function renderApprovalCard(request: ApprovalRequest): Record<string, unk
   const headerColor = 'blue';
   const riskLabel = RISK_LABEL[request.risk]?.() ?? request.risk;
 
-  const elements: object[] = [];
+  const elements: Record<string, unknown>[] = [];
 
   // Command detail
   elements.push({
-    tag: 'div',
-    text: {
-      tag: 'lark_md',
-      content: `${i18n.t('feishu-cards:field.command')} \`${request.command}\``,
-    },
+    tag: 'markdown',
+    content: `${i18n.t('feishu-cards:field.command')} \`${request.command}\``,
   });
 
   // Risk level
   elements.push({
-    tag: 'div',
-    text: {
-      tag: 'lark_md',
-      content: `${i18n.t('feishu-cards:field.riskLevel')} ${riskLabel}`,
-    },
+    tag: 'markdown',
+    content: `${i18n.t('feishu-cards:field.riskLevel')} ${riskLabel}`,
   });
 
   // Reason for approval (e.g. path outside allowed roots)
   if (request.reason) {
     elements.push({
-      tag: 'div',
-      text: {
-        tag: 'lark_md',
-        content: `${i18n.t('feishu-cards:field.reason')} ${request.reason}`,
-      },
+      tag: 'markdown',
+      content: `${i18n.t('feishu-cards:field.reason')} ${request.reason}`,
     });
   }
 
   // Optional description
   if (request.description) {
     elements.push({
-      tag: 'div',
-      text: {
-        tag: 'lark_md',
-        content: `${i18n.t('feishu-cards:field.description')} ${request.description}`,
-      },
+      tag: 'markdown',
+      content: `${i18n.t('feishu-cards:field.description')} ${request.description}`,
     });
   }
 
@@ -126,44 +115,28 @@ export function renderApprovalCard(request: ApprovalRequest): Record<string, unk
     risk: request.risk,
   };
 
-  elements.push({
-    tag: 'action',
-    actions: [
-      {
-        tag: 'button',
-        text: { tag: 'plain_text', content: i18n.t('feishu-cards:button.approveOnce') },
-        type: 'primary',
-        value: { ...buttonMeta, action: 'approve_once' },
-      },
-      {
-        tag: 'button',
-        text: { tag: 'plain_text', content: i18n.t('feishu-cards:button.approveSession') },
-        type: 'primary',
-        value: { ...buttonMeta, action: 'approve_session' },
-      },
-      {
-        tag: 'button',
-        text: { tag: 'plain_text', content: i18n.t('feishu-cards:button.alwaysAllow') },
-        type: 'primary',
-        value: { ...buttonMeta, action: 'approve_always' },
-      },
-      {
-        tag: 'button',
-        text: { tag: 'plain_text', content: i18n.t('feishu-cards:button.denyOnce') },
-        type: 'danger',
-        value: { ...buttonMeta, action: 'reject_once' },
-      },
-    ],
-  });
+  elements.push(
+    ...buttonRow20([
+      button20(i18n.t('feishu-cards:button.approveOnce'), 'primary', {
+        ...buttonMeta,
+        action: 'approve_once',
+      }),
+      button20(i18n.t('feishu-cards:button.approveSession'), 'primary', {
+        ...buttonMeta,
+        action: 'approve_session',
+      }),
+      button20(i18n.t('feishu-cards:button.alwaysAllow'), 'primary', {
+        ...buttonMeta,
+        action: 'approve_always',
+      }),
+      button20(i18n.t('feishu-cards:button.denyOnce'), 'danger', {
+        ...buttonMeta,
+        action: 'reject_once',
+      }),
+    ]),
+  );
 
-  return {
-    config: { wide_screen_mode: true },
-    header: {
-      title: { tag: 'plain_text', content: i18n.t(getApprovalTitleKey(request.command)) },
-      template: headerColor,
-    },
-    elements,
-  };
+  return buildCard20(i18n.t(getApprovalTitleKey(request.command)), headerColor, elements);
 }
 
 export function renderApprovalQueueCard(
@@ -182,16 +155,13 @@ export function renderApprovalQueueCard(
   const history = showFullHistory ? sortedHistory : sortedHistory.slice(0, initialVisibleCount);
   const hiddenCount = Math.max(0, sortedHistory.length - history.length);
 
-  const elements: object[] = [
+  const elements: Record<string, unknown>[] = [
     {
-      tag: 'div',
-      text: {
-        tag: 'lark_md',
-        content: i18n.t('feishu-cards:overview.summary', {
-          total: records.length,
-          pending: pending.length,
-        }),
-      },
+      tag: 'markdown',
+      content: i18n.t('feishu-cards:overview.summary', {
+        total: records.length,
+        pending: pending.length,
+      }),
     },
   ];
 
@@ -199,14 +169,11 @@ export function renderApprovalQueueCard(
     elements.push({ tag: 'hr' });
     const riskLabel = RISK_LABEL[current.risk]?.() ?? current.risk;
     elements.push({
-      tag: 'div',
-      text: {
-        tag: 'lark_md',
-        content: i18n.t('feishu-cards:overview.currentPending', {
-          command: current.command,
-          risk: riskLabel,
-        }),
-      },
+      tag: 'markdown',
+      content: i18n.t('feishu-cards:overview.currentPending', {
+        command: current.command,
+        risk: riskLabel,
+      }),
     });
 
     const buttonMeta = {
@@ -214,43 +181,31 @@ export function renderApprovalQueueCard(
       command: current.command,
       risk: current.risk,
     };
-    elements.push({
-      tag: 'action',
-      actions: [
-        {
-          tag: 'button',
-          text: { tag: 'plain_text', content: i18n.t('feishu-cards:button.approveOnce') },
-          type: 'primary',
-          value: { ...buttonMeta, action: 'approve_once' },
-        },
-        {
-          tag: 'button',
-          text: { tag: 'plain_text', content: i18n.t('feishu-cards:button.approveSession') },
-          type: 'primary',
-          value: { ...buttonMeta, action: 'approve_session' },
-        },
-        {
-          tag: 'button',
-          text: { tag: 'plain_text', content: i18n.t('feishu-cards:button.alwaysAllow') },
-          type: 'primary',
-          value: { ...buttonMeta, action: 'approve_always' },
-        },
-        {
-          tag: 'button',
-          text: { tag: 'plain_text', content: i18n.t('feishu-cards:button.denyOnce') },
-          type: 'danger',
-          value: { ...buttonMeta, action: 'reject_once' },
-        },
-      ],
-    });
+    elements.push(
+      ...buttonRow20([
+        button20(i18n.t('feishu-cards:button.approveOnce'), 'primary', {
+          ...buttonMeta,
+          action: 'approve_once',
+        }),
+        button20(i18n.t('feishu-cards:button.approveSession'), 'primary', {
+          ...buttonMeta,
+          action: 'approve_session',
+        }),
+        button20(i18n.t('feishu-cards:button.alwaysAllow'), 'primary', {
+          ...buttonMeta,
+          action: 'approve_always',
+        }),
+        button20(i18n.t('feishu-cards:button.denyOnce'), 'danger', {
+          ...buttonMeta,
+          action: 'reject_once',
+        }),
+      ]),
+    );
   } else {
     elements.push({ tag: 'hr' });
     elements.push({
-      tag: 'div',
-      text: {
-        tag: 'lark_md',
-        content: i18n.t('feishu-cards:overview.allDone'),
-      },
+      tag: 'markdown',
+      content: i18n.t('feishu-cards:overview.allDone'),
     });
   }
 
@@ -262,47 +217,31 @@ export function renderApprovalQueueCard(
       return `${prefix} **${statusLabel}** · \`${record.command}\``;
     });
     elements.push({
-      tag: 'div',
-      text: {
-        tag: 'lark_md',
-        content: `${i18n.t('feishu-cards:overview.historyTitle')}\n${lines.join('\n')}`,
-      },
+      tag: 'markdown',
+      content: `${i18n.t('feishu-cards:overview.historyTitle')}\n${lines.join('\n')}`,
     });
     if (hiddenCount > 0 || expanded) {
-      elements.push({
-        tag: 'action',
-        actions: [
-          {
-            tag: 'button',
-            text: {
-              tag: 'plain_text',
-              content: expanded
-                ? i18n.t('feishu-cards:button.collapseHistory')
-                : i18n.t('feishu-cards:button.expandMore', { count: hiddenCount }),
-            },
-            type: 'default',
-            value: {
-              action: expanded ? 'collapse_history' : 'expand_history',
-            },
-          },
-        ],
-      });
+      elements.push(
+        ...buttonRow20([
+          button20(
+            expanded
+              ? i18n.t('feishu-cards:button.collapseHistory')
+              : i18n.t('feishu-cards:button.expandMore', { count: hiddenCount }),
+            'default',
+            { action: expanded ? 'collapse_history' : 'expand_history' },
+          ),
+        ]),
+      );
     }
   }
 
-  return {
-    config: { wide_screen_mode: true },
-    header: {
-      title: {
-        tag: 'plain_text',
-        content: current
-          ? i18n.t('feishu-cards:card.replyApprovalQueue')
-          : i18n.t('feishu-cards:card.approvalComplete'),
-      },
-      template: current ? 'orange' : 'green',
-    },
+  return buildCard20(
+    current
+      ? i18n.t('feishu-cards:card.replyApprovalQueue')
+      : i18n.t('feishu-cards:card.approvalComplete'),
+    current ? 'orange' : 'green',
     elements,
-  };
+  );
 }
 
 function formatDecisionStatus(record: ReplyApprovalRecord): string {
@@ -356,42 +295,29 @@ export function renderHarnessResultCard(
         ? 'red'
         : 'grey';
 
-  return {
-    config: { wide_screen_mode: true },
-    header: {
-      title: { tag: 'plain_text', content: `${i18n.t('harness:card.title')} · ${title}` },
-      template,
+  return buildCard20(`${i18n.t('harness:card.title')} · ${title}`, template, [
+    {
+      tag: 'markdown',
+      content: title,
     },
-    elements: [
-      {
-        tag: 'div',
-        text: { tag: 'lark_md', content: title },
-      },
-    ],
-  };
+  ]);
 }
 
 /**
  * Render the "edit & apply" form card for a harness improvement proposal.
- * Shown when the user clicks the edit button: a Feishu JSON 1.0 form with an
- * input prefilled with the current proposal value; submitting resolves the
- * pending approval with the edited content (action 'edit_submit', value read
- * from the callback's form_value).
+ * Shown when the user clicks the edit button: a Feishu JSON 2.0 form with a
+ * multi-line input prefilled with the current proposal value; submitting
+ * resolves the pending approval with the edited content (action
+ * 'edit_submit', value read from the callback's form_value).
  */
 export function renderHarnessEditCard(
   proposalId: string,
   defaultValue: string,
 ): Record<string, unknown> {
-  return {
-    config: { wide_screen_mode: true },
-    header: {
-      title: {
-        tag: 'plain_text',
-        content: `${i18n.t('harness:card.title')} · ${i18n.t('harness:actions.editApply')}`,
-      },
-      template: 'wathet',
-    },
-    elements: [
+  return buildCard20(
+    `${i18n.t('harness:card.title')} · ${i18n.t('harness:actions.editApply')}`,
+    'wathet',
+    [
       {
         tag: 'form',
         name: 'harness_edit_form',
@@ -399,22 +325,28 @@ export function renderHarnessEditCard(
           {
             tag: 'input',
             name: 'editedValue',
+            input_type: 'multiline_text',
+            rows: 4,
+            auto_resize: true,
+            max_length: 1000,
             default_value: defaultValue,
             label: { tag: 'plain_text', content: i18n.t('harness:card.editInputLabel') },
             label_position: 'top',
           },
           {
             tag: 'button',
-            action_type: 'form_submit',
+            form_action_type: 'submit',
+            action_type: 'form_submit', // legacy field, honored by older clients
             name: 'harness_edit_submit',
             text: { tag: 'plain_text', content: i18n.t('harness:card.editSubmit') },
             type: 'primary',
             value: { proposalId, action: 'edit_submit' },
+            behaviors: [{ type: 'callback', value: { proposalId, action: 'edit_submit' } }],
           },
         ],
       },
     ],
-  };
+  );
 }
 
 // ─── Approval Result Card (post-decision) ───
@@ -450,20 +382,10 @@ export function renderApprovalResultCard(
 
   const truncated = truncateCommand(request.command, 100);
 
-  return {
-    config: { wide_screen_mode: true },
-    header: {
-      title: { tag: 'plain_text', content: statusLabel },
-      template: headerColor,
+  return buildCard20(statusLabel, headerColor, [
+    {
+      tag: 'markdown',
+      content: truncated,
     },
-    elements: [
-      {
-        tag: 'div',
-        text: {
-          tag: 'lark_md',
-          content: truncated,
-        },
-      },
-    ],
-  };
+  ]);
 }
