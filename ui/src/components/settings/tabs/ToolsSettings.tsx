@@ -107,10 +107,12 @@ export default function ToolsSettings() {
             label={t('settings.tools.toolsProfile')}
             value={String(tools.toolsProfile || 'standard')}
             onChange={(e) => saveField('tools.toolsProfile', e.target.value)}
-            options={['advanced', 'full', 'minimal', 'standard'].map((v) => ({
-              value: v,
-              label: v,
-            }))}
+            options={[
+              { value: 'minimal', label: t('settings.tools.opt_profile_minimal') },
+              { value: 'standard', label: t('settings.tools.opt_profile_standard') },
+              { value: 'advanced', label: t('settings.tools.opt_profile_advanced') },
+              { value: 'full', label: t('settings.tools.opt_profile_full') },
+            ]}
           />
         </div>
       </section>

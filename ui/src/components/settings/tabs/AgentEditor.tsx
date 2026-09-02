@@ -11,11 +11,12 @@ import type { Agent } from '../../../types/agent';
 import TemplateBrowser from './TemplateBrowser';
 import ModelRefInput from '../ModelRefInput';
 
+// Order matches the server-side profile progression (minimal → full).
 const PROFILE_OPTIONS = [
-  { value: 'advanced', label: 'Advanced' },
-  { value: 'full', label: 'Full' },
   { value: 'minimal', label: 'Minimal' },
   { value: 'standard', label: 'Standard' },
+  { value: 'advanced', label: 'Advanced' },
+  { value: 'full', label: 'Full' },
 ];
 
 interface AgentEditorProps {
@@ -309,7 +310,10 @@ export default function AgentEditor({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Select
             label={t('settings.agents.profile')}
-            options={PROFILE_OPTIONS}
+            options={PROFILE_OPTIONS.map((o) => ({
+              ...o,
+              label: t(`settings.tools.opt_profile_${o.value}`),
+            }))}
             value={form.profile}
             onChange={(e) => setForm({ ...form, profile: e.target.value })}
           />

@@ -355,7 +355,7 @@
       "id": "ID",
       "name": "名称",
       "model": "模型",
-      "profile": "工具配置",
+      "profile": "工具预设",
       "actions": "操作",
       "delete": "删除",
       "deleteBlocked": "该 Agent 被 Project 绑定，无法删除",
@@ -497,7 +497,7 @@
       "execMode": "执行模式",
       "defaultTimeout": "默认超时 (ms)",
       "maxOutput": "最大输出长度",
-      "toolsProfile": "工具策略",
+      "toolsProfile": "工具预设",
       "shellApproval": "Shell 审批",
       "approval": "审批超时",
       "approvalTimeout": "Shell 审批超时 (秒)",
@@ -513,7 +513,11 @@
       "opt_balanced": "平衡",
       "opt_trusted": "信任",
       "opt_strict": "严格",
-      "opt_relaxed": "宽松"
+      "opt_relaxed": "宽松",
+      "opt_profile_minimal": "极简",
+      "opt_profile_standard": "标准",
+      "opt_profile_advanced": "进阶",
+      "opt_profile_full": "完整"
     },
     "channels": {
       "feishu": "飞书",

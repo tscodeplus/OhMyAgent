@@ -11,8 +11,14 @@ import { CHANNELS_REQUIRED_RULES } from '../requiredFields';
 
 function ChannelCard({ name, children }: { name: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
+  // overflow-hidden only while collapsed: when open it would clip the
+  // absolutely-positioned Select dropdown panels rendered inside the content.
   return (
-    <div className="border border-neutral-200 dark:border-neutral-800 rounded-lg overflow-hidden">
+    <div
+      className={`border border-neutral-200 dark:border-neutral-800 rounded-lg ${
+        open ? '' : 'overflow-hidden'
+      }`}
+    >
       <button
         onClick={() => setOpen(!open)}
         className="flex items-center gap-2 w-full px-4 py-2.5 text-sm font-medium text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 transition-colors"
@@ -21,7 +27,7 @@ function ChannelCard({ name, children }: { name: string; children: React.ReactNo
         {name}
       </button>
       {open && (
-        <div className="px-4 py-3 space-y-3 border-t border-neutral-200 dark:border-neutral-800">
+        <div className="px-4 py-3 space-y-3 border-t border-neutral-200 dark:border-neutral-800 rounded-b-lg">
           {children}
         </div>
       )}

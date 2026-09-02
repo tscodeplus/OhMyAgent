@@ -9,8 +9,14 @@ import Spinner from '../../ui/Spinner';
 
 function AccordionItem({ title, children }: { title: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
+  // overflow-hidden only while collapsed: when open it would clip the
+  // absolutely-positioned Select dropdown panels rendered inside the content.
   return (
-    <div className="border border-neutral-200 dark:border-neutral-800 rounded-lg overflow-hidden">
+    <div
+      className={`border border-neutral-200 dark:border-neutral-800 rounded-lg ${
+        open ? '' : 'overflow-hidden'
+      }`}
+    >
       <button
         onClick={() => setOpen(!open)}
         className="flex items-center gap-2 w-full px-4 py-2.5 text-sm font-medium text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 transition-colors"
@@ -19,7 +25,7 @@ function AccordionItem({ title, children }: { title: string; children: React.Rea
         {title}
       </button>
       {open && (
-        <div className="px-4 py-3 space-y-3 border-t border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+        <div className="px-4 py-3 space-y-3 border-t border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 rounded-b-lg">
           {children}
         </div>
       )}
@@ -139,7 +145,12 @@ export default function ToolsPolicySettings({
           label={t('settings.tools.toolsProfile')}
           value={getField('tools.toolsProfile', str(tools.toolsProfile, 'standard')) as string}
           onChange={(e) => setField('tools.toolsProfile', e.target.value)}
-          options={['advanced', 'full', 'minimal', 'standard'].map((v) => ({ value: v, label: v }))}
+          options={[
+            { value: 'minimal', label: t('settings.tools.opt_profile_minimal') },
+            { value: 'standard', label: t('settings.tools.opt_profile_standard') },
+            { value: 'advanced', label: t('settings.tools.opt_profile_advanced') },
+            { value: 'full', label: t('settings.tools.opt_profile_full') },
+          ]}
         />
       </AccordionItem>
 
