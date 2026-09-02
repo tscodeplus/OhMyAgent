@@ -34,6 +34,11 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getAppVersion } from '../version.js';
+
+/** Valid per-turn reasoning (thinking) levels accepted from the WebUI chat
+ *  input — mirrors pi-mono's ThinkingLevel plus 'off'. */
+const REASONING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+
 import { dataPath } from '../../shared/agent-home.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -444,18 +449,53 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
     });
   });
 
-  // Session-pinned chat-input selectors (model / reasoning level). The WebUI
-  // restores its selector state from here on mount and session switch so the
-  // pins survive page reloads. Null = no pin (follow the configured chain).
+  // Session-pinned chat-input selectors (agent / model / reasoning level).
+  // GET returns the pins so the WebUI can restore its selector state on mount
+  // and session switch (survives page reloads). POST applies changes
+  // immediately — the selectors must not depend on sending a message to stick.
+  // Null clears a pin (back to the configured chain); absent fields are left
+  // untouched. Pins are in-memory: a gateway restart drops them.
   app.get('/api/projects/:projectId/chat/session-overrides', async (request, reply) => {
     const { sessionId } = request.query as { sessionId?: string };
     if (!sessionId) {
       return reply.status(400).send({ error: 'Bad Request', message: 'sessionId is required' });
     }
     return reply.send({
+      agentId: cfg.agentService.getSessionAgentId(sessionId) ?? null,
       model: cfg.agentService.getSessionModel(sessionId) ?? null,
       reasoningLevel: cfg.agentService.getSessionReasoningLevel(sessionId) ?? null,
     });
+  });
+
+  app.post('/api/projects/:projectId/chat/session-overrides', async (request, reply) => {
+    const { sessionId, agentId, model, reasoningLevel } = (request.body ?? {}) as {
+      sessionId?: string;
+      agentId?: string | null;
+      model?: string | null;
+      reasoningLevel?: string | null;
+    };
+    if (!sessionId) {
+      return reply.status(400).send({ error: 'Bad Request', message: 'sessionId is required' });
+    }
+    if (agentId === null) {
+      cfg.agentService.clearSessionAgentId(sessionId);
+    } else if (agentId) {
+      // Only pin agents the manager actually knows — mirrors the chat POST guard.
+      if (!cfg.agentManager || cfg.agentManager.get(agentId)) {
+        cfg.agentService.setSessionAgentId(sessionId, agentId);
+      }
+    }
+    if (model === null) {
+      cfg.agentService.clearSessionModel(sessionId);
+    } else if (model) {
+      cfg.agentService.setSessionModel(sessionId, model);
+    }
+    if (reasoningLevel === null) {
+      cfg.agentService.clearSessionReasoningLevel(sessionId);
+    } else if (reasoningLevel && REASONING_LEVELS.includes(reasoningLevel)) {
+      cfg.agentService.setSessionReasoningLevel(sessionId, reasoningLevel);
+    }
+    return reply.send({ ok: true });
   });
 
   // SSE chat endpoint
@@ -551,7 +591,6 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
 
     // Reasoning level: only well-known values pass through — anything else
     // falls back to the configured defaults server-side.
-    const REASONING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
     let reasoningLevel: string | undefined;
     if (requestedReasoningLevel === null) {
       cfg.agentService.clearSessionReasoningLevel(sessionId);

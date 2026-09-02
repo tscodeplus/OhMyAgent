@@ -920,6 +920,15 @@ export class AgentService {
     setSessionAgent(sessionId, agentId);
   }
 
+  clearSessionAgentId(sessionId: string): void {
+    this.sessionAgentMap.delete(sessionId);
+    clearSessionAgent(sessionId);
+  }
+
+  getSessionAgentId(sessionId: string): string | undefined {
+    return this.sessionAgentMap.get(sessionId);
+  }
+
   // ── Session-pinned chat-input selectors (model / reasoning level) ──
   // Applied per request by the chat route; null payloads clear the pin so the
   // session falls back to the configured chain (model cfg > global default).

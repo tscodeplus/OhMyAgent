@@ -353,31 +353,66 @@ export default function ChatInput({
   }, []);
 
   // ── Session-pinned selector state ──
-  // The server pins the model / reasoning level to the session (surviving page
-  // reloads and session switches). Reset the local selectors first — they are
-  // component state shared across sessions — then restore this session's pins.
+  // The server pins the agent / model / reasoning level to the session so the
+  // selection survives page reloads and session switches. On a switch BETWEEN
+  // sessions the local selectors reset and this session's pins are restored;
+  // entering a session from quick-start keeps the user's pre-session picks.
+  const loadedSessionRef = useRef<string | null>(null);
   useEffect(() => {
-    setSelectedModel(null);
-    setSelectedReasoningLevel(null);
+    const prevSession = prevSessionIdRef.current; // still the previous id here
+    if (prevSession !== null && prevSession !== sessionId) {
+      setSelectedModel(null);
+      setSelectedAgentId(null);
+      setSelectedReasoningLevel(null);
+    }
+    loadedSessionRef.current = null;
     if (!projectId || !sessionId) return;
     let cancelled = false;
-    apiRequest<{ model: string | null; reasoningLevel: string | null }>(
+    apiRequest<{
+      agentId: string | null;
+      model: string | null;
+      reasoningLevel: string | null;
+    }>(
       `/api/projects/${projectId}/chat/session-overrides?sessionId=${encodeURIComponent(sessionId)}`,
     )
       .then((data) => {
         if (cancelled) return;
         // Functional updates: never clobber a choice the user already made
         // while the fetch was in flight.
+        if (data?.agentId) setSelectedAgentId((cur) => cur ?? data.agentId ?? null);
         if (data?.model) setSelectedModel((cur) => cur ?? data.model);
         if (data?.reasoningLevel) setSelectedReasoningLevel((cur) => cur ?? data.reasoningLevel);
+        loadedSessionRef.current = sessionId;
       })
       .catch(() => {
-        /* Best-effort restore — a failed fetch just leaves the defaults. */
+        // Best-effort restore — a failed fetch just leaves the defaults, but
+        // still mark the session as loaded so user changes can be persisted.
+        loadedSessionRef.current = sessionId;
       });
     return () => {
       cancelled = true;
     };
   }, [projectId, sessionId]);
+
+  // Persist selector changes immediately — the pins must not depend on
+  // sending a message to stick (reload/session-switch then restore them).
+  // Skipped until this session's restore has settled, so the reset+fetch
+  // sequence above never writes the PREVIOUS session's values into the new one.
+  useEffect(() => {
+    if (!sessionId) return;
+    if (loadedSessionRef.current !== sessionId) return;
+    apiRequest(`/api/projects/${projectId}/chat/session-overrides`, {
+      method: 'POST',
+      body: JSON.stringify({
+        sessionId,
+        agentId: effectiveAgentId ?? null,
+        model: selectedModel,
+        reasoningLevel: selectedReasoningLevel,
+      }),
+    }).catch(() => {
+      /* Best-effort — the chat POST re-pins on the next turn anyway. */
+    });
+  }, [projectId, sessionId, effectiveAgentId, selectedModel, selectedReasoningLevel]);
   const handleSelectReasoningLevel = useCallback(
     (level: string) => {
       // Choosing the model's own default clears the override — the 默认强度
