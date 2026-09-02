@@ -21,7 +21,14 @@ import type {
   UserQuestionSender,
   UserQuestionOption,
 } from '../../../src/agent/user-question-port.js';
-import { buildCard20, button20, buttonRow20 } from './card20.js';
+import { buildCard20, button20, selectStatic20 } from './card20.js';
+
+/**
+ * Buttons display a single line of text — labels longer than this wrap or
+ * truncate. Above the threshold the card switches to a select_static
+ * dropdown, whose expanded list shows each option's full text.
+ */
+const SHORT_OPTION_LABEL_MAX = 10;
 
 export interface FeishuUserQuestionDeps {
   /** Send an interactive card and return its message_id. */
@@ -54,20 +61,32 @@ export function createFeishuUserQuestionSender(deps: FeishuUserQuestionDeps): Us
         });
         elements.push({ tag: 'hr' });
 
-        // Action buttons — one per option.
-        // Use the human-readable label as the answer value so the result
-        // card shows "你的回答: 中餐" instead of "你的回答: opt_0".
-        elements.push(
-          ...buttonRow20(
-            options.map((opt) =>
-              button20(opt.label, 'primary', {
-                action: 'answer_question',
-                requestId,
-                answer: opt.label,
-              }),
+        const answerValue = (label: string) => ({
+          action: 'answer_question',
+          requestId,
+          // Human-readable label as the answer value so the result
+          // card shows "你的回答: 中餐" instead of "你的回答: opt_0".
+          answer: label,
+        });
+
+        if (options.every((opt) => opt.label.length <= SHORT_OPTION_LABEL_MAX)) {
+          // Short labels: one full-width button per row (2.0 stacks buttons
+          // placed directly in body.elements vertically) — avoids the cramped
+          // 2-per-row grid that forced long text to wrap.
+          elements.push(
+            ...options.map((opt) => button20(opt.label, 'primary', answerValue(opt.label))),
+          );
+        } else {
+          // Long labels: single-select dropdown — the expanded option list
+          // always shows the full text, unaffected by card width.
+          elements.push(
+            selectStatic20(
+              '请选择你的回答',
+              options.map((opt) => ({ label: opt.label, value: answerValue(opt.label) })),
+              { action: 'answer_question', requestId },
             ),
-          ),
-        );
+          );
+        }
       } else {
         // No options — hint for text reply
         elements.push({

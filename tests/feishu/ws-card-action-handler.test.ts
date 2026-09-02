@@ -176,6 +176,100 @@ describe('createWSCardActionHandler', () => {
   });
 });
 
+describe('createWSCardActionHandler — answer_question (user question cards)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function makeQuestionHandler() {
+    const resolve = vi.fn(() => true);
+    const handler = createWSCardActionHandler({
+      agentFactory: {} as any,
+      replyApprovalRegistry: { get: vi.fn(() => undefined) } as any,
+      approvalDecisionRepository: { create: vi.fn() } as any,
+      approvalRequestRepo: { findById: vi.fn(() => undefined) } as any,
+      userQuestionStore: { resolve } as any,
+    });
+    return { handler, resolve };
+  }
+
+  it('resolves a button answer from action.value', async () => {
+    const { handler, resolve } = makeQuestionHandler();
+    const result = await handler({
+      action: { value: { action: 'answer_question', requestId: 'req-q', answer: '中餐' } },
+    });
+    expect(resolve).toHaveBeenCalledWith('req-q', '中餐');
+    expect(result.card).toBeDefined();
+  });
+
+  it('resolves a dropdown answer delivered in action.option (JSON string)', async () => {
+    const { handler, resolve } = makeQuestionHandler();
+    const optionPayload = JSON.stringify({
+      action: 'answer_question',
+      requestId: 'req-q',
+      answer: '使用密钥认证并启用自动重试机制',
+    });
+    const result = await handler({
+      action: {
+        tag: 'select_static',
+        option: optionPayload,
+        value: { action: 'answer_question', requestId: 'req-q' },
+      },
+    });
+    expect(resolve).toHaveBeenCalledWith('req-q', '使用密钥认证并启用自动重试机制');
+    expect(result.card).toBeDefined();
+  });
+
+  it('resolves a dropdown answer when the option value arrives already parsed', async () => {
+    const { handler, resolve } = makeQuestionHandler();
+    await handler({
+      action: {
+        tag: 'select_static',
+        option: { action: 'answer_question', requestId: 'req-q', answer: '选项 A' },
+      },
+    });
+    expect(resolve).toHaveBeenCalledWith('req-q', '选项 A');
+  });
+
+  it('tolerates a plain (non-JSON) option value as the answer itself', async () => {
+    const { handler, resolve } = makeQuestionHandler();
+    await handler({
+      action: {
+        tag: 'select_static',
+        option: '中餐',
+        value: { action: 'answer_question', requestId: 'req-q' },
+      },
+    });
+    expect(resolve).toHaveBeenCalledWith('req-q', '中餐');
+  });
+
+  it('parses a JSON-string action.value (legacy button encoding)', async () => {
+    const { handler, resolve } = makeQuestionHandler();
+    await handler({
+      action: {
+        value: JSON.stringify({ action: 'answer_question', requestId: 'req-q', answer: '西餐' }),
+      },
+    });
+    expect(resolve).toHaveBeenCalledWith('req-q', '西餐');
+  });
+
+  it('returns the already-answered card when the question was resolved elsewhere', async () => {
+    const resolve = vi.fn(() => false);
+    const handler = createWSCardActionHandler({
+      agentFactory: {} as any,
+      replyApprovalRegistry: { get: vi.fn(() => undefined) } as any,
+      approvalDecisionRepository: { create: vi.fn() } as any,
+      approvalRequestRepo: { findById: vi.fn(() => undefined) } as any,
+      userQuestionStore: { resolve } as any,
+    });
+    const result = await handler({
+      action: { value: { action: 'answer_question', requestId: 'req-gone', answer: '中餐' } },
+    });
+    expect(result.toast).toMatchObject({ type: 'info' });
+    expect(result.card).toBeDefined();
+  });
+});
+
 describe('createWSCardActionHandler — harness improvement (task failure analysis)', () => {
   beforeEach(() => {
     vi.clearAllMocks();

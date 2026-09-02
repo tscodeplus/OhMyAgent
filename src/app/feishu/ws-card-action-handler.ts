@@ -38,8 +38,46 @@ export function createWSCardActionHandler(opts: WSCardActionHandlerOptions): (
   card?: { type: string; data: Record<string, unknown> };
 }> {
   return async (callback: any) => {
-    const value = callback?.action?.value ?? {};
-    const { action, requestId, command, risk } = value;
+    const rawAction = callback?.action ?? {};
+
+    // Resolve the interaction payload. Buttons put it in action.value
+    // (object or JSON string); select_static dropdowns deliver the chosen
+    // option's value in action.option (a JSON string, or already parsed by
+    // some clients) and the component-level behaviors value in action.value.
+    let value: Record<string, unknown> = {};
+    const rawValue = rawAction.value;
+    if (rawValue && typeof rawValue === 'object') {
+      value = rawValue as Record<string, unknown>;
+    } else if (typeof rawValue === 'string') {
+      try {
+        value = JSON.parse(rawValue) as Record<string, unknown>;
+      } catch {
+        value = {};
+      }
+    }
+    const optionValue = (rawAction as { option?: unknown }).option;
+    if (optionValue !== undefined && optionValue !== null) {
+      let parsed: Record<string, unknown>;
+      if (optionValue && typeof optionValue === 'object') {
+        parsed = optionValue as Record<string, unknown>;
+      } else {
+        try {
+          parsed = JSON.parse(String(optionValue)) as Record<string, unknown>;
+        } catch {
+          // Plain (non-JSON) option value — treat it as the answer itself.
+          parsed = { answer: String(optionValue) };
+        }
+      }
+      value = { ...value, ...parsed };
+    }
+
+    const action = typeof value.action === 'string' ? value.action : undefined;
+    const requestId = typeof value.requestId === 'string' ? value.requestId : undefined;
+    const command = typeof value.command === 'string' ? value.command : undefined;
+    const risk =
+      value.risk === 'low' || value.risk === 'medium' || value.risk === 'high'
+        ? value.risk
+        : undefined;
     const approvalTracker = opts.replyApprovalRegistry.get(callback?.context?.open_message_id);
 
     // ── harness_improvement: task failure analysis proposal buttons ──

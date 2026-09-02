@@ -49,6 +49,34 @@ export function button20(
 }
 
 /**
+ * Build a JSON 2.0 single-select dropdown (select_static). Options show their
+ * full text in the expanded list, so this is the right component for long
+ * option labels that would wrap or truncate inside a button.
+ *
+ * `options[].value` carries the callback payload as a JSON string (select
+ * callbacks deliver the chosen option's value in `action.option`).
+ * `componentValue` is the component-level behaviors callback value, delivered
+ * in `action.value` alongside the selected `action.option`.
+ */
+export function selectStatic20(
+  placeholder: string,
+  options: { label: string; value: Record<string, unknown> }[],
+  componentValue: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    tag: 'select_static',
+    placeholder: { tag: 'plain_text', content: placeholder },
+    options: options.map((opt) => ({
+      text: { tag: 'plain_text', content: opt.label },
+      value: JSON.stringify(opt.value),
+    })),
+    width: 'default',
+    value: componentValue,
+    behaviors: [{ type: 'callback', value: componentValue }],
+  };
+}
+
+/**
  * Wrap buttons into JSON 2.0 `column_set` rows (2 per row) so they render in
  * a compact grid instead of stacking vertically.
  */

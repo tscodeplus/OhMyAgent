@@ -48,8 +48,30 @@ export class FeishuWSClient {
       debug: () => {},
     };
 
-    // Create EventDispatcher for handling incoming events
-    this.eventDispatcher = new EventDispatcher({} as any);
+    // Create EventDispatcher for handling incoming events.
+    // Pass a filtered logger: the lark SDK warns "no <type> handle" for every
+    // event type we don't register (read receipts im.message.message_read_v1,
+    // reactions, etc.) — those are benign and would otherwise spam the log on
+    // every turn. Downgrade exactly that pattern to debug; keep other SDK
+    // warnings (verification failures, etc.) visible.
+    this.eventDispatcher = new EventDispatcher({
+      logger: {
+        debug: (...args: unknown[]) => this.logger.debug(...args),
+        info: (...args: unknown[]) => this.logger.info(...args),
+        warn: (...args: unknown[]) => {
+          const msg = args[0];
+          if (typeof msg === 'string' && /^no \S+ handle$/.test(msg)) {
+            this.logger.debug(
+              { event: msg },
+              '[ws] unhandled Feishu event type (benign, ignored)',
+            );
+            return;
+          }
+          this.logger.warn(...args);
+        },
+        error: (...args: unknown[]) => this.logger.error(...args),
+      },
+    } as any);
 
     // Register the im.message.receive_v1 handler.
     // The SDK passes flat data; we wrap it into the envelope format
