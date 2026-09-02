@@ -73,6 +73,12 @@ export default function ChannelsSettings({
 
   const feishuRegion = getField('feishu.region', String(feishu.region || 'feishu'));
 
+  // Telegram webhook mode requires webhookUrl + webhookSecret (the handler
+  // refuses updates without a secret_token; missing webhookUrl silently
+  // falls back to polling) — markers/rules follow the selected mode.
+  const telegramWebhook =
+    telegramEnabled && getField('telegram.mode', String(telegram.mode || 'polling')) === 'webhook';
+
   const handleQrComplete = (channel: ChannelType, credentials: Record<string, string>) => {
     switch (channel) {
       case 'feishu':
@@ -219,6 +225,27 @@ export default function ChannelsSettings({
                 { value: 'webhook', label: 'Webhook' },
               ]}
             />
+            {telegramWebhook && (
+              <>
+                <Input
+                  label={t('settings.channels.webhookUrl')}
+                  required
+                  error={requiredError('telegram.webhookUrl')}
+                  value={getField('telegram.webhookUrl', String(telegram.webhookUrl || ''))}
+                  onChange={(e) => setField('telegram.webhookUrl', e.target.value)}
+                  placeholder="https://example.com/webhook/telegram"
+                />
+                <Input
+                  label={t('settings.channels.webhookSecret')}
+                  type="password"
+                  required
+                  error={requiredError('telegram.webhookSecret')}
+                  value={getField('telegram.webhookSecret', String(telegram.webhookSecret || ''))}
+                  onChange={(e) => setField('telegram.webhookSecret', e.target.value)}
+                  placeholder={t('settings.channels.webhookSecretPlaceholder')}
+                />
+              </>
+            )}
             <Select
               label={t('settings.channels.streamMode')}
               value={getField('telegram.streamMode', String(telegram.streamMode || 'edit'))}

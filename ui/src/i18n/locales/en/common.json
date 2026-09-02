@@ -557,7 +557,10 @@
       "telegramQrInstructions": "Scan to open BotFather, create a bot with /newbot, then paste the token below:",
       "wechatQrInstructions": "Scan with WeChat to auto-configure your bot",
       "qrReconfigureTitle": "Overwrite Configuration",
-      "qrReconfigureMessage": "Doing this will overwrite existing {{channel}} configuration. Continue?"
+      "qrReconfigureMessage": "Doing this will overwrite existing {{channel}} configuration. Continue?",
+      "webhookUrl": "Webhook URL",
+      "webhookSecret": "Webhook Secret",
+      "webhookSecretPlaceholder": "Secret token to verify Telegram webhook requests"
     },
     "websearch": {
       "provider": "Search Provider",

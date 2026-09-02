@@ -16,6 +16,7 @@ import {
 import { apiRequest } from '../../../utils/api';
 import { useToast } from '../../ui/Toast';
 import { useConfigDirty, type SettingsTabHandle } from '../useConfigDirty';
+import { EMBEDDING_REQUIRED_RULES } from '../requiredFields';
 import Input from '../../ui/Input';
 import Select from '../../ui/Select';
 import Toggle from '../../ui/Toggle';
@@ -102,7 +103,8 @@ export default function ModelSettings({
     fetchConfig,
     dirtyCount,
     dirtyPaths,
-  } = useConfigDirty(tabId, undefined, undefined);
+    requiredError,
+  } = useConfigDirty(tabId, undefined, undefined, undefined, EMBEDDING_REQUIRED_RULES);
 
   /* ─── Sub-tab state ─── */
   const [activeSubTab, setActiveSubTab] = useState<ModelSubTab>(
@@ -136,6 +138,12 @@ export default function ModelSettings({
   const [providerKeysDirty, setProviderKeysDirty] = useState(false);
   const [customProvidersDirty, setCustomProvidersDirty] = useState(false);
   const [customProvidersNeedsRestart, setCustomProvidersNeedsRestart] = useState(false);
+
+  // Embedding fields become required as a set once any of them is filled
+  // (partial embedding config silently disables vector memory server-side).
+  const embeddingSetUsed = (
+    ['embedding.baseUrl', 'embedding.apiKey', 'embedding.model'] as const
+  ).some((p) => String(getField(p, '') ?? '').trim() !== '');
 
   /* ─── Add/Edit Model Modal ─── */
   // Set to true when the user clicks Save with missing required fields; shows
@@ -1128,17 +1136,23 @@ export default function ModelSettings({
           <SettingsCard>
             <Input
               label="Base URL"
+              required={embeddingSetUsed}
+              error={requiredError('embedding.baseUrl')}
               value={getField('embedding.baseUrl', (embedding.baseUrl as string) || '') as string}
               onChange={(e) => setField('embedding.baseUrl', e.target.value)}
             />
             <Input
               label="API Key"
               type="password"
+              required={embeddingSetUsed}
+              error={requiredError('embedding.apiKey')}
               value={getField('embedding.apiKey', (embedding.apiKey as string) || '') as string}
               onChange={(e) => setField('embedding.apiKey', e.target.value)}
             />
             <Input
               label={t('settings.models.embeddingModel')}
+              required={embeddingSetUsed}
+              error={requiredError('embedding.model')}
               value={getField('embedding.model', (embedding.model as string) || '') as string}
               onChange={(e) => setField('embedding.model', e.target.value)}
             />

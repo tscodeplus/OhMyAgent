@@ -557,7 +557,10 @@
       "telegramQrInstructions": "扫码打开 BotFather，用 /newbot 创建机器人，然后在下方粘贴 Token：",
       "wechatQrInstructions": "使用微信扫码自动配置机器人",
       "qrReconfigureTitle": "覆盖配置",
-      "qrReconfigureMessage": "扫码将覆盖现有{{channel}}配置，确定要继续吗？"
+      "qrReconfigureMessage": "扫码将覆盖现有{{channel}}配置，确定要继续吗？",
+      "webhookUrl": "Webhook URL",
+      "webhookSecret": "Webhook Secret",
+      "webhookSecretPlaceholder": "用于验证 Telegram 请求的 secret_token"
     },
     "websearch": {
       "provider": "搜索提供商",

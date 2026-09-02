@@ -29,6 +29,26 @@ export interface MissingRequiredField {
   label: string;
 }
 
+/**
+ * Embedding is configured as a set: the embedding client reports "configured"
+ * only when model AND baseUrl are present (src/provider/embedding-client.ts),
+ * and the request would fail without the key anyway — a partial config just
+ * silently disables vector memory. So filling ANY of the three makes all
+ * three required.
+ */
+const embeddingSetUsed = (get: (path: string, fallback?: unknown) => unknown): boolean =>
+  ['embedding.baseUrl', 'embedding.apiKey', 'embedding.model'].some(
+    (p) => !isBlankValue(get(p, '')),
+  );
+
+/** Embedding (models tab, auxiliary): partial config silently disables
+ * vector memory — require baseUrl/apiKey/model together. */
+export const EMBEDDING_REQUIRED_RULES: RequiredFieldRule[] = [
+  { path: 'embedding.baseUrl', label: 'Base URL', when: embeddingSetUsed },
+  { path: 'embedding.apiKey', label: 'API Key', when: embeddingSetUsed },
+  { path: 'embedding.model', label: 'settings.models.embeddingModel', when: embeddingSetUsed },
+];
+
 /** Channels: an enabled channel must have its credentials filled in. */
 export const CHANNELS_REQUIRED_RULES: RequiredFieldRule[] = [
   {
@@ -45,6 +65,21 @@ export const CHANNELS_REQUIRED_RULES: RequiredFieldRule[] = [
     path: 'telegram.botToken',
     label: 'settings.channels.botToken',
     when: (get) => !!get('telegram.enabled', false),
+  },
+  {
+    // Webhook mode: without webhookUrl the channel silently falls back to
+    // polling, and the webhook handler refuses updates lacking a
+    // secret_token (security).
+    path: 'telegram.webhookUrl',
+    label: 'settings.channels.webhookUrl',
+    when: (get) =>
+      !!get('telegram.enabled', false) && get('telegram.mode', 'polling') === 'webhook',
+  },
+  {
+    path: 'telegram.webhookSecret',
+    label: 'settings.channels.webhookSecret',
+    when: (get) =>
+      !!get('telegram.enabled', false) && get('telegram.mode', 'polling') === 'webhook',
   },
   {
     path: 'wechat.botToken',
@@ -98,8 +133,7 @@ export function isBlankValue(v: unknown): boolean {
   return false;
 }
 
-/**
- * Evaluate rules against a resolver (dirty value first, saved config as
+/** Evaluate rules against a resolver (dirty value first, saved config as
  * fallback). Rules without `when` always apply — used for dynamically built
  * rule lists (e.g. web-search API keys for the selected providers).
  */
