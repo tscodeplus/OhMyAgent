@@ -100,6 +100,17 @@ export class FeishuWSClient {
 
         await this.eventHandler(envelope);
       },
+
+      // The bot's own typing-indicator reactions (added/removed per turn by
+      // ReplyDispatcher) push im.message.reaction.* events back to us. We
+      // don't act on them — register no-op handlers so the lark SDK does not
+      // warn "no im.message.reaction.created_v1 handle" on every turn.
+      'im.message.reaction.created_v1': async () => {
+        this.resetStaleTimer();
+      },
+      'im.message.reaction.deleted_v1': async () => {
+        this.resetStaleTimer();
+      },
     });
 
     // Register card action handler (approval buttons, etc.)

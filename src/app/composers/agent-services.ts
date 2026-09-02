@@ -123,9 +123,9 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
   });
 
   // ── User Question Store (shared across all channels for ask_user_question tool) ──
-  const userQuestionStore = new UserQuestionStore({
-    defaultTimeoutMs: 300_000, // 5 minutes
-  });
+  // Questions wait indefinitely — no auto-timeout. Escape hatches: any new
+  // message answers/cancels the question, /stop rejects it.
+  const userQuestionStore = new UserQuestionStore();
 
   const agentFactory = createAgentFactory(
     {

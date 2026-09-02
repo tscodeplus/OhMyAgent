@@ -6,36 +6,39 @@
  * execution that awaited them is also gone).
  *
  * Architecture:
- *   - create()   → registers EventEmitter listener + timeout timer
+ *   - create()   → registers EventEmitter listener and waits indefinitely
+ *                  (no auto-timeout; the user always has an escape hatch:
+ *                   any new message answers/cancels the question, and
+ *                   /stop or a session reset rejects it)
  *   - resolve()  → emits event, resolving the waiting Promise with the answer
- *   - timeout    → auto-reject with a timeout message string
  *   - rejectAllForSession() → rejects all pending questions for a session
  */
 
 import { EventEmitter } from 'node:events';
 
 interface PendingQuestionEntry {
-  timer: ReturnType<typeof setTimeout>;
+  timer: ReturnType<typeof setTimeout> | null;
   sessionKey: string;
 }
 
 export class UserQuestionStore {
   private pending = new Map<string, PendingQuestionEntry>();
   private events = new EventEmitter();
-  private defaultTimeoutMs: number;
 
-  constructor(options?: { defaultTimeoutMs?: number }) {
+  constructor(_options?: { defaultTimeoutMs?: number }) {
+    // defaultTimeoutMs is no longer honored — questions wait indefinitely
+    // unless an explicit timeoutMs is passed to create().
     this.events.setMaxListeners(100);
-    this.defaultTimeoutMs = options?.defaultTimeoutMs ?? 300_000; // 5 minutes
   }
 
   /**
    * Create a pending question entry.
-   * Returns a Promise that resolves with the user's answer string,
-   * or rejects (well, resolves to a timeout marker string) on timeout.
+   * Returns a Promise that resolves with the user's answer string.
+   * Waits indefinitely unless an explicit (finite, positive) timeoutMs is
+   * given, in which case it resolves to a timeout marker string on expiry.
    */
   create(requestId: string, timeoutMs?: number, sessionKey?: string): Promise<string> {
-    return this._awaitAnswer(requestId, timeoutMs ?? this.defaultTimeoutMs, sessionKey ?? '');
+    return this._awaitAnswer(requestId, timeoutMs, sessionKey ?? '');
   }
 
   /**
@@ -77,7 +80,7 @@ export class UserQuestionStore {
     let count = 0;
     for (const [requestId, entry] of this.pending) {
       if (entry.sessionKey !== sessionKey) continue;
-      clearTimeout(entry.timer);
+      if (entry.timer) clearTimeout(entry.timer);
       this.pending.delete(requestId);
       this.events.emit(requestId, `[Cancelled] ${reason}`);
       count++;
@@ -94,16 +97,23 @@ export class UserQuestionStore {
 
   // ── Private ──
 
-  private _awaitAnswer(requestId: string, timeoutMs: number, sessionKey: string): Promise<string> {
+  private _awaitAnswer(
+    requestId: string,
+    timeoutMs: number | undefined,
+    sessionKey: string,
+  ): Promise<string> {
     return new Promise<string>((resolve) => {
-      const timer = setTimeout(() => {
-        this.events.off(requestId, handler);
-        this.pending.delete(requestId);
-        resolve('[Timeout] User did not respond');
-      }, timeoutMs);
+      const timer =
+        timeoutMs && Number.isFinite(timeoutMs) && timeoutMs > 0
+          ? setTimeout(() => {
+              this.events.off(requestId, handler);
+              this.pending.delete(requestId);
+              resolve('[Timeout] User did not respond');
+            }, timeoutMs)
+          : null;
 
       const handler = (answer: string) => {
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer as ReturnType<typeof setTimeout>);
         this.pending.delete(requestId);
         resolve(answer);
       };

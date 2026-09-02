@@ -21,6 +21,24 @@ export interface PolicyServices {
   policyCenter: PolicyCenterImpl;
 }
 
+/**
+ * Effective shell exec mode, honoring the global policy mode.
+ *
+ * Shell commands bypass the tool-level gate entirely (policy-center delegates
+ * them to the shell execution policy), so `policy.mode: safe` would otherwise
+ * never constrain shell commands. When the global policy mode is `safe`, a
+ * `trusted` shell exec mode is downgraded to `safe` — a safe global policy
+ * must not be silently bypassed by trusted shell auto-approval (e.g. `rm`
+ * classifies as `unknown` and trusted mode approves unknown programs).
+ */
+export function effectiveShellExecMode(
+  policyMode: string | undefined,
+  execMode: 'safe' | 'balanced' | 'trusted',
+): 'safe' | 'balanced' | 'trusted' {
+  if (policyMode === 'safe' && execMode === 'trusted') return 'safe';
+  return execMode;
+}
+
 /** Attachment cache dir is a relative config value — anchor it like its writer does. */
 function mediaCacheRoot(config: AppConfig): string | undefined {
   const cacheDir = config.multimodal?.attachments?.cacheDir;
@@ -33,7 +51,7 @@ export function createPolicyServices(
 ): PolicyServices {
   const policyRepository = new ApprovalPolicyRepository(db);
   const approvalGate = new SQLiteApprovalGate(policyRepository, {
-    execMode: config.tools.shellExecMode,
+    execMode: effectiveShellExecMode(config.policy?.mode, config.tools.shellExecMode),
     shellAllowlist: config.tools.shellAllowlist,
     fileReadAllowedRoots: config.tools.fileRead.allowedRoots,
     shellApprovalMode: config.tools.shellApprovalMode,
@@ -76,7 +94,7 @@ export function createPolicyServices(
   configEventBus.onReload((c) => {
     policyCenter.updateMode(c.policy?.mode ?? 'balanced');
     approvalGate.updateConfig({
-      execMode: c.tools.shellExecMode,
+      execMode: effectiveShellExecMode(c.policy?.mode, c.tools.shellExecMode),
       shellAllowlist: c.tools.shellAllowlist,
       fileReadAllowedRoots: c.tools.fileRead.allowedRoots,
       shellApprovalMode: c.tools.shellApprovalMode,

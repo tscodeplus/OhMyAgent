@@ -90,19 +90,26 @@ export function createFeishuUserQuestionSender(deps: FeishuUserQuestionDeps): Us
       _chatId: string,
       cardMessageId: string | undefined,
       answer: string,
+      status: 'answered' | 'cancelled' = 'answered',
     ): Promise<void> {
       if (!cardMessageId) return;
 
-      // Update the question card to show the answer.
-      // If the user clicked a button, ws-card-action-handler already replaced
-      // the card — this update is redundant but harmless. If the user typed
-      // a text answer, this is the only UI update.
-      const resultCard = buildCard20('✅ 回答已收到', 'green', [
-        {
-          tag: 'markdown',
-          content: `**你的回答**: ${String(answer)}`,
-        },
-      ]);
+      // Cancelled questions (steer/stop raced with the question) must not
+      // claim the user answered — show an explicit cancelled state.
+      const resultCard =
+        status === 'cancelled'
+          ? buildCard20('🚫 问题已取消', 'grey', [
+              {
+                tag: 'markdown',
+                content: '问题已被取消（收到新指令或会话停止），你的回答未被记录。',
+              },
+            ])
+          : buildCard20('✅ 回答已收到', 'green', [
+              {
+                tag: 'markdown',
+                content: `**你的回答**: ${String(answer)}`,
+              },
+            ]);
 
       try {
         await deps.updateCard(cardMessageId, resultCard);

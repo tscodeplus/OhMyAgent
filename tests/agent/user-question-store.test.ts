@@ -18,12 +18,12 @@ describe('UserQuestionStore', () => {
   });
 
   describe('constructor', () => {
-    it('uses provided defaultTimeoutMs', () => {
+    it('creates with legacy options object (ignored)', () => {
       const s = new UserQuestionStore({ defaultTimeoutMs: 10000 });
       expect(s.pendingCount).toBe(0);
     });
 
-    it('defaults to 300000ms', () => {
+    it('creates without options', () => {
       const s = new UserQuestionStore();
       expect(s.pendingCount).toBe(0);
     });
@@ -67,13 +67,19 @@ describe('UserQuestionStore', () => {
   });
 
   describe('timeout', () => {
-    it('auto-resolves with timeout message after defaultTimeoutMs', async () => {
+    it('does NOT auto-timeout by default — waits indefinitely', async () => {
       const promise = store.create('req-1');
-      vi.advanceTimersByTime(5000);
-      await expect(promise).resolves.toContain('[Timeout]');
+      vi.advanceTimersByTime(24 * 60 * 60 * 1000); // 24h — no resolution
+      let settled = false;
+      void promise.then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toBe(false);
+      expect(store.pendingCount).toBe(1); // still pending
     });
 
-    it('uses custom timeoutMs when provided', async () => {
+    it('uses explicit timeoutMs when provided', async () => {
       const promise = store.create('req-1', 2000);
       // Should not resolve at 1000ms
       vi.advanceTimersByTime(1000);
@@ -82,11 +88,22 @@ describe('UserQuestionStore', () => {
       await expect(promise).resolves.toContain('[Timeout]');
     });
 
-    it('removes pending entry after timeout', async () => {
-      const promise = store.create('req-1');
+    it('removes pending entry after explicit timeout', async () => {
+      const promise = store.create('req-1', 5000);
       vi.advanceTimersByTime(5000);
       await promise;
       expect(store.pendingCount).toBe(0);
+    });
+
+    it('ignores non-finite / non-positive timeoutMs (waits indefinitely)', async () => {
+      const promise = store.create('req-1', 0);
+      vi.advanceTimersByTime(60_000);
+      let settled = false;
+      void promise.then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toBe(false);
     });
   });
 

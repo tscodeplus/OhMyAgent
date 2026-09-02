@@ -885,7 +885,14 @@ export class AgentService {
    * Returns false if no pending questions exist.
    */
   resolveFirstPendingQuestion(sessionId: string, answer: string): boolean {
-    return this.factory.resolveFirstPendingQuestion(sessionId, answer);
+    const resolved = this.factory.resolveFirstPendingQuestion(sessionId, answer);
+    if (resolved) {
+      this.persistence?.logger.info(
+        { sessionId },
+        'Pending user question resolved via text-message interception',
+      );
+    }
+    return resolved;
   }
 
   /**
@@ -922,7 +929,13 @@ export class AgentService {
     //    steering queue, so the agent loop will find it when it resumes
     this.rejectPendingApprovals(sessionId, 'steered');
     // 4. Also reject any pending user questions (ask_user_question tool)
-    this.rejectPendingQuestions(sessionId);
+    const rejectedQuestions = this.rejectPendingQuestions(sessionId);
+    if (rejectedQuestions > 0) {
+      this.persistence?.logger.info(
+        { sessionId, rejected: rejectedQuestions },
+        'Pending user questions cancelled by steer',
+      );
+    }
     return true;
   }
 

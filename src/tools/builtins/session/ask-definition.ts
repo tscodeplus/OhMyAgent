@@ -42,7 +42,6 @@ interface AskUserQuestionArgs {
   options?: string[];
 }
 
-const DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes
 
 /**
  * Create the ask_user_question ToolDefinition.
@@ -112,13 +111,24 @@ export function createAskUserQuestionToolDefinition(): ToolDefinition {
           return textResult(formatted);
         }
 
-        // Wait for the user's answer
-        const answer = await userQuestionStore.create(requestId, DEFAULT_TIMEOUT_MS, ctx.sessionId);
+        // Wait for the user's answer (indefinitely — no auto-timeout; the
+        // store resolves when the user answers, or rejects via steer/stop
+        // with a '[Cancelled] ...' marker string).
+        const answer = await userQuestionStore.create(requestId, undefined, ctx.sessionId);
+
+        // Cancelled questions must not render as "answered" in the question UI.
+        const cancelled =
+          answer.startsWith('[Cancelled]') || answer.startsWith('[Timeout]');
 
         // Close/resolve the question UI (best-effort)
         if (sender.closeQuestion) {
           try {
-            await sender.closeQuestion(ctx.chatId!, cardMessageId, answer);
+            await sender.closeQuestion(
+              ctx.chatId!,
+              cardMessageId,
+              answer,
+              cancelled ? 'cancelled' : 'answered',
+            );
           } catch {
             // UI cleanup failure is not a tool failure
           }

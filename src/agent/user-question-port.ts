@@ -48,7 +48,11 @@ export interface UserQuestionSender {
    * Called after the answer arrives, to update the question UI (e.g. disable
    * buttons, show the selected answer, recall the card).
    *
+   * `status` distinguishes a real answer from a cancelled question (steer,
+   * stop) so the UI can render an honest "cancelled" state instead of
+   * claiming the question was answered.
+   *
    * Best-effort — callers must not break if this throws or is undefined.
    */
-  closeQuestion?(chatId: string, cardMessageId: string | undefined, answer: string): Promise<void>;
+  closeQuestion?(chatId: string, cardMessageId: string | undefined, answer: string, status?: 'answered' | 'cancelled'): Promise<void> | void;
 }
