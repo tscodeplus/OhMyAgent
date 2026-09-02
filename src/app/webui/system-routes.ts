@@ -324,22 +324,18 @@ export function registerSystemRoutes(app: FastifyInstance): void {
 
       if (!res || !res.ok) {
         if (lastErr?.name === 'AbortError') {
-          return reply
-            .status(504)
-            .send({
-              ok: false,
-              error: 'github_unreachable',
-              message: 'Cannot connect to GitHub — request timed out',
-            });
-        }
-        app.log.warn({ err: lastErr?.message }, 'check-update: GitHub unreachable');
-        return reply
-          .status(502)
-          .send({
+          return reply.status(504).send({
             ok: false,
             error: 'github_unreachable',
-            message: 'Cannot connect to GitHub — network error',
+            message: 'Cannot connect to GitHub — request timed out',
           });
+        }
+        app.log.warn({ err: lastErr?.message }, 'check-update: GitHub unreachable');
+        return reply.status(502).send({
+          ok: false,
+          error: 'github_unreachable',
+          message: 'Cannot connect to GitHub — network error',
+        });
       }
 
       if (!res.ok) {

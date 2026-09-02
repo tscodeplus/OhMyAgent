@@ -1,0 +1,3 @@
+# Prettier backfill - mechanical reformat with no semantic changes.
+# Configure: git config blame.ignoreRevsFile .git-blame-ignore-revs
+30007dd30ccabbad06dc76095ce32585bb01f1fe

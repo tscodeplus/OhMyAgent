@@ -25,9 +25,7 @@ export interface WSCardActionHandlerOptions {
 }
 
 /** Create the cardActionHandler callback for FeishuWSClient. */
-export function createWSCardActionHandler(
-  opts: WSCardActionHandlerOptions,
-): (
+export function createWSCardActionHandler(opts: WSCardActionHandlerOptions): (
   callback: any,
 ) => Promise<{
   code?: number;

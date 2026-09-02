@@ -367,19 +367,17 @@ describe('MemoryRetriever', () => {
           created_at: '1000',
         },
       });
-      mockRepo.searchByContent = vi
-        .fn()
-        .mockReturnValue([
-          {
-            id: 'mem1',
-            scope: 'user',
-            scope_key: '',
-            kind: 'fact',
-            content: 'test content',
-            status: 'active',
-            created_at: '1000',
-          },
-        ]);
+      mockRepo.searchByContent = vi.fn().mockReturnValue([
+        {
+          id: 'mem1',
+          scope: 'user',
+          scope_key: '',
+          kind: 'fact',
+          content: 'test content',
+          status: 'active',
+          created_at: '1000',
+        },
+      ]);
       retriever = createRetriever({ memoryRepository: mockRepo as any });
       const results = await retriever.retrieve({ query: 'test', textOnly: true });
       expect(results).toHaveLength(1);

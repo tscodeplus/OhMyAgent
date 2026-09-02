@@ -132,12 +132,9 @@ export function registerSkillsRoutes(app: FastifyInstance, cfg: SkillsRouteConfi
         // Rollback
         await writeFile(skillMdPath, original, 'utf-8');
         await cfg.services.skillRegistry.load(SKILLS_DIR);
-        return reply
-          .status(422)
-          .send({
-            error:
-              'Updated SKILL.md failed to load — original content restored. Check YAML syntax.',
-          });
+        return reply.status(422).send({
+          error: 'Updated SKILL.md failed to load — original content restored. Check YAML syntax.',
+        });
       }
 
       return reply.send({ ok: true, slug: reloaded.manifest.id });

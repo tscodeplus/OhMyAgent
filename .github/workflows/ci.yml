@@ -59,6 +59,27 @@ jobs:
       - name: Test with coverage
         run: pnpm test:coverage
 
+  # Formatting gate: cheap (seconds) and eliminates style-churn diffs.
+  # Scope + ignores live in .prettierignore (src/pi-mono is upstream-replaced
+  # and must never be reformatted).
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prettier check
+        run: pnpm format:check
+
   desktop-typecheck:
     runs-on: ubuntu-latest
     timeout-minutes: 20
