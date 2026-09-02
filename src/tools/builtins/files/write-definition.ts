@@ -26,8 +26,7 @@ export function createFileWriteToolDefinition(): ToolDefinition {
   return {
     name: 'file_write',
     label: 'File Write',
-    description:
-      'Write content to a file, creating parent directories if they do not exist.',
+    description: 'Write content to a file, creating parent directories if they do not exist.',
     category: 'file',
     parametersSchema: Type.Object({
       filePath: Type.String({
@@ -38,14 +37,15 @@ export function createFileWriteToolDefinition(): ToolDefinition {
       }),
     }),
     capability: fileWriteCapability,
-    execute: async (
-      args: { filePath: string; content: string },
-      ctx,
-    ) => {
+    execute: async (args: { filePath: string; content: string }, ctx) => {
       // Forward to desktop bridge only for Windows absolute paths
       if (ctx.desktopBridge && shouldRouteToDesktopBridge(args.filePath)) {
         try {
-          const result = await ctx.desktopBridge.callTool('file_write', { path: args.filePath, content: args.content }, 30_000);
+          const result = await ctx.desktopBridge.callTool(
+            'file_write',
+            { path: args.filePath, content: args.content },
+            30_000,
+          );
           if (result.ok) {
             const data = result.data as { content?: string } | undefined;
             return textResult(data?.content ?? String(result.data ?? ''));
@@ -60,13 +60,9 @@ export function createFileWriteToolDefinition(): ToolDefinition {
         const resolvedPath = ctx.resolvedPath ?? path.resolve(ctx.cwd, args.filePath);
         // Symlink-safe write: O_NOFOLLOW closes the policy-check→write TOCTOU gap.
         const bytesWritten = writeFileNoFollow(resolvedPath, args.content);
-        return textResult(
-          `Successfully wrote ${bytesWritten} bytes to ${resolvedPath}`,
-        );
+        return textResult(`Successfully wrote ${bytesWritten} bytes to ${resolvedPath}`);
       } catch (err: any) {
-        return errorResult(
-          `Failed to write file: ${err.message ?? String(err)}`,
-        );
+        return errorResult(`Failed to write file: ${err.message ?? String(err)}`);
       }
     },
   };

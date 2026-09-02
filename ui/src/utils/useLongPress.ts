@@ -7,7 +7,10 @@ import React, { useCallback, useRef } from 'react';
  * Usage: spread the returned props onto the target element, and pass
  * a callback that receives the React touch/mouse event.
  */
-export function useLongPress(onLongPress: (e: React.TouchEvent | React.MouseEvent) => void, delay = 500) {
+export function useLongPress(
+  onLongPress: (e: React.TouchEvent | React.MouseEvent) => void,
+  delay = 500,
+) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const movedRef = useRef(false);
   const eventRef = useRef<React.TouchEvent | React.MouseEvent | null>(null);
@@ -19,18 +22,21 @@ export function useLongPress(onLongPress: (e: React.TouchEvent | React.MouseEven
     }
   }, []);
 
-  const onTouchStart = useCallback((e: React.TouchEvent) => {
-    // Only trigger for single-finger touch
-    if (e.touches.length !== 1) return;
-    movedRef.current = false;
-    eventRef.current = e;
-    timerRef.current = setTimeout(() => {
-      timerRef.current = null;
-      if (!movedRef.current && eventRef.current) {
-        onLongPress(eventRef.current);
-      }
-    }, delay);
-  }, [delay, onLongPress]);
+  const onTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      // Only trigger for single-finger touch
+      if (e.touches.length !== 1) return;
+      movedRef.current = false;
+      eventRef.current = e;
+      timerRef.current = setTimeout(() => {
+        timerRef.current = null;
+        if (!movedRef.current && eventRef.current) {
+          onLongPress(eventRef.current);
+        }
+      }, delay);
+    },
+    [delay, onLongPress],
+  );
 
   const onTouchMove = useCallback(() => {
     movedRef.current = true;
@@ -42,10 +48,13 @@ export function useLongPress(onLongPress: (e: React.TouchEvent | React.MouseEven
   }, [clear]);
 
   // Desktop: native contextmenu event
-  const onContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    onLongPress(e);
-  }, [onLongPress]);
+  const onContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      onLongPress(e);
+    },
+    [onLongPress],
+  );
 
   return {
     onTouchStart,

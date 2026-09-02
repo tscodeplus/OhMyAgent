@@ -28,7 +28,10 @@ export class MaintenanceScheduler {
   start(): void {
     if (!this.config.enabled) return;
     this.running = true;
-    this.logger.info({ intervalMs: this.config.intervalMs, jobCount: this.jobs.size }, 'MaintenanceScheduler started');
+    this.logger.info(
+      { intervalMs: this.config.intervalMs, jobCount: this.jobs.size },
+      'MaintenanceScheduler started',
+    );
     this.scheduleNext();
   }
 
@@ -44,7 +47,7 @@ export class MaintenanceScheduler {
   private scheduleNext(): void {
     if (!this.running) return;
     this.timer = setTimeout(() => {
-      this.runDue().catch(err => {
+      this.runDue().catch((err) => {
         this.logger.error({ err }, 'MaintenanceScheduler runDue failed');
       });
       this.scheduleNext();
@@ -81,13 +84,27 @@ export class MaintenanceScheduler {
   async runJob(name: string, dryRun: boolean = false): Promise<MaintenanceJobResult> {
     const job = this.jobs.get(name);
     if (!job) {
-      return { name, status: 'failed', dryRun, affectedRows: 0, durationMs: 0, error: `Job not found: ${name}` };
+      return {
+        name,
+        status: 'failed',
+        dryRun,
+        affectedRows: 0,
+        durationMs: 0,
+        error: `Job not found: ${name}`,
+      };
     }
 
     // Prevent concurrent execution of the same job
     if (this.runningJobs.has(name)) {
       this.logger.info({ job: name }, 'Job already running, skipping');
-      return { name, status: 'skipped', dryRun, affectedRows: 0, durationMs: 0, details: { reason: 'already_running' } };
+      return {
+        name,
+        status: 'skipped',
+        dryRun,
+        affectedRows: 0,
+        durationMs: 0,
+        details: { reason: 'already_running' },
+      };
     }
     this.runningJobs.add(name);
 
@@ -96,20 +113,30 @@ export class MaintenanceScheduler {
     try {
       const result = await job.run({ dryRun, signal: AbortSignal.timeout(60_000) });
       this.runRepo.finishRun(runId, result.affectedRows, result.error);
-      this.logger.info({ job: name, dryRun, affectedRows: result.affectedRows, durationMs: Date.now() - start }, 'Maintenance job complete');
+      this.logger.info(
+        { job: name, dryRun, affectedRows: result.affectedRows, durationMs: Date.now() - start },
+        'Maintenance job complete',
+      );
       return { ...result, durationMs: Date.now() - start };
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
       this.runRepo.finishRun(runId, 0, error);
       this.logger.warn({ job: name, dryRun, error }, 'Maintenance job failed');
-      return { name, status: 'failed', dryRun, affectedRows: 0, durationMs: Date.now() - start, error };
+      return {
+        name,
+        status: 'failed',
+        dryRun,
+        affectedRows: 0,
+        durationMs: Date.now() - start,
+        error,
+      };
     } finally {
       this.runningJobs.delete(name);
     }
   }
 
   listJobs(): Array<{ name: string; enabled: boolean; intervalMs: number }> {
-    return Array.from(this.jobs.values()).map(j => ({
+    return Array.from(this.jobs.values()).map((j) => ({
       name: j.name,
       enabled: j.enabled,
       intervalMs: j.intervalMs,

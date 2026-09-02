@@ -60,7 +60,9 @@ export function registerDesktopBridge(app: FastifyInstance): DesktopBridgeRegist
     const token = bearerMatch?.[1] ?? url.searchParams.get('token') ?? '';
 
     if (!verifyToken(token)) {
-      socket.write('HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\n\r\n{"error":"invalid_token"}');
+      socket.write(
+        'HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\n\r\n{"error":"invalid_token"}',
+      );
       socket.destroy();
       return;
     }

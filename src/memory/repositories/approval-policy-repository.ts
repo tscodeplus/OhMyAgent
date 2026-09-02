@@ -105,14 +105,14 @@ export class ApprovalPolicyRepository {
 
   findByScope(scope: string, scopeKey: string): ApprovalPolicy[] {
     const stmt = this.db.prepare(
-      'SELECT * FROM approval_policies WHERE scope = ? AND scope_key = ? ORDER BY created_at DESC'
+      'SELECT * FROM approval_policies WHERE scope = ? AND scope_key = ? ORDER BY created_at DESC',
     );
     return stmt.all(scope, scopeKey) as ApprovalPolicy[];
   }
 
   findByTargetKind(targetKind: string): ApprovalPolicy[] {
     const stmt = this.db.prepare(
-      'SELECT * FROM approval_policies WHERE target_kind = ? ORDER BY created_at DESC'
+      'SELECT * FROM approval_policies WHERE target_kind = ? ORDER BY created_at DESC',
     );
     return stmt.all(targetKind) as ApprovalPolicy[];
   }
@@ -162,7 +162,7 @@ export class ApprovalPolicyRepository {
       return this.findById(id);
     }
 
-    fields.push('updated_at = cast(strftime(\'%s\',\'now\') as integer) * 1000');
+    fields.push("updated_at = cast(strftime('%s','now') as integer) * 1000");
     const sql = `UPDATE approval_policies SET ${fields.join(', ')} WHERE id = @id`;
     this.db.prepare(sql).run(values);
     return this.findById(id);

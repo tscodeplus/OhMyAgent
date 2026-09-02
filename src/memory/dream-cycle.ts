@@ -146,9 +146,8 @@ export class DreamCycle {
       timeZone: tz,
       timeZoneName: 'longOffset',
     });
-    const offsetPart = offsetFmt
-      .formatToParts(now)
-      .find((p) => p.type === 'timeZoneName')?.value ?? 'GMT';
+    const offsetPart =
+      offsetFmt.formatToParts(now).find((p) => p.type === 'timeZoneName')?.value ?? 'GMT';
     const offsetMatch = offsetPart.match(/[+-]\d{2}:\d{2}/);
     const offset = offsetMatch ? offsetMatch[0] : '+00:00';
 
@@ -172,7 +171,7 @@ export class DreamCycle {
     if (nextFire > Date.now()) return true;
     // We're past today's window. The last scheduled time was nextFire - 24h.
     const lastScheduled = nextFire - 24 * 60 * 60 * 1000;
-    return (Date.now() - lastScheduled) <= this.config.windowGraceMinutes * 60 * 1000;
+    return Date.now() - lastScheduled <= this.config.windowGraceMinutes * 60 * 1000;
   }
 
   private scheduleNext(): void {
@@ -191,9 +190,7 @@ export class DreamCycle {
       this.timer = null;
       if (this.destroyed) return;
       this.runAll()
-        .catch((err) =>
-          this.logger.error({ err }, 'DreamCycle runAll failed'),
-        )
+        .catch((err) => this.logger.error({ err }, 'DreamCycle runAll failed'))
         .finally(() => {
           // Reschedule after completion regardless of outcome
           this.scheduleNext();
@@ -227,9 +224,7 @@ export class DreamCycle {
       const withinGrace = this.isWithinGraceWindow();
 
       if (!withinGrace) {
-        this.logger.info(
-          'DreamCycle started outside grace window — heavy phases will be skipped',
-        );
+        this.logger.info('DreamCycle started outside grace window — heavy phases will be skipped');
       }
 
       const phases: Array<{
@@ -237,13 +232,13 @@ export class DreamCycle {
         heavy: boolean;
         fn: (signal: AbortSignal) => Promise<number>;
       }> = [
-        { name: 'synthesize',   heavy: true,  fn: (s) => this.synthesize(s) },
-        { name: 'backlinks',    heavy: false, fn: async (s) => this.backlinks(s) },
-        { name: 'extract',      heavy: false, fn: async (s) => this.extract(s) },
-        { name: 'sceneCluster', heavy: true,  fn: (s) => this.sceneCluster(s) },
-        { name: 'hygiene',      heavy: false, fn: async (s) => this.hygiene(s) },
-        { name: 'embed',        heavy: true,  fn: (s) => this.embed(s) },
-        { name: 'purge',        heavy: false, fn: async (s) => this.purge(s) },
+        { name: 'synthesize', heavy: true, fn: (s) => this.synthesize(s) },
+        { name: 'backlinks', heavy: false, fn: async (s) => this.backlinks(s) },
+        { name: 'extract', heavy: false, fn: async (s) => this.extract(s) },
+        { name: 'sceneCluster', heavy: true, fn: (s) => this.sceneCluster(s) },
+        { name: 'hygiene', heavy: false, fn: async (s) => this.hygiene(s) },
+        { name: 'embed', heavy: true, fn: (s) => this.embed(s) },
+        { name: 'purge', heavy: false, fn: async (s) => this.purge(s) },
       ];
 
       const results: PhaseResult[] = [];
@@ -273,9 +268,7 @@ export class DreamCycle {
         const timeoutId = setTimeout(
           () =>
             controller.abort(
-              new Error(
-                `Phase "${phase.name}" timed out after ${this.config.phaseTimeoutMs}ms`,
-              ),
+              new Error(`Phase "${phase.name}" timed out after ${this.config.phaseTimeoutMs}ms`),
             ),
           this.config.phaseTimeoutMs,
         );
@@ -377,21 +370,20 @@ export class DreamCycle {
         // Load both memories in full
         const anchorMem = this.memoryRepo.findById(memory.id);
         const neighborMem = this.memoryRepo.findById(neighbor.memory_id);
-        if (!anchorMem || !neighborMem || anchorMem.status !== 'active' || neighborMem.status !== 'active') continue;
+        if (
+          !anchorMem ||
+          !neighborMem ||
+          anchorMem.status !== 'active' ||
+          neighborMem.status !== 'active'
+        )
+          continue;
 
         // Try merge — newer content goes into the older memory
-        const isNewer =
-          parseEpochMs(anchorMem.created_at) >
-          parseEpochMs(neighborMem.created_at);
+        const isNewer = parseEpochMs(anchorMem.created_at) > parseEpochMs(neighborMem.created_at);
         const existing = isNewer ? neighborMem : anchorMem;
         const newContent = isNewer ? anchorMem.content : neighborMem.content;
 
-        const result = await mergeMemory(
-          existing,
-          newContent,
-          neighbor.score,
-          this.mergeConfig,
-        );
+        const result = await mergeMemory(existing, newContent, neighbor.score, this.mergeConfig);
 
         if (result && result.mergedContent !== existing.content) {
           // Update the existing memory with merged content
@@ -549,10 +541,7 @@ export class DreamCycle {
   private hygiene(_signal: AbortSignal): number {
     const report = this.memoryHygiene.clean();
     if (report.error) {
-      this.logger.warn(
-        { error: report.error },
-        'DreamCycle hygiene reported error',
-      );
+      this.logger.warn({ error: report.error }, 'DreamCycle hygiene reported error');
     }
     return report.cleanedCount;
   }
@@ -596,9 +585,9 @@ export class DreamCycle {
 
   private purge(_signal: AbortSignal): number {
     const maxEntries = 10000;
-    const row = this.db
-      .prepare('SELECT COUNT(*) as cnt FROM embedding_cache')
-      .get() as { cnt: number };
+    const row = this.db.prepare('SELECT COUNT(*) as cnt FROM embedding_cache').get() as {
+      cnt: number;
+    };
 
     if (row.cnt > maxEntries) {
       const toDelete = Math.ceil(row.cnt * 0.1);

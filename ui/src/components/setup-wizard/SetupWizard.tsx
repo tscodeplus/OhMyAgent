@@ -77,7 +77,12 @@ function StepIndicator({ currentStep }: { currentStep: number }) {
 
 // ─── Main Component ───
 
-export default function SetupWizard({ initialLanguage, providers, onComplete, onDismiss }: SetupWizardProps) {
+export default function SetupWizard({
+  initialLanguage,
+  providers,
+  onComplete,
+  onDismiss,
+}: SetupWizardProps) {
   const { t } = useTranslation('common');
   const { setThemeMode } = useTheme();
 
@@ -253,7 +258,7 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
     {
       step: 2,
       label: t('setupWizard.review.theme'),
-      value: themeOptions.find(o => o.value === state.theme)?.label ?? state.theme,
+      value: themeOptions.find((o) => o.value === state.theme)?.label ?? state.theme,
     },
     {
       step: 3,
@@ -412,7 +417,10 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
                 </p>
                 {resolvedProvider && (
                   <p className="mt-1 text-xs text-neutral-400">
-                    {t('setupWizard.mainModel.providerLabel')}: <span className="font-medium text-neutral-600 dark:text-neutral-300">{resolvedProvider}</span>
+                    {t('setupWizard.mainModel.providerLabel')}:{' '}
+                    <span className="font-medium text-neutral-600 dark:text-neutral-300">
+                      {resolvedProvider}
+                    </span>
                   </p>
                 )}
               </div>
@@ -522,7 +530,11 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
                   variant="ghost"
                   size="sm"
                   onClick={() => {
-                    update({ embeddingApiKey: '', embeddingBaseUrl: DEFAULT_EMBEDDING_BASE_URL, embeddingModel: DEFAULT_EMBEDDING_MODEL });
+                    update({
+                      embeddingApiKey: '',
+                      embeddingBaseUrl: DEFAULT_EMBEDDING_BASE_URL,
+                      embeddingModel: DEFAULT_EMBEDDING_MODEL,
+                    });
                     handleNext();
                   }}
                 >
@@ -551,7 +563,9 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
                   >
                     <div className="flex flex-col min-w-0">
                       <span className="text-xs text-neutral-400">{item.label}</span>
-                      <span className={`text-sm truncate ${item.value ? 'text-neutral-900 dark:text-neutral-100' : 'text-neutral-400'}`}>
+                      <span
+                        className={`text-sm truncate ${item.value ? 'text-neutral-900 dark:text-neutral-100' : 'text-neutral-400'}`}
+                      >
                         {item.value || item.fallback}
                       </span>
                     </div>
@@ -586,7 +600,12 @@ export default function SetupWizard({ initialLanguage, providers, onComplete, on
           </div>
           <div>
             {currentStep < TOTAL_STEPS ? (
-              <Button variant="primary" size="md" onClick={handleNext} disabled={!canProceed(currentStep)}>
+              <Button
+                variant="primary"
+                size="md"
+                onClick={handleNext}
+                disabled={!canProceed(currentStep)}
+              >
                 {t('setupWizard.next')}
                 <ChevronRight size={16} />
               </Button>

@@ -19,7 +19,9 @@ function makeSkill(overrides: Partial<LoadedSkill> & { id: string }): LoadedSkil
     promptContent: overrides.promptContent ?? '',
     tools: overrides.tools ?? { allowedTools: [] },
     memoryPolicy: overrides.memoryPolicy ?? {
-      scopes: [{ type: 'session' as const, readPolicy: 'always' as const, writePolicy: 'always' as const }],
+      scopes: [
+        { type: 'session' as const, readPolicy: 'always' as const, writePolicy: 'always' as const },
+      ],
     },
     path: overrides.path ?? `/fake/${overrides.id}`,
   };
@@ -27,7 +29,7 @@ function makeSkill(overrides: Partial<LoadedSkill> & { id: string }): LoadedSkil
 
 function makeResolved(
   skill: LoadedSkill,
-  matchType: 'explicit' | 'trigger' = 'trigger'
+  matchType: 'explicit' | 'trigger' = 'trigger',
 ): ResolvedSkill {
   return { skill, matchType };
 }
@@ -73,10 +75,7 @@ describe('compileSkillContext', () => {
       tools: { allowedTools: ['file_read', 'code_execute'] },
     });
 
-    const result = compileSkillContext([
-      makeResolved(skill1),
-      makeResolved(skill2),
-    ]);
+    const result = compileSkillContext([makeResolved(skill1), makeResolved(skill2)]);
 
     expect(result.allowedTools).toEqual(['web_search', 'file_read', 'code_execute']);
   });
@@ -91,10 +90,7 @@ describe('compileSkillContext', () => {
       tools: { allowedTools: ['b'], deniedTools: ['risky_tool', 'dangerous_tool'] },
     });
 
-    const result = compileSkillContext([
-      makeResolved(skill1),
-      makeResolved(skill2),
-    ]);
+    const result = compileSkillContext([makeResolved(skill1), makeResolved(skill2)]);
 
     expect(result.deniedTools).toEqual(['dangerous_tool', 'risky_tool']);
   });
@@ -109,14 +105,9 @@ describe('compileSkillContext', () => {
       promptContent: 'You are a researcher.',
     });
 
-    const result = compileSkillContext([
-      makeResolved(skill1),
-      makeResolved(skill2),
-    ]);
+    const result = compileSkillContext([makeResolved(skill1), makeResolved(skill2)]);
 
-    expect(result.promptContent).toBe(
-      'You are a coding assistant.\n---\nYou are a researcher.'
-    );
+    expect(result.promptContent).toBe('You are a coding assistant.\n---\nYou are a researcher.');
   });
 
   it('merges memory scopes from all skills', () => {
@@ -136,10 +127,7 @@ describe('compileSkillContext', () => {
       },
     });
 
-    const result = compileSkillContext([
-      makeResolved(skill1),
-      makeResolved(skill2),
-    ]);
+    const result = compileSkillContext([makeResolved(skill1), makeResolved(skill2)]);
 
     expect(result.memoryScopes).toHaveLength(3);
     expect(result.memoryScopes[0].type).toBe('session');
@@ -151,10 +139,7 @@ describe('compileSkillContext', () => {
     const skill1 = makeSkill({ id: 'skill1', promptContent: '' });
     const skill2 = makeSkill({ id: 'skill2', promptContent: 'Real prompt.' });
 
-    const result = compileSkillContext([
-      makeResolved(skill1),
-      makeResolved(skill2),
-    ]);
+    const result = compileSkillContext([makeResolved(skill1), makeResolved(skill2)]);
 
     // Empty prompt is still joined (empty string between separators is acceptable)
     expect(result.promptContent).toContain('Real prompt.');
@@ -170,10 +155,7 @@ describe('compileSkillContext', () => {
       tools: { allowedTools: ['b'], deniedTools: ['c'] },
     });
 
-    const result = compileSkillContext([
-      makeResolved(skill1),
-      makeResolved(skill2),
-    ]);
+    const result = compileSkillContext([makeResolved(skill1), makeResolved(skill2)]);
 
     expect(result.deniedTools).toEqual(['c']);
   });

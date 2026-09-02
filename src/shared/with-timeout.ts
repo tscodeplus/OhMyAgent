@@ -47,7 +47,10 @@ export async function waitForIdleWithTimeout(
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      waitForIdle().then(() => true, () => true),
+      waitForIdle().then(
+        () => true,
+        () => true,
+      ),
       new Promise<false>((resolve) => {
         timer = setTimeout(() => resolve(false), settleTimeoutMs);
       }),

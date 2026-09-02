@@ -14,25 +14,28 @@ export class HarnessRateLimiter {
   canTrigger(
     skillId: string | undefined,
     agentId: string | undefined,
-    pattern: FailurePattern
+    pattern: FailurePattern,
   ): boolean {
     // 1. Build cooldown key from (skillId ?? "_") + "/" + (agentId ?? "_") + "/" + pattern
     const key = (skillId ?? '_') + '/' + (agentId ?? '_') + '/' + pattern;
 
     // 2. Check cooldown (config.cooldownMinutes → ms)
     const lastCooldown = this.cooldownMap.get(key);
-    if (lastCooldown !== undefined && Date.now() - lastCooldown < this.config.cooldownMinutes * 60000) {
+    if (
+      lastCooldown !== undefined &&
+      Date.now() - lastCooldown < this.config.cooldownMinutes * 60000
+    ) {
       return false;
     }
 
     // 3. Prune old hourly timestamps (> 3600000 ms old) and check count < maxPerHour
-    this.hourlyTimestamps = this.hourlyTimestamps.filter(ts => Date.now() - ts < 3600000);
+    this.hourlyTimestamps = this.hourlyTimestamps.filter((ts) => Date.now() - ts < 3600000);
     if (this.hourlyTimestamps.length >= this.config.maxPerHour) {
       return false;
     }
 
     // 4. Prune old daily timestamps (> 86400000 ms old) and check count < maxPerDay
-    this.dailyTimestamps = this.dailyTimestamps.filter(ts => Date.now() - ts < 86400000);
+    this.dailyTimestamps = this.dailyTimestamps.filter((ts) => Date.now() - ts < 86400000);
     if (this.dailyTimestamps.length >= this.config.maxPerDay) {
       return false;
     }
@@ -47,17 +50,17 @@ export class HarnessRateLimiter {
   }
 
   getHourlyCount(): number {
-    this.hourlyTimestamps = this.hourlyTimestamps.filter(ts => Date.now() - ts < 3600000);
+    this.hourlyTimestamps = this.hourlyTimestamps.filter((ts) => Date.now() - ts < 3600000);
     return this.hourlyTimestamps.length;
   }
 
   getDailyCount(): number {
-    this.dailyTimestamps = this.dailyTimestamps.filter(ts => Date.now() - ts < 86400000);
+    this.dailyTimestamps = this.dailyTimestamps.filter((ts) => Date.now() - ts < 86400000);
     return this.dailyTimestamps.length;
   }
 
   getAutoApplyCount(): number {
-    this.autoApplyTimestamps = this.autoApplyTimestamps.filter(ts => Date.now() - ts < 86400000);
+    this.autoApplyTimestamps = this.autoApplyTimestamps.filter((ts) => Date.now() - ts < 86400000);
     return this.autoApplyTimestamps.length;
   }
 

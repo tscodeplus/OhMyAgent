@@ -178,8 +178,22 @@ describe('bufferToFloat32Array', () => {
 // ---------------------------------------------------------------------------
 describe('QueryResultCache', () => {
   const sampleResults = (prefix: string): RetrievedMemory[] => [
-    { id: `${prefix}-1`, content: `${prefix} result A`, scope: 'user', scopeKey: 'u1', kind: 'fact', score: 0.95 },
-    { id: `${prefix}-2`, content: `${prefix} result B`, scope: 'user', scopeKey: 'u1', kind: 'fact', score: 0.85 },
+    {
+      id: `${prefix}-1`,
+      content: `${prefix} result A`,
+      scope: 'user',
+      scopeKey: 'u1',
+      kind: 'fact',
+      score: 0.95,
+    },
+    {
+      id: `${prefix}-2`,
+      content: `${prefix} result B`,
+      scope: 'user',
+      scopeKey: 'u1',
+      kind: 'fact',
+      score: 0.85,
+    },
   ];
 
   // Test 1: get non-existent key returns undefined
@@ -236,7 +250,9 @@ describe('QueryResultCache', () => {
     cache.set('query', 3, 'user', 'u1', preferenceResults, 'agent-a', 'preference');
 
     expect(cache.get('query', 3, 'user', 'u1', 'agent-a', 'fact')![0].id).toBe('fact-1');
-    expect(cache.get('query', 3, 'user', 'u1', 'agent-a', 'preference')![0].id).toBe('preference-1');
+    expect(cache.get('query', 3, 'user', 'u1', 'agent-a', 'preference')![0].id).toBe(
+      'preference-1',
+    );
   });
 
   it('isolates entries by minScore', () => {

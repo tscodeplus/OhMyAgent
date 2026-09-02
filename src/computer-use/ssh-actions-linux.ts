@@ -20,12 +20,43 @@ import { quoteShellArg, truncateStdout } from './ssh-actions-common.js';
 
 /** Known xdotool key names (beyond alphanumeric chars). */
 const SPECIAL_KEYS = new Set([
-  'Return', 'Escape', 'Tab', 'BackSpace', 'Delete',
-  'Home', 'End', 'Page_Up', 'Page_Down',
-  'Up', 'Down', 'Left', 'Right',
-  'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12',
-  'space', 'minus', 'equal', 'bracketleft', 'bracketright',
-  'backslash', 'semicolon', 'apostrophe', 'comma', 'period', 'slash', 'grave',
+  'Return',
+  'Escape',
+  'Tab',
+  'BackSpace',
+  'Delete',
+  'Home',
+  'End',
+  'Page_Up',
+  'Page_Down',
+  'Up',
+  'Down',
+  'Left',
+  'Right',
+  'F1',
+  'F2',
+  'F3',
+  'F4',
+  'F5',
+  'F6',
+  'F7',
+  'F8',
+  'F9',
+  'F10',
+  'F11',
+  'F12',
+  'space',
+  'minus',
+  'equal',
+  'bracketleft',
+  'bracketright',
+  'backslash',
+  'semicolon',
+  'apostrophe',
+  'comma',
+  'period',
+  'slash',
+  'grave',
 ]);
 
 /**
@@ -122,7 +153,7 @@ export async function listLinuxApps(runner: ExecRunner): Promise<AppInfo[]> {
           if (!title) continue;
 
           const firstWord = title.split(/\s+/)[0];
-          const existing = apps.find(a => a.name === firstWord);
+          const existing = apps.find((a) => a.name === firstWord);
           if (existing) {
             existing.windows.push({ windowId: wid, title });
           } else {
@@ -182,13 +213,17 @@ export async function readLinuxWindowState(
     try {
       await runner.exec(`import -window root /tmp/cua_${leaseId}.png`);
       screenshotTaken = true;
-    } catch { /* both failed */ }
+    } catch {
+      /* both failed */
+    }
   }
   if (screenshotTaken) {
     try {
       const b64Result = await runner.exec(`base64 -w0 /tmp/cua_${leaseId}.png`);
       screenshotBase64 = b64Result.stdout.trim();
-    } catch { /* encoding failed */ }
+    } catch {
+      /* encoding failed */
+    }
     await runner.exec(`rm -f /tmp/cua_${leaseId}.png`).catch(() => {});
   }
 
@@ -207,7 +242,9 @@ export async function readLinuxWindowState(
   try {
     const titleResult = await runner.exec(titleCommand);
     windowTitle = truncateStdout(titleResult.stdout.trim());
-  } catch { /* Non-critical */ }
+  } catch {
+    /* Non-critical */
+  }
 
   try {
     const geoResult = await runner.exec(geoCommand);
@@ -223,7 +260,9 @@ export async function readLinuxWindowState(
         windowHeight = parseInt(value, 10) || windowHeight;
       }
     }
-  } catch { /* Use defaults */ }
+  } catch {
+    /* Use defaults */
+  }
 
   // 3. Full display geometry.
   let screenWidth = windowWidth;
@@ -235,7 +274,9 @@ export async function readLinuxWindowState(
       screenWidth = parseInt(parts[0], 10) || screenWidth;
       screenHeight = parseInt(parts[1], 10) || screenHeight;
     }
-  } catch { /* fallback */ }
+  } catch {
+    /* fallback */
+  }
 
   // 4. Accessibility tree (AT-SPI2). Best-effort: derive the window owner PID
   // from the lease's windowId for app matching; when that fails the python
@@ -247,7 +288,9 @@ export async function readLinuxWindowState(
       const pidResult = await runner.exec(`xdotool getwindowpid ${windowId}`);
       const parsedPid = parseInt(pidResult.stdout.trim(), 10);
       if (!isNaN(parsedPid)) appTarget = parsedPid;
-    } catch { /* Non-critical */ }
+    } catch {
+      /* Non-critical */
+    }
   }
   const elements = await readLinuxAccessibilityTree(runner, appTarget);
 
@@ -919,7 +962,10 @@ async function runPythonAction(
  * a tree and for press_key (AT-SPI has no input-injection API — only
  * component/action interfaces, no key synthesis).
  */
-export async function performLinuxAction(runner: ExecRunner, action: Action): Promise<ActionResult> {
+export async function performLinuxAction(
+  runner: ExecRunner,
+  action: Action,
+): Promise<ActionResult> {
   let command: string;
 
   switch (action.type) {
@@ -967,9 +1013,8 @@ export async function performLinuxAction(runner: ExecRunner, action: Action): Pr
         };
       }
       // Cap oversized payloads (SSH command-line sanity limit).
-      const text = action.text.length > MAX_TEXT_LENGTH
-        ? action.text.slice(0, MAX_TEXT_LENGTH)
-        : action.text;
+      const text =
+        action.text.length > MAX_TEXT_LENGTH ? action.text.slice(0, MAX_TEXT_LENGTH) : action.text;
       const el = action.snapshotElement;
       const elementId = el?.elementId;
       const role = el?.role;
@@ -994,7 +1039,9 @@ export async function performLinuxAction(runner: ExecRunner, action: Action): Pr
           };
         }
       } else {
-        logDegraded(`type_text: element role '${role ?? 'none'}' is not a text field; using xdotool typing`);
+        logDegraded(
+          `type_text: element role '${role ?? 'none'}' is not a text field; using xdotool typing`,
+        );
       }
       const escaped = escapeShellText(text);
       command = `xdotool type --delay 50 "${escaped}"`;
@@ -1048,7 +1095,9 @@ export async function performLinuxAction(runner: ExecRunner, action: Action): Pr
     }
 
     case 'double_click': {
-      logDegraded('double_click: no AT-SPI double-click API; using xdotool coordinate double click');
+      logDegraded(
+        'double_click: no AT-SPI double-click API; using xdotool coordinate double click',
+      );
       if (action.snapshotElement) {
         const b = action.snapshotElement.bounds;
         const dblCx = Math.round(b.x + b.width / 2);

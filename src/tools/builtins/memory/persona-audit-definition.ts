@@ -26,7 +26,8 @@ export function createPersonaAuditToolDefinition(options: {
   return {
     name: 'memory_audit_persona',
     label: 'Memory Audit Persona',
-    description: 'Audit user persona: active/superseded preferences, derived fields, distillation status.',
+    description:
+      'Audit user persona: active/superseded preferences, derived fields, distillation status.',
     category: 'memory',
     parametersSchema: PersonaAuditParams,
     capability: personaAuditToolCapability,
@@ -72,7 +73,9 @@ export function createPersonaAuditToolDefinition(options: {
       if (audit.derivedFields.length > 0) {
         lines.push(`--- Derived Fields (${audit.derivedFields.length}) ---`);
         for (const field of audit.derivedFields) {
-          lines.push(`- ${field.field}: ${field.value} (confidence: ${field.confidence}, evidence: ${field.evidenceIds.length} preferences)`);
+          lines.push(
+            `- ${field.field}: ${field.value} (confidence: ${field.confidence}, evidence: ${field.evidenceIds.length} preferences)`,
+          );
         }
       }
 

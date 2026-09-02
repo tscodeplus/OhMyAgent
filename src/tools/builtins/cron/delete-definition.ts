@@ -69,7 +69,7 @@ export function createCronDeleteToolDefinition(): ToolDefinition {
       if (job.channel !== currentChannel || job.chatId !== currentChatId) {
         return errorResult(
           `Cron job "${args.jobId}" belongs to ${job.channel}/${job.chatId}, ` +
-          `not ${currentChannel}/${currentChatId}. Deletion denied.`,
+            `not ${currentChannel}/${currentChatId}. Deletion denied.`,
         );
       }
 

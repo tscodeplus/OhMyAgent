@@ -1,6 +1,9 @@
 import type { ChannelAdapter, ChannelContext, ReplyContent } from './types.js';
 
-type MessageHandler = (ctx: ChannelContext, reply: (content: ReplyContent) => Promise<void>) => Promise<void>;
+type MessageHandler = (
+  ctx: ChannelContext,
+  reply: (content: ReplyContent) => Promise<void>,
+) => Promise<void>;
 
 export class ChannelManager {
   private channels = new Map<string, ChannelAdapter>();
@@ -50,7 +53,7 @@ export class ChannelManager {
     const results = await Promise.allSettled(
       Array.from(this.channels.values()).map(async (channel) => {
         await channel.start();
-      })
+      }),
     );
     for (const result of results) {
       if (result.status === 'rejected') {
@@ -63,8 +66,12 @@ export class ChannelManager {
   async stopAll(): Promise<void> {
     await Promise.allSettled(
       Array.from(this.channels.values()).map(async (channel) => {
-        try { await channel.stop(); } catch { this.logger?.error('Failed to stop channel:', (channel as any).id ?? 'unknown'); }
-      })
+        try {
+          await channel.stop();
+        } catch {
+          this.logger?.error('Failed to stop channel:', (channel as any).id ?? 'unknown');
+        }
+      }),
     );
   }
 }

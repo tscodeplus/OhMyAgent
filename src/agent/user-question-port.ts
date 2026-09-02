@@ -50,9 +50,5 @@ export interface UserQuestionSender {
    *
    * Best-effort — callers must not break if this throws or is undefined.
    */
-  closeQuestion?(
-    chatId: string,
-    cardMessageId: string | undefined,
-    answer: string,
-  ): Promise<void>;
+  closeQuestion?(chatId: string, cardMessageId: string | undefined, answer: string): Promise<void>;
 }

@@ -29,7 +29,12 @@ export const teamModeStore = {
   },
 
   enable(sessionId: string, oneShot = false): void {
-    const config = defaultConfig ?? { enabled: true, max_children: 4, child_timeout_sec: 300, child_settle_timeout_ms: 15_000 };
+    const config = defaultConfig ?? {
+      enabled: true,
+      max_children: 4,
+      child_timeout_sec: 300,
+      child_settle_timeout_ms: 15_000,
+    };
     store.set(sessionId, { enabled: true, oneShot, config });
   },
 

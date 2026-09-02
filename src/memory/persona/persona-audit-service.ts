@@ -50,7 +50,7 @@ export class PersonaAuditService {
 
     // Active preferences (findByScopeKind already filters status='active')
     const activePrefs = this.memoryRepo.findByScopeKind('user', 'preference');
-    const activePreferences: ActivePreference[] = activePrefs.map(p => ({
+    const activePreferences: ActivePreference[] = activePrefs.map((p) => ({
       id: p.id,
       topic: detectTopic(p.content),
       content: p.content,
@@ -59,9 +59,10 @@ export class PersonaAuditService {
     }));
 
     // Superseded preferences
-    const allPrefs = this.memoryRepo.findByScopeKind('user', 'preference', { includeInactive: true })
-      .filter(p => p.status === 'superseded');
-    const supersededPreferences: SupersededPreference[] = allPrefs.map(p => ({
+    const allPrefs = this.memoryRepo
+      .findByScopeKind('user', 'preference', { includeInactive: true })
+      .filter((p) => p.status === 'superseded');
+    const supersededPreferences: SupersededPreference[] = allPrefs.map((p) => ({
       id: p.id,
       supersededBy: null,
       content: p.content,
@@ -82,8 +83,8 @@ export class PersonaAuditService {
       if (preferredNameMatch) {
         const name = preferredNameMatch[1].trim();
         const evidenceIds = activePrefs
-          .filter(p => detectTopic(p.content) === 'preferred_name')
-          .map(p => p.id);
+          .filter((p) => detectTopic(p.content) === 'preferred_name')
+          .map((p) => p.id);
         derivedFields.push({
           field: 'preferred_name',
           value: name,

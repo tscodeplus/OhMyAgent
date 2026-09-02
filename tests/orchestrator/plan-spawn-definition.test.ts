@@ -19,9 +19,7 @@ describe('plan_and_spawn ToolDefinition', () => {
       waitForIdle: vi.fn(async () => undefined),
       abort: vi.fn(),
       state: {
-        messages: [
-          { role: 'assistant', content: [{ type: 'text', text: 'child result' }] },
-        ],
+        messages: [{ role: 'assistant', content: [{ type: 'text', text: 'child result' }] }],
       },
     };
   }

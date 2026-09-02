@@ -15,12 +15,16 @@ export function createEmbeddingBackfillJob(
     enabled: true,
     intervalMs,
     async run({ dryRun }): Promise<MaintenanceJobResult> {
-      const rows = db.prepare(`
+      const rows = db
+        .prepare(
+          `
         SELECT m.id, m.content FROM memories m
         LEFT JOIN memory_embeddings me ON me.memory_id = m.id
         WHERE me.id IS NULL AND m.status = 'active'
         LIMIT 20
-      `).all() as Array<{ id: string; content: string }>;
+      `,
+        )
+        .all() as Array<{ id: string; content: string }>;
 
       if (dryRun) {
         return {

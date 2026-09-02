@@ -96,14 +96,18 @@ describe('activateSkill — approval override registration', () => {
     const skill = makeSkill('twice-activation', { approvalOverrides: [ADB_ALLOW] });
     const registry = makeRegistry(skill);
 
-    expect(() => activateSkill('twice-activation go', 'session-1', {
-      skillRegistry: registry,
-      approvalGate: gate,
-    })).not.toThrow();
-    expect(() => activateSkill('twice-activation go again', 'session-1', {
-      skillRegistry: registry,
-      approvalGate: gate,
-    })).not.toThrow();
+    expect(() =>
+      activateSkill('twice-activation go', 'session-1', {
+        skillRegistry: registry,
+        approvalGate: gate,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      activateSkill('twice-activation go again', 'session-1', {
+        skillRegistry: registry,
+        approvalGate: gate,
+      }),
+    ).not.toThrow();
 
     // Idempotent: the deterministic id is upserted, never duplicated.
     expect(skillPolicies()).toHaveLength(1);
@@ -186,6 +190,8 @@ describe('activateSkill — compiled tool policy', () => {
 
   it('returns no skill policy for a global (skill-less) scope', () => {
     expect(getSkillToolPolicy({ scope: 'global', scopeKey: '' })).toBeUndefined();
-    expect(getSkillToolPolicy({ scope: 'skill', scopeKey: 'never-activated-skill' })).toBeUndefined();
+    expect(
+      getSkillToolPolicy({ scope: 'skill', scopeKey: 'never-activated-skill' }),
+    ).toBeUndefined();
   });
 });

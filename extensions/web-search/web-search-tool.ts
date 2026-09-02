@@ -33,7 +33,12 @@ interface SearchResult {
 
 interface SearchProvider {
   name: string;
-  search(params: SearchParams, timeoutMs: number, signal?: AbortSignal, logger?: { warn: (...args: any[]) => void; info: (...args: any[]) => void }): Promise<SearchResult>;
+  search(
+    params: SearchParams,
+    timeoutMs: number,
+    signal?: AbortSignal,
+    logger?: { warn: (...args: any[]) => void; info: (...args: any[]) => void },
+  ): Promise<SearchResult>;
 }
 
 // Options are read from ctx.services.config.webSearch at execution time.
@@ -69,7 +74,12 @@ class TavilyProvider implements SearchProvider {
 
   constructor(private apiKey: string) {}
 
-  async search(params: SearchParams, timeoutMs: number, signal?: AbortSignal, _logger?: unknown): Promise<SearchResult> {
+  async search(
+    params: SearchParams,
+    timeoutMs: number,
+    signal?: AbortSignal,
+    _logger?: unknown,
+  ): Promise<SearchResult> {
     const startedAt = Date.now();
 
     const body: Record<string, unknown> = {
@@ -82,28 +92,32 @@ class TavilyProvider implements SearchProvider {
     if (params.timeRange) body.time_range = params.timeRange;
     if (params.topic) body.topic = params.topic;
 
-    const resp = await fetchWithTimeout('https://api.tavily.com/search', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json',
+    const resp = await fetchWithTimeout(
+      'https://api.tavily.com/search',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal,
       },
-      body: JSON.stringify(body),
-      signal,
-    }, timeoutMs);
+      timeoutMs,
+    );
 
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
       throw new Error(`Tavily returned ${resp.status}: ${text.slice(0, 200)}`);
     }
 
-    const data = await resp.json() as TavilyResponse;
+    const data = (await resp.json()) as TavilyResponse;
 
     return {
       query: data.query,
       provider: 'Tavily',
       responseTimeMs: Date.now() - startedAt,
-      results: (data.results ?? []).map(r => ({
+      results: (data.results ?? []).map((r) => ({
         title: r.title,
         url: r.url,
         content: r.content,
@@ -133,7 +147,7 @@ interface TavilyResponse {
 const EXA_MCP_ENDPOINT = 'https://mcp.exa.ai/mcp';
 const MCP_HEADERS: Record<string, string> = {
   'Content-Type': 'application/json',
-  'Accept': 'application/json, text/event-stream',
+  Accept: 'application/json, text/event-stream',
 };
 
 class ExaProvider implements SearchProvider {
@@ -141,7 +155,12 @@ class ExaProvider implements SearchProvider {
 
   constructor(private apiKey?: string) {}
 
-  async search(params: SearchParams, timeoutMs: number, signal?: AbortSignal, _logger?: unknown): Promise<SearchResult> {
+  async search(
+    params: SearchParams,
+    timeoutMs: number,
+    signal?: AbortSignal,
+    _logger?: unknown,
+  ): Promise<SearchResult> {
     const startedAt = Date.now();
 
     if (this.apiKey) {
@@ -166,28 +185,32 @@ class ExaProvider implements SearchProvider {
       body.startPublishedDate = timeRangeToExaDate(params.timeRange);
     }
 
-    const resp = await fetchWithTimeout('https://api.exa.ai/search', {
-      method: 'POST',
-      headers: {
-        'x-api-key': this.apiKey!,
-        'Content-Type': 'application/json',
+    const resp = await fetchWithTimeout(
+      'https://api.exa.ai/search',
+      {
+        method: 'POST',
+        headers: {
+          'x-api-key': this.apiKey!,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal,
       },
-      body: JSON.stringify(body),
-      signal,
-    }, timeoutMs);
+      timeoutMs,
+    );
 
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
       throw new Error(`Exa returned ${resp.status}: ${text.slice(0, 200)}`);
     }
 
-    const data = await resp.json() as ExaResponse;
+    const data = (await resp.json()) as ExaResponse;
 
     return {
       query: data.query ?? params.query,
       provider: 'Exa',
       responseTimeMs: Date.now() - startedAt,
-      results: (data.results ?? []).map(r => ({
+      results: (data.results ?? []).map((r) => ({
         title: r.title ?? '',
         url: r.url,
         content: r.text ?? '',
@@ -203,10 +226,15 @@ class ExaProvider implements SearchProvider {
     signal: AbortSignal | undefined,
     startedAt: number,
   ): Promise<SearchResult> {
-    const result = await mcpCallTool('web_search_exa', {
-      query: params.query,
-      numResults: params.maxResults,
-    }, timeoutMs, signal);
+    const result = await mcpCallTool(
+      'web_search_exa',
+      {
+        query: params.query,
+        numResults: params.maxResults,
+      },
+      timeoutMs,
+      signal,
+    );
 
     const text = mcpExtractText(result);
     const results = parseExaTextResults(text);
@@ -247,7 +275,12 @@ class BaiduProvider implements SearchProvider {
 
   constructor(private apiKey: string) {}
 
-  async search(params: SearchParams, timeoutMs: number, signal?: AbortSignal, _logger?: unknown): Promise<SearchResult> {
+  async search(
+    params: SearchParams,
+    timeoutMs: number,
+    signal?: AbortSignal,
+    _logger?: unknown,
+  ): Promise<SearchResult> {
     const startedAt = Date.now();
 
     const body: Record<string, unknown> = {
@@ -262,7 +295,7 @@ class BaiduProvider implements SearchProvider {
       {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
+          Authorization: `Bearer ${this.apiKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(body),
@@ -276,13 +309,13 @@ class BaiduProvider implements SearchProvider {
       throw new Error(`Baidu returned ${resp.status}: ${text.slice(0, 200)}`);
     }
 
-    const data = await resp.json() as BaiduResponse;
+    const data = (await resp.json()) as BaiduResponse;
 
     return {
       query: params.query,
       provider: 'Baidu',
       responseTimeMs: Date.now() - startedAt,
-      results: (data.references ?? []).map(r => ({
+      results: (data.references ?? []).map((r) => ({
         title: r.title ?? '',
         url: r.url ?? '',
         content: r.content ?? '',
@@ -328,7 +361,12 @@ class AnySearchProvider implements SearchProvider {
 
   constructor(private apiKey?: string) {}
 
-  async search(params: SearchParams, timeoutMs: number, signal?: AbortSignal, logger?: { warn: (...args: any[]) => void }): Promise<SearchResult> {
+  async search(
+    params: SearchParams,
+    timeoutMs: number,
+    signal?: AbortSignal,
+    logger?: { warn: (...args: any[]) => void },
+  ): Promise<SearchResult> {
     const startedAt = Date.now();
 
     if (this.apiKey) {
@@ -336,7 +374,9 @@ class AnySearchProvider implements SearchProvider {
         return await this.doSearch(params, timeoutMs, signal, startedAt, this.apiKey);
       } catch (err: any) {
         if (err.statusCode && ANYSEARCH_AUTH_FAIL_CODES.has(err.statusCode)) {
-          logger?.warn(`[web_search] AnySearch authenticated mode failed (${err.statusCode}), falling back to anonymous mode`);
+          logger?.warn(
+            `[web_search] AnySearch authenticated mode failed (${err.statusCode}), falling back to anonymous mode`,
+          );
           return this.doSearch(params, timeoutMs, signal, startedAt, undefined);
         }
         throw err;
@@ -369,12 +409,16 @@ class AnySearchProvider implements SearchProvider {
       headers['Authorization'] = `Bearer ${apiKey}`;
     }
 
-    const resp = await fetchWithTimeout('https://api.anysearch.com/v1/search', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal,
-    }, timeoutMs);
+    const resp = await fetchWithTimeout(
+      'https://api.anysearch.com/v1/search',
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal,
+      },
+      timeoutMs,
+    );
 
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
@@ -383,7 +427,7 @@ class AnySearchProvider implements SearchProvider {
       throw err;
     }
 
-    const raw = await resp.json() as any;
+    const raw = (await resp.json()) as any;
     // AnySearch wraps responses in { code, message, data }
     const data = raw.data ?? raw;
 
@@ -428,17 +472,21 @@ async function mcpCallTool(
   timeoutMs: number,
   signal?: AbortSignal,
 ): Promise<unknown> {
-  const resp = await fetchWithTimeout(EXA_MCP_ENDPOINT, {
-    method: 'POST',
-    headers: MCP_HEADERS,
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'tools/call',
-      params: { name: toolName, arguments: args },
-    }),
-    signal,
-  }, timeoutMs);
+  const resp = await fetchWithTimeout(
+    EXA_MCP_ENDPOINT,
+    {
+      method: 'POST',
+      headers: MCP_HEADERS,
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: toolName, arguments: args },
+      }),
+      signal,
+    },
+    timeoutMs,
+  );
 
   if (!resp.ok) {
     const body = await resp.text().catch(() => '');
@@ -475,7 +523,7 @@ function parseExaTextResults(text: string): SearchResultItem[] {
   if (!text) return [];
 
   const results: SearchResultItem[] = [];
-  const blocks = text.split(/\n---\n/).filter(b => b.trim());
+  const blocks = text.split(/\n---\n/).filter((b) => b.trim());
 
   for (const block of blocks) {
     const title = extractField(block, 'Title:');
@@ -485,9 +533,10 @@ function parseExaTextResults(text: string): SearchResultItem[] {
     let highlights = highlightsMatch?.[1]?.trim() ?? '';
 
     if (!highlights) {
-      const bodyLines = block.split('\n')
-        .filter(l => !l.match(/^(Title:|URL:|Published:|Author:|Highlights:)/))
-        .map(l => l.trim())
+      const bodyLines = block
+        .split('\n')
+        .filter((l) => !l.match(/^(Title:|URL:|Published:|Author:|Highlights:)/))
+        .map((l) => l.trim())
         .filter(Boolean);
       highlights = bodyLines.join('\n').slice(0, 500);
     }
@@ -506,7 +555,9 @@ function parseExaTextResults(text: string): SearchResultItem[] {
 }
 
 function extractField(text: string, label: string): string | undefined {
-  const match = text.match(new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*(.+)$`, 'm'));
+  const match = text.match(
+    new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*(.+)$`, 'm'),
+  );
   return match?.[1]?.trim();
 }
 
@@ -585,7 +636,12 @@ function formatSearchResult(search: SearchResult): string {
   const lines: string[] = [];
   lines.push(i18n.t('tools-web-search:search.resultHeader', { query: search.query }));
   lines.push('');
-  lines.push(i18n.t('tools-web-search:search.providerInfo', { provider: search.provider, ms: search.responseTimeMs }));
+  lines.push(
+    i18n.t('tools-web-search:search.providerInfo', {
+      provider: search.provider,
+      ms: search.responseTimeMs,
+    }),
+  );
   lines.push('');
 
   if (search.results.length === 0) {
@@ -598,8 +654,10 @@ function formatSearchResult(search: SearchResult): string {
     lines.push(`   URL: ${r.url}`);
     lines.push(`   ${r.content}`);
     const meta: string[] = [];
-    if (r.score != null) meta.push(`${i18n.t('tools-web-search:search.scoreLabel')} ${r.score.toFixed(2)}`);
-    if (r.publishedDate) meta.push(`${i18n.t('tools-web-search:search.dateLabel')} ${r.publishedDate}`);
+    if (r.score != null)
+      meta.push(`${i18n.t('tools-web-search:search.scoreLabel')} ${r.score.toFixed(2)}`);
+    if (r.publishedDate)
+      meta.push(`${i18n.t('tools-web-search:search.dateLabel')} ${r.publishedDate}`);
     if (meta.length > 0) lines.push(`   _${meta.join(' | ')}_`);
     lines.push('');
   }
@@ -607,7 +665,9 @@ function formatSearchResult(search: SearchResult): string {
   return lines.join('\n');
 }
 
-export function createWebSearchTool(options?: WebSearchToolOptions): ToolDefinition<{ query: string; maxResults?: number; timeRange?: string; topic?: string }> {
+export function createWebSearchTool(
+  options?: WebSearchToolOptions,
+): ToolDefinition<{ query: string; maxResults?: number; timeRange?: string; topic?: string }> {
   const defaults = {
     providerOrder: options?.providerOrder ?? ['tavily', 'exa', 'baidu'],
     timeoutMs: options?.timeoutMs ?? 30000,
@@ -617,20 +677,22 @@ export function createWebSearchTool(options?: WebSearchToolOptions): ToolDefinit
   return {
     name: 'web_search',
     label: 'Web Search',
-    description:
-      'Search the web for real-time news, facts, current events, or documentation.',
+    description: 'Search the web for real-time news, facts, current events, or documentation.',
     category: 'web',
     parametersSchema: Type.Object({
       query: Type.String({ description: 'The search query string' }),
       maxResults: Type.Optional(
-        Type.Number({ description: 'Maximum number of results to return (1-10)', default: defaults.defaultMaxResults, minimum: 1, maximum: 10 }),
+        Type.Number({
+          description: 'Maximum number of results to return (1-10)',
+          default: defaults.defaultMaxResults,
+          minimum: 1,
+          maximum: 10,
+        }),
       ),
       timeRange: Type.Optional(
         Type.String({ description: 'Limit results to a time range: day, week, month, or year' }),
       ),
-      topic: Type.Optional(
-        Type.String({ description: 'Search topic: general (default) or news' }),
-      ),
+      topic: Type.Optional(Type.String({ description: 'Search topic: general (default) or news' })),
     }),
     capability: webSearchToolCapability,
     execute: async (args, ctx) => {
@@ -638,7 +700,8 @@ export function createWebSearchTool(options?: WebSearchToolOptions): ToolDefinit
       const wsConfig = ctx.services.config.webSearch;
       const timeoutMs = wsConfig.searchTimeoutMs ?? defaults.timeoutMs;
       const providers = buildProviders({
-        providerOrder: wsConfig.providerOrder.length > 0 ? wsConfig.providerOrder : defaults.providerOrder,
+        providerOrder:
+          wsConfig.providerOrder.length > 0 ? wsConfig.providerOrder : defaults.providerOrder,
         tavilyApiKey: wsConfig.tavilyApiKey,
         exaApiKey: wsConfig.exaApiKey,
         baiduApiKey: wsConfig.baiduApiKey,
@@ -665,13 +728,20 @@ export function createWebSearchTool(options?: WebSearchToolOptions): ToolDefinit
             const result = await provider.search(searchParams, timeoutMs, controller.signal, log);
 
             if (result.results.length === 0 && provider !== providers[providers.length - 1]) {
-              log?.warn(`[web_search] ${provider.name} returned empty results, trying next provider`);
+              log?.warn(
+                `[web_search] ${provider.name} returned empty results, trying next provider`,
+              );
               errors.push(`${provider.name}: empty results`);
               continue;
             }
 
-            log?.debug(`[web_search] ${provider.name} succeeded (${result.results.length} results, ${result.responseTimeMs}ms)`);
-            return textResult(formatSearchResult(result), result as unknown as Record<string, unknown>);
+            log?.debug(
+              `[web_search] ${provider.name} succeeded (${result.results.length} results, ${result.responseTimeMs}ms)`,
+            );
+            return textResult(
+              formatSearchResult(result),
+              result as unknown as Record<string, unknown>,
+            );
           } catch (err: any) {
             const msg = err.name === 'AbortError' ? 'timeout' : (err.message ?? String(err));
             errors.push(`${provider.name}: ${msg}`);
@@ -686,10 +756,12 @@ export function createWebSearchTool(options?: WebSearchToolOptions): ToolDefinit
           }
         }
 
-        return errorResult(i18n.t('tools-web-search:search.allFailed', {
-          query: searchParams.query,
-          errors: errors.map(e => `- ${e}`).join('\n'),
-        }));
+        return errorResult(
+          i18n.t('tools-web-search:search.allFailed', {
+            query: searchParams.query,
+            errors: errors.map((e) => `- ${e}`).join('\n'),
+          }),
+        );
       } finally {
         clearTimeout(timer);
       }

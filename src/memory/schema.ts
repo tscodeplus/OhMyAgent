@@ -351,11 +351,7 @@ const ALL_DDL = [
   DDL_SKILL_PROPOSALS,
 ];
 
-const ALL_TRIGGERS = [
-  TRIGGER_MEMORIES_FTS_AI,
-  TRIGGER_MEMORIES_FTS_AD,
-  TRIGGER_MEMORIES_FTS_AU,
-];
+const ALL_TRIGGERS = [TRIGGER_MEMORIES_FTS_AI, TRIGGER_MEMORIES_FTS_AD, TRIGGER_MEMORIES_FTS_AU];
 
 export interface FailedIndex {
   /** The `CREATE INDEX …` statement that was rejected. */
@@ -415,8 +411,8 @@ function migrateProcessedMessagesSchema(db: Database.Database): void {
     return;
   }
 
-  const hasSource = columns.some(column => column.name === 'source');
-  const hasCompositePrimaryKey = columns.filter(column => column.pk > 0).length >= 2;
+  const hasSource = columns.some((column) => column.name === 'source');
+  const hasCompositePrimaryKey = columns.filter((column) => column.pk > 0).length >= 2;
   if (hasSource && hasCompositePrimaryKey) {
     return;
   }

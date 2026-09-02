@@ -15,11 +15,7 @@ import type { AppServices } from '../../app/types.js';
  * Phase 1 wires the PolicyCenter into beforeExecute.
  */
 export interface ToolRuntimeHooks {
-  beforeExecute(
-    def: ToolDefinition,
-    ctx: ToolExecutionContext,
-    args: unknown,
-  ): Promise<void>;
+  beforeExecute(def: ToolDefinition, ctx: ToolExecutionContext, args: unknown): Promise<void>;
 
   afterExecute(
     def: ToolDefinition,
@@ -35,11 +31,13 @@ export interface AgentToolAdapter {
 
 /** Default implementation of AgentToolAdapter. */
 export class AgentToolAdapterImpl implements AgentToolAdapter {
-  constructor(private deps: {
-    policyCenter?: PolicyCenter;
-    getServices?: () => AppServices | undefined;
-    getContextOverrides?: () => Partial<ToolExecutionContext> | undefined;
-  }) {}
+  constructor(
+    private deps: {
+      policyCenter?: PolicyCenter;
+      getServices?: () => AppServices | undefined;
+      getContextOverrides?: () => Partial<ToolExecutionContext> | undefined;
+    },
+  ) {}
 
   toAgentTool(def: ToolDefinition, hooks?: ToolRuntimeHooks): AgentTool<any> {
     const effectiveHooks = hooks ?? this.createPolicyHooks();
@@ -66,7 +64,9 @@ export class AgentToolAdapterImpl implements AgentToolAdapter {
             await effectiveHooks.beforeExecute(def, ctx, params);
           } catch (err) {
             return {
-              content: [{ type: 'text', text: `Tool execution blocked: ${(err as Error).message}` }],
+              content: [
+                { type: 'text', text: `Tool execution blocked: ${(err as Error).message}` },
+              ],
               details: {} as any,
             };
           }
@@ -77,21 +77,29 @@ export class AgentToolAdapterImpl implements AgentToolAdapter {
         try {
           result = await def.execute(params, ctx);
         } catch (err) {
-          result = { content: [{ type: 'text', text: `Tool error: ${(err as Error).message}` }], isError: true };
+          result = {
+            content: [{ type: 'text', text: `Tool error: ${(err as Error).message}` }],
+            isError: true,
+          };
         }
 
         // 4. afterExecute hooks (audit/log, non-blocking)
         if (effectiveHooks?.afterExecute) {
-          try { await effectiveHooks.afterExecute(def, ctx, result); } catch { /* swallow */ }
+          try {
+            await effectiveHooks.afterExecute(def, ctx, result);
+          } catch {
+            /* swallow */
+          }
         }
 
         // 5. Convert ToolExecutionResult → AgentToolResult
         return {
-          content: result.content.map(c => {
+          content: result.content.map((c) => {
             if (c.type === 'file') {
               return { type: 'text' as const, text: `[File: ${c.path}]` };
             }
-            return c as { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string };
+            return c as
+              { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string };
           }),
           details: (result.metadata ?? {}) as any,
           // isError is not part of the pi-mono AgentToolResult contract; the
@@ -130,13 +138,13 @@ export class AgentToolAdapterImpl implements AgentToolAdapter {
         // already run the approval UI hook for this same invocation path.
         if (decision.requiresApproval) {
           if (!ctx.approvalAlreadyHandled) {
-            throw new Error(
-              `Tool "${def.name}" requires approval before execution.`,
-            );
+            throw new Error(`Tool "${def.name}" requires approval before execution.`);
           }
         }
       },
-      afterExecute: async () => { /* Phase 2 no-op, Phase 3+ audit */ },
+      afterExecute: async () => {
+        /* Phase 2 no-op, Phase 3+ audit */
+      },
     };
   }
 }

@@ -50,7 +50,9 @@ export function createShellToolDefinition(options: ShellToolOptions = {}): ToolD
           if (result.ok) {
             const data = result.data as { content?: string } | undefined;
             return {
-              content: [{ type: 'text' as const, text: data?.content ?? String(result.data ?? '') }],
+              content: [
+                { type: 'text' as const, text: data?.content ?? String(result.data ?? '') },
+              ],
               isError: false,
               metadata: {} as Record<string, unknown>,
             };
@@ -72,7 +74,11 @@ export function createShellToolDefinition(options: ShellToolOptions = {}): ToolD
 
       // Forward the run's abort signal so /stop kills the shell command
       // instead of letting it run to the exec timeout.
-      const result: ShellToolResult = await legacyTool.execute('', args as ShellToolParams, ctx.signal);
+      const result: ShellToolResult = await legacyTool.execute(
+        '',
+        args as ShellToolParams,
+        ctx.signal,
+      );
       return {
         content: (result.content ?? []) as ToolResultContent[],
         isError: result.isError ?? !result.content?.length,

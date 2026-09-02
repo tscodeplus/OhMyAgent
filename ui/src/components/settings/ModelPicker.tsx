@@ -105,16 +105,22 @@ export default function ModelPicker({
      when a parent passes a fresh array each render. */
   useEffect(() => {
     let cancelled = false;
-    apiRequest<{ providers: Array<{ id: string; name: string; baseUrl?: string }> }>('/api/providers')
-      .then(data => {
+    apiRequest<{ providers: Array<{ id: string; name: string; baseUrl?: string }> }>(
+      '/api/providers',
+    )
+      .then((data) => {
         if (!cancelled) {
-          setApiProviders(data.providers.map(p => ({ value: p.id, label: p.name, baseUrl: p.baseUrl })));
+          setApiProviders(
+            data.providers.map((p) => ({ value: p.id, label: p.name, baseUrl: p.baseUrl })),
+          );
         }
       })
       .catch(() => {
         if (!cancelled) setApiProviders(fallbackProviders);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const providers = useMemo(
@@ -123,50 +129,55 @@ export default function ModelPicker({
   );
 
   /* Fetch models for a given provider */
-  const fetchModels = useCallback((providerId: string, isManual = false) => {
-    if (!providerId) return;
-    setLoadingModels(true);
-    // Only blank for the automatic (static) fetch; a manual live refresh should
-    // keep the already-loaded catalog visible on failure/empty.
-    if (!isManual) {
-      setModels([]);
-      onModelMeta?.(null);
-    } else {
-      if (liveTimer.current) clearTimeout(liveTimer.current);
-      setLiveResult(null);
-    }
-    if (isManual) setManualRefresh(true);
+  const fetchModels = useCallback(
+    (providerId: string, isManual = false) => {
+      if (!providerId) return;
+      setLoadingModels(true);
+      // Only blank for the automatic (static) fetch; a manual live refresh should
+      // keep the already-loaded catalog visible on failure/empty.
+      if (!isManual) {
+        setModels([]);
+        onModelMeta?.(null);
+      } else {
+        if (liveTimer.current) clearTimeout(liveTimer.current);
+        setLiveResult(null);
+      }
+      if (isManual) setManualRefresh(true);
 
-    // Use live endpoint for manual refresh, static endpoint otherwise
-    const endpoint = isManual ? `/api/providers/${encodeURIComponent(providerId)}/models/live` : `/api/providers/${encodeURIComponent(providerId)}/models`;
+      // Use live endpoint for manual refresh, static endpoint otherwise
+      const endpoint = isManual
+        ? `/api/providers/${encodeURIComponent(providerId)}/models/live`
+        : `/api/providers/${encodeURIComponent(providerId)}/models`;
 
-    apiRequest<{ provider: string; models: ModelInfo[]; live?: boolean }>(endpoint)
-      .then(data => {
-        // Manual (live) refresh returned nothing usable → keep the static catalog
-        // and flag the failure so the UI can show a hint.
-        if (isManual && (!data.models || data.models.length === 0)) {
-          setLiveResult('failed');
-          return;
-        }
-        setModels(data.models);
-        const found = data.models.find(m => m.id === model);
-        if (found) onModelMeta?.(found);
-        if (isManual) setLiveResult('ok');
-      })
-      .catch(() => {
-        // Live refresh failure: keep the static catalog visible.
-        if (!isManual) setModels([]);
-        else setLiveResult('failed');
-      })
-      .finally(() => {
-        setLoadingModels(false);
-        if (isManual) {
-          setTimeout(() => setManualRefresh(false), 1500);
-          if (liveTimer.current) clearTimeout(liveTimer.current);
-          liveTimer.current = setTimeout(() => setLiveResult(null), 4000);
-        }
-      });
-  }, [model, onModelMeta]);
+      apiRequest<{ provider: string; models: ModelInfo[]; live?: boolean }>(endpoint)
+        .then((data) => {
+          // Manual (live) refresh returned nothing usable → keep the static catalog
+          // and flag the failure so the UI can show a hint.
+          if (isManual && (!data.models || data.models.length === 0)) {
+            setLiveResult('failed');
+            return;
+          }
+          setModels(data.models);
+          const found = data.models.find((m) => m.id === model);
+          if (found) onModelMeta?.(found);
+          if (isManual) setLiveResult('ok');
+        })
+        .catch(() => {
+          // Live refresh failure: keep the static catalog visible.
+          if (!isManual) setModels([]);
+          else setLiveResult('failed');
+        })
+        .finally(() => {
+          setLoadingModels(false);
+          if (isManual) {
+            setTimeout(() => setManualRefresh(false), 1500);
+            if (liveTimer.current) clearTimeout(liveTimer.current);
+            liveTimer.current = setTimeout(() => setLiveResult(null), 4000);
+          }
+        });
+    },
+    [model, onModelMeta],
+  );
 
   /* Fetch models when provider changes */
   useEffect(() => {
@@ -177,7 +188,7 @@ export default function ModelPicker({
   useEffect(() => {
     if (!provider && providers.length > 0) {
       const firstAvailable = configuredProviders
-        ? providers.find(p => configuredProviders.includes(p.value))
+        ? providers.find((p) => configuredProviders.includes(p.value))
         : providers[0];
       if (firstAvailable) {
         onChangeProvider(firstAvailable.value);
@@ -206,25 +217,31 @@ export default function ModelPicker({
   const filteredModels = useMemo(() => {
     if (!search.trim()) return models;
     const q = search.toLowerCase();
-    return models.filter(m => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q));
+    return models.filter((m) => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q));
   }, [models, search]);
 
-  const selectedModel = models.find(m => m.id === model);
+  const selectedModel = models.find((m) => m.id === model);
 
-  const handleSelectModel = useCallback((m: ModelInfo) => {
-    onChangeModel(m.id);
-    onModelMeta?.(m);
-    setOpen(false);
-    setSearch('');
-    setTestResult(null);
-  }, [onChangeModel, onModelMeta]);
+  const handleSelectModel = useCallback(
+    (m: ModelInfo) => {
+      onChangeModel(m.id);
+      onModelMeta?.(m);
+      setOpen(false);
+      setSearch('');
+      setTestResult(null);
+    },
+    [onChangeModel, onModelMeta],
+  );
 
-  const handleCustomModel = useCallback((value: string) => {
-    onChangeModel(value);
-    const found = models.find(m => m.id === value);
-    onModelMeta?.(found || null);
-    setTestResult(null);
-  }, [onChangeModel, models, onModelMeta]);
+  const handleCustomModel = useCallback(
+    (value: string) => {
+      onChangeModel(value);
+      const found = models.find((m) => m.id === value);
+      onModelMeta?.(found || null);
+      setTestResult(null);
+    },
+    [onChangeModel, models, onModelMeta],
+  );
 
   const handleTest = useCallback(async () => {
     if (!onTestConnection) return;
@@ -232,7 +249,10 @@ export default function ModelPicker({
     setTestResult(null);
     try {
       const ok = await onTestConnection();
-      setTestResult({ ok, message: ok ? t('settings.models.testSuccess') : t('settings.models.testFailed') });
+      setTestResult({
+        ok,
+        message: ok ? t('settings.models.testSuccess') : t('settings.models.testFailed'),
+      });
     } catch (e) {
       setTestResult({ ok: false, message: (e as Error).message });
     } finally {
@@ -249,14 +269,17 @@ export default function ModelPicker({
             label={providerLabel}
             dense={dense}
             value={provider}
-            onChange={e => onChangeProvider(e.target.value)}
+            onChange={(e) => onChangeProvider(e.target.value)}
             options={providers
-              .filter(p => !configuredProviders || configuredProviders.includes(p.value) || p.value === provider)
-              .map(p => ({
+              .filter(
+                (p) =>
+                  !configuredProviders ||
+                  configuredProviders.includes(p.value) ||
+                  p.value === provider,
+              )
+              .map((p) => ({
                 value: p.value,
-                label: configuredProviders?.includes(p.value)
-                  ? `${p.label} ✓`
-                  : p.label,
+                label: configuredProviders?.includes(p.value) ? `${p.label} ✓` : p.label,
               }))}
           />
         </div>
@@ -285,9 +308,7 @@ export default function ModelPicker({
                 : t('settings.models.fetchModels')}
           </span>
         </button>
-        {providerRowTrailing && (
-          <div className="self-start sm:-mt-1">{providerRowTrailing}</div>
-        )}
+        {providerRowTrailing && <div className="self-start sm:-mt-1">{providerRowTrailing}</div>}
       </div>
       {liveResult === 'failed' && (
         <p className="flex items-center gap-1.5 mt-1.5 text-[11px] text-amber-600 dark:text-amber-400">
@@ -299,15 +320,17 @@ export default function ModelPicker({
       {/* Model combobox with editable input */}
       <div ref={containerRef} className="relative">
         {modelLabel && (
-          <label className={`block text-[13px] font-medium text-neutral-700 dark:text-neutral-300 ${dense ? 'mb-1.5 sm:mb-1' : 'mb-1.5'}`}>
+          <label
+            className={`block text-[13px] font-medium text-neutral-700 dark:text-neutral-300 ${dense ? 'mb-1.5 sm:mb-1' : 'mb-1.5'}`}
+          >
             {modelLabel}
           </label>
         )}
         <div className="flex items-center w-full rounded-lg border border-neutral-300 bg-white dark:border-neutral-800 dark:bg-neutral-800">
           <input
             type="text"
-            value={open ? search : (selectedModel?.name || model || '')}
-            onChange={e => {
+            value={open ? search : selectedModel?.name || model || ''}
+            onChange={(e) => {
               if (!open) setOpen(true);
               setSearch(e.target.value);
             }}
@@ -341,7 +364,9 @@ export default function ModelPicker({
         {model && !selectedModel && (
           <div className="flex items-center gap-1.5 mt-1.5">
             <AlertCircle size={12} className="text-amber-500" />
-            <span className="text-[11px] text-amber-600 dark:text-amber-400">{t('settings.models.customModel')}: {model}</span>
+            <span className="text-[11px] text-amber-600 dark:text-amber-400">
+              {t('settings.models.customModel')}: {model}
+            </span>
           </div>
         )}
 
@@ -383,12 +408,13 @@ export default function ModelPicker({
                       }}
                       className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
                     >
-                      {t('settings.models.customModel')}: <span className="font-mono">{search.trim()}</span>
+                      {t('settings.models.customModel')}:{' '}
+                      <span className="font-mono">{search.trim()}</span>
                     </button>
                   )}
                 </div>
               ) : (
-                filteredModels.map(m => (
+                filteredModels.map((m) => (
                   <button
                     key={m.id}
                     type="button"
@@ -397,9 +423,13 @@ export default function ModelPicker({
                       m.id === model ? 'bg-blue-50 dark:bg-blue-900/20' : ''
                     }`}
                   >
-                    <span className="flex-1 truncate text-neutral-900 dark:text-neutral-100">{m.name}</span>
+                    <span className="flex-1 truncate text-neutral-900 dark:text-neutral-100">
+                      {m.name}
+                    </span>
                     {m.id !== m.name && (
-                      <span className="hidden sm:inline text-[10px] text-neutral-400 font-mono">{m.id}</span>
+                      <span className="hidden sm:inline text-[10px] text-neutral-400 font-mono">
+                        {m.id}
+                      </span>
                     )}
                     {m.reasoning && <Zap size={12} className="text-purple-500 shrink-0" />}
                     {m.id === model && <Check size={14} className="text-blue-600 shrink-0" />}
@@ -408,7 +438,7 @@ export default function ModelPicker({
               )}
             </div>
             {/* Use custom model if typed */}
-            {search.trim() && !filteredModels.some(m => m.id === search.trim()) && (
+            {search.trim() && !filteredModels.some((m) => m.id === search.trim()) && (
               <div className="border-t border-neutral-200 dark:border-neutral-800 px-3 py-2">
                 <button
                   type="button"
@@ -419,7 +449,8 @@ export default function ModelPicker({
                   }}
                   className="w-full text-left text-xs text-neutral-600 dark:text-neutral-400 hover:text-blue-600 dark:hover:text-blue-400"
                 >
-                  {t('settings.models.customModel')}: <span className="font-mono">{search.trim()}</span>
+                  {t('settings.models.customModel')}:{' '}
+                  <span className="font-mono">{search.trim()}</span>
                 </button>
               </div>
             )}
@@ -440,7 +471,9 @@ export default function ModelPicker({
             {t('settings.models.testConnection')}
           </button>
           {testResult && (
-            <span className={`text-xs ${testResult.ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+            <span
+              className={`text-xs ${testResult.ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}
+            >
               {testResult.message}
             </span>
           )}
@@ -449,4 +482,3 @@ export default function ModelPicker({
     </div>
   );
 }
-

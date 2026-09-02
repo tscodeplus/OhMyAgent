@@ -35,9 +35,9 @@ describe('planStructuredQueries — intent classification', () => {
     expect(plan.intent).toBe('commonality');
     expect(plan.entities).toEqual(['Jon', 'Gina']);
     // one entity slot per name + a shared slot
-    const entitySlots = plan.slots.filter(s => s.kind === 'entity');
-    expect(entitySlots.map(s => s.targetSpeaker)).toEqual(['Jon', 'Gina']);
-    expect(plan.slots.some(s => s.kind === 'shared')).toBe(true);
+    const entitySlots = plan.slots.filter((s) => s.kind === 'entity');
+    expect(entitySlots.map((s) => s.targetSpeaker)).toEqual(['Jon', 'Gina']);
+    expect(plan.slots.some((s) => s.kind === 'shared')).toBe(true);
   });
 
   it('downgrades "both"-style to generic when fewer than 2 entities', () => {
@@ -49,9 +49,9 @@ describe('planStructuredQueries — intent classification', () => {
     const plan = planStructuredQueries('What martial arts has John done?');
     expect(plan.intent).toBe('attribute');
     expect(plan.entities).toEqual(['John']);
-    const entitySlot = plan.slots.find(s => s.kind === 'entity');
+    const entitySlot = plan.slots.find((s) => s.kind === 'entity');
     expect(entitySlot?.targetSpeaker).toBe('John');
-    expect(plan.slots.some(s => s.kind === 'base')).toBe(true);
+    expect(plan.slots.some((s) => s.kind === 'base')).toBe(true);
   });
 
   it('classifies temporal questions', () => {
@@ -59,7 +59,9 @@ describe('planStructuredQueries — intent classification', () => {
   });
 
   it('classifies open-domain inference', () => {
-    expect(planStructuredQueries("What might John's financial status be?").intent).toBe('open_domain');
+    expect(planStructuredQueries("What might John's financial status be?").intent).toBe(
+      'open_domain',
+    );
   });
 
   it('falls back to single base slot for generic queries', () => {
@@ -70,7 +72,10 @@ describe('planStructuredQueries — intent classification', () => {
   });
 
   it('respects disabled config', () => {
-    const plan = planStructuredQueries('How do Jon and Gina both relax?', { enabled: false, maxEntities: 4 });
+    const plan = planStructuredQueries('How do Jon and Gina both relax?', {
+      enabled: false,
+      maxEntities: 4,
+    });
     expect(plan.intent).toBe('generic');
     expect(plan.entities).toEqual([]);
   });
@@ -80,7 +85,7 @@ describe('planMemoryQueries — regression lock', () => {
   it('keeps original-first ordering and reasons', () => {
     const planned = planMemoryQueries('What martial arts has John done?');
     expect(planned[0]).toEqual({ query: 'What martial arts has John done?', reason: 'original' });
-    expect(planned.some(p => p.reason === 'entity_terms')).toBe(true);
+    expect(planned.some((p) => p.reason === 'entity_terms')).toBe(true);
   });
 });
 
@@ -98,15 +103,24 @@ describe('extractSpeaker', () => {
   });
 });
 
-
 describe('augmentSlotQueries', () => {
   it('returns slot.queries unchanged when no variants (non-regression)', () => {
-    const slot = { slotId: 'entity:John', kind: 'entity' as const, targetSpeaker: 'John', queries: ['John martial arts', 'John'] };
+    const slot = {
+      slotId: 'entity:John',
+      kind: 'entity' as const,
+      targetSpeaker: 'John',
+      queries: ['John martial arts', 'John'],
+    };
     expect(augmentSlotQueries(slot, [])).toEqual(['John martial arts', 'John']);
   });
 
   it('scopes variants to the target speaker for entity slots', () => {
-    const slot = { slotId: 'entity:John', kind: 'entity' as const, targetSpeaker: 'John', queries: ['John'] };
+    const slot = {
+      slotId: 'entity:John',
+      kind: 'entity' as const,
+      targetSpeaker: 'John',
+      queries: ['John'],
+    };
     const out = augmentSlotQueries(slot, ['kickboxing training', 'karate']);
     expect(out).toContain('John kickboxing training');
     expect(out).toContain('John karate');

@@ -27,7 +27,13 @@ export interface WSCardActionHandlerOptions {
 /** Create the cardActionHandler callback for FeishuWSClient. */
 export function createWSCardActionHandler(
   opts: WSCardActionHandlerOptions,
-): (callback: any) => Promise<{ code?: number; toast?: { type: string; content: string }; card?: { type: string; data: Record<string, unknown> } }> {
+): (
+  callback: any,
+) => Promise<{
+  code?: number;
+  toast?: { type: string; content: string };
+  card?: { type: string; data: Record<string, unknown> };
+}> {
   return async (callback: any) => {
     const value = callback?.action?.value ?? {};
     const { action, requestId, command, risk } = value;
@@ -49,9 +55,11 @@ export function createWSCardActionHandler(
         };
       }
       const toastContent =
-        harnessAction === 'approve' ? i18n.t('bootstrap:toast.harnessApproved') :
-        harnessAction === 'reject' ? i18n.t('bootstrap:toast.harnessRejected') :
-        i18n.t('bootstrap:toast.harnessIgnored');
+        harnessAction === 'approve'
+          ? i18n.t('bootstrap:toast.harnessApproved')
+          : harnessAction === 'reject'
+            ? i18n.t('bootstrap:toast.harnessRejected')
+            : i18n.t('bootstrap:toast.harnessIgnored');
       return {
         toast: {
           type: harnessAction === 'approve' ? 'success' : 'info',
@@ -70,16 +78,34 @@ export function createWSCardActionHandler(
       if (!resolved) {
         return {
           toast: { type: 'info', content: i18n.t('bootstrap:toast.alreadyHandled') },
-          card: { type: 'raw', data: { header: { title: { tag: 'plain_text', content: '✅ 已回答' }, template: 'green' }, elements: [{ tag: 'div', text: { tag: 'lark_md', content: '你的回答已收到。' } }] } },
+          card: {
+            type: 'raw',
+            data: {
+              header: { title: { tag: 'plain_text', content: '✅ 已回答' }, template: 'green' },
+              elements: [{ tag: 'div', text: { tag: 'lark_md', content: '你的回答已收到。' } }],
+            },
+          },
         };
       }
       return {
         toast: { type: 'success', content: '回答已提交' },
-        card: { type: 'raw', data: { header: { title: { tag: 'plain_text', content: '✅ 回答已收到' }, template: 'green' }, elements: [{ tag: 'div', text: { tag: 'lark_md', content: `**你的回答**: ${String(value.answer)}` } }] } },
+        card: {
+          type: 'raw',
+          data: {
+            header: { title: { tag: 'plain_text', content: '✅ 回答已收到' }, template: 'green' },
+            elements: [
+              {
+                tag: 'div',
+                text: { tag: 'lark_md', content: `**你的回答**: ${String(value.answer)}` },
+              },
+            ],
+          },
+        },
       };
     }
 
-    const decision = action as 'approve_once' | 'approve_session' | 'approve_always' | 'reject_once' | 'reject_always';
+    const decision = action as
+      'approve_once' | 'approve_session' | 'approve_always' | 'reject_once' | 'reject_always';
 
     // ── Operator identity verification ──
     // Only the request initiator (requester) may decide an approval. The
@@ -154,11 +180,15 @@ export function createWSCardActionHandler(
     });
 
     const toastContent =
-      decision === 'approve_once' ? i18n.t('bootstrap:toast.approvedOnce') :
-      decision === 'approve_session' ? i18n.t('bootstrap:toast.approvedSession') :
-      decision === 'approve_always' ? i18n.t('bootstrap:toast.approvedAlways') :
-      decision === 'reject_once' ? i18n.t('bootstrap:toast.deniedOnce') :
-      i18n.t('bootstrap:toast.deniedAlways');
+      decision === 'approve_once'
+        ? i18n.t('bootstrap:toast.approvedOnce')
+        : decision === 'approve_session'
+          ? i18n.t('bootstrap:toast.approvedSession')
+          : decision === 'approve_always'
+            ? i18n.t('bootstrap:toast.approvedAlways')
+            : decision === 'reject_once'
+              ? i18n.t('bootstrap:toast.deniedOnce')
+              : i18n.t('bootstrap:toast.deniedAlways');
 
     return {
       toast: {

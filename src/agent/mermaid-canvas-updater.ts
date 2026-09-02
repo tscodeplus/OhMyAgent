@@ -62,12 +62,18 @@ export function updateMermaidCanvas(opts: MermaidCanvasUpdateOptions): void {
             if (tagResult) tagger.applyToCanvas(canvas, tagResult);
           })
           .catch((err) => {
-            logger?.debug({ err: err instanceof Error ? err.message : String(err) }, 'Mermaid canvas phase tagging failed');
+            logger?.debug(
+              { err: err instanceof Error ? err.message : String(err) },
+              'Mermaid canvas phase tagging failed',
+            );
           });
       }
     }
   } catch (err) {
     // Mermaid canvas update should not block the tool result
-    logger?.debug({ err: err instanceof Error ? err.message : String(err) }, 'Mermaid canvas update failed');
+    logger?.debug(
+      { err: err instanceof Error ? err.message : String(err) },
+      'Mermaid canvas update failed',
+    );
   }
 }

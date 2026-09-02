@@ -28,20 +28,20 @@ describe('Agent Team mode integration', () => {
     const result = pm.assemble({ isTeamMode: true, teamModeMaxChildren: 4 });
     expect(result.systemPrompt).toContain('Agent Team Mode');
     expect(result.systemPrompt).toContain('up to 4 child agents');
-    expect(result.layers.some(l => l.name === 'team-mode')).toBe(true);
+    expect(result.layers.some((l) => l.name === 'team-mode')).toBe(true);
   });
 
   it('team mode prompt layer is NOT included when isTeamMode is false', () => {
     const pm = makePromptManager();
     const result = pm.assemble({ isTeamMode: false });
     expect(result.systemPrompt).not.toContain('Agent Team Mode');
-    expect(result.layers.some(l => l.name === 'team-mode')).toBe(false);
+    expect(result.layers.some((l) => l.name === 'team-mode')).toBe(false);
   });
 
   it('team mode prompt layer is NOT included by default (isTeamMode undefined)', () => {
     const pm = makePromptManager();
     const result = pm.assemble({});
-    expect(result.layers.some(l => l.name === 'team-mode')).toBe(false);
+    expect(result.layers.some((l) => l.name === 'team-mode')).toBe(false);
   });
 
   it('team mode layer has priority between agent override and skill patches', () => {
@@ -52,22 +52,22 @@ describe('Agent Team mode integration', () => {
       skillIds: ['researcher'],
     });
 
-    const layerNames = result.layers.map(l => l.name);
+    const layerNames = result.layers.map((l) => l.name);
     const teamIdx = layerNames.indexOf('team-mode');
     expect(teamIdx).toBeGreaterThan(-1);
 
     // Team mode should come after agent layers and before skill layers
-    const agentLayers = result.layers.filter(l => l.name.startsWith('agent:'));
-    const skillLayers = result.layers.filter(l => l.name.startsWith('skill:'));
+    const agentLayers = result.layers.filter((l) => l.name.startsWith('agent:'));
+    const skillLayers = result.layers.filter((l) => l.name.startsWith('skill:'));
 
     if (agentLayers.length > 0) {
       const agentPriority = agentLayers[0].priority;
-      const teamLayer = result.layers.find(l => l.name === 'team-mode')!;
+      const teamLayer = result.layers.find((l) => l.name === 'team-mode')!;
       expect(teamLayer.priority).toBeGreaterThan(agentPriority);
     }
     if (skillLayers.length > 0) {
       const skillPriority = skillLayers[0].priority;
-      const teamLayer = result.layers.find(l => l.name === 'team-mode')!;
+      const teamLayer = result.layers.find((l) => l.name === 'team-mode')!;
       expect(teamLayer.priority).toBeLessThan(skillPriority);
     }
   });
@@ -75,7 +75,7 @@ describe('Agent Team mode integration', () => {
   it('team mode layer is non-volatile (cached)', () => {
     const pm = makePromptManager();
     const result = pm.assemble({ isTeamMode: true });
-    const teamLayer = result.layers.find(l => l.name === 'team-mode')!;
+    const teamLayer = result.layers.find((l) => l.name === 'team-mode')!;
     expect(teamLayer.volatile).toBe(false);
     expect(teamLayer.cacheKey).toBe('team-mode');
   });
@@ -101,7 +101,7 @@ describe('Agent Team mode integration', () => {
       isChildAgent,
     });
     expect(result.systemPrompt).not.toContain('Agent Team Mode');
-    expect(result.layers.some(l => l.name === 'team-mode')).toBe(false);
+    expect(result.layers.some((l) => l.name === 'team-mode')).toBe(false);
   });
 
   it('child agent gets child-modifier layer', () => {
@@ -110,7 +110,7 @@ describe('Agent Team mode integration', () => {
       isChildAgent: true,
       childTaskDescription: 'Fix the bug in login',
     });
-    expect(result.layers.some(l => l.name === 'child-modifier')).toBe(true);
+    expect(result.layers.some((l) => l.name === 'child-modifier')).toBe(true);
     expect(result.systemPrompt).toContain('Fix the bug in login');
   });
 

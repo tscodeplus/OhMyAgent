@@ -16,9 +16,12 @@ type EnvMap = Record<string, string | undefined>;
  */
 function interpolateEnv(obj: unknown, env?: EnvMap): unknown {
   if (typeof obj === 'string') {
-    return obj.replace(ENV_INTERP_RE, (_match, name: string) => env?.[name] ?? process.env[name] ?? '');
+    return obj.replace(
+      ENV_INTERP_RE,
+      (_match, name: string) => env?.[name] ?? process.env[name] ?? '',
+    );
   }
-  if (Array.isArray(obj)) return obj.map(v => interpolateEnv(v, env));
+  if (Array.isArray(obj)) return obj.map((v) => interpolateEnv(v, env));
   if (obj && typeof obj === 'object') {
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
@@ -50,7 +53,6 @@ function parseModelRef(ref: string): { provider: string; model: string } {
   return { provider: ref.slice(0, idx), model: ref.slice(idx + 1) };
 }
 
-
 function str(val: unknown, defaultVal: string): string {
   if (typeof val === 'string') return val;
   if (val === undefined || val === null) return defaultVal;
@@ -59,14 +61,26 @@ function str(val: unknown, defaultVal: string): string {
 
 function num(val: unknown, defaultVal: number): number {
   if (typeof val === 'number') return val;
-  if (typeof val === 'string') { const n = Number(val); return isNaN(n) ? defaultVal : n; }
+  if (typeof val === 'string') {
+    const n = Number(val);
+    return isNaN(n) ? defaultVal : n;
+  }
   return defaultVal;
 }
 
 function strList(val: unknown, defaultVal: string): string[] {
-  if (Array.isArray(val)) return val.map(v => String(v).trim()).filter(Boolean);
-  if (typeof val === 'string') return val.split(',').map(s => s.trim()).filter(Boolean);
-  return defaultVal ? defaultVal.split(',').map(s => s.trim()).filter(Boolean) : [];
+  if (Array.isArray(val)) return val.map((v) => String(v).trim()).filter(Boolean);
+  if (typeof val === 'string')
+    return val
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  return defaultVal
+    ? defaultVal
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
 }
 
 // ─── YAML → AppConfig raw object ───
@@ -151,10 +165,12 @@ function buildMemorySection(memCfg: YamlNode): Record<string, unknown> {
       enabled: envBool(compressCfg?.enabled, true),
       reserveTokens: num(compressCfg?.reserve_tokens, 16384),
       keepRecentTokens: num(compressCfg?.keep_recent_tokens, 20000),
-      model: compressModelCfg ? {
-        primary: compressModelCfg.primary ? str(compressModelCfg.primary, '') : undefined,
-        fallback_models: strList(compressModelCfg.fallback_models, ''),
-      } : undefined,
+      model: compressModelCfg
+        ? {
+            primary: compressModelCfg.primary ? str(compressModelCfg.primary, '') : undefined,
+            fallback_models: strList(compressModelCfg.fallback_models, ''),
+          }
+        : undefined,
     },
     maintenance: {
       enabled: envBool(memCfg?.maintenance?.enabled, true),
@@ -181,7 +197,9 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
   // Provider
   const provider = root.provider as YamlNode;
   const primaryRef = str(provider?.primary, '');
-  const { provider: piProvider, model: piModel } = primaryRef ? parseModelRef(primaryRef) : { provider: '', model: '' };
+  const { provider: piProvider, model: piModel } = primaryRef
+    ? parseModelRef(primaryRef)
+    : { provider: '', model: '' };
   const reasoningRef = str(provider?.reasoning, '');
   const reasoningModel = reasoningRef.includes('/') ? parseModelRef(reasoningRef).model : '';
 
@@ -229,7 +247,8 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
       region: str(feishu?.region, 'feishu'),
       verificationToken: str(feishu?.verificationToken ?? feishu?.verification_token, ''),
       encryptKey: str(feishu?.encryptKey ?? feishu?.encrypt_key, ''),
-      wsEnabled: str(feishu?.wsEnabled ?? feishu?.connection_mode ?? 'websocket', 'websocket') !== 'webhook',
+      wsEnabled:
+        str(feishu?.wsEnabled ?? feishu?.connection_mode ?? 'websocket', 'websocket') !== 'webhook',
     },
 
     piAi: {
@@ -240,33 +259,39 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
       baseUrl: str(provider?.base_url, '') || undefined,
     },
 
-
     customProviders: mapCustomProviders(root.custom_providers),
 
-    providerKeys: (root.provider_keys || root.providerKeys) ? mapProviderKeys(root.provider_keys || root.providerKeys) : undefined,
+    providerKeys:
+      root.provider_keys || root.providerKeys
+        ? mapProviderKeys(root.provider_keys || root.providerKeys)
+        : undefined,
 
     fallbackModels: strList(root.fallback_models, ''),
 
     defaultReasoningLevel: str(root.default_reasoning_level, 'high'),
 
-    memoryAuxModels: memAuxCfg ? {
-      primary: memAuxCfg.primary ? str(memAuxCfg.primary, '') : undefined,
-      fallback_models: strList(memAuxCfg.fallback_models, ''),
-    } : undefined,
+    memoryAuxModels: memAuxCfg
+      ? {
+          primary: memAuxCfg.primary ? str(memAuxCfg.primary, '') : undefined,
+          fallback_models: strList(memAuxCfg.fallback_models, ''),
+        }
+      : undefined,
 
     // v5: Pass multimodal config through (keys match zod schema directly)
     multimodal: root.multimodal,
 
     // Legacy: kept for backward-compat; prefer multimodal.image.bridge
-    visionBridge: vbCfg ? {
-      enabled: envBool(vbCfg.enabled, false),
-      modelRef: vbCfg.model_ref ? str(vbCfg.model_ref, '') : undefined,
-      apiKey: vbCfg.api_key ? str(vbCfg.api_key, '') : undefined,
-      baseUrl: vbCfg.base_url ? str(vbCfg.base_url, '') : undefined,
-      timeoutMs: num(vbCfg.timeout_ms, 120_000),
-      maxNoteChars: num(vbCfg.max_note_chars, 3200),
-      maxCacheEntries: num(vbCfg.max_cache_entries, 256),
-    } : undefined,
+    visionBridge: vbCfg
+      ? {
+          enabled: envBool(vbCfg.enabled, false),
+          modelRef: vbCfg.model_ref ? str(vbCfg.model_ref, '') : undefined,
+          apiKey: vbCfg.api_key ? str(vbCfg.api_key, '') : undefined,
+          baseUrl: vbCfg.base_url ? str(vbCfg.base_url, '') : undefined,
+          timeoutMs: num(vbCfg.timeout_ms, 120_000),
+          maxNoteChars: num(vbCfg.max_note_chars, 3200),
+          maxCacheEntries: num(vbCfg.max_cache_entries, 256),
+        }
+      : undefined,
 
     embedding: {
       baseUrl: str(embCfg?.base_url, ''),
@@ -293,14 +318,18 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
       shellExecMode: str(shellCfg?.exec_mode, 'balanced'),
       shellAllowlist: strList(shellCfg?.allowlist, ''),
       shellApprovalMode: str(shellCfg?.approval_mode, 'balanced'),
-      shellApprovalWhitelist: strList(shellCfg?.approval_whitelist,
-        'date,ls,pwd,whoami,uname,echo,cat,head,tail,wc,grep,find,which,env,printenv'),
-      shellApprovalTimeoutSec: num(toolsCfg?.shellApprovalTimeoutSec ?? shellCfg?.approval_timeout_sec, 600),
+      shellApprovalWhitelist: strList(
+        shellCfg?.approval_whitelist,
+        'date,ls,pwd,whoami,uname,echo,cat,head,tail,wc,grep,find,which,env,printenv',
+      ),
+      shellApprovalTimeoutSec: num(
+        toolsCfg?.shellApprovalTimeoutSec ?? shellCfg?.approval_timeout_sec,
+        600,
+      ),
       shellApprovalTimeoutAction: str(shellCfg?.approval_timeout_action, 'deny'),
       fileRead: {
         allowedRoots: strList(fileReadCfg?.allowed_roots, ''),
-        deniedPatterns: strList(fileReadCfg?.denied_patterns,
-          '.env,*.pem,/etc/passwd,*/.ssh/*'),
+        deniedPatterns: strList(fileReadCfg?.denied_patterns, '.env,*.pem,/etc/passwd,*/.ssh/*'),
       },
     },
 
@@ -324,44 +353,69 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
       maxResults: num(wsCfg?.max_results, 5),
     },
 
-    telegram: envBool(telegram?.enabled, false) && (telegram?.botToken || telegram?.bot_token) ? {
-      enabled: true,
-      // Accept both camelCase (from WebUI) and snake_case (manual YAML)
-      botToken: str(telegram?.botToken ?? telegram?.bot_token, ''),
-      botName: str(telegram?.botName ?? telegram?.bot_name, ''),
-      mode: str(telegram?.mode, 'polling'),
-      webhookUrl: telegram?.webhookUrl ?? telegram?.webhook_url ? str(telegram?.webhookUrl ?? telegram?.webhook_url, '') : undefined,
-      webhookPort: num(telegram?.webhookPort ?? telegram?.webhook_port, 8443),
-      webhookSecret: telegram?.webhookSecret ?? telegram?.webhook_secret ? str(telegram?.webhookSecret ?? telegram?.webhook_secret, '') : undefined,
-      allowedUsers: strList(telegram?.allowedUsers ?? telegram?.allowed_users, ''),
-      allowedGroups: strList(telegram?.allowedGroups ?? telegram?.allowed_groups, ''),
-      proxyUrl: telegram?.proxyUrl ?? telegram?.proxy_url ? str(telegram?.proxyUrl ?? telegram?.proxy_url, '') : undefined,
-      streamMode: str(telegram?.streamMode ?? telegram?.stream_mode, 'edit'),
-      textLimit: num(telegram?.textLimit ?? telegram?.text_limit, 4096),
-      streamIntervalMs: num(telegram?.streamIntervalMs ?? telegram?.stream_interval, 500),
-    } : undefined,
+    telegram:
+      envBool(telegram?.enabled, false) && (telegram?.botToken || telegram?.bot_token)
+        ? {
+            enabled: true,
+            // Accept both camelCase (from WebUI) and snake_case (manual YAML)
+            botToken: str(telegram?.botToken ?? telegram?.bot_token, ''),
+            botName: str(telegram?.botName ?? telegram?.bot_name, ''),
+            mode: str(telegram?.mode, 'polling'),
+            webhookUrl:
+              (telegram?.webhookUrl ?? telegram?.webhook_url)
+                ? str(telegram?.webhookUrl ?? telegram?.webhook_url, '')
+                : undefined,
+            webhookPort: num(telegram?.webhookPort ?? telegram?.webhook_port, 8443),
+            webhookSecret:
+              (telegram?.webhookSecret ?? telegram?.webhook_secret)
+                ? str(telegram?.webhookSecret ?? telegram?.webhook_secret, '')
+                : undefined,
+            allowedUsers: strList(telegram?.allowedUsers ?? telegram?.allowed_users, ''),
+            allowedGroups: strList(telegram?.allowedGroups ?? telegram?.allowed_groups, ''),
+            proxyUrl:
+              (telegram?.proxyUrl ?? telegram?.proxy_url)
+                ? str(telegram?.proxyUrl ?? telegram?.proxy_url, '')
+                : undefined,
+            streamMode: str(telegram?.streamMode ?? telegram?.stream_mode, 'edit'),
+            textLimit: num(telegram?.textLimit ?? telegram?.text_limit, 4096),
+            streamIntervalMs: num(telegram?.streamIntervalMs ?? telegram?.stream_interval, 500),
+          }
+        : undefined,
 
-    wechat: envBool(wechat?.enabled, false) ? {
-      enabled: true,
-      // Accept both camelCase (from WebUI) and snake_case (manual YAML)
-      botToken: wechat?.botToken ?? wechat?.bot_token ? str(wechat?.botToken ?? wechat?.bot_token, '') : undefined,
-      apiBase: str(wechat?.apiBase ?? wechat?.api_base, 'https://ilinkai.weixin.qq.com'),
-      cursorDir: str(wechat?.cursorDir ?? wechat?.cursor_dir, './data/wechat'),
-      textLimit: num(wechat?.textLimit ?? wechat?.text_limit, 2048),
-      aesKey: wechat?.aesKey ?? wechat?.aes_key ? str(wechat?.aesKey ?? wechat?.aes_key, '') : undefined,
-      allowedUsers: strList(wechat?.allowedUsers ?? wechat?.allowed_users, ''),
-    } : undefined,
+    wechat: envBool(wechat?.enabled, false)
+      ? {
+          enabled: true,
+          // Accept both camelCase (from WebUI) and snake_case (manual YAML)
+          botToken:
+            (wechat?.botToken ?? wechat?.bot_token)
+              ? str(wechat?.botToken ?? wechat?.bot_token, '')
+              : undefined,
+          apiBase: str(wechat?.apiBase ?? wechat?.api_base, 'https://ilinkai.weixin.qq.com'),
+          cursorDir: str(wechat?.cursorDir ?? wechat?.cursor_dir, './data/wechat'),
+          textLimit: num(wechat?.textLimit ?? wechat?.text_limit, 2048),
+          aesKey:
+            (wechat?.aesKey ?? wechat?.aes_key)
+              ? str(wechat?.aesKey ?? wechat?.aes_key, '')
+              : undefined,
+          allowedUsers: strList(wechat?.allowedUsers ?? wechat?.allowed_users, ''),
+        }
+      : undefined,
 
-    qq: envBool(qq?.enabled, false) && (qq?.appId || qq?.app_id) && (qq?.clientSecret || qq?.client_secret) ? {
-      enabled: true,
-      // Accept both camelCase (from WebUI) and snake_case (manual YAML)
-      appId: str(qq?.appId ?? qq?.app_id, ''),
-      clientSecret: str(qq?.clientSecret ?? qq?.client_secret, ''),
-      sandbox: envBool(qq?.sandbox, false),
-      allowedUsers: strList(qq?.allowedUsers ?? qq?.allowed_users, ''),
-      allowedGroups: strList(qq?.allowedGroups ?? qq?.allowed_groups, ''),
-      textLimit: num(qq?.textLimit ?? qq?.text_limit, 1500),
-    } : undefined,
+    qq:
+      envBool(qq?.enabled, false) &&
+      (qq?.appId || qq?.app_id) &&
+      (qq?.clientSecret || qq?.client_secret)
+        ? {
+            enabled: true,
+            // Accept both camelCase (from WebUI) and snake_case (manual YAML)
+            appId: str(qq?.appId ?? qq?.app_id, ''),
+            clientSecret: str(qq?.clientSecret ?? qq?.client_secret, ''),
+            sandbox: envBool(qq?.sandbox, false),
+            allowedUsers: strList(qq?.allowedUsers ?? qq?.allowed_users, ''),
+            allowedGroups: strList(qq?.allowedGroups ?? qq?.allowed_groups, ''),
+            textLimit: num(qq?.textLimit ?? qq?.text_limit, 1500),
+          }
+        : undefined,
 
     extensions: {
       directory: str(extCfg?.directory, 'extensions'),
@@ -369,38 +423,47 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
 
     agents: mapAgents(root.agents),
 
-    computerUse: cuCfg ? {
-      enabled: envBool(cuCfg?.enabled, false),
-      provider: cuCfg.provider ? str(cuCfg.provider, 'auto') : undefined,
-      allowedApps: cuCfg.allowed_apps != null ? strList(cuCfg.allowed_apps, '') : undefined,
-      allowedAgents: strList(cuCfg.allowed_agents, ''),
-      approvalWhitelist: strList(cuCfg.approval_whitelist, ''),
-      ssh: cuSSH ? {
-        host: str(cuSSH.host, ''),
-        user: str(cuSSH.user, ''),
-        keyPath: str(cuSSH.key_path, ''),
-        port: num(cuSSH.port, 22),
-        jumpHost: str(cuSSH.jump_host, ''),
-        display: str(cuSSH.display, ':0'),
-      } : undefined,
-      node: cuNode ? {
-        url: str(cuNode.url, ''),
-        token: cuNode.token ? str(cuNode.token, '') : undefined,
-        adb: cuNode.adb ? {
-          path: str(cuNode.adb.path, 'adb'),
-          serial: cuNode.adb.serial ? str(cuNode.adb.serial, '') : undefined,
-          // 兼容 snake_case(手写 YAML)与 camelCase(WebUI 保存),camelCase 优先
-          manageScreen: cuNode.adb.manageScreen !== undefined
-            ? Boolean(cuNode.adb.manageScreen)
-            : cuNode.adb.manage_screen !== undefined
-              ? Boolean(cuNode.adb.manage_screen)
-              : false,
-        } : undefined,
-      } : undefined,
-      perPlatformProvider: cuCfg.per_platform_provider
-        ? (cuCfg.per_platform_provider as Record<string, unknown>) as Record<string, string>
-        : undefined,
-    } : undefined,
+    computerUse: cuCfg
+      ? {
+          enabled: envBool(cuCfg?.enabled, false),
+          provider: cuCfg.provider ? str(cuCfg.provider, 'auto') : undefined,
+          allowedApps: cuCfg.allowed_apps != null ? strList(cuCfg.allowed_apps, '') : undefined,
+          allowedAgents: strList(cuCfg.allowed_agents, ''),
+          approvalWhitelist: strList(cuCfg.approval_whitelist, ''),
+          ssh: cuSSH
+            ? {
+                host: str(cuSSH.host, ''),
+                user: str(cuSSH.user, ''),
+                keyPath: str(cuSSH.key_path, ''),
+                port: num(cuSSH.port, 22),
+                jumpHost: str(cuSSH.jump_host, ''),
+                display: str(cuSSH.display, ':0'),
+              }
+            : undefined,
+          node: cuNode
+            ? {
+                url: str(cuNode.url, ''),
+                token: cuNode.token ? str(cuNode.token, '') : undefined,
+                adb: cuNode.adb
+                  ? {
+                      path: str(cuNode.adb.path, 'adb'),
+                      serial: cuNode.adb.serial ? str(cuNode.adb.serial, '') : undefined,
+                      // 兼容 snake_case(手写 YAML)与 camelCase(WebUI 保存),camelCase 优先
+                      manageScreen:
+                        cuNode.adb.manageScreen !== undefined
+                          ? Boolean(cuNode.adb.manageScreen)
+                          : cuNode.adb.manage_screen !== undefined
+                            ? Boolean(cuNode.adb.manage_screen)
+                            : false,
+                    }
+                  : undefined,
+              }
+            : undefined,
+          perPlatformProvider: cuCfg.per_platform_provider
+            ? (cuCfg.per_platform_provider as Record<string, unknown> as Record<string, string>)
+            : undefined,
+        }
+      : undefined,
 
     footer: (() => {
       const ftCfg = root.footer as YamlNode;
@@ -415,35 +478,57 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
     })(),
 
     // ── v4 sections (orchestrator, smart_agent_team, multimodal, policy) ──
-    orchestrator: root.orchestrator ? {
-      enabled: envBool((root.orchestrator as YamlNode)?.enabled, true),
-      maxChildAgents: num((root.orchestrator as YamlNode)?.max_child_agents, 4),
-      allowGrandchildren: envBool((root.orchestrator as YamlNode)?.allow_grandchildren, false),
-      inheritApprovals: envBool((root.orchestrator as YamlNode)?.inherit_approvals, true),
-      inheritAppApprovals: envBool((root.orchestrator as YamlNode)?.inherit_app_approvals, true),
-    } : undefined,
+    orchestrator: root.orchestrator
+      ? {
+          enabled: envBool((root.orchestrator as YamlNode)?.enabled, true),
+          maxChildAgents: num((root.orchestrator as YamlNode)?.max_child_agents, 4),
+          allowGrandchildren: envBool((root.orchestrator as YamlNode)?.allow_grandchildren, false),
+          inheritApprovals: envBool((root.orchestrator as YamlNode)?.inherit_approvals, true),
+          inheritAppApprovals: envBool(
+            (root.orchestrator as YamlNode)?.inherit_app_approvals,
+            true,
+          ),
+        }
+      : undefined,
 
-    smart_agent_team: root.smart_agent_team ? {
-      enabled: envBool((root.smart_agent_team as YamlNode)?.enabled, true),
-      max_children: num((root.smart_agent_team as YamlNode)?.max_children, 4),
-      // P1 M5: child agent wall-clock cap + abort settle grace period
-      child_timeout_sec: num((root.smart_agent_team as YamlNode)?.child_timeout_sec, 300),
-      child_settle_timeout_ms: num((root.smart_agent_team as YamlNode)?.child_settle_timeout_ms, 15_000),
-    } : undefined,
+    smart_agent_team: root.smart_agent_team
+      ? {
+          enabled: envBool((root.smart_agent_team as YamlNode)?.enabled, true),
+          max_children: num((root.smart_agent_team as YamlNode)?.max_children, 4),
+          // P1 M5: child agent wall-clock cap + abort settle grace period
+          child_timeout_sec: num((root.smart_agent_team as YamlNode)?.child_timeout_sec, 300),
+          child_settle_timeout_ms: num(
+            (root.smart_agent_team as YamlNode)?.child_settle_timeout_ms,
+            15_000,
+          ),
+        }
+      : undefined,
 
     // P1 M6: turn-level watchdog (0 disables the timeout)
-    agent: root.agent ? {
-      turn_timeout_sec: num((root.agent as YamlNode)?.turn_timeout_sec, 300),
-      max_retries: num((root.agent as YamlNode)?.max_retries, 2),
-    } : undefined,
+    agent: root.agent
+      ? {
+          turn_timeout_sec: num((root.agent as YamlNode)?.turn_timeout_sec, 300),
+          max_retries: num((root.agent as YamlNode)?.max_retries, 2),
+        }
+      : undefined,
 
-    policy: root.policy ? {
-      mode: str((root.policy as YamlNode)?.mode, 'balanced'),
-      approval: (root.policy as YamlNode)?.approval ? {
-        timeoutSec: num(((root.policy as YamlNode)?.approval as YamlNode)?.timeout_sec, 120),
-        timeoutAction: str(((root.policy as YamlNode)?.approval as YamlNode)?.timeout_action, 'deny'),
-      } : undefined,
-    } : undefined,
+    policy: root.policy
+      ? {
+          mode: str((root.policy as YamlNode)?.mode, 'balanced'),
+          approval: (root.policy as YamlNode)?.approval
+            ? {
+                timeoutSec: num(
+                  ((root.policy as YamlNode)?.approval as YamlNode)?.timeout_sec,
+                  120,
+                ),
+                timeoutAction: str(
+                  ((root.policy as YamlNode)?.approval as YamlNode)?.timeout_action,
+                  'deny',
+                ),
+              }
+            : undefined,
+        }
+      : undefined,
 
     // Harness: map snake_case YAML → camelCase for Zod schema
     harness: (() => {
@@ -456,22 +541,28 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
       return {
         enabled: hc.enabled !== undefined ? Boolean(hc.enabled) : undefined,
         channels: hc.channels,
-        trigger: ht ? {
-          minIdenticalRetries: num(ht.min_identical_retries, 3),
-          minExplorationSteps: num(ht.min_exploration_steps, 8),
-          minConsecutiveErrors: num(ht.min_consecutive_errors, 3),
-          minDependencyErrors: num(ht.min_dependency_errors, 2),
-        } : undefined,
-        rateLimit: hr ? {
-          cooldownMinutes: num(hr.cooldown_minutes, 30),
-          maxPerHour: num(hr.max_per_hour, 2),
-          maxPerDay: num(hr.max_per_day, 10),
-          maxAutoApplyPerDay: num(hr.max_auto_apply_per_day, 5),
-        } : undefined,
-        proposal: hp ? {
-          model: str(hp.model, 'default'),
-          maxEditsPerProposal: num(hp.max_edits_per_proposal, 5),
-        } : undefined,
+        trigger: ht
+          ? {
+              minIdenticalRetries: num(ht.min_identical_retries, 3),
+              minExplorationSteps: num(ht.min_exploration_steps, 8),
+              minConsecutiveErrors: num(ht.min_consecutive_errors, 3),
+              minDependencyErrors: num(ht.min_dependency_errors, 2),
+            }
+          : undefined,
+        rateLimit: hr
+          ? {
+              cooldownMinutes: num(hr.cooldown_minutes, 30),
+              maxPerHour: num(hr.max_per_hour, 2),
+              maxPerDay: num(hr.max_per_day, 10),
+              maxAutoApplyPerDay: num(hr.max_auto_apply_per_day, 5),
+            }
+          : undefined,
+        proposal: hp
+          ? {
+              model: str(hp.model, 'default'),
+              maxEditsPerProposal: num(hp.max_edits_per_proposal, 5),
+            }
+          : undefined,
         interactive: {
           enabled: hc.enabled !== undefined ? Boolean(hc.enabled) : true,
           ...(hi?.approval ? { approval: hi.approval } : {}),
@@ -500,14 +591,16 @@ function mapCustomProviders(yamlVal: unknown): CustomProviderConfig[] | undefine
       reasoningLevel: m.reasoning_level ? str(m.reasoning_level, '') : undefined,
       contextWindow: m.context_window ? num(m.context_window, 0) : undefined,
       maxTokens: m.max_tokens ? num(m.max_tokens, 0) : undefined,
-      input: Array.isArray(m.input) ? m.input as ('text' | 'image')[] : undefined,
+      input: Array.isArray(m.input) ? (m.input as ('text' | 'image')[]) : undefined,
       compat: mapCompat(m.compat),
-      cost: m.cost ? {
-        input: num(m.cost.input, 0),
-        output: num(m.cost.output, 0),
-        cacheRead: m.cost.cache_read ? num(m.cost.cache_read, 0) : 0,
-        cacheWrite: m.cost.cache_write ? num(m.cost.cache_write, 0) : 0,
-      } : undefined,
+      cost: m.cost
+        ? {
+            input: num(m.cost.input, 0),
+            output: num(m.cost.output, 0),
+            cacheRead: m.cost.cache_read ? num(m.cost.cache_read, 0) : 0,
+            cacheWrite: m.cost.cache_write ? num(m.cost.cache_write, 0) : 0,
+          }
+        : undefined,
     }));
     providers.push({
       provider: name,
@@ -552,7 +645,10 @@ function mapCompat(yamlVal: unknown): Record<string, unknown> | undefined {
   assign('requires_tool_result_name', 'requiresToolResultName');
   assign('requires_assistant_after_tool_result', 'requiresAssistantAfterToolResult');
   assign('requires_thinking_as_text', 'requiresThinkingAsText');
-  assign('requires_reasoning_content_on_assistant_messages', 'requiresReasoningContentOnAssistantMessages');
+  assign(
+    'requires_reasoning_content_on_assistant_messages',
+    'requiresReasoningContentOnAssistantMessages',
+  );
   assign('thinking_format', 'thinkingFormat');
   assign('cache_control_format', 'cacheControlFormat');
   assign('send_session_affinity_headers', 'sendSessionAffinityHeaders');
@@ -582,26 +678,38 @@ function mapAgents(yamlVal: unknown): AgentConfig[] | undefined {
       name: str(o.name, id),
       description: o.description ? str(o.description, '') : undefined,
       system_prompt: o.system_prompt ? str(o.system_prompt, '') : undefined,
-      model: modelCfg ? {
-        primary: modelCfg.primary ? str(modelCfg.primary, '') : undefined,
-        fallback: modelCfg.fallback ? strList(modelCfg.fallback, '') : undefined,
-        reasoning_level: modelCfg.reasoning_level ? str(modelCfg.reasoning_level, '') : undefined,
-        transport: modelCfg.transport ? str(modelCfg.transport, '') : undefined,
-        max_retry: modelCfg.max_retry ? num(modelCfg.max_retry, 0) : undefined,
-      } : undefined,
-      tools: toolsCfg ? {
-        profile: toolsCfg.profile ? str(toolsCfg.profile, '') as ToolProfileId : undefined,
-        add: toolsCfg.add ? strList(toolsCfg.add, '') : undefined,
-        deny: toolsCfg.deny ? strList(toolsCfg.deny, '') : undefined,
-      } : undefined,
-      spawn: spawnCfg ? {
-        enabled: spawnCfg.enabled !== undefined ? Boolean(spawnCfg.enabled) : undefined,
-        max_parallel: spawnCfg.max_parallel ? num(spawnCfg.max_parallel, 0) : undefined,
-        allowed_personas: spawnCfg.allowed_personas ? strList(spawnCfg.allowed_personas, '') : undefined,
-      } : undefined,
-      extensions: extCfg ? {
-        disable: extCfg.disable ? strList(extCfg.disable, '') : undefined,
-      } : undefined,
+      model: modelCfg
+        ? {
+            primary: modelCfg.primary ? str(modelCfg.primary, '') : undefined,
+            fallback: modelCfg.fallback ? strList(modelCfg.fallback, '') : undefined,
+            reasoning_level: modelCfg.reasoning_level
+              ? str(modelCfg.reasoning_level, '')
+              : undefined,
+            transport: modelCfg.transport ? str(modelCfg.transport, '') : undefined,
+            max_retry: modelCfg.max_retry ? num(modelCfg.max_retry, 0) : undefined,
+          }
+        : undefined,
+      tools: toolsCfg
+        ? {
+            profile: toolsCfg.profile ? (str(toolsCfg.profile, '') as ToolProfileId) : undefined,
+            add: toolsCfg.add ? strList(toolsCfg.add, '') : undefined,
+            deny: toolsCfg.deny ? strList(toolsCfg.deny, '') : undefined,
+          }
+        : undefined,
+      spawn: spawnCfg
+        ? {
+            enabled: spawnCfg.enabled !== undefined ? Boolean(spawnCfg.enabled) : undefined,
+            max_parallel: spawnCfg.max_parallel ? num(spawnCfg.max_parallel, 0) : undefined,
+            allowed_personas: spawnCfg.allowed_personas
+              ? strList(spawnCfg.allowed_personas, '')
+              : undefined,
+          }
+        : undefined,
+      extensions: extCfg
+        ? {
+            disable: extCfg.disable ? strList(extCfg.disable, '') : undefined,
+          }
+        : undefined,
       channels: o.channels ? strList(o.channels, '') : undefined,
     });
   }
@@ -653,18 +761,30 @@ export function jsConfigToYaml(
       }
 
       // ─── Simple renames ───
-      case 'fallbackModels': yaml.fallback_models = value; break;
-      case 'defaultReasoningLevel': yaml.default_reasoning_level = value; break;
-      case 'showToolCalls': yaml.show_tool_calls = value; break;
-      case 'showSkillCalls': yaml.show_skill_calls = value; break;
-      case 'uiLanguage': yaml.ui_language = value; break;
-      case 'setupWizardDone': yaml.setup_wizard_done = value; break;
+      case 'fallbackModels':
+        yaml.fallback_models = value;
+        break;
+      case 'defaultReasoningLevel':
+        yaml.default_reasoning_level = value;
+        break;
+      case 'showToolCalls':
+        yaml.show_tool_calls = value;
+        break;
+      case 'showSkillCalls':
+        yaml.show_skill_calls = value;
+        break;
+      case 'uiLanguage':
+        yaml.ui_language = value;
+        break;
+      case 'setupWizardDone':
+        yaml.setup_wizard_done = value;
+        break;
 
       // ─── memoryAuxModels → memory_aux_models ───
       case 'memoryAuxModels': {
         const mam = value as Record<string, unknown>;
         yaml.memory_aux_models = {
-          ...(existingYaml.memory_aux_models as Record<string, unknown> || {}),
+          ...((existingYaml.memory_aux_models as Record<string, unknown>) || {}),
         };
         const m = yaml.memory_aux_models as Record<string, unknown>;
         if (mam.primary !== undefined) m.primary = mam.primary;
@@ -690,26 +810,36 @@ export function jsConfigToYaml(
       // ─── customProviders → custom_providers ───
       case 'customProviders': {
         const cps: Record<string, unknown> = {};
-        for (const cp of (value as Array<Record<string, unknown>>)) {
+        for (const cp of value as Array<Record<string, unknown>>) {
           cps[cp.provider as string] = {
             api_key: cp.apiKey,
             base_url: cp.baseUrl,
-            models: (cp.models as Array<Record<string, unknown>>)?.map((m: Record<string, unknown>) => ({
-              id: m.id,
-              name: m.name,
-              api: m.api,
-              reasoning: m.reasoning,
-              reasoning_level: m.reasoningLevel ?? m.reasoning_level,
-              context_window: m.contextWindow ?? m.context_window,
-              max_tokens: m.maxTokens ?? m.max_tokens,
-              input: m.input,
-              cost: m.cost ? {
-                input: (m.cost as Record<string, unknown>).input,
-                output: (m.cost as Record<string, unknown>).output,
-                cache_read: (m.cost as Record<string, unknown>).cacheRead ?? (m.cost as Record<string, unknown>).cache_read ?? 0,
-                cache_write: (m.cost as Record<string, unknown>).cacheWrite ?? (m.cost as Record<string, unknown>).cache_write ?? 0,
-              } : undefined,
-            })),
+            models: (cp.models as Array<Record<string, unknown>>)?.map(
+              (m: Record<string, unknown>) => ({
+                id: m.id,
+                name: m.name,
+                api: m.api,
+                reasoning: m.reasoning,
+                reasoning_level: m.reasoningLevel ?? m.reasoning_level,
+                context_window: m.contextWindow ?? m.context_window,
+                max_tokens: m.maxTokens ?? m.max_tokens,
+                input: m.input,
+                cost: m.cost
+                  ? {
+                      input: (m.cost as Record<string, unknown>).input,
+                      output: (m.cost as Record<string, unknown>).output,
+                      cache_read:
+                        (m.cost as Record<string, unknown>).cacheRead ??
+                        (m.cost as Record<string, unknown>).cache_read ??
+                        0,
+                      cache_write:
+                        (m.cost as Record<string, unknown>).cacheWrite ??
+                        (m.cost as Record<string, unknown>).cache_write ??
+                        0,
+                    }
+                  : undefined,
+              }),
+            ),
           };
         }
         yaml.custom_providers = cps;
@@ -720,7 +850,7 @@ export function jsConfigToYaml(
       case 'embedding': {
         const emb = value as Record<string, unknown>;
         yaml.embedding = {
-          ...(existingYaml.embedding as Record<string, unknown> || {}),
+          ...((existingYaml.embedding as Record<string, unknown>) || {}),
         };
         const e = yaml.embedding as Record<string, unknown>;
         if (emb.baseUrl !== undefined) e.base_url = emb.baseUrl;
@@ -738,13 +868,15 @@ export function jsConfigToYaml(
       }
 
       // ─── database ───
-      case 'database': yaml.database = value; break;
+      case 'database':
+        yaml.database = value;
+        break;
 
       // ─── rateLimit → rate_limit ───
       case 'rateLimit': {
         const rl = value as Record<string, unknown>;
         yaml.rate_limit = {
-          ...(existingYaml.rate_limit as Record<string, unknown> || {}),
+          ...((existingYaml.rate_limit as Record<string, unknown>) || {}),
         };
         const r = yaml.rate_limit as Record<string, unknown>;
         if (rl.webhookMaxRequests !== undefined) r.webhook_max = rl.webhookMaxRequests;
@@ -757,11 +889,11 @@ export function jsConfigToYaml(
       case 'visionBridge': {
         const vb = value as Record<string, unknown>;
         // Build the nested YAML path
-        yaml.multimodal = { ...(existingYaml.multimodal as Record<string, unknown> || {}) };
+        yaml.multimodal = { ...((existingYaml.multimodal as Record<string, unknown>) || {}) };
         const mm = yaml.multimodal as Record<string, unknown>;
-        mm.image = { ...(mm.image as Record<string, unknown> || {}) };
+        mm.image = { ...((mm.image as Record<string, unknown>) || {}) };
         const img = mm.image as Record<string, unknown>;
-        img.bridge = { ...(img.bridge as Record<string, unknown> || {}) };
+        img.bridge = { ...((img.bridge as Record<string, unknown>) || {}) };
         const v = img.bridge as Record<string, unknown>;
         if (vb.enabled !== undefined) v.enabled = vb.enabled;
         if (vb.modelRef !== undefined) v.model_ref = vb.modelRef;
@@ -778,7 +910,7 @@ export function jsConfigToYaml(
       case 'webSearch': {
         const ws = value as Record<string, unknown>;
         yaml.web_search = {
-          ...(existingYaml.web_search as Record<string, unknown> || {}),
+          ...((existingYaml.web_search as Record<string, unknown>) || {}),
         };
         const w = yaml.web_search as Record<string, unknown>;
         if (ws.providerOrder !== undefined) w.provider_order = ws.providerOrder;
@@ -795,14 +927,14 @@ export function jsConfigToYaml(
       case 'computerUse': {
         const cu = value as Record<string, unknown>;
         yaml.computer_use = {
-          ...(existingYaml.computer_use as Record<string, unknown> || {}),
+          ...((existingYaml.computer_use as Record<string, unknown>) || {}),
         };
         const c = yaml.computer_use as Record<string, unknown>;
         if (cu.enabled !== undefined) c.enabled = cu.enabled;
         if (cu.provider !== undefined) c.provider = cu.provider;
         if (cu.ssh) {
           const ssh = cu.ssh as Record<string, unknown>;
-          c.ssh = { ...(c.ssh as Record<string, unknown> || {}) };
+          c.ssh = { ...((c.ssh as Record<string, unknown>) || {}) };
           const s = c.ssh as Record<string, unknown>;
           if (ssh.host !== undefined) s.host = ssh.host;
           if (ssh.user !== undefined) s.user = ssh.user;
@@ -818,13 +950,13 @@ export function jsConfigToYaml(
       case 'policy': {
         const pol = value as Record<string, unknown>;
         yaml.policy = {
-          ...(existingYaml.policy as Record<string, unknown> || {}),
+          ...((existingYaml.policy as Record<string, unknown>) || {}),
         };
         const p = yaml.policy as Record<string, unknown>;
         if (pol.mode !== undefined) p.mode = pol.mode;
         if (pol.approval) {
           const appr = pol.approval as Record<string, unknown>;
-          p.approval = { ...(p.approval as Record<string, unknown> || {}) };
+          p.approval = { ...((p.approval as Record<string, unknown>) || {}) };
           const a = p.approval as Record<string, unknown>;
           if (appr.timeoutSec !== undefined) a.timeout_sec = appr.timeoutSec;
           if (appr.timeoutAction !== undefined) a.timeout_action = appr.timeoutAction;
@@ -836,7 +968,7 @@ export function jsConfigToYaml(
       case 'orchestrator': {
         const orch = value as Record<string, unknown>;
         yaml.orchestrator = {
-          ...(existingYaml.orchestrator as Record<string, unknown> || {}),
+          ...((existingYaml.orchestrator as Record<string, unknown>) || {}),
         };
         const o = yaml.orchestrator as Record<string, unknown>;
         if (orch.enabled !== undefined) o.enabled = orch.enabled;
@@ -846,19 +978,25 @@ export function jsConfigToYaml(
       }
 
       // ─── smart_agent_team (already snake_case) ───
-      case 'smart_agent_team': yaml.smart_agent_team = value; break;
+      case 'smart_agent_team':
+        yaml.smart_agent_team = value;
+        break;
 
       // ─── agent (P1 M6, already snake_case) ───
-      case 'agent': yaml.agent = value; break;
+      case 'agent':
+        yaml.agent = value;
+        break;
 
       // ─── multimodal (already snake_case) ───
-      case 'multimodal': yaml.multimodal = value; break;
+      case 'multimodal':
+        yaml.multimodal = value;
+        break;
 
       // ─── footer → footer ───
       case 'footer': {
         const ft = value as Record<string, unknown>;
         yaml.footer = {
-          ...(existingYaml.footer as Record<string, unknown> || {}),
+          ...((existingYaml.footer as Record<string, unknown>) || {}),
         };
         const f = yaml.footer as Record<string, unknown>;
         if (ft.showAgentName !== undefined) f.show_agent_name = ft.showAgentName;
@@ -871,18 +1009,23 @@ export function jsConfigToYaml(
       }
 
       // ─── Channels ───
-      case 'feishu': case 'telegram': case 'wechat': case 'qq': {
+      case 'feishu':
+      case 'telegram':
+      case 'wechat':
+      case 'qq': {
         const channels = (yaml.channels || existingYaml.channels || {}) as Record<string, unknown>;
         yaml.channels = channels;
         const chKey = key; // feishu/telegram/wechat/qq — same name in YAML
         channels[chKey] = {
-          ...(channels[chKey] as Record<string, unknown> || {}),
+          ...((channels[chKey] as Record<string, unknown>) || {}),
           ...(value as Record<string, unknown>),
         };
         // Map feishu.wsEnabled → connection_mode
         if (key === 'feishu' && (value as Record<string, unknown>).wsEnabled !== undefined) {
           const f = channels.feishu as Record<string, unknown>;
-          f.connection_mode = (value as Record<string, unknown>).wsEnabled ? 'websocket' : 'webhook';
+          f.connection_mode = (value as Record<string, unknown>).wsEnabled
+            ? 'websocket'
+            : 'webhook';
           delete f.wsEnabled;
         }
         break;
@@ -892,15 +1035,19 @@ export function jsConfigToYaml(
       case 'memory': {
         const mem = value as Record<string, unknown>;
         yaml.memory = {
-          ...(existingYaml.memory as Record<string, unknown> || {}),
+          ...((existingYaml.memory as Record<string, unknown>) || {}),
         };
         const m = yaml.memory as Record<string, unknown>;
         // Top-level memory fields
         const memTopMap: Record<string, string> = {
-          autoRecall: 'auto_recall', autoRecallFrequency: 'auto_recall_frequency',
-          autoCapture: 'auto_capture', recallTopK: 'recall_top_k',
-          recallMinScore: 'recall_min_score', captureMaxChars: 'capture_max_chars',
-          summarizeInterval: 'summarize_interval', outputLanguage: 'output_language',
+          autoRecall: 'auto_recall',
+          autoRecallFrequency: 'auto_recall_frequency',
+          autoCapture: 'auto_capture',
+          recallTopK: 'recall_top_k',
+          recallMinScore: 'recall_min_score',
+          captureMaxChars: 'capture_max_chars',
+          summarizeInterval: 'summarize_interval',
+          outputLanguage: 'output_language',
           historyLoadCount: 'history_load_count',
           historyMaxTokens: 'history_max_tokens',
           decayHalfLifeDays: 'decay_half_life_days',
@@ -911,20 +1058,31 @@ export function jsConfigToYaml(
           if (mem[jsKey] !== undefined) m[yamlKey] = mem[jsKey];
         }
         // Sub-sections
-        for (const sub of ['hygiene', 'persona', 'sceneClustering', 'maintenance', 'autoCompress']) {
+        for (const sub of [
+          'hygiene',
+          'persona',
+          'sceneClustering',
+          'maintenance',
+          'autoCompress',
+        ]) {
           if (mem[sub]) {
             const subMap: Record<string, string> = {
-              hygiene: 'hygiene', persona: 'persona',
-              sceneClustering: 'scene_clustering', maintenance: 'maintenance',
+              hygiene: 'hygiene',
+              persona: 'persona',
+              sceneClustering: 'scene_clustering',
+              maintenance: 'maintenance',
               autoCompress: 'auto_compress',
             };
-            m[subMap[sub]] = { ...(m[subMap[sub]] as Record<string, unknown> || {}), ...(mem[sub] as Record<string, unknown>) };
+            m[subMap[sub]] = {
+              ...((m[subMap[sub]] as Record<string, unknown>) || {}),
+              ...(mem[sub] as Record<string, unknown>),
+            };
           }
         }
         if (mem.embeddingCircuitBreaker) {
           const ecb = mem.embeddingCircuitBreaker as Record<string, unknown>;
           m.embedding_circuit_breaker = {
-            ...(m.embedding_circuit_breaker as Record<string, unknown> || {}),
+            ...((m.embedding_circuit_breaker as Record<string, unknown>) || {}),
           };
           const e = m.embedding_circuit_breaker as Record<string, unknown>;
           if (ecb.failureThreshold !== undefined) e.failure_threshold = ecb.failureThreshold;
@@ -932,7 +1090,7 @@ export function jsConfigToYaml(
         }
         if (mem.offloading) {
           const off = mem.offloading as Record<string, unknown>;
-          m.offloading = { ...(m.offloading as Record<string, unknown> || {}) };
+          m.offloading = { ...((m.offloading as Record<string, unknown>) || {}) };
           const o = m.offloading as Record<string, unknown>;
           if (off.enabled !== undefined) o.enabled = off.enabled;
           if (off.maxRefsInContext !== undefined) o.max_refs_in_context = off.maxRefsInContext;
@@ -941,7 +1099,7 @@ export function jsConfigToYaml(
         }
         if (mem.mermaidCanvas) {
           const mc = mem.mermaidCanvas as Record<string, unknown>;
-          m.mermaid_canvas = { ...(m.mermaid_canvas as Record<string, unknown> || {}) };
+          m.mermaid_canvas = { ...((m.mermaid_canvas as Record<string, unknown>) || {}) };
           const n = m.mermaid_canvas as Record<string, unknown>;
           if (mc.enabled !== undefined) n.enabled = mc.enabled;
           if (mc.injectFormat !== undefined) n.inject_format = mc.injectFormat;
@@ -955,11 +1113,12 @@ export function jsConfigToYaml(
       case 'tools': {
         const tools = value as Record<string, unknown>;
         yaml.tools = {
-          ...(existingYaml.tools as Record<string, unknown> || {}),
+          ...((existingYaml.tools as Record<string, unknown>) || {}),
         };
         const t = yaml.tools as Record<string, unknown>;
         const toolsTopMap: Record<string, string> = {
-          toolsProfile: 'profile', shellEnabled: 'shell_enabled',
+          toolsProfile: 'profile',
+          shellEnabled: 'shell_enabled',
           shellExecMode: 'shell_exec_mode',
           shellApprovalMode: 'shell_approval_mode',
           shellApprovalTimeoutSec: 'shell_approval_timeout_sec',
@@ -969,14 +1128,14 @@ export function jsConfigToYaml(
           if (tools[jsKey] !== undefined) t[yamlKey] = tools[jsKey];
         }
         if (tools.defaultTimeoutMs !== undefined || tools.maxOutputLength !== undefined) {
-          t.shell = { ...(t.shell as Record<string, unknown> || {}) };
+          t.shell = { ...((t.shell as Record<string, unknown>) || {}) };
           const s = t.shell as Record<string, unknown>;
           if (tools.defaultTimeoutMs !== undefined) s.command_timeout_ms = tools.defaultTimeoutMs;
           if (tools.maxOutputLength !== undefined) s.max_output_chars = tools.maxOutputLength;
         }
         if (tools.fileRead) {
           const fr = tools.fileRead as Record<string, unknown>;
-          t.file_read = { ...(t.file_read as Record<string, unknown> || {}) };
+          t.file_read = { ...((t.file_read as Record<string, unknown>) || {}) };
           const f = t.file_read as Record<string, unknown>;
           if (fr.allowedRoots !== undefined) f.allowed_roots = fr.allowedRoots;
           if (fr.deniedPatterns !== undefined) f.denied_patterns = fr.deniedPatterns;
@@ -1001,7 +1160,8 @@ export function jsConfigToYaml(
           const yt = yh.trigger as Record<string, unknown>;
           if (t.minIdenticalRetries !== undefined) yt.min_identical_retries = t.minIdenticalRetries;
           if (t.minExplorationSteps !== undefined) yt.min_exploration_steps = t.minExplorationSteps;
-          if (t.minConsecutiveErrors !== undefined) yt.min_consecutive_errors = t.minConsecutiveErrors;
+          if (t.minConsecutiveErrors !== undefined)
+            yt.min_consecutive_errors = t.minConsecutiveErrors;
         }
 
         // rateLimit → rate_limit (camelCase → snake_case)
@@ -1012,7 +1172,8 @@ export function jsConfigToYaml(
           if (rl.cooldownMinutes !== undefined) yr.cooldown_minutes = rl.cooldownMinutes;
           if (rl.maxPerHour !== undefined) yr.max_per_hour = rl.maxPerHour;
           if (rl.maxPerDay !== undefined) yr.max_per_day = rl.maxPerDay;
-          if (rl.maxAutoApplyPerDay !== undefined) yr.max_auto_apply_per_day = rl.maxAutoApplyPerDay;
+          if (rl.maxAutoApplyPerDay !== undefined)
+            yr.max_auto_apply_per_day = rl.maxAutoApplyPerDay;
         }
 
         // proposal: same keys

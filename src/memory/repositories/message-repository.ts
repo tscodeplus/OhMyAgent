@@ -60,14 +60,14 @@ export class MessageRepository {
 
   findBySessionId(sessionId: string, limit: number = 50, offset: number = 0): Message[] {
     const stmt = this.db.prepare(
-      'SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC LIMIT ? OFFSET ?'
+      'SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC LIMIT ? OFFSET ?',
     );
     return stmt.all(sessionId, limit, offset) as Message[];
   }
 
   findBySessionIdDesc(sessionId: string, limit: number = 50, offset: number = 0): Message[] {
     const stmt = this.db.prepare(
-      'SELECT * FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?'
+      'SELECT * FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
     );
     return stmt.all(sessionId, limit, offset) as Message[];
   }

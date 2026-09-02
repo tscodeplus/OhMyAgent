@@ -1,4 +1,12 @@
-import { useState, useEffect, useCallback, createContext, useContext, useRef, type ReactNode } from 'react';
+import {
+  useState,
+  useEffect,
+  useCallback,
+  createContext,
+  useContext,
+  useRef,
+  type ReactNode,
+} from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { X, CheckCircle, AlertCircle, Info } from 'lucide-react';
@@ -24,23 +32,41 @@ interface Toast {
 
 interface ToastContextValue {
   /** Returns the toast id — pass it to dismissToast to remove it early. */
-  showToast: (message: string, type?: ToastType, duration?: number, actions?: ToastAction[], markdown?: boolean) => number;
+  showToast: (
+    message: string,
+    type?: ToastType,
+    duration?: number,
+    actions?: ToastAction[],
+    markdown?: boolean,
+  ) => number;
   /** Remove a toast before its timer fires (needed for sticky, duration=0 toasts). */
   dismissToast: (id: number) => void;
 }
 
-const ToastContext = createContext<ToastContextValue>({ showToast: () => -1, dismissToast: () => {} });
+const ToastContext = createContext<ToastContextValue>({
+  showToast: () => -1,
+  dismissToast: () => {},
+});
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const nextIdRef = useRef(1);
 
   const showToast = useCallback(
-    (message: string, type: ToastType = 'info', duration = 1500, actions?: ToastAction[], markdown?: boolean): number => {
+    (
+      message: string,
+      type: ToastType = 'info',
+      duration = 1500,
+      actions?: ToastAction[],
+      markdown?: boolean,
+    ): number => {
       const id = nextIdRef.current++;
       // When actions are present, default to sticky (duration=0) unless explicitly set
       const effectiveDuration = actions && actions.length > 0 && duration === 1500 ? 0 : duration;
-      setToasts((prev) => [...prev, { id, message, type, duration: effectiveDuration, actions, markdown }]);
+      setToasts((prev) => [
+        ...prev,
+        { id, message, type, duration: effectiveDuration, actions, markdown },
+      ]);
       return id;
     },
     [],
@@ -96,8 +122,8 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: () => void }) 
 
   const typeIcon: Record<ToastType, string> = {
     success: 'text-emerald-700 dark:text-emerald-300',
-    error:   'text-red-700 dark:text-red-300',
-    info:    'text-blue-700 dark:text-blue-300',
+    error: 'text-red-700 dark:text-red-300',
+    info: 'text-blue-700 dark:text-blue-300',
   };
 
   const card = typeCard[toast.type];
@@ -115,7 +141,9 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: () => void }) 
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{toast.message}</ReactMarkdown>
           </div>
         ) : (
-          <span className="text-sm flex-1 whitespace-pre-wrap leading-snug text-neutral-900 dark:text-neutral-100 max-h-[55vh] overflow-y-auto break-words">{toast.message}</span>
+          <span className="text-sm flex-1 whitespace-pre-wrap leading-snug text-neutral-900 dark:text-neutral-100 max-h-[55vh] overflow-y-auto break-words">
+            {toast.message}
+          </span>
         )}
         <button
           onClick={onRemove}

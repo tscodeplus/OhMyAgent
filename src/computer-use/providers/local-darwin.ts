@@ -12,11 +12,21 @@ import type { Logger } from 'pino';
 import type { ComputerUseProvider } from '../provider-contract.js';
 import { normalizeComputerProviderCapabilities } from '../provider-contract.js';
 import type {
-  Ctx, AppInfo, ProviderStatus, Lease, Target, AppState, Action, ActionResult,
+  Ctx,
+  AppInfo,
+  ProviderStatus,
+  Lease,
+  Target,
+  AppState,
+  Action,
+  ActionResult,
 } from '../types.js';
 import { createLocalExecRunner, quoteShellArg, type ExecRunner } from '../ssh-actions-common.js';
 import {
-  listDarwinApps, readDarwinWindowState, performDarwinAction, DARWIN_LOCKED_NOTICE,
+  listDarwinApps,
+  readDarwinWindowState,
+  performDarwinAction,
+  DARWIN_LOCKED_NOTICE,
   runSwiftAx,
 } from '../ssh-actions-darwin.js';
 
@@ -70,7 +80,8 @@ export class LocalDarwinProvider implements ComputerUseProvider {
         providerId: this.providerId,
         available: false,
         permissions: [],
-        message: 'macOS accessibility unavailable: grant OhMyAgent Accessibility permission in System Settings > Privacy & Security',
+        message:
+          'macOS accessibility unavailable: grant OhMyAgent Accessibility permission in System Settings > Privacy & Security',
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -102,7 +113,7 @@ export class LocalDarwinProvider implements ComputerUseProvider {
       // Content"), whose empty AX trees make every action fail.
       await this.runner.exec(`open -g -a ${quoteShellArg(target.appName)}`);
       for (let i = 0; i < 5 && pid === undefined; i++) {
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 500));
         pid = await resolveAppPid(this.runner, target.appName);
       }
     } else {
@@ -119,8 +130,13 @@ export class LocalDarwinProvider implements ComputerUseProvider {
       createdAt: new Date().toISOString(),
       status: 'active',
       allowedActions: [
-        'click_element', 'double_click', 'type_text', 'press_key', 'scroll',
-        'click_point', 'stop',
+        'click_element',
+        'double_click',
+        'type_text',
+        'press_key',
+        'scroll',
+        'click_point',
+        'stop',
       ],
       providerState: { pid },
     };
@@ -159,8 +175,7 @@ export class LocalDarwinProvider implements ComputerUseProvider {
 
   async performAction(_ctx: Ctx, lease: Lease, action: Action): Promise<ActionResult> {
     const providerState = lease.providerState as
-      | { pid?: number; lastTextTargetPath?: string }
-      | undefined;
+      { pid?: number; lastTextTargetPath?: string } | undefined;
     const result = await performDarwinAction(
       this.runner,
       action,
@@ -205,11 +220,15 @@ async function resolveAppPid(runner: ExecRunner, appName: string): Promise<numbe
     );
     const parsed = parseInt(res.stdout.trim(), 10);
     if (!Number.isNaN(parsed) && parsed > 0) return parsed;
-  } catch { /* No AX permission — pgrep fallback below. */ }
+  } catch {
+    /* No AX permission — pgrep fallback below. */
+  }
   try {
     const res = await runner.exec(`pgrep -ix ${quoteShellArg(appName)} | tail -1`);
     const parsed = parseInt(res.stdout.trim(), 10);
     if (!Number.isNaN(parsed) && parsed > 0) return parsed;
-  } catch { /* Best-effort. */ }
+  } catch {
+    /* Best-effort. */
+  }
   return undefined;
 }

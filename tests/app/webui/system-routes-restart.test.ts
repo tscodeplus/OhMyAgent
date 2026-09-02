@@ -23,7 +23,10 @@ vi.mock('node:child_process', async (importOriginal) => {
 });
 
 // Import after mocks
-import { registerSystemRoutes, _resetRestartGuardForTests } from '../../../src/app/webui/system-routes.js';
+import {
+  registerSystemRoutes,
+  _resetRestartGuardForTests,
+} from '../../../src/app/webui/system-routes.js';
 
 // findProjectRoot() walks up from the module's __dirname, so scripts land in
 // the repo root during tests — clean them up afterwards.
@@ -112,7 +115,9 @@ describe('POST /api/system/restart', () => {
     const script = fs.readFileSync(args[0], 'utf-8');
     // Throws on syntax errors — guards the template's escaping (bash ${VAR}
     // vs JS ${interp}) against regressions.
-    expect(() => execSync('bash -n', { input: script, stdio: ['pipe', 'ignore', 'pipe'] })).not.toThrow();
+    expect(() =>
+      execSync('bash -n', { input: script, stdio: ['pipe', 'ignore', 'pipe'] }),
+    ).not.toThrow();
   });
 
   it('writes a powershell restart script on Windows', async () => {

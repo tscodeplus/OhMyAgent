@@ -24,7 +24,7 @@ export interface STTProviderConfig {
 
 export function createSTTProviders(configs: STTProviderConfig[]): STTProvider[] {
   return configs
-    .map(cfg => {
+    .map((cfg) => {
       switch (cfg.id) {
         // --- Generic Provider: any OpenAI-compatible or custom STT API ---
         case 'generic':
@@ -68,6 +68,6 @@ export async function transcribeWithFallback(
   providers: STTProvider[],
   input: Parameters<STTProvider['transcribe']>[0],
 ): Promise<ReturnType<STTProvider['transcribe']>> {
-  const { result } = await runWithFallback(providers, p => p.transcribe(input));
+  const { result } = await runWithFallback(providers, (p) => p.transcribe(input));
   return result;
 }

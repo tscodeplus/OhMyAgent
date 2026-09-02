@@ -5,12 +5,11 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { createFilesHarness, TEST_TOKEN, type FilesHarness } from './webui-files-harness.js';
 import {
-  createFilesHarness,
-  TEST_TOKEN,
-  type FilesHarness,
-} from './webui-files-harness.js';
-import { resetLoginRateLimits, LOGIN_MAX_ATTEMPTS_PER_IP } from '../../src/app/webui/chat-routes.js';
+  resetLoginRateLimits,
+  LOGIN_MAX_ATTEMPTS_PER_IP,
+} from '../../src/app/webui/chat-routes.js';
 
 let h: FilesHarness;
 

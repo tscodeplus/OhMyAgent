@@ -75,7 +75,7 @@ describe('AudioParser', () => {
 
       expect(result.text).toContain('m');
       expect(result.text).toContain('s');
-      expect((result.metadata?.estimatedDurationSec as number)).toBeGreaterThan(60);
+      expect(result.metadata?.estimatedDurationSec as number).toBeGreaterThan(60);
     });
 
     it('should include size in metadata', async () => {

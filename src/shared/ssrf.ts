@@ -38,7 +38,10 @@ export function isBlockedAddress(address: string): boolean {
  * access grant — access is decided by isBlockedAddress on the resolved address.
  */
 export function isInternalHostname(hostname: string): boolean {
-  const lower = hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  const lower = hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '');
   if (lower === 'localhost' || lower.endsWith('.localhost') || lower.endsWith('.local')) {
     return true;
   }
@@ -102,7 +105,10 @@ const IPv6_BLOCKED = IPv6_BLOCKED_PREFIXES.map(({ address, bits }) => ({
 // ---------------------------------------------------------------------------
 
 function normalizeAddress(address: string): string | null {
-  const trimmed = address.trim().toLowerCase().replace(/^\[|\]$/g, '');
+  const trimmed = address
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '');
   if (!trimmed) return null;
   // Strip an IPv6 zone id (`fe80::1%wlan0`) — it is not part of the address.
   const percent = trimmed.indexOf('%');

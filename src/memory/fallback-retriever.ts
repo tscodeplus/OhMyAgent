@@ -18,7 +18,7 @@ export async function textFallbackRetrieve(
 ): Promise<RetrievedMemory[]> {
   const memories = memoryRepository.searchByContent(query, scope, scopeKey);
 
-  return memories.slice(0, topK).map(m => ({
+  return memories.slice(0, topK).map((m) => ({
     id: m.id,
     content: m.content,
     scope: m.scope,

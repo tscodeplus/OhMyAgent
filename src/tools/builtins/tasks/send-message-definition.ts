@@ -47,20 +47,25 @@ const SendMessageParams = Type.Object({
   toAgentId: Type.String({ description: 'The target agent ID to send the message to' }),
   content: Type.String({ description: 'The message content' }),
   kind: Type.Optional(
-    Type.Union([
-      Type.Literal('instruction'),
-      Type.Literal('status'),
-      Type.Literal('result'),
-      Type.Literal('question'),
-    ], { description: 'Message kind. Default: instruction' }),
+    Type.Union(
+      [
+        Type.Literal('instruction'),
+        Type.Literal('status'),
+        Type.Literal('result'),
+        Type.Literal('question'),
+      ],
+      { description: 'Message kind. Default: instruction' },
+    ),
   ),
   route: Type.Optional(Type.Union([Type.Literal('internal'), Type.Literal('external')])),
-  targetChannel: Type.Optional(Type.Union([
-    Type.Literal('feishu'),
-    Type.Literal('telegram'),
-    Type.Literal('wechat'),
-    Type.Literal('qq'),
-  ])),
+  targetChannel: Type.Optional(
+    Type.Union([
+      Type.Literal('feishu'),
+      Type.Literal('telegram'),
+      Type.Literal('wechat'),
+      Type.Literal('qq'),
+    ]),
+  ),
   targetId: Type.Optional(Type.String()),
   externalKind: Type.Optional(Type.Union([Type.Literal('question'), Type.Literal('message')])),
 });
@@ -120,9 +125,7 @@ export function createSendMessageToolDefinition(): ToolDefinition {
       // ---- External path ----
       // Must have targetChannel and targetId
       if (!args.targetChannel || !args.targetId) {
-        return errorResult(
-          'External send requires targetChannel and targetId fields.',
-        );
+        return errorResult('External send requires targetChannel and targetId fields.');
       }
 
       // Unsupported channel check (before policy to fail fast)
@@ -152,9 +155,7 @@ export function createSendMessageToolDefinition(): ToolDefinition {
             // The Agent beforeToolCall hook already presented approval UI for
             // this same invocation path. Continue with the approved send.
           } else {
-            return errorResult(
-              'External send requires user approval before execution.',
-            );
+            return errorResult('External send requires user approval before execution.');
           }
         }
       }
@@ -172,9 +173,7 @@ export function createSendMessageToolDefinition(): ToolDefinition {
           content: args.content,
           kind: args.externalKind ?? 'message',
         });
-        return textResult(
-          `External message sent via ${args.targetChannel} to "${args.targetId}".`,
-        );
+        return textResult(`External message sent via ${args.targetChannel} to "${args.targetId}".`);
       } catch (err: any) {
         return errorResult(`Failed to send external message: ${err.message}`);
       }

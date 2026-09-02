@@ -105,9 +105,7 @@ export default function SelectModal({
         </div>
 
         {/* Error */}
-        {error && (
-          <p className="text-xs text-red-600 dark:text-red-400 mb-3">{error}</p>
-        )}
+        {error && <p className="text-xs text-red-600 dark:text-red-400 mb-3">{error}</p>}
 
         {/* Cancel */}
         <div className="flex justify-end">

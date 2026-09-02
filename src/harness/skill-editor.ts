@@ -21,15 +21,10 @@ export type SurfacePathResolver = (surfaceId: string) => string | undefined;
 
 function execFileAsync(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(
-      cmd,
-      args,
-      { cwd: process.cwd(), maxBuffer: 10 * 1024 * 1024 },
-      (error, stdout) => {
-        if (error) reject(error);
-        else resolve(stdout.toString());
-      },
-    );
+    execFile(cmd, args, { cwd: process.cwd(), maxBuffer: 10 * 1024 * 1024 }, (error, stdout) => {
+      if (error) reject(error);
+      else resolve(stdout.toString());
+    });
   });
 }
 
@@ -160,8 +155,7 @@ export class SkillEditor {
 
     const result: ApplyResult = { success: true, commitHash };
     if (occurrences > 1) {
-      result.warning =
-        `diff.before appeared ${occurrences} times; only the first occurrence was replaced`;
+      result.warning = `diff.before appeared ${occurrences} times; only the first occurrence was replaced`;
     }
     return result;
   }

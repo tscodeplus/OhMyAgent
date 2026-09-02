@@ -130,9 +130,12 @@ describe('ChatQueue', () => {
       });
 
       // Blocking task runs; two more fill the pending queue
-      queue.enqueue('session-1', vi.fn().mockImplementation(async () => {
-        await barrierPromise;
-      }));
+      queue.enqueue(
+        'session-1',
+        vi.fn().mockImplementation(async () => {
+          await barrierPromise;
+        }),
+      );
       expect(queue.enqueue('session-1', vi.fn().mockResolvedValue(undefined))).toBe(true);
       expect(queue.enqueue('session-1', vi.fn().mockResolvedValue(undefined))).toBe(true);
 
@@ -155,9 +158,12 @@ describe('ChatQueue', () => {
       });
 
       // Blocking task runs; one pending fills the cap
-      queue.enqueue('session-1', vi.fn().mockImplementation(async () => {
-        await barrierPromise;
-      }));
+      queue.enqueue(
+        'session-1',
+        vi.fn().mockImplementation(async () => {
+          await barrierPromise;
+        }),
+      );
       expect(queue.enqueue('session-1', vi.fn().mockResolvedValue(undefined))).toBe(true);
       // Beyond the cap — rejected while the backlog is stuck
       expect(queue.enqueue('session-1', vi.fn().mockResolvedValue(undefined))).toBe(false);
@@ -175,9 +181,12 @@ describe('ChatQueue', () => {
         barrier.resolve = r;
       });
 
-      queue.enqueue('session-1', vi.fn().mockImplementation(async () => {
-        await barrierPromise;
-      }));
+      queue.enqueue(
+        'session-1',
+        vi.fn().mockImplementation(async () => {
+          await barrierPromise;
+        }),
+      );
       expect(queue.enqueue('session-1', vi.fn().mockResolvedValue(undefined))).toBe(true);
       // session-1 pending backlog is full
       expect(queue.enqueue('session-1', vi.fn().mockResolvedValue(undefined))).toBe(false);

@@ -34,16 +34,8 @@ export class UserQuestionStore {
    * Returns a Promise that resolves with the user's answer string,
    * or rejects (well, resolves to a timeout marker string) on timeout.
    */
-  create(
-    requestId: string,
-    timeoutMs?: number,
-    sessionKey?: string,
-  ): Promise<string> {
-    return this._awaitAnswer(
-      requestId,
-      timeoutMs ?? this.defaultTimeoutMs,
-      sessionKey ?? '',
-    );
+  create(requestId: string, timeoutMs?: number, sessionKey?: string): Promise<string> {
+    return this._awaitAnswer(requestId, timeoutMs ?? this.defaultTimeoutMs, sessionKey ?? '');
   }
 
   /**
@@ -102,11 +94,7 @@ export class UserQuestionStore {
 
   // ── Private ──
 
-  private _awaitAnswer(
-    requestId: string,
-    timeoutMs: number,
-    sessionKey: string,
-  ): Promise<string> {
+  private _awaitAnswer(requestId: string, timeoutMs: number, sessionKey: string): Promise<string> {
     return new Promise<string>((resolve) => {
       const timer = setTimeout(() => {
         this.events.off(requestId, handler);

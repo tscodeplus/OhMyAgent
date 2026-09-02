@@ -144,42 +144,46 @@ export class MemoryRepository {
    */
   findAllByScope(scope: string): Memory[] {
     const stmt = this.db.prepare(
-      "SELECT * FROM memories WHERE scope = ? AND status = 'active' ORDER BY created_at ASC"
+      "SELECT * FROM memories WHERE scope = ? AND status = 'active' ORDER BY created_at ASC",
     );
     return stmt.all(scope) as Memory[];
   }
 
   findByScope(scope: string, scopeKey: string, options?: { includeInactive?: boolean }): Memory[] {
-    const statusFilter = options?.includeInactive
-      ? ''
-      : "AND status = 'active'";
+    const statusFilter = options?.includeInactive ? '' : "AND status = 'active'";
     const stmt = this.db.prepare(
-      `SELECT * FROM memories WHERE scope = ? AND scope_key = ? ${statusFilter} ORDER BY created_at DESC`
+      `SELECT * FROM memories WHERE scope = ? AND scope_key = ? ${statusFilter} ORDER BY created_at DESC`,
     );
     return stmt.all(scope, scopeKey) as Memory[];
   }
 
-  findByScopeAndKind(scope: string, scopeKey: string, kind: string, options?: { includeInactive?: boolean }): Memory[] {
-    const statusFilter = options?.includeInactive
-      ? ''
-      : "AND status = 'active'";
+  findByScopeAndKind(
+    scope: string,
+    scopeKey: string,
+    kind: string,
+    options?: { includeInactive?: boolean },
+  ): Memory[] {
+    const statusFilter = options?.includeInactive ? '' : "AND status = 'active'";
     const stmt = this.db.prepare(
-      `SELECT * FROM memories WHERE scope = ? AND scope_key = ? AND kind = ? ${statusFilter} ORDER BY created_at DESC`
+      `SELECT * FROM memories WHERE scope = ? AND scope_key = ? AND kind = ? ${statusFilter} ORDER BY created_at DESC`,
     );
     return stmt.all(scope, scopeKey, kind) as Memory[];
   }
 
   findByScopeKind(scope: string, kind: string, options?: { includeInactive?: boolean }): Memory[] {
-    const statusFilter = options?.includeInactive
-      ? ''
-      : "AND status = 'active'";
+    const statusFilter = options?.includeInactive ? '' : "AND status = 'active'";
     const stmt = this.db.prepare(
-      `SELECT * FROM memories WHERE scope = ? AND kind = ? ${statusFilter} ORDER BY created_at DESC`
+      `SELECT * FROM memories WHERE scope = ? AND kind = ? ${statusFilter} ORDER BY created_at DESC`,
     );
     return stmt.all(scope, kind) as Memory[];
   }
 
-  searchByContent(query: string, scope?: string, scopeKey?: string, options?: { includeInactive?: boolean }): Memory[] {
+  searchByContent(
+    query: string,
+    scope?: string,
+    scopeKey?: string,
+    options?: { includeInactive?: boolean },
+  ): Memory[] {
     let sql = 'SELECT * FROM memories WHERE content LIKE ?';
     const params: unknown[] = [`%${query}%`];
 
@@ -204,25 +208,64 @@ export class MemoryRepository {
     const fields: string[] = [];
     const values: Record<string, unknown> = { id };
 
-    if (input.scope !== undefined) { fields.push('scope = @scope'); values.scope = input.scope; }
-    if (input.scope_key !== undefined) { fields.push('scope_key = @scope_key'); values.scope_key = input.scope_key; }
-    if (input.kind !== undefined) { fields.push('kind = @kind'); values.kind = input.kind; }
-    if (input.content !== undefined) { fields.push('content = @content'); values.content = input.content; }
-    if (input.metadata !== undefined) { fields.push('metadata = @metadata'); values.metadata = input.metadata; }
-    if (input.agent_id !== undefined) { fields.push('agent_id = @agent_id'); values.agent_id = input.agent_id; }
-    if (input.visibility !== undefined) { fields.push('visibility = @visibility'); values.visibility = input.visibility; }
-    if (input.status !== undefined) { fields.push('status = @status'); values.status = input.status; }
-    if (input.supersedes_id !== undefined) { fields.push('supersedes_id = @supersedes_id'); values.supersedes_id = input.supersedes_id; }
-    if (input.source_channel !== undefined) { fields.push('source_channel = @source_channel'); values.source_channel = input.source_channel; }
-    if (input.source_message_id !== undefined) { fields.push('source_message_id = @source_message_id'); values.source_message_id = input.source_message_id; }
-    if (input.confidence !== undefined) { fields.push('confidence = @confidence'); values.confidence = input.confidence; }
-    if (input.invalidated_at !== undefined) { fields.push('invalidated_at = @invalidated_at'); values.invalidated_at = input.invalidated_at; }
+    if (input.scope !== undefined) {
+      fields.push('scope = @scope');
+      values.scope = input.scope;
+    }
+    if (input.scope_key !== undefined) {
+      fields.push('scope_key = @scope_key');
+      values.scope_key = input.scope_key;
+    }
+    if (input.kind !== undefined) {
+      fields.push('kind = @kind');
+      values.kind = input.kind;
+    }
+    if (input.content !== undefined) {
+      fields.push('content = @content');
+      values.content = input.content;
+    }
+    if (input.metadata !== undefined) {
+      fields.push('metadata = @metadata');
+      values.metadata = input.metadata;
+    }
+    if (input.agent_id !== undefined) {
+      fields.push('agent_id = @agent_id');
+      values.agent_id = input.agent_id;
+    }
+    if (input.visibility !== undefined) {
+      fields.push('visibility = @visibility');
+      values.visibility = input.visibility;
+    }
+    if (input.status !== undefined) {
+      fields.push('status = @status');
+      values.status = input.status;
+    }
+    if (input.supersedes_id !== undefined) {
+      fields.push('supersedes_id = @supersedes_id');
+      values.supersedes_id = input.supersedes_id;
+    }
+    if (input.source_channel !== undefined) {
+      fields.push('source_channel = @source_channel');
+      values.source_channel = input.source_channel;
+    }
+    if (input.source_message_id !== undefined) {
+      fields.push('source_message_id = @source_message_id');
+      values.source_message_id = input.source_message_id;
+    }
+    if (input.confidence !== undefined) {
+      fields.push('confidence = @confidence');
+      values.confidence = input.confidence;
+    }
+    if (input.invalidated_at !== undefined) {
+      fields.push('invalidated_at = @invalidated_at');
+      values.invalidated_at = input.invalidated_at;
+    }
 
     if (fields.length === 0) {
       return this.findById(id);
     }
 
-    fields.push('updated_at = cast(strftime(\'%s\',\'now\') as integer) * 1000');
+    fields.push("updated_at = cast(strftime('%s','now') as integer) * 1000");
     const sql = `UPDATE memories SET ${fields.join(', ')} WHERE id = @id`;
     this.db.prepare(sql).run(values);
     const updated = this.findById(id);
@@ -268,7 +311,7 @@ export class MemoryRepository {
   softDelete(id: string): boolean {
     const memory = this.findById(id);
     const stmt = this.db.prepare(
-      "UPDATE memories SET status = 'deleted', invalidated_at = cast(strftime('%s','now') as integer) * 1000, updated_at = cast(strftime('%s','now') as integer) * 1000 WHERE id = ? AND status = 'active'"
+      "UPDATE memories SET status = 'deleted', invalidated_at = cast(strftime('%s','now') as integer) * 1000, updated_at = cast(strftime('%s','now') as integer) * 1000 WHERE id = ? AND status = 'active'",
     );
     const result = stmt.run(id);
     if (result.changes > 0 && memory) {
@@ -293,13 +336,13 @@ export class MemoryRepository {
    */
   supersede(oldId: string, newId: string): boolean {
     const oldMemory = this.findById(oldId);
-    const updated = this.db.prepare(
-      "UPDATE memories SET status = 'superseded', supersedes_id = NULL, invalidated_at = cast(strftime('%s','now') as integer) * 1000, updated_at = cast(strftime('%s','now') as integer) * 1000 WHERE id = ? AND status = 'active'"
-    ).run(oldId);
+    const updated = this.db
+      .prepare(
+        "UPDATE memories SET status = 'superseded', supersedes_id = NULL, invalidated_at = cast(strftime('%s','now') as integer) * 1000, updated_at = cast(strftime('%s','now') as integer) * 1000 WHERE id = ? AND status = 'active'",
+      )
+      .run(oldId);
     if (updated.changes > 0) {
-      this.db.prepare(
-        "UPDATE memories SET supersedes_id = ? WHERE id = ?"
-      ).run(oldId, newId);
+      this.db.prepare('UPDATE memories SET supersedes_id = ? WHERE id = ?').run(oldId, newId);
       if (oldMemory) {
         syncJiebaFts(this.db, 'delete', {
           id: oldMemory.id,
@@ -319,7 +362,9 @@ export class MemoryRepository {
    * Find the memory that supersedes the given one (reverse lookup).
    */
   findSuperseding(supersededId: string): Memory | undefined {
-    const stmt = this.db.prepare("SELECT * FROM memories WHERE supersedes_id = ? AND status = 'active'");
+    const stmt = this.db.prepare(
+      "SELECT * FROM memories WHERE supersedes_id = ? AND status = 'active'",
+    );
     const row = stmt.get(supersededId) as Memory | undefined;
     return row ?? undefined;
   }
@@ -330,14 +375,25 @@ export class MemoryRepository {
     return result.changes;
   }
 
-  upsert(input: { id: string; scope: string; scope_key: string; kind: string; content: string; metadata?: string | null }): Memory {
+  upsert(input: {
+    id: string;
+    scope: string;
+    scope_key: string;
+    kind: string;
+    content: string;
+    metadata?: string | null;
+  }): Memory {
     const existing = this.findById(input.id);
     if (existing) {
       // Reset to active if previously soft-deleted/superseded
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         UPDATE memories SET content = ?, metadata = ?, status = 'active', invalidated_at = NULL, updated_at = cast(strftime('%s','now') as integer) * 1000
         WHERE id = ?
-      `).run(input.content, input.metadata ?? null, input.id);
+      `,
+        )
+        .run(input.content, input.metadata ?? null, input.id);
       const updated = this.findById(input.id)!;
       syncJiebaFts(this.db, 'update', {
         id: updated.id,
@@ -362,7 +418,12 @@ export class MemoryRepository {
   /**
    * Find an exact duplicate by scope_key + kind + content.
    */
-  findExactMatch(scope: string, scopeKey: string, kind: string, content: string): Memory | undefined {
+  findExactMatch(
+    scope: string,
+    scopeKey: string,
+    kind: string,
+    content: string,
+  ): Memory | undefined {
     const stmt = this.db.prepare(
       "SELECT * FROM memories WHERE scope = ? AND scope_key = ? AND kind = ? AND content = ? AND status = 'active' LIMIT 1",
     );

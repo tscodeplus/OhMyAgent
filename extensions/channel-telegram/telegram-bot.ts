@@ -16,7 +16,9 @@ export function createTelegramBot(config: TelegramConfig, logger: Logger): Bot {
           const fetchInit: any = { ...rest, dispatcher: proxyAgent };
           if (grammySignal && !grammySignal.aborted) {
             const bridge = new AbortController();
-            grammySignal.addEventListener('abort', () => bridge.abort(grammySignal.reason), { once: true });
+            grammySignal.addEventListener('abort', () => bridge.abort(grammySignal.reason), {
+              once: true,
+            });
             fetchInit.signal = bridge.signal;
           }
           return undiciFetch(url, fetchInit);
@@ -36,10 +38,19 @@ export async function startBot(bot: Bot, config: TelegramConfig, logger: Logger)
 }
 
 export async function stopBot(bot: Bot, config: TelegramConfig, logger: Logger): Promise<void> {
-  try { if (config.mode === 'webhook') await bot.api.deleteWebhook(); await bot.stop(); } catch { logger.warn('Failed to stop Telegram bot gracefully'); }
+  try {
+    if (config.mode === 'webhook') await bot.api.deleteWebhook();
+    await bot.stop();
+  } catch {
+    logger.warn('Failed to stop Telegram bot gracefully');
+  }
 }
 
-export async function setupWebhook(bot: Bot, config: TelegramConfig, logger: Logger): Promise<void> {
+export async function setupWebhook(
+  bot: Bot,
+  config: TelegramConfig,
+  logger: Logger,
+): Promise<void> {
   if (config.webhookUrl) {
     await bot.api.setWebhook(config.webhookUrl, {
       secret_token: config.webhookSecret,

@@ -13,10 +13,26 @@ export function createSkillCreateTool(deps: SkillCreatorDeps): AgentTool<any> {
   const schema = z.object({
     name: z.string().describe('Display name for the skill (e.g. "日程管理")'),
     description: z.string().describe('Brief description of what the skill does'),
-    slug: z.string().optional().describe('Kebab-case directory name (e.g. "reading-list"). Auto-generated if omitted. Must be lowercase letters, numbers, and hyphens only.'),
-    template: z.string().optional().describe('ALWAYS use "best-practice" unless the user explicitly asks for a different template. This is the recommended default with full structured sections (MUST/SHOULD/WHEN/Checklist/Examples). Other options: "minimal", "agent-role", "tool-wrapper".'),
-    requirements: z.string().optional().describe('Additional capability requirements to elaborate in the skill body'),
-    triggers: z.string().optional().describe('Comma-separated trigger words (defaults to skill name)'),
+    slug: z
+      .string()
+      .optional()
+      .describe(
+        'Kebab-case directory name (e.g. "reading-list"). Auto-generated if omitted. Must be lowercase letters, numbers, and hyphens only.',
+      ),
+    template: z
+      .string()
+      .optional()
+      .describe(
+        'ALWAYS use "best-practice" unless the user explicitly asks for a different template. This is the recommended default with full structured sections (MUST/SHOULD/WHEN/Checklist/Examples). Other options: "minimal", "agent-role", "tool-wrapper".',
+      ),
+    requirements: z
+      .string()
+      .optional()
+      .describe('Additional capability requirements to elaborate in the skill body'),
+    triggers: z
+      .string()
+      .optional()
+      .describe('Comma-separated trigger words (defaults to skill name)'),
     allowedTools: z.string().optional().describe('Space-separated tool names the skill needs'),
     priority: z.number().optional().describe('Skill priority (default: 0)'),
   });

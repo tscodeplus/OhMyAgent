@@ -35,7 +35,9 @@ export function createFileSearchToolDefinition(options?: FileReadToolOptions): T
     capability: fileSearchToolCapability,
     execute: async (args, ctx) => {
       if (ctx.approvalAlreadyHandled) {
-        return executeApprovedSearch(args as { directory: string; pattern: string; maxResults?: number });
+        return executeApprovedSearch(
+          args as { directory: string; pattern: string; maxResults?: number },
+        );
       }
       const result = await legacyTool.execute('' as any, args as any);
       return {

@@ -45,17 +45,15 @@ function readCharClass(pattern: string, index: number): { source: string; end: n
   const close = pattern.indexOf(']', cursor);
   if (close === -1) return null;
 
-  const inner = pattern
-    .slice(negated ? index + 2 : index + 1, close)
-    .replace(/[\]\\]/g, '\\$&');
+  const inner = pattern.slice(negated ? index + 2 : index + 1, close).replace(/[\]\\]/g, '\\$&');
   if (!inner) return null;
   return { source: `[${negated ? '^' : ''}${inner}]`, end: close };
 }
 
 /**
  * Segment-aware glob → RegExp source:
- *   `**/`  zero or more leading segments
- *   `/**`  zero or more trailing segments
+ *   `**/ `  zero or more leading segments
+ *   `; /**`  zero or more trailing segments
  *   `**`   anything, across segments
  *   `*`    one segment, no separators
  *   `?`    exactly one character (not a separator)

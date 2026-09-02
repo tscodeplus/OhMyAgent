@@ -1,4 +1,12 @@
-import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  type ReactNode,
+} from 'react';
 import { getToken, setToken, clearToken, apiRequest } from '../utils/api';
 import { isElectron } from '../utils/env';
 
@@ -41,7 +49,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   const validateToken = useCallback(async (t: string): Promise<boolean> => {
@@ -68,13 +78,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         let configRemoteUrl = '';
         try {
           const config = (await window.electronAPI!.getGatewayConfig()) as {
-            mode?: string; remoteUrl?: string; remoteToken?: string;
+            mode?: string;
+            remoteUrl?: string;
+            remoteToken?: string;
           };
           if (config?.mode === 'remote' && config?.remoteToken) {
             remoteToken = config.remoteToken;
             configRemoteUrl = config.remoteUrl || '';
           }
-        } catch { /* preload may not have this API yet — fall back to local */ }
+        } catch {
+          /* preload may not have this API yet — fall back to local */
+        }
 
         if (remoteToken) {
           // Remote gateway mode — validate the configured token
@@ -107,7 +121,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 await new Promise((r) => setTimeout(r, 500));
               }
             }
-          } catch { /* control API unreachable — fail closed below */ }
+          } catch {
+            /* control API unreachable — fail closed below */
+          }
           if (webuiToken) {
             setToken(webuiToken);
             setTokenState(webuiToken);
@@ -166,7 +182,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const retryAuth = useCallback(() => {
     setConnectionError(null);
     setIsLoading(true);
-    setRetryCount(c => c + 1);
+    setRetryCount((c) => c + 1);
   }, []);
 
   return (

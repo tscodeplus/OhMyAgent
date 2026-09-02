@@ -35,7 +35,11 @@ function redactSecrets(obj: unknown, depth = 0): unknown {
   if (obj && typeof obj === 'object') {
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
-      if (SECRET_FIELDS.includes(key) && typeof value === 'string' && (value as string).length > 0) {
+      if (
+        SECRET_FIELDS.includes(key) &&
+        typeof value === 'string' &&
+        (value as string).length > 0
+      ) {
         result[key] = '';
       } else {
         result[key] = redactSecrets(value, depth + 1);
@@ -74,12 +78,14 @@ function mapProviderKeysToSnake(keys: Record<string, unknown>): Record<string, u
 }
 
 /** Map CustomProvider array from camelCase (WebUI) to snake_case (YAML convention). */
-function mapCustomProvidersToSnake(providers: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
-  return providers.map(cp => ({
+function mapCustomProvidersToSnake(
+  providers: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  return providers.map((cp) => ({
     provider: cp.provider,
     api_key: cp.apiKey || cp.api_key,
     base_url: cp.baseUrl || cp.base_url,
-    models: (cp.models as Array<Record<string, unknown>>)?.map(m => ({
+    models: (cp.models as Array<Record<string, unknown>>)?.map((m) => ({
       id: m.id,
       name: m.name,
       api: m.api,
@@ -88,12 +94,20 @@ function mapCustomProvidersToSnake(providers: Array<Record<string, unknown>>): A
       context_window: m.contextWindow || m.context_window,
       max_tokens: m.maxTokens || m.max_tokens,
       input: m.input,
-      cost: m.cost ? {
-        input: (m.cost as Record<string, unknown>).input,
-        output: (m.cost as Record<string, unknown>).output,
-        cache_read: (m.cost as Record<string, unknown>).cacheRead ?? (m.cost as Record<string, unknown>).cache_read ?? 0,
-        cache_write: (m.cost as Record<string, unknown>).cacheWrite ?? (m.cost as Record<string, unknown>).cache_write ?? 0,
-      } : undefined,
+      cost: m.cost
+        ? {
+            input: (m.cost as Record<string, unknown>).input,
+            output: (m.cost as Record<string, unknown>).output,
+            cache_read:
+              (m.cost as Record<string, unknown>).cacheRead ??
+              (m.cost as Record<string, unknown>).cache_read ??
+              0,
+            cache_write:
+              (m.cost as Record<string, unknown>).cacheWrite ??
+              (m.cost as Record<string, unknown>).cache_write ??
+              0,
+          }
+        : undefined,
     })),
   }));
 }
@@ -109,7 +123,11 @@ function expandDotKeys(body: Record<string, unknown>): Record<string, unknown> {
       const parts = key.split('.');
       let current = result;
       for (let i = 0; i < parts.length - 1; i++) {
-        if (!current[parts[i]] || typeof current[parts[i]] !== 'object' || Array.isArray(current[parts[i]])) {
+        if (
+          !current[parts[i]] ||
+          typeof current[parts[i]] !== 'object' ||
+          Array.isArray(current[parts[i]])
+        ) {
           current[parts[i]] = {};
         }
         current = current[parts[i]] as Record<string, unknown>;
@@ -175,7 +193,8 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
     const config = cfg.getConfig();
     const ids = new Set<string>();
 
-    const providerKeys = config.providerKeys as Record<string, { apiKey?: string; baseUrl?: string }> | undefined;
+    const providerKeys = config.providerKeys as
+      Record<string, { apiKey?: string; baseUrl?: string }> | undefined;
     if (providerKeys) {
       for (const [name, entry] of Object.entries(providerKeys)) {
         if (entry?.apiKey) ids.add(name);
@@ -185,7 +204,8 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
     const piAi = config.piAi as { provider?: string; apiKey?: string } | undefined;
     if (piAi?.provider && piAi?.apiKey) ids.add(piAi.provider);
 
-    const customProviders = config.customProviders as Array<{ provider: string; apiKey?: string }> | undefined;
+    const customProviders = config.customProviders as
+      Array<{ provider: string; apiKey?: string }> | undefined;
     if (customProviders) {
       for (const cp of customProviders) {
         if (cp.apiKey) ids.add(cp.provider);
@@ -233,7 +253,8 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
     let customApi: string | undefined;
 
     // Check providerKeys first
-    const providerKeys = config.providerKeys as Record<string, { apiKey?: string; baseUrl?: string }> | undefined;
+    const providerKeys = config.providerKeys as
+      Record<string, { apiKey?: string; baseUrl?: string }> | undefined;
     if (providerKeys?.[id]) {
       apiKey = providerKeys[id].apiKey;
       baseUrl = providerKeys[id].baseUrl;
@@ -241,15 +262,22 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
 
     // Check customProviders
     if (!apiKey) {
-      const customProviders = config.customProviders as Array<{ provider: string; apiKey?: string; baseUrl?: string; models?: Array<{ api?: string }> }> | undefined;
-      const custom = customProviders?.find(cp => cp.provider === id);
+      const customProviders = config.customProviders as
+        | Array<{
+            provider: string;
+            apiKey?: string;
+            baseUrl?: string;
+            models?: Array<{ api?: string }>;
+          }>
+        | undefined;
+      const custom = customProviders?.find((cp) => cp.provider === id);
       if (custom) {
         apiKey = custom.apiKey;
         baseUrl = custom.baseUrl;
         // Inherit the API type from the provider's configured models so models
         // picked from the live list get registered/used with the correct API
         // (virtually all custom gateways are OpenAI-compatible).
-        customApi = custom.models?.find(m => m.api)?.api;
+        customApi = custom.models?.find((m) => m.api)?.api;
       }
     }
 
@@ -271,11 +299,11 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
 
     if (!baseUrl) {
       const knownBaseUrls: Record<string, string> = {
-        'openai': 'https://api.openai.com/v1',
-        'anthropic': 'https://api.anthropic.com',
-        'deepseek': 'https://api.deepseek.com',
-        'google': 'https://generativelanguage.googleapis.com',
-        'openrouter': 'https://openrouter.ai/api/v1',
+        openai: 'https://api.openai.com/v1',
+        anthropic: 'https://api.anthropic.com',
+        deepseek: 'https://api.deepseek.com',
+        google: 'https://generativelanguage.googleapis.com',
+        openrouter: 'https://openrouter.ai/api/v1',
       };
       baseUrl = knownBaseUrls[id];
     }
@@ -294,18 +322,18 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
       const url = `${baseUrl.replace(/\/$/, '')}/models`;
       const response = await fetch(url, {
         headers: {
-          'Authorization': `Bearer ${apiKey}`,
+          Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
       });
 
       if (!response.ok) {
         return reply.status(response.status).send({
-          error: `Provider API returned ${response.status}: ${response.statusText}`
+          error: `Provider API returned ${response.status}: ${response.statusText}`,
         });
       }
 
-      const data = await response.json() as any;
+      const data = (await response.json()) as any;
       const rawList = Array.isArray(data) ? data : (data?.data ?? []);
 
       if (!Array.isArray(rawList) || rawList.length === 0) {
@@ -316,7 +344,7 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
       const models = rawList
         .map((m: any) => ({ id: m?.id ?? m?.name ?? m?.model, name: m?.id ?? m?.name ?? m?.model }))
         .filter((m: { id?: string }) => m.id)
-        .map(m => ({
+        .map((m) => ({
           id: m.id,
           name: m.name,
           api: customApi ?? 'openai-completions',
@@ -327,7 +355,7 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
       return reply.send({ provider: id, models, live: true });
     } catch (error) {
       return reply.status(500).send({
-        error: `Failed to fetch models: ${error instanceof Error ? error.message : 'Unknown error'}`
+        error: `Failed to fetch models: ${error instanceof Error ? error.message : 'Unknown error'}`,
       });
     }
   });
@@ -345,10 +373,12 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
 
     const showWizard = missing.provider || missing.model || missing.apiKey;
 
-    const providers = getProviders().map(p => ({
+    const providers = getProviders().map((p) => ({
       id: p,
       name: p,
-      knownModels: getModels(p).slice(0, 5).map(m => m.id),
+      knownModels: getModels(p)
+        .slice(0, 5)
+        .map((m) => m.id),
     }));
 
     return reply.send({
@@ -365,7 +395,9 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
     try {
       const updates = request.body as Record<string, unknown>;
       if (!updates || typeof updates !== 'object') {
-        return reply.status(400).send({ error: 'Bad Request', message: 'Body must be a JSON object' });
+        return reply
+          .status(400)
+          .send({ error: 'Bad Request', message: 'Body must be a JSON object' });
       }
 
       const yamlPath = process.env.CONFIG_FILE || './config.yaml';

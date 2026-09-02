@@ -41,9 +41,33 @@ describe('memory governance tools', () => {
   });
 
   it('lists only memories visible to the current agent', async () => {
-    memoryRepo.create({ id: 'own', scope: 'user', scope_key: '', kind: 'fact', content: 'own private', agent_id: 'agent-a', visibility: 'private' });
-    memoryRepo.create({ id: 'other-private', scope: 'user', scope_key: '', kind: 'fact', content: 'other private', agent_id: 'agent-b', visibility: 'private' });
-    memoryRepo.create({ id: 'shared', scope: 'user', scope_key: '', kind: 'fact', content: 'shared memory', agent_id: 'agent-b', visibility: 'shared' });
+    memoryRepo.create({
+      id: 'own',
+      scope: 'user',
+      scope_key: '',
+      kind: 'fact',
+      content: 'own private',
+      agent_id: 'agent-a',
+      visibility: 'private',
+    });
+    memoryRepo.create({
+      id: 'other-private',
+      scope: 'user',
+      scope_key: '',
+      kind: 'fact',
+      content: 'other private',
+      agent_id: 'agent-b',
+      visibility: 'private',
+    });
+    memoryRepo.create({
+      id: 'shared',
+      scope: 'user',
+      scope_key: '',
+      kind: 'fact',
+      content: 'shared memory',
+      agent_id: 'agent-b',
+      visibility: 'shared',
+    });
     const def = createMemoryListToolDefinition({ memoryRepository: memoryRepo });
 
     const result = await def.execute({}, ctx('agent-a'));
@@ -55,7 +79,15 @@ describe('memory governance tools', () => {
   });
 
   it('soft-deletes visible memory and invalidates cache', async () => {
-    memoryRepo.create({ id: 'delete-me', scope: 'user', scope_key: '', kind: 'fact', content: 'delete me', agent_id: 'agent-a', visibility: 'private' });
+    memoryRepo.create({
+      id: 'delete-me',
+      scope: 'user',
+      scope_key: '',
+      kind: 'fact',
+      content: 'delete me',
+      agent_id: 'agent-a',
+      visibility: 'private',
+    });
     const onMemoryChanged = vi.fn();
     const def = createMemoryDeleteToolDefinition({
       memoryRepository: memoryRepo,
@@ -74,17 +106,27 @@ describe('memory governance tools', () => {
     // findActiveById should NOT return the memory (for retrieval paths)
     expect(memoryRepo.findActiveById('delete-me')).toBeUndefined();
     expect(onMemoryChanged).toHaveBeenCalledOnce();
-    expect(onMemoryChanged).toHaveBeenCalledWith(expect.objectContaining({
-      content: 'delete me',
-      kind: 'fact',
-      scope: 'user',
-      scopeKey: '',
-      action: 'delete',
-    }));
+    expect(onMemoryChanged).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'delete me',
+        kind: 'fact',
+        scope: 'user',
+        scopeKey: '',
+        action: 'delete',
+      }),
+    );
   });
 
   it('does not delete another agent private memory', async () => {
-    memoryRepo.create({ id: 'private-b', scope: 'user', scope_key: '', kind: 'fact', content: 'private b', agent_id: 'agent-b', visibility: 'private' });
+    memoryRepo.create({
+      id: 'private-b',
+      scope: 'user',
+      scope_key: '',
+      kind: 'fact',
+      content: 'private b',
+      agent_id: 'agent-b',
+      visibility: 'private',
+    });
     const def = createMemoryDeleteToolDefinition({
       memoryRepository: memoryRepo,
       embeddingRepository: embeddingRepo,
@@ -97,7 +139,15 @@ describe('memory governance tools', () => {
   });
 
   it('updates visible memory content and embedding', async () => {
-    memoryRepo.create({ id: 'update-me', scope: 'user', scope_key: '', kind: 'fact', content: 'old content', agent_id: 'agent-a', visibility: 'private' });
+    memoryRepo.create({
+      id: 'update-me',
+      scope: 'user',
+      scope_key: '',
+      kind: 'fact',
+      content: 'old content',
+      agent_id: 'agent-a',
+      visibility: 'private',
+    });
     const onMemoryChanged = vi.fn();
     const embeddingClient = {
       embedOne: vi.fn(async () => new Float32Array([1, 0, 0])),
@@ -110,24 +160,37 @@ describe('memory governance tools', () => {
       onMemoryChanged,
     });
 
-    const result = await def.execute({ id: 'update-me', content: 'new content', kind: 'preference' }, ctx('agent-a'));
+    const result = await def.execute(
+      { id: 'update-me', content: 'new content', kind: 'preference' },
+      ctx('agent-a'),
+    );
 
     expect(text(result)).toContain('Memory updated');
     expect(memoryRepo.findById('update-me')!.content).toBe('new content');
     expect(memoryRepo.findById('update-me')!.kind).toBe('preference');
     expect(embeddingRepo.findByMemoryId('update-me')).toBeDefined();
     expect(onMemoryChanged).toHaveBeenCalledOnce();
-    expect(onMemoryChanged).toHaveBeenCalledWith(expect.objectContaining({
-      content: 'new content',
-      kind: 'preference',
-      scope: 'user',
-      scopeKey: '',
-      action: 'update',
-    }));
+    expect(onMemoryChanged).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'new content',
+        kind: 'preference',
+        scope: 'user',
+        scopeKey: '',
+        action: 'update',
+      }),
+    );
   });
 
   it('marks updates from preference to non-preference as preference changes', async () => {
-    memoryRepo.create({ id: 'pref-to-fact', scope: 'user', scope_key: '', kind: 'preference', content: 'old preference', agent_id: 'agent-a', visibility: 'private' });
+    memoryRepo.create({
+      id: 'pref-to-fact',
+      scope: 'user',
+      scope_key: '',
+      kind: 'preference',
+      content: 'old preference',
+      agent_id: 'agent-a',
+      visibility: 'private',
+    });
     const onMemoryChanged = vi.fn();
     const embeddingClient = {
       embedOne: vi.fn(async () => new Float32Array([1, 0, 0])),
@@ -140,13 +203,18 @@ describe('memory governance tools', () => {
       onMemoryChanged,
     });
 
-    const result = await def.execute({ id: 'pref-to-fact', content: 'new fact', kind: 'fact' }, ctx('agent-a'));
+    const result = await def.execute(
+      { id: 'pref-to-fact', content: 'new fact', kind: 'fact' },
+      ctx('agent-a'),
+    );
 
     expect(text(result)).toContain('Memory updated');
     expect(memoryRepo.findById('pref-to-fact')!.kind).toBe('fact');
-    expect(onMemoryChanged).toHaveBeenCalledWith(expect.objectContaining({
-      kind: 'preference',
-      action: 'update',
-    }));
+    expect(onMemoryChanged).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'preference',
+        action: 'update',
+      }),
+    );
   });
 });

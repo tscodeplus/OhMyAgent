@@ -65,14 +65,17 @@ export async function stopPolling(bot: Bot, logger: Logger): Promise<void> {
     await bot.stop();
     logger.info('Telegram polling stopped');
   } catch (err) {
-    logger.debug({ reason: getErrorMessage(err) }, 'Telegram polling stop completed with non-fatal error');
+    logger.debug(
+      { reason: getErrorMessage(err) },
+      'Telegram polling stop completed with non-fatal error',
+    );
   } finally {
     stoppingBots.delete(bot);
   }
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function getErrorMessage(err: unknown): string {

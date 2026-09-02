@@ -26,8 +26,8 @@ export function coverageMerge(
   perSlotFloor = 2,
 ): MergedResult[] {
   // Rank within each slot, tagging provenance.
-  const ranked: MergedResult[][] = slots.map(slot =>
-    rrfMerge(slot.lists, k, topK).map(item => ({ ...item, slot: item.slot ?? slot.slotId })),
+  const ranked: MergedResult[][] = slots.map((slot) =>
+    rrfMerge(slot.lists, k, topK).map((item) => ({ ...item, slot: item.slot ?? slot.slotId })),
   );
 
   const chosen = new Map<string, MergedResult>();
@@ -60,7 +60,7 @@ export function coverageMerge(
   // Phase 2: fill remaining seats by global RRF score.
   const remainder = ranked
     .flat()
-    .filter(item => !chosen.has(item.id))
+    .filter((item) => !chosen.has(item.id))
     .sort((a, b) => b.score - a.score);
   for (const item of remainder) {
     if (chosen.size >= topK) break;

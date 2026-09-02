@@ -95,17 +95,24 @@ export async function apiPost(
   const transport = isHttps ? https : http;
 
   const response = await new Promise<{ status: number; text: string }>((resolve, reject) => {
-    const req = transport.request(url, {
-      method: 'POST',
-      headers: buildHeaders(botToken, Buffer.byteLength(bodyStr, 'utf-8')),
-      timeout: timeoutMs,
-    }, (res) => {
-      let data = '';
-      res.on('data', (chunk: Buffer) => data += chunk.toString());
-      res.on('end', () => resolve({ status: res.statusCode ?? 0, text: data }));
-    });
+    const req = transport.request(
+      url,
+      {
+        method: 'POST',
+        headers: buildHeaders(botToken, Buffer.byteLength(bodyStr, 'utf-8')),
+        timeout: timeoutMs,
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk: Buffer) => (data += chunk.toString()));
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, text: data }));
+      },
+    );
     req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('timeout'));
+    });
     req.write(bodyStr);
     req.end();
   });
@@ -120,9 +127,7 @@ export async function apiPost(
   try {
     json = JSON.parse(response.text) as ILApiResponse;
   } catch {
-    throw new Error(
-      `iLink API JSON parse failed for ${endpoint}: ${response.text.slice(0, 200)}`,
-    );
+    throw new Error(`iLink API JSON parse failed for ${endpoint}: ${response.text.slice(0, 200)}`);
   }
 
   if (json.ret !== undefined && json.ret !== 0) {

@@ -1,9 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import {
-  createFilesHarness,
-  OUTSIDE_SECRET_BODY,
-  type FilesHarness,
-} from './webui-files-harness';
+import { createFilesHarness, OUTSIDE_SECRET_BODY, type FilesHarness } from './webui-files-harness';
 import { grantFileServeAccess } from '../../src/app/webui/files-routes';
 
 /**
@@ -27,7 +23,10 @@ afterAll(async () => {
 
 describe('file-serve grant from the agent approval flow (option B)', () => {
   it('denies an out-of-root path before any approval exists', async () => {
-    const res = await h.call('GET', `/api/files/serve?path=${encodeURIComponent(h.outsideSecretPath)}`);
+    const res = await h.call(
+      'GET',
+      `/api/files/serve?path=${encodeURIComponent(h.outsideSecretPath)}`,
+    );
     expect(res.statusCode).toBe(403);
     expect(res.json().needsApproval).toBeUndefined();
     expect(res.json().approvalId).toBeUndefined();
@@ -36,7 +35,10 @@ describe('file-serve grant from the agent approval flow (option B)', () => {
   it('serves the path after grantFileServeAccess (simulated card approval)', async () => {
     grantFileServeAccess(h.outsideSecretPath);
 
-    const res = await h.call('GET', `/api/files/serve?path=${encodeURIComponent(h.outsideSecretPath)}`);
+    const res = await h.call(
+      'GET',
+      `/api/files/serve?path=${encodeURIComponent(h.outsideSecretPath)}`,
+    );
     expect(res.statusCode).toBe(200);
     expect(res.body).toBe(OUTSIDE_SECRET_BODY);
   });

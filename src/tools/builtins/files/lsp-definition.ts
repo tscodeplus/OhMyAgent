@@ -127,7 +127,12 @@ function handleSymbolsLines(lines: string[]): ToolExecutionResult {
 
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
-    if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) {
+    if (
+      !trimmed ||
+      trimmed.startsWith('//') ||
+      trimmed.startsWith('/*') ||
+      trimmed.startsWith('*')
+    ) {
       continue;
     }
 
@@ -198,7 +203,9 @@ function handleDefinitionLines(
       const match = lines[i].match(regex);
       if (match && match[1] === word) {
         const lineContent = lines[i].trim();
-        return textResult(`Definition of "${word}" (${kind}) found at line ${i}:\n  ${lineContent}`);
+        return textResult(
+          `Definition of "${word}" (${kind}) found at line ${i}:\n  ${lineContent}`,
+        );
       }
     }
   }
@@ -210,11 +217,7 @@ function handleDefinitionLines(
 // Action: references
 // ---------------------------------------------------------------------------
 
-function handleReferencesLines(
-  lines: string[],
-  line: number,
-  column: number,
-): ToolExecutionResult {
+function handleReferencesLines(lines: string[], line: number, column: number): ToolExecutionResult {
   if (line < 0 || line >= lines.length) {
     return errorResult(`Line ${line} out of range (file has ${lines.length} lines)`);
   }
@@ -276,8 +279,8 @@ function handleHoverLines(lines: string[], line: number, column: number): ToolEx
 
   return textResult(
     `Symbol: "${word}"\n` +
-    `Location: line ${line}, column ${column}\n` +
-    'Context:\n' +
-    contextLines.join('\n'),
+      `Location: line ${line}, column ${column}\n` +
+      'Context:\n' +
+      contextLines.join('\n'),
   );
 }

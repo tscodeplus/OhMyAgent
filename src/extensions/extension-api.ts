@@ -14,7 +14,7 @@ export interface ExtensionAPIDeps {
   toolPlatformRegistry: ToolPlatformRegistry;
   commandRegistry: CommandRegistry;
   extensionManager: ExtensionManager;
-  hooks: ExtensionHooks[];  // shared mutable array
+  hooks: ExtensionHooks[]; // shared mutable array
   config: AppConfig;
   logger: Logger;
   services: Map<string, unknown>;

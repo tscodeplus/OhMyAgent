@@ -333,7 +333,10 @@ describe('yamlToAppConfigRaw', () => {
   });
 
   it('handles empty YAML with only required defaults filled', () => {
-    const raw = yamlToAppConfigRaw({ provider: { primary: 'test/model', api_key: 'k' }, channels: { feishu: { app_id: 'a', app_secret: 's' } } });
+    const raw = yamlToAppConfigRaw({
+      provider: { primary: 'test/model', api_key: 'k' },
+      channels: { feishu: { app_id: 'a', app_secret: 's' } },
+    });
     expect(raw.logging.level).toBe('info');
     expect(raw.uiLanguage).toBe('en');
     expect(raw.showToolCalls).toBe(true);

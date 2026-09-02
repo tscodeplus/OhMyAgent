@@ -61,7 +61,9 @@ describe('verifySignature', () => {
   it('returns false when body is tampered', () => {
     const body = '{"key":"value"}';
     const signature = computeExpected(body);
-    expect(verifySignature('{"key":"tampered"}', timestamp, nonce, signature, encryptKey)).toBe(false);
+    expect(verifySignature('{"key":"tampered"}', timestamp, nonce, signature, encryptKey)).toBe(
+      false,
+    );
   });
 
   it('returns false when timestamp changes', () => {
@@ -311,10 +313,7 @@ describe('authenticateEvent', () => {
     const rawBody = '{"x":1}';
     const timestamp = String(Math.floor(Date.now() / 1000));
     const signature = sign(rawBody, timestamp);
-    const res = authenticateEvent(
-      { rawBody, timestamp, nonce, signature },
-      { encryptKey },
-    );
+    const res = authenticateEvent({ rawBody, timestamp, nonce, signature }, { encryptKey });
     expect(res.ok).toBe(true);
   });
 
@@ -322,10 +321,7 @@ describe('authenticateEvent', () => {
     const rawBody = '{"x":1}';
     const timestamp = String(Math.floor(Date.now() / 1000) - 10 * 60);
     const signature = sign(rawBody, timestamp);
-    const res = authenticateEvent(
-      { rawBody, timestamp, nonce, signature },
-      { encryptKey },
-    );
+    const res = authenticateEvent({ rawBody, timestamp, nonce, signature }, { encryptKey });
     expect(res.ok).toBe(false);
     expect(res.reason).toBe('stale-timestamp');
   });
@@ -351,18 +347,12 @@ describe('authenticateEvent', () => {
   });
 
   it('accepts a valid token in token-only mode', () => {
-    const res = authenticateEvent(
-      { parsedBody: { token: 'good' } },
-      { verificationToken: 'good' },
-    );
+    const res = authenticateEvent({ parsedBody: { token: 'good' } }, { verificationToken: 'good' });
     expect(res.ok).toBe(true);
   });
 
   it('rejects a bad token in token-only mode', () => {
-    const res = authenticateEvent(
-      { parsedBody: { token: 'bad' } },
-      { verificationToken: 'good' },
-    );
+    const res = authenticateEvent({ parsedBody: { token: 'bad' } }, { verificationToken: 'good' });
     expect(res.ok).toBe(false);
     expect(res.reason).toBe('bad-token');
   });

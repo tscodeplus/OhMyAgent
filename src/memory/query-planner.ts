@@ -14,7 +14,10 @@ export function planMemoryQueries(query: string): PlannedQuery[] {
     .trim();
   if (compact && compact.length >= 4) planned.push({ query: compact, reason: 'content_terms' });
 
-  const numberTerms = normalized.match(/\b\d+(?:\.\d+)?\s*(?:years?|months?|weeks?|days?|hours?|pages?|miles?|km|followers?|percent|%)?\b/gi) ?? [];
+  const numberTerms =
+    normalized.match(
+      /\b\d+(?:\.\d+)?\s*(?:years?|months?|weeks?|days?|hours?|pages?|miles?|km|followers?|percent|%)?\b/gi,
+    ) ?? [];
   if (numberTerms.length > 0) {
     planned.push({ query: numberTerms.join(' '), reason: 'number_terms' });
   }
@@ -24,46 +27,50 @@ export function planMemoryQueries(query: string): PlannedQuery[] {
     planned.push({ query: [...new Set(entityLike)].join(' '), reason: 'entity_terms' });
   }
 
-  if (/\b(total|difference|increase|older|consecutive|how long|how many|how much)\b/i.test(normalized)) {
-    planned.push({ query: compact.replace(/\b(total|difference|increase|older|consecutive|long|many|much)\b/gi, ' ').trim(), reason: 'multi_hop_terms' });
+  if (
+    /\b(total|difference|increase|older|consecutive|how long|how many|how much)\b/i.test(normalized)
+  ) {
+    planned.push({
+      query: compact
+        .replace(/\b(total|difference|increase|older|consecutive|long|many|much)\b/gi, ' ')
+        .trim(),
+      reason: 'multi_hop_terms',
+    });
   }
 
   const seen = new Set<string>();
-  return planned.filter(item => {
-    const key = item.query.toLowerCase();
-    if (!item.query || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  }).slice(0, 5);
+  return planned
+    .filter((item) => {
+      const key = item.query.toLowerCase();
+      if (!item.query || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 5);
 }
 
 // ─── Structured, intent-aware planning ───────────────────────────────────────
 
 export type QueryIntent =
-  | 'commonality'
-  | 'attribute'
-  | 'temporal'
-  | 'multi_hop'
-  | 'open_domain'
-  | 'generic';
+  'commonality' | 'attribute' | 'temporal' | 'multi_hop' | 'open_domain' | 'generic';
 
 export interface QuerySlot {
-  slotId: string;            // 'base' | 'shared' | `entity:${name}`
+  slotId: string; // 'base' | 'shared' | `entity:${name}`
   kind: 'base' | 'shared' | 'entity';
-  targetSpeaker?: string;    // entity name to boost during rerank
-  queries: string[];         // search strings for this slot
+  targetSpeaker?: string; // entity name to boost during rerank
+  queries: string[]; // search strings for this slot
 }
 
 export interface QueryPlan {
   intent: QueryIntent;
   entities: string[];
-  slots: QuerySlot[];        // used only by the coverage path
+  slots: QuerySlot[]; // used only by the coverage path
   flatQueries: PlannedQuery[]; // = planMemoryQueries output, for the non-coverage path
 }
 
 export interface StructuredPlannerConfig {
-  enabled: boolean;          // default true
-  maxEntities: number;       // default 4
+  enabled: boolean; // default true
+  maxEntities: number; // default 4
 }
 
 /** Runtime knobs for the retriever's planner-driven routing. */
@@ -96,12 +103,53 @@ const DEFAULT_STRUCTURED_CONFIG: StructuredPlannerConfig = { enabled: true, maxE
 // Capitalized tokens that are never entity names (sentence-initial question words,
 // months, weekdays). Lowercased for comparison.
 const NON_ENTITY_CAPITALIZED = new Set([
-  'what', 'when', 'where', 'who', 'whom', 'whose', 'which', 'how', 'why',
-  'did', 'does', 'do', 'is', 'are', 'was', 'were', 'would', 'could', 'should',
-  'the', 'a', 'an', 'i', 'we', 'they', 'he', 'she', 'it',
-  'january', 'february', 'march', 'april', 'may', 'june', 'july', 'august',
-  'september', 'october', 'november', 'december',
-  'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+  'what',
+  'when',
+  'where',
+  'who',
+  'whom',
+  'whose',
+  'which',
+  'how',
+  'why',
+  'did',
+  'does',
+  'do',
+  'is',
+  'are',
+  'was',
+  'were',
+  'would',
+  'could',
+  'should',
+  'the',
+  'a',
+  'an',
+  'i',
+  'we',
+  'they',
+  'he',
+  'she',
+  'it',
+  'january',
+  'february',
+  'march',
+  'april',
+  'may',
+  'june',
+  'july',
+  'august',
+  'september',
+  'october',
+  'november',
+  'december',
+  'monday',
+  'tuesday',
+  'wednesday',
+  'thursday',
+  'friday',
+  'saturday',
+  'sunday',
 ]);
 
 /** Extract candidate entity names (capitalized words), filtering question words/dates. */
@@ -111,7 +159,7 @@ export function extractEntities(query: string, maxEntities = 4): string[] {
   const seen = new Set<string>();
   for (const raw of matches) {
     // Split multi-word matches and keep only tokens that look like names.
-    const parts = raw.split(/\s+/).filter(p => !NON_ENTITY_CAPITALIZED.has(p.toLowerCase()));
+    const parts = raw.split(/\s+/).filter((p) => !NON_ENTITY_CAPITALIZED.has(p.toLowerCase()));
     if (parts.length === 0) continue;
     const name = parts.join(' ');
     const key = name.toLowerCase();
@@ -125,13 +173,25 @@ export function extractEntities(query: string, maxEntities = 4): string[] {
 
 function classifyIntent(query: string, entities: string[]): QueryIntent {
   const q = query.toLowerCase();
-  if (entities.length >= 2 && /\b(both|in common|common|shared?|shares|similar(?:ity|ities)?|each of|all of them|alike)\b/.test(q)) {
+  if (
+    entities.length >= 2 &&
+    /\b(both|in common|common|shared?|shares|similar(?:ity|ities)?|each of|all of them|alike)\b/.test(
+      q,
+    )
+  ) {
     return 'commonality';
   }
-  if (entities.length === 1 && /\b(what|which)\b/.test(q) && /\b(has|have|did|does|is|was|were|do)\b/.test(q)) {
+  if (
+    entities.length === 1 &&
+    /\b(what|which)\b/.test(q) &&
+    /\b(has|have|did|does|is|was|were|do)\b/.test(q)
+  ) {
     return 'attribute';
   }
-  if (/\b(when|how long|consecutive|before|after|earlier|later)\b/.test(q) || /\b\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(query)) {
+  if (
+    /\b(when|how long|consecutive|before|after|earlier|later)\b/.test(q) ||
+    /\b\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(query)
+  ) {
     return 'temporal';
   }
   if (/\b(total|difference|increase|older|how many|how much)\b/.test(q)) {
@@ -146,7 +206,10 @@ function classifyIntent(query: string, entities: string[]): QueryIntent {
 /** Strip question/stop words to leave content/topic terms (shared-slot query). */
 function topicTerms(query: string): string {
   return query
-    .replace(/\b(what|when|where|who|whom|whose|which|how|why|did|does|do|is|are|was|were|would|could|should|both|in|common|share[ds]?|similar|each|all|of|them)\b/gi, ' ')
+    .replace(
+      /\b(what|when|where|who|whom|whose|which|how|why|did|does|do|is|are|was|were|would|could|should|both|in|common|share[ds]?|similar|each|all|of|them)\b/gi,
+      ' ',
+    )
     .replace(/\b(i|me|my|you|your|the|a|an|to|on|at|for|with|from|and|or)\b/gi, ' ')
     .replace(/[^\w\s]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -187,7 +250,7 @@ export function buildQueryPlan(
   const topic = topicTerms(normalized);
 
   if (intent === 'commonality' && entities.length >= 2) {
-    const slots: QuerySlot[] = entities.map(name => ({
+    const slots: QuerySlot[] = entities.map((name) => ({
       slotId: `entity:${name}`,
       kind: 'entity',
       targetSpeaker: name,
@@ -200,7 +263,12 @@ export function buildQueryPlan(
   if (intent === 'attribute' && entities.length >= 1) {
     const name = entities[0];
     const slots: QuerySlot[] = [
-      { slotId: `entity:${name}`, kind: 'entity', targetSpeaker: name, queries: [topic ? `${name} ${topic}` : name, name].filter(Boolean) },
+      {
+        slotId: `entity:${name}`,
+        kind: 'entity',
+        targetSpeaker: name,
+        queries: [topic ? `${name} ${topic}` : name, name].filter(Boolean),
+      },
       { slotId: 'base', kind: 'base', queries: [normalized] },
     ];
     return { intent, entities, slots, flatQueries };
@@ -227,15 +295,14 @@ export function augmentSlotQueries(
   maxVariants = 3,
 ): string[] {
   const out = [...slot.queries];
-  const seen = new Set(out.map(q => q.toLowerCase()));
+  const seen = new Set(out.map((q) => q.toLowerCase()));
   const variants = variantQueries
-    .map(v => v.trim())
+    .map((v) => v.trim())
     .filter(Boolean)
     .slice(0, maxVariants);
   for (const variant of variants) {
-    const q = slot.kind === 'entity' && slot.targetSpeaker
-      ? `${slot.targetSpeaker} ${variant}`
-      : variant;
+    const q =
+      slot.kind === 'entity' && slot.targetSpeaker ? `${slot.targetSpeaker} ${variant}` : variant;
     const key = q.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);

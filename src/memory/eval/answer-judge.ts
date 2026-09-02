@@ -88,20 +88,49 @@ export async function generateAnswer(
 }
 
 const STOP = new Set([
-  'the', 'a', 'an', 'is', 'are', 'was', 'were', 'of', 'to', 'in', 'on', 'at',
-  'and', 'or', 'for', 'with', 'it', 'they', 'he', 'she', 'that', 'this', 'as',
+  'the',
+  'a',
+  'an',
+  'is',
+  'are',
+  'was',
+  'were',
+  'of',
+  'to',
+  'in',
+  'on',
+  'at',
+  'and',
+  'or',
+  'for',
+  'with',
+  'it',
+  'they',
+  'he',
+  'she',
+  'that',
+  'this',
+  'as',
 ]);
 
 function tokenize(s: string): Set<string> {
   return new Set(
-    s.toLowerCase().replace(/[^\w\s]/g, ' ').split(/\s+/).filter(t => t.length > 1 && !STOP.has(t)),
+    s
+      .toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter((t) => t.length > 1 && !STOP.has(t)),
   );
 }
 
 /** Deterministic lexical overlap fallback when no judge model is available. */
-function lexicalVerdict(generated: string, gold: string): { verdict: AnswerVerdict; reason: string } {
+function lexicalVerdict(
+  generated: string,
+  gold: string,
+): { verdict: AnswerVerdict; reason: string } {
   const g = generated.trim();
-  if (!g || /^insufficient$/i.test(g)) return { verdict: 'incorrect', reason: 'lexical: empty/insufficient' };
+  if (!g || /^insufficient$/i.test(g))
+    return { verdict: 'incorrect', reason: 'lexical: empty/insufficient' };
   const goldTokens = tokenize(gold);
   if (goldTokens.size === 0) return { verdict: 'incorrect', reason: 'lexical: empty gold' };
   const genTokens = tokenize(g);
@@ -144,7 +173,12 @@ export async function judgeAnswer(
 
   // No generation possible (no model / no context) → skip rather than penalize.
   if (!generatedAnswer) {
-    return { verdict: 'skipped', generatedAnswer: '', reason: 'no answer generated', llmJudged: false };
+    return {
+      verdict: 'skipped',
+      generatedAnswer: '',
+      reason: 'no answer generated',
+      llmJudged: false,
+    };
   }
 
   if (hasModel(config)) {
@@ -169,4 +203,3 @@ export async function judgeAnswer(
   const fallback = lexicalVerdict(generatedAnswer, goldAnswer);
   return { ...fallback, generatedAnswer, llmJudged: false };
 }
-

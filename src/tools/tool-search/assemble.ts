@@ -47,9 +47,7 @@ export function assembleTools(
   forceVisible?: ReadonlySet<string>,
 ): AssemblyResult {
   // Defensive: strip any bridge tools that may already be in the list
-  const incoming = tools.filter(
-    (t) => !BRIDGE_TOOL_NAMES.has(t.name),
-  );
+  const incoming = tools.filter((t) => !BRIDGE_TOOL_NAMES.has(t.name));
 
   const classified = classifyTools(incoming);
   const visible = classified.visible;
@@ -58,18 +56,15 @@ export function assembleTools(
   const deferrable = forceVisible
     ? classified.deferrable.filter((t) => !forceVisible.has(t.name))
     : classified.deferrable;
-  const forced = forceVisible
-    ? classified.deferrable.filter((t) => forceVisible.has(t.name))
-    : [];
+  const forced = forceVisible ? classified.deferrable.filter((t) => forceVisible.has(t.name)) : [];
 
   const passthrough = (): AssemblyResult => ({
     tools: incoming,
     activated: false,
     deferredCount: deferrable.length,
     deferredTokens: deferrable.length > 0 ? estimateTokens(deferrable) : 0,
-    thresholdTokens: contextLength > 0
-      ? Math.floor(contextLength * (config.thresholdPct / 100))
-      : 0,
+    thresholdTokens:
+      contextLength > 0 ? Math.floor(contextLength * (config.thresholdPct / 100)) : 0,
     deferredCatalog: new Map(),
   });
 

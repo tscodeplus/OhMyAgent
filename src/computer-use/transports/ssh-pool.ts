@@ -102,7 +102,11 @@ function resolveControlDir(logger?: Logger): string {
       const st = statSync(dir);
       if ((st.mode & 0o077) !== 0) {
         // Best-effort: chmod to 0700.
-        try { chmodSync(dir, 0o700); } catch { logger?.debug('SSHPool: chmod best-effort failed'); }
+        try {
+          chmodSync(dir, 0o700);
+        } catch {
+          logger?.debug('SSHPool: chmod best-effort failed');
+        }
       }
       return dir;
     } catch (err) {
@@ -173,20 +177,36 @@ export class SSHPool {
   }
 
   private buildSSHArgs(commandArg: string | undefined): string[] {
-    const { host, user, keyPath, port, jumpHost, connectTimeoutMs, idleTimeoutMs,
-            hostKeyChecking, knownHostsPath } = this.config;
+    const {
+      host,
+      user,
+      keyPath,
+      port,
+      jumpHost,
+      connectTimeoutMs,
+      idleTimeoutMs,
+      hostKeyChecking,
+      knownHostsPath,
+    } = this.config;
     const connectTimeoutSec = Math.ceil(connectTimeoutMs / 1000);
     const persistSec = Math.ceil(idleTimeoutMs / 1000);
 
     const strict = hostKeyChecking === 'strict' ? 'yes' : 'accept-new';
     const args: string[] = [
-      '-o', 'ControlMaster=auto',
-      '-o', `ControlPath=${this.controlPathTemplate}`,
-      '-o', `ControlPersist=${persistSec}s`,
-      '-o', `ConnectTimeout=${connectTimeoutSec}`,
-      '-o', `StrictHostKeyChecking=${strict}`,
-      '-i', keyPath,
-      '-p', String(port),
+      '-o',
+      'ControlMaster=auto',
+      '-o',
+      `ControlPath=${this.controlPathTemplate}`,
+      '-o',
+      `ControlPersist=${persistSec}s`,
+      '-o',
+      `ConnectTimeout=${connectTimeoutSec}`,
+      '-o',
+      `StrictHostKeyChecking=${strict}`,
+      '-i',
+      keyPath,
+      '-p',
+      String(port),
     ];
 
     if (knownHostsPath) {
@@ -228,7 +248,7 @@ export class SSHPool {
       for (let attempt = 0; ; attempt++) {
         if (attempt > 0) {
           this.logger?.debug({ attempt, command }, 'ssh-pool retrying command');
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          await new Promise((resolve) => setTimeout(resolve, 1000));
         }
 
         try {
@@ -259,7 +279,9 @@ export class SSHPool {
    */
   async healthCheck(): Promise<HealthCheckResult> {
     try {
-      const result = await this.exec('which xdotool && which scrot && echo OK', { timeoutMs: 15_000 });
+      const result = await this.exec('which xdotool && which scrot && echo OK', {
+        timeoutMs: 15_000,
+      });
       const stdout = result.stdout;
       return {
         reachable: stdout.includes('OK'),
@@ -311,8 +333,10 @@ export class SSHPool {
     // Gracefully stop the control master
     try {
       const stopArgs = [
-        '-o', `ControlPath=${this.controlPathTemplate}`,
-        '-O', 'stop',
+        '-o',
+        `ControlPath=${this.controlPathTemplate}`,
+        '-O',
+        'stop',
         `${this.config.user}@${this.config.host}`,
       ];
       await this.spawnSSH(stopArgs, 5_000);
@@ -459,7 +483,9 @@ export class SSHPool {
     if (this.config.keepAliveIntervalMs <= 0) return;
 
     this.heartbeatTimer = setInterval(() => {
-      this.doHeartbeat().catch(() => { /* handled internally */ });
+      this.doHeartbeat().catch(() => {
+        /* handled internally */
+      });
     }, this.config.keepAliveIntervalMs);
 
     this.heartbeatTimer.unref();
@@ -495,7 +521,10 @@ export class SSHPool {
         // Attempt a fresh connection check to trigger ControlMaster re-init
         try {
           await this.execOnce('echo CUARECONNECT', 10_000);
-          this.logger?.info({ host: this.config.host }, 'ssh-pool reconnected after heartbeat failures');
+          this.logger?.info(
+            { host: this.config.host },
+            'ssh-pool reconnected after heartbeat failures',
+          );
         } catch (reconnectErr) {
           this.logger?.warn(
             { err: reconnectErr, host: this.config.host },

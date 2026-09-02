@@ -37,7 +37,7 @@ export function applyTemporalDecay(
   const lambda = Math.log(2) / halfLifeDays;
   const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-  return results.map(r => {
+  return results.map((r) => {
     // Core memories: no decay
     if (coreKinds.includes(r.kind)) return { ...r };
 

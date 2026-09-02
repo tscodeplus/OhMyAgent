@@ -17,7 +17,9 @@ function makeDeps(overrides?: Partial<CommandDeps>): CommandDeps {
       resolveUserQuestion: vi.fn(() => false),
       resolveFirstPendingQuestion: vi.fn(() => false),
       steer: vi.fn(() => true),
-      followUp: vi.fn(async (_sessionId: string, _message: string, _replyToMessageId?: string) => true),
+      followUp: vi.fn(
+        async (_sessionId: string, _message: string, _replyToMessageId?: string) => true,
+      ),
       swapCard: vi.fn(async () => true),
       onNextAgentEnd: vi.fn(),
       setSessionAgentId: vi.fn(),
@@ -25,7 +27,9 @@ function makeDeps(overrides?: Partial<CommandDeps>): CommandDeps {
     skillRegistry: {
       getSkills: vi.fn(() => [
         { manifest: { id: 'researcher', name: 'Researcher', description: 'Research assistant' } },
-        { manifest: { id: 'android-operator', name: 'Android Operator', description: 'ADB helper' } },
+        {
+          manifest: { id: 'android-operator', name: 'Android Operator', description: 'ADB helper' },
+        },
       ]),
       reload: vi.fn(async () => 2),
     },
@@ -75,7 +79,9 @@ describe('handleCommand (shared)', () => {
   });
 
   it('/stop replies when not running', async () => {
-    deps = makeDeps({ agentService: { ...makeDeps().agentService, isRunning: vi.fn(() => false) } });
+    deps = makeDeps({
+      agentService: { ...makeDeps().agentService, isRunning: vi.fn(() => false) },
+    });
     const result = await handleCommand('/stop', 's1', deps);
     expect(deps.agentService.abort).not.toHaveBeenCalled();
     expect(result!.reply).toBe(i18n.t('commands:stop.noTask'));
@@ -189,7 +195,9 @@ describe('handleCommand (shared)', () => {
     deps = makeDeps({
       skillRegistry: {
         getSkills: vi.fn(() => []),
-        reload: vi.fn(async () => { throw new Error('disk full'); }),
+        reload: vi.fn(async () => {
+          throw new Error('disk full');
+        }),
       },
     });
     const result = await handleCommand('/skills reload', 's1', deps);
@@ -223,7 +231,9 @@ describe('handleCommand (shared)', () => {
   });
 
   it('/steer falls through to agent execution when not running', async () => {
-    deps = makeDeps({ agentService: { ...makeDeps().agentService, isRunning: vi.fn(() => false) } });
+    deps = makeDeps({
+      agentService: { ...makeDeps().agentService, isRunning: vi.fn(() => false) },
+    });
     const result = await handleCommand('/steer use Docker', 's1', deps);
     expect(deps.agentService.steer).not.toHaveBeenCalled();
     expect(result!.forwardText).toBe('use Docker');
@@ -238,7 +248,11 @@ describe('handleCommand (shared)', () => {
 
   it('/btw queues followUp message', async () => {
     const result = await handleCommand('/btw what is the weather?', 's1', deps);
-    expect(deps.agentService.followUp).toHaveBeenCalledWith('s1', 'what is the weather?', undefined);
+    expect(deps.agentService.followUp).toHaveBeenCalledWith(
+      's1',
+      'what is the weather?',
+      undefined,
+    );
     expect(result!.reply).toBeUndefined();
   });
 

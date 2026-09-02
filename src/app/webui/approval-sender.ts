@@ -57,7 +57,13 @@ export function createWebUIApprovalSender(
         try {
           const msgId = `approval-${requestId}`;
           const meta = JSON.stringify({
-            approval: { approvalId: requestId, command, risk, status: 'pending', reason: reason ?? '' },
+            approval: {
+              approvalId: requestId,
+              command,
+              risk,
+              status: 'pending',
+              reason: reason ?? '',
+            },
           });
           db.prepare(
             "INSERT OR REPLACE INTO messages (id, session_id, role, content, created_at, metadata) VALUES (?, ?, 'assistant', ?, ?, ?)",
@@ -79,14 +85,15 @@ export function createWebUIApprovalSender(
       if (!decision.startsWith('approve') && db && sessionId) {
         try {
           const msgId = `approval-${_messageId}`;
-          const row = db.prepare(
-            'SELECT metadata FROM messages WHERE id = ?',
-          ).get(msgId) as { metadata: string | null } | undefined;
+          const row = db.prepare('SELECT metadata FROM messages WHERE id = ?').get(msgId) as
+            { metadata: string | null } | undefined;
           if (row?.metadata) {
             const meta = JSON.parse(String(row.metadata));
             reason = meta?.approval?.timeoutReason as string | undefined;
           }
-        } catch { /* best-effort */ }
+        } catch {
+          /* best-effort */
+        }
       }
       sendSSE({
         type: 'approval_resolved',
@@ -99,20 +106,24 @@ export function createWebUIApprovalSender(
       if (db && sessionId) {
         try {
           const msgId = `approval-${_messageId}`;
-          const row = db.prepare(
-            'SELECT metadata FROM messages WHERE id = ?',
-          ).get(msgId) as { metadata: string | null } | undefined;
+          const row = db.prepare('SELECT metadata FROM messages WHERE id = ?').get(msgId) as
+            { metadata: string | null } | undefined;
           if (row) {
             let meta: Record<string, unknown> = {};
-            try { meta = row.metadata ? JSON.parse(String(row.metadata)) : {}; } catch { /* ignore */ }
+            try {
+              meta = row.metadata ? JSON.parse(String(row.metadata)) : {};
+            } catch {
+              /* ignore */
+            }
             const approval = (meta.approval || {}) as Record<string, unknown>;
             const isApproved = decision.startsWith('approve');
             approval.status = isApproved ? 'approved' : 'rejected';
             approval.decision = decision;
             meta.approval = approval;
-            db.prepare(
-              'UPDATE messages SET metadata = ? WHERE id = ?',
-            ).run(JSON.stringify(meta), msgId);
+            db.prepare('UPDATE messages SET metadata = ? WHERE id = ?').run(
+              JSON.stringify(meta),
+              msgId,
+            );
           }
         } catch (err) {
           logger?.warn('[approval-sender] Failed to update approval message:', err);

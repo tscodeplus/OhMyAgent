@@ -40,7 +40,7 @@ const DEFAULT_RETRY_BASE_DELAY_MS = 500;
 const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
 
 function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** Exponential backoff with ±20% jitter to avoid thundering-herd retries. */
@@ -58,7 +58,9 @@ export class EmbeddingClient {
   /**
    * Expose the circuit breaker for sharing with other components.
    */
-  get circuitBreaker(): CircuitBreaker { return this.breaker; }
+  get circuitBreaker(): CircuitBreaker {
+    return this.breaker;
+  }
 
   /**
    * The embedding model name used by this client.
@@ -89,7 +91,7 @@ export class EmbeddingClient {
     if (texts.length === 0) return [];
 
     const url = this.buildUrl('/v1/embeddings');
-    const cappedTexts = texts.map(t => this.capInput(t));
+    const cappedTexts = texts.map((t) => this.capInput(t));
 
     const timeoutMs = this.config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     const maxRetries = this.config.maxRetries ?? DEFAULT_MAX_RETRIES;
@@ -106,7 +108,7 @@ export class EmbeddingClient {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.config.apiKey}`,
+            Authorization: `Bearer ${this.config.apiKey}`,
           },
           body: JSON.stringify({
             model: this.config.model,

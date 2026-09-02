@@ -29,11 +29,7 @@ function makeShellRequest(
   };
 }
 
-function makeToolRequest(
-  toolName: string,
-  scope = 'global',
-  scopeKey = '',
-): ApprovalRequest {
+function makeToolRequest(toolName: string, scope = 'global', scopeKey = ''): ApprovalRequest {
   return {
     kind: 'tool',
     toolName,
@@ -538,7 +534,9 @@ describe('SQLiteApprovalGate.evaluate', () => {
         shellApprovalWhitelist: ['adb'],
       });
 
-      const cmd = normalizeCommand('sleep 2 && adb -s 127.0.0.1:5555 exec-out screencap -p > /tmp/clash_screen1.png');
+      const cmd = normalizeCommand(
+        'sleep 2 && adb -s 127.0.0.1:5555 exec-out screencap -p > /tmp/clash_screen1.png',
+      );
       const result = await gate.evaluate(makeShellRequest(cmd));
       expect(result).toBe('approved');
     });
@@ -560,7 +558,9 @@ describe('SQLiteApprovalGate.evaluate', () => {
         shellApprovalWhitelist: ['adb'],
       });
 
-      const cmd = normalizeCommand('adb -s 127.0.0.1:5555 shell content query --uri content://settings/system');
+      const cmd = normalizeCommand(
+        'adb -s 127.0.0.1:5555 shell content query --uri content://settings/system',
+      );
       const result = await gate.evaluate(makeShellRequest(cmd));
       expect(result).toBe('requires_approval');
     });
@@ -582,7 +582,9 @@ describe('SQLiteApprovalGate.evaluate', () => {
         shellApprovalWhitelist: ['adb'],
       });
 
-      const cmd = normalizeCommand('adb -s 127.0.0.1:5555 shell content query --uri content://settings/system');
+      const cmd = normalizeCommand(
+        'adb -s 127.0.0.1:5555 shell content query --uri content://settings/system',
+      );
       const result = await gate.evaluate(makeShellRequest(cmd));
       expect(result).toBe('approved');
     });

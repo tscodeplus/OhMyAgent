@@ -23,7 +23,10 @@ describe('PendingApprovalStore onFileServeApproved hook', () => {
     await decision;
 
     expect(onFileServeApproved).toHaveBeenCalledTimes(1);
-    expect(onFileServeApproved).toHaveBeenCalledWith({ path: '/tmp/screenshot.png', requestId: 'req-1' });
+    expect(onFileServeApproved).toHaveBeenCalledWith({
+      path: '/tmp/screenshot.png',
+      requestId: 'req-1',
+    });
   });
 
   it('does not fire on reject', async () => {
@@ -64,7 +67,10 @@ describe('PendingApprovalStore onFileServeApproved hook', () => {
     expect(store.resolveFirstForSession('session-9', 'approve_session')).toBe(true);
     await decision;
 
-    expect(onFileServeApproved).toHaveBeenCalledWith({ path: '/var/log/app.log', requestId: 'req-4' });
+    expect(onFileServeApproved).toHaveBeenCalledWith({
+      path: '/var/log/app.log',
+      requestId: 'req-4',
+    });
   });
 
   it('never fires via the timeout auto-approve path', async () => {

@@ -24,18 +24,22 @@ describe('SceneClusterer', () => {
    * The repo.create() method does not expose created_at, so raw SQL is used
    * for precise date control in tests.
    */
-  function insertMemory(overrides: {
-    scope?: string;
-    scope_key?: string;
-    kind?: string;
-    content?: string;
-    created_at?: string;
-  } = {}): void {
+  function insertMemory(
+    overrides: {
+      scope?: string;
+      scope_key?: string;
+      kind?: string;
+      content?: string;
+      created_at?: string;
+    } = {},
+  ): void {
     const id = uniqueId('mem');
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO memories (id, scope, scope_key, kind, content, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
+    `,
+    ).run(
       id,
       overrides.scope ?? 'user',
       overrides.scope_key ?? 'test-key',
@@ -94,7 +98,7 @@ describe('SceneClusterer', () => {
 
       const results = clusterer.cluster('user', 7, 5);
       expect(results).toHaveLength(2);
-      const scopeKeys = results.map(r => r.scopeKey).sort();
+      const scopeKeys = results.map((r) => r.scopeKey).sort();
       expect(scopeKeys).toEqual(['key-a', 'key-b']);
     });
 
@@ -226,7 +230,7 @@ describe('SceneClusterer', () => {
       const results = clusterer.cluster();
 
       expect(results).toHaveLength(2);
-      expect(results.map(r => r.memoryCount)).toEqual([2, 2]);
+      expect(results.map((r) => r.memoryCount)).toEqual([2, 2]);
     });
 
     it('sanitizes scopeKey before writing scene paths', () => {

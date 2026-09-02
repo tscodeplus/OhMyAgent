@@ -171,7 +171,11 @@ export interface SkillToolOverrides {
 
 export interface ToolVisibilityPolicy {
   /** Returns true if the named tool is visible under the given scope. */
-  isVisible(toolName: string, scope: AgentPolicyScope, skillOverrides?: SkillToolOverrides): boolean;
+  isVisible(
+    toolName: string,
+    scope: AgentPolicyScope,
+    skillOverrides?: SkillToolOverrides,
+  ): boolean;
 }
 
 export class ToolVisibilityPolicyImpl implements ToolVisibilityPolicy {

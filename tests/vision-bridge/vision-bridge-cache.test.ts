@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { VisionBridgeCache } from '../../src/vision-bridge/vision-bridge-cache.js';
 
 function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 describe('VisionBridgeCache', () => {

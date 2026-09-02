@@ -17,7 +17,9 @@ function readOnlyScope(): AgentPolicyScope {
   };
 }
 
-function makeGate(decision: Awaited<ReturnType<ApprovalGate['evaluate']>> = 'approved'): ApprovalGate {
+function makeGate(
+  decision: Awaited<ReturnType<ApprovalGate['evaluate']>> = 'approved',
+): ApprovalGate {
   return {
     evaluate: vi.fn(async () => decision),
     recordDecision: vi.fn(async () => undefined),

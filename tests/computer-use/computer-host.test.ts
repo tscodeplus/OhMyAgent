@@ -114,9 +114,9 @@ describe('ComputerUseHost', () => {
     it('throws DISABLED when Computer Use is globally disabled', async () => {
       const { host } = createTestHost({ enabled: false });
 
-      await expect(
-        host.createLease(baseCtx, { appName: 'app.notes' }),
-      ).rejects.toThrow('Computer Use is globally disabled');
+      await expect(host.createLease(baseCtx, { appName: 'app.notes' })).rejects.toThrow(
+        'Computer Use is globally disabled',
+      );
     });
   });
 
@@ -142,9 +142,9 @@ describe('ComputerUseHost', () => {
     it('rejects agents that are not in allowedAgents', async () => {
       const { host } = createTestHost({ allowedAgents: ['agent-2'] });
 
-      await expect(
-        host.createLease(baseCtx, { appName: 'app.notes' }),
-      ).rejects.toThrow('This agent is not allowed to use Computer Use');
+      await expect(host.createLease(baseCtx, { appName: 'app.notes' })).rejects.toThrow(
+        'This agent is not allowed to use Computer Use',
+      );
     });
   });
 
@@ -239,10 +239,10 @@ describe('ComputerUseHost', () => {
       } as ComputerUseProvider);
 
       host.approveApp(baseCtx, 'app.notes');
-      const lease = await host.createLease(
-        baseCtx,
-        { appName: 'app.notes', providerId: 'foreground' },
-      );
+      const lease = await host.createLease(baseCtx, {
+        appName: 'app.notes',
+        providerId: 'foreground',
+      });
 
       await expect(
         host.performAction(baseCtx, lease.leaseId, {
@@ -269,10 +269,10 @@ describe('ComputerUseHost', () => {
       };
       providerRegistry.register(limitedProvider);
 
-      const lease = await host.createLease(
-        baseCtx,
-        { appName: 'app.notes', providerId: 'limited' },
-      );
+      const lease = await host.createLease(baseCtx, {
+        appName: 'app.notes',
+        providerId: 'limited',
+      });
 
       await expect(
         host.performAction(baseCtx, lease.leaseId, {

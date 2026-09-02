@@ -30,13 +30,18 @@ interface TemplateIndex {
 }
 
 /** Extract frontmatter attributes and body from raw markdown content */
-function parseFrontmatter(content: string): { attrs: Record<string, unknown>; body: string } | null {
+function parseFrontmatter(
+  content: string,
+): { attrs: Record<string, unknown>; body: string } | null {
   const lines = content.split('\n');
   if (lines[0]?.trim() !== '---') return null;
 
   let endIndex = -1;
   for (let i = 1; i < lines.length; i++) {
-    if (lines[i]?.trim() === '---') { endIndex = i; break; }
+    if (lines[i]?.trim() === '---') {
+      endIndex = i;
+      break;
+    }
   }
   if (endIndex === -1) return null;
 
@@ -58,22 +63,17 @@ function parseFrontmatter(content: string): { attrs: Record<string, unknown>; bo
 
 /** Derive a stable slug from a file path (e.g. "engineering/engineering-frontend-developer.md" → "engineering-frontend-developer") */
 function pathToSlug(sourceDir: string, filePath: string): string {
-  return filePath
-    .replace(/\.md$/i, '')
-    .replace(/\//g, '-');
+  return filePath.replace(/\.md$/i, '').replace(/\//g, '-');
 }
 
-async function scanDirectory(
-  sourceDir: string,
-  source: 'en' | 'zh',
-): Promise<TemplateEntry[]> {
+async function scanDirectory(sourceDir: string, source: 'en' | 'zh'): Promise<TemplateEntry[]> {
   const templates: TemplateEntry[] = [];
   const absSourceDir = resolve(join(TEMPLATES_DIR, sourceDir));
 
   let divisionDirs: string[];
   try {
     const entries = await readdir(absSourceDir, { withFileTypes: true });
-    divisionDirs = entries.filter(e => e.isDirectory()).map(e => e.name);
+    divisionDirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
   } catch {
     console.warn(`[generate-index] Directory not found: ${absSourceDir}`);
     return templates;
@@ -109,7 +109,7 @@ async function scanDirectory(
       }
 
       // Strip BOM if present
-      if (content.charCodeAt(0) === 0xFEFF) {
+      if (content.charCodeAt(0) === 0xfeff) {
         content = content.slice(1);
       }
 
@@ -119,8 +119,12 @@ async function scanDirectory(
         continue;
       }
 
-      const name = typeof parsed.attrs.name === 'string' ? parsed.attrs.name : file.replace(/\.md$/i, '').replace(/-/g, ' ');
-      const description = typeof parsed.attrs.description === 'string' ? parsed.attrs.description : '';
+      const name =
+        typeof parsed.attrs.name === 'string'
+          ? parsed.attrs.name
+          : file.replace(/\.md$/i, '').replace(/-/g, ' ');
+      const description =
+        typeof parsed.attrs.description === 'string' ? parsed.attrs.description : '';
       const emoji = typeof parsed.attrs.emoji === 'string' ? parsed.attrs.emoji : undefined;
       const color = typeof parsed.attrs.color === 'string' ? parsed.attrs.color : undefined;
 

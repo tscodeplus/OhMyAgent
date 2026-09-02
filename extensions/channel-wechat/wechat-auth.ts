@@ -36,9 +36,7 @@ export async function getQrcode(
 
   const res = await fetch(url, { headers: loginHeaders() });
   if (!res.ok) {
-    throw new Error(
-      `QR code request failed: HTTP ${res.status} ${res.statusText}`,
-    );
+    throw new Error(`QR code request failed: HTTP ${res.status} ${res.statusText}`);
   }
 
   const data: ILQrcodeResponse = (await res.json()) as ILQrcodeResponse;
@@ -160,11 +158,15 @@ function combineAbortSignals(...signals: AbortSignal[]): AbortSignal {
   }
 
   // Clean up listeners after the combined signal fires
-  controller.signal.addEventListener('abort', () => {
-    for (const sig of signals) {
-      sig.removeEventListener('abort', abort);
-    }
-  }, { once: true });
+  controller.signal.addEventListener(
+    'abort',
+    () => {
+      for (const sig of signals) {
+        sig.removeEventListener('abort', abort);
+      }
+    },
+    { once: true },
+  );
 
   return controller.signal;
 }

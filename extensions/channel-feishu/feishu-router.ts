@@ -127,11 +127,14 @@ export class FeishuRouter {
       return false;
     }
 
-    this.logger?.debug?.({
-      messageId: context.messageId,
-      sessionKey: context.sessionKey,
-      eventType,
-    }, 'Dropping persistently deduplicated Feishu message event');
+    this.logger?.debug?.(
+      {
+        messageId: context.messageId,
+        sessionKey: context.sessionKey,
+        eventType,
+      },
+      'Dropping persistently deduplicated Feishu message event',
+    );
 
     return true;
   }
@@ -149,7 +152,9 @@ export class FeishuRouter {
       message_id: context.messageId,
       event_type: eventType,
       session_key: context.sessionKey,
-      metadata: context.createTimeMs ? JSON.stringify({ createTimeMs: context.createTimeMs }) : null,
+      metadata: context.createTimeMs
+        ? JSON.stringify({ createTimeMs: context.createTimeMs })
+        : null,
     });
   }
 
@@ -163,13 +168,16 @@ export class FeishuRouter {
       return false;
     }
 
-    this.logger?.debug?.({
-      messageId: context.messageId,
-      sessionKey: context.sessionKey,
-      ageMs,
-      createTimeMs: context.createTimeMs,
-      staleMessageWindowMs: this.staleMessageWindowMs,
-    }, 'Dropping stale Feishu message event');
+    this.logger?.debug?.(
+      {
+        messageId: context.messageId,
+        sessionKey: context.sessionKey,
+        ageMs,
+        createTimeMs: context.createTimeMs,
+        staleMessageWindowMs: this.staleMessageWindowMs,
+      },
+      'Dropping stale Feishu message event',
+    );
     return true;
   }
 

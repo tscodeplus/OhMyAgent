@@ -2,7 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { rerankMemoryResults } from '../../src/memory/retrieval/reranker.js';
 import type { MergedResult } from '../../src/memory/rrf-merge.js';
 
-function mr(id: string, content: string, score: number, extra: Partial<MergedResult> = {}): MergedResult {
+function mr(
+  id: string,
+  content: string,
+  score: number,
+  extra: Partial<MergedResult> = {},
+): MergedResult {
   return {
     id,
     content,
@@ -37,7 +42,10 @@ describe('rerankMemoryResults — speaker boost', () => {
       mr('a', 'Gina said: I love dancing.', 0.5),
       mr('b', 'John said: I lost my job.', 0.5),
     ];
-    const reranked = rerankMemoryResults('what did John say', results, { targetSpeakers: ['John'], speakerBoost: 0.3 });
+    const reranked = rerankMemoryResults('what did John say', results, {
+      targetSpeakers: ['John'],
+      speakerBoost: 0.3,
+    });
     expect(reranked[0].id).toBe('b');
   });
 });
@@ -50,10 +58,17 @@ describe('rerankMemoryResults — no options (regression lock)', () => {
       mr('c', 'unrelated content here', 0.35),
     ];
     const query = 'dance stress relief';
-    const withoutOpts = rerankMemoryResults(query, base.map(r => ({ ...r })));
-    const withEmptyOpts = rerankMemoryResults(query, base.map(r => ({ ...r })), {});
-    expect(withEmptyOpts.map(r => r.id)).toEqual(withoutOpts.map(r => r.id));
-    expect(withEmptyOpts.map(r => r.score)).toEqual(withoutOpts.map(r => r.score));
+    const withoutOpts = rerankMemoryResults(
+      query,
+      base.map((r) => ({ ...r })),
+    );
+    const withEmptyOpts = rerankMemoryResults(
+      query,
+      base.map((r) => ({ ...r })),
+      {},
+    );
+    expect(withEmptyOpts.map((r) => r.id)).toEqual(withoutOpts.map((r) => r.id));
+    expect(withEmptyOpts.map((r) => r.score)).toEqual(withoutOpts.map((r) => r.score));
   });
 });
 

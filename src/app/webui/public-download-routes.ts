@@ -114,7 +114,7 @@ export function registerPublicDownloadRoutes(app: FastifyInstance): void {
 
       // 3. Check file is within allowed roots
       const allowedRoots = getAllowedRoots();
-      const isAllowed = allowedRoots.some(root => isWithinRoot(filePath, root));
+      const isAllowed = allowedRoots.some((root) => isWithinRoot(filePath, root));
       if (!isAllowed) {
         return reply.status(403).send({ error: 'File path is outside allowed directories' });
       }
@@ -131,7 +131,9 @@ export function registerPublicDownloadRoutes(app: FastifyInstance): void {
       }
 
       const ext = extname(filePath).toLowerCase();
-      const isImage = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico'].includes(ext);
+      const isImage = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico'].includes(
+        ext,
+      );
       const maxSize = isImage ? MAX_IMAGE_SIZE : MAX_SERVE_SIZE;
 
       if (stat.size > maxSize) {

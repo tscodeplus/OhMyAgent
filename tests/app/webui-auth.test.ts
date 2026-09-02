@@ -161,10 +161,7 @@ describe('webuiAuthHook exemption list', () => {
 
     it('still accepts a bearer token on state-changing methods', async () => {
       const reply = makeReply();
-      await webuiAuthHook(
-        makeRequest('/api/files/upload', `Bearer ${TEST_TOKEN}`, 'POST'),
-        reply,
-      );
+      await webuiAuthHook(makeRequest('/api/files/upload', `Bearer ${TEST_TOKEN}`, 'POST'), reply);
       expect(reply.statusCode).toBeUndefined();
     });
   });

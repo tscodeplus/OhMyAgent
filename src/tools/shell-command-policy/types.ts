@@ -26,8 +26,7 @@ export interface HardlinePatternEntry {
 }
 
 export type HardlineCheckResult =
-  | { blocked: true; pattern: string; description: string }
-  | { blocked: false };
+  { blocked: true; pattern: string; description: string } | { blocked: false };
 
 export interface DangerousPatternEntry {
   category: string;

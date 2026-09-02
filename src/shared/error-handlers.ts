@@ -52,10 +52,7 @@ export function handleError(error: unknown, context: ErrorHandlerContext): void 
         `[${operation}] ${error.message}`,
       );
     } else if (error instanceof Error) {
-      logger.error(
-        { err: error, operation },
-        `[${operation}] ${error.message}`,
-      );
+      logger.error({ err: error, operation }, `[${operation}] ${error.message}`);
     } else {
       logger.error(
         { err: String(error), operation },
@@ -144,7 +141,7 @@ export function createErrorAwareRetry(
 
         // Exponential backoff: baseDelay * 2^attempt
         const delay = backoff * Math.pow(2, attempt);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await new Promise((resolve) => setTimeout(resolve, delay));
         attempt++;
       }
     }

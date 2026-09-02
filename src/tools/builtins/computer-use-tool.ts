@@ -42,11 +42,14 @@ async function getStateOrCreateDesktopLease(
   } catch (err: unknown) {
     const typedErr = err as { code?: string; message?: string; stack?: string };
     if (typedErr?.code !== 'LEASE_NOT_FOUND') {
-      log?.error({
-        code: typedErr?.code,
-        message: typedErr?.message,
-        stack: typedErr?.stack,
-      }, '[CU:getStateOrCreateDesktopLease]');
+      log?.error(
+        {
+          code: typedErr?.code,
+          message: typedErr?.message,
+          stack: typedErr?.stack,
+        },
+        '[CU:getStateOrCreateDesktopLease]',
+      );
       throw err;
     }
     await computerUseHost.createLease(ctx, { appId: 'desktop' });
@@ -71,7 +74,10 @@ function formatScreenState(state: ScreenState): string {
     const total = state.elements.length;
     const showing = shownElements.length;
     if (total > MAX_ELEMENTS_IN_TEXT) {
-      lines.push('', `Elements (${total}, showing first ${showing} — use element search or paging for more):`);
+      lines.push(
+        '',
+        `Elements (${total}, showing first ${showing} — use element search or paging for more):`,
+      );
     } else {
       lines.push('', `Elements (${total}):`);
     }
@@ -123,7 +129,7 @@ export function createComputerUseTool(
   return {
     name: 'computer_use',
     label: 'Computer Use',
-	    description: `GUI automation on the user's desktop. Workflow:
+    description: `GUI automation on the user's desktop. Workflow:
 1. open_app: launch or reuse an app (pass target with its process name, e.g. notepad, firefox, msedge.exe). Launches without stealing the user's foreground window.
 2. view_screen: read the app window. Returns a numbered element list (each line: #<element_id>: <role> "<label>" at <x,y,w,h>; the element_id is the value after the '#') plus a screenshot you can analyze. Call it after open_app and after every action that changes the screen.
 3. Interact using element_ids from the view_screen result:
@@ -134,36 +140,49 @@ export function createComputerUseTool(
 5. focus_app / close_app / scroll / release_control: focus an app window, close an app, scroll an element, or release control.
 
 Never open screenshot tools (SnippingTool, mspaint, etc.) to capture the screen - use send_screenshot or view_screen instead. For example, to type text in Notepad: open_app notepad -> view_screen -> click the editor element -> type_text (element_id + text) -> press_key Enter if needed.`,
-	    parameters: Type.Object({
-	      action: Type.Union([
-	        Type.Literal('open_app'),
-	        Type.Literal('focus_app'),
-	        Type.Literal('close_app'),
-	        Type.Literal('view_screen'),
-	        Type.Literal('send_screenshot'),
-	        Type.Literal('click'),
-	        Type.Literal('click_point'),
-	        Type.Literal('double_click'),
-	        Type.Literal('type_text'),
-	        Type.Literal('press_key'),
-	        Type.Literal('scroll'),
-	        Type.Literal('release_control'),
-	      ], { description: "Action to perform" }),
-	      target: Type.Optional(Type.String({ description: "App process name (open/focus/close). e.g. firefox, msedge.exe." })),
-	      lease_id: Type.Optional(Type.String({ description: "Lease ID from open_app or view_screen. Defaults to most recent." })),
-	      element_id: Type.Optional(Type.String({ description: "Element ID for click/double_click/type_text" })),
-	      x: Type.Optional(Type.Number({ description: "X coordinate for click_point" })),
-	      y: Type.Optional(Type.Number({ description: "Y coordinate for click_point" })),
-	      text: Type.Optional(Type.String({ description: "Text for type_text" })),
-	      key: Type.Optional(Type.String({ description: "Key to press. e.g. Enter, Escape, Tab." })),
-	      direction: Type.Optional(Type.Union([
-	        Type.Literal('up'),
-	        Type.Literal('down'),
-	        Type.Literal('left'),
-	        Type.Literal('right'),
-	      ], { description: "Scroll direction" })),
-	      amount: Type.Optional(Type.Number({ description: "Scroll pixels" })),
-	    }),
+    parameters: Type.Object({
+      action: Type.Union(
+        [
+          Type.Literal('open_app'),
+          Type.Literal('focus_app'),
+          Type.Literal('close_app'),
+          Type.Literal('view_screen'),
+          Type.Literal('send_screenshot'),
+          Type.Literal('click'),
+          Type.Literal('click_point'),
+          Type.Literal('double_click'),
+          Type.Literal('type_text'),
+          Type.Literal('press_key'),
+          Type.Literal('scroll'),
+          Type.Literal('release_control'),
+        ],
+        { description: 'Action to perform' },
+      ),
+      target: Type.Optional(
+        Type.String({
+          description: 'App process name (open/focus/close). e.g. firefox, msedge.exe.',
+        }),
+      ),
+      lease_id: Type.Optional(
+        Type.String({
+          description: 'Lease ID from open_app or view_screen. Defaults to most recent.',
+        }),
+      ),
+      element_id: Type.Optional(
+        Type.String({ description: 'Element ID for click/double_click/type_text' }),
+      ),
+      x: Type.Optional(Type.Number({ description: 'X coordinate for click_point' })),
+      y: Type.Optional(Type.Number({ description: 'Y coordinate for click_point' })),
+      text: Type.Optional(Type.String({ description: 'Text for type_text' })),
+      key: Type.Optional(Type.String({ description: 'Key to press. e.g. Enter, Escape, Tab.' })),
+      direction: Type.Optional(
+        Type.Union(
+          [Type.Literal('up'), Type.Literal('down'), Type.Literal('left'), Type.Literal('right')],
+          { description: 'Scroll direction' },
+        ),
+      ),
+      amount: Type.Optional(Type.Number({ description: 'Scroll pixels' })),
+    }),
     execute: async (
       _toolCallId: string,
       params: {
@@ -183,14 +202,19 @@ Never open screenshot tools (SnippingTool, mspaint, etc.) to capture the screen 
     ) => {
       try {
         const ctx: Ctx = getCtx?.() ?? {};
-        options.logger?.debug({
-          action: params.action,
-          target: params.target,
-          canonicalTarget: params.target ? canonicalComputerUseAppTarget(params.target) : undefined,
-          activeLeaseId,
-          sessionPath: ctx.sessionPath,
-          agentId: ctx.agentId,
-        }, 'computer_use tool invoked');
+        options.logger?.debug(
+          {
+            action: params.action,
+            target: params.target,
+            canonicalTarget: params.target
+              ? canonicalComputerUseAppTarget(params.target)
+              : undefined,
+            activeLeaseId,
+            sessionPath: ctx.sessionPath,
+            agentId: ctx.agentId,
+          },
+          'computer_use tool invoked',
+        );
 
         // v4: PolicyCenter tool-level gate
         if (options.policyCenter) {
@@ -228,7 +252,12 @@ Never open screenshot tools (SnippingTool, mspaint, etc.) to capture the screen 
 
           if (!decision.allowed && !decision.requiresApproval) {
             return {
-              content: [{ type: 'text', text: `computer_use denied: ${decision.reason ?? 'PolicyCenter rejected'}` }],
+              content: [
+                {
+                  type: 'text',
+                  text: `computer_use denied: ${decision.reason ?? 'PolicyCenter rejected'}`,
+                },
+              ],
               isError: true,
             };
           }
@@ -246,25 +275,35 @@ Never open screenshot tools (SnippingTool, mspaint, etc.) to capture the screen 
         switch (params.action) {
           case 'open_app': {
             if (!params.target) {
-              return { content: [{ type: 'text', text: 'Error: "target" is required for open_app action' }] };
+              return {
+                content: [
+                  { type: 'text', text: 'Error: "target" is required for open_app action' },
+                ],
+              };
             }
             const appName = canonicalComputerUseAppTarget(params.target);
             const leaseStart = Date.now();
-            options.logger?.info({
-              requestedTarget: params.target,
-              appName,
-              sessionPath: ctx.sessionPath,
-            }, 'computer_use open_app creating lease');
+            options.logger?.info(
+              {
+                requestedTarget: params.target,
+                appName,
+                sessionPath: ctx.sessionPath,
+              },
+              'computer_use open_app creating lease',
+            );
             const lease = await computerUseHost.createLease(ctx, { appName });
             activeLeaseId = lease.leaseId;
-            options.logger?.info({
-              requestedTarget: params.target,
-              appName,
-              leaseId: lease.leaseId,
-              appId: lease.appId,
-              providerId: lease.providerId,
-              elapsedMs: Date.now() - leaseStart,
-            }, 'computer_use open_app created lease');
+            options.logger?.info(
+              {
+                requestedTarget: params.target,
+                appName,
+                leaseId: lease.leaseId,
+                appId: lease.appId,
+                providerId: lease.providerId,
+                elapsedMs: Date.now() - leaseStart,
+              },
+              'computer_use open_app created lease',
+            );
             const contextParts: string[] = [
               `Connected to app "${lease.appId}"`,
               `Lease: ${lease.leaseId}`,
@@ -277,24 +316,48 @@ Never open screenshot tools (SnippingTool, mspaint, etc.) to capture the screen 
 
           case 'focus_app': {
             if (!params.target) {
-              return { content: [{ type: 'text', text: 'Error: "target" is required for focus_app action' }] };
+              return {
+                content: [
+                  { type: 'text', text: 'Error: "target" is required for focus_app action' },
+                ],
+              };
             }
             const appName = canonicalComputerUseAppTarget(params.target);
-            const focusLease = await computerUseHost.createLease(ctx, { appName, activateOnly: true });
-            activeLeaseId = focusLease.leaseId;
-            options.logger?.info({
-              requestedTarget: params.target,
+            const focusLease = await computerUseHost.createLease(ctx, {
               appName,
-              leaseId: focusLease.leaseId,
-              appId: focusLease.appId,
-              providerId: focusLease.providerId,
-            }, 'computer_use focus_app created lease');
-            return { content: [{ type: 'text', text: `Focused app "${focusLease.appId}" | Lease: ${focusLease.leaseId}` }] };
+              activateOnly: true,
+            });
+            activeLeaseId = focusLease.leaseId;
+            options.logger?.info(
+              {
+                requestedTarget: params.target,
+                appName,
+                leaseId: focusLease.leaseId,
+                appId: focusLease.appId,
+                providerId: focusLease.providerId,
+              },
+              'computer_use focus_app created lease',
+            );
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `Focused app "${focusLease.appId}" | Lease: ${focusLease.leaseId}`,
+                },
+              ],
+            };
           }
 
           case 'close_app': {
             if (!params.target) {
-              return { content: [{ type: 'text', text: 'Error: "target" is required for close_app action (e.g. "notepad++.exe")' }] };
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: 'Error: "target" is required for close_app action (e.g. "notepad++.exe")',
+                  },
+                ],
+              };
             }
             const appName = canonicalComputerUseAppTarget(params.target);
             await computerUseHost.closeApp(ctx, appName);
@@ -309,17 +372,18 @@ Never open screenshot tools (SnippingTool, mspaint, etc.) to capture the screen 
             const viewStart = Date.now();
             const state = await getStateOrCreateDesktopLease(computerUseHost, ctx, options.logger);
             activeLeaseId = state.leaseId;
-            options.logger?.info({
-              leaseId: state.leaseId,
-              providerId: state.providerId,
-              elementCount: state.elements.length,
-              hasScreenshot: !!state.screenshot,
-              elapsedMs: Date.now() - viewStart,
-            }, 'computer_use view_screen done');
+            options.logger?.info(
+              {
+                leaseId: state.leaseId,
+                providerId: state.providerId,
+                elementCount: state.elements.length,
+                hasScreenshot: !!state.screenshot,
+                elapsedMs: Date.now() - viewStart,
+              },
+              'computer_use view_screen done',
+            );
             return {
-              content: [
-                { type: 'text', text: formatScreenState(state) },
-              ],
+              content: [{ type: 'text', text: formatScreenState(state) }],
               details: {
                 snapshotId: state.snapshotId,
                 leaseId: state.leaseId,
@@ -333,24 +397,32 @@ Never open screenshot tools (SnippingTool, mspaint, etc.) to capture the screen 
             const ssStart = Date.now();
             const state = await getStateOrCreateDesktopLease(computerUseHost, ctx, options.logger);
             activeLeaseId = state.leaseId;
-            options.logger?.info({
-              leaseId: state.leaseId,
-              providerId: state.providerId,
-              hasScreenshot: !!state.screenshot,
-              elapsedMs: Date.now() - ssStart,
-            }, 'computer_use send_screenshot state fetched');
+            options.logger?.info(
+              {
+                leaseId: state.leaseId,
+                providerId: state.providerId,
+                hasScreenshot: !!state.screenshot,
+                elapsedMs: Date.now() - ssStart,
+              },
+              'computer_use send_screenshot state fetched',
+            );
             if (!state.screenshot) {
               return {
-                content: [{
-                  type: 'text',
-                  text: `Screenshot unavailable for ${state.display.width}x${state.display.height} screen`,
-                }],
+                content: [
+                  {
+                    type: 'text',
+                    text: `Screenshot unavailable for ${state.display.width}x${state.display.height} screen`,
+                  },
+                ],
               };
             }
             if (!options.sendImage) {
               return {
                 content: [
-                  { type: 'text', text: 'Screenshot captured, but this channel cannot send images directly.' },
+                  {
+                    type: 'text',
+                    text: 'Screenshot captured, but this channel cannot send images directly.',
+                  },
                   {
                     type: 'image' as const,
                     data: state.screenshot.data,
@@ -371,15 +443,17 @@ Never open screenshot tools (SnippingTool, mspaint, etc.) to capture the screen 
               mimeType: state.screenshot.mimeType,
             });
             return {
-              content: [{
-                type: 'text',
-                text: [
-                  `Screenshot sent. ${delivery}`,
-                  `Screen: ${state.display.width}x${state.display.height}`,
-                  `Lease: ${state.leaseId} | Provider: ${state.providerId}`,
-                  `Snapshot: ${state.snapshotId}`,
-                ].join('\n'),
-              }],
+              content: [
+                {
+                  type: 'text',
+                  text: [
+                    `Screenshot sent. ${delivery}`,
+                    `Screen: ${state.display.width}x${state.display.height}`,
+                    `Lease: ${state.leaseId} | Provider: ${state.providerId}`,
+                    `Snapshot: ${state.snapshotId}`,
+                  ].join('\n'),
+                },
+              ],
               details: {
                 snapshotId: state.snapshotId,
                 leaseId: state.leaseId,
@@ -392,26 +466,41 @@ Never open screenshot tools (SnippingTool, mspaint, etc.) to capture the screen 
 
           case 'click': {
             if (!params.element_id) {
-              return { content: [{ type: 'text', text: 'Error: "element_id" is required for click action' }] };
+              return {
+                content: [
+                  { type: 'text', text: 'Error: "element_id" is required for click action' },
+                ],
+              };
             }
             const result = await computerUseHost.performAction(ctx, resolvedLeaseId, {
               type: 'click_element',
               elementId: params.element_id,
             });
             if (result.ok) {
-              return { content: [{ type: 'text', text: `Clicked element "${params.element_id}"` }] };
+              return {
+                content: [{ type: 'text', text: `Clicked element "${params.element_id}"` }],
+              };
             }
             return {
-              content: [{
-                type: 'text',
-                text: `Failed to click element "${params.element_id}": ${result.error ?? 'unknown error'}`,
-              }],
+              content: [
+                {
+                  type: 'text',
+                  text: `Failed to click element "${params.element_id}": ${result.error ?? 'unknown error'}`,
+                },
+              ],
             };
           }
 
           case 'click_point': {
             if (params.x === undefined || params.y === undefined) {
-              return { content: [{ type: 'text', text: 'Error: "x" and "y" coordinates are required for click_point action' }] };
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: 'Error: "x" and "y" coordinates are required for click_point action',
+                  },
+                ],
+              };
             }
             const ptResult = await computerUseHost.performAction(ctx, resolvedLeaseId, {
               type: 'click_point',
@@ -422,35 +511,47 @@ Never open screenshot tools (SnippingTool, mspaint, etc.) to capture the screen 
               return { content: [{ type: 'text', text: `Clicked at (${params.x}, ${params.y})` }] };
             }
             return {
-              content: [{
-                type: 'text',
-                text: `Failed to click at (${params.x}, ${params.y}): ${ptResult.error ?? 'unknown error'}`,
-              }],
+              content: [
+                {
+                  type: 'text',
+                  text: `Failed to click at (${params.x}, ${params.y}): ${ptResult.error ?? 'unknown error'}`,
+                },
+              ],
             };
           }
 
           case 'double_click': {
             if (!params.element_id) {
-              return { content: [{ type: 'text', text: 'Error: "element_id" is required for double_click action' }] };
+              return {
+                content: [
+                  { type: 'text', text: 'Error: "element_id" is required for double_click action' },
+                ],
+              };
             }
             const dblResult = await computerUseHost.performAction(ctx, resolvedLeaseId, {
               type: 'double_click',
               elementId: params.element_id,
             });
             if (dblResult.ok) {
-              return { content: [{ type: 'text', text: `Double-clicked element "${params.element_id}"` }] };
+              return {
+                content: [{ type: 'text', text: `Double-clicked element "${params.element_id}"` }],
+              };
             }
             return {
-              content: [{
-                type: 'text',
-                text: `Failed to double-click element "${params.element_id}": ${dblResult.error ?? 'unknown error'}`,
-              }],
+              content: [
+                {
+                  type: 'text',
+                  text: `Failed to double-click element "${params.element_id}": ${dblResult.error ?? 'unknown error'}`,
+                },
+              ],
             };
           }
 
           case 'type_text': {
             if (!params.text) {
-              return { content: [{ type: 'text', text: 'Error: "text" is required for type_text action' }] };
+              return {
+                content: [{ type: 'text', text: 'Error: "text" is required for type_text action' }],
+              };
             }
             const result = await computerUseHost.performAction(ctx, resolvedLeaseId, {
               type: 'type_text',
@@ -462,16 +563,20 @@ Never open screenshot tools (SnippingTool, mspaint, etc.) to capture the screen 
               return { content: [{ type: 'text', text: `Typed text: "${params.text}"` }] };
             }
             return {
-              content: [{
-                type: 'text',
-                text: `Failed to type text: ${result.error ?? 'unknown error'}`,
-              }],
+              content: [
+                {
+                  type: 'text',
+                  text: `Failed to type text: ${result.error ?? 'unknown error'}`,
+                },
+              ],
             };
           }
 
           case 'press_key': {
             if (!params.key) {
-              return { content: [{ type: 'text', text: 'Error: "key" is required for press_key action' }] };
+              return {
+                content: [{ type: 'text', text: 'Error: "key" is required for press_key action' }],
+              };
             }
             const result = await computerUseHost.performAction(ctx, resolvedLeaseId, {
               type: 'press_key',
@@ -481,16 +586,22 @@ Never open screenshot tools (SnippingTool, mspaint, etc.) to capture the screen 
               return { content: [{ type: 'text', text: `Pressed key "${params.key}"` }] };
             }
             return {
-              content: [{
-                type: 'text',
-                text: `Failed to press key "${params.key}": ${result.error ?? 'unknown error'}`,
-              }],
+              content: [
+                {
+                  type: 'text',
+                  text: `Failed to press key "${params.key}": ${result.error ?? 'unknown error'}`,
+                },
+              ],
             };
           }
 
           case 'scroll': {
             if (!params.direction) {
-              return { content: [{ type: 'text', text: 'Error: "direction" is required for scroll action' }] };
+              return {
+                content: [
+                  { type: 'text', text: 'Error: "direction" is required for scroll action' },
+                ],
+              };
             }
             const result = await computerUseHost.performAction(ctx, resolvedLeaseId, {
               type: 'scroll',
@@ -502,10 +613,12 @@ Never open screenshot tools (SnippingTool, mspaint, etc.) to capture the screen 
               return { content: [{ type: 'text', text: `Scrolled ${params.direction}${detail}` }] };
             }
             return {
-              content: [{
-                type: 'text',
-                text: `Failed to scroll: ${result.error ?? 'unknown error'}`,
-              }],
+              content: [
+                {
+                  type: 'text',
+                  text: `Failed to scroll: ${result.error ?? 'unknown error'}`,
+                },
+              ],
             };
           }
 
@@ -516,33 +629,47 @@ Never open screenshot tools (SnippingTool, mspaint, etc.) to capture the screen 
           }
 
           default:
-            return { content: [{ type: 'text', text: `Unknown computer_use action: "${params.action}"` }] };
+            return {
+              content: [{ type: 'text', text: `Unknown computer_use action: "${params.action}"` }],
+            };
         }
       } catch (err: unknown) {
-        const typedErr = err as { code?: string; message?: string; stack?: string; detail?: Record<string, unknown> };
-        options.logger?.warn({
-          action: params.action,
-          target: params.target,
-          canonicalTarget: params.target ? canonicalComputerUseAppTarget(params.target) : undefined,
-          activeLeaseId,
-          code: typedErr?.code,
-          message: typedErr?.message,
-          stack: typedErr?.stack,
-        }, 'computer_use tool failed');
+        const typedErr = err as {
+          code?: string;
+          message?: string;
+          stack?: string;
+          detail?: Record<string, unknown>;
+        };
+        options.logger?.warn(
+          {
+            action: params.action,
+            target: params.target,
+            canonicalTarget: params.target
+              ? canonicalComputerUseAppTarget(params.target)
+              : undefined,
+            activeLeaseId,
+            code: typedErr?.code,
+            message: typedErr?.message,
+            stack: typedErr?.stack,
+          },
+          'computer_use tool failed',
+        );
 
         // APP_APPROVAL_REQUIRED: return a model-friendly message so the model
         // tells the user to approve the app instead of trying shell workarounds.
         if (typedErr?.code === 'APP_APPROVAL_REQUIRED') {
           const appId = (typedErr.detail as any)?.appId ?? params.target ?? 'this app';
           return {
-            content: [{
-              type: 'text',
-              text: [
-                `App "${appId}" is not in your allowed list and requires approval before it can be controlled.`,
-                'Please ask the user to approve this app or add it to allowed_apps in config.yaml.',
-                'Do NOT try to work around this by using shell commands — only computer_use can interact with desktop apps.',
-              ].join(' '),
-            }],
+            content: [
+              {
+                type: 'text',
+                text: [
+                  `App "${appId}" is not in your allowed list and requires approval before it can be controlled.`,
+                  'Please ask the user to approve this app or add it to allowed_apps in config.yaml.',
+                  'Do NOT try to work around this by using shell commands — only computer_use can interact with desktop apps.',
+                ].join(' '),
+              },
+            ],
           };
         }
 

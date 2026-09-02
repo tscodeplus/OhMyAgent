@@ -11,7 +11,9 @@ export function createEmbeddingCacheTrimJob(
     enabled: true,
     intervalMs,
     async run({ dryRun }): Promise<MaintenanceJobResult> {
-      const row = db.prepare('SELECT COUNT(*) as cnt FROM embedding_cache').get() as { cnt: number };
+      const row = db.prepare('SELECT COUNT(*) as cnt FROM embedding_cache').get() as {
+        cnt: number;
+      };
       if (row.cnt <= maxEntries) {
         return {
           name: 'embedding_cache_trim',
@@ -37,7 +39,7 @@ export function createEmbeddingCacheTrimJob(
 
       const toDelete = Math.ceil(row.cnt * 0.1);
       db.prepare(
-        'DELETE FROM embedding_cache WHERE rowid IN (SELECT rowid FROM embedding_cache ORDER BY created_at ASC LIMIT ?)'
+        'DELETE FROM embedding_cache WHERE rowid IN (SELECT rowid FROM embedding_cache ORDER BY created_at ASC LIMIT ?)',
       ).run(toDelete);
       return {
         name: 'embedding_cache_trim',

@@ -141,7 +141,9 @@ describe('generic tool approval binds to the approved arguments', () => {
 
     const beforeToolCall = createBeforeToolCall({
       approvalGate: makeLegacyGate(),
-      approvalPort: { getSession: () => ({ present: async () => 'm', resolve: async () => {} }) } as any,
+      approvalPort: {
+        getSession: () => ({ present: async () => 'm', resolve: async () => {} }),
+      } as any,
       approvalTimeoutMs: 30_000,
       pendingApprovals,
       sessionId: 'session-1',

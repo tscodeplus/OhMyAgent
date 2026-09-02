@@ -34,7 +34,8 @@ export default function ProjectList({ refreshKey, onRefresh, onCreateProject }: 
   const { t } = useTranslation('common');
   const navigate = useNavigate();
   const { projectId } = useParams();
-  const { selectedProjectId, setSelectedProjectId, setSelectedSessionId, bumpSessionsRefreshKey } = useProject();
+  const { selectedProjectId, setSelectedProjectId, setSelectedSessionId, bumpSessionsRefreshKey } =
+    useProject();
   const { showToast } = useToast();
 
   const [projects, setProjects] = useState<Project[]>([]);
@@ -42,7 +43,9 @@ export default function ProjectList({ refreshKey, onRefresh, onCreateProject }: 
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
-  const [contextMenu, setContextMenu] = useState<{ project: Project; x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ project: Project; x: number; y: number } | null>(
+    null,
+  );
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteProject, setConfirmDeleteProject] = useState<Project | null>(null);
 
@@ -54,11 +57,16 @@ export default function ProjectList({ refreshKey, onRefresh, onCreateProject }: 
       setLoading(true);
       const data = await apiRequest<Project[]>('/api/projects');
       setProjects(data);
-    } catch { /* silent */ }
-    finally { setLoading(false); }
+    } catch {
+      /* silent */
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  useEffect(() => { fetchProjects(); }, [fetchProjects, refreshKey]);
+  useEffect(() => {
+    fetchProjects();
+  }, [fetchProjects, refreshKey]);
 
   // Auto-expand from URL param (direct navigation / page refresh only)
   useEffect(() => {
@@ -67,7 +75,7 @@ export default function ProjectList({ refreshKey, onRefresh, onCreateProject }: 
       return;
     }
     if (projectId) {
-      setExpandedGroups(prev => {
+      setExpandedGroups((prev) => {
         if (prev.has(projectId)) return prev;
         const next = new Set(prev);
         next.add(projectId);
@@ -81,7 +89,9 @@ export default function ProjectList({ refreshKey, onRefresh, onCreateProject }: 
     if (!contextMenu) return;
     const close = () => setContextMenu(null);
     window.addEventListener('click', close);
-    window.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') close();
+    });
     return () => {
       window.removeEventListener('click', close);
       window.removeEventListener('keydown', close as any);
@@ -89,9 +99,10 @@ export default function ProjectList({ refreshKey, onRefresh, onCreateProject }: 
   }, [contextMenu]);
 
   const toggleExpanded = (name: string) => {
-    setExpandedGroups(prev => {
+    setExpandedGroups((prev) => {
       const next = new Set(prev);
-      if (next.has(name)) next.delete(name); else next.add(name);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
       return next;
     });
   };
@@ -125,7 +136,9 @@ export default function ProjectList({ refreshKey, onRefresh, onCreateProject }: 
       setSelectedSessionId(s.id);
       bumpSessionsRefreshKey();
       navigate(`/p/${proj.id}/s/${s.id}`);
-    } catch { /* silent */ }
+    } catch {
+      /* silent */
+    }
   };
 
   const commitRename = async () => {
@@ -140,7 +153,9 @@ export default function ProjectList({ refreshKey, onRefresh, onCreateProject }: 
       });
       fetchProjects();
       onRefresh();
-    } catch { showToast(t('project.renameError'), 'error'); }
+    } catch {
+      showToast(t('project.renameError'), 'error');
+    }
     setRenamingId(null);
   };
 
@@ -160,17 +175,22 @@ export default function ProjectList({ refreshKey, onRefresh, onCreateProject }: 
         navigate('/');
       }
       fetchProjects();
-    } catch { showToast(t('project.deleteError'), 'error'); }
+    } catch {
+      showToast(t('project.deleteError'), 'error');
+    }
     setDeletingId(null);
     setConfirmDeleteProject(null);
   };
 
-  const allExpanded = projects.length > 0 && projects.every(p => expandedGroups.has(p.id));
+  const allExpanded = projects.length > 0 && projects.every((p) => expandedGroups.has(p.id));
 
   return (
     <section className="pt-2">
       <div className="flex items-center gap-1.5 px-2 pb-1">
-        <MessageSquare className="h-3.5 w-3.5 shrink-0 text-neutral-500/90 dark:text-neutral-400/80" strokeWidth={1.75} />
+        <MessageSquare
+          className="h-3.5 w-3.5 shrink-0 text-neutral-500/90 dark:text-neutral-400/80"
+          strokeWidth={1.75}
+        />
         <span className="flex-1 text-[13px] font-medium uppercase tracking-[0.04em] text-neutral-600 dark:text-neutral-400">
           {t('sidebar.projects')}
         </span>
@@ -180,14 +200,18 @@ export default function ProjectList({ refreshKey, onRefresh, onCreateProject }: 
             if (allExpanded) {
               setExpandedGroups(new Set());
             } else {
-              setExpandedGroups(new Set(projects.map(p => p.id)));
+              setExpandedGroups(new Set(projects.map((p) => p.id)));
             }
           }}
           disabled={projects.length === 0}
           className="inline-flex h-6 w-6 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-40 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
           aria-label={allExpanded ? 'Collapse all' : 'Expand all'}
         >
-          {allExpanded ? <ChevronsDownUp className="h-3.5 w-3.5" strokeWidth={1.75} /> : <ChevronsUpDown className="h-3.5 w-3.5" strokeWidth={1.75} />}
+          {allExpanded ? (
+            <ChevronsDownUp className="h-3.5 w-3.5" strokeWidth={1.75} />
+          ) : (
+            <ChevronsUpDown className="h-3.5 w-3.5" strokeWidth={1.75} />
+          )}
         </button>
         <button
           type="button"
@@ -201,14 +225,16 @@ export default function ProjectList({ refreshKey, onRefresh, onCreateProject }: 
       </div>
 
       {loading ? (
-        <div className="px-3 py-4 flex justify-center"><Spinner size="sm" /></div>
+        <div className="px-3 py-4 flex justify-center">
+          <Spinner size="sm" />
+        </div>
       ) : projects.length === 0 ? (
         <div className="px-3 py-2 text-[11px] text-neutral-500 dark:text-neutral-400">
           {t('sidebar.noProjects')}
         </div>
       ) : (
         <div className="space-y-0.5">
-          {projects.map(proj => {
+          {projects.map((proj) => {
             const isSelected = (projectId || selectedProjectId) === proj.id;
             const isExpanded = expandedGroups.has(proj.id);
             const isRenaming = renamingId === proj.id;
@@ -268,7 +294,7 @@ export default function ProjectList({ refreshKey, onRefresh, onCreateProject }: 
       {contextMenu && (
         <div
           role="menu"
-          onClick={e => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
           className="fixed z-50 w-44 rounded-lg border border-neutral-200 bg-white p-1 shadow-lg dark:border-neutral-800 dark:bg-neutral-900"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
@@ -282,7 +308,10 @@ export default function ProjectList({ refreshKey, onRefresh, onCreateProject }: 
             }}
             className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] text-neutral-800 hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-neutral-800"
           >
-            <Pencil className="h-3.5 w-3.5 shrink-0 text-neutral-500 dark:text-neutral-400" strokeWidth={1.75} />
+            <Pencil
+              className="h-3.5 w-3.5 shrink-0 text-neutral-500 dark:text-neutral-400"
+              strokeWidth={1.75}
+            />
             <span>{t('sidebar.rename')}</span>
           </button>
           <button
@@ -331,12 +360,14 @@ function ProjectRow({
 }) {
   const longPressProps = useLongPress((e) => {
     if (isRenaming) return;
-    const cx = 'touches' in e
-      ? (e.touches[0]?.clientX ?? (e as any).changedTouches?.[0]?.clientX ?? 100)
-      : (e as React.MouseEvent).clientX;
-    const cy = 'touches' in e
-      ? (e.touches[0]?.clientY ?? (e as any).changedTouches?.[0]?.clientY ?? 100)
-      : (e as React.MouseEvent).clientY;
+    const cx =
+      'touches' in e
+        ? (e.touches[0]?.clientX ?? (e as any).changedTouches?.[0]?.clientX ?? 100)
+        : (e as React.MouseEvent).clientX;
+    const cy =
+      'touches' in e
+        ? (e.touches[0]?.clientY ?? (e as any).changedTouches?.[0]?.clientY ?? 100)
+        : (e as React.MouseEvent).clientY;
     onLongPress(cx, cy);
   });
 
@@ -352,17 +383,23 @@ function ProjectRow({
     >
       {isRenaming ? (
         <div className="flex h-full min-w-0 flex-1 items-center gap-1.5 pl-2 pr-1">
-          <Folder className="h-3.5 w-3.5 shrink-0 text-neutral-500 dark:text-neutral-400" strokeWidth={1.75} />
+          <Folder
+            className="h-3.5 w-3.5 shrink-0 text-neutral-500 dark:text-neutral-400"
+            strokeWidth={1.75}
+          />
           <input
             autoFocus
             value={renameDraft}
-            onChange={e => onRenameDraftChange(e.target.value)}
+            onChange={(e) => onRenameDraftChange(e.target.value)}
             onBlur={onRenameCommit}
-            onKeyDown={e => {
-              if (e.key === 'Enter') { e.preventDefault(); onRenameCommit(); }
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                onRenameCommit();
+              }
               if (e.key === 'Escape') onRenameCancel();
             }}
-            onClick={e => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
             className="w-full rounded-sm border border-neutral-300 bg-white px-1.5 py-0.5 text-[12.5px] text-neutral-900 outline-none focus:border-neutral-500 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100"
           />
         </div>
@@ -379,17 +416,27 @@ function ProjectRow({
             )}
             strokeWidth={1.75}
           />
-          <Folder className={cn('h-3.5 w-3.5 shrink-0', isSelected ? 'text-neutral-900 dark:text-neutral-100' : 'text-neutral-500 dark:text-neutral-400')} strokeWidth={1.75} />
+          <Folder
+            className={cn(
+              'h-3.5 w-3.5 shrink-0',
+              isSelected
+                ? 'text-neutral-900 dark:text-neutral-100'
+                : 'text-neutral-500 dark:text-neutral-400',
+            )}
+            strokeWidth={1.75}
+          />
           <span className="flex-1 truncate">{proj.name}</span>
         </button>
       )}
 
       {/* Hover actions */}
       {!isRenaming && (
-        <div className={cn(
-          'ml-1 flex shrink-0 items-center gap-0.5 transition-opacity',
-          isSelected ? 'opacity-100' : 'opacity-0 group-hover/project:opacity-100',
-        )}>
+        <div
+          className={cn(
+            'ml-1 flex shrink-0 items-center gap-0.5 transition-opacity',
+            isSelected ? 'opacity-100' : 'opacity-0 group-hover/project:opacity-100',
+          )}
+        >
           <button
             type="button"
             onClick={onNewSession}

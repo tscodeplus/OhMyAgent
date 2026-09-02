@@ -47,8 +47,14 @@ declare global {
       setDesktopLanguage: (lang: string) => Promise<boolean>;
       // File operations
       // `path` is the chosen save location when ok is true
-      saveFileFromUrl: (url: string, filename: string) => Promise<{ ok: boolean; error?: string; path?: string }>;
-      saveLocalFile: (filePath: string, fileName: string) => Promise<{ ok: boolean; error?: string; path?: string }>;
+      saveFileFromUrl: (
+        url: string,
+        filename: string,
+      ) => Promise<{ ok: boolean; error?: string; path?: string }>;
+      saveLocalFile: (
+        filePath: string,
+        fileName: string,
+      ) => Promise<{ ok: boolean; error?: string; path?: string }>;
       // Desktop Bridge (remote tool execution on local machine)
       bridgeRegisterSession: (sessionId: string) => Promise<void>;
       bridgeUnregisterSession: (sessionId: string) => Promise<void>;
@@ -71,8 +77,16 @@ export function isElectron(): boolean {
 
   // Primary: preload script exposed the API (most reliable)
   if (window.electronAPI !== undefined) {
-    try { sessionStorage.setItem('ohmyagent_electron', '1'); } catch { /* noop */ }
-    console.log('[OhMyAgent] isElectron: true (electronAPI detected, keys:', Object.keys(window.electronAPI).join(','), ')');
+    try {
+      sessionStorage.setItem('ohmyagent_electron', '1');
+    } catch {
+      /* noop */
+    }
+    console.log(
+      '[OhMyAgent] isElectron: true (electronAPI detected, keys:',
+      Object.keys(window.electronAPI).join(','),
+      ')',
+    );
     return true;
   }
 
@@ -82,13 +96,19 @@ export function isElectron(): boolean {
       console.log('[OhMyAgent] isElectron: true (sessionStorage cache)');
       return true;
     }
-  } catch { /* noop */ }
+  } catch {
+    /* noop */
+  }
 
   // Fallback: URL query parameter set by Electron main process
   try {
     const params = new URLSearchParams(window.location.search);
     if (params.get('electron') === '1') {
-      try { sessionStorage.setItem('ohmyagent_electron', '1'); } catch { /* noop */ }
+      try {
+        sessionStorage.setItem('ohmyagent_electron', '1');
+      } catch {
+        /* noop */
+      }
       console.log('[OhMyAgent] isElectron: true (URL param electron=1)');
       return true;
     }

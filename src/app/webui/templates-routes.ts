@@ -43,7 +43,7 @@ const CACHE_TTL_MS = 60_000;
 
 async function loadIndex(): Promise<TemplateIndex> {
   const now = Date.now();
-  if (cachedIndex && (now - lastLoad) < CACHE_TTL_MS) {
+  if (cachedIndex && now - lastLoad < CACHE_TTL_MS) {
     return cachedIndex;
   }
   const raw = await readFile(INDEX_PATH, 'utf-8');
@@ -54,13 +54,18 @@ async function loadIndex(): Promise<TemplateIndex> {
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-function parseFrontmatter(content: string): { attrs: Record<string, unknown>; body: string } | null {
+function parseFrontmatter(
+  content: string,
+): { attrs: Record<string, unknown>; body: string } | null {
   const lines = content.split('\n');
   if (lines[0]?.trim() !== '---') return null;
 
   let endIndex = -1;
   for (let i = 1; i < lines.length; i++) {
-    if (lines[i]?.trim() === '---') { endIndex = i; break; }
+    if (lines[i]?.trim() === '---') {
+      endIndex = i;
+      break;
+    }
   }
   if (endIndex === -1) return null;
 
@@ -163,7 +168,7 @@ export function registerTemplateRoutes(app: FastifyInstance): void {
       }
 
       // Strip BOM
-      if (raw.charCodeAt(0) === 0xFEFF) {
+      if (raw.charCodeAt(0) === 0xfeff) {
         raw = raw.slice(1);
       }
 
@@ -172,15 +177,13 @@ export function registerTemplateRoutes(app: FastifyInstance): void {
         return reply.status(422).send({ error: 'Template has no valid frontmatter' });
       }
 
-      const name = typeof parsed.attrs.name === 'string'
-        ? parsed.attrs.name
-        : query.path.replace(/\.md$/i, '').replace(/-/g, ' ');
-      const description = typeof parsed.attrs.description === 'string'
-        ? parsed.attrs.description
-        : '';
-      const emoji = typeof parsed.attrs.emoji === 'string'
-        ? parsed.attrs.emoji
-        : undefined;
+      const name =
+        typeof parsed.attrs.name === 'string'
+          ? parsed.attrs.name
+          : query.path.replace(/\.md$/i, '').replace(/-/g, ' ');
+      const description =
+        typeof parsed.attrs.description === 'string' ? parsed.attrs.description : '';
+      const emoji = typeof parsed.attrs.emoji === 'string' ? parsed.attrs.emoji : undefined;
 
       return reply.send({
         id: `${query.source}-${query.path.replace(/\.md$/i, '').replace(/\//g, '-')}`,

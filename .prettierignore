@@ -8,3 +8,11 @@ data
 pnpm-lock.yaml
 desktop/release
 desktop/.electron-deps
+# Upstream-replaced wholesale — never reformat (see AGENTS.md / docs/PI_MONO_LOCAL_PATCHES.md)
+src/pi-mono
+# Locale dictionaries: data, not code; formatting them only adds diff noise
+**/locales/**
+MyDocs
+.qoder
+ui/dist
+.sidecar-deps

@@ -3,7 +3,10 @@ import { QQAuth } from '../../extensions/channel-qq/qq-auth.js';
 
 function fakeLogger(): any {
   const l: any = {
-    info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn(),
+    info: vi.fn(),
+    debug: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
     child: () => l,
   };
   return l;
@@ -19,13 +22,17 @@ function jsonResponse(body: unknown, ok = true, status = 200): Response {
 }
 
 describe('QQAuth — access token caching & refresh', () => {
-  beforeEach(() => { vi.restoreAllMocks(); });
-  afterEach(() => { vi.restoreAllMocks(); });
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
   it('requests a token on first call and caches it on the second', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      jsonResponse({ access_token: 'tok-1', expires_in: 7200 }),
-    );
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse({ access_token: 'tok-1', expires_in: 7200 }));
     const auth = new QQAuth('app', 'secret', false, fakeLogger());
 
     expect(await auth.getAccessToken()).toBe('tok-1');
@@ -34,7 +41,8 @@ describe('QQAuth — access token caching & refresh', () => {
   });
 
   it('refreshes when the cached token is within 10 min of expiry', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(jsonResponse({ access_token: 'tok-1', expires_in: 300 })) // 5 min
       .mockResolvedValueOnce(jsonResponse({ access_token: 'tok-2', expires_in: 7200 }));
     const auth = new QQAuth('app', 'secret', false, fakeLogger());
@@ -54,9 +62,9 @@ describe('QQAuth — access token caching & refresh', () => {
   });
 
   it('clearCache forces a fresh token request', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      jsonResponse({ access_token: 'tok-1', expires_in: 7200 }),
-    );
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse({ access_token: 'tok-1', expires_in: 7200 }));
     const auth = new QQAuth('app', 'secret', false, fakeLogger());
     await auth.getAccessToken();
     auth.clearCache();

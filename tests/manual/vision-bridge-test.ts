@@ -17,7 +17,8 @@ import { getModel, registerModel } from '@earendil-works/pi-ai';
 import { streamSimple } from '@earendil-works/pi-ai';
 
 // Create a tiny test PNG (1x1 red pixel) as base64
-const TEST_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
+const TEST_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
 
 async function main() {
   console.log('=== Vision Bridge E2E Test ===\n');
@@ -30,7 +31,9 @@ async function main() {
   console.log(`  Main model: ${appConfig.piAi.provider}/${appConfig.piAi.model}`);
   console.log(`  Vision Bridge: ${bridgeConfig.enabled}`);
   console.log(`  Vision model ref: ${bridgeConfig.modelRef}`);
-  console.log(`  Custom providers: ${appConfig.customProviders?.map(p => p.provider).join(', ') ?? 'none'}`);
+  console.log(
+    `  Custom providers: ${appConfig.customProviders?.map((p) => p.provider).join(', ') ?? 'none'}`,
+  );
   console.log();
 
   if (!bridgeConfig.enabled) {
@@ -61,7 +64,9 @@ async function main() {
             contextWindow: m.contextWindow ?? 128000,
             maxTokens: m.maxTokens ?? 16000,
           } as any);
-          console.log(`  Registered: ${cp.provider}/${m.id} input=${JSON.stringify(m.input ?? ['text'])}`);
+          console.log(
+            `  Registered: ${cp.provider}/${m.id} input=${JSON.stringify(m.input ?? ['text'])}`,
+          );
         } catch (err: any) {
           console.warn(`  Skip ${cp.provider}/${m.id}: ${err.message}`);
         }
@@ -124,7 +129,8 @@ async function main() {
     const response = await streamSimple(
       targetModel,
       {
-        systemPrompt: '你是一个有帮助的AI助手。如果消息中有 VISION_CONTEXT 标签包裹的图片分析，请参考其中的信息来回答用户问题。',
+        systemPrompt:
+          '你是一个有帮助的AI助手。如果消息中有 VISION_CONTEXT 标签包裹的图片分析，请参考其中的信息来回答用户问题。',
         messages: [
           { role: 'user', content: [{ type: 'text', text: result.text }], timestamp: Date.now() },
         ],
@@ -150,7 +156,7 @@ async function main() {
   console.log('\n=== Test Complete ===');
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error('Test failed:', err);
   process.exit(1);
 });

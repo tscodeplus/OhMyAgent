@@ -1,6 +1,24 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X, Info, Bot, Cpu, Workflow, Share2, Globe, Image as ImageIcon, Monitor, Wrench, BrainCircuit, Network, SlidersHorizontal, Settings2, Plug, AlertCircle, type LucideIcon } from 'lucide-react';
+import {
+  X,
+  Info,
+  Bot,
+  Cpu,
+  Workflow,
+  Share2,
+  Globe,
+  Image as ImageIcon,
+  Monitor,
+  Wrench,
+  BrainCircuit,
+  Network,
+  SlidersHorizontal,
+  Settings2,
+  Plug,
+  AlertCircle,
+  type LucideIcon,
+} from 'lucide-react';
 import SettingsSidebar from './SettingsSidebar';
 import SettingsSearch from './SettingsSearch';
 import GeneralSettings from './tabs/GeneralSettings';
@@ -28,11 +46,7 @@ import type { SettingsTabHandle } from './useConfigDirty';
  * be hot-swapped.
  */
 /** Tabs where ALL settings need restart — no per-field granularity needed. */
-const RESTART_REQUIRED_TABS = new Set([
-  'channels',
-  'computer',
-  'gateway',
-]);
+const RESTART_REQUIRED_TABS = new Set(['channels', 'computer', 'gateway']);
 
 /** Returns true if one-click restart is available (Electron desktop). */
 function canRestartService(): boolean {
@@ -94,7 +108,12 @@ export const SETTINGS_GROUPS: readonly SettingsTabDef[] = [
   // ── 🔌 集成 ──
   { id: 'channels', labelKey: 'settings.groups.channels', group: 'integration', icon: Share2 },
   { id: 'websearch', labelKey: 'settings.groups.websearch', group: 'integration', icon: Globe },
-  { id: 'multimodal', labelKey: 'settings.groups.multimodal', group: 'integration', icon: ImageIcon },
+  {
+    id: 'multimodal',
+    labelKey: 'settings.groups.multimodal',
+    group: 'integration',
+    icon: ImageIcon,
+  },
   { id: 'computer', labelKey: 'settings.groups.computer', group: 'integration', icon: Monitor },
   // ── ⚙️ 系统 ──
   { id: 'tools', labelKey: 'settings.groups.toolsPolicy', group: 'system', icon: Wrench },
@@ -104,12 +123,13 @@ export const SETTINGS_GROUPS: readonly SettingsTabDef[] = [
 ] as const;
 
 /** Group titles shown as section headers in the sidebar / <optgroup> on mobile. */
-export const SETTINGS_GROUP_DEFS: Record<SettingsGroupId, { labelKey: string; icon: LucideIcon }> = {
-  general: { labelKey: 'settings.groups.groupGeneral', icon: Settings2 },
-  agent: { labelKey: 'settings.groups.groupAgent', icon: Bot },
-  integration: { labelKey: 'settings.groups.groupIntegration', icon: Plug },
-  system: { labelKey: 'settings.groups.groupSystem', icon: Settings2 },
-};
+export const SETTINGS_GROUP_DEFS: Record<SettingsGroupId, { labelKey: string; icon: LucideIcon }> =
+  {
+    general: { labelKey: 'settings.groups.groupGeneral', icon: Settings2 },
+    agent: { labelKey: 'settings.groups.groupAgent', icon: Bot },
+    integration: { labelKey: 'settings.groups.groupIntegration', icon: Plug },
+    system: { labelKey: 'settings.groups.groupSystem', icon: Settings2 },
+  };
 
 const COMPONENT_MAP: Record<string, React.ComponentType<any>> = {
   general: GeneralSettings,
@@ -151,15 +171,13 @@ export default function SettingsModal({ onClose, initialTab, initialSubTab }: Se
 
   // Mark current tab as mounted whenever activeGroup changes.
   useEffect(() => {
-    setMountedTabs(prev => {
+    setMountedTabs((prev) => {
       if (prev.has(activeGroup)) return prev;
       return new Set([...prev, activeGroup]);
     });
   }, [activeGroup]);
 
-  const visibleGroups = SETTINGS_GROUPS.filter(
-    (g) => g.id !== 'gateway' || isElectron(),
-  );
+  const visibleGroups = SETTINGS_GROUPS.filter((g) => g.id !== 'gateway' || isElectron());
 
   // If currently on a gateway tab and not in Electron, fall back to general
   if (!isElectron() && activeGroup === 'gateway') {
@@ -181,11 +199,12 @@ export default function SettingsModal({ onClose, initialTab, initialSubTab }: Se
   // onDirtyChange to useConfigDirty) would force a new Set every time and spin
   // React in an endless re-render loop.
   const handleDirtyChange = useCallback((tabId: string, dirty: boolean) => {
-    setDirtyTabs(prev => {
+    setDirtyTabs((prev) => {
       const has = prev.has(tabId);
       if (has === dirty) return prev;
       const next = new Set(prev);
-      if (dirty) next.add(tabId); else next.delete(tabId);
+      if (dirty) next.add(tabId);
+      else next.delete(tabId);
       return next;
     });
   }, []);
@@ -211,7 +230,11 @@ export default function SettingsModal({ onClose, initialTab, initialSubTab }: Se
         failToast(result?.error || t('settings.restartFailed'));
         return;
       }
-      try { sessionStorage.setItem('ohmyagent_restarted', '1'); } catch { /* noop */ }
+      try {
+        sessionStorage.setItem('ohmyagent_restarted', '1');
+      } catch {
+        /* noop */
+      }
       if (await waitUntilHealthy()) {
         window.location.reload();
         return;
@@ -247,7 +270,11 @@ export default function SettingsModal({ onClose, initialTab, initialSubTab }: Se
         swapToast(t('settings.restartNeeded'), 'info');
         return;
       }
-      try { sessionStorage.setItem('ohmyagent_restarted', '1'); } catch { /* noop */ }
+      try {
+        sessionStorage.setItem('ohmyagent_restarted', '1');
+      } catch {
+        /* noop */
+      }
       // The server goes down for a moment — poll until it is back, then
       // reload so the UI reconnects with fresh state.
       if (await waitUntilHealthy()) {
@@ -273,7 +300,7 @@ export default function SettingsModal({ onClose, initialTab, initialSubTab }: Se
           savedCount++;
           if (handle.needsRestart?.() ?? RESTART_REQUIRED_TABS.has(tabId)) {
             needsRestart = true;
-            setRestartRequiredTabs(prev => new Set([...prev, tabId]));
+            setRestartRequiredTabs((prev) => new Set([...prev, tabId]));
           }
         }
       }
@@ -371,10 +398,15 @@ export default function SettingsModal({ onClose, initialTab, initialSubTab }: Se
               picker row above instead, so the group name isn't shown twice. */}
           <div className="hidden sm:flex h-12 items-center justify-between gap-3 px-6 border-b border-neutral-200 dark:border-neutral-800">
             <h3 className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300 truncate">
-              {t(visibleGroups.find(g => g.id === activeGroup)?.labelKey || '')}
+              {t(visibleGroups.find((g) => g.id === activeGroup)?.labelKey || '')}
             </h3>
             <div className="flex items-center gap-2">
-              <SettingsSearch onSelect={(tabId, subTabId) => { setActiveGroup(tabId); if (subTabId) setModelSubTab(subTabId); }} />
+              <SettingsSearch
+                onSelect={(tabId, subTabId) => {
+                  setActiveGroup(tabId);
+                  if (subTabId) setModelSubTab(subTabId);
+                }}
+              />
               {dialogActions}
             </div>
           </div>
@@ -388,7 +420,11 @@ export default function SettingsModal({ onClose, initialTab, initialSubTab }: Se
                     {t('settings.restartNeeded')}
                   </p>
                 </div>
-                <Button variant="secondary" size="sm" onClick={canRestartService() ? handleRestart : handleServerRestart}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={canRestartService() ? handleRestart : handleServerRestart}
+                >
                   {t('settings.restartNow')}
                 </Button>
               </div>
@@ -469,7 +505,14 @@ export default function SettingsModal({ onClose, initialTab, initialSubTab }: Se
               <Button variant="secondary" size="sm" onClick={() => setShowCloseConfirm(false)}>
                 {t('common.cancel')}
               </Button>
-              <Button variant="danger" size="sm" onClick={() => { setShowCloseConfirm(false); onClose(); }}>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={() => {
+                  setShowCloseConfirm(false);
+                  onClose();
+                }}
+              >
                 {t('settings.discard')}
               </Button>
             </div>

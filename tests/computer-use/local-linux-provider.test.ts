@@ -37,7 +37,14 @@ function createMockRunner(
 const TREE_STDOUT = JSON.stringify({
   ok: true,
   elements: [
-    { path: '/0', role: 'push button', label: 'OK', actions: ['click'], enabled: true, bounds: { x: 10, y: 20, width: 40, height: 20 } },
+    {
+      path: '/0',
+      role: 'push button',
+      label: 'OK',
+      actions: ['click'],
+      enabled: true,
+      bounds: { x: 10, y: 20, width: 40, height: 20 },
+    },
   ],
 });
 
@@ -75,7 +82,9 @@ describe('LocalLinuxProvider', () => {
   });
 
   it('getStatus is available when the X11 toolchain probe succeeds', async () => {
-    const { runner } = createMockRunner({ 'which xdotool': { stdout: '/usr/bin/xdotool\n/usr/bin/scrot\nOK' } });
+    const { runner } = createMockRunner({
+      'which xdotool': { stdout: '/usr/bin/xdotool\n/usr/bin/scrot\nOK' },
+    });
     const provider = new LocalLinuxProvider({ runner });
     const status = await provider.getStatus(DEFAULT_CTX);
     expect(status.available).toBe(true);
@@ -97,21 +106,25 @@ describe('LocalLinuxProvider', () => {
     const { runner } = createMockRunner({ 'wmctrl -l': { stdout: wmctrlOut } });
     const provider = new LocalLinuxProvider({ runner });
     const apps = await provider.listApps(DEFAULT_CTX);
-    expect(apps.map(a => a.name)).toEqual(['xed', 'Firefox']);
-    expect(apps.find(a => a.name === 'xed')!.windows).toHaveLength(2);
+    expect(apps.map((a) => a.name)).toEqual(['xed', 'Firefox']);
+    expect(apps.find((a) => a.name === 'xed')!.windows).toHaveLength(2);
   });
 
   it('createLease launches via nohup, polls wmctrl and resolves pid via xdotool', async () => {
     const wmctrlOut = '0x04000007  0 host xed - /home/test/doc.txt';
     const { runner, commands } = createMockRunner({
-      'nohup': { stdout: '' },
+      nohup: { stdout: '' },
       'wmctrl -l': { stdout: wmctrlOut },
       'xdotool getwindowpid': { stdout: '1234' },
     });
     const provider = new LocalLinuxProvider({ runner });
     const lease = await provider.createLease(DEFAULT_CTX, { appName: 'xed' });
-    expect(lease.providerState).toEqual({ pid: 1234, windowId: '0x04000007', display: expect.any(String) });
-    expect(commands.some(c => c.startsWith('nohup'))).toBe(true);
+    expect(lease.providerState).toEqual({
+      pid: 1234,
+      windowId: '0x04000007',
+      display: expect.any(String),
+    });
+    expect(commands.some((c) => c.startsWith('nohup'))).toBe(true);
   });
 
   it('createLease rejects unsafe app names', async () => {
@@ -143,10 +156,15 @@ describe('LocalLinuxProvider', () => {
     const provider = new LocalLinuxProvider({ runner });
     const result = await provider.performAction(DEFAULT_CTX, makeLease(), {
       type: 'click_element',
-      snapshotElement: { elementId: '/0', role: 'push button', label: 'OK', bounds: { x: 0, y: 0, width: 10, height: 10 } },
+      snapshotElement: {
+        elementId: '/0',
+        role: 'push button',
+        label: 'OK',
+        bounds: { x: 0, y: 0, width: 10, height: 10 },
+      },
     } as any);
     expect(result.ok).toBe(true);
-    const py = commands.find(c => c.includes('python3 -c'))!;
+    const py = commands.find((c) => c.includes('python3 -c'))!;
     // The click script walks the tree and invokes the node action by role;
     // its success marker is DO_ACTION_FAILED (only printed on failure).
     expect(py).toContain('DO_ACTION_FAILED');
@@ -160,10 +178,15 @@ describe('LocalLinuxProvider', () => {
     const result = await provider.performAction(DEFAULT_CTX, makeLease(), {
       type: 'type_text',
       text: '你好',
-      snapshotElement: { elementId: '/0', role: 'textbox', label: '', bounds: { x: 0, y: 0, width: 10, height: 10 } },
+      snapshotElement: {
+        elementId: '/0',
+        role: 'textbox',
+        label: '',
+        bounds: { x: 0, y: 0, width: 10, height: 10 },
+      },
     } as any);
     expect(result.ok).toBe(true);
-    const py = commands.find(c => c.includes('python3 -c'))!;
+    const py = commands.find((c) => c.includes('python3 -c'))!;
     expect(py).not.toContain('xdotool type');
   });
 });

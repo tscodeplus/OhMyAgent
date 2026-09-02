@@ -26,7 +26,11 @@ export default function GatewaySettings({ registerHandle, onDirtyChange }: Gatew
   const { t } = useTranslation('common');
 
   // Saved config (from electron-store)
-  const [savedConfig, setSavedConfig] = useState<GatewayConfig>({ mode: 'local', remoteUrl: '', remoteToken: '' });
+  const [savedConfig, setSavedConfig] = useState<GatewayConfig>({
+    mode: 'local',
+    remoteUrl: '',
+    remoteToken: '',
+  });
   // Working copy (modified by user, not yet saved)
   const [mode, setMode] = useState<'local' | 'remote'>('local');
   const [remoteUrl, setRemoteUrl] = useState('');
@@ -37,14 +41,20 @@ export default function GatewaySettings({ registerHandle, onDirtyChange }: Gatew
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   // Local-mode web access info (desktop only): persisted token + LAN addresses
-  const [webAccessInfo, setWebAccessInfo] = useState<{ token: string; port: number; addresses: string[] } | null>(null);
+  const [webAccessInfo, setWebAccessInfo] = useState<{
+    token: string;
+    port: number;
+    addresses: string[];
+  } | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   // Dirty check
   const isDirty = useMemo(() => {
-    return mode !== savedConfig.mode
-      || remoteUrl !== savedConfig.remoteUrl
-      || remoteToken !== savedConfig.remoteToken;
+    return (
+      mode !== savedConfig.mode ||
+      remoteUrl !== savedConfig.remoteUrl ||
+      remoteToken !== savedConfig.remoteToken
+    );
   }, [mode, remoteUrl, remoteToken, savedConfig]);
 
   // Report dirty state to SettingsModal
@@ -56,11 +66,18 @@ export default function GatewaySettings({ registerHandle, onDirtyChange }: Gatew
   const loadConfig = useCallback(async () => {
     setLoading(true);
     try {
-      if (!isElectron()) { setLoading(false); return; }
+      if (!isElectron()) {
+        setLoading(false);
+        return;
+      }
       const api = getElectronAPI()!;
       const config = (await api.getGatewayConfig()) as GatewayConfig;
       if (config) {
-        const cfg = { mode: config.mode || 'local' as const, remoteUrl: config.remoteUrl || '', remoteToken: config.remoteToken || '' };
+        const cfg = {
+          mode: config.mode || ('local' as const),
+          remoteUrl: config.remoteUrl || '',
+          remoteToken: config.remoteToken || '',
+        };
         setSavedConfig(cfg);
         setMode(cfg.mode);
         setRemoteUrl(cfg.remoteUrl);
@@ -69,7 +86,9 @@ export default function GatewaySettings({ registerHandle, onDirtyChange }: Gatew
       // Non-fatal: the info block just stays hidden when unavailable.
       try {
         setWebAccessInfo(await api.getWebAccessInfo());
-      } catch { /* older sidecar / control API down */ }
+      } catch {
+        /* older sidecar / control API down */
+      }
     } catch (err) {
       console.error('[GatewaySettings] Failed to load gateway config:', err);
     } finally {
@@ -77,7 +96,9 @@ export default function GatewaySettings({ registerHandle, onDirtyChange }: Gatew
     }
   }, []);
 
-  useEffect(() => { loadConfig(); }, [loadConfig]);
+  useEffect(() => {
+    loadConfig();
+  }, [loadConfig]);
 
   // ── Save / Cancel via SettingsTabHandle ──
   const save = useCallback(async () => {
@@ -147,22 +168,40 @@ export default function GatewaySettings({ registerHandle, onDirtyChange }: Gatew
       } catch (err: any) {
         clearTimeout(healthTimer);
         const detail = err?.message || String(err);
-        setTestResult({ ok: false, message: t('settings.gateway.gatewayUnreachable', '网关无法连接或不在线') + ` (${detail})` });
+        setTestResult({
+          ok: false,
+          message:
+            t('settings.gateway.gatewayUnreachable', '网关无法连接或不在线') + ` (${detail})`,
+        });
         setTesting(false);
         return;
       }
       clearTimeout(healthTimer);
       if (!res.ok) {
-        setTestResult({ ok: false, message: t('settings.gateway.gatewayUnreachable', '网关无法连接或不在线') + ` (HTTP ${res.status})` });
+        setTestResult({
+          ok: false,
+          message:
+            t('settings.gateway.gatewayUnreachable', '网关无法连接或不在线') +
+            ` (HTTP ${res.status})`,
+        });
         setTesting(false);
         return;
       }
       let version = '?';
-      try { const data = await res.json(); version = data.version || '?'; } catch { /* ignore */ }
+      try {
+        const data = await res.json();
+        version = data.version || '?';
+      } catch {
+        /* ignore */
+      }
       const versionSuffix = ` (v${version})`;
       // Step 2: verify token (required for remote gateway)
       if (!remoteToken) {
-        setTestResult({ ok: false, message: t('settings.gateway.serverOnlineTokenInvalid', '网关在线但令牌无效') + versionSuffix });
+        setTestResult({
+          ok: false,
+          message:
+            t('settings.gateway.serverOnlineTokenInvalid', '网关在线但令牌无效') + versionSuffix,
+        });
       } else {
         const ctrl2 = new AbortController();
         const verifyTimer = setTimeout(() => ctrl2.abort(), 5000);
@@ -173,17 +212,34 @@ export default function GatewaySettings({ registerHandle, onDirtyChange }: Gatew
           });
           clearTimeout(verifyTimer);
           if (vres.ok) {
-            setTestResult({ ok: true, message: t('settings.gateway.connected', '连接成功') + versionSuffix });
+            setTestResult({
+              ok: true,
+              message: t('settings.gateway.connected', '连接成功') + versionSuffix,
+            });
           } else {
-            setTestResult({ ok: false, message: t('settings.gateway.serverOnlineTokenInvalid', '网关在线但令牌无效') + versionSuffix });
+            setTestResult({
+              ok: false,
+              message:
+                t('settings.gateway.serverOnlineTokenInvalid', '网关在线但令牌无效') +
+                versionSuffix,
+            });
           }
         } catch {
           clearTimeout(verifyTimer);
-          setTestResult({ ok: false, message: t('settings.gateway.serverOnlineTokenInvalid', '网关在线但令牌无效') + versionSuffix });
+          setTestResult({
+            ok: false,
+            message:
+              t('settings.gateway.serverOnlineTokenInvalid', '网关在线但令牌无效') + versionSuffix,
+          });
         }
       }
     } catch (err: any) {
-      setTestResult({ ok: false, message: t('settings.gateway.gatewayUnreachable', '网关无法连接或不在线') + ` (${err?.message || String(err)})` });
+      setTestResult({
+        ok: false,
+        message:
+          t('settings.gateway.gatewayUnreachable', '网关无法连接或不在线') +
+          ` (${err?.message || String(err)})`,
+      });
     } finally {
       setTesting(false);
     }
@@ -238,7 +294,12 @@ export default function GatewaySettings({ registerHandle, onDirtyChange }: Gatew
               label={t('settings.gateway.token', 'Auth Token')}
               value={remoteToken}
               onChange={(e) => setRemoteToken(e.target.value)}
-              placeholder={t('settings.gateway.tokenPlaceholder', 'Look up token from remote .env file or startup log') || ''}
+              placeholder={
+                t(
+                  'settings.gateway.tokenPlaceholder',
+                  'Look up token from remote .env file or startup log',
+                ) || ''
+              }
             />
 
             {/* ── Test Connection ── */}
@@ -255,7 +316,9 @@ export default function GatewaySettings({ registerHandle, onDirtyChange }: Gatew
                   : t('settings.gateway.testConnection', 'Test Connection')}
               </Button>
               {testResult && (
-                <span className={`text-xs ${testResult.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                <span
+                  className={`text-xs ${testResult.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}
+                >
                   {testResult.message}
                 </span>
               )}
@@ -272,7 +335,10 @@ export default function GatewaySettings({ registerHandle, onDirtyChange }: Gatew
           </h3>
           <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
             <p className="text-sm text-neutral-600 dark:text-neutral-400">
-              {t('settings.gateway.localStatus', 'Using the embedded local server. Enable "Remote Gateway" above to connect to another instance.')}
+              {t(
+                'settings.gateway.localStatus',
+                'Using the embedded local server. Enable "Remote Gateway" above to connect to another instance.',
+              )}
             </p>
 
             {webAccessInfo && (
@@ -283,8 +349,14 @@ export default function GatewaySettings({ registerHandle, onDirtyChange }: Gatew
                     {t('settings.gateway.accessUrls', 'Access URLs')}
                   </p>
                   <div className="space-y-1.5">
-                    {[...new Set([`http://localhost:${webAccessInfo.port}/webui/`,
-                      ...webAccessInfo.addresses.map((ip) => `http://${ip}:${webAccessInfo.port}/webui/`)])].map((url) => (
+                    {[
+                      ...new Set([
+                        `http://localhost:${webAccessInfo.port}/webui/`,
+                        ...webAccessInfo.addresses.map(
+                          (ip) => `http://${ip}:${webAccessInfo.port}/webui/`,
+                        ),
+                      ]),
+                    ].map((url) => (
                       <div key={url} className="flex items-center justify-between gap-2">
                         <code className="truncate rounded bg-neutral-100 px-2 py-1 text-xs text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
                           {url}
@@ -295,7 +367,11 @@ export default function GatewaySettings({ registerHandle, onDirtyChange }: Gatew
                           className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-neutral-400 hover:text-neutral-600 dark:text-neutral-500 dark:hover:text-neutral-300"
                           title={t('settings.gateway.copy', 'Copy') || ''}
                         >
-                          {copiedKey === url ? <Check size={15} className="text-emerald-500" /> : <Copy size={15} />}
+                          {copiedKey === url ? (
+                            <Check size={15} className="text-emerald-500" />
+                          ) : (
+                            <Copy size={15} />
+                          )}
                         </button>
                       </div>
                     ))}
@@ -307,21 +383,26 @@ export default function GatewaySettings({ registerHandle, onDirtyChange }: Gatew
                   <PasswordInput
                     label={t('settings.gateway.webAccessToken', 'Web Access Token')}
                     value={webAccessInfo.token}
-                    onChange={() => { /* read-only display */ }}
+                    onChange={() => {
+                      /* read-only display */
+                    }}
                   />
                   <div className="mt-1.5 flex items-center justify-between gap-2">
                     <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                      {t('settings.gateway.tokenStoredHint', 'Saved in desktop-config.json (webuiToken). Other devices on the LAN can log in with a URL above plus this token.')}
+                      {t(
+                        'settings.gateway.tokenStoredHint',
+                        'Saved in desktop-config.json (webuiToken). Other devices on the LAN can log in with a URL above plus this token.',
+                      )}
                     </p>
                     <Button
                       variant="secondary"
                       size="sm"
                       className={`shrink-0 whitespace-nowrap ${
                         copiedKey === 'token'
-                          // copied state: full success-toast palette
-                          // (Toast.tsx success variant); "!" overrides the
-                          // variant's neutral bg/border/text (Tailwind v4)
-                          ? 'border-emerald-300! bg-emerald-50! text-emerald-700! dark:border-emerald-700! dark:bg-emerald-950! dark:text-emerald-300!'
+                          ? // copied state: full success-toast palette
+                            // (Toast.tsx success variant); "!" overrides the
+                            // variant's neutral bg/border/text (Tailwind v4)
+                            'border-emerald-300! bg-emerald-50! text-emerald-700! dark:border-emerald-700! dark:bg-emerald-950! dark:text-emerald-300!'
                           : ''
                       }`}
                       // blur immediately: the default blue focus ring must not

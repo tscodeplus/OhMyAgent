@@ -72,7 +72,10 @@ async function executeViaOrchestrator(
   const persona = args.persona || parentAgentId;
   const currentConfig = deps.agentManager.get(persona);
   if (!currentConfig) {
-    const available = deps.agentManager.list().map(a => a.id).join(', ');
+    const available = deps.agentManager
+      .list()
+      .map((a) => a.id)
+      .join(', ');
     return errorResult(`Agent "${persona}" not found. Available agents: ${available}`);
   }
 
@@ -132,10 +135,7 @@ async function executeViaOrchestrator(
       // P1 M5: bounded settle — a child stuck in a hung tool never
       // unwinds; abandon the wait after the grace period instead of
       // hanging the parent agent's turn forever.
-      const settled = await waitForIdleWithTimeout(
-        () => subAgent.waitForIdle(),
-        settleTimeoutMs,
-      );
+      const settled = await waitForIdleWithTimeout(() => subAgent.waitForIdle(), settleTimeoutMs);
       if (!settled) {
         deps.logger.warn(
           { agentId: childRun.agentId, sessionId, settleTimeoutMs },

@@ -88,9 +88,7 @@ interface SkillhubApiResponse {
 // ── Marketplace class ────────────────────────────────────────────────────────
 
 export class SkillMarketplace {
-  constructor(
-    private skillRegistry: { load: (dir: string) => Promise<void> },
-  ) {}
+  constructor(private skillRegistry: { load: (dir: string) => Promise<void> }) {}
 
   /**
    * Search skills.sh REST API.
@@ -229,7 +227,10 @@ export class SkillMarketplace {
       const arrayBuffer = await res.arrayBuffer();
       if (arrayBuffer.byteLength < 100) {
         const text = new TextDecoder().decode(arrayBuffer);
-        return { success: false, error: `skillhub.cn 下载失败: ${text.trim() || 'empty response'}` };
+        return {
+          success: false,
+          error: `skillhub.cn 下载失败: ${text.trim() || 'empty response'}`,
+        };
       }
 
       // Extract zip into skills/<slug>/
@@ -261,9 +262,10 @@ export class SkillMarketplace {
    */
   private async installFromSkillsSh(packageName: string): Promise<InstallResult> {
     const lastSlash = packageName.lastIndexOf('/');
-    const pkg = lastSlash > 0
-      ? `${packageName.slice(0, lastSlash)}@${packageName.slice(lastSlash + 1)}`
-      : packageName;
+    const pkg =
+      lastSlash > 0
+        ? `${packageName.slice(0, lastSlash)}@${packageName.slice(lastSlash + 1)}`
+        : packageName;
 
     try {
       const { stdout, stderr } = await runNpx(
@@ -391,9 +393,27 @@ export class SkillMarketplace {
       if (parts.length !== 3) continue;
 
       const [owner] = parts as [string, string, string];
-      const skip = new Set(['topic', 'trending', 'hot', 'official', 'search', 'docs',
-        'about', 'audit', 'contact', 'privacy', 'terms', 'agent', 'agents', 'api',
-        'icon', 'favicon', 'svg', 'opengraph', 'sitemap']);
+      const skip = new Set([
+        'topic',
+        'trending',
+        'hot',
+        'official',
+        'search',
+        'docs',
+        'about',
+        'audit',
+        'contact',
+        'privacy',
+        'terms',
+        'agent',
+        'agents',
+        'api',
+        'icon',
+        'favicon',
+        'svg',
+        'opengraph',
+        'sitemap',
+      ]);
       if (skip.has(owner)) continue;
 
       if (seen.has(id)) continue;

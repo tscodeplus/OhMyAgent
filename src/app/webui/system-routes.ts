@@ -43,7 +43,7 @@ let cachedMacOSProxyAt = 0;
 function detectMacOSProxy(): ProxyConfig {
   // Cache for 5 minutes — proxy settings don't change often
   const now = Date.now();
-  if (cachedMacOSProxy && (now - cachedMacOSProxyAt) < 300_000) {
+  if (cachedMacOSProxy && now - cachedMacOSProxyAt < 300_000) {
     return cachedMacOSProxy;
   }
 
@@ -297,20 +297,21 @@ export function registerSystemRoutes(app: FastifyInstance): void {
             if (macProxy.httpsProxy) {
               // Set for undici — it checks these env vars at fetch() call time
               process.env.https_proxy = process.env.https_proxy || macProxy.httpsProxy;
-              process.env.http_proxy = process.env.http_proxy || macProxy.httpProxy || macProxy.httpsProxy;
-              app.log.info({ proxy: macProxy.httpsProxy }, 'check-update: using macOS system proxy');
+              process.env.http_proxy =
+                process.env.http_proxy || macProxy.httpProxy || macProxy.httpsProxy;
+              app.log.info(
+                { proxy: macProxy.httpsProxy },
+                'check-update: using macOS system proxy',
+              );
             } else {
               break; // No proxy found — don't retry
             }
           }
 
-          res = await fetch(
-            apiPath,
-            {
-              headers: { 'Accept': 'application/vnd.github.v3+json' },
-              signal: controller.signal,
-            },
-          );
+          res = await fetch(apiPath, {
+            headers: { Accept: 'application/vnd.github.v3+json' },
+            signal: controller.signal,
+          });
           clearTimeout(timeout);
           if (res.ok) break; // Success — exit retry loop
           lastErr = new Error(`GitHub API returned ${res.status}`);
@@ -323,19 +324,40 @@ export function registerSystemRoutes(app: FastifyInstance): void {
 
       if (!res || !res.ok) {
         if (lastErr?.name === 'AbortError') {
-          return reply.status(504).send({ ok: false, error: 'github_unreachable', message: 'Cannot connect to GitHub — request timed out' });
+          return reply
+            .status(504)
+            .send({
+              ok: false,
+              error: 'github_unreachable',
+              message: 'Cannot connect to GitHub — request timed out',
+            });
         }
         app.log.warn({ err: lastErr?.message }, 'check-update: GitHub unreachable');
-        return reply.status(502).send({ ok: false, error: 'github_unreachable', message: 'Cannot connect to GitHub — network error' });
+        return reply
+          .status(502)
+          .send({
+            ok: false,
+            error: 'github_unreachable',
+            message: 'Cannot connect to GitHub — network error',
+          });
       }
 
       if (!res.ok) {
-        return reply.status(502).send({ ok: false, error: 'github_error', message: `GitHub API returned ${res.status}` });
+        return reply
+          .status(502)
+          .send({ ok: false, error: 'github_error', message: `GitHub API returned ${res.status}` });
       }
 
       const releases: any[] = await res.json();
       if (!Array.isArray(releases) || releases.length === 0) {
-        return reply.send({ ok: true, currentVersion: getAppVersion() || '0.0.0', latestVersion: '', updateAvailable: false, releaseUrl: '', releaseNotes: '' });
+        return reply.send({
+          ok: true,
+          currentVersion: getAppVersion() || '0.0.0',
+          latestVersion: '',
+          updateAvailable: false,
+          releaseUrl: '',
+          releaseNotes: '',
+        });
       }
 
       // Pick the right release: when includeBeta is true, use the first
@@ -345,7 +367,14 @@ export function registerSystemRoutes(app: FastifyInstance): void {
         ? releases[0]
         : releases.find((r: any) => !/beta/i.test(r.tag_name || ''));
       if (!release) {
-        return reply.send({ ok: true, currentVersion: getAppVersion() || '0.0.0', latestVersion: '', updateAvailable: false, releaseUrl: '', releaseNotes: '' });
+        return reply.send({
+          ok: true,
+          currentVersion: getAppVersion() || '0.0.0',
+          latestVersion: '',
+          updateAvailable: false,
+          releaseUrl: '',
+          releaseNotes: '',
+        });
       }
 
       const latestVersion = (release.tag_name || '').replace(/^v/, '');
@@ -400,7 +429,9 @@ export function registerSystemRoutes(app: FastifyInstance): void {
         if (cur.status && cur.status !== 'complete' && cur.status !== 'error') {
           return reply.status(409).send({ ok: false, error: 'Update already in progress' });
         }
-      } catch { /* corrupt file — allow retry */ }
+      } catch {
+        /* corrupt file — allow retry */
+      }
     }
 
     const mainPid = process.pid;

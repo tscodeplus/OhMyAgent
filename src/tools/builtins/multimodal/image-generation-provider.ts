@@ -4,7 +4,15 @@
 
 export interface ImageGenerationInput {
   prompt: string;
-  size: '1024x1024' | '1024x1536' | '1536x1024' | '2000x1000' | '1000x2000' | '2000x667' | '667x2000' | (string & {});
+  size:
+    | '1024x1024'
+    | '1024x1536'
+    | '1536x1024'
+    | '2000x1000'
+    | '1000x2000'
+    | '2000x667'
+    | '667x2000'
+    | (string & {});
   modelRef: string;
   /** Quality level (provider-dependent). */
   quality?: 'low' | 'medium' | 'high' | 'auto' | (string & {});

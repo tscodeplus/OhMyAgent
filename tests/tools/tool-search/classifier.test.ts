@@ -53,9 +53,18 @@ describe('CORE_TOOL_NAMES', () => {
   });
 
   it('does not contain deferred maintenance tools', () => {
-    for (const name of ['memory_compact', 'memory_delete', 'memory_list', 'memory_update',
-      'cron_list', 'enter_plan_mode', 'exit_plan_mode', 'spawn_agent',
-      'brief', 'summarize-session']) {
+    for (const name of [
+      'memory_compact',
+      'memory_delete',
+      'memory_list',
+      'memory_update',
+      'cron_list',
+      'enter_plan_mode',
+      'exit_plan_mode',
+      'spawn_agent',
+      'brief',
+      'summarize-session',
+    ]) {
       expect(CORE_TOOL_NAMES.has(name)).toBe(false);
     }
   });
@@ -108,14 +117,34 @@ describe('isDeferrable', () => {
 
   it('returns true for known deferrable tools', () => {
     const deferrables = [
-      'computer_use', 'image_generation', 'image_to_text', 'speech_to_text',
-      'lsp', 'notebook_edit', 'enter_worktree', 'exit_worktree',
-      'remote_trigger', 'memory_doctor', 'memory_audit_persona',
-      'memory_rebuild_persona', 'cron_create', 'cron_delete', 'cron_toggle',
-      'team_create', 'team_delete',
-      'web_fetch', 'memory_compact', 'memory_delete', 'memory_list', 'memory_update',
-      'cron_list', 'enter_plan_mode', 'exit_plan_mode', 'spawn_agent',
-      'brief', 'summarize-session',
+      'computer_use',
+      'image_generation',
+      'image_to_text',
+      'speech_to_text',
+      'lsp',
+      'notebook_edit',
+      'enter_worktree',
+      'exit_worktree',
+      'remote_trigger',
+      'memory_doctor',
+      'memory_audit_persona',
+      'memory_rebuild_persona',
+      'cron_create',
+      'cron_delete',
+      'cron_toggle',
+      'team_create',
+      'team_delete',
+      'web_fetch',
+      'memory_compact',
+      'memory_delete',
+      'memory_list',
+      'memory_update',
+      'cron_list',
+      'enter_plan_mode',
+      'exit_plan_mode',
+      'spawn_agent',
+      'brief',
+      'summarize-session',
     ];
     for (const name of deferrables) {
       expect(isDeferrable(name)).toBe(true);
@@ -146,12 +175,12 @@ describe('isDeferrable', () => {
 describe('classifyTools', () => {
   it('splits mixed tools correctly', () => {
     const tools = [
-      agentTool('file_read'),        // core
-      agentTool('computer_use'),     // deferrable
-      agentTool('shell'),            // core
+      agentTool('file_read'), // core
+      agentTool('computer_use'), // deferrable
+      agentTool('shell'), // core
       agentTool('image_generation'), // deferrable
-      agentTool('cron_create'),      // deferrable
-      agentTool('web_search'),       // core
+      agentTool('cron_create'), // deferrable
+      agentTool('web_search'), // core
     ];
 
     const { visible, deferrable } = classifyTools(tools);
@@ -179,22 +208,14 @@ describe('classifyTools', () => {
   });
 
   it('returns all tools in visible when no deferrable tools', () => {
-    const tools = [
-      agentTool('file_read'),
-      agentTool('shell'),
-      agentTool('web_search'),
-    ];
+    const tools = [agentTool('file_read'), agentTool('shell'), agentTool('web_search')];
     const { visible, deferrable } = classifyTools(tools);
     expect(deferrable).toEqual([]);
     expect(visible.length).toBe(tools.length);
   });
 
   it('returns all tools in deferrable for pure non-core list', () => {
-    const tools = [
-      agentTool('computer_use'),
-      agentTool('lsp'),
-      agentTool('cron_create'),
-    ];
+    const tools = [agentTool('computer_use'), agentTool('lsp'), agentTool('cron_create')];
     const { visible, deferrable } = classifyTools(tools);
     expect(visible).toEqual([]);
     expect(deferrable.length).toBe(tools.length);
@@ -207,11 +228,7 @@ describe('classifyTools', () => {
   });
 
   it('bridge tools are never deferrable', () => {
-    const tools = [
-      agentTool('tool_search'),
-      agentTool('tool_describe'),
-      agentTool('tool_call'),
-    ];
+    const tools = [agentTool('tool_search'), agentTool('tool_describe'), agentTool('tool_call')];
     const { visible, deferrable } = classifyTools(tools);
     expect(deferrable).toEqual([]);
     expect(visible.length).toBe(3);

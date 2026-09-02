@@ -35,8 +35,8 @@
     "dist:desktop:win": "cd desktop && npm run tauri:build:win",
     "dist:desktop:mac": "cd desktop && npm run tauri:build:mac",
     "bundle:sidecar-deps": "cd desktop && npm run bundle-deps",
-    "format": "prettier --write 'src/**/*.ts' 'tests/**/*.ts'",
-    "format:check": "prettier --check 'src/**/*.ts' 'tests/**/*.ts'"
+    "format": "prettier --write src tests extensions ui/src scripts",
+    "format:check": "prettier --check src tests extensions ui/src scripts"
   },
   "engines": {
     "node": ">=20"

@@ -1,6 +1,16 @@
 // src/computer-use/provider-contract.ts
 
-import type { Ctx, ProviderStatus, AppInfo, Lease, Target, AppState, Action, ActionResult, ComputerUseCapabilities } from './types.js';
+import type {
+  Ctx,
+  ProviderStatus,
+  AppInfo,
+  Lease,
+  Target,
+  AppState,
+  Action,
+  ActionResult,
+  ComputerUseCapabilities,
+} from './types.js';
 
 export interface ComputerUseProvider {
   providerId: string;

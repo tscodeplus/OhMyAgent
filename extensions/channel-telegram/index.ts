@@ -90,7 +90,9 @@ export default function (api: ExtensionAPI) {
 
     async start(): Promise<void> {
       // Register UserQuestionSender so ask_user_question tool works in Telegram
-      const senderRegistry = api.getService<Map<string, UserQuestionSender>>('userQuestionSenderRegistry');
+      const senderRegistry = api.getService<Map<string, UserQuestionSender>>(
+        'userQuestionSenderRegistry',
+      );
       if (senderRegistry) {
         senderRegistry.set('telegram', createTelegramUserQuestionSender(bot));
         logger.info('Telegram UserQuestionSender registered');
@@ -111,23 +113,49 @@ export default function (api: ExtensionAPI) {
       if (!commandDeps) {
         logger.warn('CommandDeps not found in services — slash commands disabled');
       }
-      const deps = commandDeps ?? { agentService, skillRegistry: undefined, cronService: undefined, feishuClient: undefined, agentManager: undefined, extensionManager: undefined };
+      const deps = commandDeps ?? {
+        agentService,
+        skillRegistry: undefined,
+        cronService: undefined,
+        feishuClient: undefined,
+        agentManager: undefined,
+        extensionManager: undefined,
+      };
       // v5 P2: Build STT transcriber for Telegram audio messages
       let sttTranscriber: ((path: string, lang?: string) => Promise<string>) | undefined;
       const appConfig = api.getConfig();
       const sttCfg = appConfig.multimodal?.stt;
       if (sttCfg?.enabled && sttCfg.providers?.length) {
-        const { createSTTProviders, transcribeWithFallback } = await import('../../src/media-providers/stt/factory.js');
+        const { createSTTProviders, transcribeWithFallback } =
+          await import('../../src/media-providers/stt/factory.js');
         const sttProviders = createSTTProviders(sttCfg.providers);
         if (sttProviders.length > 0) {
           sttTranscriber = async (audioPath: string, language?: string) => {
-            const result = await transcribeWithFallback(sttProviders, { audioPath, language: language ?? sttCfg.language ?? 'auto' });
+            const result = await transcribeWithFallback(sttProviders, {
+              audioPath,
+              language: language ?? sttCfg.language ?? 'auto',
+            });
             return result.text;
           };
         }
       }
-      const sttHandlerConfig = sttCfg ? { enabled: sttCfg.enabled ?? false, autoTranscribe: sttCfg.autoTranscribe ?? true, language: sttCfg.language ?? 'auto' } : undefined;
-      setupMessageHandlers(bot, tgConfig, agentService, deps, logger, api, sttTranscriber, sttHandlerConfig);
+      const sttHandlerConfig = sttCfg
+        ? {
+            enabled: sttCfg.enabled ?? false,
+            autoTranscribe: sttCfg.autoTranscribe ?? true,
+            language: sttCfg.language ?? 'auto',
+          }
+        : undefined;
+      setupMessageHandlers(
+        bot,
+        tgConfig,
+        agentService,
+        deps,
+        logger,
+        api,
+        sttTranscriber,
+        sttHandlerConfig,
+      );
 
       if (tgConfig.mode === 'webhook') {
         if (!tgConfig.webhookUrl) {
@@ -157,17 +185,12 @@ export default function (api: ExtensionAPI) {
 
       // Default: polling mode — start in background (bot.start() blocks indefinitely)
       const { startPolling } = await import('./polling-handler.js');
-      startPolling(bot, logger).catch(err =>
-        logger.error({ err }, 'Telegram polling crashed'),
-      );
+      startPolling(bot, logger).catch((err) => logger.error({ err }, 'Telegram polling crashed'));
     },
 
     async stop(): Promise<void> {
       const { stopPolling } = await import('./polling-handler.js');
-      await Promise.allSettled([
-        stopPolling(bot, logger),
-        stopBot(bot, tgConfig, logger),
-      ]);
+      await Promise.allSettled([stopPolling(bot, logger), stopBot(bot, tgConfig, logger)]);
     },
 
     onReceive(_handler: (ctx: ChannelContext) => Promise<void>): void {

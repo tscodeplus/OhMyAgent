@@ -25,10 +25,12 @@ export default function (api: ExtensionAPI) {
     stop: async () => {
       logger.info('Cron channel stopped');
     },
-    onReceive: (handler) => {
-    },
+    onReceive: (handler) => {},
     sendReply: async (ctx, reply) => {
-      logger.info({ channelId: ctx.channelId, reply: reply.text?.slice(0, 100) }, 'Cron job result');
+      logger.info(
+        { channelId: ctx.channelId, reply: reply.text?.slice(0, 100) },
+        'Cron job result',
+      );
     },
   };
 

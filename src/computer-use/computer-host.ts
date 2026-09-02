@@ -19,10 +19,7 @@ import type {
   ComputerUseCapabilities,
 } from './types.js';
 import type { ComputerUseProvider } from './provider-contract.js';
-import {
-  ComputerProviderRegistry,
-  resolveComputerProviderId,
-} from './provider-registry.js';
+import { ComputerProviderRegistry, resolveComputerProviderId } from './provider-registry.js';
 import { ComputerLeaseRegistry } from './lease-registry.js';
 import { computerUseError, COMPUTER_USE_ERRORS } from './errors.js';
 import type { ComputerUseSettings } from './settings.js';
@@ -77,7 +74,10 @@ const CU_DEBUG = !!process.env.OHMYAGENT_CU_DEBUG;
 function cuDebugLog(msg: string): void {
   if (!CU_DEBUG) return;
   try {
-    require('node:fs').appendFileSync('/tmp/cu-debug.log', `[${new Date().toISOString()}] ${msg}\n`);
+    require('node:fs').appendFileSync(
+      '/tmp/cu-debug.log',
+      `[${new Date().toISOString()}] ${msg}\n`,
+    );
   } catch {
     // Best-effort debug logging — ignore write failures
   }
@@ -133,25 +133,16 @@ export class ComputerUseHost {
       return;
     }
     if (allowedAgentIds.length > 0 && !allowedAgentIds.includes(ctx.agentId ?? '')) {
-      throw computerUseError(
-        'DISABLED',
-        'This agent is not allowed to use Computer Use',
-      );
+      throw computerUseError('DISABLED', 'This agent is not allowed to use Computer Use');
     }
     const primaryAgentId = allowedAgentIds.length > 0 ? null : this._getPrimaryAgentId();
     if (primaryAgentId != null && ctx.agentId !== primaryAgentId) {
-      throw computerUseError(
-        'DISABLED',
-        'Only the primary agent can use Computer Use',
-      );
+      throw computerUseError('DISABLED', 'Only the primary agent can use Computer Use');
     }
 
     // 3. Read-only session check
     if ((ctx.accessMode ?? this._getAccessMode(ctx.sessionPath)) === 'read-only') {
-      throw computerUseError(
-        'DISABLED',
-        'Computer Use unavailable in read-only sessions',
-      );
+      throw computerUseError('DISABLED', 'Computer Use unavailable in read-only sessions');
     }
   }
 
@@ -173,10 +164,7 @@ export class ComputerUseHost {
   // Lease resolution
   // -----------------------------------------------------------------------
 
-  private _resolveActiveLease(
-    ctx: Ctx,
-    leaseId: string | null | undefined,
-  ): Lease {
+  private _resolveActiveLease(ctx: Ctx, leaseId: string | null | undefined): Lease {
     if (leaseId) {
       return this._leases.requireActiveLease(ctx, leaseId);
     }
@@ -188,17 +176,11 @@ export class ComputerUseHost {
     // No active lease — check whether there was one that has been released
     const last = this._leases.getLastLeaseFor(ctx);
     if (!last) {
-      throw computerUseError(
-        'LEASE_NOT_FOUND',
-        COMPUTER_USE_ERRORS.LEASE_NOT_FOUND,
-      );
+      throw computerUseError('LEASE_NOT_FOUND', COMPUTER_USE_ERRORS.LEASE_NOT_FOUND);
     }
 
     // A lease exists but isn't active — it was released or stopping
-    throw computerUseError(
-      'LEASE_RELEASED',
-      COMPUTER_USE_ERRORS.LEASE_RELEASED,
-    );
+    throw computerUseError('LEASE_RELEASED', COMPUTER_USE_ERRORS.LEASE_RELEASED);
   }
 
   // -----------------------------------------------------------------------
@@ -221,20 +203,20 @@ export class ComputerUseHost {
       (target.processId != null ? `pid:${target.processId}` : undefined);
 
     if (appId && !this.isAppApproved(ctx ?? {}, appId)) {
-      throw computerUseError(
-        'APP_APPROVAL_REQUIRED',
-        COMPUTER_USE_ERRORS.APP_APPROVAL_REQUIRED,
-        { appId },
-      );
+      throw computerUseError('APP_APPROVAL_REQUIRED', COMPUTER_USE_ERRORS.APP_APPROVAL_REQUIRED, {
+        appId,
+      });
     }
   }
 
   isAppApproved(ctx: Ctx, appId: string): boolean {
     const canonicalAppId = canonicalComputerUseAppTarget(appId);
     const allowedApps = this._getSettings().allowedApps;
-    const canonicalAllowedApps = allowedApps.map(app => canonicalComputerUseAppTarget(app));
+    const canonicalAllowedApps = allowedApps.map((app) => canonicalComputerUseAppTarget(app));
     if (allowedApps.includes('*') || canonicalAllowedApps.includes(canonicalAppId)) {
-      cuDebugLog(`isAppApproved: ${appId} -> ${canonicalAppId} ALLOWED by allowedApps [${allowedApps.join(',')}]`);
+      cuDebugLog(
+        `isAppApproved: ${appId} -> ${canonicalAppId} ALLOWED by allowedApps [${allowedApps.join(',')}]`,
+      );
       return true;
     }
     if (this._approvedAppsGlobal.has(canonicalAppId)) {
@@ -252,7 +234,9 @@ export class ComputerUseHost {
     }
 
     const result = this._approvedAppsBySession.get(sessionKey)?.has(canonicalAppId) === true;
-    cuDebugLog(`isAppApproved: ${appId} -> ${canonicalAppId} result=${result} allowedApps=[${allowedApps.join(',')}] sessionKey="${sessionKey}" globalSize=${this._approvedAppsGlobal.size} sessionSize=${this._approvedAppsBySession.get(sessionKey)?.size ?? 0} onceSize=${onceSet?.size ?? 0}`);
+    cuDebugLog(
+      `isAppApproved: ${appId} -> ${canonicalAppId} result=${result} allowedApps=[${allowedApps.join(',')}] sessionKey="${sessionKey}" globalSize=${this._approvedAppsGlobal.size} sessionSize=${this._approvedAppsBySession.get(sessionKey)?.size ?? 0} onceSize=${onceSet?.size ?? 0}`,
+    );
     return result;
   }
 
@@ -287,10 +271,7 @@ export class ComputerUseHost {
   // Capability assertion
   // -----------------------------------------------------------------------
 
-  private _assertCapability(
-    capabilities: ComputerUseCapabilities,
-    action: Action,
-  ): void {
+  private _assertCapability(capabilities: ComputerUseCapabilities, action: Action): void {
     const capKey = ACTION_TO_CAPABILITY[action.type];
     if (!capKey) {
       // No capability mapping for this action type (e.g. stop) — allow through
@@ -321,11 +302,11 @@ export class ComputerUseHost {
     }
 
     // Everything else (false, 'unsupported', etc.) → unsupported
-    throw computerUseError(
-      'CAPABILITY_UNSUPPORTED',
-      COMPUTER_USE_ERRORS.CAPABILITY_UNSUPPORTED,
-      { action: action.type, capability: capKey, value },
-    );
+    throw computerUseError('CAPABILITY_UNSUPPORTED', COMPUTER_USE_ERRORS.CAPABILITY_UNSUPPORTED, {
+      action: action.type,
+      capability: capKey,
+      value,
+    });
   }
 
   // -----------------------------------------------------------------------
@@ -336,21 +317,15 @@ export class ComputerUseHost {
    * Check whether an already-active lease can be reused, or release it for
    * takeover by a different app.
    */
-  private _reuseOrReplaceActiveLease(
-    ctx: Ctx,
-    providerId: string,
-    target: Target,
-  ): Lease | null {
+  private _reuseOrReplaceActiveLease(ctx: Ctx, providerId: string, target: Target): Lease | null {
     const active = this._leases.getActiveLease();
     if (!active) return null;
 
     // Same owner and same target → reuse
     const sameOwner =
-      active.sessionPath === (ctx.sessionPath ?? '') &&
-      active.agentId === (ctx.agentId ?? '');
+      active.sessionPath === (ctx.sessionPath ?? '') && active.agentId === (ctx.agentId ?? '');
     const sameTarget =
-      active.providerId === providerId &&
-      active.appId === (target.appId ?? target.appName ?? '');
+      active.providerId === providerId && active.appId === (target.appId ?? target.appName ?? '');
 
     if (sameOwner && sameTarget) {
       return active;
@@ -374,7 +349,10 @@ export class ComputerUseHost {
       provider.stop(ctx, lease).catch(() => {});
       provider.releaseLease(ctx, lease).catch(() => {});
     } catch (err) {
-      this._logger?.warn({ err, leaseId: lease.leaseId }, 'Error releasing lease for takeover — lease record already released');
+      this._logger?.warn(
+        { err, leaseId: lease.leaseId },
+        'Error releasing lease for takeover — lease record already released',
+      );
     }
   }
 
@@ -409,10 +387,7 @@ export class ComputerUseHost {
   }
 
   /** List available apps on the target machine. */
-  async listApps(
-    ctx: Ctx,
-    providerId?: string | null,
-  ): Promise<AppInfo[]> {
+  async listApps(ctx: Ctx, providerId?: string | null): Promise<AppInfo[]> {
     this._assertRuntimeAllowed(ctx);
 
     const pid = providerId ?? this._resolveProviderId(ctx, {});
@@ -426,12 +401,15 @@ export class ComputerUseHost {
 
     const providerId = this._resolveProviderId(ctx, target);
     const provider = this._providers.require(providerId);
-    this._logger?.debug({
-      providerId,
-      target,
-      sessionPath: ctx.sessionPath,
-      agentId: ctx.agentId,
-    }, 'Computer Use createLease requested');
+    this._logger?.debug(
+      {
+        providerId,
+        target,
+        sessionPath: ctx.sessionPath,
+        agentId: ctx.agentId,
+      },
+      'Computer Use createLease requested',
+    );
 
     // activateOnly skips app approval and launch — just focuses an existing window
     if (!target.activateOnly) {
@@ -447,7 +425,11 @@ export class ComputerUseHost {
 
     // Release any stale lease for the same target before creating a new one
     const active = this._leases.getActiveLease();
-    if (active && active.providerId === providerId && active.appId === (target.appId ?? target.appName ?? '')) {
+    if (
+      active &&
+      active.providerId === providerId &&
+      active.appId === (target.appId ?? target.appName ?? '')
+    ) {
       this._releaseLeaseForTakeover(ctx, active);
     }
 
@@ -500,24 +482,39 @@ export class ComputerUseHost {
   async getAppState(
     ctx: Ctx,
     leaseId?: string | null,
-  ): Promise<AppState & { snapshotId: string; leaseId: string; providerId: string; allowedActions: ActionType[] }> {
+  ): Promise<
+    AppState & {
+      snapshotId: string;
+      leaseId: string;
+      providerId: string;
+      allowedActions: ActionType[];
+    }
+  > {
     this._assertRuntimeAllowed(ctx);
 
     const lease = this._resolveActiveLease(ctx, leaseId);
-    this._logger?.debug({
-      leaseId: lease.leaseId,
-      requestedLeaseId: leaseId,
-      providerId: lease.providerId,
-      appId: lease.appId,
-      sessionPath: ctx.sessionPath,
-      agentId: ctx.agentId,
-    }, 'Computer Use getAppState requested');
+    this._logger?.debug(
+      {
+        leaseId: lease.leaseId,
+        requestedLeaseId: leaseId,
+        providerId: lease.providerId,
+        appId: lease.appId,
+        sessionPath: ctx.sessionPath,
+        agentId: ctx.agentId,
+      },
+      'Computer Use getAppState requested',
+    );
     const provider = this._providers.require(lease.providerId);
 
     const stateStart = Date.now();
     const state = await provider.getAppState(ctx, lease);
     this._logger?.info(
-      { leaseId: lease.leaseId, providerId: lease.providerId, elementCount: state.elements.length, elapsedMs: Date.now() - stateStart },
+      {
+        leaseId: lease.leaseId,
+        providerId: lease.providerId,
+        elementCount: state.elements.length,
+        elapsedMs: Date.now() - stateStart,
+      },
       'Computer Use provider.getAppState completed',
     );
     const recorded = this._leases.recordSnapshot(ctx, lease.leaseId, state);
@@ -532,29 +529,25 @@ export class ComputerUseHost {
   }
 
   /** Perform an action (click, type, scroll, etc.). */
-  async performAction(
-    ctx: Ctx,
-    leaseId: string | null,
-    action: Action,
-  ): Promise<ActionResult> {
+  async performAction(ctx: Ctx, leaseId: string | null, action: Action): Promise<ActionResult> {
     this._assertRuntimeAllowed(ctx);
 
     const lease = this._resolveActiveLease(ctx, leaseId);
-    this._logger?.debug({
-      leaseId: lease.leaseId,
-      requestedLeaseId: leaseId,
-      providerId: lease.providerId,
-      appId: lease.appId,
-      actionType: action.type,
-      sessionPath: ctx.sessionPath,
-      agentId: ctx.agentId,
-    }, 'Computer Use performAction requested');
+    this._logger?.debug(
+      {
+        leaseId: lease.leaseId,
+        requestedLeaseId: leaseId,
+        providerId: lease.providerId,
+        appId: lease.appId,
+        actionType: action.type,
+        sessionPath: ctx.sessionPath,
+        agentId: ctx.agentId,
+      },
+      'Computer Use performAction requested',
+    );
 
     // Policy check: is this action type allowed by the lease?
-    if (
-      lease.allowedActions.length > 0 &&
-      !lease.allowedActions.includes(action.type)
-    ) {
+    if (lease.allowedActions.length > 0 && !lease.allowedActions.includes(action.type)) {
       throw computerUseError(
         'ACTION_BLOCKED_BY_POLICY',
         COMPUTER_USE_ERRORS.ACTION_BLOCKED_BY_POLICY,
@@ -565,11 +558,7 @@ export class ComputerUseHost {
     // Validate snapshot if one was referenced
     let validatedSnapshot: (AppState & { snapshotId: string }) | null = null;
     if (action.snapshotId) {
-      validatedSnapshot = this._leases.validateSnapshot(
-        ctx,
-        lease.leaseId,
-        action.snapshotId,
-      );
+      validatedSnapshot = this._leases.validateSnapshot(ctx, lease.leaseId, action.snapshotId);
     }
 
     const provider = this._providers.require(lease.providerId);
@@ -587,11 +576,10 @@ export class ComputerUseHost {
           : null);
 
       if (!snap) {
-        throw computerUseError(
-          'STALE_SNAPSHOT',
-          COMPUTER_USE_ERRORS.STALE_SNAPSHOT,
-          { leaseId: lease.leaseId, elementId: action.elementId },
-        );
+        throw computerUseError('STALE_SNAPSHOT', COMPUTER_USE_ERRORS.STALE_SNAPSHOT, {
+          leaseId: lease.leaseId,
+          elementId: action.elementId,
+        });
       }
 
       // 回退匹配:模型常把 view_screen 显示格式 "#<id>: <role> "<label>"
@@ -608,11 +596,9 @@ export class ComputerUseHost {
         element = snap.elements.find((e) => e.label === action.elementId) ?? null;
       }
       if (!element) {
-        throw computerUseError(
-          'TARGET_NOT_FOUND',
-          COMPUTER_USE_ERRORS.TARGET_NOT_FOUND,
-          { elementId: action.elementId },
-        );
+        throw computerUseError('TARGET_NOT_FOUND', COMPUTER_USE_ERRORS.TARGET_NOT_FOUND, {
+          elementId: action.elementId,
+        });
       }
       actionForProvider = { ...action, snapshotElement: element };
     }
@@ -624,7 +610,13 @@ export class ComputerUseHost {
     );
     const result = await provider.performAction(ctx, lease, actionForProvider);
     this._logger?.info(
-      { leaseId: lease.leaseId, providerId: lease.providerId, actionType: action.type, ok: result.ok, elapsedMs: Date.now() - actionStart },
+      {
+        leaseId: lease.leaseId,
+        providerId: lease.providerId,
+        actionType: action.type,
+        ok: result.ok,
+        elapsedMs: Date.now() - actionStart,
+      },
       'Computer Use provider.performAction completed',
     );
 
@@ -680,7 +672,10 @@ export class ComputerUseHost {
         const ctx: Ctx = { sessionPath: lease.sessionPath, agentId: lease.agentId };
         provider.releaseLease(ctx, lease).catch(() => {});
       } catch (err) {
-        this._logger?.warn({ err, leaseId: lease.leaseId }, 'Error releasing lease in abortSession');
+        this._logger?.warn(
+          { err, leaseId: lease.leaseId },
+          'Error releasing lease in abortSession',
+        );
       }
     }
     this._leases.releaseBySession(sessionPath);

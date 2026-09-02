@@ -4,16 +4,12 @@ import type { AppConfig, ToolProfileId } from '../app/types.js';
 const DEFAULT_TOOL_PROFILE: ToolProfileId = 'standard';
 
 function resolveModel(agent: AgentConfig, global: AppConfig): ResolvedAgentConfig['model'] {
-  const primary = agent.model?.primary
-    || `${global.piAi.provider}/${global.piAi.model}`;
+  const primary = agent.model?.primary || `${global.piAi.provider}/${global.piAi.model}`;
 
-  const fallback = agent.model?.fallback !== undefined
-    ? agent.model.fallback
-    : global.fallbackModels;
+  const fallback =
+    agent.model?.fallback !== undefined ? agent.model.fallback : global.fallbackModels;
 
-  const reasoning_level = agent.model?.reasoning_level
-    || global.defaultReasoningLevel
-    || 'off';
+  const reasoning_level = agent.model?.reasoning_level || global.defaultReasoningLevel || 'off';
 
   const transport = agent.model?.transport || 'auto';
   const max_retry = agent.model?.max_retry || 3;
@@ -22,9 +18,7 @@ function resolveModel(agent: AgentConfig, global: AppConfig): ResolvedAgentConfi
 }
 
 function resolveTools(agent: AgentConfig, global: AppConfig): ResolvedAgentConfig['tools'] {
-  const profile = agent.tools?.profile
-    || global.tools.toolsProfile
-    || DEFAULT_TOOL_PROFILE;
+  const profile = agent.tools?.profile || global.tools.toolsProfile || DEFAULT_TOOL_PROFILE;
 
   const add = agent.tools?.add || [];
   const deny = agent.tools?.deny || [];
@@ -42,11 +36,10 @@ function resolveSpawn(agent: AgentConfig, global: AppConfig): ResolvedAgentConfi
     Object.prototype.hasOwnProperty.call(agent, 'spawn') && agent.spawn !== undefined;
 
   return {
-    enabled: agent.spawn?.enabled
-      ?? (hasExplicitSpawnBlock ? false : (global.smart_agent_team?.enabled ?? false)),
-    max_parallel: agent.spawn?.max_parallel
-      ?? global.smart_agent_team?.max_children
-      ?? 4,
+    enabled:
+      agent.spawn?.enabled ??
+      (hasExplicitSpawnBlock ? false : (global.smart_agent_team?.enabled ?? false)),
+    max_parallel: agent.spawn?.max_parallel ?? global.smart_agent_team?.max_children ?? 4,
     allowed_personas: agent.spawn?.allowed_personas || [],
   };
 }
@@ -59,10 +52,7 @@ function resolveChannels(agent: AgentConfig): string[] {
   return agent.channels || [];
 }
 
-export function resolveAgentConfig(
-  global: AppConfig,
-  agent: AgentConfig,
-): ResolvedAgentConfig {
+export function resolveAgentConfig(global: AppConfig, agent: AgentConfig): ResolvedAgentConfig {
   // Empty prompt = no agent override layer; the PromptManager base layer is
   // used as the real system default (Task Execution, Memory, cronjob, ...).
   const system_prompt = agent.system_prompt ?? '';

@@ -31,14 +31,13 @@ export function createMemoryDoctorToolDefinition(options: {
   return {
     name: 'memory_doctor',
     label: 'Memory Doctor',
-    description: 'Diagnose memory health: orphan data, FTS consistency, persona staleness, missing embeddings.',
+    description:
+      'Diagnose memory health: orphan data, FTS consistency, persona staleness, missing embeddings.',
     category: 'memory',
     parametersSchema: MemoryDoctorParams,
     capability: memoryDoctorToolCapability,
     execute: async (args) => {
-      const report = args.repair
-        ? await options.doctor.repair()
-        : await options.doctor.diagnose();
+      const report = args.repair ? await options.doctor.repair() : await options.doctor.diagnose();
 
       const lines: string[] = [
         '=== Memory Doctor Report ===',
@@ -56,7 +55,7 @@ export function createMemoryDoctorToolDefinition(options: {
       return textResult(lines.join('\n'), {
         totalIssues: report.totalIssues,
         repaired: report.repaired,
-        checks: report.checks.map(c => ({ name: c.name, status: c.status })),
+        checks: report.checks.map((c) => ({ name: c.name, status: c.status })),
       });
     },
   };

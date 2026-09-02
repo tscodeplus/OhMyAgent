@@ -184,7 +184,9 @@ describe('fallbackTitle', () => {
   });
 
   it('boundary-truncates clause-less messages within the width budget', () => {
-    const result = fallbackTitle('<system-reminder>x</system-reminder> 帮我写一个非常长的Python脚本用于数据处理');
+    const result = fallbackTitle(
+      '<system-reminder>x</system-reminder> 帮我写一个非常长的Python脚本用于数据处理',
+    );
     expect(result).not.toBeNull();
     expect(titleWidth(result!)).toBeLessThanOrEqual(MAX_TITLE_WIDTH);
     expect(titleCharCount(result!)).toBeGreaterThanOrEqual(MIN_TITLE_CHARS);
@@ -215,7 +217,11 @@ describe('generateSessionTitle', () => {
       content: [{ type: 'text', text: '{"title":"帮我写脚本"}' }],
     });
 
-    const title = await generateSessionTitle({ model, message: '帮我写一个 Python 脚本', apiKey: 'sk-test' });
+    const title = await generateSessionTitle({
+      model,
+      message: '帮我写一个 Python 脚本',
+      apiKey: 'sk-test',
+    });
 
     expect(title).toBe('帮我写脚本');
     expect(mockCompleteSimple).toHaveBeenCalledWith(
@@ -231,7 +237,10 @@ describe('generateSessionTitle', () => {
       content: [{ type: 'text', text: '{"title":"Ubuntu 26.04.1发布了吗"}' }],
     });
 
-    const title = await generateSessionTitle({ model, message: 'Ubuntu 26.04.1发布了吗，需要根据官方release notes来确认' });
+    const title = await generateSessionTitle({
+      model,
+      message: 'Ubuntu 26.04.1发布了吗，需要根据官方release notes来确认',
+    });
 
     expect(title).toBe('Ubuntu 26.04.1发布了吗');
     expect(mockCompleteSimple).toHaveBeenCalledTimes(1);
@@ -241,7 +250,12 @@ describe('generateSessionTitle', () => {
     mockCompleteSimple
       .mockResolvedValueOnce({
         stopReason: 'stop',
-        content: [{ type: 'text', text: '{"title":"a very long conversation title about many things at once"}' }],
+        content: [
+          {
+            type: 'text',
+            text: '{"title":"a very long conversation title about many things at once"}',
+          },
+        ],
       })
       .mockResolvedValueOnce({
         stopReason: 'stop',
@@ -262,11 +276,21 @@ describe('generateSessionTitle', () => {
     mockCompleteSimple
       .mockResolvedValueOnce({
         stopReason: 'stop',
-        content: [{ type: 'text', text: '{"title":"a very long conversation title about many things at once"}' }],
+        content: [
+          {
+            type: 'text',
+            text: '{"title":"a very long conversation title about many things at once"}',
+          },
+        ],
       })
       .mockResolvedValueOnce({
         stopReason: 'stop',
-        content: [{ type: 'text', text: '{"title":"another extremely long title that keeps rambling on and on"}' }],
+        content: [
+          {
+            type: 'text',
+            text: '{"title":"another extremely long title that keeps rambling on and on"}',
+          },
+        ],
       });
 
     const title = await generateSessionTitle({ model, message: 'a very long message' });

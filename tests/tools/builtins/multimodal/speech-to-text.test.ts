@@ -20,22 +20,46 @@ function createMockConfig(overrides?: Partial<AppConfig>): AppConfig {
     logging: { level: 'info' },
     uiLanguage: 'en',
     showToolCalls: true,
-    feishu: { enabled: false, appId: '', appSecret: '', verificationToken: '', encryptKey: '', wsEnabled: false },
+    feishu: {
+      enabled: false,
+      appId: '',
+      appSecret: '',
+      verificationToken: '',
+      encryptKey: '',
+      wsEnabled: false,
+    },
     piAi: { provider: 'openai', model: 'gpt-4o', reasoningModel: 'o3-mini', apiKey: 'sk-test' },
-    embedding: { baseUrl: 'https://test.com', apiKey: 'sk-test', model: 'text-embedding-ada-002', dimension: 1536 },
+    embedding: {
+      baseUrl: 'https://test.com',
+      apiKey: 'sk-test',
+      model: 'text-embedding-ada-002',
+      dimension: 1536,
+    },
     database: { path: ':memory:' },
     rateLimit: { webhookMaxRequests: 100, webhookWindowMs: 60000 },
     tools: {
-      shellEnabled: false, defaultTimeoutMs: 30000, maxOutputLength: 5000,
-      toolsProfile: 'standard', shellExecMode: 'safe', shellAllowlist: [],
-      shellApprovalMode: 'balanced', shellApprovalWhitelist: [],
-      shellApprovalTimeoutSec: 120, shellApprovalTimeoutAction: 'deny',
+      shellEnabled: false,
+      defaultTimeoutMs: 30000,
+      maxOutputLength: 5000,
+      toolsProfile: 'standard',
+      shellExecMode: 'safe',
+      shellAllowlist: [],
+      shellApprovalMode: 'balanced',
+      shellApprovalWhitelist: [],
+      shellApprovalTimeoutSec: 120,
+      shellApprovalTimeoutAction: 'deny',
       fileRead: { allowedRoots: [], deniedPatterns: [] },
     },
     memory: {
-      autoRecall: false, autoCapture: false, recallTopK: 3, recallMinScore: 0.01,
-      captureMaxChars: 500, summarizeInterval: 20, outputLanguage: 'Auto',
-      decayHalfLifeDays: 0, embeddingCacheMaxEntries: 100,
+      autoRecall: false,
+      autoCapture: false,
+      recallTopK: 3,
+      recallMinScore: 0.01,
+      captureMaxChars: 500,
+      summarizeInterval: 20,
+      outputLanguage: 'Auto',
+      decayHalfLifeDays: 0,
+      embeddingCacheMaxEntries: 100,
       hygiene: { enabled: false, retentionDays: 90 },
       embeddingCircuitBreaker: { failureThreshold: 5, cooldownSec: 30 },
     },
@@ -64,7 +88,9 @@ describe('speech_to_text', () => {
   let tmpAudioPath: string;
 
   afterAll(() => {
-    try { unlinkSync(tmpAudioPath); } catch {}
+    try {
+      unlinkSync(tmpAudioPath);
+    } catch {}
   });
 
   it('rejects when STT is not enabled', async () => {

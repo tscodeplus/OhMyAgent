@@ -26,11 +26,11 @@ import { dataPath } from '../../../shared/agent-home.js';
 
 export const downloadFileCapability: ToolCapabilityDescriptor = {
   category: 'file',
-  readOnly: false,       // writes the downloaded file to disk
+  readOnly: false, // writes the downloaded file to disk
   readsFiles: false,
   writesFiles: true,
   usesShell: false,
-  usesNetwork: true,     // makes HTTP(S) requests
+  usesNetwork: true, // makes HTTP(S) requests
   usesComputerUse: false,
   pathAccess: 'write',
   approvalDefault: 'none',
@@ -45,7 +45,9 @@ function sanitizeFileName(value: string): string {
   return sanitized || 'download';
 }
 
-function downloadFromUrl(url: string): Promise<{ buffer: Buffer; contentType?: string; fileName?: string }> {
+function downloadFromUrl(
+  url: string,
+): Promise<{ buffer: Buffer; contentType?: string; fileName?: string }> {
   return new Promise((resolvePromise, rejectPromise) => {
     const parsed = new URL(url);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
@@ -60,84 +62,94 @@ function downloadFromUrl(url: string): Promise<{ buffer: Buffer; contentType?: s
     let redirectCount = 0;
 
     function makeRequest(requestUrl: string) {
-      mod.get(requestUrl, { timeout: 60_000 }, (res) => {
-        // Follow redirects
-        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          redirectCount++;
-          if (redirectCount > maxRedirects) {
-            rejectPromise(new Error('Too many redirects'));
+      mod
+        .get(requestUrl, { timeout: 60_000 }, (res) => {
+          // Follow redirects
+          if (
+            res.statusCode &&
+            res.statusCode >= 300 &&
+            res.statusCode < 400 &&
+            res.headers.location
+          ) {
+            redirectCount++;
+            if (redirectCount > maxRedirects) {
+              rejectPromise(new Error('Too many redirects'));
+              return;
+            }
+            const location = res.headers.location;
+            const redirectUrl = location.startsWith('http')
+              ? location
+              : new URL(location, parsed.origin).href;
+            // Consume response and follow
+            res.resume();
+            makeRequest(redirectUrl);
             return;
           }
-          const location = res.headers.location;
-          const redirectUrl = location.startsWith('http')
-            ? location
-            : new URL(location, parsed.origin).href;
-          // Consume response and follow
-          res.resume();
-          makeRequest(redirectUrl);
-          return;
-        }
 
-        if (res.statusCode && res.statusCode >= 400) {
-          res.resume();
-          rejectPromise(new Error(`HTTP ${res.statusCode}: ${res.statusMessage || 'Request failed'}`));
-          return;
-        }
-
-        // Check Content-Length before downloading
-        const contentLengthStr = res.headers['content-length'];
-        if (contentLengthStr) {
-          const contentLength = parseInt(contentLengthStr, 10);
-          if (contentLength > MAX_FILE_SIZE) {
-            res.destroy();
-            rejectPromise(new Error(
-              `File too large: ${(contentLength / 1024 / 1024).toFixed(1)} MB (max 50 MB)`,
-            ));
+          if (res.statusCode && res.statusCode >= 400) {
+            res.resume();
+            rejectPromise(
+              new Error(`HTTP ${res.statusCode}: ${res.statusMessage || 'Request failed'}`),
+            );
             return;
           }
-        }
 
-        const chunks: Buffer[] = [];
-        let totalSize = 0;
-
-        res.on('data', (chunk: Buffer) => {
-          totalSize += chunk.length;
-          if (totalSize > MAX_FILE_SIZE) {
-            res.destroy();
-            rejectPromise(new Error(
-              `Download exceeded size limit (50 MB)`,
-            ));
-            return;
-          }
-          chunks.push(chunk);
-        });
-
-        res.on('end', () => {
-          const buffer = Buffer.concat(chunks);
-          const contentType = res.headers['content-type'] || undefined;
-
-          // Extract filename from Content-Disposition header
-          let fileName: string | undefined;
-          const disposition = res.headers['content-disposition'];
-          if (typeof disposition === 'string') {
-            const match = disposition.match(/filename\*?=(?:(['"])(.*?)\1|([^;\n]*))/i);
-            if (match) {
-              fileName = (match[2] || match[3] || '').replace(/['"]/g, '');
+          // Check Content-Length before downloading
+          const contentLengthStr = res.headers['content-length'];
+          if (contentLengthStr) {
+            const contentLength = parseInt(contentLengthStr, 10);
+            if (contentLength > MAX_FILE_SIZE) {
+              res.destroy();
+              rejectPromise(
+                new Error(
+                  `File too large: ${(contentLength / 1024 / 1024).toFixed(1)} MB (max 50 MB)`,
+                ),
+              );
+              return;
             }
           }
 
-          resolvePromise({ buffer, contentType, fileName });
-        });
+          const chunks: Buffer[] = [];
+          let totalSize = 0;
 
-        res.on('error', (err) => {
+          res.on('data', (chunk: Buffer) => {
+            totalSize += chunk.length;
+            if (totalSize > MAX_FILE_SIZE) {
+              res.destroy();
+              rejectPromise(new Error(`Download exceeded size limit (50 MB)`));
+              return;
+            }
+            chunks.push(chunk);
+          });
+
+          res.on('end', () => {
+            const buffer = Buffer.concat(chunks);
+            const contentType = res.headers['content-type'] || undefined;
+
+            // Extract filename from Content-Disposition header
+            let fileName: string | undefined;
+            const disposition = res.headers['content-disposition'];
+            if (typeof disposition === 'string') {
+              const match = disposition.match(/filename\*?=(?:(['"])(.*?)\1|([^;\n]*))/i);
+              if (match) {
+                fileName = (match[2] || match[3] || '').replace(/['"]/g, '');
+              }
+            }
+
+            resolvePromise({ buffer, contentType, fileName });
+          });
+
+          res.on('error', (err) => {
+            rejectPromise(err);
+          });
+        })
+        .on('error', (err) => {
           rejectPromise(err);
+        })
+        .on('timeout', function (this: any) {
+          this.destroy();
+          rejectPromise(new Error('Download timeout (60s)'));
         });
-      }).on('error', (err) => {
-        rejectPromise(err);
-      }).on('timeout', function (this: any) {
-        this.destroy();
-        rejectPromise(new Error('Download timeout (60s)'));
-      });
     }
 
     makeRequest(url);
@@ -167,15 +179,15 @@ export function createDownloadFileToolDefinition(): ToolDefinition {
       url: Type.String({
         description: 'The HTTP or HTTPS URL of the file to download',
       }),
-      filename: Type.Optional(Type.String({
-        description: 'Optional filename to save as (sanitized automatically). If omitted, derived from URL or Content-Disposition header.',
-      })),
+      filename: Type.Optional(
+        Type.String({
+          description:
+            'Optional filename to save as (sanitized automatically). If omitted, derived from URL or Content-Disposition header.',
+        }),
+      ),
     }),
     capability: downloadFileCapability,
-    execute: async (
-      args: { url: string; filename?: string },
-      _ctx,
-    ) => {
+    execute: async (args: { url: string; filename?: string }, _ctx) => {
       try {
         const { url, filename: suggestedName } = args;
 
@@ -197,10 +209,8 @@ export function createDownloadFileToolDefinition(): ToolDefinition {
         const result = await downloadFromUrl(url);
 
         // Determine filename
-        const rawFileName = suggestedName
-          || result.fileName
-          || path.basename(parsed.pathname)
-          || 'download';
+        const rawFileName =
+          suggestedName || result.fileName || path.basename(parsed.pathname) || 'download';
         const fileName = sanitizeFileName(rawFileName);
 
         // Ensure unique filename
@@ -218,19 +228,20 @@ export function createDownloadFileToolDefinition(): ToolDefinition {
         // Generate public download URL (full URL when OHMYAGENT_PUBLIC_URL is configured)
         const downloadUrl = createDownloadUrl(destPath, fileName, getBaseUrl());
 
-        const sizeStr = result.buffer.length < 1024
-          ? `${result.buffer.length} B`
-          : result.buffer.length < 1024 * 1024
-            ? `${(result.buffer.length / 1024).toFixed(1)} KB`
-            : `${(result.buffer.length / (1024 * 1024)).toFixed(1)} MB`;
+        const sizeStr =
+          result.buffer.length < 1024
+            ? `${result.buffer.length} B`
+            : result.buffer.length < 1024 * 1024
+              ? `${(result.buffer.length / 1024).toFixed(1)} KB`
+              : `${(result.buffer.length / (1024 * 1024)).toFixed(1)} MB`;
 
         return textResult(
           `✅ 文件下载成功\n` +
-          `- 文件名: ${fileName}\n` +
-          `- 大小: ${sizeStr}\n` +
-          `- 本地路径: ${destPath}\n` +
-          `- 下载链接: ${downloadUrl}\n\n` +
-          `你可以使用 file_read 工具读取此文件的内容。`,
+            `- 文件名: ${fileName}\n` +
+            `- 大小: ${sizeStr}\n` +
+            `- 本地路径: ${destPath}\n` +
+            `- 下载链接: ${downloadUrl}\n\n` +
+            `你可以使用 file_read 工具读取此文件的内容。`,
           { localPath: destPath, fileName, size: result.buffer.length, downloadUrl },
         );
       } catch (err: any) {

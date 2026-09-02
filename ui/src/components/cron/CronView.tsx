@@ -81,7 +81,9 @@ export default function CronView() {
   const [formNextRun, setFormNextRun] = useState('');
   const [formEnabled, setFormEnabled] = useState(true);
   // Resolve Select value: if formExpr matches a preset, use it; otherwise show "__custom__"
-  const expressionSelectValue = COMMON_EXPRESSIONS.some(e => e.value === formExpr) ? formExpr : '__custom__';
+  const expressionSelectValue = COMMON_EXPRESSIONS.some((e) => e.value === formExpr)
+    ? formExpr
+    : '__custom__';
   const humanExpr = cronToHuman(formExpr);
 
   const fetchJobs = useCallback(async () => {
@@ -99,7 +101,9 @@ export default function CronView() {
     }
   }, [statusFilter, searchQuery]);
 
-  useEffect(() => { fetchJobs(); }, [fetchJobs]);
+  useEffect(() => {
+    fetchJobs();
+  }, [fetchJobs]);
 
   const openNew = () => {
     setEditingJob(null);
@@ -164,7 +168,11 @@ export default function CronView() {
       showToast(t('cron.saved'), 'success');
       setShowEditor(false);
       fetchJobs();
-    } catch { showToast(t('cron.saveError'), 'error'); } finally { setSaving(false); }
+    } catch {
+      showToast(t('cron.saveError'), 'error');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -172,7 +180,9 @@ export default function CronView() {
       await apiRequest(`/api/cron/jobs/${id}`, { method: 'DELETE' });
       showToast(t('project.deleted'), 'success');
       fetchJobs();
-    } catch { showToast(t('project.deleteError'), 'error'); }
+    } catch {
+      showToast(t('project.deleteError'), 'error');
+    }
   };
 
   const handleToggle = async (job: CronJob) => {
@@ -182,7 +192,9 @@ export default function CronView() {
         body: JSON.stringify({ enabled: !job.enabled }),
       });
       fetchJobs();
-    } catch { showToast(t('cron.operError'), 'error'); }
+    } catch {
+      showToast(t('cron.operError'), 'error');
+    }
   };
 
   const handleRunNow = async (id: string) => {
@@ -190,20 +202,27 @@ export default function CronView() {
       await apiRequest(`/api/cron/jobs/${id}/run`, { method: 'POST' });
       showToast(t('cron.triggered'), 'success');
       fetchJobs();
-    } catch { showToast(t('cron.triggerError'), 'error'); }
+    } catch {
+      showToast(t('cron.triggerError'), 'error');
+    }
   };
 
   return (
     <div className="h-full overflow-y-auto px-4 sm:px-8 py-4 sm:py-6">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl sm:text-2xl font-bold">{t('cron.title')}</h1>
-        <Button size="sm" onClick={openNew}><Plus size={14} /> {t('cron.newJob')}</Button>
+        <Button size="sm" onClick={openNew}>
+          <Plus size={14} /> {t('cron.newJob')}
+        </Button>
       </div>
 
       {/* Search & Filters */}
       <div className="flex items-center gap-3 mb-4">
         <div className="relative flex-1 min-w-[200px] max-w-xs">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 dark:text-neutral-400" />
+          <Search
+            size={14}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 dark:text-neutral-400"
+          />
           <input
             type="text"
             value={searchQuery}
@@ -227,107 +246,167 @@ export default function CronView() {
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-12"><Spinner /></div>
+        <div className="flex justify-center py-12">
+          <Spinner />
+        </div>
       ) : jobs.length === 0 ? (
-        <div className="text-center py-12 text-neutral-500 dark:text-neutral-400 text-sm">{t('cron.noJobs')}</div>
+        <div className="text-center py-12 text-neutral-500 dark:text-neutral-400 text-sm">
+          {t('cron.noJobs')}
+        </div>
       ) : (
         <>
-        {/* Desktop: full table (scrolls horizontally if needed) */}
-        <div className="hidden overflow-x-auto rounded-lg border border-neutral-200 md:block dark:border-neutral-800">
-          <table className="w-full text-sm min-w-[600px]">
-            <thead className="bg-neutral-100 dark:bg-neutral-800">
-              <tr>
-                <th className="text-left px-4 py-2.5 font-medium">{t('cron.name')}</th>
-                <th className="text-left px-4 py-2.5 font-medium">{t('cron.expression')}</th>
-                <th className="text-left px-4 py-2.5 font-medium">{t('cron.channel')}</th>
-                <th className="text-left px-4 py-2.5 font-medium">{t('cron.status')}</th>
-                <th className="text-left px-4 py-2.5 font-medium">{t('cron.lastRun')}</th>
-                <th className="text-right px-4 py-2.5 font-medium">{t('cron.actions')}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {jobs.map((job) => {
-                const jobHuman = cronToHuman(job.expression);
-                return (
-                <tr key={job.id} className="hover:bg-neutral-100/30 dark:bg-neutral-800/30">
-                  <td className="px-4 py-2.5">
-                    <p className="font-medium">{job.name}</p>
-                    {job.description && <p className="text-xs text-neutral-500 dark:text-neutral-400">{job.description}</p>}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <code className="text-xs">{job.expression}</code>
-                    {jobHuman && <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">{jobHuman}</p>}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <span className="text-xs px-2 py-0.5 rounded bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
-                      {CHANNEL_LABELS[job.channel || 'webui'] || job.channel || 'WebUI'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${STATE_COLORS[job.state] || STATE_COLORS.idle}`}>
+          {/* Desktop: full table (scrolls horizontally if needed) */}
+          <div className="hidden overflow-x-auto rounded-lg border border-neutral-200 md:block dark:border-neutral-800">
+            <table className="w-full text-sm min-w-[600px]">
+              <thead className="bg-neutral-100 dark:bg-neutral-800">
+                <tr>
+                  <th className="text-left px-4 py-2.5 font-medium">{t('cron.name')}</th>
+                  <th className="text-left px-4 py-2.5 font-medium">{t('cron.expression')}</th>
+                  <th className="text-left px-4 py-2.5 font-medium">{t('cron.channel')}</th>
+                  <th className="text-left px-4 py-2.5 font-medium">{t('cron.status')}</th>
+                  <th className="text-left px-4 py-2.5 font-medium">{t('cron.lastRun')}</th>
+                  <th className="text-right px-4 py-2.5 font-medium">{t('cron.actions')}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {jobs.map((job) => {
+                  const jobHuman = cronToHuman(job.expression);
+                  return (
+                    <tr key={job.id} className="hover:bg-neutral-100/30 dark:bg-neutral-800/30">
+                      <td className="px-4 py-2.5">
+                        <p className="font-medium">{job.name}</p>
+                        {job.description && (
+                          <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                            {job.description}
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <code className="text-xs">{job.expression}</code>
+                        {jobHuman && (
+                          <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">
+                            {jobHuman}
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span className="text-xs px-2 py-0.5 rounded bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+                          {CHANNEL_LABELS[job.channel || 'webui'] || job.channel || 'WebUI'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span
+                          className={`text-xs px-2 py-0.5 rounded-full ${STATE_COLORS[job.state] || STATE_COLORS.idle}`}
+                        >
+                          {t(`cron.state.${job.state}`, { defaultValue: job.state })}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-neutral-500 dark:text-neutral-400">
+                        {job.last_run_at ? formatRelativeTime(job.last_run_at) : '—'}
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => handleRunNow(job.id)}
+                            className="p-1.5 hover:bg-neutral-100 dark:bg-neutral-800 rounded"
+                            title={t('cron.runNow')}
+                          >
+                            <Play size={14} />
+                          </button>
+                          <button
+                            onClick={() => openEdit(job)}
+                            className="p-1.5 hover:bg-neutral-100 dark:bg-neutral-800 rounded"
+                            title={t('cron.edit')}
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(job.id)}
+                            className="p-1.5 hover:bg-neutral-100 dark:bg-neutral-800 rounded text-danger"
+                            title={t('cron.delete')}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile: card list — same fields, no horizontal scrolling */}
+          <div className="space-y-2 md:hidden">
+            {jobs.map((job) => {
+              const jobHuman = cronToHuman(job.expression);
+              return (
+                <div
+                  key={job.id}
+                  className="rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{job.name}</p>
+                      {job.description && (
+                        <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">
+                          {job.description}
+                        </p>
+                      )}
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${STATE_COLORS[job.state] || STATE_COLORS.idle}`}
+                    >
                       {t(`cron.state.${job.state}`, { defaultValue: job.state })}
                     </span>
-                  </td>
-                  <td className="px-4 py-2.5 text-xs text-neutral-500 dark:text-neutral-400">
-                    {job.last_run_at ? formatRelativeTime(job.last_run_at) : '—'}
-                  </td>
-                  <td className="px-4 py-2.5 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <button onClick={() => handleRunNow(job.id)} className="p-1.5 hover:bg-neutral-100 dark:bg-neutral-800 rounded" title={t('cron.runNow')}>
-                        <Play size={14} />
+                  </div>
+                  <div className="mt-2 flex items-center gap-2 min-w-0">
+                    <code className="truncate text-xs text-neutral-600 dark:text-neutral-300">
+                      {job.expression}
+                    </code>
+                    {jobHuman && (
+                      <span className="truncate text-[11px] text-neutral-500 dark:text-neutral-400">
+                        {jobHuman}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-2.5 flex items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="shrink-0 rounded bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+                        {CHANNEL_LABELS[job.channel || 'webui'] || job.channel || 'WebUI'}
+                      </span>
+                      <span className="truncate text-xs text-neutral-500 dark:text-neutral-400">
+                        {job.last_run_at ? formatRelativeTime(job.last_run_at) : '—'}
+                      </span>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        onClick={() => handleRunNow(job.id)}
+                        className="rounded p-2 hover:bg-neutral-100 dark:bg-neutral-800"
+                        title={t('cron.runNow')}
+                      >
+                        <Play size={15} />
                       </button>
-                      <button onClick={() => openEdit(job)} className="p-1.5 hover:bg-neutral-100 dark:bg-neutral-800 rounded" title={t('cron.edit')}>
-                        <Pencil size={14} />
+                      <button
+                        onClick={() => openEdit(job)}
+                        className="rounded p-2 hover:bg-neutral-100 dark:bg-neutral-800"
+                        title={t('cron.edit')}
+                      >
+                        <Pencil size={15} />
                       </button>
-                      <button onClick={() => handleDelete(job.id)} className="p-1.5 hover:bg-neutral-100 dark:bg-neutral-800 rounded text-danger" title={t('cron.delete')}>
-                        <Trash2 size={14} />
+                      <button
+                        onClick={() => handleDelete(job.id)}
+                        className="rounded p-2 text-danger hover:bg-neutral-100 dark:bg-neutral-800"
+                        title={t('cron.delete')}
+                      >
+                        <Trash2 size={15} />
                       </button>
                     </div>
-                  </td>
-                </tr>
-              )})}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Mobile: card list — same fields, no horizontal scrolling */}
-        <div className="space-y-2 md:hidden">
-          {jobs.map((job) => {
-            const jobHuman = cronToHuman(job.expression);
-            return (
-              <div key={job.id} className="rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{job.name}</p>
-                    {job.description && <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{job.description}</p>}
-                  </div>
-                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${STATE_COLORS[job.state] || STATE_COLORS.idle}`}>
-                    {t(`cron.state.${job.state}`, { defaultValue: job.state })}
-                  </span>
-                </div>
-                <div className="mt-2 flex items-center gap-2 min-w-0">
-                  <code className="truncate text-xs text-neutral-600 dark:text-neutral-300">{job.expression}</code>
-                  {jobHuman && <span className="truncate text-[11px] text-neutral-500 dark:text-neutral-400">{jobHuman}</span>}
-                </div>
-                <div className="mt-2.5 flex items-center justify-between gap-2">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="shrink-0 rounded bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
-                      {CHANNEL_LABELS[job.channel || 'webui'] || job.channel || 'WebUI'}
-                    </span>
-                    <span className="truncate text-xs text-neutral-500 dark:text-neutral-400">
-                      {job.last_run_at ? formatRelativeTime(job.last_run_at) : '—'}
-                    </span>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1">
-                    <button onClick={() => handleRunNow(job.id)} className="rounded p-2 hover:bg-neutral-100 dark:bg-neutral-800" title={t('cron.runNow')}><Play size={15} /></button>
-                    <button onClick={() => openEdit(job)} className="rounded p-2 hover:bg-neutral-100 dark:bg-neutral-800" title={t('cron.edit')}><Pencil size={15} /></button>
-                    <button onClick={() => handleDelete(job.id)} className="rounded p-2 text-danger hover:bg-neutral-100 dark:bg-neutral-800" title={t('cron.delete')}><Trash2 size={15} /></button>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
         </>
       )}
 
@@ -340,48 +419,89 @@ export default function CronView() {
           size="sm"
           footer={
             <>
-              <Button variant="secondary" onClick={() => setShowEditor(false)}>{t('common.cancel')}</Button>
-              <Button onClick={handleSave} loading={saving}>{t("cron.save")}</Button>
+              <Button variant="secondary" onClick={() => setShowEditor(false)}>
+                {t('common.cancel')}
+              </Button>
+              <Button onClick={handleSave} loading={saving}>
+                {t('cron.save')}
+              </Button>
             </>
           }
         >
           <div className="space-y-4">
-            <Input label={t('cron.name')} value={formName} onChange={(e) => setFormName(e.target.value)} placeholder={t("cron.namePlaceholder")} />
-            <Textarea label={t("cron.description")} value={formDesc} onChange={(e) => setFormDesc(e.target.value)} rows={2} />
+            <Input
+              label={t('cron.name')}
+              value={formName}
+              onChange={(e) => setFormName(e.target.value)}
+              placeholder={t('cron.namePlaceholder')}
+            />
+            <Textarea
+              label={t('cron.description')}
+              value={formDesc}
+              onChange={(e) => setFormDesc(e.target.value)}
+              rows={2}
+            />
             <div>
-              <Select label={t('cron.expression')} value={expressionSelectValue} onChange={(e) => {
-                const v = e.target.value;
-                if (v === '__custom__') return; // keep current formExpr
-                setFormExpr(v);
-              }}
+              <Select
+                label={t('cron.expression')}
+                value={expressionSelectValue}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === '__custom__') return; // keep current formExpr
+                  setFormExpr(v);
+                }}
                 options={[
                   ...COMMON_EXPRESSIONS.map((e) => ({ value: e.value, label: e.label })),
                   { value: '__custom__', label: t('cron.custom') },
-                ]} />
+                ]}
+              />
               {expressionSelectValue === '__custom__' && (
-                <Input value={formExpr} onChange={(e) => setFormExpr(e.target.value)} placeholder={t("cron.customExpr")} className="mt-2" />
+                <Input
+                  value={formExpr}
+                  onChange={(e) => setFormExpr(e.target.value)}
+                  placeholder={t('cron.customExpr')}
+                  className="mt-2"
+                />
               )}
               {humanExpr && (
-                <p className="mt-1 text-xs text-blue-600 dark:text-blue-400">{t('cron.humanPreview')}: {humanExpr}</p>
+                <p className="mt-1 text-xs text-blue-600 dark:text-blue-400">
+                  {t('cron.humanPreview')}: {humanExpr}
+                </p>
               )}
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Select label={t('cron.channel')} value={formChannel} onChange={(e) => setFormChannel(e.target.value)}
+              <Select
+                label={t('cron.channel')}
+                value={formChannel}
+                onChange={(e) => setFormChannel(e.target.value)}
                 options={[
                   { value: 'webui', label: 'WebUI' },
                   { value: 'feishu', label: 'Feishu' },
                   { value: 'telegram', label: 'Telegram' },
                   { value: 'wechat', label: 'WeChat' },
                   { value: 'qq', label: 'QQ' },
-                ]} />
-              <Input label={t('cron.nextRun')} type="datetime-local" value={formNextRun} onChange={(e) => setFormNextRun(e.target.value)} />
+                ]}
+              />
+              <Input
+                label={t('cron.nextRun')}
+                type="datetime-local"
+                value={formNextRun}
+                onChange={(e) => setFormNextRun(e.target.value)}
+              />
             </div>
             {editingJob && (editingJob.state === 'completed' || editingJob.state === 'paused') && (
-              <p className="text-xs text-amber-600 dark:text-amber-400">{t('cron.willReactivate')}</p>
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                {t('cron.willReactivate')}
+              </p>
             )}
-            <Textarea label={t("cron.prompt_optional")} value={formPrompt} onChange={(e) => setFormPrompt(e.target.value)} rows={3} />
+            <Textarea
+              label={t('cron.prompt_optional')}
+              value={formPrompt}
+              onChange={(e) => setFormPrompt(e.target.value)}
+              rows={3}
+            />
             <div className="flex items-center justify-between">
-              <label className="text-sm">{t("cron.enabled")}</label>
+              <label className="text-sm">{t('cron.enabled')}</label>
               <Toggle checked={formEnabled} onChange={setFormEnabled} />
             </div>
           </div>

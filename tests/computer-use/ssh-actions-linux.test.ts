@@ -134,17 +134,23 @@ describe('readLinuxAccessibilityTree', () => {
       actions: ['click'],
     });
     // Role mapping table.
-    expect(elements[1].role).toBe('textbox');    // text entry -> textbox
+    expect(elements[1].role).toBe('textbox'); // text entry -> textbox
     expect(elements[1].enabled).toBe(false);
     expect(elements[1].actions).toBeUndefined(); // empty actions are omitted
-    expect(elements[2].role).toBe('checkbox');   // check box -> checkbox
-    expect(elements[3].role).toBe('radiobutton');// radio button -> radiobutton
-    expect(elements[4].role).toBe('tabitem');    // page tab -> tabitem
-    expect(elements[5].role).toBe('text');       // label -> text
-    expect(elements[6].role).toBe('tree');       // unmapped roles pass through
+    expect(elements[2].role).toBe('checkbox'); // check box -> checkbox
+    expect(elements[3].role).toBe('radiobutton'); // radio button -> radiobutton
+    expect(elements[4].role).toBe('tabitem'); // page tab -> tabitem
+    expect(elements[5].role).toBe('text'); // label -> text
+    expect(elements[6].role).toBe('tree'); // unmapped roles pass through
     // DFS path preserved as elementId.
-    expect(elements.map(e => e.elementId)).toEqual([
-      '/0/2', '/0/3', '/0/4', '/0/5', '/0/6', '/0/7', '/0/8',
+    expect(elements.map((e) => e.elementId)).toEqual([
+      '/0/2',
+      '/0/3',
+      '/0/4',
+      '/0/5',
+      '/0/6',
+      '/0/7',
+      '/0/8',
     ]);
   });
 

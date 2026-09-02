@@ -3,7 +3,14 @@
 // ---------------------------------------------------------------------------
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, unlinkSync, rmdirSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  unlinkSync,
+  rmdirSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createNotebookEditToolDefinition } from '../../../src/tools/builtins/files/notebook-edit-definition.js';
@@ -29,22 +36,46 @@ function createMockConfig(): AppConfig {
     logging: { level: 'info' },
     uiLanguage: 'en',
     showToolCalls: true,
-    feishu: { enabled: false, appId: '', appSecret: '', verificationToken: '', encryptKey: '', wsEnabled: false },
+    feishu: {
+      enabled: false,
+      appId: '',
+      appSecret: '',
+      verificationToken: '',
+      encryptKey: '',
+      wsEnabled: false,
+    },
     piAi: { provider: 'openai', model: 'gpt-4o', reasoningModel: 'o3-mini', apiKey: 'sk-test' },
-    embedding: { baseUrl: 'https://test.com', apiKey: 'sk-test', model: 'text-embedding-ada-002', dimension: 1536 },
+    embedding: {
+      baseUrl: 'https://test.com',
+      apiKey: 'sk-test',
+      model: 'text-embedding-ada-002',
+      dimension: 1536,
+    },
     database: { path: ':memory:' },
     rateLimit: { webhookMaxRequests: 100, webhookWindowMs: 60000 },
     tools: {
-      shellEnabled: false, defaultTimeoutMs: 30000, maxOutputLength: 5000,
-      toolsProfile: 'standard', shellExecMode: 'safe', shellAllowlist: [],
-      shellApprovalMode: 'balanced', shellApprovalWhitelist: [],
-      shellApprovalTimeoutSec: 120, shellApprovalTimeoutAction: 'deny',
+      shellEnabled: false,
+      defaultTimeoutMs: 30000,
+      maxOutputLength: 5000,
+      toolsProfile: 'standard',
+      shellExecMode: 'safe',
+      shellAllowlist: [],
+      shellApprovalMode: 'balanced',
+      shellApprovalWhitelist: [],
+      shellApprovalTimeoutSec: 120,
+      shellApprovalTimeoutAction: 'deny',
       fileRead: { allowedRoots: [], deniedPatterns: [] },
     },
     memory: {
-      autoRecall: false, autoCapture: false, recallTopK: 3, recallMinScore: 0.01,
-      captureMaxChars: 500, summarizeInterval: 20, outputLanguage: 'Auto',
-      decayHalfLifeDays: 0, embeddingCacheMaxEntries: 100,
+      autoRecall: false,
+      autoCapture: false,
+      recallTopK: 3,
+      recallMinScore: 0.01,
+      captureMaxChars: 500,
+      summarizeInterval: 20,
+      outputLanguage: 'Auto',
+      decayHalfLifeDays: 0,
+      embeddingCacheMaxEntries: 100,
       hygiene: { enabled: false, retentionDays: 90 },
       embeddingCircuitBreaker: { failureThreshold: 5, cooldownSec: 30 },
     },
@@ -81,8 +112,12 @@ describe('notebook_edit', () => {
   });
 
   afterAll(() => {
-    try { unlinkSync(nbPath); } catch {}
-    try { rmdirSync(tmpDir); } catch {}
+    try {
+      unlinkSync(nbPath);
+    } catch {}
+    try {
+      rmdirSync(tmpDir);
+    } catch {}
   });
 
   // -----------------------------------------------------------------------
@@ -95,7 +130,12 @@ describe('notebook_edit', () => {
     const ctx = createMockCtx(createMockConfig(), tmpDir);
 
     const result = await toolDef.execute(
-      { filePath: 'insert-end.ipynb', action: 'insert_cell', cellType: 'code', source: 'print("hello")' },
+      {
+        filePath: 'insert-end.ipynb',
+        action: 'insert_cell',
+        cellType: 'code',
+        source: 'print("hello")',
+      },
       ctx,
     );
     expect(result.isError).toBeFalsy();
@@ -108,7 +148,9 @@ describe('notebook_edit', () => {
     expect(nb.cells[0].execution_count).toBeNull();
     expect(nb.nbformat).toBe(4);
     expect(nb.metadata.kernelspec.name).toBe('python3');
-    try { unlinkSync(testNb); } catch {}
+    try {
+      unlinkSync(testNb);
+    } catch {}
   });
 
   it('inserts a cell at a specific index', async () => {
@@ -122,7 +164,13 @@ describe('notebook_edit', () => {
     const ctx = createMockCtx(createMockConfig(), tmpDir);
 
     const result = await toolDef.execute(
-      { filePath: 'insert-index.ipynb', action: 'insert_cell', cellType: 'code', source: 'x = 1', index: 1 },
+      {
+        filePath: 'insert-index.ipynb',
+        action: 'insert_cell',
+        cellType: 'code',
+        source: 'x = 1',
+        index: 1,
+      },
       ctx,
     );
     expect(result.isError).toBeFalsy();
@@ -132,7 +180,9 @@ describe('notebook_edit', () => {
     expect(updated.cells[0].cell_type).toBe('markdown');
     expect(updated.cells[1].cell_type).toBe('code');
     expect(updated.cells[2].cell_type).toBe('markdown');
-    try { unlinkSync(testNb); } catch {}
+    try {
+      unlinkSync(testNb);
+    } catch {}
   });
 
   it('rejects insert_cell without cellType', async () => {
@@ -161,15 +211,19 @@ describe('notebook_edit', () => {
 
   it('replaces a cell at a given index', async () => {
     const nb = emptyNb();
-    nb.cells = [
-      { cell_type: 'markdown', source: ['# Old'], metadata: {} },
-    ];
+    nb.cells = [{ cell_type: 'markdown', source: ['# Old'], metadata: {} }];
     const testNb = join(tmpDir, 'replace.ipynb');
     writeFileSync(testNb, JSON.stringify(nb, null, 2), 'utf-8');
     const ctx = createMockCtx(createMockConfig(), tmpDir);
 
     const result = await toolDef.execute(
-      { filePath: 'replace.ipynb', action: 'replace_cell', index: 0, cellType: 'code', source: 'y = 2' },
+      {
+        filePath: 'replace.ipynb',
+        action: 'replace_cell',
+        index: 0,
+        cellType: 'code',
+        source: 'y = 2',
+      },
       ctx,
     );
     expect(result.isError).toBeFalsy();
@@ -178,7 +232,9 @@ describe('notebook_edit', () => {
     expect(updated.cells).toHaveLength(1);
     expect(updated.cells[0].cell_type).toBe('code');
     expect(updated.cells[0].source).toEqual(['y = 2']);
-    try { unlinkSync(testNb); } catch {}
+    try {
+      unlinkSync(testNb);
+    } catch {}
   });
 
   it('rejects replace_cell with out-of-range index', async () => {
@@ -214,7 +270,9 @@ describe('notebook_edit', () => {
     const updated = JSON.parse(readFileSync(testNb, 'utf-8'));
     expect(updated.cells).toHaveLength(1);
     expect(updated.cells[0].source).toEqual(['# B']);
-    try { unlinkSync(testNb); } catch {}
+    try {
+      unlinkSync(testNb);
+    } catch {}
   });
 
   it('rejects delete_cell with out-of-range index', async () => {
@@ -247,7 +305,12 @@ describe('notebook_edit', () => {
     const ctx = createMockCtx(createMockConfig(), tmpDir);
 
     const result = await toolDef.execute(
-      { filePath: 'update-source.ipynb', action: 'update_cell_source', index: 0, source: 'new code' },
+      {
+        filePath: 'update-source.ipynb',
+        action: 'update_cell_source',
+        index: 0,
+        source: 'new code',
+      },
       ctx,
     );
     expect(result.isError).toBeFalsy();
@@ -259,7 +322,9 @@ describe('notebook_edit', () => {
     expect(updated.cells[0].metadata.tags).toEqual(['keep']);
     expect(updated.cells[0].outputs).toHaveLength(1);
     expect(updated.cells[0].execution_count).toBe(5);
-    try { unlinkSync(testNb); } catch {}
+    try {
+      unlinkSync(testNb);
+    } catch {}
   });
 
   // -----------------------------------------------------------------------
@@ -288,7 +353,9 @@ describe('notebook_edit', () => {
     expect(result.isError).toBe(true);
     expectToolResultContains(result, 'not a valid .ipynb notebook');
 
-    try { unlinkSync(testNb); } catch {}
+    try {
+      unlinkSync(testNb);
+    } catch {}
   });
 
   it('rejects invalid JSON file', async () => {
@@ -303,6 +370,8 @@ describe('notebook_edit', () => {
     expect(result.isError).toBe(true);
     expectToolResultContains(result, 'not valid JSON');
 
-    try { unlinkSync(testNb); } catch {}
+    try {
+      unlinkSync(testNb);
+    } catch {}
   });
 });

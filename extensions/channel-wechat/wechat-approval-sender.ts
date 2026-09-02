@@ -43,7 +43,9 @@ export function createWechatApprovalSender(
       risk: 'low' | 'medium' | 'high',
       reason?: string,
     ): Promise<string> {
-      const riskLabel = i18n.t(`wechat-approval:risk${risk.charAt(0).toUpperCase() + risk.slice(1)}`);
+      const riskLabel = i18n.t(
+        `wechat-approval:risk${risk.charAt(0).toUpperCase() + risk.slice(1)}`,
+      );
       const truncated = command.length > 200 ? command.slice(0, 200) + '...' : command;
       const titleKey = command.startsWith('computer_use ')
         ? 'wechat-approval:card.computerUseApproval'
@@ -92,9 +94,13 @@ export function createWechatApprovalSender(
       const resultText = i18n.t(`wechat-approval:${key}`, { command: truncated });
       const emoji = isApproved ? '✅' : '❌';
       await sendChunkedText(
-        apiBase, botToken, toUserId, contextToken,
+        apiBase,
+        botToken,
+        toUserId,
+        contextToken,
         `${emoji} ${resultText}`,
-        textLimit, logger,
+        textLimit,
+        logger,
       ).catch(() => {});
     },
   };

@@ -1,7 +1,21 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
-import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { GripVertical, X, Plus } from 'lucide-react';
 import ModelPicker from './ModelPicker';
@@ -20,7 +34,14 @@ interface FallbackModelsEditorProps {
   extraProviders?: ProviderOption[];
 }
 
-function SortableItem({ item, index, onUpdate, onRemove, configuredProviders, extraProviders }: {
+function SortableItem({
+  item,
+  index,
+  onUpdate,
+  onRemove,
+  configuredProviders,
+  extraProviders,
+}: {
   item: FallbackModel;
   index: number;
   onUpdate: (id: string, item: FallbackModel) => void;
@@ -40,7 +61,11 @@ function SortableItem({ item, index, onUpdate, onRemove, configuredProviders, ex
   };
 
   return (
-    <div ref={setNodeRef} style={style} className="flex flex-col gap-2 rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900 sm:flex-row sm:items-center sm:gap-4 sm:p-2">
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex flex-col gap-2 rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900 sm:flex-row sm:items-center sm:gap-4 sm:p-2"
+    >
       {/* Mobile: top strip with drag handle + number + remove button (original layout).
           Desktop: left gutter with handle + number centered; the remove button moves into
           the provider row via providerRowTrailing. */}
@@ -112,7 +137,12 @@ function parseValue(value: string[]): FallbackModel[] {
   });
 }
 
-export default function FallbackModelsEditor({ value, onChange, configuredProviders, extraProviders }: FallbackModelsEditorProps) {
+export default function FallbackModelsEditor({
+  value,
+  onChange,
+  configuredProviders,
+  extraProviders,
+}: FallbackModelsEditorProps) {
   const { t } = useTranslation('common');
   const [items, setItems] = useState<FallbackModel[]>(() => parseValue(value));
   const [lastSyncedValue, setLastSyncedValue] = useState<string>(() => JSON.stringify(value));
@@ -130,45 +160,62 @@ export default function FallbackModelsEditor({ value, onChange, configuredProvid
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  const handleDragEnd = useCallback((event: DragEndEvent) => {
-    const { active, over } = event;
-    if (over && active.id !== over.id) {
-      setItems(prev => {
-        const oldIndex = prev.findIndex(i => i.id === active.id);
-        const newIndex = prev.findIndex(i => i.id === over.id);
-        const newItems = arrayMove(prev, oldIndex, newIndex);
-        const newValue = newItems.map(item => item.provider && item.model ? `${item.provider}/${item.model}` : item.model);
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (over && active.id !== over.id) {
+        setItems((prev) => {
+          const oldIndex = prev.findIndex((i) => i.id === active.id);
+          const newIndex = prev.findIndex((i) => i.id === over.id);
+          const newItems = arrayMove(prev, oldIndex, newIndex);
+          const newValue = newItems.map((item) =>
+            item.provider && item.model ? `${item.provider}/${item.model}` : item.model,
+          );
+          onChange(newValue);
+          setLastSyncedValue(JSON.stringify(newValue));
+          return newItems;
+        });
+      }
+    },
+    [onChange],
+  );
+
+  const handleUpdate = useCallback(
+    (id: string, updatedItem: FallbackModel) => {
+      setItems((prev) => {
+        const newItems = prev.map((i) => (i.id === id ? updatedItem : i));
+        const newValue = newItems.map((i) =>
+          i.provider && i.model ? `${i.provider}/${i.model}` : i.model,
+        );
         onChange(newValue);
         setLastSyncedValue(JSON.stringify(newValue));
         return newItems;
       });
-    }
-  }, [onChange]);
+    },
+    [onChange],
+  );
 
-  const handleUpdate = useCallback((id: string, updatedItem: FallbackModel) => {
-    setItems(prev => {
-      const newItems = prev.map(i => i.id === id ? updatedItem : i);
-      const newValue = newItems.map(i => i.provider && i.model ? `${i.provider}/${i.model}` : i.model);
-      onChange(newValue);
-      setLastSyncedValue(JSON.stringify(newValue));
-      return newItems;
-    });
-  }, [onChange]);
-
-  const handleRemove = useCallback((id: string) => {
-    setItems(prev => {
-      const newItems = prev.filter(i => i.id !== id);
-      const newValue = newItems.map(i => i.provider && i.model ? `${i.provider}/${i.model}` : i.model);
-      onChange(newValue);
-      setLastSyncedValue(JSON.stringify(newValue));
-      return newItems;
-    });
-  }, [onChange]);
+  const handleRemove = useCallback(
+    (id: string) => {
+      setItems((prev) => {
+        const newItems = prev.filter((i) => i.id !== id);
+        const newValue = newItems.map((i) =>
+          i.provider && i.model ? `${i.provider}/${i.model}` : i.model,
+        );
+        onChange(newValue);
+        setLastSyncedValue(JSON.stringify(newValue));
+        return newItems;
+      });
+    },
+    [onChange],
+  );
 
   const handleAdd = useCallback(() => {
-    setItems(prev => {
+    setItems((prev) => {
       const newItems = [...prev, { id: generateId(), provider: '', model: '' }];
-      const newValue = newItems.map(i => i.provider && i.model ? `${i.provider}/${i.model}` : i.model);
+      const newValue = newItems.map((i) =>
+        i.provider && i.model ? `${i.provider}/${i.model}` : i.model,
+      );
       onChange(newValue);
       setLastSyncedValue(JSON.stringify(newValue));
       return newItems;
@@ -178,7 +225,7 @@ export default function FallbackModelsEditor({ value, onChange, configuredProvid
   return (
     <div className="space-y-3">
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={items.map(i => i.id)} strategy={verticalListSortingStrategy}>
+        <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
           {items.map((item, idx) => (
             <SortableItem
               key={item.id}

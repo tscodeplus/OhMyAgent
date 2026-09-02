@@ -20,8 +20,18 @@ function t(key: string, opts?: Record<string, unknown>): string {
   } catch {}
   // Hardcoded fallbacks for time format
   const fallbacks: Record<string, Record<string, string>> = {
-    'zh-CN': { just_now: '刚刚', minutes_ago: '{count}分钟前', hours_ago: '{count}小时前', days_ago: '{count}天前' },
-    'en': { just_now: 'just now', minutes_ago: '{count}m ago', hours_ago: '{count}h ago', days_ago: '{count}d ago' },
+    'zh-CN': {
+      just_now: '刚刚',
+      minutes_ago: '{count}分钟前',
+      hours_ago: '{count}小时前',
+      days_ago: '{count}天前',
+    },
+    en: {
+      just_now: 'just now',
+      minutes_ago: '{count}m ago',
+      hours_ago: '{count}h ago',
+      days_ago: '{count}d ago',
+    },
   };
   const lang = (i18n.language || 'zh-CN') as string;
   const fb = fallbacks[lang]?.[key] || key;

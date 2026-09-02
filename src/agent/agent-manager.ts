@@ -38,7 +38,7 @@ export class AgentManager {
   getDefault(channelType?: string): ResolvedAgentConfig {
     if (channelType) {
       for (const config of this.resolved.values()) {
-        if (config.channels.some(ch => ch === channelType || ch.startsWith(channelType + ':'))) {
+        if (config.channels.some((ch) => ch === channelType || ch.startsWith(channelType + ':'))) {
           return config;
         }
       }
@@ -65,16 +65,16 @@ export class AgentManager {
 
     for (const toolName of config.tools.add) {
       const tool = this.toolRegistry.get(toolName);
-      if (tool && !filteredTools.find(t => t.name === toolName)) {
+      if (tool && !filteredTools.find((t) => t.name === toolName)) {
         filteredTools.push(tool);
       }
     }
 
-    filteredTools = filteredTools.filter(t => !config.tools.deny.includes(t.name));
+    filteredTools = filteredTools.filter((t) => !config.tools.deny.includes(t.name));
 
     // v4 Phase 5: Filter computer_use based on AgentPolicyScope
     if (scope && !scope.computerUseEnabled) {
-      filteredTools = filteredTools.filter(t => t.name !== 'computer_use');
+      filteredTools = filteredTools.filter((t) => t.name !== 'computer_use');
     }
 
     return filteredTools;

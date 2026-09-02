@@ -7,7 +7,11 @@ import { existsSync, mkdtempSync, readFileSync, unlinkSync, rmdirSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createImageGenerationToolDefinition } from '../../../../src/tools/builtins/multimodal/image-generation-definition.js';
-import type { ImageGenerationProvider, ImageGenerationInput, ImageGenerationOutput } from '../../../../src/tools/builtins/multimodal/image-generation-provider.js';
+import type {
+  ImageGenerationProvider,
+  ImageGenerationInput,
+  ImageGenerationOutput,
+} from '../../../../src/tools/builtins/multimodal/image-generation-provider.js';
 import type { ToolExecutionContext } from '../../../../src/tools/platform/tool-context.js';
 import type { AppConfig } from '../../../../src/app/types.js';
 import { extractToolText, expectToolResultContains } from '../../../helpers/tool-result.js';
@@ -37,22 +41,46 @@ function createMockConfig(overrides?: Partial<AppConfig>): AppConfig {
     logging: { level: 'info' },
     uiLanguage: 'en',
     showToolCalls: true,
-    feishu: { enabled: false, appId: '', appSecret: '', verificationToken: '', encryptKey: '', wsEnabled: false },
+    feishu: {
+      enabled: false,
+      appId: '',
+      appSecret: '',
+      verificationToken: '',
+      encryptKey: '',
+      wsEnabled: false,
+    },
     piAi: { provider: 'openai', model: 'gpt-4o', reasoningModel: 'o3-mini', apiKey: 'sk-test' },
-    embedding: { baseUrl: 'https://test.com', apiKey: 'sk-test', model: 'text-embedding-ada-002', dimension: 1536 },
+    embedding: {
+      baseUrl: 'https://test.com',
+      apiKey: 'sk-test',
+      model: 'text-embedding-ada-002',
+      dimension: 1536,
+    },
     database: { path: ':memory:' },
     rateLimit: { webhookMaxRequests: 100, webhookWindowMs: 60000 },
     tools: {
-      shellEnabled: false, defaultTimeoutMs: 30000, maxOutputLength: 5000,
-      toolsProfile: 'standard', shellExecMode: 'safe', shellAllowlist: [],
-      shellApprovalMode: 'balanced', shellApprovalWhitelist: [],
-      shellApprovalTimeoutSec: 120, shellApprovalTimeoutAction: 'deny',
+      shellEnabled: false,
+      defaultTimeoutMs: 30000,
+      maxOutputLength: 5000,
+      toolsProfile: 'standard',
+      shellExecMode: 'safe',
+      shellAllowlist: [],
+      shellApprovalMode: 'balanced',
+      shellApprovalWhitelist: [],
+      shellApprovalTimeoutSec: 120,
+      shellApprovalTimeoutAction: 'deny',
       fileRead: { allowedRoots: [], deniedPatterns: [] },
     },
     memory: {
-      autoRecall: false, autoCapture: false, recallTopK: 3, recallMinScore: 0.01,
-      captureMaxChars: 500, summarizeInterval: 20, outputLanguage: 'Auto',
-      decayHalfLifeDays: 0, embeddingCacheMaxEntries: 100,
+      autoRecall: false,
+      autoCapture: false,
+      recallTopK: 3,
+      recallMinScore: 0.01,
+      captureMaxChars: 500,
+      summarizeInterval: 20,
+      outputLanguage: 'Auto',
+      decayHalfLifeDays: 0,
+      embeddingCacheMaxEntries: 100,
       hygiene: { enabled: false, retentionDays: 90 },
       embeddingCircuitBreaker: { failureThreshold: 5, cooldownSec: 30 },
     },
@@ -85,12 +113,21 @@ describe('image_generation', () => {
   });
 
   afterAll(() => {
-    try { rmdirSync(tmpDir); } catch {}
+    try {
+      rmdirSync(tmpDir);
+    } catch {}
   });
 
   it('rejects when image generation is not enabled', async () => {
     const config = createMockConfig({
-      multimodal: { imageGeneration: { enabled: false, modelRef: 'dall-e-3', outputDir: tmpDir, maxPromptChars: 4000 } },
+      multimodal: {
+        imageGeneration: {
+          enabled: false,
+          modelRef: 'dall-e-3',
+          outputDir: tmpDir,
+          maxPromptChars: 4000,
+        },
+      },
     });
     const ctx = createMockCtx(config, tmpDir);
     const toolDef = createImageGenerationToolDefinition(new MockImageGenerationProvider());
@@ -114,7 +151,14 @@ describe('image_generation', () => {
 
   it('generates and saves an image file with custom output name', async () => {
     const config = createMockConfig({
-      multimodal: { imageGeneration: { enabled: true, modelRef: 'openai/dall-e-3', outputDir: tmpDir, maxPromptChars: 4000 } },
+      multimodal: {
+        imageGeneration: {
+          enabled: true,
+          modelRef: 'openai/dall-e-3',
+          outputDir: tmpDir,
+          maxPromptChars: 4000,
+        },
+      },
     });
     const ctx = createMockCtx(config, tmpDir);
     const toolDef = createImageGenerationToolDefinition(new MockImageGenerationProvider());
@@ -127,12 +171,21 @@ describe('image_generation', () => {
     expect(existsSync(outputPath)).toBe(true);
     expect(readFileSync(outputPath).toString()).toBe('fake-image-data');
 
-    try { unlinkSync(outputPath); } catch {}
+    try {
+      unlinkSync(outputPath);
+    } catch {}
   });
 
   it('rejects when PolicyCenter denies write access to the output file', async () => {
     const config = createMockConfig({
-      multimodal: { imageGeneration: { enabled: true, modelRef: 'openai/dall-e-3', outputDir: tmpDir, maxPromptChars: 4000 } },
+      multimodal: {
+        imageGeneration: {
+          enabled: true,
+          modelRef: 'openai/dall-e-3',
+          outputDir: tmpDir,
+          maxPromptChars: 4000,
+        },
+      },
     });
     const policyCenter = {
       evaluatePathAccess: vi.fn(() => ({
@@ -175,12 +228,22 @@ describe('image_generation', () => {
 
   it('sanitizes unsafe characters in output file name', async () => {
     const config = createMockConfig({
-      multimodal: { imageGeneration: { enabled: true, modelRef: 'openai/dall-e-3', outputDir: tmpDir, maxPromptChars: 4000 } },
+      multimodal: {
+        imageGeneration: {
+          enabled: true,
+          modelRef: 'openai/dall-e-3',
+          outputDir: tmpDir,
+          maxPromptChars: 4000,
+        },
+      },
     });
     const ctx = createMockCtx(config, tmpDir);
     const toolDef = createImageGenerationToolDefinition(new MockImageGenerationProvider());
 
-    const result = await toolDef.execute({ prompt: 'a cat', outputFileName: '../../evil/name<script>' }, ctx);
+    const result = await toolDef.execute(
+      { prompt: 'a cat', outputFileName: '../../evil/name<script>' },
+      ctx,
+    );
     expect(result.isError).toBeFalsy();
 
     // The basename is 'name<script>' which after sanitization becomes 'name_script_'
@@ -190,12 +253,21 @@ describe('image_generation', () => {
     const outputPath = join(tmpDir, 'name_script_.png');
     expect(existsSync(outputPath)).toBe(true);
 
-    try { unlinkSync(outputPath); } catch {}
+    try {
+      unlinkSync(outputPath);
+    } catch {}
   });
 
   it('generates auto-named file when no outputFileName is given', async () => {
     const config = createMockConfig({
-      multimodal: { imageGeneration: { enabled: true, modelRef: 'openai/dall-e-3', outputDir: tmpDir, maxPromptChars: 4000 } },
+      multimodal: {
+        imageGeneration: {
+          enabled: true,
+          modelRef: 'openai/dall-e-3',
+          outputDir: tmpDir,
+          maxPromptChars: 4000,
+        },
+      },
     });
     const ctx = createMockCtx(config, tmpDir);
     const toolDef = createImageGenerationToolDefinition(new MockImageGenerationProvider());
@@ -206,15 +278,24 @@ describe('image_generation', () => {
 
     // Should have written a file
     const files = await (await import('node:fs/promises')).readdir(tmpDir);
-    const genFiles = files.filter(f => f.startsWith('generated_'));
+    const genFiles = files.filter((f) => f.startsWith('generated_'));
     expect(genFiles.length).toBe(1);
 
-    try { unlinkSync(join(tmpDir, genFiles[0])); } catch {}
+    try {
+      unlinkSync(join(tmpDir, genFiles[0]));
+    } catch {}
   });
 
   it('passes referenceImages to the provider for img2img', async () => {
     const config = createMockConfig({
-      multimodal: { imageGeneration: { enabled: true, modelRef: 'openai/dall-e-3', outputDir: tmpDir, maxPromptChars: 4000 } },
+      multimodal: {
+        imageGeneration: {
+          enabled: true,
+          modelRef: 'openai/dall-e-3',
+          outputDir: tmpDir,
+          maxPromptChars: 4000,
+        },
+      },
     });
     const ctx = createMockCtx(config, tmpDir);
 
@@ -235,7 +316,14 @@ describe('image_generation', () => {
 
   it('propagates provider failures as error results', async () => {
     const config = createMockConfig({
-      multimodal: { imageGeneration: { enabled: true, modelRef: 'openai/dall-e-3', outputDir: tmpDir, maxPromptChars: 4000 } },
+      multimodal: {
+        imageGeneration: {
+          enabled: true,
+          modelRef: 'openai/dall-e-3',
+          outputDir: tmpDir,
+          maxPromptChars: 4000,
+        },
+      },
     });
     const ctx = createMockCtx(config, tmpDir);
     const toolDef = createImageGenerationToolDefinition(new FailingImageGenerationProvider());
@@ -247,7 +335,14 @@ describe('image_generation', () => {
 
   it('rejects prompt exceeding maxPromptChars', async () => {
     const config = createMockConfig({
-      multimodal: { imageGeneration: { enabled: true, modelRef: 'openai/dall-e-3', outputDir: tmpDir, maxPromptChars: 10 } },
+      multimodal: {
+        imageGeneration: {
+          enabled: true,
+          modelRef: 'openai/dall-e-3',
+          outputDir: tmpDir,
+          maxPromptChars: 10,
+        },
+      },
     });
     const ctx = createMockCtx(config, tmpDir);
     const toolDef = createImageGenerationToolDefinition(new MockImageGenerationProvider());

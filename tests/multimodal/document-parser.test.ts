@@ -92,7 +92,10 @@ describe('DocumentParser', () => {
       const filePath = join(dir, 'report.docx');
       writeFileSync(filePath, 'fake docx content');
 
-      const result = await parser.extract(filePath, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      const result = await parser.extract(
+        filePath,
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      );
 
       expect(result.kind).toBe('document');
       expect(result.text).toContain('[Office document');
@@ -105,7 +108,10 @@ describe('DocumentParser', () => {
       const filePath = join(dir, 'sheet.xlsx');
       writeFileSync(filePath, 'fake xlsx content');
 
-      const result = await parser.extract(filePath, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      const result = await parser.extract(
+        filePath,
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
 
       expect(result.kind).toBe('document');
       expect(result.text).toContain('[Office document');

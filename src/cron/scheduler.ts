@@ -30,10 +30,14 @@ export class CronScheduler {
 
   start(): void {
     if (this.timer) return;
-    this.timer = setInterval(() => { void this.tick(); }, this.options.tickIntervalMs);
+    this.timer = setInterval(() => {
+      void this.tick();
+    }, this.options.tickIntervalMs);
     this.timer.unref();
     // Kick off immediately
-    setImmediate(() => { void this.tick(); });
+    setImmediate(() => {
+      void this.tick();
+    });
   }
 
   stop(): void {
@@ -68,7 +72,10 @@ export class CronScheduler {
             updatedAt: now,
             lastError: 'Job expired (endAt reached)',
           });
-          this.options.logger.info({ jobId: job.id, jobName: job.name }, 'Cron job expired, auto-completed');
+          this.options.logger.info(
+            { jobId: job.id, jobName: job.name },
+            'Cron job expired, auto-completed',
+          );
           continue;
         }
 
@@ -101,7 +108,7 @@ export class CronScheduler {
     const worker = async (): Promise<void> => {
       while (cursor < jobs.length) {
         const job = jobs[cursor++];
-        const result = await this.runner.run(job).catch(err => ({
+        const result = await this.runner.run(job).catch((err) => ({
           jobId: job.id,
           status: 'error' as const,
           output: '',
@@ -123,14 +130,14 @@ export class CronScheduler {
         break;
       case 'interval': {
         const next = Date.now() + job.schedule.intervalMs;
-        job.nextRunAt = (job.endAt && next >= job.endAt) ? null : next;
+        job.nextRunAt = job.endAt && next >= job.endAt ? null : next;
         break;
       }
       case 'cron':
         try {
           const interval = CronExpressionParser.parse(job.schedule.expression);
           const next = interval.next().getTime();
-          job.nextRunAt = (job.endAt && next >= job.endAt) ? null : next;
+          job.nextRunAt = job.endAt && next >= job.endAt ? null : next;
         } catch {
           job.nextRunAt = null;
         }
@@ -177,7 +184,10 @@ export class CronScheduler {
     for (const job of this.store.list()) {
       // Clean up expired jobs that were missed (e.g. service was down)
       if (job.endAt && job.enabled && job.state !== 'completed' && now >= job.endAt) {
-        this.options.logger.info({ jobId: job.id, jobName: job.name }, 'Cron job expired during downtime, auto-completing');
+        this.options.logger.info(
+          { jobId: job.id, jobName: job.name },
+          'Cron job expired during downtime, auto-completing',
+        );
         this.store.update(job.id, {
           state: 'completed',
           enabled: false,

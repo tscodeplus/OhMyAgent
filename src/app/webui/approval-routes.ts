@@ -16,10 +16,7 @@ interface ApprovalRouteConfig {
   db?: Database.Database;
 }
 
-export function registerApprovalRoutes(
-  app: FastifyInstance,
-  cfg: ApprovalRouteConfig,
-): void {
+export function registerApprovalRoutes(app: FastifyInstance, cfg: ApprovalRouteConfig): void {
   // List pending approval requests for a session
   app.get('/api/approvals/pending', async (request, reply) => {
     const { sessionId } = request.query as { sessionId?: string };
@@ -31,9 +28,10 @@ export function registerApprovalRoutes(
       return reply.send({ approvals: [] });
     }
 
-    const approvals = cfg.approvalRequestRepo.findBySessionKey(sessionId)
-      .filter(a => a.status === 'pending')
-      .map(a => ({
+    const approvals = cfg.approvalRequestRepo
+      .findBySessionKey(sessionId)
+      .filter((a) => a.status === 'pending')
+      .map((a) => ({
         id: a.id,
         toolName: a.tool_name,
         commandText: a.command_text ?? a.tool_name ?? '',
@@ -56,8 +54,11 @@ export function registerApprovalRoutes(
     }
 
     const validDecisions = [
-      'approve_once', 'approve_session', 'approve_always',
-      'reject_once', 'reject_always',
+      'approve_once',
+      'approve_session',
+      'approve_always',
+      'reject_once',
+      'reject_always',
     ];
 
     if (!validDecisions.includes(decision)) {
@@ -79,20 +80,23 @@ export function registerApprovalRoutes(
     if (cfg.db) {
       try {
         const msgId = `approval-${id}`;
-        const row = cfg.db.prepare(
-          'SELECT metadata FROM messages WHERE id = ?',
-        ).get(msgId) as { metadata: string | null } | undefined;
+        const row = cfg.db.prepare('SELECT metadata FROM messages WHERE id = ?').get(msgId) as
+          { metadata: string | null } | undefined;
         if (row) {
           let meta: Record<string, unknown> = {};
-          try { meta = row.metadata ? JSON.parse(String(row.metadata)) : {}; } catch { /* ignore */ }
+          try {
+            meta = row.metadata ? JSON.parse(String(row.metadata)) : {};
+          } catch {
+            /* ignore */
+          }
           const approval = (meta.approval || {}) as Record<string, unknown>;
           const isApproved = decision.startsWith('approve');
           approval.status = isApproved ? 'approved' : 'rejected';
           approval.decision = decision;
           meta.approval = approval;
-          cfg.db.prepare(
-            'UPDATE messages SET metadata = ? WHERE id = ?',
-          ).run(JSON.stringify(meta), msgId);
+          cfg.db
+            .prepare('UPDATE messages SET metadata = ? WHERE id = ?')
+            .run(JSON.stringify(meta), msgId);
         }
       } catch (err) {
         app.log.warn({ err }, '[approval-routes] Failed to update approval message');

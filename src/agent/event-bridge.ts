@@ -449,9 +449,7 @@ export class EventBridge {
               assistantMsg.errorMessage ?? 'Agent error',
               qualifyModelRef(assistantMsg.provider, assistantMsg.model),
             );
-            await this.dispatchTerminal(() =>
-              this.replyDispatcher.onError(new Error(friendlyMsg)),
-            );
+            await this.dispatchTerminal(() => this.replyDispatcher.onError(new Error(friendlyMsg)));
           } else if (assistantMsg && assistantMsg.stopReason === 'aborted') {
             this.logger?.warn(
               { model: assistantMsg.model, provider: assistantMsg.provider },

@@ -160,11 +160,9 @@ describe('summarizeToolResult — shell/bash/exec', () => {
   });
 
   it('handles TextBlock array result', () => {
-    const result = summarizeToolResult(
-      'shell',
-      { command: 'echo hello' },
-      [{ type: 'text', text: 'hello\nworld\n' }],
-    );
+    const result = summarizeToolResult('shell', { command: 'echo hello' }, [
+      { type: 'text', text: 'hello\nworld\n' },
+    ]);
     expect(result).toBe('执行 shell 命令 `echo hello`，输出 2 行');
   });
 
@@ -182,9 +180,7 @@ describe('summarizeToolResult — file_read/read_file', () => {
   it('summarizes file read result', () => {
     const content = 'line1\nline2\nline3\n';
     const result = summarizeToolResult('file_read', { path: '/tmp/test.txt' }, content);
-    expect(result).toBe(
-      `读取文件 \`/tmp/test.txt\`，${bytesOf(content)} 字节，共 3 行`,
-    );
+    expect(result).toBe(`读取文件 \`/tmp/test.txt\`，${bytesOf(content)} 字节，共 3 行`);
   });
 
   it('supports read_file alias', () => {
@@ -227,11 +223,7 @@ describe('summarizeToolResult — file_write/write_file', () => {
 
   it('falls back to content byte count when result is not JSON', () => {
     const content = 'abc';
-    const result = summarizeToolResult(
-      'file_write',
-      { path: '/tmp/f.txt' },
-      content,
-    );
+    const result = summarizeToolResult('file_write', { path: '/tmp/f.txt' }, content);
     expect(result).toBe(`写入文件 \`/tmp/f.txt\`，${bytesOf(content)} 字节`);
   });
 });
@@ -289,11 +281,7 @@ describe('summarizeToolResult — http_request/fetch/web_fetch', () => {
 
   it('falls back to plain text byte count when no JSON', () => {
     const text = 'Hello World';
-    const result = summarizeToolResult(
-      'web_fetch',
-      { url: 'https://example.com' },
-      text,
-    );
+    const result = summarizeToolResult('web_fetch', { url: 'https://example.com' }, text);
     expect(result).toBe(`GET https://example.com → HTTP ?，${bytesOf(text)} 字节`);
   });
 
@@ -374,11 +362,7 @@ describe('summarizeToolResult — memory-store/memory_store', () => {
   });
 
   it('supports memory-store (dash) alias', () => {
-    const result = summarizeToolResult(
-      'memory-store',
-      { content: '重要信息' },
-      'stored',
-    );
+    const result = summarizeToolResult('memory-store', { content: '重要信息' }, 'stored');
     expect(result).toBe('存储记忆: 重要信息...');
   });
 
@@ -413,7 +397,11 @@ describe('summarizeToolResult — memory-recall/memory_recall', () => {
 
 describe('summarizeToolResult — default template', () => {
   it('formats unknown tool with name and result preview', () => {
-    const result = summarizeToolResult('custom_tool', { foo: 'bar' }, 'Custom tool executed successfully');
+    const result = summarizeToolResult(
+      'custom_tool',
+      { foo: 'bar' },
+      'Custom tool executed successfully',
+    );
     expect(result).toBe('custom_tool: Custom tool executed successfully');
   });
 

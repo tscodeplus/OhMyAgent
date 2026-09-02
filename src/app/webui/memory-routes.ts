@@ -106,7 +106,8 @@ export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfi
   /** Get single memory */
   app.get<{ Params: { id: string } }>('/api/memory/:id', async (request, reply) => {
     try {
-      const row = cfg.db.prepare('SELECT * FROM memories WHERE id = ?').get(request.params.id) as Record<string, unknown> | undefined;
+      const row = cfg.db.prepare('SELECT * FROM memories WHERE id = ?').get(request.params.id) as
+        Record<string, unknown> | undefined;
       if (!row) return reply.status(404).send({ error: 'Memory not found' });
       return reply.send(row);
     } catch (err) {
@@ -123,7 +124,8 @@ export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfi
         return reply.status(400).send({ error: 'content is required' });
       }
 
-      const row = cfg.db.prepare('SELECT * FROM memories WHERE id = ?').get(request.params.id) as Record<string, unknown> | undefined;
+      const row = cfg.db.prepare('SELECT * FROM memories WHERE id = ?').get(request.params.id) as
+        Record<string, unknown> | undefined;
       if (!row) return reply.status(404).send({ error: 'Memory not found' });
 
       new MemoryRepository(cfg.db).update(request.params.id, { content });
@@ -172,7 +174,9 @@ export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfi
 
       // Fallback: read directly from memories table
       const row = cfg.db
-        .prepare("SELECT * FROM memories WHERE kind = 'persona' AND scope = 'user' ORDER BY updated_at DESC LIMIT 1")
+        .prepare(
+          "SELECT * FROM memories WHERE kind = 'persona' AND scope = 'user' ORDER BY updated_at DESC LIMIT 1",
+        )
         .get() as Record<string, unknown> | undefined;
 
       if (row) {

@@ -38,7 +38,18 @@ const NEAR_BOTTOM_PX = 40;
  *  echoes of our own scroll — never treated as user intent. */
 const SNAP_GRACE_MS = 120;
 
-export default function MessageList({ projectId: _projectId, sessionId, streamingMessages: externalMessages, isStreaming, isThinking, retryStatus, refetchKey, onRefetched, hideEmptyState, onHistoryCount }: MessageListProps) {
+export default function MessageList({
+  projectId: _projectId,
+  sessionId,
+  streamingMessages: externalMessages,
+  isStreaming,
+  isThinking,
+  retryStatus,
+  refetchKey,
+  onRefetched,
+  hideEmptyState,
+  onHistoryCount,
+}: MessageListProps) {
   const { t } = useTranslation('common');
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
@@ -65,8 +76,9 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
     // Re-extract images from markdown content AND tool call outputs
     // (frontend-only fields, not persisted by the API).
     const imgRegex = /!\[([^\[\]]*)\]\(([^)\s]+)\)/g;
-    const fileLinkRegex = /\[([^\[\]]+)\]\((\/(?:api\/files\/(?:serve|download)\?[^)\s]+|dl\/[^)\s]+|desktop-bridge-download\?[^)\s]+))\)/g;
-    for (const msg of (data.messages || [])) {
+    const fileLinkRegex =
+      /\[([^\[\]]+)\]\((\/(?:api\/files\/(?:serve|download)\?[^)\s]+|dl\/[^)\s]+|desktop-bridge-download\?[^)\s]+))\)/g;
+    for (const msg of data.messages || []) {
       if (msg.role === 'assistant') {
         const images: { url: string; alt?: string }[] = [];
         const seen = new Set<string>();
@@ -91,7 +103,10 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
             if (tc.output && CHAT_MEDIA_TOOL_NAMES.has(tc.name)) scan(tc.output);
           }
         }
-        if (images.length > 0) { msg.images = images; devLog('[MessageList] extracted images for msg', msg.id.slice(0, 8), images); }
+        if (images.length > 0) {
+          msg.images = images;
+          devLog('[MessageList] extracted images for msg', msg.id.slice(0, 8), images);
+        }
       }
       // Fallback: extract file links from user message content (uploaded attachments)
       // in case the API response doesn't include them in msg.files
@@ -107,7 +122,14 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
             userFiles.push({ name: ufm[1], path: url });
           }
         }
-        if (userFiles.length > 0) { msg.files = userFiles; devLog('[MessageList] extracted files for user msg', msg.id.slice(0, 8), userFiles.length); }
+        if (userFiles.length > 0) {
+          msg.files = userFiles;
+          devLog(
+            '[MessageList] extracted files for user msg',
+            msg.id.slice(0, 8),
+            userFiles.length,
+          );
+        }
       }
     }
     return data;
@@ -123,11 +145,15 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
     setLoading(true);
     try {
       const data = await apiRequest<{ messages: Message[]; hasMore: boolean }>(
-        `/api/projects/${_projectId}/sessions/${sessionId}?limit=${PAGE_SIZE}`
+        `/api/projects/${_projectId}/sessions/${sessionId}?limit=${PAGE_SIZE}`,
       );
       if (seq !== fetchSeqRef.current) return; // superseded by a newer request
       formatResponse(data);
-      devLog('[MessageList] API fetch OK (latest)', { count: data.messages?.length, hasMore: data.hasMore, refetchKey });
+      devLog('[MessageList] API fetch OK (latest)', {
+        count: data.messages?.length,
+        hasMore: data.hasMore,
+        refetchKey,
+      });
       setMessages(data.messages || []);
       setHasMore(data.hasMore ?? false);
       if (data.messages && data.messages.length > 0) {
@@ -155,12 +181,12 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
     }
     try {
       const data = await apiRequest<{ messages: Message[]; hasMore: boolean }>(
-        `/api/projects/${_projectId}/sessions/${sessionId}?before=${encodeURIComponent(oldestCreatedAt)}&limit=${PAGE_SIZE}`
+        `/api/projects/${_projectId}/sessions/${sessionId}?before=${encodeURIComponent(oldestCreatedAt)}&limit=${PAGE_SIZE}`,
       );
       formatResponse(data);
       devLog('[MessageList] loadMore OK', { count: data.messages?.length, hasMore: data.hasMore });
       const older = data.messages || [];
-      setMessages(prev => [...older, ...prev]);
+      setMessages((prev) => [...older, ...prev]);
       setHasMore(data.hasMore ?? false);
       if (older.length > 0) {
         setOldestCreatedAt(older[0].created_at);
@@ -196,7 +222,7 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
           loadMoreRef.current();
         }
       },
-      { root: scrollContainerRef.current, threshold: 0 }
+      { root: scrollContainerRef.current, threshold: 0 },
     );
 
     observer.observe(sentinel);
@@ -346,7 +372,7 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
   // Merge API history with live streaming messages, deduplicating by ID.
   const displayMessages = useMemo(() => {
     if (!externalMessages || externalMessages.length === 0) return messages;
-    const seen = new Set(messages.map(m => m.id));
+    const seen = new Set(messages.map((m) => m.id));
     const merged = [...messages];
     for (const em of externalMessages) {
       if (!seen.has(em.id)) {
@@ -354,8 +380,8 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
         seen.add(em.id);
       }
     }
-    const sorted = merged.sort((a, b) =>
-      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    const sorted = merged.sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
     );
     devLog('[MessageList] displayMessages merge', {
       apiCount: messages.length,
@@ -381,62 +407,92 @@ export default function MessageList({ projectId: _projectId, sessionId, streamin
           <ArrowDown className="h-3.5 w-3.5" strokeWidth={2} />
         </button>
       )}
-      <div ref={scrollContainerRef} onScroll={handleScrollFollow} className="h-full overflow-y-auto px-3 sm:px-4 py-2 sm:py-3">
-      {/* Top sentinel for infinite scroll — IntersectionObserver watches this */}
-      <div ref={topSentinelRef} className="h-px" />
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScrollFollow}
+        className="h-full overflow-y-auto px-3 sm:px-4 py-2 sm:py-3"
+      >
+        {/* Top sentinel for infinite scroll — IntersectionObserver watches this */}
+        <div ref={topSentinelRef} className="h-px" />
 
-      {/* Loading spinner for initial load (no messages yet) */}
-      {loading && displayMessages.length === 0 && (
-        <div className="flex justify-center py-8">
-          <Spinner size="sm" />
-        </div>
-      )}
+        {/* Loading spinner for initial load (no messages yet) */}
+        {loading && displayMessages.length === 0 && (
+          <div className="flex justify-center py-8">
+            <Spinner size="sm" />
+          </div>
+        )}
 
-      {/* Loading spinner for "load more" at top */}
-      {loadingMore && (
-        <div className="flex justify-center py-3">
-          <Spinner size="sm" />
-        </div>
-      )}
+        {/* Loading spinner for "load more" at top */}
+        {loadingMore && (
+          <div className="flex justify-center py-3">
+            <Spinner size="sm" />
+          </div>
+        )}
 
-      {/* Empty state */}
-      {!loading && displayMessages.length === 0 && !isThinking && !hideEmptyState && (
-        <div className="flex items-center justify-center h-full text-neutral-500 dark:text-neutral-400 text-sm">
-          {t("chat.sendMessage")}
-        </div>
-      )}
+        {/* Empty state */}
+        {!loading && displayMessages.length === 0 && !isThinking && !hideEmptyState && (
+          <div className="flex items-center justify-center h-full text-neutral-500 dark:text-neutral-400 text-sm">
+            {t('chat.sendMessage')}
+          </div>
+        )}
 
-      <div className="max-w-3xl mx-auto space-y-4">
-        {displayMessages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} />
-        ))}
-        {/* Stream retry/fallback status — a model attempt failed and the
+        <div className="max-w-3xl mx-auto space-y-4">
+          {displayMessages.map((msg) => (
+            <MessageBubble key={msg.id} message={msg} />
+          ))}
+          {/* Stream retry/fallback status — a model attempt failed and the
             gateway is retrying or switching to the next fallback model.
             Inline row: icon pinned to the first text line ((20px line-height
             − 14px icon) / 2 = 3px), hanging indent when the text wraps. */}
-        {retryStatus && (
-          <div className="flex items-start gap-2 px-1 text-sm text-neutral-500 dark:text-neutral-400">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="mt-[3px] shrink-0 text-amber-600 dark:text-amber-400"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
-            <span className="min-w-0">{retryStatus}</span>
-          </div>
-        )}
-        {/* Thinking indicator — shown in message flow like Feishu/Lark */}
-        {isThinking && (
-          <div className="flex gap-3">
-            <div className="shrink-0 flex h-7 w-7 items-center justify-center rounded-full bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14l2 2 3-3"/></svg>
+          {retryStatus && (
+            <div className="flex items-start gap-2 px-1 text-sm text-neutral-500 dark:text-neutral-400">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="mt-[3px] shrink-0 text-amber-600 dark:text-amber-400"
+              >
+                <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                <path d="M21 3v6h-6" />
+              </svg>
+              <span className="min-w-0">{retryStatus}</span>
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 text-sm text-neutral-500 dark:text-neutral-400">
-                {t('chat.thinking')}
-                <span className="thinking-dot">.</span>
-                <span className="thinking-dot">.</span>
-                <span className="thinking-dot">.</span>
+          )}
+          {/* Thinking indicator — shown in message flow like Feishu/Lark */}
+          {isThinking && (
+            <div className="flex gap-3">
+              <div className="shrink-0 flex h-7 w-7 items-center justify-center rounded-full bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.75"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M12 8V4H8" />
+                  <rect width="16" height="12" x="4" y="8" rx="2" />
+                  <path d="M2 14l2 2 3-3" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 text-sm text-neutral-500 dark:text-neutral-400">
+                  {t('chat.thinking')}
+                  <span className="thinking-dot">.</span>
+                  <span className="thinking-dot">.</span>
+                  <span className="thinking-dot">.</span>
+                </div>
               </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
       </div>
     </div>
   );

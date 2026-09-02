@@ -29,9 +29,7 @@ export default function UserQuestionCard({
   const [textInput, setTextInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const status = initialStatus === 'answered'
-    ? 'answered'
-    : localStatus || 'pending';
+  const status = initialStatus === 'answered' ? 'answered' : localStatus || 'pending';
 
   const handleOptionClick = async (value: string) => {
     setLocalStatus('answered');

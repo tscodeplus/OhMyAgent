@@ -123,9 +123,7 @@ export async function uploadMedia(
 
   if (!cdnRes.ok) {
     const errorText = await cdnRes.text().catch(() => '');
-    throw new Error(
-      `CDN upload failed: HTTP ${cdnRes.status} ${cdnRes.statusText} ${errorText}`,
-    );
+    throw new Error(`CDN upload failed: HTTP ${cdnRes.status} ${cdnRes.statusText} ${errorText}`);
   }
 
   // 6. Extract download parameter from response header
@@ -160,9 +158,7 @@ export async function downloadMedia(mediaParam: ILMediaParam): Promise<Buffer> {
 
   const res = await fetch(cdnUrl, { signal: AbortSignal.timeout(CDN_DOWNLOAD_TIMEOUT_MS) });
   if (!res.ok) {
-    throw new Error(
-      `CDN download failed: HTTP ${res.status} ${res.statusText}`,
-    );
+    throw new Error(`CDN download failed: HTTP ${res.status} ${res.statusText}`);
   }
 
   const encrypted = Buffer.from(await res.arrayBuffer());
@@ -226,9 +222,7 @@ export async function downloadInboundMedia(
 
   const res = await fetch(cdnUrl, { signal: AbortSignal.timeout(CDN_DOWNLOAD_TIMEOUT_MS) });
   if (!res.ok) {
-    throw new Error(
-      `CDN download failed: HTTP ${res.status} ${res.statusText}`,
-    );
+    throw new Error(`CDN download failed: HTTP ${res.status} ${res.statusText}`);
   }
 
   const encrypted = Buffer.from(await res.arrayBuffer());

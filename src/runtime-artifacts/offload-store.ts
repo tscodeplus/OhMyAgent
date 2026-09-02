@@ -158,9 +158,7 @@ export class OffloadStore {
   getFullResult(sessionKey: string, refPath: string): string {
     const filePath = this.refFilePath(sessionKey, refPath);
     if (!fs.existsSync(filePath)) {
-      throw new Error(
-        `Offload file not found: ${refPath} (session: ${sessionKey})`,
-      );
+      throw new Error(`Offload file not found: ${refPath} (session: ${sessionKey})`);
     }
     return fs.readFileSync(filePath, 'utf-8');
   }
@@ -170,7 +168,9 @@ export class OffloadStore {
    * Idempotent — does nothing if the directory does not exist.
    */
   deleteSession(sessionKey: string): void {
-    const dirs = [this.sessionDir(sessionKey), trySafeJoin(this.offloadRoot(), sessionKey)].filter(Boolean) as string[];
+    const dirs = [this.sessionDir(sessionKey), trySafeJoin(this.offloadRoot(), sessionKey)].filter(
+      Boolean,
+    ) as string[];
     for (const dir of new Set(dirs)) {
       if (fs.existsSync(dir)) {
         fs.rmSync(dir, { recursive: true, force: true });

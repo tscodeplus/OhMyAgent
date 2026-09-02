@@ -25,7 +25,9 @@ describe('Windows PowerShell computer-use scripts', () => {
   it('wrapPowerShell base64-encodes the script as UTF-16LE for -EncodedCommand', () => {
     const encoded = wrapPowerShell('Write-Output "hi"');
 
-    expect(encoded.startsWith('powershell.exe -NoProfile -NonInteractive -EncodedCommand ')).toBe(true);
+    expect(encoded.startsWith('powershell.exe -NoProfile -NonInteractive -EncodedCommand ')).toBe(
+      true,
+    );
     const b64 = encoded.slice(encoded.lastIndexOf(' ') + 1);
     const decoded = Buffer.from(b64, 'base64').toString('utf16le');
     expect(decoded).toContain("$ProgressPreference = 'SilentlyContinue';");

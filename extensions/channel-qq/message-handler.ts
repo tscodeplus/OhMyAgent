@@ -65,7 +65,14 @@ export function setupMessageHandlers(
       // Check for question answer first
       const questionParsed = parseQuestionCallback(buttonData);
       if (questionParsed) {
-        await handleQuestionInteraction(event, questionParsed, target, agentService, gateway, logger);
+        await handleQuestionInteraction(
+          event,
+          questionParsed,
+          target,
+          agentService,
+          gateway,
+          logger,
+        );
         return;
       }
       // Fall through to approval handler
@@ -95,14 +102,20 @@ export function setupMessageHandlers(
 
       // ── Stage 3: Access control (allowedUsers) ──
       if (!isSenderAllowed(config.allowedUsers, channelCtx.message.senderId)) {
-        logger.debug({ userId: channelCtx.message.senderId }, 'QQ user not in allowedUsers, skipping');
+        logger.debug(
+          { userId: channelCtx.message.senderId },
+          'QQ user not in allowedUsers, skipping',
+        );
         return;
       }
 
       // ── Stage 4: Group message gating ──
       if (isGroupMessage(payload)) {
         if (!isAllowedGroup(event, config.allowedGroups)) {
-          logger.debug({ groupOpenid: event.d.group_openid }, 'QQ group not in allowedGroups, skipping');
+          logger.debug(
+            { groupOpenid: event.d.group_openid },
+            'QQ group not in allowedGroups, skipping',
+          );
           return;
         }
         // QQ Bot API v2 only delivers GROUP_AT_MESSAGE_CREATE when the bot
@@ -136,20 +149,32 @@ export function setupMessageHandlers(
               break;
             }
             // Fallback: download via WAV URL and transcribe ourselves
-            const downloadUrl = (att as any).voice_wav_url as string ?? att.url;
-            if (downloadUrl && sttTranscriber && sttConfig?.enabled && sttConfig.autoTranscribe !== false) {
+            const downloadUrl = ((att as any).voice_wav_url as string) ?? att.url;
+            if (
+              downloadUrl &&
+              sttTranscriber &&
+              sttConfig?.enabled &&
+              sttConfig.autoTranscribe !== false
+            ) {
               try {
                 const resp = await fetch(downloadUrl);
                 if (resp.ok) {
                   const audioBuf = Buffer.from(await resp.arrayBuffer());
                   const suffix = ct.includes('ogg') ? '.ogg' : '.mp3';
-                  const tmpPath = join(tmpdir(), `qq-audio-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${suffix}`);
+                  const tmpPath = join(
+                    tmpdir(),
+                    `qq-audio-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${suffix}`,
+                  );
                   await writeFile(tmpPath, audioBuf);
                   try {
                     const transcribed = await sttTranscriber(tmpPath, sttConfig.language ?? 'auto');
                     if (transcribed.trim()) agentText = transcribed.trim();
                   } finally {
-                    try { await unlink(tmpPath); } catch { /* cleanup */ }
+                    try {
+                      await unlink(tmpPath);
+                    } catch {
+                      /* cleanup */
+                    }
                   }
                 }
               } catch (err) {
@@ -176,14 +201,16 @@ export function setupMessageHandlers(
 
       // ── Stage 6: Command interception ──
       if (text.startsWith('/')) {
-        const deps: CommandDeps = commandDeps ?? ({
-          agentService,
-          skillRegistry: undefined,
-          cronService: undefined,
-          feishuClient: undefined,
-          agentManager: undefined,
-          extensionManager: undefined,
-        } as CommandDeps);
+        const deps: CommandDeps =
+          commandDeps ??
+          ({
+            agentService,
+            skillRegistry: undefined,
+            cronService: undefined,
+            feishuClient: undefined,
+            agentManager: undefined,
+            extensionManager: undefined,
+          } as CommandDeps);
 
         const result = await handleCommand(text, sessionKey, deps, messageId, chatId, {
           // Operator identity for privileged commands (e.g. /permission):
@@ -204,10 +231,34 @@ export function setupMessageHandlers(
             logger.info({ sessionKey, forwardText }, 'QQ forwarding to agent after command');
             const live = api.getConfig();
             // P1 M6: bounded queue — reject with a busy reply at capacity
-            if (!chatQueue.enqueue(sessionKey, () =>
-              executeAgent(forwardText, sessionKey, chatId, messageId, target, openid, gateway, config, agentService, logger, replyTracker, live.showToolCalls, live.showSkillCalls, live.footer, live.tools.fileRead.allowedRoots, live.tools.fileRead.deniedPatterns).catch(err => logger.error({ err, sessionKey }, 'QQ queued agent failed')),
-            )) {
-              await sendChunkedText(gateway, i18n.t('messages:errors.busy'), target, config.textLimit).catch(() => {});
+            if (
+              !chatQueue.enqueue(sessionKey, () =>
+                executeAgent(
+                  forwardText,
+                  sessionKey,
+                  chatId,
+                  messageId,
+                  target,
+                  openid,
+                  gateway,
+                  config,
+                  agentService,
+                  logger,
+                  replyTracker,
+                  live.showToolCalls,
+                  live.showSkillCalls,
+                  live.footer,
+                  live.tools.fileRead.allowedRoots,
+                  live.tools.fileRead.deniedPatterns,
+                ).catch((err) => logger.error({ err, sessionKey }, 'QQ queued agent failed')),
+              )
+            ) {
+              await sendChunkedText(
+                gateway,
+                i18n.t('messages:errors.busy'),
+                target,
+                config.textLimit,
+              ).catch(() => {});
             }
           }
           return;
@@ -227,10 +278,34 @@ export function setupMessageHandlers(
       }
       const liveConfig = api.getConfig();
       // P1 M6: bounded queue — reject with a busy reply at capacity
-      if (!chatQueue.enqueue(sessionKey, () =>
-        executeAgent(agentText, sessionKey, chatId, messageId, target, openid, gateway, config, agentService, logger, replyTracker, liveConfig.showToolCalls, liveConfig.showSkillCalls, liveConfig.footer, liveConfig.tools.fileRead.allowedRoots, liveConfig.tools.fileRead.deniedPatterns).catch(err => logger.error({ err, sessionKey }, 'QQ queued agent failed')),
-      )) {
-        await sendChunkedText(gateway, i18n.t('messages:errors.busy'), target, config.textLimit).catch(() => {});
+      if (
+        !chatQueue.enqueue(sessionKey, () =>
+          executeAgent(
+            agentText,
+            sessionKey,
+            chatId,
+            messageId,
+            target,
+            openid,
+            gateway,
+            config,
+            agentService,
+            logger,
+            replyTracker,
+            liveConfig.showToolCalls,
+            liveConfig.showSkillCalls,
+            liveConfig.footer,
+            liveConfig.tools.fileRead.allowedRoots,
+            liveConfig.tools.fileRead.deniedPatterns,
+          ).catch((err) => logger.error({ err, sessionKey }, 'QQ queued agent failed')),
+        )
+      ) {
+        await sendChunkedText(
+          gateway,
+          i18n.t('messages:errors.busy'),
+          target,
+          config.textLimit,
+        ).catch(() => {});
       }
     } catch (err) {
       logger.error({ err, t: (payload as any)?.t }, 'QQ message handler error');
@@ -259,7 +334,10 @@ async function handleQuestionInteraction(
     }
 
     const resolved = agentService.resolveUserQuestion(parsed.requestId, parsed.answer);
-    logger.info({ requestId: parsed.requestId, answer: parsed.answer, resolved }, 'QQ question answer resolved');
+    logger.info(
+      { requestId: parsed.requestId, answer: parsed.answer, resolved },
+      'QQ question answer resolved',
+    );
 
     if (resolved) {
       await sendChunkedText(gateway, `✅ 回答: ${parsed.answer}`, target, 2000).catch(() => {});
@@ -305,7 +383,14 @@ async function executeAgent(
     return;
   }
 
-  const dispatcher = new QQReplyDispatcher(gateway, target, config, showToolCalls, showSkillCalls, footerConfig);
+  const dispatcher = new QQReplyDispatcher(
+    gateway,
+    target,
+    config,
+    showToolCalls,
+    showSkillCalls,
+    footerConfig,
+  );
   dispatcher.setReplyTracker(replyTracker, openid);
 
   // v4 Phase 4: Media intake hook (skeleton)
@@ -341,7 +426,14 @@ async function executeAgent(
     messageId,
     replyDispatcherOverride: dispatcher,
     replyDispatcherFactory: () => {
-      const d = new QQReplyDispatcher(gateway, target, config, showToolCalls, showSkillCalls, footerConfig);
+      const d = new QQReplyDispatcher(
+        gateway,
+        target,
+        config,
+        showToolCalls,
+        showSkillCalls,
+        footerConfig,
+      );
       d.setReplyTracker(replyTracker, openid);
       return d;
     },

@@ -22,7 +22,14 @@ class MockOrchestrator implements Orchestrator {
   private nextId = 1;
   private agents = new Map<string, any>();
 
-  async createTask(input: { ownerAgentId: string; sessionId: string; title: string; description: string; assignToAgentId?: string; parentTaskId?: string }): Promise<TaskRun> {
+  async createTask(input: {
+    ownerAgentId: string;
+    sessionId: string;
+    title: string;
+    description: string;
+    assignToAgentId?: string;
+    parentTaskId?: string;
+  }): Promise<TaskRun> {
     const taskId = `task-${this.nextId++}`;
     const task: TaskRun = {
       taskId,
@@ -43,7 +50,7 @@ class MockOrchestrator implements Orchestrator {
   }
 
   async listTasks(sessionId: string): Promise<TaskRun[]> {
-    return [...this.tasks.values()].filter(t => t.sessionId === sessionId);
+    return [...this.tasks.values()].filter((t) => t.sessionId === sessionId);
   }
 
   async updateTask(taskId: string, patch: Partial<TaskRun>): Promise<TaskRun | null> {
@@ -59,21 +66,41 @@ class MockOrchestrator implements Orchestrator {
 
   async collectResults(parentAgentId: string): Promise<any[]> {
     return [
-      { agentId: `${parentAgentId}-child-1`, status: 'completed', summary: 'Task completed successfully.' },
+      {
+        agentId: `${parentAgentId}-child-1`,
+        status: 'completed',
+        summary: 'Task completed successfully.',
+      },
       { agentId: `${parentAgentId}-child-2`, status: 'failed', error: 'Something went wrong.' },
     ];
   }
 
-  spawnChildAgent(input: any): Promise<any> { throw new Error('Not implemented'); }
-  sendMessage(input: any): Promise<void> { throw new Error('Not implemented'); }
-  getAgentRun(_agentId: string): any { return undefined; }
-  listAgentRuns(_sessionId: string): any[] { return []; }
-  routeApprovalToParent(_approval: any, _parentSessionId: string): Promise<void> { throw new Error('Not implemented'); }
-  finishAgent(_agentId: string, _status: 'completed' | 'failed', _detail?: string): Promise<void> { throw new Error('Not implemented'); }
-  getMessages(_agentId?: string): any[] { return []; }
+  spawnChildAgent(input: any): Promise<any> {
+    throw new Error('Not implemented');
+  }
+  sendMessage(input: any): Promise<void> {
+    throw new Error('Not implemented');
+  }
+  getAgentRun(_agentId: string): any {
+    return undefined;
+  }
+  listAgentRuns(_sessionId: string): any[] {
+    return [];
+  }
+  routeApprovalToParent(_approval: any, _parentSessionId: string): Promise<void> {
+    throw new Error('Not implemented');
+  }
+  finishAgent(_agentId: string, _status: 'completed' | 'failed', _detail?: string): Promise<void> {
+    throw new Error('Not implemented');
+  }
+  getMessages(_agentId?: string): any[] {
+    return [];
+  }
 
   /** Expose internal state for test inspection. */
-  _getTasks(): Map<string, TaskRun> { return this.tasks; }
+  _getTasks(): Map<string, TaskRun> {
+    return this.tasks;
+  }
   _isAgentStopped(agentId: string): boolean {
     return this.agents.get(agentId)?.status === 'stopped';
   }
@@ -118,10 +145,7 @@ describe('task_create', () => {
 
   it('returns error when orchestrator is not available', async () => {
     const tool = createTaskCreateToolDefinition();
-    const result = await tool.execute(
-      { title: 'Test', description: 'Test' },
-      makeCtx(undefined),
-    );
+    const result = await tool.execute({ title: 'Test', description: 'Test' }, makeCtx(undefined));
 
     expect(result.isError).toBeTruthy();
     expectToolResultContains(result, 'Orchestrator not available');
@@ -191,11 +215,26 @@ describe('task_list', () => {
   it('lists tasks grouped by status with counts', async () => {
     const orchestrator = new MockOrchestrator();
     // Create tasks with different statuses
-    const t1 = await orchestrator.createTask({ ownerAgentId: 'a1', sessionId: 'test-session-1', title: 'Task Pending', description: '' });
+    const t1 = await orchestrator.createTask({
+      ownerAgentId: 'a1',
+      sessionId: 'test-session-1',
+      title: 'Task Pending',
+      description: '',
+    });
     await orchestrator.updateTask(t1.taskId, { status: 'pending' } as any);
-    const t2 = await orchestrator.createTask({ ownerAgentId: 'a1', sessionId: 'test-session-1', title: 'Task Running', description: '' });
+    const t2 = await orchestrator.createTask({
+      ownerAgentId: 'a1',
+      sessionId: 'test-session-1',
+      title: 'Task Running',
+      description: '',
+    });
     await orchestrator.updateTask(t2.taskId, { status: 'running' } as any);
-    const t3 = await orchestrator.createTask({ ownerAgentId: 'a1', sessionId: 'test-session-1', title: 'Task Completed', description: '' });
+    const t3 = await orchestrator.createTask({
+      ownerAgentId: 'a1',
+      sessionId: 'test-session-1',
+      title: 'Task Completed',
+      description: '',
+    });
     await orchestrator.updateTask(t3.taskId, { status: 'completed' } as any);
 
     const tool = createTaskListToolDefinition();
@@ -294,7 +333,9 @@ describe('task_output', () => {
       title: 'Output Task',
       description: '',
     });
-    await orchestrator.updateTask(task.taskId, { resultSummary: 'This is the result summary.' } as any);
+    await orchestrator.updateTask(task.taskId, {
+      resultSummary: 'This is the result summary.',
+    } as any);
 
     const tool = createTaskOutputToolDefinition();
     const result = await tool.execute({ taskId: task.taskId }, makeCtx(orchestrator));

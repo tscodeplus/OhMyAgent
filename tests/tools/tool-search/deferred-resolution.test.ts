@@ -103,7 +103,9 @@ describe('deferred tool resolution', () => {
         // Model directly invokes the deferred tool by name.
         const message: AssistantMessage = {
           role: 'assistant',
-          content: [{ type: 'toolCall', id: 'tc-1', name: 'memory_rebuild_persona', arguments: {} }],
+          content: [
+            { type: 'toolCall', id: 'tc-1', name: 'memory_rebuild_persona', arguments: {} },
+          ],
           api: 'openai-completions',
           provider: 'test-provider',
           model: 'test-model',
@@ -113,7 +115,12 @@ describe('deferred tool resolution', () => {
         };
         stream.push({ type: 'start', partial: { ...message } });
         stream.push({ type: 'toolcall_start', contentIndex: 0, partial: { ...message } });
-        stream.push({ type: 'toolcall_delta', contentIndex: 0, delta: '{}', partial: { ...message } });
+        stream.push({
+          type: 'toolcall_delta',
+          contentIndex: 0,
+          delta: '{}',
+          partial: { ...message },
+        });
         stream.push({
           type: 'toolcall_end',
           contentIndex: 0,
@@ -134,8 +141,18 @@ describe('deferred tool resolution', () => {
         };
         stream.push({ type: 'start', partial: { ...message } });
         stream.push({ type: 'text_start', contentIndex: 0, partial: { ...message } });
-        stream.push({ type: 'text_delta', contentIndex: 0, delta: 'rebuilt', partial: { ...message } });
-        stream.push({ type: 'text_end', contentIndex: 0, content: 'rebuilt', partial: { ...message } });
+        stream.push({
+          type: 'text_delta',
+          contentIndex: 0,
+          delta: 'rebuilt',
+          partial: { ...message },
+        });
+        stream.push({
+          type: 'text_end',
+          contentIndex: 0,
+          content: 'rebuilt',
+          partial: { ...message },
+        });
         stream.push({ type: 'done', reason: 'stop', message });
       }
       return stream;
@@ -151,4 +168,3 @@ describe('deferred tool resolution', () => {
     expect(deferred.execute).toHaveBeenCalledTimes(1);
   });
 });
-

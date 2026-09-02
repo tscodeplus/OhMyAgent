@@ -48,26 +48,30 @@ export function createTaskOutputToolDefinition(): ToolDefinition {
 
       // If resultSummary exists, return it directly
       if (task.resultSummary) {
-        return textResult([
-          `**Task Output: ${task.title}**`,
-          `- **Task ID**: ${task.taskId}`,
-          `- **Status**: ${task.status}`,
-          ``,
-          task.resultSummary,
-        ].join('\n'));
+        return textResult(
+          [
+            `**Task Output: ${task.title}**`,
+            `- **Task ID**: ${task.taskId}`,
+            `- **Status**: ${task.status}`,
+            ``,
+            task.resultSummary,
+          ].join('\n'),
+        );
       }
 
       // Otherwise collect results from child agents
       const results = await orchestrator.collectResults(task.ownerAgentId);
 
       if (results.length === 0) {
-        return textResult([
-          `**Task Output: ${task.title}**`,
-          `- **Task ID**: ${task.taskId}`,
-          `- **Status**: ${task.status}`,
-          ``,
-          'No results available yet.',
-        ].join('\n'));
+        return textResult(
+          [
+            `**Task Output: ${task.title}**`,
+            `- **Task ID**: ${task.taskId}`,
+            `- **Status**: ${task.status}`,
+            ``,
+            'No results available yet.',
+          ].join('\n'),
+        );
       }
 
       const lines: string[] = [

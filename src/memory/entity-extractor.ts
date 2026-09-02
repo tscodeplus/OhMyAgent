@@ -49,7 +49,12 @@ for (const langTerms of Object.values(genericTermsData.terms)) {
 // ─── Relation priority ──────────────────────────────────────────────
 
 const RELATION_PRIORITY: Record<string, number> = {
-  FOUNDED: 6, INVESTED: 5, ADVISES: 4, WORKS_AT: 3, ATTENDED: 2, MENTIONED: 1,
+  FOUNDED: 6,
+  INVESTED: 5,
+  ADVISES: 4,
+  WORKS_AT: 3,
+  ATTENDED: 2,
+  MENTIONED: 1,
 };
 
 // ─── Regex patterns (fallback path) ─────────────────────────────────
@@ -70,15 +75,33 @@ const ORG_RE = new RegExp(
 
 // ─── Relation keywords ──────────────────────────────────────────────
 
-interface RelationPattern { type: string; keywords: RegExp[] }
+interface RelationPattern {
+  type: string;
+  keywords: RegExp[];
+}
 
 const RELATION_PATTERNS: RelationPattern[] = [
-  { type: 'FOUNDED',   keywords: [/创立|创建|创办|成立|开了|建立了/i, /founded|created|established|started/i] },
-  { type: 'INVESTED',  keywords: [/投资|入股|投了|融资|参股/i, /invested|funded|backed|financed/i] },
-  { type: 'ADVISES',   keywords: [/顾问|指导|咨询|建议/i, /advises|consults|mentors|guides/i] },
-  { type: 'WORKS_AT',  keywords: [/在.{1,10}(工作|上班|任职|就职|担任|做)/i, /works at|employed by|joined|works for|engineer at/i] },
-  { type: 'ATTENDED',  keywords: [/参加|参与|出席|去了|在场/i, /attended|participated|joined|went to/i] },
-  { type: 'MENTIONED', keywords: [/提到|说起|谈起|说过/i, /mentioned|talked about|discussed|referred to/i] },
+  {
+    type: 'FOUNDED',
+    keywords: [/创立|创建|创办|成立|开了|建立了/i, /founded|created|established|started/i],
+  },
+  { type: 'INVESTED', keywords: [/投资|入股|投了|融资|参股/i, /invested|funded|backed|financed/i] },
+  { type: 'ADVISES', keywords: [/顾问|指导|咨询|建议/i, /advises|consults|mentors|guides/i] },
+  {
+    type: 'WORKS_AT',
+    keywords: [
+      /在.{1,10}(工作|上班|任职|就职|担任|做)/i,
+      /works at|employed by|joined|works for|engineer at/i,
+    ],
+  },
+  {
+    type: 'ATTENDED',
+    keywords: [/参加|参与|出席|去了|在场/i, /attended|participated|joined|went to/i],
+  },
+  {
+    type: 'MENTIONED',
+    keywords: [/提到|说起|谈起|说过/i, /mentioned|talked about|discussed|referred to/i],
+  },
 ];
 
 const NAME_CONTEXT_RE = /的|说|告诉|和|跟|与|是|先生|女士|老师|经理|总|工|同事|朋友|客户|用户/i;
@@ -100,7 +123,7 @@ function isStopEntity(entity: string): boolean {
 
 function isCJKChar(ch: string): boolean {
   const cp = ch.codePointAt(0)!;
-  return cp >= 0x4E00 && cp <= 0x9FFF;
+  return cp >= 0x4e00 && cp <= 0x9fff;
 }
 
 function hasCommonBigramBoundary(text: string, matchIndex: number, matchLength: number): boolean {
@@ -140,7 +163,8 @@ export function extractEntities(text: string, options?: ExtractOptions): Extract
     const full = match[0];
     if (full.length >= 3) {
       const short = full.slice(0, -1);
-      if (short.length >= 2) candidates.push({ entity: short, source: 'cn_name', idx: match.index! });
+      if (short.length >= 2)
+        candidates.push({ entity: short, source: 'cn_name', idx: match.index! });
     }
     candidates.push({ entity: full, source: 'cn_name', idx: match.index! });
   }
@@ -158,17 +182,26 @@ export function extractEntities(text: string, options?: ExtractOptions): Extract
     if (isStopEntity(c.entity)) continue;
     if (GENERIC_TERMS.has(c.entity)) continue;
     if (c.source === 'cn_name') {
-      const hasShorter = unique.some(u => u.source === 'cn_name' && c.entity.startsWith(u.entity) && c.entity.length > u.entity.length);
+      const hasShorter = unique.some(
+        (u) =>
+          u.source === 'cn_name' &&
+          c.entity.startsWith(u.entity) &&
+          c.entity.length > u.entity.length,
+      );
       if (hasShorter) continue;
       for (let i = unique.length - 1; i >= 0; i--) {
-        if (unique[i].source === 'cn_name' && unique[i].entity.startsWith(c.entity) && unique[i].entity.length > c.entity.length) {
+        if (
+          unique[i].source === 'cn_name' &&
+          unique[i].entity.startsWith(c.entity) &&
+          unique[i].entity.length > c.entity.length
+        ) {
           unique.splice(i, 1);
         }
       }
       if (overlapsWithCommonWord(c.entity)) continue;
       if (hasCommonBigramBoundary(cleaned, c.idx, c.entity.length)) continue;
     }
-    if (unique.some(u => u.entity.toLowerCase() === c.entity.toLowerCase())) continue;
+    if (unique.some((u) => u.entity.toLowerCase() === c.entity.toLowerCase())) continue;
     unique.push(c);
   }
 
@@ -181,7 +214,10 @@ export function extractEntities(text: string, options?: ExtractOptions): Extract
       for (const kw of pattern.keywords) {
         if (kw.test(cleaned)) {
           const prio = RELATION_PRIORITY[pattern.type] ?? 0;
-          if (prio > bestPriority) { bestType = pattern.type; bestPriority = prio; }
+          if (prio > bestPriority) {
+            bestType = pattern.type;
+            bestPriority = prio;
+          }
         }
       }
     }
@@ -189,7 +225,8 @@ export function extractEntities(text: string, options?: ExtractOptions): Extract
     if (candidate.source === 'cn_name') confidence = Math.min(1.0, confidence + 0.15);
     if (candidate.source === 'en_name') confidence = Math.min(1.0, confidence + 0.1);
     if (bestType !== 'MENTIONED') confidence = Math.min(1.0, confidence + 0.2);
-    if (candidate.source === 'org' && options?.scope === 'user') confidence = Math.min(1.0, confidence + 0.05);
+    if (candidate.source === 'org' && options?.scope === 'user')
+      confidence = Math.min(1.0, confidence + 0.05);
 
     if (bestType === 'MENTIONED' && confidence < 0.8 && candidate.source !== 'org') {
       const ctxStart = Math.max(0, candidate.idx - 6);
@@ -202,7 +239,11 @@ export function extractEntities(text: string, options?: ExtractOptions): Extract
 
   const result: ExtractedEntity[] = [];
   for (const [entity, info] of entities) {
-    result.push({ entity, relationType: info.type, confidence: Math.round(info.confidence * 100) / 100 });
+    result.push({
+      entity,
+      relationType: info.type,
+      confidence: Math.round(info.confidence * 100) / 100,
+    });
   }
   result.sort((a, b) => b.confidence - a.confidence);
   return result;
@@ -238,7 +279,7 @@ export async function extractEntitiesLLM(
 
     if (entities.length > 0) {
       config.logger.debug({ count: entities.length }, 'LLM entity extraction succeeded');
-      return entities.filter(e => e.confidence >= config.minConfidence);
+      return entities.filter((e) => e.confidence >= config.minConfidence);
     }
 
     return extractEntities(text, options);
@@ -258,17 +299,24 @@ export function parseLLMEntities(response: string): ExtractedEntity[] {
   const entities: ExtractedEntity[] = [];
   for (const parsed of values) {
     if (!parsed || typeof parsed !== 'object') continue;
-    const obj = parsed as { entity?: unknown; type?: unknown; relation?: unknown; confidence?: unknown };
+    const obj = parsed as {
+      entity?: unknown;
+      type?: unknown;
+      relation?: unknown;
+      confidence?: unknown;
+    };
     if (typeof obj.entity !== 'string') continue;
     const name = obj.entity.trim();
     if (!name || GENERIC_TERMS.has(name)) continue;
-    const relationType = typeof obj.relation === 'string' && RELATION_PRIORITY[obj.relation] !== undefined
-      ? obj.relation
-      : 'MENTIONED';
+    const relationType =
+      typeof obj.relation === 'string' && RELATION_PRIORITY[obj.relation] !== undefined
+        ? obj.relation
+        : 'MENTIONED';
     const fallbackConfidence = obj.type === 'PERSON' ? 0.95 : 0.85;
-    const confidence = typeof obj.confidence === 'number' && Number.isFinite(obj.confidence)
-      ? Math.max(0, Math.min(1, obj.confidence))
-      : fallbackConfidence;
+    const confidence =
+      typeof obj.confidence === 'number' && Number.isFinite(obj.confidence)
+        ? Math.max(0, Math.min(1, obj.confidence))
+        : fallbackConfidence;
     entities.push({ entity: name, relationType, confidence });
   }
   return entities;

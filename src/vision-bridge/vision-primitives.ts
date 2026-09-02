@@ -1,4 +1,9 @@
-import type { VisionCapabilities, VisualPrimitive, NormalizedBox, NormalizedPoint } from './vision-bridge-types.js';
+import type {
+  VisionCapabilities,
+  VisualPrimitive,
+  NormalizedBox,
+  NormalizedPoint,
+} from './vision-bridge-types.js';
 import { MAX_VISUAL_PRIMITIVES, MAX_PRIMITIVE_REF_CHARS } from './vision-bridge-types.js';
 
 // ─── Vision Capabilities Normalization ───
@@ -14,7 +19,8 @@ export function normalizeVisionCapabilities(raw: unknown): VisionCapabilities | 
   if (coordinateSpace !== 'norm-1000') return null;
 
   const boxOrder = caps.boxOrder === 'yxyx' ? 'yxyx' : 'xyxy';
-  if (caps.boxOrder !== undefined && caps.boxOrder !== 'xyxy' && caps.boxOrder !== 'yxyx') return null;
+  if (caps.boxOrder !== undefined && caps.boxOrder !== 'xyxy' && caps.boxOrder !== 'yxyx')
+    return null;
 
   const boxes = caps.boxes !== false;
   const points = caps.points === true;
@@ -82,9 +88,11 @@ export function normalizePoint(rawPoint: number[]): [number, number] | null {
 // ─── Label & ID Helpers ───
 
 function primitiveLabel(raw: Record<string, unknown>, fallbackId: string): string {
-  const label = (raw.ref ?? raw.label ?? raw.text ?? raw.name ?? raw.id ?? fallbackId);
+  const label = raw.ref ?? raw.label ?? raw.text ?? raw.name ?? raw.id ?? fallbackId;
   const str = String(label ?? fallbackId);
-  return str.length > MAX_PRIMITIVE_REF_CHARS ? str.slice(0, MAX_PRIMITIVE_REF_CHARS - 1) + '…' : str;
+  return str.length > MAX_PRIMITIVE_REF_CHARS
+    ? str.slice(0, MAX_PRIMITIVE_REF_CHARS - 1) + '…'
+    : str;
 }
 
 function primitiveId(raw: Record<string, unknown>, index: number): string {
@@ -137,7 +145,13 @@ function normalizePrimitive(
     if (rawPoint) {
       const coords = normalizePoint(rawPoint);
       if (coords) {
-        return { type: 'point', id, label, coordinates: coords, confidence } satisfies NormalizedPoint;
+        return {
+          type: 'point',
+          id,
+          label,
+          coordinates: coords,
+          confidence,
+        } satisfies NormalizedPoint;
       }
     }
   }
@@ -194,7 +208,9 @@ export function extractJsonObject(text: string): Record<string, unknown> | null 
   try {
     const result = JSON.parse(text);
     if (result && typeof result === 'object' && !Array.isArray(result)) return result;
-  } catch { /* continue */ }
+  } catch {
+    /* continue */
+  }
 
   // Try fenced code block
   const fenceMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
@@ -202,7 +218,9 @@ export function extractJsonObject(text: string): Record<string, unknown> | null 
     try {
       const result = JSON.parse(fenceMatch[1].trim());
       if (result && typeof result === 'object' && !Array.isArray(result)) return result;
-    } catch { /* continue */ }
+    } catch {
+      /* continue */
+    }
   }
 
   // Try first {…} block
@@ -211,7 +229,9 @@ export function extractJsonObject(text: string): Record<string, unknown> | null 
     try {
       const result = JSON.parse(braceMatch[0]);
       if (result && typeof result === 'object' && !Array.isArray(result)) return result;
-    } catch { /* continue */ }
+    } catch {
+      /* continue */
+    }
   }
 
   return null;
@@ -285,9 +305,7 @@ export function formatStructuredVisionNote(
 
   // Append visual primitives
   const rawPrimitives = rawVisualPrimitiveItems(analysis);
-  const primitives = rawPrimitives
-    ? normalizeVisualPrimitives(rawPrimitives, capabilities)
-    : [];
+  const primitives = rawPrimitives ? normalizeVisualPrimitives(rawPrimitives, capabilities) : [];
   lines.push(formatVisualPrimitives(primitives, capabilities.groundingMode));
   lines.push('');
   lines.push(VISION_CONTEXT_END);

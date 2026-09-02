@@ -42,7 +42,11 @@ const DEBUG_LOG = dataPath('webui-debug.log');
 function debugLog(msg: string, data?: Record<string, unknown>): void {
   const ts = new Date().toISOString();
   const line = `[${ts}] ${msg}${data ? ' ' + JSON.stringify(data) : ''}\n`;
-  try { fs.appendFileSync(DEBUG_LOG, line); } catch { /* ignore */ }
+  try {
+    fs.appendFileSync(DEBUG_LOG, line);
+  } catch {
+    /* ignore */
+  }
 }
 
 // ─── SSE-aware ReplyDispatcher ───
@@ -74,13 +78,20 @@ class SSEReplyDispatcher implements ReplyDispatcher {
     showSkillCalls = true,
     showToolCalls = true,
     logger?: { warn: (...args: any[]) => void },
-    harnessRegistry?: Map<string, (result: import('../../harness/types.js').HarnessApprovalResult) => void>,
+    harnessRegistry?: Map<
+      string,
+      (result: import('../../harness/types.js').HarnessApprovalResult) => void
+    >,
   ) {
     this._harnessRegistry = harnessRegistry;
     this.callback = callback;
     this.footerConfig = footerConfig ?? {
-      showAgentName: true, showModel: true, showCompleted: false,
-      showElapsed: true, showUsage: false, showCacheHitRate: false,
+      showAgentName: true,
+      showModel: true,
+      showCompleted: false,
+      showElapsed: true,
+      showUsage: false,
+      showCacheHitRate: false,
     };
     this.db = db;
     this.sessionId = sessionId;
@@ -149,12 +160,19 @@ class SSEReplyDispatcher implements ReplyDispatcher {
           reason: record.reason ?? '',
         });
         // Persist approval request as a message so it survives page refresh
-        this.persistApprovalMessage(record.requestId, record.command, record.risk, 'pending', record.reason);
+        this.persistApprovalMessage(
+          record.requestId,
+          record.command,
+          record.risk,
+          'pending',
+          record.reason,
+        );
       } else {
         this.callback({
           type: 'approval_resolved',
           approvalId: record.requestId,
-          decision: record.decision ?? (record.status === 'approved' ? 'approve_once' : 'reject_once'),
+          decision:
+            record.decision ?? (record.status === 'approved' ? 'approve_once' : 'reject_once'),
         });
         // Update the persisted approval message with resolved status
         this.updateApprovalMessage(record.requestId, record.status, record.decision);
@@ -180,9 +198,11 @@ class SSEReplyDispatcher implements ReplyDispatcher {
       });
       // Use INSERT OR REPLACE to handle the case where the approval is
       // re-sent (e.g. after agent restart with recovered approvals).
-      this.db.prepare(
-        "INSERT OR REPLACE INTO messages (id, session_id, role, content, created_at, metadata) VALUES (?, ?, 'assistant', ?, ?, ?)",
-      ).run(msgId, this.sessionId, '', Date.now(), meta);
+      this.db
+        .prepare(
+          "INSERT OR REPLACE INTO messages (id, session_id, role, content, created_at, metadata) VALUES (?, ?, 'assistant', ?, ?, ?)",
+        )
+        .run(msgId, this.sessionId, '', Date.now(), meta);
       this.approvalMsgIds.set(approvalId, msgId);
     } catch (err) {
       this.logger?.warn('[chat] Failed to persist approval message:', err);
@@ -190,29 +210,28 @@ class SSEReplyDispatcher implements ReplyDispatcher {
   }
 
   /** Update an existing approval message's status after resolution. */
-  private updateApprovalMessage(
-    approvalId: string,
-    status: string,
-    decision?: string,
-  ): void {
+  private updateApprovalMessage(approvalId: string, status: string, decision?: string): void {
     if (!this.db || !this.sessionId) return;
     try {
       // Message ID uses the same format as persistApprovalMessage and the
       // frontend streaming id — "approval-{approvalId}".
       const msgId = `approval-${approvalId}`;
-      const row = this.db.prepare(
-        'SELECT metadata FROM messages WHERE id = ?',
-      ).get(msgId) as { metadata: string | null } | undefined;
+      const row = this.db.prepare('SELECT metadata FROM messages WHERE id = ?').get(msgId) as
+        { metadata: string | null } | undefined;
       if (row) {
         let meta: Record<string, unknown> = {};
-        try { meta = row.metadata ? JSON.parse(String(row.metadata)) : {}; } catch { /* ignore */ }
+        try {
+          meta = row.metadata ? JSON.parse(String(row.metadata)) : {};
+        } catch {
+          /* ignore */
+        }
         const approval = (meta.approval || {}) as Record<string, unknown>;
         approval.status = status;
         if (decision) approval.decision = decision;
         meta.approval = approval;
-        this.db.prepare(
-          'UPDATE messages SET metadata = ? WHERE id = ?',
-        ).run(JSON.stringify(meta), msgId);
+        this.db
+          .prepare('UPDATE messages SET metadata = ? WHERE id = ?')
+          .run(JSON.stringify(meta), msgId);
         this.approvalMsgIds.set(approvalId, msgId);
       }
     } catch (err) {
@@ -261,12 +280,14 @@ class SSEReplyDispatcher implements ReplyDispatcher {
         agentName: this.footerConfig.showAgentName ? this.agentName : undefined,
         completed: this.footerConfig.showCompleted !== false,
         elapsed: this.footerConfig.showElapsed ? elapsed : undefined,
-        usage: usage ? {
-          input: usage.input,
-          output: usage.output,
-          cacheRead: usage.cacheRead,
-          cacheWrite: usage.cacheWrite,
-        } : undefined,
+        usage: usage
+          ? {
+              input: usage.input,
+              output: usage.output,
+              cacheRead: usage.cacheRead,
+              cacheWrite: usage.cacheWrite,
+            }
+          : undefined,
         showUsage: this.footerConfig.showUsage ?? false,
         showCacheHitRate: this.footerConfig.showCacheHitRate ?? false,
       },
@@ -287,7 +308,10 @@ class SSEReplyDispatcher implements ReplyDispatcher {
 
   /** Shared registry (per ChatRouteConfig) that the decide endpoint uses to
    *  resolve a user's button click back to the pending promise. */
-  private _harnessRegistry?: Map<string, (result: import('../../harness/types.js').HarnessApprovalResult) => void>;
+  private _harnessRegistry?: Map<
+    string,
+    (result: import('../../harness/types.js').HarnessApprovalResult) => void
+  >;
 
   async requestHarnessApproval(
     prompt: import('../../harness/types.js').HarnessImprovementPrompt,
@@ -339,7 +363,10 @@ export interface ChatRouteConfig {
   /** Registry for per-session UserQuestionSender instances (ask_user_question tool). */
   userQuestionSenderRegistry?: Map<string, UserQuestionSender>;
   /** Registry for pending harness approval promises (SSE → decide endpoint). */
-  harnessApprovalRegistry?: Map<string, (result: import('../../harness/types.js').HarnessApprovalResult) => void>;
+  harnessApprovalRegistry?: Map<
+    string,
+    (result: import('../../harness/types.js').HarnessApprovalResult) => void
+  >;
 }
 
 // ─── Login throttling ───
@@ -360,7 +387,10 @@ export const LOGIN_MAX_ATTEMPTS_PER_IP = 20;
 export const LOGIN_MAX_ATTEMPTS_GLOBAL = 120;
 
 let loginRateLimiter = new SlidingWindowRateLimiter(LOGIN_MAX_ATTEMPTS_PER_IP, LOGIN_WINDOW_MS);
-let loginRateLimiterGlobal = new SlidingWindowRateLimiter(LOGIN_MAX_ATTEMPTS_GLOBAL, LOGIN_WINDOW_MS);
+let loginRateLimiterGlobal = new SlidingWindowRateLimiter(
+  LOGIN_MAX_ATTEMPTS_GLOBAL,
+  LOGIN_WINDOW_MS,
+);
 
 /** Test seam: drop all accumulated login-attempt state. */
 export function resetLoginRateLimits(): void {
@@ -376,8 +406,8 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
     // Counted before the token comparison so guessing and reload storms share
     // one budget. Rejecting a legitimate user for a minute is recoverable;
     // an unthrottled oracle is not.
-    const throttled = !loginRateLimiter.check(request.ip || 'unknown')
-      || !loginRateLimiterGlobal.check('global');
+    const throttled =
+      !loginRateLimiter.check(request.ip || 'unknown') || !loginRateLimiterGlobal.check('global');
     if (throttled) {
       return reply
         .header('Retry-After', String(Math.ceil(LOGIN_WINDOW_MS / 1000)))
@@ -417,7 +447,13 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
   // SSE chat endpoint
   app.post('/api/projects/:projectId/chat', async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
-    const { sessionId, message: rawMessage, clientMsgId, agentId: requestedAgentId, model: requestedModelRef } = request.body as {
+    const {
+      sessionId,
+      message: rawMessage,
+      clientMsgId,
+      agentId: requestedAgentId,
+      model: requestedModelRef,
+    } = request.body as {
       sessionId?: string;
       message?: string;
       /** Frontend-generated message ID — reused as the persisted user message
@@ -433,12 +469,15 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
       model?: string;
     };
     // Only accept well-formed ids — never let arbitrary user input become a DB primary key.
-    const safeClientMsgId = typeof clientMsgId === 'string' && clientMsgId.length >= 8 && clientMsgId.length <= 64
-      ? clientMsgId
-      : undefined;
+    const safeClientMsgId =
+      typeof clientMsgId === 'string' && clientMsgId.length >= 8 && clientMsgId.length <= 64
+        ? clientMsgId
+        : undefined;
 
     if (!sessionId || !rawMessage?.trim()) {
-      return reply.status(400).send({ error: 'Bad Request', message: 'sessionId and message are required' });
+      return reply
+        .status(400)
+        .send({ error: 'Bad Request', message: 'sessionId and message are required' });
     }
 
     let message = rawMessage.trim();
@@ -468,7 +507,10 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
       ? resolveModelRef(requestedModelRef, cfg.getConfig?.())
       : undefined;
     if (requestedModelRef && !explicitModel) {
-      app.log.warn({ model: requestedModelRef }, '[chat] Model override could not be resolved — using agent default');
+      app.log.warn(
+        { model: requestedModelRef },
+        '[chat] Model override could not be resolved — using agent default',
+      );
     }
 
     // Set SSE headers
@@ -485,7 +527,9 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
       // the same reason the keepalive below is wrapped.
       try {
         reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
-      } catch { /* connection already closed */ }
+      } catch {
+        /* connection already closed */
+      }
     };
 
     // SSE keepalive — write an SSE comment every 15s so the connection stays
@@ -494,7 +538,11 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
     // ignored by SSE parsers; the frontend feeds them to its heartbeat so a
     // running tool no longer trips the client's 60s no-event timeout.
     const pingTimer = setInterval(() => {
-      try { reply.raw.write(': ping\n\n'); } catch { /* connection already closed */ }
+      try {
+        reply.raw.write(': ping\n\n');
+      } catch {
+        /* connection already closed */
+      }
     }, 15_000);
     // 'close' fires when the response ends (including early slash-command returns).
     reply.raw.on('close', () => clearInterval(pingTimer));
@@ -506,7 +554,13 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
 
         // 1. Try built-in commands (/stop, /clear, /skill, /cron, /team, etc.)
         if (cfg.commandDeps) {
-          const result = await handleCommand(message, sessionId, cfg.commandDeps, undefined, chatId);
+          const result = await handleCommand(
+            message,
+            sessionId,
+            cfg.commandDeps,
+            undefined,
+            chatId,
+          );
           if (result) {
             // Persist messages so they survive frontend refetch.
             // Always persist the user command message, plus the assistant
@@ -517,17 +571,21 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
                 const now = Date.now();
                 // Always persist user command message (reuse clientMsgId when provided
                 // so the frontend can dedupe its streaming copy against this row)
-                cfg.db.prepare(
-                  "INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)",
-                ).run(safeClientMsgId ?? uuidv4(), sessionId, rawMessage.trim(), now);
+                cfg.db
+                  .prepare(
+                    "INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)",
+                  )
+                  .run(safeClientMsgId ?? uuidv4(), sessionId, rawMessage.trim(), now);
                 if (result.reply) {
-                  cfg.db.prepare(
-                    "INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, 'assistant', ?, ?)",
-                  ).run(uuidv4(), sessionId, result.reply, now);
+                  cfg.db
+                    .prepare(
+                      "INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, 'assistant', ?, ?)",
+                    )
+                    .run(uuidv4(), sessionId, result.reply, now);
                 }
-                cfg.db.prepare(
-                  "UPDATE sessions SET updated_at = ? WHERE id = ?",
-                ).run(now, sessionId);
+                cfg.db
+                  .prepare('UPDATE sessions SET updated_at = ? WHERE id = ?')
+                  .run(now, sessionId);
               } catch (dbErr) {
                 // FK may fail if session doesn't exist — non-fatal
                 app.log.warn({ err: dbErr }, '[chat] Failed to persist command message');
@@ -560,17 +618,21 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
               try {
                 const { v4: uuidv4 } = await import('uuid');
                 const now = Date.now();
-                cfg.db.prepare(
-                  "INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)",
-                ).run(safeClientMsgId ?? uuidv4(), sessionId, rawMessage.trim(), now);
+                cfg.db
+                  .prepare(
+                    "INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)",
+                  )
+                  .run(safeClientMsgId ?? uuidv4(), sessionId, rawMessage.trim(), now);
                 if (extResult.reply) {
-                  cfg.db.prepare(
-                    "INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, 'assistant', ?, ?)",
-                  ).run(uuidv4(), sessionId, extResult.reply, now);
+                  cfg.db
+                    .prepare(
+                      "INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, 'assistant', ?, ?)",
+                    )
+                    .run(uuidv4(), sessionId, extResult.reply, now);
                 }
-                cfg.db.prepare(
-                  "UPDATE sessions SET updated_at = ? WHERE id = ?",
-                ).run(now, sessionId);
+                cfg.db
+                  .prepare('UPDATE sessions SET updated_at = ? WHERE id = ?')
+                  .run(now, sessionId);
               } catch (dbErr) {
                 app.log.warn({ err: dbErr }, '[chat] Failed to persist ext command message');
               }
@@ -595,11 +657,19 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
     // Resolve agent name upfront — the event-bridge also calls setAgentName
     // during agent_end, but doing it here ensures it's always available.
     const agentName = cfg.agentManager
-      ? ((project.agent_id
-          ? cfg.agentManager.get(project.agent_id)?.name
-          : undefined) ?? cfg.agentManager.getDefault()?.name)
+      ? ((project.agent_id ? cfg.agentManager.get(project.agent_id)?.name : undefined) ??
+        cfg.agentManager.getDefault()?.name)
       : undefined;
-    const dispatcher = new SSEReplyDispatcher(sendSSE, cfg.getFooterConfig?.(), cfg.db, sessionId, cfg.getShowSkillCalls?.(), cfg.getShowToolCalls?.(), app.log, cfg.harnessApprovalRegistry);
+    const dispatcher = new SSEReplyDispatcher(
+      sendSSE,
+      cfg.getFooterConfig?.(),
+      cfg.db,
+      sessionId,
+      cfg.getShowSkillCalls?.(),
+      cfg.getShowToolCalls?.(),
+      app.log,
+      cfg.harnessApprovalRegistry,
+    );
     if (agentName) {
       dispatcher.setAgentName(agentName);
     }
@@ -630,9 +700,14 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
           if (filePath && fs.existsSync(filePath)) {
             const ext = path.extname(filePath).toLowerCase();
             const mimeMap: Record<string, string> = {
-              '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-              '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
-              '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
+              '.png': 'image/png',
+              '.jpg': 'image/jpeg',
+              '.jpeg': 'image/jpeg',
+              '.gif': 'image/gif',
+              '.webp': 'image/webp',
+              '.bmp': 'image/bmp',
+              '.svg': 'image/svg+xml',
+              '.ico': 'image/x-icon',
             };
             const mimeType = mimeMap[ext] || 'image/png';
             const buf = await readFile(filePath);
@@ -656,12 +731,20 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
     // from the persisted tool_call output. No separate assistant message is
     // persisted: one that also carried markdown would render twice (React-
     // Markdown + the extracted-images array in MessageBubble).
-    const computerUseImageSender = async (image: { data: string; mimeType: string }): Promise<string> => {
+    const computerUseImageSender = async (image: {
+      data: string;
+      mimeType: string;
+    }): Promise<string> => {
       const dir = dataPath('computer-use-screenshots');
       fs.mkdirSync(dir, { recursive: true });
-      const ext = image.mimeType === 'image/jpeg' ? '.jpg'
-        : image.mimeType === 'image/webp' ? '.webp'
-          : image.mimeType === 'image/gif' ? '.gif' : '.png';
+      const ext =
+        image.mimeType === 'image/jpeg'
+          ? '.jpg'
+          : image.mimeType === 'image/webp'
+            ? '.webp'
+            : image.mimeType === 'image/gif'
+              ? '.gif'
+              : '.png';
       const fileName = `screenshot-${Date.now()}${ext}`;
       const filePath = path.join(dir, fileName);
       fs.writeFileSync(filePath, Buffer.from(image.data, 'base64'));
@@ -734,10 +817,15 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
   // all channels. The response streams through the existing SSE connection.
   app.post('/api/projects/:projectId/chat/steer', async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
-    const { sessionId, message: rawMessage } = request.body as { sessionId?: string; message?: string };
+    const { sessionId, message: rawMessage } = request.body as {
+      sessionId?: string;
+      message?: string;
+    };
 
     if (!sessionId || !rawMessage?.trim()) {
-      return reply.status(400).send({ error: 'Bad Request', message: 'sessionId and message are required' });
+      return reply
+        .status(400)
+        .send({ error: 'Bad Request', message: 'sessionId and message are required' });
     }
 
     const project = cfg.projectStore.getById(projectId);
@@ -750,7 +838,13 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
     // Route through the shared command handler (same as Feishu). Commands like
     // /steer, /btw, /stop call agentService.steer/followUp/abort directly.
     if (cfg.commandDeps) {
-      const result = await handleCommand(rawMessage.trim(), sessionId, cfg.commandDeps, undefined, chatId);
+      const result = await handleCommand(
+        rawMessage.trim(),
+        sessionId,
+        cfg.commandDeps,
+        undefined,
+        chatId,
+      );
       if (result) {
         if (result.steered || (!result.reply && !result.forwardText)) {
           return reply.send({ ok: true });

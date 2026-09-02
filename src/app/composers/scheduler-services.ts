@@ -1,4 +1,3 @@
-
 import type { AppConfig, AppServices } from '../types.js';
 import type { openDatabase } from '../../memory/db.js';
 import { AgentService } from '../../agent/agent-service.js';
@@ -40,12 +39,15 @@ function getCronSystemPrompt(): string {
 5. Two hard limits: (a) Do not output any sentence containing the word "remind" (b) Do not output any question marks`;
 }
 
-function createCronAgentRunner(
-  agentService: AgentService,
-  modelName: string,
-): AgentRunner {
+function createCronAgentRunner(agentService: AgentService, modelName: string): AgentRunner {
   return {
-    async run(prompt: string, sessionId: string, chatId: string, agentId?: string, computerUseAllowed?: boolean) {
+    async run(
+      prompt: string,
+      sessionId: string,
+      chatId: string,
+      agentId?: string,
+      computerUseAllowed?: boolean,
+    ) {
       const dispatcher = new CollectingReplyDispatcher();
       const agent = await agentService.execute(prompt, {
         sessionId,
@@ -56,9 +58,10 @@ function createCronAgentRunner(
         computerUseAllowed,
       });
       const agentModel = (agent.state as any)?.model;
-      const actualModel = (agentModel?.provider && agentModel?.id)
-        ? `${agentModel.provider}/${agentModel.id}`
-        : dispatcher.getModel() ?? modelName;
+      const actualModel =
+        agentModel?.provider && agentModel?.id
+          ? `${agentModel.provider}/${agentModel.id}`
+          : (dispatcher.getModel() ?? modelName);
       return {
         text: dispatcher.getOutput(),
         modelLabel: actualModel,
@@ -82,11 +85,19 @@ export function createSchedulers(input: {
   const { config, logger, db, memory, cronDeliveryRegistry, agentService, modelName } = input;
   const maintenanceRunRepo = new MaintenanceRunRepository(db);
   const maintenanceConfig = config.memory?.maintenance ?? {
-    enabled: true, intervalMs: 300_000, jobs: {
-      memory_hygiene: true, embedding_backfill: true, embedding_cache_trim: true,
-      entity_backfill: true, persona_consistency: true, offload_hygiene: true,
-      scene_cluster: false, memory_doctor: false,
-    } };
+    enabled: true,
+    intervalMs: 300_000,
+    jobs: {
+      memory_hygiene: true,
+      embedding_backfill: true,
+      embedding_cache_trim: true,
+      entity_backfill: true,
+      persona_consistency: true,
+      offload_hygiene: true,
+      scene_cluster: false,
+      memory_doctor: false,
+    },
+  };
   const maintenanceScheduler = new MaintenanceScheduler(
     {
       enabled: maintenanceConfig.enabled !== false,
@@ -100,18 +111,27 @@ export function createSchedulers(input: {
   // memory_hygiene and scene_cluster are handled by DreamCycle (nightly),
   // not registered as MaintenanceScheduler jobs
   if (jobConfigs.embedding_backfill !== false) {
-    maintenanceScheduler.register(createEmbeddingBackfillJob(db, memory.embeddingRepository, memory.embeddingClient));
+    maintenanceScheduler.register(
+      createEmbeddingBackfillJob(db, memory.embeddingRepository, memory.embeddingClient),
+    );
   }
   if (jobConfigs.embedding_cache_trim !== false) {
-    maintenanceScheduler.register(createEmbeddingCacheTrimJob(db, config.memory.embeddingCacheMaxEntries));
+    maintenanceScheduler.register(
+      createEmbeddingCacheTrimJob(db, config.memory.embeddingCacheMaxEntries),
+    );
   }
   if (jobConfigs.entity_backfill !== false) {
     maintenanceScheduler.register(createEntityBackfillJob(db, memory.memoryLinkRepo));
   }
   if (jobConfigs.persona_consistency !== false) {
-    maintenanceScheduler.register(createPersonaConsistencyJob(
-      memory.memoryRepository, memory.personaStore, memory.personaDistiller, logger,
-    ));
+    maintenanceScheduler.register(
+      createPersonaConsistencyJob(
+        memory.memoryRepository,
+        memory.personaStore,
+        memory.personaDistiller,
+        logger,
+      ),
+    );
   }
   if (jobConfigs.offload_hygiene !== false) {
     maintenanceScheduler.register(createOffloadHygieneJob(memory.offloadDir));
@@ -120,7 +140,10 @@ export function createSchedulers(input: {
   if (jobConfigs.memory_doctor === true) {
     maintenanceScheduler.register(createMemoryDoctorJob(memory.memoryDoctor));
   }
-  logger.info({ jobCount: maintenanceScheduler.listJobs().length }, 'MaintenanceScheduler initialized');
+  logger.info(
+    { jobCount: maintenanceScheduler.listJobs().length },
+    'MaintenanceScheduler initialized',
+  );
 
   // ── DreamCycle (nightly maintenance orchestrator) ─────────────────────
   const dreamCycleConfig = config.memory?.dreamCycle ?? {

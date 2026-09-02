@@ -26,8 +26,11 @@ export default function WindowControls({ hidden }: WindowControlsProps) {
     let alive = true;
     const api = window.electronAPI;
     const refresh = () => {
-      api?.isMaximized?.()
-        .then(v => { if (alive) setMaximized(v); })
+      api
+        ?.isMaximized?.()
+        .then((v) => {
+          if (alive) setMaximized(v);
+        })
         .catch(() => {});
     };
     refresh();
@@ -62,9 +65,11 @@ export default function WindowControls({ hidden }: WindowControlsProps) {
         className={base}
         onClick={() => window.electronAPI?.maximize()}
       >
-        {maximized
-          ? <Copy className="h-3 w-3" strokeWidth={1.5} />
-          : <Square className="h-3 w-3" strokeWidth={1.5} />}
+        {maximized ? (
+          <Copy className="h-3 w-3" strokeWidth={1.5} />
+        ) : (
+          <Square className="h-3 w-3" strokeWidth={1.5} />
+        )}
       </button>
       <button
         type="button"

@@ -106,9 +106,7 @@ export class MermaidPhaseTagger {
       const n = nodes[i];
       const statusLabel = n.status === 'error' ? 'failed' : 'success';
       const summaryPart = n.summary ? `: ${n.summary}` : '';
-      lines.push(
-        `${i + 1}. [${n.id}] ${n.toolName}: ${summaryPart} → ${statusLabel}`,
-      );
+      lines.push(`${i + 1}. [${n.id}] ${n.toolName}: ${summaryPart} → ${statusLabel}`);
     }
 
     lines.push('');
@@ -124,10 +122,7 @@ export class MermaidPhaseTagger {
    *
    * Returns `null` when the response cannot be parsed or fails validation.
    */
-  private parseResponse(
-    response: string,
-    nodes: MermaidNode[],
-  ): PhaseTaggingResult | null {
+  private parseResponse(response: string, nodes: MermaidNode[]): PhaseTaggingResult | null {
     const cleaned = extractJson(response);
     if (!cleaned) {
       this.logger.warn('No valid JSON found in LLM response for phase tagging');
@@ -143,10 +138,7 @@ export class MermaidPhaseTagger {
     }
 
     if (!isValidPhaseTaggingResult(parsed)) {
-      this.logger.warn(
-        { parsed },
-        'LLM response JSON does not match PhaseTaggingResult schema',
-      );
+      this.logger.warn({ parsed }, 'LLM response JSON does not match PhaseTaggingResult schema');
       return null;
     }
 
@@ -200,11 +192,7 @@ function isValidPhaseTaggingResult(value: unknown): boolean {
   }
 
   // `mapping` must be a non-null object with string values
-  if (
-    typeof obj.mapping !== 'object' ||
-    obj.mapping === null ||
-    Array.isArray(obj.mapping)
-  ) {
+  if (typeof obj.mapping !== 'object' || obj.mapping === null || Array.isArray(obj.mapping)) {
     return false;
   }
   const mappingValues = Object.values(obj.mapping);

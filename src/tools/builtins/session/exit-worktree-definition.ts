@@ -52,7 +52,12 @@ export function createExitWorktreeToolDefinition(): ToolDefinition {
       }
 
       // Clear worktree info from metadata
-      const { worktreePath: _wp, worktreeName: _wn, worktreeRepoRoot: _rr, ...rest } = metadata as Record<string, unknown>;
+      const {
+        worktreePath: _wp,
+        worktreeName: _wn,
+        worktreeRepoRoot: _rr,
+        ...rest
+      } = metadata as Record<string, unknown>;
       sessionMetadata.set(sessionId, rest);
 
       return textResult(`Worktree '${worktreePath}' removed successfully.`);

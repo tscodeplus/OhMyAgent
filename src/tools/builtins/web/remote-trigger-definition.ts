@@ -29,7 +29,9 @@ export const remoteTriggerCapability: ToolCapabilityDescriptor = {
 
 const RemoteTriggerParams = Type.Object({
   targetId: Type.String({ description: 'ID of the configured remote trigger target' }),
-  payload: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: 'JSON payload to send (max 64KB)' })),
+  payload: Type.Optional(
+    Type.Record(Type.String(), Type.Unknown(), { description: 'JSON payload to send (max 64KB)' }),
+  ),
 });
 
 interface RemoteTriggerArgs {
@@ -41,11 +43,17 @@ interface RemoteTriggerArgs {
 // Security helpers — see src/shared/ssrf.ts
 // ---------------------------------------------------------------------------
 
-interface ResolvedAddress { address: string; family: 4 | 6 }
+interface ResolvedAddress {
+  address: string;
+  family: 4 | 6;
+}
 
 function dnsLookup(hostname: string, timeoutMs = 5000): Promise<ResolvedAddress> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`DNS lookup timed out after ${timeoutMs}ms`)), timeoutMs);
+    const timer = setTimeout(
+      () => reject(new Error(`DNS lookup timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
     dns.lookup(hostname, (err, address, family) => {
       clearTimeout(timer);
       if (err) reject(err);
@@ -73,9 +81,9 @@ function httpRequest(
     const mod = urlStr.startsWith('https:') ? https : http;
     const parsedUrl = new URL(urlStr);
     const lookup: LookupFunction | undefined = resolvedAddress
-      ? ((_hostname, _opts, cb) => {
+      ? (_hostname, _opts, cb) => {
           cb(null, resolvedAddress.address, resolvedAddress.family);
-        })
+        }
       : undefined;
     const reqHeaders: Record<string, string> = {
       ...headers,
@@ -103,7 +111,9 @@ function httpRequest(
         timeout: timeoutMs,
         headers: reqHeaders,
         lookup,
-        servername: net.isIP(parsedUrl.hostname.replace(/^\[|\]$/g, '')) ? undefined : parsedUrl.hostname,
+        servername: net.isIP(parsedUrl.hostname.replace(/^\[|\]$/g, ''))
+          ? undefined
+          : parsedUrl.hostname,
       },
       (res) => {
         const chunks: Buffer[] = [];
@@ -156,13 +166,13 @@ export function createRemoteTriggerToolDefinition(): ToolDefinition {
       // 1. Look up the target in the configuration
       // -----------------------------------------------------------------------
       const targets = config.remoteTriggers?.targets ?? [];
-      const target = targets.find(t => t.id === args.targetId);
+      const target = targets.find((t) => t.id === args.targetId);
 
       if (!target) {
-        const knownIds = targets.map(t => `"${t.id}"`).join(', ') || '(none configured)';
+        const knownIds = targets.map((t) => `"${t.id}"`).join(', ') || '(none configured)';
         return errorResult(
           `Remote trigger target "${args.targetId}" not found in configuration. ` +
-          `Known targets: ${knownIds}`,
+            `Known targets: ${knownIds}`,
         );
       }
 
@@ -185,7 +195,9 @@ export function createRemoteTriggerToolDefinition(): ToolDefinition {
       try {
         parsedUrl = new URL(target.url);
       } catch {
-        return errorResult(`Invalid URL in configuration for target "${args.targetId}": ${target.url}`);
+        return errorResult(
+          `Invalid URL in configuration for target "${args.targetId}": ${target.url}`,
+        );
       }
 
       // Only POST and PUT are allowed
@@ -237,10 +249,10 @@ export function createRemoteTriggerToolDefinition(): ToolDefinition {
         const snippet = respBody.length > 500 ? respBody.slice(0, 500) + '...' : respBody;
         return textResult(
           `Triggered "${target.name}" (${target.id}).\n` +
-          `Method: ${target.method}\n` +
-          `URL: ${target.url}\n` +
-          `Status: ${status}\n` +
-          `Response: ${snippet}`,
+            `Method: ${target.method}\n` +
+            `URL: ${target.url}\n` +
+            `Status: ${status}\n` +
+            `Response: ${snippet}`,
         );
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);

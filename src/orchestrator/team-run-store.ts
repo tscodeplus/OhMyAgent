@@ -5,7 +5,12 @@
 import type { TeamRun } from './types.js';
 
 export interface TeamRunStore {
-  create(input: { teamId: string; rootSessionId: string; ownerAgentId: string; memberAgentIds: string[] }): TeamRun;
+  create(input: {
+    teamId: string;
+    rootSessionId: string;
+    ownerAgentId: string;
+    memberAgentIds: string[];
+  }): TeamRun;
   get(teamId: string): TeamRun | undefined;
   listBySession(sessionId: string): TeamRun[];
   delete(teamId: string): boolean;
@@ -17,7 +22,12 @@ export interface TeamRunStore {
 export class InMemoryTeamRunStore implements TeamRunStore {
   private teams = new Map<string, TeamRun>();
 
-  create(input: { teamId: string; rootSessionId: string; ownerAgentId: string; memberAgentIds: string[] }): TeamRun {
+  create(input: {
+    teamId: string;
+    rootSessionId: string;
+    ownerAgentId: string;
+    memberAgentIds: string[];
+  }): TeamRun {
     const team: TeamRun = {
       teamId: input.teamId,
       rootSessionId: input.rootSessionId,
@@ -35,7 +45,7 @@ export class InMemoryTeamRunStore implements TeamRunStore {
   }
 
   listBySession(sessionId: string): TeamRun[] {
-    return [...this.teams.values()].filter(t => t.rootSessionId === sessionId);
+    return [...this.teams.values()].filter((t) => t.rootSessionId === sessionId);
   }
 
   delete(teamId: string): boolean {
@@ -54,7 +64,7 @@ export class InMemoryTeamRunStore implements TeamRunStore {
   removeMember(teamId: string, agentId: string): TeamRun | undefined {
     const team = this.teams.get(teamId);
     if (!team) return undefined;
-    team.memberAgentIds = team.memberAgentIds.filter(id => id !== agentId);
+    team.memberAgentIds = team.memberAgentIds.filter((id) => id !== agentId);
     return team;
   }
 

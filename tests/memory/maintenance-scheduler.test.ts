@@ -36,7 +36,11 @@ function setup() {
   const db = new Database(':memory:');
   applySchema(db);
   const runRepo = new MaintenanceRunRepository(db);
-  const scheduler = new MaintenanceScheduler({ enabled: false, intervalMs: 60_000 }, runRepo, logger);
+  const scheduler = new MaintenanceScheduler(
+    { enabled: false, intervalMs: 60_000 },
+    runRepo,
+    logger,
+  );
   return { db, runRepo, scheduler };
 }
 
@@ -59,8 +63,10 @@ describe('MaintenanceScheduler started_at parsing', () => {
     // Simulate a completed run 10s ago — started_at stored as a digit string.
     const runId = runRepo.startRun('job-a', false);
     runRepo.finishRun(runId, 1);
-    db.prepare('UPDATE maintenance_runs SET started_at = ? WHERE id = ?')
-      .run(String(Date.now() - 10_000), runId);
+    db.prepare('UPDATE maintenance_runs SET started_at = ? WHERE id = ?').run(
+      String(Date.now() - 10_000),
+      runId,
+    );
 
     const results = await scheduler.runDue();
     expect(results).toHaveLength(0);
@@ -75,8 +81,10 @@ describe('MaintenanceScheduler started_at parsing', () => {
 
     const runId = runRepo.startRun('job-a', false);
     runRepo.finishRun(runId, 1);
-    db.prepare('UPDATE maintenance_runs SET started_at = ? WHERE id = ?')
-      .run(String(Date.now() - 120_000), runId);
+    db.prepare('UPDATE maintenance_runs SET started_at = ? WHERE id = ?').run(
+      String(Date.now() - 120_000),
+      runId,
+    );
 
     const results = await scheduler.runDue();
     expect(results).toHaveLength(1);
@@ -91,8 +99,10 @@ describe('MaintenanceScheduler started_at parsing', () => {
 
     const runId = runRepo.startRun('job-a', false);
     runRepo.finishRun(runId, 1);
-    db.prepare('UPDATE maintenance_runs SET started_at = ? WHERE id = ?')
-      .run(new Date(Date.now() - 120_000).toISOString(), runId);
+    db.prepare('UPDATE maintenance_runs SET started_at = ? WHERE id = ?').run(
+      new Date(Date.now() - 120_000).toISOString(),
+      runId,
+    );
 
     const results = await scheduler.runDue();
     expect(results).toHaveLength(1);

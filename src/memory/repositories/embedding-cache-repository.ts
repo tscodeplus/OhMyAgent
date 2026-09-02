@@ -44,7 +44,9 @@ export class EmbeddingCacheRepo implements EmbeddingCacheRepository {
   }
 
   count(): number {
-    const row = this.db.prepare('SELECT COUNT(*) as cnt FROM embedding_cache').get() as { cnt: number };
+    const row = this.db.prepare('SELECT COUNT(*) as cnt FROM embedding_cache').get() as {
+      cnt: number;
+    };
     return row.cnt;
   }
 
@@ -52,11 +54,15 @@ export class EmbeddingCacheRepo implements EmbeddingCacheRepository {
     const excess = this.count() - maxEntries;
     if (excess <= 0) return 0;
     const deleteCount = Math.max(Math.floor(maxEntries * 0.1), excess);
-    const result = this.db.prepare(`
+    const result = this.db
+      .prepare(
+        `
       DELETE FROM embedding_cache WHERE content_hash IN (
         SELECT content_hash FROM embedding_cache ORDER BY created_at ASC LIMIT ?
       )
-    `).run(deleteCount);
+    `,
+      )
+      .run(deleteCount);
     return result.changes;
   }
 }
@@ -64,7 +70,10 @@ export class EmbeddingCacheRepo implements EmbeddingCacheRepository {
 // Utility functions — exported for MemoryWriter and MemoryRetriever to use
 
 export function hashContent(content: string, model: string): string {
-  return createHash('sha256').update(content + '::' + model).digest('hex').slice(0, 32);
+  return createHash('sha256')
+    .update(content + '::' + model)
+    .digest('hex')
+    .slice(0, 32);
 }
 
 export function bufferToFloat32Array(buf: Buffer): Float32Array {

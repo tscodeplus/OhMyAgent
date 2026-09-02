@@ -9,7 +9,7 @@ export interface Ctx {
     id: string;
     input: ('text' | 'image' | 'audio')[];
   };
-  accessMode?: string;     // 'operate' | 'read-only'
+  accessMode?: string; // 'operate' | 'read-only'
   providerId?: string;
 }
 
@@ -63,7 +63,7 @@ export interface AppState {
   screenshot?: {
     type: 'image';
     mimeType: string;
-    data: string;           // base64
+    data: string; // base64
   };
   display: {
     width: number;
@@ -81,14 +81,14 @@ export interface AppState {
 
 export interface UIElement {
   elementId: string;
-  role: string;             // button, textbox, menu, window, link, combobox, ...
+  role: string; // button, textbox, menu, window, link, combobox, ...
   label?: string;
   value?: string;
   description?: string;
   bounds: { x: number; y: number; width: number; height: number };
   enabled: boolean;
   focused?: boolean;
-  actions?: string[];       // AXPress, AXOpen, AXShowDefaultUI, ...
+  actions?: string[]; // AXPress, AXOpen, AXShowDefaultUI, ...
   /** True for password/secret fields — value must never be included. */
   sensitive?: boolean;
 }

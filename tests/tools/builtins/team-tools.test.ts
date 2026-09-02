@@ -51,10 +51,7 @@ describe('team_create', () => {
   });
 
   it('creates a team with a custom name', async () => {
-    const result = await teamCreateDef.execute(
-      { teamName: 'My Test Team' },
-      minimalCtx(),
-    );
+    const result = await teamCreateDef.execute({ teamName: 'My Test Team' }, minimalCtx());
     expect(result.isError).toBeFalsy();
     const text = extractToolText(result);
     expect(text).toContain('My Test Team');
@@ -88,7 +85,9 @@ describe('team_delete', () => {
   it('stops team member agents before deleting when orchestrator is available', async () => {
     const stopped: string[] = [];
     const orchestrator = {
-      stopAgent: async (agentId: string) => { stopped.push(agentId); },
+      stopAgent: async (agentId: string) => {
+        stopped.push(agentId);
+      },
     } as Partial<Orchestrator> as Orchestrator;
     const createResult = await teamCreateDef.execute(
       { memberAgentIds: ['member-1', 'member-2'] },
@@ -107,10 +106,7 @@ describe('team_delete', () => {
   });
 
   it('refuses to delete a non-existent team', async () => {
-    const result = await teamDeleteDef.execute(
-      { teamId: 'team-nonexistent' },
-      minimalCtx(),
-    );
+    const result = await teamDeleteDef.execute({ teamId: 'team-nonexistent' }, minimalCtx());
     expect(result.isError).toBe(true);
     expectToolResultContains(result, 'not found');
   });

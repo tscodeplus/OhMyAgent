@@ -6,7 +6,9 @@ import 'dotenv/config';
 import { createWebSearchTool } from '../../extensions/web-search/web-search-tool.js';
 import type { ToolExecutionContext } from '../../src/tools/platform/tool-context.js';
 
-const providerOrder = (process.env.WEB_SEARCH_PROVIDER || 'tavily,exa').split(',').map(s => s.trim());
+const providerOrder = (process.env.WEB_SEARCH_PROVIDER || 'tavily,exa')
+  .split(',')
+  .map((s) => s.trim());
 
 const tool = createWebSearchTool();
 
@@ -28,10 +30,7 @@ const ctx: ToolExecutionContext = {
   } as any,
 };
 
-const queries = [
-  'TypeScript latest version 2026',
-  '飞书最新功能',
-];
+const queries = ['TypeScript latest version 2026', '飞书最新功能'];
 
 async function run() {
   console.log('=== Web Search Smoke Test ===');
@@ -56,7 +55,7 @@ async function run() {
   console.log('=== Done ===');
 }
 
-run().catch(err => {
+run().catch((err) => {
   console.error('Test failed:', err);
   process.exit(1);
 });

@@ -111,7 +111,9 @@ function matchesPrefix(path: string, prefix: string): boolean {
 }
 
 function isPublic(path: string): boolean {
-  return PUBLIC_EXACT.includes(path) || PUBLIC_PREFIXES.some((prefix) => matchesPrefix(path, prefix));
+  return (
+    PUBLIC_EXACT.includes(path) || PUBLIC_PREFIXES.some((prefix) => matchesPrefix(path, prefix))
+  );
 }
 
 export async function webuiAuthHook(request: FastifyRequest, reply: FastifyReply): Promise<void> {

@@ -73,7 +73,11 @@ function formatTodoList(items: TodoItem[]): string {
   }
 
   const lines: string[] = ['## Todo List'];
-  for (const [status, label] of [['in_progress', 'In Progress'] as const, ['pending', 'Pending'] as const, ['completed', 'Completed'] as const]) {
+  for (const [status, label] of [
+    ['in_progress', 'In Progress'] as const,
+    ['pending', 'Pending'] as const,
+    ['completed', 'Completed'] as const,
+  ]) {
     const group = groups[status];
     lines.push(`### ${label} (${group.length})`);
     if (group.length > 0) {

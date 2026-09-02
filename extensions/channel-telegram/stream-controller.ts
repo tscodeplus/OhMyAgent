@@ -18,10 +18,7 @@ import { markdownToHtml } from './markdown-to-html.js';
 /** Tags that we must not split mid-sequence. */
 const TRACKED_TAGS = ['b', 'i', 'code', 'pre', 'a'];
 
-const TRACKED_TAG_PATTERN = new RegExp(
-  `^</?(${TRACKED_TAGS.join('|')})(\\s[^>]*)?$`,
-  'i',
-);
+const TRACKED_TAG_PATTERN = new RegExp(`^</?(${TRACKED_TAGS.join('|')})(\\s[^>]*)?$`, 'i');
 
 export class StreamControllerImpl implements StreamController {
   private bot: any;
@@ -42,13 +39,7 @@ export class StreamControllerImpl implements StreamController {
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private stopped = false;
 
-  constructor(
-    bot: any,
-    chatId: number,
-    intervalMs: number,
-    textLimit: number,
-    logger: any,
-  ) {
+  constructor(bot: any, chatId: number, intervalMs: number, textLimit: number, logger: any) {
     this.bot = bot;
     this.chatId = chatId;
     this.intervalMs = intervalMs;
@@ -95,77 +86,47 @@ export class StreamControllerImpl implements StreamController {
     if (!this.messageId) {
       if (html.length <= 4096) {
         try {
-          const msg = await this.bot.api.sendMessage(
-            this.chatId,
-            html,
-            { parse_mode: 'HTML' },
-          );
+          const msg = await this.bot.api.sendMessage(this.chatId, html, { parse_mode: 'HTML' });
           this.messageId = msg.message_id;
         } catch {
-          await this.bot.api
-            .sendMessage(this.chatId, stripHtmlTags(html))
-            .catch(() => {});
+          await this.bot.api.sendMessage(this.chatId, stripHtmlTags(html)).catch(() => {});
         }
       } else {
-        await sendChunkedText(
-          this.bot.api,
-          this.chatId,
-          html,
-          this.textLimit,
-        );
+        await sendChunkedText(this.bot.api, this.chatId, html, this.textLimit);
       }
       return;
     }
 
     if (html.length <= 4096) {
       try {
-        await this.bot.api.editMessageText(
-          this.chatId,
-          this.messageId,
-          html,
-          { parse_mode: 'HTML' },
-        );
+        await this.bot.api.editMessageText(this.chatId, this.messageId, html, {
+          parse_mode: 'HTML',
+        });
       } catch (err: any) {
         // HTML parse error → retry without formatting
-        if (
-          err?.error_code === 400 &&
-          err?.description?.includes('parse')
-        ) {
+        if (err?.error_code === 400 && err?.description?.includes('parse')) {
           await this.bot.api
-            .editMessageText(
-              this.chatId,
-              this.messageId,
-              stripHtmlTags(html),
-            )
+            .editMessageText(this.chatId, this.messageId, stripHtmlTags(html))
             .catch(() => {});
         } else {
           // Other errors (network, rate limit, stale message) →
           // send a fresh message so the user sees formatted output
           try {
-            const msg = await this.bot.api.sendMessage(
-              this.chatId,
-              html,
-              { parse_mode: 'HTML' },
-            );
+            const msg = await this.bot.api.sendMessage(this.chatId, html, { parse_mode: 'HTML' });
             this.messageId = msg.message_id;
           } catch {
-            await this.bot.api
-              .sendMessage(this.chatId, stripHtmlTags(html))
-              .catch(() => {});
+            await this.bot.api.sendMessage(this.chatId, stripHtmlTags(html)).catch(() => {});
           }
         }
       }
     } else {
       try {
         await this.bot.api.deleteMessage(this.chatId, this.messageId);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       this.messageId = null;
-      await sendChunkedText(
-        this.bot.api,
-        this.chatId,
-        html,
-        this.textLimit,
-      );
+      await sendChunkedText(this.bot.api, this.chatId, html, this.textLimit);
     }
   }
 

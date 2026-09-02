@@ -13,7 +13,14 @@ export interface AgentRun {
   parentAgentId?: string;
   rootSessionId: string;
   role: 'primary' | 'child';
-  status: 'pending' | 'running' | 'waiting_for_approval' | 'waiting_for_input' | 'completed' | 'failed' | 'stopped';
+  status:
+    | 'pending'
+    | 'running'
+    | 'waiting_for_approval'
+    | 'waiting_for_input'
+    | 'completed'
+    | 'failed'
+    | 'stopped';
   statusDetail?: string;
   createdAt: number;
   startedAt?: number;
@@ -159,7 +166,10 @@ export interface Orchestrator {
   /** List all AgentRuns for a root session. */
   listAgentRuns(sessionId: string): AgentRun[];
   /** Route a child agent's approval request to the parent session UI. */
-  routeApprovalToParent(approval: import('../policy/types.js').ApprovalRequest, parentSessionId: string): Promise<void>;
+  routeApprovalToParent(
+    approval: import('../policy/types.js').ApprovalRequest,
+    parentSessionId: string,
+  ): Promise<void>;
   /** Mark an agent run as completed or failed. */
   finishAgent(agentId: string, status: 'completed' | 'failed', detail?: string): Promise<void>;
   /** Register a managed runtime for real abort support. */

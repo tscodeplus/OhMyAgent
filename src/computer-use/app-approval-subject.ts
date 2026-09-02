@@ -23,12 +23,8 @@ export function computerUseApprovalSubjectCandidates(action: string, target: str
   const trimmed = target.trim();
   const canonical = canonicalComputerUseAppTarget(trimmed);
   const aliases = COMPUTER_USE_APP_ALIASES[canonical] ?? [canonical];
-  const candidates = [
-    trimmed,
-    canonical,
-    ...aliases,
-  ]
-    .map(alias => `computer_use ${action} ${alias}`)
+  const candidates = [trimmed, canonical, ...aliases]
+    .map((alias) => `computer_use ${action} ${alias}`)
     .filter((subject, index, all) => all.indexOf(subject) === index);
 
   return candidates;

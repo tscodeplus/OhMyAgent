@@ -72,15 +72,16 @@ export default function ManualCodeModal({
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
           <textarea
             value={value}
-            onChange={(e) => { setValue(e.target.value); setError(''); }}
+            onChange={(e) => {
+              setValue(e.target.value);
+              setError('');
+            }}
             placeholder={t('settings.subscriptions.manualCodePlaceholder')}
             className="w-full rounded-lg border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-neutral-800 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none resize-none h-24"
             autoFocus
           />
 
-          {error && (
-            <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
-          )}
+          {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
 
           <div className="flex justify-end gap-2">
             <Button variant="secondary" size="sm" type="button" onClick={onClose}>

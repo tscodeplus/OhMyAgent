@@ -29,9 +29,7 @@ describe('spawn_agent ToolDefinition orchestrator path', () => {
       waitForIdle: vi.fn(async () => undefined),
       abort: vi.fn(),
       state: {
-        messages: [
-          { role: 'assistant', content: [{ type: 'text', text: 'child result' }] },
-        ],
+        messages: [{ role: 'assistant', content: [{ type: 'text', text: 'child result' }] }],
       },
     };
     const createAgent = vi.fn(() => subAgent as any);
@@ -66,11 +64,13 @@ describe('spawn_agent ToolDefinition orchestrator path', () => {
       },
     );
 
-    expect(orchestrator.spawnChildAgent).toHaveBeenCalledWith(expect.objectContaining({
-      parentAgentId: 'parent-1',
-      sessionId: 'session-1',
-      prompt: 'do work',
-    }));
+    expect(orchestrator.spawnChildAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentAgentId: 'parent-1',
+        sessionId: 'session-1',
+        prompt: 'do work',
+      }),
+    );
     expect(createAgent).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'coder' }),
       'do work',
@@ -97,7 +97,20 @@ describe('spawn_agent ToolDefinition orchestrator path', () => {
 
     const def = createSpawnAgentToolDefinition({
       agentManager: {
-        get: vi.fn((id: string) => id === 'default' ? { id: 'default', name: 'Default', system_prompt: '', model: {}, tools: { profile: 'standard', add: [], deny: [] }, channels: [], memory: {}, metadata: {} } : undefined),
+        get: vi.fn((id: string) =>
+          id === 'default'
+            ? {
+                id: 'default',
+                name: 'Default',
+                system_prompt: '',
+                model: {},
+                tools: { profile: 'standard', add: [], deny: [] },
+                channels: [],
+                memory: {},
+                metadata: {},
+              }
+            : undefined,
+        ),
         list: vi.fn(() => [{ id: 'default' }]),
       } as any,
       logger: { error: vi.fn() } as any,
@@ -159,7 +172,17 @@ describe('spawn_agent ToolDefinition orchestrator path', () => {
       agentManager: {
         // 当 persona=undefined 时，应 fallback 到 parentAgentId='parent-1'
         get: vi.fn((id: string) => {
-          if (id === 'parent-1') return { id: 'parent-1', name: 'Parent', system_prompt: '', model: {}, tools: { profile: 'standard', add: [], deny: [] }, channels: [], memory: {}, metadata: {} };
+          if (id === 'parent-1')
+            return {
+              id: 'parent-1',
+              name: 'Parent',
+              system_prompt: '',
+              model: {},
+              tools: { profile: 'standard', add: [], deny: [] },
+              channels: [],
+              memory: {},
+              metadata: {},
+            };
           return undefined;
         }),
         list: vi.fn(() => [{ id: 'parent-1' }]),
@@ -219,8 +242,18 @@ describe('spawn_agent ToolDefinition — P1 M5 timeout settle', () => {
 
     // Child never settles: prompt hangs AND waitForIdle hangs after abort
     const subAgent = {
-      prompt: vi.fn(() => new Promise<void>(() => { /* never settles */ })),
-      waitForIdle: vi.fn(() => new Promise<void>(() => { /* never settles */ })),
+      prompt: vi.fn(
+        () =>
+          new Promise<void>(() => {
+            /* never settles */
+          }),
+      ),
+      waitForIdle: vi.fn(
+        () =>
+          new Promise<void>(() => {
+            /* never settles */
+          }),
+      ),
       abort: vi.fn(),
       state: { messages: [] },
     };
@@ -301,9 +334,7 @@ describe('spawn_agent ToolDefinition — P0 maxParallel', () => {
       waitForIdle: vi.fn(async () => undefined),
       abort: vi.fn(),
       state: {
-        messages: [
-          { role: 'assistant', content: [{ type: 'text', text: 'done' }] },
-        ],
+        messages: [{ role: 'assistant', content: [{ type: 'text', text: 'done' }] }],
       },
     };
 

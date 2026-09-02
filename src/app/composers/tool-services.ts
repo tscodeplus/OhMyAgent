@@ -9,7 +9,10 @@ import { createShellTool } from '../../tools/builtins/shell-tool.js';
 import { createFileReadTool } from '../../tools/builtins/file-read-tool.js';
 import { createFileSearchTool } from '../../tools/builtins/file-search-tool.js';
 import { createMemoryRecallTool } from '../../tools/builtins/memory-recall-tool.js';
-import { createMemoryStoreTool, createDefaultMemoryFilter } from '../../tools/builtins/memory-store-tool.js';
+import {
+  createMemoryStoreTool,
+  createDefaultMemoryFilter,
+} from '../../tools/builtins/memory-store-tool.js';
 import { createSessionSummarizeTool } from '../../tools/builtins/session-summarize-tool.js';
 import { createShellToolDefinition } from '../../tools/builtins/shell/definition.js';
 import { createFileReadToolDefinition } from '../../tools/builtins/files/read-definition.js';
@@ -43,7 +46,10 @@ import { createSpeechToTextToolDefinition } from '../../tools/builtins/multimoda
 import { createRemoteTriggerToolDefinition } from '../../tools/builtins/web/remote-trigger-definition.js';
 import { createImageGenerationToolDefinition } from '../../tools/builtins/multimodal/image-generation-definition.js';
 import { createVideoGenerationToolDefinition } from '../../tools/builtins/multimodal/video-generation-definition.js';
-import { createImageGenerationProvider, createVideoGenerationProvider } from '../../provider/image-generation/index.js';
+import {
+  createImageGenerationProvider,
+  createVideoGenerationProvider,
+} from '../../provider/image-generation/index.js';
 import { createTaskCreateToolDefinition } from '../../tools/builtins/tasks/create-definition.js';
 import { createTaskGetToolDefinition } from '../../tools/builtins/tasks/get-definition.js';
 import { createTaskListToolDefinition } from '../../tools/builtins/tasks/list-definition.js';
@@ -79,27 +85,39 @@ export function createToolServices(input: {
 }): ToolServices {
   const { config, logger, memory, policyCenter, servicesRef } = input;
   const toolRegistry = new ToolRegistryImpl();
-  toolRegistry.register(createShellTool({
-    timeoutMs: config.tools.defaultTimeoutMs,
-    maxOutputLength: config.tools.maxOutputLength,
-  }));
+  toolRegistry.register(
+    createShellTool({
+      timeoutMs: config.tools.defaultTimeoutMs,
+      maxOutputLength: config.tools.maxOutputLength,
+    }),
+  );
   toolRegistry.register(createFileReadTool({ config, policyCenter }));
-  toolRegistry.register(createFileSearchTool({
-    allowedRoots: config.tools.fileRead.allowedRoots.length > 0
-      ? config.tools.fileRead.allowedRoots : undefined,
-    deniedPatterns: config.tools.fileRead.deniedPatterns.length > 0
-      ? config.tools.fileRead.deniedPatterns : undefined,
-  }));
+  toolRegistry.register(
+    createFileSearchTool({
+      allowedRoots:
+        config.tools.fileRead.allowedRoots.length > 0
+          ? config.tools.fileRead.allowedRoots
+          : undefined,
+      deniedPatterns:
+        config.tools.fileRead.deniedPatterns.length > 0
+          ? config.tools.fileRead.deniedPatterns
+          : undefined,
+    }),
+  );
 
   const memoryFilter = createDefaultMemoryFilter();
-  toolRegistry.register(createMemoryRecallTool({ memoryRetriever: memory.memoryRetriever, logger }));
+  toolRegistry.register(
+    createMemoryRecallTool({ memoryRetriever: memory.memoryRetriever, logger }),
+  );
   toolRegistry.register(createMemoryStoreTool({ memoryWriter: memory.memoryWriter, memoryFilter }));
-  toolRegistry.register(createSessionSummarizeTool({
-    memorySummarizer: memory.memorySummarizer,
-    sessionRepository: memory.sessionRepository,
-    messageRepository: memory.messageRepository,
-    episodeRepository: memory.episodeRepository,
-  }));
+  toolRegistry.register(
+    createSessionSummarizeTool({
+      memorySummarizer: memory.memorySummarizer,
+      sessionRepository: memory.sessionRepository,
+      messageRepository: memory.messageRepository,
+      episodeRepository: memory.episodeRepository,
+    }),
+  );
 
   const agentToolAdapter = new AgentToolAdapterImpl({
     policyCenter,
@@ -109,10 +127,12 @@ export function createToolServices(input: {
 
   // Re-register shell tool definition on config reload (timeout/output limits)
   configEventBus.onReload((c) => {
-    toolPlatformRegistry.registerDefinition(createShellToolDefinition({
-      timeoutMs: c.tools.defaultTimeoutMs,
-      maxOutputLength: c.tools.maxOutputLength,
-    }));
+    toolPlatformRegistry.registerDefinition(
+      createShellToolDefinition({
+        timeoutMs: c.tools.defaultTimeoutMs,
+        maxOutputLength: c.tools.maxOutputLength,
+      }),
+    );
   });
 
   return {
@@ -133,100 +153,147 @@ export function registerV4ToolDefinitions(input: {
   agentFactory: AgentFactory;
   orchestrator: OrchestratorImpl;
 }): void {
-  const { config, logger, tools, memory, policyCenter, computerUseHost, agentManager, agentFactory, orchestrator } = input;
+  const {
+    config,
+    logger,
+    tools,
+    memory,
+    policyCenter,
+    computerUseHost,
+    agentManager,
+    agentFactory,
+    orchestrator,
+  } = input;
   const { toolPlatformRegistry, memoryFilter } = tools;
 
-  toolPlatformRegistry.registerDefinition(createShellToolDefinition({
-    timeoutMs: config.tools.defaultTimeoutMs,
-    maxOutputLength: config.tools.maxOutputLength,
-  }));
+  toolPlatformRegistry.registerDefinition(
+    createShellToolDefinition({
+      timeoutMs: config.tools.defaultTimeoutMs,
+      maxOutputLength: config.tools.maxOutputLength,
+    }),
+  );
   toolPlatformRegistry.registerDefinition(createFileReadToolDefinition({ config, policyCenter }));
-  toolPlatformRegistry.registerDefinition(createFileSearchToolDefinition({
-    allowedRoots: config.tools.fileRead.allowedRoots.length > 0
-      ? config.tools.fileRead.allowedRoots : undefined,
-    deniedPatterns: config.tools.fileRead.deniedPatterns.length > 0
-      ? config.tools.fileRead.deniedPatterns : undefined,
-  }));
-  toolPlatformRegistry.registerDefinition(createMemoryRecallToolDefinition({ memoryRetriever: memory.memoryRetriever, logger }));
-  toolPlatformRegistry.registerDefinition(createMemoryStoreToolDefinition({ memoryWriter: memory.memoryWriter, memoryFilter }));
-  toolPlatformRegistry.registerDefinition(createMemoryListToolDefinition({ memoryRepository: memory.memoryRepository }));
-  const onMemoryChanged = (event?: MemoryChangeEvent) => memory.memoryChangeCallbacks.forEach(cb => cb(event));
-  toolPlatformRegistry.registerDefinition(createPersonaAuditToolDefinition({ auditService: memory.personaAuditService }));
+  toolPlatformRegistry.registerDefinition(
+    createFileSearchToolDefinition({
+      allowedRoots:
+        config.tools.fileRead.allowedRoots.length > 0
+          ? config.tools.fileRead.allowedRoots
+          : undefined,
+      deniedPatterns:
+        config.tools.fileRead.deniedPatterns.length > 0
+          ? config.tools.fileRead.deniedPatterns
+          : undefined,
+    }),
+  );
+  toolPlatformRegistry.registerDefinition(
+    createMemoryRecallToolDefinition({ memoryRetriever: memory.memoryRetriever, logger }),
+  );
+  toolPlatformRegistry.registerDefinition(
+    createMemoryStoreToolDefinition({ memoryWriter: memory.memoryWriter, memoryFilter }),
+  );
+  toolPlatformRegistry.registerDefinition(
+    createMemoryListToolDefinition({ memoryRepository: memory.memoryRepository }),
+  );
+  const onMemoryChanged = (event?: MemoryChangeEvent) =>
+    memory.memoryChangeCallbacks.forEach((cb) => cb(event));
+  toolPlatformRegistry.registerDefinition(
+    createPersonaAuditToolDefinition({ auditService: memory.personaAuditService }),
+  );
   if (memory.personaDistiller) {
-    toolPlatformRegistry.registerDefinition(createPersonaRebuildToolDefinition({ personaDistiller: memory.personaDistiller }));
+    toolPlatformRegistry.registerDefinition(
+      createPersonaRebuildToolDefinition({ personaDistiller: memory.personaDistiller }),
+    );
   }
-  toolPlatformRegistry.registerDefinition(createMemoryDoctorToolDefinition({ doctor: memory.memoryDoctor }));
-  toolPlatformRegistry.registerDefinition(createMemoryCompactToolDefinition({ memoryRepository: memory.memoryRepository }));
-  toolPlatformRegistry.registerDefinition(createMemoryDeleteToolDefinition({
-    memoryRepository: memory.memoryRepository,
-    embeddingRepository: memory.embeddingRepository,
-    memoryLinkRepository: memory.memoryLinkRepo,
-    onMemoryChanged,
-  }));
-  toolPlatformRegistry.registerDefinition(createMemoryUpdateToolDefinition({
-    memoryRepository: memory.memoryRepository,
-    embeddingRepository: memory.embeddingRepository,
-    embeddingClient: memory.embeddingClient,
-    onMemoryChanged,
-  }));
-  toolPlatformRegistry.registerDefinition(createSessionSummarizeToolDefinition({
-    memorySummarizer: memory.memorySummarizer,
-    sessionRepository: memory.sessionRepository,
-    messageRepository: memory.messageRepository,
-    episodeRepository: memory.episodeRepository,
-  }));
+  toolPlatformRegistry.registerDefinition(
+    createMemoryDoctorToolDefinition({ doctor: memory.memoryDoctor }),
+  );
+  toolPlatformRegistry.registerDefinition(
+    createMemoryCompactToolDefinition({ memoryRepository: memory.memoryRepository }),
+  );
+  toolPlatformRegistry.registerDefinition(
+    createMemoryDeleteToolDefinition({
+      memoryRepository: memory.memoryRepository,
+      embeddingRepository: memory.embeddingRepository,
+      memoryLinkRepository: memory.memoryLinkRepo,
+      onMemoryChanged,
+    }),
+  );
+  toolPlatformRegistry.registerDefinition(
+    createMemoryUpdateToolDefinition({
+      memoryRepository: memory.memoryRepository,
+      embeddingRepository: memory.embeddingRepository,
+      embeddingClient: memory.embeddingClient,
+      onMemoryChanged,
+    }),
+  );
+  toolPlatformRegistry.registerDefinition(
+    createSessionSummarizeToolDefinition({
+      memorySummarizer: memory.memorySummarizer,
+      sessionRepository: memory.sessionRepository,
+      messageRepository: memory.messageRepository,
+      episodeRepository: memory.episodeRepository,
+    }),
+  );
 
   if (computerUseHost) {
-    toolPlatformRegistry.registerDefinition(createComputerUseToolDefinition(computerUseHost, () => ({
-      sessionPath: undefined,
-      agentId: undefined,
-    })));
+    toolPlatformRegistry.registerDefinition(
+      createComputerUseToolDefinition(computerUseHost, () => ({
+        sessionPath: undefined,
+        agentId: undefined,
+      })),
+    );
   }
 
-  toolPlatformRegistry.registerDefinition(createSpawnAgentToolDefinition({
-    agentManager,
-    logger,
-    orchestrator,
-    // P1 M5: child timeout + abort settle grace from config
-    childTimeoutMs: (config.smart_agent_team?.child_timeout_sec ?? 300) * 1000,
-    childSettleTimeoutMs: config.smart_agent_team?.child_settle_timeout_ms ?? 15_000,
-    createAgent: (config, task, childOptions) => agentFactory.create({
-      agentId: config.id,
-      systemPrompt: config.system_prompt,
-      tools: agentManager.resolveTools(config).filter((t: any) => t.name !== 'spawn_agent'),
-      message: task,
-      sessionId: childOptions?.sessionId,
-      toolsProfileOverride: config.tools.profile,
-      policyScope: childOptions?.policyScope,
-      policyAgentId: childOptions?.agentId,
-      computerUseAllowed: childOptions?.policyScope?.computerUseEnabled,
-      isChildAgent: true,
-      childTaskDescription: task,
+  toolPlatformRegistry.registerDefinition(
+    createSpawnAgentToolDefinition({
+      agentManager,
+      logger,
+      orchestrator,
+      // P1 M5: child timeout + abort settle grace from config
+      childTimeoutMs: (config.smart_agent_team?.child_timeout_sec ?? 300) * 1000,
+      childSettleTimeoutMs: config.smart_agent_team?.child_settle_timeout_ms ?? 15_000,
+      createAgent: (config, task, childOptions) =>
+        agentFactory.create({
+          agentId: config.id,
+          systemPrompt: config.system_prompt,
+          tools: agentManager.resolveTools(config).filter((t: any) => t.name !== 'spawn_agent'),
+          message: task,
+          sessionId: childOptions?.sessionId,
+          toolsProfileOverride: config.tools.profile,
+          policyScope: childOptions?.policyScope,
+          policyAgentId: childOptions?.agentId,
+          computerUseAllowed: childOptions?.policyScope?.computerUseEnabled,
+          isChildAgent: true,
+          childTaskDescription: task,
+        }),
     }),
-  }));
+  );
 
   // P4: plan_and_spawn — structured plan + batch spawn with DAG execution
-  toolPlatformRegistry.registerDefinition(createPlanAndSpawnToolDefinition({
-    agentManager,
-    orchestrator,
-    logger,
-    maxConcurrency: config.smart_agent_team.max_children,
-    timeoutMs: (config.smart_agent_team?.child_timeout_sec ?? 300) * 1000,
-    settleTimeoutMs: config.smart_agent_team?.child_settle_timeout_ms ?? 15_000,
-    createAgent: (config: any, task: string, childOptions: any) => agentFactory.create({
-      agentId: config.id,
-      systemPrompt: config.system_prompt,
-      tools: agentManager.resolveTools(config).filter((t: any) => t.name !== 'spawn_agent'),
-      message: task,
-      sessionId: childOptions?.sessionId,
-      toolsProfileOverride: config.tools.profile,
-      policyScope: childOptions?.policyScope,
-      policyAgentId: childOptions?.agentId,
-      computerUseAllowed: childOptions?.policyScope?.computerUseEnabled,
-      isChildAgent: true,
-      childTaskDescription: task,
+  toolPlatformRegistry.registerDefinition(
+    createPlanAndSpawnToolDefinition({
+      agentManager,
+      orchestrator,
+      logger,
+      maxConcurrency: config.smart_agent_team.max_children,
+      timeoutMs: (config.smart_agent_team?.child_timeout_sec ?? 300) * 1000,
+      settleTimeoutMs: config.smart_agent_team?.child_settle_timeout_ms ?? 15_000,
+      createAgent: (config: any, task: string, childOptions: any) =>
+        agentFactory.create({
+          agentId: config.id,
+          systemPrompt: config.system_prompt,
+          tools: agentManager.resolveTools(config).filter((t: any) => t.name !== 'spawn_agent'),
+          message: task,
+          sessionId: childOptions?.sessionId,
+          toolsProfileOverride: config.tools.profile,
+          policyScope: childOptions?.policyScope,
+          policyAgentId: childOptions?.agentId,
+          computerUseAllowed: childOptions?.policyScope?.computerUseEnabled,
+          isChildAgent: true,
+          childTaskDescription: task,
+        }),
     }),
-  }));
+  );
 
   toolPlatformRegistry.registerDefinition(createFileWriteToolDefinition());
   toolPlatformRegistry.registerDefinition(createFileEditToolDefinition());
@@ -255,7 +322,11 @@ export function registerV4ToolDefinitions(input: {
   toolPlatformRegistry.registerDefinition(createImageToTextToolDefinition());
   toolPlatformRegistry.registerDefinition(createSpeechToTextToolDefinition());
   toolPlatformRegistry.registerDefinition(createRemoteTriggerToolDefinition());
-  toolPlatformRegistry.registerDefinition(createImageGenerationToolDefinition(createImageGenerationProvider(config)));
-  toolPlatformRegistry.registerDefinition(createVideoGenerationToolDefinition(createVideoGenerationProvider(config)));
+  toolPlatformRegistry.registerDefinition(
+    createImageGenerationToolDefinition(createImageGenerationProvider(config)),
+  );
+  toolPlatformRegistry.registerDefinition(
+    createVideoGenerationToolDefinition(createVideoGenerationProvider(config)),
+  );
   toolPlatformRegistry.registerDefinition(createDownloadFileToolDefinition());
 }

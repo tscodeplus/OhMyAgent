@@ -43,16 +43,14 @@ describe('ReplyDispatcher', () => {
     });
 
     // Access the mocked controller instance
-    const { StreamingCardController } = await import(
-      '../../extensions/channel-feishu/render/streaming-card-controller.js'
-    );
+    const { StreamingCardController } =
+      await import('../../extensions/channel-feishu/render/streaming-card-controller.js');
     mockController = (StreamingCardController as any).mock.results[0].value;
   });
 
   it('should create a StreamingCardController on construction', async () => {
-    const { StreamingCardController } = await import(
-      '../../extensions/channel-feishu/render/streaming-card-controller.js'
-    );
+    const { StreamingCardController } =
+      await import('../../extensions/channel-feishu/render/streaming-card-controller.js');
     expect(StreamingCardController).toHaveBeenCalledWith({
       feishuClient: mockFeishuClient,
       chatId: 'test-chat-id',
@@ -72,9 +70,8 @@ describe('ReplyDispatcher', () => {
         messageId: 'msg-123',
       });
 
-      const { StreamingCardController } = await import(
-        '../../extensions/channel-feishu/render/streaming-card-controller.js'
-      );
+      const { StreamingCardController } =
+        await import('../../extensions/channel-feishu/render/streaming-card-controller.js');
       mockController = (StreamingCardController as any).mock.results.at(-1).value;
 
       await dispatcher.onStart();
@@ -146,16 +143,19 @@ describe('ReplyDispatcher', () => {
 
   describe('approval history helpers', () => {
     it('setApprovalRecords is a no-op for feishu standalone cards', () => {
-      dispatcher.setApprovalRecords([
-        {
-          requestId: 'req-1',
-          command: 'rm /tmp/1.txt',
-          risk: 'high',
-          status: 'approved',
-          decision: 'approve_once',
-          updatedAt: 1,
-        },
-      ], true);
+      dispatcher.setApprovalRecords(
+        [
+          {
+            requestId: 'req-1',
+            command: 'rm /tmp/1.txt',
+            risk: 'high',
+            status: 'approved',
+            decision: 'approve_once',
+            updatedAt: 1,
+          },
+        ],
+        true,
+      );
       expect(mockController.setApprovalRecords).not.toHaveBeenCalled();
     });
 
@@ -200,9 +200,8 @@ describe('ReplyDispatcher', () => {
         messageId: 'msg-123',
       });
 
-      const { StreamingCardController } = await import(
-        '../../extensions/channel-feishu/render/streaming-card-controller.js'
-      );
+      const { StreamingCardController } =
+        await import('../../extensions/channel-feishu/render/streaming-card-controller.js');
       mockController = (StreamingCardController as any).mock.results.at(-1).value;
 
       await dispatcher.onStart();
@@ -240,7 +239,11 @@ describe('ReplyDispatcher', () => {
       await dispatcher.onComplete();
 
       expect(mockController.createPlaceholder).toHaveBeenCalledOnce();
-      expect(mockController.markToolRunning).toHaveBeenCalledWith('shell', { command: 'ls' }, undefined);
+      expect(mockController.markToolRunning).toHaveBeenCalledWith(
+        'shell',
+        { command: 'ls' },
+        undefined,
+      );
       expect(mockController.markToolComplete).toHaveBeenCalledWith('shell', undefined);
       // After a completed tool, answer text is prefixed with a blank line to
       // close the tool blockquote.

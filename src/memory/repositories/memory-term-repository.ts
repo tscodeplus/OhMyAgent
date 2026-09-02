@@ -38,7 +38,9 @@ export class MemoryTermRepository {
     const normalized = [...new Set(terms.map(normalizeTerm).filter(Boolean))];
     if (normalized.length === 0) return [];
     const placeholders = normalized.map(() => '?').join(',');
-    return this.db.prepare(`
+    return this.db
+      .prepare(
+        `
       SELECT mt.memory_id, SUM(mt.weight) AS score
       FROM memory_terms mt
       JOIN memories m ON m.id = mt.memory_id
@@ -47,11 +49,16 @@ export class MemoryTermRepository {
       GROUP BY mt.memory_id
       ORDER BY score DESC
       LIMIT ?
-    `).all(...normalized, limit) as MemoryTermMatch[];
+    `,
+      )
+      .all(...normalized, limit) as MemoryTermMatch[];
   }
 }
 
-export function extractMemoryTerms(content: string, metadata?: Record<string, unknown> | null): Omit<MemoryTermInput, 'memoryId'>[] {
+export function extractMemoryTerms(
+  content: string,
+  metadata?: Record<string, unknown> | null,
+): Omit<MemoryTermInput, 'memoryId'>[] {
   const terms: Omit<MemoryTermInput, 'memoryId'>[] = [];
   const text = `${content} ${metadata ? JSON.stringify(metadata) : ''}`;
   for (const token of tokenize(text)) {
@@ -74,20 +81,22 @@ export function extractMemoryTerms(content: string, metadata?: Record<string, un
     }
   }
   const seen = new Set<string>();
-  return terms.filter(term => {
-    const key = `${term.termType}:${normalizeTerm(term.term)}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  }).slice(0, 80);
+  return terms
+    .filter((term) => {
+      const key = `${term.termType}:${normalizeTerm(term.term)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 80);
 }
 
 export function extractQueryTerms(query: string): string[] {
   return [
     ...tokenize(query),
     ...(query.match(/\b\d+(?:\.\d+)?\b/g) ?? []),
-    ...MONTHS.filter(month => query.toLowerCase().includes(month)),
-    ...WEEKDAYS.filter(day => query.toLowerCase().includes(day)),
+    ...MONTHS.filter((month) => query.toLowerCase().includes(month)),
+    ...WEEKDAYS.filter((day) => query.toLowerCase().includes(day)),
   ];
 }
 
@@ -96,7 +105,7 @@ function tokenize(text: string): string[] {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
     .split(/\s+/)
-    .filter(token => token.length > 2 && !STOPWORDS.has(token));
+    .filter((token) => token.length > 2 && !STOPWORDS.has(token));
 }
 
 function normalizeTerm(term: string): string {
@@ -104,16 +113,76 @@ function normalizeTerm(term: string): string {
 }
 
 const STOPWORDS = new Set([
-  'the', 'and', 'for', 'that', 'this', 'with', 'you', 'your', 'was', 'were', 'are',
-  'what', 'when', 'where', 'who', 'how', 'did', 'does', 'have', 'has', 'had', 'from',
-  'about', 'into', 'can', 'could', 'would', 'should', 'there', 'their', 'they', 'them',
-  'then', 'than', 'but', 'not', 'all', 'any', 'our', 'out', 'get', 'got', 'left',
+  'the',
+  'and',
+  'for',
+  'that',
+  'this',
+  'with',
+  'you',
+  'your',
+  'was',
+  'were',
+  'are',
+  'what',
+  'when',
+  'where',
+  'who',
+  'how',
+  'did',
+  'does',
+  'have',
+  'has',
+  'had',
+  'from',
+  'about',
+  'into',
+  'can',
+  'could',
+  'would',
+  'should',
+  'there',
+  'their',
+  'they',
+  'them',
+  'then',
+  'than',
+  'but',
+  'not',
+  'all',
+  'any',
+  'our',
+  'out',
+  'get',
+  'got',
+  'left',
 ]);
 
 const MONTHS = [
-  'january', 'february', 'march', 'april', 'may', 'june',
-  'july', 'august', 'september', 'october', 'november', 'december',
-  'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'sept', 'oct', 'nov', 'dec',
+  'january',
+  'february',
+  'march',
+  'april',
+  'may',
+  'june',
+  'july',
+  'august',
+  'september',
+  'october',
+  'november',
+  'december',
+  'jan',
+  'feb',
+  'mar',
+  'apr',
+  'jun',
+  'jul',
+  'aug',
+  'sep',
+  'sept',
+  'oct',
+  'nov',
+  'dec',
 ];
 
 const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];

@@ -65,11 +65,7 @@ export default function ConfirmDialog({
           <Button variant="secondary" onClick={onCancel} disabled={loading}>
             {cancelLabel || t('common.cancel')}
           </Button>
-          <Button
-            variant={danger ? 'danger' : 'primary'}
-            onClick={onConfirm}
-            loading={loading}
-          >
+          <Button variant={danger ? 'danger' : 'primary'} onClick={onConfirm} loading={loading}>
             {confirmLabel || t('common.confirm')}
           </Button>
         </>

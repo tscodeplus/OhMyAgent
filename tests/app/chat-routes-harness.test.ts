@@ -48,7 +48,10 @@ describe('POST /api/harness/proposals/:id/decide', () => {
 
   it('maps reject and ignore actions onto the reject decision', async () => {
     const { app, registry } = makeApp();
-    for (const [id, action] of [['prop-2', 'reject'], ['prop-3', 'ignore']] as const) {
+    for (const [id, action] of [
+      ['prop-2', 'reject'],
+      ['prop-3', 'ignore'],
+    ] as const) {
       const resolver = vi.fn();
       registry.set(id, resolver);
 

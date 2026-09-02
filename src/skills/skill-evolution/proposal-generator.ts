@@ -59,11 +59,7 @@ export class ProposalGenerator {
   /** SQLite 持久化句柄；为 null 时退回纯内存模式 */
   private db: Database.Database | null;
 
-  constructor(
-    metrics: SkillMetricsService,
-    skillRegistry: SkillRegistry,
-    db?: Database.Database,
-  ) {
+  constructor(metrics: SkillMetricsService, skillRegistry: SkillRegistry, db?: Database.Database) {
     this.metrics = metrics;
     this.skillRegistry = skillRegistry;
     this.db = db ?? null;
@@ -234,9 +230,9 @@ export class ProposalGenerator {
     // 只对 pending 状态的提案按 type 去重 —— dismissed/applied 的类型不再
     // 阻塞新提案生成，避免"驳回过一次就永远不再建议"的问题
     const existingTypes = new Set(
-      existing.filter(p => p.status === 'pending').map(p => p.type),
+      existing.filter((p) => p.status === 'pending').map((p) => p.type),
     );
-    const newProposals = proposals.filter(p => !existingTypes.has(p.type));
+    const newProposals = proposals.filter((p) => !existingTypes.has(p.type));
     // 有 db 时持久化新提案，保证重启后仍可追溯
     this.persistNewProposals(newProposals);
     this.proposals.set(skillId, [...existing, ...newProposals]);
@@ -280,7 +276,7 @@ export class ProposalGenerator {
   getGlobalHealthReport(): SkillHealthReport[] {
     const globalStats = this.metrics.getGlobalStats();
     return globalStats.skills
-      .map(s => this.getHealthReport(s.skillId))
+      .map((s) => this.getHealthReport(s.skillId))
       .filter((r): r is SkillHealthReport => r !== null);
   }
 
@@ -288,7 +284,7 @@ export class ProposalGenerator {
    * Get pending proposals for a skill.
    */
   getProposals(skillId: string): EvolutionProposal[] {
-    return this.proposals.get(skillId)?.filter(p => p.status === 'pending') ?? [];
+    return this.proposals.get(skillId)?.filter((p) => p.status === 'pending') ?? [];
   }
 
   /**
@@ -297,7 +293,7 @@ export class ProposalGenerator {
   applyProposal(skillId: string, proposalId: string): boolean {
     const proposals = this.proposals.get(skillId);
     if (!proposals) return false;
-    const p = proposals.find(p => p.id === proposalId);
+    const p = proposals.find((p) => p.id === proposalId);
     if (!p) return false;
     p.status = 'applied';
     // 同步持久化状态，重启后仍保持 applied
@@ -313,7 +309,7 @@ export class ProposalGenerator {
   dismissProposal(skillId: string, proposalId: string): boolean {
     const proposals = this.proposals.get(skillId);
     if (!proposals) return false;
-    const p = proposals.find(p => p.id === proposalId);
+    const p = proposals.find((p) => p.id === proposalId);
     if (!p) return false;
     p.status = 'dismissed';
     // 同步持久化状态，重启后仍保持 dismissed
@@ -345,7 +341,14 @@ function buildHealthSummary(
   if (stats.avgDurationMs) {
     lines.push(`  平均耗时: ${Math.round(stats.avgDurationMs / 1000)}s`);
   }
-  lines.push(`  常用工具: ${stats.topTools.slice(0, 3).map(t => t.name).join(', ') || '无'}`);
+  lines.push(
+    `  常用工具: ${
+      stats.topTools
+        .slice(0, 3)
+        .map((t) => t.name)
+        .join(', ') || '无'
+    }`,
+  );
 
   if (proposals.length > 0) {
     lines.push(`  💡 ${proposals.length} 条改进建议`);

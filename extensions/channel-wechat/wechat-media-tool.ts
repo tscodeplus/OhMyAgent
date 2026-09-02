@@ -40,7 +40,9 @@ export function createWechatMediaTool(options: WechatMediaToolOptions): AgentToo
     description:
       'Send a local image, picture, photo, screenshot, or any file on disk to the WeChat user you are chatting with. Use this tool whenever the user asks you to send a file, picture, or image. Provide the full absolute path of the file on the local filesystem.',
     parameters: Type.Object({
-      filePath: Type.String({ description: 'The absolute path of the file to send, e.g. /tmp/image.png' }),
+      filePath: Type.String({
+        description: 'The absolute path of the file to send, e.g. /tmp/image.png',
+      }),
     }),
     execute: async (_toolCallId: string, params: { filePath: string }) => {
       try {
@@ -86,29 +88,36 @@ export function createWechatMediaTool(options: WechatMediaToolOptions): AgentToo
             ? MessageItemType.VIDEO
             : MessageItemType.FILE;
 
-        const itemList: unknown[] = msgType === MessageItemType.IMAGE
-          ? [{
-              type: MessageItemType.IMAGE,
-              image_item: {
-                media: mediaParam,
-                mid_size: mediaParam.fileSizeCiphertext,
-              },
-            }]
-          : msgType === MessageItemType.VIDEO
-            ? [{
-                type: MessageItemType.VIDEO,
-                video_item: {
-                  media: mediaParam,
+        const itemList: unknown[] =
+          msgType === MessageItemType.IMAGE
+            ? [
+                {
+                  type: MessageItemType.IMAGE,
+                  image_item: {
+                    media: mediaParam,
+                    mid_size: mediaParam.fileSizeCiphertext,
+                  },
                 },
-              }]
-            : [{
-                type: MessageItemType.FILE,
-                file_item: {
-                  media: mediaParam,
-                  file_name: path.basename(filePath),
-                  len: String(mediaParam.fileSizeCiphertext ?? 0),
-                },
-              }];
+              ]
+            : msgType === MessageItemType.VIDEO
+              ? [
+                  {
+                    type: MessageItemType.VIDEO,
+                    video_item: {
+                      media: mediaParam,
+                    },
+                  },
+                ]
+              : [
+                  {
+                    type: MessageItemType.FILE,
+                    file_item: {
+                      media: mediaParam,
+                      file_name: path.basename(filePath),
+                      len: String(mediaParam.fileSizeCiphertext ?? 0),
+                    },
+                  },
+                ];
 
         await sendMessage(apiBase, botToken, {
           toUserId,
@@ -121,7 +130,9 @@ export function createWechatMediaTool(options: WechatMediaToolOptions): AgentToo
         const fileName = path.basename(filePath);
         return { content: [{ type: 'text' as const, text: `File sent: ${fileName}` }] };
       } catch (err: any) {
-        return { content: [{ type: 'text' as const, text: `Failed to send media: ${err.message}` }] };
+        return {
+          content: [{ type: 'text' as const, text: `Failed to send media: ${err.message}` }],
+        };
       }
     },
   } as AgentTool<any>;
@@ -156,29 +167,36 @@ export async function sendWechatMediaBuffer(
       : mimeType.startsWith('video/')
         ? MessageItemType.VIDEO
         : MessageItemType.FILE;
-    const itemList: unknown[] = msgType === MessageItemType.IMAGE
-      ? [{
-          type: MessageItemType.IMAGE,
-          image_item: {
-            media: mediaParam,
-            mid_size: mediaParam.fileSizeCiphertext,
-          },
-        }]
-      : msgType === MessageItemType.VIDEO
-        ? [{
-            type: MessageItemType.VIDEO,
-            video_item: {
-              media: mediaParam,
+    const itemList: unknown[] =
+      msgType === MessageItemType.IMAGE
+        ? [
+            {
+              type: MessageItemType.IMAGE,
+              image_item: {
+                media: mediaParam,
+                mid_size: mediaParam.fileSizeCiphertext,
+              },
             },
-          }]
-        : [{
-            type: MessageItemType.FILE,
-            file_item: {
-              media: mediaParam,
-              file_name: fileName,
-              len: String(mediaParam.fileSizeCiphertext ?? 0),
-            },
-          }];
+          ]
+        : msgType === MessageItemType.VIDEO
+          ? [
+              {
+                type: MessageItemType.VIDEO,
+                video_item: {
+                  media: mediaParam,
+                },
+              },
+            ]
+          : [
+              {
+                type: MessageItemType.FILE,
+                file_item: {
+                  media: mediaParam,
+                  file_name: fileName,
+                  len: String(mediaParam.fileSizeCiphertext ?? 0),
+                },
+              },
+            ];
 
     await sendMessage(options.apiBase, options.botToken, {
       toUserId: options.toUserId,

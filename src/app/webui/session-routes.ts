@@ -52,9 +52,9 @@ export function registerSessionRoutes(
     const baseTitle = body?.baseTitle || 'New Chat';
 
     // Generate unique title by appending incrementing number if needed
-    const existing = db.prepare(
-      'SELECT metadata FROM sessions WHERE project_id = ?'
-    ).all(projectId) as Array<{ metadata: string | null }>;
+    const existing = db
+      .prepare('SELECT metadata FROM sessions WHERE project_id = ?')
+      .all(projectId) as Array<{ metadata: string | null }>;
 
     const titles = new Set<string>();
     for (const row of existing) {
@@ -62,7 +62,9 @@ export function registerSessionRoutes(
       try {
         const meta = JSON.parse(String(row.metadata));
         if (meta.title) titles.add(String(meta.title));
-      } catch { /* ignore malformed metadata */ }
+      } catch {
+        /* ignore malformed metadata */
+      }
     }
 
     let title = baseTitle;
@@ -74,10 +76,12 @@ export function registerSessionRoutes(
 
     const now = Date.now();
     const metadata = JSON.stringify({ title });
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO sessions (id, chat_id, user_id, project_id, metadata, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(id, chatId, 'webui-user', projectId, metadata, now, now);
+    `,
+    ).run(id, chatId, 'webui-user', projectId, metadata, now, now);
 
     const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as any;
 
@@ -96,9 +100,9 @@ export function registerSessionRoutes(
   app.get('/api/projects/:projectId/sessions', async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
 
-    const rows = db.prepare(
-      'SELECT * FROM sessions WHERE project_id = ? ORDER BY updated_at DESC'
-    ).all(projectId) as any[];
+    const rows = db
+      .prepare('SELECT * FROM sessions WHERE project_id = ? ORDER BY updated_at DESC')
+      .all(projectId) as any[];
 
     const sessions = rows.map((s) => ({
       id: s.id,
@@ -117,9 +121,9 @@ export function registerSessionRoutes(
   app.get('/api/projects/:projectId/sessions/:sid', async (request, reply) => {
     const { projectId, sid } = request.params as { projectId: string; sid: string };
 
-    const session = db.prepare(
-      'SELECT * FROM sessions WHERE id = ? AND project_id = ?'
-    ).get(sid, projectId) as any;
+    const session = db
+      .prepare('SELECT * FROM sessions WHERE id = ? AND project_id = ?')
+      .get(sid, projectId) as any;
 
     if (!session) {
       return reply.status(404).send({ error: 'Not Found', message: 'Session not found' });
@@ -127,7 +131,10 @@ export function registerSessionRoutes(
 
     // Read limit/before from query params for pagination.
     // `before` is a millisecond UTC timestamp (INTEGER) cursor.
-    const { limit: limitParam, before: beforeParam } = request.query as { limit?: string; before?: string };
+    const { limit: limitParam, before: beforeParam } = request.query as {
+      limit?: string;
+      before?: string;
+    };
     const limit = Math.min(Math.max(1, parseInt(limitParam ?? '50', 10) || 50), 100);
     const before = beforeParam ? parseInt(beforeParam, 10) : undefined;
 
@@ -136,19 +143,27 @@ export function registerSessionRoutes(
     // created_at is INTEGER ms — deterministic ordering, no rowid tiebreaker needed.
     let messages: any[];
     if (before !== undefined && !isNaN(before)) {
-      messages = db.prepare(`
+      messages = db
+        .prepare(
+          `
         SELECT * FROM (
           SELECT * FROM messages WHERE session_id = ? AND created_at < ?
           ORDER BY created_at DESC LIMIT ?
         ) ORDER BY created_at ASC
-      `).all(sid, before, limit) as any[];
+      `,
+        )
+        .all(sid, before, limit) as any[];
     } else {
-      messages = db.prepare(`
+      messages = db
+        .prepare(
+          `
         SELECT * FROM (
           SELECT * FROM messages WHERE session_id = ?
           ORDER BY created_at DESC LIMIT ?
         ) ORDER BY created_at ASC
-      `).all(sid, limit) as any[];
+      `,
+        )
+        .all(sid, limit) as any[];
     }
 
     // Determine if there are more messages beyond the oldest one we returned.
@@ -156,15 +171,19 @@ export function registerSessionRoutes(
     let hasMore = false;
     if (messages.length === limit && messages.length > 0) {
       const oldest = messages[0];
-      const countRow = db.prepare(
-        'SELECT COUNT(*) as cnt FROM messages WHERE session_id = ? AND created_at < ?'
-      ).get(sid, oldest.created_at) as { cnt: number };
+      const countRow = db
+        .prepare('SELECT COUNT(*) as cnt FROM messages WHERE session_id = ? AND created_at < ?')
+        .get(sid, oldest.created_at) as { cnt: number };
       hasMore = countRow.cnt > 0;
     }
 
     const formattedMessages = messages.map((m) => {
       let meta: Record<string, unknown> | null = null;
-      try { meta = m.metadata ? JSON.parse(String(m.metadata)) : null; } catch { /* ignore */ }
+      try {
+        meta = m.metadata ? JSON.parse(String(m.metadata)) : null;
+      } catch {
+        /* ignore */
+      }
 
       // Strip injected date/time prefix from user messages.
       // The prefix is prepended with \n\n by context-transform, so ^ alone
@@ -172,7 +191,8 @@ export function registerSessionRoutes(
       let content = m.content;
       if (m.role === 'user') {
         content = stripXmlTag(content, 'system-reminder').trimStart();
-        content = content.replace(/^[\s\n]*\[当前(时间|日期):[^\]]+\][\s\n]*/g, '')
+        content = content
+          .replace(/^[\s\n]*\[当前(时间|日期):[^\]]+\][\s\n]*/g, '')
           .replace(/^[\s\n]*\[Current (time|date):[^\]]+\][\s\n]*/gi, '');
       }
 
@@ -221,7 +241,8 @@ export function registerSessionRoutes(
 
       const extractFilesFrom = (text: string) => {
         // Match [name](url) for serve/download/dl URLs (webui_send_media output)
-        const linkRegex = /\[([^\]]+)\]\((\/(?:api\/files\/(?:serve|download)\?[^)\s]+|dl\/[^)\s]+|desktop-bridge-download\?[^)\s]+))\)/g;
+        const linkRegex =
+          /\[([^\]]+)\]\((\/(?:api\/files\/(?:serve|download)\?[^)\s]+|dl\/[^)\s]+|desktop-bridge-download\?[^)\s]+))\)/g;
         let m: RegExpExecArray | null;
         while ((m = linkRegex.exec(text)) !== null) {
           const url = m[2];
@@ -280,15 +301,26 @@ export function registerSessionRoutes(
       // against meta.tool_calls to build full ToolCall objects.
       if (meta?.segments && Array.isArray(meta.segments) && meta.segments.length > 0) {
         const toolCallsById = new Map<string, Record<string, unknown>>();
-        const toolCalls = meta?.tool_calls as Array<{ id: string; name: string; arguments: Record<string, unknown> }> | undefined;
+        const toolCalls = meta?.tool_calls as
+          Array<{ id: string; name: string; arguments: Record<string, unknown> }> | undefined;
         if (toolCalls) {
           for (const tc of toolCalls) {
             if (tc.id) toolCallsById.set(tc.id, tc as unknown as Record<string, unknown>);
           }
         }
 
-        const segments: Array<{ type: 'text' | 'tool_call' | 'skill'; content?: string; toolCall?: Record<string, unknown>; name?: string }> = [];
-        for (const seg of meta.segments as Array<{ type: string; content?: string; id?: string; name?: string }>) {
+        const segments: Array<{
+          type: 'text' | 'tool_call' | 'skill';
+          content?: string;
+          toolCall?: Record<string, unknown>;
+          name?: string;
+        }> = [];
+        for (const seg of meta.segments as Array<{
+          type: string;
+          content?: string;
+          id?: string;
+          name?: string;
+        }>) {
           if (seg.type === 'text') {
             segments.push({ type: 'text', content: seg.content || '' });
           } else if (seg.type === 'skill') {
@@ -321,19 +353,25 @@ export function registerSessionRoutes(
       // subsequent global config changes. Falls back to the current config
       // for messages saved before footer config was persisted.
       if (meta && (meta.usage || meta.model || meta.elapsed)) {
-        const fc = (meta.footerConfig as FooterConfig | undefined) ?? getFooterConfig?.() ?? {
-          showAgentName: true,
-          showModel: true,
-          showCompleted: false,
-          showElapsed: true,
-          showUsage: false,
-          showCacheHitRate: false,
-        };
+        const fc = (meta.footerConfig as FooterConfig | undefined) ??
+          getFooterConfig?.() ?? {
+            showAgentName: true,
+            showModel: true,
+            showCompleted: false,
+            showElapsed: true,
+            showUsage: false,
+            showCacheHitRate: false,
+          };
         result.footer = {
-          agentName: fc.showAgentName ? meta.agentName as string | undefined : undefined,
-          model: fc.showModel ? meta.model as string | undefined : undefined,
-          elapsed: fc.showElapsed ? meta.elapsed as number | undefined : undefined,
-          usage: meta.usage as { input?: number; output?: number; cacheRead?: number; cacheWrite?: number },
+          agentName: fc.showAgentName ? (meta.agentName as string | undefined) : undefined,
+          model: fc.showModel ? (meta.model as string | undefined) : undefined,
+          elapsed: fc.showElapsed ? (meta.elapsed as number | undefined) : undefined,
+          usage: meta.usage as {
+            input?: number;
+            output?: number;
+            cacheRead?: number;
+            cacheWrite?: number;
+          },
           showUsage: fc.showUsage ?? false,
           showCacheHitRate: fc.showCacheHitRate ?? false,
         };
@@ -358,9 +396,9 @@ export function registerSessionRoutes(
     const { projectId, sid } = request.params as { projectId: string; sid: string };
     const { title } = request.body as { title?: string };
 
-    const session = db.prepare(
-      'SELECT * FROM sessions WHERE id = ? AND project_id = ?'
-    ).get(sid, projectId) as any;
+    const session = db
+      .prepare('SELECT * FROM sessions WHERE id = ? AND project_id = ?')
+      .get(sid, projectId) as any;
 
     if (!session) {
       return reply.status(404).send({ error: 'Not Found', message: 'Session not found' });
@@ -370,9 +408,11 @@ export function registerSessionRoutes(
     if (title !== undefined) metadata.title = title;
     const newMeta = JSON.stringify(metadata);
 
-    db.prepare(
-      'UPDATE sessions SET metadata = ?, updated_at = ? WHERE id = ?'
-    ).run(newMeta, Date.now(), sid);
+    db.prepare('UPDATE sessions SET metadata = ?, updated_at = ? WHERE id = ?').run(
+      newMeta,
+      Date.now(),
+      sid,
+    );
 
     return reply.send({ ok: true, title });
   });
@@ -382,9 +422,9 @@ export function registerSessionRoutes(
     try {
       const { projectId, sid } = request.params as { projectId: string; sid: string };
 
-      const session = db.prepare(
-        'SELECT * FROM sessions WHERE id = ? AND project_id = ?'
-      ).get(sid, projectId) as any;
+      const session = db
+        .prepare('SELECT * FROM sessions WHERE id = ? AND project_id = ?')
+        .get(sid, projectId) as any;
 
       if (!session) {
         return reply.status(404).send({ error: 'Not Found', message: 'Session not found' });
@@ -398,7 +438,7 @@ export function registerSessionRoutes(
       const cascadeDelete = db.transaction(() => {
         // 1. approval_decisions depends on approval_requests — delete first
         db.prepare(
-          'DELETE FROM approval_decisions WHERE request_id IN (SELECT id FROM approval_requests WHERE session_key = ?)'
+          'DELETE FROM approval_decisions WHERE request_id IN (SELECT id FROM approval_requests WHERE session_key = ?)',
         ).run(sid);
         // 2. approval_requests — now safe (children removed)
         db.prepare('DELETE FROM approval_requests WHERE session_key = ?').run(sid);
@@ -416,7 +456,11 @@ export function registerSessionRoutes(
       return reply.send({ ok: true });
     } catch (err) {
       // Ensure FK checks are re-enabled even on error
-      try { db.exec('PRAGMA foreign_keys = ON'); } catch { /* ignore */ }
+      try {
+        db.exec('PRAGMA foreign_keys = ON');
+      } catch {
+        /* ignore */
+      }
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: 'Delete failed', message });
     }

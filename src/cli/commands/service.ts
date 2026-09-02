@@ -27,10 +27,16 @@ export async function serviceCommand(action: 'install' | 'uninstall'): Promise<v
   }
 
   const platform = process.platform;
-  if (platform === 'linux') { await linuxService(action); }
-  else if (platform === 'darwin') { await darwinService(action); }
-  else if (platform === 'win32') { await windowsService(action); }
-  else { console.error(t('service.unsupportedPlatform', { platform })); process.exit(1); }
+  if (platform === 'linux') {
+    await linuxService(action);
+  } else if (platform === 'darwin') {
+    await darwinService(action);
+  } else if (platform === 'win32') {
+    await windowsService(action);
+  } else {
+    console.error(t('service.unsupportedPlatform', { platform }));
+    process.exit(1);
+  }
 }
 
 // ─── Linux systemd ───
@@ -82,8 +88,12 @@ WantedBy=default.target
       console.log('  systemctl --user enable --now ohmyagent');
     }
   } else {
-    try { execSync('systemctl --user stop ohmyagent', { stdio: 'inherit' }); } catch {}
-    try { execSync('systemctl --user disable ohmyagent', { stdio: 'inherit' }); } catch {}
+    try {
+      execSync('systemctl --user stop ohmyagent', { stdio: 'inherit' });
+    } catch {}
+    try {
+      execSync('systemctl --user disable ohmyagent', { stdio: 'inherit' });
+    } catch {}
     if (existsSync(serviceFile)) {
       unlinkSync(serviceFile);
       execSync('systemctl --user daemon-reload', { stdio: 'ignore' });
@@ -100,15 +110,23 @@ WantedBy=default.target
 // these through so the server's fetch() calls can reach the internet.
 function collectProxyEnv(): string {
   const vars: string[] = [];
-  const keys = ['https_proxy', 'HTTPS_PROXY', 'http_proxy', 'HTTP_PROXY',
-                'NODE_EXTRA_CA_CERTS', 'NODE_TLS_REJECT_UNAUTHORIZED',
-                'NODE_OPTIONS'];
+  const keys = [
+    'https_proxy',
+    'HTTPS_PROXY',
+    'http_proxy',
+    'HTTP_PROXY',
+    'NODE_EXTRA_CA_CERTS',
+    'NODE_TLS_REJECT_UNAUTHORIZED',
+    'NODE_OPTIONS',
+  ];
   const seen = new Set<string>();
   for (const key of keys) {
     const val = process.env[key];
     if (val && !seen.has(key.toLowerCase())) {
       seen.add(key.toLowerCase());
-      vars.push(`<key>${key}</key><string>${val.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</string>`);
+      vars.push(
+        `<key>${key}</key><string>${val.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</string>`,
+      );
     }
   }
   return vars.join('');
@@ -117,9 +135,15 @@ function collectProxyEnv(): string {
 /** Same as collectProxyEnv but produces systemd Environment= lines. */
 function collectProxyEnvLines(): string {
   const lines: string[] = [];
-  const keys = ['https_proxy', 'HTTPS_PROXY', 'http_proxy', 'HTTP_PROXY',
-                'NODE_EXTRA_CA_CERTS', 'NODE_TLS_REJECT_UNAUTHORIZED',
-                'NODE_OPTIONS'];
+  const keys = [
+    'https_proxy',
+    'HTTPS_PROXY',
+    'http_proxy',
+    'HTTP_PROXY',
+    'NODE_EXTRA_CA_CERTS',
+    'NODE_TLS_REJECT_UNAUTHORIZED',
+    'NODE_OPTIONS',
+  ];
   const seen = new Set<string>();
   for (const key of keys) {
     const val = process.env[key];
@@ -170,9 +194,15 @@ async function darwinService(action: 'install' | 'uninstall'): Promise<void> {
       console.error('\x1b[31m[ERROR]\x1b[0m ' + t('service.launchdFailed'));
     }
   } else {
-    try { execSync(`launchctl unload "${plistFile}" 2>/dev/null`, { stdio: 'ignore' }); } catch {}
-    if (existsSync(plistFile)) { unlinkSync(plistFile); console.log(t('service.launchdRemoved')); }
-    else { console.log(t('service.launchdNotInstalled')); }
+    try {
+      execSync(`launchctl unload "${plistFile}" 2>/dev/null`, { stdio: 'ignore' });
+    } catch {}
+    if (existsSync(plistFile)) {
+      unlinkSync(plistFile);
+      console.log(t('service.launchdRemoved'));
+    } else {
+      console.log(t('service.launchdNotInstalled'));
+    }
   }
 }
 
@@ -203,12 +233,25 @@ async function windowsService(action: 'install' | 'uninstall'): Promise<void> {
     writeFileSync(vbsFile, vbsContent);
 
     // Create Task Scheduler task — runs at logon in user session, hidden
-    const result = spawnSync('schtasks', [
-      '/Create', '/SC', 'ONLOGON', '/TN', taskName,
-      '/TR', `wscript.exe "${vbsFile}"`,
-      '/F', '/RL', 'HIGHEST', '/IT',
-      '/DELAY', '0000:30',
-    ], { stdio: 'inherit' });
+    const result = spawnSync(
+      'schtasks',
+      [
+        '/Create',
+        '/SC',
+        'ONLOGON',
+        '/TN',
+        taskName,
+        '/TR',
+        `wscript.exe "${vbsFile}"`,
+        '/F',
+        '/RL',
+        'HIGHEST',
+        '/IT',
+        '/DELAY',
+        '0000:30',
+      ],
+      { stdio: 'inherit' },
+    );
     if (result.status !== 0) {
       const errMsg = result.stderr?.toString() || '';
       console.error('\x1b[31m[ERROR]\x1b[0m ' + t('service.taskFailed'));
@@ -234,16 +277,34 @@ async function windowsService(action: 'install' | 'uninstall'): Promise<void> {
     console.log('    taskschd.msc                      # GUI');
   } else {
     // Remove Task Scheduler task
-    try { execSync('schtasks /End /TN "OhMyAgent" 2>nul', { stdio: 'ignore' }); } catch {}
-    try { execSync('schtasks /Delete /TN "OhMyAgent" /F', { stdio: 'inherit' }); console.log('Scheduled task removed'); }
-    catch { console.log('Scheduled task was not found'); }
+    try {
+      execSync('schtasks /End /TN "OhMyAgent" 2>nul', { stdio: 'ignore' });
+    } catch {}
+    try {
+      execSync('schtasks /Delete /TN "OhMyAgent" /F', { stdio: 'inherit' });
+      console.log('Scheduled task removed');
+    } catch {
+      console.log('Scheduled task was not found');
+    }
     // Also remove old WinSW service if present (from previous version)
-    try { execSync('sc stop OhMyAgent 2>nul', { stdio: 'ignore' }); } catch {}
-    try { execSync('sc delete OhMyAgent 2>nul', { stdio: 'ignore' }); } catch {}
+    try {
+      execSync('sc stop OhMyAgent 2>nul', { stdio: 'ignore' });
+    } catch {}
+    try {
+      execSync('sc delete OhMyAgent 2>nul', { stdio: 'ignore' });
+    } catch {}
     // Clean up launcher files from both old and new installs
-    for (const f of ['start-ohmyagent.vbs', 'start-ohmyagent.bat', 'ohmyagent-service.exe', 'ohmyagent-service.xml', 'ohmyagent-service.ps1']) {
+    for (const f of [
+      'start-ohmyagent.vbs',
+      'start-ohmyagent.bat',
+      'ohmyagent-service.exe',
+      'ohmyagent-service.xml',
+      'ohmyagent-service.ps1',
+    ]) {
       const fp = join(PROJECT_DIR, f);
-      try { if (existsSync(fp)) unlinkSync(fp); } catch {}
+      try {
+        if (existsSync(fp)) unlinkSync(fp);
+      } catch {}
     }
   }
 }
@@ -262,18 +323,24 @@ async function termuxService(action: 'install' | 'uninstall'): Promise<void> {
     mkdirSync(serviceDir, { recursive: true });
     mkdirSync(logDir, { recursive: true });
 
-    writeFileSync(runScript, `#!/data/data/com.termux/files/usr/bin/bash
+    writeFileSync(
+      runScript,
+      `#!/data/data/com.termux/files/usr/bin/bash
 termux-wake-lock >/dev/null 2>&1 || true
 export ANDROID_NDK_HOME=${prefix}
 export npm_config_nodedir=${prefix}
 cd ${PROJECT_DIR}
 exec ${process.execPath} dist/src/index.js 2>&1
-`);
+`,
+    );
     execSync(`chmod +x "${runScript}"`, { stdio: 'ignore' });
 
-    writeFileSync(logScript, `#!/data/data/com.termux/files/usr/bin/bash
+    writeFileSync(
+      logScript,
+      `#!/data/data/com.termux/files/usr/bin/bash
 exec svlogd -tt ${PROJECT_DIR}/data/logs/
-`);
+`,
+    );
     execSync(`chmod +x "${logScript}"`, { stdio: 'ignore' });
 
     console.log(t('service.runitWrote', { path: serviceDir }));
@@ -291,10 +358,19 @@ exec svlogd -tt ${PROJECT_DIR}/data/logs/
       console.log(`  Run manually: SVDIR=${prefix}/var/service sv up ohmyagent`);
     }
   } else {
-    try { execSync(`SVDIR=${prefix}/var/service sv down ohmyagent 2>/dev/null`, { stdio: 'ignore' }); } catch {}
+    try {
+      execSync(`SVDIR=${prefix}/var/service sv down ohmyagent 2>/dev/null`, { stdio: 'ignore' });
+    } catch {}
     if (existsSync(runScript)) {
-      try { unlinkSync(logScript); unlinkSync(runScript); rmdirSync(logDir); rmdirSync(serviceDir); console.log(t('service.runitRemoved')); }
-      catch (e: any) { console.error(`\x1b[31m[ERROR]\x1b[0m Failed: ${e.message}`); }
+      try {
+        unlinkSync(logScript);
+        unlinkSync(runScript);
+        rmdirSync(logDir);
+        rmdirSync(serviceDir);
+        console.log(t('service.runitRemoved'));
+      } catch (e: any) {
+        console.error(`\x1b[31m[ERROR]\x1b[0m Failed: ${e.message}`);
+      }
     } else {
       console.log(t('service.runitNotInstalled'));
     }

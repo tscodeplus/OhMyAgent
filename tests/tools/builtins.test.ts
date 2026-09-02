@@ -22,7 +22,10 @@ describe('shell-tool', () => {
 
   it('truncates long output', async () => {
     const tool = createShellTool({ maxOutputLength: 50 });
-    const result = await tool.execute('call-1', { command: 'python3 -c "print(\'a\' * 200)" || perl -e "print \'a\' x 200" || echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' });
+    const result = await tool.execute('call-1', {
+      command:
+        'python3 -c "print(\'a\' * 200)" || perl -e "print \'a\' x 200" || echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    });
     expect(extractToolText(result).length).toBeLessThan(200);
     expectToolResultContains(result, 'truncated');
   });

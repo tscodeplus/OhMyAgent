@@ -32,7 +32,14 @@ const KEBAB_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 // ── Recognized structured sections ─────────────────────────────────────────────
 
-const RECOGNIZED_SECTIONS = ['MUST DO', 'SHOULD DO', 'WHEN', 'Output Format', 'Verification Checklist', 'Examples'];
+const RECOGNIZED_SECTIONS = [
+  'MUST DO',
+  'SHOULD DO',
+  'WHEN',
+  'Output Format',
+  'Verification Checklist',
+  'Examples',
+];
 
 // ── Core ───────────────────────────────────────────────────────────────────────
 
@@ -48,11 +55,21 @@ export function lintSkill(skill: LoadedSkill, toolNames: string[]): LintResult {
   // ── Frontmatter errors ───────────────────────────────────────────────────
 
   if (!skill.manifest.name || skill.manifest.name.length === 0) {
-    issues.push({ level: 'error', rule: 'frontmatter.name', message: 'name is required', field: 'name' });
+    issues.push({
+      level: 'error',
+      rule: 'frontmatter.name',
+      message: 'name is required',
+      field: 'name',
+    });
   }
 
   if (!skill.manifest.description || skill.manifest.description.length === 0) {
-    issues.push({ level: 'error', rule: 'frontmatter.description', message: 'description is required', field: 'description' });
+    issues.push({
+      level: 'error',
+      rule: 'frontmatter.description',
+      message: 'description is required',
+      field: 'description',
+    });
   }
 
   if (!KEBAB_RE.test(skill.manifest.id)) {
@@ -120,7 +137,8 @@ export function lintSkill(skill: LoadedSkill, toolNames: string[]): LintResult {
   // ── Structured sections info ─────────────────────────────────────────────
 
   const missingSections = RECOGNIZED_SECTIONS.filter(
-    (section) => !new RegExp(`##\\s+${section.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i').test(body),
+    (section) =>
+      !new RegExp(`##\\s+${section.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i').test(body),
   );
 
   if (missingSections.length > 0) {

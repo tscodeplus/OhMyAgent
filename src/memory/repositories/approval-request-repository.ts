@@ -99,14 +99,14 @@ export class ApprovalRequestRepository {
 
   findBySessionKey(sessionKey: string): ApprovalRequest[] {
     const stmt = this.db.prepare(
-      'SELECT * FROM approval_requests WHERE session_key = ? ORDER BY created_at DESC'
+      'SELECT * FROM approval_requests WHERE session_key = ? ORDER BY created_at DESC',
     );
     return stmt.all(sessionKey) as ApprovalRequest[];
   }
 
   findByStatus(status: string): ApprovalRequest[] {
     const stmt = this.db.prepare(
-      'SELECT * FROM approval_requests WHERE status = ? ORDER BY created_at DESC'
+      'SELECT * FROM approval_requests WHERE status = ? ORDER BY created_at DESC',
     );
     return stmt.all(status) as ApprovalRequest[];
   }
@@ -152,7 +152,7 @@ export class ApprovalRequestRepository {
       return this.findById(id);
     }
 
-    fields.push('updated_at = cast(strftime(\'%s\',\'now\') as integer) * 1000');
+    fields.push("updated_at = cast(strftime('%s','now') as integer) * 1000");
     const sql = `UPDATE approval_requests SET ${fields.join(', ')} WHERE id = @id`;
     this.db.prepare(sql).run(values);
     return this.findById(id);

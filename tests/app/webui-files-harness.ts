@@ -58,9 +58,11 @@ export interface FilesHarness {
   servedRoots: string[];
   configPath: string;
   /** Issue an inject() with the valid bearer token by default. */
-  call(method: string, url: string, opts?: { token?: string | null; payload?: unknown }): Promise<
-    Awaited<ReturnType<FastifyInstance['inject']>>
-  >;
+  call(
+    method: string,
+    url: string,
+    opts?: { token?: string | null; payload?: unknown },
+  ): Promise<Awaited<ReturnType<FastifyInstance['inject']>>>;
   cleanup(): Promise<void>;
 }
 
@@ -82,7 +84,9 @@ function makeOutsideDir(servedRoots: string[]): string {
   throw new Error('harness: no writable directory outside the served roots');
 }
 
-export async function createFilesHarness(options?: { withChatRoutes?: boolean }): Promise<FilesHarness> {
+export async function createFilesHarness(options?: {
+  withChatRoutes?: boolean;
+}): Promise<FilesHarness> {
   const base = mkdtempSync(join(tmpdir(), 'oma-files-harness-'));
   const fileRoot = join(base, 'root');
   mkdirSync(join(fileRoot, 'sub'), { recursive: true });

@@ -66,6 +66,6 @@ export class CandidateSelector {
 
     const sql = `SELECT m.id FROM memories m WHERE ${conditions.join(' AND ')}`;
     const rows = this.db.prepare(sql).all(...params) as Array<{ id: string }>;
-    return rows.map(r => r.id);
+    return rows.map((r) => r.id);
   }
 }

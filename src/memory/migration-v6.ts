@@ -54,9 +54,9 @@ export function migrateV6(db: Database.Database): void {
     const tableMatch = ddl.match(/ON\s+(\w+)/);
     if (tableMatch) {
       const tableName = tableMatch[1];
-      const tableExists = db.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-      ).get(tableName);
+      const tableExists = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
+        .get(tableName);
       if (!tableExists) {
         skipped.push(`${name} (table '${tableName}' does not exist)`);
         continue;
@@ -67,10 +67,12 @@ export function migrateV6(db: Database.Database): void {
     const tableName = tableMatch ? tableMatch[1] : '';
     const colListMatch = ddl.match(/\(([^)]+)\)/);
     if (tableName && colListMatch) {
-      const columns = colListMatch[1].split(',').map(c => c.trim().split(/\s+/)[0]);
-      const existingColumns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
-      const existingColNames = new Set(existingColumns.map(c => c.name));
-      const missingCols = columns.filter(col => !existingColNames.has(col));
+      const columns = colListMatch[1].split(',').map((c) => c.trim().split(/\s+/)[0]);
+      const existingColumns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{
+        name: string;
+      }>;
+      const existingColNames = new Set(existingColumns.map((c) => c.name));
+      const missingCols = columns.filter((col) => !existingColNames.has(col));
       if (missingCols.length > 0) {
         skipped.push(`${name} (columns missing: ${missingCols.join(', ')})`);
         continue;

@@ -40,7 +40,9 @@ export function createQqMediaTool(options: QqMediaToolOptions): AgentTool<any> {
     description:
       'Send a local file or image to the QQ user. Provide the absolute path of the file on disk.',
     parameters: Type.Object({
-      filePath: Type.String({ description: 'The absolute path of the file to send, e.g. /tmp/image.png' }),
+      filePath: Type.String({
+        description: 'The absolute path of the file to send, e.g. /tmp/image.png',
+      }),
     }),
     execute: async (_toolCallId: string, params: { filePath: string }) => {
       try {
@@ -68,22 +70,24 @@ export function createQqMediaTool(options: QqMediaToolOptions): AgentTool<any> {
           if (err.code === 'ENOENT') {
             return { content: [{ type: 'text' as const, text: `File not found: ${filePath}` }] };
           }
-          return { content: [{ type: 'text' as const, text: `Error reading file: ${err.message}` }] };
+          return {
+            content: [{ type: 'text' as const, text: `Error reading file: ${err.message}` }],
+          };
         }
 
         const fileName = path.basename(filePath);
         const ext = path.extname(fileName).toLowerCase();
         const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
         const videoExts = ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.flv', '.wmv', '.3gp', '.m4v'];
-        const fileType = imageExts.includes(ext) ? 1
-          : videoExts.includes(ext) ? 2
-          : 4;
+        const fileType = imageExts.includes(ext) ? 1 : videoExts.includes(ext) ? 2 : 4;
 
         await sendQQMediaBuffer(gateway, buffer, fileName, fileType, target, options.logger);
 
         return { content: [{ type: 'text' as const, text: `File sent: ${fileName}` }] };
       } catch (err: any) {
-        return { content: [{ type: 'text' as const, text: `Failed to send media: ${err.message}` }] };
+        return {
+          content: [{ type: 'text' as const, text: `Failed to send media: ${err.message}` }],
+        };
       }
     },
   } as AgentTool<any>;
@@ -129,7 +133,7 @@ async function uploadQQFileJson(
   log?: { error: (...args: any[]) => void },
 ): Promise<{ file_uuid: string; file_info: string; ttl: number } | null> {
   try {
-    const token = await (gateway as any).auth.getAccessToken() as string;
+    const token = (await (gateway as any).auth.getAccessToken()) as string;
     const baseUrl = (gateway as any).auth.getApiBase() as string;
 
     const uploadPath = target.groupOpenid
@@ -163,7 +167,7 @@ async function uploadQQFileJson(
       return null;
     }
 
-    const result = await response.json() as any;
+    const result = (await response.json()) as any;
     if (!result.file_info) {
       log?.error('QQ file upload: no file_info in response:', JSON.stringify(result));
       return null;

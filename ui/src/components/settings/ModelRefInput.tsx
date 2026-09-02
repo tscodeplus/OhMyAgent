@@ -63,7 +63,9 @@ export default function ModelRefInput({
       model={model}
       onChangeProvider={handleChangeProvider}
       onChangeModel={handleChangeModel}
-      providerLabel={providerLabel ?? (label ? `${label} — ${t('settings.models.provider')}` : undefined)}
+      providerLabel={
+        providerLabel ?? (label ? `${label} — ${t('settings.models.provider')}` : undefined)
+      }
       modelLabel={modelLabel ?? (label ? `${label} — ${t('settings.models.model')}` : undefined)}
       modelPlaceholder={placeholder}
       extraProviders={extraProviders}

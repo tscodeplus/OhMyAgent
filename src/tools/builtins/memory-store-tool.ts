@@ -23,30 +23,50 @@ export function createMemoryStoreTool(options: {
 }): AgentTool<any> {
   const schema = z.object({
     content: z.string().describe('The memory content to store'),
-    category: z.enum(['preference', 'fact', 'task', 'device_state']).optional()
+    category: z
+      .enum(['preference', 'fact', 'task', 'device_state'])
+      .optional()
       .describe('Memory category (auto-detected if not provided)'),
-    visibility: z.enum(['shared', 'private']).optional()
-      .describe('Memory visibility — "shared" (accessible across agents, default) or "private" (only accessible by this agent)'),
+    visibility: z
+      .enum(['shared', 'private'])
+      .optional()
+      .describe(
+        'Memory visibility — "shared" (accessible across agents, default) or "private" (only accessible by this agent)',
+      ),
   });
 
   return {
     name: 'memory-store',
     label: 'Memory Store',
-    description: 'Store a new memory. Use when the user shares preferences, facts, or information worth remembering.',
+    description:
+      'Store a new memory. Use when the user shares preferences, facts, or information worth remembering.',
     parameters: zodToTypeBox(schema),
-    execute: async (callId: string, args: { content: string; category?: string; visibility?: string }) => {
+    execute: async (
+      callId: string,
+      args: { content: string; category?: string; visibility?: string },
+    ) => {
       try {
         // Safety check: validate size & detect prompt injection only.
         // No trigger words required — the LLM already decided to store.
         if (options.memoryFilter) {
           const safetyResult = options.memoryFilter.isSafe(args.content);
           if (!safetyResult.capture) {
-            return { content: [{ type: 'text', text: i18n.t('tools-builtins:memoryStore.rejected', { reason: safetyResult.reason ?? 'unknown' }) }] };
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: i18n.t('tools-builtins:memoryStore.rejected', {
+                    reason: safetyResult.reason ?? 'unknown',
+                  }),
+                },
+              ],
+            };
           }
         }
 
         // Detect category if not provided
-        const category: MemoryCategory = (args.category as MemoryCategory | undefined) ||
+        const category: MemoryCategory =
+          (args.category as MemoryCategory | undefined) ||
           (options.memoryFilter
             ? options.memoryFilter.detectCategory(args.content)
             : detectCategory(args.content));
@@ -66,17 +86,41 @@ export function createMemoryStoreTool(options: {
         const result = await options.memoryWriter.write(writeOptions);
 
         if (result.action === 'merged') {
-          return { content: [{ type: 'text', text: i18n.t('tools-builtins:memoryStore.stored', { id: result.mergedInto ?? result.id }) }], details: result };
+          return {
+            content: [
+              {
+                type: 'text',
+                text: i18n.t('tools-builtins:memoryStore.stored', {
+                  id: result.mergedInto ?? result.id,
+                }),
+              },
+            ],
+            details: result,
+          };
         }
 
         if (result.isDuplicate) {
-          return { content: [{ type: 'text', text: i18n.t('tools-builtins:memoryStore.duplicate') }] };
+          return {
+            content: [{ type: 'text', text: i18n.t('tools-builtins:memoryStore.duplicate') }],
+          };
         }
 
-        return { content: [{ type: 'text', text: i18n.t('tools-builtins:memoryStore.stored', { id: result.id }) }], details: result };
+        return {
+          content: [
+            { type: 'text', text: i18n.t('tools-builtins:memoryStore.stored', { id: result.id }) },
+          ],
+          details: result,
+        };
       } catch (error) {
         return {
-          content: [{ type: 'text', text: i18n.t('tools-builtins:memoryStore.error', { message: error instanceof Error ? error.message : String(error) }) }],
+          content: [
+            {
+              type: 'text',
+              text: i18n.t('tools-builtins:memoryStore.error', {
+                message: error instanceof Error ? error.message : String(error),
+              }),
+            },
+          ],
         };
       }
     },

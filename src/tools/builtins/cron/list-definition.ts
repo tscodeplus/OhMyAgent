@@ -22,7 +22,9 @@ export const cronListCapability: ToolCapabilityDescriptor = {
 };
 
 const CronListParams = Type.Object({
-  includeDisabled: Type.Optional(Type.Boolean({ description: 'Include disabled jobs in the listing' })),
+  includeDisabled: Type.Optional(
+    Type.Boolean({ description: 'Include disabled jobs in the listing' }),
+  ),
 });
 
 interface CronListArgs {
@@ -86,7 +88,7 @@ export function createCronListToolDefinition(): ToolDefinition {
       }
 
       const allJobs = ctx.services.cronService.listByChannel(channel, chatId);
-      const jobs = args.includeDisabled ? allJobs : allJobs.filter(j => j.enabled);
+      const jobs = args.includeDisabled ? allJobs : allJobs.filter((j) => j.enabled);
 
       if (jobs.length === 0) {
         return textResult('No cron jobs found for this channel.');

@@ -71,7 +71,8 @@ export const UIA_MAX_DEPTH = 20;
  * `powershell.exe -File`, so the 32KB cmdline limit does not apply to it).
  */
 export function buildWinUiaServerScript(): string {
-  return String.raw`
+  return (
+    String.raw`
 [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)
 [Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false)
 $ErrorActionPreference='Stop'
@@ -648,7 +649,8 @@ default { OE $id 'UNKNOWN_COMMAND' "Unknown cmd: $($req.cmd)" }
 }
 } catch { OE $id 'SERVER_ERROR' $_.Exception.Message }
 }
-`.trim() + '\n';
+`.trim() + '\n'
+  );
 }
 
 /**

@@ -31,15 +31,14 @@ function estimateMessageTokens(m: AgentMessage): number {
       tokens = estimateTokensForText(m.content);
     } else if (Array.isArray(m.content)) {
       for (const b of m.content) {
-        if (b.type === 'text' && typeof b.text === 'string') tokens += estimateTokensForText(b.text);
+        if (b.type === 'text' && typeof b.text === 'string')
+          tokens += estimateTokensForText(b.text);
         else if (b.type === 'thinking' && typeof b.thinking === 'string')
           tokens += estimateTokensForText(b.thinking);
         // b.name may be missing on malformed toolCall blocks — dereference
         // only after the nullish check (b.name.length ?? 0 would throw).
         else if (b.type === 'toolCall')
-          tokens += estimateTokensForText(
-            (b.name ?? '') + JSON.stringify(b.arguments ?? {}),
-          );
+          tokens += estimateTokensForText((b.name ?? '') + JSON.stringify(b.arguments ?? {}));
         else if (b.type === 'image') tokens += IMAGE_BLOCK_TOKENS;
         else tokens += estimateTokensForText(JSON.stringify(b));
       }

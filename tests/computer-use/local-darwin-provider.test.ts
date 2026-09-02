@@ -37,8 +37,22 @@ function createMockRunner(
 const TREE_STDOUT = JSON.stringify({
   ok: true,
   elements: [
-    { path: '/0', role: 'AXButton', label: 'OK', actions: ['AXPress'], enabled: true, bounds: { x: 10, y: 20, width: 40, height: 20 } },
-    { path: '/1', role: 'AXTextField', label: '', actions: ['AXConfirm'], enabled: true, bounds: { x: 0, y: 0, width: 100, height: 30 } },
+    {
+      path: '/0',
+      role: 'AXButton',
+      label: 'OK',
+      actions: ['AXPress'],
+      enabled: true,
+      bounds: { x: 10, y: 20, width: 40, height: 20 },
+    },
+    {
+      path: '/1',
+      role: 'AXTextField',
+      label: '',
+      actions: ['AXConfirm'],
+      enabled: true,
+      bounds: { x: 0, y: 0, width: 100, height: 30 },
+    },
   ],
 });
 
@@ -97,7 +111,7 @@ describe('LocalDarwinProvider', () => {
     });
     const provider = new LocalDarwinProvider({ runner });
     const apps = await provider.listApps(DEFAULT_CTX);
-    expect(apps.map(a => a.name)).toEqual(['Finder', 'TextEdit', 'Safari']);
+    expect(apps.map((a) => a.name)).toEqual(['Finder', 'TextEdit', 'Safari']);
   });
 
   it('createLease launches via `open -g -a` (no foreground steal) and resolves the pid by exact process name', async () => {
@@ -110,13 +124,13 @@ describe('LocalDarwinProvider', () => {
     expect(lease.providerState).toEqual({ pid: 4242 });
     // -g = --background: the window appears but the app is not activated.
     // Flag order matters: `open -a -g` misparses `-g` as the `-a` app name.
-    expect(commands.some(c => c.startsWith("open -g -a 'TextEdit'"))).toBe(true);
+    expect(commands.some((c) => c.startsWith("open -g -a 'TextEdit'"))).toBe(true);
     // Exact process-name match via System Events — pgrep -f would also match
     // helper processes whose paths contain the app name.
     expect(
-      commands.some(c => c.includes('unix id of first process whose name is "TextEdit"')),
+      commands.some((c) => c.includes('unix id of first process whose name is "TextEdit"')),
     ).toBe(true);
-    expect(commands.some(c => c.includes('pgrep -f -i'))).toBe(false);
+    expect(commands.some((c) => c.includes('pgrep -f -i'))).toBe(false);
   });
 
   it('createLease falls back to pgrep -x when System Events is denied (no AX permission)', async () => {
@@ -128,7 +142,7 @@ describe('LocalDarwinProvider', () => {
     const provider = new LocalDarwinProvider({ runner });
     const lease = await provider.createLease(DEFAULT_CTX, { appName: 'TextEdit' });
     expect(lease.providerState).toEqual({ pid: 4242 });
-    expect(commands.some(c => c.includes("pgrep -ix 'TextEdit'"))).toBe(true);
+    expect(commands.some((c) => c.includes("pgrep -ix 'TextEdit'"))).toBe(true);
   });
 
   it('createLease rejects unsafe app names', async () => {
@@ -146,12 +160,12 @@ describe('LocalDarwinProvider', () => {
     const provider = new LocalDarwinProvider({ runner });
     const lease = await provider.createLease(DEFAULT_CTX, { appName: 'Microsoft Edge' });
     expect(lease.providerState).toEqual({ pid: 4242 });
-    expect(commands.some(c => c.startsWith("open -g -a 'Microsoft Edge'"))).toBe(true);
+    expect(commands.some((c) => c.startsWith("open -g -a 'Microsoft Edge'"))).toBe(true);
   });
 
   it('getAppState parses the JXA tree into UI elements', async () => {
     const { runner, commands } = createMockRunner({
-      'screencapture': { stdout: '' },
+      screencapture: { stdout: '' },
       'base64 -i': { stdout: 'c2NyZWVuc2hvdA==' },
       'tree ': { stdout: TREE_STDOUT },
     });
@@ -165,7 +179,7 @@ describe('LocalDarwinProvider', () => {
     expect(first.label).toBe('OK');
     expect(first.elementId).toBe('/0');
     // The tree walk must target the leased pid, never the focused app.
-    expect(commands.some(c => c.includes('tree 4242'))).toBe(true);
+    expect(commands.some((c) => c.includes('tree 4242'))).toBe(true);
   });
 
   it('getAppState captures the leased app window (screencapture -l) when a window id resolves', async () => {
@@ -176,15 +190,15 @@ describe('LocalDarwinProvider', () => {
       'screencapture -x -l': { stdout: '' },
       'base64 -i': { stdout: 'c2NyZWVuc2hvdA==' },
       'tree ': { stdout: TREE_STDOUT },
-      'osascript': { stdout: 'Finder' },
+      osascript: { stdout: 'Finder' },
     });
     const provider = new LocalDarwinProvider({ runner });
     const state = await provider.getAppState(DEFAULT_CTX, makeLease());
     expect(state.screenshot).toBeDefined();
     // The background-launched app is not frontmost — the capture must target
     // the leased app's window, not the full screen (which shows the desktop).
-    expect(commands.some(c => c.includes('screencapture -x -l 777'))).toBe(true);
-    expect(commands.some(c => c.includes('screencapture -x -T0'))).toBe(false);
+    expect(commands.some((c) => c.includes('screencapture -x -l 777'))).toBe(true);
+    expect(commands.some((c) => c.includes('screencapture -x -T0'))).toBe(false);
   });
 
   it('getAppState falls back to a full-screen capture when no window id resolves', async () => {
@@ -193,12 +207,12 @@ describe('LocalDarwinProvider', () => {
       'tree ': { stdout: TREE_STDOUT },
       'screencapture -x -T0': { stdout: '' },
       'base64 -i': { stdout: 'c2NyZWVuc2hvdA==' },
-      'osascript': { stdout: 'Finder' },
+      osascript: { stdout: 'Finder' },
     });
     const provider = new LocalDarwinProvider({ runner });
     const state = await provider.getAppState(DEFAULT_CTX, makeLease());
     expect(state.screenshot).toBeDefined();
-    expect(commands.some(c => c.includes('screencapture -x -T0'))).toBe(true);
+    expect(commands.some((c) => c.includes('screencapture -x -T0'))).toBe(true);
   });
 
   it('getAppState reports a locked screen (frontmost = loginwindow) via notice', async () => {
@@ -207,7 +221,7 @@ describe('LocalDarwinProvider', () => {
       'screencapture -x -T0': { stdout: '' },
       'base64 -i': { stdout: 'c2NyZWVuc2hvdA==' },
       'tree ': { stdout: TREE_STDOUT },
-      'osascript': { stdout: 'Finder' },
+      osascript: { stdout: 'Finder' },
     });
     const provider = new LocalDarwinProvider({ runner });
     const state = await provider.getAppState(DEFAULT_CTX, makeLease());
@@ -220,10 +234,15 @@ describe('LocalDarwinProvider', () => {
     const provider = new LocalDarwinProvider({ runner });
     const result = await provider.performAction(DEFAULT_CTX, makeLease(), {
       type: 'click_element',
-      snapshotElement: { elementId: '/0', role: 'button', label: 'OK', bounds: { x: 0, y: 0, width: 10, height: 10 } },
+      snapshotElement: {
+        elementId: '/0',
+        role: 'button',
+        label: 'OK',
+        bounds: { x: 0, y: 0, width: 10, height: 10 },
+      },
     } as any);
     expect(result.ok).toBe(true);
-    const press = commands.find(c => c.includes('press 4242 /0'))!;
+    const press = commands.find((c) => c.includes('press 4242 /0'))!;
     expect(press).toContain('press 4242 /0');
     expect(press).not.toContain('click at');
   });
@@ -234,10 +253,15 @@ describe('LocalDarwinProvider', () => {
     const result = await provider.performAction(DEFAULT_CTX, makeLease(), {
       type: 'type_text',
       text: '你好',
-      snapshotElement: { elementId: '/1', role: 'textbox', label: '', bounds: { x: 0, y: 0, width: 10, height: 10 } },
+      snapshotElement: {
+        elementId: '/1',
+        role: 'textbox',
+        label: '',
+        bounds: { x: 0, y: 0, width: 10, height: 10 },
+      },
     } as any);
     expect(result.ok).toBe(true);
-    const setvalue = commands.find(c => c.includes('setvalue 4242 /1'))!;
+    const setvalue = commands.find((c) => c.includes('setvalue 4242 /1'))!;
     expect(setvalue).toContain('setvalue 4242 /1');
     expect(setvalue).not.toContain('keystroke');
     // base64 of '你好' — CJK survives the command line
@@ -247,7 +271,9 @@ describe('LocalDarwinProvider', () => {
   it('click_element without a snapshotElement returns an error (no coordinate fallback)', async () => {
     const { runner } = createMockRunner({});
     const provider = new LocalDarwinProvider({ runner });
-    const result = await provider.performAction(DEFAULT_CTX, makeLease(), { type: 'click_element' } as any);
+    const result = await provider.performAction(DEFAULT_CTX, makeLease(), {
+      type: 'click_element',
+    } as any);
     expect(result.ok).toBe(false);
     expect(result.error).toContain('snapshotElement');
   });
@@ -267,7 +293,12 @@ describe('LocalDarwinProvider', () => {
     const typed = await provider.performAction(DEFAULT_CTX, lease, {
       type: 'type_text',
       text: 'https://example.com',
-      snapshotElement: { elementId: '/1', role: 'textbox', label: '', bounds: { x: 0, y: 0, width: 10, height: 10 } },
+      snapshotElement: {
+        elementId: '/1',
+        role: 'textbox',
+        label: '',
+        bounds: { x: 0, y: 0, width: 10, height: 10 },
+      },
     } as any);
     expect(typed.ok).toBe(true);
     const entered = await provider.performAction(DEFAULT_CTX, lease, {
@@ -275,8 +306,8 @@ describe('LocalDarwinProvider', () => {
       key: 'Return',
     } as any);
     expect(entered.ok).toBe(true);
-    const confirmCmd = commands.find(c => c.includes('confirmpath 4242 /1'))!;
+    const confirmCmd = commands.find((c) => c.includes('confirmpath 4242 /1'))!;
     expect(confirmCmd).toContain('confirmpath 4242 /1'); // commits the typed-into element
-    expect(commands.some(c => c.includes('postkey'))).toBe(false);
+    expect(commands.some((c) => c.includes('postkey'))).toBe(false);
   });
 });

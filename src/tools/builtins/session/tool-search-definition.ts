@@ -25,8 +25,7 @@ export function createToolSearchToolDefinition(): ToolDefinition {
   return {
     name: 'tool_search',
     label: 'Tool Search',
-    description:
-      'Search available tools by name, label, description, or category.',
+    description: 'Search available tools by name, label, description, or category.',
     category: 'session',
     parametersSchema: Type.Object({
       query: Type.Optional(
@@ -42,10 +41,7 @@ export function createToolSearchToolDefinition(): ToolDefinition {
       ),
     }),
     capability: toolSearchToolCapability,
-    execute: async (
-      args: { query?: string; category?: string },
-      ctx: ToolExecutionContext,
-    ) => {
+    execute: async (args: { query?: string; category?: string }, ctx: ToolExecutionContext) => {
       const registry = ctx.services.toolPlatformRegistry;
       if (!registry) {
         return errorResult('Tool platform registry is not available.');

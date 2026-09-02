@@ -80,12 +80,22 @@ export function createSendMediaTool(): AgentTool<any> {
 
           if (isImageExtension(fileName) || isVideoExtension(fileName)) {
             return {
-              content: [{ type: 'text' as const, text: `Sent file from desktop: ${fileName}\n\nDownload: [${fileName}](${serveUrl})` }],
+              content: [
+                {
+                  type: 'text' as const,
+                  text: `Sent file from desktop: ${fileName}\n\nDownload: [${fileName}](${serveUrl})`,
+                },
+              ],
               details: { filePath: rawPath, fileName, size: -1, serveUrl },
             };
           }
           return {
-            content: [{ type: 'text' as const, text: `Sent file from desktop: ${fileName}\n\nDownload: [${fileName}](${serveUrl})` }],
+            content: [
+              {
+                type: 'text' as const,
+                text: `Sent file from desktop: ${fileName}\n\nDownload: [${fileName}](${serveUrl})`,
+              },
+            ],
             details: { filePath: rawPath, fileName, size: -1, serveUrl },
           };
         }
@@ -120,7 +130,7 @@ export function createSendMediaTool(): AgentTool<any> {
         if (!isPathAllowed(filePath, allowedRoots)) {
           throw new Error(
             `File path is outside allowed directories. Allowed roots: ${allowedRoots.join(', ')}. ` +
-            `Use the file path directly in your response with the serve URL format.`,
+              `Use the file path directly in your response with the serve URL format.`,
           );
         }
 
@@ -130,36 +140,54 @@ export function createSendMediaTool(): AgentTool<any> {
         // output format so persisted messages never depend on the per-process
         // download-signing key or the 1h /dl/ token TTL.
         const serveUrl = `/api/files/serve?path=${encodeURIComponent(filePath)}`;
-        const sizeStr = stat.size < 1024
-          ? `${stat.size} B`
-          : stat.size < 1024 * 1024
-            ? `${(stat.size / 1024).toFixed(1)} KB`
-            : `${(stat.size / (1024 * 1024)).toFixed(1)} MB`;
+        const sizeStr =
+          stat.size < 1024
+            ? `${stat.size} B`
+            : stat.size < 1024 * 1024
+              ? `${(stat.size / 1024).toFixed(1)} KB`
+              : `${(stat.size / (1024 * 1024)).toFixed(1)} MB`;
 
         const details: SendMediaDetails = { filePath, fileName, size: stat.size, serveUrl };
 
         if (isImageExtension(fileName)) {
           return {
-            content: [{ type: 'text' as const, text: `Sent image: ${fileName} (${sizeStr})\n\n![${fileName}](${serveUrl})` }],
+            content: [
+              {
+                type: 'text' as const,
+                text: `Sent image: ${fileName} (${sizeStr})\n\n![${fileName}](${serveUrl})`,
+              },
+            ],
             details,
           };
         }
 
         if (isVideoExtension(fileName)) {
           return {
-            content: [{ type: 'text' as const, text: `Sent video: ${fileName} (${sizeStr})\n\nDownload: [${fileName}](${serveUrl})` }],
+            content: [
+              {
+                type: 'text' as const,
+                text: `Sent video: ${fileName} (${sizeStr})\n\nDownload: [${fileName}](${serveUrl})`,
+              },
+            ],
             details,
           };
         }
 
         // Generic file
         return {
-          content: [{ type: 'text' as const, text: `Sent file: ${fileName} (${sizeStr})\n\nDownload: [${fileName}](${serveUrl})` }],
+          content: [
+            {
+              type: 'text' as const,
+              text: `Sent file: ${fileName} (${sizeStr})\n\nDownload: [${fileName}](${serveUrl})`,
+            },
+          ],
           details,
         };
       } catch (err: any) {
         return {
-          content: [{ type: 'text' as const, text: `Failed to send file: ${err.message ?? String(err)}` }],
+          content: [
+            { type: 'text' as const, text: `Failed to send file: ${err.message ?? String(err)}` },
+          ],
           details: null,
         };
       }

@@ -1,13 +1,33 @@
 import { useState, useCallback, useRef, useEffect, useMemo, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router-dom';
-import { Send, Paperclip, X, Loader2, Bot, Square, ChevronDown, Check, Brain, Settings } from 'lucide-react';
+import {
+  Send,
+  Paperclip,
+  X,
+  Loader2,
+  Bot,
+  Square,
+  ChevronDown,
+  Check,
+  Brain,
+  Settings,
+} from 'lucide-react';
 import { createSSEClient, type SSEEvent } from '../../utils/sse-client';
 import { apiRequest, getToken } from '../../utils/api';
 import { useSettings } from '../../contexts/SettingsContext';
 import { devLog } from '../../utils/logger';
 import { CHAT_MEDIA_TOOL_NAMES, isChatMediaUrl } from '../../utils/chatMedia';
-import type { Message, MessageApproval, UserQuestion, ToolCall, MessageFooter, MessageSegment, MediaSegmentItem, MessageFile } from '../../types/session';
+import type {
+  Message,
+  MessageApproval,
+  UserQuestion,
+  ToolCall,
+  MessageFooter,
+  MessageSegment,
+  MediaSegmentItem,
+  MessageFile,
+} from '../../types/session';
 
 interface SlashCommand {
   id: string;
@@ -97,7 +117,18 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export default function ChatInput({ projectId, sessionId, centered, onQuickStart, onMessages, onStreamStart, onThinkingChange, onRetryStatusChange, onDone, onTurnPersisted }: ChatInputProps) {
+export default function ChatInput({
+  projectId,
+  sessionId,
+  centered,
+  onQuickStart,
+  onMessages,
+  onStreamStart,
+  onThinkingChange,
+  onRetryStatusChange,
+  onDone,
+  onTurnPersisted,
+}: ChatInputProps) {
   const { t } = useTranslation('common');
   const { openSettings } = useSettings();
   const location = useLocation();
@@ -163,21 +194,36 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
 
   // Project's default agent — the agent dropdown's initial value.
   useEffect(() => {
-    if (!projectId) { setProjectAgentId(null); return; }
+    if (!projectId) {
+      setProjectAgentId(null);
+      return;
+    }
     let cancelled = false;
     apiRequest<{ agent_id?: string }>(`/api/projects/${projectId}`)
-      .then(data => { if (!cancelled) setProjectAgentId(data?.agent_id ?? null); })
-      .catch(() => { if (!cancelled) setProjectAgentId(null); });
-    return () => { cancelled = true; };
+      .then((data) => {
+        if (!cancelled) setProjectAgentId(data?.agent_id ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setProjectAgentId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [projectId]);
 
   // Configured agents list.
   useEffect(() => {
     let cancelled = false;
     apiRequest<AgentOption[]>('/api/agents')
-      .then(data => { if (!cancelled) setAgents(Array.isArray(data) ? data : []); })
-      .catch(() => { if (!cancelled) setAgents([]); });
-    return () => { cancelled = true; };
+      .then((data) => {
+        if (!cancelled) setAgents(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        if (!cancelled) setAgents([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Model catalog grouped by configured provider (builtin with key + custom).
@@ -186,41 +232,57 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
     apiRequest<{ providers: Array<{ id: string }> }>('/api/providers/configured')
       .then(async (data) => {
         const providers = data?.providers ?? [];
-        const groups = await Promise.all(providers.map(async (p) => {
-          try {
-            const res = await apiRequest<{ models: Array<{ id: string; name?: string }> }>(`/api/providers/${p.id}/models`);
-            return { provider: p.id, models: (res?.models ?? []).map(m => ({ id: m.id, name: m.name || m.id })) };
-          } catch {
-            return { provider: p.id, models: [] };
-          }
-        }));
+        const groups = await Promise.all(
+          providers.map(async (p) => {
+            try {
+              const res = await apiRequest<{ models: Array<{ id: string; name?: string }> }>(
+                `/api/providers/${p.id}/models`,
+              );
+              return {
+                provider: p.id,
+                models: (res?.models ?? []).map((m) => ({ id: m.id, name: m.name || m.id })),
+              };
+            } catch {
+              return { provider: p.id, models: [] };
+            }
+          }),
+        );
         // Sort providers A-Z, and each provider's models A-Z (by display name).
         const sorted = groups
-          .filter(g => g.models.length > 0)
+          .filter((g) => g.models.length > 0)
           .sort((a, b) => a.provider.localeCompare(b.provider, undefined, { sensitivity: 'base' }))
-          .map(g => ({
+          .map((g) => ({
             ...g,
-            models: [...g.models].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true })),
+            models: [...g.models].sort((a, b) =>
+              a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }),
+            ),
           }));
         if (!cancelled) setModelGroups(sorted);
       })
-      .catch(() => { if (!cancelled) setModelGroups([]); });
-    return () => { cancelled = true; };
+      .catch(() => {
+        if (!cancelled) setModelGroups([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const effectiveAgentId = selectedAgentId ?? projectAgentId ?? agents[0]?.id ?? null;
-  const effectiveAgent = agents.find(a => a.id === effectiveAgentId) ?? null;
+  const effectiveAgent = agents.find((a) => a.id === effectiveAgentId) ?? null;
   /** Model shown/used: explicit pick, else the selected agent's primary. */
   const effectiveModel = selectedModel ?? effectiveAgent?.model ?? null;
 
   // Switching agent resets the model to that agent's primary (unless the user
   // had explicitly picked a model — then keep it; the backend still honors it).
-  const handleSelectAgent = useCallback((id: string) => {
-    setSelectedAgentId(id);
-    setAgentMenuOpen(false);
-    const next = agents.find(a => a.id === id);
-    if (next?.model) setSelectedModel(null); // fall back to the new agent's primary
-  }, [agents]);
+  const handleSelectAgent = useCallback(
+    (id: string) => {
+      setSelectedAgentId(id);
+      setAgentMenuOpen(false);
+      const next = agents.find((a) => a.id === id);
+      if (next?.model) setSelectedModel(null); // fall back to the new agent's primary
+    },
+    [agents],
+  );
 
   const handleSelectModel = useCallback((ref: string) => {
     setSelectedModel(ref);
@@ -235,16 +297,16 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
     const q = modelSearch.trim().toLowerCase();
     if (!q) return modelGroups;
     return modelGroups
-      .map(g => ({
+      .map((g) => ({
         provider: g.provider,
         models: g.models.filter(
-          m =>
+          (m) =>
             m.id.toLowerCase().includes(q) ||
             m.name.toLowerCase().includes(q) ||
             g.provider.toLowerCase().includes(q),
         ),
       }))
-      .filter(g => g.models.length > 0);
+      .filter((g) => g.models.length > 0);
   }, [modelGroups, modelSearch]);
   /** First match in filtered order — selected by Enter in the search box. */
   const firstFilteredModelRef = useMemo(() => {
@@ -284,7 +346,9 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
   // changes again or the textarea regains focus.
   const [slashHidden, setSlashHidden] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
-  const [skills, setSkills] = useState<Array<{ slug: string; name: string; description: string }>>([]);
+  const [skills, setSkills] = useState<Array<{ slug: string; name: string; description: string }>>(
+    [],
+  );
   const slashListRef = useRef<HTMLDivElement>(null);
   // Palette opening direction + pixel max-height, measured from the textarea:
   // the palette opens toward whichever side has more room (downward in
@@ -298,10 +362,18 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
   // Load available skills once so they can be offered as /skill-id commands.
   useEffect(() => {
     let cancelled = false;
-    apiRequest<{ skills: Array<{ slug: string; name: string; description: string }> }>('/api/skills')
-      .then(data => { if (!cancelled) setSkills(data?.skills ?? []); })
-      .catch(() => { /* skills list is optional — ignore failures */ });
-    return () => { cancelled = true; };
+    apiRequest<{ skills: Array<{ slug: string; name: string; description: string }> }>(
+      '/api/skills',
+    )
+      .then((data) => {
+        if (!cancelled) setSkills(data?.skills ?? []);
+      })
+      .catch(() => {
+        /* skills list is optional — ignore failures */
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Save/restore input and file uploads when sessionId changes
@@ -380,7 +452,11 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
   /** Start a fresh turn — new assistant message bubble for this response. */
   const beginTurn = () => {
     const newId = uid();
-    devLog('[ChatInput] beginTurn', { newId: newId.slice(0, 8), prevId: assistantIdRef.current.slice(0, 8), activeTurns: activeTurnsRef.current + 1 });
+    devLog('[ChatInput] beginTurn', {
+      newId: newId.slice(0, 8),
+      prevId: assistantIdRef.current.slice(0, 8),
+      activeTurns: activeTurnsRef.current + 1,
+    });
     assistantIdRef.current = newId;
     assistantContentRef.current = '';
     assistantCreatedAtRef.current = new Date().toISOString();
@@ -419,618 +495,717 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
         const err = await response.json().catch(() => ({ error: 'Upload failed' }));
         return { ...item, status: 'error', error: err.error || 'Upload failed' };
       }
-      const data = await response.json() as { ok: boolean; path: string; size: number };
+      const data = (await response.json()) as { ok: boolean; path: string; size: number };
       return { ...item, status: 'done', path: data.path, size: data.size };
     } catch (err) {
-      return { ...item, status: 'error', error: err instanceof Error ? err.message : 'Upload failed' };
+      return {
+        ...item,
+        status: 'error',
+        error: err instanceof Error ? err.message : 'Upload failed',
+      };
     }
   }, []);
 
   /** Process selected files: add to upload list and upload each. */
-  const handleFilesSelected = useCallback(async (files: FileList | File[]) => {
-    const items: FileUploadItem[] = Array.from(files).map(f => ({
-      id: uid(),
-      file: f,
-      status: 'pending' as const,
-    }));
-    setFileUploads(prev => [...prev, ...items]);
-    // Upload in parallel
-    const results = await Promise.all(items.map(item => uploadFile(item)));
-    setFileUploads(prev => {
-      const updated = [...prev];
-      for (const result of results) {
-        const idx = updated.findIndex(u => u.id === result.id);
-        if (idx >= 0) updated[idx] = result;
-      }
-      return updated;
-    });
-  }, [uploadFile]);
+  const handleFilesSelected = useCallback(
+    async (files: FileList | File[]) => {
+      const items: FileUploadItem[] = Array.from(files).map((f) => ({
+        id: uid(),
+        file: f,
+        status: 'pending' as const,
+      }));
+      setFileUploads((prev) => [...prev, ...items]);
+      // Upload in parallel
+      const results = await Promise.all(items.map((item) => uploadFile(item)));
+      setFileUploads((prev) => {
+        const updated = [...prev];
+        for (const result of results) {
+          const idx = updated.findIndex((u) => u.id === result.id);
+          if (idx >= 0) updated[idx] = result;
+        }
+        return updated;
+      });
+    },
+    [uploadFile],
+  );
 
   const removeFileUpload = useCallback((id: string) => {
-    setFileUploads(prev => {
-      const item = prev.find(u => u.id === id);
+    setFileUploads((prev) => {
+      const item = prev.find((u) => u.id === id);
       // Delete already-uploaded file from server so orphan files don't accumulate
       if (item?.status === 'done' && item.path) {
         const token = getToken();
         fetch('/api/files', {
           method: 'DELETE',
-          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
           body: JSON.stringify({ path: item.path }),
-        }).catch(() => { /* best effort */ });
+        }).catch(() => {
+          /* best effort */
+        });
       }
-      return prev.filter(u => u.id !== id);
+      return prev.filter((u) => u.id !== id);
     });
   }, []);
 
-  const retryFileUpload = useCallback(async (id: string) => {
-    // Read the latest item from the render-time mirror — no side effects
-    // inside state updaters (StrictMode would run them twice).
-    const item = fileUploadsRef.current.find(u => u.id === id);
-    if (!item || item.status === 'uploading') return;
-    setFileUploads(prev => prev.map(u => u.id === id ? { ...u, status: 'uploading' as const, error: undefined } : u));
-    const result = await uploadFile({ ...item, status: 'uploading' });
-    setFileUploads(prev => prev.map(u => u.id === id ? result : u));
-  }, [uploadFile]);
+  const retryFileUpload = useCallback(
+    async (id: string) => {
+      // Read the latest item from the render-time mirror — no side effects
+      // inside state updaters (StrictMode would run them twice).
+      const item = fileUploadsRef.current.find((u) => u.id === id);
+      if (!item || item.status === 'uploading') return;
+      setFileUploads((prev) =>
+        prev.map((u) =>
+          u.id === id ? { ...u, status: 'uploading' as const, error: undefined } : u,
+        ),
+      );
+      const result = await uploadFile({ ...item, status: 'uploading' });
+      setFileUploads((prev) => prev.map((u) => (u.id === id ? result : u)));
+    },
+    [uploadFile],
+  );
 
   /** Build file reference text and files array from uploaded files for the message.
    *  Returns markdown refs (for the agent) and a structured files array (for the UI). */
-  const buildFileRefs = useCallback((uploads: FileUploadItem[]): { refs: string; files: MessageFile[] } => {
-    let refs = '';
-    const files: MessageFile[] = [];
-    for (const f of uploads) {
-      if (f.status !== 'done' || !f.path) continue;
-      const serveUrl = `/api/files/serve?path=${encodeURIComponent(f.path)}`;
-      const isImage = /\.(png|jpg|jpeg|gif|webp|svg|bmp|ico)$/i.test(f.file.name);
-      if (isImage) {
-        refs += `\n![${f.file.name}](${serveUrl})`;
-      } else {
-        refs += `\n[${f.file.name}](${serveUrl})`;
+  const buildFileRefs = useCallback(
+    (uploads: FileUploadItem[]): { refs: string; files: MessageFile[] } => {
+      let refs = '';
+      const files: MessageFile[] = [];
+      for (const f of uploads) {
+        if (f.status !== 'done' || !f.path) continue;
+        const serveUrl = `/api/files/serve?path=${encodeURIComponent(f.path)}`;
+        const isImage = /\.(png|jpg|jpeg|gif|webp|svg|bmp|ico)$/i.test(f.file.name);
+        if (isImage) {
+          refs += `\n![${f.file.name}](${serveUrl})`;
+        } else {
+          refs += `\n[${f.file.name}](${serveUrl})`;
+        }
+        files.push({ name: f.file.name, path: serveUrl, size: f.size ?? f.file.size });
       }
-      files.push({ name: f.file.name, path: serveUrl, size: f.size ?? f.file.size });
-    }
-    return { refs, files };
-  }, []);
+      return { refs, files };
+    },
+    [],
+  );
 
-  const sendMessage = useCallback((messageText: string, opts?: { preserveContent?: boolean }) => {
-    if (!messageText.trim() || !projectId || !sessionId) return;
-    abortRef.current?.abort();
-    setSending(true);
-    // Don't clear existing streaming content when sending slash commands
-    // during an active stream (e.g. /steer, /btw). Regular sends always reset.
-    if (!opts?.preserveContent) {
-      onStreamStart?.();
-    }
-
-    // Append uploaded file references to the message
-    const doneUploads = fileUploads.filter(u => u.status === 'done' && u.path);
-    const { refs: fileRefs, files: uploadedFiles } = buildFileRefs(doneUploads);
-    const fullContent = (messageText.trim() + fileRefs).trim();
-
-    // Clear input and file uploads FIRST
-    setInput('');
-    setFileUploads([]);
-
-    const userMessage: Message = {
-      // Reuse this id as clientMsgId so the server persists the user message
-      // under the SAME id — enables exact dedupe when the post-turn refetch
-      // returns the persisted copy.
-      id: uid(),
-      session_id: sessionId,
-      role: 'user',
-      content: fullContent,
-      ...(uploadedFiles.length > 0 ? { files: uploadedFiles } : {}),
-      created_at: new Date().toISOString(),
-    };
-    if (onMessages) onMessages([userMessage], true); // clearPrevious: new SSE connection
-
-    // First turn is started by the turn_start SSE event (dispatcher.onStart),
-    // so we don't call beginTurn() here — doing so would double-count turns
-    // and prevent the done handler from resetting the sending state.
-
-    const streamStartTime = Date.now();
-
-    // Trailing-flush throttle state for text_delta updates.
-    let lastDeltaFlushTs = 0;
-    const cancelPendingDeltaFlush = () => {
-      if (deltaFlushTimerRef.current) {
-        clearTimeout(deltaFlushTimerRef.current);
-        deltaFlushTimerRef.current = null;
+  const sendMessage = useCallback(
+    (messageText: string, opts?: { preserveContent?: boolean }) => {
+      if (!messageText.trim() || !projectId || !sessionId) return;
+      abortRef.current?.abort();
+      setSending(true);
+      // Don't clear existing streaming content when sending slash commands
+      // during an active stream (e.g. /steer, /btw). Regular sends always reset.
+      if (!opts?.preserveContent) {
+        onStreamStart?.();
       }
-    };
-    devLog('[ChatInput] SSE stream starting', { sessionId, messagePreview: messageText.slice(0, 40) });
 
-    // ── Assistant bubble update helpers ──
-    // Strip reasoning blocks from the accumulated raw content.
-    const cleanAssistantContent = () =>
-      assistantContentRef.current
-        .replace(/<思考>[^]*?<\/思考>/g, '')
-        .replace(/<thinking>[^]*?<\/thinking>/gi, '');
-    const buildAssistantMessage = (extra?: Partial<Message>): Message => ({
-      id: assistantIdRef.current, session_id: sessionId, role: 'assistant',
-      content: assistantContentRef.current,
-      tool_calls: toolCallsRef.current.length > 0 ? [...toolCallsRef.current] : undefined,
-      segments: [...segmentsRef.current],
-      created_at: assistantCreatedAtRef.current,
-      ...extra,
-    });
-    const emitAssistantUpdate = () => {
-      const cleaned = cleanAssistantContent();
-      // Only the portion after the last flush point belongs to the
-      // current text segment (text after the most recent tool call).
-      const currentText = cleaned.slice(flushedCleanLenRef.current);
-      const lastSeg = segmentsRef.current[segmentsRef.current.length - 1];
-      if (lastSeg?.type === 'text') {
-        lastSeg.content = currentText;
-      } else if (currentText) {
-        segmentsRef.current.push({ type: 'text', content: currentText });
-      }
-      if (onMessages) {
-        onMessages([buildAssistantMessage({ content: cleaned })]);
-      }
-    };
+      // Append uploaded file references to the message
+      const doneUploads = fileUploads.filter((u) => u.status === 'done' && u.path);
+      const { refs: fileRefs, files: uploadedFiles } = buildFileRefs(doneUploads);
+      const fullContent = (messageText.trim() + fileRefs).trim();
 
-    abortRef.current = sseClient.start(
-      `/api/projects/${projectId}/chat`,
-      { sessionId, message: userMessage.content, clientMsgId: userMessage.id, agentId: effectiveAgentId ?? undefined, model: effectiveModel ?? undefined },
-      (event: SSEEvent) => {
-        devLog('[ChatInput] SSE event', { type: event.type, ts: Date.now() - streamStartTime });
-        switch (event.type) {
-          case 'turn_start':
-            // Gateway received the message — start "thinking" indicator.
-            onThinkingChange?.(true);
-            // Reuse the bubble eagerly created by steerMessage.
-            if (steerBubbleRef.current) {
-              steerBubbleRef.current = false;
-              activeTurnsRef.current = 1;
-            } else {
-              beginTurn();
-            }
-            break;
+      // Clear input and file uploads FIRST
+      setInput('');
+      setFileUploads([]);
 
-          case 'skill_activated': {
-            // Stop the "thinking" indicator — skill activation is a response
-            onThinkingChange?.(false);
-            onRetryStatusChange?.(null);
-            const skillName = event.data || '';
-            if (skillName) {
-              segmentsRef.current.push({ type: 'skill', name: skillName });
-              cancelPendingDeltaFlush();
-              emitAssistantUpdate();
-            }
-            break;
-          }
+      const userMessage: Message = {
+        // Reuse this id as clientMsgId so the server persists the user message
+        // under the SAME id — enables exact dedupe when the post-turn refetch
+        // returns the persisted copy.
+        id: uid(),
+        session_id: sessionId,
+        role: 'user',
+        content: fullContent,
+        ...(uploadedFiles.length > 0 ? { files: uploadedFiles } : {}),
+        created_at: new Date().toISOString(),
+      };
+      if (onMessages) onMessages([userMessage], true); // clearPrevious: new SSE connection
 
-          case 'text_delta': {
-            assistantContentRef.current += event.data || '';
-            // Stop the "thinking" indicator once the assistant starts responding
-            onThinkingChange?.(false);
-            // Model recovered — clear any retry/fallback status line.
-            onRetryStatusChange?.(null);
-            {
-              // Throttle React updates to ~20fps — every update re-renders and
-              // re-parses the full markdown of the active bubble, which gets
-              // expensive on long replies. The trailing timer guarantees the
-              // final delta always renders.
-              const now = Date.now();
-              if (now - lastDeltaFlushTs >= DELTA_FLUSH_INTERVAL_MS) {
-                lastDeltaFlushTs = now;
+      // First turn is started by the turn_start SSE event (dispatcher.onStart),
+      // so we don't call beginTurn() here — doing so would double-count turns
+      // and prevent the done handler from resetting the sending state.
+
+      const streamStartTime = Date.now();
+
+      // Trailing-flush throttle state for text_delta updates.
+      let lastDeltaFlushTs = 0;
+      const cancelPendingDeltaFlush = () => {
+        if (deltaFlushTimerRef.current) {
+          clearTimeout(deltaFlushTimerRef.current);
+          deltaFlushTimerRef.current = null;
+        }
+      };
+      devLog('[ChatInput] SSE stream starting', {
+        sessionId,
+        messagePreview: messageText.slice(0, 40),
+      });
+
+      // ── Assistant bubble update helpers ──
+      // Strip reasoning blocks from the accumulated raw content.
+      const cleanAssistantContent = () =>
+        assistantContentRef.current
+          .replace(/<思考>[^]*?<\/思考>/g, '')
+          .replace(/<thinking>[^]*?<\/thinking>/gi, '');
+      const buildAssistantMessage = (extra?: Partial<Message>): Message => ({
+        id: assistantIdRef.current,
+        session_id: sessionId,
+        role: 'assistant',
+        content: assistantContentRef.current,
+        tool_calls: toolCallsRef.current.length > 0 ? [...toolCallsRef.current] : undefined,
+        segments: [...segmentsRef.current],
+        created_at: assistantCreatedAtRef.current,
+        ...extra,
+      });
+      const emitAssistantUpdate = () => {
+        const cleaned = cleanAssistantContent();
+        // Only the portion after the last flush point belongs to the
+        // current text segment (text after the most recent tool call).
+        const currentText = cleaned.slice(flushedCleanLenRef.current);
+        const lastSeg = segmentsRef.current[segmentsRef.current.length - 1];
+        if (lastSeg?.type === 'text') {
+          lastSeg.content = currentText;
+        } else if (currentText) {
+          segmentsRef.current.push({ type: 'text', content: currentText });
+        }
+        if (onMessages) {
+          onMessages([buildAssistantMessage({ content: cleaned })]);
+        }
+      };
+
+      abortRef.current = sseClient.start(
+        `/api/projects/${projectId}/chat`,
+        {
+          sessionId,
+          message: userMessage.content,
+          clientMsgId: userMessage.id,
+          agentId: effectiveAgentId ?? undefined,
+          model: effectiveModel ?? undefined,
+        },
+        (event: SSEEvent) => {
+          devLog('[ChatInput] SSE event', { type: event.type, ts: Date.now() - streamStartTime });
+          switch (event.type) {
+            case 'turn_start':
+              // Gateway received the message — start "thinking" indicator.
+              onThinkingChange?.(true);
+              // Reuse the bubble eagerly created by steerMessage.
+              if (steerBubbleRef.current) {
+                steerBubbleRef.current = false;
+                activeTurnsRef.current = 1;
+              } else {
+                beginTurn();
+              }
+              break;
+
+            case 'skill_activated': {
+              // Stop the "thinking" indicator — skill activation is a response
+              onThinkingChange?.(false);
+              onRetryStatusChange?.(null);
+              const skillName = event.data || '';
+              if (skillName) {
+                segmentsRef.current.push({ type: 'skill', name: skillName });
+                cancelPendingDeltaFlush();
                 emitAssistantUpdate();
-              } else if (!deltaFlushTimerRef.current) {
-                deltaFlushTimerRef.current = setTimeout(() => {
-                  deltaFlushTimerRef.current = null;
-                  lastDeltaFlushTs = Date.now();
+              }
+              break;
+            }
+
+            case 'text_delta': {
+              assistantContentRef.current += event.data || '';
+              // Stop the "thinking" indicator once the assistant starts responding
+              onThinkingChange?.(false);
+              // Model recovered — clear any retry/fallback status line.
+              onRetryStatusChange?.(null);
+              {
+                // Throttle React updates to ~20fps — every update re-renders and
+                // re-parses the full markdown of the active bubble, which gets
+                // expensive on long replies. The trailing timer guarantees the
+                // final delta always renders.
+                const now = Date.now();
+                if (now - lastDeltaFlushTs >= DELTA_FLUSH_INTERVAL_MS) {
+                  lastDeltaFlushTs = now;
                   emitAssistantUpdate();
-                }, DELTA_FLUSH_INTERVAL_MS);
-              }
-            }
-            break;
-          }
-
-          case 'stream_retry': {
-            // A model attempt failed — the gateway is retrying it or has
-            // switched to the next fallback model. Show a transient status so
-            // the silent retry/fallback window doesn't look like a hang.
-            onThinkingChange?.(false);
-            try {
-              const info = (typeof event.data === 'string' ? JSON.parse(event.data) : event.data) as
-                | { scope?: string; failedModel?: string; model?: string; attempt?: number; maxRetries?: number }
-                | null
-                | undefined;
-              if (info && typeof info === 'object') {
-                const failed = info.failedModel || '';
-                if (info.scope === 'fallback') {
-                  onRetryStatusChange?.(t('chat.streamRetryFallback', { failed, model: info.model || '' }));
-                } else {
-                  onRetryStatusChange?.(
-                    t('chat.streamRetryRetry', { failed, attempt: info.attempt ?? 1, max: (info.maxRetries ?? 0) + 1 }),
-                  );
+                } else if (!deltaFlushTimerRef.current) {
+                  deltaFlushTimerRef.current = setTimeout(() => {
+                    deltaFlushTimerRef.current = null;
+                    lastDeltaFlushTs = Date.now();
+                    emitAssistantUpdate();
+                  }, DELTA_FLUSH_INTERVAL_MS);
                 }
               }
-            } catch {
-              /* ignore malformed retry status */
+              break;
             }
-            break;
-          }
 
-          case 'tool_call_start': {
-            // Stop the "thinking" indicator since the assistant is now acting
-            onThinkingChange?.(false);
-            onRetryStatusChange?.(null);
-            cancelPendingDeltaFlush();
-            const tc: ToolCall = {
-              id: event.toolCallId || uid(),
-              name: event.toolName || 'unknown',
-              // Malformed JSON args must not throw here — an exception would
-              // propagate through the SSE reader loop and kill the stream.
-              arguments: (() => {
-                try {
-                  return (typeof event.data === 'string' ? JSON.parse(event.data) : event.data) || {};
-                } catch {
-                  return { _raw: event.data };
-                }
-              })(),
-              status: 'running',
-            };
-            runningToolsRef.current.set(tc.id, tc);
-            toolCallsRef.current.push(tc);
-            // Flush current cleaned text so the next text_delta starts a
-            // fresh text segment after this tool call.
-            flushedCleanLenRef.current = cleanAssistantContent().length;
-            segmentsRef.current.push({ type: 'tool_call', toolCall: tc });
-            emitAssistantUpdate();
-            break;
-          }
-
-          case 'tool_call_end': {
-            const toolCallId = event.toolCallId;
-            const existing = toolCallId ? runningToolsRef.current.get(toolCallId) : undefined;
-            if (existing && toolCallId) {
-              existing.status = event.isError ? 'error' : 'success';
-              existing.output = event.data ?? '';
-              runningToolsRef.current.delete(toolCallId);
-            }
-            cancelPendingDeltaFlush();
-            // Update the matching segment so the tool card re-renders
-            // with the final status / output.
-            if (existing) {
-              for (let i = segmentsRef.current.length - 1; i >= 0; i--) {
-                const seg = segmentsRef.current[i]!;
-                if (seg.type === 'tool_call' && seg.toolCall?.id === toolCallId) {
-                  seg.toolCall = { ...existing };
-                  // Immediately extract media from webui_send_media / computer_use
-                  // (send_screenshot) output for inline display
-                  if ((existing.name === 'webui_send_media' || existing.name === 'computer_use') && existing.status === 'success' && existing.output) {
-                    const output = existing.output;
-                    // Match both /api/files/serve?path=... and /dl/<token>/<filename> URLs
-                    // Use [^\[\]] (exclude both [ and ]) instead of [^\]] to prevent
-                    // greedy matching from JSON array brackets like [{...}] in the output.
-                    const imgMatch = output.match(/!\[([^\[\]]*)\]\((\/(?:api\/files\/serve\?path=[^)\s]+|dl\/[^)\s]+|desktop-bridge-download\?[^)\s]+))\)/);
-                    const linkMatch = !imgMatch && output.match(/\[([^\[\]]+)\]\((\/(?:api\/files\/serve\?path=[^)\s]+|dl\/[^)\s]+|desktop-bridge-download\?[^)\s]+))\)/);
-                    const match = imgMatch || linkMatch;
-                    if (match) {
-                      const alt = match[1] || '';
-                      const serveUrl = match[2];
-                      const fileName = (() => {
-                        try {
-                          if (serveUrl.startsWith('/dl/')) {
-                            return decodeURIComponent(serveUrl.split('/').pop() || alt);
-                          }
-                          const params = new URLSearchParams(new URL(serveUrl, window.location.origin).search);
-                          const p = params.get('path') || '';
-                          return decodeURIComponent(p).split('/').pop() || alt;
-                        } catch { return alt; }
-                      })();
-                      const isImage = !!imgMatch;
-                      const isVideo = /\.(mp4|webm|mov|avi|mkv)$/i.test(fileName);
-                      const mediaSegment: MessageSegment = {
-                        type: 'media',
-                        media: {
-                          url: serveUrl,
-                          alt: alt || fileName,
-                          name: fileName,
-                          type: isVideo ? 'video' : (isImage ? 'image' : 'file'),
-                        },
-                      };
-                      // Insert media segment right after the tool_call segment
-                      segmentsRef.current.splice(i + 1, 0, mediaSegment);
+            case 'stream_retry': {
+              // A model attempt failed — the gateway is retrying it or has
+              // switched to the next fallback model. Show a transient status so
+              // the silent retry/fallback window doesn't look like a hang.
+              onThinkingChange?.(false);
+              try {
+                const info = (
+                  typeof event.data === 'string' ? JSON.parse(event.data) : event.data
+                ) as
+                  | {
+                      scope?: string;
+                      failedModel?: string;
+                      model?: string;
+                      attempt?: number;
+                      maxRetries?: number;
                     }
+                  | null
+                  | undefined;
+                if (info && typeof info === 'object') {
+                  const failed = info.failedModel || '';
+                  if (info.scope === 'fallback') {
+                    onRetryStatusChange?.(
+                      t('chat.streamRetryFallback', { failed, model: info.model || '' }),
+                    );
+                  } else {
+                    onRetryStatusChange?.(
+                      t('chat.streamRetryRetry', {
+                        failed,
+                        attempt: info.attempt ?? 1,
+                        max: (info.maxRetries ?? 0) + 1,
+                      }),
+                    );
                   }
-                  break;
                 }
+              } catch {
+                /* ignore malformed retry status */
               }
+              break;
             }
-            emitAssistantUpdate();
-            break;
-          }
 
-          case 'approval_required': {
-            const approvalData: MessageApproval = {
-              approvalId: event.approvalId || '',
-              command: event.command || event.toolName || '',
-              risk: event.risk || 'medium',
-              reason: event.reason,
-              status: 'pending',
-            };
-            const approvalMsg: Message = {
-              id: `approval-${approvalData.approvalId}`,
-              session_id: sessionId,
-              role: 'assistant',
-              content: '',
-              approval: approvalData,
-              created_at: new Date().toISOString(),
-            };
-            approvalMessagesRef.current.set(approvalData.approvalId, approvalMsg);
-            if (onMessages) onMessages([approvalMsg]);
-            break;
-          }
-
-          case 'approval_resolved': {
-            const aid = event.approvalId || '';
-            const existing = approvalMessagesRef.current.get(aid);
-            if (existing && existing.approval) {
-              const resolved: Message = {
-                ...existing,
-                approval: {
-                  ...existing.approval,
-                  status: (event.decision || '').startsWith('approve') ? 'approved' : 'rejected',
-                  decision: event.decision,
-                  timeoutReason: event.reason || existing.approval.timeoutReason,
-                },
+            case 'tool_call_start': {
+              // Stop the "thinking" indicator since the assistant is now acting
+              onThinkingChange?.(false);
+              onRetryStatusChange?.(null);
+              cancelPendingDeltaFlush();
+              const tc: ToolCall = {
+                id: event.toolCallId || uid(),
+                name: event.toolName || 'unknown',
+                // Malformed JSON args must not throw here — an exception would
+                // propagate through the SSE reader loop and kill the stream.
+                arguments: (() => {
+                  try {
+                    return (
+                      (typeof event.data === 'string' ? JSON.parse(event.data) : event.data) || {}
+                    );
+                  } catch {
+                    return { _raw: event.data };
+                  }
+                })(),
+                status: 'running',
               };
-              approvalMessagesRef.current.set(aid, resolved);
-              if (onMessages) onMessages([resolved]);
+              runningToolsRef.current.set(tc.id, tc);
+              toolCallsRef.current.push(tc);
+              // Flush current cleaned text so the next text_delta starts a
+              // fresh text segment after this tool call.
+              flushedCleanLenRef.current = cleanAssistantContent().length;
+              segmentsRef.current.push({ type: 'tool_call', toolCall: tc });
+              emitAssistantUpdate();
+              break;
             }
-            break;
-          }
 
-          case 'user_question': {
-            const questionData: UserQuestion = {
-              requestId: event.requestId || '',
-              question: event.question || '',
-              options: event.options || [],
-              status: 'pending',
-            };
-            const questionMsg: Message = {
-              id: `question-${questionData.requestId}`,
-              session_id: sessionId,
-              role: 'assistant',
-              content: '',
-              userQuestion: questionData,
-              created_at: new Date().toISOString(),
-            };
-            questionMessagesRef.current.set(questionData.requestId, questionMsg);
-            if (onMessages) onMessages([questionMsg]);
-            break;
-          }
-
-          case 'user_question_resolved': {
-            const qid = event.requestId || '';
-            const existing = questionMessagesRef.current.get(qid);
-            if (existing && existing.userQuestion) {
-              const resolved: Message = {
-                ...existing,
-                userQuestion: {
-                  ...existing.userQuestion,
-                  status: 'answered',
-                  answer: event.answer,
-                },
-              };
-              questionMessagesRef.current.set(qid, resolved);
-              if (onMessages) onMessages([resolved]);
-            }
-            break;
-          }
-
-          case 'harness_improvement': {
-            if (!event.proposal) break;
-            const proposalMsg: Message = {
-              id: `harness-${event.proposal.id}`,
-              session_id: sessionId,
-              role: 'assistant',
-              content: '',
-              harnessImprovement: event.proposal,
-              created_at: new Date().toISOString(),
-            };
-            if (onMessages) onMessages([proposalMsg]);
-            break;
-          }
-
-          case 'thinking':
-            // Reasoning content is deliberately suppressed in WebUI.
-            break;
-
-          case 'done': {
-            cancelPendingDeltaFlush();
-            onRetryStatusChange?.(null);
-            const footer = (event as any).footer as MessageFooter | undefined;
-            // Extract images from markdown in content and tool outputs
-            const images: { url: string; alt?: string }[] = [];
-            const imgRegex = /!\[([^\[\]]*)\]\(([^)\s]+)\)/g;
-            let imgMatch: RegExpExecArray | null;
-            const extractImages = (text: string) => {
-              imgRegex.lastIndex = 0;
-              while ((imgMatch = imgRegex.exec(text)) !== null) {
-                const url = imgMatch[2];
-                // Only locally-served chat media renders as images — arbitrary
-                // external URLs (e.g. from web_search snippets) must not flood
-                // the chat with image bubbles.
-                if (isChatMediaUrl(url)) {
-                  images.push({ alt: imgMatch[1] || undefined, url });
-                }
+            case 'tool_call_end': {
+              const toolCallId = event.toolCallId;
+              const existing = toolCallId ? runningToolsRef.current.get(toolCallId) : undefined;
+              if (existing && toolCallId) {
+                existing.status = event.isError ? 'error' : 'success';
+                existing.output = event.data ?? '';
+                runningToolsRef.current.delete(toolCallId);
               }
-            };
-            extractImages(assistantContentRef.current);
-            for (const tc of toolCallsRef.current) {
-              // Only media-emitting tools may surface images in chat.
-              if (tc.status === 'success' && tc.output && CHAT_MEDIA_TOOL_NAMES.has(tc.name)) {
-                extractImages(tc.output);
-              }
-            }
-            if (images.length > 0) devLog('[ChatInput] done — extracted images', images.length, images.map(i => i.url.slice(0, 50)));
-            // Extract file download links
-            const files: { name: string; path: string; size?: number }[] = [];
-            const seenFiles = new Set<string>();
-            // Use [^\[\]]+ to avoid greedy match from JSON array brackets in tool output
-            const linkRegex = /\[([^\[\]]+)\]\((\/(?:api\/files\/(?:serve|download)\?[^)\s]+|dl\/[^)\s]+|desktop-bridge-download\?[^)\s]+))\)/g;
-            let linkMatch: RegExpExecArray | null;
-            while ((linkMatch = linkRegex.exec(assistantContentRef.current)) !== null) {
-              const label = linkMatch[1].trim();
-              const url = linkMatch[2];
-              if (!seenFiles.has(url)) {
-                seenFiles.add(url);
-                files.push({ name: label, path: url });
-              }
-            }
-            // Also scan tool call outputs for file links
-            for (const tc of toolCallsRef.current) {
-              if (tc.status === 'success' && tc.output) {
-                linkRegex.lastIndex = 0;
-                while ((linkMatch = linkRegex.exec(tc.output)) !== null) {
-                  const url = linkMatch[2];
-                  if (!seenFiles.has(url)) {
-                    seenFiles.add(url);
-                    files.push({ name: linkMatch[1].trim(), path: url });
+              cancelPendingDeltaFlush();
+              // Update the matching segment so the tool card re-renders
+              // with the final status / output.
+              if (existing) {
+                for (let i = segmentsRef.current.length - 1; i >= 0; i--) {
+                  const seg = segmentsRef.current[i]!;
+                  if (seg.type === 'tool_call' && seg.toolCall?.id === toolCallId) {
+                    seg.toolCall = { ...existing };
+                    // Immediately extract media from webui_send_media / computer_use
+                    // (send_screenshot) output for inline display
+                    if (
+                      (existing.name === 'webui_send_media' || existing.name === 'computer_use') &&
+                      existing.status === 'success' &&
+                      existing.output
+                    ) {
+                      const output = existing.output;
+                      // Match both /api/files/serve?path=... and /dl/<token>/<filename> URLs
+                      // Use [^\[\]] (exclude both [ and ]) instead of [^\]] to prevent
+                      // greedy matching from JSON array brackets like [{...}] in the output.
+                      const imgMatch = output.match(
+                        /!\[([^\[\]]*)\]\((\/(?:api\/files\/serve\?path=[^)\s]+|dl\/[^)\s]+|desktop-bridge-download\?[^)\s]+))\)/,
+                      );
+                      const linkMatch =
+                        !imgMatch &&
+                        output.match(
+                          /\[([^\[\]]+)\]\((\/(?:api\/files\/serve\?path=[^)\s]+|dl\/[^)\s]+|desktop-bridge-download\?[^)\s]+))\)/,
+                        );
+                      const match = imgMatch || linkMatch;
+                      if (match) {
+                        const alt = match[1] || '';
+                        const serveUrl = match[2];
+                        const fileName = (() => {
+                          try {
+                            if (serveUrl.startsWith('/dl/')) {
+                              return decodeURIComponent(serveUrl.split('/').pop() || alt);
+                            }
+                            const params = new URLSearchParams(
+                              new URL(serveUrl, window.location.origin).search,
+                            );
+                            const p = params.get('path') || '';
+                            return decodeURIComponent(p).split('/').pop() || alt;
+                          } catch {
+                            return alt;
+                          }
+                        })();
+                        const isImage = !!imgMatch;
+                        const isVideo = /\.(mp4|webm|mov|avi|mkv)$/i.test(fileName);
+                        const mediaSegment: MessageSegment = {
+                          type: 'media',
+                          media: {
+                            url: serveUrl,
+                            alt: alt || fileName,
+                            name: fileName,
+                            type: isVideo ? 'video' : isImage ? 'image' : 'file',
+                          },
+                        };
+                        // Insert media segment right after the tool_call segment
+                        segmentsRef.current.splice(i + 1, 0, mediaSegment);
+                      }
+                    }
+                    break;
                   }
                 }
               }
+              emitAssistantUpdate();
+              break;
             }
-            // Deduplicate: remove images/files already shown as inline media segments
-            const mediaUrls = new Set<string>();
-            for (const seg of segmentsRef.current) {
-              if (seg.type === 'media' && seg.media?.url) {
-                mediaUrls.add(seg.media.url);
-              }
-            }
-            const dedupedImages = mediaUrls.size > 0
-              ? images.filter(img => !mediaUrls.has(img.url))
-              : images;
-            const dedupedFiles = mediaUrls.size > 0
-              ? files.filter(f => !mediaUrls.has(f.path))
-              : files;
-            if (onMessages) {
-              onMessages([buildAssistantMessage({
-                content: assistantContentRef.current,
-                footer: footer || undefined,
-                images: dedupedImages.length > 0 ? dedupedImages : undefined,
-                files: dedupedFiles.length > 0 ? dedupedFiles : undefined,
-                // Keep the original creation time so this bubble stays in
-                // its correct chronological position relative to user messages.
-                created_at: assistantCreatedAtRef.current || new Date().toISOString(),
-              })]);
-            }
-            // The server persisted this turn's content BEFORE dispatching done
-            // (pre-complete callback) — mark the bubble so the parent can prune
-            // it once its refetch returns the persisted copy.
-            if (assistantIdRef.current) onTurnPersisted?.(assistantIdRef.current);
-            // Only set sending=false when ALL turns have completed.
-            devLog('[ChatInput] done — endTurn', { activeTurns: activeTurnsRef.current });
-            if (endTurn()) {
-              devLog('[ChatInput] done — last turn, sending=false');
-              setSending(false);
-              onDone?.();
-            }
-            break;
-          }
 
-          case 'error': {
-            cancelPendingDeltaFlush();
-            onRetryStatusChange?.(null);
-            // Reset everything on stream error
-            activeTurnsRef.current = 0;
-            setSending(false);
-            onDone?.();
-            const errorText = event.error || '';
-            // NOTE: deliberately NOT marking this bubble as persisted here.
-            // The EventBridge error path persists first, but the route-level
-            // catch path (execute() threw) sends 'error' WITHOUT persisting —
-            // marking then would let the post-error refetch delete an
-            // unpersisted bubble. The conservative fuzzy match in
-            // ChatView.handleRefetched covers the persisted case instead.
-            // Surface the provider/stream error on the current bubble so the
-            // task does not appear to "stop by itself" without explanation.
-            // User-initiated stops arrive as "Aborted" — that's expected, not
-            // an error worth stamping onto the bubble.
-            if (errorText && errorText !== 'Aborted' && assistantCreatedAtRef.current && onMessages) {
-              onMessages([{
-                id: assistantIdRef.current,
+            case 'approval_required': {
+              const approvalData: MessageApproval = {
+                approvalId: event.approvalId || '',
+                command: event.command || event.toolName || '',
+                risk: event.risk || 'medium',
+                reason: event.reason,
+                status: 'pending',
+              };
+              const approvalMsg: Message = {
+                id: `approval-${approvalData.approvalId}`,
                 session_id: sessionId,
                 role: 'assistant',
-                content: assistantContentRef.current,
-                tool_calls: toolCallsRef.current.length > 0 ? [...toolCallsRef.current] : undefined,
-                segments: [...segmentsRef.current],
-                error: errorText,
-                created_at: assistantCreatedAtRef.current || new Date().toISOString(),
-              }]);
+                content: '',
+                approval: approvalData,
+                created_at: new Date().toISOString(),
+              };
+              approvalMessagesRef.current.set(approvalData.approvalId, approvalMsg);
+              if (onMessages) onMessages([approvalMsg]);
+              break;
             }
-            break;
+
+            case 'approval_resolved': {
+              const aid = event.approvalId || '';
+              const existing = approvalMessagesRef.current.get(aid);
+              if (existing && existing.approval) {
+                const resolved: Message = {
+                  ...existing,
+                  approval: {
+                    ...existing.approval,
+                    status: (event.decision || '').startsWith('approve') ? 'approved' : 'rejected',
+                    decision: event.decision,
+                    timeoutReason: event.reason || existing.approval.timeoutReason,
+                  },
+                };
+                approvalMessagesRef.current.set(aid, resolved);
+                if (onMessages) onMessages([resolved]);
+              }
+              break;
+            }
+
+            case 'user_question': {
+              const questionData: UserQuestion = {
+                requestId: event.requestId || '',
+                question: event.question || '',
+                options: event.options || [],
+                status: 'pending',
+              };
+              const questionMsg: Message = {
+                id: `question-${questionData.requestId}`,
+                session_id: sessionId,
+                role: 'assistant',
+                content: '',
+                userQuestion: questionData,
+                created_at: new Date().toISOString(),
+              };
+              questionMessagesRef.current.set(questionData.requestId, questionMsg);
+              if (onMessages) onMessages([questionMsg]);
+              break;
+            }
+
+            case 'user_question_resolved': {
+              const qid = event.requestId || '';
+              const existing = questionMessagesRef.current.get(qid);
+              if (existing && existing.userQuestion) {
+                const resolved: Message = {
+                  ...existing,
+                  userQuestion: {
+                    ...existing.userQuestion,
+                    status: 'answered',
+                    answer: event.answer,
+                  },
+                };
+                questionMessagesRef.current.set(qid, resolved);
+                if (onMessages) onMessages([resolved]);
+              }
+              break;
+            }
+
+            case 'harness_improvement': {
+              if (!event.proposal) break;
+              const proposalMsg: Message = {
+                id: `harness-${event.proposal.id}`,
+                session_id: sessionId,
+                role: 'assistant',
+                content: '',
+                harnessImprovement: event.proposal,
+                created_at: new Date().toISOString(),
+              };
+              if (onMessages) onMessages([proposalMsg]);
+              break;
+            }
+
+            case 'thinking':
+              // Reasoning content is deliberately suppressed in WebUI.
+              break;
+
+            case 'done': {
+              cancelPendingDeltaFlush();
+              onRetryStatusChange?.(null);
+              const footer = (event as any).footer as MessageFooter | undefined;
+              // Extract images from markdown in content and tool outputs
+              const images: { url: string; alt?: string }[] = [];
+              const imgRegex = /!\[([^\[\]]*)\]\(([^)\s]+)\)/g;
+              let imgMatch: RegExpExecArray | null;
+              const extractImages = (text: string) => {
+                imgRegex.lastIndex = 0;
+                while ((imgMatch = imgRegex.exec(text)) !== null) {
+                  const url = imgMatch[2];
+                  // Only locally-served chat media renders as images — arbitrary
+                  // external URLs (e.g. from web_search snippets) must not flood
+                  // the chat with image bubbles.
+                  if (isChatMediaUrl(url)) {
+                    images.push({ alt: imgMatch[1] || undefined, url });
+                  }
+                }
+              };
+              extractImages(assistantContentRef.current);
+              for (const tc of toolCallsRef.current) {
+                // Only media-emitting tools may surface images in chat.
+                if (tc.status === 'success' && tc.output && CHAT_MEDIA_TOOL_NAMES.has(tc.name)) {
+                  extractImages(tc.output);
+                }
+              }
+              if (images.length > 0)
+                devLog(
+                  '[ChatInput] done — extracted images',
+                  images.length,
+                  images.map((i) => i.url.slice(0, 50)),
+                );
+              // Extract file download links
+              const files: { name: string; path: string; size?: number }[] = [];
+              const seenFiles = new Set<string>();
+              // Use [^\[\]]+ to avoid greedy match from JSON array brackets in tool output
+              const linkRegex =
+                /\[([^\[\]]+)\]\((\/(?:api\/files\/(?:serve|download)\?[^)\s]+|dl\/[^)\s]+|desktop-bridge-download\?[^)\s]+))\)/g;
+              let linkMatch: RegExpExecArray | null;
+              while ((linkMatch = linkRegex.exec(assistantContentRef.current)) !== null) {
+                const label = linkMatch[1].trim();
+                const url = linkMatch[2];
+                if (!seenFiles.has(url)) {
+                  seenFiles.add(url);
+                  files.push({ name: label, path: url });
+                }
+              }
+              // Also scan tool call outputs for file links
+              for (const tc of toolCallsRef.current) {
+                if (tc.status === 'success' && tc.output) {
+                  linkRegex.lastIndex = 0;
+                  while ((linkMatch = linkRegex.exec(tc.output)) !== null) {
+                    const url = linkMatch[2];
+                    if (!seenFiles.has(url)) {
+                      seenFiles.add(url);
+                      files.push({ name: linkMatch[1].trim(), path: url });
+                    }
+                  }
+                }
+              }
+              // Deduplicate: remove images/files already shown as inline media segments
+              const mediaUrls = new Set<string>();
+              for (const seg of segmentsRef.current) {
+                if (seg.type === 'media' && seg.media?.url) {
+                  mediaUrls.add(seg.media.url);
+                }
+              }
+              const dedupedImages =
+                mediaUrls.size > 0 ? images.filter((img) => !mediaUrls.has(img.url)) : images;
+              const dedupedFiles =
+                mediaUrls.size > 0 ? files.filter((f) => !mediaUrls.has(f.path)) : files;
+              if (onMessages) {
+                onMessages([
+                  buildAssistantMessage({
+                    content: assistantContentRef.current,
+                    footer: footer || undefined,
+                    images: dedupedImages.length > 0 ? dedupedImages : undefined,
+                    files: dedupedFiles.length > 0 ? dedupedFiles : undefined,
+                    // Keep the original creation time so this bubble stays in
+                    // its correct chronological position relative to user messages.
+                    created_at: assistantCreatedAtRef.current || new Date().toISOString(),
+                  }),
+                ]);
+              }
+              // The server persisted this turn's content BEFORE dispatching done
+              // (pre-complete callback) — mark the bubble so the parent can prune
+              // it once its refetch returns the persisted copy.
+              if (assistantIdRef.current) onTurnPersisted?.(assistantIdRef.current);
+              // Only set sending=false when ALL turns have completed.
+              devLog('[ChatInput] done — endTurn', { activeTurns: activeTurnsRef.current });
+              if (endTurn()) {
+                devLog('[ChatInput] done — last turn, sending=false');
+                setSending(false);
+                onDone?.();
+              }
+              break;
+            }
+
+            case 'error': {
+              cancelPendingDeltaFlush();
+              onRetryStatusChange?.(null);
+              // Reset everything on stream error
+              activeTurnsRef.current = 0;
+              setSending(false);
+              onDone?.();
+              const errorText = event.error || '';
+              // NOTE: deliberately NOT marking this bubble as persisted here.
+              // The EventBridge error path persists first, but the route-level
+              // catch path (execute() threw) sends 'error' WITHOUT persisting —
+              // marking then would let the post-error refetch delete an
+              // unpersisted bubble. The conservative fuzzy match in
+              // ChatView.handleRefetched covers the persisted case instead.
+              // Surface the provider/stream error on the current bubble so the
+              // task does not appear to "stop by itself" without explanation.
+              // User-initiated stops arrive as "Aborted" — that's expected, not
+              // an error worth stamping onto the bubble.
+              if (
+                errorText &&
+                errorText !== 'Aborted' &&
+                assistantCreatedAtRef.current &&
+                onMessages
+              ) {
+                onMessages([
+                  {
+                    id: assistantIdRef.current,
+                    session_id: sessionId,
+                    role: 'assistant',
+                    content: assistantContentRef.current,
+                    tool_calls:
+                      toolCallsRef.current.length > 0 ? [...toolCallsRef.current] : undefined,
+                    segments: [...segmentsRef.current],
+                    error: errorText,
+                    created_at: assistantCreatedAtRef.current || new Date().toISOString(),
+                  },
+                ]);
+              }
+              break;
+            }
           }
-        }
-      },
-      () => {
-        // Stream-level failure (network drop, HTTP error, heartbeat timeout).
-        cancelPendingDeltaFlush();
-        activeTurnsRef.current = 0;
-        setSending(false);
-        onDone?.();
-      },
-      // Heartbeat: feed the no-event watchdog from the RAW read loop so the
-      // server's ": ping" keepalive comments count too. Without this, long
-      // silent phases (running tools, approval/question waits) would trip the
-      // 60s timeout and kill the UI stream mid-turn.
-      () => { lastSseEventRef.current = Date.now(); },
-    );
-  }, [projectId, sessionId, onMessages, onStreamStart, onDone, onTurnPersisted, fileUploads, buildFileRefs, effectiveAgentId, effectiveModel]);
+        },
+        () => {
+          // Stream-level failure (network drop, HTTP error, heartbeat timeout).
+          cancelPendingDeltaFlush();
+          activeTurnsRef.current = 0;
+          setSending(false);
+          onDone?.();
+        },
+        // Heartbeat: feed the no-event watchdog from the RAW read loop so the
+        // server's ": ping" keepalive comments count too. Without this, long
+        // silent phases (running tools, approval/question waits) would trip the
+        // 60s timeout and kill the UI stream mid-turn.
+        () => {
+          lastSseEventRef.current = Date.now();
+        },
+      );
+    },
+    [
+      projectId,
+      sessionId,
+      onMessages,
+      onStreamStart,
+      onDone,
+      onTurnPersisted,
+      fileUploads,
+      buildFileRefs,
+      effectiveAgentId,
+      effectiveModel,
+    ],
+  );
 
   /** Send a steer message while the agent is already running. Does NOT abort
    *  the existing SSE — the steer response streams through the same connection. */
-  const steerMessage = useCallback(async (messageText: string) => {
-    if (!messageText.trim() || !projectId || !sessionId) return;
+  const steerMessage = useCallback(
+    async (messageText: string) => {
+      if (!messageText.trim() || !projectId || !sessionId) return;
 
-    devLog('[ChatInput] steerMessage — queueing steer', { msg: messageText.slice(0, 30), activeTurns: activeTurnsRef.current });
-
-    // Signal that a new stream of output is starting (for the steer response).
-    onStreamStart?.();
-
-    // The original turn was interrupted by this steer — its 'done' event
-    // may never arrive. Reset the turn counter so the steer turn's 'done'
-    // can properly set sending=false. beginTurn() increments to 1, and
-    // the steer turn's 'done' will decrement it back to 0.
-    activeTurnsRef.current = 0;
-    beginTurn();
-    steerBubbleRef.current = true;
-
-    // Append uploaded file references and clear input / uploads
-    const doneUploads = fileUploads.filter(u => u.status === 'done' && u.path);
-    const { refs: fileRefs, files: uploadedFiles } = buildFileRefs(doneUploads);
-    const fullContent = (messageText.trim() + fileRefs).trim();
-    setInput('');
-    setFileUploads([]);
-
-    const userMessage: Message = {
-      id: uid(),
-      session_id: sessionId,
-      role: 'user',
-      content: fullContent,
-      ...(uploadedFiles.length > 0 ? { files: uploadedFiles } : {}),
-      created_at: new Date().toISOString(),
-    };
-    if (onMessages) onMessages([userMessage], false); // clearPrevious: false — keep current-turn messages
-
-    // Send steer request (non-blocking — the existing SSE handles the response)
-    const token = getToken();
-    try {
-      await fetch(`/api/projects/${projectId}/chat/steer`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ sessionId, message: fullContent }),
+      devLog('[ChatInput] steerMessage — queueing steer', {
+        msg: messageText.slice(0, 30),
+        activeTurns: activeTurnsRef.current,
       });
-    } catch {
-      // Steer is best-effort; the existing SSE continues regardless
-    }
-  }, [projectId, sessionId, onMessages, fileUploads, buildFileRefs]);
+
+      // Signal that a new stream of output is starting (for the steer response).
+      onStreamStart?.();
+
+      // The original turn was interrupted by this steer — its 'done' event
+      // may never arrive. Reset the turn counter so the steer turn's 'done'
+      // can properly set sending=false. beginTurn() increments to 1, and
+      // the steer turn's 'done' will decrement it back to 0.
+      activeTurnsRef.current = 0;
+      beginTurn();
+      steerBubbleRef.current = true;
+
+      // Append uploaded file references and clear input / uploads
+      const doneUploads = fileUploads.filter((u) => u.status === 'done' && u.path);
+      const { refs: fileRefs, files: uploadedFiles } = buildFileRefs(doneUploads);
+      const fullContent = (messageText.trim() + fileRefs).trim();
+      setInput('');
+      setFileUploads([]);
+
+      const userMessage: Message = {
+        id: uid(),
+        session_id: sessionId,
+        role: 'user',
+        content: fullContent,
+        ...(uploadedFiles.length > 0 ? { files: uploadedFiles } : {}),
+        created_at: new Date().toISOString(),
+      };
+      if (onMessages) onMessages([userMessage], false); // clearPrevious: false — keep current-turn messages
+
+      // Send steer request (non-blocking — the existing SSE handles the response)
+      const token = getToken();
+      try {
+        await fetch(`/api/projects/${projectId}/chat/steer`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ sessionId, message: fullContent }),
+        });
+      } catch {
+        // Steer is best-effort; the existing SSE continues regardless
+      }
+    },
+    [projectId, sessionId, onMessages, fileUploads, buildFileRefs],
+  );
 
   /** Send a slash command while the agent is already running.
    *  Routes through POST /chat/steer so the RUNNING SSE connection is NOT
@@ -1038,43 +1213,56 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
    *  active stream's UI while the agent kept running server-side. The
    *  command reply (when the command completes synchronously) is rendered
    *  locally; steered/forwarded commands respond via the existing stream. */
-  const sendCommandViaSteer = useCallback(async (messageText: string) => {
-    if (!messageText.trim() || !projectId || !sessionId) return;
-    setInput('');
-    // Local echo of the command itself — the steer endpoint does not persist
-    // command messages, so without this the user's input would vanish from
-    // the conversation view.
-    if (onMessages) {
-      onMessages([{
-        id: uid(),
-        session_id: sessionId,
-        role: 'user',
-        content: messageText,
-        created_at: new Date().toISOString(),
-      }], false);
-    }
-    try {
-      const data = await apiRequest<{ ok: boolean; reply?: string }>(
-        `/api/projects/${projectId}/chat/steer`,
-        { method: 'POST', body: JSON.stringify({ sessionId, message: messageText }) },
-      );
-      if (data?.reply && onMessages) {
-        onMessages([{
-          id: uid(),
-          session_id: sessionId,
-          role: 'assistant',
-          content: data.reply,
-          created_at: new Date().toISOString(),
-        }], false);
+  const sendCommandViaSteer = useCallback(
+    async (messageText: string) => {
+      if (!messageText.trim() || !projectId || !sessionId) return;
+      setInput('');
+      // Local echo of the command itself — the steer endpoint does not persist
+      // command messages, so without this the user's input would vanish from
+      // the conversation view.
+      if (onMessages) {
+        onMessages(
+          [
+            {
+              id: uid(),
+              session_id: sessionId,
+              role: 'user',
+              content: messageText,
+              created_at: new Date().toISOString(),
+            },
+          ],
+          false,
+        );
       }
-    } catch (err) {
-      console.warn('[ChatInput] command via steer failed:', err);
-    }
-  }, [projectId, sessionId, onMessages]);
+      try {
+        const data = await apiRequest<{ ok: boolean; reply?: string }>(
+          `/api/projects/${projectId}/chat/steer`,
+          { method: 'POST', body: JSON.stringify({ sessionId, message: messageText }) },
+        );
+        if (data?.reply && onMessages) {
+          onMessages(
+            [
+              {
+                id: uid(),
+                session_id: sessionId,
+                role: 'assistant',
+                content: data.reply,
+                created_at: new Date().toISOString(),
+              },
+            ],
+            false,
+          );
+        }
+      } catch (err) {
+        console.warn('[ChatInput] command via steer failed:', err);
+      }
+    },
+    [projectId, sessionId, onMessages],
+  );
 
   const handleSend = useCallback(() => {
     const text = textareaRef.current?.value ?? input;
-    const hasFiles = fileUploads.some(u => u.status === 'done');
+    const hasFiles = fileUploads.some((u) => u.status === 'done');
     if (!text.trim() && !hasFiles) return;
     setSlashOpen(false);
     setSlashHidden(true);
@@ -1098,7 +1286,16 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
     } else {
       sendMessage(text);
     }
-  }, [input, sendMessage, sending, steerMessage, sendCommandViaSteer, fileUploads, sessionId, onQuickStart]);
+  }, [
+    input,
+    sendMessage,
+    sending,
+    steerMessage,
+    sendCommandViaSteer,
+    fileUploads,
+    sessionId,
+    onQuickStart,
+  ]);
 
   // Auto-send initial message from navigation state (session was just created)
   useEffect(() => {
@@ -1149,51 +1346,61 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
   // dropdown renders them under their own section headers, each sorted A-Z.
   // NOTE: skills are inserted as "/skill:<slug>" — the backend skill router
   // only recognizes "/skill:<slug>" (start of message) or "$<slug>" (anywhere).
-  const builtInCommands = useMemo<SlashCommand[]>(() => [
-    { id: 'agents', description: t('chat.slash.agents') },
-    { id: 'btw', description: t('chat.slash.btw') },
-    { id: 'clear', description: t('chat.slash.clear') },
-    { id: 'cron', description: t('chat.slash.cron') },
-    { id: 'extension', description: t('chat.slash.extension') },
-    { id: 'new', description: t('chat.slash.new') },
-    { id: 'permission', description: t('chat.slash.permission') },
-    { id: 'queue', description: t('chat.slash.queue') },
-    { id: 'skills', description: t('chat.slash.skills') },
-    { id: 'steer', description: t('chat.slash.steer') },
-    { id: 'stop', description: t('chat.slash.stop') },
-    { id: 'team', description: t('chat.slash.team') },
-  ], [t]);
+  const builtInCommands = useMemo<SlashCommand[]>(
+    () => [
+      { id: 'agents', description: t('chat.slash.agents') },
+      { id: 'btw', description: t('chat.slash.btw') },
+      { id: 'clear', description: t('chat.slash.clear') },
+      { id: 'cron', description: t('chat.slash.cron') },
+      { id: 'extension', description: t('chat.slash.extension') },
+      { id: 'new', description: t('chat.slash.new') },
+      { id: 'permission', description: t('chat.slash.permission') },
+      { id: 'queue', description: t('chat.slash.queue') },
+      { id: 'skills', description: t('chat.slash.skills') },
+      { id: 'steer', description: t('chat.slash.steer') },
+      { id: 'stop', description: t('chat.slash.stop') },
+      { id: 'team', description: t('chat.slash.team') },
+    ],
+    [t],
+  );
 
-  const skillCommands = useMemo<SlashCommand[]>(() => skills.map(s => ({
-    id: `skill:${s.slug}`,
-    name: s.name,
-    description: s.description || t('chat.slash.skillDefault'),
-    skill: true,
-  })), [skills, t]);
+  const skillCommands = useMemo<SlashCommand[]>(
+    () =>
+      skills.map((s) => ({
+        id: `skill:${s.slug}`,
+        name: s.name,
+        description: s.description || t('chat.slash.skillDefault'),
+        skill: true,
+      })),
+    [skills, t],
+  );
 
   // The palette is active when the whole input is exactly "/token" (typing a
   // command, no space yet) or when the user opened it via the "/" button with
   // an empty input. Once args are typed (space) it hides so Enter sends normally.
   const slashTokenMatch = /^\/([^\s/]*)$/.exec(input);
-  const slashQuery = slashTokenMatch ? slashTokenMatch[1] : (slashOpen && input === '' ? '' : null);
+  const slashQuery = slashTokenMatch ? slashTokenMatch[1] : slashOpen && input === '' ? '' : null;
   const slashActive = slashQuery !== null;
 
-  const matchesSlashQuery = useCallback((c: SlashCommand, q: string) =>
-    c.id.toLowerCase().includes(q) ||
-    (c.name ?? '').toLowerCase().includes(q) ||
-    c.description.toLowerCase().includes(q), []);
+  const matchesSlashQuery = useCallback(
+    (c: SlashCommand, q: string) =>
+      c.id.toLowerCase().includes(q) ||
+      (c.name ?? '').toLowerCase().includes(q) ||
+      c.description.toLowerCase().includes(q),
+    [],
+  );
 
   const filteredCommands = useMemo(() => {
     const q = (slashQuery ?? '').trim().toLowerCase();
     return builtInCommands
-      .filter(c => !q || matchesSlashQuery(c, q))
+      .filter((c) => !q || matchesSlashQuery(c, q))
       .sort((a, b) => a.id.localeCompare(b.id, undefined, { sensitivity: 'base' }));
   }, [builtInCommands, slashQuery, matchesSlashQuery]);
 
   const filteredSkillCommands = useMemo(() => {
     const q = (slashQuery ?? '').trim().toLowerCase();
     return skillCommands
-      .filter(c => !q || matchesSlashQuery(c, q))
+      .filter((c) => !q || matchesSlashQuery(c, q))
       .sort((a, b) => a.id.localeCompare(b.id, undefined, { sensitivity: 'base' }));
   }, [skillCommands, slashQuery, matchesSlashQuery]);
 
@@ -1206,7 +1413,9 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
   const slashVisible = slashActive && !slashHidden && filteredSlash.length > 0;
 
   // Reset the highlight whenever the filtered list content changes.
-  useEffect(() => { setSlashIndex(0); }, [slashQuery, slashActive]);
+  useEffect(() => {
+    setSlashIndex(0);
+  }, [slashQuery, slashActive]);
 
   // Drop the attachment button's active style when the native file dialog
   // closes — the dialog blurs the window while open, and focus fires on close.
@@ -1234,13 +1443,16 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
   // the wrapper a few px taller, which used to push the palette's bottom edge
   // off-screen on short viewports).
   useEffect(() => {
-    if (!slashVisible) { setSlashMaxH(null); return; }
+    if (!slashVisible) {
+      setSlashMaxH(null);
+      return;
+    }
     const compute = () => {
       const anchor = textareaRef.current?.parentElement;
       if (!anchor) return;
       const rect = anchor.getBoundingClientRect();
       const below = window.innerHeight - rect.bottom - 12; // top margin (mt-2) + slack
-      const above = rect.top - 12;                         // bottom margin (mb-2) + slack
+      const above = rect.top - 12; // bottom margin (mb-2) + slack
       // Prefer downward; flip upward only when below is too tight and above has room.
       const up = below < 200 && above > below;
       setSlashUp(up);
@@ -1268,35 +1480,40 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
     return () => document.removeEventListener('mousedown', onDocMouseDown);
   }, [slashVisible]);
   /** Fill the input with the selected command (replacing a leading partial). */
-  const applySlash = useCallback((cmd: SlashCommand) => {
-    const cur = textareaRef.current?.value ?? input;
-    const next = cur.startsWith('/')
-      ? cur.replace(/^\/[^\s/]*/, `/${cmd.id} `)
-      : (cur ? `/${cmd.id} ${cur}` : `/${cmd.id} `);
-    setInput(next);
-    setSlashOpen(false);
-    setSlashHidden(true);
-    setSlashIndex(0);
-    requestAnimationFrame(() => {
-      const ta = textareaRef.current;
-      if (ta) {
-        ta.focus();
-        const len = ta.value.length;
-        ta.setSelectionRange(len, len);
-      }
-    });
-  }, [input]);
+  const applySlash = useCallback(
+    (cmd: SlashCommand) => {
+      const cur = textareaRef.current?.value ?? input;
+      const next = cur.startsWith('/')
+        ? cur.replace(/^\/[^\s/]*/, `/${cmd.id} `)
+        : cur
+          ? `/${cmd.id} ${cur}`
+          : `/${cmd.id} `;
+      setInput(next);
+      setSlashOpen(false);
+      setSlashHidden(true);
+      setSlashIndex(0);
+      requestAnimationFrame(() => {
+        const ta = textareaRef.current;
+        if (ta) {
+          ta.focus();
+          const len = ta.value.length;
+          ta.setSelectionRange(len, len);
+        }
+      });
+    },
+    [input],
+  );
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (slashActive && filteredSlash.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setSlashIndex(i => (i + 1) % filteredSlash.length);
+        setSlashIndex((i) => (i + 1) % filteredSlash.length);
         return;
       }
       if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setSlashIndex(i => (i - 1 + filteredSlash.length) % filteredSlash.length);
+        setSlashIndex((i) => (i - 1 + filteredSlash.length) % filteredSlash.length);
         return;
       }
       if ((e.key === 'Enter' || e.key === 'Tab') && !e.nativeEvent.isComposing) {
@@ -1320,8 +1537,8 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
   };
 
   const hasInput = input.trim().length > 0;
-  const hasDoneFiles = fileUploads.some(u => u.status === 'done');
-  const hasUploading = fileUploads.some(u => u.status === 'uploading');
+  const hasDoneFiles = fileUploads.some((u) => u.status === 'done');
+  const hasUploading = fileUploads.some((u) => u.status === 'uploading');
 
   /** One row of the slash command dropdown. `idx` is the flat keyboard-nav index. */
   const renderSlashItem = (c: SlashCommand, idx: number) => (
@@ -1329,7 +1546,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
       key={`${c.skill ? 'skill' : 'cmd'}-${c.id}`}
       type="button"
       data-slash-idx={idx}
-      onMouseDown={e => e.preventDefault()}
+      onMouseDown={(e) => e.preventDefault()}
       onClick={() => applySlash(c)}
       onMouseEnter={() => setSlashIndex(idx)}
       className={`flex w-full items-baseline gap-2 px-3 py-2 text-left transition-colors ${
@@ -1338,9 +1555,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
     >
       <span
         className={`shrink-0 font-mono text-[13px] ${
-          c.skill
-            ? 'text-emerald-600 dark:text-emerald-400'
-            : 'text-blue-600 dark:text-blue-400'
+          c.skill ? 'text-emerald-600 dark:text-emerald-400' : 'text-blue-600 dark:text-blue-400'
         }`}
       >
         /{c.id}
@@ -1356,18 +1571,21 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
       className={`chat-input-theme relative bg-white dark:bg-neutral-950 ${
         centered
           ? 'flex min-h-0 flex-1 flex-col justify-center px-3 pb-[14vh] sm:px-4'
-          /* Bottom padding keeps the input lifted off the page edge (the old
+          : /* Bottom padding keeps the input lifted off the page edge (the old
              pb-safe left 0px there); safe-area inset is honored on top of it. */
-          : 'shrink-0 px-3 pt-0 pb-[calc(env(safe-area-inset-bottom,0px)+8px)] sm:px-4 sm:pb-[calc(env(safe-area-inset-bottom,0px)+12px)]'
+            'shrink-0 px-3 pt-0 pb-[calc(env(safe-area-inset-bottom,0px)+8px)] sm:px-4 sm:pb-[calc(env(safe-area-inset-bottom,0px)+12px)]'
       } ${isDragOver ? 'ring-2 ring-blue-400 dark:ring-blue-500' : ''}`}
-      onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
-      onDragEnter={e => {
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      onDragEnter={(e) => {
         e.preventDefault();
         e.stopPropagation();
         dragCounterRef.current++;
         if (dragCounterRef.current === 1) setIsDragOver(true);
       }}
-      onDragLeave={e => {
+      onDragLeave={(e) => {
         e.preventDefault();
         e.stopPropagation();
         dragCounterRef.current--;
@@ -1376,7 +1594,7 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
           setIsDragOver(false);
         }
       }}
-      onDrop={e => {
+      onDrop={(e) => {
         e.preventDefault();
         e.stopPropagation();
         dragCounterRef.current = 0;
@@ -1398,31 +1616,53 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
       {/* File upload chips */}
       {fileUploads.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-2 max-w-3xl mx-auto w-full">
-          {fileUploads.map(item => (
-            <div key={item.id}
+          {fileUploads.map((item) => (
+            <div
+              key={item.id}
               className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs ${
                 item.status === 'error'
                   ? 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'
                   : 'border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300'
               }`}
             >
-              {item.status === 'uploading' && <Loader2 size={12} className="animate-spin shrink-0" />}
+              {item.status === 'uploading' && (
+                <Loader2 size={12} className="animate-spin shrink-0" />
+              )}
               {item.status === 'pending' && (
-                <svg className="h-3 w-3 shrink-0 animate-pulse text-neutral-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg
+                  className="h-3 w-3 shrink-0 animate-pulse text-neutral-400"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
                   <path d="M12 2v20M2 12h20" />
                 </svg>
               )}
               <span className="truncate max-w-[120px]">{item.file.name}</span>
-              {item.status === 'done' && <span className="text-neutral-400 shrink-0">({formatFileSize(item.file.size)})</span>}
+              {item.status === 'done' && (
+                <span className="text-neutral-400 shrink-0">
+                  ({formatFileSize(item.file.size)})
+                </span>
+              )}
               {item.status === 'error' && (
                 <>
-                  <span className="text-red-500 truncate max-w-[100px]">{item.error || t('chat.input.uploadFailed')}</span>
-                  <button onClick={() => retryFileUpload(item.id)}
-                    className="underline hover:no-underline shrink-0">{t('chat.input.retry')}</button>
+                  <span className="text-red-500 truncate max-w-[100px]">
+                    {item.error || t('chat.input.uploadFailed')}
+                  </span>
+                  <button
+                    onClick={() => retryFileUpload(item.id)}
+                    className="underline hover:no-underline shrink-0"
+                  >
+                    {t('chat.input.retry')}
+                  </button>
                 </>
               )}
-              <button onClick={() => removeFileUpload(item.id)}
-                className="hover:opacity-70 transition-opacity shrink-0" aria-label={t('chat.input.remove')}>
+              <button
+                onClick={() => removeFileUpload(item.id)}
+                className="hover:opacity-70 transition-opacity shrink-0"
+                aria-label={t('chat.input.remove')}
+              >
                 <X size={12} />
               </button>
             </div>
@@ -1437,7 +1677,9 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
             <div className="mb-3 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-neutral-100 dark:bg-neutral-800">
               <Bot className="h-7 w-7 text-neutral-400 dark:text-neutral-500" strokeWidth={1.5} />
             </div>
-            <h2 className="text-[15px] font-semibold text-neutral-800 dark:text-neutral-200">{t('chat.startNew')}</h2>
+            <h2 className="text-[15px] font-semibold text-neutral-800 dark:text-neutral-200">
+              {t('chat.startNew')}
+            </h2>
           </div>
         )}
 
@@ -1447,80 +1689,92 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
           type="file"
           multiple
           className="hidden"
-          onChange={e => { setAttachActive(false); if (e.target.files && e.target.files.length > 0) handleFilesSelected(e.target.files); e.target.value = ''; }}
+          onChange={(e) => {
+            setAttachActive(false);
+            if (e.target.files && e.target.files.length > 0) handleFilesSelected(e.target.files);
+            e.target.value = '';
+          }}
         />
 
         {/* Anchor wrapper — the palette and the corner buttons are positioned
             relative to the textarea itself, not the outer column, so the
             palette's bottom edge always hugs the input. */}
         <div className="relative">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => {
+              setInput(e.target.value);
+              setSlashHidden(false);
+            }}
+            onKeyDown={handleKeyDown}
+            onFocus={() => setSlashHidden(false)}
+            onBlur={() => {
+              setSlashOpen(false);
+              setSlashHidden(true);
+            }}
+            placeholder={t('chat.input.placeholder')}
+            rows={4}
+            disabled={!projectId || (!sessionId && !onQuickStart)}
+            enterKeyHint="send"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            className="block w-full resize-none rounded-xl border border-neutral-300 bg-white py-2.5 pl-3 pr-[88px] text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none disabled:opacity-50 sm:py-3 sm:pl-4 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-600"
+          />
 
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={e => { setInput(e.target.value); setSlashHidden(false); }}
-          onKeyDown={handleKeyDown}
-          onFocus={() => setSlashHidden(false)}
-          onBlur={() => { setSlashOpen(false); setSlashHidden(true); }}
-          placeholder={t('chat.input.placeholder')}
-          rows={4}
-          disabled={!projectId || (!sessionId && !onQuickStart)}
-          enterKeyHint="send"
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="off"
-          spellCheck={false}
-          className="block w-full resize-none rounded-xl border border-neutral-300 bg-white py-2.5 pl-3 pr-[88px] text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none disabled:opacity-50 sm:py-3 sm:pl-4 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-600"
-        />
-
-        {/* Slash command palette — opens toward whichever side of the textarea
+          {/* Slash command palette — opens toward whichever side of the textarea
             has more room (auto-flips when either side is too tight), with its
             height capped to that side so the bottom edge always stays visible.
             Commands and skills render as two A-Z sorted sections. */}
-        {slashVisible && (
-          <div
-            ref={slashListRef}
-            style={slashMaxH != null ? { maxHeight: slashMaxH } : undefined}
-            className={`absolute right-0 left-0 z-20 max-h-[min(16rem,40vh)] overflow-y-auto rounded-xl border border-neutral-200 bg-white py-1 shadow-xl dark:border-neutral-700 dark:bg-neutral-900 ${
-              slashUp ? 'bottom-full mb-2' : 'top-full mt-2'
-            }`}
-          >
-            {filteredCommands.length > 0 && (
-              <div className="px-3 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-                {t('chat.slash.commandsHeader')}
-              </div>
-            )}
-            {filteredCommands.map((c, i) => renderSlashItem(c, i))}
-            {filteredSkillCommands.length > 0 && (
-              <div className="px-3 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-                {t('chat.slash.skillsHeader')}
-              </div>
-            )}
-            {filteredSkillCommands.map((c, i) => renderSlashItem(c, filteredCommands.length + i))}
-          </div>
-        )}
+          {slashVisible && (
+            <div
+              ref={slashListRef}
+              style={slashMaxH != null ? { maxHeight: slashMaxH } : undefined}
+              className={`absolute right-0 left-0 z-20 max-h-[min(16rem,40vh)] overflow-y-auto rounded-xl border border-neutral-200 bg-white py-1 shadow-xl dark:border-neutral-700 dark:bg-neutral-900 ${
+                slashUp ? 'bottom-full mb-2' : 'top-full mt-2'
+              }`}
+            >
+              {filteredCommands.length > 0 && (
+                <div className="px-3 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+                  {t('chat.slash.commandsHeader')}
+                </div>
+              )}
+              {filteredCommands.map((c, i) => renderSlashItem(c, i))}
+              {filteredSkillCommands.length > 0 && (
+                <div className="px-3 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+                  {t('chat.slash.skillsHeader')}
+                </div>
+              )}
+              {filteredSkillCommands.map((c, i) => renderSlashItem(c, filteredCommands.length + i))}
+            </div>
+          )}
 
-        {/* Slash command button — bottom-left inside the textarea (small circle).
+          {/* Slash command button — bottom-left inside the textarea (small circle).
             Unified style: no border when idle, blue background + white icon on
             hover. */}
-        <button
-          ref={slashBtnRef}
-          type="button"
-          onMouseDown={e => e.preventDefault()}
-          onClick={() => { setSlashOpen(o => !o); setSlashHidden(false); }}
-          disabled={!projectId || (!sessionId && !onQuickStart)}
-          aria-label={t('chat.input.slashCommands')}
-          title={t('chat.input.slashCommands')}
-          className={`absolute bottom-1.5 left-1.5 inline-flex h-6 w-6 items-center justify-center rounded-full border text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
-            slashActive
-              ? 'border-blue-500 bg-blue-500 text-white dark:border-blue-400 dark:bg-blue-400 dark:text-white'
-              : 'border-transparent text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-700 dark:hover:text-neutral-200'
-          }`}
-        >
-          /
-        </button>
+          <button
+            ref={slashBtnRef}
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              setSlashOpen((o) => !o);
+              setSlashHidden(false);
+            }}
+            disabled={!projectId || (!sessionId && !onQuickStart)}
+            aria-label={t('chat.input.slashCommands')}
+            title={t('chat.input.slashCommands')}
+            className={`absolute bottom-1.5 left-1.5 inline-flex h-6 w-6 items-center justify-center rounded-full border text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
+              slashActive
+                ? 'border-blue-500 bg-blue-500 text-white dark:border-blue-400 dark:bg-blue-400 dark:text-white'
+                : 'border-transparent text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-700 dark:hover:text-neutral-200'
+            }`}
+          >
+            /
+          </button>
 
-        {/* Agent + Model selectors — immediately to the right of the slash
+          {/* Agent + Model selectors — immediately to the right of the slash
             button, bottom-left inside the textarea. Each opens a compact
             menu; the agent menu lists configured agents (default: the
             session project's default agent) and the model menu lists models
@@ -1534,202 +1788,242 @@ export default function ChatInput({ projectId, sessionId, centered, onQuickStart
             overlapping the attachment button — auto-width is preserved for
             short names. Mobile uses tighter left offset/gap to keep the
             three pills visually adjacent. */}
-        <div ref={selectorRef} className="absolute bottom-1.5 left-[30px] flex max-w-[calc(100%-6rem)] items-center gap-0 sm:left-9 sm:gap-1">
-          {/* Agent selector */}
-          <div className="relative shrink-0">
-            <button
-              type="button"
-              onMouseDown={e => e.preventDefault()}
-              onClick={() => { setAgentMenuOpen(o => !o); setModelMenuOpen(false); }}
-              disabled={!projectId || (!sessionId && !onQuickStart) || agents.length === 0}
-              aria-label={t('chat.input.agentSelector')}
-              title={t('chat.input.agentSelector')}
-              className="inline-flex h-6 max-w-[130px] items-center gap-0.5 rounded-full border border-transparent px-1 text-[11px] font-medium text-neutral-500 transition-colors hover:bg-neutral-200 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200 sm:gap-1 sm:max-w-[160px] sm:px-2"
-            >
-              <Bot size={12} className="shrink-0" />
-              <span className="truncate">{effectiveAgent?.name ?? t('chat.input.agentDefault')}</span>
-              <ChevronDown size={11} className="shrink-0 opacity-60" />
-            </button>
-            {agentMenuOpen && (
-              <div className="absolute bottom-full left-0 z-30 mb-2 max-h-64 w-56 overflow-y-auto rounded-xl border border-neutral-200 bg-white py-1 shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
-                <div className="flex items-center justify-between gap-2 pb-1 pe-2 ps-3 pt-1.5">
-                  <span className="text-[11px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-                    {t('chat.input.agentMenuHeader')}
-                  </span>
-                  <button
-                    type="button"
-                    onMouseDown={e => e.preventDefault()}
-                    onClick={() => { setAgentMenuOpen(false); openSettings('agents'); }}
-                    aria-label={t('chat.input.manageAgents')}
-                    title={t('chat.input.manageAgents')}
-                    className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
-                  >
-                    <Settings size={13} />
-                  </button>
+          <div
+            ref={selectorRef}
+            className="absolute bottom-1.5 left-[30px] flex max-w-[calc(100%-6rem)] items-center gap-0 sm:left-9 sm:gap-1"
+          >
+            {/* Agent selector */}
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setAgentMenuOpen((o) => !o);
+                  setModelMenuOpen(false);
+                }}
+                disabled={!projectId || (!sessionId && !onQuickStart) || agents.length === 0}
+                aria-label={t('chat.input.agentSelector')}
+                title={t('chat.input.agentSelector')}
+                className="inline-flex h-6 max-w-[130px] items-center gap-0.5 rounded-full border border-transparent px-1 text-[11px] font-medium text-neutral-500 transition-colors hover:bg-neutral-200 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200 sm:gap-1 sm:max-w-[160px] sm:px-2"
+              >
+                <Bot size={12} className="shrink-0" />
+                <span className="truncate">
+                  {effectiveAgent?.name ?? t('chat.input.agentDefault')}
+                </span>
+                <ChevronDown size={11} className="shrink-0 opacity-60" />
+              </button>
+              {agentMenuOpen && (
+                <div className="absolute bottom-full left-0 z-30 mb-2 max-h-64 w-56 overflow-y-auto rounded-xl border border-neutral-200 bg-white py-1 shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
+                  <div className="flex items-center justify-between gap-2 pb-1 pe-2 ps-3 pt-1.5">
+                    <span className="text-[11px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+                      {t('chat.input.agentMenuHeader')}
+                    </span>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setAgentMenuOpen(false);
+                        openSettings('agents');
+                      }}
+                      aria-label={t('chat.input.manageAgents')}
+                      title={t('chat.input.manageAgents')}
+                      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                    >
+                      <Settings size={13} />
+                    </button>
+                  </div>
+                  {agents.map((a) => (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => handleSelectAgent(a.id)}
+                      className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
+                        a.id === effectiveAgentId
+                          ? 'bg-neutral-100 dark:bg-neutral-800'
+                          : 'hover:bg-neutral-100 dark:hover:bg-neutral-800'
+                      }`}
+                    >
+                      <span className="min-w-0 flex-1 truncate text-neutral-800 dark:text-neutral-200">
+                        {a.name}
+                      </span>
+                      {a.id === effectiveAgentId && (
+                        <Check size={12} className="shrink-0 text-blue-500" />
+                      )}
+                    </button>
+                  ))}
                 </div>
-                {agents.map(a => (
-                  <button
-                    key={a.id}
-                    type="button"
-                    onMouseDown={e => e.preventDefault()}
-                    onClick={() => handleSelectAgent(a.id)}
-                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
-                      a.id === effectiveAgentId ? 'bg-neutral-100 dark:bg-neutral-800' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800'
-                    }`}
-                  >
-                    <span className="min-w-0 flex-1 truncate text-neutral-800 dark:text-neutral-200">{a.name}</span>
-                    {a.id === effectiveAgentId && <Check size={12} className="shrink-0 text-blue-500" />}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+              )}
+            </div>
 
-          {/* Model selector — min-w-0 lets the flex row shrink this pill
+            {/* Model selector — min-w-0 lets the flex row shrink this pill
               (never the agent pill) when the combined width would reach the
               right-side corner buttons; the ref text truncates. */}
-          <div className="relative min-w-0">
-            <button
-              type="button"
-              onMouseDown={e => e.preventDefault()}
-              onClick={() => { setModelMenuOpen(o => !o); setAgentMenuOpen(false); }}
-              disabled={!projectId || (!sessionId && !onQuickStart) || modelGroups.length === 0}
-              aria-label={t('chat.input.modelSelector')}
-              title={t('chat.input.modelSelector')}
-              className="inline-flex h-6 min-w-0 max-w-full items-center gap-0.5 rounded-full border border-transparent px-1 text-[11px] font-medium text-neutral-500 transition-colors hover:bg-neutral-200 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200 sm:gap-1 sm:px-2"
-            >
-              <Brain size={12} className="shrink-0" />
-              <span className="min-w-0 truncate">{effectiveModel ?? t('chat.input.modelDefault')}</span>
-              <ChevronDown size={11} className="shrink-0 opacity-60" />
-            </button>
-            {modelMenuOpen && (
-              <div className="absolute bottom-full left-0 z-30 mb-2 max-h-72 w-64 overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
-                {/* Keyword search — filters the model list as you type.
+            <div className="relative min-w-0">
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setModelMenuOpen((o) => !o);
+                  setAgentMenuOpen(false);
+                }}
+                disabled={!projectId || (!sessionId && !onQuickStart) || modelGroups.length === 0}
+                aria-label={t('chat.input.modelSelector')}
+                title={t('chat.input.modelSelector')}
+                className="inline-flex h-6 min-w-0 max-w-full items-center gap-0.5 rounded-full border border-transparent px-1 text-[11px] font-medium text-neutral-500 transition-colors hover:bg-neutral-200 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200 sm:gap-1 sm:px-2"
+              >
+                <Brain size={12} className="shrink-0" />
+                <span className="min-w-0 truncate">
+                  {effectiveModel ?? t('chat.input.modelDefault')}
+                </span>
+                <ChevronDown size={11} className="shrink-0 opacity-60" />
+              </button>
+              {modelMenuOpen && (
+                <div className="absolute bottom-full left-0 z-30 mb-2 max-h-72 w-64 overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
+                  {/* Keyword search — filters the model list as you type.
                     The + button on the right opens settings on the providers
                     sub-tab for adding providers/models. */}
-                <div className="sticky top-0 z-10 flex items-center gap-1 bg-white pe-1.5 ps-2 pb-1.5 pt-1.5 dark:bg-neutral-900">
-                  <input
-                    ref={modelSearchRef}
-                    type="text"
-                    value={modelSearch}
-                    onChange={e => setModelSearch(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' && firstFilteredModelRef) {
-                        e.preventDefault();
-                        handleSelectModel(firstFilteredModelRef);
-                      } else if (e.key === 'Escape') {
-                        e.preventDefault();
+                  <div className="sticky top-0 z-10 flex items-center gap-1 bg-white pe-1.5 ps-2 pb-1.5 pt-1.5 dark:bg-neutral-900">
+                    <input
+                      ref={modelSearchRef}
+                      type="text"
+                      value={modelSearch}
+                      onChange={(e) => setModelSearch(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && firstFilteredModelRef) {
+                          e.preventDefault();
+                          handleSelectModel(firstFilteredModelRef);
+                        } else if (e.key === 'Escape') {
+                          e.preventDefault();
+                          setModelMenuOpen(false);
+                        }
+                      }}
+                      placeholder={t('chat.input.modelSearch')}
+                      className="min-w-0 flex-1 rounded-md border border-neutral-300 bg-neutral-50 px-2 py-1 text-xs text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-neutral-600"
+                    />
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
                         setModelMenuOpen(false);
-                      }
-                    }}
-                    placeholder={t('chat.input.modelSearch')}
-                    className="min-w-0 flex-1 rounded-md border border-neutral-300 bg-neutral-50 px-2 py-1 text-xs text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-neutral-600"
-                  />
-                  <button
-                    type="button"
-                    onMouseDown={e => e.preventDefault()}
-                    onClick={() => { setModelMenuOpen(false); openSettings('models', 'providers'); }}
-                    aria-label={t('chat.input.manageProviders')}
-                    title={t('chat.input.manageProviders')}
-                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
-                  >
-                    <Settings size={14} />
-                  </button>
-                </div>
-                <div className="max-h-56 overflow-y-auto">
-                {filteredModelGroups.length === 0 && (
-                  <div className="px-3 py-2 text-xs text-neutral-400 dark:text-neutral-500">
-                    {t('chat.input.modelSearchNoMatch')}
+                        openSettings('models', 'providers');
+                      }}
+                      aria-label={t('chat.input.manageProviders')}
+                      title={t('chat.input.manageProviders')}
+                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                    >
+                      <Settings size={14} />
+                    </button>
                   </div>
-                )}
-                {filteredModelGroups.map(g => (
-                  <div key={g.provider}>
-                    <div className="px-3 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-                      {g.provider}
-                    </div>
-                    {g.models.map(m => {
-                      const ref = `${g.provider}/${m.id}`;
-                      return (
-                        <button
-                          key={ref}
-                          type="button"
-                          onMouseDown={e => e.preventDefault()}
-                          onClick={() => handleSelectModel(ref)}
-                          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
-                            ref === effectiveModel ? 'bg-neutral-100 dark:bg-neutral-800' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800'
-                          }`}
-                        >
-                          <span className="min-w-0 flex-1 truncate text-neutral-800 dark:text-neutral-200">{m.name}</span>
-                          {ref === effectiveModel && <Check size={12} className="shrink-0 text-blue-500" />}
-                        </button>
-                      );
-                    })}
+                  <div className="max-h-56 overflow-y-auto">
+                    {filteredModelGroups.length === 0 && (
+                      <div className="px-3 py-2 text-xs text-neutral-400 dark:text-neutral-500">
+                        {t('chat.input.modelSearchNoMatch')}
+                      </div>
+                    )}
+                    {filteredModelGroups.map((g) => (
+                      <div key={g.provider}>
+                        <div className="px-3 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+                          {g.provider}
+                        </div>
+                        {g.models.map((m) => {
+                          const ref = `${g.provider}/${m.id}`;
+                          return (
+                            <button
+                              key={ref}
+                              type="button"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => handleSelectModel(ref)}
+                              className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
+                                ref === effectiveModel
+                                  ? 'bg-neutral-100 dark:bg-neutral-800'
+                                  : 'hover:bg-neutral-100 dark:hover:bg-neutral-800'
+                              }`}
+                            >
+                              <span className="min-w-0 flex-1 truncate text-neutral-800 dark:text-neutral-200">
+                                {m.name}
+                              </span>
+                              {ref === effectiveModel && (
+                                <Check size={12} className="shrink-0 text-blue-500" />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))}
                   </div>
-                ))}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
-        </div>
 
-        {/* Corner buttons — bottom-right inside the textarea */}
-        <div className="absolute right-1 bottom-1.5 flex items-center gap-1">
-          {/* Attachment button — unified style: no border when idle, blue
+          {/* Corner buttons — bottom-right inside the textarea */}
+          <div className="absolute right-1 bottom-1.5 flex items-center gap-1">
+            {/* Attachment button — unified style: no border when idle, blue
               background + white icon while the native file-picker dialog is
               open (same active style as the slash button). The dialog steals
               window focus; when it closes, focus returns and we drop the
               active style. */}
-          <button
-            onClick={() => { if (attachActive) return; setAttachActive(true); fileInputRef.current?.click(); }}
-            disabled={!projectId || (!sessionId && !onQuickStart)}
-            className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
-              attachActive
-                ? 'border-blue-500 bg-blue-500 text-white dark:border-blue-400 dark:bg-blue-400 dark:text-white'
-                : 'border-transparent text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-700 dark:hover:text-neutral-200'
-            }`}
-            aria-label={t('chat.input.attachFiles')}
-            title={t('chat.input.attachFiles')}
-          >
-            <Paperclip size={16} />
-          </button>
+            <button
+              onClick={() => {
+                if (attachActive) return;
+                setAttachActive(true);
+                fileInputRef.current?.click();
+              }}
+              disabled={!projectId || (!sessionId && !onQuickStart)}
+              className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
+                attachActive
+                  ? 'border-blue-500 bg-blue-500 text-white dark:border-blue-400 dark:bg-blue-400 dark:text-white'
+                  : 'border-transparent text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-700 dark:hover:text-neutral-200'
+              }`}
+              aria-label={t('chat.input.attachFiles')}
+              title={t('chat.input.attachFiles')}
+            >
+              <Paperclip size={16} />
+            </button>
 
-          {/* Send button — circular when active (blue background). While the
+            {/* Send button — circular when active (blue background). While the
               agent is running it turns into a stop button (bigger square icon,
               same active-blue background); clicking stops the agent. But if
               the user has typed new content (or attached files) while the
               agent is running, show the send button instead — sending then
               routes through steer, not abort. */}
-          {sending && sessionId && !hasInput && !hasDoneFiles ? (
-            <button
-              onClick={() => sendMessage('/stop')}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-blue-500 text-white transition-colors hover:bg-blue-600 dark:bg-blue-400 dark:hover:bg-blue-500"
-              aria-label={t('chat.slash.stop')}
-              title={t('chat.slash.stop')}
-            >
-              <Square size={13} fill="currentColor" />
-            </button>
-          ) : (
-            <button
-              onClick={() => {
-                const text = textareaRef.current?.value.trim() || input.trim();
-                if (text || hasDoneFiles) {
-                  handleSend();
-                } else if (sessionId && !sending) {
-                  sendMessage('/stop');
+            {sending && sessionId && !hasInput && !hasDoneFiles ? (
+              <button
+                onClick={() => sendMessage('/stop')}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-blue-500 text-white transition-colors hover:bg-blue-600 dark:bg-blue-400 dark:hover:bg-blue-500"
+                aria-label={t('chat.slash.stop')}
+                title={t('chat.slash.stop')}
+              >
+                <Square size={13} fill="currentColor" />
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  const text = textareaRef.current?.value.trim() || input.trim();
+                  if (text || hasDoneFiles) {
+                    handleSend();
+                  } else if (sessionId && !sending) {
+                    sendMessage('/stop');
+                  }
+                }}
+                disabled={
+                  (!hasInput && !hasDoneFiles) ||
+                  !projectId ||
+                  hasUploading ||
+                  (!sessionId && !onQuickStart)
                 }
-              }}
-              disabled={(!hasInput && !hasDoneFiles) || !projectId || hasUploading || (!sessionId && !onQuickStart)}
-              className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
-                hasInput || hasDoneFiles
-                  ? 'border-blue-500 bg-blue-500 text-white hover:border-blue-600 hover:bg-blue-600 dark:border-blue-400 dark:bg-blue-400 dark:hover:border-blue-500 dark:hover:bg-blue-500'
-                  : 'border-transparent text-neutral-400 dark:text-neutral-500'
-              }`}
-              aria-label={t('chat.send')}
-            >
-              <Send size={16} />
-            </button>
-          )}
-        </div>
+                className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
+                  hasInput || hasDoneFiles
+                    ? 'border-blue-500 bg-blue-500 text-white hover:border-blue-600 hover:bg-blue-600 dark:border-blue-400 dark:bg-blue-400 dark:hover:border-blue-500 dark:hover:bg-blue-500'
+                    : 'border-transparent text-neutral-400 dark:text-neutral-500'
+                }`}
+                aria-label={t('chat.send')}
+              >
+                <Send size={16} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

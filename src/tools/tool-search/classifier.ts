@@ -32,20 +32,33 @@ export const BRIDGE_TOOL_NAMES: ReadonlySet<string> = new Set([
 
 export const CORE_TOOL_NAMES: ReadonlySet<string> = new Set([
   // 文件系统 (6)
-  'file_read', 'file_write', 'file_edit', 'file_search',
-  'glob', 'grep',
+  'file_read',
+  'file_write',
+  'file_edit',
+  'file_search',
+  'glob',
+  'grep',
   // Shell (2)
-  'shell', 'sleep',
+  'shell',
+  'sleep',
   // Web (1)
   'web_search',
   // 任务管理 (6)
-  'task_create', 'task_get', 'task_list', 'task_update',
-  'task_output', 'task_stop',
+  'task_create',
+  'task_get',
+  'task_list',
+  'task_update',
+  'task_output',
+  'task_stop',
   // 记忆核心 (2)
-  'memory-recall', 'memory-store',
+  'memory-recall',
+  'memory-store',
   // 会话控制 (5)
-  'todo_write', 'tool_search', 'ask_user_question',
-  'send_message', 'feishu_send_media',
+  'todo_write',
+  'tool_search',
+  'ask_user_question',
+  'send_message',
+  'feishu_send_media',
   // 配置 (1)
   'config',
 ]);
@@ -83,9 +96,10 @@ export function isDeferrable(toolName: string): boolean {
  * by definition). The caller (assembleTools) is responsible for stripping
  * them before classification.
  */
-export function classifyTools(
-  tools: AgentTool[],
-): { visible: AgentTool[]; deferrable: AgentTool[] } {
+export function classifyTools(tools: AgentTool[]): {
+  visible: AgentTool[];
+  deferrable: AgentTool[];
+} {
   const visible: AgentTool[] = [];
   const deferrable: AgentTool[] = [];
 

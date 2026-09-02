@@ -54,8 +54,8 @@ function parseCommandParts(command: string): string[] {
 function stripCommentOnlyLines(command: string): string {
   return command
     .split('\n')
-    .map(line => line.trim())
-    .filter(line => line.length > 0 && !line.startsWith('#'))
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith('#'))
     .join('\n');
 }
 
@@ -164,5 +164,5 @@ export function splitCommandSegments(rawCommand: string): NormalizedShellCommand
   const trimmed = current.trim();
   if (trimmed) segments.push(trimmed);
 
-  return segments.map(segment => normalizeCommand(segment));
+  return segments.map((segment) => normalizeCommand(segment));
 }

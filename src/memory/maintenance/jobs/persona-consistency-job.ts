@@ -40,14 +40,13 @@ export function createPersonaConsistencyJob(
         };
       }
 
-      const activePrefs = memoryRepo.findByScopeKind('user', 'preference')
-        .filter(p => p.status === 'active');
+      const activePrefs = memoryRepo
+        .findByScopeKind('user', 'preference')
+        .filter((p) => p.status === 'active');
 
       // Check if persona lastUpdated is behind active preferences
       const personaLastUpdated = new Date(persona.lastUpdated).getTime();
-      const stalePrefs = activePrefs.filter(
-        p => parseEpochMs(p.updated_at) > personaLastUpdated,
-      );
+      const stalePrefs = activePrefs.filter((p) => parseEpochMs(p.updated_at) > personaLastUpdated);
 
       const isStale = stalePrefs.length > 0;
 

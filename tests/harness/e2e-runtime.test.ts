@@ -5,28 +5,13 @@
  * Config → Services → Failure Detection → Rate Limiting → Policy → Editor
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import {
-  FailureDetector,
-} from '../../src/harness/failure-detector.js';
-import {
-  HarnessRateLimiter,
-} from '../../src/harness/rate-limiter.js';
-import {
-  EditableSurfaceProvider,
-} from '../../src/harness/editable-surfaces.js';
-import {
-  ApprovalPolicy,
-  DEFAULT_RULES,
-} from '../../src/harness/approval-policy.js';
-import {
-  AutoApplyMonitor,
-} from '../../src/harness/auto-apply-monitor.js';
-import {
-  SkillEditor,
-} from '../../src/harness/skill-editor.js';
-import {
-  HarnessOptimizer,
-} from '../../src/harness/harness-optimizer.js';
+import { FailureDetector } from '../../src/harness/failure-detector.js';
+import { HarnessRateLimiter } from '../../src/harness/rate-limiter.js';
+import { EditableSurfaceProvider } from '../../src/harness/editable-surfaces.js';
+import { ApprovalPolicy, DEFAULT_RULES } from '../../src/harness/approval-policy.js';
+import { AutoApplyMonitor } from '../../src/harness/auto-apply-monitor.js';
+import { SkillEditor } from '../../src/harness/skill-editor.js';
+import { HarnessOptimizer } from '../../src/harness/harness-optimizer.js';
 import type { FailureContext, ImprovementProposal } from '../../src/harness/types.js';
 
 // ── Config matching the running server ─────────────────────────────────────────
@@ -34,7 +19,19 @@ import type { FailureContext, ImprovementProposal } from '../../src/harness/type
 const LIVE_CONFIG = {
   trigger: { minIdenticalRetries: 3, minExplorationSteps: 8, minConsecutiveErrors: 3 },
   rateLimit: { cooldownMinutes: 30, maxPerHour: 2, maxPerDay: 10, maxAutoApplyPerDay: 5 },
-  proposal: { model: 'default', maxEditsPerProposal: 5, minConfidence: 0.5, allowedMechanisms: ['prompt_instruction', 'subagent', 'skill_procedure', 'tool_configuration', 'middleware', 'runtime_control'] },
+  proposal: {
+    model: 'default',
+    maxEditsPerProposal: 5,
+    minConfidence: 0.5,
+    allowedMechanisms: [
+      'prompt_instruction',
+      'subagent',
+      'skill_procedure',
+      'tool_configuration',
+      'middleware',
+      'runtime_control',
+    ],
+  },
 };
 
 describe('Self-Harness Runtime E2E', () => {
@@ -47,9 +44,27 @@ describe('Self-Harness Runtime E2E', () => {
         sessionId: 's1',
         taskMessage: 'Run adb devices',
         toolCalls: [
-          { name: 'shell', args: { cmd: 'adb connect' }, isError: true, errorMessage: 'unauthorized', timestamp: 1 },
-          { name: 'shell', args: { cmd: 'adb connect' }, isError: true, errorMessage: 'unauthorized', timestamp: 2 },
-          { name: 'shell', args: { cmd: 'adb connect' }, isError: true, errorMessage: 'unauthorized', timestamp: 3 },
+          {
+            name: 'shell',
+            args: { cmd: 'adb connect' },
+            isError: true,
+            errorMessage: 'unauthorized',
+            timestamp: 1,
+          },
+          {
+            name: 'shell',
+            args: { cmd: 'adb connect' },
+            isError: true,
+            errorMessage: 'unauthorized',
+            timestamp: 2,
+          },
+          {
+            name: 'shell',
+            args: { cmd: 'adb connect' },
+            isError: true,
+            errorMessage: 'unauthorized',
+            timestamp: 3,
+          },
         ],
         errors: [
           { toolName: 'shell', message: 'unauthorized', timestamp: 1 },
@@ -68,7 +83,12 @@ describe('Self-Harness Runtime E2E', () => {
     });
 
     it('passes rate limiting for the first trigger', () => {
-      const rl = new HarnessRateLimiter({ cooldownMinutes: 0, maxPerHour: 100, maxPerDay: 200, maxAutoApplyPerDay: 20 });
+      const rl = new HarnessRateLimiter({
+        cooldownMinutes: 0,
+        maxPerHour: 100,
+        maxPerDay: 200,
+        maxAutoApplyPerDay: 20,
+      });
       expect(rl.canTrigger('android-operator', 'default', 'identical_retry_loop')).toBe(true);
     });
 
@@ -81,8 +101,16 @@ describe('Self-Harness Runtime E2E', () => {
         type: 'prompt_text',
         title: 'Add device state check',
         summary: 'Add a device state check before adb connect',
-        diff: { surface: 'skills/android-operator/SKILL.md', before: 'Run adb connect', after: 'Check adb devices first, then run adb connect' },
-        impact: { scope: '仅 android-operator skill', riskLevel: 'low', expectedEffect: 'Reduce adb connection failures by 80%' },
+        diff: {
+          surface: 'skills/android-operator/SKILL.md',
+          before: 'Run adb connect',
+          after: 'Check adb devices first, then run adb connect',
+        },
+        impact: {
+          scope: '仅 android-operator skill',
+          riskLevel: 'low',
+          expectedEffect: 'Reduce adb connection failures by 80%',
+        },
         expectedEffect: 'Reduce failures',
         regressionRisk: 'low',
         affectedScope: 'single_skill',
@@ -91,7 +119,10 @@ describe('Self-Harness Runtime E2E', () => {
         createdAt: Date.now(),
       };
 
-      const result = ap.evaluate(proposal, { skillId: 'android-operator', currentTime: new Date() });
+      const result = ap.evaluate(proposal, {
+        skillId: 'android-operator',
+        currentTime: new Date(),
+      });
       expect(result.action).toBe('auto_apply');
       expect(result.autoRollback).toBeDefined();
     });
@@ -131,7 +162,13 @@ describe('Self-Harness Runtime E2E', () => {
         toolCalls: [
           { name: 'web_search', args: {}, isError: true, errorMessage: 'timeout', timestamp: 1 },
           { name: 'file_read', args: {}, isError: true, errorMessage: 'ENOENT', timestamp: 2 },
-          { name: 'shell', args: {}, isError: true, errorMessage: 'permission denied', timestamp: 3 },
+          {
+            name: 'shell',
+            args: {},
+            isError: true,
+            errorMessage: 'permission denied',
+            timestamp: 3,
+          },
         ],
         errors: [
           { toolName: 'web_search', message: 'timeout', timestamp: 1 },
@@ -153,8 +190,20 @@ describe('Self-Harness Runtime E2E', () => {
         sessionId: 's3-dependency',
         taskMessage: 'Run the tool',
         toolCalls: [
-          { name: 'shell', args: { cmd: 'adb' }, isError: true, errorMessage: 'adb: command not found', timestamp: 1 },
-          { name: 'shell', args: { cmd: 'adb' }, isError: true, errorMessage: 'adb: command not found', timestamp: 2 },
+          {
+            name: 'shell',
+            args: { cmd: 'adb' },
+            isError: true,
+            errorMessage: 'adb: command not found',
+            timestamp: 1,
+          },
+          {
+            name: 'shell',
+            args: { cmd: 'adb' },
+            isError: true,
+            errorMessage: 'adb: command not found',
+            timestamp: 2,
+          },
         ],
         errors: [
           { toolName: 'shell', message: 'adb: command not found', timestamp: 1 },
@@ -214,12 +263,19 @@ describe('Self-Harness Runtime E2E', () => {
     it('default-fallback requires approval for unknown change types', () => {
       const proposal: ImprovementProposal = {
         id: 'prop-unknown',
-        skillId: null, agentId: null, type: 'unknown_type', title: 'Test',
+        skillId: null,
+        agentId: null,
+        type: 'unknown_type',
+        title: 'Test',
         summary: 'Test',
         diff: { surface: '/tmp/test', before: 'x', after: 'y' },
         impact: { scope: 'unknown', riskLevel: 'medium', expectedEffect: 'none' },
-        expectedEffect: 'none', regressionRisk: 'medium', affectedScope: 'unknown',
-        mechanismFamily: 'prompt_instruction', confidence: 0.5, createdAt: Date.now(),
+        expectedEffect: 'none',
+        regressionRisk: 'medium',
+        affectedScope: 'unknown',
+        mechanismFamily: 'prompt_instruction',
+        confidence: 0.5,
+        createdAt: Date.now(),
       };
       const result = ap.evaluate(proposal, { currentTime: new Date() });
       // With regressionRisk='medium', it matches default-high-risk (priority 10)
@@ -230,12 +286,19 @@ describe('Self-Harness Runtime E2E', () => {
     it('default-deny-deletion blocks trigger_remove', () => {
       const proposal: ImprovementProposal = {
         id: 'prop-del',
-        skillId: null, agentId: null, type: 'trigger_remove', title: 'Remove trigger',
+        skillId: null,
+        agentId: null,
+        type: 'trigger_remove',
+        title: 'Remove trigger',
         summary: 'Test',
         diff: { surface: '/tmp/test', before: 'x', after: 'y' },
         impact: { scope: '仅 test', riskLevel: 'low', expectedEffect: 'none' },
-        expectedEffect: 'none', regressionRisk: 'low', affectedScope: '仅 test skill',
-        mechanismFamily: 'prompt_instruction', confidence: 0.9, createdAt: Date.now(),
+        expectedEffect: 'none',
+        regressionRisk: 'low',
+        affectedScope: '仅 test skill',
+        mechanismFamily: 'prompt_instruction',
+        confidence: 0.9,
+        createdAt: Date.now(),
       };
       const result = ap.evaluate(proposal, { currentTime: new Date() });
       expect(result.ruleId).toBe('default-deny-deletion');
@@ -250,48 +313,76 @@ describe('Self-Harness Runtime E2E', () => {
 
   describe('Scenario: SkillEditor validation', () => {
     // Allow-list resolver: only registered surface ids map to paths.
-    const editor = new SkillEditor(
-      (id) => (id === 'skill:test:prompt' ? '/tmp/test.md' : undefined),
+    const editor = new SkillEditor((id) =>
+      id === 'skill:test:prompt' ? '/tmp/test.md' : undefined,
     );
 
     it('validates a correct proposal', () => {
       const proposal: ImprovementProposal = {
-        id: 'prop-ok', skillId: null, agentId: null, type: 'prompt_text', title: 'Test',
+        id: 'prop-ok',
+        skillId: null,
+        agentId: null,
+        type: 'prompt_text',
+        title: 'Test',
         summary: 'Test',
-        diff: { surface: 'skill:test:prompt', before: 'old instruction', after: 'new instruction with more detail' },
+        diff: {
+          surface: 'skill:test:prompt',
+          before: 'old instruction',
+          after: 'new instruction with more detail',
+        },
         impact: { scope: '仅 test', riskLevel: 'low', expectedEffect: 'better' },
-        expectedEffect: 'better', regressionRisk: 'low', affectedScope: '仅 test',
-        mechanismFamily: 'prompt_instruction', confidence: 0.8, createdAt: Date.now(),
+        expectedEffect: 'better',
+        regressionRisk: 'low',
+        affectedScope: '仅 test',
+        mechanismFamily: 'prompt_instruction',
+        confidence: 0.8,
+        createdAt: Date.now(),
       };
       expect(editor.validate(proposal).valid).toBe(true);
     });
 
     it('rejects unregistered surface (path traversal attempt)', () => {
       const proposal: ImprovementProposal = {
-        id: 'prop-bad', skillId: null, agentId: null, type: 'prompt_text', title: 'Bad',
+        id: 'prop-bad',
+        skillId: null,
+        agentId: null,
+        type: 'prompt_text',
+        title: 'Bad',
         summary: 'Test',
         diff: { surface: '/tmp/../../../etc/passwd', before: 'x', after: 'y' },
         impact: { scope: '仅 test', riskLevel: 'low', expectedEffect: 'none' },
-        expectedEffect: 'none', regressionRisk: 'low', affectedScope: '仅 test',
-        mechanismFamily: 'prompt_instruction', confidence: 0.8, createdAt: Date.now(),
+        expectedEffect: 'none',
+        regressionRisk: 'low',
+        affectedScope: '仅 test',
+        mechanismFamily: 'prompt_instruction',
+        confidence: 0.8,
+        createdAt: Date.now(),
       };
       const result = editor.validate(proposal);
       expect(result.valid).toBe(false);
       // The allow-list rejects any surface id the resolver does not know.
-      expect(result.errors.some(e => e.includes('not a registered'))).toBe(true);
+      expect(result.errors.some((e) => e.includes('not a registered'))).toBe(true);
     });
 
     it('fails to apply when a registered surface points at a non-existent file', async () => {
-      const missingEditor = new SkillEditor(
-        (id) => (id === 'skill:missing:prompt' ? '/nonexistent/path/skill.md' : undefined),
+      const missingEditor = new SkillEditor((id) =>
+        id === 'skill:missing:prompt' ? '/nonexistent/path/skill.md' : undefined,
       );
       const proposal: ImprovementProposal = {
-        id: 'prop-no-file', skillId: null, agentId: null, type: 'prompt_text', title: 'No File',
+        id: 'prop-no-file',
+        skillId: null,
+        agentId: null,
+        type: 'prompt_text',
+        title: 'No File',
         summary: 'Test',
         diff: { surface: 'skill:missing:prompt', before: 'x', after: 'y' },
         impact: { scope: '仅 test', riskLevel: 'low', expectedEffect: 'none' },
-        expectedEffect: 'none', regressionRisk: 'low', affectedScope: '仅 test',
-        mechanismFamily: 'prompt_instruction', confidence: 0.8, createdAt: Date.now(),
+        expectedEffect: 'none',
+        regressionRisk: 'low',
+        affectedScope: '仅 test',
+        mechanismFamily: 'prompt_instruction',
+        confidence: 0.8,
+        createdAt: Date.now(),
       };
       const result = await missingEditor.apply(proposal);
       expect(result.success).toBe(false);
@@ -315,7 +406,9 @@ describe('Self-Harness Runtime E2E', () => {
       // Simulate 3 successful activations
       for (let i = 0; i < 3; i++) {
         monitor.onActivationComplete('test-skill', null, {
-          success: true, errorCount: 0, durationMs: 1000,
+          success: true,
+          errorCount: 0,
+          durationMs: 1000,
         });
       }
 
@@ -329,7 +422,12 @@ describe('Self-Harness Runtime E2E', () => {
 
   describe('Scenario: Rate limiting edge cases', () => {
     it('different patterns do not share cooldown', () => {
-      const rl = new HarnessRateLimiter({ cooldownMinutes: 1, maxPerHour: 100, maxPerDay: 200, maxAutoApplyPerDay: 50 });
+      const rl = new HarnessRateLimiter({
+        cooldownMinutes: 1,
+        maxPerHour: 100,
+        maxPerDay: 200,
+        maxAutoApplyPerDay: 50,
+      });
 
       expect(rl.canTrigger('s1', 'a1', 'identical_retry_loop')).toBe(true);
       expect(rl.canTrigger('s1', 'a1', 'tool_error_cascade')).toBe(true); // Different pattern
@@ -337,7 +435,12 @@ describe('Self-Harness Runtime E2E', () => {
     });
 
     it('enforces maxPerHour limit', () => {
-      const rl = new HarnessRateLimiter({ cooldownMinutes: 0, maxPerHour: 3, maxPerDay: 10, maxAutoApplyPerDay: 5 });
+      const rl = new HarnessRateLimiter({
+        cooldownMinutes: 0,
+        maxPerHour: 3,
+        maxPerDay: 10,
+        maxAutoApplyPerDay: 5,
+      });
 
       expect(rl.canTrigger('s1', 'a1', 'identical_retry_loop')).toBe(true);
       expect(rl.canTrigger('s2', 'a1', 'tool_error_cascade')).toBe(true);
@@ -347,7 +450,12 @@ describe('Self-Harness Runtime E2E', () => {
     });
 
     it('tracks auto-apply separately from regular triggers', () => {
-      const rl = new HarnessRateLimiter({ cooldownMinutes: 0, maxPerHour: 100, maxPerDay: 200, maxAutoApplyPerDay: 1 });
+      const rl = new HarnessRateLimiter({
+        cooldownMinutes: 0,
+        maxPerHour: 100,
+        maxPerDay: 200,
+        maxAutoApplyPerDay: 1,
+      });
 
       expect(rl.getAutoApplyCount()).toBe(0);
       rl.recordAutoApply();
@@ -357,7 +465,12 @@ describe('Self-Harness Runtime E2E', () => {
     });
 
     it('canAutoApply respects maxAutoApplyPerDay', () => {
-      const rl = new HarnessRateLimiter({ cooldownMinutes: 0, maxPerHour: 100, maxPerDay: 200, maxAutoApplyPerDay: 1 });
+      const rl = new HarnessRateLimiter({
+        cooldownMinutes: 0,
+        maxPerHour: 100,
+        maxPerDay: 200,
+        maxAutoApplyPerDay: 1,
+      });
 
       expect(rl.canAutoApply()).toBe(true);
       rl.recordAutoApply();
@@ -397,14 +510,23 @@ describe('Self-Harness Runtime E2E', () => {
     it('identifies relevant surfaces for skill context', () => {
       const sp = new EditableSurfaceProvider();
       sp.register({
-        id: 'skill:test:prompt', kind: 'skill_prompt', path: 'skills/test/SKILL.md',
-        label: 'Test', currentValue: '# Test', mechanismFamily: 'prompt_instruction',
+        id: 'skill:test:prompt',
+        kind: 'skill_prompt',
+        path: 'skills/test/SKILL.md',
+        label: 'Test',
+        currentValue: '# Test',
+        mechanismFamily: 'prompt_instruction',
       });
 
       const ctx: FailureContext = {
-        sessionId: 's1', skillId: 'test', taskMessage: 'test',
-        toolCalls: [], errors: [],
-        durationMs: 0, terminatedEarly: false, agentEndReason: 'complete',
+        sessionId: 's1',
+        skillId: 'test',
+        taskMessage: 'test',
+        toolCalls: [],
+        errors: [],
+        durationMs: 0,
+        terminatedEarly: false,
+        agentEndReason: 'complete',
       };
 
       const surfaces = sp.identifyRelevantSurfaces(ctx);
@@ -436,10 +558,13 @@ describe('Self-Harness Runtime E2E', () => {
       );
 
       const ctx: FailureContext = {
-        sessionId: 's1', taskMessage: 'test',
+        sessionId: 's1',
+        taskMessage: 'test',
         toolCalls: [{ name: 'shell', args: {}, isError: true, errorMessage: 'err', timestamp: 1 }],
         errors: [{ toolName: 'shell', message: 'err', timestamp: 1 }],
-        durationMs: 1000, terminatedEarly: false, agentEndReason: 'error',
+        durationMs: 1000,
+        terminatedEarly: false,
+        agentEndReason: 'error',
       };
 
       const result = await optimizer.optimize(ctx);
@@ -449,8 +574,11 @@ describe('Self-Harness Runtime E2E', () => {
     it('returns proposal for high confidence diagnosis', async () => {
       const sp = new EditableSurfaceProvider();
       sp.register({
-        id: 'global:failure_recovery_instruction', kind: 'failure_recovery_instruction',
-        path: 'config:failure', label: 'Failure', currentValue: 'Try again.',
+        id: 'global:failure_recovery_instruction',
+        kind: 'failure_recovery_instruction',
+        path: 'config:failure',
+        label: 'Failure',
+        currentValue: 'Try again.',
         mechanismFamily: 'prompt_instruction',
       });
 
@@ -489,7 +617,8 @@ describe('Self-Harness Runtime E2E', () => {
       );
 
       const ctx: FailureContext = {
-        sessionId: 's2', taskMessage: 'debug',
+        sessionId: 's2',
+        taskMessage: 'debug',
         toolCalls: [
           { name: 'shell', args: {}, isError: true, errorMessage: 'err', timestamp: 1 },
           { name: 'shell', args: {}, isError: true, errorMessage: 'err', timestamp: 2 },
@@ -500,7 +629,9 @@ describe('Self-Harness Runtime E2E', () => {
           { toolName: 'shell', message: 'err', timestamp: 2 },
           { toolName: 'shell', message: 'err', timestamp: 3 },
         ],
-        durationMs: 10000, terminatedEarly: false, agentEndReason: 'error',
+        durationMs: 10000,
+        terminatedEarly: false,
+        agentEndReason: 'error',
       };
       // The optimizer reads pattern from context (cast to include optional pattern field)
       (ctx as any).pattern = 'tool_error_cascade';
@@ -518,7 +649,9 @@ describe('Self-Harness Runtime E2E', () => {
       // Step 1: Detect failure
       const fd = new FailureDetector(LIVE_CONFIG.trigger);
       const ctx: FailureContext = {
-        sessionId: 'full-pipe', skillId: 'my-skill', taskMessage: 'do something',
+        sessionId: 'full-pipe',
+        skillId: 'my-skill',
+        taskMessage: 'do something',
         toolCalls: [
           { name: 'shell', args: {}, isError: true, errorMessage: 'fail', timestamp: 1 },
           { name: 'shell', args: {}, isError: true, errorMessage: 'fail', timestamp: 2 },
@@ -529,7 +662,9 @@ describe('Self-Harness Runtime E2E', () => {
           { toolName: 'shell', message: 'fail', timestamp: 2 },
           { toolName: 'shell', message: 'fail', timestamp: 3 },
         ],
-        durationMs: 10000, terminatedEarly: false, agentEndReason: 'error',
+        durationMs: 10000,
+        terminatedEarly: false,
+        agentEndReason: 'error',
       };
 
       const signal = fd.detect(ctx);
@@ -537,7 +672,12 @@ describe('Self-Harness Runtime E2E', () => {
       expect(signal!.pattern).toBe('identical_retry_loop');
 
       // Step 2: Rate limit
-      const rl = new HarnessRateLimiter({ cooldownMinutes: 0, maxPerHour: 100, maxPerDay: 200, maxAutoApplyPerDay: 20 });
+      const rl = new HarnessRateLimiter({
+        cooldownMinutes: 0,
+        maxPerHour: 100,
+        maxPerDay: 200,
+        maxAutoApplyPerDay: 20,
+      });
       const canTrigger = rl.canTrigger(ctx.skillId, ctx.agentId, signal!.pattern);
       expect(canTrigger).toBe(true);
 
@@ -545,22 +685,32 @@ describe('Self-Harness Runtime E2E', () => {
       const ap = new ApprovalPolicy();
       const prop: ImprovementProposal = {
         id: 'prop-full',
-        skillId: 'my-skill', agentId: null,
-        type: 'prompt_text', title: 'Improve shell error handling',
+        skillId: 'my-skill',
+        agentId: null,
+        type: 'prompt_text',
+        title: 'Improve shell error handling',
         summary: 'Add specific recovery instructions',
-        diff: { surface: 'skills/my-skill/SKILL.md', before: 'Run shell command', after: 'Check prerequisites, then run shell command. On failure, try alternative approach.' },
+        diff: {
+          surface: 'skills/my-skill/SKILL.md',
+          before: 'Run shell command',
+          after:
+            'Check prerequisites, then run shell command. On failure, try alternative approach.',
+        },
         impact: { scope: '仅 my-skill', riskLevel: 'low', expectedEffect: 'Reduce failures' },
         expectedEffect: 'Reduce failures',
-        regressionRisk: 'low', affectedScope: 'single_skill',
-        mechanismFamily: 'prompt_instruction', confidence: 0.9, createdAt: Date.now(),
+        regressionRisk: 'low',
+        affectedScope: 'single_skill',
+        mechanismFamily: 'prompt_instruction',
+        confidence: 0.9,
+        createdAt: Date.now(),
       };
       const decision = ap.evaluate(prop, { skillId: 'my-skill', currentTime: new Date() });
       expect(decision.action).toBe('auto_apply');
       expect(decision.autoRollback).toBeDefined();
 
       // Step 4: Validate proposal (the surface id must be allow-listed)
-      const editor = new SkillEditor(
-        (id) => (id === 'skills/my-skill/SKILL.md' ? 'skills/my-skill/SKILL.md' : undefined),
+      const editor = new SkillEditor((id) =>
+        id === 'skills/my-skill/SKILL.md' ? 'skills/my-skill/SKILL.md' : undefined,
       );
       const validation = editor.validate(prop);
       expect(validation.valid).toBe(true);

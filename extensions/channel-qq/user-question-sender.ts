@@ -26,9 +26,7 @@ export interface QQUserQuestionDeps {
  *
  * chatId format: "u:<openid>" for C2C, "g:<groupOpenid>" for groups.
  */
-export function createQQUserQuestionSender(
-  deps: QQUserQuestionDeps,
-): UserQuestionSender {
+export function createQQUserQuestionSender(deps: QQUserQuestionDeps): UserQuestionSender {
   const { gateway, logger } = deps;
 
   return {

@@ -35,10 +35,7 @@ export interface ConflictResolution {
 }
 
 const TOPIC_PATTERNS: Record<string, RegExp[]> = {
-  preferred_name: [
-    /称呼|叫|喊|称|名字|昵称|称谓/,
-    /\bcall\s+me\b|\bname\b.*\bprefer/i,
-  ],
+  preferred_name: [/称呼|叫|喊|称|名字|昵称|称谓/, /\bcall\s+me\b|\bname\b.*\bprefer/i],
   communication_style: [
     /回复|回答|交流|沟通|说话|语气|风格|方式.*回复/,
     /\bresponse\b|\btone\b|\bstyle\b|\bcommunicat/i,
@@ -51,10 +48,7 @@ const TOPIC_PATTERNS: Record<string, RegExp[]> = {
     /语言|中文|英文|日文|翻译|用.*回答/,
     /\blanguage\b|\bEnglish\b|\bChinese\b/i,
   ],
-  workflow_preference: [
-    /流程|工作流|步骤|方法|先.*再|顺序/,
-    /\bworkflow\b|\bprocess\b|\bstep/i,
-  ],
+  workflow_preference: [/流程|工作流|步骤|方法|先.*再|顺序/, /\bworkflow\b|\bprocess\b|\bstep/i],
 };
 
 /** Detect the topic of a preference by matching content against topic patterns. */
@@ -93,13 +87,13 @@ export class PreferenceConflictResolver {
     const topic = detectTopic(content);
     const supersededIds: string[] = [];
 
-    if (topic === 'generic' && (this.options.skipGeneric !== false)) {
+    if (topic === 'generic' && this.options.skipGeneric !== false) {
       return { winnerId: newId, supersededIds: [], topic };
     }
 
     const allPrefs = this.findConflictCandidates(context.scope, context.scopeKey, topic);
     const newConflictKey = conflictKey(topic, content);
-    const sameTopic = allPrefs.filter(p => {
+    const sameTopic = allPrefs.filter((p) => {
       if (p.id === newId) return false;
       if (p.status !== 'active') return false;
       if (detectTopic(p.content) !== topic) return false;
@@ -157,17 +151,30 @@ export class PreferenceConflictResolver {
   }
 
   private isGlobalUserTopic(topic: string): boolean {
-    return topic === 'preferred_name' || topic === 'communication_style' || topic === 'language_preference';
+    return (
+      topic === 'preferred_name' ||
+      topic === 'communication_style' ||
+      topic === 'language_preference'
+    );
   }
 }
 
 function conflictKey(topic: string, content: string): string {
-  if (topic === 'preferred_name' || topic === 'communication_style' || topic === 'language_preference') {
+  if (
+    topic === 'preferred_name' ||
+    topic === 'communication_style' ||
+    topic === 'language_preference'
+  ) {
     return topic;
   }
   if (topic === 'tool_preference') {
     const tools = content.match(/\b(pnpm|npm|yarn|pip|brew|git|docker|k8s|kubectl)\b/gi);
-    return tools?.map(t => t.toLowerCase()).sort().join('|') || topic;
+    return (
+      tools
+        ?.map((t) => t.toLowerCase())
+        .sort()
+        .join('|') || topic
+    );
   }
   return topic;
 }

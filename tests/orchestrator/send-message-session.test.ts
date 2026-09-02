@@ -30,13 +30,15 @@ describe('OrchestratorImpl.sendMessage session boundaries', () => {
     });
     const orchestrator = makeOrchestrator(agentRunStore);
 
-    await expect(orchestrator.sendMessage({
-      fromAgentId: 'primary',
-      toAgentId: 'target',
-      sessionId: 'session-a',
-      kind: 'instruction',
-      content: 'hello',
-    })).rejects.toThrow('Cross-session messaging is not allowed');
+    await expect(
+      orchestrator.sendMessage({
+        fromAgentId: 'primary',
+        toAgentId: 'target',
+        sessionId: 'session-a',
+        kind: 'instruction',
+        content: 'hello',
+      }),
+    ).rejects.toThrow('Cross-session messaging is not allowed');
   });
 
   it('stores messages when sender, target, and requested session match', async () => {

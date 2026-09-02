@@ -9,10 +9,33 @@ export class DocumentParser {
     const ext = name.split('.').pop()?.toLowerCase() ?? '';
 
     // Text-based files: read directly
-    if (['txt', 'md', 'json', 'xml', 'csv', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'env', 'log', 'html', 'css', 'js', 'ts', 'py', 'sh', 'sql'].includes(ext)) {
+    if (
+      [
+        'txt',
+        'md',
+        'json',
+        'xml',
+        'csv',
+        'yaml',
+        'yml',
+        'toml',
+        'ini',
+        'cfg',
+        'env',
+        'log',
+        'html',
+        'css',
+        'js',
+        'ts',
+        'py',
+        'sh',
+        'sql',
+      ].includes(ext)
+    ) {
       try {
         const text = readFileSync(filePath, 'utf-8');
-        const truncated = text.length > 50_000 ? text.slice(0, 50_000) + '\n\n[... content truncated ...]' : text;
+        const truncated =
+          text.length > 50_000 ? text.slice(0, 50_000) + '\n\n[... content truncated ...]' : text;
         return { kind: 'document', text: truncated, metadata: { size: stat.size, mimeType } };
       } catch {
         return this.fallback(name, mimeType, stat.size);
@@ -26,7 +49,11 @@ export class DocumentParser {
 
     // Office documents: return description only (no parsing in Phase 4)
     if (['docx', 'xlsx', 'pptx', 'doc', 'xls', 'ppt'].includes(ext)) {
-      return { kind: 'document', text: `[Office document: ${name}, type: ${mimeType}, size: ${stat.size} bytes]`, metadata: { size: stat.size, mimeType } };
+      return {
+        kind: 'document',
+        text: `[Office document: ${name}, type: ${mimeType}, size: ${stat.size} bytes]`,
+        metadata: { size: stat.size, mimeType },
+      };
     }
 
     return this.fallback(name, mimeType, stat.size);

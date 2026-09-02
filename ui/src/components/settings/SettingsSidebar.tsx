@@ -29,7 +29,13 @@ function groupTabs(groups: readonly SettingsTabDef[]): GroupedTabs[] {
   })).filter((g) => g.tabs.length > 0);
 }
 
-export default function SettingsSidebar({ groups, activeGroup, onSelect, dirtyTabs, mobileActions }: SettingsSidebarProps) {
+export default function SettingsSidebar({
+  groups,
+  activeGroup,
+  onSelect,
+  dirtyTabs,
+  mobileActions,
+}: SettingsSidebarProps) {
   const { t } = useTranslation('common');
   const grouped = groupTabs(groups);
 
@@ -43,7 +49,11 @@ export default function SettingsSidebar({ groups, activeGroup, onSelect, dirtyTa
           return (
             <div key={id} className="mt-1 first:mt-0">
               <div className="flex items-center gap-1.5 px-2 pt-3 pb-1">
-                <GroupIcon size={11} strokeWidth={2} className="text-neutral-400 dark:text-neutral-500" />
+                <GroupIcon
+                  size={11}
+                  strokeWidth={2}
+                  className="text-neutral-400 dark:text-neutral-500"
+                />
                 <span className="text-[10px] font-semibold uppercase tracking-[0.06em] text-neutral-400 dark:text-neutral-500">
                   {t(def.labelKey)}
                 </span>
@@ -67,7 +77,10 @@ export default function SettingsSidebar({ groups, activeGroup, onSelect, dirtyTa
                     <TabIcon size={13} strokeWidth={1.75} className="shrink-0 opacity-80" />
                     <span className="flex-1 truncate">{t(tab.labelKey)}</span>
                     {dirty && !active && (
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" title={t('settings.unsavedBadge')} />
+                      <span
+                        className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500"
+                        title={t('settings.unsavedBadge')}
+                      />
                     )}
                   </button>
                 );

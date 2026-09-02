@@ -40,10 +40,49 @@ function getJieba(): JiebaInstance | null {
 // ── Chinese stop-words ──
 
 const ZH_STOP_WORDS = new Set([
-  '的', '了', '在', '是', '我', '有', '和', '就', '不', '人', '都', '一',
-  '一个', '上', '也', '很', '到', '说', '要', '去', '你', '会', '着',
-  '没有', '看', '好', '自己', '这', '他', '她', '它', '们', '那',
-  '吗', '吧', '呢', '啊', '呀', '哦', '嗯', '什么', '怎么', '为什么',
+  '的',
+  '了',
+  '在',
+  '是',
+  '我',
+  '有',
+  '和',
+  '就',
+  '不',
+  '人',
+  '都',
+  '一',
+  '一个',
+  '上',
+  '也',
+  '很',
+  '到',
+  '说',
+  '要',
+  '去',
+  '你',
+  '会',
+  '着',
+  '没有',
+  '看',
+  '好',
+  '自己',
+  '这',
+  '他',
+  '她',
+  '它',
+  '们',
+  '那',
+  '吗',
+  '吧',
+  '呢',
+  '啊',
+  '呀',
+  '哦',
+  '嗯',
+  '什么',
+  '怎么',
+  '为什么',
 ]);
 
 // ── Public API ──
@@ -61,8 +100,7 @@ export function tokenizeForIndex(text: string): string {
   const jieba = getJieba();
   if (!jieba) return text;
 
-  const tokens = jieba.cutForSearch(text, true)
-    .filter(t => t.trim()); // drop whitespace-only tokens jieba emits for Latin scripts
+  const tokens = jieba.cutForSearch(text, true).filter((t) => t.trim()); // drop whitespace-only tokens jieba emits for Latin scripts
   return tokens.join(' ');
 }
 

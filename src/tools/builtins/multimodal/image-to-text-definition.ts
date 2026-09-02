@@ -42,7 +42,9 @@ export function createImageToTextToolDefinition(): ToolDefinition {
     category: 'multimodal',
     parametersSchema: Type.Object({
       imagePath: Type.String({ description: 'Path to the image file' }),
-      prompt: Type.Optional(Type.String({ description: 'Optional analysis instruction for the vision model' })),
+      prompt: Type.Optional(
+        Type.String({ description: 'Optional analysis instruction for the vision model' }),
+      ),
     }),
     capability: imageToTextCapability,
     execute: async (args: { imagePath: string; prompt?: string }, ctx) => {
@@ -60,7 +62,9 @@ export function createImageToTextToolDefinition(): ToolDefinition {
       const ext = resolvedPath.split('.').pop()?.toLowerCase() ?? '';
       const mimeType = SUPPORTED_TYPES[ext];
       if (!mimeType) {
-        return errorResult(`Unsupported image format: .${ext} (supported: jpg, png, gif, webp, bmp)`);
+        return errorResult(
+          `Unsupported image format: .${ext} (supported: jpg, png, gif, webp, bmp)`,
+        );
       }
 
       // Base64 encode image content
@@ -95,9 +99,10 @@ export function createImageToTextToolDefinition(): ToolDefinition {
       // The last two mirror how image/video generation resolve credentials, so a single
       // global provider key (configured under Models & Routing) works for all three
       // multimodal sections and the bridge no longer needs its own API Key field.
-      let apiKey: string | undefined = String(bridgeCfg.apiKey ?? legacyVision.apiKey ?? '') || undefined;
+      let apiKey: string | undefined =
+        String(bridgeCfg.apiKey ?? legacyVision.apiKey ?? '') || undefined;
       if (!apiKey && config.customProviders) {
-        const cp = config.customProviders.find(p => p.provider === provider);
+        const cp = config.customProviders.find((p) => p.provider === provider);
         apiKey = cp?.apiKey;
       }
       if (!apiKey && config.providerKeys) {
@@ -119,10 +124,7 @@ export function createImageToTextToolDefinition(): ToolDefinition {
         const finalPrompt = args.prompt ?? 'Describe this image in detail.';
         const message = {
           role: 'user' as const,
-          content: [
-            { type: 'text' as const, text: finalPrompt },
-            imageContent,
-          ],
+          content: [{ type: 'text' as const, text: finalPrompt }, imageContent],
           timestamp: Date.now(),
         };
 
@@ -130,14 +132,16 @@ export function createImageToTextToolDefinition(): ToolDefinition {
           visionModel,
           {
             systemPrompt:
-              'You are a precise image analyst. Describe the image accurately based on the user\'s request.',
+              "You are a precise image analyst. Describe the image accurately based on the user's request.",
             messages: [message],
             tools: [],
           },
           {
             apiKey,
             maxTokens: 900,
-            signal: AbortSignal.timeout(Number(bridgeCfg.timeoutMs ?? legacyVision.timeoutMs ?? 120_000)),
+            signal: AbortSignal.timeout(
+              Number(bridgeCfg.timeoutMs ?? legacyVision.timeoutMs ?? 120_000),
+            ),
           },
         );
 

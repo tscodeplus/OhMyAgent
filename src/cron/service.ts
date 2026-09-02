@@ -100,17 +100,21 @@ export function parseSchedule(input: string): ParseResult {
   } catch {
     throw new Error(
       `Cannot parse schedule: "${trimmed}". ` +
-      'Expected: "every 30m", "at 15:00", "30m", or a cron expression like "0 8 * * *".',
+        'Expected: "every 30m", "at 15:00", "30m", or a cron expression like "0 8 * * *".',
     );
   }
 }
 
 function durationMs(value: number, unit: string): number {
   switch (unit) {
-    case 'm': return value * 60_000;
-    case 'h': return value * 3_600_000;
-    case 'd': return value * 86_400_000;
-    default: return value * 60_000;
+    case 'm':
+      return value * 60_000;
+    case 'h':
+      return value * 3_600_000;
+    case 'd':
+      return value * 86_400_000;
+    default:
+      return value * 60_000;
   }
 }
 
@@ -261,7 +265,7 @@ export class CronService {
 
   /** List jobs scoped to a specific channel + chatId. */
   listByChannel(channel: string, chatId: string): CronJob[] {
-    return this.store.list().filter(j => j.channel === channel && j.chatId === chatId);
+    return this.store.list().filter((j) => j.channel === channel && j.chatId === chatId);
   }
 
   /** General-purpose update for any job fields. */

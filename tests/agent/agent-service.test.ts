@@ -36,13 +36,17 @@ function createMockAgent() {
       };
     }),
     state: {
-      get isStreaming() { return streaming; },
+      get isStreaming() {
+        return streaming;
+      },
       messages: [] as any[],
       model: { id: 'test-model', provider: 'test', api: 'test' },
       systemPrompt: 'You are a helpful assistant.',
     },
     // For tests that override prompt: manually control streaming state
-    _setStreaming(v: boolean) { streaming = v; },
+    _setStreaming(v: boolean) {
+      streaming = v;
+    },
     _emit(event: any) {
       for (const listener of listeners) {
         listener(event);
@@ -122,10 +126,7 @@ describe('AgentService', () => {
   beforeEach(() => {
     factory = createMockFactory();
     dispatcher = createMockDispatcher();
-    service = new AgentService(
-      factory as unknown as AgentFactory,
-      () => dispatcher,
-    );
+    service = new AgentService(factory as unknown as AgentFactory, () => dispatcher);
   });
 
   afterEach(() => {
@@ -138,10 +139,12 @@ describe('AgentService', () => {
   it('execute() creates agent, starts bridge, calls prompt, returns agent', async () => {
     const agent = await service.execute('Hello');
 
-    expect(factory.create).toHaveBeenCalledWith(expect.objectContaining({
-      message: 'Hello',
-      turnContext: expect.any(Object),
-    }));
+    expect(factory.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Hello',
+        turnContext: expect.any(Object),
+      }),
+    );
     expect(factory.create).toHaveBeenCalledTimes(1);
     expect(factory.agent.prompt).toHaveBeenCalledWith('Hello', undefined);
     expect(agent).toBe(factory.agent);
@@ -150,27 +153,36 @@ describe('AgentService', () => {
   it('execute() passes options through to factory', async () => {
     await service.execute('Hi', { sessionId: 's1', systemPrompt: 'sys' });
 
-    expect(factory.create).toHaveBeenCalledWith(expect.objectContaining({
-      message: 'Hi',
-      sessionId: 's1',
-      systemPrompt: 'sys',
-      turnContext: expect.any(Object),
-    }));
+    expect(factory.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Hi',
+        sessionId: 's1',
+        systemPrompt: 'sys',
+        turnContext: expect.any(Object),
+      }),
+    );
   });
 
   it('execute() forwards maxRetries to the factory', async () => {
     const svc = new AgentService(
       factory as unknown as AgentFactory,
       () => dispatcher,
-      undefined, undefined, 'native_first', undefined, undefined,
-      undefined, 3, // maxRetries
+      undefined,
+      undefined,
+      'native_first',
+      undefined,
+      undefined,
+      undefined,
+      3, // maxRetries
     );
 
     await svc.execute('Hi');
 
-    expect(factory.create).toHaveBeenCalledWith(expect.objectContaining({
-      maxRetries: 3,
-    }));
+    expect(factory.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxRetries: 3,
+      }),
+    );
   });
 
   it('execute() subscribes to agent events via EventBridge', async () => {
@@ -284,13 +296,17 @@ describe('AgentService', () => {
     let resolvePrompt: () => void;
     const agent = factory.agent as any;
     agent.prompt.mockImplementation(async () => {
-      await new Promise<void>((resolve) => { resolvePrompt = resolve; });
+      await new Promise<void>((resolve) => {
+        resolvePrompt = resolve;
+      });
     });
 
     const running = service.execute('first', { sessionId: 'busy' });
     await new Promise((r) => setTimeout(r, 0));
 
-    await expect(service.execute('second', { sessionId: 'busy' })).rejects.toThrow(/turn in flight/);
+    await expect(service.execute('second', { sessionId: 'busy' })).rejects.toThrow(
+      /turn in flight/,
+    );
     // The running turn keeps its own dispatcher — nothing was swapped.
     expect(factory.create).toHaveBeenCalledTimes(1);
     expect(factory.agent.prompt).toHaveBeenCalledTimes(1);
@@ -311,12 +327,14 @@ describe('AgentService', () => {
     const agent = factory.agent as any;
     agent.prompt = vi.fn().mockImplementation(async () => {
       agent._setStreaming(true);
-      await new Promise<void>((resolve) => { resolvePrompt = resolve; });
+      await new Promise<void>((resolve) => {
+        resolvePrompt = resolve;
+      });
       agent._setStreaming(false);
     });
 
     const promise = service.execute('test');
-    await new Promise(r => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
     expect(service.isRunning()).toBe(true);
 
     service.abort();
@@ -342,12 +360,21 @@ describe('AgentService', () => {
     it('fails the turn with TurnTimeoutError when prompt exceeds the cap', async () => {
       vi.useFakeTimers();
       const agent = createMockAgent();
-      agent.prompt.mockImplementation(() => new Promise<void>(() => { /* never settles */ }));
+      agent.prompt.mockImplementation(
+        () =>
+          new Promise<void>(() => {
+            /* never settles */
+          }),
+      );
       const factory = createMockFactory(agent);
       const service = new AgentService(
         factory as unknown as AgentFactory,
         () => dispatcher,
-        undefined, undefined, 'native_first', undefined, undefined,
+        undefined,
+        undefined,
+        'native_first',
+        undefined,
+        undefined,
         30, // turnTimeoutMs
       );
 
@@ -367,12 +394,21 @@ describe('AgentService', () => {
     it('resets the turn deadline on agent activity (active turns are not killed)', async () => {
       vi.useFakeTimers();
       const agent = createMockAgent();
-      agent.prompt.mockImplementation(() => new Promise<void>(() => { /* never settles */ }));
+      agent.prompt.mockImplementation(
+        () =>
+          new Promise<void>(() => {
+            /* never settles */
+          }),
+      );
       const factory = createMockFactory(agent);
       const service = new AgentService(
         factory as unknown as AgentFactory,
         () => dispatcher,
-        undefined, undefined, 'native_first', undefined, undefined,
+        undefined,
+        undefined,
+        'native_first',
+        undefined,
+        undefined,
         1000, // turnTimeoutMs
       );
 
@@ -397,13 +433,27 @@ describe('AgentService', () => {
     it('sends an error card when the aborted turn never settles (hung tool)', async () => {
       vi.useFakeTimers();
       const agent = createMockAgent();
-      agent.prompt.mockImplementation(() => new Promise<void>(() => { /* never settles */ }));
-      agent.waitForIdle.mockImplementation(() => new Promise<void>(() => { /* never settles */ }));
+      agent.prompt.mockImplementation(
+        () =>
+          new Promise<void>(() => {
+            /* never settles */
+          }),
+      );
+      agent.waitForIdle.mockImplementation(
+        () =>
+          new Promise<void>(() => {
+            /* never settles */
+          }),
+      );
       const factory = createMockFactory(agent);
       const service = new AgentService(
         factory as unknown as AgentFactory,
         () => dispatcher,
-        undefined, undefined, 'native_first', undefined, undefined,
+        undefined,
+        undefined,
+        'native_first',
+        undefined,
+        undefined,
         30, // turnTimeoutMs
       );
 
@@ -421,13 +471,20 @@ describe('AgentService', () => {
     it('abort() does not hang on a stuck agent (bounded settle)', async () => {
       vi.useFakeTimers();
       const agent = createMockAgent();
-      agent.prompt.mockImplementation(() => new Promise<void>(() => { /* never settles */ }));
-      agent.waitForIdle.mockImplementation(() => new Promise<void>(() => { /* never settles */ }));
-      const factory = createMockFactory(agent);
-      const service = new AgentService(
-        factory as unknown as AgentFactory,
-        () => dispatcher,
+      agent.prompt.mockImplementation(
+        () =>
+          new Promise<void>(() => {
+            /* never settles */
+          }),
       );
+      agent.waitForIdle.mockImplementation(
+        () =>
+          new Promise<void>(() => {
+            /* never settles */
+          }),
+      );
+      const factory = createMockFactory(agent);
+      const service = new AgentService(factory as unknown as AgentFactory, () => dispatcher);
 
       const runPromise = service.execute('Hello');
       runPromise.catch(() => {});
@@ -453,7 +510,9 @@ describe('AgentService', () => {
     const agent = factory.agent as any;
     agent.prompt = vi.fn().mockImplementation(async () => {
       agent._setStreaming(true);
-      await new Promise<void>((resolve) => { resolvePrompt = resolve; });
+      await new Promise<void>((resolve) => {
+        resolvePrompt = resolve;
+      });
       agent._setStreaming(false);
     });
 
@@ -471,10 +530,7 @@ describe('AgentService', () => {
 
   it('EventBridge is created with dispatcher from factory', async () => {
     const dispatcherSpy = vi.fn().mockReturnValue(dispatcher);
-    const svc = new AgentService(
-      factory as unknown as AgentFactory,
-      dispatcherSpy,
-    );
+    const svc = new AgentService(factory as unknown as AgentFactory, dispatcherSpy);
 
     await svc.execute('test');
 
@@ -515,33 +571,31 @@ describe('AgentService', () => {
     const secondAgent = createMockAgent();
     firstAgent.state.messages = [{ role: 'user', content: 'first' }];
     const channelFactory = {
-      create: vi.fn()
-        .mockReturnValueOnce(firstAgent)
-        .mockReturnValueOnce(secondAgent),
+      create: vi.fn().mockReturnValueOnce(firstAgent).mockReturnValueOnce(secondAgent),
     };
-    const svc = new AgentService(
-      channelFactory as unknown as AgentFactory,
-      () => createMockDispatcher(),
+    const svc = new AgentService(channelFactory as unknown as AgentFactory, () =>
+      createMockDispatcher(),
     );
 
     await svc.execute('first', { sessionId: 'session-1', channel: 'feishu', messageId: 'm1' });
     await svc.execute('second', { sessionId: 'session-1', channel: 'feishu', messageId: 'm2' });
 
     expect(channelFactory.create).toHaveBeenCalledTimes(2);
-    expect(channelFactory.create).toHaveBeenLastCalledWith(expect.objectContaining({
-      message: 'second',
-      messageId: 'm2',
-      turnContext: expect.any(Object),
-    }));
+    expect(channelFactory.create).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        message: 'second',
+        messageId: 'm2',
+        turnContext: expect.any(Object),
+      }),
+    );
     expect(secondAgent.state.messages).toEqual([{ role: 'user', content: 'first' }]);
     expect(secondAgent.prompt).toHaveBeenCalledWith('second', undefined);
   });
 
   it('creates separate agents for different sessions and reuses them independently', async () => {
     const perSessionFactory = createFactoryWithPerSessionAgents();
-    const svc = new AgentService(
-      perSessionFactory as unknown as AgentFactory,
-      () => createMockDispatcher(),
+    const svc = new AgentService(perSessionFactory as unknown as AgentFactory, () =>
+      createMockDispatcher(),
     );
 
     await svc.execute('first-s1', { sessionId: 'session-1' });
@@ -556,15 +610,16 @@ describe('AgentService', () => {
   it('isRunning() can be checked per session without leaking state across sessions', async () => {
     let resolveS1: () => void;
     const perSessionFactory = createFactoryWithPerSessionAgents();
-    const svc = new AgentService(
-      perSessionFactory as unknown as AgentFactory,
-      () => createMockDispatcher(),
+    const svc = new AgentService(perSessionFactory as unknown as AgentFactory, () =>
+      createMockDispatcher(),
     );
 
     const s1Agent = createMockAgent();
     s1Agent.prompt = vi.fn().mockImplementation(async () => {
       s1Agent._setStreaming(true);
-      await new Promise<void>((resolve) => { resolveS1 = resolve; });
+      await new Promise<void>((resolve) => {
+        resolveS1 = resolve;
+      });
       s1Agent._setStreaming(false);
     });
 
@@ -898,7 +953,13 @@ describe('AgentService', () => {
       activeSkillFeedbackIds.set('s1', { feedbackId: 'fb-1', startTime: Date.now() - 1234 });
       agent.state.messages = [
         { role: 'user', content: 'do it' },
-        { role: 'toolResult', content: 'ok', toolName: 'shell', details: { command: 'ls' }, isError: false },
+        {
+          role: 'toolResult',
+          content: 'ok',
+          toolName: 'shell',
+          details: { command: 'ls' },
+          isError: false,
+        },
       ];
     });
     const metricsService = {
@@ -909,19 +970,26 @@ describe('AgentService', () => {
     const svc = new AgentService(
       createMockFactory(agent) as unknown as AgentFactory,
       () => createMockDispatcher(),
-      undefined, undefined, 'native_first', undefined,
-      () => ({ skillMetricsService: metricsService } as any),
+      undefined,
+      undefined,
+      'native_first',
+      undefined,
+      () => ({ skillMetricsService: metricsService }) as any,
     );
 
     await svc.execute('do it', { sessionId: 's1' });
 
     // Completion recorded with success=null (satisfaction comes later)
-    expect(metricsService.recordCompletion).toHaveBeenCalledWith(
-      'fb-1',
-      null,
-      expect.any(Number),
-      [{ name: 'shell', args: { command: 'ls' }, result: 'ok', isError: false, errorMessage: undefined, timestamp: expect.any(Number) }],
-    );
+    expect(metricsService.recordCompletion).toHaveBeenCalledWith('fb-1', null, expect.any(Number), [
+      {
+        name: 'shell',
+        args: { command: 'ls' },
+        result: 'ok',
+        isError: false,
+        errorMessage: undefined,
+        timestamp: expect.any(Number),
+      },
+    ]);
     // Entry consumed — the map must not leak
     expect(activeSkillFeedbackIds.has('s1')).toBe(false);
   });
@@ -938,8 +1006,11 @@ describe('AgentService', () => {
     const svc = new AgentService(
       factory as unknown as AgentFactory,
       () => dispatcher,
-      undefined, undefined, 'native_first', undefined,
-      () => ({ skillMetricsService: metricsService } as any),
+      undefined,
+      undefined,
+      'native_first',
+      undefined,
+      () => ({ skillMetricsService: metricsService }) as any,
     );
 
     await svc.execute('帮我写个脚本', { sessionId: 's1' }); // entry moved to pending, not inferable
@@ -957,7 +1028,13 @@ describe('AgentService', () => {
     agent.prompt.mockImplementationOnce(async () => {
       agent.state.messages = [
         { role: 'user', content: 'run shell' },
-        { role: 'toolResult', content: 'boom', toolName: 'shell', details: { command: 'ls' }, isError: true },
+        {
+          role: 'toolResult',
+          content: 'boom',
+          toolName: 'shell',
+          details: { command: 'ls' },
+          isError: true,
+        },
       ];
     });
     const harness = {
@@ -972,21 +1049,27 @@ describe('AgentService', () => {
     const svc = new AgentService(
       createMockFactory(agent) as unknown as AgentFactory,
       () => createMockDispatcher(),
-      undefined, undefined, 'native_first',
+      undefined,
+      undefined,
+      'native_first',
       harness as any,
     );
 
     await svc.execute('run shell', { sessionId: 's1' });
 
-    expect(harness.autoApplyMonitor.onActivationComplete).toHaveBeenCalledWith(
-      null, 'default', { success: true, errorCount: 1, durationMs: expect.any(Number) },
-    );
+    expect(harness.autoApplyMonitor.onActivationComplete).toHaveBeenCalledWith(null, 'default', {
+      success: true,
+      errorCount: 1,
+      durationMs: expect.any(Number),
+    });
 
     // Failure path reports success: false
     agent.prompt.mockRejectedValueOnce(new Error('LLM failed'));
     await expect(svc.execute('boom', { sessionId: 's1' })).rejects.toThrow('LLM failed');
     expect(harness.autoApplyMonitor.onActivationComplete).toHaveBeenLastCalledWith(
-      null, 'default', { success: false, errorCount: 0, durationMs: expect.any(Number) },
+      null,
+      'default',
+      { success: false, errorCount: 0, durationMs: expect.any(Number) },
     );
   });
 
@@ -1038,7 +1121,7 @@ describe('AgentService', () => {
       // The turn's own message survives the compression window; the summary
       // marker is new too (no tool calls inside, harmless for extraction).
       expect(result).toContain(newMsg);
-      expect(result.some(m => (m as any).content === '[Compression summary]')).toBe(true);
+      expect(result.some((m) => (m as any).content === '[Compression summary]')).toBe(true);
       expect(result).not.toContain(oldMsg1);
       expect(result).not.toContain(oldMsg2);
     });

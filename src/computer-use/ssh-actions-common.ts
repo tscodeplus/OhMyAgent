@@ -47,20 +47,24 @@ export function createLocalExecRunner(options?: {
   return {
     exec(command: string, opts?: { timeoutMs?: number }): Promise<ExecResult> {
       return new Promise((resolve, reject) => {
-        exec(displayPrefix + command, { timeout: opts?.timeoutMs, maxBuffer }, (err, stdout, stderr) => {
-          if (err) {
-            const cause = err as Error & { code?: number | string; killed?: boolean };
-            const reason = cause.killed
-              ? `timed out after ${opts?.timeoutMs ?? 0}ms`
-              : cause.code !== undefined
-                ? `exit code ${cause.code}`
-                : cause.message;
-            const detail = (stderr || stdout || '').trim();
-            reject(new Error(`local exec failed (${reason})${detail ? `: ${detail}` : ''}`));
-            return;
-          }
-          resolve({ stdout, stderr, exitCode: 0 });
-        });
+        exec(
+          displayPrefix + command,
+          { timeout: opts?.timeoutMs, maxBuffer },
+          (err, stdout, stderr) => {
+            if (err) {
+              const cause = err as Error & { code?: number | string; killed?: boolean };
+              const reason = cause.killed
+                ? `timed out after ${opts?.timeoutMs ?? 0}ms`
+                : cause.code !== undefined
+                  ? `exit code ${cause.code}`
+                  : cause.message;
+              const detail = (stderr || stdout || '').trim();
+              reject(new Error(`local exec failed (${reason})${detail ? `: ${detail}` : ''}`));
+              return;
+            }
+            resolve({ stdout, stderr, exitCode: 0 });
+          },
+        );
       });
     },
   };

@@ -52,10 +52,14 @@ export function createChannelIsAdmin(config: AppConfig) {
     const channel = operator.channel ?? 'feishu';
     const allowedUsers = ((): string[] => {
       switch (channel) {
-        case 'telegram': return config.telegram?.allowedUsers ?? [];
-        case 'wechat': return config.wechat?.allowedUsers ?? [];
-        case 'qq': return config.qq?.allowedUsers ?? [];
-        default: return config.feishu.allowedUsers ?? [];
+        case 'telegram':
+          return config.telegram?.allowedUsers ?? [];
+        case 'wechat':
+          return config.wechat?.allowedUsers ?? [];
+        case 'qq':
+          return config.qq?.allowedUsers ?? [];
+        default:
+          return config.feishu.allowedUsers ?? [];
       }
     })();
     if (allowedUsers.length > 0) {
@@ -86,7 +90,18 @@ export function createFeishuServices(options: {
   chatQueue: ChatQueue;
   servicesMap: Map<string, unknown>;
 }): FeishuServicesResult {
-  const { config, logger, agentService, skillRegistry, cronService, feishuClient, agentManager, extensionManager, chatQueue, servicesMap } = options;
+  const {
+    config,
+    logger,
+    agentService,
+    skillRegistry,
+    cronService,
+    feishuClient,
+    agentManager,
+    extensionManager,
+    chatQueue,
+    servicesMap,
+  } = options;
 
   // STT transcriber — lazy init on first audio message
   const sttCfg = config.multimodal?.stt;
@@ -122,9 +137,9 @@ export function createFeishuServices(options: {
     extensionManager,
     configPath,
     triggerConfigReload: () => {
-      configManager.reloadFromFile().catch(err =>
-        logger.error({ err }, 'Config reload via /permission failed'),
-      );
+      configManager
+        .reloadFromFile()
+        .catch((err) => logger.error({ err }, 'Config reload via /permission failed'));
     },
     isAdmin: createChannelIsAdmin(config),
   };
@@ -147,10 +162,14 @@ export function createFeishuServices(options: {
     chatQueue,
     mediaDownloader: feishuClient,
     feishuClient,
-    mediaAllowedRoots: config.tools.fileRead.allowedRoots.length > 0
-      ? config.tools.fileRead.allowedRoots : undefined,
-    mediaDeniedPatterns: config.tools.fileRead.deniedPatterns.length > 0
-      ? config.tools.fileRead.deniedPatterns : undefined,
+    mediaAllowedRoots:
+      config.tools.fileRead.allowedRoots.length > 0
+        ? config.tools.fileRead.allowedRoots
+        : undefined,
+    mediaDeniedPatterns:
+      config.tools.fileRead.deniedPatterns.length > 0
+        ? config.tools.fileRead.deniedPatterns
+        : undefined,
     logger,
     commandDeps,
     sendTextReply,
@@ -161,11 +180,13 @@ export function createFeishuServices(options: {
       await feishuClient.removeReaction(messageId, reactionId);
     },
     getSttTranscriber,
-    sttConfig: sttCfg ? {
-      enabled: sttCfg.enabled ?? false,
-      autoTranscribe: sttCfg.autoTranscribe ?? true,
-      language: sttCfg.language ?? 'zh',
-    } : undefined,
+    sttConfig: sttCfg
+      ? {
+          enabled: sttCfg.enabled ?? false,
+          autoTranscribe: sttCfg.autoTranscribe ?? true,
+          language: sttCfg.language ?? 'zh',
+        }
+      : undefined,
     botAppId: config.feishu.appId,
     allowedUsers: config.feishu.allowedUsers,
   });

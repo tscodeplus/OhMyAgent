@@ -152,7 +152,7 @@ describe('MermaidCanvas', () => {
   describe('toMermaid with different-phase nodes', () => {
     it('2 个不同类工具生成并行虚线边 (-.->)', () => {
       const canvas = new MermaidCanvas();
-      canvas.addNode(makeRecord(1, 'shell'));      // 执行
+      canvas.addNode(makeRecord(1, 'shell')); // 执行
       canvas.addNode(makeRecord(2, 'http_request')); // 网络
 
       const output = canvas.toMermaid();
@@ -354,11 +354,7 @@ describe('MermaidCanvas', () => {
 
       const all = canvas.getAllNodes();
       expect(all).toHaveLength(3);
-      expect(all.map((n: MermaidNode) => n.id)).toEqual([
-        'node-001',
-        'node-002',
-        'node-003',
-      ]);
+      expect(all.map((n: MermaidNode) => n.id)).toEqual(['node-001', 'node-002', 'node-003']);
     });
   });
 

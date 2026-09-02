@@ -42,8 +42,22 @@ interface SelectProps {
  * no focus rings.
  */
 const Select = forwardRef(function Select(
-  { label, error, dense = false, compact = false, options, groups, value, onChange, disabled, placeholder, id, name, className = '' }: SelectProps,
-  ref: Ref<HTMLButtonElement>
+  {
+    label,
+    error,
+    dense = false,
+    compact = false,
+    options,
+    groups,
+    value,
+    onChange,
+    disabled,
+    placeholder,
+    id,
+    name,
+    className = '',
+  }: SelectProps,
+  ref: Ref<HTMLButtonElement>,
 ) {
   const selectId = id || label?.toLowerCase().replace(/\s+/g, '-');
   const [open, setOpen] = useState(false);
@@ -57,8 +71,8 @@ const Select = forwardRef(function Select(
     else if (ref) (ref as { current: HTMLButtonElement | null }).current = node;
   };
 
-  const flat: SelectOption[] = groups ? groups.flatMap(g => g.options) : (options ?? []);
-  const selected = flat.find(o => o.value === value);
+  const flat: SelectOption[] = groups ? groups.flatMap((g) => g.options) : (options ?? []);
+  const selected = flat.find((o) => o.value === value);
 
   // Close on outside click / Escape handled via keydown below
   useEffect(() => {
@@ -73,14 +87,12 @@ const Select = forwardRef(function Select(
   // Keep the highlighted option visible while navigating
   useEffect(() => {
     if (!open || active < 0) return;
-    listRef.current
-      ?.querySelector(`[data-idx="${active}"]`)
-      ?.scrollIntoView({ block: 'nearest' });
+    listRef.current?.querySelector(`[data-idx="${active}"]`)?.scrollIntoView({ block: 'nearest' });
   }, [open, active]);
 
   const openList = () => {
     if (disabled) return;
-    const idx = flat.findIndex(o => o.value === value);
+    const idx = flat.findIndex((o) => o.value === value);
     setActive(idx >= 0 ? idx : 0);
     setOpen(true);
   };
@@ -111,25 +123,42 @@ const Select = forwardRef(function Select(
       }
       return;
     }
-    if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
-    else if (e.key === 'Home') { e.preventDefault(); setActive(flat.findIndex(o => !o.disabled)); }
-    else if (e.key === 'End') { e.preventDefault(); setActive(flat.length - 1 - [...flat].reverse().findIndex(o => !o.disabled)); }
-    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (flat[active]) pick(flat[active]); }
-    else if (e.key === 'Escape') { e.preventDefault(); setOpen(false); buttonRef.current?.focus(); }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      move(1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      move(-1);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      setActive(flat.findIndex((o) => !o.disabled));
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      setActive(flat.length - 1 - [...flat].reverse().findIndex((o) => !o.disabled));
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      if (flat[active]) pick(flat[active]);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setOpen(false);
+      buttonRef.current?.focus();
+    }
   };
 
   const triggerPad = compact ? 'px-2.5' : 'px-3';
-  const triggerHeight = compact
-    ? 'h-8 text-xs'
-    : dense
-      ? 'py-2 sm:py-1.5'
-      : 'py-2.5';
+  const triggerHeight = compact ? 'h-8 text-xs' : dense ? 'py-2 sm:py-1.5' : 'py-2.5';
 
   return (
-    <div ref={rootRef} className={`relative flex flex-col ${dense ? 'gap-1.5 sm:gap-1' : 'gap-1.5'} ${className}`} onKeyDown={onKeyDown}>
+    <div
+      ref={rootRef}
+      className={`relative flex flex-col ${dense ? 'gap-1.5 sm:gap-1' : 'gap-1.5'} ${className}`}
+      onKeyDown={onKeyDown}
+    >
       {label && (
-        <label htmlFor={selectId} className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300">
+        <label
+          htmlFor={selectId}
+          className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300"
+        >
           {label}
         </label>
       )}
@@ -149,8 +178,13 @@ const Select = forwardRef(function Select(
             : 'border-neutral-300 bg-white text-neutral-900 hover:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-100 dark:hover:border-neutral-600'
         }`}
       >
-        <span className="min-w-0 flex-1 truncate">{selected ? selected.label : placeholder || ''}</span>
-        <ChevronDown size={compact ? 13 : 14} className={`shrink-0 text-neutral-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <span className="min-w-0 flex-1 truncate">
+          {selected ? selected.label : placeholder || ''}
+        </span>
+        <ChevronDown
+          size={compact ? 13 : 14}
+          className={`shrink-0 text-neutral-400 transition-transform ${open ? 'rotate-180' : ''}`}
+        />
       </button>
 
       {open && (
@@ -160,18 +194,34 @@ const Select = forwardRef(function Select(
           className="absolute z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-neutral-200 bg-white py-1 shadow-lg dark:border-neutral-800 dark:bg-neutral-800"
         >
           {groups
-            ? groups.map(g => (
+            ? groups.map((g) => (
                 <div key={g.label}>
                   <div className="px-3 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
                     {g.label}
                   </div>
-                  {g.options.map(opt => (
-                    <OptionRow key={opt.value} opt={opt} active={flat[active] === opt} selected={opt.value === value} onPick={pick} setActive={setActive} idx={flat.indexOf(opt)} />
+                  {g.options.map((opt) => (
+                    <OptionRow
+                      key={opt.value}
+                      opt={opt}
+                      active={flat[active] === opt}
+                      selected={opt.value === value}
+                      onPick={pick}
+                      setActive={setActive}
+                      idx={flat.indexOf(opt)}
+                    />
                   ))}
                 </div>
               ))
-            : options?.map(opt => (
-                <OptionRow key={opt.value} opt={opt} active={flat[active] === opt} selected={opt.value === value} onPick={pick} setActive={setActive} idx={flat.indexOf(opt)} />
+            : options?.map((opt) => (
+                <OptionRow
+                  key={opt.value}
+                  opt={opt}
+                  active={flat[active] === opt}
+                  selected={opt.value === value}
+                  onPick={pick}
+                  setActive={setActive}
+                  idx={flat.indexOf(opt)}
+                />
               ))}
         </div>
       )}

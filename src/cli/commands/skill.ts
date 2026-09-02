@@ -160,8 +160,15 @@ async function lintSkill(id: string): Promise<void> {
   }
 
   // Structured sections check
-  const sections = ['MUST DO', 'SHOULD DO', 'WHEN', 'Output Format', 'Verification Checklist', 'Examples'];
-  const missing = sections.filter(s => !new RegExp(`##\\s+${s}`, 'i').test(body));
+  const sections = [
+    'MUST DO',
+    'SHOULD DO',
+    'WHEN',
+    'Output Format',
+    'Verification Checklist',
+    'Examples',
+  ];
+  const missing = sections.filter((s) => !new RegExp(`##\\s+${s}`, 'i').test(body));
   if (missing.length > 0) {
     issues.push(`ℹ️  缺少推荐章节: ${missing.join(', ')}`);
   }
@@ -192,7 +199,7 @@ async function testSkill(id: string, message: string): Promise<void> {
     for (const line of fmText.split('\n')) {
       const m = line.match(/^triggers:\s*(.+)$/);
       if (m) {
-        triggers = m[1]!.split(/[,，]/).map(s => s.trim().replace(/^"(.*)"$/, '$1'));
+        triggers = m[1]!.split(/[,，]/).map((s) => s.trim().replace(/^"(.*)"$/, '$1'));
         break;
       }
     }

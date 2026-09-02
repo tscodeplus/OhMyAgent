@@ -82,7 +82,8 @@ export class ExtensionLoader {
     if (typeof m.id !== 'string' || !m.id) return null;
     if (typeof m.name !== 'string' || !m.name) return null;
     if (typeof m.version !== 'string' || !m.version) return null;
-    if (typeof m.kind !== 'string' || !['tool', 'channel', 'command', 'hook'].includes(m.kind)) return null;
+    if (typeof m.kind !== 'string' || !['tool', 'channel', 'command', 'hook'].includes(m.kind))
+      return null;
     return {
       id: m.id,
       name: m.name,

@@ -46,6 +46,9 @@ export function registerChannelRoutes(app: FastifyInstance, cfg: ChannelRouteCon
   app.post('/api/channels/:name/restart', async (request, reply) => {
     const { name } = request.params as { name: string };
     // This is a placeholder — full channel restart would need to wire into ChannelManager
-    return reply.send({ ok: true, message: `Channel ${name} restart requested (hot reload may apply)` });
+    return reply.send({
+      ok: true,
+      message: `Channel ${name} restart requested (hot reload may apply)`,
+    });
   });
 }

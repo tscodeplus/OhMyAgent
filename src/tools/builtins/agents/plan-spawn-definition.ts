@@ -20,8 +20,7 @@ import type { PlanAndSpawnInput } from '../../../orchestrator/dag-types.js';
 
 const PlanAndSpawnParams = Type.Object({
   task: Type.String({
-    description:
-      'Main task description. Used as title for the result summary.',
+    description: 'Main task description. Used as title for the result summary.',
   }),
   subtasks: Type.Array(
     Type.Object({
@@ -46,13 +45,10 @@ const PlanAndSpawnParams = Type.Object({
       ),
     }),
   ),
-  strategy: Type.Union(
-    [Type.Literal('parallel'), Type.Literal('sequential')],
-    {
-      description:
-        'Execution strategy: "parallel" = independent subtasks run concurrently by topological level; "sequential" = run one at a time in order. Use "parallel" when subtasks are independent.',
-    },
-  ),
+  strategy: Type.Union([Type.Literal('parallel'), Type.Literal('sequential')], {
+    description:
+      'Execution strategy: "parallel" = independent subtasks run concurrently by topological level; "sequential" = run one at a time in order. Use "parallel" when subtasks are independent.',
+  }),
   maxConcurrency: Type.Optional(
     Type.Number({
       description:

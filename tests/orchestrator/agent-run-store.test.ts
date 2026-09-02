@@ -78,7 +78,11 @@ describe('InMemoryAgentRunStore', () => {
     store.update(run.agentId, { status: 'running', startedAt: Date.now() });
     expect(store.get(run.agentId)!.status).toBe('running');
 
-    store.update(run.agentId, { status: 'completed', finishedAt: Date.now(), statusDetail: 'done' });
+    store.update(run.agentId, {
+      status: 'completed',
+      finishedAt: Date.now(),
+      statusDetail: 'done',
+    });
     const final = store.get(run.agentId)!;
     expect(final.status).toBe('completed');
     expect(final.statusDetail).toBe('done');
@@ -101,9 +105,25 @@ describe('InMemoryAgentRunStore', () => {
   it('listByParent returns only children of the given parent', () => {
     const store = new InMemoryAgentRunStore();
     store.create(makeInput({ agentId: 'parent-1', rootSessionId: 's' }));
-    store.create(makeInput({ agentId: 'child-1', parentAgentId: 'parent-1', role: 'child', rootSessionId: 's' }));
-    store.create(makeInput({ agentId: 'child-2', parentAgentId: 'parent-1', role: 'child', rootSessionId: 's' }));
-    store.create(makeInput({ agentId: 'other', parentAgentId: 'parent-2', role: 'child', rootSessionId: 's' }));
+    store.create(
+      makeInput({
+        agentId: 'child-1',
+        parentAgentId: 'parent-1',
+        role: 'child',
+        rootSessionId: 's',
+      }),
+    );
+    store.create(
+      makeInput({
+        agentId: 'child-2',
+        parentAgentId: 'parent-1',
+        role: 'child',
+        rootSessionId: 's',
+      }),
+    );
+    store.create(
+      makeInput({ agentId: 'other', parentAgentId: 'parent-2', role: 'child', rootSessionId: 's' }),
+    );
 
     expect(store.listByParent('parent-1')).toHaveLength(2);
     expect(store.listByParent('parent-2')).toHaveLength(1);

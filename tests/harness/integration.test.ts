@@ -139,10 +139,7 @@ describe('FailureDetector', () => {
   });
 
   it('should NOT trigger with only 2 identical failures', () => {
-    const toolCalls = [
-      makeToolCall('shell', true, 1),
-      makeToolCall('shell', true, 2),
-    ];
+    const toolCalls = [makeToolCall('shell', true, 1), makeToolCall('shell', true, 2)];
     const ctx: FailureContext = {
       sessionId: 's1',
       taskMessage: 'test',
@@ -157,10 +154,7 @@ describe('FailureDetector', () => {
   });
 
   it('should detect dependency_not_checked with 2+ consecutive not-found errors', () => {
-    const toolCalls = [
-      makeToolCall('shell', true, 1),
-      makeToolCall('shell', true, 2),
-    ];
+    const toolCalls = [makeToolCall('shell', true, 1), makeToolCall('shell', true, 2)];
     toolCalls[0]!.errorMessage = 'adb: command not found';
     toolCalls[1]!.errorMessage = 'adb: command not found';
     const ctx: FailureContext = {
@@ -184,10 +178,7 @@ describe('FailureDetector', () => {
   it('should NOT misdetect permission-denied errors as dependency_not_checked', () => {
     // Two consecutive non-dependency errors: below both the dependency (2) and
     // cascade (3) thresholds → no pattern at all.
-    const toolCalls = [
-      makeToolCall('shell', true, 1),
-      makeToolCall('shell', true, 2),
-    ];
+    const toolCalls = [makeToolCall('shell', true, 1), makeToolCall('shell', true, 2)];
     toolCalls[0]!.errorMessage = 'permission denied';
     toolCalls[1]!.errorMessage = 'permission denied';
     const ctx: FailureContext = {
@@ -269,9 +260,7 @@ describe('FailureDetector', () => {
   });
 
   it('should detect exploration_without_output', () => {
-    const toolCalls = Array.from({ length: 9 }, (_, i) =>
-      makeToolCall('file_read', false, i + 1),
-    );
+    const toolCalls = Array.from({ length: 9 }, (_, i) => makeToolCall('file_read', false, i + 1));
     const ctx: FailureContext = {
       sessionId: 's1',
       taskMessage: 'test',
@@ -351,7 +340,12 @@ describe('HarnessRateLimiter', () => {
   });
 
   it('should enforce analysis limit', () => {
-    const limiter = new HarnessRateLimiter({ cooldownMinutes: 0, maxPerHour: 2, maxPerDay: 10, maxAutoApplyPerDay: 5 });
+    const limiter = new HarnessRateLimiter({
+      cooldownMinutes: 0,
+      maxPerHour: 2,
+      maxPerDay: 10,
+      maxAutoApplyPerDay: 5,
+    });
     // First 2 should succeed (no cooldown)
     expect(limiter.canTrigger('skill-a', 'agent-1', 'identical_retry_loop')).toBe(true);
     expect(limiter.canTrigger('skill-b', 'agent-1', 'tool_error_cascade')).toBe(true);
@@ -425,9 +419,7 @@ describe('EditableSurfaceProvider', () => {
         makeToolCall('shell', true, 2),
         makeToolCall('shell', true, 3),
       ],
-      errors: [
-        { toolName: 'shell', message: 'err', timestamp: 1 },
-      ],
+      errors: [{ toolName: 'shell', message: 'err', timestamp: 1 }],
       durationMs: 1000,
       terminatedEarly: false,
       agentEndReason: 'complete',
@@ -579,11 +571,17 @@ describe('AutoApplyMonitor', () => {
   });
 
   it('should register a monitor with watch()', () => {
-    monitor.watch('prop-1', 'skill-a', null, {
-      satisfactionThreshold: 0.6,
-      observationWindow: 10,
-      errorRateMultiplier: 2.0,
-    }, 'abc123');
+    monitor.watch(
+      'prop-1',
+      'skill-a',
+      null,
+      {
+        satisfactionThreshold: 0.6,
+        observationWindow: 10,
+        errorRateMultiplier: 2.0,
+      },
+      'abc123',
+    );
 
     const active = monitor.getActiveMonitors();
     expect(active.length).toBe(1);
@@ -615,11 +613,17 @@ describe('AutoApplyMonitor', () => {
   });
 
   it('should match monitor by agentId', () => {
-    monitor.watch('prop-2', null, 'agent-1', {
-      satisfactionThreshold: 0.6,
-      observationWindow: 5,
-      errorRateMultiplier: 2.0,
-    }, 'def456');
+    monitor.watch(
+      'prop-2',
+      null,
+      'agent-1',
+      {
+        satisfactionThreshold: 0.6,
+        observationWindow: 5,
+        errorRateMultiplier: 2.0,
+      },
+      'def456',
+    );
 
     monitor.onActivationComplete(null, 'agent-1', {
       success: true,
@@ -639,8 +643,8 @@ describe('SkillEditor', () => {
 
   beforeEach(() => {
     // The resolver is the allow-list: only registered surface ids map to paths.
-    editor = new SkillEditor(
-      (id) => (id === 'skill:test-skill:prompt' ? '/tmp/test-skill/SKILL.md' : undefined),
+    editor = new SkillEditor((id) =>
+      id === 'skill:test-skill:prompt' ? '/tmp/test-skill/SKILL.md' : undefined,
     );
   });
 
@@ -688,8 +692,8 @@ describe('SkillEditor', () => {
   });
 
   it('should fail apply when a registered surface points at a non-existent file', async () => {
-    const missingEditor = new SkillEditor(
-      (id) => (id === 'skill:missing:prompt' ? '/nonexistent/path/file.txt' : undefined),
+    const missingEditor = new SkillEditor((id) =>
+      id === 'skill:missing:prompt' ? '/nonexistent/path/file.txt' : undefined,
     );
     const proposal = makeProposal({
       diff: { surface: 'skill:missing:prompt', before: 'old', after: 'new' },
@@ -706,14 +710,16 @@ describe('HarnessOptimizer', () => {
   it('should return null for low confidence diagnosis', async () => {
     const surfaceProvider = new EditableSurfaceProvider();
     // Mock LLM that returns low confidence diagnosis
-    const mockLLM = vi.fn().mockResolvedValue(JSON.stringify({
-      terminal_cause: 'test_error',
-      criticality: 'friction',
-      agent_mechanism: 'prompt_instruction',
-      reasoning: 'Test reasoning',
-      recommended_surface: 'global:execution_instruction',
-      confidence: 0.3,
-    }));
+    const mockLLM = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        terminal_cause: 'test_error',
+        criticality: 'friction',
+        agent_mechanism: 'prompt_instruction',
+        reasoning: 'Test reasoning',
+        recommended_surface: 'global:execution_instruction',
+        confidence: 0.3,
+      }),
+    );
     const optimizer = new HarnessOptimizer(
       { model: 'default', maxEditsPerProposal: 5, minConfidence: 0.5, allowedMechanisms: [] },
       surfaceProvider,

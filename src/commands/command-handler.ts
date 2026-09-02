@@ -12,7 +12,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { load as parseYaml, dump as dumpYaml } from 'js-yaml';
 
 const VALID_MODES = ['bypass', 'permissive', 'balanced', 'safe'] as const;
-type PolicyMode = typeof VALID_MODES[number];
+type PolicyMode = (typeof VALID_MODES)[number];
 
 export interface CommandDeps {
   agentService: {
@@ -42,11 +42,24 @@ export interface CommandDeps {
     reload(): Promise<number>;
   };
   cronService?: {
-    list(): Array<{ id: string; name: string; scheduleText: string; nextRunAt: number | null; enabled: boolean; state: string; lastStatus: string | null; lastRunAt: number | null; prompt: string; endAt?: number }>;
+    list(): Array<{
+      id: string;
+      name: string;
+      scheduleText: string;
+      nextRunAt: number | null;
+      enabled: boolean;
+      state: string;
+      lastStatus: string | null;
+      lastRunAt: number | null;
+      prompt: string;
+      endAt?: number;
+    }>;
     remove(id: string): boolean;
     pause(id: string): boolean;
     resume(id: string): boolean;
-    runOnce(id: string): Promise<{ status: string; output: string; durationMs: number; error?: string }>;
+    runOnce(
+      id: string,
+    ): Promise<{ status: string; output: string; durationMs: number; error?: string }>;
   };
   feishuClient?: {
     createCard(cardData: Record<string, unknown>): Promise<string>;
@@ -59,7 +72,10 @@ export interface CommandDeps {
   };
   /** V2: optional ExtensionManager for /extension command. */
   extensionManager?: {
-    list(): Array<{ manifest: { id: string; name: string; version: string; kind: string }; status: string }>;
+    list(): Array<{
+      manifest: { id: string; name: string; version: string; kind: string };
+      status: string;
+    }>;
   };
   /** Path to config.yaml for slash commands that modify config (e.g. /permission). */
   configPath?: string;
@@ -204,7 +220,11 @@ async function handleSkill(args: string, deps: CommandDeps): Promise<CommandResu
       const count = await deps.skillRegistry.reload();
       return { reply: i18n.t('commands:skill.reloaded', { count }) };
     } catch (err) {
-      return { reply: i18n.t('commands:skill.reloadFailed', { error: err instanceof Error ? err.message : String(err) }) };
+      return {
+        reply: i18n.t('commands:skill.reloadFailed', {
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      };
     }
   }
 
@@ -233,11 +253,20 @@ async function handleSkill(args: string, deps: CommandDeps): Promise<CommandResu
   }
 
   return {
-    reply: i18n.t('commands:skill.info', { command: `$${skill.manifest.id} 或 /skill:${skill.manifest.id}`, name: skill.manifest.name, desc: skill.manifest.description }),
+    reply: i18n.t('commands:skill.info', {
+      command: `$${skill.manifest.id} 或 /skill:${skill.manifest.id}`,
+      name: skill.manifest.name,
+      desc: skill.manifest.description,
+    }),
   };
 }
 
-function handleSteer(sessionKey: string, args: string, deps: CommandDeps, messageId?: string): CommandResult {
+function handleSteer(
+  sessionKey: string,
+  args: string,
+  deps: CommandDeps,
+  messageId?: string,
+): CommandResult {
   if (!args) return {};
   if (!deps.agentService.isRunning(sessionKey)) {
     // No running agent — start a new turn with the message instead
@@ -247,19 +276,33 @@ function handleSteer(sessionKey: string, args: string, deps: CommandDeps, messag
   return { steered: true };
 }
 
-async function handleQueue(sessionKey: string, args: string, deps: CommandDeps, messageId?: string): Promise<CommandResult> {
+async function handleQueue(
+  sessionKey: string,
+  args: string,
+  deps: CommandDeps,
+  messageId?: string,
+): Promise<CommandResult> {
   if (!args) return {};
   // Always route through forwardText — ChatQueue serializes per-session
   return { forwardText: args };
 }
 
-async function handleBtw(sessionKey: string, args: string, deps: CommandDeps, messageId?: string): Promise<CommandResult> {
+async function handleBtw(
+  sessionKey: string,
+  args: string,
+  deps: CommandDeps,
+  messageId?: string,
+): Promise<CommandResult> {
   if (!args) return {};
   void deps.agentService.followUp(sessionKey, args, messageId);
   return {};
 }
 
-async function handleCron(args: string, deps: CommandDeps, chatId?: string): Promise<CommandResult> {
+async function handleCron(
+  args: string,
+  deps: CommandDeps,
+  chatId?: string,
+): Promise<CommandResult> {
   if (!deps.cronService) {
     return { reply: i18n.t('commands:cron.notEnabled') };
   }
@@ -274,14 +317,22 @@ async function handleCron(args: string, deps: CommandDeps, chatId?: string): Pro
       if (jobs.length === 0) {
         return { reply: i18n.t('commands:cron.noJobs') };
       }
-      const lines = jobs.map(j => {
+      const lines = jobs.map((j) => {
         const status = j.enabled ? '▶' : '⏸';
         const locale = i18n.locale;
-        const next = j.nextRunAt ? new Date(j.nextRunAt).toLocaleString(locale) : i18n.t('commands:cron.completed');
-        const last = j.lastRunAt ? new Date(j.lastRunAt).toLocaleString(locale) : i18n.t('commands:cron.notExecuted');
-        const end = j.endAt ? ` | ${i18n.t('commands:cron.fieldEnd')} ${new Date(j.endAt).toLocaleString(locale)}` : '';
+        const next = j.nextRunAt
+          ? new Date(j.nextRunAt).toLocaleString(locale)
+          : i18n.t('commands:cron.completed');
+        const last = j.lastRunAt
+          ? new Date(j.lastRunAt).toLocaleString(locale)
+          : i18n.t('commands:cron.notExecuted');
+        const end = j.endAt
+          ? ` | ${i18n.t('commands:cron.fieldEnd')} ${new Date(j.endAt).toLocaleString(locale)}`
+          : '';
         const stateLabel = i18n.t(`commands:cron.state.${j.state}`);
-        const lastStatusLabel = j.lastStatus ? i18n.t(`commands:cron.runStatus.${j.lastStatus}`) : i18n.t('commands:cron.na');
+        const lastStatusLabel = j.lastStatus
+          ? i18n.t(`commands:cron.runStatus.${j.lastStatus}`)
+          : i18n.t('commands:cron.na');
         return [
           `${status} \`${j.id}\` ${j.name}`,
           `  ${i18n.t('commands:cron.fieldSchedule')} ${j.scheduleText} | ${i18n.t('commands:cron.fieldNext')} ${next}${end}`,
@@ -289,25 +340,40 @@ async function handleCron(args: string, deps: CommandDeps, chatId?: string): Pro
           `  ${i18n.t('commands:cron.fieldPrompt')} ${j.prompt.slice(0, 80)}${j.prompt.length > 80 ? '...' : ''}`,
         ].join('\n');
       });
-      return { reply: i18n.t('commands:cron.listHeader', { count: jobs.length }) + '\n\n' + lines.join('\n\n') };
+      return {
+        reply:
+          i18n.t('commands:cron.listHeader', { count: jobs.length }) + '\n\n' + lines.join('\n\n'),
+      };
     }
 
     case 'remove': {
       if (!rest) return { reply: i18n.t('commands:cron.removeUsage') };
       const ok = deps.cronService.remove(rest);
-      return { reply: ok ? i18n.t('commands:cron.removed', { id: rest }) : i18n.t('commands:cron.notFound', { id: rest }) };
+      return {
+        reply: ok
+          ? i18n.t('commands:cron.removed', { id: rest })
+          : i18n.t('commands:cron.notFound', { id: rest }),
+      };
     }
 
     case 'pause': {
       if (!rest) return { reply: i18n.t('commands:cron.pauseUsage') };
       const ok = deps.cronService.pause(rest);
-      return { reply: ok ? i18n.t('commands:cron.paused', { id: rest }) : i18n.t('commands:cron.notFound', { id: rest }) };
+      return {
+        reply: ok
+          ? i18n.t('commands:cron.paused', { id: rest })
+          : i18n.t('commands:cron.notFound', { id: rest }),
+      };
     }
 
     case 'resume': {
       if (!rest) return { reply: i18n.t('commands:cron.resumeUsage') };
       const ok = deps.cronService.resume(rest);
-      return { reply: ok ? i18n.t('commands:cron.resumed', { id: rest }) : i18n.t('commands:cron.notFound', { id: rest }) };
+      return {
+        reply: ok
+          ? i18n.t('commands:cron.resumed', { id: rest })
+          : i18n.t('commands:cron.notFound', { id: rest }),
+      };
     }
 
     case 'run': {
@@ -315,11 +381,22 @@ async function handleCron(args: string, deps: CommandDeps, chatId?: string): Pro
       try {
         const result = await deps.cronService.runOnce(rest);
         if (result.status === 'success') {
-          return { reply: i18n.t('commands:cron.ranSuccess', { id: rest, duration: result.durationMs }) };
+          return {
+            reply: i18n.t('commands:cron.ranSuccess', { id: rest, duration: result.durationMs }),
+          };
         }
-        return { reply: i18n.t('commands:cron.ranFailed', { id: rest, error: result.error ?? 'unknown error' }) };
+        return {
+          reply: i18n.t('commands:cron.ranFailed', {
+            id: rest,
+            error: result.error ?? 'unknown error',
+          }),
+        };
       } catch (err) {
-        return { reply: i18n.t('commands:cron.execFailed', { error: err instanceof Error ? err.message : String(err) }) };
+        return {
+          reply: i18n.t('commands:cron.execFailed', {
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        };
       }
     }
 
@@ -339,11 +416,16 @@ async function handleCron(args: string, deps: CommandDeps, chatId?: string): Pro
           elements: [
             { tag: 'markdown', content: i18n.t('commands:cron.testCardBody') },
             { tag: 'hr' },
-            { tag: 'markdown', content: i18n.t('commands:cron.testCardFooter'), text_size: 'notation' },
+            {
+              tag: 'markdown',
+              content: i18n.t('commands:cron.testCardFooter'),
+              text_size: 'notation',
+            },
           ],
         },
       };
-      await deps.feishuClient.createCard(cardData)
+      await deps.feishuClient
+        .createCard(cardData)
         .then((cardId: string) => deps.feishuClient!.sendCardByCardId(targetChatId, cardId));
       return { reply: i18n.t('commands:cron.testCardSent') };
     }
@@ -364,12 +446,14 @@ function handleExtensionCommand(args: string, deps: CommandDeps): CommandResult 
     return { reply: i18n.t('commands:extension.noExtensions') };
   }
 
-  const lines = extensions.map(ext => {
+  const lines = extensions.map((ext) => {
     const statusIcon = ext.status === 'loaded' ? '✅' : '❌';
     return `${statusIcon} \`${ext.manifest.id}\` — ${ext.manifest.name} v${ext.manifest.version} (${ext.manifest.kind})`;
   });
 
-  return { reply: `${i18n.t('commands:extension.loadedHeader', { count: extensions.length })}\n\n${lines.join('\n\n')}` };
+  return {
+    reply: `${i18n.t('commands:extension.loadedHeader', { count: extensions.length })}\n\n${lines.join('\n\n')}`,
+  };
 }
 
 function handleAgentCommand(args: string, sessionKey: string, deps: CommandDeps): CommandResult {
@@ -385,9 +469,7 @@ function handleAgentCommand(args: string, sessionKey: string, deps: CommandDeps)
     if (agents.length === 0) {
       return { reply: i18n.t('commands:agent.noAgents') };
     }
-    const lines = agents.map((a) =>
-      `- ${a.id} — ${a.description || a.name} (${a.model.primary})`
-    );
+    const lines = agents.map((a) => `- ${a.id} — ${a.description || a.name} (${a.model.primary})`);
     return { reply: `${i18n.t('commands:agent.available')}\n\n` + lines.join('\n\n') };
   }
 
@@ -407,7 +489,8 @@ function handleAgentCommand(args: string, sessionKey: string, deps: CommandDeps)
 
   // If there's a message after the agent ID, forward it to the agent
   return {
-    reply: i18n.t('commands:agent.switched', { name: agent.name, model: agent.model.primary }) +
+    reply:
+      i18n.t('commands:agent.switched', { name: agent.name, model: agent.model.primary }) +
       (remainingMessage ? i18n.t('commands:agent.processing') : ''),
     forwardText: remainingMessage || undefined,
   };
@@ -415,11 +498,7 @@ function handleAgentCommand(args: string, sessionKey: string, deps: CommandDeps)
 
 // ── /team command (v7) ─────────────────────────────────────────────────────────
 
-function handleTeamCommand(
-  args: string,
-  sessionId: string,
-  deps: CommandDeps,
-): CommandResult {
+function handleTeamCommand(args: string, sessionId: string, deps: CommandDeps): CommandResult {
   const arg = args.trim();
   const wasEnabled = teamModeStore.isEnabled(sessionId);
 
@@ -500,10 +579,7 @@ async function handleApprove(
 
 // ── /deny command ─────────────────────────────────────────────────────────────
 
-async function handleDeny(
-  sessionKey: string,
-  deps: CommandDeps,
-): Promise<CommandResult> {
+async function handleDeny(sessionKey: string, deps: CommandDeps): Promise<CommandResult> {
   const resolved = deps.agentService.resolveFirstPendingApproval(sessionKey, 'reject_once');
   if (!resolved) {
     return { reply: i18n.t('commands:deny.noPending') };
@@ -513,11 +589,7 @@ async function handleDeny(
 
 // ── /answer command ────────────────────────────────────────────────────────────
 
-function handleAnswer(
-  args: string,
-  sessionKey: string,
-  deps: CommandDeps,
-): CommandResult {
+function handleAnswer(args: string, sessionKey: string, deps: CommandDeps): CommandResult {
   const answer = args.trim();
   if (!answer) {
     return { reply: i18n.t('commands:answer.usage') || 'Usage: /answer <your answer>' };
@@ -536,7 +608,7 @@ function getCurrentMode(configPath?: string): PolicyMode | null {
   try {
     const raw = readFileSync(configPath, 'utf-8');
     const yaml = parseYaml(raw) as Record<string, unknown> | null;
-    const policy = (yaml?.policy as Record<string, unknown> | undefined);
+    const policy = yaml?.policy as Record<string, unknown> | undefined;
     const mode = policy?.mode;
     if (typeof mode === 'string' && (VALID_MODES as readonly string[]).includes(mode)) {
       return mode as PolicyMode;
@@ -547,7 +619,10 @@ function getCurrentMode(configPath?: string): PolicyMode | null {
   }
 }
 
-async function setMode(mode: PolicyMode, deps: CommandDeps): Promise<{ ok: boolean; message: string }> {
+async function setMode(
+  mode: PolicyMode,
+  deps: CommandDeps,
+): Promise<{ ok: boolean; message: string }> {
   const configPath = deps.configPath;
   if (!configPath) {
     return { ok: false, message: i18n.t('commands:permission.noConfigPath') };
@@ -573,7 +648,12 @@ async function setMode(mode: PolicyMode, deps: CommandDeps): Promise<{ ok: boole
 
     return { ok: true, message: i18n.t('commands:permission.switched', { mode }) };
   } catch (err) {
-    return { ok: false, message: i18n.t('commands:permission.writeFailed', { error: err instanceof Error ? err.message : String(err) }) };
+    return {
+      ok: false,
+      message: i18n.t('commands:permission.writeFailed', {
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    };
   }
 }
 
@@ -600,9 +680,9 @@ async function handlePermission(
     if (current === null) {
       return { reply: i18n.t('commands:permission.cannotRead') };
     }
-    const modes = (VALID_MODES as readonly string[]).map(m =>
-      m === current ? `▶ **${m}**` : `  ${m}`
-    ).join('\n');
+    const modes = (VALID_MODES as readonly string[])
+      .map((m) => (m === current ? `▶ **${m}**` : `  ${m}`))
+      .join('\n');
     return { reply: i18n.t('commands:permission.current', { current, modes }) };
   }
 

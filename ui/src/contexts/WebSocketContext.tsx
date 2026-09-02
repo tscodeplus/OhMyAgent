@@ -1,4 +1,12 @@
-import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  type ReactNode,
+} from 'react';
 import { getToken } from '../utils/api';
 
 interface WebSocketContextValue {
@@ -40,7 +48,10 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     const ws = new WebSocket(`${protocol}//${host}/ws?token=${encodeURIComponent(token)}`);
 
     ws.onopen = () => {
-      if (!mountedRef.current) { ws.close(); return; }
+      if (!mountedRef.current) {
+        ws.close();
+        return;
+      }
       setConnected(true);
       reconnectDelayRef.current = INITIAL_RECONNECT_DELAY;
     };
@@ -58,10 +69,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       reconnectTimerRef.current = setTimeout(() => {
         if (mountedRef.current) connect();
       }, reconnectDelayRef.current);
-      reconnectDelayRef.current = Math.min(
-        reconnectDelayRef.current * 2,
-        MAX_RECONNECT_DELAY,
-      );
+      reconnectDelayRef.current = Math.min(reconnectDelayRef.current * 2, MAX_RECONNECT_DELAY);
     };
 
     ws.onerror = () => {

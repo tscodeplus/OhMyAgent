@@ -18,7 +18,7 @@ export interface FeishuWSClientOptions {
   eventHandler: (event: any) => Promise<void>;
   /** Handler for card action callbacks (e.g., approval buttons). */
   cardActionHandler?: (action: any) => Promise<Record<string, unknown> | void>;
-  staleTimeoutMs?: number;   // default disabled
+  staleTimeoutMs?: number; // default disabled
   reconnectDelayMs?: number; // default 3000
   logger?: any;
 }
@@ -41,7 +41,12 @@ export class FeishuWSClient {
     this.staleTimeoutMs = options.staleTimeoutMs ?? 0;
     this.reconnectDelayMs = options.reconnectDelayMs ?? 3_000;
     this.eventHandler = options.eventHandler;
-    this.logger = options.logger ?? { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
+    this.logger = options.logger ?? {
+      info: () => {},
+      warn: () => {},
+      error: () => {},
+      debug: () => {},
+    };
 
     // Create EventDispatcher for handling incoming events
     this.eventDispatcher = new EventDispatcher({} as any);
@@ -51,7 +56,10 @@ export class FeishuWSClient {
     // that feishuRouter.route() expects (header.event_type + event.message/sender).
     this.eventDispatcher.register({
       'im.message.receive_v1': async (data: any) => {
-        this.logger.debug({ msgType: data?.message?.message_type, msgId: data?.message?.message_id }, '[ws] received event');
+        this.logger.debug(
+          { msgType: data?.message?.message_type, msgId: data?.message?.message_id },
+          '[ws] received event',
+        );
         this.resetStaleTimer();
 
         const msg = data.message ?? {};

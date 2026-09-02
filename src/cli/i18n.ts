@@ -19,9 +19,13 @@ try {
     try {
       messages = JSON.parse(readFileSync(p, 'utf-8'));
       break;
-    } catch { /* try next path */ }
+    } catch {
+      /* try next path */
+    }
   }
-} catch { /* fall back to empty messages */ }
+} catch {
+  /* fall back to empty messages */
+}
 
 export function t(key: string, vars?: Record<string, string | number>): string {
   let msg = messages[key] || key;

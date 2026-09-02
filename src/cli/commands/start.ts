@@ -3,24 +3,48 @@ import { existsSync, writeFileSync, unlinkSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { PROJECT_DIR, DIST_INDEX, PID_FILE, LOG_FILE, LOG_DIR, PORT } from '../config.js';
-import { isProcessAlive, readPidFile, checkPortInUse, checkHealthEndpoint, quickPreflight, sleep } from '../utils.js';
+import {
+  isProcessAlive,
+  readPidFile,
+  checkPortInUse,
+  checkHealthEndpoint,
+  quickPreflight,
+  sleep,
+} from '../utils.js';
 import { t } from '../i18n.js';
 
 function killTmuxSession(): void {
   try {
     execSync('tmux kill-session -t ohmyagent 2>/dev/null', { stdio: 'ignore' });
-  } catch { /* not running or tmux not installed */ }
+  } catch {
+    /* not running or tmux not installed */
+  }
 }
 
 function startViaService(): boolean {
   // macOS launchd
-  try { execSync(`launchctl load ${join(homedir(), 'Library', 'LaunchAgents', 'com.ohmyagent.plist')} 2>/dev/null`, { stdio: 'ignore' }); return true; } catch {}
+  try {
+    execSync(
+      `launchctl load ${join(homedir(), 'Library', 'LaunchAgents', 'com.ohmyagent.plist')} 2>/dev/null`,
+      { stdio: 'ignore' },
+    );
+    return true;
+  } catch {}
   // Linux systemd
-  try { execSync('systemctl --user start ohmyagent 2>/dev/null', { stdio: 'ignore' }); return true; } catch {}
+  try {
+    execSync('systemctl --user start ohmyagent 2>/dev/null', { stdio: 'ignore' });
+    return true;
+  } catch {}
   // Windows Task Scheduler
-  try { execSync('schtasks /Run /TN "OhMyAgent" 2>nul', { stdio: 'ignore' }); return true; } catch {}
+  try {
+    execSync('schtasks /Run /TN "OhMyAgent" 2>nul', { stdio: 'ignore' });
+    return true;
+  } catch {}
   // Termux runit
-  try { execSync('sv up ohmyagent 2>/dev/null', { stdio: 'ignore' }); return true; } catch {}
+  try {
+    execSync('sv up ohmyagent 2>/dev/null', { stdio: 'ignore' });
+    return true;
+  } catch {}
   return false;
 }
 
@@ -33,16 +57,36 @@ function hasServiceInstalled(): boolean {
     // should use launchctl load to start it.
     const plistFile = join(homedir(), 'Library', 'LaunchAgents', 'com.ohmyagent.plist');
     if (existsSync(plistFile)) return true;
-    try { execSync('launchctl list com.ohmyagent 2>/dev/null', { stdio: 'ignore' }); return true; } catch { return false; }
+    try {
+      execSync('launchctl list com.ohmyagent 2>/dev/null', { stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
   }
   if (isTermux) {
-    try { execSync('sv status ohmyagent 2>/dev/null', { stdio: 'ignore' }); return true; } catch { return false; }
+    try {
+      execSync('sv status ohmyagent 2>/dev/null', { stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
   }
   if (platform === 'linux') {
-    try { execSync('systemctl --user is-enabled ohmyagent 2>/dev/null', { stdio: 'ignore' }); return true; } catch { return false; }
+    try {
+      execSync('systemctl --user is-enabled ohmyagent 2>/dev/null', { stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
   }
   if (platform === 'win32') {
-    try { execSync('schtasks /Query /TN "OhMyAgent" 2>nul', { stdio: 'ignore' }); return true; } catch { return false; }
+    try {
+      execSync('schtasks /Query /TN "OhMyAgent" 2>nul', { stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
   }
   return false;
 }

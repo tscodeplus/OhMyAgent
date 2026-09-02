@@ -11,7 +11,10 @@ const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
     return (
       <div className="flex flex-col gap-1.5">
         {label && (
-          <label htmlFor={textareaId} className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300">
+          <label
+            htmlFor={textareaId}
+            className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300"
+          >
             {label}
           </label>
         )}
@@ -24,7 +27,7 @@ const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
         {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
       </div>
     );
-  }
+  },
 );
 Textarea.displayName = 'Textarea';
 export default Textarea;

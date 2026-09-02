@@ -26,8 +26,12 @@ export const globCapability: ToolCapabilityDescriptor = {
 
 const paramsSchema = Type.Object({
   pattern: Type.String({ description: 'Glob pattern to match files(supports **, *, ?, [abc])' }),
-  cwd: Type.Optional(Type.String({ description: 'Working directory(defaults to current working directory)' })),
-  maxResults: Type.Optional(Type.Number({ description: 'Maximum number of results (default 500)' })),
+  cwd: Type.Optional(
+    Type.String({ description: 'Working directory(defaults to current working directory)' }),
+  ),
+  maxResults: Type.Optional(
+    Type.Number({ description: 'Maximum number of results (default 500)' }),
+  ),
 });
 
 type GlobArgs = Static<typeof paramsSchema>;
@@ -36,8 +40,7 @@ export function createGlobToolDefinition(): ToolDefinition<GlobArgs> {
   return {
     name: 'glob',
     label: 'Glob',
-    description:
-      'Search files by glob pattern. Supports **, *, ?, and character classes.',
+    description: 'Search files by glob pattern. Supports **, *, ?, and character classes.',
     category: 'file',
     parametersSchema: paramsSchema,
     capability: globCapability,

@@ -69,9 +69,7 @@ export class SkillComplianceTracker {
     const violations = this.findViolations(skillId, toolCalls, skill);
 
     // Select the appropriate violation store
-    const store = sessionId
-      ? this.getSessionStore(sessionId)
-      : this.violations;
+    const store = sessionId ? this.getSessionStore(sessionId) : this.violations;
 
     const prevCount = store.get(skillId) ?? 0;
 
@@ -158,23 +156,25 @@ export class SkillComplianceTracker {
     if (mustSection) {
       const mustRules = mustSection[1]!
         .split('\n')
-        .filter(line => /^[-*]\s+/.test(line.trim()))
-        .map(line => line.replace(/^[-*]\s+/, '').trim())
+        .filter((line) => /^[-*]\s+/.test(line.trim()))
+        .map((line) => line.replace(/^[-*]\s+/, '').trim())
         .filter(Boolean);
 
       for (const rule of mustRules) {
         // Skip prohibitions and negation rules (不要/禁止/never/do not/don't/avoid)
-        if (/不要|禁止|不得|不能|never|do\s*not|don'?t|avoid|禁止|must\s*not|should\s*not/i.test(rule)) {
+        if (
+          /不要|禁止|不得|不能|never|do\s*not|don'?t|avoid|禁止|must\s*not|should\s*not/i.test(rule)
+        ) {
           continue;
         }
         // Check if the rule mentions a tool that must be used
-        const toolMention = rule.match(/使用\s*(?:`)?(\w+)(?:`)?|use\s*(?:`)?(\w+)(?:`)?|call\s*(?:`)?(\w+)(?:`)?/i);
+        const toolMention = rule.match(
+          /使用\s*(?:`)?(\w+)(?:`)?|use\s*(?:`)?(\w+)(?:`)?|call\s*(?:`)?(\w+)(?:`)?/i,
+        );
         if (toolMention) {
           const requiredTool = (toolMention[1] || toolMention[2] || toolMention[3])?.toLowerCase();
           if (requiredTool) {
-            const wasCalled = toolCalls.some(
-              tc => tc.name.toLowerCase() === requiredTool,
-            );
+            const wasCalled = toolCalls.some((tc) => tc.name.toLowerCase() === requiredTool);
             if (!wasCalled) {
               violations.push({
                 rule: 'must-tool-not-called',
@@ -212,7 +212,9 @@ export class SkillComplianceTracker {
     const lines: string[] = [];
     lines.push(`⚠️ **Skill Compliance Warning** (${count} consecutive violations)`);
     lines.push('');
-    lines.push(`The skill **${skill.manifest.name}** ($${skillId}) has been violated ${count} times in a row.`);
+    lines.push(
+      `The skill **${skill.manifest.name}** ($${skillId}) has been violated ${count} times in a row.`,
+    );
     lines.push('');
     lines.push('Violations this turn:');
     for (const v of violations) {
@@ -221,7 +223,9 @@ export class SkillComplianceTracker {
     }
     lines.push('');
     lines.push('Please re-read the skill rules above and ensure compliance in the next turn.');
-    lines.push('If the skill rules are outdated, use `skill_lint` to review and `skill_create` to update.');
+    lines.push(
+      'If the skill rules are outdated, use `skill_lint` to review and `skill_create` to update.',
+    );
 
     return lines.join('\n');
   }

@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { Shield, Check, Star, X } from 'lucide-react';
 import Button from '../ui/Button';
 
-export type ApprovalDecision = 'approve_once' | 'approve_session' | 'approve_always' | 'reject_once';
+export type ApprovalDecision =
+  'approve_once' | 'approve_session' | 'approve_always' | 'reject_once';
 
 interface ApprovalCardProps {
   approvalId: string;
@@ -26,10 +27,16 @@ const riskColors: Record<string, string> = {
 };
 
 const decisionLabels: Record<ApprovalDecision, { icon: ReactNode; text: string }> = {
-  approve_once:    { icon: <Check size={14} className="text-green-500" />, text: 'chat.approveOnce' },
-  approve_session: { icon: <Check size={14} className="text-green-500" />, text: 'chat.approveSession' },
-  approve_always:  { icon: <Star size={14} className="text-yellow-500" />, text: 'chat.alwaysAllow' },
-  reject_once:     { icon: <X size={14} className="text-red-500" />,    text: 'chat.reject' },
+  approve_once: { icon: <Check size={14} className="text-green-500" />, text: 'chat.approveOnce' },
+  approve_session: {
+    icon: <Check size={14} className="text-green-500" />,
+    text: 'chat.approveSession',
+  },
+  approve_always: {
+    icon: <Star size={14} className="text-yellow-500" />,
+    text: 'chat.alwaysAllow',
+  },
+  reject_once: { icon: <X size={14} className="text-red-500" />, text: 'chat.reject' },
 };
 
 export default function ApprovalCard({
@@ -49,7 +56,10 @@ export default function ApprovalCard({
   // Derive effective status: initialStatus from props (SSE / page refresh)
   // takes precedence over local state set by button clicks. This ensures
   // approval_resolved SSE events update the card immediately.
-  const status = (initialStatus && initialStatus !== 'pending') ? initialStatus : (localStatus || initialStatus || 'pending');
+  const status =
+    initialStatus && initialStatus !== 'pending'
+      ? initialStatus
+      : localStatus || initialStatus || 'pending';
 
   const handleResolve = (decision: ApprovalDecision) => {
     if (decision.startsWith('approve')) {
@@ -62,12 +72,14 @@ export default function ApprovalCard({
 
   if (status !== 'pending') {
     const rejectedLabel = timeoutReason
-      ? (timeoutReason === 'steered'
-          ? t('chat.steeredRejected', '收到新消息，自动拒绝未审批项')
-          : t('chat.timeoutRejected', '超时已自动拒绝'))
+      ? timeoutReason === 'steered'
+        ? t('chat.steeredRejected', '收到新消息，自动拒绝未审批项')
+        : t('chat.timeoutRejected', '超时已自动拒绝')
       : t('chat.rejected');
     return (
-      <div className={`rounded-lg border px-4 py-3 text-sm ${status === 'approved' ? 'bg-success/10 border-success/30' : 'bg-danger/10 border-danger/30'}`}>
+      <div
+        className={`rounded-lg border px-4 py-3 text-sm ${status === 'approved' ? 'bg-success/10 border-success/30' : 'bg-danger/10 border-danger/30'}`}
+      >
         {status === 'approved' ? t('chat.approved') : rejectedLabel} — {toolName}
       </div>
     );
@@ -77,14 +89,18 @@ export default function ApprovalCard({
     <div className={`rounded-lg border px-4 py-3 ${riskColors[riskLevel]}`}>
       <div className="flex items-center gap-2 mb-2">
         <Shield size={16} />
-        <span className="font-semibold text-sm">{t("chat.approvalRequest")}: {toolName}</span>
+        <span className="font-semibold text-sm">
+          {t('chat.approvalRequest')}: {toolName}
+        </span>
       </div>
       <pre className="text-xs mb-2 whitespace-pre-wrap bg-black/10 rounded px-2 py-1">
         {commandText}
       </pre>
       {reason && <p className="text-xs mb-3">{reason}</p>}
       <div className="flex flex-wrap gap-1.5 sm:gap-2">
-        {(['approve_once', 'approve_session', 'approve_always', 'reject_once'] as ApprovalDecision[]).map((decision) => (
+        {(
+          ['approve_once', 'approve_session', 'approve_always', 'reject_once'] as ApprovalDecision[]
+        ).map((decision) => (
           <Button
             key={decision}
             size="sm"

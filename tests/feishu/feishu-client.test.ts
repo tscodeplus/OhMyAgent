@@ -34,7 +34,15 @@ function mockFetchError(status: number, body: string): void {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockResponse));
 }
 
-function mockFetchSequence(responses: Array<{ ok: boolean; status?: number; body?: any; json?: () => Promise<any>; text?: () => Promise<string> }>): void {
+function mockFetchSequence(
+  responses: Array<{
+    ok: boolean;
+    status?: number;
+    body?: any;
+    json?: () => Promise<any>;
+    text?: () => Promise<string>;
+  }>,
+): void {
   const mockFn = vi.fn();
   for (const resp of responses) {
     mockFn.mockResolvedValueOnce({
@@ -78,7 +86,12 @@ describe('FeishuClient', () => {
     it('should send correct request body for token', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ code: 0, msg: 'success', tenant_access_token: 't-abc123', expire: 7200 }),
+        json: async () => ({
+          code: 0,
+          msg: 'success',
+          tenant_access_token: 't-abc123',
+          expire: 7200,
+        }),
       });
       vi.stubGlobal('fetch', fetchMock);
 
@@ -97,13 +110,17 @@ describe('FeishuClient', () => {
     it('should throw on HTTP error', async () => {
       mockFetchError(500, 'Internal Server Error');
 
-      await expect(client.getAccessToken()).rejects.toThrow('Failed to get tenant access token: 500');
+      await expect(client.getAccessToken()).rejects.toThrow(
+        'Failed to get tenant access token: 500',
+      );
     });
 
     it('should throw on non-zero API code', async () => {
       mockFetchSuccess({ code: 10003, msg: 'invalid app_id' });
 
-      await expect(client.getAccessToken()).rejects.toThrow('Token API error 10003: invalid app_id');
+      await expect(client.getAccessToken()).rejects.toThrow(
+        'Token API error 10003: invalid app_id',
+      );
     });
 
     it('should throw when token is missing from response', async () => {
@@ -115,7 +132,12 @@ describe('FeishuClient', () => {
     it('should cache token and not fetch again', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ code: 0, msg: 'success', tenant_access_token: 't-abc123', expire: 7200 }),
+        json: async () => ({
+          code: 0,
+          msg: 'success',
+          tenant_access_token: 't-abc123',
+          expire: 7200,
+        }),
       });
       vi.stubGlobal('fetch', fetchMock);
 
@@ -130,7 +152,12 @@ describe('FeishuClient', () => {
     it('should refresh token when expired', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ code: 0, msg: 'success', tenant_access_token: 't-abc123', expire: 300 }),
+        json: async () => ({
+          code: 0,
+          msg: 'success',
+          tenant_access_token: 't-abc123',
+          expire: 300,
+        }),
       });
       vi.stubGlobal('fetch', fetchMock);
 
@@ -146,7 +173,12 @@ describe('FeishuClient', () => {
       // Second call should refresh
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ code: 0, msg: 'success', tenant_access_token: 't-new-token', expire: 7200 }),
+        json: async () => ({
+          code: 0,
+          msg: 'success',
+          tenant_access_token: 't-new-token',
+          expire: 7200,
+        }),
       });
 
       const token2 = await client.getAccessToken();
@@ -159,7 +191,12 @@ describe('FeishuClient', () => {
     it('should force token refresh on next getAccessToken call', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ code: 0, msg: 'success', tenant_access_token: 't-abc123', expire: 7200 }),
+        json: async () => ({
+          code: 0,
+          msg: 'success',
+          tenant_access_token: 't-abc123',
+          expire: 7200,
+        }),
       });
       vi.stubGlobal('fetch', fetchMock);
 
@@ -192,7 +229,12 @@ describe('FeishuClient', () => {
       // First call: getAccessToken
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ code: 0, msg: 'success', tenant_access_token: 't-abc123', expire: 7200 }),
+        json: async () => ({
+          code: 0,
+          msg: 'success',
+          tenant_access_token: 't-abc123',
+          expire: 7200,
+        }),
       });
 
       const result = await client.sendMessage({
@@ -221,14 +263,24 @@ describe('FeishuClient', () => {
     it('should include uuid when provided', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ code: 0, msg: 'success', tenant_access_token: 't-abc123', expire: 7200 }),
+        json: async () => ({
+          code: 0,
+          msg: 'success',
+          tenant_access_token: 't-abc123',
+          expire: 7200,
+        }),
       });
       vi.stubGlobal('fetch', fetchMock);
 
       // getAccessToken
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ code: 0, msg: 'success', tenant_access_token: 't-abc123', expire: 7200 }),
+        json: async () => ({
+          code: 0,
+          msg: 'success',
+          tenant_access_token: 't-abc123',
+          expire: 7200,
+        }),
       });
       // sendMessage
       fetchMock.mockResolvedValueOnce({
@@ -252,13 +304,23 @@ describe('FeishuClient', () => {
     it('should throw on non-zero response code', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ code: 0, msg: 'success', tenant_access_token: 't-abc123', expire: 7200 }),
+        json: async () => ({
+          code: 0,
+          msg: 'success',
+          tenant_access_token: 't-abc123',
+          expire: 7200,
+        }),
       });
       vi.stubGlobal('fetch', fetchMock);
 
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ code: 0, msg: 'success', tenant_access_token: 't-abc123', expire: 7200 }),
+        json: async () => ({
+          code: 0,
+          msg: 'success',
+          tenant_access_token: 't-abc123',
+          expire: 7200,
+        }),
       });
       fetchMock.mockResolvedValueOnce({
         ok: true,
@@ -281,7 +343,12 @@ describe('FeishuClient', () => {
       const fetchMock = vi.fn();
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ code: 0, msg: 'success', tenant_access_token: 't-abc123', expire: 7200 }),
+        json: async () => ({
+          code: 0,
+          msg: 'success',
+          tenant_access_token: 't-abc123',
+          expire: 7200,
+        }),
       });
       fetchMock.mockResolvedValueOnce({
         ok: true,
@@ -299,7 +366,8 @@ describe('FeishuClient', () => {
 
   describe('sendCardByCardId', () => {
     it('retries when Feishu reports cardid is invalid, then succeeds', async () => {
-      const reply = vi.fn()
+      const reply = vi
+        .fn()
         .mockResolvedValueOnce({
           code: 230099,
           msg: 'Failed to create card content, ext=ErrCode: 11310; ErrMsg: cardid is invalid;',
@@ -319,7 +387,9 @@ describe('FeishuClient', () => {
         },
       };
 
-      const promise = expect(client.sendCardByCardId('chat-1', 'card-1', 'reply-msg-1')).resolves.toBe('msg-card-1');
+      const promise = expect(
+        client.sendCardByCardId('chat-1', 'card-1', 'reply-msg-1'),
+      ).resolves.toBe('msg-card-1');
       await vi.advanceTimersByTimeAsync(300);
       await promise;
       expect(reply).toHaveBeenCalledTimes(2);
@@ -340,8 +410,9 @@ describe('FeishuClient', () => {
         },
       };
 
-      const promise = expect(client.sendCardByCardId('chat-1', 'card-1', 'reply-msg-1'))
-        .rejects.toThrow('sendCardByCardId error 230099');
+      const promise = expect(
+        client.sendCardByCardId('chat-1', 'card-1', 'reply-msg-1'),
+      ).rejects.toThrow('sendCardByCardId error 230099');
       await vi.advanceTimersByTimeAsync(300 + 600 + 900 + 1200 + 1500);
       await promise;
       // 6 calls: initial + 5 retries (CARD_ID_RETRY_ATTEMPTS=5)
@@ -353,14 +424,24 @@ describe('FeishuClient', () => {
     it('should reply with correct request format', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ code: 0, msg: 'success', tenant_access_token: 't-abc123', expire: 7200 }),
+        json: async () => ({
+          code: 0,
+          msg: 'success',
+          tenant_access_token: 't-abc123',
+          expire: 7200,
+        }),
       });
       vi.stubGlobal('fetch', fetchMock);
 
       // getAccessToken
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ code: 0, msg: 'success', tenant_access_token: 't-abc123', expire: 7200 }),
+        json: async () => ({
+          code: 0,
+          msg: 'success',
+          tenant_access_token: 't-abc123',
+          expire: 7200,
+        }),
       });
       // replyMessage
       fetchMock.mockResolvedValueOnce({
@@ -394,14 +475,24 @@ describe('FeishuClient', () => {
     it('should send typing action', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ code: 0, msg: 'success', tenant_access_token: 't-abc123', expire: 7200 }),
+        json: async () => ({
+          code: 0,
+          msg: 'success',
+          tenant_access_token: 't-abc123',
+          expire: 7200,
+        }),
       });
       vi.stubGlobal('fetch', fetchMock);
 
       // getAccessToken
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ code: 0, msg: 'success', tenant_access_token: 't-abc123', expire: 7200 }),
+        json: async () => ({
+          code: 0,
+          msg: 'success',
+          tenant_access_token: 't-abc123',
+          expire: 7200,
+        }),
       });
       // setTyping
       fetchMock.mockResolvedValueOnce({
@@ -429,14 +520,24 @@ describe('FeishuClient', () => {
     it('should send cancel action', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ code: 0, msg: 'success', tenant_access_token: 't-abc123', expire: 7200 }),
+        json: async () => ({
+          code: 0,
+          msg: 'success',
+          tenant_access_token: 't-abc123',
+          expire: 7200,
+        }),
       });
       vi.stubGlobal('fetch', fetchMock);
 
       // getAccessToken
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ code: 0, msg: 'success', tenant_access_token: 't-abc123', expire: 7200 }),
+        json: async () => ({
+          code: 0,
+          msg: 'success',
+          tenant_access_token: 't-abc123',
+          expire: 7200,
+        }),
       });
       // clearTyping
       fetchMock.mockResolvedValueOnce({
@@ -457,14 +558,24 @@ describe('FeishuClient', () => {
     it('should add reaction and return reaction_id', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ code: 0, msg: 'success', tenant_access_token: 't-abc123', expire: 7200 }),
+        json: async () => ({
+          code: 0,
+          msg: 'success',
+          tenant_access_token: 't-abc123',
+          expire: 7200,
+        }),
       });
       vi.stubGlobal('fetch', fetchMock);
 
       // getAccessToken
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ code: 0, msg: 'success', tenant_access_token: 't-abc123', expire: 7200 }),
+        json: async () => ({
+          code: 0,
+          msg: 'success',
+          tenant_access_token: 't-abc123',
+          expire: 7200,
+        }),
       });
       // addReaction
       fetchMock.mockResolvedValueOnce({
@@ -485,14 +596,24 @@ describe('FeishuClient', () => {
     it('should default to Typing emoji', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ code: 0, msg: 'success', tenant_access_token: 't-abc123', expire: 7200 }),
+        json: async () => ({
+          code: 0,
+          msg: 'success',
+          tenant_access_token: 't-abc123',
+          expire: 7200,
+        }),
       });
       vi.stubGlobal('fetch', fetchMock);
 
       // getAccessToken
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ code: 0, msg: 'success', tenant_access_token: 't-abc123', expire: 7200 }),
+        json: async () => ({
+          code: 0,
+          msg: 'success',
+          tenant_access_token: 't-abc123',
+          expire: 7200,
+        }),
       });
       // addReaction
       fetchMock.mockResolvedValueOnce({
@@ -520,14 +641,24 @@ describe('FeishuClient', () => {
     it('should send DELETE request', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ code: 0, msg: 'success', tenant_access_token: 't-abc123', expire: 7200 }),
+        json: async () => ({
+          code: 0,
+          msg: 'success',
+          tenant_access_token: 't-abc123',
+          expire: 7200,
+        }),
       });
       vi.stubGlobal('fetch', fetchMock);
 
       // getAccessToken
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ code: 0, msg: 'success', tenant_access_token: 't-abc123', expire: 7200 }),
+        json: async () => ({
+          code: 0,
+          msg: 'success',
+          tenant_access_token: 't-abc123',
+          expire: 7200,
+        }),
       });
       // removeReaction
       fetchMock.mockResolvedValueOnce({

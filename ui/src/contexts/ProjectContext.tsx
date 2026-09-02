@@ -40,7 +40,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [sessionsRefreshKey, setSessionsRefreshKey] = useState(0);
 
   const bumpSessionsRefreshKey = useCallback(() => {
-    setSessionsRefreshKey(k => k + 1);
+    setSessionsRefreshKey((k) => k + 1);
   }, []);
 
   useEffect(() => {
@@ -68,7 +68,9 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       .catch(() => {
         if (!cancelled) setInitialized(true);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [t, token, isLoading]);
 
   return (

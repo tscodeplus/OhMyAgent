@@ -71,9 +71,9 @@ describe('E2E: Message Flow', () => {
     expect(dispatcher.onTextDelta).toHaveBeenCalled();
     expect(dispatcher.onComplete).toHaveBeenCalled();
 
-    const textDeltas = dispatcher.calls.filter(c => c.startsWith('onTextDelta:'));
+    const textDeltas = dispatcher.calls.filter((c) => c.startsWith('onTextDelta:'));
     expect(textDeltas.length).toBeGreaterThan(0);
-    const fullText = textDeltas.map(c => c.replace('onTextDelta:', '')).join('');
+    const fullText = textDeltas.map((c) => c.replace('onTextDelta:', '')).join('');
     expect(fullText).toContain('Hello!');
   });
 
@@ -99,11 +99,15 @@ describe('E2E: Message Flow', () => {
     bridge.stop();
 
     expect(shellTool.execute).toHaveBeenCalled();
-    expect(dispatcher.onToolStart).toHaveBeenCalledWith('shell', { command: 'ls' }, expect.any(String));
+    expect(dispatcher.onToolStart).toHaveBeenCalledWith(
+      'shell',
+      { command: 'ls' },
+      expect.any(String),
+    );
     expect(dispatcher.onToolEnd).toHaveBeenCalled();
     expect(dispatcher.onComplete).toHaveBeenCalled();
 
-    const textDeltas = dispatcher.calls.filter(c => c.startsWith('onTextDelta:'));
+    const textDeltas = dispatcher.calls.filter((c) => c.startsWith('onTextDelta:'));
     expect(textDeltas.length).toBeGreaterThan(0);
   });
 
@@ -193,7 +197,14 @@ describe('E2E: Message Flow', () => {
             api: 'openai-completions',
             provider: 'test-provider',
             model: 'test-model',
-            usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+            usage: {
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 0,
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+            },
             stopReason: 'error',
             errorMessage: 'LLM API timeout',
             timestamp: Date.now(),
@@ -209,7 +220,7 @@ describe('E2E: Message Flow', () => {
     bridge.stop();
 
     expect(dispatcher.onError).toHaveBeenCalled();
-    const errorCalls = dispatcher.calls.filter(c => c.startsWith('onError:'));
+    const errorCalls = dispatcher.calls.filter((c) => c.startsWith('onError:'));
     expect(errorCalls.length).toBeGreaterThan(0);
   });
 
@@ -263,7 +274,14 @@ describe('E2E: Message Flow', () => {
           api: 'openai-completions' as const,
           provider: 'test-provider',
           model: 'test-model',
-          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
           stopReason: 'stop' as const,
           timestamp: Date.now(),
         };
@@ -299,11 +317,7 @@ describe('E2E: Message Flow', () => {
 
     const agent = new Agent({
       initialState: { systemPrompt: 'test', model, tools: [] },
-      streamFn: createToolCallStreamFn(
-        'nonexistent-tool',
-        { arg: 'value' },
-        'Done',
-      ),
+      streamFn: createToolCallStreamFn('nonexistent-tool', { arg: 'value' }, 'Done'),
     });
 
     const bridge = new EventBridge(dispatcher);
@@ -326,11 +340,7 @@ describe('E2E: Message Flow', () => {
 
     const agent = new Agent({
       initialState: { systemPrompt: 'test', model, tools: [shellTool] },
-      streamFn: createToolCallStreamFn(
-        'shell',
-        { command: 'rm -rf /' },
-        'Done',
-      ),
+      streamFn: createToolCallStreamFn('shell', { command: 'rm -rf /' }, 'Done'),
       beforeToolCall: async () => ({
         block: true,
         reason: 'Dangerous command blocked',

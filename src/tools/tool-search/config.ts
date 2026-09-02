@@ -52,9 +52,9 @@ export function loadConfig(appConfig?: AppConfig): ToolSearchConfig {
 
   // enabled
   let enabled: ToolSearchConfig['enabled'] = DEFAULTS.enabled;
-  const rawEnabled = String(
-    (raw as Record<string, unknown>).enabled ?? DEFAULTS.enabled,
-  ).trim().toLowerCase();
+  const rawEnabled = String((raw as Record<string, unknown>).enabled ?? DEFAULTS.enabled)
+    .trim()
+    .toLowerCase();
   if (rawEnabled === 'auto' || rawEnabled === 'on' || rawEnabled === 'off') {
     enabled = rawEnabled;
   }

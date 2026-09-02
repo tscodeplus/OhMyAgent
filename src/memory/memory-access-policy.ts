@@ -59,7 +59,12 @@ export function matchesMemoryPool(
     return memoryAgentId === null;
   }
 
-  return agentId !== null && memoryAgentId !== null && memoryAgentId !== agentId && visibility === 'shared';
+  return (
+    agentId !== null &&
+    memoryAgentId !== null &&
+    memoryAgentId !== agentId &&
+    visibility === 'shared'
+  );
 }
 
 export function policyFromRetrievalOptions(options: {

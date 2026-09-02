@@ -21,7 +21,10 @@ export class ExtensionManager {
       const manifests = await this.loader.scan(dir);
       for (const manifest of manifests) {
         if (seenIds.has(manifest.id)) {
-          this.logger.info({ extId: manifest.id }, 'Extension already loaded from higher-priority directory, skipping');
+          this.logger.info(
+            { extId: manifest.id },
+            'Extension already loaded from higher-priority directory, skipping',
+          );
           continue;
         }
         seenIds.add(manifest.id);
@@ -45,13 +48,13 @@ export class ExtensionManager {
 
   getForAgent(agent: ResolvedAgentConfig): LoadedExtension[] {
     const disabled = new Set(agent.extensions.disable);
-    return this.extensions.filter(ext => {
+    return this.extensions.filter((ext) => {
       if (disabled.has(ext.manifest.id)) return false;
       if (ext.manifest.kind === 'channel') {
         const channelType = ext.manifest.channel_type;
         if (channelType) {
-          return agent.channels.some(ch =>
-            ch === channelType || ch.startsWith(channelType + ':')
+          return agent.channels.some(
+            (ch) => ch === channelType || ch.startsWith(channelType + ':'),
           );
         }
       }
@@ -60,8 +63,8 @@ export class ExtensionManager {
   }
 
   getForChannel(channelType: string): LoadedExtension[] {
-    return this.extensions.filter(ext =>
-      ext.manifest.kind === 'channel' && ext.manifest.channel_type === channelType
+    return this.extensions.filter(
+      (ext) => ext.manifest.kind === 'channel' && ext.manifest.channel_type === channelType,
     );
   }
 

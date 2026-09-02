@@ -235,7 +235,12 @@ export class PendingApprovalStore {
       };
 
       this.events.once(requestId, handler);
-      this.pending.set(requestId, { timer, sessionKey: sessionKey ?? '', riskLevel, fileServePath });
+      this.pending.set(requestId, {
+        timer,
+        sessionKey: sessionKey ?? '',
+        riskLevel,
+        fileServePath,
+      });
     });
   }
 

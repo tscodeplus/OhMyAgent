@@ -38,16 +38,19 @@ function loadResources(localesPath: string): Record<string, Record<string, strin
   const resources: Record<string, Record<string, string | object>> = {};
 
   const localeDirs = readdirSync(localesPath, { withFileTypes: true })
-    .filter(d => d.isDirectory())
-    .map(d => d.name);
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name);
 
   for (const lang of localeDirs) {
     resources[lang] = {};
     const langDir = join(localesPath, lang);
-    const files = readdirSync(langDir).filter(f => f.endsWith('.json'));
+    const files = readdirSync(langDir).filter((f) => f.endsWith('.json'));
     for (const file of files) {
       const ns = file.replace('.json', '');
-      resources[lang][ns] = JSON.parse(readFileSync(join(langDir, file), 'utf-8')) as Record<string, string | object>;
+      resources[lang][ns] = JSON.parse(readFileSync(join(langDir, file), 'utf-8')) as Record<
+        string,
+        string | object
+      >;
     }
   }
 

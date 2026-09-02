@@ -13,14 +13,25 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-const logger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, child: () => logger } as any;
+const logger = {
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+  debug: () => {},
+  child: () => logger,
+} as any;
 
 const stubFeishuClient = {
   sendMessage: async () => ({ code: 0, data: { message_id: 'msg_test' } }),
 };
 
 const stubAgentRunner: AgentRunner = {
-  async run(_prompt: string, _sessionId: string, _chatId: string, _agentId?: string): Promise<AgentRunResult> {
+  async run(
+    _prompt: string,
+    _sessionId: string,
+    _chatId: string,
+    _agentId?: string,
+  ): Promise<AgentRunResult> {
     return { text: 'Test cron response', modelLabel: 'test/model' };
   },
   cleanup(_sessionId: string): void {},
@@ -35,7 +46,8 @@ describe('Cron E2E', () => {
     tmpDir = mkdtempSync(path.join(tmpdir(), 'cron-e2e-'));
     store = new CronStore(tmpDir);
     const runner = new JobRunner(stubFeishuClient, stubAgentRunner, {
-      executionTimeoutMs: 600_000, logger,
+      executionTimeoutMs: 600_000,
+      logger,
     });
     const scheduler = new CronScheduler(store, runner, { tickIntervalMs: 30_000, logger });
     service = new CronService(store, scheduler, runner);
@@ -75,9 +87,19 @@ describe('Cron E2E', () => {
   // ── Create + List + Get ──
   describe('CRUD', () => {
     it('creates multiple job types', () => {
-      const j1 = service.add({ name: 'Cron job', schedule: '0 8 * * *', prompt: 'p1', chatId: 'c1' });
+      const j1 = service.add({
+        name: 'Cron job',
+        schedule: '0 8 * * *',
+        prompt: 'p1',
+        chatId: 'c1',
+      });
       const j2 = service.add({ name: 'Oneshot', schedule: '30m', prompt: 'p2', chatId: 'c2' });
-      const j3 = service.add({ name: 'Interval', schedule: 'every 1h', prompt: 'p3', chatId: 'c3' });
+      const j3 = service.add({
+        name: 'Interval',
+        schedule: 'every 1h',
+        prompt: 'p3',
+        chatId: 'c3',
+      });
 
       expect(j1.schedule.type).toBe('cron');
       expect(j2.schedule.type).toBe('oneshot');
@@ -223,22 +245,52 @@ describe('Cron E2E', () => {
     it('getDueJobs filters correctly', () => {
       const now = Date.now();
       const due: CronJob = {
-        id: 'due1', name: 'd', schedule: { type: 'oneshot', timestampMs: now - 1000 },
-        scheduleText: '', prompt: '', chatId: '', enabled: true, state: 'idle',
-        nextRunAt: now - 1000, retryCount: 0, lastRunAt: null, lastStatus: null,
-        createdAt: 0, updatedAt: 0,
+        id: 'due1',
+        name: 'd',
+        schedule: { type: 'oneshot', timestampMs: now - 1000 },
+        scheduleText: '',
+        prompt: '',
+        chatId: '',
+        enabled: true,
+        state: 'idle',
+        nextRunAt: now - 1000,
+        retryCount: 0,
+        lastRunAt: null,
+        lastStatus: null,
+        createdAt: 0,
+        updatedAt: 0,
       };
       const future: CronJob = {
-        id: 'fut1', name: 'f', schedule: { type: 'oneshot', timestampMs: now + 999999 },
-        scheduleText: '', prompt: '', chatId: '', enabled: true, state: 'idle',
-        nextRunAt: now + 999999, retryCount: 0, lastRunAt: null, lastStatus: null,
-        createdAt: 0, updatedAt: 0,
+        id: 'fut1',
+        name: 'f',
+        schedule: { type: 'oneshot', timestampMs: now + 999999 },
+        scheduleText: '',
+        prompt: '',
+        chatId: '',
+        enabled: true,
+        state: 'idle',
+        nextRunAt: now + 999999,
+        retryCount: 0,
+        lastRunAt: null,
+        lastStatus: null,
+        createdAt: 0,
+        updatedAt: 0,
       };
       const running: CronJob = {
-        id: 'run1', name: 'r', schedule: { type: 'oneshot', timestampMs: now - 1000 },
-        scheduleText: '', prompt: '', chatId: '', enabled: true, state: 'running',
-        nextRunAt: now - 1000, retryCount: 0, lastRunAt: null, lastStatus: null,
-        createdAt: 0, updatedAt: 0,
+        id: 'run1',
+        name: 'r',
+        schedule: { type: 'oneshot', timestampMs: now - 1000 },
+        scheduleText: '',
+        prompt: '',
+        chatId: '',
+        enabled: true,
+        state: 'running',
+        nextRunAt: now - 1000,
+        retryCount: 0,
+        lastRunAt: null,
+        lastStatus: null,
+        createdAt: 0,
+        updatedAt: 0,
       };
       store.add(due);
       store.add(future);

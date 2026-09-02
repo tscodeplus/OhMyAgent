@@ -170,7 +170,7 @@ export class OpenAIVideoGenerationProvider implements VideoGenerationProvider {
     if (!taskId) {
       throw new Error(
         `Video generation API did not return a task_id (path: ${this.respMap.taskIdField}) — ` +
-        `response: ${JSON.stringify(submitResponse).slice(0, 500)}`,
+          `response: ${JSON.stringify(submitResponse).slice(0, 500)}`,
       );
     }
 
@@ -178,7 +178,13 @@ export class OpenAIVideoGenerationProvider implements VideoGenerationProvider {
     const statusUrl = this.respMap.statusUrlTemplate
       ? this.buildUrl(baseUrl, this.respMap.statusUrlTemplate.replace('{taskId}', String(taskId)))
       : `${submitUrl}/${taskId}`;
-    const videoUrl = await this.pollForCompletion(statusUrl, apiKey, timeoutMs, pollIntervalMs, maxWaitMs);
+    const videoUrl = await this.pollForCompletion(
+      statusUrl,
+      apiKey,
+      timeoutMs,
+      pollIntervalMs,
+      maxWaitMs,
+    );
     if (!videoUrl) {
       throw new Error(`Video generation timed out after ${maxWaitMs}ms. Task ID: ${taskId}`);
     }
@@ -224,9 +230,10 @@ export class OpenAIVideoGenerationProvider implements VideoGenerationProvider {
 
     // Reference images for image-to-video
     if (input.referenceImages && input.referenceImages.length > 0) {
-      const value = this.paramMap.referenceImagesMode === 'first'
-        ? input.referenceImages[0]
-        : input.referenceImages;
+      const value =
+        this.paramMap.referenceImagesMode === 'first'
+          ? input.referenceImages[0]
+          : input.referenceImages;
       setByPath(body, this.paramMap.referenceImagesField, value);
     }
 
@@ -301,7 +308,7 @@ export class OpenAIVideoGenerationProvider implements VideoGenerationProvider {
         }
         throw new Error(
           `Video generation succeeded but no video URL found at paths: ` +
-          `${this.respMap.videoUrlPaths.join(', ')} — ${JSON.stringify(rawStatus).slice(0, 500)}`,
+            `${this.respMap.videoUrlPaths.join(', ')} — ${JSON.stringify(rawStatus).slice(0, 500)}`,
         );
       }
 

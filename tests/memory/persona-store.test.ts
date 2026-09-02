@@ -219,8 +219,10 @@ describe('PersonaStore', () => {
         kind: 'preference',
         content: '用户希望被称呼为老板',
       });
-      db.prepare('UPDATE memories SET created_at = ? WHERE id = ?')
-        .run('2000-01-01 00:00:00', oldPref.id);
+      db.prepare('UPDATE memories SET created_at = ? WHERE id = ?').run(
+        '2000-01-01 00:00:00',
+        oldPref.id,
+      );
 
       const newPref = memoryRepo.create({
         id: 'new-pref',
@@ -233,15 +235,19 @@ describe('PersonaStore', () => {
         .toISOString()
         .slice(0, 19)
         .replace('T', ' ');
-      db.prepare('UPDATE memories SET created_at = ? WHERE id = ?')
-        .run(newerThanPersona, newPref.id);
+      db.prepare('UPDATE memories SET created_at = ? WHERE id = ?').run(
+        newerThanPersona,
+        newPref.id,
+      );
 
       const result = store.toContextString();
 
       expect(result).toContain('[最新用户偏好，优先于用户画像]');
       expect(result).toContain('用户希望被称呼为老大');
       expect(result).not.toContain('用户希望被称呼为老板');
-      expect(result.indexOf('[最新用户偏好，优先于用户画像]')).toBeLessThan(result.indexOf(persona.summary));
+      expect(result.indexOf('[最新用户偏好，优先于用户画像]')).toBeLessThan(
+        result.indexOf(persona.summary),
+      );
     });
 
     it('injects preferences updated after the stored persona as a priority overlay', () => {
@@ -264,8 +270,11 @@ describe('PersonaStore', () => {
         .toISOString()
         .slice(0, 19)
         .replace('T', ' ');
-      db.prepare('UPDATE memories SET created_at = ?, updated_at = ? WHERE id = ?')
-        .run(beforePersona, afterPersona, updatedPref.id);
+      db.prepare('UPDATE memories SET created_at = ?, updated_at = ? WHERE id = ?').run(
+        beforePersona,
+        afterPersona,
+        updatedPref.id,
+      );
 
       const result = store.toContextString();
 
@@ -337,7 +346,8 @@ describe('PersonaStore', () => {
 
     it('removes stale preferred-name clauses from summary and communication', () => {
       const persona = makeFullPersona();
-      persona.summary = '用户希望被称呼为大Boss。用户偏好简洁直接的交流方式，称呼为“大Boss”。热爱乒乓球。';
+      persona.summary =
+        '用户希望被称呼为大Boss。用户偏好简洁直接的交流方式，称呼为“大Boss”。热爱乒乓球。';
       persona.preferences.communication = '称呼用户为大Boss；简洁、回应较少，称呼为大Boss';
       store.save(persona);
 

@@ -40,7 +40,8 @@ export async function createComputerUseServices(
 
   // Detect WSL: Linux kernel but can call powershell.exe to control Windows host
   const isWSL = process.platform === 'linux' && existsSync('/proc/sys/fs/binfmt_misc/WSLInterop');
-  const isTermux = existsSync('/data/data/com.termux') || !!process.env.PREFIX?.includes('/com.termux/');
+  const isTermux =
+    existsSync('/data/data/com.termux') || !!process.env.PREFIX?.includes('/com.termux/');
 
   if (!cuaSettings.enabled) {
     logger.debug('Computer Use disabled');
@@ -101,11 +102,13 @@ export async function createComputerUseServices(
       hostKeyChecking: cuaSettings.ssh.hostKeyChecking,
       knownHostsPath: cuaSettings.ssh.knownHostsPath || undefined,
     });
-    providerRegistry.register(new SSHComputerUseProvider({
-      sshPool,
-      settings: cuaSettings,
-      logger,
-    }));
+    providerRegistry.register(
+      new SSHComputerUseProvider({
+        sshPool,
+        settings: cuaSettings,
+        logger,
+      }),
+    );
     logger.info('Computer Use: SSH provider registered');
   }
 
@@ -167,7 +170,10 @@ export async function createComputerUseServices(
     logger,
   });
 
-  logger.info({ defaultProviderId, providerCount: providerRegistry.list().length }, 'Computer Use initialized');
+  logger.info(
+    { defaultProviderId, providerCount: providerRegistry.list().length },
+    'Computer Use initialized',
+  );
 
   return { computerUseHost, agentManagerRef, cuaSettingsRef };
 }

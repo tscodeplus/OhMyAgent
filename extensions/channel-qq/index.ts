@@ -114,40 +114,63 @@ export default function (api: ExtensionAPI): void {
       logger.info({ appId: qqConfig.appId, sandbox: qqConfig.sandbox }, 'QQ channel starting');
 
       // Register UserQuestionSender so ask_user_question tool works in QQ
-      const senderRegistry = api.getService<Map<string, UserQuestionSender>>('userQuestionSenderRegistry');
+      const senderRegistry = api.getService<Map<string, UserQuestionSender>>(
+        'userQuestionSenderRegistry',
+      );
       if (senderRegistry) {
         senderRegistry.set('qq', createQQUserQuestionSender({ gateway }));
         logger.info('QQ UserQuestionSender registered');
       }
 
       // Build a fallback CommandDeps if the DI container did not provide one
-      const deps: CommandDeps | undefined = commandDeps ?? ({
-        agentService,
-        skillRegistry: undefined,
-        cronService: undefined,
-        feishuClient: undefined,
-        agentManager: undefined,
-        extensionManager: undefined,
-      } as CommandDeps);
+      const deps: CommandDeps | undefined =
+        commandDeps ??
+        ({
+          agentService,
+          skillRegistry: undefined,
+          cronService: undefined,
+          feishuClient: undefined,
+          agentManager: undefined,
+          extensionManager: undefined,
+        } as CommandDeps);
 
       // v5 P2: Build STT transcriber for QQ audio attachments
       let sttTranscriber: ((path: string, lang?: string) => Promise<string>) | undefined;
       const appConfig = api.getConfig();
       const sttCfg = appConfig.multimodal?.stt;
       if (sttCfg?.enabled && sttCfg.providers?.length) {
-        const { createSTTProviders, transcribeWithFallback } = await import('../../src/media-providers/stt/factory.js');
+        const { createSTTProviders, transcribeWithFallback } =
+          await import('../../src/media-providers/stt/factory.js');
         const sttProviders = createSTTProviders(sttCfg.providers);
         if (sttProviders.length > 0) {
           sttTranscriber = async (audioPath: string, language?: string) => {
-            const result = await transcribeWithFallback(sttProviders, { audioPath, language: language ?? sttCfg.language ?? 'auto' });
+            const result = await transcribeWithFallback(sttProviders, {
+              audioPath,
+              language: language ?? sttCfg.language ?? 'auto',
+            });
             return result.text;
           };
         }
       }
-      const sttHandlerConfig = sttCfg ? { enabled: sttCfg.enabled ?? false, autoTranscribe: sttCfg.autoTranscribe ?? true, language: sttCfg.language ?? 'auto' } : undefined;
+      const sttHandlerConfig = sttCfg
+        ? {
+            enabled: sttCfg.enabled ?? false,
+            autoTranscribe: sttCfg.autoTranscribe ?? true,
+            language: sttCfg.language ?? 'auto',
+          }
+        : undefined;
 
       // Wire gateway events into the agent pipeline BEFORE connecting
-      setupMessageHandlers(gateway, qqConfig, agentService, deps, logger, api, sttTranscriber, sttHandlerConfig);
+      setupMessageHandlers(
+        gateway,
+        qqConfig,
+        agentService,
+        deps,
+        logger,
+        api,
+        sttTranscriber,
+        sttHandlerConfig,
+      );
 
       // Connect to the QQ Bot API v2 gateway
       await gateway.connect();

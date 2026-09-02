@@ -120,9 +120,7 @@ export interface QQMessagePayload {
 }
 
 export type QQMessageEventType =
-  | 'C2C_MESSAGE_CREATE'
-  | 'GROUP_AT_MESSAGE_CREATE'
-  | 'DIRECT_MESSAGE_CREATE';
+  'C2C_MESSAGE_CREATE' | 'GROUP_AT_MESSAGE_CREATE' | 'DIRECT_MESSAGE_CREATE';
 
 export type QQMessageEvent = QQWsPayload & {
   op: 0;
@@ -134,7 +132,9 @@ export type QQMessageEvent = QQWsPayload & {
 export function isMessageEvent(payload: QQWsPayload): payload is QQMessageEvent {
   return (
     payload.op === 0 &&
-    (payload.t === 'C2C_MESSAGE_CREATE' || payload.t === 'GROUP_AT_MESSAGE_CREATE' || payload.t === 'DIRECT_MESSAGE_CREATE')
+    (payload.t === 'C2C_MESSAGE_CREATE' ||
+      payload.t === 'GROUP_AT_MESSAGE_CREATE' ||
+      payload.t === 'DIRECT_MESSAGE_CREATE')
   );
 }
 

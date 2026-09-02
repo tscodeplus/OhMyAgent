@@ -10,7 +10,17 @@ import { NutJSProvider } from '../../src/computer-use/providers/local-nutjs.js';
 
 // ─── Hoisted mock factories ─────────────────────────────────────────────────
 
-const { mockMouse, mockScreen, mockKeyboard, mockGetWindows, mockGetActiveWindow, MockWindow, mockKey, mockButton, mockPoint } = vi.hoisted(() => {
+const {
+  mockMouse,
+  mockScreen,
+  mockKeyboard,
+  mockGetWindows,
+  mockGetActiveWindow,
+  MockWindow,
+  mockKey,
+  mockButton,
+  mockPoint,
+} = vi.hoisted(() => {
   const mockMouseObj = {
     setPosition: vi.fn().mockResolvedValue(undefined),
     getPosition: vi.fn().mockResolvedValue({ x: 100, y: 200 }),
@@ -53,20 +63,23 @@ const { mockMouse, mockScreen, mockKeyboard, mockGetWindows, mockGetActiveWindow
       ownerName?: string;
       processId?: number;
     }) {
-      this._titleFn = typeof opts.title === 'function'
-        ? opts.title
-        : () => Promise.resolve(opts.title as string);
+      this._titleFn =
+        typeof opts.title === 'function' ? opts.title : () => Promise.resolve(opts.title as string);
       this._regionFn = opts.region
-        ? (typeof opts.region === 'function'
-            ? opts.region
-            : () => Promise.resolve(opts.region as any))
+        ? typeof opts.region === 'function'
+          ? opts.region
+          : () => Promise.resolve(opts.region as any)
         : () => Promise.reject(new Error('no region'));
       this.ownerName = opts.ownerName;
       this.processId = opts.processId;
     }
 
-    get title() { return this._titleFn(); }
-    get region() { return this._regionFn(); }
+    get title() {
+      return this._titleFn();
+    }
+    get region() {
+      return this._regionFn();
+    }
   }
 
   const mockGetWindowsFn = vi.fn<() => Promise<MockWindow[]>>().mockResolvedValue([]);
@@ -79,7 +92,7 @@ const { mockMouse, mockScreen, mockKeyboard, mockGetWindows, mockGetActiveWindow
     MockWindow,
     mockGetWindows: mockGetWindowsFn,
     mockGetActiveWindow: mockGetActiveWindowFn,
-    mockKey: { /* populated by vi.mock factory */ } as Record<string, unknown>,
+    mockKey: {/* populated by vi.mock factory */} as Record<string, unknown>,
     mockButton: { LEFT: 'Left' },
     mockPoint: vi.fn(),
   };
@@ -105,9 +118,18 @@ vi.mock('@nut-tree-fork/nut-js', () => {
     Down: 'Down',
     Left: 'Left',
     Right: 'Right',
-    F1: 'F1', F2: 'F2', F3: 'F3', F4: 'F4',
-    F5: 'F5', F6: 'F6', F7: 'F7', F8: 'F8',
-    F9: 'F9', F10: 'F10', F11: 'F11', F12: 'F12',
+    F1: 'F1',
+    F2: 'F2',
+    F3: 'F3',
+    F4: 'F4',
+    F5: 'F5',
+    F6: 'F6',
+    F7: 'F7',
+    F8: 'F8',
+    F9: 'F9',
+    F10: 'F10',
+    F11: 'F11',
+    F12: 'F12',
     Space: 'Space',
     LeftControl: 'LeftControl',
     LeftAlt: 'LeftAlt',
@@ -147,9 +169,18 @@ vi.mock('@nut-tree-fork/shared', () => {
       Down: 'Down',
       Left: 'Left',
       Right: 'Right',
-      F1: 'F1', F2: 'F2', F3: 'F3', F4: 'F4',
-      F5: 'F5', F6: 'F6', F7: 'F7', F8: 'F8',
-      F9: 'F9', F10: 'F10', F11: 'F11', F12: 'F12',
+      F1: 'F1',
+      F2: 'F2',
+      F3: 'F3',
+      F4: 'F4',
+      F5: 'F5',
+      F6: 'F6',
+      F7: 'F7',
+      F8: 'F8',
+      F9: 'F9',
+      F10: 'F10',
+      F11: 'F11',
+      F12: 'F12',
       Space: 'Space',
       LeftControl: 'LeftControl',
       LeftAlt: 'LeftAlt',
@@ -205,8 +236,13 @@ function makeLease(overrides?: Partial<Lease>): Lease {
     createdAt: new Date().toISOString(),
     status: 'active',
     allowedActions: [
-      'click_point', 'double_click', 'type_text', 'press_key',
-      'scroll', 'drag', 'stop',
+      'click_point',
+      'double_click',
+      'type_text',
+      'press_key',
+      'scroll',
+      'drag',
+      'stop',
     ],
     providerState: {},
     ...overrides,
@@ -646,11 +682,11 @@ describe('NutJSProvider', () => {
 
   describe('performAction – click_point', () => {
     it('succeeds and calls mouse.setPosition and mouse.leftClick', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'click_point', x: 500, y: 300 } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'click_point',
+        x: 500,
+        y: 300,
+      } as Action);
 
       expect(result).toEqual({ ok: true, action: 'click_point' });
       expect(mockMouse.setPosition).toHaveBeenCalledWith({ x: 500, y: 300 });
@@ -658,11 +694,11 @@ describe('NutJSProvider', () => {
     });
 
     it('fails when x is missing', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'click_point', x: undefined, y: 300 } as unknown as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'click_point',
+        x: undefined,
+        y: 300,
+      } as unknown as Action);
 
       expect(result).toEqual({
         ok: false,
@@ -673,11 +709,11 @@ describe('NutJSProvider', () => {
     });
 
     it('fails when y is missing', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'click_point', x: 100, y: undefined } as unknown as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'click_point',
+        x: 100,
+        y: undefined,
+      } as unknown as Action);
 
       expect(result).toEqual({
         ok: false,
@@ -690,11 +726,11 @@ describe('NutJSProvider', () => {
     it('returns error when mouse action throws', async () => {
       mockMouse.setPosition.mockRejectedValue(new Error('permission denied'));
 
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'click_point', x: 100, y: 100 } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'click_point',
+        x: 100,
+        y: 100,
+      } as Action);
 
       expect(result.ok).toBe(false);
       expect(result.error).toContain('permission denied');
@@ -705,11 +741,11 @@ describe('NutJSProvider', () => {
 
   describe('performAction – double_click', () => {
     it('succeeds and calls mouse.setPosition and mouse.doubleClick', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'double_click', x: 200, y: 400 } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'double_click',
+        x: 200,
+        y: 400,
+      } as Action);
 
       expect(result).toEqual({ ok: true, action: 'double_click' });
       expect(mockMouse.setPosition).toHaveBeenCalledWith({ x: 200, y: 400 });
@@ -717,11 +753,11 @@ describe('NutJSProvider', () => {
     });
 
     it('fails when x is missing', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'double_click', x: undefined, y: 400 } as unknown as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'double_click',
+        x: undefined,
+        y: 400,
+      } as unknown as Action);
 
       expect(result.ok).toBe(false);
       expect(result.error).toContain('x and y coordinates required');
@@ -729,11 +765,11 @@ describe('NutJSProvider', () => {
     });
 
     it('fails when y is missing', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'double_click', x: 200, y: undefined } as unknown as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'double_click',
+        x: 200,
+        y: undefined,
+      } as unknown as Action);
 
       expect(result.ok).toBe(false);
       expect(result.error).toContain('x and y coordinates required');
@@ -742,11 +778,11 @@ describe('NutJSProvider', () => {
     it('returns error when doubleClick throws', async () => {
       mockMouse.doubleClick.mockRejectedValue(new Error('access error'));
 
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'double_click', x: 100, y: 100 } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'double_click',
+        x: 100,
+        y: 100,
+      } as Action);
 
       expect(result.ok).toBe(false);
       expect(result.error).toContain('access error');
@@ -757,22 +793,20 @@ describe('NutJSProvider', () => {
 
   describe('performAction – type_text', () => {
     it('succeeds and calls keyboard.type with text', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'type_text', text: 'hello world' } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'type_text',
+        text: 'hello world',
+      } as Action);
 
       expect(result).toEqual({ ok: true, action: 'type_text' });
       expect(mockKeyboard.type).toHaveBeenCalledWith('hello world');
     });
 
     it('fails when text is empty', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'type_text', text: '' } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'type_text',
+        text: '',
+      } as Action);
 
       expect(result).toEqual({
         ok: false,
@@ -783,11 +817,9 @@ describe('NutJSProvider', () => {
     });
 
     it('fails when text is undefined', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'type_text' } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'type_text',
+      } as Action);
 
       expect(result.ok).toBe(false);
       expect(result.error).toBe('text is required');
@@ -796,11 +828,10 @@ describe('NutJSProvider', () => {
     it('returns error when keyboard.type throws', async () => {
       mockKeyboard.type.mockRejectedValue(new Error('input blocked'));
 
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'type_text', text: 'hello' } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'type_text',
+        text: 'hello',
+      } as Action);
 
       expect(result.ok).toBe(false);
       expect(result.error).toContain('input blocked');
@@ -811,33 +842,30 @@ describe('NutJSProvider', () => {
 
   describe('performAction – press_key', () => {
     it('with Enter succeeds and calls keyboard.pressKey with Key.Enter', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'press_key', key: 'Enter' } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'press_key',
+        key: 'Enter',
+      } as Action);
 
       expect(result).toEqual({ ok: true, action: 'press_key' });
       expect(mockKeyboard.pressKey).toHaveBeenCalledWith('Enter');
     });
 
     it('with Return maps to Enter and calls pressKey', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'press_key', key: 'Return' } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'press_key',
+        key: 'Return',
+      } as Action);
 
       expect(result.ok).toBe(true);
       expect(mockKeyboard.pressKey).toHaveBeenCalledWith('Enter');
     });
 
     it('with single character "a" falls back to keyboard.type("a")', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'press_key', key: 'a' } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'press_key',
+        key: 'a',
+      } as Action);
 
       expect(result).toEqual({ ok: true, action: 'press_key' });
       expect(mockKeyboard.pressKey).not.toHaveBeenCalled();
@@ -845,11 +873,10 @@ describe('NutJSProvider', () => {
     });
 
     it('with unknown multi-character key returns error', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'press_key', key: 'SuperKey' } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'press_key',
+        key: 'SuperKey',
+      } as Action);
 
       expect(result).toEqual({
         ok: false,
@@ -861,11 +888,10 @@ describe('NutJSProvider', () => {
     });
 
     it('fails when key is empty', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'press_key', key: '' } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'press_key',
+        key: '',
+      } as Action);
 
       expect(result.ok).toBe(false);
       expect(result.error).toBe('key is required');
@@ -873,22 +899,44 @@ describe('NutJSProvider', () => {
 
     it('maps all well-known key names correctly', async () => {
       const knownKeys = [
-        'Escape', 'Esc', 'Tab', 'BackSpace', 'Delete',
-        'Home', 'End', 'Page_Up', 'Page_Down',
-        'Up', 'Down', 'Left', 'Right',
-        'F1', 'F2', 'F3', 'F4', 'F5', 'F6',
-        'F7', 'F8', 'F9', 'F10', 'F11', 'F12',
-        'Space', 'space',
-        'Control', 'Alt', 'Shift',
+        'Escape',
+        'Esc',
+        'Tab',
+        'BackSpace',
+        'Delete',
+        'Home',
+        'End',
+        'Page_Up',
+        'Page_Down',
+        'Up',
+        'Down',
+        'Left',
+        'Right',
+        'F1',
+        'F2',
+        'F3',
+        'F4',
+        'F5',
+        'F6',
+        'F7',
+        'F8',
+        'F9',
+        'F10',
+        'F11',
+        'F12',
+        'Space',
+        'space',
+        'Control',
+        'Alt',
+        'Shift',
       ];
 
       for (const key of knownKeys) {
         mockKeyboard.pressKey.mockClear();
-        const result = await provider.performAction(
-          makeCtx(),
-          makeLease(),
-          { type: 'press_key', key } as Action,
-        );
+        const result = await provider.performAction(makeCtx(), makeLease(), {
+          type: 'press_key',
+          key,
+        } as Action);
         expect(result.ok).toBe(true);
         expect(mockKeyboard.pressKey).toHaveBeenCalled();
       }
@@ -897,11 +945,10 @@ describe('NutJSProvider', () => {
     it('returns error when pressKey throws', async () => {
       mockKeyboard.pressKey.mockRejectedValue(new Error('keyboard error'));
 
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'press_key', key: 'Enter' } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'press_key',
+        key: 'Enter',
+      } as Action);
 
       expect(result.ok).toBe(false);
       expect(result.error).toContain('keyboard error');
@@ -912,11 +959,11 @@ describe('NutJSProvider', () => {
 
   describe('performAction – scroll', () => {
     it('scrolls down 5 times when amount is 5', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'scroll', amount: 5, direction: 'down' } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'scroll',
+        amount: 5,
+        direction: 'down',
+      } as Action);
 
       expect(result).toEqual({ ok: true, action: 'scroll' });
       expect(mockMouse.scrollDown).toHaveBeenCalledTimes(5);
@@ -924,66 +971,64 @@ describe('NutJSProvider', () => {
     });
 
     it('clamps amount to max 20', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'scroll', amount: 100, direction: 'down' } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'scroll',
+        amount: 100,
+        direction: 'down',
+      } as Action);
 
       expect(result.ok).toBe(true);
       expect(mockMouse.scrollDown).toHaveBeenCalledTimes(20);
     });
 
     it('defaults amount to 3 when not provided', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'scroll', direction: 'down' } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'scroll',
+        direction: 'down',
+      } as Action);
 
       expect(result.ok).toBe(true);
       expect(mockMouse.scrollDown).toHaveBeenCalledTimes(3);
     });
 
     it('scrolls up', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'scroll', amount: 2, direction: 'up' } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'scroll',
+        amount: 2,
+        direction: 'up',
+      } as Action);
 
       expect(result.ok).toBe(true);
       expect(mockMouse.scrollUp).toHaveBeenCalledTimes(2);
     });
 
     it('scrolls left', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'scroll', amount: 1, direction: 'left' } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'scroll',
+        amount: 1,
+        direction: 'left',
+      } as Action);
 
       expect(result.ok).toBe(true);
       expect(mockMouse.scrollLeft).toHaveBeenCalledTimes(1);
     });
 
     it('scrolls right', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'scroll', amount: 1, direction: 'right' } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'scroll',
+        amount: 1,
+        direction: 'right',
+      } as Action);
 
       expect(result.ok).toBe(true);
       expect(mockMouse.scrollRight).toHaveBeenCalledTimes(1);
     });
 
     it('defaults direction to down when not provided', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'scroll', amount: 1 } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'scroll',
+        amount: 1,
+      } as Action);
 
       expect(result.ok).toBe(true);
       expect(mockMouse.scrollDown).toHaveBeenCalledTimes(1);
@@ -992,11 +1037,11 @@ describe('NutJSProvider', () => {
     it('returns error when scroll throws', async () => {
       mockMouse.scrollDown.mockRejectedValue(new Error('scroll failed'));
 
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'scroll', amount: 1, direction: 'down' } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'scroll',
+        amount: 1,
+        direction: 'down',
+      } as Action);
 
       expect(result.ok).toBe(false);
       expect(result.error).toContain('scroll failed');
@@ -1009,11 +1054,11 @@ describe('NutJSProvider', () => {
     it('succeeds and calls mouse.drag with start and end points', async () => {
       mockMouse.getPosition.mockResolvedValue({ x: 50, y: 60 });
 
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'drag', x: 300, y: 400 } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'drag',
+        x: 300,
+        y: 400,
+      } as Action);
 
       expect(result).toEqual({ ok: true, action: 'drag' });
       expect(mockMouse.drag).toHaveBeenCalledWith([
@@ -1023,11 +1068,11 @@ describe('NutJSProvider', () => {
     });
 
     it('fails when x is missing', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'drag', x: undefined, y: 400 } as unknown as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'drag',
+        x: undefined,
+        y: 400,
+      } as unknown as Action);
 
       expect(result).toEqual({
         ok: false,
@@ -1038,11 +1083,11 @@ describe('NutJSProvider', () => {
     });
 
     it('fails when y is missing', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'drag', x: 300, y: undefined } as unknown as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'drag',
+        x: 300,
+        y: undefined,
+      } as unknown as Action);
 
       expect(result.ok).toBe(false);
       expect(result.error).toContain('x and y coordinates required');
@@ -1051,11 +1096,11 @@ describe('NutJSProvider', () => {
     it('returns error when drag throws', async () => {
       mockMouse.drag.mockRejectedValue(new Error('drag rejected'));
 
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'drag', x: 100, y: 200 } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'drag',
+        x: 100,
+        y: 200,
+      } as Action);
 
       expect(result.ok).toBe(false);
       expect(result.error).toContain('drag rejected');
@@ -1066,11 +1111,9 @@ describe('NutJSProvider', () => {
 
   describe('performAction – stop', () => {
     it('always returns {ok: true}', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'stop' } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'stop',
+      } as Action);
 
       expect(result).toEqual({ ok: true, action: 'stop' });
     });
@@ -1080,11 +1123,10 @@ describe('NutJSProvider', () => {
 
   describe('performAction – click_element', () => {
     it('returns unsupported error', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'click_element', elementId: 'win-0' } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'click_element',
+        elementId: 'win-0',
+      } as Action);
 
       expect(result).toEqual({
         ok: false,
@@ -1098,11 +1140,10 @@ describe('NutJSProvider', () => {
 
   describe('performAction – perform_secondary_action', () => {
     it('returns unsupported error', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'perform_secondary_action', elementId: 'win-1' } as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'perform_secondary_action',
+        elementId: 'win-1',
+      } as Action);
 
       expect(result).toEqual({
         ok: false,
@@ -1116,16 +1157,14 @@ describe('NutJSProvider', () => {
 
   describe('performAction – unknown action type', () => {
     it('returns error for unknown action type', async () => {
-      const result = await provider.performAction(
-        makeCtx(),
-        makeLease(),
-        { type: 'unknown_action' } as unknown as Action,
-      );
+      const result = await provider.performAction(makeCtx(), makeLease(), {
+        type: 'unknown_action',
+      } as unknown as Action);
 
       expect(result).toEqual({
         ok: false,
         action: 'unknown_action' as ActionType,
-        error: "Unknown action: unknown_action",
+        error: 'Unknown action: unknown_action',
       });
     });
   });
@@ -1134,9 +1173,7 @@ describe('NutJSProvider', () => {
 
   describe('releaseLease', () => {
     it('resolves without error (no-op)', async () => {
-      await expect(
-        provider.releaseLease(makeCtx(), makeLease()),
-      ).resolves.toBeUndefined();
+      await expect(provider.releaseLease(makeCtx(), makeLease())).resolves.toBeUndefined();
     });
   });
 
@@ -1144,9 +1181,7 @@ describe('NutJSProvider', () => {
 
   describe('stop', () => {
     it('resolves without error (no-op)', async () => {
-      await expect(
-        provider.stop(makeCtx(), makeLease()),
-      ).resolves.toBeUndefined();
+      await expect(provider.stop(makeCtx(), makeLease())).resolves.toBeUndefined();
     });
   });
 

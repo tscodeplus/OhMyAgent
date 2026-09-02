@@ -13,7 +13,12 @@ import { createComputerUseTool } from '../../src/tools/builtins/computer-use-too
 describe('cronjob chatId propagation', () => {
   it('passes chatId to cronjob tool', async () => {
     const config = loadConfig();
-    config.toolSearch = { enabled: 'off', thresholdPct: 10, searchDefaultLimit: 5, maxSearchLimit: 20 };
+    config.toolSearch = {
+      enabled: 'off',
+      thresholdPct: 10,
+      searchDefaultLimit: 5,
+      maxSearchLimit: 20,
+    };
     const toolRegistry = new ToolRegistryImpl();
     toolRegistry.register({
       name: 'dummy',
@@ -43,13 +48,15 @@ describe('cronjob chatId propagation', () => {
       runOnce: async () => ({ status: 'success' as const, jobId: 'x', durationMs: 0, output: '' }),
     });
 
-    const factory = createAgentFactory(
-      { config, toolRegistry },
-      { cronServiceFactory }
-    );
+    const factory = createAgentFactory({ config, toolRegistry }, { cronServiceFactory });
 
     const testChatId = 'oc_test_chat_67890';
-    const agent = factory.create({ message: 'hello', chatId: testChatId, channel: 'feishu', agentId: 'test-agent' });
+    const agent = factory.create({
+      message: 'hello',
+      chatId: testChatId,
+      channel: 'feishu',
+      agentId: 'test-agent',
+    });
 
     const tools = (agent.state as any)?.tools || [];
     const cronTools = tools.filter((t: any) => t.name === 'cronjob');
@@ -70,7 +77,12 @@ describe('cronjob chatId propagation', () => {
 
   it('captures Computer Use grant when creator can see computer_use', async () => {
     const config = loadConfig();
-    config.toolSearch = { enabled: 'off', thresholdPct: 10, searchDefaultLimit: 5, maxSearchLimit: 20 };
+    config.toolSearch = {
+      enabled: 'off',
+      thresholdPct: 10,
+      searchDefaultLimit: 5,
+      maxSearchLimit: 20,
+    };
     const toolRegistry = new ToolRegistryImpl();
     toolRegistry.register(createComputerUseTool({} as any));
 
@@ -87,12 +99,14 @@ describe('cronjob chatId propagation', () => {
       runOnce: async () => ({ status: 'success' as const, jobId: 'x', durationMs: 0, output: '' }),
     });
 
-    const factory = createAgentFactory(
-      { config, toolRegistry },
-      { cronServiceFactory }
-    );
+    const factory = createAgentFactory({ config, toolRegistry }, { cronServiceFactory });
 
-    const agent = factory.create({ message: 'hello', chatId: 'oc_test', channel: 'feishu', agentId: 'default' });
+    const agent = factory.create({
+      message: 'hello',
+      chatId: 'oc_test',
+      channel: 'feishu',
+      agentId: 'default',
+    });
     const cronTool = (agent.state as any).tools.find((t: any) => t.name === 'cronjob');
 
     await cronTool.execute('call1', {
@@ -107,13 +121,15 @@ describe('cronjob chatId propagation', () => {
 
   it('does NOT include cronjob when no chatId', () => {
     const config = loadConfig();
-    config.toolSearch = { enabled: 'off', thresholdPct: 10, searchDefaultLimit: 5, maxSearchLimit: 20 };
+    config.toolSearch = {
+      enabled: 'off',
+      thresholdPct: 10,
+      searchDefaultLimit: 5,
+      maxSearchLimit: 20,
+    };
     const toolRegistry = new ToolRegistryImpl();
 
-    const factory = createAgentFactory(
-      { config, toolRegistry },
-      {}
-    );
+    const factory = createAgentFactory({ config, toolRegistry }, {});
 
     const agent = factory.create({ message: 'no chat' });
     const tools = (agent.state as any)?.tools || [];

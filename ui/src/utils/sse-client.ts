@@ -51,7 +51,7 @@ export interface SSEClient {
     /** Called on every received chunk — including keepalive comment lines.
      *  Use this to feed a heartbeat so long silent phases (running tools,
      *  approval waits) don't trip client-side no-event timeouts. */
-    onChunk?: () => void
+    onChunk?: () => void,
   ) => AbortController;
 }
 

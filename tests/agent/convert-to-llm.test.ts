@@ -50,12 +50,7 @@ describe('convertToLlm', () => {
     ];
     const result = convertToLlm(messages);
     expect(result).toHaveLength(4);
-    expect(result.map((m: any) => m.role)).toEqual([
-      'user',
-      'assistant',
-      'toolResult',
-      'user',
-    ]);
+    expect(result.map((m: any) => m.role)).toEqual(['user', 'assistant', 'toolResult', 'user']);
   });
 
   it('handles empty array', () => {

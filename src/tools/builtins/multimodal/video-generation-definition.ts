@@ -27,8 +27,7 @@ export const videoGenerationCapability: ToolCapabilityDescriptor = {
 export function createVideoGenerationToolDefinition(
   provider?: VideoGenerationProvider,
 ): ToolDefinition {
-  const videoGenProvider: VideoGenerationProvider =
-    provider ?? new NoOpVideoGenerationProvider();
+  const videoGenProvider: VideoGenerationProvider = provider ?? new NoOpVideoGenerationProvider();
 
   return {
     name: 'video_generation',
@@ -43,9 +42,7 @@ export function createVideoGenerationToolDefinition(
       seconds: Type.Optional(
         Type.String({ description: 'Video duration in seconds (e.g. "5.0" for 5 seconds)' }),
       ),
-      size: Type.Optional(
-        Type.String({ description: 'Video resolution (e.g. "1280x768")' }),
-      ),
+      size: Type.Optional(Type.String({ description: 'Video resolution (e.g. "1280x768")' })),
       aspectRatio: Type.Optional(
         Type.Union(
           [
@@ -67,14 +64,15 @@ export function createVideoGenerationToolDefinition(
       ),
       referenceImages: Type.Optional(
         Type.Array(Type.String(), {
-          description: 'Reference image URLs or data URIs for image-to-video generation. Pass input images to animate or use as keyframes.',
+          description:
+            'Reference image URLs or data URIs for image-to-video generation. Pass input images to animate or use as keyframes.',
         }),
       ),
       mode: Type.Optional(
-        Type.Union(
-          [Type.Literal('ti2vid'), Type.Literal('keyframes')],
-          { description: 'Generation mode: ti2vid (text/image-to-video, default) or keyframes (multi-frame animation with smooth transitions)' },
-        ),
+        Type.Union([Type.Literal('ti2vid'), Type.Literal('keyframes')], {
+          description:
+            'Generation mode: ti2vid (text/image-to-video, default) or keyframes (multi-frame animation with smooth transitions)',
+        }),
       ),
       height: Type.Optional(
         Type.Number({ description: 'Output height in pixels (e.g. 768). Provider-dependent.' }),
@@ -83,13 +81,24 @@ export function createVideoGenerationToolDefinition(
         Type.Number({ description: 'Output width in pixels (e.g. 1152). Provider-dependent.' }),
       ),
       numFrames: Type.Optional(
-        Type.Number({ description: 'Number of frames to generate. Must follow 8n+1 rule (e.g. 81, 121, 161). Max 441.', minimum: 1, maximum: 441 }),
+        Type.Number({
+          description:
+            'Number of frames to generate. Must follow 8n+1 rule (e.g. 81, 121, 161). Max 441.',
+          minimum: 1,
+          maximum: 441,
+        }),
       ),
       frameRate: Type.Optional(
-        Type.Number({ description: 'Frame rate in FPS (1-60). Provider-dependent.', minimum: 1, maximum: 60 }),
+        Type.Number({
+          description: 'Frame rate in FPS (1-60). Provider-dependent.',
+          minimum: 1,
+          maximum: 60,
+        }),
       ),
       numInferenceSteps: Type.Optional(
-        Type.Number({ description: 'Number of inference/denoising steps. Higher = better quality but slower.' }),
+        Type.Number({
+          description: 'Number of inference/denoising steps. Higher = better quality but slower.',
+        }),
       ),
       negativePrompt: Type.Optional(
         Type.String({ description: 'What to avoid in the generated video. Provider-dependent.' }),
@@ -148,9 +157,7 @@ export function createVideoGenerationToolDefinition(
       // Determine output file name
       let sanitizedName: string;
       if (args.outputFileName) {
-        sanitizedName = path
-          .basename(args.outputFileName)
-          .replace(/[^a-zA-Z0-9_\-]/g, '_');
+        sanitizedName = path.basename(args.outputFileName).replace(/[^a-zA-Z0-9_\-]/g, '_');
       } else {
         sanitizedName = `generated_video_${Date.now()}`;
       }
@@ -202,9 +209,7 @@ export function createVideoGenerationToolDefinition(
 
 Download: [${path.basename(outputPath)}](${serveUrl})`);
       } catch (err: any) {
-        return errorResult(
-          `Video generation failed: ${err.message ?? String(err)}`,
-        );
+        return errorResult(`Video generation failed: ${err.message ?? String(err)}`);
       }
     },
   };

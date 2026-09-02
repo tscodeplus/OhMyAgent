@@ -42,11 +42,11 @@ export class InMemoryAgentRunStore implements AgentRunStore {
   }
 
   listBySession(sessionId: string): AgentRun[] {
-    return [...this.runs.values()].filter(r => r.rootSessionId === sessionId);
+    return [...this.runs.values()].filter((r) => r.rootSessionId === sessionId);
   }
 
   listByParent(parentAgentId: string): AgentRun[] {
-    return [...this.runs.values()].filter(r => r.parentAgentId === parentAgentId);
+    return [...this.runs.values()].filter((r) => r.parentAgentId === parentAgentId);
   }
 
   delete(agentId: string): boolean {

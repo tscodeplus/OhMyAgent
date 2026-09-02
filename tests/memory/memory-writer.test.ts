@@ -70,13 +70,22 @@ afterEach(() => {
   db.close();
 });
 
-function createWriter(embeddingClient?: ReturnType<typeof createMockEmbeddingClient>, onMemoryChanged?: () => void) {
+function createWriter(
+  embeddingClient?: ReturnType<typeof createMockEmbeddingClient>,
+  onMemoryChanged?: () => void,
+) {
   const client = embeddingClient ?? createMockEmbeddingClient();
   const mockCacheRepo = {
     get: vi.fn(() => undefined),
     set: vi.fn(),
   } as unknown as EmbeddingCacheRepo;
-  const writer = new MemoryWriter({ memoryRepository: memoryRepo, embeddingRepository: embeddingRepo, embeddingClient: client, embeddingCacheRepo: mockCacheRepo, onMemoryChanged: onMemoryChanged });
+  const writer = new MemoryWriter({
+    memoryRepository: memoryRepo,
+    embeddingRepository: embeddingRepo,
+    embeddingClient: client,
+    embeddingCacheRepo: mockCacheRepo,
+    onMemoryChanged: onMemoryChanged,
+  });
   return { writer, embeddingClient: client };
 }
 
@@ -285,13 +294,22 @@ describe('MemoryWriter', () => {
       // to avoid false-positive dedup
       const results = await writer.writeBatch([
         { content: 'The quick brown fox jumps over the lazy dog', scope: 'user', scopeKey: 'u1' },
-        { content: 'A completely different sentence about quantum physics', scope: 'user', scopeKey: 'u1' },
-        { content: 'Yet another unrelated text concerning cooking recipes', scope: 'chat', scopeKey: 'c1', kind: 'task' },
+        {
+          content: 'A completely different sentence about quantum physics',
+          scope: 'user',
+          scopeKey: 'u1',
+        },
+        {
+          content: 'Yet another unrelated text concerning cooking recipes',
+          scope: 'chat',
+          scopeKey: 'c1',
+          kind: 'task',
+        },
       ]);
 
       expect(results).toHaveLength(3);
-      expect(results.every(r => r.isDuplicate === false)).toBe(true);
-      expect(results.every(r => r.id)).toBeTruthy();
+      expect(results.every((r) => r.isDuplicate === false)).toBe(true);
+      expect(results.every((r) => r.id)).toBeTruthy();
 
       // All three memories exist
       for (const r of results) {
@@ -572,9 +590,11 @@ describe('MemoryWriter', () => {
       scope: string,
       scopeKey: string,
     ): Promise<void> {
-      return (writer as unknown as {
-        purgeStaleSummaries(oldContent: string, scope: string, scopeKey: string): Promise<void>;
-      }).purgeStaleSummaries(oldContent, scope, scopeKey);
+      return (
+        writer as unknown as {
+          purgeStaleSummaries(oldContent: string, scope: string, scopeKey: string): Promise<void>;
+        }
+      ).purgeStaleSummaries(oldContent, scope, scopeKey);
     }
 
     function createSummary(id: string, scopeKey: string, content: string) {
@@ -591,9 +611,17 @@ describe('MemoryWriter', () => {
       const { writer } = createWriter();
 
       // Target session: summary references the whole old preference
-      const target = createSummary(uniqueId('summary'), 'u1', 'Project status changed and user approved the plan');
+      const target = createSummary(
+        uniqueId('summary'),
+        'u1',
+        'Project status changed and user approved the plan',
+      );
       // Other session: summary only happens to contain the common word "Project"
-      const other = createSummary(uniqueId('summary'), 'u2', 'Project planning notes for a different team');
+      const other = createSummary(
+        uniqueId('summary'),
+        'u2',
+        'Project planning notes for a different team',
+      );
 
       await purgeStaleSummaries(writer, 'Project status changed', 'session', 'u1');
 
@@ -604,11 +632,19 @@ describe('MemoryWriter', () => {
     it('keeps summaries in the same session that only partially match the tokens', async () => {
       const { writer } = createWriter();
 
-      const fullMatch = createSummary(uniqueId('summary'), 'u1', 'Project status changed yesterday');
+      const fullMatch = createSummary(
+        uniqueId('summary'),
+        'u1',
+        'Project status changed yesterday',
+      );
       // Only "status" appears — not the full token sequence
       const partial = createSummary(uniqueId('summary'), 'u1', 'Daily status report for the team');
       // Only "changed" appears
-      const partial2 = createSummary(uniqueId('summary'), 'u1', 'Everything changed after the meeting');
+      const partial2 = createSummary(
+        uniqueId('summary'),
+        'u1',
+        'Everything changed after the meeting',
+      );
 
       await purgeStaleSummaries(writer, 'Project status changed', 'session', 'u1');
 

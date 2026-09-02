@@ -28,7 +28,12 @@ import { errorForObservation, hashForObservation, memoryObservability } from './
 import { rerankMemoryResults } from './retrieval/reranker.js';
 import type { RerankOptions } from './retrieval/reranker.js';
 import { extractQueryTerms } from './repositories/memory-term-repository.js';
-import { planStructuredQueries, extractSpeaker, augmentSlotQueries, DEFAULT_PLANNER_CONFIG } from './query-planner.js';
+import {
+  planStructuredQueries,
+  extractSpeaker,
+  augmentSlotQueries,
+  DEFAULT_PLANNER_CONFIG,
+} from './query-planner.js';
 import type { PlannerConfig } from './query-planner.js';
 import { coverageMerge } from './coverage-merge.js';
 import type { SlotSourceLists } from './coverage-merge.js';
@@ -36,12 +41,12 @@ import { LRUCache } from 'lru-cache';
 
 export interface RetrievalOptions {
   query: string;
-  topK?: number;  // default 3
+  topK?: number; // default 3
   scope?: string;
   scopeKey?: string;
   /** Scene identifier — mapped to scopeKey for scene-scoped retrieval. */
   sceneId?: string;
-  minScore?: number;  // default 0.01
+  minScore?: number; // default 0.01
   /** Skip vector/cosine search, use text LIKE only (no embedding API call). */
   textOnly?: boolean;
   /** Scope filter applied only to text LIKE fallback (not vector/cosine). When unset, uses `scope`. */
@@ -203,17 +208,19 @@ export class MemoryRetriever {
 
   async retrieve(options: RetrievalOptions): Promise<RetrievedMemory[]> {
     // sceneId maps to scopeKey for scene-scoped retrieval
-    const effectiveOptions = options.sceneId
-      ? { ...options, scopeKey: options.sceneId }
-      : options;
+    const effectiveOptions = options.sceneId ? { ...options, scopeKey: options.sceneId } : options;
 
     const accessPolicy = policyFromRetrievalOptions(effectiveOptions);
-    return this.retrieveWithPolicy(effectiveOptions, {
-      access: accessPolicy,
-      includeEntityExpansion: true,
-      includeTemporalDecay: true,
-      activeOnly: true,
-    }, true);
+    return this.retrieveWithPolicy(
+      effectiveOptions,
+      {
+        access: accessPolicy,
+        includeEntityExpansion: true,
+        includeTemporalDecay: true,
+        activeOnly: true,
+      },
+      true,
+    );
   }
 
   private async retrieveWithPolicy(
@@ -231,15 +238,17 @@ export class MemoryRetriever {
     }
 
     // Phase 1: Check result cache
-    const cached = useCache ? this.queryCache?.get(
-      effectiveOptions.query,
-      topK,
-      effectiveOptions.scope,
-      effectiveOptions.scopeKey,
-      effectiveOptions.agentId,
-      effectiveOptions.kind,
-      minScore,
-    ) : undefined;
+    const cached = useCache
+      ? this.queryCache?.get(
+          effectiveOptions.query,
+          topK,
+          effectiveOptions.scope,
+          effectiveOptions.scopeKey,
+          effectiveOptions.agentId,
+          effectiveOptions.kind,
+          minScore,
+        )
+      : undefined;
     if (cached) return cached;
 
     // Phase 2.5: Multi-query expansion (LLM-driven, score-gated, rule-based fallback).
@@ -266,10 +275,7 @@ export class MemoryRetriever {
         // meant to rescue. No vector hit → initialMaxScore 0 → expansion runs.
         void probeFts;
         void probeTerm;
-        const initialMaxScore = Math.max(
-          0,
-          ...probeVec.map(r => r.score),
-        );
+        const initialMaxScore = Math.max(0, ...probeVec.map((r) => r.score));
         const result = await expandQueryLLM(
           effectiveOptions.query,
           this.expansionConfig,
@@ -304,13 +310,13 @@ export class MemoryRetriever {
       // Feed LLM-expansion variants into each slot so attribute/commonality
       // lookups also benefit from lexical variants (e.g. martial arts → kickboxing).
       const variantQueries = variants
-        .map(v => v.filteredTokens.join(' '))
-        .filter(q => q.length > 0);
+        .map((v) => v.filteredTokens.join(' '))
+        .filter((q) => q.length > 0);
       const slotLists: SlotSourceLists[] = await Promise.all(
-        plan.slots.map(async slot => {
+        plan.slots.map(async (slot) => {
           const slotQueries = augmentSlotQueries(slot, variantQueries);
           const perQuery = await Promise.all(
-            slotQueries.map(async q => {
+            slotQueries.map(async (q) => {
               const opts = { ...effectiveOptions, query: q };
               return Promise.all([
                 this.vectorSearch(opts, retrievalPolicy, sourcePool),
@@ -322,34 +328,43 @@ export class MemoryRetriever {
           return { slotId: slot.slotId, lists: perQuery.flat() };
         }),
       );
-      merged = coverageMerge(slotLists, 60, topK * this.recallConfig.mergeCandidateMultiplier, this.plannerConfig.perSlotFloor);
-      rerankOptions = { targetSpeakers: plan.entities, speakerBoost: this.plannerConfig.speakerBoost };
+      merged = coverageMerge(
+        slotLists,
+        60,
+        topK * this.recallConfig.mergeCandidateMultiplier,
+        this.plannerConfig.perSlotFloor,
+      );
+      rerankOptions = {
+        targetSpeakers: plan.entities,
+        speakerBoost: this.plannerConfig.speakerBoost,
+      };
     } else {
       // Flat path — identical to pre-planner behavior.
       const plannedQueries = plan.flatQueries
-        .filter(item => item.reason !== 'original')
-        .map(item => item.query);
-      const variantOpts = [
-        ...plannedQueries,
-        ...variants.map(v => v.filteredTokens.join(' ')),
-      ]
-        .filter(q => q.length > 0)
-        .map(query => ({ ...effectiveOptions, query }));
+        .filter((item) => item.reason !== 'original')
+        .map((item) => item.query);
+      const variantOpts = [...plannedQueries, ...variants.map((v) => v.filteredTokens.join(' '))]
+        .filter((q) => q.length > 0)
+        .map((query) => ({ ...effectiveOptions, query }));
       const allQueries = [effectiveOptions, ...variantOpts];
 
-      const searchTasks = allQueries.flatMap(opts => [
+      const searchTasks = allQueries.flatMap((opts) => [
         this.vectorSearch(opts, retrievalPolicy, sourcePool),
         this.ftsSearchWrapper(opts, retrievalPolicy.access, sourcePool),
         this.termSearchWrapper(opts, retrievalPolicy.access, sourcePool),
       ]);
 
-      const allResults = await concurrentMap(searchTasks, task => task, this.searchConcurrency);
+      const allResults = await concurrentMap(searchTasks, (task) => task, this.searchConcurrency);
       merged = rrfMerge(allResults, 60, topK * this.recallConfig.mergeCandidateMultiplier);
     }
 
     // Phase 3: Temporal decay
     const decayed = applyTemporalDecay(merged, this.decayConfig);
-    const expandedByMetadata = this.expandByMemoryMetadata(decayed, retrievalPolicy.access, sourcePool);
+    const expandedByMetadata = this.expandByMemoryMetadata(
+      decayed,
+      retrievalPolicy.access,
+      sourcePool,
+    );
     const reranked = rerankMemoryResults(effectiveOptions.query, expandedByMetadata, rerankOptions);
 
     // Filter by minScore, then Phase 3.5 entity-graph expansion, THEN the topK
@@ -364,16 +379,17 @@ export class MemoryRetriever {
     const results = this.enrichResults(finalList);
 
     // Phase 1: Cache results
-    if (useCache) this.queryCache?.set(
-      effectiveOptions.query,
-      topK,
-      effectiveOptions.scope,
-      effectiveOptions.scopeKey,
-      results,
-      effectiveOptions.agentId,
-      effectiveOptions.kind,
-      minScore,
-    );
+    if (useCache)
+      this.queryCache?.set(
+        effectiveOptions.query,
+        topK,
+        effectiveOptions.scope,
+        effectiveOptions.scopeKey,
+        results,
+        effectiveOptions.agentId,
+        effectiveOptions.kind,
+        minScore,
+      );
 
     return results;
   }
@@ -382,16 +398,19 @@ export class MemoryRetriever {
     this.queryCache?.clear();
   }
 
-  private async vectorSearch(options: RetrievalOptions, policy: RetrievalPolicy, sourcePool?: MemoryPool): Promise<SourceResult[]> {
+  private async vectorSearch(
+    options: RetrievalOptions,
+    policy: RetrievalPolicy,
+    sourcePool?: MemoryPool,
+  ): Promise<SourceResult[]> {
     try {
       const queryEmbedding = await this.getQueryEmbedding(options.query);
       if (!queryEmbedding) return [];
 
       const limit = this.prefilterLimit(options.topK ?? DEFAULT_TOP_K);
       const candidateIds = this.candidateSelector.selectIds(policy);
-      const embeddingCount = typeof this.embeddingRepository.count === 'function'
-        ? this.embeddingRepository.count()
-        : 0;
+      const embeddingCount =
+        typeof this.embeddingRepository.count === 'function' ? this.embeddingRepository.count() : 0;
       if (candidateIds === null && embeddingCount > this.fullScanMaxEmbeddings) {
         memoryObservability.record('memory.vector.full_scan_skipped', {
           queryHash: hashForObservation(options.query),
@@ -406,11 +425,12 @@ export class MemoryRetriever {
       const vectorResults = this.embeddingRepository.isVecAvailable?.()
         ? this.embeddingRepository.vecSearch(queryEmbedding, limit, candidateIds)
         : [];
-      const cosineResults = vectorResults.length > 0
-        ? vectorResults
-        : this.embeddingRepository.cosineSearch(queryEmbedding, limit, candidateIds);
+      const cosineResults =
+        vectorResults.length > 0
+          ? vectorResults
+          : this.embeddingRepository.cosineSearch(queryEmbedding, limit, candidateIds);
       return this.toSourceResults(
-        cosineResults.map(r => ({ memoryId: r.memory_id, distance: 1 - r.score })),
+        cosineResults.map((r) => ({ memoryId: r.memory_id, distance: 1 - r.score })),
         vectorResults.length > 0 ? 'vector' : 'cosine',
         policy.access,
         sourcePool,
@@ -422,11 +442,15 @@ export class MemoryRetriever {
         kind: Array.isArray(options.kind) ? options.kind.join(',') : options.kind,
         error: errorForObservation(err),
       });
-      return [];  // Vector search failure → empty results, FTS5 still runs
+      return []; // Vector search failure → empty results, FTS5 still runs
     }
   }
 
-  private async ftsSearchWrapper(options: RetrievalOptions, policy: MemoryAccessPolicy, sourcePool?: MemoryPool): Promise<SourceResult[]> {
+  private async ftsSearchWrapper(
+    options: RetrievalOptions,
+    policy: MemoryAccessPolicy,
+    sourcePool?: MemoryPool,
+  ): Promise<SourceResult[]> {
     try {
       const expanded = expandQuery(options.query);
       if (!expanded.ftsQuery) return [];
@@ -440,7 +464,13 @@ export class MemoryRetriever {
       if (results.length > 0) return this.ftsSourceResults(results, policy, sourcePool);
 
       // Fallback: original FTS5 with query-expansion tokenization
-      const legacyResults = ftsSearch(this.db, expanded.ftsQuery, limit, textScope, options.scopeKey);
+      const legacyResults = ftsSearch(
+        this.db,
+        expanded.ftsQuery,
+        limit,
+        textScope,
+        options.scopeKey,
+      );
       if (legacyResults.length > 0) return this.ftsSourceResults(legacyResults, policy, sourcePool);
 
       // FTS5 no results → legacy LIKE fallback
@@ -461,31 +491,39 @@ export class MemoryRetriever {
     policy: MemoryAccessPolicy,
     sourcePool?: MemoryPool,
   ): SourceResult[] {
-    const memories = this.loadMemoriesById(results.map(r => r.memoryId));
-    return results.flatMap(r => {
+    const memories = this.loadMemoriesById(results.map((r) => r.memoryId));
+    return results.flatMap((r) => {
       const memory = memories.get(r.memoryId);
       if (!memory || !matchesMemoryAccess(memory, policy)) return [];
-      return [{
-        id: r.memoryId,
-        content: r.content,
-        score: r.normalizedScore,
-        source: 'fts5' as const,
-        scope: memory.scope,
-        scopeKey: memory.scope_key,
-        kind: memory.kind,
-        createdAt: parseEpochMs(memory.created_at),
-        sourcePool,
-        speaker: extractSpeaker(r.content, memory.metadata),
-      }];
+      return [
+        {
+          id: r.memoryId,
+          content: r.content,
+          score: r.normalizedScore,
+          source: 'fts5' as const,
+          scope: memory.scope,
+          scopeKey: memory.scope_key,
+          kind: memory.kind,
+          createdAt: parseEpochMs(memory.created_at),
+          sourcePool,
+          speaker: extractSpeaker(r.content, memory.metadata),
+        },
+      ];
     });
   }
 
-  private async termSearchWrapper(options: RetrievalOptions, policy: MemoryAccessPolicy, sourcePool?: MemoryPool): Promise<SourceResult[]> {
+  private async termSearchWrapper(
+    options: RetrievalOptions,
+    policy: MemoryAccessPolicy,
+    sourcePool?: MemoryPool,
+  ): Promise<SourceResult[]> {
     try {
       const terms = [...new Set(extractQueryTerms(options.query))].slice(0, 16);
       if (terms.length === 0) return [];
       const placeholders = terms.map(() => '?').join(',');
-      const rows = this.db.prepare(`
+      const rows = this.db
+        .prepare(
+          `
         SELECT mt.memory_id AS memoryId, SUM(mt.weight) AS score
         FROM memory_terms mt
         JOIN memories m ON m.id = mt.memory_id
@@ -494,24 +532,31 @@ export class MemoryRetriever {
         GROUP BY mt.memory_id
         ORDER BY score DESC
         LIMIT ?
-      `).all(...terms, this.prefilterLimit(options.topK ?? DEFAULT_TOP_K)) as Array<{ memoryId: string; score: number }>;
+      `,
+        )
+        .all(...terms, this.prefilterLimit(options.topK ?? DEFAULT_TOP_K)) as Array<{
+        memoryId: string;
+        score: number;
+      }>;
 
-      const memories = this.loadMemoriesById(rows.map(row => row.memoryId));
-      return rows.flatMap(row => {
+      const memories = this.loadMemoriesById(rows.map((row) => row.memoryId));
+      return rows.flatMap((row) => {
         const memory = memories.get(row.memoryId);
         if (!memory || !matchesMemoryAccess(memory, policy)) return [];
-        return [{
-          id: row.memoryId,
-          content: memory.content,
-          score: Math.min(1, row.score / Math.max(1, terms.length)),
-          source: 'terms' as const,
-          scope: memory.scope,
-          scopeKey: memory.scope_key,
-          kind: memory.kind,
-          createdAt: parseEpochMs(memory.created_at),
-          sourcePool,
-          speaker: extractSpeaker(memory.content, memory.metadata),
-        }];
+        return [
+          {
+            id: row.memoryId,
+            content: memory.content,
+            score: Math.min(1, row.score / Math.max(1, terms.length)),
+            source: 'terms' as const,
+            scope: memory.scope,
+            scopeKey: memory.scope_key,
+            kind: memory.kind,
+            createdAt: parseEpochMs(memory.created_at),
+            sourcePool,
+            speaker: extractSpeaker(memory.content, memory.metadata),
+          },
+        ];
       });
     } catch (err) {
       memoryObservability.record('memory.fts.failed', {
@@ -529,8 +574,8 @@ export class MemoryRetriever {
     policy: MemoryAccessPolicy,
     sourcePool?: MemoryPool,
   ): SourceResult[] {
-    const memories = this.loadMemoriesById(results.map(r => r.memoryId));
-    return results.flatMap(r => {
+    const memories = this.loadMemoriesById(results.map((r) => r.memoryId));
+    return results.flatMap((r) => {
       const memory = memories.get(r.memoryId);
       if (!memory || !matchesMemoryAccess(memory, policy)) return [];
       return {
@@ -558,18 +603,22 @@ export class MemoryRetriever {
    * Follows memory → entity → memory links to discover related memories
    * that keyword/vector search might have missed.
    */
-  private expandByEntityLinks(merged: MergedResult[], policy: MemoryAccessPolicy, sourcePool?: MemoryPool): MergedResult[] {
+  private expandByEntityLinks(
+    merged: MergedResult[],
+    policy: MemoryAccessPolicy,
+    sourcePool?: MemoryPool,
+  ): MergedResult[] {
     if (!this.memoryLinkRepo || merged.length === 0) return merged;
 
     try {
-      const memoryIds = merged.map(r => r.id);
+      const memoryIds = merged.map((r) => r.id);
       const entities = this.memoryLinkRepo.findEntitiesByMemoryIds(memoryIds);
 
       if (entities.length === 0) return merged;
 
-      const linksByEntity = this.memoryLinkRepo.findByEntities(
-        [...new Set(entities.filter(e => e.confidence >= 0.5).map(e => e.target_entity))],
-      );
+      const linksByEntity = this.memoryLinkRepo.findByEntities([
+        ...new Set(entities.filter((e) => e.confidence >= 0.5).map((e) => e.target_entity)),
+      ]);
 
       const relatedIds = new Set<string>(memoryIds);
       const additions: MergedResult[] = [];
@@ -597,7 +646,7 @@ export class MemoryRetriever {
       // above the top score whenever rerank skipped normalization — it returns
       // early for a one-result page, leaving RRF-scale scores (~0.016) — which
       // let a graph neighbour outrank the memory that actually matched.
-      const topScore = Math.max(...merged.map(r => r.score));
+      const topScore = Math.max(...merged.map((r) => r.score));
 
       for (const { target_entity, confidence } of entities) {
         if (confidence < 0.5) continue;
@@ -635,20 +684,24 @@ export class MemoryRetriever {
     }
   }
 
-  private expandByMemoryMetadata(merged: MergedResult[], policy: MemoryAccessPolicy, sourcePool?: MemoryPool): MergedResult[] {
+  private expandByMemoryMetadata(
+    merged: MergedResult[],
+    policy: MemoryAccessPolicy,
+    sourcePool?: MemoryPool,
+  ): MergedResult[] {
     if (merged.length === 0) return merged;
 
-    const byId = new Map(merged.map(result => [result.id, result]));
+    const byId = new Map(merged.map((result) => [result.id, result]));
     const additions: MergedResult[] = [];
     const addLimit = Math.max(12, merged.length * 2);
 
-    const parents = this.loadMemoriesById(merged.map(result => result.id));
+    const parents = this.loadMemoriesById(merged.map((result) => result.id));
     const childIdsByParent = new Map<string, string[]>();
     const allChildIds = new Set<string>();
     for (const result of merged) {
       const memory = parents.get(result.id);
       if (!memory?.metadata) continue;
-      const childIds = childMemoryIdsFromMetadata(memory.metadata).filter(id => !byId.has(id));
+      const childIds = childMemoryIdsFromMetadata(memory.metadata).filter((id) => !byId.has(id));
       if (childIds.length === 0) continue;
       childIdsByParent.set(result.id, childIds);
       for (const id of childIds) allChildIds.add(id);
@@ -691,22 +744,30 @@ export class MemoryRetriever {
     return additions.length === 0 ? merged : [...merged, ...additions];
   }
 
-  private legacyLikeSourceResults(options: RetrievalOptions, policy: MemoryAccessPolicy, sourcePool?: MemoryPool): SourceResult[] {
+  private legacyLikeSourceResults(
+    options: RetrievalOptions,
+    policy: MemoryAccessPolicy,
+    sourcePool?: MemoryPool,
+  ): SourceResult[] {
     const textScope = options.textScope ?? options.scope;
     const memories = this.memoryRepository.searchByContent(
-      options.query, textScope, options.scopeKey,
+      options.query,
+      textScope,
+      options.scopeKey,
     );
-    return memories.filter(m => matchesMemoryAccess(m, policy)).map(m => ({
-      id: m.id,
-      content: m.content,
-      score: 0.5,
-      source: 'fts5' as const,
-      scope: m.scope,
-      scopeKey: m.scope_key,
-      kind: m.kind,
-      createdAt: parseEpochMs(m.created_at),
-      sourcePool,
-    }));
+    return memories
+      .filter((m) => matchesMemoryAccess(m, policy))
+      .map((m) => ({
+        id: m.id,
+        content: m.content,
+        score: 0.5,
+        source: 'fts5' as const,
+        scope: m.scope,
+        scopeKey: m.scope_key,
+        kind: m.kind,
+        createdAt: parseEpochMs(m.created_at),
+        sourcePool,
+      }));
   }
 
   /**
@@ -723,8 +784,8 @@ export class MemoryRetriever {
   }
 
   private enrichResults(merged: MergedResult[]): RetrievedMemory[] {
-    const memories = this.loadMemoriesById(merged.map(m => m.id));
-    return merged.flatMap(m => {
+    const memories = this.loadMemoriesById(merged.map((m) => m.id));
+    return merged.flatMap((m) => {
       const memory = memories.get(m.id);
       if (!memory) return [];
       // Lifecycle filter: only return active memories
@@ -753,7 +814,7 @@ export class MemoryRetriever {
 
     // Circuit breaker check
     if (this.embeddingBreaker && !this.embeddingBreaker.allow()) {
-      return undefined;  // breaker open → degrade to text-only search
+      return undefined; // breaker open → degrade to text-only search
     }
 
     // Call API with timeout
@@ -786,7 +847,10 @@ export class MemoryRetriever {
     }
   }
 
-  private async textFallback(options: RetrievalOptions, policy = policyFromRetrievalOptions(options)): Promise<RetrievedMemory[]> {
+  private async textFallback(
+    options: RetrievalOptions,
+    policy = policyFromRetrievalOptions(options),
+  ): Promise<RetrievedMemory[]> {
     const { topK, minScore } = this.resolveDefaults(options);
 
     // 1. Query expansion: remove stopwords, build FTS5 query
@@ -796,7 +860,13 @@ export class MemoryRetriever {
     const textScope = options.textScope ?? options.scope;
     let ftsResults: FtsSearchResult[] = [];
     if (expanded.ftsQuery) {
-      ftsResults = ftsSearch(this.db, expanded.ftsQuery, this.prefilterLimit(topK), textScope, options.scopeKey);
+      ftsResults = ftsSearch(
+        this.db,
+        expanded.ftsQuery,
+        this.prefilterLimit(topK),
+        textScope,
+        options.scopeKey,
+      );
     }
 
     // 3. FTS5 no results → fallback to LIKE
@@ -805,8 +875,8 @@ export class MemoryRetriever {
     }
 
     // 4. Filter by minScore and map to RetrievedMemory
-    const qualified = ftsResults.filter(r => r.normalizedScore >= minScore);
-    const memories = this.loadMemoriesById(qualified.map(r => r.memoryId));
+    const qualified = ftsResults.filter((r) => r.normalizedScore >= minScore);
+    const memories = this.loadMemoriesById(qualified.map((r) => r.memoryId));
     const results: RetrievedMemory[] = [];
     for (const r of qualified) {
       const memory = memories.get(r.memoryId);
@@ -826,33 +896,43 @@ export class MemoryRetriever {
     return results.slice(0, topK);
   }
 
-  private legacyLikeSearch(options: RetrievalOptions, policy = policyFromRetrievalOptions(options)): RetrievedMemory[] {
+  private legacyLikeSearch(
+    options: RetrievalOptions,
+    policy = policyFromRetrievalOptions(options),
+  ): RetrievedMemory[] {
     const { topK, minScore } = this.resolveDefaults(options);
     const TEXT_FALLBACK_SCORE = 0.5;
     if (TEXT_FALLBACK_SCORE < minScore) return [];
 
     const textScope = options.textScope ?? options.scope;
     const memories = this.memoryRepository.searchByContent(
-      options.query, textScope, options.scopeKey,
+      options.query,
+      textScope,
+      options.scopeKey,
     );
 
-    return memories.filter(m => matchesMemoryAccess(m, policy)).slice(0, topK).map(m => ({
-      id: m.id,
-      content: m.content,
-      scope: m.scope,
-      scopeKey: m.scope_key,
-      kind: m.kind,
-      score: TEXT_FALLBACK_SCORE,
-      createdAt: parseEpochMs(m.created_at),
-    }));
+    return memories
+      .filter((m) => matchesMemoryAccess(m, policy))
+      .slice(0, topK)
+      .map((m) => ({
+        id: m.id,
+        content: m.content,
+        scope: m.scope,
+        scopeKey: m.scope_key,
+        kind: m.kind,
+        score: TEXT_FALLBACK_SCORE,
+        createdAt: parseEpochMs(m.created_at),
+      }));
   }
 
   /**
    * List available scene documents (kind='scene' memories).
    */
-  async listScenes(scope?: string): Promise<{ scopeKey: string; refPath: string; startDate: string; endDate: string }[]> {
+  async listScenes(
+    scope?: string,
+  ): Promise<{ scopeKey: string; refPath: string; startDate: string; endDate: string }[]> {
     const scenes = this.memoryRepository.findByScopeKind(scope ?? 'user', 'scene');
-    return scenes.map(s => {
+    return scenes.map((s) => {
       let startDate = '';
       let endDate = '';
       try {
@@ -908,29 +988,36 @@ export class MemoryRetriever {
       { pool: 'other', weight: policy.poolWeights?.otherShared ?? 0.8 },
     ];
 
-    const poolResults = await Promise.all(pools.map(async ({ pool, weight }) => {
-      const access: MemoryAccessPolicy = {
-        agentId: options.agentId,
-        pool,
-        includeShared: true,
-      };
-      const results = await this.retrieveWithPolicy({
-        query: options.query,
-        agentId: options.agentId,
-        topK: Math.max(topK * 2, 6),
-        minScore: options.minScore,
-      }, {
-        access,
-        includeEntityExpansion: true,
-        includeTemporalDecay: true,
-        activeOnly: true,
-      }, false, pool);
-      return results.map(result => ({
-        ...result,
-        score: result.score * weight,
-        sourcePool: pool,
-      }));
-    }));
+    const poolResults = await Promise.all(
+      pools.map(async ({ pool, weight }) => {
+        const access: MemoryAccessPolicy = {
+          agentId: options.agentId,
+          pool,
+          includeShared: true,
+        };
+        const results = await this.retrieveWithPolicy(
+          {
+            query: options.query,
+            agentId: options.agentId,
+            topK: Math.max(topK * 2, 6),
+            minScore: options.minScore,
+          },
+          {
+            access,
+            includeEntityExpansion: true,
+            includeTemporalDecay: true,
+            activeOnly: true,
+          },
+          false,
+          pool,
+        );
+        return results.map((result) => ({
+          ...result,
+          score: result.score * weight,
+          sourcePool: pool,
+        }));
+      }),
+    );
 
     const byId = new Map<string, RetrievedMemory>();
     for (const result of poolResults.flat()) {
@@ -963,5 +1050,7 @@ function childMemoryIdsFromMetadata(metadataJson: string): string[] {
 }
 
 function readStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
 }

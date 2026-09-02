@@ -32,9 +32,7 @@ export async function subscriptionCommand(action: string, args: string[]): Promi
 
       for (const s of statuses) {
         const statusStr = s.loggedIn ? '✓ 已登录' : '✗ 未登录';
-        const expiresStr = s.expiresAt
-          ? new Date(s.expiresAt).toLocaleString()
-          : '—';
+        const expiresStr = s.expiresAt ? new Date(s.expiresAt).toLocaleString() : '—';
         console.log(
           `${s.providerName.padEnd(nameW)}  ${statusStr.padEnd(statusW)}  ${expiresStr.padEnd(expiresW)}`,
         );

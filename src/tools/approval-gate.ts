@@ -62,10 +62,7 @@ const DECISION_EFFECT_MAP: Record<string, PolicyEffect> = {
   reject_always: 'deny',
 };
 
-const SAFE_CHAIN_HELPERS = new Set([
-  'sleep',
-  'mkdir',
-]);
+const SAFE_CHAIN_HELPERS = new Set(['sleep', 'mkdir']);
 
 interface SQLiteApprovalGateOptions {
   shellApprovalMode?: ShellApprovalMode;
@@ -96,14 +93,13 @@ export class SQLiteApprovalGate implements IApprovalGate {
       this.execMode = options.execMode;
     } else {
       const oldMode = options.shellApprovalMode ?? 'balanced';
-      this.execMode = oldMode === 'strict' ? 'safe'
-        : oldMode === 'relaxed' ? 'trusted'
-        : 'balanced';
+      this.execMode =
+        oldMode === 'strict' ? 'safe' : oldMode === 'relaxed' ? 'trusted' : 'balanced';
     }
     // Prefer new allowlist, fall back to old whitelist
     const rawAllowlist = options.shellAllowlist ?? options.shellApprovalWhitelist ?? [];
     this.whitelistPrograms = new Set(
-      rawAllowlist.map(program => program.trim().toLowerCase()).filter(Boolean),
+      rawAllowlist.map((program) => program.trim().toLowerCase()).filter(Boolean),
     );
     // File read allowed roots (for path-aware shell approval)
     this.allowedRoots = options.fileReadAllowedRoots ?? [];
@@ -113,15 +109,18 @@ export class SQLiteApprovalGate implements IApprovalGate {
     if (options.execMode) {
       this.execMode = options.execMode;
     } else if (options.shellApprovalMode) {
-      this.execMode = options.shellApprovalMode === 'strict' ? 'safe'
-        : options.shellApprovalMode === 'relaxed' ? 'trusted'
-        : 'balanced';
+      this.execMode =
+        options.shellApprovalMode === 'strict'
+          ? 'safe'
+          : options.shellApprovalMode === 'relaxed'
+            ? 'trusted'
+            : 'balanced';
     }
 
     if (options.shellAllowlist || options.shellApprovalWhitelist) {
       const rawAllowlist = options.shellAllowlist ?? options.shellApprovalWhitelist ?? [];
       this.whitelistPrograms = new Set(
-        rawAllowlist.map(program => program.trim().toLowerCase()).filter(Boolean),
+        rawAllowlist.map((program) => program.trim().toLowerCase()).filter(Boolean),
       );
     }
 
@@ -309,10 +308,7 @@ export class SQLiteApprovalGate implements IApprovalGate {
   /**
    * Get the first policy matching scope + target.
    */
-  async getPolicy(
-    scope: string,
-    target: string,
-  ): Promise<ApprovalPolicy | null> {
+  async getPolicy(scope: string, target: string): Promise<ApprovalPolicy | null> {
     const policies = this.policyRepository.findByTargetKind(target);
     const match = policies.find((p) => p.scope === scope);
     if (!match) return null;
@@ -464,7 +460,9 @@ export class SQLiteApprovalGate implements IApprovalGate {
         if (classification.level === 'safe' || classification.level === 'warn') {
           const outsidePaths = checkFilePathsOutsideRoots(segment, this.allowedRoots);
           if (outsidePaths.length > 0) {
-            this.lastRejectReason = i18n.t('tools-builtins:approval.pathOutsideAllowed', { paths: outsidePaths.join(', ') });
+            this.lastRejectReason = i18n.t('tools-builtins:approval.pathOutsideAllowed', {
+              paths: outsidePaths.join(', '),
+            });
             return 'requires_approval';
           }
         }
@@ -497,7 +495,9 @@ export class SQLiteApprovalGate implements IApprovalGate {
       if (classification.level === 'safe' || classification.level === 'warn') {
         const outsidePaths = checkFilePathsOutsideRoots(segment, this.allowedRoots);
         if (outsidePaths.length > 0) {
-          this.lastRejectReason = i18n.t('tools-builtins:approval.pathOutsideAllowed', { paths: outsidePaths.join(', ') });
+          this.lastRejectReason = i18n.t('tools-builtins:approval.pathOutsideAllowed', {
+            paths: outsidePaths.join(', '),
+          });
           return 'requires_approval';
         }
       }

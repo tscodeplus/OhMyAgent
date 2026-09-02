@@ -306,20 +306,16 @@ describe('ComputerLeaseRegistry', () => {
         elements: [],
       };
       const recorded = registry.recordSnapshot(defaultCtx, created.leaseId, snapshot);
-      const validated = registry.validateSnapshot(
-        defaultCtx,
-        created.leaseId,
-        recorded.snapshotId,
-      );
+      const validated = registry.validateSnapshot(defaultCtx, created.leaseId, recorded.snapshotId);
       expect(validated.snapshotId).toBe(recorded.snapshotId);
       expect(validated.mode).toBe('vision-native');
     });
 
     it('throws STALE_SNAPSHOT for a missing snapshot', () => {
       const created = registry.createLease(defaultCtx, defaultTarget);
-      expect(() =>
-        registry.validateSnapshot(defaultCtx, created.leaseId, 'nonexistent'),
-      ).toThrow('Snapshot is stale');
+      expect(() => registry.validateSnapshot(defaultCtx, created.leaseId, 'nonexistent')).toThrow(
+        'Snapshot is stale',
+      );
     });
 
     it('throws STALE_SNAPSHOT for a snapshot from the wrong lease', () => {
@@ -340,9 +336,9 @@ describe('ComputerLeaseRegistry', () => {
       };
       const recorded = registry.recordSnapshot(sameCtx, lease1.leaseId, snapshot);
 
-      expect(() =>
-        registry.validateSnapshot(sameCtx, lease2.leaseId, recorded.snapshotId),
-      ).toThrow('Snapshot is stale');
+      expect(() => registry.validateSnapshot(sameCtx, lease2.leaseId, recorded.snapshotId)).toThrow(
+        'Snapshot is stale',
+      );
     });
 
     it('throws STALE_SNAPSHOT when the snapshot is not the latest', () => {

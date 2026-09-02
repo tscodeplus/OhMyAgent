@@ -17,7 +17,10 @@
  *   3b. closeQuestion() → update the card to "answered" state
  */
 
-import type { UserQuestionSender, UserQuestionOption } from '../../../src/agent/user-question-port.js';
+import type {
+  UserQuestionSender,
+  UserQuestionOption,
+} from '../../../src/agent/user-question-port.js';
 
 export interface FeishuUserQuestionDeps {
   /** Send an interactive card and return its message_id. */
@@ -26,9 +29,7 @@ export interface FeishuUserQuestionDeps {
   updateCard(messageId: string, card: Record<string, unknown>): Promise<void>;
 }
 
-export function createFeishuUserQuestionSender(
-  deps: FeishuUserQuestionDeps,
-): UserQuestionSender {
+export function createFeishuUserQuestionSender(deps: FeishuUserQuestionDeps): UserQuestionSender {
   return {
     async sendQuestion(
       chatId: string,

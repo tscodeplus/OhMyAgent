@@ -277,10 +277,7 @@ describe('personaSchemaForPrompt', () => {
 
     // For 'openApi3' target, the schema has the properties directly or nested
     // under a wrapper. Let's find the properties object.
-    const props =
-      parsed.properties ??
-      (parsed.definitions?.UserPersona?.properties) ??
-      {};
+    const props = parsed.properties ?? parsed.definitions?.UserPersona?.properties ?? {};
 
     const keys = Object.keys(props);
     expect(keys).toContain('version');

@@ -99,7 +99,8 @@ describe('createComputerUseTool', () => {
 
   it('view_screen creates a desktop lease when no active lease exists', async () => {
     const host = createMockHost();
-    host.getAppState = vi.fn()
+    host.getAppState = vi
+      .fn()
       .mockRejectedValueOnce(computerUseError('LEASE_NOT_FOUND', 'No active lease'))
       .mockResolvedValueOnce({
         mode: 'vision-native',
@@ -125,10 +126,14 @@ describe('createComputerUseTool', () => {
   it('send_screenshot uploads the captured image through channel callback', async () => {
     const host = createMockHost();
     const sendImage = vi.fn().mockResolvedValue('sent');
-    const tool = createComputerUseTool(host, () => ({
-      sessionPath: '/test',
-      agentId: 'test-agent',
-    }), { sendImage });
+    const tool = createComputerUseTool(
+      host,
+      () => ({
+        sessionPath: '/test',
+        agentId: 'test-agent',
+      }),
+      { sendImage },
+    );
 
     const result = await tool.execute('call-1', { action: 'send_screenshot' });
 
@@ -146,11 +151,10 @@ describe('createComputerUseTool', () => {
 
     const result = await tool.execute('call-1', { action: 'click', element_id: 'btn-1' });
 
-    expect(host.performAction).toHaveBeenCalledWith(
-      expect.anything(),
-      null,
-      { type: 'click_element', elementId: 'btn-1' },
-    );
+    expect(host.performAction).toHaveBeenCalledWith(expect.anything(), null, {
+      type: 'click_element',
+      elementId: 'btn-1',
+    });
     expect(extractText(result)).toContain('Clicked element "btn-1"');
   });
 
@@ -160,11 +164,10 @@ describe('createComputerUseTool', () => {
 
     const result = await tool.execute('call-1', { action: 'type_text', text: 'hello world' });
 
-    expect(host.performAction).toHaveBeenCalledWith(
-      expect.anything(),
-      null,
-      { type: 'type_text', text: 'hello world' },
-    );
+    expect(host.performAction).toHaveBeenCalledWith(expect.anything(), null, {
+      type: 'type_text',
+      text: 'hello world',
+    });
     expect(extractText(result)).toContain('Typed text: "hello world"');
   });
 
@@ -174,11 +177,10 @@ describe('createComputerUseTool', () => {
 
     const result = await tool.execute('call-1', { action: 'press_key', key: 'Return' });
 
-    expect(host.performAction).toHaveBeenCalledWith(
-      expect.anything(),
-      null,
-      { type: 'press_key', key: 'Return' },
-    );
+    expect(host.performAction).toHaveBeenCalledWith(expect.anything(), null, {
+      type: 'press_key',
+      key: 'Return',
+    });
     expect(extractText(result)).toContain('Pressed key "Return"');
   });
 
@@ -188,11 +190,11 @@ describe('createComputerUseTool', () => {
 
     const result = await tool.execute('call-1', { action: 'scroll', direction: 'up', amount: 3 });
 
-    expect(host.performAction).toHaveBeenCalledWith(
-      expect.anything(),
-      null,
-      { type: 'scroll', direction: 'up', amount: 3 },
-    );
+    expect(host.performAction).toHaveBeenCalledWith(expect.anything(), null, {
+      type: 'scroll',
+      direction: 'up',
+      amount: 3,
+    });
     expect(extractText(result)).toContain('Scrolled up');
     expect(extractText(result)).toContain('3');
   });
@@ -213,11 +215,11 @@ describe('createComputerUseTool', () => {
 
     const result = await tool.execute('call-1', { action: 'click_point', x: 500, y: 300 });
 
-    expect(host.performAction).toHaveBeenCalledWith(
-      expect.anything(),
-      null,
-      { type: 'click_point', x: 500, y: 300 },
-    );
+    expect(host.performAction).toHaveBeenCalledWith(expect.anything(), null, {
+      type: 'click_point',
+      x: 500,
+      y: 300,
+    });
     expect(extractText(result)).toContain('Clicked at (500, 300)');
   });
 

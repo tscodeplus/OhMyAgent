@@ -57,10 +57,12 @@ describe('SceneClusterer with epoch-millis created_at', () => {
   /** created_at holds the bare digit string the column DEFAULT produces. */
   function insertMemory(createdAt: string, content: string, scopeKey = 'mixed'): void {
     idCounter++;
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO memories (id, scope, scope_key, kind, content, created_at)
       VALUES (?, 'user', ?, 'fact', ?, ?)
-    `).run(`mem-${idCounter}`, scopeKey, content, createdAt);
+    `,
+    ).run(`mem-${idCounter}`, scopeKey, content, createdAt);
   }
 
   beforeEach(() => {
@@ -128,10 +130,11 @@ describe('SceneClusterer with epoch-millis created_at', () => {
 
     expect(results).toHaveLength(1);
     const content = results[0].content;
-    const order = ['m-0103', 'm-0104', 'm-0105', 'm-0106', 'm-0108']
-      .map(tag => content.indexOf(tag));
+    const order = ['m-0103', 'm-0104', 'm-0105', 'm-0106', 'm-0108'].map((tag) =>
+      content.indexOf(tag),
+    );
     expect(order).toEqual([...order].sort((a, b) => a - b));
-    expect(order.every(i => i >= 0)).toBe(true);
+    expect(order.every((i) => i >= 0)).toBe(true);
   });
 });
 
@@ -171,16 +174,18 @@ describe('retrieval createdAt with repository-written timestamps', () => {
   it('temporal decay actually applies to digit-string rows', () => {
     const now = Date.UTC(2026, 0, 31, 0, 0, 0);
     const thirtyDaysAgo = String(now - 30 * DAY_MS);
-    const results: MergedResult[] = [{
-      id: 'mem-old',
-      content: 'old fact',
-      score: 1,
-      source: 'cosine',
-      scope: 'user',
-      scopeKey: 'k',
-      kind: 'fact',
-      createdAt: parseEpochMs(thirtyDaysAgo),
-    }];
+    const results: MergedResult[] = [
+      {
+        id: 'mem-old',
+        content: 'old fact',
+        score: 1,
+        source: 'cosine',
+        scope: 'user',
+        scopeKey: 'k',
+        kind: 'fact',
+        createdAt: parseEpochMs(thirtyDaysAgo),
+      },
+    ];
 
     const [decayed] = applyTemporalDecay(results, { halfLifeDays: 30, nowMs: now });
 

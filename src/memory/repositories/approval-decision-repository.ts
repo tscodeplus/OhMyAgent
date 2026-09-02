@@ -50,14 +50,14 @@ export class ApprovalDecisionRepository {
 
   findByRequestId(requestId: string): ApprovalDecision[] {
     const stmt = this.db.prepare(
-      'SELECT * FROM approval_decisions WHERE request_id = ? ORDER BY created_at ASC'
+      'SELECT * FROM approval_decisions WHERE request_id = ? ORDER BY created_at ASC',
     );
     return stmt.all(requestId) as ApprovalDecision[];
   }
 
   findLatestByRequestId(requestId: string): ApprovalDecision | undefined {
     const stmt = this.db.prepare(
-      'SELECT * FROM approval_decisions WHERE request_id = ? ORDER BY created_at DESC LIMIT 1'
+      'SELECT * FROM approval_decisions WHERE request_id = ? ORDER BY created_at DESC LIMIT 1',
     );
     const row = stmt.get(requestId) as ApprovalDecision | undefined;
     return row ?? undefined;

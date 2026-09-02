@@ -45,9 +45,7 @@ export function buildMessageContext(msg: ILMessage): ChannelContext | null {
           const refMediaNote = extractRefMsgMedia(ref);
 
           const quotedPart = quotedText || refMediaNote || refTitle || '[Quoted message]';
-          const formatted = refText
-            ? `[引用: ${quotedPart}]\n${refText}`
-            : `[引用: ${quotedPart}]`;
+          const formatted = refText ? `[引用: ${quotedPart}]\n${refText}` : `[引用: ${quotedPart}]`;
 
           if (formatted) {
             textParts.push(formatted);

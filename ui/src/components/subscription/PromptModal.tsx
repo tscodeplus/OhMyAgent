@@ -95,7 +95,10 @@ export default function PromptModal({
           <Input
             type="text"
             value={value}
-            onChange={(e) => { setValue(e.target.value); setError(''); }}
+            onChange={(e) => {
+              setValue(e.target.value);
+              setError('');
+            }}
             placeholder={placeholder}
             error={error || undefined}
             autoFocus

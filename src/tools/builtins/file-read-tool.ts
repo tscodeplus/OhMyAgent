@@ -70,7 +70,8 @@ export function createFileReadTool(param?: FileReadToolDeps | FileReadToolOption
   return {
     name: 'file_read',
     label: 'File Read',
-    description: 'Read file contents. Use for ANY file — do not pre-check paths. The approval system handles restricted paths.',
+    description:
+      'Read file contents. Use for ANY file — do not pre-check paths. The approval system handles restricted paths.',
     parameters: Type.Object({
       path: Type.String({ description: 'The file path to read' }),
     }),
@@ -81,7 +82,10 @@ export function createFileReadTool(param?: FileReadToolDeps | FileReadToolOption
         // Resolve to absolute path (always expand ~)
         let resolvedPath: string;
         if (rawPath.startsWith('~')) {
-          resolvedPath = path.resolve(os.homedir(), rawPath.slice(rawPath.startsWith('~/') ? 2 : 1));
+          resolvedPath = path.resolve(
+            os.homedir(),
+            rawPath.slice(rawPath.startsWith('~/') ? 2 : 1),
+          );
         } else {
           resolvedPath = path.resolve(rawPath);
         }
@@ -108,21 +112,34 @@ export function createFileReadTool(param?: FileReadToolDeps | FileReadToolOption
             },
           });
           if (!decision.allowed) {
-            return { content: [{ type: 'text' as const, text: i18n.t('tools-builtins:fileRead.accessDenied') }], isError: true };
+            return {
+              content: [
+                { type: 'text' as const, text: i18n.t('tools-builtins:fileRead.accessDenied') },
+              ],
+              isError: true,
+            };
           }
         } else {
           // ── Legacy path (policyCenter not available) ──
           if (isDeniedByPatterns(resolvedPath, path.basename(resolvedPath), deniedPatterns)) {
-            return { content: [{ type: 'text' as const, text: i18n.t('tools-builtins:fileRead.accessDenied') }] };
+            return {
+              content: [
+                { type: 'text' as const, text: i18n.t('tools-builtins:fileRead.accessDenied') },
+              ],
+            };
           }
 
           // Check that resolved path is within an allowed root
           // Use path.relative() which handles mixed separators and is case-insensitive on Windows
-          const allowed = allowedRoots.some(root =>
+          const allowed = allowedRoots.some((root) =>
             isWithinRoot(resolvedPath, path.resolve(root)),
           );
           if (!allowed) {
-            return { content: [{ type: 'text' as const, text: i18n.t('tools-builtins:fileRead.accessDenied') }] };
+            return {
+              content: [
+                { type: 'text' as const, text: i18n.t('tools-builtins:fileRead.accessDenied') },
+              ],
+            };
           }
         }
 
@@ -140,7 +157,15 @@ export function createFileReadTool(param?: FileReadToolDeps | FileReadToolOption
           const stats = await handle.stat();
           if (stats.size > MAX_FILE_SIZE) {
             return {
-              content: [{ type: 'text' as const, text: i18n.t('tools-builtins:fileRead.tooLarge', { size: stats.size, limit: MAX_FILE_SIZE }) }],
+              content: [
+                {
+                  type: 'text' as const,
+                  text: i18n.t('tools-builtins:fileRead.tooLarge', {
+                    size: stats.size,
+                    limit: MAX_FILE_SIZE,
+                  }),
+                },
+              ],
               isError: true,
             };
           }
@@ -160,9 +185,15 @@ export function createFileReadTool(param?: FileReadToolDeps | FileReadToolOption
         }
       } catch (error: any) {
         if (error.code === 'ENOENT') {
-          return { content: [{ type: 'text' as const, text: i18n.t('tools-builtins:fileRead.notFound') }], isError: true };
+          return {
+            content: [{ type: 'text' as const, text: i18n.t('tools-builtins:fileRead.notFound') }],
+            isError: true,
+          };
         }
-        return { content: [{ type: 'text' as const, text: i18n.t('tools-builtins:fileRead.error') }], isError: true };
+        return {
+          content: [{ type: 'text' as const, text: i18n.t('tools-builtins:fileRead.error') }],
+          isError: true,
+        };
       }
     },
   } as AgentTool<any>;

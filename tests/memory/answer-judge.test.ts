@@ -9,7 +9,12 @@ vi.mock('../../src/memory/aux-llm-client.js', () => ({
 import { generateAnswer, judgeAnswer } from '../../src/memory/eval/answer-judge.js';
 import type { JudgeConfig } from '../../src/memory/eval/answer-judge.js';
 
-const logger = { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger;
+const logger = {
+  warn: vi.fn(),
+  info: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+} as unknown as Logger;
 
 function cfg(overrides: Partial<JudgeConfig> = {}): JudgeConfig {
   return {
@@ -60,9 +65,14 @@ describe('generateAnswer — gold leakage guard', () => {
 describe('judgeAnswer — LLM path', () => {
   it('returns the LLM verdict when grading succeeds', async () => {
     auxLLMCall
-      .mockResolvedValueOnce('Jon enjoys hiking.')                       // generate
-      .mockResolvedValueOnce('{"verdict":"correct","reason":"same"}');   // judge
-    const r = await judgeAnswer('What does Jon enjoy?', ['Jon said: I love hiking.'], 'hiking', cfg());
+      .mockResolvedValueOnce('Jon enjoys hiking.') // generate
+      .mockResolvedValueOnce('{"verdict":"correct","reason":"same"}'); // judge
+    const r = await judgeAnswer(
+      'What does Jon enjoy?',
+      ['Jon said: I love hiking.'],
+      'hiking',
+      cfg(),
+    );
     expect(r.verdict).toBe('correct');
     expect(r.llmJudged).toBe(true);
     expect(r.generatedAnswer).toBe('Jon enjoys hiking.');
@@ -78,8 +88,8 @@ describe('judgeAnswer — LLM path', () => {
 describe('judgeAnswer — lexical fallback', () => {
   it('grades by lexical overlap when judge output is unparseable', async () => {
     auxLLMCall
-      .mockResolvedValueOnce('Jon enjoys hiking and climbing')  // generate
-      .mockResolvedValueOnce('not json at all');                // judge (bad)
+      .mockResolvedValueOnce('Jon enjoys hiking and climbing') // generate
+      .mockResolvedValueOnce('not json at all'); // judge (bad)
     const r = await judgeAnswer('q', ['ctx'], 'hiking climbing', cfg());
     expect(r.llmJudged).toBe(false);
     expect(r.verdict).toBe('correct'); // full token overlap

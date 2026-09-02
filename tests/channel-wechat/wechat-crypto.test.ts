@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import crypto from 'node:crypto';
-import { aesEncrypt, aesDecrypt, paddedSize } from '../../extensions/channel-wechat/wechat-crypto.js';
+import {
+  aesEncrypt,
+  aesDecrypt,
+  paddedSize,
+} from '../../extensions/channel-wechat/wechat-crypto.js';
 
 // A 16-byte raw key, expressed in the two accepted base64 forms.
 const RAW_KEY = Buffer.from('0123456789abcdef', 'ascii'); // exactly 16 bytes

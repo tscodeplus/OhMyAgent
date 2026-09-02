@@ -127,7 +127,10 @@ describe('lsp tool', () => {
     await writeFile(filePath, tsCode);
 
     const tool = createLspToolDefinition();
-    const result = await tool.execute({ action: 'symbols', filePath: 'test.ts', line: 0, column: 0 }, ctx);
+    const result = await tool.execute(
+      { action: 'symbols', filePath: 'test.ts', line: 0, column: 0 },
+      ctx,
+    );
     const text = extractToolText(result);
 
     expect(text).toContain('greet');
@@ -144,7 +147,10 @@ describe('lsp tool', () => {
 
     const tool = createLspToolDefinition();
     // 'greet' is on line 1 (0-indexed), at column 9 (after "function ")
-    const result = await tool.execute({ action: 'hover', filePath: 'test.ts', line: 1, column: 9 }, ctx);
+    const result = await tool.execute(
+      { action: 'hover', filePath: 'test.ts', line: 1, column: 9 },
+      ctx,
+    );
     const text = extractToolText(result);
 
     expect(text).toContain('greet');
@@ -157,7 +163,10 @@ describe('lsp tool', () => {
     await writeFile(filePath, 'print("hello")');
 
     const tool = createLspToolDefinition();
-    const result = await tool.execute({ action: 'symbols', filePath: 'test.py', line: 0, column: 0 }, ctx);
+    const result = await tool.execute(
+      { action: 'symbols', filePath: 'test.py', line: 0, column: 0 },
+      ctx,
+    );
     const text = extractToolText(result);
 
     expect(text).toContain('only supports');
@@ -171,7 +180,10 @@ describe('lsp tool', () => {
     const tool = createLspToolDefinition();
     // 'name' appears in multiple places: parameters, return statements, interface fields
     // Position at line 1, column 13 is the 'name' parameter
-    const result = await tool.execute({ action: 'references', filePath: 'test.ts', line: 1, column: 13 }, ctx);
+    const result = await tool.execute(
+      { action: 'references', filePath: 'test.ts', line: 1, column: 13 },
+      ctx,
+    );
     const text = extractToolText(result);
 
     expect(text).toContain('name');
@@ -184,7 +196,10 @@ describe('lsp tool', () => {
 
     const tool = createLspToolDefinition();
     // Line 11 has 'const PI = ...', column 6 is the start of 'PI'
-    const result = await tool.execute({ action: 'definition', filePath: 'test.ts', line: 11, column: 6 }, ctx);
+    const result = await tool.execute(
+      { action: 'definition', filePath: 'test.ts', line: 11, column: 6 },
+      ctx,
+    );
     const text = extractToolText(result);
 
     expect(text).toContain('PI');

@@ -8,8 +8,36 @@ const DOW_ZH = ['日', '一', '二', '三', '四', '五', '六'] as const;
 const DOW_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 
 // Month names (1-indexed)
-const MONTH_ZH = ['', '1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'] as const;
-const MONTH_EN = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
+const MONTH_ZH = [
+  '',
+  '1月',
+  '2月',
+  '3月',
+  '4月',
+  '5月',
+  '6月',
+  '7月',
+  '8月',
+  '9月',
+  '10月',
+  '11月',
+  '12月',
+] as const;
+const MONTH_EN = [
+  '',
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+] as const;
 
 export type CronHumanResult = string | null;
 
@@ -22,15 +50,20 @@ export function cronToHuman(expression: string, locale: string = 'zh-CN'): CronH
 
   // "every Xm/h/d" patterns
   const everyMatch = expr.match(/^every\s+(\d+)\s*(m|h|d)$/i);
-  if (everyMatch) return everyToHuman(parseInt(everyMatch[1]!), everyMatch[2]!.toLowerCase(), locale);
+  if (everyMatch)
+    return everyToHuman(parseInt(everyMatch[1]!), everyMatch[2]!.toLowerCase(), locale);
 
   // "at HH:MM" one-shot
   const atTimeMatch = expr.match(/^at\s+(\d{1,2}):(\d{2})$/i);
-  if (atTimeMatch) return atTimeToHuman(parseInt(atTimeMatch[1]!), parseInt(atTimeMatch[2]!), locale);
+  if (atTimeMatch)
+    return atTimeToHuman(parseInt(atTimeMatch[1]!), parseInt(atTimeMatch[2]!), locale);
 
   // "at ISO" one-shot
   const atIsoMatch = expr.match(/^at\s+(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?)/i);
-  if (atIsoMatch) return isZh(locale) ? `${new Date(atIsoMatch[1]!).toLocaleString('zh-CN')}` : new Date(atIsoMatch[1]!).toLocaleString('en-US');
+  if (atIsoMatch)
+    return isZh(locale)
+      ? `${new Date(atIsoMatch[1]!).toLocaleString('zh-CN')}`
+      : new Date(atIsoMatch[1]!).toLocaleString('en-US');
 
   // Bare duration: "30m", "2h", "1d" → oneshot after X
   const bareMatch = expr.match(/^(\d+)\s*(m|h|d)$/i);
@@ -38,7 +71,10 @@ export function cronToHuman(expression: string, locale: string = 'zh-CN'): CronH
 
   // ISO timestamp
   const isoMatch = expr.match(/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/);
-  if (isoMatch) return isZh(locale) ? new Date(expr).toLocaleString('zh-CN') : new Date(expr).toLocaleString('en-US');
+  if (isoMatch)
+    return isZh(locale)
+      ? new Date(expr).toLocaleString('zh-CN')
+      : new Date(expr).toLocaleString('en-US');
 
   // Try 5-field cron expression
   const fields = expr.trim().split(/\s+/);
@@ -56,15 +92,31 @@ function isZh(locale: string): boolean {
 
 function everyToHuman(value: number, unit: string, locale: string): string {
   const unitStr = isZh(locale)
-    ? (unit === 'm' ? '分钟' : unit === 'h' ? '小时' : '天')
-    : (unit === 'm' ? 'minutes' : unit === 'h' ? 'hours' : 'days');
+    ? unit === 'm'
+      ? '分钟'
+      : unit === 'h'
+        ? '小时'
+        : '天'
+    : unit === 'm'
+      ? 'minutes'
+      : unit === 'h'
+        ? 'hours'
+        : 'days';
   return isZh(locale) ? `每${value}${unitStr}` : `Every ${value} ${unitStr}`;
 }
 
 function bareToHuman(value: number, unit: string, locale: string): string {
   const unitStr = isZh(locale)
-    ? (unit === 'm' ? '分钟' : unit === 'h' ? '小时' : '天')
-    : (unit === 'm' ? 'minutes' : unit === 'h' ? 'hours' : 'days');
+    ? unit === 'm'
+      ? '分钟'
+      : unit === 'h'
+        ? '小时'
+        : '天'
+    : unit === 'm'
+      ? 'minutes'
+      : unit === 'h'
+        ? 'hours'
+        : 'days';
   return isZh(locale) ? `${value}${unitStr}后` : `After ${value} ${unitStr}`;
 }
 
@@ -103,7 +155,7 @@ function cronFieldsToHuman(fields: string[], locale: string): string | null {
     const time = `${hour.padStart(2, '0')}:${min.padStart(2, '0')}`;
     // Check for comma-separated hours
     if (hour.includes(',')) {
-      const hours = hour.split(',').map(h => `${h.padStart(2, '0')}:${min.padStart(2, '0')}`);
+      const hours = hour.split(',').map((h) => `${h.padStart(2, '0')}:${min.padStart(2, '0')}`);
       return zh ? `每天 ${hours.join('、')}` : `Daily at ${hours.join(', ')}`;
     }
     return zh ? `每天 ${time}` : `Daily at ${time}`;
@@ -145,7 +197,7 @@ function parseDow(dow: string, locale: string): string {
 
   // Comma-separated
   if (dow.includes(',')) {
-    const days = dow.split(',').map(d => names[parseInt(d) % 7]);
+    const days = dow.split(',').map((d) => names[parseInt(d) % 7]);
     return days.join(zh ? '、' : ', ');
   }
 

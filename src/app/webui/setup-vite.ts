@@ -74,10 +74,7 @@ export async function setupWebUIMiddleware(options: {
         const transformed = await viteDevServer!.transformIndexHtml(reqUrl, raw);
         // no-cache (must revalidate) so Safari/iOS doesn't serve stale HTML
         // after source changes — the desktop browser hides this problem.
-        return reply
-          .type('text/html')
-          .header('Cache-Control', 'no-cache')
-          .send(transformed);
+        return reply.type('text/html').header('Cache-Control', 'no-cache').send(transformed);
       };
 
       server.get('/webui', (_, reply) => sendIndexHtml('/webui', reply));
@@ -94,7 +91,8 @@ export async function setupWebUIMiddleware(options: {
         viteDevServer!.middlewares(request.raw, reply.raw, () => {
           // Vite didn't handle this request — serve index.html for SPA routing
           if (!reply.raw.headersSent) {
-            viteDevServer!.transformIndexHtml(url, readFileSync(indexHtmlPath, 'utf-8'))
+            viteDevServer!
+              .transformIndexHtml(url, readFileSync(indexHtmlPath, 'utf-8'))
               .then((html) => {
                 if (!reply.raw.headersSent) {
                   reply.raw.statusCode = 200;

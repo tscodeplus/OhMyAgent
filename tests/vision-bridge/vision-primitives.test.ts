@@ -40,11 +40,15 @@ describe('normalizeVisionCapabilities', () => {
   });
 
   it('returns null for unsupported coordinate space', () => {
-    expect(normalizeVisionCapabilities({ grounding: true, coordinateSpace: 'pixel-1000' })).toBeNull();
+    expect(
+      normalizeVisionCapabilities({ grounding: true, coordinateSpace: 'pixel-1000' }),
+    ).toBeNull();
   });
 
   it('returns null when both boxes and points are disabled', () => {
-    expect(normalizeVisionCapabilities({ grounding: true, boxes: false, points: false })).toBeNull();
+    expect(
+      normalizeVisionCapabilities({ grounding: true, boxes: false, points: false }),
+    ).toBeNull();
   });
 
   it('defaults boxOrder to xyxy', () => {
@@ -59,13 +63,21 @@ describe('normalizeVisionCapabilities', () => {
 
   it('accepts valid output formats', () => {
     for (const fmt of ['gemini', 'qwen', 'anchor', 'hanako']) {
-      const result = normalizeVisionCapabilities({ grounding: true, boxes: true, outputFormat: fmt });
+      const result = normalizeVisionCapabilities({
+        grounding: true,
+        boxes: true,
+        outputFormat: fmt,
+      });
       expect(result?.outputFormat).toBe(fmt);
     }
   });
 
   it('defaults outputFormat to hanako for unknown values', () => {
-    const result = normalizeVisionCapabilities({ grounding: true, boxes: true, outputFormat: 'unknown' });
+    const result = normalizeVisionCapabilities({
+      grounding: true,
+      boxes: true,
+      outputFormat: 'unknown',
+    });
     expect(result?.outputFormat).toBe('hanako');
   });
 });
@@ -84,7 +96,12 @@ describe('getVisionCapabilities', () => {
     const model = {
       id: 'gpt-4o',
       provider: 'openai',
-      visionCapabilities: { grounding: true, boxes: true, outputFormat: 'anchor', groundingMode: 'prompted' },
+      visionCapabilities: {
+        grounding: true,
+        boxes: true,
+        outputFormat: 'anchor',
+        groundingMode: 'prompted',
+      },
     };
     const result = getVisionCapabilities(model);
     expect(result).not.toBeNull();
@@ -206,7 +223,9 @@ describe('extractJsonObject', () => {
   });
 
   it('parses fenced code block', () => {
-    const result = extractJsonObject('Here is the result:\n```json\n{"foo": "bar"}\n```\nMore text.');
+    const result = extractJsonObject(
+      'Here is the result:\n```json\n{"foo": "bar"}\n```\nMore text.',
+    );
     expect(result).toEqual({ foo: 'bar' });
   });
 
@@ -236,7 +255,12 @@ describe('formatVisualPrimitives', () => {
 
   it('formats box primitives', () => {
     const primitives = [
-      { type: 'box' as const, id: 'obj_0', label: 'cat', coordinates: [100, 200, 300, 400] as [number, number, number, number] },
+      {
+        type: 'box' as const,
+        id: 'obj_0',
+        label: 'cat',
+        coordinates: [100, 200, 300, 400] as [number, number, number, number],
+      },
     ];
     const result = formatVisualPrimitives(primitives, 'native');
     expect(result).toContain('[obj_0] box: [100,200,300,400] "cat"');
@@ -244,7 +268,12 @@ describe('formatVisualPrimitives', () => {
 
   it('formats point primitives', () => {
     const primitives = [
-      { type: 'point' as const, id: 'pt_0', label: 'center', coordinates: [500, 500] as [number, number] },
+      {
+        type: 'point' as const,
+        id: 'pt_0',
+        label: 'center',
+        coordinates: [500, 500] as [number, number],
+      },
     ];
     const result = formatVisualPrimitives(primitives, 'prompted');
     expect(result).toContain('[pt_0] point: [500,500] "center"');
@@ -281,7 +310,9 @@ describe('rawVisualPrimitiveItems', () => {
   });
 
   it('extracts visual_anchors', () => {
-    const items = rawVisualPrimitiveItems({ visual_anchors: [{ center: [1, 2], box: [1, 2, 3, 4] }] });
+    const items = rawVisualPrimitiveItems({
+      visual_anchors: [{ center: [1, 2], box: [1, 2, 3, 4] }],
+    });
     expect(items).toHaveLength(1);
   });
 

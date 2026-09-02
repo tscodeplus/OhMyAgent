@@ -18,13 +18,16 @@ export function useDesktopPlatform(): string | null {
       return;
     }
     let alive = true;
-    window.electronAPI?.getPlatform?.()
-      .then(p => {
+    window.electronAPI
+      ?.getPlatform?.()
+      .then((p) => {
         cached = p;
         if (alive) setPlatform(p);
       })
       .catch(() => {});
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, []);
   return platform;
 }

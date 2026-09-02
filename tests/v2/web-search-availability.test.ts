@@ -20,20 +20,27 @@ const DEFAULT_AGENT: AgentConfig = {
 describe('web_search extension availability', () => {
   const config = loadConfig();
   // Disable Tool Search for this test — we're testing tool availability, not progressive disclosure.
-  config.toolSearch = { enabled: 'off', thresholdPct: 10, searchDefaultLimit: 5, maxSearchLimit: 20 };
+  config.toolSearch = {
+    enabled: 'off',
+    thresholdPct: 10,
+    searchDefaultLimit: 5,
+    maxSearchLimit: 20,
+  };
   const toolRegistry = new ToolRegistryImpl();
 
   // Simulate extension registration (same as extensions/web-search/index.ts)
   beforeAll(async () => {
     const { createWebSearchTool } = await import('../../extensions/web-search/web-search-tool.js');
-    toolRegistry.register(createWebSearchTool({
-      providerOrder: config.webSearch.providerOrder,
-      tavilyApiKey: config.webSearch.tavilyApiKey,
-      exaApiKey: config.webSearch.exaApiKey,
-      baiduApiKey: config.webSearch.baiduApiKey,
-      timeoutMs: config.webSearch.searchTimeoutMs,
-      defaultMaxResults: config.webSearch.maxResults,
-    }));
+    toolRegistry.register(
+      createWebSearchTool({
+        providerOrder: config.webSearch.providerOrder,
+        tavilyApiKey: config.webSearch.tavilyApiKey,
+        exaApiKey: config.webSearch.exaApiKey,
+        baiduApiKey: config.webSearch.baiduApiKey,
+        timeoutMs: config.webSearch.searchTimeoutMs,
+        defaultMaxResults: config.webSearch.maxResults,
+      }),
+    );
   });
 
   const agents = config.agents ?? [DEFAULT_AGENT];
@@ -68,13 +75,20 @@ describe('web_search extension availability', () => {
 
   it('AgentFactory includes web_search for cron jobs (chatId present)', () => {
     const factory = createAgentFactory({ config, toolRegistry, agentManager }, {});
-    const agent = factory.create({ message: 'cron task', sessionId: 'cron:test', chatId: 'oc_cron' });
+    const agent = factory.create({
+      message: 'cron task',
+      sessionId: 'cron:test',
+      chatId: 'oc_cron',
+    });
     expect((agent.state as any).tools.map((t: any) => t.name)).toContain('web_search');
   });
 
   it('minimal profile agent does NOT have web_search', () => {
     const cfg = agentManager.get('default')!;
-    const minimal = { ...cfg, tools: { profile: 'minimal' as const, add: [] as string[], deny: [] as string[] } };
+    const minimal = {
+      ...cfg,
+      tools: { profile: 'minimal' as const, add: [] as string[], deny: [] as string[] },
+    };
     expect(agentManager.resolveTools(minimal).map((t: any) => t.name)).not.toContain('web_search');
   });
 });

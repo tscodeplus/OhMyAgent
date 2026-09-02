@@ -50,7 +50,12 @@ html.dark .chat-input-theme {
   --color-blue-950: #0c2136;
 }
 
-html, body, #root { height: 100%; width: 100%; }
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+}
 
 /* Focus indicator policy — matches the slash-command palette: mouse clicks
    never leave a focus outline on triggers/dropdowns (the "ring after click"
@@ -74,7 +79,11 @@ textarea:focus {
 /* Use dynamic viewport height on mobile to account for Safari's
    collapsing address bar. Falls back to 100vh on unsupported browsers. */
 @supports (height: 100dvh) {
-  html, body, #root { height: 100dvh; }
+  html,
+  body,
+  #root {
+    height: 100dvh;
+  }
 }
 
 /* Prevent horizontal overflow on narrow screens */
@@ -85,13 +94,16 @@ body {
 
 /* Safe area padding for notched devices */
 body {
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
 }
 
 /* Improve touch targets on mobile
    (.no-min-tap opts out for compact icon buttons in tight rows) */
 @media (max-width: 639px) {
-  button:not([role="switch"]):not(.no-min-tap), a, [role="button"] {
+  button:not([role='switch']):not(.no-min-tap),
+  a,
+  [role='button'] {
     min-height: 34px;
     min-width: 34px;
   }
@@ -107,16 +119,26 @@ body {
 
 /* Mobile bottom-sheet entrance for modals */
 @keyframes oma-sheet-up {
-  from { transform: translateY(24px); opacity: 0.4; }
-  to { transform: translateY(0); opacity: 1; }
+  from {
+    transform: translateY(24px);
+    opacity: 0.4;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 .animate-oma-sheet-up {
   animation: oma-sheet-up 220ms ease-out;
 }
 
 /* Safe-area helpers for fixed/absolute UI that ignores body padding */
-.pt-safe { padding-top: env(safe-area-inset-top, 0px); }
-.pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
 
 html {
   color-scheme: light;
@@ -126,35 +148,74 @@ html.dark {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 /* Scrollbar — thin, subtle */
-::-webkit-scrollbar { width: 4px; height: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #d4d4d4; border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: #a3a3a3; }
-html.dark ::-webkit-scrollbar-thumb { background: var(--color-neutral-700); }
-html.dark ::-webkit-scrollbar-thumb:hover { background: var(--color-neutral-600); }
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d4d4d4;
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a3a3a3;
+}
+html.dark ::-webkit-scrollbar-thumb {
+  background: var(--color-neutral-700);
+}
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: var(--color-neutral-600);
+}
 
 /* Prevent content overflow on narrow screens */
 .markdown-content {
   overflow-wrap: break-word;
   word-break: break-word;
 }
-.markdown-content pre, .markdown-content code {
+.markdown-content pre,
+.markdown-content code {
   overflow-x: auto;
   max-width: 100%;
   word-break: break-word;
 }
-.markdown-content h1 { font-size: 1.25rem; font-weight: 700; margin: 0.75rem 0 0.5rem; }
-.markdown-content h2 { font-size: 1.1rem; font-weight: 600; margin: 0.5rem 0 0.25rem; }
-.markdown-content h3 { font-size: 1rem; font-weight: 600; margin: 0.5rem 0 0.25rem; }
-.markdown-content p { margin: 0.375rem 0; line-height: 1.625; font-size: 0.875rem; }
-.markdown-content ul, .markdown-content ol { margin: 0.375rem 0; padding-left: 1.25rem; }
-.markdown-content li { margin: 0.125rem 0; font-size: 0.875rem; }
+.markdown-content h1 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0.75rem 0 0.5rem;
+}
+.markdown-content h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0.5rem 0 0.25rem;
+}
+.markdown-content h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0.5rem 0 0.25rem;
+}
+.markdown-content p {
+  margin: 0.375rem 0;
+  line-height: 1.625;
+  font-size: 0.875rem;
+}
+.markdown-content ul,
+.markdown-content ol {
+  margin: 0.375rem 0;
+  padding-left: 1.25rem;
+}
+.markdown-content li {
+  margin: 0.125rem 0;
+  font-size: 0.875rem;
+}
 .markdown-content code {
   padding: 0.125rem 0.375rem;
   border-radius: 0.25rem;
@@ -174,7 +235,10 @@ html.dark .markdown-content code {
 html.dark .markdown-content pre {
   background: var(--color-neutral-800);
 }
-.markdown-content pre code { background: none; padding: 0; }
+.markdown-content pre code {
+  background: none;
+  padding: 0;
+}
 .markdown-content blockquote {
   border-left: 2px solid #2563eb;
   padding-left: 0.75rem;
@@ -182,13 +246,37 @@ html.dark .markdown-content pre {
   color: #737373;
   font-size: 0.875rem;
 }
-.markdown-content table { width: 100%; border-collapse: collapse; margin: 0.5rem 0; font-size: 0.8125rem; }
-.markdown-content th, .markdown-content td { border: 1px solid #e5e5e5; padding: 0.375rem 0.5rem; text-align: left; }
-.markdown-content th { background: #f5f5f5; font-weight: 600; }
-html.dark .markdown-content th { background: var(--color-neutral-800); }
-html.dark .markdown-content th, html.dark .markdown-content td { border-color: var(--color-neutral-700); }
-.markdown-content a { color: #2563eb; text-decoration: underline; }
-.markdown-content img { max-width: 100%; border-radius: 0.5rem; }
+.markdown-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+  font-size: 0.8125rem;
+}
+.markdown-content th,
+.markdown-content td {
+  border: 1px solid #e5e5e5;
+  padding: 0.375rem 0.5rem;
+  text-align: left;
+}
+.markdown-content th {
+  background: #f5f5f5;
+  font-weight: 600;
+}
+html.dark .markdown-content th {
+  background: var(--color-neutral-800);
+}
+html.dark .markdown-content th,
+html.dark .markdown-content td {
+  border-color: var(--color-neutral-700);
+}
+.markdown-content a {
+  color: #2563eb;
+  text-decoration: underline;
+}
+.markdown-content img {
+  max-width: 100%;
+  border-radius: 0.5rem;
+}
 
 /* Toast entrance animation — centered fade + scale */
 @keyframes toast-in {
@@ -217,16 +305,40 @@ html.dark .markdown-content th, html.dark .markdown-content td { border-color: v
   animation-name: dot3-wave;
 }
 @keyframes dot1-wave {
-  0%, 72%   { opacity: 1; }
-  75%, 100% { opacity: 0; }
+  0%,
+  72% {
+    opacity: 1;
+  }
+  75%,
+  100% {
+    opacity: 0;
+  }
 }
 @keyframes dot2-wave {
-  0%, 22%   { opacity: 0; }
-  25%, 72%  { opacity: 1; }
-  75%, 100% { opacity: 0; }
+  0%,
+  22% {
+    opacity: 0;
+  }
+  25%,
+  72% {
+    opacity: 1;
+  }
+  75%,
+  100% {
+    opacity: 0;
+  }
 }
 @keyframes dot3-wave {
-  0%, 47%   { opacity: 0; }
-  50%, 72%  { opacity: 1; }
-  75%, 100% { opacity: 0; }
+  0%,
+  47% {
+    opacity: 0;
+  }
+  50%,
+  72% {
+    opacity: 1;
+  }
+  75%,
+  100% {
+    opacity: 0;
+  }
 }

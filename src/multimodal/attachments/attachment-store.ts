@@ -43,7 +43,8 @@ export class AttachmentStore {
     } else {
       const result = await this.download(input.source.url);
       buffer = result.buffer;
-      fileName = result.fileName ?? (basename(new URL(input.source.url).pathname) || `attachment-${id}`);
+      fileName =
+        result.fileName ?? (basename(new URL(input.source.url).pathname) || `attachment-${id}`);
       originalUrl = input.source.url;
     }
 
@@ -82,7 +83,7 @@ export class AttachmentStore {
   }
 
   listBySession(sessionId: string): AttachmentRecord[] {
-    return [...this.records.values()].filter(r => r.sessionId === sessionId);
+    return [...this.records.values()].filter((r) => r.sessionId === sessionId);
   }
 
   purge(sessionId: string): number {
@@ -104,16 +105,19 @@ export class AttachmentStore {
         return;
       }
       const mod = parsed.protocol === 'https:' ? https : http;
-      mod.get(url, { timeout: 30_000 }, (res) => {
-        const chunks: Buffer[] = [];
-        res.on('data', (c: Buffer) => chunks.push(c));
-        res.on('end', () => {
-          resolve({ buffer: Buffer.concat(chunks) });
+      mod
+        .get(url, { timeout: 30_000 }, (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c: Buffer) => chunks.push(c));
+          res.on('end', () => {
+            resolve({ buffer: Buffer.concat(chunks) });
+          });
+        })
+        .on('error', reject)
+        .on('timeout', function (this: any) {
+          this.destroy();
+          reject(new Error('Download timeout'));
         });
-      }).on('error', reject).on('timeout', function (this: any) {
-        this.destroy();
-        reject(new Error('Download timeout'));
-      });
     });
   }
 }

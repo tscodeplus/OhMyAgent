@@ -35,7 +35,11 @@ export function ensureV1BaseUrl(baseUrl?: string, api?: string): string | undefi
   if (api && !OPENAI_COMPAT_APIS.has(api)) return baseUrl;
   const trimmed = baseUrl.replace(/\/+$/, '');
   if (/\/v1$/i.test(trimmed)) return baseUrl;
-  if (/(chat\/completions|embeddings|completions|images|audio|responses|messages|models)$/i.test(trimmed)) {
+  if (
+    /(chat\/completions|embeddings|completions|images|audio|responses|messages|models)$/i.test(
+      trimmed,
+    )
+  ) {
     return baseUrl;
   }
   return `${trimmed}/v1`;

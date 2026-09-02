@@ -492,7 +492,13 @@ async function startWechatBot(
     throw new Error('Cannot start WeChat bot without a bot token');
   }
 
-  const poller = new WechatPoller(config.apiBase, config.botToken, config.cursorDir, logger, onSessionExpired);
+  const poller = new WechatPoller(
+    config.apiBase,
+    config.botToken,
+    config.cursorDir,
+    logger,
+    onSessionExpired,
+  );
 
   // v5 P2: Build STT transcriber for WeChat voice messages
   let sttTranscriber: ((path: string, lang?: string) => Promise<string>) | undefined;

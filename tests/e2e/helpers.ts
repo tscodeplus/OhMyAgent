@@ -132,16 +132,34 @@ export function createMockDispatcher(): ReplyDispatcher & {
   const calls: string[] = [];
   const dispatcher: ReplyDispatcher & { calls: string[] } = {
     calls,
-    onStart: vi.fn(() => { calls.push('onStart'); }),
-    onTextDelta: vi.fn((delta: string) => { calls.push(`onTextDelta:${delta}`); }),
-    onReasoningDelta: vi.fn((delta: string) => { calls.push(`onReasoningDelta:${delta}`); }),
-    onToolStart: vi.fn((name: string) => { calls.push(`onToolStart:${name}`); }),
-    onToolEnd: vi.fn((name: string) => { calls.push(`onToolEnd:${name}`); }),
-    setApprovalStatus: vi.fn((status: string | null) => { calls.push(`setApprovalStatus:${status ?? 'null'}`); }),
+    onStart: vi.fn(() => {
+      calls.push('onStart');
+    }),
+    onTextDelta: vi.fn((delta: string) => {
+      calls.push(`onTextDelta:${delta}`);
+    }),
+    onReasoningDelta: vi.fn((delta: string) => {
+      calls.push(`onReasoningDelta:${delta}`);
+    }),
+    onToolStart: vi.fn((name: string) => {
+      calls.push(`onToolStart:${name}`);
+    }),
+    onToolEnd: vi.fn((name: string) => {
+      calls.push(`onToolEnd:${name}`);
+    }),
+    setApprovalStatus: vi.fn((status: string | null) => {
+      calls.push(`setApprovalStatus:${status ?? 'null'}`);
+    }),
     setModel: vi.fn((_model: string) => {}),
-    onComplete: vi.fn(() => { calls.push('onComplete'); }),
-    onError: vi.fn((err: Error) => { calls.push(`onError:${err.message}`); }),
-    onAborted: vi.fn(() => { calls.push('onAborted'); }),
+    onComplete: vi.fn(() => {
+      calls.push('onComplete');
+    }),
+    onError: vi.fn((err: Error) => {
+      calls.push(`onError:${err.message}`);
+    }),
+    onAborted: vi.fn(() => {
+      calls.push('onAborted');
+    }),
   };
   return dispatcher;
 }

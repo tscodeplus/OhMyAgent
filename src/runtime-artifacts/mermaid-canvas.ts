@@ -108,9 +108,7 @@ export class MermaidCanvas {
     this.parallelGroups.push(new Set(nodeIds));
 
     for (let i = 0; i < nodeIds.length - 1; i++) {
-      const edge = this.edges.find(
-        (e) => e.from === nodeIds[i] && e.to === nodeIds[i + 1],
-      );
+      const edge = this.edges.find((e) => e.from === nodeIds[i] && e.to === nodeIds[i + 1]);
       if (edge) {
         edge.label = '分支';
       }
@@ -157,9 +155,7 @@ export class MermaidCanvas {
    */
   private isDashedEdge(edge: MermaidEdge): boolean {
     // Explicit parallel group overrides everything.
-    if (
-      this.parallelGroups.some((g) => g.has(edge.from) && g.has(edge.to))
-    ) {
+    if (this.parallelGroups.some((g) => g.has(edge.from) && g.has(edge.to))) {
       return true;
     }
     // Different phases suggest these tasks could have run in parallel.
@@ -186,12 +182,7 @@ export class MermaidCanvas {
 
     // Node declarations
     for (const node of this.nodes.values()) {
-      const icon =
-        node.status === 'success'
-          ? '✅'
-          : node.status === 'error'
-            ? '❌'
-            : '⏳';
+      const icon = node.status === 'success' ? '✅' : node.status === 'error' ? '❌' : '⏳';
       let label = `${icon} ${node.phase} ${node.toolName}`;
       if (node.summary) {
         label += `: ${node.summary}`;
@@ -247,21 +238,14 @@ export class MermaidCanvas {
 
     const currentPhase = this.getCurrentPhase();
     const total = this.nodes.size;
-    const completed = Array.from(this.nodes.values()).filter(
-      (n) => n.status !== 'running',
-    ).length;
+    const completed = Array.from(this.nodes.values()).filter((n) => n.status !== 'running').length;
 
     const lines: string[] = [];
     lines.push(`[任务进度] 当前阶段: ${currentPhase} (${completed}/${total} 完成)`);
 
     for (const [phase, nodes] of phaseGroups) {
       const parts = nodes.map((n) => {
-        const icon =
-          n.status === 'success'
-            ? '✅'
-            : n.status === 'error'
-              ? '❌'
-              : '⬜';
+        const icon = n.status === 'success' ? '✅' : n.status === 'error' ? '❌' : '⬜';
         const desc = n.summary ? `${n.toolName} ${n.summary}` : n.toolName;
         return `[${icon} ${n.id}: ${desc}]`;
       });
@@ -291,8 +275,5 @@ export class MermaidCanvas {
 function escapeMermaidLabel(label: string): string {
   const singleLine = label.replace(/\s+/g, ' ').trim();
   const truncated = singleLine.length > 220 ? singleLine.slice(0, 217) + '...' : singleLine;
-  return truncated
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\]/g, '\\]');
+  return truncated.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\]/g, '\\]');
 }

@@ -77,9 +77,9 @@ export class DAGExecutor {
       task: input.task,
       strategy: input.strategy,
       totalSubtasks: input.subtasks.length,
-      completed: results.filter(r => r.status === 'completed').length,
-      failed: results.filter(r => r.status === 'failed').length,
-      blocked: results.filter(r => r.status === 'blocked').length,
+      completed: results.filter((r) => r.status === 'completed').length,
+      failed: results.filter((r) => r.status === 'failed').length,
+      blocked: results.filter((r) => r.status === 'blocked').length,
       results,
       combinedSummary: buildSummary(input.task, results),
     };
@@ -88,7 +88,7 @@ export class DAGExecutor {
   // ── Validation ──────────────────────────────────────────────────────────────
 
   private validateGraph(subtasks: SubTaskDef[]): void {
-    const titles = new Set(subtasks.map(s => s.title));
+    const titles = new Set(subtasks.map((s) => s.title));
 
     // Check for duplicate titles
     if (titles.size !== subtasks.length) {
@@ -102,7 +102,7 @@ export class DAGExecutor {
           if (!titles.has(dep)) {
             throw new Error(
               `Subtask "${st.title}" depends on unknown subtask "${dep}". ` +
-              `Available subtasks: ${[...titles].join(', ')}`,
+                `Available subtasks: ${[...titles].join(', ')}`,
             );
           }
         }
@@ -119,7 +119,7 @@ export class DAGExecutor {
    */
   private assertNoCycles(subtasks: SubTaskDef[], titles: Set<string>): void {
     const color = new Map<string, 0 | 1 | 2>();
-    const taskMap = new Map(subtasks.map(s => [s.title, s]));
+    const taskMap = new Map(subtasks.map((s) => [s.title, s]));
 
     function dfs(title: string): void {
       color.set(title, 1); // GRAY — in current path
@@ -155,15 +155,15 @@ export class DAGExecutor {
    */
   private topologicalSort(subtasks: SubTaskDef[]): SubTaskDef[][] {
     const levels: SubTaskDef[][] = [];
-    const remaining = new Set(subtasks.map(s => s.title));
-    const taskMap = new Map(subtasks.map(s => [s.title, s]));
+    const remaining = new Set(subtasks.map((s) => s.title));
+    const taskMap = new Map(subtasks.map((s) => [s.title, s]));
 
     while (remaining.size > 0) {
       const level: SubTaskDef[] = [];
       for (const title of remaining) {
         const task = taskMap.get(title)!;
         const deps = task.dependsOn ?? [];
-        if (deps.every(d => !remaining.has(d))) {
+        if (deps.every((d) => !remaining.has(d))) {
           level.push(task);
         }
       }
@@ -217,16 +217,14 @@ export class DAGExecutor {
       const levelResults: SubTaskResult[] = [];
 
       for (const chunk of chunks) {
-        const chunkResults = await Promise.all(
-          chunk.map(st => this.spawnAndWait(st, input)),
-        );
+        const chunkResults = await Promise.all(chunk.map((st) => this.spawnAndWait(st, input)));
         levelResults.push(...chunkResults);
       }
 
       results.push(...levelResults);
 
       // If any task in this level failed, block downstream tasks
-      if (levelResults.some(r => r.status === 'failed')) {
+      if (levelResults.some((r) => r.status === 'failed')) {
         for (const remaining of levels.slice(levels.indexOf(level) + 1).flat()) {
           results.push({
             title: remaining.title,
@@ -243,10 +241,7 @@ export class DAGExecutor {
 
   // ── Spawn single subtask ────────────────────────────────────────────────────
 
-  private async spawnAndWait(
-    st: SubTaskDef,
-    input: PlanAndSpawnInput,
-  ): Promise<SubTaskResult> {
+  private async spawnAndWait(st: SubTaskDef, input: PlanAndSpawnInput): Promise<SubTaskResult> {
     const startTime = Date.now();
 
     // Resolve parent context from orchestrator's runtime state
@@ -352,11 +347,14 @@ export class DAGExecutor {
 
         await this.deps.orchestrator.finishAgent(childRun.agentId, 'completed', summary);
 
-        this.deps.logger.info({
-          subtask: st.title,
-          agentId: childRun.agentId,
-          durationMs: Date.now() - startTime,
-        }, 'DAGExecutor: subtask completed');
+        this.deps.logger.info(
+          {
+            subtask: st.title,
+            agentId: childRun.agentId,
+            durationMs: Date.now() - startTime,
+          },
+          'DAGExecutor: subtask completed',
+        );
 
         return {
           title: st.title,
@@ -404,16 +402,17 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
 }
 
 function buildSummary(task: string, results: SubTaskResult[]): string {
-  const lines: string[] = [
-    i18n.t('messages:plan.dagSummary.title', { task }),
-    '',
-  ];
+  const lines: string[] = [i18n.t('messages:plan.dagSummary.title', { task }), ''];
 
   for (const r of results) {
-    const icon = r.status === 'completed' ? '✅'
-      : r.status === 'failed' ? '❌'
-      : r.status === 'blocked' ? '🚫'
-      : '⏳';
+    const icon =
+      r.status === 'completed'
+        ? '✅'
+        : r.status === 'failed'
+          ? '❌'
+          : r.status === 'blocked'
+            ? '🚫'
+            : '⏳';
     lines.push(`${icon} **${r.title}** (${r.status})`);
     if (r.summary) {
       lines.push(`   ${r.summary}`);
@@ -422,12 +421,14 @@ function buildSummary(task: string, results: SubTaskResult[]): string {
       lines.push(`   ${i18n.t('messages:plan.dagSummary.error', { message: r.error })}`);
     }
     if (r.durationMs) {
-      lines.push(`   ${i18n.t('messages:plan.dagSummary.duration', { seconds: (r.durationMs / 1000).toFixed(1) })}`);
+      lines.push(
+        `   ${i18n.t('messages:plan.dagSummary.duration', { seconds: (r.durationMs / 1000).toFixed(1) })}`,
+      );
     }
     lines.push('');
   }
 
-  const completed = results.filter(r => r.status === 'completed').length;
+  const completed = results.filter((r) => r.status === 'completed').length;
   const total = results.length;
   lines.push(`---`);
   lines.push(i18n.t('messages:plan.dagSummary.progress', { done: completed, total }));

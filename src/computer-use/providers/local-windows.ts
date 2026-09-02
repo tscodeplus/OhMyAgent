@@ -13,8 +13,16 @@
 import type { ComputerUseProvider } from '../provider-contract.js';
 import { normalizeComputerProviderCapabilities } from '../provider-contract.js';
 import type {
-  Ctx, ProviderStatus, AppInfo, WindowInfo,
-  Lease, Target, AppState, UIElement, Action, ActionResult,
+  Ctx,
+  ProviderStatus,
+  AppInfo,
+  WindowInfo,
+  Lease,
+  Target,
+  AppState,
+  UIElement,
+  Action,
+  ActionResult,
 } from '../types.js';
 import type { Logger } from 'pino';
 import { UiaClient } from '../win-uia/uia-client.js';
@@ -86,7 +94,12 @@ export class LocalWindowsProvider implements ComputerUseProvider {
         message: res.ok ? undefined : 'UIA server unavailable',
       };
     } catch {
-      return { providerId: this.providerId, available: false, permissions: [], message: 'UIA server unavailable' };
+      return {
+        providerId: this.providerId,
+        available: false,
+        permissions: [],
+        message: 'UIA server unavailable',
+      };
     }
   }
 
@@ -113,7 +126,7 @@ export class LocalWindowsProvider implements ComputerUseProvider {
       });
     }
 
-    return Array.from(apps.values()).map(a => ({
+    return Array.from(apps.values()).map((a) => ({
       appId: a.name,
       name: a.name,
       pid: a.pid,
@@ -134,12 +147,13 @@ export class LocalWindowsProvider implements ComputerUseProvider {
     let launched: { pid?: number; hwnd?: number; title?: string } | undefined;
 
     if (target.appName) {
-      const res = await this.client().request(
-        target.activateOnly ? 'focus-app' : 'launch-app',
-        { name: target.appName },
-      );
+      const res = await this.client().request(target.activateOnly ? 'focus-app' : 'launch-app', {
+        name: target.appName,
+      });
       if (!res.ok) {
-        throw new Error(`Failed to ${target.activateOnly ? 'focus' : 'launch'} Windows app "${target.appName}": ${res.error.message}`);
+        throw new Error(
+          `Failed to ${target.activateOnly ? 'focus' : 'launch'} Windows app "${target.appName}": ${res.error.message}`,
+        );
       }
       launched = res.result as { pid?: number; hwnd?: number; title?: string };
       hwnd = launched.hwnd;
@@ -175,8 +189,13 @@ export class LocalWindowsProvider implements ComputerUseProvider {
       createdAt: new Date().toISOString(),
       status: 'active',
       allowedActions: [
-        'click_element', 'click_point', 'double_click', 'type_text', 'press_key',
-        'scroll', 'stop',
+        'click_element',
+        'click_point',
+        'double_click',
+        'type_text',
+        'press_key',
+        'scroll',
+        'stop',
       ],
       providerState: { hwnd, windowTitle, windowRect, targetApp: target.appName },
     };
@@ -188,8 +207,7 @@ export class LocalWindowsProvider implements ComputerUseProvider {
 
   async getAppState(_ctx: Ctx, lease: Lease): Promise<AppState> {
     const providerState = lease.providerState as
-      | { hwnd?: number; windowTitle?: string }
-      | undefined;
+      { hwnd?: number; windowTitle?: string } | undefined;
     const res = await this.client().request('get-app-state', {
       hwnd: providerState?.hwnd ?? lease.windowId,
     });
@@ -212,11 +230,13 @@ export class LocalWindowsProvider implements ComputerUseProvider {
 
     return {
       mode: 'vision-native',
-      screenshot: state.screenshot ? {
-        type: 'image',
-        mimeType: 'image/png',
-        data: state.screenshot,
-      } : undefined,
+      screenshot: state.screenshot
+        ? {
+            type: 'image',
+            mimeType: 'image/png',
+            data: state.screenshot,
+          }
+        : undefined,
       display: {
         width: state.display?.width || 1920,
         height: state.display?.height || 1080,
@@ -232,7 +252,11 @@ export class LocalWindowsProvider implements ComputerUseProvider {
     switch (action.type) {
       case 'click_element': {
         if (!elementId) {
-          return { ok: false, action: action.type, error: 'No elementId provided for click_element' };
+          return {
+            ok: false,
+            action: action.type,
+            error: 'No elementId provided for click_element',
+          };
         }
         const res = await this.client().request('click-element', { elementId });
         return this._toResult(action.type, res);
@@ -295,7 +319,11 @@ export class LocalWindowsProvider implements ComputerUseProvider {
         return { ok: true, action: 'stop' };
       case 'drag':
       case 'perform_secondary_action':
-        return { ok: false, action: action.type, error: `Action '${action.type}' not yet supported on Windows` };
+        return {
+          ok: false,
+          action: action.type,
+          error: `Action '${action.type}' not yet supported on Windows`,
+        };
       default:
         return { ok: false, action: action.type, error: `Unknown action: ${action.type}` };
     }
@@ -305,7 +333,10 @@ export class LocalWindowsProvider implements ComputerUseProvider {
     // The resident server stays up for other sessions; idle-exits on its own.
   }
 
-  private _toResult(action: Action['type'], res: { ok: boolean; error?: { message: string } }): ActionResult {
+  private _toResult(
+    action: Action['type'],
+    res: { ok: boolean; error?: { message: string } },
+  ): ActionResult {
     return res.ok
       ? { ok: true, action }
       : { ok: false, action, error: res.error?.message ?? 'UIA action failed' };

@@ -10,7 +10,7 @@ export function runV2Migrations(db: Database.Database): V2MigrationResult {
   const skipped: string[] = [];
 
   const cols = db.pragma('table_info(memories)') as Array<{ name: string }>;
-  const colNames = new Set(cols.map(c => c.name));
+  const colNames = new Set(cols.map((c) => c.name));
 
   // Runs BEFORE applySchema (see openDatabase) so a pre-v2 database has these
   // columns by the time applySchema creates idx_memories_agent /

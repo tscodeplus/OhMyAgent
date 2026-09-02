@@ -67,14 +67,14 @@ export class ToolRunRepository {
 
   findBySessionId(sessionId: string): ToolRun[] {
     const stmt = this.db.prepare(
-      'SELECT * FROM tool_runs WHERE session_id = ? ORDER BY created_at ASC'
+      'SELECT * FROM tool_runs WHERE session_id = ? ORDER BY created_at ASC',
     );
     return stmt.all(sessionId) as ToolRun[];
   }
 
   findByToolName(toolName: string, limit: number = 50): ToolRun[] {
     const stmt = this.db.prepare(
-      'SELECT * FROM tool_runs WHERE tool_name = ? ORDER BY created_at DESC LIMIT ?'
+      'SELECT * FROM tool_runs WHERE tool_name = ? ORDER BY created_at DESC LIMIT ?',
     );
     return stmt.all(toolName, limit) as ToolRun[];
   }

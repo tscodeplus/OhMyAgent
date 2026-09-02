@@ -121,12 +121,15 @@ export async function createDistillerLLM(
 // ---------------------------------------------------------------------------
 
 function buildSystemPrompt(outputLanguage?: string): string {
-  const langInstruction = outputLanguage && outputLanguage !== 'Auto'
-    ? `\nOutput all persona content in ${outputLanguage}.`
-    : '';
-  return 'You are a precise user persona analyst. Extract or update user persona '
-    + 'from preference memories.\nOutput ONLY valid JSON, no other text.'
-    + langInstruction;
+  const langInstruction =
+    outputLanguage && outputLanguage !== 'Auto'
+      ? `\nOutput all persona content in ${outputLanguage}.`
+      : '';
+  return (
+    'You are a precise user persona analyst. Extract or update user persona ' +
+    'from preference memories.\nOutput ONLY valid JSON, no other text.' +
+    langInstruction
+  );
 }
 
 function buildFullDistillExtra(_outputLanguage?: string): string {
@@ -134,8 +137,10 @@ function buildFullDistillExtra(_outputLanguage?: string): string {
 }
 
 function buildIncrementalExtra(_outputLanguage?: string): string {
-  return 'Note: This is an INCREMENTAL update. Return ONLY fields that changed. '
-    + 'Preserve reasonable existing persona values and only update based on new preferences.';
+  return (
+    'Note: This is an INCREMENTAL update. Return ONLY fields that changed. ' +
+    'Preserve reasonable existing persona values and only update based on new preferences.'
+  );
 }
 
 function timestampMs(value: string | undefined): number {
@@ -171,7 +176,10 @@ export class PersonaDistiller {
       minDistillIntervalHours?: number;
       outputLanguage?: string;
     } = {},
-    private readonly distillationLog?: { startRun(mode: string, count: number): string; finishRun(id: string, error?: string): void },
+    private readonly distillationLog?: {
+      startRun(mode: string, count: number): string;
+      finishRun(id: string, error?: string): void;
+    },
   ) {
     this.outputLanguage = config.outputLanguage;
   }
@@ -189,9 +197,7 @@ export class PersonaDistiller {
       return createEmptyPersona();
     }
 
-    const prefList = preferences
-      .map((p, i) => `${i + 1}. ${p.content}`)
-      .join('\n');
+    const prefList = preferences.map((p, i) => `${i + 1}. ${p.content}`).join('\n');
 
     const schema = personaSchemaForPrompt();
     const userPrompt = [
@@ -225,7 +231,9 @@ export class PersonaDistiller {
    */
   async rebuildFull(): Promise<boolean> {
     const preferences = this.memoryRepo.findByScopeKind('user', 'preference');
-    const activePreferences = preferences.filter(p => (p as any).status !== 'deleted' && (p as any).status !== 'superseded');
+    const activePreferences = preferences.filter(
+      (p) => (p as any).status !== 'deleted' && (p as any).status !== 'superseded',
+    );
     const runId = this.distillationLog?.startRun('rebuild', activePreferences.length);
 
     if (activePreferences.length === 0) {
@@ -235,9 +243,7 @@ export class PersonaDistiller {
       return true;
     }
 
-    const prefList = activePreferences
-      .map((p, i) => `${i + 1}. ${p.content}`)
-      .join('\n');
+    const prefList = activePreferences.map((p, i) => `${i + 1}. ${p.content}`).join('\n');
 
     const schema = personaSchemaForPrompt();
     const userPrompt = [
@@ -277,8 +283,10 @@ export class PersonaDistiller {
       }
     }
 
-    this.distillationLog?.finishRun(runId!,
-      rebuildSucceeded ? undefined : 'LLM rebuild did not produce valid persona');
+    this.distillationLog?.finishRun(
+      runId!,
+      rebuildSucceeded ? undefined : 'LLM rebuild did not produce valid persona',
+    );
     return rebuildSucceeded;
   }
 
@@ -303,9 +311,11 @@ export class PersonaDistiller {
     }
 
     const preferences = this.memoryRepo.findByScopeKind('user', 'preference');
-    const activePrefs = preferences.filter(p => (p as any).status !== 'deleted' && (p as any).status !== 'superseded');
+    const activePrefs = preferences.filter(
+      (p) => (p as any).status !== 'deleted' && (p as any).status !== 'superseded',
+    );
     const sinceMs = timestampMs(since);
-    const newPrefs = activePrefs.filter(p => memoryChangedMs(p) > sinceMs);
+    const newPrefs = activePrefs.filter((p) => memoryChangedMs(p) > sinceMs);
 
     if (newPrefs.length === 0) {
       this.logger.debug({ since }, 'No new preferences for incremental distillation');
@@ -315,13 +325,9 @@ export class PersonaDistiller {
     const runId = this.distillationLog?.startRun('incremental', newPrefs.length);
 
     const currentPersona = this.personaStore.get();
-    const existingJson = currentPersona
-      ? personaToJson(currentPersona)
-      : 'No existing persona';
+    const existingJson = currentPersona ? personaToJson(currentPersona) : 'No existing persona';
 
-    const prefList = newPrefs
-      .map((p, i) => `${i + 1}. ${p.content}`)
-      .join('\n');
+    const prefList = newPrefs.map((p, i) => `${i + 1}. ${p.content}`).join('\n');
 
     const schema = partialPersonaSchemaForPrompt();
     const userPrompt = [
@@ -378,14 +384,17 @@ export class PersonaDistiller {
     const minHours = minIntervalHours ?? this.config.minDistillIntervalHours ?? 0;
     if (persona && minHours > 0) {
       const lastUpdatedMs = new Date(persona.lastUpdated).getTime();
-      if (Number.isFinite(lastUpdatedMs) && Date.now() - lastUpdatedMs < minHours * 60 * 60 * 1000) {
+      if (
+        Number.isFinite(lastUpdatedMs) &&
+        Date.now() - lastUpdatedMs < minHours * 60 * 60 * 1000
+      ) {
         return false;
       }
     }
 
     const preferences = this.memoryRepo.findByScopeKind('user', 'preference');
     const sinceMs = timestampMs(since);
-    const newCount = preferences.filter(p => memoryChangedMs(p) > sinceMs).length;
+    const newCount = preferences.filter((p) => memoryChangedMs(p) > sinceMs).length;
 
     return newCount >= th;
   }

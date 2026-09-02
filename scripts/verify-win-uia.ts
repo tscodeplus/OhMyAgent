@@ -36,7 +36,11 @@
 //     should get USER_ACTIVE and the foreground must never change.
 //   - Exits 0 when all steps pass, 1 otherwise.
 
-import { buildWinUiaServerScript, UIA_HANDSHAKE_MARKER, UIA_SERVER_SCRIPT_PATH } from '../src/computer-use/win-uia/win-uia-scripts.js';
+import {
+  buildWinUiaServerScript,
+  UIA_HANDSHAKE_MARKER,
+  UIA_SERVER_SCRIPT_PATH,
+} from '../src/computer-use/win-uia/win-uia-scripts.js';
 import { winToWslPath } from '../src/computer-use/win-uia/uia-client.js';
 import { spawn, execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -68,7 +72,18 @@ async function startServer(): Promise<Server> {
   writeFileSync(wslPath, '\uFEFF' + script, 'utf8');
   console.log(`[script] wrote ${wslPath} (${script.length} chars)`);
 
-  const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', UIA_SERVER_SCRIPT_PATH], { stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn(
+    'powershell.exe',
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      UIA_SERVER_SCRIPT_PATH,
+    ],
+    { stdio: ['pipe', 'pipe', 'pipe'] },
+  );
   let outBuf = '';
   let nextId = 1;
   const pending = new Map<number, (m: any) => void>();
@@ -82,12 +97,20 @@ async function startServer(): Promise<Server> {
       const line = outBuf.slice(0, nl).replace(/\r$/, '').trim();
       outBuf = outBuf.slice(nl + 1);
       if (!line) continue;
-      if (line.startsWith(UIA_HANDSHAKE_MARKER)) { resolveReady(); continue; }
+      if (line.startsWith(UIA_HANDSHAKE_MARKER)) {
+        resolveReady();
+        continue;
+      }
       try {
         const msg = JSON.parse(line);
         const p = pending.get(msg.id);
-        if (p) { pending.delete(msg.id); p(msg); }
-      } catch { console.log('[non-json]', line.slice(0, 200)); }
+        if (p) {
+          pending.delete(msg.id);
+          p(msg);
+        }
+      } catch {
+        console.log('[non-json]', line.slice(0, 200));
+      }
     }
   });
   child.stderr.on('data', (c: Buffer) => console.log('[stderr]', c.toString('utf8').slice(0, 300)));
@@ -97,18 +120,32 @@ async function startServer(): Promise<Server> {
     req(cmd: string, payload: Record<string, unknown> = {}, timeoutMs = 25000) {
       return new Promise((resolve) => {
         const id = nextId++;
-        const t = setTimeout(() => { pending.delete(id); resolve({ timedOut: true, cmd }); }, timeoutMs);
-        pending.set(id, (m) => { clearTimeout(t); resolve(m); });
+        const t = setTimeout(() => {
+          pending.delete(id);
+          resolve({ timedOut: true, cmd });
+        }, timeoutMs);
+        pending.set(id, (m) => {
+          clearTimeout(t);
+          resolve(m);
+        });
         child.stdin.write(JSON.stringify({ id, cmd, ...payload }) + '\n');
       });
     },
-    stop() { child.kill(); },
+    stop() {
+      child.kill();
+    },
   };
 
   let t: NodeJS.Timeout | undefined;
   await Promise.race([
     ready,
-    new Promise((r) => (t = setTimeout(() => { console.log('FAIL handshake timeout'); r(undefined); }, 30000))),
+    new Promise(
+      (r) =>
+        (t = setTimeout(() => {
+          console.log('FAIL handshake timeout');
+          r(undefined);
+        }, 30000)),
+    ),
   ]);
   if (t) clearTimeout(t); // ready won the race - don't let the timer fire mid-scenario
   return server;
@@ -129,7 +166,11 @@ foreach($e in $els){ try { $vp=$e.GetCurrentPattern([System.Windows.Automation.V
   mkdirSync(dirname(wsl), { recursive: true });
   writeFileSync(wsl, '\uFEFF' + ps, 'utf8');
   try {
-    const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', READVAL_PS1_WIN], { encoding: 'utf8', timeout: 20000 });
+    const out = execFileSync(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', READVAL_PS1_WIN],
+      { encoding: 'utf8', timeout: 20000 },
+    );
     const m = out.match(/VB64=([A-Za-z0-9+/=]+)/);
     if (!m) return { ok: false, value: '(no ValuePattern value found)' };
     return { ok: true, value: Buffer.from(m[1], 'base64').toString('utf8') };
@@ -161,31 +202,51 @@ async function scenarioNotepad(server: Server): Promise<void> {
   // default 25s request timeout races it exactly like the server client did.
   const la = await server.req('launch-app', { name: 'notepad' }, 60000);
   const hwnd: number = la.result?.hwnd ?? 0;
-  check('A1 launch-app notepad', la.ok === true && hwnd !== 0, JSON.stringify(la.result ?? la.error));
+  check(
+    'A1 launch-app notepad',
+    la.ok === true && hwnd !== 0,
+    JSON.stringify(la.result ?? la.error),
+  );
 
   const st = await server.req('get-app-state', { hwnd });
   const els: any[] = st.result?.elements ?? [];
-  const target = els.find((e) => e.role === 'textbox')
-    ?? els.find((e) => e.role === 'document' && (e.actions ?? []).includes('Value'));
-  check('A2 editor element found (textbox or document+Value)', !!target,
-    target ? `${target.role}:${target.elementId}:${target.label}` : `none of ${els.length} elements`);
+  const target =
+    els.find((e) => e.role === 'textbox') ??
+    els.find((e) => e.role === 'document' && (e.actions ?? []).includes('Value'));
+  check(
+    'A2 editor element found (textbox or document+Value)',
+    !!target,
+    target
+      ? `${target.role}:${target.elementId}:${target.label}`
+      : `none of ${els.length} elements`,
+  );
 
   const cl = await server.req('click-element', { elementId: target.elementId });
   check('A3 click-element (SetFocus)', cl.ok === true, JSON.stringify(cl.error ?? cl.result));
 
   const ty = await server.req('type-text', { elementId: target.elementId, text: '今天天气不错' });
-  check('A4 type-text Chinese (ValuePattern.SetValue)', ty.ok === true, JSON.stringify(ty.error ?? ty.result));
+  check(
+    'A4 type-text Chinese (ValuePattern.SetValue)',
+    ty.ok === true,
+    JSON.stringify(ty.error ?? ty.result),
+  );
 
   const v1 = readValue(hwnd);
-  check('A5 readback shows the typed text (no false success)', v1.ok && v1.value.includes('今天天气不错'),
-    v1.ok ? JSON.stringify(v1.value) : v1.value);
+  check(
+    'A5 readback shows the typed text (no false success)',
+    v1.ok && v1.value.includes('今天天气不错'),
+    v1.ok ? JSON.stringify(v1.value) : v1.value,
+  );
 
   const pk = await server.req('press-key', { hwnd, key: 'Enter' });
   check('A6 press-key Enter', pk.ok === true, JSON.stringify(pk.error ?? pk.result));
 
   const v2 = readValue(hwnd);
-  check('A7 readback has a line break (IME-proof Enter)', v2.ok && /[\r\n]/.test(v2.value),
-    v2.ok ? JSON.stringify(v2.value) : v2.value);
+  check(
+    'A7 readback has a line break (IME-proof Enter)',
+    v2.ok && /[\r\n]/.test(v2.value),
+    v2.ok ? JSON.stringify(v2.value) : v2.value,
+  );
 
   await saveScreenshot(server, 'notepad', hwnd, 'oma-verify-notepad.png');
 }
@@ -194,15 +255,22 @@ async function scenarioChrome(server: Server): Promise<void> {
   console.log('\n=== C. Chrome: address bar -> www.sohu.com -> Enter ===');
   const la = await server.req('launch-app', { name: 'chrome' }, 60000);
   const hwnd: number = la.result?.hwnd ?? 0;
-  check('C1 launch-app chrome', la.ok === true && hwnd !== 0, JSON.stringify(la.result ?? la.error));
+  check(
+    'C1 launch-app chrome',
+    la.ok === true && hwnd !== 0,
+    JSON.stringify(la.result ?? la.error),
+  );
   await sleep(2000);
 
   const st = await server.req('get-app-state', { hwnd });
   const els: any[] = st.result?.elements ?? [];
   const boxes = els.filter((e) => e.role === 'textbox');
   const addr = boxes.find((e) => /address|地址|search|搜索/i.test(e.label ?? '')) ?? boxes[0];
-  check('C2 address bar found', !!addr,
-    addr ? `${addr.elementId}:${addr.label}` : `no textbox in ${els.length} elements`);
+  check(
+    'C2 address bar found',
+    !!addr,
+    addr ? `${addr.elementId}:${addr.label}` : `no textbox in ${els.length} elements`,
+  );
 
   const cl = await server.req('click-element', { elementId: addr.elementId });
   check('C3 click-element address bar', cl.ok === true, JSON.stringify(cl.error ?? cl.result));
@@ -211,8 +279,11 @@ async function scenarioChrome(server: Server): Promise<void> {
   check('C4 type-text URL', ty.ok === true, JSON.stringify(ty.error ?? ty.result));
 
   const v = readValue(hwnd);
-  check('C5 readback address bar contains URL', v.ok && v.value.includes('sohu'),
-    v.ok ? JSON.stringify(v.value) : v.value);
+  check(
+    'C5 readback address bar contains URL',
+    v.ok && v.value.includes('sohu'),
+    v.ok ? JSON.stringify(v.value) : v.value,
+  );
 
   // userActiveMs: 0 disables the user-activity guard: this script is run by
   // a human watching the desktop, so mouse/keyboard activity is near
@@ -222,11 +293,17 @@ async function scenarioChrome(server: Server): Promise<void> {
   // move the mouse while it executes - you should get USER_ACTIVE and the
   // foreground must never change.)
   const pk = await server.req('press-key', { hwnd, key: 'Enter', userActiveMs: 0 });
-  check('C6 press-key Enter (SendKeys fallback)', pk.ok === true, JSON.stringify(pk.error ?? pk.result));
+  check(
+    'C6 press-key Enter (SendKeys fallback)',
+    pk.ok === true,
+    JSON.stringify(pk.error ?? pk.result),
+  );
 
   await sleep(6000);
   await saveScreenshot(server, 'chrome after navigation', hwnd, 'oma-verify-chrome.png');
-  console.log('   NOTE: open the saved screenshot to confirm the page really navigated to sohu.com');
+  console.log(
+    '   NOTE: open the saved screenshot to confirm the page really navigated to sohu.com',
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -241,7 +318,9 @@ async function main() {
   } finally {
     server.stop();
   }
-  console.log(`\n${failures === 0 ? 'ALL PASS' : failures + ' FAILURES'} (exit ${failures === 0 ? 0 : 1})`);
+  console.log(
+    `\n${failures === 0 ? 'ALL PASS' : failures + ' FAILURES'} (exit ${failures === 0 ? 0 : 1})`,
+  );
   process.exit(failures === 0 ? 0 : 1);
 }
 

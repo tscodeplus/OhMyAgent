@@ -29,7 +29,7 @@ export function getReadOnlyShellBlockReason(command: string, toolsProfile: strin
 
 function getReadOnlyShellSegmentBlockReason(command: NormalizedShellCommand): string | null {
   const program = command.program.toLowerCase();
-  const args = command.args.map(arg => arg.toLowerCase());
+  const args = command.args.map((arg) => arg.toLowerCase());
   const raw = command.raw.toLowerCase();
 
   // ── Execution-vector checks (on the raw text: the shell executes these
@@ -55,11 +55,13 @@ function getReadOnlyShellSegmentBlockReason(command: NormalizedShellCommand): st
     if (args.includes('-delete')) {
       return 'find -delete';
     }
-    const writeFlags = args.find(arg => arg.startsWith('-fprint') || arg === '-fls');
+    const writeFlags = args.find((arg) => arg.startsWith('-fprint') || arg === '-fls');
     if (writeFlags) {
       return `find ${writeFlags}`;
     }
-    const execIndex = args.findIndex(arg => arg === '-exec' || arg === '-execdir' || arg === '-ok' || arg === '-okdir');
+    const execIndex = args.findIndex(
+      (arg) => arg === '-exec' || arg === '-execdir' || arg === '-ok' || arg === '-okdir',
+    );
     if (execIndex !== -1) {
       // The executed program must itself be read-only (whitelist membership
       // instead of a hardcoded list: `find -exec tee`, `-exec env rm` etc.
@@ -71,12 +73,15 @@ function getReadOnlyShellSegmentBlockReason(command: NormalizedShellCommand): st
     }
   }
 
-  if (program === 'sort' && args.some(arg => arg.startsWith('-o') || arg.startsWith('--output'))) {
+  if (
+    program === 'sort' &&
+    args.some((arg) => arg.startsWith('-o') || arg.startsWith('--output'))
+  ) {
     // startsWith covers the attached form `sort -ofile` (GNU allows it).
     return 'sort -o writes an output file';
   }
 
-  if (program === 'date' && args.some(arg => arg.startsWith('-s') || arg.startsWith('--set'))) {
+  if (program === 'date' && args.some((arg) => arg.startsWith('-s') || arg.startsWith('--set'))) {
     return 'date -s changes the system clock';
   }
 
@@ -133,7 +138,12 @@ function getUnquotedPipeTargets(command: string): string[] {
       continue;
     }
     if (ch === '|' && !inSingle && !inDouble && command[i + 1] !== '|') {
-      targets.push(command.slice(i + 1).trim().toLowerCase());
+      targets.push(
+        command
+          .slice(i + 1)
+          .trim()
+          .toLowerCase(),
+      );
     }
   }
 
@@ -145,8 +155,14 @@ function hasOutputRedirect(command: string): boolean {
   let inDouble = false;
   for (let i = 0; i < command.length; i++) {
     const ch = command[i];
-    if (ch === "'" && !inDouble) { inSingle = !inSingle; continue; }
-    if (ch === '"' && !inSingle) { inDouble = !inDouble; continue; }
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      continue;
+    }
+    if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+      continue;
+    }
     if (inSingle || inDouble) continue;
     if (ch === '>') {
       if (i > 0 && (command[i - 1] === '-' || command[i - 1] === '=')) continue;

@@ -92,15 +92,17 @@ export class AutoApplyMonitor {
         try {
           await execFileAsync('git', ['cat-file', '-e', `${item.commitHash}^{commit}`]);
         } catch {
-          logger.warn({ proposalId: item.proposalId }, '[AutoApplyMonitor] dropped monitor with missing commit');
+          logger.warn(
+            { proposalId: item.proposalId },
+            '[AutoApplyMonitor] dropped monitor with missing commit',
+          );
           continue;
         }
         // Tolerate old state files: baseline used to carry a successRate
         // field (now removed) and rollbackAttempts/rollbackFailed may be
         // absent — both are optional / defaulted at use sites.
         const baseline: MonitorBaseline = {
-          errorRate:
-            typeof item.baseline?.errorRate === 'number' ? item.baseline.errorRate : 0,
+          errorRate: typeof item.baseline?.errorRate === 'number' ? item.baseline.errorRate : 0,
         };
         this.monitors.set(item.proposalId, { ...item, baseline });
       }

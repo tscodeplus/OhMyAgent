@@ -108,20 +108,21 @@ describe('MessageHandler', () => {
     });
 
     it('should pass chatId and messageId to agentService.execute', async () => {
-      const context = makeContext({ chatId: 'chat-456', messageId: 'msg-456', sessionKey: 'session-xyz' });
+      const context = makeContext({
+        chatId: 'chat-456',
+        messageId: 'msg-456',
+        sessionKey: 'session-xyz',
+      });
       await handler.handle(context);
 
-      expect(mockAgentService.execute).toHaveBeenCalledWith(
-        'Hello, agent!',
-        {
-          sessionId: 'session-xyz',
-          chatId: 'chat-456',
-          messageId: 'msg-456',
-          senderId: 'user-1',
-          channel: 'feishu',
-          extraTools: [],
-        },
-      );
+      expect(mockAgentService.execute).toHaveBeenCalledWith('Hello, agent!', {
+        sessionId: 'session-xyz',
+        chatId: 'chat-456',
+        messageId: 'msg-456',
+        senderId: 'user-1',
+        channel: 'feishu',
+        extraTools: [],
+      });
     });
 
     it('should handle errors in agent execution gracefully', async () => {

@@ -9,7 +9,24 @@ applySchema(db);
 const repo = new ApprovalPolicyRepository(db);
 const gate = new SQLiteApprovalGate(repo, {
   execMode: 'balanced',
-  shellAllowlist: ['adb','date','ls','pwd','whoami','uname','echo','cat','head','tail','wc','grep','find','which','env','printenv'],
+  shellAllowlist: [
+    'adb',
+    'date',
+    'ls',
+    'pwd',
+    'whoami',
+    'uname',
+    'echo',
+    'cat',
+    'head',
+    'tail',
+    'wc',
+    'grep',
+    'find',
+    'which',
+    'env',
+    'printenv',
+  ],
 });
 
 const tests: Array<[string, string]> = [
@@ -39,8 +56,13 @@ const tests: Array<[string, string]> = [
 
 async function main() {
   for (const [cat, cmd] of tests) {
-    const r = await gate.evaluate({ kind: 'shell', command: normalizeCommand(cmd), sessionKey: 's', scope: 'global' });
-    const e = {approved:'✅',rejected:'❌',requires_approval:'⏳'}[r];
+    const r = await gate.evaluate({
+      kind: 'shell',
+      command: normalizeCommand(cmd),
+      sessionKey: 's',
+      scope: 'global',
+    });
+    const e = { approved: '✅', rejected: '❌', requires_approval: '⏳' }[r];
     console.log(`${e} [${cat}] ${cmd}`);
   }
   db.close();

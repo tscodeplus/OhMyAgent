@@ -28,7 +28,10 @@ const dbsWithFailedExtension = new WeakSet<Database.Database>();
 
 let _vecLogger: { info: (...args: any[]) => void; warn: (...args: any[]) => void } | undefined;
 
-export function setVecLogger(logger: { info: (...args: any[]) => void; warn: (...args: any[]) => void }): void {
+export function setVecLogger(logger: {
+  info: (...args: any[]) => void;
+  warn: (...args: any[]) => void;
+}): void {
   _vecLogger = logger;
 }
 
@@ -66,7 +69,10 @@ export function loadSqliteVecExtension(db: Database.Database): boolean {
         _vecLogger?.info('[sqlite-vec] Loaded native extension from', nativePath);
         return true;
       } catch (nativeErr: any) {
-        _vecLogger?.warn('[sqlite-vec] Failed to load native extension:', nativeErr?.message ?? nativeErr);
+        _vecLogger?.warn(
+          '[sqlite-vec] Failed to load native extension:',
+          nativeErr?.message ?? nativeErr,
+        );
       }
     }
     _vecLogger?.warn('[sqlite-vec] Failed to load extension:', err?.message ?? err);
@@ -108,7 +114,9 @@ export function loadSqliteVec(db: Database.Database, dimension: number): boolean
  */
 export function probeSqliteVec(db: Database.Database): void {
   if (!loadSqliteVecExtension(db)) {
-    throw new Error('sqlite-vec extension failed to load; check earlier [sqlite-vec] log line for details');
+    throw new Error(
+      'sqlite-vec extension failed to load; check earlier [sqlite-vec] log line for details',
+    );
   }
 }
 
@@ -127,10 +135,14 @@ export function sqliteVecAvailable(db: Database.Database): boolean {
 export function sqliteVecTableReady(db: Database.Database): boolean {
   if (!dbsWithExtension.has(db)) return false;
   try {
-    const row = db.prepare(`
+    const row = db
+      .prepare(
+        `
       SELECT name FROM sqlite_master
       WHERE type = 'table' AND name = 'vec_memory_embeddings'
-    `).get() as { name: string } | undefined;
+    `,
+      )
+      .get() as { name: string } | undefined;
     return row?.name === 'vec_memory_embeddings';
   } catch {
     return false;
@@ -140,15 +152,9 @@ export function sqliteVecTableReady(db: Database.Database): boolean {
 /**
  * Insert embedding into vec0 table.
  */
-export function vecInsert(
-  db: Database.Database,
-  memoryId: string,
-  embedding: Float32Array,
-): void {
+export function vecInsert(db: Database.Database, memoryId: string, embedding: Float32Array): void {
   db.prepare('DELETE FROM vec_memory_embeddings WHERE memory_id = ?').run(memoryId);
-  const stmt = db.prepare(
-    'INSERT INTO vec_memory_embeddings (memory_id, embedding) VALUES (?, ?)'
-  );
+  const stmt = db.prepare('INSERT INTO vec_memory_embeddings (memory_id, embedding) VALUES (?, ?)');
   stmt.run(memoryId, Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength));
 }
 
@@ -165,26 +171,41 @@ export function vecSearch(
   if (candidateIds !== undefined && candidateIds !== null && candidateIds.length === 0) {
     return [];
   }
-  const query = Buffer.from(queryEmbedding.buffer, queryEmbedding.byteOffset, queryEmbedding.byteLength);
-  const rows = candidateIds && candidateIds.length > 0
-    ? db.prepare(`
+  const query = Buffer.from(
+    queryEmbedding.buffer,
+    queryEmbedding.byteOffset,
+    queryEmbedding.byteLength,
+  );
+  const rows =
+    candidateIds && candidateIds.length > 0
+      ? db
+          .prepare(
+            `
         SELECT memory_id, distance
         FROM vec_memory_embeddings
         WHERE embedding MATCH ? AND memory_id IN (${candidateIds.map(() => '?').join(',')})
         ORDER BY distance
         LIMIT ?
-      `).all(query, ...candidateIds, limit)
-    : db.prepare(`
+      `,
+          )
+          .all(query, ...candidateIds, limit)
+      : db
+          .prepare(
+            `
         SELECT memory_id, distance
         FROM vec_memory_embeddings
         WHERE embedding MATCH ?
         ORDER BY distance
         LIMIT ?
-      `).all(query, limit);
-  return (rows as Array<{
-    memory_id: string;
-    distance: number;
-  }>).map(r => ({ memoryId: r.memory_id, distance: r.distance }));
+      `,
+          )
+          .all(query, limit);
+  return (
+    rows as Array<{
+      memory_id: string;
+      distance: number;
+    }>
+  ).map((r) => ({ memoryId: r.memory_id, distance: r.distance }));
 }
 
 /**

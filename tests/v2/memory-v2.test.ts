@@ -46,7 +46,7 @@ describe('V2 Memory System', () => {
   describe('DB Migration', () => {
     it('has agent_id and visibility in memories table', () => {
       const cols = db.pragma('table_info(memories)') as Array<{ name: string }>;
-      const names = cols.map(c => c.name);
+      const names = cols.map((c) => c.name);
       expect(names).toContain('agent_id');
       expect(names).toContain('visibility');
     });
@@ -69,10 +69,21 @@ describe('V2 Memory System', () => {
 
     it('stores agent_id when provided', () => {
       const repo = new MemoryRepository(db);
-      const writer = new MemoryWriter({ memoryRepository: repo, embeddingRepository: undefined as any, embeddingClient: undefined as any, embeddingCacheRepo: undefined as any });
+      const writer = new MemoryWriter({
+        memoryRepository: repo,
+        embeddingRepository: undefined as any,
+        embeddingClient: undefined as any,
+        embeddingCacheRepo: undefined as any,
+      });
 
       // Test with agentId
-      const taggedWriter = new MemoryWriter({ memoryRepository: repo, embeddingRepository: undefined as any, embeddingClient: undefined as any, embeddingCacheRepo: undefined as any, agentId: 'test-agent' });
+      const taggedWriter = new MemoryWriter({
+        memoryRepository: repo,
+        embeddingRepository: undefined as any,
+        embeddingClient: undefined as any,
+        embeddingCacheRepo: undefined as any,
+        agentId: 'test-agent',
+      });
 
       // Write a memory through the writer
       const id = 'test-mem-1';
@@ -154,23 +165,19 @@ describe('V2 Memory System', () => {
     });
 
     it('can find current agent memories', () => {
-      const rows = db.prepare(
-        "SELECT * FROM memories WHERE agent_id = ?"
-      ).all('coder');
+      const rows = db.prepare('SELECT * FROM memories WHERE agent_id = ?').all('coder');
       expect(rows).toHaveLength(3);
     });
 
     it('can find shared memories (no agent tag)', () => {
-      const rows = db.prepare(
-        "SELECT * FROM memories WHERE agent_id IS NULL"
-      ).all();
+      const rows = db.prepare('SELECT * FROM memories WHERE agent_id IS NULL').all();
       expect(rows).toHaveLength(2);
     });
 
     it('can find other agent memories', () => {
-      const rows = db.prepare(
-        "SELECT * FROM memories WHERE agent_id IS NOT NULL AND agent_id != ?"
-      ).all('coder');
+      const rows = db
+        .prepare('SELECT * FROM memories WHERE agent_id IS NOT NULL AND agent_id != ?')
+        .all('coder');
       expect(rows).toHaveLength(2);
     });
 

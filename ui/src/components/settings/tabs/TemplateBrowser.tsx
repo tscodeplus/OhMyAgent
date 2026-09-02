@@ -117,7 +117,7 @@ export default function TemplateBrowser({ open, onClose, onImport }: TemplateBro
     setPreviewContent(null);
     try {
       const data = await apiRequest<TemplateContentResponse>(
-        `/api/templates/content?source=${template.source}&path=${encodeURIComponent(template.filePath)}`
+        `/api/templates/content?source=${template.source}&path=${encodeURIComponent(template.filePath)}`,
       );
       setPreviewContent(data.content);
       setPreviewName(data.name);
@@ -202,7 +202,10 @@ export default function TemplateBrowser({ open, onClose, onImport }: TemplateBro
             ]}
           />
           <div className="relative flex-1">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
+            <Search
+              size={14}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400"
+            />
             <input
               className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-neutral-300 bg-white dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-200 focus:outline-none"
               placeholder={t(`${prefix}.templateSearchPlaceholder`)}

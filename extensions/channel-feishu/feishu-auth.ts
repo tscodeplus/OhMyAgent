@@ -105,10 +105,7 @@ export function decryptEvent(encrypt: string, encryptKey: string): string {
  * @param config - Auth configuration.
  * @returns true if the request passes verification.
  */
-export function verifyEventToken(
-  body: { token?: string },
-  config: FeishuAuthConfig,
-): boolean {
+export function verifyEventToken(body: { token?: string }, config: FeishuAuthConfig): boolean {
   // Fail-closed: if no verification token is configured we cannot assert the
   // request came from Feishu via the token path. Callers must rely on
   // signature verification (encryptKey) instead — see authenticateEvent.
@@ -149,11 +146,7 @@ export interface EventAuthInput {
 }
 
 export type EventAuthReason =
-  | 'no-credentials'
-  | 'stale-timestamp'
-  | 'bad-signature'
-  | 'missing-signature'
-  | 'bad-token';
+  'no-credentials' | 'stale-timestamp' | 'bad-signature' | 'missing-signature' | 'bad-token';
 
 export interface EventAuthResult {
   ok: boolean;

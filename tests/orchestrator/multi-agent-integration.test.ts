@@ -48,10 +48,12 @@ function makeMinimalApprovalStateSync() {
   return { routeApproval: vi.fn(async () => undefined) };
 }
 
-function makeOrchestrator(overrides: Partial<{
-  agentRunStore: InMemoryAgentRunStore;
-  taskRunStore: InMemoryTaskRunStore;
-}> = {}) {
+function makeOrchestrator(
+  overrides: Partial<{
+    agentRunStore: InMemoryAgentRunStore;
+    taskRunStore: InMemoryTaskRunStore;
+  }> = {},
+) {
   return new OrchestratorImpl({
     agentRunStore: overrides.agentRunStore ?? new InMemoryAgentRunStore(),
     taskRunStore: overrides.taskRunStore ?? new InMemoryTaskRunStore(),
@@ -510,19 +512,21 @@ describe('场景5: 完整多Agent工作流（端到端）', () => {
     // ----- 阶段3: 主Agent spawn 4个子Agent，各负责一个子任务 -----
     const childAgents = await Promise.all(
       subTasks.map((task, i) =>
-        orch.spawnChildAgent({
-          parentAgentId: primaryId,
-          sessionId,
-          prompt: `${task.title}: ${task.description}`,
-          requestedScope: { requestedToolsProfile: 'standard' },
-        }).then(async (child) => {
-          // 将任务分配给子Agent
-          await orch.updateTask(task.taskId, {
-            ownerAgentId: child.agentId,
-            status: 'running',
-          });
-          return child;
-        }),
+        orch
+          .spawnChildAgent({
+            parentAgentId: primaryId,
+            sessionId,
+            prompt: `${task.title}: ${task.description}`,
+            requestedScope: { requestedToolsProfile: 'standard' },
+          })
+          .then(async (child) => {
+            // 将任务分配给子Agent
+            await orch.updateTask(task.taskId, {
+              ownerAgentId: child.agentId,
+              status: 'running',
+            });
+            return child;
+          }),
       ),
     );
     expect(childAgents).toHaveLength(4);
@@ -552,16 +556,30 @@ describe('场景5: 完整多Agent工作流（端到端）', () => {
 
     // ----- 阶段5: 子Agent逐步完成并报告 -----
     const results = [
-      { agentId: childAgents[0].agentId, status: 'completed' as const, detail: '代码规范审查通过，发现3处命名不规范' },
-      { agentId: childAgents[1].agentId, status: 'completed' as const, detail: '安全扫描完成：高危0，中危2，低危5' },
-      { agentId: childAgents[2].agentId, status: 'completed' as const, detail: '依赖审计：1个高危(lodash)，3个中危，建议立即升级' },
-      { agentId: childAgents[3].agentId, status: 'failed' as const, detail: '性能评估超时，profiler无法连接到生产环境' },
+      {
+        agentId: childAgents[0].agentId,
+        status: 'completed' as const,
+        detail: '代码规范审查通过，发现3处命名不规范',
+      },
+      {
+        agentId: childAgents[1].agentId,
+        status: 'completed' as const,
+        detail: '安全扫描完成：高危0，中危2，低危5',
+      },
+      {
+        agentId: childAgents[2].agentId,
+        status: 'completed' as const,
+        detail: '依赖审计：1个高危(lodash)，3个中危，建议立即升级',
+      },
+      {
+        agentId: childAgents[3].agentId,
+        status: 'failed' as const,
+        detail: '性能评估超时，profiler无法连接到生产环境',
+      },
     ];
 
     // 并行完成所有子Agent
-    await Promise.all(
-      results.map((r) => orch.finishAgent(r.agentId, r.status, r.detail)),
-    );
+    await Promise.all(results.map((r) => orch.finishAgent(r.agentId, r.status, r.detail)));
 
     // 更新对应的任务状态
     for (let i = 0; i < subTasks.length; i++) {
@@ -636,10 +654,16 @@ describe('场景6: Agent 生命周期管理', () => {
 
     seedPrimary(agentRunStore, 'primary', sessionId);
     const child1 = await orch.spawnChildAgent({
-      parentAgentId: 'primary', sessionId, prompt: 'task1', requestedScope: {},
+      parentAgentId: 'primary',
+      sessionId,
+      prompt: 'task1',
+      requestedScope: {},
     });
     const child2 = await orch.spawnChildAgent({
-      parentAgentId: 'primary', sessionId, prompt: 'task2', requestedScope: {},
+      parentAgentId: 'primary',
+      sessionId,
+      prompt: 'task2',
+      requestedScope: {},
     });
 
     await orch.finishAgent(child1.agentId, 'completed', '成功');
@@ -710,11 +734,15 @@ describe('场景7: 子Agent权限继承', () => {
     seedPrimary(agentRunStore, 'primary', sessionId);
 
     const child1 = await orch.spawnChildAgent({
-      parentAgentId: 'primary', sessionId, prompt: 'task1',
+      parentAgentId: 'primary',
+      sessionId,
+      prompt: 'task1',
       requestedScope: { requestedToolsProfile: 'minimal' },
     });
     const child2 = await orch.spawnChildAgent({
-      parentAgentId: 'primary', sessionId, prompt: 'task2',
+      parentAgentId: 'primary',
+      sessionId,
+      prompt: 'task2',
       requestedScope: { requestedToolsProfile: 'standard' },
     });
 

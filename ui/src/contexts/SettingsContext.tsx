@@ -47,7 +47,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <SettingsContext.Provider value={{ settingsOpen, settingsTab, settingsSubTab, setSettingsOpen, openSettings, toggleSettings }}>
+    <SettingsContext.Provider
+      value={{
+        settingsOpen,
+        settingsTab,
+        settingsSubTab,
+        setSettingsOpen,
+        openSettings,
+        toggleSettings,
+      }}
+    >
       {children}
     </SettingsContext.Provider>
   );

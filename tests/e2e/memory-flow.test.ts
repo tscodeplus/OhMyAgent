@@ -57,8 +57,19 @@ describe('E2E: Memory Flow', () => {
     embeddingRepo = new EmbeddingRepository(db);
     const cacheRepo = new EmbeddingCacheRepo(db);
     embeddingClient = createMockEmbeddingClient();
-    memoryWriter = new MemoryWriter({ memoryRepository: memoryRepo, embeddingRepository: embeddingRepo, embeddingClient: embeddingClient, embeddingCacheRepo: cacheRepo });
-    memoryRetriever = new MemoryRetriever({ memoryRepository: memoryRepo, embeddingRepository: embeddingRepo, embeddingClient: embeddingClient, embeddingCacheRepo: cacheRepo, db: db });
+    memoryWriter = new MemoryWriter({
+      memoryRepository: memoryRepo,
+      embeddingRepository: embeddingRepo,
+      embeddingClient: embeddingClient,
+      embeddingCacheRepo: cacheRepo,
+    });
+    memoryRetriever = new MemoryRetriever({
+      memoryRepository: memoryRepo,
+      embeddingRepository: embeddingRepo,
+      embeddingClient: embeddingClient,
+      embeddingCacheRepo: cacheRepo,
+      db: db,
+    });
   });
 
   afterEach(() => {
@@ -197,35 +208,83 @@ describe('E2E: Memory Flow', () => {
           // First call: store tool
           const message = {
             role: 'assistant' as const,
-            content: [{ type: 'toolCall' as const, id: 'tc-1', name: 'memory-store', arguments: { content: 'My phone number is 13800138000' } }],
+            content: [
+              {
+                type: 'toolCall' as const,
+                id: 'tc-1',
+                name: 'memory-store',
+                arguments: { content: 'My phone number is 13800138000' },
+              },
+            ],
             api: 'openai-completions' as const,
             provider: 'test-provider',
             model: 'test-model',
-            usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+            usage: {
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 0,
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+            },
             stopReason: 'toolUse' as const,
             timestamp: Date.now(),
           };
           stream.push({ type: 'start', partial: { ...message } });
           stream.push({ type: 'toolcall_start', contentIndex: 0, partial: { ...message } });
-          stream.push({ type: 'toolcall_delta', contentIndex: 0, delta: '{}', partial: { ...message } });
-          stream.push({ type: 'toolcall_end', contentIndex: 0, toolCall: message.content[0], partial: { ...message } });
+          stream.push({
+            type: 'toolcall_delta',
+            contentIndex: 0,
+            delta: '{}',
+            partial: { ...message },
+          });
+          stream.push({
+            type: 'toolcall_end',
+            contentIndex: 0,
+            toolCall: message.content[0],
+            partial: { ...message },
+          });
           stream.push({ type: 'done', reason: 'toolUse', message });
         } else if (callCount === 2) {
           // Second call: recall tool
           const message = {
             role: 'assistant' as const,
-            content: [{ type: 'toolCall' as const, id: 'tc-2', name: 'memory-recall', arguments: { query: 'phone number' } }],
+            content: [
+              {
+                type: 'toolCall' as const,
+                id: 'tc-2',
+                name: 'memory-recall',
+                arguments: { query: 'phone number' },
+              },
+            ],
             api: 'openai-completions' as const,
             provider: 'test-provider',
             model: 'test-model',
-            usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+            usage: {
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 0,
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+            },
             stopReason: 'toolUse' as const,
             timestamp: Date.now(),
           };
           stream.push({ type: 'start', partial: { ...message } });
           stream.push({ type: 'toolcall_start', contentIndex: 0, partial: { ...message } });
-          stream.push({ type: 'toolcall_delta', contentIndex: 0, delta: '{}', partial: { ...message } });
-          stream.push({ type: 'toolcall_end', contentIndex: 0, toolCall: message.content[0], partial: { ...message } });
+          stream.push({
+            type: 'toolcall_delta',
+            contentIndex: 0,
+            delta: '{}',
+            partial: { ...message },
+          });
+          stream.push({
+            type: 'toolcall_end',
+            contentIndex: 0,
+            toolCall: message.content[0],
+            partial: { ...message },
+          });
           stream.push({ type: 'done', reason: 'toolUse', message });
         } else {
           // Third call: text response
@@ -236,14 +295,31 @@ describe('E2E: Memory Flow', () => {
             api: 'openai-completions' as const,
             provider: 'test-provider',
             model: 'test-model',
-            usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+            usage: {
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 0,
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+            },
             stopReason: 'stop' as const,
             timestamp: Date.now(),
           };
           stream.push({ type: 'start', partial: { ...message } });
           stream.push({ type: 'text_start', contentIndex: 0, partial: { ...message } });
-          stream.push({ type: 'text_delta', contentIndex: 0, delta: text, partial: { ...message } });
-          stream.push({ type: 'text_end', contentIndex: 0, content: text, partial: { ...message } });
+          stream.push({
+            type: 'text_delta',
+            contentIndex: 0,
+            delta: text,
+            partial: { ...message },
+          });
+          stream.push({
+            type: 'text_end',
+            contentIndex: 0,
+            content: text,
+            partial: { ...message },
+          });
           stream.push({ type: 'done', reason: 'stop', message });
         }
 
@@ -267,7 +343,7 @@ describe('E2E: Memory Flow', () => {
     expect(memories[0].content).toBe('My phone number is 13800138000');
 
     // Verify recall tool was called in the second prompt
-    const recallCalls = dispatcher.calls.filter(c => c.startsWith('onToolStart:memory-recall'));
+    const recallCalls = dispatcher.calls.filter((c) => c.startsWith('onToolStart:memory-recall'));
     expect(recallCalls.length).toBeGreaterThanOrEqual(1);
   });
 

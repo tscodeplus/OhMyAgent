@@ -108,16 +108,18 @@ function makeMockSkillRegistry(overrides?: {
     load: vi.fn(),
     isLoaded: () => true,
     resolve: overrides?.resolve ?? vi.fn(() => []),
-    compile: overrides?.compile ?? vi.fn(() => ({
-      allowedTools: [],
-      deniedTools: [],
-      promptContent: '',
-      promptLayers: [],
-      memoryScopes: [],
-      approvalOverrides: {},
-    })),
+    compile:
+      overrides?.compile ??
+      vi.fn(() => ({
+        allowedTools: [],
+        deniedTools: [],
+        promptContent: '',
+        promptLayers: [],
+        memoryScopes: [],
+        approvalOverrides: {},
+      })),
     getSkills: () => skills,
-    getSkillById: (id: string) => skills.find(s => s.manifest.id === id),
+    getSkillById: (id: string) => skills.find((s) => s.manifest.id === id),
   } as unknown as SkillRegistry;
 }
 
@@ -148,10 +150,7 @@ describe('Skill Integration in AgentFactory', () => {
 
   describe('skillRegistry not provided', () => {
     it('creates agent normally without skill integration', () => {
-      const registry = makeMockToolRegistry([
-        makeMockTool('shell'),
-        makeMockTool('web_search'),
-      ]);
+      const registry = makeMockToolRegistry([makeMockTool('shell'), makeMockTool('web_search')]);
       const factory = createAgentFactory({ config, toolRegistry: registry });
       const agent = factory.create();
       expect(agent).toBeInstanceOf(Agent);
@@ -163,10 +162,7 @@ describe('Skill Integration in AgentFactory', () => {
   describe('skillRegistry provided but no message', () => {
     it('does not trigger skill resolution when message is absent', () => {
       const skillRegistry = makeMockSkillRegistry();
-      const registry = makeMockToolRegistry([
-        makeMockTool('shell'),
-        makeMockTool('web_search'),
-      ]);
+      const registry = makeMockToolRegistry([makeMockTool('shell'), makeMockTool('web_search')]);
       const factory = createAgentFactory({
         config,
         toolRegistry: registry,
@@ -186,10 +182,7 @@ describe('Skill Integration in AgentFactory', () => {
         resolve: resolveMock,
         compile: compileMock,
       });
-      const registry = makeMockToolRegistry([
-        makeMockTool('shell'),
-        makeMockTool('web_search'),
-      ]);
+      const registry = makeMockToolRegistry([makeMockTool('shell'), makeMockTool('web_search')]);
       const factory = createAgentFactory({
         config,
         toolRegistry: registry,
@@ -287,9 +280,7 @@ describe('Skill Integration in AgentFactory', () => {
         message: 'hello',
         systemPrompt: 'Custom base prompt',
       });
-      expect(agent.state.systemPrompt).toBe(
-        'Custom base prompt\n\nSkill prompt here.',
-      );
+      expect(agent.state.systemPrompt).toBe('Custom base prompt\n\nSkill prompt here.');
     });
 
     it('does not modify prompt when promptContent is empty', () => {
@@ -403,10 +394,7 @@ describe('Skill Integration in AgentFactory', () => {
         resolve: resolveMock,
         compile: compileMock,
       });
-      const registry = makeMockToolRegistry([
-        makeMockTool('shell'),
-        makeMockTool('web_search'),
-      ]);
+      const registry = makeMockToolRegistry([makeMockTool('shell'), makeMockTool('web_search')]);
       const factory = createAgentFactory({
         config,
         toolRegistry: registry,

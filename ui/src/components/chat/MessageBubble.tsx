@@ -114,8 +114,7 @@ function withAuthUrl(url: string): string {
  * content, however, breaks the run so genuinely separated calls stay apart.
  */
 type SegmentRenderGroup =
-  | { type: 'toolGroup'; toolCalls: ToolCall[] }
-  | { type: 'item'; seg: MessageSegment; i: number };
+  { type: 'toolGroup'; toolCalls: ToolCall[] } | { type: 'item'; seg: MessageSegment; i: number };
 
 /** A text segment with no visible content (blank / whitespace only). */
 const isWhitespaceText = (seg: MessageSegment): boolean =>
@@ -467,7 +466,10 @@ function MessageBubble({ message }: MessageBubbleProps) {
                     {message.tool_calls.length >= 2 ? (
                       <ToolCallsGroup toolCalls={message.tool_calls} />
                     ) : (
-                      <ToolCallCard key={message.tool_calls[0].id} toolCall={message.tool_calls[0]} />
+                      <ToolCallCard
+                        key={message.tool_calls[0].id}
+                        toolCall={message.tool_calls[0]}
+                      />
                     )}
                   </div>
                 )}
@@ -698,38 +700,39 @@ function MessageBubble({ message }: MessageBubbleProps) {
 
         {/* Footer — matches Feishu buildCompletedCard format:
             agentName · 已完成 · 耗时 xs · model · ↓ in ↑ out · 缓存命中 xx% */}
-        {message.error && (() => {
-          const err: ChatProviderError =
-            typeof message.error === 'string'
-              ? { kind: 'unknown', rawError: message.error }
-              : message.error;
-          const kindKey: Record<ChatProviderError['kind'], string> = {
-            rate_limited: 'chat.errorRateLimited',
-            model_not_found: 'chat.errorModelNotFound',
-            auth: 'chat.errorAuth',
-            network: 'chat.errorNetwork',
-            unknown: 'chat.errorUnknown',
-          };
-          return (
-            <div className="mt-1.5 rounded-lg border border-neutral-200 px-3 py-2 text-xs text-red-600/80 dark:border-neutral-700/60 dark:text-red-400/80">
-              <span className="font-medium">⚠️ {t('chat.error')}：</span>
-              <span className="break-all">{t(kindKey[err.kind])}</span>
-              {err.failedModels && err.failedModels.length > 0 && (
-                <span className="ml-1 opacity-80">（{err.failedModels.join(' → ')}）</span>
-              )}
-              {err.rawError && (
-                <details className="mt-1 text-neutral-500 dark:text-neutral-400">
-                  <summary className="cursor-pointer select-none opacity-70 hover:opacity-100">
-                    {t('chat.errorDetail')}
-                  </summary>
-                  <div className="mt-1 break-all font-mono text-[11px] leading-relaxed opacity-80">
-                    {err.rawError}
-                  </div>
-                </details>
-              )}
-            </div>
-          );
-        })()}
+        {message.error &&
+          (() => {
+            const err: ChatProviderError =
+              typeof message.error === 'string'
+                ? { kind: 'unknown', rawError: message.error }
+                : message.error;
+            const kindKey: Record<ChatProviderError['kind'], string> = {
+              rate_limited: 'chat.errorRateLimited',
+              model_not_found: 'chat.errorModelNotFound',
+              auth: 'chat.errorAuth',
+              network: 'chat.errorNetwork',
+              unknown: 'chat.errorUnknown',
+            };
+            return (
+              <div className="mt-1.5 rounded-lg border border-neutral-200 px-3 py-2 text-xs text-red-600/80 dark:border-neutral-700/60 dark:text-red-400/80">
+                <span className="font-medium">⚠️ {t('chat.error')}：</span>
+                <span className="break-all">{t(kindKey[err.kind])}</span>
+                {err.failedModels && err.failedModels.length > 0 && (
+                  <span className="ml-1 opacity-80">（{err.failedModels.join(' → ')}）</span>
+                )}
+                {err.rawError && (
+                  <details className="mt-1 text-neutral-500 dark:text-neutral-400">
+                    <summary className="cursor-pointer select-none opacity-70 hover:opacity-100">
+                      {t('chat.errorDetail')}
+                    </summary>
+                    <div className="mt-1 break-all font-mono text-[11px] leading-relaxed opacity-80">
+                      {err.rawError}
+                    </div>
+                  </details>
+                )}
+              </div>
+            );
+          })()}
         {/* Image lightbox */}
         {lightboxUrl && (
           <div

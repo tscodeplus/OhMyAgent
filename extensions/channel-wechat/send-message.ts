@@ -92,8 +92,8 @@ export async function sendReply(
         await sendMessage(apiBase, botToken, {
           toUserId,
           contextToken,
-          msgType,          // media message type
-          msgContent: '',   // content is in itemList
+          msgType, // media message type
+          msgContent: '', // content is in itemList
           itemList,
         });
       } catch (err: unknown) {

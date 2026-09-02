@@ -97,9 +97,14 @@ export async function createMemoryServices(
   // which is never true on a fresh install.
   try {
     embeddingRepository.probeVec();
-    logger.info('sqlite-vec extension loaded; vector search will activate on first embedding write');
+    logger.info(
+      'sqlite-vec extension loaded; vector search will activate on first embedding write',
+    );
   } catch (err: any) {
-    logger.warn({ err: err?.message ?? err }, 'sqlite-vec unavailable; memory vector search will use cosine fallback');
+    logger.warn(
+      { err: err?.message ?? err },
+      'sqlite-vec unavailable; memory vector search will use cosine fallback',
+    );
   }
 
   // Check if embedding provider/model/dimensions changed since last run.
@@ -112,14 +117,24 @@ export async function createMemoryServices(
   const metaCheck = embeddingRepository.checkEmbeddingMeta(embProvider, embModel, embDim);
   if (metaCheck.needsReindex) {
     const droppedCount = embeddingRepository.dropVectorsForReindex();
-    logger.warn({
-      reason: metaCheck.reason,
-      droppedCount,
-    }, 'Embedding config changed — vectors dropped, will re-index on next write');
+    logger.warn(
+      {
+        reason: metaCheck.reason,
+        droppedCount,
+      },
+      'Embedding config changed — vectors dropped, will re-index on next write',
+    );
     // Re-probe vec after dropping to ensure the virtual table is re-created
-    try { embeddingRepository.probeVec(); } catch { /* already logged */ }
+    try {
+      embeddingRepository.probeVec();
+    } catch {
+      /* already logged */
+    }
   } else if (metaCheck.reason) {
-    logger.info({ reason: metaCheck.reason }, 'Embedding vectors kept despite missing embedding_meta');
+    logger.info(
+      { reason: metaCheck.reason },
+      'Embedding vectors kept despite missing embedding_meta',
+    );
   }
   embeddingRepository.saveEmbeddingMeta(embProvider, embModel, embDim);
 
@@ -130,7 +145,8 @@ export async function createMemoryServices(
   // backfill or from real-time sync of new writes). If the table is already
   // populated, the full-table LEFT JOIN is skipped entirely.
   try {
-    const jiebaExisting = (db.prepare('SELECT 1 FROM memories_fts_jieba LIMIT 1').get() as unknown) !== undefined;
+    const jiebaExisting =
+      (db.prepare('SELECT 1 FROM memories_fts_jieba LIMIT 1').get() as unknown) !== undefined;
     if (!jiebaExisting) {
       const jiebaIndexed = rebuildJiebaFts(db);
       if (jiebaIndexed > 0) {
@@ -184,7 +200,10 @@ export async function createMemoryServices(
     disableThinking: memAux?.disableThinking,
   };
 
-  logger.info({ primary: auxPrimary, fallbackCount: auxFallbacks.length }, 'Memory aux models configured');
+  logger.info(
+    { primary: auxPrimary, fallbackCount: auxFallbacks.length },
+    'Memory aux models configured',
+  );
 
   const expansionConfig: LLMExpansionConfig = {
     auxConfig: auxModelConfig,
@@ -239,7 +258,9 @@ export async function createMemoryServices(
     recallConfig,
     searchConcurrency: config.performance?.embeddingApiConcurrency ?? 8,
   });
-  const memoryChangeCallbacks: Array<(event?: MemoryChangeEvent) => void> = [() => memoryRetriever.clearCache()];
+  const memoryChangeCallbacks: Array<(event?: MemoryChangeEvent) => void> = [
+    () => memoryRetriever.clearCache(),
+  ];
   const memoryWriter = new MemoryWriter({
     memoryRepository,
     embeddingRepository,
@@ -248,24 +269,35 @@ export async function createMemoryServices(
     mergeConfig,
     extractionConfig,
     memoryLinkRepo,
-    onMemoryChanged: (event) => memoryChangeCallbacks.forEach(cb => cb(event)),
+    onMemoryChanged: (event) => memoryChangeCallbacks.forEach((cb) => cb(event)),
     memoryTermRepo,
   });
 
   const sceneClusterer = config.memory.sceneClustering?.enabled
-    ? new SceneClusterer(memoryRepository, config.memory.offloading?.refDir || './data', {
-        windowDays: config.memory.sceneClustering.windowDays,
-        minMemories: config.memory.sceneClustering.minMemories,
-      }, logger)
+    ? new SceneClusterer(
+        memoryRepository,
+        config.memory.offloading?.refDir || './data',
+        {
+          windowDays: config.memory.sceneClustering.windowDays,
+          minMemories: config.memory.sceneClustering.minMemories,
+        },
+        logger,
+      )
     : undefined;
   if (sceneClusterer) {
     logger.info('SceneClusterer initialized');
   }
 
-  const memoryHygiene = new MemoryHygiene(memoryRepository, db, {
-    tempRetentionDays: config.memory.hygiene.retentionDays,
-    checkIntervalMs: 12 * 60 * 60 * 1000,
-  }, sceneClusterer, () => memoryRetriever.clearCache());
+  const memoryHygiene = new MemoryHygiene(
+    memoryRepository,
+    db,
+    {
+      tempRetentionDays: config.memory.hygiene.retentionDays,
+      checkIntervalMs: 12 * 60 * 60 * 1000,
+    },
+    sceneClusterer,
+    () => memoryRetriever.clearCache(),
+  );
 
   const sessionRepository = new SessionRepository(db);
   const messageRepository = new MessageRepository(db);
@@ -300,20 +332,30 @@ export async function createMemoryServices(
       },
       personaDistillationLog,
     );
-    logger.info('Persona distiller initialized (model: %s)', summaryConfig.modelRef || 'rule-based');
+    logger.info(
+      'Persona distiller initialized (model: %s)',
+      summaryConfig.modelRef || 'rule-based',
+    );
     if (await personaDistiller.shouldDistill(1, 0)) {
-      personaDistiller.distillIncremental().catch(err => logger.warn({ err }, 'Startup persona catch-up failed'));
+      personaDistiller
+        .distillIncremental()
+        .catch((err) => logger.warn({ err }, 'Startup persona catch-up failed'));
     }
     let personaDistillTimer: NodeJS.Timeout | undefined;
     let personaNeedsFullRebuild = false;
     memoryChangeCallbacks.push((event) => {
       const isUserPreference = event?.scope === 'user' && event.kind === 'preference';
-      const needsFullRebuild = isUserPreference && (event.action === 'delete' || event.action === 'update');
+      const needsFullRebuild =
+        isUserPreference && (event.action === 'delete' || event.action === 'update');
       personaNeedsFullRebuild ||= needsFullRebuild;
 
       if (isUserPreference && event.action !== 'delete') {
         const applied = personaStore!.applyFastPreference(event.content);
-        if (applied) logger.debug({ preference: event.content.slice(0, 120) }, 'Persona fast preference applied');
+        if (applied)
+          logger.debug(
+            { preference: event.content.slice(0, 120) },
+            'Persona fast preference applied',
+          );
       }
       if (personaDistillTimer) clearTimeout(personaDistillTimer);
       personaDistillTimer = setTimeout(() => {
@@ -322,9 +364,14 @@ export async function createMemoryServices(
         const task = runFullRebuild
           ? personaDistiller!.rebuildFull()
           : personaDistiller!.distillIncremental();
-        task.catch(err => logger.warn({ err }, runFullRebuild
-          ? 'Full persona rebuild failed'
-          : 'Incremental persona distillation failed'));
+        task.catch((err) =>
+          logger.warn(
+            { err },
+            runFullRebuild
+              ? 'Full persona rebuild failed'
+              : 'Incremental persona distillation failed',
+          ),
+        );
       }, 1500);
       personaDistillTimer.unref?.();
     });

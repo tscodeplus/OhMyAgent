@@ -33,19 +33,26 @@ export function registerDashboardRoutes(app: FastifyInstance, cfg: DashboardConf
     const db = cfg.db;
 
     // Active projects count
-    const projectCount = db.prepare('SELECT COUNT(*) as count FROM projects').get() as CountRow | undefined;
+    const projectCount = db.prepare('SELECT COUNT(*) as count FROM projects').get() as
+      CountRow | undefined;
 
     // Today's sessions
-    const todaySessions = db.prepare(
-      "SELECT COUNT(*) as count FROM sessions WHERE project_id IS NOT NULL AND date(created_at) = date('now')"
-    ).get() as CountRow | undefined;
+    const todaySessions = db
+      .prepare(
+        "SELECT COUNT(*) as count FROM sessions WHERE project_id IS NOT NULL AND date(created_at) = date('now')",
+      )
+      .get() as CountRow | undefined;
 
     // Monthly token count (from message metadata)
-    const monthlyTokens = db.prepare(`
+    const monthlyTokens = db
+      .prepare(
+        `
       SELECT COALESCE(SUM(CAST(COALESCE(json_extract(metadata, '$.usage.total_tokens'), '0') AS INTEGER)), 0) as total
       FROM messages
       WHERE created_at >= datetime('now', '-30 days')
-    `).get() as TotalRow | undefined;
+    `,
+      )
+      .get() as TotalRow | undefined;
 
     return reply.send({
       activeProjects: projectCount?.count ?? 0,
@@ -57,13 +64,17 @@ export function registerDashboardRoutes(app: FastifyInstance, cfg: DashboardConf
   // Token usage by day
   app.get('/api/dashboard/token-usage', async (_request, reply) => {
     const db = cfg.db;
-    const rows = db.prepare(`
+    const rows = db
+      .prepare(
+        `
       SELECT date(created_at) as day, role, COUNT(*) as count
       FROM messages
       WHERE created_at >= datetime('now', '-30 days')
       GROUP BY date(created_at), role
       ORDER BY day ASC
-    `).all() as TokenUsageRow[];
+    `,
+      )
+      .all() as TokenUsageRow[];
 
     return reply.send(rows);
   });

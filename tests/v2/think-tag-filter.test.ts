@@ -13,13 +13,18 @@ describe('think tag filtering', () => {
       while (i < delta.length) {
         if (!inThinkBlock) {
           const openIdx = delta.indexOf('<think>', i);
-          if (openIdx === -1) { result += delta.slice(i); break; }
+          if (openIdx === -1) {
+            result += delta.slice(i);
+            break;
+          }
           result += delta.slice(i, openIdx);
           inThinkBlock = true;
           i = openIdx + 7;
         } else {
           const closeIdx = delta.indexOf('</think>', i);
-          if (closeIdx === -1) { break; }
+          if (closeIdx === -1) {
+            break;
+          }
           inThinkBlock = false;
           i = closeIdx + 8;
         }

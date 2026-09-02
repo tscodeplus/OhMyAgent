@@ -36,16 +36,20 @@ function HomePage() {
         const sessions = await apiRequest<Session[]>(`/api/projects/${pid}/sessions`);
         if (sessions.length > 0) {
           const latest = sessions.reduce((a, b) =>
-            new Date(a.updated_at).getTime() > new Date(b.updated_at).getTime() ? a : b
+            new Date(a.updated_at).getTime() > new Date(b.updated_at).getTime() ? a : b,
           );
           setSelectedSessionId(latest.id);
           navigate(`/p/${pid}/s/${latest.id}`, { replace: true });
           return;
         }
-      } catch { /* fall through to create new session */ }
+      } catch {
+        /* fall through to create new session */
+      }
       // No sessions exist — create one
       try {
-        const session = await apiRequest<Session>(`/api/projects/${pid}/sessions`, { method: 'POST' });
+        const session = await apiRequest<Session>(`/api/projects/${pid}/sessions`, {
+          method: 'POST',
+        });
         setSelectedSessionId(session.id);
         navigate(`/p/${pid}/s/${session.id}`, { replace: true });
       } catch {
@@ -82,8 +86,20 @@ export default function App() {
       <div className="fixed inset-0 flex items-center justify-center bg-neutral-50 dark:bg-neutral-950">
         <div className="flex flex-col items-center gap-3">
           <svg className="h-6 w-6 animate-spin text-neutral-400" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
-            <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" className="opacity-75" />
+            <circle
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="3"
+              className="opacity-25"
+            />
+            <path
+              d="M4 12a8 8 0 018-8"
+              stroke="currentColor"
+              strokeWidth="3"
+              className="opacity-75"
+            />
           </svg>
           <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading...</p>
         </div>
@@ -97,11 +113,7 @@ export default function App() {
     // or reconfigure instead of staring at a bare login form.
     if (connectionError) {
       return (
-        <ConnectionErrorPage
-          error={connectionError}
-          remoteUrl={remoteUrl}
-          onRetry={retryAuth}
-        />
+        <ConnectionErrorPage error={connectionError} remoteUrl={remoteUrl} onRetry={retryAuth} />
       );
     }
     return <LoginPage />;

@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { getModelInstance, getDefaultModel, getReasoningModel, ensureModelRegistered } from '../../src/provider/pi-ai-setup';
+import {
+  getModelInstance,
+  getDefaultModel,
+  getReasoningModel,
+  ensureModelRegistered,
+} from '../../src/provider/pi-ai-setup';
 import { loadConfig, resetConfig } from '../../src/app/config';
 
 describe('pi-ai-setup', () => {
@@ -83,7 +88,12 @@ describe('ensureModelRegistered', () => {
         apiKey: 'sk-agnes',
         baseUrl: 'https://apihub.agnes-ai.com/v1',
         models: [
-          { id: 'agnes-2.5-flash', name: 'Agnes 2.5 Flash', api: 'openai-completions', reasoning: true },
+          {
+            id: 'agnes-2.5-flash',
+            name: 'Agnes 2.5 Flash',
+            api: 'openai-completions',
+            reasoning: true,
+          },
         ],
       },
     ];
@@ -99,7 +109,9 @@ describe('ensureModelRegistered', () => {
 
   it('returns undefined for providers that are not configured custom providers', () => {
     const config = makeConfig();
-    expect(ensureModelRegistered(config, 'nonexistent-provider', 'nonexistent-model')).toBeUndefined();
+    expect(
+      ensureModelRegistered(config, 'nonexistent-provider', 'nonexistent-model'),
+    ).toBeUndefined();
   });
 
   it('returns undefined when provider or modelId is missing', () => {

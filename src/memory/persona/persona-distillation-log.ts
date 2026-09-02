@@ -16,19 +16,27 @@ export class PersonaDistillationLog {
 
   startRun(mode: string, activePrefCount: number): string {
     const id = generateId();
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       INSERT INTO persona_distillation_runs (id, mode, status, active_preference_count)
       VALUES (?, ?, 'running', ?)
-    `).run(id, mode, activePrefCount);
+    `,
+      )
+      .run(id, mode, activePrefCount);
     return id;
   }
 
   finishRun(id: string, error?: string): void {
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       UPDATE persona_distillation_runs
       SET status = ?, finished_at = cast(strftime('%s','now') as integer) * 1000, error = ?
       WHERE id = ?
-    `).run(error ? 'failed' : 'success', error ?? null, id);
+    `,
+      )
+      .run(error ? 'failed' : 'success', error ?? null, id);
   }
 
   getLastRun(mode?: string): DistillationRun | undefined {
@@ -41,8 +49,8 @@ export class PersonaDistillationLog {
   }
 
   getRecentRuns(limit: number = 10): DistillationRun[] {
-    return this.db.prepare(
-      'SELECT * FROM persona_distillation_runs ORDER BY started_at DESC LIMIT ?'
-    ).all(limit) as DistillationRun[];
+    return this.db
+      .prepare('SELECT * FROM persona_distillation_runs ORDER BY started_at DESC LIMIT ?')
+      .all(limit) as DistillationRun[];
   }
 }

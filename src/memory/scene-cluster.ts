@@ -49,11 +49,15 @@ export class SceneClusterer {
    * @param minMemories - 最小记忆数，默认 5。低于此数量的 scopeKey 不生成场景
    * @returns 生成的场景列表
    */
-  cluster(scope = 'user', windowDays = this.defaults.windowDays ?? 7, minMemories = this.defaults.minMemories ?? 5): SceneCluster[] {
+  cluster(
+    scope = 'user',
+    windowDays = this.defaults.windowDays ?? 7,
+    minMemories = this.defaults.minMemories ?? 5,
+  ): SceneCluster[] {
     // 1. 获取指定 scope 的所有记忆（排除已生成的 scene 记忆）
     const allMemories = this.memoryRepo
       .findAllByScope(scope)
-      .filter(m => !SKIP_KINDS.has(m.kind));
+      .filter((m) => !SKIP_KINDS.has(m.kind));
 
     // 2. 按 scopeKey 分组
     const grouped = new Map<string, Memory[]>();
@@ -97,26 +101,32 @@ export class SceneClusterer {
 
         // 持久化为 scene kind 的记忆
         const sceneMemory = this.persistScene(cluster);
-        this.logger?.debug({
-          sceneId: sceneMemory.id,
-          scope,
-          scopeKey,
-          refPath,
-          memoryCount: cluster.memoryCount,
-          updatedAt: sceneMemory.updated_at,
-        }, 'Scene cluster persisted');
+        this.logger?.debug(
+          {
+            sceneId: sceneMemory.id,
+            scope,
+            scopeKey,
+            refPath,
+            memoryCount: cluster.memoryCount,
+            updatedAt: sceneMemory.updated_at,
+          },
+          'Scene cluster persisted',
+        );
 
         results.push(cluster);
       }
     }
 
     if (results.length > 0) {
-      this.logger?.info({
-        scope,
-        clusterCount: results.length,
-        windowDays,
-        minMemories,
-      }, 'Scene clustering completed');
+      this.logger?.info(
+        {
+          scope,
+          clusterCount: results.length,
+          windowDays,
+          minMemories,
+        },
+        'Scene clustering completed',
+      );
     }
 
     return results;
@@ -134,9 +144,7 @@ export class SceneClusterer {
 
     for (const mem of memories) {
       const memMs = parseEpochMs(mem.created_at);
-      const daysSinceEarliest = Math.floor(
-        (memMs - earliestMs) / (1000 * 60 * 60 * 24),
-      );
+      const daysSinceEarliest = Math.floor((memMs - earliestMs) / (1000 * 60 * 60 * 24));
       const windowIndex = Math.floor(daysSinceEarliest / windowDays);
 
       const list = windows.get(windowIndex);

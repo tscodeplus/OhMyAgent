@@ -32,11 +32,7 @@ export interface WriteOptions {
 }
 
 export type WriteAction =
-  | 'created'
-  | 'exact_duplicate'
-  | 'semantic_duplicate'
-  | 'merged'
-  | 'superseded';
+  'created' | 'exact_duplicate' | 'semantic_duplicate' | 'merged' | 'superseded';
 
 export interface WriteResult {
   id: string;
@@ -134,13 +130,23 @@ export class MemoryWriter {
     let supersededBy: string | undefined;
 
     // 1. Exact-match dedup: if same scopeKey+kind+content exists, update it
-    const existing = this.memoryRepository.findExactMatch(options.scope, scopeKey, kind, options.content);
+    const existing = this.memoryRepository.findExactMatch(
+      options.scope,
+      scopeKey,
+      kind,
+      options.content,
+    );
     if (existing && matchesMemoryAccess(existing, accessPolicy)) {
       this.memoryRepository.update(existing.id, {
         content: options.content,
       });
       this.notifyMemoryChanged(options.content, kind, options.scope, scopeKey);
-      return { id: existing.id, action: 'exact_duplicate', isDuplicate: true, duplicateOf: existing.id };
+      return {
+        id: existing.id,
+        action: 'exact_duplicate',
+        isDuplicate: true,
+        duplicateOf: existing.id,
+      };
     }
 
     // 2. Semantic similarity dedup (if embedding enabled)
@@ -148,12 +154,22 @@ export class MemoryWriter {
     if (options.generateEmbedding !== false) {
       embedding = await this.getOrCreateEmbedding(options.content);
       if (embedding) {
-        const similar = await this.findSimilarMemoryWithScore(options.content, threshold, embedding, accessPolicy);
+        const similar = await this.findSimilarMemoryWithScore(
+          options.content,
+          threshold,
+          embedding,
+          accessPolicy,
+        );
         if (similar) {
           if (kind === 'preference') {
             const existing = this.memoryRepository.findById(similar.id);
             if (existing?.content === options.content) {
-              return { id: existing.id, action: 'semantic_duplicate', isDuplicate: true, duplicateOf: existing.id };
+              return {
+                id: existing.id,
+                action: 'semantic_duplicate',
+                isDuplicate: true,
+                duplicateOf: existing.id,
+              };
             }
           } else {
             // Try compiled-truth merge if configured
@@ -161,7 +177,12 @@ export class MemoryWriter {
               try {
                 const existing = this.memoryRepository.findById(similar.id);
                 if (existing) {
-                  const result = await mergeMemory(existing, options.content, similar.score, this.mergeConfig);
+                  const result = await mergeMemory(
+                    existing,
+                    options.content,
+                    similar.score,
+                    this.mergeConfig,
+                  );
                   if (result) {
                     // Merge succeeded — update existing memory
                     const newMeta = appendTimeline(existing.metadata, result.timelineEntry);
@@ -173,7 +194,10 @@ export class MemoryWriter {
                     // otherwise retrieval scores the row against its old text.
                     await this.refreshDerivedData(existing.id, result.mergedContent);
                     this.notifyMemoryChanged(result.mergedContent, kind, options.scope, scopeKey);
-                    this.mergeConfig?.logger.info({ memoryId: existing.id, similarity: similar.score }, 'Memory merged via compiled truth');
+                    this.mergeConfig?.logger.info(
+                      { memoryId: existing.id, similarity: similar.score },
+                      'Memory merged via compiled truth',
+                    );
                     return {
                       id: existing.id,
                       action: 'merged',
@@ -195,7 +219,12 @@ export class MemoryWriter {
                 // Merge failed — fall through to normal dedup
               }
             }
-            return { id: similar.id, action: 'semantic_duplicate', isDuplicate: true, duplicateOf: similar.id };
+            return {
+              id: similar.id,
+              action: 'semantic_duplicate',
+              isDuplicate: true,
+              duplicateOf: similar.id,
+            };
           }
         }
       }
@@ -203,14 +232,16 @@ export class MemoryWriter {
 
     // 3. Create memory record
     const memoryId = options.id ?? generateId();
-    const metadata = typeof options.metadata === 'string'
-      ? options.metadata
-      : options.metadata === undefined
-        ? null
-        : JSON.stringify(options.metadata);
-    const metadataObject = typeof options.metadata === 'object' && options.metadata !== null
-      ? options.metadata
-      : undefined;
+    const metadata =
+      typeof options.metadata === 'string'
+        ? options.metadata
+        : options.metadata === undefined
+          ? null
+          : JSON.stringify(options.metadata);
+    const metadataObject =
+      typeof options.metadata === 'object' && options.metadata !== null
+        ? options.metadata
+        : undefined;
     const createInput = {
       id: memoryId,
       content: options.content,
@@ -229,7 +260,7 @@ export class MemoryWriter {
     // (Step 2 already computed it for the dedup probe in the common case.)
     let embeddingToStore: Float32Array | undefined;
     if (options.generateEmbedding !== false) {
-      embeddingToStore = embedding ?? await this.getOrCreateEmbedding(options.content);
+      embeddingToStore = embedding ?? (await this.getOrCreateEmbedding(options.content));
       if (!embeddingToStore) {
         warnings.push('embedding_unavailable');
         memoryObservability.record('memory.write.degraded', {
@@ -252,12 +283,20 @@ export class MemoryWriter {
       // Step 1's dedup probe ran before the embedding await above — a window
       // wide enough for a concurrent writer to insert the same content. A
       // synchronous transaction is where probe and insert stop interleaving.
-      const raced = this.memoryRepository.findExactMatch(options.scope, scopeKey, kind, options.content);
+      const raced = this.memoryRepository.findExactMatch(
+        options.scope,
+        scopeKey,
+        kind,
+        options.content,
+      );
       if (raced && matchesMemoryAccess(raced, accessPolicy)) {
         return { raced };
       }
       const created = this.memoryRepository.create(createInput);
-      this.memoryTermRepo?.replaceForMemory(created.id, extractMemoryTerms(created.content, metadataObject));
+      this.memoryTermRepo?.replaceForMemory(
+        created.id,
+        extractMemoryTerms(created.content, metadataObject),
+      );
       if (embeddingToStore) {
         this.embeddingRepository.create({
           id: generateId(),
@@ -295,11 +334,21 @@ export class MemoryWriter {
             if (supersededId === memoryId) continue;
             const oldMem = this.memoryRepository.findById(supersededId);
             if (oldMem) {
-              this.notifyMemoryChanged(oldMem.content, oldMem.kind, oldMem.scope, oldMem.scope_key, 'update');
+              this.notifyMemoryChanged(
+                oldMem.content,
+                oldMem.kind,
+                oldMem.scope,
+                oldMem.scope_key,
+                'update',
+              );
             }
           }
           this.mergeConfig?.logger.info(
-            { winnerId: resolution.winnerId, topic: resolution.topic, supersededCount: resolution.supersededIds.length },
+            {
+              winnerId: resolution.winnerId,
+              topic: resolution.topic,
+              supersededCount: resolution.supersededIds.length,
+            },
             'Preference conflict resolved',
           );
           if (resolution.winnerId !== memoryId) {
@@ -439,7 +488,7 @@ export class MemoryWriter {
     // 1. Pre-compute all required embeddings in a single batched API call.
     //    Collect unique content strings to avoid redundant embedding computation.
     const embedCandidates = new Map<string, string>(); // contentHash -> content
-    const needsEmbedding = new Map<number, boolean>();  // index -> needsEmbedding
+    const needsEmbedding = new Map<number, boolean>(); // index -> needsEmbedding
     for (let i = 0; i < options.length; i++) {
       const opt = options[i];
       if (opt.generateEmbedding !== false && this.embeddingClient.isConfigured()) {
@@ -465,7 +514,11 @@ export class MemoryWriter {
           try {
             this.embeddingCacheRepo.set({
               content_hash: hashContent(contents[i], this.embeddingClient.model),
-              embedding: Buffer.from(embeddings[i].buffer, embeddings[i].byteOffset, embeddings[i].byteLength),
+              embedding: Buffer.from(
+                embeddings[i].buffer,
+                embeddings[i].byteOffset,
+                embeddings[i].byteLength,
+              ),
               model: this.embeddingClient.model,
               dimension: embeddings[i].length,
               created_at: new Date().toISOString(),
@@ -608,7 +661,7 @@ export class MemoryWriter {
     // If no embedding provided and client isn't configured, skip dedup entirely
     if (!embedding && !this.embeddingClient.isConfigured()) return null;
     try {
-      const emb = embedding ?? await this.embeddingClient.embedOne(content);
+      const emb = embedding ?? (await this.embeddingClient.embedOne(content));
       const results = this.embeddingRepository.searchSimilar(emb, accessPolicy ? 20 : 1);
       for (const result of results) {
         if (result.score < threshold) continue;
@@ -640,12 +693,12 @@ export class MemoryWriter {
   ): Promise<{ id: string; score: number } | null> {
     if (!embedding && !this.embeddingClient.isConfigured()) return null;
     try {
-      const emb = embedding ?? await this.embeddingClient.embedOne(content);
+      const emb = embedding ?? (await this.embeddingClient.embedOne(content));
       const results = this.embeddingRepository.searchSimilar(emb, 20);
       // Batch-fetch to avoid N+1 queries during access policy check
       const memoryById = accessPolicy
         ? new Map(
-            this.memoryRepository.findByIds(results.map(r => r.memory_id)).map(m => [m.id, m]),
+            this.memoryRepository.findByIds(results.map((r) => r.memory_id)).map((m) => [m.id, m]),
           )
         : null;
       for (const result of results) {
@@ -675,13 +728,17 @@ export class MemoryWriter {
    * requires the FULL key-token sequence of the old content — a single
    * common word must never purge summaries of unrelated sessions.
    */
-  private async purgeStaleSummaries(oldContent: string, scope: string, scopeKey: string): Promise<void> {
+  private async purgeStaleSummaries(
+    oldContent: string,
+    scope: string,
+    scopeKey: string,
+  ): Promise<void> {
     try {
       // Extract key tokens from old preference (skip very short/generic words)
       const tokens = oldContent
         .replace(/[，。！？、；：“”""'（）\s]+/g, ' ')
         .split(' ')
-        .filter(t => t.length >= 2)
+        .filter((t) => t.length >= 2)
         .slice(0, 5); // first 5 meaningful tokens
 
       if (tokens.length === 0) return;
@@ -692,10 +749,13 @@ export class MemoryWriter {
       const candidates = this.memoryRepository.searchByContent(tokens[0], scope, scopeKey);
       for (const mem of candidates) {
         if (mem.kind !== 'summary') continue;
-        const matchesAllTokens = tokens.every(token => mem.content.includes(token));
+        const matchesAllTokens = tokens.every((token) => mem.content.includes(token));
         if (!matchesAllTokens) continue;
         this.memoryRepository.delete(mem.id);
-        this.mergeConfig?.logger.info({ memoryId: mem.id, tokens, content: mem.content.slice(0, 60) }, 'Purged stale summary after preference replacement');
+        this.mergeConfig?.logger.info(
+          { memoryId: mem.id, tokens, content: mem.content.slice(0, 60) },
+          'Purged stale summary after preference replacement',
+        );
       }
     } catch {
       // Best-effort cleanup

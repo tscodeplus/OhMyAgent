@@ -35,7 +35,15 @@ export class QueryResultCache {
     kind?: string | string[],
     minScore?: number,
   ): RetrievedMemory[] | undefined {
-    const key = QueryResultCache.normalizeKey(query, topK, scope, scopeKey, agentId, kind, minScore);
+    const key = QueryResultCache.normalizeKey(
+      query,
+      topK,
+      scope,
+      scopeKey,
+      agentId,
+      kind,
+      minScore,
+    );
     return this.cache.get(key);
   }
 
@@ -49,7 +57,15 @@ export class QueryResultCache {
     kind?: string | string[],
     minScore?: number,
   ): void {
-    const key = QueryResultCache.normalizeKey(query, topK, scope, scopeKey, agentId, kind, minScore);
+    const key = QueryResultCache.normalizeKey(
+      query,
+      topK,
+      scope,
+      scopeKey,
+      agentId,
+      kind,
+      minScore,
+    );
     this.cache.set(key, results);
   }
 

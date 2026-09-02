@@ -77,11 +77,14 @@ export async function recoverFromOverflow(opts: OverflowRecoveryOptions): Promis
 
     const recentMessages = agent.state.messages.slice(result.compressedIndex);
     agent.state.messages = [result.summaryMessage, ...recentMessages];
-    logger.info({
-      sessionId,
-      compressedCount: result.compressedIndex,
-      keptCount: recentMessages.length,
-    }, 'Context compacted after overflow, retrying');
+    logger.info(
+      {
+        sessionId,
+        compressedCount: result.compressedIndex,
+        keptCount: recentMessages.length,
+      },
+      'Context compacted after overflow, retrying',
+    );
   } catch (err) {
     logger.info({ sessionId, err }, 'Overflow compaction failed, continuing without retry');
     return false;

@@ -52,7 +52,9 @@ export class ChatQueue {
 
     // P1 M6: bounded backlog per session
     if (queue.length >= this.maxPending) {
-      this.logger?.warn(`[ChatQueue] session ${sessionKey} backlog full (${this.maxPending} pending), rejecting task`);
+      this.logger?.warn(
+        `[ChatQueue] session ${sessionKey} backlog full (${this.maxPending} pending), rejecting task`,
+      );
       return false;
     }
 

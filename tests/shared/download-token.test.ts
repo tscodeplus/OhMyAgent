@@ -3,13 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {

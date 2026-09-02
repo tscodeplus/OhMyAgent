@@ -30,7 +30,9 @@ export function registerProjectRoutes(app: FastifyInstance, store: ProjectStore)
       return reply.status(400).send({ error: 'Bad Request', message: 'name is required' });
     }
     if (body.name.trim().length > 50) {
-      return reply.status(400).send({ error: 'Bad Request', message: 'name must be at most 50 characters' });
+      return reply
+        .status(400)
+        .send({ error: 'Bad Request', message: 'name must be at most 50 characters' });
     }
     if (!body.agent_id?.trim()) {
       return reply.status(400).send({ error: 'Bad Request', message: 'agent_id is required' });
@@ -63,8 +65,13 @@ export function registerProjectRoutes(app: FastifyInstance, store: ProjectStore)
       return reply.status(404).send({ error: 'Not Found', message: 'Project not found' });
     }
 
-    if (body.name !== undefined && (body.name.trim().length === 0 || body.name.trim().length > 50)) {
-      return reply.status(400).send({ error: 'Bad Request', message: 'name must be 1-50 characters' });
+    if (
+      body.name !== undefined &&
+      (body.name.trim().length === 0 || body.name.trim().length > 50)
+    ) {
+      return reply
+        .status(400)
+        .send({ error: 'Bad Request', message: 'name must be 1-50 characters' });
     }
 
     const updated = store.update(id, {

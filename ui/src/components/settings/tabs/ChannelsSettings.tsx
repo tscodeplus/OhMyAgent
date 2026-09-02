@@ -12,12 +12,18 @@ function ChannelCard({ name, children }: { name: string; children: React.ReactNo
   const [open, setOpen] = useState(false);
   return (
     <div className="border border-neutral-200 dark:border-neutral-800 rounded-lg overflow-hidden">
-      <button onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 w-full px-4 py-2.5 text-sm font-medium text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 transition-colors">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 w-full px-4 py-2.5 text-sm font-medium text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 transition-colors"
+      >
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         {name}
       </button>
-      {open && <div className="px-4 py-3 space-y-3 border-t border-neutral-200 dark:border-neutral-800">{children}</div>}
+      {open && (
+        <div className="px-4 py-3 space-y-3 border-t border-neutral-200 dark:border-neutral-800">
+          {children}
+        </div>
+      )}
     </div>
   );
 }
@@ -30,14 +36,27 @@ interface ChannelsSettingsProps {
 
 type ChannelType = 'feishu' | 'wechat' | 'qq' | 'telegram';
 
-export default function ChannelsSettings({ tabId = 'channels', registerHandle, onDirtyChange }: ChannelsSettingsProps) {
+export default function ChannelsSettings({
+  tabId = 'channels',
+  registerHandle,
+  onDirtyChange,
+}: ChannelsSettingsProps) {
   const { t } = useTranslation('common');
-  const { config, loading, getField, setField, fetchConfig } = useConfigDirty(tabId, registerHandle, onDirtyChange);
+  const { config, loading, getField, setField, fetchConfig } = useConfigDirty(
+    tabId,
+    registerHandle,
+    onDirtyChange,
+  );
 
   const [qrModal, setQrModal] = useState<ChannelType | null>(null);
   const [confirmChannel, setConfirmChannel] = useState<ChannelType | null>(null);
 
-  if (loading) return <div className="flex justify-center py-8"><Spinner /></div>;
+  if (loading)
+    return (
+      <div className="flex justify-center py-8">
+        <Spinner />
+      </div>
+    );
 
   const feishu = (config?.feishu as Record<string, unknown>) || {};
   const telegram = (config?.telegram as Record<string, unknown>) || {};
@@ -79,7 +98,8 @@ export default function ChannelsSettings({ tabId = 'channels', registerHandle, o
   const hasFeishuConfig = getField('feishu.appId', String(feishu.appId || '')).length > 0;
   const hasQQConfig = getField('qq.appId', String(qq.appId || '')).length > 0;
   const hasWechatConfig = getField('wechat.botToken', String(wechat.botToken || '')).length > 0;
-  const hasTelegramConfig = getField('telegram.botToken', String(telegram.botToken || '')).length > 0;
+  const hasTelegramConfig =
+    getField('telegram.botToken', String(telegram.botToken || '')).length > 0;
 
   const handleScanClick = (channel: ChannelType) => {
     const hasConfig: Record<ChannelType, boolean> = {
@@ -109,70 +129,158 @@ export default function ChannelsSettings({ tabId = 'channels', registerHandle, o
   return (
     <div className="space-y-3">
       {/* Feishu / Lark */}
-      <ChannelCard name={t("settings.channels.feishu")}>
+      <ChannelCard name={t('settings.channels.feishu')}>
         <div className="flex items-center justify-between">
-          <label className="text-sm">{t("settings.channels.enabled")}</label>
-          <Toggle checked={getField('feishu.enabled', !!feishu.enabled)} onChange={(v) => setField('feishu.enabled', v)} />
-        </div>
-        {feishuEnabled ? (<>
-          {scanButton('feishu')}
-          <Select
-            label={t("settings.channels.region")}
-            value={feishuRegion}
-            onChange={(e) => setField('feishu.region', e.target.value)}
-            options={[
-              { value: 'feishu', label: t('settings.channels.regionFeishu') },
-              { value: 'lark', label: t('settings.channels.regionLark') },
-            ]}
+          <label className="text-sm">{t('settings.channels.enabled')}</label>
+          <Toggle
+            checked={getField('feishu.enabled', !!feishu.enabled)}
+            onChange={(v) => setField('feishu.enabled', v)}
           />
-          <Input label="App ID" value={getField('feishu.appId', String(feishu.appId || ''))} onChange={(e) => setField('feishu.appId', e.target.value)} />
-          <Input label={t("settings.channels.appSecret")} type="password" value={getField('feishu.appSecret', String(feishu.appSecret || ''))} onChange={(e) => setField('feishu.appSecret', e.target.value)} placeholder={getField('feishu.appSecret', String(feishu.appSecret || '')) ? undefined : ''} />
-          <div className="flex items-center justify-between">
-            <label className="text-sm">{t("settings.channels.wsEnabled")}</label>
-            <Toggle checked={getField('feishu.wsEnabled', !!feishu.wsEnabled)} onChange={(v) => setField('feishu.wsEnabled', v)} />
-          </div>
-        </>) : null}
+        </div>
+        {feishuEnabled ? (
+          <>
+            {scanButton('feishu')}
+            <Select
+              label={t('settings.channels.region')}
+              value={feishuRegion}
+              onChange={(e) => setField('feishu.region', e.target.value)}
+              options={[
+                { value: 'feishu', label: t('settings.channels.regionFeishu') },
+                { value: 'lark', label: t('settings.channels.regionLark') },
+              ]}
+            />
+            <Input
+              label="App ID"
+              value={getField('feishu.appId', String(feishu.appId || ''))}
+              onChange={(e) => setField('feishu.appId', e.target.value)}
+            />
+            <Input
+              label={t('settings.channels.appSecret')}
+              type="password"
+              value={getField('feishu.appSecret', String(feishu.appSecret || ''))}
+              onChange={(e) => setField('feishu.appSecret', e.target.value)}
+              placeholder={
+                getField('feishu.appSecret', String(feishu.appSecret || '')) ? undefined : ''
+              }
+            />
+            <div className="flex items-center justify-between">
+              <label className="text-sm">{t('settings.channels.wsEnabled')}</label>
+              <Toggle
+                checked={getField('feishu.wsEnabled', !!feishu.wsEnabled)}
+                onChange={(v) => setField('feishu.wsEnabled', v)}
+              />
+            </div>
+          </>
+        ) : null}
       </ChannelCard>
 
       {/* Telegram */}
       <ChannelCard name="Telegram">
         <div className="flex items-center justify-between">
-          <label className="text-sm">{t("settings.channels.enabled")}</label>
-          <Toggle checked={getField('telegram.enabled', !!telegram.enabled)} onChange={(v) => setField('telegram.enabled', v)} />
+          <label className="text-sm">{t('settings.channels.enabled')}</label>
+          <Toggle
+            checked={getField('telegram.enabled', !!telegram.enabled)}
+            onChange={(v) => setField('telegram.enabled', v)}
+          />
         </div>
-        {telegramEnabled ? (<>
-          {scanButton('telegram')}
-          <Input label={t("settings.channels.botToken")} type="password" value={getField('telegram.botToken', String(telegram.botToken || ''))} onChange={(e) => setField('telegram.botToken', e.target.value)} placeholder={getField('telegram.botToken', String(telegram.botToken || '')) ? undefined : ''} />
-          <Input label={t("settings.channels.botName")} value={getField('telegram.botName', String(telegram.botName || ''))} onChange={(e) => setField('telegram.botName', e.target.value)} placeholder={t('settings.channels.botNamePlaceholder')} />
-          <Select label={t("settings.channels.mode")} value={getField('telegram.mode', String(telegram.mode || 'polling'))} onChange={(e) => setField('telegram.mode', e.target.value)} options={[{ value: 'polling', label: 'Polling' }, { value: 'webhook', label: 'Webhook' }]} />
-          <Select label={t("settings.channels.streamMode")} value={getField('telegram.streamMode', String(telegram.streamMode || 'edit'))} onChange={(e) => setField('telegram.streamMode', e.target.value)} options={[{ value: 'edit', label: t('settings.channels.opt_edit') }, { value: 'send', label: t('settings.channels.opt_send') }]} />
-        </>) : null}
+        {telegramEnabled ? (
+          <>
+            {scanButton('telegram')}
+            <Input
+              label={t('settings.channels.botToken')}
+              type="password"
+              value={getField('telegram.botToken', String(telegram.botToken || ''))}
+              onChange={(e) => setField('telegram.botToken', e.target.value)}
+              placeholder={
+                getField('telegram.botToken', String(telegram.botToken || '')) ? undefined : ''
+              }
+            />
+            <Input
+              label={t('settings.channels.botName')}
+              value={getField('telegram.botName', String(telegram.botName || ''))}
+              onChange={(e) => setField('telegram.botName', e.target.value)}
+              placeholder={t('settings.channels.botNamePlaceholder')}
+            />
+            <Select
+              label={t('settings.channels.mode')}
+              value={getField('telegram.mode', String(telegram.mode || 'polling'))}
+              onChange={(e) => setField('telegram.mode', e.target.value)}
+              options={[
+                { value: 'polling', label: 'Polling' },
+                { value: 'webhook', label: 'Webhook' },
+              ]}
+            />
+            <Select
+              label={t('settings.channels.streamMode')}
+              value={getField('telegram.streamMode', String(telegram.streamMode || 'edit'))}
+              onChange={(e) => setField('telegram.streamMode', e.target.value)}
+              options={[
+                { value: 'edit', label: t('settings.channels.opt_edit') },
+                { value: 'send', label: t('settings.channels.opt_send') },
+              ]}
+            />
+          </>
+        ) : null}
       </ChannelCard>
 
       {/* WeChat */}
-      <ChannelCard name={t("settings.channels.wechat")}>
+      <ChannelCard name={t('settings.channels.wechat')}>
         <div className="flex items-center justify-between">
-          <label className="text-sm">{t("settings.channels.enabled")}</label>
-          <Toggle checked={getField('wechat.enabled', !!wechat.enabled)} onChange={(v) => setField('wechat.enabled', v)} />
+          <label className="text-sm">{t('settings.channels.enabled')}</label>
+          <Toggle
+            checked={getField('wechat.enabled', !!wechat.enabled)}
+            onChange={(v) => setField('wechat.enabled', v)}
+          />
         </div>
-        {wechatEnabled ? (<>
-          {scanButton('wechat')}
-          <Input label={t("settings.channels.botToken")} type="password" value={getField('wechat.botToken', String(wechat.botToken || ''))} onChange={(e) => setField('wechat.botToken', e.target.value)} placeholder={getField('wechat.botToken', String(wechat.botToken || '')) ? undefined : ''} />
-          <Input label={t("settings.channels.apiBase")} value={getField('wechat.apiBase', String(wechat.apiBase || ''))} onChange={(e) => setField('wechat.apiBase', e.target.value)} />
-        </>) : null}
+        {wechatEnabled ? (
+          <>
+            {scanButton('wechat')}
+            <Input
+              label={t('settings.channels.botToken')}
+              type="password"
+              value={getField('wechat.botToken', String(wechat.botToken || ''))}
+              onChange={(e) => setField('wechat.botToken', e.target.value)}
+              placeholder={
+                getField('wechat.botToken', String(wechat.botToken || '')) ? undefined : ''
+              }
+            />
+            <Input
+              label={t('settings.channels.apiBase')}
+              value={getField('wechat.apiBase', String(wechat.apiBase || ''))}
+              onChange={(e) => setField('wechat.apiBase', e.target.value)}
+            />
+          </>
+        ) : null}
       </ChannelCard>
 
       {/* QQ */}
       <ChannelCard name="QQ">
         <div className="flex items-center justify-between">
-          <label className="text-sm">{t("settings.channels.enabled")}</label>
-          <Toggle checked={getField('qq.enabled', !!qq.enabled)} onChange={(v) => setField('qq.enabled', v)} />
+          <label className="text-sm">{t('settings.channels.enabled')}</label>
+          <Toggle
+            checked={getField('qq.enabled', !!qq.enabled)}
+            onChange={(v) => setField('qq.enabled', v)}
+          />
         </div>
-        {qqEnabled ? (<>
-          {scanButton('qq')}
-          <Input label="App ID" value={getField('qq.appId', String(qq.appId || ''))} onChange={(e) => setField('qq.appId', e.target.value)} />
-          <Input label={t("settings.channels.clientSecret")} type="password" value={getField('qq.clientSecret', String(qq.clientSecret || ''))} onChange={(e) => setField('qq.clientSecret', e.target.value)} placeholder={getField('qq.clientSecret', String(qq.clientSecret || '')) ? undefined : ''} />
-        </>) : null}
+        {qqEnabled ? (
+          <>
+            {scanButton('qq')}
+            <Input
+              label="App ID"
+              value={getField('qq.appId', String(qq.appId || ''))}
+              onChange={(e) => setField('qq.appId', e.target.value)}
+            />
+            <Input
+              label={t('settings.channels.clientSecret')}
+              type="password"
+              value={getField('qq.clientSecret', String(qq.clientSecret || ''))}
+              onChange={(e) => setField('qq.clientSecret', e.target.value)}
+              placeholder={
+                getField('qq.clientSecret', String(qq.clientSecret || '')) ? undefined : ''
+              }
+            />
+          </>
+        ) : null}
       </ChannelCard>
 
       {/* Reconfigure confirmation — centered overlay */}
@@ -187,7 +295,9 @@ export default function ChannelsSettings({ tabId = 'channels', registerHandle, o
                   {t('settings.channels.qrReconfigureTitle')}
                 </h4>
                 <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">
-                  {t('settings.channels.qrReconfigureMessage', { channel: t(`settings.channels.${confirmChannel}`) })}
+                  {t('settings.channels.qrReconfigureMessage', {
+                    channel: t(`settings.channels.${confirmChannel}`),
+                  })}
                 </p>
               </div>
             </div>

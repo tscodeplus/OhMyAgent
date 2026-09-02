@@ -78,7 +78,9 @@ export function createMemoryDeleteToolDefinition(options: {
       }
 
       const mode = args.purge ? 'purged' : 'soft-deleted';
-      return textResult(deleted ? `Memory ${mode}: ${args.id}` : `Memory not deleted: ${args.id}`, { deleted });
+      return textResult(deleted ? `Memory ${mode}: ${args.id}` : `Memory not deleted: ${args.id}`, {
+        deleted,
+      });
     },
   };
 }

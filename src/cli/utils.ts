@@ -91,7 +91,9 @@ export function findProcessByPort(): number | null {
       const match = stdout.match(/LISTENING\s+(\d+)/);
       return match ? parseInt(match[1], 10) : null;
     } else {
-      stdout = execSync(`lsof -ti :${PORT} 2>/dev/null || fuser ${PORT}/tcp 2>/dev/null`, { encoding: 'utf8' });
+      stdout = execSync(`lsof -ti :${PORT} 2>/dev/null || fuser ${PORT}/tcp 2>/dev/null`, {
+        encoding: 'utf8',
+      });
       const pid = parseInt(stdout.trim(), 10);
       return isNaN(pid) ? null : pid;
     }
@@ -108,18 +110,24 @@ export function getProcessUptime(pid: number): string {
     if (platform === 'win32') {
       // Use elapsed time via wmic to avoid PowerShell version issues
       try {
-        stdout = execSync(
-          `wmic process where ProcessId=${pid} get CreationDate /format:value`,
-          { encoding: 'utf8', stdio: 'pipe' },
-        ).trim();
-        const match = stdout.match(/CreationDate=(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})\.\d+([+-]\d+)/);
+        stdout = execSync(`wmic process where ProcessId=${pid} get CreationDate /format:value`, {
+          encoding: 'utf8',
+          stdio: 'pipe',
+        }).trim();
+        const match = stdout.match(
+          /CreationDate=(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})\.\d+([+-]\d+)/,
+        );
         if (match) {
-          const startTime = new Date(`${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}${match[7]}`).getTime();
+          const startTime = new Date(
+            `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}${match[7]}`,
+          ).getTime();
           if (!isNaN(startTime)) {
             return formatDuration(Date.now() - startTime);
           }
         }
-      } catch { /* fall through */ }
+      } catch {
+        /* fall through */
+      }
       return 'unknown';
     } else {
       stdout = execSync(`ps -p ${pid} -o etime= 2>/dev/null`, { encoding: 'utf8' }).trim();
@@ -137,7 +145,9 @@ export function getProcessMemory(pid: number): string {
     let stdout: string;
 
     if (platform === 'win32') {
-      stdout = execSync(`powershell -Command "(Get-Process -Id ${pid}).WorkingSet64 / 1MB"`, { encoding: 'utf8' });
+      stdout = execSync(`powershell -Command "(Get-Process -Id ${pid}).WorkingSet64 / 1MB"`, {
+        encoding: 'utf8',
+      });
       const mb = parseInt(stdout.trim(), 10);
       return isNaN(mb) ? '未知' : `${mb} MB`;
     } else if (platform === 'darwin') {

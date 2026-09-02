@@ -131,9 +131,12 @@ export class OpenAIImageGenerationProvider implements ImageGenerationProvider {
 
   private resolveMimeType(outputFormat?: string): 'image/png' | 'image/jpeg' | 'image/webp' {
     switch (outputFormat) {
-      case 'jpeg': return 'image/jpeg';
-      case 'webp': return 'image/webp';
-      default: return 'image/png';
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'webp':
+        return 'image/webp';
+      default:
+        return 'image/png';
     }
   }
 
@@ -160,9 +163,10 @@ export class OpenAIImageGenerationProvider implements ImageGenerationProvider {
 
     // Reference images for image-to-image generation
     if (input.referenceImages && input.referenceImages.length > 0) {
-      const value = this.paramMap.referenceImagesMode === 'first'
-        ? input.referenceImages[0]
-        : input.referenceImages;
+      const value =
+        this.paramMap.referenceImagesMode === 'first'
+          ? input.referenceImages[0]
+          : input.referenceImages;
       setByPath(body, this.paramMap.referenceImagesField, value);
     }
 

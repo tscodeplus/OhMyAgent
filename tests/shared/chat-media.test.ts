@@ -3,10 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { describe, it, expect } from 'vitest';
-import {
-  CHAT_MEDIA_TOOL_NAMES,
-  isChatMediaUrl,
-} from '../../src/shared/chat-media.js';
+import { CHAT_MEDIA_TOOL_NAMES, isChatMediaUrl } from '../../src/shared/chat-media.js';
 
 describe('CHAT_MEDIA_TOOL_NAMES', () => {
   it('includes gateway media-emitting tools', () => {

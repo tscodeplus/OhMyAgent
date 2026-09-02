@@ -32,14 +32,16 @@ export interface LoadedSkill {
 
 // ── AgentSkills.io Frontmatter Schema ───────────────────────────────────────
 
-export const FrontmatterSchema = z.object({
-  name: z.string().min(1).max(64),
-  description: z.string().min(1).max(1024),
-  license: z.string().optional(),
-  compatibility: z.string().optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-  'allowed-tools': z.union([z.string(), z.array(z.string())]).optional(),
-}).passthrough();
+export const FrontmatterSchema = z
+  .object({
+    name: z.string().min(1).max(64),
+    description: z.string().min(1).max(1024),
+    license: z.string().optional(),
+    compatibility: z.string().optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+    'allowed-tools': z.union([z.string(), z.array(z.string())]).optional(),
+  })
+  .passthrough();
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -47,13 +49,18 @@ const PROMPT_FILE = 'SKILL.md';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-function parseFrontmatter(content: string): { attrs: Record<string, unknown>; body: string } | null {
+function parseFrontmatter(
+  content: string,
+): { attrs: Record<string, unknown>; body: string } | null {
   const lines = content.split('\n');
   if (lines[0]?.trim() !== '---') return null;
 
   let endIndex = -1;
   for (let i = 1; i < lines.length; i++) {
-    if (lines[i]?.trim() === '---') { endIndex = i; break; }
+    if (lines[i]?.trim() === '---') {
+      endIndex = i;
+      break;
+    }
   }
   if (endIndex === -1) return null;
 
@@ -95,13 +102,20 @@ function generateTriggers(name: string, metadata?: Record<string, unknown>): str
     // Split by commas (and Chinese commas) first, then trim each entry.
     // Previously split by /[,，\s]+/ which broke multi-word triggers like
     // "todo list" into two separate single-word triggers.
-    return raw.split(/[,，]/).map(s => s.trim()).filter(Boolean);
+    return raw
+      .split(/[,，]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
   }
 
   // Priority 2: derive from name
   const triggers = new Set<string>();
   triggers.add(name.toLowerCase());
-  const parts = name.toLowerCase().replace(/[-_]/g, ' ').split(/\s+/).filter(p => p.length >= 2);
+  const parts = name
+    .toLowerCase()
+    .replace(/[-_]/g, ' ')
+    .split(/\s+/)
+    .filter((p) => p.length >= 2);
   for (const p of parts) triggers.add(p);
 
   // For CJK names, add character bigrams as additional triggers.
@@ -128,7 +142,7 @@ async function scanResources(absolutePath: string): Promise<SkillResources | und
   for (const dirName of resourceDirs) {
     try {
       const entries = await readdir(join(absolutePath, dirName), { withFileTypes: true });
-      const files = entries.filter(e => e.isFile()).map(e => `${dirName}/${e.name}`);
+      const files = entries.filter((e) => e.isFile()).map((e) => `${dirName}/${e.name}`);
       if (files.length > 0) {
         result[dirName] = files;
         found = true;
@@ -151,15 +165,20 @@ function buildMemoryPolicy(oma: Record<string, unknown>): MemoryPolicy {
     };
   }
 
-  const scopes = Array.isArray(raw.scopes) ? raw.scopes.map((s: any) => ({
-    type: s.type as 'session' | 'user' | 'global',
-    key: s.key as string | undefined,
-    readPolicy: s.readPolicy as 'always' | 'on_demand' | 'never',
-    writePolicy: s.writePolicy as 'always' | 'on_demand' | 'never',
-  })) : [{ type: 'session' as const, readPolicy: 'always' as const, writePolicy: 'always' as const }];
+  const scopes = Array.isArray(raw.scopes)
+    ? raw.scopes.map((s: any) => ({
+        type: s.type as 'session' | 'user' | 'global',
+        key: s.key as string | undefined,
+        readPolicy: s.readPolicy as 'always' | 'on_demand' | 'never',
+        writePolicy: s.writePolicy as 'always' | 'on_demand' | 'never',
+      }))
+    : [{ type: 'session' as const, readPolicy: 'always' as const, writePolicy: 'always' as const }];
 
   return {
-    scopes: scopes.length > 0 ? scopes : [{ type: 'session', readPolicy: 'always', writePolicy: 'always' }],
+    scopes:
+      scopes.length > 0
+        ? scopes
+        : [{ type: 'session', readPolicy: 'always', writePolicy: 'always' }],
     captureEnabled: typeof raw.captureEnabled === 'boolean' ? raw.captureEnabled : false,
     recallEnabled: typeof raw.recallEnabled === 'boolean' ? raw.recallEnabled : false,
   };
@@ -171,7 +190,10 @@ function buildMemoryPolicy(oma: Record<string, unknown>): MemoryPolicy {
  * same slug — essential for skill_create → reload consistency.
  */
 function toKebabCase(name: string): string {
-  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
   if (slug) return slug;
   // Deterministic fallback: short hash of the name, prefixed for readability
   const hash = createHash('sha256').update(name).digest('hex').slice(0, 8);
@@ -214,13 +236,9 @@ export function validateSkillDependencies(
 
   // Check required skill dependencies
   if (deps.skills && deps.skills.length > 0) {
-    const loadedIds = new Set(
-      (context.availableSkills ?? []).map(s => s.manifest.id),
-    );
+    const loadedIds = new Set((context.availableSkills ?? []).map((s) => s.manifest.id));
     const configuredEnabled = new Set(
-      (context.availableSkills ?? [])
-        .filter(s => s.manifest.enabled)
-        .map(s => s.manifest.id),
+      (context.availableSkills ?? []).filter((s) => s.manifest.enabled).map((s) => s.manifest.id),
     );
     for (const depId of deps.skills) {
       if (!loadedIds.has(depId)) {
@@ -254,12 +272,14 @@ export function validateSkillDependencies(
   if (skill.manifest.conflicts && skill.manifest.conflicts.length > 0) {
     const activeIds = new Set(
       (context.availableSkills ?? [])
-        .filter(s => s.manifest.enabled && s.manifest.id !== skill.manifest.id)
-        .map(s => s.manifest.id),
+        .filter((s) => s.manifest.enabled && s.manifest.id !== skill.manifest.id)
+        .map((s) => s.manifest.id),
     );
     for (const conflictId of skill.manifest.conflicts) {
       if (activeIds.has(conflictId)) {
-        errors.push(`Conflict: skill "${conflictId}" is already active and conflicts with "${skill.manifest.id}"`);
+        errors.push(
+          `Conflict: skill "${conflictId}" is already active and conflicts with "${skill.manifest.id}"`,
+        );
       }
     }
   }
@@ -299,7 +319,9 @@ export async function loadSkill(skillDirPath: string): Promise<LoadedSkill> {
 
   const parsed = parseFrontmatter(rawContent);
   if (!parsed) {
-    throw new Error(`SKILL.md at ${absolutePath} has no valid YAML frontmatter (must start with "---")`);
+    throw new Error(
+      `SKILL.md at ${absolutePath} has no valid YAML frontmatter (must start with "---")`,
+    );
   }
 
   const fm = FrontmatterSchema.parse(parsed.attrs);
@@ -311,13 +333,18 @@ export async function loadSkill(skillDirPath: string): Promise<LoadedSkill> {
   // via toKebabCase is lossy for CJK and produces IDs that don't match the
   // directory, breaking $skill-id and /skill-id explicit activation.
   const id = basename(absolutePath);
-  const version = typeof meta.version === 'string' && /^\d+\.\d+\.\d+$/.test(meta.version)
-    ? meta.version : '1.0.0';
+  const version =
+    typeof meta.version === 'string' && /^\d+\.\d+\.\d+$/.test(meta.version)
+      ? meta.version
+      : '1.0.0';
   const author = typeof meta.author === 'string' ? meta.author : undefined;
   const tags = Array.isArray(meta.tags)
     ? meta.tags.map(String)
     : typeof meta.tags === 'string'
-      ? meta.tags.split(/[,，]/).map(s => s.trim()).filter(Boolean)
+      ? meta.tags
+          .split(/[,，]/)
+          .map((s) => s.trim())
+          .filter(Boolean)
       : undefined;
   const priority = typeof meta.priority === 'number' ? meta.priority : 0;
   const triggers = generateTriggers(fm.name, meta);
@@ -327,19 +354,29 @@ export async function loadSkill(skillDirPath: string): Promise<LoadedSkill> {
 
   // Extract dependencies and conflicts from x-ohmyagent metadata
   const depsRaw = oma.dependencies as Record<string, unknown> | undefined;
-  const dependencies: SkillDependencies | undefined = depsRaw ? {
-    ...(Array.isArray(depsRaw.skills) ? { skills: depsRaw.skills.map(String) } : {}),
-    ...(Array.isArray(depsRaw.tools) ? { tools: depsRaw.tools.map(String) } : {}),
-    ...(typeof depsRaw.minVersion === 'string' && depsRaw.minVersion ? { minVersion: depsRaw.minVersion } : {}),
-  } : undefined;
-  const conflicts = Array.isArray(oma.conflicts)
-    ? oma.conflicts.map(String)
+  const dependencies: SkillDependencies | undefined = depsRaw
+    ? {
+        ...(Array.isArray(depsRaw.skills) ? { skills: depsRaw.skills.map(String) } : {}),
+        ...(Array.isArray(depsRaw.tools) ? { tools: depsRaw.tools.map(String) } : {}),
+        ...(typeof depsRaw.minVersion === 'string' && depsRaw.minVersion
+          ? { minVersion: depsRaw.minVersion }
+          : {}),
+      }
     : undefined;
+  const conflicts = Array.isArray(oma.conflicts) ? oma.conflicts.map(String) : undefined;
 
   const manifest: Manifest = {
-    id, name: fm.name, description: fm.description,
-    version, triggers, priority, enabled: true,
-    author, tags, dependencies, conflicts,
+    id,
+    name: fm.name,
+    description: fm.description,
+    version,
+    triggers,
+    priority,
+    enabled: true,
+    author,
+    tags,
+    dependencies,
+    conflicts,
   };
 
   // Build tools (with optional OhMyAgent extensions)
@@ -350,9 +387,7 @@ export async function loadSkill(skillDirPath: string): Promise<LoadedSkill> {
     : typeof rawAllowed === 'string'
       ? rawAllowed.split(/\s+/).filter(Boolean)
       : [];
-  const deniedTools = Array.isArray(oma.deniedTools)
-    ? oma.deniedTools.map(String)
-    : [];
+  const deniedTools = Array.isArray(oma.deniedTools) ? oma.deniedTools.map(String) : [];
   const tools: ToolsConfig = {
     allowedTools,
     ...(deniedTools.length > 0 ? { deniedTools } : {}),
@@ -367,9 +402,8 @@ export async function loadSkill(skillDirPath: string): Promise<LoadedSkill> {
     : undefined;
 
   // Build tools profile override (from x-ohmyagent extension)
-  const toolsProfile = typeof oma.toolsProfile === 'string'
-    ? oma.toolsProfile as ToolProfileId
-    : undefined;
+  const toolsProfile =
+    typeof oma.toolsProfile === 'string' ? (oma.toolsProfile as ToolProfileId) : undefined;
 
   // L3: Scan resource directories
   const resources = await scanResources(absolutePath);
@@ -396,7 +430,9 @@ export async function loadAllSkills(
 ): Promise<LoadedSkill[]> {
   const absolutePath = resolve(skillsDirPath);
   const entries = await readdir(absolutePath, { withFileTypes: true });
-  const skillDirs = entries.filter((e) => e.isDirectory() && !e.name.startsWith('_') && !e.name.startsWith('.'));
+  const skillDirs = entries.filter(
+    (e) => e.isDirectory() && !e.name.startsWith('_') && !e.name.startsWith('.'),
+  );
 
   const results: LoadedSkill[] = [];
 

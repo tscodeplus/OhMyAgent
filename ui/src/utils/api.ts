@@ -22,7 +22,7 @@ export interface ApiError {
 
 export async function apiRequest<T>(
   path: string,
-  options: RequestInit & { timeoutMs?: number } = {}
+  options: RequestInit & { timeoutMs?: number } = {},
 ): Promise<T> {
   const token = getToken();
   const hasBody = !!options.body;
@@ -53,7 +53,10 @@ export async function apiRequest<T>(
 
     if (!response.ok) {
       const body = await response.json().catch(() => ({ message: response.statusText }));
-      throw { status: response.status, message: body.message || body.error || response.statusText } as ApiError;
+      throw {
+        status: response.status,
+        message: body.message || body.error || response.statusText,
+      } as ApiError;
     }
 
     if (response.status === 204) {

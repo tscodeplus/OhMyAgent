@@ -18,7 +18,7 @@ export function createMemoryDoctorJob(
           dryRun: true,
           affectedRows: 0,
           durationMs: 0,
-          details: { totalIssues: report.totalIssues, checks: report.checks.map(c => c.name) },
+          details: { totalIssues: report.totalIssues, checks: report.checks.map((c) => c.name) },
         };
       }
 

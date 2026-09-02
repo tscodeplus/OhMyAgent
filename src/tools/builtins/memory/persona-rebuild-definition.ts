@@ -36,9 +36,13 @@ export function createPersonaRebuildToolDefinition(options: {
         if (success) {
           return textResult('Persona rebuilt successfully from active preferences.');
         }
-        return errorResult('Persona rebuild failed — LLM returned invalid response. Existing persona preserved.');
+        return errorResult(
+          'Persona rebuild failed — LLM returned invalid response. Existing persona preserved.',
+        );
       } catch (err) {
-        return errorResult(`Persona rebuild error: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(
+          `Persona rebuild error: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     },
   };

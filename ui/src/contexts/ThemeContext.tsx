@@ -5,7 +5,9 @@ type ThemeMode = 'system' | 'light' | 'dark';
 const THEME_KEY = 'oma-theme-mode';
 
 function getSystemDark(): boolean {
-  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+  return (
+    typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches
+  );
 }
 
 function readInitialMode(): ThemeMode {
@@ -37,7 +39,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const setThemeMode = (mode: ThemeMode) => {
     setMode(mode);
-    try { localStorage.setItem(THEME_KEY, mode); } catch {}
+    try {
+      localStorage.setItem(THEME_KEY, mode);
+    } catch {}
     // Sync to Electron desktop config so tray windows can read it
     if (window.electronAPI) {
       window.electronAPI.setConfig('theme', mode).catch(() => {});

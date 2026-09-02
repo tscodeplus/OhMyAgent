@@ -46,7 +46,9 @@ export function createTeamDeleteToolDefinition(): ToolDefinition {
       }
 
       if (team.ownerAgentId !== agentId) {
-        return errorResult(`Only the team owner (${team.ownerAgentId}) can delete this team. You are '${agentId}'.`);
+        return errorResult(
+          `Only the team owner (${team.ownerAgentId}) can delete this team. You are '${agentId}'.`,
+        );
       }
 
       const orchestrator = ctx.services.orchestrator;

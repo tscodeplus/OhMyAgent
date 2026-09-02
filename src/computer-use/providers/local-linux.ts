@@ -11,12 +11,17 @@ import type { Logger } from 'pino';
 import type { ComputerUseProvider } from '../provider-contract.js';
 import { normalizeComputerProviderCapabilities } from '../provider-contract.js';
 import type {
-  Ctx, AppInfo, ProviderStatus, Lease, Target, AppState, Action, ActionResult,
+  Ctx,
+  AppInfo,
+  ProviderStatus,
+  Lease,
+  Target,
+  AppState,
+  Action,
+  ActionResult,
 } from '../types.js';
 import { createLocalExecRunner, quoteShellArg, type ExecRunner } from '../ssh-actions-common.js';
-import {
-  listLinuxApps, readLinuxWindowState, performLinuxAction,
-} from '../ssh-actions-linux.js';
+import { listLinuxApps, readLinuxWindowState, performLinuxAction } from '../ssh-actions-linux.js';
 
 export class LocalLinuxProvider implements ComputerUseProvider {
   readonly providerId = 'linux:local';
@@ -50,13 +55,16 @@ export class LocalLinuxProvider implements ComputerUseProvider {
     // The action layer talks to the X11 desktop (xdotool, wmctrl) and the
     // AT-SPI bus. When OhMyAgent runs outside a desktop session (systemd,
     // SSH) DISPLAY is not exported — default to ':0', the common case.
-    this.runner = options?.runner ?? createLocalExecRunner({ display: process.env.DISPLAY || ':0' });
+    this.runner =
+      options?.runner ?? createLocalExecRunner({ display: process.env.DISPLAY || ':0' });
   }
 
   async getStatus(_ctx: Ctx): Promise<ProviderStatus> {
     try {
       // Mirror the SSH health check: the X11 toolchain must be present.
-      const result = await this.runner.exec('which xdotool && which scrot && echo OK', { timeoutMs: 10_000 });
+      const result = await this.runner.exec('which xdotool && which scrot && echo OK', {
+        timeoutMs: 10_000,
+      });
       const ok = result.stdout.includes('OK');
       return {
         providerId: this.providerId,
@@ -91,7 +99,7 @@ export class LocalLinuxProvider implements ComputerUseProvider {
       // Poll wmctrl up to 10 times (500 ms apart) until the window appears,
       // then resolve the process PID via xdotool (same as the SSH provider).
       for (let i = 0; i < 10 && windowId === undefined; i++) {
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 500));
         try {
           const wmResult = await this.runner.exec('wmctrl -l');
           const lines = wmResult.stdout.trim().split('\n').filter(Boolean);
@@ -134,8 +142,13 @@ export class LocalLinuxProvider implements ComputerUseProvider {
       createdAt: new Date().toISOString(),
       status: 'active',
       allowedActions: [
-        'click_element', 'double_click', 'type_text', 'press_key', 'scroll',
-        'click_point', 'stop',
+        'click_element',
+        'double_click',
+        'type_text',
+        'press_key',
+        'scroll',
+        'click_point',
+        'stop',
       ],
       providerState: {
         pid,
@@ -154,9 +167,7 @@ export class LocalLinuxProvider implements ComputerUseProvider {
   }
 
   async getAppState(_ctx: Ctx, lease: Lease): Promise<AppState> {
-    const providerState = lease.providerState as
-      | { pid?: number; windowId?: string }
-      | undefined;
+    const providerState = lease.providerState as { pid?: number; windowId?: string } | undefined;
     const st = await readLinuxWindowState(this.runner, lease.leaseId, providerState?.windowId);
     if (st.elements.length === 0) {
       this.logger?.warn(

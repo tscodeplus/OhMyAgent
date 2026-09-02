@@ -40,15 +40,30 @@ function makeDeps(overrides?: Partial<CommandDeps>): CommandDeps {
     },
     agentManager: {
       list: vi.fn(() => [
-        { id: 'default', name: 'Default', description: 'Default agent', model: { primary: 'gpt-4' } },
+        {
+          id: 'default',
+          name: 'Default',
+          description: 'Default agent',
+          model: { primary: 'gpt-4' },
+        },
       ]),
-      get: vi.fn((id: string) => (id === 'default'
-        ? { id: 'default', name: 'Default', description: 'Default agent', model: { primary: 'gpt-4' } }
-        : undefined)),
+      get: vi.fn((id: string) =>
+        id === 'default'
+          ? {
+              id: 'default',
+              name: 'Default',
+              description: 'Default agent',
+              model: { primary: 'gpt-4' },
+            }
+          : undefined,
+      ),
     },
     extensionManager: {
       list: vi.fn(() => [
-        { manifest: { id: 'feishu', name: 'Feishu', version: '1.0.0', kind: 'channel' }, status: 'loaded' },
+        {
+          manifest: { id: 'feishu', name: 'Feishu', version: '1.0.0', kind: 'channel' },
+          status: 'loaded',
+        },
       ]),
     },
     configPath: './config.yaml',
@@ -91,21 +106,27 @@ describe('slash command audit (untested commands)', () => {
   });
 
   it('/approve with no pending returns noPending', async () => {
-    const deps = makeDeps({ agentService: { ...makeDeps().agentService, resolveFirstPendingApproval: vi.fn(() => false) } });
+    const deps = makeDeps({
+      agentService: { ...makeDeps().agentService, resolveFirstPendingApproval: vi.fn(() => false) },
+    });
     const result = await handleCommand('/approve', 's1', deps);
     expect(result!.reply).toBeDefined();
     expect(result!.reply).toMatch(/no pending/i);
   });
 
   it('/deny with no pending returns noPending', async () => {
-    const deps = makeDeps({ agentService: { ...makeDeps().agentService, resolveFirstPendingApproval: vi.fn(() => false) } });
+    const deps = makeDeps({
+      agentService: { ...makeDeps().agentService, resolveFirstPendingApproval: vi.fn(() => false) },
+    });
     const result = await handleCommand('/deny', 's1', deps);
     expect(result!.reply).toBeDefined();
     expect(result!.reply).toMatch(/no pending/i);
   });
 
   it('/answer with no pending returns noPending', async () => {
-    const deps = makeDeps({ agentService: { ...makeDeps().agentService, resolveFirstPendingQuestion: vi.fn(() => false) } });
+    const deps = makeDeps({
+      agentService: { ...makeDeps().agentService, resolveFirstPendingQuestion: vi.fn(() => false) },
+    });
     const result = await handleCommand('/answer yes', 's1', deps);
     expect(result!.reply).toBeDefined();
     // Must NOT be a raw i18n key
@@ -114,7 +135,9 @@ describe('slash command audit (untested commands)', () => {
   });
 
   it('/answer with pending echoes the answer', async () => {
-    const deps = makeDeps({ agentService: { ...makeDeps().agentService, resolveFirstPendingQuestion: vi.fn(() => true) } });
+    const deps = makeDeps({
+      agentService: { ...makeDeps().agentService, resolveFirstPendingQuestion: vi.fn(() => true) },
+    });
     const result = await handleCommand('/answer yes', 's1', deps);
     expect(result!.reply).toBeDefined();
     expect(result!.reply).not.toMatch(/\{\{answer\}\}/);
@@ -122,7 +145,9 @@ describe('slash command audit (untested commands)', () => {
   });
 
   it('/approve resolves pending approval', async () => {
-    const deps = makeDeps({ agentService: { ...makeDeps().agentService, resolveFirstPendingApproval: vi.fn(() => true) } });
+    const deps = makeDeps({
+      agentService: { ...makeDeps().agentService, resolveFirstPendingApproval: vi.fn(() => true) },
+    });
     const result = await handleCommand('/approve', 's1', deps);
     expect(result!.reply).toBeDefined();
     expect(result!.reply).not.toMatch(/no pending/i);

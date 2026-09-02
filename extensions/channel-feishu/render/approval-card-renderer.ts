@@ -4,9 +4,7 @@
  * Produces a standard Feishu interactive card (not CardKit 2.0).
  */
 
-import {
-  assessCommandRisk,
-} from '../../../src/tools/shell-command-policy.js';
+import { assessCommandRisk } from '../../../src/tools/shell-command-policy.js';
 import type { ApprovalDecisionType } from '../../../src/app/types.js';
 import type { ReplyApprovalRecord } from './approval-tracker.js';
 import { truncateCommand } from './cardkit-builder.js';
@@ -175,10 +173,9 @@ export function renderApprovalQueueCard(
     initialVisibleCount?: number;
   } = {},
 ): Record<string, unknown> {
-  const pending = records.filter(record => record.status === 'pending');
+  const pending = records.filter((record) => record.status === 'pending');
   const current = pending[0];
-  const sortedHistory = [...records]
-    .sort((a, b) => b.updatedAt - a.updatedAt);
+  const sortedHistory = [...records].sort((a, b) => b.updatedAt - a.updatedAt);
   const initialVisibleCount = options.initialVisibleCount ?? 3;
   const expanded = options.expanded ?? false;
   const showFullHistory = expanded || !current;
@@ -190,7 +187,10 @@ export function renderApprovalQueueCard(
       tag: 'div',
       text: {
         tag: 'lark_md',
-        content: i18n.t('feishu-cards:overview.summary', { total: records.length, pending: pending.length }),
+        content: i18n.t('feishu-cards:overview.summary', {
+          total: records.length,
+          pending: pending.length,
+        }),
       },
     },
   ];
@@ -202,7 +202,10 @@ export function renderApprovalQueueCard(
       tag: 'div',
       text: {
         tag: 'lark_md',
-        content: i18n.t('feishu-cards:overview.currentPending', { command: current.command, risk: riskLabel }),
+        content: i18n.t('feishu-cards:overview.currentPending', {
+          command: current.command,
+          risk: riskLabel,
+        }),
       },
     });
 
@@ -339,16 +342,20 @@ export function renderApprovalResultCard(
 
   const statusLabel =
     rejectReason && !isApproved
-      ? (rejectReason === 'timeout'
-          ? i18n.t('feishu-cards:status.rejectedTimeout')
-          : rejectReason === 'steered'
+      ? rejectReason === 'timeout'
+        ? i18n.t('feishu-cards:status.rejectedTimeout')
+        : rejectReason === 'steered'
           ? i18n.t('feishu-cards:status.rejectedSteered')
-          : i18n.t('feishu-cards:status.rejectedRestart'))
-      : decision === 'approve_once' ? i18n.t('feishu-cards:status.approvedOnce') :
-        decision === 'approve_session' ? i18n.t('feishu-cards:status.approvedSession') :
-        decision === 'approve_always' ? i18n.t('feishu-cards:status.alwaysAllow') :
-        decision === 'reject_once' ? i18n.t('feishu-cards:status.rejectedOnce') :
-        i18n.t('feishu-cards:status.rejectedAlways');
+          : i18n.t('feishu-cards:status.rejectedRestart')
+      : decision === 'approve_once'
+        ? i18n.t('feishu-cards:status.approvedOnce')
+        : decision === 'approve_session'
+          ? i18n.t('feishu-cards:status.approvedSession')
+          : decision === 'approve_always'
+            ? i18n.t('feishu-cards:status.alwaysAllow')
+            : decision === 'reject_once'
+              ? i18n.t('feishu-cards:status.rejectedOnce')
+              : i18n.t('feishu-cards:status.rejectedAlways');
 
   const truncated = truncateCommand(request.command, 100);
 

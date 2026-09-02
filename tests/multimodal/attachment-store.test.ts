@@ -113,9 +113,21 @@ describe('AttachmentStore', () => {
   describe('listBySession', () => {
     it('should list all records for a session', async () => {
       const buffer = Buffer.from('data');
-      await store.ingest({ sessionId: 'session-a', messageId: 'm1', source: { kind: 'buffer', buffer, fileName: 'a1.txt' } });
-      await store.ingest({ sessionId: 'session-a', messageId: 'm2', source: { kind: 'buffer', buffer, fileName: 'a2.txt' } });
-      await store.ingest({ sessionId: 'session-b', messageId: 'm3', source: { kind: 'buffer', buffer, fileName: 'b1.txt' } });
+      await store.ingest({
+        sessionId: 'session-a',
+        messageId: 'm1',
+        source: { kind: 'buffer', buffer, fileName: 'a1.txt' },
+      });
+      await store.ingest({
+        sessionId: 'session-a',
+        messageId: 'm2',
+        source: { kind: 'buffer', buffer, fileName: 'a2.txt' },
+      });
+      await store.ingest({
+        sessionId: 'session-b',
+        messageId: 'm3',
+        source: { kind: 'buffer', buffer, fileName: 'b1.txt' },
+      });
 
       const sessionARecords = store.listBySession('session-a');
       expect(sessionARecords).toHaveLength(2);
@@ -131,8 +143,16 @@ describe('AttachmentStore', () => {
   describe('purge', () => {
     it('should remove all records for a session and return count', async () => {
       const buffer = Buffer.from('data');
-      await store.ingest({ sessionId: 'session-purge', messageId: 'm1', source: { kind: 'buffer', buffer, fileName: 'p1.txt' } });
-      await store.ingest({ sessionId: 'session-purge', messageId: 'm2', source: { kind: 'buffer', buffer, fileName: 'p2.txt' } });
+      await store.ingest({
+        sessionId: 'session-purge',
+        messageId: 'm1',
+        source: { kind: 'buffer', buffer, fileName: 'p1.txt' },
+      });
+      await store.ingest({
+        sessionId: 'session-purge',
+        messageId: 'm2',
+        source: { kind: 'buffer', buffer, fileName: 'p2.txt' },
+      });
 
       const count = store.purge('session-purge');
       expect(count).toBe(2);

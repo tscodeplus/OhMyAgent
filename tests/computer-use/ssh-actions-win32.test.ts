@@ -38,9 +38,9 @@ function createMockSSHPool(responses: Record<string, Response>) {
 
 /** Decode the base64 chunks written by buildWinUiaOnceWriteCommands. */
 function decodeWrittenScripts(calls: ReadonlyArray<readonly unknown[]>): string {
-  const all = calls.map(call => call[0] as string).join('\n');
-  const b64s = [...all.matchAll(/FromBase64String\('([A-Za-z0-9+/=]+)'\)/g)].map(m => m[1]);
-  return b64s.map(b => Buffer.from(b, 'base64').toString('utf8')).join('');
+  const all = calls.map((call) => call[0] as string).join('\n');
+  const b64s = [...all.matchAll(/FromBase64String\('([A-Za-z0-9+/=]+)'\)/g)].map((m) => m[1]);
+  return b64s.map((b) => Buffer.from(b, 'base64').toString('utf8')).join('');
 }
 
 function snapshotElement(overrides: Partial<UIElement> = {}): UIElement {
@@ -106,7 +106,9 @@ describe('buildWinUiaOnceScript (stateless UIA)', () => {
   it('emits a single JSON line protocol (OK / OE with error code+message)', () => {
     const script = buildWinUiaOnceScript('click-element', { elementId: 'win-12345:1:5' });
     expect(script).toContain('function OK($r) { OJ @{ok=$true;result=$r} }');
-    expect(script).toContain('function OE($code,$msg) { OJ @{ok=$false;error=@{code=$code;message=$msg}} }');
+    expect(script).toContain(
+      'function OE($code,$msg) { OJ @{ok=$false;error=@{code=$code;message=$msg}} }',
+    );
   });
 
   it('loads UIA patterns and locates elements by DFS index (ElByIdx)', () => {
@@ -123,7 +125,11 @@ describe('buildWinUiaOnceScript (stateless UIA)', () => {
     // press-key is excluded: its SendKeys fallback (for apps whose UIA
     // elements have no native hwnd, e.g. Chrome/Edge) is asserted separately.
     for (const cmd of ['get-app-state', 'click-element', 'type-text', 'scroll']) {
-      const script = buildWinUiaOnceScript(cmd as never, { elementId: 'win-1:1:0', key: 'Return', text: 'x' });
+      const script = buildWinUiaOnceScript(cmd as never, {
+        elementId: 'win-1:1:0',
+        key: 'Return',
+        text: 'x',
+      });
       expect(script, cmd).not.toContain('SetCursorPos');
       expect(script, cmd).not.toContain('mouse_event');
       expect(script, cmd).not.toContain('SendKeys');
@@ -160,7 +166,7 @@ describe('buildWinUiaOnceScript (stateless UIA)', () => {
   it('type-text embeds the text as base64 and sets ValuePattern', () => {
     const script = buildWinUiaOnceScript('type-text', { elementId: 'win-12345:1:1', text: 'hi' });
     expect(script).toContain('[Convert]::FromBase64String');
-    expect(script).toContain("GetCurrentPattern($pv).SetValue($text)");
+    expect(script).toContain('GetCurrentPattern($pv).SetValue($text)');
     expect(script).toContain(`textB64='${Buffer.from('hi', 'utf8').toString('base64')}'`);
   });
 
@@ -187,7 +193,7 @@ describe('one-shot script execution (two-stage write + run)', () => {
     expect(run).toContain('-ExecutionPolicy Bypass');
     expect(run).toContain('win-uia-once.ps1');
     // round-trip: the written bytes decode back to the exact script
-    const decoded = decodeWrittenScripts(writes.map(w => [w] as unknown[]));
+    const decoded = decodeWrittenScripts(writes.map((w) => [w] as unknown[]));
     expect(decoded).toBe(script);
   });
 });
@@ -199,8 +205,8 @@ describe('one-shot script execution (two-stage write + run)', () => {
 describe('readWin32WindowState', () => {
   it('parses the UIA tree JSON, window info and screenshot', async () => {
     const { pool, execMock } = createMockSSHPool({
-      'AppendAllText': { stdout: '', stderr: '', exitCode: 0 },
-      'WriteAllText': { stdout: '', stderr: '', exitCode: 0 },
+      AppendAllText: { stdout: '', stderr: '', exitCode: 0 },
+      WriteAllText: { stdout: '', stderr: '', exitCode: 0 },
       'win-uia-once.ps1': { stdout: STATE_JSON, stderr: '', exitCode: 0 },
     });
 
@@ -233,8 +239,8 @@ describe('readWin32WindowState', () => {
 
   it('falls back to the foreground window when no windowId is given', async () => {
     const { pool, execMock } = createMockSSHPool({
-      'AppendAllText': { stdout: '', stderr: '', exitCode: 0 },
-      'WriteAllText': { stdout: '', stderr: '', exitCode: 0 },
+      AppendAllText: { stdout: '', stderr: '', exitCode: 0 },
+      WriteAllText: { stdout: '', stderr: '', exitCode: 0 },
       'win-uia-once.ps1': { stdout: STATE_JSON, stderr: '', exitCode: 0 },
     });
 
@@ -245,8 +251,8 @@ describe('readWin32WindowState', () => {
 
   it('degrades to defaults when the UIA script fails', async () => {
     const { pool } = createMockSSHPool({
-      'AppendAllText': { stdout: '', stderr: '', exitCode: 0 },
-      'WriteAllText': { stdout: '', stderr: '', exitCode: 0 },
+      AppendAllText: { stdout: '', stderr: '', exitCode: 0 },
+      WriteAllText: { stdout: '', stderr: '', exitCode: 0 },
       'win-uia-once.ps1': {
         stdout: '{"ok":false,"error":{"code":"SERVER_ERROR","message":"boom"}}',
         stderr: '',
@@ -269,8 +275,8 @@ describe('performWin32Action (UIA stateless)', () => {
 
   it('click_element with a UIA element id runs the click-element branch (no coordinates)', async () => {
     const { pool, execMock } = createMockSSHPool({
-      'AppendAllText': { stdout: '', stderr: '', exitCode: 0 },
-      'WriteAllText': { stdout: '', stderr: '', exitCode: 0 },
+      AppendAllText: { stdout: '', stderr: '', exitCode: 0 },
+      WriteAllText: { stdout: '', stderr: '', exitCode: 0 },
       'win-uia-once.ps1': okRun,
     });
 
@@ -294,8 +300,8 @@ describe('performWin32Action (UIA stateless)', () => {
 
   it('click_element maps ELEMENT_STALE_TREE to a readable error', async () => {
     const { pool } = createMockSSHPool({
-      'AppendAllText': { stdout: '', stderr: '', exitCode: 0 },
-      'WriteAllText': { stdout: '', stderr: '', exitCode: 0 },
+      AppendAllText: { stdout: '', stderr: '', exitCode: 0 },
+      WriteAllText: { stdout: '', stderr: '', exitCode: 0 },
       'win-uia-once.ps1': {
         stdout: '{"ok":false,"error":{"code":"ELEMENT_STALE_TREE","message":"Stale element"}}',
         stderr: '',
@@ -314,8 +320,8 @@ describe('performWin32Action (UIA stateless)', () => {
 
   it('click_element with a non-UIA element id falls back to coordinate click', async () => {
     const { pool, execMock } = createMockSSHPool({
-      'AppendAllText': { stdout: '', stderr: '', exitCode: 0 },
-      'WriteAllText': { stdout: '', stderr: '', exitCode: 0 },
+      AppendAllText: { stdout: '', stderr: '', exitCode: 0 },
+      WriteAllText: { stdout: '', stderr: '', exitCode: 0 },
       'win-uia-once.ps1': okRun,
     });
 
@@ -333,8 +339,8 @@ describe('performWin32Action (UIA stateless)', () => {
 
   it('type_text targets the snapshot element via ValuePattern (no clipboard)', async () => {
     const { pool, execMock } = createMockSSHPool({
-      'AppendAllText': { stdout: '', stderr: '', exitCode: 0 },
-      'WriteAllText': { stdout: '', stderr: '', exitCode: 0 },
+      AppendAllText: { stdout: '', stderr: '', exitCode: 0 },
+      WriteAllText: { stdout: '', stderr: '', exitCode: 0 },
       'win-uia-once.ps1': okRun,
     });
 
@@ -352,10 +358,10 @@ describe('performWin32Action (UIA stateless)', () => {
     expect(written).not.toContain('SendKeys');
   });
 
-  it('type_text without an element targets the window\'s focused element (no top-level WM_SETTEXT)', async () => {
+  it("type_text without an element targets the window's focused element (no top-level WM_SETTEXT)", async () => {
     const { pool, execMock } = createMockSSHPool({
-      'AppendAllText': { stdout: '', stderr: '', exitCode: 0 },
-      'WriteAllText': { stdout: '', stderr: '', exitCode: 0 },
+      AppendAllText: { stdout: '', stderr: '', exitCode: 0 },
+      WriteAllText: { stdout: '', stderr: '', exitCode: 0 },
       'win-uia-once.ps1': okRun,
     });
 
@@ -375,8 +381,8 @@ describe('performWin32Action (UIA stateless)', () => {
 
   it('press_key posts to the focused element, with a foreground-guarded SendKeys fallback', async () => {
     const { pool, execMock } = createMockSSHPool({
-      'AppendAllText': { stdout: '', stderr: '', exitCode: 0 },
-      'WriteAllText': { stdout: '', stderr: '', exitCode: 0 },
+      AppendAllText: { stdout: '', stderr: '', exitCode: 0 },
+      WriteAllText: { stdout: '', stderr: '', exitCode: 0 },
       'win-uia-once.ps1': okRun,
     });
 
@@ -411,8 +417,8 @@ describe('performWin32Action (UIA stateless)', () => {
 
   it('scroll uses ScrollPattern with element + direction/amount payload', async () => {
     const { pool, execMock } = createMockSSHPool({
-      'AppendAllText': { stdout: '', stderr: '', exitCode: 0 },
-      'WriteAllText': { stdout: '', stderr: '', exitCode: 0 },
+      AppendAllText: { stdout: '', stderr: '', exitCode: 0 },
+      WriteAllText: { stdout: '', stderr: '', exitCode: 0 },
       'win-uia-once.ps1': okRun,
     });
 
@@ -434,8 +440,8 @@ describe('performWin32Action (UIA stateless)', () => {
 
   it('double_click maps to the UIA element click when an element is present', async () => {
     const { pool, execMock } = createMockSSHPool({
-      'AppendAllText': { stdout: '', stderr: '', exitCode: 0 },
-      'WriteAllText': { stdout: '', stderr: '', exitCode: 0 },
+      AppendAllText: { stdout: '', stderr: '', exitCode: 0 },
+      WriteAllText: { stdout: '', stderr: '', exitCode: 0 },
       'win-uia-once.ps1': okRun,
     });
 
@@ -451,8 +457,8 @@ describe('performWin32Action (UIA stateless)', () => {
 
   it('double_click without an element posts a single double-click chain command', async () => {
     const { pool, execMock } = createMockSSHPool({
-      'AppendAllText': { stdout: '', stderr: '', exitCode: 0 },
-      'WriteAllText': { stdout: '', stderr: '', exitCode: 0 },
+      AppendAllText: { stdout: '', stderr: '', exitCode: 0 },
+      WriteAllText: { stdout: '', stderr: '', exitCode: 0 },
       'win-uia-once.ps1': okRun,
     });
 

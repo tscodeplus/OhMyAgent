@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PersonaDistiller } from '../../src/memory/persona-distiller';
-import type { DistillerLLM, PersonaStore, PreferenceQuery } from '../../src/memory/persona-distiller';
+import type {
+  DistillerLLM,
+  PersonaStore,
+  PreferenceQuery,
+} from '../../src/memory/persona-distiller';
 import type { Memory } from '../../src/memory/repositories/memory-repository';
 import type { UserPersona, PartialPersona } from '../../src/memory/persona-model';
 import { createEmptyPersona } from '../../src/memory/persona-model';
@@ -176,9 +180,7 @@ describe('PersonaDistiller', () => {
 
     it('handles JSON inside markdown code fences', async () => {
       vi.mocked(mockMemoryRepo.findByScopeKind).mockReturnValue(samplePreferences.slice(0, 3));
-      vi.mocked(mockLLM.call).mockResolvedValue(
-        '```json\n' + validFullPersonaJson + '\n```',
-      );
+      vi.mocked(mockLLM.call).mockResolvedValue('```json\n' + validFullPersonaJson + '\n```');
 
       const result = await distiller.distillFull();
 
@@ -313,10 +315,12 @@ describe('PersonaDistiller', () => {
         makePref('用户希望被称呼为"老大"', '2026-05-19 11:38:22'),
       ]);
       vi.mocked(mockPersonaStore.get).mockReturnValue(existingPersona);
-      vi.mocked(mockLLM.call).mockResolvedValue(JSON.stringify({
-        summary: '用户希望被称呼为老大',
-        preferences: { communication: '称呼用户为老大' },
-      }));
+      vi.mocked(mockLLM.call).mockResolvedValue(
+        JSON.stringify({
+          summary: '用户希望被称呼为老大',
+          preferences: { communication: '称呼用户为老大' },
+        }),
+      );
 
       const result = await distiller.distillIncremental();
 
@@ -334,9 +338,11 @@ describe('PersonaDistiller', () => {
         makePref('用户希望被称呼为Boss', '2026-05-18 09:00:00', '2026-05-19 11:00:00'),
       ]);
       vi.mocked(mockPersonaStore.get).mockReturnValue(existingPersona);
-      vi.mocked(mockLLM.call).mockResolvedValue(JSON.stringify({
-        preferences: { communication: '称呼用户为Boss' },
-      }));
+      vi.mocked(mockLLM.call).mockResolvedValue(
+        JSON.stringify({
+          preferences: { communication: '称呼用户为Boss' },
+        }),
+      );
 
       const result = await distiller.distillIncremental();
 

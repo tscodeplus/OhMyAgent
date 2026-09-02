@@ -47,12 +47,12 @@ function createOlderMemory(hoursAgo: number, overrides: Partial<Memory> = {}): M
 }
 
 function createMockMemoryRepository(memories: Memory[] = []) {
-  const byId = new Map(memories.map(m => [m.id, m]));
+  const byId = new Map(memories.map((m) => [m.id, m]));
   return {
     findById: vi.fn((id: string) => byId.get(id) ?? undefined),
-    findByIds: vi.fn((ids: string[]) => ids
-      .map(id => byId.get(id))
-      .filter((m): m is Memory => m !== undefined)),
+    findByIds: vi.fn((ids: string[]) =>
+      ids.map((id) => byId.get(id)).filter((m): m is Memory => m !== undefined),
+    ),
     searchByContent: vi.fn((_query: string, _scope?: string, _scopeKey?: string) => {
       return memories;
     }),
@@ -103,7 +103,13 @@ describe('MemoryRetriever', () => {
       const mockDb = createMockDb();
 
       const mockCacheRepo = createMockEmbeddingCacheRepo();
-      const retriever = new MemoryRetriever({ memoryRepository: memoryRepo as any, embeddingRepository: embeddingRepo as any, embeddingClient: embeddingClient as any, embeddingCacheRepo: mockCacheRepo, db: mockDb });
+      const retriever = new MemoryRetriever({
+        memoryRepository: memoryRepo as any,
+        embeddingRepository: embeddingRepo as any,
+        embeddingClient: embeddingClient as any,
+        embeddingCacheRepo: mockCacheRepo,
+        db: mockDb,
+      });
 
       const results = await retriever.retrieve({ query: 'test query' });
       expect(results).toHaveLength(1);
@@ -121,7 +127,13 @@ describe('MemoryRetriever', () => {
       const mockDb = createMockDb();
 
       const mockCacheRepo = createMockEmbeddingCacheRepo();
-      const retriever = new MemoryRetriever({ memoryRepository: memoryRepo as any, embeddingRepository: embeddingRepo as any, embeddingClient: embeddingClient as any, embeddingCacheRepo: mockCacheRepo, db: mockDb });
+      const retriever = new MemoryRetriever({
+        memoryRepository: memoryRepo as any,
+        embeddingRepository: embeddingRepo as any,
+        embeddingClient: embeddingClient as any,
+        embeddingCacheRepo: mockCacheRepo,
+        db: mockDb,
+      });
 
       const results = await retriever.retrieve({ query: 'test' });
       expect(results).toHaveLength(1);
@@ -136,7 +148,13 @@ describe('MemoryRetriever', () => {
       const mockDb = createMockDb();
 
       const mockCacheRepo = createMockEmbeddingCacheRepo();
-      const retriever = new MemoryRetriever({ memoryRepository: memoryRepo as any, embeddingRepository: embeddingRepo as any, embeddingClient: embeddingClient as any, embeddingCacheRepo: mockCacheRepo, db: mockDb });
+      const retriever = new MemoryRetriever({
+        memoryRepository: memoryRepo as any,
+        embeddingRepository: embeddingRepo as any,
+        embeddingClient: embeddingClient as any,
+        embeddingCacheRepo: mockCacheRepo,
+        db: mockDb,
+      });
 
       const results = await retriever.retrieve({ query: 'test' });
       expect(results).toHaveLength(1);
@@ -151,7 +169,13 @@ describe('MemoryRetriever', () => {
       const mockDb = createMockDb();
 
       const mockCacheRepo = createMockEmbeddingCacheRepo();
-      const retriever = new MemoryRetriever({ memoryRepository: memoryRepo as any, embeddingRepository: embeddingRepo as any, embeddingClient: embeddingClient as any, embeddingCacheRepo: mockCacheRepo, db: mockDb });
+      const retriever = new MemoryRetriever({
+        memoryRepository: memoryRepo as any,
+        embeddingRepository: embeddingRepo as any,
+        embeddingClient: embeddingClient as any,
+        embeddingCacheRepo: mockCacheRepo,
+        db: mockDb,
+      });
 
       const results = await retriever.retrieve({ query: 'nonexistent' });
       expect(results).toHaveLength(0);
@@ -159,7 +183,7 @@ describe('MemoryRetriever', () => {
 
     it('resolves hits with batch lookups instead of one findById per hit', async () => {
       const memories = Array.from({ length: 3 }, (_, i) =>
-        createMockMemory({ id: `mem-batch-${i}`, content: `Batched ${i}` })
+        createMockMemory({ id: `mem-batch-${i}`, content: `Batched ${i}` }),
       );
       const memoryRepo = createMockMemoryRepository(memories);
       const embeddingRepo = createMockEmbeddingRepository(
@@ -186,13 +210,18 @@ describe('MemoryRetriever', () => {
         findEntitiesByMemoryIds: vi.fn(() => [
           { target_entity: 'Alice', source_memory_id: sourceId, confidence: 0.9 },
         ]),
-        findByEntities: vi.fn(() => new Map([[
-          'Alice',
-          [
-            { source_memory_id: sourceId, confidence: 1.0 },
-            { source_memory_id: neighbourId, confidence },
-          ],
-        ]])),
+        findByEntities: vi.fn(
+          () =>
+            new Map([
+              [
+                'Alice',
+                [
+                  { source_memory_id: sourceId, confidence: 1.0 },
+                  { source_memory_id: neighbourId, confidence },
+                ],
+              ],
+            ]),
+        ),
       };
     }
 
@@ -217,19 +246,25 @@ describe('MemoryRetriever', () => {
 
     it('ranks derived neighbours inside topK instead of appending past it', async () => {
       const a = createMockMemory({ id: 'mem-a', content: 'Alice orders latte every morning' });
-      const b = createMockMemory({ id: 'mem-b', content: 'Alice prefers espresso in the afternoon' });
+      const b = createMockMemory({
+        id: 'mem-b',
+        content: 'Alice prefers espresso in the afternoon',
+      });
       const neighbour = createMockMemory({ id: 'mem-n', content: 'Alice lives in Rotterdam' });
       const retriever = createExpandingRetriever(
         [a, b, neighbour],
-        [{ memory_id: 'mem-a', score: 0.9 }, { memory_id: 'mem-b', score: 0.8 }],
+        [
+          { memory_id: 'mem-a', score: 0.9 },
+          { memory_id: 'mem-b', score: 0.8 },
+        ],
         createLinkRepo('mem-a', 'mem-n'),
       );
 
       const page = await retriever.retrieve({ query: 'beverage', topK: 2 });
-      expect(page.map(r => r.id)).toEqual(['mem-a', 'mem-b']);
+      expect(page.map((r) => r.id)).toEqual(['mem-a', 'mem-b']);
 
       const wider = await retriever.retrieve({ query: 'beverage', topK: 3 });
-      expect(wider.map(r => r.id)).toEqual(['mem-a', 'mem-b', 'mem-n']);
+      expect(wider.map((r) => r.id)).toEqual(['mem-a', 'mem-b', 'mem-n']);
     });
 
     it('never lets a derived neighbour outrank the only real hit', async () => {
@@ -242,7 +277,7 @@ describe('MemoryRetriever', () => {
       );
 
       const page = await retriever.retrieve({ query: 'beverage', topK: 1 });
-      expect(page.map(r => r.id)).toEqual(['mem-solo']);
+      expect(page.map((r) => r.id)).toEqual(['mem-solo']);
     });
   });
 
@@ -258,17 +293,19 @@ describe('MemoryRetriever', () => {
       memoryRepo.searchByContent.mockReturnValue([]);
       const retriever = new MemoryRetriever({
         memoryRepository: memoryRepo as any,
-        embeddingRepository: createMockEmbeddingRepository([{ memory_id: 'mem-parent', score: 0.9 }]) as any,
+        embeddingRepository: createMockEmbeddingRepository([
+          { memory_id: 'mem-parent', score: 0.9 },
+        ]) as any,
         embeddingClient: createMockEmbeddingClient() as any,
         embeddingCacheRepo: createMockEmbeddingCacheRepo(),
         db: createMockDb(),
       });
 
       const top = await retriever.retrieve({ query: 'beverage', topK: 1 });
-      expect(top.map(r => r.id)).toEqual(['mem-parent']);
+      expect(top.map((r) => r.id)).toEqual(['mem-parent']);
 
       const both = await retriever.retrieve({ query: 'beverage', topK: 2 });
-      expect(both.map(r => r.id)).toEqual(['mem-parent', 'mem-child']);
+      expect(both.map((r) => r.id)).toEqual(['mem-parent', 'mem-child']);
       expect(both[1].score).toBeLessThan(both[0].score);
     });
   });
@@ -276,17 +313,23 @@ describe('MemoryRetriever', () => {
   describe('topK limits results', () => {
     it('limits results to topK', async () => {
       const memories = Array.from({ length: 5 }, (_, i) =>
-        createMockMemory({ id: `mem-${i}`, content: `Content ${i}` })
+        createMockMemory({ id: `mem-${i}`, content: `Content ${i}` }),
       );
       const memoryRepo = createMockMemoryRepository(memories);
       const embeddingRepo = createMockEmbeddingRepository(
-        memories.map(m => ({ memory_id: m.id, score: 0.9 - memories.indexOf(m) * 0.1 }))
+        memories.map((m) => ({ memory_id: m.id, score: 0.9 - memories.indexOf(m) * 0.1 })),
       );
       const embeddingClient = createMockEmbeddingClient();
       const mockDb = createMockDb();
 
       const mockCacheRepo = createMockEmbeddingCacheRepo();
-      const retriever = new MemoryRetriever({ memoryRepository: memoryRepo as any, embeddingRepository: embeddingRepo as any, embeddingClient: embeddingClient as any, embeddingCacheRepo: mockCacheRepo, db: mockDb });
+      const retriever = new MemoryRetriever({
+        memoryRepository: memoryRepo as any,
+        embeddingRepository: embeddingRepo as any,
+        embeddingClient: embeddingClient as any,
+        embeddingCacheRepo: mockCacheRepo,
+        db: mockDb,
+      });
 
       const results = await retriever.retrieve({ query: 'test', topK: 2 });
       expect(results).toHaveLength(2);
@@ -299,14 +342,18 @@ describe('MemoryRetriever', () => {
       // With minScore 0.6, both cosine and text fallback should be filtered
       const memory = createMockMemory();
       const memoryRepo = createMockMemoryRepository([memory]);
-      const embeddingRepo = createMockEmbeddingRepository([
-        { memory_id: 'mem-1', score: 0.2 },
-      ]);
+      const embeddingRepo = createMockEmbeddingRepository([{ memory_id: 'mem-1', score: 0.2 }]);
       const embeddingClient = createMockEmbeddingClient();
       const mockDb = createMockDb();
 
       const mockCacheRepo = createMockEmbeddingCacheRepo();
-      const retriever = new MemoryRetriever({ memoryRepository: memoryRepo as any, embeddingRepository: embeddingRepo as any, embeddingClient: embeddingClient as any, embeddingCacheRepo: mockCacheRepo, db: mockDb });
+      const retriever = new MemoryRetriever({
+        memoryRepository: memoryRepo as any,
+        embeddingRepository: embeddingRepo as any,
+        embeddingClient: embeddingClient as any,
+        embeddingCacheRepo: mockCacheRepo,
+        db: mockDb,
+      });
 
       const results = await retriever.retrieve({ query: 'test', minScore: 0.6 });
       expect(results).toHaveLength(0);
@@ -315,14 +362,18 @@ describe('MemoryRetriever', () => {
     it('keeps results above minScore', async () => {
       const memory = createMockMemory();
       const memoryRepo = createMockMemoryRepository([memory]);
-      const embeddingRepo = createMockEmbeddingRepository([
-        { memory_id: 'mem-1', score: 0.7 },
-      ]);
+      const embeddingRepo = createMockEmbeddingRepository([{ memory_id: 'mem-1', score: 0.7 }]);
       const embeddingClient = createMockEmbeddingClient();
       const mockDb = createMockDb();
 
       const mockCacheRepo = createMockEmbeddingCacheRepo();
-      const retriever = new MemoryRetriever({ memoryRepository: memoryRepo as any, embeddingRepository: embeddingRepo as any, embeddingClient: embeddingClient as any, embeddingCacheRepo: mockCacheRepo, db: mockDb });
+      const retriever = new MemoryRetriever({
+        memoryRepository: memoryRepo as any,
+        embeddingRepository: embeddingRepo as any,
+        embeddingClient: embeddingClient as any,
+        embeddingCacheRepo: mockCacheRepo,
+        db: mockDb,
+      });
 
       const results = await retriever.retrieve({ query: 'test' });
       expect(results).toHaveLength(1);
@@ -331,14 +382,18 @@ describe('MemoryRetriever', () => {
     it('respects custom minScore', async () => {
       const memory = createMockMemory();
       const memoryRepo = createMockMemoryRepository([memory]);
-      const embeddingRepo = createMockEmbeddingRepository([
-        { memory_id: 'mem-1', score: 0.5 },
-      ]);
+      const embeddingRepo = createMockEmbeddingRepository([{ memory_id: 'mem-1', score: 0.5 }]);
       const embeddingClient = createMockEmbeddingClient();
       const mockDb = createMockDb();
 
       const mockCacheRepo = createMockEmbeddingCacheRepo();
-      const retriever = new MemoryRetriever({ memoryRepository: memoryRepo as any, embeddingRepository: embeddingRepo as any, embeddingClient: embeddingClient as any, embeddingCacheRepo: mockCacheRepo, db: mockDb });
+      const retriever = new MemoryRetriever({
+        memoryRepository: memoryRepo as any,
+        embeddingRepository: embeddingRepo as any,
+        embeddingClient: embeddingClient as any,
+        embeddingCacheRepo: mockCacheRepo,
+        db: mockDb,
+      });
 
       // minScore 0.6: cosine 0.5 < 0.6 filtered, text fallback 0.5 < 0.6 filtered
       const results = await retriever.retrieve({ query: 'test', minScore: 0.6 });
@@ -348,11 +403,13 @@ describe('MemoryRetriever', () => {
 
   describe('temporal decay', () => {
     it('recent memories score higher than older ones', async () => {
-      const recentMemory = createOlderMemory(1, { // 1 hour old
+      const recentMemory = createOlderMemory(1, {
+        // 1 hour old
         id: 'mem-recent',
         content: 'Recent',
       });
-      const olderMemory = createOlderMemory(200, { // ~8 days old
+      const olderMemory = createOlderMemory(200, {
+        // ~8 days old
         id: 'mem-old',
         content: 'Old',
       });
@@ -365,7 +422,13 @@ describe('MemoryRetriever', () => {
       const mockDb = createMockDb();
 
       const mockCacheRepo = createMockEmbeddingCacheRepo();
-      const retriever = new MemoryRetriever({ memoryRepository: memoryRepo as any, embeddingRepository: embeddingRepo as any, embeddingClient: embeddingClient as any, embeddingCacheRepo: mockCacheRepo, db: mockDb });
+      const retriever = new MemoryRetriever({
+        memoryRepository: memoryRepo as any,
+        embeddingRepository: embeddingRepo as any,
+        embeddingClient: embeddingClient as any,
+        embeddingCacheRepo: mockCacheRepo,
+        db: mockDb,
+      });
 
       const results = await retriever.retrieve({ query: 'test', topK: 2 });
       expect(results).toHaveLength(2);
@@ -374,12 +437,14 @@ describe('MemoryRetriever', () => {
     });
 
     it('core kind (preference) memories are exempt from decay', async () => {
-      const factMemory = createOlderMemory(48, { // 2 days old
+      const factMemory = createOlderMemory(48, {
+        // 2 days old
         id: 'mem-fact',
         content: 'A fact',
         kind: 'fact',
       });
-      const prefMemory = createOlderMemory(48, { // 2 days old
+      const prefMemory = createOlderMemory(48, {
+        // 2 days old
         id: 'mem-pref',
         content: 'A preference',
         kind: 'preference',
@@ -393,7 +458,13 @@ describe('MemoryRetriever', () => {
       const mockDb = createMockDb();
 
       const mockCacheRepo = createMockEmbeddingCacheRepo();
-      const retriever = new MemoryRetriever({ memoryRepository: memoryRepo as any, embeddingRepository: embeddingRepo as any, embeddingClient: embeddingClient as any, embeddingCacheRepo: mockCacheRepo, db: mockDb });
+      const retriever = new MemoryRetriever({
+        memoryRepository: memoryRepo as any,
+        embeddingRepository: embeddingRepo as any,
+        embeddingClient: embeddingClient as any,
+        embeddingCacheRepo: mockCacheRepo,
+        db: mockDb,
+      });
 
       const results = await retriever.retrieve({ query: 'test', topK: 2 });
       expect(results).toHaveLength(2);
@@ -405,14 +476,19 @@ describe('MemoryRetriever', () => {
     it('accepts custom decayConfig in constructor', async () => {
       const memory = createMockMemory();
       const memoryRepo = createMockMemoryRepository([memory]);
-      const embeddingRepo = createMockEmbeddingRepository([
-        { memory_id: 'mem-1', score: 0.7 },
-      ]);
+      const embeddingRepo = createMockEmbeddingRepository([{ memory_id: 'mem-1', score: 0.7 }]);
       const embeddingClient = createMockEmbeddingClient();
       const mockDb = createMockDb();
 
       const mockCacheRepo = createMockEmbeddingCacheRepo();
-      const retriever = new MemoryRetriever({ memoryRepository: memoryRepo as any, embeddingRepository: embeddingRepo as any, embeddingClient: embeddingClient as any, embeddingCacheRepo: mockCacheRepo, db: mockDb, embeddingBreaker: { halfLifeDays: 7 } });
+      const retriever = new MemoryRetriever({
+        memoryRepository: memoryRepo as any,
+        embeddingRepository: embeddingRepo as any,
+        embeddingClient: embeddingClient as any,
+        embeddingCacheRepo: mockCacheRepo,
+        db: mockDb,
+        embeddingBreaker: { halfLifeDays: 7 },
+      });
 
       const results = await retriever.retrieve({ query: 'test' });
       expect(results).toHaveLength(1);
@@ -423,9 +499,7 @@ describe('MemoryRetriever', () => {
     it('skips vec and cosine tiers when embedding fails, falls back to text', async () => {
       const memory = createMockMemory();
       const memoryRepo = createMockMemoryRepository([memory]);
-      const embeddingRepo = createMockEmbeddingRepository([
-        { memory_id: 'mem-1', score: 0.8 },
-      ]);
+      const embeddingRepo = createMockEmbeddingRepository([{ memory_id: 'mem-1', score: 0.8 }]);
       const embeddingClient = {
         embedOne: vi.fn(async () => {
           throw new Error('API error');
@@ -434,7 +508,13 @@ describe('MemoryRetriever', () => {
       const mockDb = createMockDb();
 
       const mockCacheRepo = createMockEmbeddingCacheRepo();
-      const retriever = new MemoryRetriever({ memoryRepository: memoryRepo as any, embeddingRepository: embeddingRepo as any, embeddingClient: embeddingClient as any, embeddingCacheRepo: mockCacheRepo, db: mockDb });
+      const retriever = new MemoryRetriever({
+        memoryRepository: memoryRepo as any,
+        embeddingRepository: embeddingRepo as any,
+        embeddingClient: embeddingClient as any,
+        embeddingCacheRepo: mockCacheRepo,
+        db: mockDb,
+      });
 
       const results = await retriever.retrieve({ query: 'test' });
       // Embedding fails, so vec and cosine both skip, text fallback returns
@@ -470,13 +550,23 @@ describe('MemoryRetriever', () => {
         content: 'Other private memory',
       } as any);
       const memoryRepo = createMockMemoryRepository([otherPrivate, otherShared, shared, current]);
-      const retriever = new MemoryRetriever({ memoryRepository: memoryRepo as any, embeddingRepository: createMockEmbeddingRepository([]) as any, embeddingClient: createMockEmbeddingClient() as any, embeddingCacheRepo: createMockEmbeddingCacheRepo(), db: createMockDb() });
+      const retriever = new MemoryRetriever({
+        memoryRepository: memoryRepo as any,
+        embeddingRepository: createMockEmbeddingRepository([]) as any,
+        embeddingClient: createMockEmbeddingClient() as any,
+        embeddingCacheRepo: createMockEmbeddingCacheRepo(),
+        db: createMockDb(),
+      });
 
-      const results = await retriever.retrieveGrouped({ query: 'memory', agentId: 'agent-a', topK: 3 });
+      const results = await retriever.retrieveGrouped({
+        query: 'memory',
+        agentId: 'agent-a',
+        topK: 3,
+      });
 
-      expect(results.map(r => r.id)).toEqual(['mem-current', 'mem-shared', 'mem-other-shared']);
-      expect(results.map(r => r.sourcePool)).toEqual(['current', 'shared', 'other']);
-      expect(results.map(r => r.id)).not.toContain('mem-other-private');
+      expect(results.map((r) => r.id)).toEqual(['mem-current', 'mem-shared', 'mem-other-shared']);
+      expect(results.map((r) => r.sourcePool)).toEqual(['current', 'shared', 'other']);
+      expect(results.map((r) => r.id)).not.toContain('mem-other-private');
     });
   });
 
@@ -488,24 +578,44 @@ describe('MemoryRetriever', () => {
       const mockDb = createMockDb();
 
       const mockCacheRepo = createMockEmbeddingCacheRepo();
-      const retriever = new MemoryRetriever({ memoryRepository: memoryRepo as any, embeddingRepository: embeddingRepo as any, embeddingClient: embeddingClient as any, embeddingCacheRepo: mockCacheRepo, db: mockDb });
+      const retriever = new MemoryRetriever({
+        memoryRepository: memoryRepo as any,
+        embeddingRepository: embeddingRepo as any,
+        embeddingClient: embeddingClient as any,
+        embeddingCacheRepo: mockCacheRepo,
+        db: mockDb,
+      });
 
       await retriever.retrieve({ query: 'test', scope: 'user', scopeKey: 'u1' });
       expect(memoryRepo.searchByContent).toHaveBeenCalledWith('test', 'user', 'u1');
     });
 
     it('filters vector results by requested scope', async () => {
-      const userMemory = createMockMemory({ id: 'mem-user', scope: 'user', content: 'User memory' });
-      const sessionMemory = createMockMemory({ id: 'mem-session', scope: 'session', content: 'Session memory' });
+      const userMemory = createMockMemory({
+        id: 'mem-user',
+        scope: 'user',
+        content: 'User memory',
+      });
+      const sessionMemory = createMockMemory({
+        id: 'mem-session',
+        scope: 'session',
+        content: 'Session memory',
+      });
       const memoryRepo = createMockMemoryRepository([userMemory, sessionMemory]);
       const embeddingRepo = createMockEmbeddingRepository([
         { memory_id: 'mem-session', score: 0.95 },
         { memory_id: 'mem-user', score: 0.9 },
       ]);
-      const retriever = new MemoryRetriever({ memoryRepository: memoryRepo as any, embeddingRepository: embeddingRepo as any, embeddingClient: createMockEmbeddingClient() as any, embeddingCacheRepo: createMockEmbeddingCacheRepo(), db: createMockDb() });
+      const retriever = new MemoryRetriever({
+        memoryRepository: memoryRepo as any,
+        embeddingRepository: embeddingRepo as any,
+        embeddingClient: createMockEmbeddingClient() as any,
+        embeddingCacheRepo: createMockEmbeddingCacheRepo(),
+        db: createMockDb(),
+      });
 
       const results = await retriever.retrieve({ query: 'test', scope: 'user', topK: 2 });
-      expect(results.map(r => r.id)).toEqual(['mem-user']);
+      expect(results.map((r) => r.id)).toEqual(['mem-user']);
     });
 
     it('does not return another agent private vector result', async () => {
@@ -526,10 +636,16 @@ describe('MemoryRetriever', () => {
         { memory_id: 'mem-private-other', score: 0.99 },
         { memory_id: 'mem-own', score: 0.9 },
       ]);
-      const retriever = new MemoryRetriever({ memoryRepository: memoryRepo as any, embeddingRepository: embeddingRepo as any, embeddingClient: createMockEmbeddingClient() as any, embeddingCacheRepo: createMockEmbeddingCacheRepo(), db: createMockDb() });
+      const retriever = new MemoryRetriever({
+        memoryRepository: memoryRepo as any,
+        embeddingRepository: embeddingRepo as any,
+        embeddingClient: createMockEmbeddingClient() as any,
+        embeddingCacheRepo: createMockEmbeddingCacheRepo(),
+        db: createMockDb(),
+      });
 
       const results = await retriever.retrieve({ query: 'test', agentId: 'agent-a', topK: 2 });
-      expect(results.map(r => r.id)).toEqual(['mem-own']);
+      expect(results.map((r) => r.id)).toEqual(['mem-own']);
     });
 
     it('overfetches before access filtering so valid lower-ranked vector results survive', async () => {
@@ -550,28 +666,52 @@ describe('MemoryRetriever', () => {
         { memory_id: 'mem-private-other', score: 0.99 },
         { memory_id: 'mem-own', score: 0.9 },
       ]);
-      const retriever = new MemoryRetriever({ memoryRepository: memoryRepo as any, embeddingRepository: embeddingRepo as any, embeddingClient: createMockEmbeddingClient() as any, embeddingCacheRepo: createMockEmbeddingCacheRepo(), db: createMockDb() });
+      const retriever = new MemoryRetriever({
+        memoryRepository: memoryRepo as any,
+        embeddingRepository: embeddingRepo as any,
+        embeddingClient: createMockEmbeddingClient() as any,
+        embeddingCacheRepo: createMockEmbeddingCacheRepo(),
+        db: createMockDb(),
+      });
 
       const results = await retriever.retrieve({ query: 'test', agentId: 'agent-a', topK: 1 });
-      expect(results.map(r => r.id)).toEqual(['mem-own']);
-      expect(embeddingRepo.cosineSearch).toHaveBeenCalledWith(expect.any(Float32Array), 20, expect.any(Array));
+      expect(results.map((r) => r.id)).toEqual(['mem-own']);
+      expect(embeddingRepo.cosineSearch).toHaveBeenCalledWith(
+        expect.any(Float32Array),
+        20,
+        expect.any(Array),
+      );
     });
 
     it('isolates cached retrieval results by kind filter', async () => {
       const fact = createMockMemory({ id: 'mem-fact', kind: 'fact', content: 'Fact memory' });
-      const preference = createMockMemory({ id: 'mem-pref', kind: 'preference', content: 'Preference memory' });
+      const preference = createMockMemory({
+        id: 'mem-pref',
+        kind: 'preference',
+        content: 'Preference memory',
+      });
       const memoryRepo = createMockMemoryRepository([fact, preference]);
       const embeddingRepo = createMockEmbeddingRepository([
         { memory_id: 'mem-fact', score: 0.95 },
         { memory_id: 'mem-pref', score: 0.9 },
       ]);
-      const retriever = new MemoryRetriever({ memoryRepository: memoryRepo as any, embeddingRepository: embeddingRepo as any, embeddingClient: createMockEmbeddingClient() as any, embeddingCacheRepo: createMockEmbeddingCacheRepo(), db: createMockDb() });
+      const retriever = new MemoryRetriever({
+        memoryRepository: memoryRepo as any,
+        embeddingRepository: embeddingRepo as any,
+        embeddingClient: createMockEmbeddingClient() as any,
+        embeddingCacheRepo: createMockEmbeddingCacheRepo(),
+        db: createMockDb(),
+      });
 
       const factResults = await retriever.retrieve({ query: 'test', kind: 'fact', topK: 1 });
-      const preferenceResults = await retriever.retrieve({ query: 'test', kind: 'preference', topK: 1 });
+      const preferenceResults = await retriever.retrieve({
+        query: 'test',
+        kind: 'preference',
+        topK: 1,
+      });
 
-      expect(factResults.map(r => r.id)).toEqual(['mem-fact']);
-      expect(preferenceResults.map(r => r.id)).toEqual(['mem-pref']);
+      expect(factResults.map((r) => r.id)).toEqual(['mem-fact']);
+      expect(preferenceResults.map((r) => r.id)).toEqual(['mem-pref']);
     });
   });
 });
@@ -593,7 +733,7 @@ describe('textFallbackRetrieve', () => {
 
   it('limits results to topK', async () => {
     const memories = Array.from({ length: 5 }, (_, i) =>
-      createMockMemory({ id: `mem-${i}`, content: `Content ${i}` })
+      createMockMemory({ id: `mem-${i}`, content: `Content ${i}` }),
     );
     const memoryRepo = {
       searchByContent: vi.fn(() => memories),
@@ -659,7 +799,10 @@ describe('MemoryRetriever — commonality coverage path', () => {
   it('surfaces both entities and populates speaker for a "both" question', async () => {
     const mkTurn = (id: string, speaker: string, text: string) =>
       createMockMemory({
-        id, scope: 'public_eval', scope_key: 'conv-30', kind: 'dialogue_turn',
+        id,
+        scope: 'public_eval',
+        scope_key: 'conv-30',
+        kind: 'dialogue_turn',
         content: `${speaker} said: ${text}`,
         metadata: JSON.stringify({ speaker }),
       });
@@ -676,7 +819,7 @@ describe('MemoryRetriever — commonality coverage path', () => {
       count: () => memories.length,
       cosineSearch: vi.fn((q: Float32Array, limit: number) =>
         memories
-          .map(m => ({ memory_id: m.id, score: dot(q, entityVec(m.content)) }))
+          .map((m) => ({ memory_id: m.id, score: dot(q, entityVec(m.content)) }))
           .sort((a, b) => b.score - a.score)
           .slice(0, limit),
       ),
@@ -685,16 +828,24 @@ describe('MemoryRetriever — commonality coverage path', () => {
     const mockDb = createMockDb();
     const mockCacheRepo = createMockEmbeddingCacheRepo();
 
-    const retriever = new MemoryRetriever({ memoryRepository: memoryRepo as any, embeddingRepository: embeddingRepo as any, embeddingClient: embeddingClient as any, embeddingCacheRepo: mockCacheRepo as any, db: mockDb });
+    const retriever = new MemoryRetriever({
+      memoryRepository: memoryRepo as any,
+      embeddingRepository: embeddingRepo as any,
+      embeddingClient: embeddingClient as any,
+      embeddingCacheRepo: mockCacheRepo as any,
+      db: mockDb,
+    });
 
     const results = await retriever.retrieve({
       query: 'How do Jon and Gina both like to destress?',
-      scope: 'public_eval', scopeKey: 'conv-30', topK: 5,
+      scope: 'public_eval',
+      scopeKey: 'conv-30',
+      topK: 5,
     });
-    const ids = results.map(r => r.id);
-    expect(ids).toContain('gina-1');        // minority entity guaranteed a seat
-    expect(ids.some(id => id.startsWith('jon'))).toBe(true);
-    expect(results.find(r => r.id === 'gina-1')?.kind).toBe('dialogue_turn');
+    const ids = results.map((r) => r.id);
+    expect(ids).toContain('gina-1'); // minority entity guaranteed a seat
+    expect(ids.some((id) => id.startsWith('jon'))).toBe(true);
+    expect(results.find((r) => r.id === 'gina-1')?.kind).toBe('dialogue_turn');
   });
 });
 
@@ -715,7 +866,22 @@ describe('MemoryRetriever recall config', () => {
         return [{ memory_id: 'mem-1', score: 0.8 }].slice(0, limit);
       }),
     };
-    const retriever = new MemoryRetriever({ memoryRepository: memoryRepo as any, embeddingRepository: embeddingRepo as any, embeddingClient: createMockEmbeddingClient() as any, embeddingCacheRepo: createMockEmbeddingCacheRepo(), db: createMockDb(), expansionConfig: { enabled: false, minQueryLength: 15, minScoreTrigger: 0.3, maxVariants: 0, logger: { warn() {}, info() {}, error() {}, debug() {} } as any }, defaultMinScore: 0.01, recallConfig: recallConfig });
+    const retriever = new MemoryRetriever({
+      memoryRepository: memoryRepo as any,
+      embeddingRepository: embeddingRepo as any,
+      embeddingClient: createMockEmbeddingClient() as any,
+      embeddingCacheRepo: createMockEmbeddingCacheRepo(),
+      db: createMockDb(),
+      expansionConfig: {
+        enabled: false,
+        minQueryLength: 15,
+        minScoreTrigger: 0.3,
+        maxVariants: 0,
+        logger: { warn() {}, info() {}, error() {}, debug() {} } as any,
+      },
+      defaultMinScore: 0.01,
+      recallConfig: recallConfig,
+    });
     return { retriever, getLimit: () => capturedLimit };
   }
 
@@ -726,7 +892,11 @@ describe('MemoryRetriever recall config', () => {
   });
 
   it('honors a deeper recall config', async () => {
-    const { retriever, getLimit } = captureLimit({ prefilterMultiplier: 15, prefilterMin: 60, mergeCandidateMultiplier: 8 });
+    const { retriever, getLimit } = captureLimit({
+      prefilterMultiplier: 15,
+      prefilterMin: 60,
+      mergeCandidateMultiplier: 8,
+    });
     await retriever.retrieve({ query: 'probe', topK: 3 });
     expect(getLimit()).toBe(60); // max(3*15, 60)
   });
@@ -746,12 +916,26 @@ describe('MemoryRetriever score-gated expansion', () => {
         [{ memory_id: 'mem-1', score: topScore }].slice(0, limit),
       ),
     };
-    return new MemoryRetriever({ memoryRepository: memoryRepo as any, embeddingRepository: embeddingRepo as any, embeddingClient: createMockEmbeddingClient() as any, embeddingCacheRepo: createMockEmbeddingCacheRepo(), db: createMockDb(), expansionConfig: expansionConfig, defaultMinScore: 0.01 });
+    return new MemoryRetriever({
+      memoryRepository: memoryRepo as any,
+      embeddingRepository: embeddingRepo as any,
+      embeddingClient: createMockEmbeddingClient() as any,
+      embeddingCacheRepo: createMockEmbeddingCacheRepo(),
+      db: createMockDb(),
+      expansionConfig: expansionConfig,
+      defaultMinScore: 0.01,
+    });
   }
 
   it('does not probe or call the LLM when expansion is disabled', async () => {
     expandQueryLLMMock.mockClear();
-    const retriever = buildRetriever({ enabled: false, minQueryLength: 15, minScoreTrigger: 0.3, maxVariants: 4, logger: quietLogger });
+    const retriever = buildRetriever({
+      enabled: false,
+      minQueryLength: 15,
+      minScoreTrigger: 0.3,
+      maxVariants: 4,
+      logger: quietLogger,
+    });
     await retriever.retrieve({ query: 'what martial arts has John done', topK: 3 });
     expect(expandQueryLLMMock).not.toHaveBeenCalled();
   });
@@ -759,7 +943,16 @@ describe('MemoryRetriever score-gated expansion', () => {
   it('does not probe or call the LLM when expansionConfig is absent', async () => {
     expandQueryLLMMock.mockClear();
     const memory = createMockMemory({ id: 'mem-1' });
-    const retriever = new MemoryRetriever({ memoryRepository: createMockMemoryRepository([memory]) as any, embeddingRepository: createMockEmbeddingRepository([{ memory_id: 'mem-1', score: 0.8 }]) as any, embeddingClient: createMockEmbeddingClient() as any, embeddingCacheRepo: createMockEmbeddingCacheRepo(), db: createMockDb(), expansionConfig: undefined as any });
+    const retriever = new MemoryRetriever({
+      memoryRepository: createMockMemoryRepository([memory]) as any,
+      embeddingRepository: createMockEmbeddingRepository([
+        { memory_id: 'mem-1', score: 0.8 },
+      ]) as any,
+      embeddingClient: createMockEmbeddingClient() as any,
+      embeddingCacheRepo: createMockEmbeddingCacheRepo(),
+      db: createMockDb(),
+      expansionConfig: undefined as any,
+    });
     await retriever.retrieve({ query: 'probe query', topK: 3 });
     expect(expandQueryLLMMock).not.toHaveBeenCalled();
   });
@@ -767,7 +960,13 @@ describe('MemoryRetriever score-gated expansion', () => {
   it('when enabled, passes the probe top similarity as initialMaxScore', async () => {
     expandQueryLLMMock.mockClear();
     const retriever = buildRetriever(
-      { enabled: true, minQueryLength: 15, minScoreTrigger: 0.3, maxVariants: 4, logger: quietLogger },
+      {
+        enabled: true,
+        minQueryLength: 15,
+        minScoreTrigger: 0.3,
+        maxVariants: 4,
+        logger: quietLogger,
+      },
       0.82,
     );
     await retriever.retrieve({ query: 'what martial arts has John done', topK: 3 });
@@ -781,7 +980,13 @@ describe('MemoryRetriever score-gated expansion', () => {
   it('passes a weak probe score through so the gate can trigger expansion', async () => {
     expandQueryLLMMock.mockClear();
     const retriever = buildRetriever(
-      { enabled: true, minQueryLength: 15, minScoreTrigger: 0.3, maxVariants: 4, logger: quietLogger },
+      {
+        enabled: true,
+        minQueryLength: 15,
+        minScoreTrigger: 0.3,
+        maxVariants: 4,
+        logger: quietLogger,
+      },
       0.12,
     );
     await retriever.retrieve({ query: 'what martial arts has John done', topK: 3 });

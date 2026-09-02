@@ -89,8 +89,8 @@ describe('SSHComputerUseProvider macOS support', () => {
       },
     });
     await provider.listApps(DEFAULT_CTX);
-    const osascriptCalls = mockPool.exec.mock.calls.filter(
-      (call: [string]) => call[0].includes('osascript'),
+    const osascriptCalls = mockPool.exec.mock.calls.filter((call: [string]) =>
+      call[0].includes('osascript'),
     );
     expect(osascriptCalls.length).toBeGreaterThan(0);
   });
@@ -102,8 +102,8 @@ describe('SSHComputerUseProvider macOS support', () => {
       },
     });
     await provider.listApps(DEFAULT_CTX);
-    const osascriptCalls = mockPool.exec.mock.calls.filter(
-      (call: [string]) => call[0].includes('osascript'),
+    const osascriptCalls = mockPool.exec.mock.calls.filter((call: [string]) =>
+      call[0].includes('osascript'),
     );
     expect(osascriptCalls).toHaveLength(0);
   });
@@ -112,8 +112,8 @@ describe('SSHComputerUseProvider macOS support', () => {
     const { provider, mockPool } = createProvider();
     mockPool.exec.mockRejectedValueOnce(new Error('SSH connection failed'));
     await provider.listApps(DEFAULT_CTX);
-    const osascriptCalls = mockPool.exec.mock.calls.filter(
-      (call: [string]) => call[0].includes('osascript'),
+    const osascriptCalls = mockPool.exec.mock.calls.filter((call: [string]) =>
+      call[0].includes('osascript'),
     );
     expect(osascriptCalls).toHaveLength(0);
   });
@@ -154,9 +154,11 @@ describe('SSHComputerUseProvider macOS support', () => {
     });
 
     expect(result.ok).toBe(true);
-    const calls = execFn.mock.calls.map(c => c[0] as string);
+    const calls = execFn.mock.calls.map((c) => c[0] as string);
     expect(
-      calls.some(c => c.includes('set frontmost of (first process whose unix id is 12345) to true')),
+      calls.some((c) =>
+        c.includes('set frontmost of (first process whose unix id is 12345) to true'),
+      ),
     ).toBe(true);
     const cmd = calls[calls.length - 1];
     // The entire osascript script is wrapped in a single-quoted shell arg,
@@ -174,15 +176,15 @@ describe('SSHComputerUseProvider macOS support', () => {
     const { provider, mockPool } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        'screencapture': { stdout: '', stderr: '', exitCode: 0 },
+        screencapture: { stdout: '', stderr: '', exitCode: 0 },
         'base64 -i': { stdout: 'iVBOR', stderr: '', exitCode: 0 },
-        'osascript': { stdout: 'Finder', stderr: '', exitCode: 0 },
+        osascript: { stdout: 'Finder', stderr: '', exitCode: 0 },
       },
     });
     const lease = makeLease({ leaseId: 'test-lease-1' });
     await provider.getAppState(DEFAULT_CTX, lease);
-    const screencaptureCall = mockPool.exec.mock.calls.find(
-      (call: [string]) => call[0].includes('screencapture'),
+    const screencaptureCall = mockPool.exec.mock.calls.find((call: [string]) =>
+      call[0].includes('screencapture'),
     );
     expect(screencaptureCall).toBeDefined();
     expect(screencaptureCall![0]).toContain('screencapture -x -T0');
@@ -196,13 +198,13 @@ describe('SSHComputerUseProvider macOS support', () => {
         'windowid ': { stdout: '{"id": 42}', stderr: '', exitCode: 0 },
         'screencapture -x -l': { stdout: '', stderr: '', exitCode: 0 },
         'base64 -i': { stdout: 'iVBOR', stderr: '', exitCode: 0 },
-        'osascript': { stdout: 'Finder', stderr: '', exitCode: 0 },
+        osascript: { stdout: 'Finder', stderr: '', exitCode: 0 },
       },
     });
     const lease = makeLease({ leaseId: 'test-lease-1' });
     const state = await provider.getAppState(DEFAULT_CTX, lease);
-    const winCapture = mockPool.exec.mock.calls.find(
-      (call: [string]) => call[0].includes('screencapture -x -l'),
+    const winCapture = mockPool.exec.mock.calls.find((call: [string]) =>
+      call[0].includes('screencapture -x -l'),
     );
     expect(winCapture).toBeDefined();
     expect(winCapture![0]).toContain('screencapture -x -l 42');
@@ -214,9 +216,9 @@ describe('SSHComputerUseProvider macOS support', () => {
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
         'frontmost is true': { stdout: 'loginwindow', stderr: '', exitCode: 0 },
-        'screencapture': { stdout: '', stderr: '', exitCode: 0 },
+        screencapture: { stdout: '', stderr: '', exitCode: 0 },
         'base64 -i': { stdout: 'iVBOR', stderr: '', exitCode: 0 },
-        'osascript': { stdout: 'Finder', stderr: '', exitCode: 0 },
+        osascript: { stdout: 'Finder', stderr: '', exitCode: 0 },
       },
     });
     const lease = makeLease({ leaseId: 'test-lease-1' });
@@ -228,17 +230,17 @@ describe('SSHComputerUseProvider macOS support', () => {
     const { provider, mockPool } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        'screencapture': { stdout: '', stderr: '', exitCode: 0 },
+        screencapture: { stdout: '', stderr: '', exitCode: 0 },
         'base64 -i': { stdout: 'iVBOR', stderr: '', exitCode: 0 },
-        'osascript': { stdout: 'Finder', stderr: '', exitCode: 0 },
+        osascript: { stdout: 'Finder', stderr: '', exitCode: 0 },
       },
     });
     const lease = makeLease({ leaseId: 'test-lease-1' });
     await provider.getAppState(DEFAULT_CTX, lease);
     // The screenshot read-back uses `base64 -i` — the Swift tool's own
     // `base64 -d` writes must not be matched here.
-    const base64Call = mockPool.exec.mock.calls.find(
-      (call: [string]) => call[0].includes('base64 -i'),
+    const base64Call = mockPool.exec.mock.calls.find((call: [string]) =>
+      call[0].includes('base64 -i'),
     );
     expect(base64Call).toBeDefined();
     expect(base64Call![0]).toContain('base64 -i');
@@ -305,7 +307,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain('accessibility API is disabled');
     // Never degrade into a cursor-moving click when the API is disabled.
-    expect(mockPool.exec.mock.calls.some(c => (c[0] as string).includes('click at'))).toBe(false);
+    expect(mockPool.exec.mock.calls.some((c) => (c[0] as string).includes('click at'))).toBe(false);
   });
 
   it('click_point degrades to the synthesized click when the hit element is foreign', async () => {
@@ -348,7 +350,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     expect(cmd).toContain('keystroke "hello world"');
   });
 
-  it('press_key Enter prefers the focused element\'s AXConfirm (Safari ignores background-posted Enter)', async () => {
+  it("press_key Enter prefers the focused element's AXConfirm (Safari ignores background-posted Enter)", async () => {
     const { provider, mockPool } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
@@ -405,7 +407,12 @@ describe('SSHComputerUseProvider macOS support', () => {
     });
     await provider.listApps(DEFAULT_CTX);
     const lease = makeLease({
-      providerState: { pid: 12345, windowId: '0x12345678', display: ':0', lastTextTargetPath: '/0/2' },
+      providerState: {
+        pid: 12345,
+        windowId: '0x12345678',
+        display: ':0',
+        lastTextTargetPath: '/0/2',
+      },
     });
     const result = await provider.performAction(DEFAULT_CTX, lease, {
       type: 'press_key',
@@ -430,7 +437,12 @@ describe('SSHComputerUseProvider macOS support', () => {
     });
     await provider.listApps(DEFAULT_CTX);
     const lease = makeLease({
-      providerState: { pid: 12345, windowId: '0x12345678', display: ':0', lastTextTargetPath: '/0/2' },
+      providerState: {
+        pid: 12345,
+        windowId: '0x12345678',
+        display: ':0',
+        lastTextTargetPath: '/0/2',
+      },
     });
     const result = await provider.performAction(DEFAULT_CTX, lease, {
       type: 'press_key',
@@ -579,15 +591,19 @@ describe('SSHComputerUseProvider macOS support', () => {
       settings: BASE_SETTINGS,
     });
     await provider.listApps(DEFAULT_CTX);
-    const lease = makeLease({ providerState: { pid: 4242, windowId: '0x12345678', display: ':0' } });
+    const lease = makeLease({
+      providerState: { pid: 4242, windowId: '0x12345678', display: ':0' },
+    });
     const result = await provider.performAction(DEFAULT_CTX, lease, {
       type: 'press_key',
       key: 'Return',
     });
     expect(result.ok).toBe(true);
-    const calls = execFn.mock.calls.map(c => c[0] as string);
+    const calls = execFn.mock.calls.map((c) => c[0] as string);
     expect(
-      calls.some(c => c.includes('set frontmost of (first process whose unix id is 4242) to true')),
+      calls.some((c) =>
+        c.includes('set frontmost of (first process whose unix id is 4242) to true'),
+      ),
     ).toBe(true);
     expect(calls[calls.length - 1]).toContain('key code 36');
   });
@@ -605,7 +621,9 @@ describe('SSHComputerUseProvider macOS support', () => {
       },
     });
     await provider.listApps(DEFAULT_CTX);
-    const lease = makeLease({ providerState: { pid: 4242, windowId: '0x12345678', display: ':0' } });
+    const lease = makeLease({
+      providerState: { pid: 4242, windowId: '0x12345678', display: ':0' },
+    });
     const result = await provider.performAction(DEFAULT_CTX, lease, {
       type: 'press_key',
       key: 'Return',
@@ -626,20 +644,26 @@ describe('SSHComputerUseProvider macOS support', () => {
           exitCode: 0,
         },
         'get frontmost of': { stdout: 'false', stderr: '', exitCode: 0 },
-        'HIDIdleTime': { stdout: '1.2', stderr: '', exitCode: 0 },
+        HIDIdleTime: { stdout: '1.2', stderr: '', exitCode: 0 },
       },
     });
     await provider.listApps(DEFAULT_CTX);
-    const lease = makeLease({ providerState: { pid: 4242, windowId: '0x12345678', display: ':0' } });
+    const lease = makeLease({
+      providerState: { pid: 4242, windowId: '0x12345678', display: ':0' },
+    });
     const result = await provider.performAction(DEFAULT_CTX, lease, {
       type: 'press_key',
       key: 'Return',
     });
     expect(result.ok).toBe(false);
     expect(result.error).toContain('User is actively using the computer; retry later');
-    const calls = mockPool.exec.mock.calls.map(c => c[0] as string);
+    const calls = mockPool.exec.mock.calls.map((c) => c[0] as string);
     // The activation must never run once the guard refused.
-    expect(calls.some(c => c.includes('set frontmost of (first process whose unix id is 4242) to true'))).toBe(false);
+    expect(
+      calls.some((c) =>
+        c.includes('set frontmost of (first process whose unix id is 4242) to true'),
+      ),
+    ).toBe(false);
   });
 
   it('press_key degradation hands the foreground back to the previous app once the key lands', async () => {
@@ -678,19 +702,23 @@ describe('SSHComputerUseProvider macOS support', () => {
       settings: BASE_SETTINGS,
     });
     await provider.listApps(DEFAULT_CTX);
-    const lease = makeLease({ providerState: { pid: 4242, windowId: '0x12345678', display: ':0' } });
+    const lease = makeLease({
+      providerState: { pid: 4242, windowId: '0x12345678', display: ':0' },
+    });
     const result = await provider.performAction(DEFAULT_CTX, lease, {
       type: 'press_key',
       key: 'Return',
     });
     expect(result.ok).toBe(true);
-    const calls = execFn.mock.calls.map(c => c[0] as string);
+    const calls = execFn.mock.calls.map((c) => c[0] as string);
     // The key lands first, then the restore hands the user's app back.
-    const keyIdx = calls.findIndex(c => c.includes('key code 36'));
-    const restoreIdx = calls.findIndex(c => c.includes('unix id is 7777'));
+    const keyIdx = calls.findIndex((c) => c.includes('key code 36'));
+    const restoreIdx = calls.findIndex((c) => c.includes('unix id is 7777'));
     expect(keyIdx).toBeGreaterThan(-1);
     expect(restoreIdx).toBeGreaterThan(keyIdx);
-    expect(calls[restoreIdx]).toContain('set frontmost of (first process whose unix id is 7777) to true');
+    expect(calls[restoreIdx]).toContain(
+      'set frontmost of (first process whose unix id is 7777) to true',
+    );
   });
 
   it('press_key degradation never yanks the foreground when the user has switched apps', async () => {
@@ -709,7 +737,8 @@ describe('SSHComputerUseProvider macOS support', () => {
         frontmostChecks++;
         return { stdout: frontmostChecks >= 2 ? 'true' : 'false', stderr: '', exitCode: 0 };
       }
-      if (cmd.includes('whose frontmost is true')) return { stdout: '8888', stderr: '', exitCode: 0 };
+      if (cmd.includes('whose frontmost is true'))
+        return { stdout: '8888', stderr: '', exitCode: 0 };
       if (cmd.includes('HIDIdleTime')) return { stdout: '99', stderr: '', exitCode: 0 };
       return { stdout: '', stderr: '', exitCode: 0 };
     });
@@ -725,17 +754,23 @@ describe('SSHComputerUseProvider macOS support', () => {
       settings: BASE_SETTINGS,
     });
     await provider.listApps(DEFAULT_CTX);
-    const lease = makeLease({ providerState: { pid: 4242, windowId: '0x12345678', display: ':0' } });
+    const lease = makeLease({
+      providerState: { pid: 4242, windowId: '0x12345678', display: ':0' },
+    });
     const result = await provider.performAction(DEFAULT_CTX, lease, {
       type: 'press_key',
       key: 'Return',
     });
     expect(result.ok).toBe(true);
-    const calls = execFn.mock.calls.map(c => c[0] as string);
+    const calls = execFn.mock.calls.map((c) => c[0] as string);
     // The key was delivered, and the restore guard saw a third app (8888)
     // holding the foreground — so no restore command was issued.
-    expect(calls.some(c => c.includes('key code 36'))).toBe(true);
-    expect(calls.some(c => c.includes('set frontmost of (first process whose unix id is 8888) to true'))).toBe(false);
+    expect(calls.some((c) => c.includes('key code 36'))).toBe(true);
+    expect(
+      calls.some((c) =>
+        c.includes('set frontmost of (first process whose unix id is 8888) to true'),
+      ),
+    ).toBe(false);
   });
 
   it('scroll degradation posts arrow keys in the background via CGEventPostToPid', async () => {
@@ -799,7 +834,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     const { provider } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        'osascript': { stdout: 'Finder, Safari, Terminal', stderr: '', exitCode: 0 },
+        osascript: { stdout: 'Finder, Safari, Terminal', stderr: '', exitCode: 0 },
       },
     });
     const apps = await provider.listApps(DEFAULT_CTX);
@@ -813,15 +848,15 @@ describe('SSHComputerUseProvider macOS support', () => {
     const { provider, mockPool } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        'osascript': { stdout: 'Finder', stderr: '', exitCode: 0 },
+        osascript: { stdout: 'Finder', stderr: '', exitCode: 0 },
       },
     });
     // First call triggers _detectRemoteOS
     await provider.listApps(DEFAULT_CTX);
     // Second call should use cached value
     await provider.listApps(DEFAULT_CTX);
-    const unameCalls = mockPool.exec.mock.calls.filter(
-      (call: [string]) => call[0].includes('uname -s'),
+    const unameCalls = mockPool.exec.mock.calls.filter((call: [string]) =>
+      call[0].includes('uname -s'),
     );
     expect(unameCalls).toHaveLength(1);
   });
@@ -944,7 +979,9 @@ describe('SSHComputerUseProvider macOS AX (Swift tool, accessibility-first)', ()
     });
     await provider.listApps(DEFAULT_CTX);
     // Lease pid 12345 (makeLease default) must be embedded in the JXA script.
-    const lease = makeLease({ providerState: { pid: 12345, windowId: '0x12345678', display: ':0' } });
+    const lease = makeLease({
+      providerState: { pid: 12345, windowId: '0x12345678', display: ':0' },
+    });
     const result = await provider.performAction(DEFAULT_CTX, lease, {
       type: 'click_element',
       snapshotElement: makeElement(),
@@ -1097,16 +1134,20 @@ describe('SSHComputerUseProvider macOS AX (Swift tool, accessibility-first)', ()
       settings: BASE_SETTINGS,
     });
     await provider.listApps(DEFAULT_CTX);
-    const lease = makeLease({ providerState: { pid: 4242, windowId: '0x12345678', display: ':0' } });
+    const lease = makeLease({
+      providerState: { pid: 4242, windowId: '0x12345678', display: ':0' },
+    });
     const result = await provider.performAction(DEFAULT_CTX, lease, {
       type: 'type_text',
       text: 'abc',
       snapshotElement: makeElement({ role: 'button' }),
     });
     expect(result.ok).toBe(true);
-    const calls = execFn.mock.calls.map(c => c[0] as string);
+    const calls = execFn.mock.calls.map((c) => c[0] as string);
     expect(
-      calls.some(c => c.includes('set frontmost of (first process whose unix id is 4242) to true')),
+      calls.some((c) =>
+        c.includes('set frontmost of (first process whose unix id is 4242) to true'),
+      ),
     ).toBe(true);
     expect(calls[calls.length - 1]).toContain('keystroke "abc"');
   });
@@ -1119,7 +1160,9 @@ describe('SSHComputerUseProvider macOS AX (Swift tool, accessibility-first)', ()
       },
     });
     await provider.listApps(DEFAULT_CTX);
-    const lease = makeLease({ providerState: { pid: 4242, windowId: '0x12345678', display: ':0' } });
+    const lease = makeLease({
+      providerState: { pid: 4242, windowId: '0x12345678', display: ':0' },
+    });
     const result = await provider.performAction(DEFAULT_CTX, lease, {
       type: 'type_text',
       text: 'abc',
@@ -1154,7 +1197,11 @@ describe('SSHComputerUseProvider macOS AX (Swift tool, accessibility-first)', ()
     const { provider, mockPool } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        "command -v -- 'firefox'": { stdout: '/Applications/Firefox.app/Contents/MacOS/firefox', stderr: '', exitCode: 0 },
+        "command -v -- 'firefox'": {
+          stdout: '/Applications/Firefox.app/Contents/MacOS/firefox',
+          stderr: '',
+          exitCode: 0,
+        },
         "nohup 'firefox'": { stdout: '', stderr: '', exitCode: 0 },
         'pgrep -f -i': { stdout: '12345', stderr: '', exitCode: 0 },
       },
@@ -1206,11 +1253,11 @@ describe('SSHComputerUseProvider macOS AX (Swift tool, accessibility-first)', ()
     const { provider } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        'screencapture': { stdout: '', stderr: '', exitCode: 0 },
+        screencapture: { stdout: '', stderr: '', exitCode: 0 },
         'base64 -i': { stdout: 'iVBOR', stderr: '', exitCode: 0 },
         // JXA tree probe returns a non-JSON string like the title probe.
         'tree ': { stdout: 'Finder', stderr: '', exitCode: 0 },
-        'osascript': { stdout: 'Finder', stderr: '', exitCode: 0 },
+        osascript: { stdout: 'Finder', stderr: '', exitCode: 0 },
       },
     });
     const lease = makeLease({ leaseId: 'test-lease-1' });
@@ -1222,7 +1269,7 @@ describe('SSHComputerUseProvider macOS AX (Swift tool, accessibility-first)', ()
     const { provider } = createProvider({
       responses: {
         'uname -s': { stdout: 'Darwin', stderr: '', exitCode: 0 },
-        'screencapture': { stdout: '', stderr: '', exitCode: 0 },
+        screencapture: { stdout: '', stderr: '', exitCode: 0 },
         'base64 -i': { stdout: 'iVBOR', stderr: '', exitCode: 0 },
         'tree ': {
           stdout: JSON.stringify({
@@ -1252,7 +1299,7 @@ describe('SSHComputerUseProvider macOS AX (Swift tool, accessibility-first)', ()
           stderr: '',
           exitCode: 0,
         },
-        'osascript': { stdout: 'Finder', stderr: '', exitCode: 0 },
+        osascript: { stdout: 'Finder', stderr: '', exitCode: 0 },
       },
     });
     const lease = makeLease({ leaseId: 'test-lease-1' });

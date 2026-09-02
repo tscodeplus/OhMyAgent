@@ -7,22 +7,30 @@
 
 import type { ComputerUseProvider } from '../provider-contract.js';
 import { normalizeComputerProviderCapabilities } from '../provider-contract.js';
-import type { Ctx, ProviderStatus, AppInfo, WindowInfo, Lease, Target, AppState, UIElement, Action, ActionResult } from '../types.js';
+import type {
+  Ctx,
+  ProviderStatus,
+  AppInfo,
+  WindowInfo,
+  Lease,
+  Target,
+  AppState,
+  UIElement,
+  Action,
+  ActionResult,
+} from '../types.js';
 import type { ComputerUseSettings } from '../settings.js';
 import { SSHPool } from '../transports/ssh-pool.js';
 import type { Logger } from 'pino';
+import { psListWindows, wrapPowerShell } from '../powershell-scripts.js';
+import { listLinuxApps, readLinuxWindowState, performLinuxAction } from '../ssh-actions-linux.js';
 import {
-  psListWindows, wrapPowerShell,
-} from '../powershell-scripts.js';
-import {
-  listLinuxApps, readLinuxWindowState, performLinuxAction,
-} from '../ssh-actions-linux.js';
-import {
-  listDarwinApps, readDarwinWindowState, performDarwinAction, DARWIN_LOCKED_NOTICE,
+  listDarwinApps,
+  readDarwinWindowState,
+  performDarwinAction,
+  DARWIN_LOCKED_NOTICE,
 } from '../ssh-actions-darwin.js';
-import {
-  readWin32WindowState, performWin32Action,
-} from '../ssh-actions-win32.js';
+import { readWin32WindowState, performWin32Action } from '../ssh-actions-win32.js';
 import { quoteShellArg } from '../ssh-actions-common.js';
 
 function assertSafeAppName(appName: string): void {
@@ -75,11 +83,7 @@ export class SSHComputerUseProvider implements ComputerUseProvider {
   /** Re-detect remote OS after this many ms (default: 5 minutes). */
   private static readonly OS_CACHE_TTL_MS = 5 * 60 * 1000;
 
-  constructor(options: {
-    sshPool: SSHPool;
-    settings: ComputerUseSettings;
-    logger?: Logger;
-  }) {
+  constructor(options: { sshPool: SSHPool; settings: ComputerUseSettings; logger?: Logger }) {
     this.sshPool = options.sshPool;
     this.settings = options.settings;
     this.logger = options.logger;
@@ -116,7 +120,9 @@ export class SSHComputerUseProvider implements ComputerUseProvider {
 
   private async _listAppsWindows(): Promise<AppInfo[]> {
     try {
-      const { stdout } = await this.sshPool.exec(wrapPowerShell(psListWindows()), { timeoutMs: 10000 });
+      const { stdout } = await this.sshPool.exec(wrapPowerShell(psListWindows()), {
+        timeoutMs: 10000,
+      });
       const apps = new Map<string, { name: string; pid: number; windows: WindowInfo[] }>();
       for (const line of stdout.split('\n')) {
         if (!line.startsWith('APP|')) continue;
@@ -132,7 +138,7 @@ export class SSHComputerUseProvider implements ComputerUseProvider {
           isOnScreen: true,
         });
       }
-      return Array.from(apps.values()).map(a => ({
+      return Array.from(apps.values()).map((a) => ({
         appId: a.name,
         name: a.name,
         pid: a.pid,
@@ -186,7 +192,7 @@ export class SSHComputerUseProvider implements ComputerUseProvider {
         // Linux (and Windows via the shared fallback): poll wmctrl up to
         // 10 times (500 ms apart) until the window appears.
         for (let i = 0; i < 10; i++) {
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           try {
             const wmResult = await this.sshPool.exec('wmctrl -l');
             const lines = wmResult.stdout.trim().split('\n').filter(Boolean);
@@ -255,8 +261,7 @@ export class SSHComputerUseProvider implements ComputerUseProvider {
 
   async getAppState(_ctx: Ctx, lease: Lease): Promise<AppState> {
     const providerState = lease.providerState as
-      | { pid?: number; windowId?: string; display?: string }
-      | undefined;
+      { pid?: number; windowId?: string; display?: string } | undefined;
     const leaseId = lease.leaseId;
     const remoteOS = await this._detectRemoteOS();
 
@@ -349,7 +354,10 @@ export class SSHComputerUseProvider implements ComputerUseProvider {
    */
   private async _detectRemoteOS(): Promise<string> {
     const now = Date.now();
-    if (this._remotePlatform && (now - this._remotePlatformDetectedAt) < SSHComputerUseProvider.OS_CACHE_TTL_MS) {
+    if (
+      this._remotePlatform &&
+      now - this._remotePlatformDetectedAt < SSHComputerUseProvider.OS_CACHE_TTL_MS
+    ) {
       return this._remotePlatform;
     }
     try {
@@ -378,22 +386,21 @@ export class SSHComputerUseProvider implements ComputerUseProvider {
   // Action execution
   // -----------------------------------------------------------------------
 
-  async performAction(
-    _ctx: Ctx,
-    lease: Lease,
-    action: Action,
-  ): Promise<ActionResult> {
+  async performAction(_ctx: Ctx, lease: Lease, action: Action): Promise<ActionResult> {
     const remoteOS = await this._detectRemoteOS();
-    const providerState = lease.providerState as
-      | { pid?: number; windowId?: string }
-      | undefined;
+    const providerState = lease.providerState as { pid?: number; windowId?: string } | undefined;
 
     if (remoteOS === 'darwin') {
       // AX element actions must target the *leased* app, never the user's
       // focused app — the pid is embedded in the JXA script.
       const textTargetPath = (providerState as { lastTextTargetPath?: string } | undefined)
         ?.lastTextTargetPath;
-      const result = await performDarwinAction(this.sshPool, action, providerState?.pid, textTargetPath);
+      const result = await performDarwinAction(
+        this.sshPool,
+        action,
+        providerState?.pid,
+        textTargetPath,
+      );
       // Track where text was last set so a following Enter can AXConfirm
       // that element (background apps keep the window focused; see
       // ssh-actions-darwin).

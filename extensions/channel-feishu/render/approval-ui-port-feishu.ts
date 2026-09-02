@@ -38,16 +38,11 @@ export interface FeishuApprovalUiPortOptions {
  *   - Otherwise the card is sent directly and resolve is a no-op (the
  *     callback handler edits the card in place instead).
  */
-export function createFeishuApprovalUiPort(
-  options: FeishuApprovalUiPortOptions,
-): ApprovalUiPort {
+export function createFeishuApprovalUiPort(options: FeishuApprovalUiPortOptions): ApprovalUiPort {
   const { feishuClient, registry } = options;
 
   return {
-    getSession(
-      ctx: ApprovalUiSessionContext,
-      cache: ApprovalUiSessionCache,
-    ): ApprovalUiSession {
+    getSession(ctx: ApprovalUiSessionContext, cache: ApprovalUiSessionCache): ApprovalUiSession {
       if (cache.approvalSession) return cache.approvalSession;
       const session = buildSession(feishuClient, registry, ctx);
       cache.approvalSession = session;

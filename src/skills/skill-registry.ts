@@ -19,7 +19,10 @@ export class SkillRegistry {
    * Load all skills from the given directory.
    * Can be called multiple times to reload.
    */
-  async load(skillsDirPath: string, logger?: { warn: (msg: string, ...args: unknown[]) => void }): Promise<void> {
+  async load(
+    skillsDirPath: string,
+    logger?: { warn: (msg: string, ...args: unknown[]) => void },
+  ): Promise<void> {
     this.skills = await loadAllSkills(skillsDirPath, logger);
     this.loaded = true;
   }

@@ -31,11 +31,7 @@ function makeMockLogger() {
 /**
  * Create a minimal MermaidNode for testing.
  */
-function makeNode(
-  id: string,
-  toolName: string,
-  overrides: Partial<MermaidNode> = {},
-): MermaidNode {
+function makeNode(id: string, toolName: string, overrides: Partial<MermaidNode> = {}): MermaidNode {
   return {
     id,
     toolName,
@@ -222,9 +218,7 @@ describe('MermaidPhaseTagger', () => {
     });
 
     it('LLM 返回 phases 为空数组 → 返回 null', async () => {
-      vi.mocked(llm.call).mockResolvedValueOnce(
-        JSON.stringify({ phases: [], mapping: {} }),
-      );
+      vi.mocked(llm.call).mockResolvedValueOnce(JSON.stringify({ phases: [], mapping: {} }));
 
       const tagger = new MermaidPhaseTagger(llm, logger);
       const nodes = [

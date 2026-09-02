@@ -18,7 +18,9 @@ export const memoryListToolCapability: ToolCapabilityDescriptor = {
 };
 
 const MemoryListParams = Type.Object({
-  scope: Type.Optional(Type.Union([Type.Literal('user'), Type.Literal('session'), Type.Literal('system')])),
+  scope: Type.Optional(
+    Type.Union([Type.Literal('user'), Type.Literal('session'), Type.Literal('system')]),
+  ),
   kind: Type.Optional(Type.String()),
   query: Type.Optional(Type.String()),
   limit: Type.Optional(Type.Number({ minimum: 1, maximum: 100 })),
@@ -55,41 +57,51 @@ export function createMemoryListToolDefinition(options: {
       const includeInactive = args.includeInactive === true;
 
       const rows = args.query?.trim()
-        ? options.memoryRepository.searchByContent(args.query.trim(), scope, undefined, { includeInactive })
+        ? options.memoryRepository.searchByContent(args.query.trim(), scope, undefined, {
+            includeInactive,
+          })
         : options.memoryRepository.findAllByScope(scope);
 
       // searchByContent and findAllByScope already filter active-only.
       // If includeInactive, we need to use the raw repository findByScope with includeInactive flag.
-      let visible = rows
-        .filter(memory => matchesMemoryAccess(memory, {
+      let visible = rows.filter((memory) =>
+        matchesMemoryAccess(memory, {
           scope,
           kind: args.kind,
           agentId: ctx.agentId,
           includeShared: true,
-        }));
+        }),
+      );
 
       // If includeInactive, also fetch inactive memories across ALL scope_keys.
       // Using findByScopeKind (no scope_key filter) to catch memories with any scope_key.
       if (includeInactive && !args.query?.trim()) {
         const allKinds = ['preference', 'fact', 'task', 'summary', 'scene', 'device_state'];
-        const seen = new Set(visible.map(m => m.id));
+        const seen = new Set(visible.map((m) => m.id));
         for (const kind of allKinds) {
-          const inactiveRows = options.memoryRepository.findByScopeKind(scope, kind, { includeInactive: true });
+          const inactiveRows = options.memoryRepository.findByScopeKind(scope, kind, {
+            includeInactive: true,
+          });
           for (const m of inactiveRows) {
             if (seen.has(m.id)) continue;
-            if (!matchesMemoryAccess(m, {
-              scope,
-              kind: args.kind,
-              agentId: ctx.agentId,
-              includeShared: true,
-            })) continue;
+            if (
+              !matchesMemoryAccess(m, {
+                scope,
+                kind: args.kind,
+                agentId: ctx.agentId,
+                includeShared: true,
+              })
+            )
+              continue;
             seen.add(m.id);
             visible.push(m);
           }
         }
       }
 
-      visible = visible.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()).slice(0, limit);
+      visible = visible
+        .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+        .slice(0, limit);
 
       if (visible.length === 0) {
         return textResult('No visible memories found.');

@@ -71,7 +71,7 @@ export function createCronToggleToolDefinition(): ToolDefinition {
       if (job.channel !== currentChannel || job.chatId !== currentChatId) {
         return errorResult(
           `Cron job "${args.jobId}" belongs to ${job.channel}/${job.chatId}, ` +
-          `not ${currentChannel}/${currentChatId}. Operation denied.`,
+            `not ${currentChannel}/${currentChatId}. Operation denied.`,
         );
       }
 

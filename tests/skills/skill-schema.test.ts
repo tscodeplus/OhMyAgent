@@ -34,10 +34,12 @@ describe('FrontmatterSchema', () => {
   });
 
   it('rejects name over 64 characters', () => {
-    expect(() => FrontmatterSchema.parse({
-      name: 'a'.repeat(65),
-      description: 'valid description',
-    })).toThrow();
+    expect(() =>
+      FrontmatterSchema.parse({
+        name: 'a'.repeat(65),
+        description: 'valid description',
+      }),
+    ).toThrow();
   });
 
   it('rejects missing description', () => {
@@ -45,10 +47,12 @@ describe('FrontmatterSchema', () => {
   });
 
   it('rejects description over 1024 characters', () => {
-    expect(() => FrontmatterSchema.parse({
-      name: 'test',
-      description: 'x'.repeat(1025),
-    })).toThrow();
+    expect(() =>
+      FrontmatterSchema.parse({
+        name: 'test',
+        description: 'x'.repeat(1025),
+      }),
+    ).toThrow();
   });
 
   it('allows unknown fields via passthrough', () => {

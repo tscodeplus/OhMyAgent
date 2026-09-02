@@ -1,6 +1,8 @@
 import type { FooterConfig, Usage } from '../app/types.js';
 
-export function computeCacheHitRate(usage: Pick<Usage, 'input' | 'cacheRead' | 'cacheWrite'>): number | undefined {
+export function computeCacheHitRate(
+  usage: Pick<Usage, 'input' | 'cacheRead' | 'cacheWrite'>,
+): number | undefined {
   const promptTokens = usage.input + usage.cacheRead + usage.cacheWrite;
   // Show cache hit rate even when cacheRead is 0, so users see consistent
   // footer behavior across providers that do/don't support prompt caching.

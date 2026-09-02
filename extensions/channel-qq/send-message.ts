@@ -86,10 +86,14 @@ export function parseInlineMediaTags(text: string): Array<{
 
     const tag = match[1];
     const url = match[2];
-    const mediaType = tag === 'qqimg' ? 'image'
-      : tag === 'qqvoice' ? 'voice'
-      : tag === 'qqvideo' ? 'video'
-      : 'file';
+    const mediaType =
+      tag === 'qqimg'
+        ? 'image'
+        : tag === 'qqvoice'
+          ? 'voice'
+          : tag === 'qqvideo'
+            ? 'video'
+            : 'file';
 
     items.push({ type: mediaType, content: url });
     lastIndex = match.index + match[0].length;
@@ -141,7 +145,7 @@ export async function sendChunkedText(
         logger?.warn('QQ sendChunkedText: failed to send chunk', err);
       }
     }
-    if (failed > 0 && failed === chunks.filter(c => c.trim()).length) {
+    if (failed > 0 && failed === chunks.filter((c) => c.trim()).length) {
       throw new Error(`QQ sendChunkedText: all ${failed} chunks failed`);
     }
     return;
@@ -186,9 +190,7 @@ export async function sendMedia(
         await sendSingleMessage(gateway, markdownImage, target);
       } else {
         // For files, send a text message with the URL
-        const fileText = resource.name
-          ? `[${resource.name}](${resource.url})`
-          : resource.url;
+        const fileText = resource.name ? `[${resource.name}](${resource.url})` : resource.url;
         await sendSingleMessage(gateway, fileText, target);
       }
     } catch {
@@ -228,7 +230,11 @@ export async function sendKeyboardMessage(
   }
   try {
     if (target.groupOpenid) {
-      const resp = await gateway.sendRestApi('POST', `/v2/groups/${target.groupOpenid}/messages`, body);
+      const resp = await gateway.sendRestApi(
+        'POST',
+        `/v2/groups/${target.groupOpenid}/messages`,
+        body,
+      );
       return resp?.id ?? '';
     }
     if (target.openid) {
@@ -264,10 +270,10 @@ export function createQQApprovalSender(params: {
     ): Promise<string> {
       const markdown = buildApprovalMarkdown(command, risk, reason);
       const keyboard = buildApprovalKeyboard(requestId, {
-        approveOnce:    i18n.t('qq-approval:button.approveOnce'),
+        approveOnce: i18n.t('qq-approval:button.approveOnce'),
         approveSession: i18n.t('qq-approval:button.approveSession'),
-        alwaysAllow:    i18n.t('qq-approval:button.alwaysAllow'),
-        denyOnce:       i18n.t('qq-approval:button.denyOnce'),
+        alwaysAllow: i18n.t('qq-approval:button.alwaysAllow'),
+        denyOnce: i18n.t('qq-approval:button.denyOnce'),
       });
       try {
         return await sendKeyboardMessage(gateway, {
@@ -305,7 +311,10 @@ export function createQQApprovalSender(params: {
       try {
         await sendSingleMessage(gateway, `${emoji} ${resultText}`, target);
       } catch (err) {
-        params.logger?.error('[QQ updateApprovalResult failed]', (err as Error)?.message ?? String(err));
+        params.logger?.error(
+          '[QQ updateApprovalResult failed]',
+          (err as Error)?.message ?? String(err),
+        );
       }
     },
   };
@@ -453,27 +462,29 @@ export function splitText(text: string, limit: number): string[] {
  * fallback when the client does not support markdown rendering.
  */
 export function stripMarkdown(text: string): string {
-  return text
-    // Remove bold markers **text**
-    .replace(/\*\*(.+?)\*\*/g, '$1')
-    // Remove italic markers *text* (non-greedy, avoiding double-asterisk overlap)
-    .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '$1')
-    // Remove inline code backticks
-    .replace(/`([^`]+)`/g, '$1')
-    // Remove fenced code block markers (keep the content)
-    .replace(/```(\w*)\n?/g, '')
-    .replace(/```/g, '')
-    // Convert links [text](url) -> text (url)
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1 ($2)')
-    // Remove heading markers
-    .replace(/^#{1,6}\s+/gm, '')
-    // Remove horizontal rules
-    .replace(/^---+$/gm, '')
-    // Remove strikethrough
-    .replace(/~~(.+?)~~/g, '$1')
-    // Reduce multiple blank lines to at most two
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  return (
+    text
+      // Remove bold markers **text**
+      .replace(/\*\*(.+?)\*\*/g, '$1')
+      // Remove italic markers *text* (non-greedy, avoiding double-asterisk overlap)
+      .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '$1')
+      // Remove inline code backticks
+      .replace(/`([^`]+)`/g, '$1')
+      // Remove fenced code block markers (keep the content)
+      .replace(/```(\w*)\n?/g, '')
+      .replace(/```/g, '')
+      // Convert links [text](url) -> text (url)
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1 ($2)')
+      // Remove heading markers
+      .replace(/^#{1,6}\s+/gm, '')
+      // Remove horizontal rules
+      .replace(/^---+$/gm, '')
+      // Remove strikethrough
+      .replace(/~~(.+?)~~/g, '$1')
+      // Reduce multiple blank lines to at most two
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  );
 }
 
 // ---------------------------------------------------------------------------

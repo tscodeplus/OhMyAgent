@@ -14,11 +14,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  createFilesHarness,
-  SVG_BODY,
-  type FilesHarness,
-} from './webui-files-harness.js';
+import { createFilesHarness, SVG_BODY, type FilesHarness } from './webui-files-harness.js';
 import { generateDownloadToken } from '../../src/shared/download-token.js';
 
 let h: FilesHarness;

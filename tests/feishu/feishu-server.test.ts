@@ -51,7 +51,9 @@ function injectSigned(
   });
 }
 
-function makeEventEnvelope(overrides: { eventType?: string; messageId?: string; token?: string } = {}) {
+function makeEventEnvelope(
+  overrides: { eventType?: string; messageId?: string; token?: string } = {},
+) {
   const {
     eventType = 'im.message.receive_v1',
     messageId = 'om_msg001',
@@ -348,5 +350,3 @@ describe('FeishuServer — no credentials configured', () => {
     }
   });
 });
-
-

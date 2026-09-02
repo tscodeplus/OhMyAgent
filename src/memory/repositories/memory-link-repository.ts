@@ -67,9 +67,7 @@ export class MemoryLinkRepository {
 
   /** Find all links originating from a given memory. */
   findByMemory(memoryId: string): MemoryLink[] {
-    const stmt = this.db.prepare(
-      'SELECT * FROM memory_links WHERE source_memory_id = ?',
-    );
+    const stmt = this.db.prepare('SELECT * FROM memory_links WHERE source_memory_id = ?');
     return stmt.all(memoryId) as MemoryLink[];
   }
 
@@ -79,17 +77,23 @@ export class MemoryLinkRepository {
       'SELECT DISTINCT source_memory_id FROM memory_links WHERE target_entity = ? AND source_memory_id != ?',
     );
     const rows = stmt.all(entity, excludeMemoryId) as { source_memory_id: string }[];
-    return rows.map(r => r.source_memory_id);
+    return rows.map((r) => r.source_memory_id);
   }
 
   /** Find entities linked from a set of memory IDs. */
-  findEntitiesByMemoryIds(memoryIds: string[]): { target_entity: string; source_memory_id: string; confidence: number }[] {
+  findEntitiesByMemoryIds(
+    memoryIds: string[],
+  ): { target_entity: string; source_memory_id: string; confidence: number }[] {
     if (memoryIds.length === 0) return [];
     const placeholders = memoryIds.map(() => '?').join(',');
     const stmt = this.db.prepare(
       `SELECT target_entity, source_memory_id, confidence FROM memory_links WHERE source_memory_id IN (${placeholders})`,
     );
-    return stmt.all(...memoryIds) as { target_entity: string; source_memory_id: string; confidence: number }[];
+    return stmt.all(...memoryIds) as {
+      target_entity: string;
+      source_memory_id: string;
+      confidence: number;
+    }[];
   }
 
   deleteByMemory(memoryId: string): number {

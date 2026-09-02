@@ -152,10 +152,7 @@ function sanitizeLoginError(err: Error): string {
  * Push a subscription progress event to WebSocket subscribers on the
  * channel "subscription:{providerId}".
  */
-function pushProgress(
-  wsManager: WebSocketManager,
-  event: SubscriptionProgressEvent,
-): void {
+function pushProgress(wsManager: WebSocketManager, event: SubscriptionProgressEvent): void {
   wsManager.broadcastToChannel(`subscription:${event.providerId}`, {
     type: 'subscription_progress',
     providerId: event.providerId,
@@ -195,7 +192,9 @@ export function registerSubscriptionRoutes(
 
     const found = resolvePendingRequest(requestId, response);
     if (!found) {
-      return reply.status(404).send({ error: 'No pending request found (may have timed out or already been answered)' });
+      return reply
+        .status(404)
+        .send({ error: 'No pending request found (may have timed out or already been answered)' });
     }
 
     return reply.send({ accepted: true });

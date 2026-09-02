@@ -66,7 +66,7 @@ export default function CreateProjectModal({ onClose, onCreated }: CreateProject
         setCreating(false);
       }
     },
-    [name, description, selectedAgentId, showToast, onCreated]
+    [name, description, selectedAgentId, showToast, onCreated],
   );
 
   const agentOptions = agents.map((a) => ({

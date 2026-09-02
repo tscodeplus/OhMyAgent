@@ -7,7 +7,8 @@ import { useToast } from '../../ui/Toast';
 import Spinner from '../../ui/Spinner';
 import Button from '../../ui/Button';
 
-type UpdateStatus = 'idle' | 'checking' | 'up-to-date' | 'available' | 'downloading' | 'downloaded' | 'error';
+type UpdateStatus =
+  'idle' | 'checking' | 'up-to-date' | 'available' | 'downloading' | 'downloaded' | 'error';
 
 const GITHUB_REPO_URL = 'https://github.com/tscodeplus/OhMyAgent';
 const GITHUB_ISSUES_URL = 'https://github.com/tscodeplus/OhMyAgent/issues';
@@ -46,7 +47,9 @@ function loadIncludeBeta(): boolean {
 function saveIncludeBeta(v: boolean): void {
   try {
     localStorage.setItem(INCLUDE_BETA_KEY, String(v));
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 export default function DesktopSettings() {
@@ -121,7 +124,10 @@ export default function DesktopSettings() {
       pollIntervalRef.current = setInterval(async () => {
         pollCount++;
         if (pollCount > MAX_POLLS) {
-          if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+          }
           setUpdateError(t('settings.about.updateTimeout'));
           setUpdateStatus('error');
           return;
@@ -133,16 +139,23 @@ export default function DesktopSettings() {
 
           // Map status code to i18n text; use raw step for error messages
           const code = statusData.status;
-          const progressKey = (code && code !== 'complete' && code !== 'error')
-            ? t(`settings.about.updateProgress.${code}`, statusData.step || '')
-            : (statusData.step || '');
+          const progressKey =
+            code && code !== 'complete' && code !== 'error'
+              ? t(`settings.about.updateProgress.${code}`, statusData.step || '')
+              : statusData.step || '';
           setUpdateStep(progressKey);
 
           if (code === 'complete') {
-            if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
+            }
             setUpdateStatus('downloaded');
           } else if (code === 'error') {
-            if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
+            }
             setUpdateError(statusData.step || 'Update failed');
             setUpdateStatus('error');
           }
@@ -157,49 +170,59 @@ export default function DesktopSettings() {
   }, [updateStatus]);
 
   // ── Show update-available toast with release notes ──
-  const showUpdateToast = useCallback((version: string, notes: string, isMarkdown = false) => {
-    if (toastedVersionRef.current === version) return;
-    toastedVersionRef.current = version;
+  const showUpdateToast = useCallback(
+    (version: string, notes: string, isMarkdown = false) => {
+      if (toastedVersionRef.current === version) return;
+      toastedVersionRef.current = version;
 
-    let message: string;
-    if (isMarkdown) {
-      // Preserve raw markdown formatting; truncate to a reasonable length
-      const maxLen = 3000;
-      const body = notes && notes.length > maxLen
-        ? notes.slice(0, maxLen).replace(/\n[^\n]*$/, '') + '\n\n…'
-        : notes;
-      message = body
-        ? `${t('settings.about.newVersionAvailable', { version })}\n\n${body}`
-        : t('settings.about.newVersionAvailable', { version });
-    } else {
-      // Strip HTML tags to plain text (needed if notes contain raw HTML)
-      const body = truncateReleaseNotes(notes);
-      message = body
-        ? `${t('settings.about.newVersionAvailable', { version })}\n\n${body}`
-        : t('settings.about.newVersionAvailable', { version });
-    }
+      let message: string;
+      if (isMarkdown) {
+        // Preserve raw markdown formatting; truncate to a reasonable length
+        const maxLen = 3000;
+        const body =
+          notes && notes.length > maxLen
+            ? notes.slice(0, maxLen).replace(/\n[^\n]*$/, '') + '\n\n…'
+            : notes;
+        message = body
+          ? `${t('settings.about.newVersionAvailable', { version })}\n\n${body}`
+          : t('settings.about.newVersionAvailable', { version });
+      } else {
+        // Strip HTML tags to plain text (needed if notes contain raw HTML)
+        const body = truncateReleaseNotes(notes);
+        message = body
+          ? `${t('settings.about.newVersionAvailable', { version })}\n\n${body}`
+          : t('settings.about.newVersionAvailable', { version });
+      }
 
-    showToast(message, 'info', 0, [
-      {
-        label: t('common.cancel'),
-        onClick: () => {
-          toastedVersionRef.current = '';
-        },
-      },
-      {
-        label: t('settings.about.upgradeToLatest'),
-        onClick: () => {
-          if (isElectron()) {
-            downloadAttemptedRef.current = true;
-            setUpdateStatus('downloading');
-            getElectronAPI()!.downloadUpdate();
-          } else {
-            handleWebUIUpdate();
-          }
-        },
-      },
-    ], isMarkdown);
-  }, [showToast, t, handleWebUIUpdate]);
+      showToast(
+        message,
+        'info',
+        0,
+        [
+          {
+            label: t('common.cancel'),
+            onClick: () => {
+              toastedVersionRef.current = '';
+            },
+          },
+          {
+            label: t('settings.about.upgradeToLatest'),
+            onClick: () => {
+              if (isElectron()) {
+                downloadAttemptedRef.current = true;
+                setUpdateStatus('downloading');
+                getElectronAPI()!.downloadUpdate();
+              } else {
+                handleWebUIUpdate();
+              }
+            },
+          },
+        ],
+        isMarkdown,
+      );
+    },
+    [showToast, t, handleWebUIUpdate],
+  );
 
   // ── Electron update event listeners ──
   useEffect(() => {
@@ -242,7 +265,8 @@ export default function DesktopSettings() {
         showToast(msg, 'error', 0, [
           {
             label: t('settings.about.openGithubReleases'),
-            onClick: () => window.open(GITHUB_REPO_URL + '/releases', '_blank', 'noopener,noreferrer'),
+            onClick: () =>
+              window.open(GITHUB_REPO_URL + '/releases', '_blank', 'noopener,noreferrer'),
           },
           {
             label: t('common.cancel'),
@@ -389,9 +413,7 @@ export default function DesktopSettings() {
     if (updateStatus === 'error' && updateError) {
       const isElectronDownloadError = isElectron() && !!latestVersion;
       if (!isElectronDownloadError) {
-        showToast(updateError, 'error', 0, [
-          { label: t('common.close'), onClick: () => {} },
-        ]);
+        showToast(updateError, 'error', 0, [{ label: t('common.close'), onClick: () => {} }]);
       }
     }
   }, [updateStatus, updateError, latestVersion, showToast]);
@@ -404,22 +426,43 @@ export default function DesktopSettings() {
   const isChecking = updateStatus === 'checking';
   const isDownloading = updateStatus === 'downloading';
 
-  if (loading) return <div className="flex justify-center py-8"><Spinner /></div>;
+  if (loading)
+    return (
+      <div className="flex justify-center py-8">
+        <Spinner />
+      </div>
+    );
 
   return (
     <div className="space-y-6">
       <section>
         {/* ── Logo ── */}
         <div className="flex flex-col items-center mb-6">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" fill="none" className="w-24 h-24">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 1024 1024"
+            fill="none"
+            className="w-24 h-24"
+          >
             <defs>
               <linearGradient id="logo-bg" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stop-color="#6366f1"/>
-                <stop offset="100%" stop-color="#4f46e5"/>
+                <stop offset="0%" stop-color="#6366f1" />
+                <stop offset="100%" stop-color="#4f46e5" />
               </linearGradient>
             </defs>
-            <rect x="64" y="64" width="896" height="896" rx="224" fill="url(#logo-bg)"/>
-            <text x="50%" y="55%" dominant-baseline="middle" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="580" font-weight="bold" fill="white">O</text>
+            <rect x="64" y="64" width="896" height="896" rx="224" fill="url(#logo-bg)" />
+            <text
+              x="50%"
+              y="55%"
+              dominant-baseline="middle"
+              text-anchor="middle"
+              font-family="Arial, Helvetica, sans-serif"
+              font-size="580"
+              font-weight="bold"
+              fill="white"
+            >
+              O
+            </text>
           </svg>
           <p className="mt-3 text-sm font-semibold text-neutral-500 dark:text-neutral-400 text-center">
             OhMyAgent {appVersion ? `v${appVersion}` : ''}
@@ -463,16 +506,17 @@ export default function DesktopSettings() {
               disabled={isDownloading}
               onClick={handleCheckUpdates}
             >
-              {isChecking
-                ? t('settings.about.checking')
-                : t('settings.about.checkUpdates')}
+              {isChecking ? t('settings.about.checking') : t('settings.about.checkUpdates')}
             </Button>
 
             <label className="flex items-center gap-1.5 cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={includeBeta}
-                onChange={(e) => { setIncludeBeta(e.target.checked); saveIncludeBeta(e.target.checked); }}
+                onChange={(e) => {
+                  setIncludeBeta(e.target.checked);
+                  saveIncludeBeta(e.target.checked);
+                }}
                 disabled={isChecking || isDownloading}
                 className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-indigo-500 focus-visible:ring-indigo-500 cursor-pointer"
               />

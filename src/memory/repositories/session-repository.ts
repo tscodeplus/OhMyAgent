@@ -54,7 +54,9 @@ export class SessionRepository {
   }
 
   findByChatId(chatId: string): Session[] {
-    const stmt = this.db.prepare('SELECT * FROM sessions WHERE chat_id = ? ORDER BY created_at DESC');
+    const stmt = this.db.prepare(
+      'SELECT * FROM sessions WHERE chat_id = ? ORDER BY created_at DESC',
+    );
     return stmt.all(chatId) as Session[];
   }
 
@@ -83,7 +85,7 @@ export class SessionRepository {
       return this.findById(id);
     }
 
-    fields.push('updated_at = cast(strftime(\'%s\',\'now\') as integer) * 1000');
+    fields.push("updated_at = cast(strftime('%s','now') as integer) * 1000");
     const sql = `UPDATE sessions SET ${fields.join(', ')} WHERE id = @id`;
     this.db.prepare(sql).run(values);
     return this.findById(id);
@@ -97,7 +99,11 @@ export class SessionRepository {
 
   /** Update the updated_at timestamp without changing other fields. */
   touch(id: string): void {
-    this.db.prepare("UPDATE sessions SET updated_at = cast(strftime('%s','now') as integer) * 1000 WHERE id = ?").run(id);
+    this.db
+      .prepare(
+        "UPDATE sessions SET updated_at = cast(strftime('%s','now') as integer) * 1000 WHERE id = ?",
+      )
+      .run(id);
   }
 
   /** List sessions ordered by most recent activity. */

@@ -10,9 +10,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { load as parseYaml, dump as dumpYaml } from 'js-yaml';
 import { loadConfig, resetConfig } from '../config.js';
 
-export function createOnConfigChanged(
-  logger?: { error: (...args: any[]) => void },
-): () => void {
+export function createOnConfigChanged(logger?: { error: (...args: any[]) => void }): () => void {
   return () => {
     const configPath = process.env.CONFIG_FILE || './config.yaml';
     if (!existsSync(configPath)) return;

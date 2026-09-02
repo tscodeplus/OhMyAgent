@@ -12,21 +12,29 @@ export default function AppearanceSettings() {
   const { themeMode, setThemeMode } = useTheme();
   const [projectSortOrder, setProjectSortOrder] = useState('name');
 
-  const handleLanguageChange = useCallback((lang: string) => {
-    i18n.changeLanguage(lang).then(() => {
-      showToast(i18n.t('common:settings.appearance.languageChanged'), 'success');
-      getElectronAPI()?.setDesktopLanguage(lang);
-    });
-  }, [showToast]);
+  const handleLanguageChange = useCallback(
+    (lang: string) => {
+      i18n.changeLanguage(lang).then(() => {
+        showToast(i18n.t('common:settings.appearance.languageChanged'), 'success');
+        getElectronAPI()?.setDesktopLanguage(lang);
+      });
+    },
+    [showToast],
+  );
 
-  const themeDesc = themeMode === 'system' ? t('settings.appearance.themeSystemDesc')
-    : themeMode === 'dark' ? t('settings.appearance.themeDarkDesc')
-    : t('settings.appearance.themeLightDesc');
+  const themeDesc =
+    themeMode === 'system'
+      ? t('settings.appearance.themeSystemDesc')
+      : themeMode === 'dark'
+        ? t('settings.appearance.themeDarkDesc')
+        : t('settings.appearance.themeLightDesc');
 
   return (
     <div className="space-y-8">
       <section>
-        <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.appearance.title')}</h3>
+        <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">
+          {t('settings.appearance.title')}
+        </h3>
         <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
           <Select
             label={t('settings.appearance.theme')}
@@ -52,7 +60,9 @@ export default function AppearanceSettings() {
       </section>
 
       <section>
-        <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('settings.appearance.projectSort')}</h3>
+        <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">
+          {t('settings.appearance.projectSort')}
+        </h3>
         <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
           <Select
             label={t('settings.appearance.sortLabel')}

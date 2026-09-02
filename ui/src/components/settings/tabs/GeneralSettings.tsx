@@ -17,34 +17,53 @@ interface GeneralSettingsProps {
   onDirtyChange?: (tabId: string, dirty: boolean) => void;
 }
 
-export default function GeneralSettings({ tabId = 'general', registerHandle, onDirtyChange }: GeneralSettingsProps) {
+export default function GeneralSettings({
+  tabId = 'general',
+  registerHandle,
+  onDirtyChange,
+}: GeneralSettingsProps) {
   const { t } = useTranslation('common');
   const { themeMode, setThemeMode } = useTheme();
-  const { config, loading, dirtyCount, getField, setField, save, cancel } = useConfigDirty(tabId, registerHandle, onDirtyChange);
+  const { config, loading, dirtyCount, getField, setField, save, cancel } = useConfigDirty(
+    tabId,
+    registerHandle,
+    onDirtyChange,
+  );
 
   // Warn before leaving the page if there are unsaved changes
   useEffect(() => {
     if (dirtyCount === 0) return;
-    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, [dirtyCount]);
 
-  if (loading) return <div className="flex justify-center py-8"><Spinner /></div>;
-  if (!config) return <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('common.error')}</p>;
+  if (loading)
+    return (
+      <div className="flex justify-center py-8">
+        <Spinner />
+      </div>
+    );
+  if (!config)
+    return <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('common.error')}</p>;
 
   const logging = (config.logging as Record<string, string>) || {};
   const footer = (config.footer as Record<string, boolean>) || {};
-  const showToolCalls = config.showToolCalls as boolean ?? true;
+  const showToolCalls = (config.showToolCalls as boolean) ?? true;
   const database = (config.database as Record<string, string>) || {};
   const rateLimit = (config.rateLimit as Record<string, number>) || {};
   const dbPath = database.path || '';
   const rateLimitMaxStr = String(rateLimit.webhookMaxRequests || 100);
   const rateLimitWindowStr = String(rateLimit.webhookWindowMs || 60000);
 
-  const themeDesc = themeMode === 'system' ? t('settings.appearance.themeSystemDesc')
-    : themeMode === 'dark' ? t('settings.appearance.themeDarkDesc')
-    : t('settings.appearance.themeLightDesc');
+  const themeDesc =
+    themeMode === 'system'
+      ? t('settings.appearance.themeSystemDesc')
+      : themeMode === 'dark'
+        ? t('settings.appearance.themeDarkDesc')
+        : t('settings.appearance.themeLightDesc');
 
   return (
     <div className="space-y-6">
@@ -95,7 +114,10 @@ export default function GeneralSettings({ tabId = 'general', registerHandle, onD
           label={t('settings.general.logLevel')}
           value={getField('logging.level', logging.level || 'info') as string}
           onChange={(e) => setField('logging.level', e.target.value)}
-          options={['debug', 'error', 'fatal', 'info', 'trace', 'warn'].map(v => ({ value: v, label: v }))}
+          options={['debug', 'error', 'fatal', 'info', 'trace', 'warn'].map((v) => ({
+            value: v,
+            label: v,
+          }))}
         />
       </SettingsCard>
 
@@ -103,8 +125,12 @@ export default function GeneralSettings({ tabId = 'general', registerHandle, onD
       <SettingsCard>
         <div className="flex items-center justify-between">
           <div>
-            <label className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{t('settings.general.showToolCalls')}</label>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('settings.general.showToolCallsDesc')}</p>
+            <label className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+              {t('settings.general.showToolCalls')}
+            </label>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              {t('settings.general.showToolCallsDesc')}
+            </p>
           </div>
           <Toggle
             checked={getField('showToolCalls', showToolCalls) as boolean}
@@ -117,11 +143,17 @@ export default function GeneralSettings({ tabId = 'general', registerHandle, onD
       <SettingsCard>
         <div className="flex items-center justify-between">
           <div>
-            <label className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{t('settings.general.showSkillCalls')}</label>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('settings.general.showSkillCallsDesc')}</p>
+            <label className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+              {t('settings.general.showSkillCalls')}
+            </label>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              {t('settings.general.showSkillCallsDesc')}
+            </p>
           </div>
           <Toggle
-            checked={getField('showSkillCalls', config.showSkillCalls as boolean ?? true) as boolean}
+            checked={
+              getField('showSkillCalls', (config.showSkillCalls as boolean) ?? true) as boolean
+            }
             onChange={(v) => setField('showSkillCalls', v)}
           />
         </div>

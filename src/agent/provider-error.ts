@@ -13,12 +13,7 @@
 
 import { i18n } from '../i18n/index.js';
 
-export type ProviderErrorKind =
-  | 'rate_limited'
-  | 'model_not_found'
-  | 'auth'
-  | 'network'
-  | 'unknown';
+export type ProviderErrorKind = 'rate_limited' | 'model_not_found' | 'auth' | 'network' | 'unknown';
 
 export interface ChatProviderError {
   kind: ProviderErrorKind;
@@ -44,19 +39,33 @@ export interface ChatProviderError {
  */
 export function classifyProviderError(rawError: string): ProviderErrorKind {
   const e = rawError?.toLowerCase() ?? '';
-  if (/429|rate[_\s-]?limit|too many requests|529|quota|capacity|overload|busy|slow down/i.test(e)) {
+  if (
+    /429|rate[_\s-]?limit|too many requests|529|quota|capacity|overload|busy|slow down/i.test(e)
+  ) {
     return 'rate_limited';
   }
-  if (/no such model|unknown model|invalid model|model .* (not|doesn.t) (exist|found)|not supported|unsupported model/i.test(e)) {
+  if (
+    /no such model|unknown model|invalid model|model .* (not|doesn.t) (exist|found)|not supported|unsupported model/i.test(
+      e,
+    )
+  ) {
     return 'model_not_found';
   }
-  if (/401|403|unauthor|forbidden|invalid api[_\s-]?key|api[_\s-]?key|authentication|not authenticated/i.test(e)) {
+  if (
+    /401|403|unauthor|forbidden|invalid api[_\s-]?key|api[_\s-]?key|authentication|not authenticated/i.test(
+      e,
+    )
+  ) {
     return 'auth';
   }
   if (/404|not found|function .* not found/i.test(e)) {
     return 'model_not_found';
   }
-  if (/econnreset|etimedout|timeout|network|enotfound|socket|connection|dns|502|503|504|bad gateway|service unavailable|gateway/i.test(e)) {
+  if (
+    /econnreset|etimedout|timeout|network|enotfound|socket|connection|dns|502|503|504|bad gateway|service unavailable|gateway/i.test(
+      e,
+    )
+  ) {
     return 'network';
   }
   return 'unknown';

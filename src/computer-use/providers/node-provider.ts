@@ -85,7 +85,10 @@ function deepPick(root: unknown, keys: string[]): unknown {
 }
 
 /** scroll 兜底为坐标 swipe 时,把方向换算成起止点(相对显示尺寸)。 */
-function swipePoints(direction: 'up' | 'down' | 'left' | 'right', display: { width: number; height: number }): [number, number, number, number] {
+function swipePoints(
+  direction: 'up' | 'down' | 'left' | 'right',
+  display: { width: number; height: number },
+): [number, number, number, number] {
   const { width, height } = display;
   const cx = Math.round(width / 2);
   const cy = Math.round(height / 2);

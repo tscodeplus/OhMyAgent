@@ -34,9 +34,7 @@ export const askUserQuestionCapability: ToolCapabilityDescriptor = {
 
 const AskUserQuestionParams = Type.Object({
   question: Type.String(),
-  options: Type.Optional(
-    Type.Array(Type.String(), { minItems: 2, maxItems: 4 }),
-  ),
+  options: Type.Optional(Type.Array(Type.String(), { minItems: 2, maxItems: 4 })),
 });
 
 interface AskUserQuestionArgs {
@@ -81,16 +79,17 @@ export function createAskUserQuestionToolDefinition(): ToolDefinition {
       }));
 
       // Try to get a channel sender
-      const sender: UserQuestionSender | undefined =
-        getUserQuestionSender?.(ctx.channel ?? '', ctx.chatId ?? '', ctx.sessionId);
+      const sender: UserQuestionSender | undefined = getUserQuestionSender?.(
+        ctx.channel ?? '',
+        ctx.chatId ?? '',
+        ctx.sessionId,
+      );
 
       if (!sender || !userQuestionStore) {
         // ── Fallback: no interactive UI available ──
         let formatted = `[User interaction required] ${question}`;
         if (options && options.length > 0) {
-          const choices = options
-            .map((opt, i) => `${i + 1}. ${opt}`)
-            .join('\n');
+          const choices = options.map((opt, i) => `${i + 1}. ${opt}`).join('\n');
           formatted += `\n\nOptions:\n${choices}`;
         }
         return textResult(formatted);
@@ -103,12 +102,7 @@ export function createAskUserQuestionToolDefinition(): ToolDefinition {
         // Send the question UI (best-effort — if it fails, still try to wait)
         let cardMessageId: string | undefined;
         try {
-          cardMessageId = await sender.sendQuestion(
-            ctx.chatId!,
-            requestId,
-            question,
-            opts,
-          );
+          cardMessageId = await sender.sendQuestion(ctx.chatId!, requestId, question, opts);
         } catch (err) {
           // If we can't send, fall back to text
           let formatted = `[User interaction required] ${question}`;
@@ -119,11 +113,7 @@ export function createAskUserQuestionToolDefinition(): ToolDefinition {
         }
 
         // Wait for the user's answer
-        const answer = await userQuestionStore.create(
-          requestId,
-          DEFAULT_TIMEOUT_MS,
-          ctx.sessionId,
-        );
+        const answer = await userQuestionStore.create(requestId, DEFAULT_TIMEOUT_MS, ctx.sessionId);
 
         // Close/resolve the question UI (best-effort)
         if (sender.closeQuestion) {
@@ -136,9 +126,7 @@ export function createAskUserQuestionToolDefinition(): ToolDefinition {
 
         return textResult(answer);
       } catch (err) {
-        return errorResult(
-          `Failed to ask user question: ${(err as Error).message}`,
-        );
+        return errorResult(`Failed to ask user question: ${(err as Error).message}`);
       }
     },
   };

@@ -16,8 +16,22 @@ describe('memory-recall tool', () => {
   it('returns formatted results from retriever', async () => {
     const mockRetriever = {
       retrieve: vi.fn().mockResolvedValue([
-        { id: '1', content: 'User prefers dark mode', scope: 'user', kind: 'preference', score: 0.95, createdAt: Date.now() },
-        { id: '2', content: 'User speaks Chinese', scope: 'user', kind: 'fact', score: 0.82, createdAt: Date.now() },
+        {
+          id: '1',
+          content: 'User prefers dark mode',
+          scope: 'user',
+          kind: 'preference',
+          score: 0.95,
+          createdAt: Date.now(),
+        },
+        {
+          id: '2',
+          content: 'User speaks Chinese',
+          scope: 'user',
+          kind: 'fact',
+          score: 0.82,
+          createdAt: Date.now(),
+        },
       ]),
     };
 
@@ -58,12 +72,15 @@ describe('memory-recall tool', () => {
     };
     const def = createMemoryRecallToolDefinition({ memoryRetriever: mockRetriever as any });
 
-    await def.execute({ query: 'test' }, {
-      cwd: process.cwd(),
-      policyScope: {} as any,
-      services: {} as any,
-      agentId: 'agent-b',
-    });
+    await def.execute(
+      { query: 'test' },
+      {
+        cwd: process.cwd(),
+        policyScope: {} as any,
+        services: {} as any,
+        agentId: 'agent-b',
+      },
+    );
 
     expect(mockRetriever.retrieveGrouped).toHaveBeenCalledWith({
       query: 'test',
@@ -100,7 +117,10 @@ describe('memory-store tool', () => {
     };
 
     const tool = createMemoryStoreTool({ memoryWriter: mockWriter });
-    const result = await tool.execute('call-5', { content: 'User prefers dark mode', category: 'preference' });
+    const result = await tool.execute('call-5', {
+      content: 'User prefers dark mode',
+      category: 'preference',
+    });
 
     expect(mockWriter.write).toHaveBeenCalledWith({
       content: 'User prefers dark mode',
@@ -119,12 +139,15 @@ describe('memory-store tool', () => {
     };
     const def = createMemoryStoreToolDefinition({ memoryWriter: mockWriter as any });
 
-    await def.execute({ content: 'User prefers dark mode', category: 'preference' }, {
-      cwd: process.cwd(),
-      policyScope: {} as any,
-      services: {} as any,
-      agentId: 'agent-b',
-    });
+    await def.execute(
+      { content: 'User prefers dark mode', category: 'preference' },
+      {
+        cwd: process.cwd(),
+        policyScope: {} as any,
+        services: {} as any,
+        agentId: 'agent-b',
+      },
+    );
 
     expect(mockWriter.write).toHaveBeenCalledWith({
       content: 'User prefers dark mode',
@@ -203,7 +226,10 @@ describe('memory-store tool', () => {
     };
 
     const tool = createMemoryStoreTool({ memoryWriter: mockWriter });
-    const result = await tool.execute('call-9', { content: 'User prefers dark mode', category: 'preference' });
+    const result = await tool.execute('call-9', {
+      content: 'User prefers dark mode',
+      category: 'preference',
+    });
 
     expect(contentText(result)).toBe('This memory already exists (similar content detected).');
   });

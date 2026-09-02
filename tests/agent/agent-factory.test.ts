@@ -183,7 +183,12 @@ describe('AgentFactory', () => {
         approvalDefault: 'none',
       },
       execute: async (_args: any, ctx: any) => ({
-        content: [{ type: 'text', text: `session=${ctx.sessionId};agent=${ctx.agentId};profile=${ctx.policyScope.toolsProfile}` }],
+        content: [
+          {
+            type: 'text',
+            text: `session=${ctx.sessionId};agent=${ctx.agentId};profile=${ctx.policyScope.toolsProfile}`,
+          },
+        ],
       }),
     };
     const toolPlatformRegistry = {
@@ -305,7 +310,11 @@ describe('AgentFactory', () => {
       }),
       getAppState: vi.fn().mockResolvedValue({
         mode: 'vision-native',
-        screenshot: { type: 'image', mimeType: 'image/png', data: Buffer.from('png').toString('base64') },
+        screenshot: {
+          type: 'image',
+          mimeType: 'image/png',
+          data: Buffer.from('png').toString('base64'),
+        },
         display: { width: 1920, height: 1080 },
         elements: [],
         leaseId: 'lease-1',
@@ -324,11 +333,14 @@ describe('AgentFactory', () => {
       ...config,
       tools: { ...config.tools, toolsProfile: 'full' as const },
     };
-    const factory = createAgentFactory({
-      config: fullConfig,
-      toolRegistry: registry,
-      computerUseHost: computerUseHost as any,
-    }, { feishuClient: feishuClient as any });
+    const factory = createAgentFactory(
+      {
+        config: fullConfig,
+        toolRegistry: registry,
+        computerUseHost: computerUseHost as any,
+      },
+      { feishuClient: feishuClient as any },
+    );
 
     const agent = factory.create({
       sessionId: 'session-123',
@@ -341,12 +353,14 @@ describe('AgentFactory', () => {
     const result = await tool.execute('call-1', { action: 'send_screenshot' });
 
     expect(feishuClient.uploadImage).toHaveBeenCalledWith(Buffer.from('png'), 'message');
-    expect(feishuClient.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
-      receive_id: 'chat-1',
-      receive_id_type: 'chat_id',
-      msg_type: 'image',
-      content: JSON.stringify({ image_key: 'img_1' }),
-    }));
+    expect(feishuClient.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        receive_id: 'chat-1',
+        receive_id_type: 'chat_id',
+        msg_type: 'image',
+        content: JSON.stringify({ image_key: 'img_1' }),
+      }),
+    );
     expect(result.details).toMatchObject({ sent: true, snapshotId: 'snap-1' });
   });
 
@@ -354,7 +368,11 @@ describe('AgentFactory', () => {
     const computerUseHost = {
       getAppState: vi.fn().mockResolvedValue({
         mode: 'vision-native',
-        screenshot: { type: 'image', mimeType: 'image/png', data: Buffer.from('png').toString('base64') },
+        screenshot: {
+          type: 'image',
+          mimeType: 'image/png',
+          data: Buffer.from('png').toString('base64'),
+        },
         display: { width: 1920, height: 1080 },
         elements: [],
         leaseId: 'lease-1',
@@ -373,11 +391,14 @@ describe('AgentFactory', () => {
       ...config,
       tools: { ...config.tools, toolsProfile: 'full' as const },
     };
-    const factory = createAgentFactory({
-      config: fullConfig,
-      toolRegistry: registry,
-      computerUseHost: computerUseHost as any,
-    }, { feishuClient: feishuClient as any });
+    const factory = createAgentFactory(
+      {
+        config: fullConfig,
+        toolRegistry: registry,
+        computerUseHost: computerUseHost as any,
+      },
+      { feishuClient: feishuClient as any },
+    );
 
     const agent = factory.create({
       sessionId: 'session-123',
@@ -434,7 +455,12 @@ describe('resolveProviderApiKey', () => {
   it('returns the custom provider key', () => {
     const config = makeMockConfig();
     config.customProviders = [
-      { provider: 'agnes', apiKey: 'agnes-key', baseUrl: 'https://apihub.agnes-ai.com/v1', models: [] },
+      {
+        provider: 'agnes',
+        apiKey: 'agnes-key',
+        baseUrl: 'https://apihub.agnes-ai.com/v1',
+        models: [],
+      },
     ];
     expect(resolveProviderApiKey(config, 'agnes')).toBe('agnes-key');
   });
@@ -454,7 +480,12 @@ describe('resolveProviderApiKey', () => {
   it('prefers custom provider keys over provider_keys and piAi.apiKey', () => {
     const config = makeMockConfig();
     config.customProviders = [
-      { provider: 'deepseek', apiKey: 'custom-key', baseUrl: 'https://custom.example.com/v1', models: [] },
+      {
+        provider: 'deepseek',
+        apiKey: 'custom-key',
+        baseUrl: 'https://custom.example.com/v1',
+        models: [],
+      },
     ];
     config.providerKeys = { deepseek: { apiKey: 'pk-key', baseUrl: '' } };
     expect(resolveProviderApiKey(config, 'deepseek')).toBe('custom-key');
@@ -637,7 +668,10 @@ describe('AgentFactory user question resolution', () => {
 
     const count = factory.rejectPendingQuestions('session-1');
     expect(count).toBe(3);
-    expect(userQuestionStore.rejectAllForSession).toHaveBeenCalledWith('session-1', 'User sent a new message');
+    expect(userQuestionStore.rejectAllForSession).toHaveBeenCalledWith(
+      'session-1',
+      'User sent a new message',
+    );
   });
 });
 

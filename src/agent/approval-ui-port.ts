@@ -62,10 +62,7 @@ export interface ApprovalUiSessionContext {
  * batch share a single underlying tracker.
  */
 export interface ApprovalUiPort {
-  getSession(
-    ctx: ApprovalUiSessionContext,
-    cache: ApprovalUiSessionCache,
-  ): ApprovalUiSession;
+  getSession(ctx: ApprovalUiSessionContext, cache: ApprovalUiSessionCache): ApprovalUiSession;
 }
 
 /** Mutable slot where the port caches the active session for a turn. */
@@ -97,9 +94,7 @@ export interface ChannelApprovalSender {
  * Adapt a plain `ChannelApprovalSender` into an `ApprovalUiSession`.
  * Stateless — a fresh adapter per turn is fine.
  */
-export function channelSenderToSession(
-  sender: ChannelApprovalSender,
-): ApprovalUiSession {
+export function channelSenderToSession(sender: ChannelApprovalSender): ApprovalUiSession {
   return {
     async present(req) {
       return sender.sendApprovalMessage(
@@ -114,7 +109,9 @@ export function channelSenderToSession(
       if (!sender.updateApprovalResult || !res.cardMessageId) return;
       await sender
         .updateApprovalResult(res.chatId, res.cardMessageId, res.decision, res.command)
-        .catch(() => { logger.warn('Failed to update approval result — non-critical'); });
+        .catch(() => {
+          logger.warn('Failed to update approval result — non-critical');
+        });
     },
   };
 }

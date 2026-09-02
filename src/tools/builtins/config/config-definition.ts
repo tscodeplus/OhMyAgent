@@ -55,7 +55,9 @@ function isSensitiveField(fieldName: string): boolean {
 // ---------------------------------------------------------------------------
 
 type JsonValue = string | number | boolean | null | JsonObject | JsonArray;
-interface JsonObject { [key: string]: JsonValue }
+interface JsonObject {
+  [key: string]: JsonValue;
+}
 type JsonArray = JsonValue[];
 
 /**
@@ -83,7 +85,10 @@ function redactSensitive(value: JsonValue, depth = 0): JsonValue {
 /**
  * Resolve a dotted path (e.g. "tools.toolsProfile") inside an object.
  */
-function resolvePath(obj: unknown, path: string): { value: JsonValue | undefined; sensitive: boolean } {
+function resolvePath(
+  obj: unknown,
+  path: string,
+): { value: JsonValue | undefined; sensitive: boolean } {
   const parts = path.split('.');
   let current: unknown = obj;
 

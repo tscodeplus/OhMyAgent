@@ -55,16 +55,24 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
     const agentState = agent.state as {
       messages?: Array<{
         role: string;
-        content: string | Array<{ type: string; text?: string; thinking?: string; id?: string; name?: string; arguments?: Record<string, unknown> }>;
+        content:
+          | string
+          | Array<{
+              type: string;
+              text?: string;
+              thinking?: string;
+              id?: string;
+              name?: string;
+              arguments?: Record<string, unknown>;
+            }>;
         usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
         model?: string;
         timestamp?: number;
       }>;
     };
     const messages = agentState.messages ?? [];
-    const startIndex = runtime.persistedMessageCount > messages.length
-      ? 0
-      : runtime.persistedMessageCount;
+    const startIndex =
+      runtime.persistedMessageCount > messages.length ? 0 : runtime.persistedMessageCount;
     const batchMessages = messages.slice(startIndex);
     const newMessages = batchMessages.filter(
       (msg) => msg.role === 'user' || msg.role === 'assistant',
@@ -109,11 +117,17 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
           batchImages.push({ alt: imgMatch[1] || undefined, url });
         }
       }
-      const linkRegex = /\[([^\[\]]+)\]\((\/(?:api\/files\/(?:serve|download)\?[^)\s]+|dl\/[^)\s]+|desktop-bridge-download\?[^)\s]+))\)/g;
+      const linkRegex =
+        /\[([^\[\]]+)\]\((\/(?:api\/files\/(?:serve|download)\?[^)\s]+|dl\/[^)\s]+|desktop-bridge-download\?[^)\s]+))\)/g;
       let lm: RegExpExecArray | null;
       while ((lm = linkRegex.exec(text)) !== null) {
         const linkUrl = lm[2];
-        if (linkUrl.startsWith('/api/files/serve') || linkUrl.startsWith('/api/files/download') || linkUrl.startsWith('/dl/') || linkUrl.startsWith('/desktop-bridge-download')) {
+        if (
+          linkUrl.startsWith('/api/files/serve') ||
+          linkUrl.startsWith('/api/files/download') ||
+          linkUrl.startsWith('/dl/') ||
+          linkUrl.startsWith('/desktop-bridge-download')
+        ) {
           if (!seenUrls.has(linkUrl)) {
             seenUrls.add(linkUrl);
             batchFiles.push({ name: lm[1], path: linkUrl });
@@ -121,13 +135,30 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
         }
       }
     }
-    logger.info({ toolResultCount, batchImages: batchImages.length, batchFiles: batchFiles.length, batchMessageCount: batchMessages.length, startIndex }, 'Pre-scan complete');
-    if (batchImages.length > 0) logger.info({ urls: batchImages.map(i => i.url.slice(0, 80)) }, 'Pre-scan images found');
-    if (batchFiles.length > 0) logger.info({ paths: batchFiles.map(f => f.path.slice(0, 80)) }, 'Pre-scan files found');
+    logger.info(
+      {
+        toolResultCount,
+        batchImages: batchImages.length,
+        batchFiles: batchFiles.length,
+        batchMessageCount: batchMessages.length,
+        startIndex,
+      },
+      'Pre-scan complete',
+    );
+    if (batchImages.length > 0)
+      logger.info({ urls: batchImages.map((i) => i.url.slice(0, 80)) }, 'Pre-scan images found');
+    if (batchFiles.length > 0)
+      logger.info({ paths: batchFiles.map((f) => f.path.slice(0, 80)) }, 'Pre-scan files found');
 
     // Group consecutive assistant messages to preserve block-level ordering
     interface PendingAssistant {
-      blocks: Array<{ type: string; text?: string; id?: string; name?: string; arguments?: Record<string, unknown> }>;
+      blocks: Array<{
+        type: string;
+        text?: string;
+        id?: string;
+        name?: string;
+        arguments?: Record<string, unknown>;
+      }>;
       usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
       model?: string;
       provider?: string;
@@ -152,7 +183,11 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
       // Prepend skill activation notification to content so it appears in
       // history even when rendered without segment support (plain text fallback).
       const skillLabel = runtime.skillActivatedName
-        ? i18n.t(runtime.skillActivatedName.includes(' | ') ? 'messages:skill.merged' : 'messages:skill.activated')
+        ? i18n.t(
+            runtime.skillActivatedName.includes(' | ')
+              ? 'messages:skill.merged'
+              : 'messages:skill.activated',
+          )
         : '';
       const skillPrefix = skillLabel
         ? `⚡️ ${skillLabel}：**${runtime.skillActivatedName}**\n\n`
@@ -192,7 +227,13 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
       if (!content.trim() && toolCalls.length === 0) return;
 
       // 3. Build segments from block order when tool calls or skill are present
-      let segments: Array<{ type: 'text'; content: string } | { type: 'tool_call'; id: string } | { type: 'skill'; name: string }> | undefined;
+      let segments:
+        | Array<
+            | { type: 'text'; content: string }
+            | { type: 'tool_call'; id: string }
+            | { type: 'skill'; name: string }
+          >
+        | undefined;
       const hasSkill = !!runtime.skillActivatedName;
       const hasToolSegments = persistTools && toolCalls.length > 0;
       if (hasToolSegments || hasSkill) {
@@ -227,7 +268,10 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
       // saw its final usage chunk — persist the error instead so the UI never
       // shows a misleading "↓0 ↑0" footer for a response that consumed tokens.
       if (pending.errorMessage && !turnSucceeded) {
-        meta.error = toChatError(pending.errorMessage, qualifyModelRef(pending.provider, pending.model));
+        meta.error = toChatError(
+          pending.errorMessage,
+          qualifyModelRef(pending.provider, pending.model),
+        );
       } else if (pending.usage) {
         meta.usage = {
           input: pending.usage.input ?? 0,
@@ -266,7 +310,8 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
         if (content.trim()) {
           // Extract file links from user message content (e.g. uploaded attachments)
           const userFiles: Array<{ name: string; path: string }> = [];
-          const userFileLinkRegex = /\[([^\[\]]+)\]\((\/(?:api\/files\/(?:serve|download)\?[^)\s]+))\)/g;
+          const userFileLinkRegex =
+            /\[([^\[\]]+)\]\((\/(?:api\/files\/(?:serve|download)\?[^)\s]+))\)/g;
           let ufMatch: RegExpExecArray | null;
           const ufSeen = new Set<string>();
           while ((ufMatch = userFileLinkRegex.exec(content)) !== null) {
@@ -290,10 +335,10 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
       }
 
       if (msg.role === 'assistant') {
-        const hasToolCalls = Array.isArray(msg.content) &&
-          msg.content.some((block: any) => block.type === 'toolCall');
-        const pendingHasToolCalls = pendingAssistant !== null &&
-          pendingAssistant.blocks.some(b => b.type === 'toolCall');
+        const hasToolCalls =
+          Array.isArray(msg.content) && msg.content.some((block: any) => block.type === 'toolCall');
+        const pendingHasToolCalls =
+          pendingAssistant !== null && pendingAssistant.blocks.some((b) => b.type === 'toolCall');
 
         // Persist immediately when no tool calls are involved
         if (!hasToolCalls && !pendingHasToolCalls) {
@@ -312,7 +357,11 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
           }
           // Prepend skill activation text for plain-text fallback rendering
           const noTcSkillLabel = runtime.skillActivatedName
-            ? i18n.t(runtime.skillActivatedName.includes(' | ') ? 'messages:skill.merged' : 'messages:skill.activated')
+            ? i18n.t(
+                runtime.skillActivatedName.includes(' | ')
+                  ? 'messages:skill.merged'
+                  : 'messages:skill.activated',
+              )
             : '';
           const noTcSkillPrefix = noTcSkillLabel
             ? `⚡️ ${noTcSkillLabel}：**${runtime.skillActivatedName}**\n\n`
@@ -331,7 +380,10 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
             }
             const errMsg = (msg as { errorMessage?: string }).errorMessage;
             if (errMsg && !turnSucceeded) {
-              meta.error = toChatError(errMsg, qualifyModelRef((msg as unknown as StreamMessageMeta).provider, msg.model));
+              meta.error = toChatError(
+                errMsg,
+                qualifyModelRef((msg as unknown as StreamMessageMeta).provider, msg.model),
+              );
             } else if (msg.usage) {
               meta.usage = {
                 input: msg.usage.input ?? 0,
@@ -340,14 +392,18 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
                 cacheWrite: msg.usage.cacheWrite ?? 0,
               };
             }
-            const msgModelRef = qualifyModelRef((msg as unknown as StreamMessageMeta).provider, msg.model);
+            const msgModelRef = qualifyModelRef(
+              (msg as unknown as StreamMessageMeta).provider,
+              msg.model,
+            );
             if (msgModelRef) meta.model = msgModelRef;
             const agentName = agent.ohmyagent_agentName || runtime.agentName;
             if (agentName) meta.agentName = agentName;
             if (runtime.turnElapsed) meta.elapsed = runtime.turnElapsed;
             if (runtime.footerConfig) meta.footerConfig = runtime.footerConfig;
             const lastAssistantIndex = newMessages.reduce(
-              (last, m, i) => m.role === 'assistant' ? i : last, -1,
+              (last, m, i) => (m.role === 'assistant' ? i : last),
+              -1,
             );
             if (mi === lastAssistantIndex) {
               if (batchImages.length > 0) meta.images = batchImages;
@@ -385,7 +441,8 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
         if (msg.model) pendingAssistant.model = msg.model;
         const pendingErr = (msg as { errorMessage?: string }).errorMessage;
         if (pendingErr) pendingAssistant.errorMessage = pendingErr;
-        if ((msg as unknown as StreamMessageMeta).provider) pendingAssistant.provider = (msg as unknown as StreamMessageMeta).provider;
+        if ((msg as unknown as StreamMessageMeta).provider)
+          pendingAssistant.provider = (msg as unknown as StreamMessageMeta).provider;
       }
     }
 

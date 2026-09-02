@@ -132,7 +132,12 @@ export function registerSkillsRoutes(app: FastifyInstance, cfg: SkillsRouteConfi
         // Rollback
         await writeFile(skillMdPath, original, 'utf-8');
         await cfg.services.skillRegistry.load(SKILLS_DIR);
-        return reply.status(422).send({ error: 'Updated SKILL.md failed to load — original content restored. Check YAML syntax.' });
+        return reply
+          .status(422)
+          .send({
+            error:
+              'Updated SKILL.md failed to load — original content restored. Check YAML syntax.',
+          });
       }
 
       return reply.send({ ok: true, slug: reloaded.manifest.id });
@@ -180,7 +185,10 @@ export function registerSkillsRoutes(app: FastifyInstance, cfg: SkillsRouteConfi
 
       const filePath = join(skill.path, file);
       // Security: ensure resolved path is still under skill.path
-      if (!resolve(filePath).startsWith(resolve(skill.path) + '/') && resolve(filePath) !== resolve(skill.path)) {
+      if (
+        !resolve(filePath).startsWith(resolve(skill.path) + '/') &&
+        resolve(filePath) !== resolve(skill.path)
+      ) {
         return reply.status(403).send({ error: 'Path traversal denied' });
       }
 
@@ -305,48 +313,54 @@ export function registerSkillsRoutes(app: FastifyInstance, cfg: SkillsRouteConfi
   });
 
   /** P2-2: Apply a proposal (mark as applied, does NOT auto-modify SKILL.md) */
-  app.post<{ Params: { slug: string; proposalId: string } }>('/api/skills/:slug/proposals/:proposalId/apply', async (request, reply) => {
-    try {
-      const { slug, proposalId } = request.params;
-      const generator = cfg.services.proposalGenerator;
-      if (!generator) {
-        return reply.status(501).send({ error: 'Proposal service not available' });
+  app.post<{ Params: { slug: string; proposalId: string } }>(
+    '/api/skills/:slug/proposals/:proposalId/apply',
+    async (request, reply) => {
+      try {
+        const { slug, proposalId } = request.params;
+        const generator = cfg.services.proposalGenerator;
+        if (!generator) {
+          return reply.status(501).send({ error: 'Proposal service not available' });
+        }
+
+        // 共享单例上直接更新状态并同步写入 SQLite
+        const ok = generator.applyProposal(slug, proposalId);
+
+        if (!ok) {
+          return reply.status(404).send({ error: `Proposal "${proposalId}" not found` });
+        }
+
+        return reply.send({ ok: true, skillId: slug, proposalId });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(500).send({ error: message });
       }
-
-      // 共享单例上直接更新状态并同步写入 SQLite
-      const ok = generator.applyProposal(slug, proposalId);
-
-      if (!ok) {
-        return reply.status(404).send({ error: `Proposal "${proposalId}" not found` });
-      }
-
-      return reply.send({ ok: true, skillId: slug, proposalId });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return reply.status(500).send({ error: message });
-    }
-  });
+    },
+  );
 
   /** P2-2: Dismiss a proposal */
-  app.post<{ Params: { slug: string; proposalId: string } }>('/api/skills/:slug/proposals/:proposalId/dismiss', async (request, reply) => {
-    try {
-      const { slug, proposalId } = request.params;
-      const generator = cfg.services.proposalGenerator;
-      if (!generator) {
-        return reply.status(501).send({ error: 'Proposal service not available' });
+  app.post<{ Params: { slug: string; proposalId: string } }>(
+    '/api/skills/:slug/proposals/:proposalId/dismiss',
+    async (request, reply) => {
+      try {
+        const { slug, proposalId } = request.params;
+        const generator = cfg.services.proposalGenerator;
+        if (!generator) {
+          return reply.status(501).send({ error: 'Proposal service not available' });
+        }
+
+        // 共享单例上直接更新状态并同步写入 SQLite
+        const ok = generator.dismissProposal(slug, proposalId);
+
+        if (!ok) {
+          return reply.status(404).send({ error: `Proposal "${proposalId}" not found` });
+        }
+
+        return reply.send({ ok: true, skillId: slug, proposalId });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(500).send({ error: message });
       }
-
-      // 共享单例上直接更新状态并同步写入 SQLite
-      const ok = generator.dismissProposal(slug, proposalId);
-
-      if (!ok) {
-        return reply.status(404).send({ error: `Proposal "${proposalId}" not found` });
-      }
-
-      return reply.send({ ok: true, skillId: slug, proposalId });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return reply.status(500).send({ error: message });
-    }
-  });
+    },
+  );
 }

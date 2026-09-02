@@ -53,8 +53,10 @@ export default function ModelIdCombobox({
     setLoading(true);
     if (liveTimer.current) clearTimeout(liveTimer.current);
     setLiveResult(null);
-    apiRequest<{ provider: string; models: ModelInfo[] }>(`/api/providers/${encodeURIComponent(providerId)}/models/live`)
-      .then(data => {
+    apiRequest<{ provider: string; models: ModelInfo[] }>(
+      `/api/providers/${encodeURIComponent(providerId)}/models/live`,
+    )
+      .then((data) => {
         if (!data.models || data.models.length === 0) {
           setLiveResult('failed');
           return;
@@ -92,35 +94,44 @@ export default function ModelIdCombobox({
     if (open) inputRef.current?.focus();
   }, [open]);
 
-  const handleOpen = useCallback((next: boolean) => {
-    setOpen(next);
-    if (next) {
-      setSearch('');
-      // Auto live-fetch once per provider when the list is still empty.
-      if (provider && models.length === 0 && !loading && triedLive.current !== provider) {
-        triedLive.current = provider;
-        fetchModels(provider);
+  const handleOpen = useCallback(
+    (next: boolean) => {
+      setOpen(next);
+      if (next) {
+        setSearch('');
+        // Auto live-fetch once per provider when the list is still empty.
+        if (provider && models.length === 0 && !loading && triedLive.current !== provider) {
+          triedLive.current = provider;
+          fetchModels(provider);
+        }
       }
-    }
-  }, [provider, models.length, loading, fetchModels]);
+    },
+    [provider, models.length, loading, fetchModels],
+  );
 
   const filteredModels = useMemo(() => {
     if (!search.trim()) return models;
     const q = search.toLowerCase();
-    return models.filter(m => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q));
+    return models.filter((m) => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q));
   }, [models, search]);
 
-  const handleSelectModel = useCallback((m: ModelInfo) => {
-    onChange(m.id);
-    setOpen(false);
-    setSearch('');
-  }, [onChange]);
+  const handleSelectModel = useCallback(
+    (m: ModelInfo) => {
+      onChange(m.id);
+      setOpen(false);
+      setSearch('');
+    },
+    [onChange],
+  );
 
-  const handleCustomModel = useCallback((v: string) => {
-    onChange(v);
-    setOpen(false);
-    setSearch('');
-  }, [onChange]);
+  const handleCustomModel = useCallback(
+    (v: string) => {
+      onChange(v);
+      setOpen(false);
+      setSearch('');
+    },
+    [onChange],
+  );
 
   return (
     <div className={className}>
@@ -130,7 +141,9 @@ export default function ModelIdCombobox({
           <label className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300">
             {label}
           </label>
-        ) : <span />}
+        ) : (
+          <span />
+        )}
         <button
           type="button"
           onClick={() => fetchModels(provider)}
@@ -158,87 +171,93 @@ export default function ModelIdCombobox({
       </div>
       {/* Combobox with editable input */}
       <div ref={containerRef} className="relative">
-          <div className="flex items-center w-full rounded-lg border border-neutral-300 bg-white dark:border-neutral-800 dark:bg-neutral-800">
-            <input
-              ref={inputRef}
-              type="text"
-              value={open ? search : (value || '')}
-              onChange={e => {
-                if (!open) setOpen(true);
-                setSearch(e.target.value);
-              }}
-              onFocus={() => {
-                if (!open) handleOpen(true);
-              }}
-              placeholder={placeholder || t('settings.models.customModelPlaceholder')}
-              className="flex-1 min-w-0 px-3 py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 bg-transparent focus:outline-none dark:text-neutral-100"
-            />
-            {loading ? (
-              <Loader2 size={14} className="animate-spin text-neutral-400 mr-3" />
-            ) : (
-              <button
-                type="button"
-                onClick={() => handleOpen(!open)}
-                className="px-2 py-2.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
-              >
-                <ChevronDown size={14} />
-              </button>
-            )}
-          </div>
+        <div className="flex items-center w-full rounded-lg border border-neutral-300 bg-white dark:border-neutral-800 dark:bg-neutral-800">
+          <input
+            ref={inputRef}
+            type="text"
+            value={open ? search : value || ''}
+            onChange={(e) => {
+              if (!open) setOpen(true);
+              setSearch(e.target.value);
+            }}
+            onFocus={() => {
+              if (!open) handleOpen(true);
+            }}
+            placeholder={placeholder || t('settings.models.customModelPlaceholder')}
+            className="flex-1 min-w-0 px-3 py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 bg-transparent focus:outline-none dark:text-neutral-100"
+          />
+          {loading ? (
+            <Loader2 size={14} className="animate-spin text-neutral-400 mr-3" />
+          ) : (
+            <button
+              type="button"
+              onClick={() => handleOpen(!open)}
+              className="px-2 py-2.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+            >
+              <ChevronDown size={14} />
+            </button>
+          )}
+        </div>
 
-          {/* Dropdown */}
-          {open && (
-            <div className="absolute z-50 mt-1 w-full rounded-lg border border-neutral-200 bg-white shadow-lg dark:border-neutral-800 dark:bg-neutral-800 max-h-72 flex flex-col">
-              <div className="overflow-y-auto flex-1">
-                {filteredModels.length === 0 ? (
-                  <div className="px-3 py-4 text-center">
-                    <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-2">
-                      {t('settings.models.noModelsFound')}
-                    </p>
-                    {search.trim() && (
-                      <button
-                        type="button"
-                        onClick={() => handleCustomModel(search.trim())}
-                        className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
-                      >
-                        {t('settings.models.customModel')}: <span className="font-mono">{search.trim()}</span>
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  filteredModels.map(m => (
+        {/* Dropdown */}
+        {open && (
+          <div className="absolute z-50 mt-1 w-full rounded-lg border border-neutral-200 bg-white shadow-lg dark:border-neutral-800 dark:bg-neutral-800 max-h-72 flex flex-col">
+            <div className="overflow-y-auto flex-1">
+              {filteredModels.length === 0 ? (
+                <div className="px-3 py-4 text-center">
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-2">
+                    {t('settings.models.noModelsFound')}
+                  </p>
+                  {search.trim() && (
                     <button
-                      key={m.id}
                       type="button"
-                      onClick={() => handleSelectModel(m)}
-                      className={`flex items-center gap-2 w-full px-3 py-2 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-700/60 ${
-                        m.id === value ? 'bg-blue-50 dark:bg-blue-900/20' : ''
-                      }`}
+                      onClick={() => handleCustomModel(search.trim())}
+                      className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
                     >
-                      <span className="flex-1 truncate text-neutral-900 dark:text-neutral-100">{m.name}</span>
-                      {m.id !== m.name && (
-                        <span className="hidden sm:inline text-[10px] text-neutral-400 font-mono">{m.id}</span>
-                      )}
-                      {m.reasoning && <Zap size={12} className="text-purple-500 shrink-0" />}
-                      {m.id === value && <Check size={14} className="text-blue-600 shrink-0" />}
+                      {t('settings.models.customModel')}:{' '}
+                      <span className="font-mono">{search.trim()}</span>
                     </button>
-                  ))
-                )}
-              </div>
-              {/* Use custom model if typed */}
-              {search.trim() && !filteredModels.some(m => m.id === search.trim()) && (
-                <div className="border-t border-neutral-200 dark:border-neutral-800 px-3 py-2">
-                  <button
-                    type="button"
-                    onClick={() => handleCustomModel(search.trim())}
-                    className="w-full text-left text-xs text-neutral-600 dark:text-neutral-400 hover:text-blue-600 dark:hover:text-blue-400"
-                  >
-                    {t('settings.models.customModel')}: <span className="font-mono">{search.trim()}</span>
-                  </button>
+                  )}
                 </div>
+              ) : (
+                filteredModels.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => handleSelectModel(m)}
+                    className={`flex items-center gap-2 w-full px-3 py-2 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-700/60 ${
+                      m.id === value ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                    }`}
+                  >
+                    <span className="flex-1 truncate text-neutral-900 dark:text-neutral-100">
+                      {m.name}
+                    </span>
+                    {m.id !== m.name && (
+                      <span className="hidden sm:inline text-[10px] text-neutral-400 font-mono">
+                        {m.id}
+                      </span>
+                    )}
+                    {m.reasoning && <Zap size={12} className="text-purple-500 shrink-0" />}
+                    {m.id === value && <Check size={14} className="text-blue-600 shrink-0" />}
+                  </button>
+                ))
               )}
             </div>
-          )}
+            {/* Use custom model if typed */}
+            {search.trim() && !filteredModels.some((m) => m.id === search.trim()) && (
+              <div className="border-t border-neutral-200 dark:border-neutral-800 px-3 py-2">
+                <button
+                  type="button"
+                  onClick={() => handleCustomModel(search.trim())}
+                  className="w-full text-left text-xs text-neutral-600 dark:text-neutral-400 hover:text-blue-600 dark:hover:text-blue-400"
+                >
+                  {t('settings.models.customModel')}:{' '}
+                  <span className="font-mono">{search.trim()}</span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
       {liveResult === 'failed' && (
         <p className="flex items-center gap-1.5 mt-1.5 text-[11px] text-amber-600 dark:text-amber-400">

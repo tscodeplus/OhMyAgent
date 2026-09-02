@@ -51,13 +51,15 @@ for (const size of SIZES) {
   embeddingRepo.cosineSearch(query, 10, candidateIds);
   const filteredMs = performance.now() - filteredStart;
 
-  console.log(JSON.stringify({
-    size,
-    insertMs: Math.round(performance.now() - insertStart),
-    fullScanMs: Math.round(fullMs * 100) / 100,
-    candidateScanMs: Math.round(filteredMs * 100) / 100,
-    fullScanGuardRecommended: size > 5000,
-  }));
+  console.log(
+    JSON.stringify({
+      size,
+      insertMs: Math.round(performance.now() - insertStart),
+      fullScanMs: Math.round(fullMs * 100) / 100,
+      candidateScanMs: Math.round(filteredMs * 100) / 100,
+      fullScanGuardRecommended: size > 5000,
+    }),
+  );
 
   db.close();
 }

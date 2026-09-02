@@ -222,14 +222,10 @@ export class FailureDetector {
     // ── Guard: user is satisfied → no failure ──────────────────────────
     if (context.userFeedback === 'satisfied') return null;
 
-    const minIdenticalRetries =
-      this.config.minIdenticalRetries ?? DEFAULT_MIN_IDENTICAL_RETRIES;
-    const minConsecutiveErrors =
-      this.config.minConsecutiveErrors ?? DEFAULT_MIN_CONSECUTIVE_ERRORS;
-    const minExplorationSteps =
-      this.config.minExplorationSteps ?? DEFAULT_MIN_EXPLORATION_STEPS;
-    const minDependencyErrors =
-      this.config.minDependencyErrors ?? DEFAULT_MIN_DEPENDENCY_ERRORS;
+    const minIdenticalRetries = this.config.minIdenticalRetries ?? DEFAULT_MIN_IDENTICAL_RETRIES;
+    const minConsecutiveErrors = this.config.minConsecutiveErrors ?? DEFAULT_MIN_CONSECUTIVE_ERRORS;
+    const minExplorationSteps = this.config.minExplorationSteps ?? DEFAULT_MIN_EXPLORATION_STEPS;
+    const minDependencyErrors = this.config.minDependencyErrors ?? DEFAULT_MIN_DEPENDENCY_ERRORS;
 
     // ── 1. identical_retry_loop ────────────────────────────────────────
     // Same command (name + args) failed repeatedly.
@@ -307,21 +303,30 @@ export class FailureDetector {
   /**
    * Format a human-readable reason string for the given pattern.
    */
-  private formatReason(
-    pattern: FailurePattern,
-    details?: Record<string, unknown>,
-  ): string {
+  private formatReason(pattern: FailurePattern, details?: Record<string, unknown>): string {
     switch (pattern) {
       case 'identical_retry_loop':
-        return i18n.t('harness:failure.identicalRetryLoop', { count: details!.count as number, threshold: details!.threshold as number });
+        return i18n.t('harness:failure.identicalRetryLoop', {
+          count: details!.count as number,
+          threshold: details!.threshold as number,
+        });
       case 'dependency_not_checked':
-        return i18n.t('harness:failure.dependencyNotChecked', { count: details!.count as number, threshold: details!.threshold as number });
+        return i18n.t('harness:failure.dependencyNotChecked', {
+          count: details!.count as number,
+          threshold: details!.threshold as number,
+        });
       case 'tool_error_cascade':
-        return i18n.t('harness:failure.toolErrorCascade', { count: details!.count as number, threshold: details!.threshold as number });
+        return i18n.t('harness:failure.toolErrorCascade', {
+          count: details!.count as number,
+          threshold: details!.threshold as number,
+        });
       case 'user_explicit_dissatisfied':
         return i18n.t('harness:failure.userDissatisfied');
       case 'exploration_without_output':
-        return i18n.t('harness:failure.explorationWithoutOutput', { count: details!.exploreCount as number, threshold: details!.threshold as number });
+        return i18n.t('harness:failure.explorationWithoutOutput', {
+          count: details!.exploreCount as number,
+          threshold: details!.threshold as number,
+        });
       case 'timeout_or_abort':
         return i18n.t('harness:failure.timeoutOrAbort');
       default:

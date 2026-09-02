@@ -13,20 +13,14 @@ import path from 'node:path';
  * Parent directories are created with recursive mkdir first (matching the
  * previous behavior). The final open is symlink-safe.
  */
-export function writeFileNoFollow(
-  resolvedPath: string,
-  content: string | Buffer,
-): number {
+export function writeFileNoFollow(resolvedPath: string, content: string | Buffer): number {
   const dir = path.dirname(resolvedPath);
   fs.mkdirSync(dir, { recursive: true });
 
   // O_NOFOLLOW: fail (ELOOP) if the final component is a symlink.
   // O_WRONLY|O_CREAT|O_TRUNC: standard "overwrite or create" write semantics.
   const flags =
-    fs.constants.O_WRONLY |
-    fs.constants.O_CREAT |
-    fs.constants.O_TRUNC |
-    fs.constants.O_NOFOLLOW;
+    fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_NOFOLLOW;
 
   let fd: number | undefined;
   try {

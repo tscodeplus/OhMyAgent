@@ -98,13 +98,20 @@ export function createRetryingStreamFn(
      *  disconnect) into a graceful 'aborted' stop so the event bridge and UI
      *  treat them as a normal abort instead of a provider error bubble
      *  ("任务中断：模型调用失败…"). */
-    const finishWithError = (event: AssistantMessageEvent | undefined, err: AssistantMessage): void => {
+    const finishWithError = (
+      event: AssistantMessageEvent | undefined,
+      err: AssistantMessage,
+    ): void => {
       const aborted =
-        streamOptions?.signal?.aborted === true
-        || /^aborted$/i.test(err.errorMessage ?? '')
-        || /^request aborted$/i.test(err.errorMessage ?? '');
+        streamOptions?.signal?.aborted === true ||
+        /^aborted$/i.test(err.errorMessage ?? '') ||
+        /^request aborted$/i.test(err.errorMessage ?? '');
       if (aborted) {
-        const graceful: AssistantMessage = { ...err, stopReason: 'aborted', errorMessage: undefined };
+        const graceful: AssistantMessage = {
+          ...err,
+          stopReason: 'aborted',
+          errorMessage: undefined,
+        };
         out.push({ type: 'error', reason: 'aborted', error: graceful });
         out.end(graceful);
         return;
@@ -182,7 +189,12 @@ export function createRetryingStreamFn(
           );
           if (attempt >= maxRetries) {
             logger.error(
-              { provider: model.provider, model: model.id, maxRetries, errorMessage: err.errorMessage },
+              {
+                provider: model.provider,
+                model: model.id,
+                maxRetries,
+                errorMessage: err.errorMessage,
+              },
               `Model ${model.provider}/${model.id} stream failed: ended without terminal event after ${maxRetries} retries`,
             );
             finishWithError(undefined, err);

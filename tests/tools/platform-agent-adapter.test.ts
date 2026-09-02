@@ -12,7 +12,7 @@ describe('AgentToolAdapterImpl', () => {
     const legacyRegistry = new ToolRegistryImpl();
     let platformRegistry: ToolPlatformRegistryImpl;
     const adapter = new AgentToolAdapterImpl({
-      getServices: () => ({ toolPlatformRegistry: platformRegistry } as any),
+      getServices: () => ({ toolPlatformRegistry: platformRegistry }) as any,
     });
     platformRegistry = new ToolPlatformRegistryImpl(legacyRegistry, adapter);
     platformRegistry.registerDefinition(createToolSearchToolDefinition());
@@ -145,8 +145,14 @@ describe('AgentToolAdapterImpl', () => {
       category: 'session',
       parametersSchema: {},
       capability: {
-        category: 'session', readOnly: true, readsFiles: false, writesFiles: false,
-        usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none',
+        category: 'session',
+        readOnly: true,
+        readsFiles: false,
+        writesFiles: false,
+        usesShell: false,
+        usesNetwork: false,
+        usesComputerUse: false,
+        pathAccess: 'none',
         approvalDefault: 'none',
       },
       execute: async (_args: unknown, ctx: any) => {

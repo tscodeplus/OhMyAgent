@@ -76,7 +76,7 @@ interface MarkerRule {
 
 const MARKERS: MarkerRule[] = [
   { marker: '**', regex: BOLD_RE },
-  { marker: '*',  regex: ITALIC_RE },
+  { marker: '*', regex: ITALIC_RE },
   { marker: '~~', regex: STRIKE_RE },
 ];
 

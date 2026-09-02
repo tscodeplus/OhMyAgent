@@ -55,12 +55,7 @@ export interface Message {
 }
 
 /** Category of a provider/stream failure, for friendly WebUI surfacing. */
-export type ProviderErrorKind =
-  | 'rate_limited'
-  | 'model_not_found'
-  | 'auth'
-  | 'network'
-  | 'unknown';
+export type ProviderErrorKind = 'rate_limited' | 'model_not_found' | 'auth' | 'network' | 'unknown';
 
 /** Structured provider error shown in the chat bubble (friendly + raw detail). */
 export interface ChatProviderError {

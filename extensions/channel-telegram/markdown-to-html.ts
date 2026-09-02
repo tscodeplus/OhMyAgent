@@ -93,7 +93,8 @@ function convertTables(text: string): string {
       }
 
       // Convert to aligned monospace
-      if (tableRows.length >= 2) { // at least header + one data row
+      if (tableRows.length >= 2) {
+        // at least header + one data row
         const formatted = formatTable(tableRows);
         result.push('<pre>');
         result.push(formatted);
@@ -124,14 +125,18 @@ function formatTable(rows: string[]): string {
   const data: string[][] = [];
   for (const row of rows) {
     if (isTableSeparator(row)) continue;
-    const cells = row.trim().split('|').slice(1, -1).map(c => c.trim());
+    const cells = row
+      .trim()
+      .split('|')
+      .slice(1, -1)
+      .map((c) => c.trim());
     data.push(cells);
   }
 
   if (data.length === 0) return '';
 
   // Calculate max column widths (cap at 40 chars to avoid excessively wide tables)
-  const colCount = Math.max(...data.map(r => r.length));
+  const colCount = Math.max(...data.map((r) => r.length));
   const widths: number[] = new Array(colCount).fill(3);
   for (const row of data) {
     for (let c = 0; c < row.length; c++) {
@@ -146,7 +151,7 @@ function formatTable(rows: string[]): string {
 
     // Add separator after header
     if (idx === 0) {
-      const sep = widths.map(w => '─'.repeat(w)).join('─┼─');
+      const sep = widths.map((w) => '─'.repeat(w)).join('─┼─');
       return joined + '\n' + sep;
     }
     return joined;
@@ -160,9 +165,19 @@ function visualLength(s: string): number {
   let len = 0;
   for (const ch of s) {
     // CJK Unified + Symbols + Fullwidth
-    if (/[一-鿿　-〿＀-￯]/.test(ch)) { len += 2; continue; }
+    if (/[一-鿿　-〿＀-￯]/.test(ch)) {
+      len += 2;
+      continue;
+    }
     // Emoji: broad ranges covering common symbol/dingbat/emoji blocks
-    if (/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}]/u.test(ch)) { len += 2; continue; }
+    if (
+      /[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}]/u.test(
+        ch,
+      )
+    ) {
+      len += 2;
+      continue;
+    }
     // Box-drawing characters are narrow (width 1)
     len += 1;
   }
@@ -180,5 +195,9 @@ function escapeHtml(s: string): string {
 }
 
 function escapeAttr(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }

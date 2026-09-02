@@ -52,7 +52,7 @@ describe('FeishuWSClient', () => {
     mockPingLoop.mockClear();
     vi.mocked(MockWSClient).mockClear();
     // Clear registered handlers
-    Object.keys(registeredHandlers).forEach(k => delete registeredHandlers[k]);
+    Object.keys(registeredHandlers).forEach((k) => delete registeredHandlers[k]);
 
     eventHandler = vi.fn().mockResolvedValue(undefined);
     client = new FeishuWSClient({

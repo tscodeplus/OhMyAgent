@@ -14,12 +14,16 @@ export function createEntityBackfillJob(
     enabled: true,
     intervalMs,
     async run({ dryRun }): Promise<MaintenanceJobResult> {
-      const rows = db.prepare(`
+      const rows = db
+        .prepare(
+          `
         SELECT m.id, m.content, m.scope, m.kind FROM memories m
         LEFT JOIN memory_links ml ON ml.source_memory_id = m.id
         WHERE ml.id IS NULL AND m.status = 'active'
         LIMIT 100
-      `).all() as Array<{ id: string; content: string; scope: string; kind: string }>;
+      `,
+        )
+        .all() as Array<{ id: string; content: string; scope: string; kind: string }>;
 
       if (dryRun) {
         return {

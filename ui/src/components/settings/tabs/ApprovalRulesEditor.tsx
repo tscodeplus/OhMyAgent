@@ -90,10 +90,8 @@ const ACTION_LABELS: Record<ApprovalAction, string> = {
 };
 
 const ACTION_COLORS: Record<ApprovalAction, string> = {
-  require_approval:
-    'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-  auto_apply:
-    'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+  require_approval: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+  auto_apply: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
   skip: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400',
 };
 
@@ -229,9 +227,7 @@ export default function ApprovalRulesEditor({
 
   function toggleArrayItem(arr: string[] | undefined, item: string): string[] {
     const current = arr || [];
-    return current.includes(item)
-      ? current.filter((v) => v !== item)
-      : [...current, item];
+    return current.includes(item) ? current.filter((v) => v !== item) : [...current, item];
   }
 
   function addSkillTag() {
@@ -302,12 +298,24 @@ export default function ApprovalRulesEditor({
             <thead className="bg-neutral-100 dark:bg-neutral-800">
               <tr>
                 <th className="text-left px-4 py-2.5 font-medium text-neutral-700 dark:text-neutral-300 w-10"></th>
-                <th className="text-left px-4 py-2.5 font-medium text-neutral-700 dark:text-neutral-300">Priority</th>
-                <th className="text-left px-4 py-2.5 font-medium text-neutral-700 dark:text-neutral-300">Name</th>
-                <th className="text-left px-4 py-2.5 font-medium text-neutral-700 dark:text-neutral-300">Conditions</th>
-                <th className="text-left px-4 py-2.5 font-medium text-neutral-700 dark:text-neutral-300">Action</th>
-                <th className="text-center px-4 py-2.5 font-medium text-neutral-700 dark:text-neutral-300 w-16">On</th>
-                <th className="text-right px-4 py-2.5 font-medium text-neutral-700 dark:text-neutral-300 w-20">Actions</th>
+                <th className="text-left px-4 py-2.5 font-medium text-neutral-700 dark:text-neutral-300">
+                  Priority
+                </th>
+                <th className="text-left px-4 py-2.5 font-medium text-neutral-700 dark:text-neutral-300">
+                  Name
+                </th>
+                <th className="text-left px-4 py-2.5 font-medium text-neutral-700 dark:text-neutral-300">
+                  Conditions
+                </th>
+                <th className="text-left px-4 py-2.5 font-medium text-neutral-700 dark:text-neutral-300">
+                  Action
+                </th>
+                <th className="text-center px-4 py-2.5 font-medium text-neutral-700 dark:text-neutral-300 w-16">
+                  On
+                </th>
+                <th className="text-right px-4 py-2.5 font-medium text-neutral-700 dark:text-neutral-300 w-20">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
@@ -414,11 +422,7 @@ export default function ApprovalRulesEditor({
             <Button variant="secondary" size="sm" onClick={closeModal}>
               Cancel
             </Button>
-            <Button
-              size="sm"
-              onClick={handleSave}
-              disabled={!form.name.trim()}
-            >
+            <Button size="sm" onClick={handleSave} disabled={!form.name.trim()}>
               {isEditing ? 'Save Changes' : 'Add Rule'}
             </Button>
           </>
@@ -437,9 +441,7 @@ export default function ApprovalRulesEditor({
               label="Priority"
               type="number"
               value={String(form.priority)}
-              onChange={(e) =>
-                setForm({ ...form, priority: parseInt(e.target.value) || 0 })
-              }
+              onChange={(e) => setForm({ ...form, priority: parseInt(e.target.value) || 0 })}
             />
           </div>
 
@@ -448,10 +450,7 @@ export default function ApprovalRulesEditor({
             <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
               Rule Enabled
             </span>
-            <Toggle
-              checked={form.enabled}
-              onChange={(v) => setForm({ ...form, enabled: v })}
-            />
+            <Toggle checked={form.enabled} onChange={(v) => setForm({ ...form, enabled: v })} />
           </div>
 
           {/* Skill IDs */}
@@ -559,10 +558,7 @@ export default function ApprovalRulesEditor({
                     onChange={() =>
                       setForm({
                         ...form,
-                        changeTypes: toggleArrayItem(
-                          form.changeTypes,
-                          opt.value
-                        ) as ChangeType[],
+                        changeTypes: toggleArrayItem(form.changeTypes, opt.value) as ChangeType[],
                       })
                     }
                     className="rounded border-neutral-300 text-blue-500 focus-visible:ring-blue-500/30 dark:border-neutral-600"
@@ -590,10 +586,7 @@ export default function ApprovalRulesEditor({
                     onChange={() =>
                       setForm({
                         ...form,
-                        riskLevels: toggleArrayItem(
-                          form.riskLevels,
-                          opt.value
-                        ) as RiskLevel[],
+                        riskLevels: toggleArrayItem(form.riskLevels, opt.value) as RiskLevel[],
                       })
                     }
                     className="rounded border-neutral-300 text-blue-500 focus-visible:ring-blue-500/30 dark:border-neutral-600"

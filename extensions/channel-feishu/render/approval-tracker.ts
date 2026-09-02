@@ -68,8 +68,12 @@ export class ReplyApprovalTracker {
     return approvalMessageId;
   }
 
-  async resolve(requestId: string, decision: ApprovalDecisionType, opts?: { skipRecall?: boolean }): Promise<void> {
-    const record = this.records.find(item => item.requestId === requestId);
+  async resolve(
+    requestId: string,
+    decision: ApprovalDecisionType,
+    opts?: { skipRecall?: boolean },
+  ): Promise<void> {
+    const record = this.records.find((item) => item.requestId === requestId);
     if (!record) return;
     if (record.status !== 'pending') return;
 
@@ -88,20 +92,20 @@ export class ReplyApprovalTracker {
   }
 
   getPendingCount(): number {
-    return this.records.filter(record => record.status === 'pending').length;
+    return this.records.filter((record) => record.status === 'pending').length;
   }
 
   getRecords(): ReplyApprovalRecord[] {
-    return this.records.map(record => ({ ...record }));
+    return this.records.map((record) => ({ ...record }));
   }
 
   getApprovalMessageId(requestId: string): string | undefined {
-    return this.records.find(r => r.requestId === requestId)?.approvalMessageId;
+    return this.records.find((r) => r.requestId === requestId)?.approvalMessageId;
   }
 
   /** Clear the approvalMessageId so resolve() won't recall it. Used when the card is already updated externally (e.g. timeout auto-rejection). */
   clearApprovalMessageId(requestId: string): void {
-    const record = this.records.find(r => r.requestId === requestId);
+    const record = this.records.find((r) => r.requestId === requestId);
     if (record?.approvalMessageId) {
       this.options.registry?.unregister(record.approvalMessageId);
       record.approvalMessageId = undefined;

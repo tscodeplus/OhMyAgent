@@ -49,7 +49,7 @@ export class EpisodeRepository {
 
   findBySessionId(sessionId: string): Episode[] {
     const stmt = this.db.prepare(
-      'SELECT * FROM episodes WHERE session_id = ? ORDER BY created_at ASC'
+      'SELECT * FROM episodes WHERE session_id = ? ORDER BY created_at ASC',
     );
     return stmt.all(sessionId) as Episode[];
   }

@@ -35,7 +35,9 @@ export function resolveVisionModel(
 
   const idx = config.modelRef.indexOf('/');
   if (idx === -1) {
-    throw new Error(`Invalid VISION_BRIDGE_MODEL_REF format: ${config.modelRef}. Expected "provider/model-id"`);
+    throw new Error(
+      `Invalid VISION_BRIDGE_MODEL_REF format: ${config.modelRef}. Expected "provider/model-id"`,
+    );
   }
   const provider = config.modelRef.slice(0, idx);
   const modelId = config.modelRef.slice(idx + 1);
@@ -57,7 +59,7 @@ export function resolveVisionModel(
   // 2. Resolve API Key: explicit > custom provider yaml > env var (auto-mapped by pi-mono)
   let apiKey = config.apiKey;
   if (!apiKey) {
-    const cp = customProviders.find(p => p.provider === provider);
+    const cp = customProviders.find((p) => p.provider === provider);
     apiKey = cp?.apiKey;
   }
   if (!apiKey) {
@@ -67,7 +69,7 @@ export function resolveVisionModel(
   // 3. Resolve Base URL: explicit > custom provider yaml > model default
   let baseUrl = config.baseUrl;
   if (!baseUrl) {
-    const cp = customProviders.find(p => p.provider === provider);
+    const cp = customProviders.find((p) => p.provider === provider);
     baseUrl = cp?.baseUrl;
   }
   if (!baseUrl) {
@@ -77,7 +79,7 @@ export function resolveVisionModel(
   if (!apiKey) {
     throw new Error(
       `No API key found for vision model ${config.modelRef}. ` +
-      `Set VISION_BRIDGE_API_KEY or the ${provider.toUpperCase()}_API_KEY env var, or define the provider in custom_providers.yaml.`,
+        `Set VISION_BRIDGE_API_KEY or the ${provider.toUpperCase()}_API_KEY env var, or define the provider in custom_providers.yaml.`,
     );
   }
 

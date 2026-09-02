@@ -33,7 +33,9 @@ export function createTelegramMediaTool(options: TelegramMediaToolOptions): Agen
     description:
       'Send a local image, picture, photo, screenshot, or any file on disk to the Telegram user you are chatting with. Use this tool whenever the user asks you to send a file, picture, or image. Provide the full absolute path of the file on the local filesystem.',
     parameters: Type.Object({
-      filePath: Type.String({ description: 'The absolute path of the file to send, e.g. /tmp/image.png' }),
+      filePath: Type.String({
+        description: 'The absolute path of the file to send, e.g. /tmp/image.png',
+      }),
     }),
     execute: async (_toolCallId: string, params: { filePath: string }) => {
       try {
@@ -61,7 +63,9 @@ export function createTelegramMediaTool(options: TelegramMediaToolOptions): Agen
           if (err.code === 'ENOENT') {
             return { content: [{ type: 'text' as const, text: `File not found: ${filePath}` }] };
           }
-          return { content: [{ type: 'text' as const, text: `Error reading file: ${err.message}` }] };
+          return {
+            content: [{ type: 'text' as const, text: `Error reading file: ${err.message}` }],
+          };
         }
 
         const fileName = path.basename(filePath);
@@ -73,19 +77,21 @@ export function createTelegramMediaTool(options: TelegramMediaToolOptions): Agen
         const inputFile = new InputFile(buffer, fileName);
 
         if (imageExts.includes(ext)) {
-          void await bot.api.sendPhoto(chatId, inputFile);
+          void (await bot.api.sendPhoto(chatId, inputFile));
           return { content: [{ type: 'text' as const, text: `Image sent: ${fileName}` }] };
         }
 
         if (videoExts.includes(ext)) {
-          void await bot.api.sendVideo(chatId, inputFile);
+          void (await bot.api.sendVideo(chatId, inputFile));
           return { content: [{ type: 'text' as const, text: `Video sent: ${fileName}` }] };
         }
 
-        void await bot.api.sendDocument(chatId, inputFile);
+        void (await bot.api.sendDocument(chatId, inputFile));
         return { content: [{ type: 'text' as const, text: `File sent: ${fileName}` }] };
       } catch (err: any) {
-        return { content: [{ type: 'text' as const, text: `Failed to send media: ${err.message}` }] };
+        return {
+          content: [{ type: 'text' as const, text: `Failed to send media: ${err.message}` }],
+        };
       }
     },
   } as AgentTool<any>;

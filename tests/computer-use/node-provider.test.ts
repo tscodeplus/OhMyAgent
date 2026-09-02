@@ -113,7 +113,12 @@ function mockFetch(envelope: unknown, opts?: { status?: number }): void {
 }
 
 /** 解析最近一次 fetch 调用为 { cmd, url, body, headers }。 */
-function lastRequest(): { cmd: string; url: string; body: Record<string, unknown>; headers: Record<string, string> } {
+function lastRequest(): {
+  cmd: string;
+  url: string;
+  body: Record<string, unknown>;
+  headers: Record<string, string>;
+} {
   const call = fetchMock.mock.lastCall;
   if (!call) throw new Error('fetch 未被调用');
   const [url, init] = call as [string, RequestInit];
@@ -284,7 +289,11 @@ describe('NodeComputerUseProvider', () => {
               bounds: { left: 100, top: 100, right: 200, bottom: 140 },
               clickable: true,
             },
-            { class: 'android.widget.ImageButton', id: 'com.test:id/back', bounds: { x: 0, y: 0, w: 48, h: 48 } },
+            {
+              class: 'android.widget.ImageButton',
+              id: 'com.test:id/back',
+              bounds: { x: 0, y: 0, w: 48, h: 48 },
+            },
             { class: 'android.widget.CheckBox', bounds: [0, 0, 0, 0] },
             { class: 'android.widget.RecyclerView', bounds: [0, 0, 1080, 2400] },
             { class: 'android.widget.ScrollView', bounds: [0, 0, 100, 100] },
@@ -377,7 +386,8 @@ describe('NodeComputerUseProvider', () => {
         .mockResolvedValueOnce({
           ok: true,
           status: 200,
-          arrayBuffer: async () => Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).buffer,
+          arrayBuffer: async () =>
+            Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).buffer,
         });
       const provider = createProvider();
 
@@ -496,9 +506,7 @@ describe('NodeComputerUseProvider', () => {
           status: 200,
           text: async () =>
             JSON.stringify(
-              noMatch
-                ? { ok: false, error: 'no node matched query' }
-                : { ok: true, data: {} },
+              noMatch ? { ok: false, error: 'no node matched query' } : { ok: true, data: {} },
             ),
         };
       });
@@ -518,7 +526,9 @@ describe('NodeComputerUseProvider', () => {
 
       expect(result.ok).toBe(true);
       expect(fetchMock).toHaveBeenCalledTimes(2);
-      const reqs = fetchMock.mock.calls.map((c) => JSON.parse(String(c[1]?.body ?? '{}')) as Record<string, unknown>);
+      const reqs = fetchMock.mock.calls.map(
+        (c) => JSON.parse(String(c[1]?.body ?? '{}')) as Record<string, unknown>,
+      );
       expect(reqs[0]).toEqual({ by: 'text', query: '新建笔记' });
       expect(reqs[1]).toEqual({ by: 'desc', query: '新建笔记' });
     });
@@ -627,9 +637,7 @@ describe('NodeComputerUseProvider', () => {
             text: async () =>
               JSON.stringify({
                 ok: true,
-                data: [
-                  { class: 'android.widget.EditText', text: '', bounds: [0, 0, 100, 40] },
-                ],
+                data: [{ class: 'android.widget.EditText', text: '', bounds: [0, 0, 100, 40] }],
               }),
           };
         }
@@ -642,7 +650,11 @@ describe('NodeComputerUseProvider', () => {
               text: async () => JSON.stringify({ ok: false, error: 'no node matched query' }),
             };
           }
-          return { ok: true, status: 200, text: async () => JSON.stringify({ ok: true, data: {} }) };
+          return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({ ok: true, data: {} }),
+          };
         }
         return { ok: true, status: 200, text: async () => JSON.stringify({ ok: true, data: {} }) };
       });
@@ -664,7 +676,10 @@ describe('NodeComputerUseProvider', () => {
       const calls = fetchMock.mock.calls;
       const setTextCalls = calls.filter((c) => String(c[0]).includes('/v1/SET_TEXT'));
       expect(setTextCalls).toHaveLength(2);
-      const lastBody = JSON.parse(String((setTextCalls[1][1] as RequestInit).body)) as Record<string, unknown>;
+      const lastBody = JSON.parse(String((setTextCalls[1][1] as RequestInit).body)) as Record<
+        string,
+        unknown
+      >;
       expect(lastBody).toEqual({ by: 'class', query: 'android.widget.EditText', text: 'hello' });
     });
 
@@ -694,7 +709,11 @@ describe('NodeComputerUseProvider', () => {
               text: async () => JSON.stringify({ ok: false, error: 'no node matched query' }),
             };
           }
-          return { ok: true, status: 200, text: async () => JSON.stringify({ ok: true, data: {} }) };
+          return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({ ok: true, data: {} }),
+          };
         }
         return { ok: true, status: 200, text: async () => JSON.stringify({ ok: true, data: {} }) };
       });
@@ -719,7 +738,9 @@ describe('NodeComputerUseProvider', () => {
       expect(tapCalls).toHaveLength(1);
       expect(JSON.parse(String((tapCalls[0][1] as RequestInit).body))).toEqual({ x: 50, y: 600 });
       const setTextCalls = calls.filter((c) => String(c[0]).includes('/v1/SET_TEXT'));
-      const lastBody = JSON.parse(String((setTextCalls[setTextCalls.length - 1][1] as RequestInit).body)) as Record<string, unknown>;
+      const lastBody = JSON.parse(
+        String((setTextCalls[setTextCalls.length - 1][1] as RequestInit).body),
+      ) as Record<string, unknown>;
       expect(lastBody).toEqual({ text: 'hello' });
     });
 
@@ -749,7 +770,11 @@ describe('NodeComputerUseProvider', () => {
               text: async () => JSON.stringify({ ok: false, error: 'action failed' }),
             };
           }
-          return { ok: true, status: 200, text: async () => JSON.stringify({ ok: true, data: {} }) };
+          return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({ ok: true, data: {} }),
+          };
         }
         return { ok: true, status: 200, text: async () => JSON.stringify({ ok: true, data: {} }) };
       });
@@ -772,7 +797,9 @@ describe('NodeComputerUseProvider', () => {
       const calls = fetchMock.mock.calls;
       const setTextCalls = calls.filter((c) => String(c[0]).includes('/v1/SET_TEXT'));
       expect(setTextCalls).toHaveLength(2);
-      const lastBody = JSON.parse(String((setTextCalls[setTextCalls.length - 1][1] as RequestInit).body)) as Record<string, unknown>;
+      const lastBody = JSON.parse(
+        String((setTextCalls[setTextCalls.length - 1][1] as RequestInit).body),
+      ) as Record<string, unknown>;
       expect(lastBody).toEqual({ text: 'hello' });
     });
 
@@ -788,9 +815,7 @@ describe('NodeComputerUseProvider', () => {
             text: async () =>
               JSON.stringify({
                 ok: true,
-                data: [
-                  { class: 'android.widget.EditText', text: '', bounds: [0, 0, 100, 40] },
-                ],
+                data: [{ class: 'android.widget.EditText', text: '', bounds: [0, 0, 100, 40] }],
               }),
           };
         }
@@ -852,7 +877,11 @@ describe('NodeComputerUseProvider', () => {
               text: async () => JSON.stringify({ ok: false, error: 'no node matched query' }),
             };
           }
-          return { ok: true, status: 200, text: async () => JSON.stringify({ ok: true, data: {} }) };
+          return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({ ok: true, data: {} }),
+          };
         }
         return { ok: true, status: 200, text: async () => JSON.stringify({ ok: true, data: {} }) };
       });
@@ -873,7 +902,9 @@ describe('NodeComputerUseProvider', () => {
       expect(result.ok).toBe(true);
       const calls = fetchMock.mock.calls;
       const setTextCalls = calls.filter((c) => String(c[0]).includes('/v1/SET_TEXT'));
-      const lastBody = JSON.parse(String((setTextCalls[setTextCalls.length - 1][1] as RequestInit).body)) as Record<string, unknown>;
+      const lastBody = JSON.parse(
+        String((setTextCalls[setTextCalls.length - 1][1] as RequestInit).body),
+      ) as Record<string, unknown>;
       expect(lastBody).toEqual({ by: 'text', query: '\n', text: '0812测试' });
       // 不依赖焦点:by=text 直接定位,不应有 TAP
       const tapCalls = calls.filter((c) => String(c[0]).includes('/v1/TAP'));
@@ -890,9 +921,7 @@ describe('NodeComputerUseProvider', () => {
             text: async () =>
               JSON.stringify({
                 ok: true,
-                data: [
-                  { class: 'android.widget.EditText', text: '', bounds: [0, 0, 100, 40] },
-                ],
+                data: [{ class: 'android.widget.EditText', text: '', bounds: [0, 0, 100, 40] }],
               }),
           };
         }
@@ -945,7 +974,11 @@ describe('NodeComputerUseProvider', () => {
           status: 200,
           text: async () => JSON.stringify({ ok: false, error: 'unknown command SCROLL' }),
         })
-        .mockResolvedValue({ ok: true, status: 200, text: async () => JSON.stringify({ ok: true, data: {} }) });
+        .mockResolvedValue({
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ ok: true, data: {} }),
+        });
       const provider = createProvider();
 
       const result = await provider.performAction(DEFAULT_CTX, makeLease(), {
@@ -1009,23 +1042,66 @@ describe('NodeComputerUseProvider', () => {
 
       expect(lease.providerId).toBe('node');
       expect(lease.appId).toBe('com.test.app');
-      expect(lease.allowedActions).toEqual(['click_element', 'click_point', 'type_text', 'scroll', 'stop']);
+      expect(lease.allowedActions).toEqual([
+        'click_element',
+        'click_point',
+        'type_text',
+        'scroll',
+        'stop',
+      ]);
       expect(lease.providerState).toEqual({ manageScreen: true, url: 'http://127.0.0.1:8473' });
 
       // 顺序:KEYCODE_WAKEUP → dismiss-keyguard → keyguard 校验 → stayon true
       const wakeCalls = adbArgsCalls();
       expect(adbExecMock.mock.calls[0][0]).toBe('/custom/adb');
-      expect(wakeCalls[0]).toEqual(['-s', 'emulator-5554', 'shell', 'input', 'keyevent', 'KEYCODE_WAKEUP']);
+      expect(wakeCalls[0]).toEqual([
+        '-s',
+        'emulator-5554',
+        'shell',
+        'input',
+        'keyevent',
+        'KEYCODE_WAKEUP',
+      ]);
       expect(wakeCalls[1]).toEqual(['-s', 'emulator-5554', 'shell', 'wm', 'dismiss-keyguard']);
-      expect(wakeCalls[2]).toEqual(['-s', 'emulator-5554', 'shell', 'dumpsys', 'window', 'keyguard']);
-      expect(wakeCalls[3]).toEqual(['-s', 'emulator-5554', 'shell', 'svc', 'power', 'stayon', 'true']);
+      expect(wakeCalls[2]).toEqual([
+        '-s',
+        'emulator-5554',
+        'shell',
+        'dumpsys',
+        'window',
+        'keyguard',
+      ]);
+      expect(wakeCalls[3]).toEqual([
+        '-s',
+        'emulator-5554',
+        'shell',
+        'svc',
+        'power',
+        'stayon',
+        'true',
+      ]);
 
       // releaseLease 逆序:stayon false → KEYCODE_SLEEP
       adbExecMock.mockClear();
       await provider.releaseLease(DEFAULT_CTX, lease);
       const restoreCalls = adbArgsCalls();
-      expect(restoreCalls[0]).toEqual(['-s', 'emulator-5554', 'shell', 'svc', 'power', 'stayon', 'false']);
-      expect(restoreCalls[1]).toEqual(['-s', 'emulator-5554', 'shell', 'input', 'keyevent', 'KEYCODE_SLEEP']);
+      expect(restoreCalls[0]).toEqual([
+        '-s',
+        'emulator-5554',
+        'shell',
+        'svc',
+        'power',
+        'stayon',
+        'false',
+      ]);
+      expect(restoreCalls[1]).toEqual([
+        '-s',
+        'emulator-5554',
+        'shell',
+        'input',
+        'keyevent',
+        'KEYCODE_SLEEP',
+      ]);
     });
 
     it('不启用 manageScreen → createLease/releaseLease/stop 均不调用 adb', async () => {
@@ -1048,7 +1124,9 @@ describe('NodeComputerUseProvider', () => {
         cb?.(new Error('device offline'), '', '');
       });
 
-      await expect(provider.createLease(DEFAULT_CTX, { appId: 'com.test.app' })).rejects.toThrow('手动解锁');
+      await expect(provider.createLease(DEFAULT_CTX, { appId: 'com.test.app' })).rejects.toThrow(
+        '手动解锁',
+      );
     });
 
     it('dismiss-keyguard 失败(密码/图案锁屏)→ createLease throw 可读提示且不重复', async () => {
@@ -1064,9 +1142,9 @@ describe('NodeComputerUseProvider', () => {
         else cb?.(null, '', '');
       });
 
-      await expect(
-        provider.createLease(DEFAULT_CTX, { appId: 'com.test.app' }),
-      ).rejects.toThrow('无法解除锁屏;若手机设置了密码/图案锁屏,请先手动解锁');
+      await expect(provider.createLease(DEFAULT_CTX, { appId: 'com.test.app' })).rejects.toThrow(
+        '无法解除锁屏;若手机设置了密码/图案锁屏,请先手动解锁',
+      );
     });
 
     it('dismiss-keyguard 命令成功但 keyguard 仍在(静默失败)→ 抛手动解锁提示', async () => {
@@ -1081,9 +1159,9 @@ describe('NodeComputerUseProvider', () => {
         cb?.(null, out, '');
       });
 
-      await expect(
-        provider.createLease(DEFAULT_CTX, { appId: 'com.test.app' }),
-      ).rejects.toThrow('无法解除锁屏;若手机设置了密码/图案锁屏,请先手动解锁');
+      await expect(provider.createLease(DEFAULT_CTX, { appId: 'com.test.app' })).rejects.toThrow(
+        '无法解除锁屏;若手机设置了密码/图案锁屏,请先手动解锁',
+      );
     });
   });
 
@@ -1164,13 +1242,19 @@ describe('NodeComputerUseProvider', () => {
           ok: true,
           status: 200,
           text: async () =>
-            JSON.stringify(bad ? { ok: false, error: 'missing or invalid integer argument: x' } : { ok: true, data: {} }),
+            JSON.stringify(
+              bad
+                ? { ok: false, error: 'missing or invalid integer argument: x' }
+                : { ok: true, data: {} },
+            ),
         };
       });
       const client = new MimicClient({ baseUrl: 'http://127.0.0.1:8473' });
       // 直接发旧版 wire 形状(绕过已修复的 clickNode,模拟历史版本请求)
       const rawRequest = (
-        client as unknown as { _request(cmd: string, args: Record<string, unknown>): Promise<unknown> }
+        client as unknown as {
+          _request(cmd: string, args: Record<string, unknown>): Promise<unknown>;
+        }
       )._request.bind(client);
 
       await expect(rawRequest('CLICK', { text: '确认' })).rejects.toMatchObject({ kind: 'api' });

@@ -100,9 +100,7 @@ export class GenericSTTProvider implements STTProvider {
   // -------------------------------------------------------------------
 
   private authHeaders(cfg: GenericSTTConfig): Record<string, string> {
-    return cfg.apiKey
-      ? { Authorization: `${cfg.authPrefix ?? 'Bearer'} ${cfg.apiKey}` }
-      : {};
+    return cfg.apiKey ? { Authorization: `${cfg.authPrefix ?? 'Bearer'} ${cfg.apiKey}` } : {};
   }
 
   /** Simple JSON path extraction: "data[0].text" → obj.data[0].text */

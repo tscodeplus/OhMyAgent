@@ -30,7 +30,7 @@ export interface LLMExpansionConfig {
 }
 
 const EXPANSION_SYSTEM_PROMPT =
-  'Rewrite the user\'s query into search queries from different angles, one per line. Only output the queries, no numbering or explanation.';
+  "Rewrite the user's query into search queries from different angles, one per line. Only output the queries, no numbering or explanation.";
 
 /**
  * Expand a user query for memory retrieval.
@@ -52,7 +52,10 @@ export async function expandQueryLLM(
   }
 
   // Fast path: query is long and specific enough
-  if (rawQuery.trim().length >= config.minQueryLength && (initialMaxScore === undefined || initialMaxScore >= config.minScoreTrigger)) {
+  if (
+    rawQuery.trim().length >= config.minQueryLength &&
+    (initialMaxScore === undefined || initialMaxScore >= config.minScoreTrigger)
+  ) {
     return { baseline, variants: [] };
   }
 
@@ -73,20 +76,20 @@ export async function expandQueryLLM(
 
     const lines = response
       .split('\n')
-      .map(l => l.replace(/^\d+[\.\)]\s*/, '').trim())
+      .map((l) => l.replace(/^\d+[\.\)]\s*/, '').trim())
       .filter(Boolean)
       .slice(0, config.maxVariants);
 
     if (lines.length === 0) return { baseline, variants: [] };
 
     const variants = lines
-      .map(q => expandQuery(q))
-      .filter(v => v.ftsQuery && v.ftsQuery !== baseline.ftsQuery);
+      .map((q) => expandQuery(q))
+      .filter((v) => v.ftsQuery && v.ftsQuery !== baseline.ftsQuery);
 
     // Deduplicate by ftsQuery
     const seen = new Set<string>();
     seen.add(baseline.ftsQuery);
-    const deduped = variants.filter(v => {
+    const deduped = variants.filter((v) => {
       if (seen.has(v.ftsQuery)) return false;
       seen.add(v.ftsQuery);
       return true;

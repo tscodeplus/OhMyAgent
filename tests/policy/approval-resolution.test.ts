@@ -25,10 +25,13 @@ describe('ApprovalResolutionPolicyImpl', () => {
       recordedAt: Date.now(),
     });
 
-    expect(await policy.checkReuse('session-1', 'tool', 'file_write /tmp/a.txt'))
-      .toEqual({ canReuse: true, decision: 'approve_session' });
-    expect(await policy.checkReuse('session-1', 'tool', 'file_write /tmp/b.txt'))
-      .toEqual({ canReuse: false });
+    expect(await policy.checkReuse('session-1', 'tool', 'file_write /tmp/a.txt')).toEqual({
+      canReuse: true,
+      decision: 'approve_session',
+    });
+    expect(await policy.checkReuse('session-1', 'tool', 'file_write /tmp/b.txt')).toEqual({
+      canReuse: false,
+    });
     expect(gate.recordDecision).toHaveBeenCalledWith(
       'req-1',
       'approve_session',
@@ -58,8 +61,10 @@ describe('ApprovalResolutionPolicyImpl', () => {
     vi.mocked(gate.evaluate).mockResolvedValueOnce('approved');
     const policy = new ApprovalResolutionPolicyImpl({ approvalGate: gate });
 
-    await expect(policy.checkReuse('session-1', 'tool', 'remote_trigger'))
-      .resolves.toEqual({ canReuse: true, decision: 'approve_always' });
+    await expect(policy.checkReuse('session-1', 'tool', 'remote_trigger')).resolves.toEqual({
+      canReuse: true,
+      decision: 'approve_always',
+    });
     expect(gate.evaluate).toHaveBeenCalledWith({
       kind: 'tool',
       toolName: 'remote_trigger',

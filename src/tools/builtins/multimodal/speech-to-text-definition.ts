@@ -8,7 +8,10 @@ import { statSync } from 'node:fs';
 import type { ToolDefinition } from '../../platform/tool-definition.js';
 import type { ToolCapabilityDescriptor } from '../../platform/tool-capabilities.js';
 import { textResult, errorResult } from '../../platform/tool-result.js';
-import { createSTTProviders, transcribeWithFallback } from '../../../media-providers/stt/factory.js';
+import {
+  createSTTProviders,
+  transcribeWithFallback,
+} from '../../../media-providers/stt/factory.js';
 
 export const speechToTextCapability: ToolCapabilityDescriptor = {
   category: 'multimodal',
@@ -49,10 +52,7 @@ export function createSpeechToTextToolDefinition(): ToolDefinition {
       ),
     }),
     capability: speechToTextCapability,
-    execute: async (
-      args: { audioPath: string; language?: string },
-      ctx,
-    ) => {
+    execute: async (args: { audioPath: string; language?: string }, ctx) => {
       const config = ctx.services.config;
       const sttConfig = config.multimodal?.stt;
 
@@ -65,9 +65,7 @@ export function createSpeechToTextToolDefinition(): ToolDefinition {
       // Build provider chain from config (before reading files)
       const providerConfigs = sttConfig.providers ?? [];
       if (providerConfigs.length === 0) {
-        return errorResult(
-          'No STT provider configured. Configure multimodal.stt.providers.',
-        );
+        return errorResult('No STT provider configured. Configure multimodal.stt.providers.');
       }
 
       const providers = createSTTProviders(providerConfigs);

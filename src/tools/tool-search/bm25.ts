@@ -67,7 +67,13 @@ export function tokenize(text: string): string[] {
  * Build a pre-tokenized catalog from raw tool metadata.
  */
 export function buildCatalog(
-  entries: { name: string; label: string; description: string; category: string; paramNames?: string }[],
+  entries: {
+    name: string;
+    label: string;
+    description: string;
+    category: string;
+    paramNames?: string;
+  }[],
 ): CatalogEntry[] {
   return entries.map((e) => {
     const nameTokens = tokenize(e.name);
@@ -185,10 +191,7 @@ function tokenNameMatch(query: string, catalog: CatalogEntry[]): CatalogEntry[] 
  * Strategy 5: Token overlap against name + description (fallback).
  * Used only when the query doesn't target a specific tool name.
  */
-function tokenDescMatch(
-  query: string,
-  catalog: CatalogEntry[],
-): CatalogEntry[] {
+function tokenDescMatch(query: string, catalog: CatalogEntry[]): CatalogEntry[] {
   const queryTokens = tokenize(query);
   if (!queryTokens.length) return [];
   const querySet = new Set(queryTokens);

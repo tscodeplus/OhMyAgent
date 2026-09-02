@@ -27,7 +27,7 @@ describe('coverageMerge', () => {
       { slotId: 'entity:Gina', lists: [ginaList] },
     ];
     const merged = coverageMerge(slots, 60, 3, 1);
-    const ids = merged.map(m => m.id);
+    const ids = merged.map((m) => m.id);
     expect(ids).toContain('g1'); // minority evidence guaranteed despite low score
     expect(ids).toContain('j1');
   });
@@ -38,8 +38,8 @@ describe('coverageMerge', () => {
       { slotId: 'entity:Gina', lists: [[src('g1', 0.5)]] },
     ];
     const merged = coverageMerge(slots, 60, 10, 1);
-    expect(merged.find(m => m.id === 'j1')?.slot).toBe('entity:Jon');
-    expect(merged.find(m => m.id === 'g1')?.slot).toBe('entity:Gina');
+    expect(merged.find((m) => m.id === 'j1')?.slot).toBe('entity:Jon');
+    expect(merged.find((m) => m.id === 'g1')?.slot).toBe('entity:Gina');
   });
 
   it('dedupes ids across slots keeping the higher score', () => {
@@ -48,7 +48,7 @@ describe('coverageMerge', () => {
       { slotId: 'b', lists: [[src('x', 0.9)]] },
     ];
     const merged = coverageMerge(slots, 60, 10, 2);
-    expect(merged.filter(m => m.id === 'x')).toHaveLength(1);
+    expect(merged.filter((m) => m.id === 'x')).toHaveLength(1);
   });
 
   it('respects the topK cap', () => {
@@ -66,6 +66,6 @@ describe('coverageMerge', () => {
       { slotId: 'b', lists: [[src('b1', 0.5)]] },
     ];
     const merged = coverageMerge(slots, 60, 5, 2);
-    expect(merged.map(m => m.id)).toEqual(['b1']);
+    expect(merged.map((m) => m.id)).toEqual(['b1']);
   });
 });

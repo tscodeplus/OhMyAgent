@@ -24,13 +24,18 @@ const TaskUpdateParams = Type.Object({
   taskId: Type.String({ description: 'ID of the task to update' }),
   title: Type.Optional(Type.String({ description: 'New task title' })),
   description: Type.Optional(Type.String({ description: 'New task description' })),
-  status: Type.Optional(Type.Union([
-    Type.Literal('pending'),
-    Type.Literal('running'),
-    Type.Literal('completed'),
-    Type.Literal('failed'),
-    Type.Literal('stopped'),
-  ], { description: 'New task status' })),
+  status: Type.Optional(
+    Type.Union(
+      [
+        Type.Literal('pending'),
+        Type.Literal('running'),
+        Type.Literal('completed'),
+        Type.Literal('failed'),
+        Type.Literal('stopped'),
+      ],
+      { description: 'New task status' },
+    ),
+  ),
 });
 
 interface TaskUpdateArgs {

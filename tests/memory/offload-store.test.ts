@@ -35,7 +35,14 @@ describe('OffloadStore', () => {
 
   describe('writeToolResult', () => {
     it('creates session directory, .md file, and offload.jsonl', () => {
-      const record = store.writeToolResult('session-1', 1, 'shell', { cmd: 'ls -la' }, 'total 42\n-rw-r--r-- 1 user user 100 file.txt\n', false);
+      const record = store.writeToolResult(
+        'session-1',
+        1,
+        'shell',
+        { cmd: 'ls -la' },
+        'total 42\n-rw-r--r-- 1 user user 100 file.txt\n',
+        false,
+      );
 
       // Returns correct OffloadRecord
       expect(record.seq).toBe(1);
@@ -69,13 +76,30 @@ describe('OffloadStore', () => {
     });
 
     it('writes result object as JSON string', () => {
-      const record = store.writeToolResult('session-2', 1, 'http_request', { url: 'https://example.com' }, { statusCode: 200, body: 'ok' }, false);
-      const mdContent = fs.readFileSync(path.join(baseDir, 'offload', 'session-2', record.refPath), 'utf-8');
+      const record = store.writeToolResult(
+        'session-2',
+        1,
+        'http_request',
+        { url: 'https://example.com' },
+        { statusCode: 200, body: 'ok' },
+        false,
+      );
+      const mdContent = fs.readFileSync(
+        path.join(baseDir, 'offload', 'session-2', record.refPath),
+        'utf-8',
+      );
       expect(mdContent).toContain('"statusCode": 200');
     });
 
     it('marks error status when isError is true', () => {
-      const record = store.writeToolResult('session-e', 1, 'shell', { cmd: 'rm /nonexistent' }, 'Error: ENOENT: no such file', true);
+      const record = store.writeToolResult(
+        'session-e',
+        1,
+        'shell',
+        { cmd: 'rm /nonexistent' },
+        'Error: ENOENT: no such file',
+        true,
+      );
       expect(record.status).toBe('error');
     });
 
@@ -90,12 +114,21 @@ describe('OffloadStore', () => {
       const record = store.writeToolResult('../bad/session', 1, '../shell/tool', {}, 'ok', false);
 
       expect(record.refPath).toBe('001-shell_tool.md');
-      expect(fs.existsSync(path.join(baseDir, 'offload', 'bad_session', record.refPath))).toBe(true);
+      expect(fs.existsSync(path.join(baseDir, 'offload', 'bad_session', record.refPath))).toBe(
+        true,
+      );
       expect(fs.existsSync(path.join(baseDir, 'bad'))).toBe(false);
     });
 
     it('generates zero-padded nodeId for double-digit seq', () => {
-      const record = store.writeToolResult('s', 42, 'file_read', { path: '/foo' }, 'content', false);
+      const record = store.writeToolResult(
+        's',
+        42,
+        'file_read',
+        { path: '/foo' },
+        'content',
+        false,
+      );
       expect(record.nodeId).toBe('node-042');
       expect(record.refPath).toBe('042-file_read.md');
     });
@@ -145,7 +178,9 @@ describe('OffloadStore', () => {
     it('rejects refPath traversal outside the session directory', () => {
       store.writeToolResult('safe-session', 1, 'shell', {}, 'ok', false);
 
-      expect(() => store.getFullResult('safe-session', '../escape.md')).toThrow('Path escapes offload root');
+      expect(() => store.getFullResult('safe-session', '../escape.md')).toThrow(
+        'Path escapes offload root',
+      );
     });
   });
 
@@ -232,10 +267,28 @@ describe('OffloadStore', () => {
 
     it('approximate token count scales with record size', () => {
       const small: OffloadRecord[] = [
-        { seq: 1, toolName: 'x', toolArgs: {}, refPath: 'a.md', timestamp: 1, nodeId: 'node-001', summary: '', status: 'success' },
+        {
+          seq: 1,
+          toolName: 'x',
+          toolArgs: {},
+          refPath: 'a.md',
+          timestamp: 1,
+          nodeId: 'node-001',
+          summary: '',
+          status: 'success',
+        },
       ];
       const large: OffloadRecord[] = [
-        { seq: 1, toolName: 'x', toolArgs: {}, refPath: 'a.md', timestamp: 1, nodeId: 'node-001', summary: 'x'.repeat(500), status: 'success' },
+        {
+          seq: 1,
+          toolName: 'x',
+          toolArgs: {},
+          refPath: 'a.md',
+          timestamp: 1,
+          nodeId: 'node-001',
+          summary: 'x'.repeat(500),
+          status: 'success',
+        },
       ];
       expect(store.countTokens(large)).toBeGreaterThan(store.countTokens(small));
     });

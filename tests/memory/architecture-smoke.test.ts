@@ -128,7 +128,9 @@ describe('agent private memory isolation', () => {
     expect(allByScope.length).toBeGreaterThanOrEqual(3);
 
     // Verify private memory isolation by visibility
-    const privateA = allByScope.filter(m => m.visibility === 'private' && m.agent_id === 'agent-a');
+    const privateA = allByScope.filter(
+      (m) => m.visibility === 'private' && m.agent_id === 'agent-a',
+    );
     expect(privateA.length).toBe(1);
     expect(privateA[0]!.content).toBe('Agent A secret knowledge');
   });
@@ -188,6 +190,6 @@ describe('FTS lifecycle compliance', () => {
 
     // Verify it's gone from normal queries
     const result = memoryRepo.searchByContent('hidden after deletion', 'user');
-    expect(result.filter(m => m.id === 'fts-test-001').length).toBe(0);
+    expect(result.filter((m) => m.id === 'fts-test-001').length).toBe(0);
   });
 });

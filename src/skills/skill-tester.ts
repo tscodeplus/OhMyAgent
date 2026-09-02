@@ -56,18 +56,18 @@ export function testSkillMatch(
   const matchedTrigger = matched ? resolved[0]!.matchedTrigger : undefined;
 
   // 2. Compile prompt layers for preview
-  const compiled = compileSkillContext(resolved.length > 0 ? resolved : [{ skill, matchType: 'trigger', matchedTrigger: '' }]);
-  const promptLayerPreviews = compiled.promptLayers.map(layer => ({
+  const compiled = compileSkillContext(
+    resolved.length > 0 ? resolved : [{ skill, matchType: 'trigger', matchedTrigger: '' }],
+  );
+  const promptLayerPreviews = compiled.promptLayers.map((layer) => ({
     name: layer.name,
     // Show first 200 chars of each layer as preview
-    contentPreview: layer.content.length > 200
-      ? layer.content.slice(0, 200) + '…'
-      : layer.content,
+    contentPreview: layer.content.length > 200 ? layer.content.slice(0, 200) + '…' : layer.content,
     priority: layer.priority,
   }));
 
   // 3. Check tool availability
-  const unknownTools = skill.tools.allowedTools.filter(t => !toolNames.includes(t));
+  const unknownTools = skill.tools.allowedTools.filter((t) => !toolNames.includes(t));
   const toolCheck = {
     allValid: unknownTools.length === 0,
     unknownTools,
@@ -77,7 +77,14 @@ export function testSkillMatch(
   const lintResult = lintSkill(skill, toolNames);
 
   // 5. Build diagnostic
-  const diagnostic = buildDiagnostic(matched, matchType, matchedTrigger, skill, toolCheck, lintResult);
+  const diagnostic = buildDiagnostic(
+    matched,
+    matchType,
+    matchedTrigger,
+    skill,
+    toolCheck,
+    lintResult,
+  );
 
   return {
     matched,
@@ -99,7 +106,7 @@ export function testSkillBatch(
   messages: string[],
   toolNames: string[],
 ): Array<{ message: string } & SkillTestResult> {
-  return messages.map(message => ({
+  return messages.map((message) => ({
     message,
     ...testSkillMatch(skill, message, toolNames),
   }));
@@ -123,7 +130,9 @@ function buildDiagnostic(
   // Match status
   if (matched) {
     if (matchType === 'explicit') {
-      lines.push(`✅ MATCHED (explicit — user typed $${skill.manifest.id} or /${skill.manifest.id})`);
+      lines.push(
+        `✅ MATCHED (explicit — user typed $${skill.manifest.id} or /${skill.manifest.id})`,
+      );
     } else {
       lines.push(`✅ MATCHED (trigger: "${matchedTrigger}")`);
     }
@@ -135,14 +144,18 @@ function buildDiagnostic(
 
   // Trigger info
   lines.push('');
-  lines.push(`🔤 Triggers (${skill.manifest.triggers.length}): ${skill.manifest.triggers.join(', ')}`);
+  lines.push(
+    `🔤 Triggers (${skill.manifest.triggers.length}): ${skill.manifest.triggers.join(', ')}`,
+  );
 
   // Tool check
   lines.push('');
   if (toolCheck.allValid) {
     lines.push('🔧 Tools: all allowed tools are registered ✅');
   } else {
-    lines.push(`🔧 Tools: ${toolCheck.unknownTools.length} unknown tool(s): ${toolCheck.unknownTools.join(', ')} ⚠️`);
+    lines.push(
+      `🔧 Tools: ${toolCheck.unknownTools.length} unknown tool(s): ${toolCheck.unknownTools.join(', ')} ⚠️`,
+    );
   }
   if (skill.tools.allowedTools.length > 0) {
     lines.push(`   Allowed: ${skill.tools.allowedTools.join(', ')}`);
@@ -152,13 +165,15 @@ function buildDiagnostic(
 
   // Lint summary
   lines.push('');
-  const errors = lintResult.issues.filter(i => i.level === 'error');
-  const warnings = lintResult.issues.filter(i => i.level === 'warning');
-  const infos = lintResult.issues.filter(i => i.level === 'info');
+  const errors = lintResult.issues.filter((i) => i.level === 'error');
+  const warnings = lintResult.issues.filter((i) => i.level === 'warning');
+  const infos = lintResult.issues.filter((i) => i.level === 'info');
   if (lintResult.ok) {
     lines.push(`🔍 Lint: passed ✅ (${warnings.length} warning(s), ${infos.length} info)`);
   } else {
-    lines.push(`🔍 Lint: ${errors.length} error(s), ${warnings.length} warning(s), ${infos.length} info`);
+    lines.push(
+      `🔍 Lint: ${errors.length} error(s), ${warnings.length} warning(s), ${infos.length} info`,
+    );
     for (const e of errors) {
       lines.push(`   ❌ [${e.rule}] ${e.message}`);
     }
@@ -167,7 +182,9 @@ function buildDiagnostic(
   // Prompt injection preview
   lines.push('');
   lines.push('📝 Prompt layers that would be injected:');
-  const compiled = compileSkillContext([{ skill, matchType: matchType as any, matchedTrigger: matchedTrigger ?? '' }]);
+  const compiled = compileSkillContext([
+    { skill, matchType: matchType as any, matchedTrigger: matchedTrigger ?? '' },
+  ]);
   for (const layer of compiled.promptLayers) {
     const preview = layer.content.length > 100 ? layer.content.slice(0, 100) + '…' : layer.content;
     lines.push(`   [P${layer.priority}] ${layer.name}: "${preview}"`);

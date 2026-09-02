@@ -10,7 +10,12 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { isBlockedAddress, isInternalHostname, parseIPv4, parseIPv6 } from '../../src/shared/ssrf.js';
+import {
+  isBlockedAddress,
+  isInternalHostname,
+  parseIPv4,
+  parseIPv6,
+} from '../../src/shared/ssrf.js';
 
 describe('isBlockedAddress — IPv4', () => {
   it.each([
@@ -67,12 +72,19 @@ describe('isBlockedAddress — IPv4', () => {
 });
 
 describe('isBlockedAddress — IPv6', () => {
-  it.each(['::', '::1', '100::1', '2001::1', '2001:db8::1', 'fc00::1', 'fd12:3456::78', 'fe80::1', 'ff02::1'])(
-    'blocks %s',
-    (address) => {
-      expect(isBlockedAddress(address)).toBe(true);
-    },
-  );
+  it.each([
+    '::',
+    '::1',
+    '100::1',
+    '2001::1',
+    '2001:db8::1',
+    'fc00::1',
+    'fd12:3456::78',
+    'fe80::1',
+    'ff02::1',
+  ])('blocks %s', (address) => {
+    expect(isBlockedAddress(address)).toBe(true);
+  });
 
   it.each(['2606:4700:4700::1111', '2001:4860:4860::8888', '2400:3200::1', '2002:0102:0304::'])(
     'allows %s',
@@ -115,12 +127,19 @@ describe('isBlockedAddress — non-address input', () => {
 });
 
 describe('isInternalHostname', () => {
-  it.each(['localhost', 'LOCALHOST', 'localhost.', 'api.localhost', 'printer.local', '127.0.0.1', '192.168.4.20', '100.64.5.6', '[::1]'])(
-    'treats %s as local',
-    (hostname) => {
-      expect(isInternalHostname(hostname)).toBe(true);
-    },
-  );
+  it.each([
+    'localhost',
+    'LOCALHOST',
+    'localhost.',
+    'api.localhost',
+    'printer.local',
+    '127.0.0.1',
+    '192.168.4.20',
+    '100.64.5.6',
+    '[::1]',
+  ])('treats %s as local', (hostname) => {
+    expect(isInternalHostname(hostname)).toBe(true);
+  });
 
   it.each(['example.com', 'api.github.com', '8.8.8.8', 'subdomain.corp.internal', 'myserver'])(
     'treats %s as external',

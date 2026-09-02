@@ -169,20 +169,14 @@ function summarizeShell(
   return `执行 shell 命令 \`${cmd}\`，输出 ${lines} 行`;
 }
 
-function summarizeFileRead(
-  args: Record<string, unknown>,
-  resultText: string,
-): string {
+function summarizeFileRead(args: Record<string, unknown>, resultText: string): string {
   const path = getArgString(args, 'path', 'file_path', 'filePath');
   const size = countBytes(resultText);
   const lines = countLines(resultText);
   return `读取文件 \`${path}\`，${size} 字节，共 ${lines} 行`;
 }
 
-function summarizeFileWrite(
-  args: Record<string, unknown>,
-  resultText: string,
-): string {
+function summarizeFileWrite(args: Record<string, unknown>, resultText: string): string {
   const path = getArgString(args, 'path', 'file_path', 'filePath', 'filepath');
   // Try to get written byte count from a JSON-like result first
   let bytes: number;
@@ -197,10 +191,7 @@ function summarizeFileWrite(
   return `写入文件 \`${path}\`，${bytes} 字节`;
 }
 
-function summarizeHttp(
-  args: Record<string, unknown>,
-  resultText: string,
-): string {
+function summarizeHttp(args: Record<string, unknown>, resultText: string): string {
   const method = (getArgString(args, 'method', 'httpMethod') || 'GET').toUpperCase();
   const url = getArgString(args, 'url', 'uri', 'endpoint');
 
@@ -227,10 +218,7 @@ function summarizeHttp(
   return `${method} ${url} → HTTP ${statusCode}，${responseSize} 字节`;
 }
 
-function summarizeSearch(
-  args: Record<string, unknown>,
-  resultText: string,
-): string {
+function summarizeSearch(args: Record<string, unknown>, resultText: string): string {
   const query = getArgString(args, 'query', 'q', 'keyword', 'keywords');
 
   let resultCount = 0;
@@ -259,19 +247,13 @@ function summarizeSearch(
   return `搜索 "${query}" → ${resultCount} 条结果`;
 }
 
-function summarizeMemoryStore(
-  args: Record<string, unknown>,
-  resultText: string,
-): string {
+function summarizeMemoryStore(args: Record<string, unknown>, resultText: string): string {
   const content = getArgString(args, 'content', 'text', 'memory');
   const preview = truncate(content || resultText, 40);
   return `存储记忆: ${preview}...`;
 }
 
-function summarizeMemoryRecall(
-  args: Record<string, unknown>,
-  resultText: string,
-): string {
+function summarizeMemoryRecall(args: Record<string, unknown>, resultText: string): string {
   const query = getArgString(args, 'query', 'q', 'keyword', 'content');
   return `记忆召回: ${query || getTextPreview(resultText, 60)}`;
 }

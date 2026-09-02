@@ -21,7 +21,8 @@ vi.mock('node:fs', async (importOriginal) => {
 // swiftc, so a real probe can take 10s+ and blow the 10s test timeout. This
 // is a composer unit test — mock the probe, keep everything else real.
 vi.mock('../../src/computer-use/ssh-actions-darwin.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/computer-use/ssh-actions-darwin.js')>();
+  const actual =
+    await importOriginal<typeof import('../../src/computer-use/ssh-actions-darwin.js')>();
   return {
     ...actual,
     runSwiftAx: vi.fn(async () => ({ ok: true })),
@@ -53,11 +54,14 @@ function baseConfig(overrides?: Record<string, unknown>): AppConfig {
 
 describe('createComputerUseServices (Termux)', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      text: async () => JSON.stringify({ ok: true, data: {} }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ ok: true, data: {} }),
+      }),
+    );
   });
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -86,10 +90,7 @@ describe('createComputerUseServices (Termux)', () => {
   });
 
   it('returns no host when computer use is disabled', async () => {
-    const services = await createComputerUseServices(
-      baseConfig({ enabled: false }),
-      noopLogger,
-    );
+    const services = await createComputerUseServices(baseConfig({ enabled: false }), noopLogger);
     expect(services.computerUseHost).toBeUndefined();
   });
 });

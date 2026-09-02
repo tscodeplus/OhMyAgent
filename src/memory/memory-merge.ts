@@ -126,10 +126,7 @@ export function parseMergedContent(response: string): string {
 /**
  * Append a timeline entry to an existing metadata JSON string.
  */
-export function appendTimeline(
-  metadataJson: string | null,
-  entry: TimelineEntry,
-): string {
+export function appendTimeline(metadataJson: string | null, entry: TimelineEntry): string {
   let meta: Record<string, unknown>;
   try {
     meta = metadataJson ? JSON.parse(metadataJson) : {};

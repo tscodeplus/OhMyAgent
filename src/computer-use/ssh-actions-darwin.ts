@@ -33,14 +33,35 @@ import { quoteShellArg, truncateStdout } from './ssh-actions-common.js';
 
 /** macOS key name -> key code mapping for osascript(1) key code commands. */
 export const MAC_KEY_CODES: Record<string, number> = {
-  'Return': 36, 'Enter': 36, 'Escape': 53, 'Esc': 53,
-  'Tab': 48, 'BackSpace': 51, 'Delete': 117,
-  'Home': 115, 'End': 119, 'Page_Up': 116, 'Page_Down': 121,
-  'Up': 126, 'Down': 125, 'Left': 123, 'Right': 124,
-  'F1': 122, 'F2': 120, 'F3': 99, 'F4': 118,
-  'F5': 96, 'F6': 97, 'F7': 98, 'F8': 100,
-  'F9': 101, 'F10': 109, 'F11': 103, 'F12': 111,
-  'space': 49, 'Space': 49,
+  Return: 36,
+  Enter: 36,
+  Escape: 53,
+  Esc: 53,
+  Tab: 48,
+  BackSpace: 51,
+  Delete: 117,
+  Home: 115,
+  End: 119,
+  Page_Up: 116,
+  Page_Down: 121,
+  Up: 126,
+  Down: 125,
+  Left: 123,
+  Right: 124,
+  F1: 122,
+  F2: 120,
+  F3: 99,
+  F4: 118,
+  F5: 96,
+  F6: 97,
+  F7: 98,
+  F8: 100,
+  F9: 101,
+  F10: 109,
+  F11: 103,
+  F12: 111,
+  space: 49,
+  Space: 49,
 };
 
 /** Timeout for JXA AX commands (tree walks can be slow over SSH). */
@@ -492,20 +513,77 @@ const CG_EVENT_FLAG_SHIFT = 0x020000;
  */
 const MAC_ASCII_KEY_CODES: Record<string, { code: number; shift: boolean }> = (() => {
   const plain: Array<[string, number]> = [
-    ['a', 0], ['s', 1], ['d', 2], ['f', 3], ['h', 4], ['g', 5], ['z', 6],
-    ['x', 7], ['c', 8], ['v', 9], ['b', 11], ['q', 12], ['w', 13], ['e', 14],
-    ['r', 15], ['y', 16], ['t', 17], ['o', 31], ['u', 32], ['i', 34],
-    ['p', 35], ['l', 37], ['j', 38], ['k', 40], ['n', 45], ['m', 46],
-    ['1', 18], ['2', 19], ['3', 20], ['4', 21], ['5', 23], ['6', 22],
-    ['7', 26], ['8', 28], ['9', 25], ['0', 29],
-    [' ', 49], ['-', 27], ['=', 24], ['[', 33], [']', 30], ['\\', 42],
-    [';', 41], ["'", 39], [',', 43], ['.', 47], ['/', 44], ['`', 50],
+    ['a', 0],
+    ['s', 1],
+    ['d', 2],
+    ['f', 3],
+    ['h', 4],
+    ['g', 5],
+    ['z', 6],
+    ['x', 7],
+    ['c', 8],
+    ['v', 9],
+    ['b', 11],
+    ['q', 12],
+    ['w', 13],
+    ['e', 14],
+    ['r', 15],
+    ['y', 16],
+    ['t', 17],
+    ['o', 31],
+    ['u', 32],
+    ['i', 34],
+    ['p', 35],
+    ['l', 37],
+    ['j', 38],
+    ['k', 40],
+    ['n', 45],
+    ['m', 46],
+    ['1', 18],
+    ['2', 19],
+    ['3', 20],
+    ['4', 21],
+    ['5', 23],
+    ['6', 22],
+    ['7', 26],
+    ['8', 28],
+    ['9', 25],
+    ['0', 29],
+    [' ', 49],
+    ['-', 27],
+    ['=', 24],
+    ['[', 33],
+    [']', 30],
+    ['\\', 42],
+    [';', 41],
+    ["'", 39],
+    [',', 43],
+    ['.', 47],
+    ['/', 44],
+    ['`', 50],
   ];
   const shifted: Array<[string, number]> = [
-    ['~', 50], ['!', 18], ['@', 19], ['#', 20], ['$', 21], ['%', 23],
-    ['^', 22], ['&', 26], ['*', 28], ['(', 25], [')', 29], ['_', 27],
-    ['+', 24], ['{', 33], ['}', 30], ['|', 42], [':', 41], ['"', 39],
-    ['<', 43], ['>', 47], ['?', 44],
+    ['~', 50],
+    ['!', 18],
+    ['@', 19],
+    ['#', 20],
+    ['$', 21],
+    ['%', 23],
+    ['^', 22],
+    ['&', 26],
+    ['*', 28],
+    ['(', 25],
+    [')', 29],
+    ['_', 27],
+    ['+', 24],
+    ['{', 33],
+    ['}', 30],
+    ['|', 42],
+    [':', 41],
+    ['"', 39],
+    ['<', 43],
+    ['>', 47],
+    ['?', 44],
   ];
   const map: Record<string, { code: number; shift: boolean }> = {};
   for (const [ch, code] of plain) map[ch] = { code, shift: false };
@@ -526,12 +604,18 @@ const CG_EVENT_FLAG_ALTERNATE = 0x080000;
 /** Modifier prefix name -> CGEvent flag mask. "Meta" is the cross-platform
  * name agents emit; on macOS it means Command. */
 const MAC_MODIFIER_FLAGS: Record<string, number> = {
-  'Cmd': CG_EVENT_FLAG_COMMAND, 'Command': CG_EVENT_FLAG_COMMAND,
-  'Meta': CG_EVENT_FLAG_COMMAND, 'Super': CG_EVENT_FLAG_COMMAND,
-  'Win': CG_EVENT_FLAG_COMMAND, 'Windows': CG_EVENT_FLAG_COMMAND,
-  'Ctrl': CG_EVENT_FLAG_CONTROL, 'Control': CG_EVENT_FLAG_CONTROL,
-  'Alt': CG_EVENT_FLAG_ALTERNATE, 'Option': CG_EVENT_FLAG_ALTERNATE, 'Opt': CG_EVENT_FLAG_ALTERNATE,
-  'Shift': CG_EVENT_FLAG_SHIFT,
+  Cmd: CG_EVENT_FLAG_COMMAND,
+  Command: CG_EVENT_FLAG_COMMAND,
+  Meta: CG_EVENT_FLAG_COMMAND,
+  Super: CG_EVENT_FLAG_COMMAND,
+  Win: CG_EVENT_FLAG_COMMAND,
+  Windows: CG_EVENT_FLAG_COMMAND,
+  Ctrl: CG_EVENT_FLAG_CONTROL,
+  Control: CG_EVENT_FLAG_CONTROL,
+  Alt: CG_EVENT_FLAG_ALTERNATE,
+  Option: CG_EVENT_FLAG_ALTERNATE,
+  Opt: CG_EVENT_FLAG_ALTERNATE,
+  Shift: CG_EVENT_FLAG_SHIFT,
 };
 
 /**
@@ -609,8 +693,7 @@ export function macKeystrokeCommand(text: string): string {
  * impossible.
  */
 export function macActivateAppCommand(pid: number): string {
-  const script =
-    `tell application "System Events" to set frontmost of (first process whose unix id is ${pid}) to true`;
+  const script = `tell application "System Events" to set frontmost of (first process whose unix id is ${pid}) to true`;
   return `osascript -e ${quoteShellArg(script)}`;
 }
 
@@ -716,7 +799,11 @@ async function requireFrontmostForInput(runner: ExecRunner, pid?: number): Promi
  * activation, but only while the target still holds it — a third app means
  * the user/OS switched, never yank it away.
  */
-async function restoreFrontmost(runner: ExecRunner, targetPid: number | undefined, prevFgPid?: number) {
+async function restoreFrontmost(
+  runner: ExecRunner,
+  targetPid: number | undefined,
+  prevFgPid?: number,
+) {
   if (!prevFgPid || !targetPid || prevFgPid === targetPid) return;
   if ((await getFrontmostPid(runner)) !== targetPid) return;
   await runner.exec(macActivateAppCommand(prevFgPid)).catch(() => {});
@@ -732,8 +819,11 @@ export async function listDarwinApps(runner: ExecRunner): Promise<AppInfo[]> {
     const result = await runner.exec(
       `osascript -e 'tell application "System Events" to get name of every process whose visible is true'`,
     );
-    const names = result.stdout.split(',').map(s => s.trim()).filter(Boolean);
-    return names.map(name => ({
+    const names = result.stdout
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return names.map((name) => ({
       appId: name,
       name,
       running: true,
@@ -799,7 +889,9 @@ export async function readDarwinWindowState(
         await runner.exec(`screencapture -x -l ${windowId} /tmp/cua_${leaseId}.png`);
         const b64Result = await runner.exec(`base64 -i /tmp/cua_${leaseId}.png`);
         screenshotBase64 = b64Result.stdout.trim();
-      } catch { /* window capture failed — full-screen fallback below */ }
+      } catch {
+        /* window capture failed — full-screen fallback below */
+      }
     }
   }
   if (!screenshotBase64) {
@@ -807,7 +899,9 @@ export async function readDarwinWindowState(
       await runner.exec(`screencapture -x -T0 /tmp/cua_${leaseId}.png`);
       const b64Result = await runner.exec(`base64 -i /tmp/cua_${leaseId}.png`);
       screenshotBase64 = b64Result.stdout.trim();
-    } catch { /* screencapture failed */ }
+    } catch {
+      /* screencapture failed */
+    }
   }
   await runner.exec(`rm -f /tmp/cua_${leaseId}.png`).catch(() => {});
 
@@ -827,7 +921,9 @@ export async function readDarwinWindowState(
     );
     windowTitle = truncateStdout(titleResult.stdout.trim());
     locked = windowTitle.toLowerCase() === 'loginwindow';
-  } catch { /* Non-critical */ }
+  } catch {
+    /* Non-critical */
+  }
 
   // With a lease pid, the state should describe the LEASED app (e.g.
   // "Safari"), not whatever holds the foreground — the background-launched
@@ -840,7 +936,9 @@ export async function readDarwinWindowState(
       );
       const name = nameResult.stdout.trim();
       if (name) windowTitle = truncateStdout(name);
-    } catch { /* keep the front-process name */ }
+    } catch {
+      /* keep the front-process name */
+    }
   }
 
   // AX tree. runSwiftAx returns null when the tool fails / output is not
@@ -913,7 +1011,12 @@ const AX_ROLE_MAP: Record<string, string> = {
 
 /** Roles whose value can be set directly via kAXValueAttribute. */
 const AX_TEXT_ROLES = new Set([
-  'textbox', 'textarea', 'textfield', 'searchfield', 'passwordfield', 'combobox',
+  'textbox',
+  'textarea',
+  'textfield',
+  'searchfield',
+  'passwordfield',
+  'combobox',
 ]);
 
 /** AX scroll action per direction (attached to AXScrollArea elements). */
@@ -1018,7 +1121,11 @@ export async function performDarwinAction(
           error: `Invalid elementId '${action.snapshotElement.elementId}' for click_element (expected path like /0/2/5)`,
         };
       }
-      const result = await runSwiftAx(runner, ['press', String(pid ?? 0), action.snapshotElement.elementId]);
+      const result = await runSwiftAx(runner, [
+        'press',
+        String(pid ?? 0),
+        action.snapshotElement.elementId,
+      ]);
       if (result?.ok === true) return { ok: true, action: action.type };
       return { ok: false, action: action.type, error: jxaErrorToMessage(result) };
     }
@@ -1054,16 +1161,22 @@ export async function performDarwinAction(
         };
       }
       // Cap oversized payloads (keystroke / SSH command-line sanity limit).
-      const text = action.text.length > MAX_AX_TEXT_LENGTH
-        ? action.text.slice(0, MAX_AX_TEXT_LENGTH)
-        : action.text;
+      const text =
+        action.text.length > MAX_AX_TEXT_LENGTH
+          ? action.text.slice(0, MAX_AX_TEXT_LENGTH)
+          : action.text;
       // Primary path: set kAXValueAttribute directly on a text-field element.
       const el = action.snapshotElement;
       if (el && AX_TEXT_ROLES.has(el.role)) {
         const pathParts = parseElementPath(el.elementId);
         if (pathParts) {
           const textB64 = Buffer.from(text, 'utf8').toString('base64');
-          const result = await runSwiftAx(runner, ['setvalue', String(pid ?? 0), el.elementId, textB64]);
+          const result = await runSwiftAx(runner, [
+            'setvalue',
+            String(pid ?? 0),
+            el.elementId,
+            textB64,
+          ]);
           if (result?.ok === true) return { ok: true, action: action.type };
           // Fall through to activate + keystroke degradation on AX failure.
         }
@@ -1114,7 +1227,11 @@ export async function performDarwinAction(
         // which is the intended commit target (Safari's address bar offers
         // AXConfirm).
         if (textTargetPath) {
-          const confirmPath = await runSwiftAx(runner, ['confirmpath', String(pid), textTargetPath]);
+          const confirmPath = await runSwiftAx(runner, [
+            'confirmpath',
+            String(pid),
+            textTargetPath,
+          ]);
           if (confirmPath?.ok === true) return { ok: true, action: action.type };
           if (confirmPath?.error === 'API_DISABLED') {
             return { ok: false, action: action.type, error: AX_API_DISABLED_MESSAGE };
@@ -1128,10 +1245,13 @@ export async function performDarwinAction(
       // keyboard stream. Only possible with a target pid; keys without a
       // US-layout keycode (e.g. CJK) skip straight to the fallback.
       if (keyEvent && pid !== undefined && pid > 0) {
-        const result = await runSwiftAx(
-          runner,
-          ['postkey', String(pid), String(keyEvent.code), String(keyEvent.flags), '1'],
-        );
+        const result = await runSwiftAx(runner, [
+          'postkey',
+          String(pid),
+          String(keyEvent.code),
+          String(keyEvent.flags),
+          '1',
+        ]);
         if (result?.ok === true) return { ok: true, action: action.type };
         if (result?.error === 'API_DISABLED') {
           return { ok: false, action: action.type, error: AX_API_DISABLED_MESSAGE };
@@ -1155,8 +1275,7 @@ export async function performDarwinAction(
       if (keyEvent) {
         // Keep the combo modifiers on the degraded path: without them
         // "Cmd+L" would arrive as a bare "l" in the leased app.
-        command =
-          `osascript -e 'tell application "System Events" to key code ${keyEvent.code}${macModifiersAppleScript(keyEvent.flags)}'`;
+        command = `osascript -e 'tell application "System Events" to key code ${keyEvent.code}${macModifiersAppleScript(keyEvent.flags)}'`;
       } else if (action.key.length === 1) {
         command = macKeystrokeCommand(action.key);
       } else {
@@ -1180,27 +1299,36 @@ export async function performDarwinAction(
         const pathParts = parseElementPath(el.elementId);
         if (pathParts) {
           const axRepeat = Math.min(Math.max(amount, 1), 10);
-          const result = await runSwiftAx(
-            runner,
-            ['scroll', String(pid ?? 0), el.elementId, direction, String(axRepeat)],
-          );
+          const result = await runSwiftAx(runner, [
+            'scroll',
+            String(pid ?? 0),
+            el.elementId,
+            direction,
+            String(axRepeat),
+          ]);
           if (result?.ok === true) return { ok: true, action: action.type };
           // Fall through to arrow-key degradation on AX failure.
         }
       }
       const repeat = Math.min(amount, 20);
       const code: Record<string, number> = {
-        up: 126, down: 125, left: 123, right: 124,
+        up: 126,
+        down: 125,
+        left: 123,
+        right: 124,
       };
       const keyCode = code[direction] ?? 125;
       // Degradation path, background first: post the arrow keys into the
       // leased app's queue via CGEventPostToPid (same path as press_key);
       // synthesized input only when no pid is available or JXA fails.
       if (pid !== undefined && pid > 0) {
-        const result = await runSwiftAx(
-          runner,
-          ['postkey', String(pid), String(keyCode), '0', String(repeat)],
-        );
+        const result = await runSwiftAx(runner, [
+          'postkey',
+          String(pid),
+          String(keyCode),
+          '0',
+          String(repeat),
+        ]);
         if (result?.ok === true) return { ok: true, action: action.type };
         if (result?.error === 'API_DISABLED') {
           return { ok: false, action: action.type, error: AX_API_DISABLED_MESSAGE };
@@ -1217,8 +1345,9 @@ export async function performDarwinAction(
           error: swap.error ?? 'Could not foreground target app for scroll keys',
         };
       }
-      const command = Array.from({ length: repeat }, () =>
-        `osascript -e 'tell application "System Events" to key code ${keyCode}'`,
+      const command = Array.from(
+        { length: repeat },
+        () => `osascript -e 'tell application "System Events" to key code ${keyCode}'`,
       ).join(' && ');
       const result = await execCommand(runner, command, action.type);
       await restoreFrontmost(runner, pid, swap.prevFgPid);

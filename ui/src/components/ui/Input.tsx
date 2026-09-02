@@ -16,7 +16,10 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
     return (
       <div className="flex flex-col gap-1.5">
         {label && (
-          <label htmlFor={inputId} className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300">
+          <label
+            htmlFor={inputId}
+            className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300"
+          >
             {label}
           </label>
         )}
@@ -35,14 +38,18 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
               className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-7 w-7 items-center justify-center rounded-md text-neutral-400 hover:text-neutral-600 dark:text-neutral-500 dark:hover:text-neutral-300"
               tabIndex={-1}
             >
-              {showPw ? <EyeOff size={16} strokeWidth={1.75} /> : <Eye size={16} strokeWidth={1.75} />}
+              {showPw ? (
+                <EyeOff size={16} strokeWidth={1.75} />
+              ) : (
+                <Eye size={16} strokeWidth={1.75} />
+              )}
             </button>
           )}
         </div>
         {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
       </div>
     );
-  }
+  },
 );
 
 Input.displayName = 'Input';

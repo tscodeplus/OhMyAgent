@@ -32,14 +32,16 @@ export function createTelegramUserQuestionSender(bot: Bot): UserQuestionSender {
 
         // Each option in its own row to avoid horizontal truncation
         const keyboard = {
-          inline_keyboard: options.map((opt) => ([{
-            text: opt.label,
-            callback_data: encodeCallbackAction({
-              type: 'question_answer',
-              requestId,
-              answer: opt.value,
-            }),
-          }])),
+          inline_keyboard: options.map((opt) => [
+            {
+              text: opt.label,
+              callback_data: encodeCallbackAction({
+                type: 'question_answer',
+                requestId,
+                answer: opt.value,
+              }),
+            },
+          ]),
         };
 
         const msg = await bot.api.sendMessage(chatIdNum, text, {
@@ -82,8 +84,5 @@ export function createTelegramUserQuestionSender(bot: Bot): UserQuestionSender {
 }
 
 function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

@@ -108,9 +108,9 @@ export class MemorySummarizer {
     }
 
     // Filter to messages after the last episode, then reverse to chronological order
-    const newMessages = (lastEpisode
-      ? messages.filter(m => m.created_at > lastEpisode.created_at)
-      : messages)
+    const newMessages = (
+      lastEpisode ? messages.filter((m) => m.created_at > lastEpisode.created_at) : messages
+    )
       .filter((m) => m.role === 'user' || m.role === 'assistant')
       .reverse();
 
@@ -147,14 +147,12 @@ export class MemorySummarizer {
     messages: Array<{ role: string; content: string; created_at: string }>,
     channel: string | null,
   ): Promise<void> {
-    const transcript = messages
-      .map(m => `[${m.role}]: ${cleanContent(m.content)}`)
-      .join('\n');
+    const transcript = messages.map((m) => `[${m.role}]: ${cleanContent(m.content)}`).join('\n');
 
-    const outputLanguageValue = this.llmConfig?.outputLanguage
-      && this.llmConfig.outputLanguage !== 'Auto'
-      ? `Write the summary and extracted preferences in ${translateLanguageName(this.llmConfig.outputLanguage)}.`
-      : 'Use the same language as the conversation.';
+    const outputLanguageValue =
+      this.llmConfig?.outputLanguage && this.llmConfig.outputLanguage !== 'Auto'
+        ? `Write the summary and extracted preferences in ${translateLanguageName(this.llmConfig.outputLanguage)}.`
+        : 'Use the same language as the conversation.';
 
     const prompt = `You are a conversation analyst. Review the following conversation and:
 
@@ -178,7 +176,9 @@ Output ONLY valid JSON with this shape:
           stage: 'json_parse',
         });
       }
-      const supportedPreferences = preferences.filter(pref => this.isSupportedByUserMessage(pref, messages));
+      const supportedPreferences = preferences.filter((pref) =>
+        this.isSupportedByUserMessage(pref, messages),
+      );
 
       // Store episode
       const episodeId = generateId();
@@ -199,7 +199,12 @@ Output ONLY valid JSON with this shape:
       }
 
       this.logger.info(
-        { sessionKey, episodeId, messageCount: messages.length, preferenceCount: supportedPreferences.length },
+        {
+          sessionKey,
+          episodeId,
+          messageCount: messages.length,
+          preferenceCount: supportedPreferences.length,
+        },
         'LLM session summarized',
       );
     } catch (err) {
@@ -218,10 +223,7 @@ Output ONLY valid JSON with this shape:
     const name = extractPreferredName(preference);
     if (!name) return false;
 
-    return messages.some(m => (
-      m.role === 'user'
-      && extractPreferredName(m.content) === name
-    ));
+    return messages.some((m) => m.role === 'user' && extractPreferredName(m.content) === name);
   }
 
   private parseResponse(response: string): { summary: string; preferences: string[] } {
@@ -233,10 +235,7 @@ Output ONLY valid JSON with this shape:
     const cfg = this.llmConfig!;
 
     // Build model chain: primary + fallbacks
-    const modelRefs = [
-      ...(cfg.modelRef ? [cfg.modelRef] : []),
-      ...(cfg.fallbackRefs ?? []),
-    ];
+    const modelRefs = [...(cfg.modelRef ? [cfg.modelRef] : []), ...(cfg.fallbackRefs ?? [])];
 
     let lastError: string | null = null;
 
@@ -250,7 +249,11 @@ Output ONLY valid JSON with this shape:
         const completion = await client.chat.completions.create({
           model: modelId,
           messages: [
-            { role: 'system', content: 'You are a precise conversation analyst. Always respond in the requested format.' },
+            {
+              role: 'system',
+              content:
+                'You are a precise conversation analyst. Always respond in the requested format.',
+            },
             { role: 'user', content: prompt },
           ],
           temperature: 0.3,
@@ -276,24 +279,30 @@ Output ONLY valid JSON with this shape:
     messages: Array<{ role: string; content: string; created_at: string }>,
     channel: string | null,
   ): Promise<void> {
-    const userMessages = messages.filter(m => m.role === 'user');
-    const assistantMessages = messages.filter(m => m.role === 'assistant');
+    const userMessages = messages.filter((m) => m.role === 'user');
+    const assistantMessages = messages.filter((m) => m.role === 'assistant');
 
     const userTopics = userMessages
-      .map(m => cleanContent(m.content))
-      .filter(c => c.length > 0)
+      .map((m) => cleanContent(m.content))
+      .filter((c) => c.length > 0)
       .slice(0, 10);
 
     const conclusions = assistantMessages
       .slice(-2)
-      .map(m => cleanContent(m.content))
-      .filter(c => c.length > 0 && !userTopics.includes(c));
+      .map((m) => cleanContent(m.content))
+      .filter((c) => c.length > 0 && !userTopics.includes(c));
 
     const summaryText = [
-      userTopics.length > 0 ? `${i18n.t('memory:ruleBasedUserTopics')}: ${userTopics.join('; ')}` : '',
-      conclusions.length > 0 ? `${i18n.t('memory:ruleBasedAssistantConclusions')}: ${conclusions.join('; ')}` : '',
+      userTopics.length > 0
+        ? `${i18n.t('memory:ruleBasedUserTopics')}: ${userTopics.join('; ')}`
+        : '',
+      conclusions.length > 0
+        ? `${i18n.t('memory:ruleBasedAssistantConclusions')}: ${conclusions.join('; ')}`
+        : '',
       `${i18n.t('memory:ruleBasedStats')}: ${messages.length} messages, ${userMessages.length} user / ${assistantMessages.length} assistant`,
-    ].filter(Boolean).join('\n');
+    ]
+      .filter(Boolean)
+      .join('\n');
 
     const keyPoints = [...userTopics, ...conclusions];
 
@@ -320,13 +329,19 @@ Output ONLY valid JSON with this shape:
   }
 }
 
-export function parseSummaryLLMResponse(response: string): { summary: string; preferences: string[]; usedFallback: boolean } {
+export function parseSummaryLLMResponse(response: string): {
+  summary: string;
+  preferences: string[];
+  usedFallback: boolean;
+} {
   const parsed = parseSummaryJson(response) ?? parseSummaryJson(extractJsonFence(response));
   if (parsed) return { ...parsed, usedFallback: false };
   return { ...parsePrefixSummaryResponse(response), usedFallback: true };
 }
 
-function parseSummaryJson(response: string | null): { summary: string; preferences: string[] } | null {
+function parseSummaryJson(
+  response: string | null,
+): { summary: string; preferences: string[] } | null {
   if (!response) return null;
   try {
     const value = JSON.parse(response.trim()) as unknown;
@@ -338,8 +353,8 @@ function parseSummaryJson(response: string | null): { summary: string; preferenc
     const preferences = Array.isArray(obj.preferences)
       ? obj.preferences
           .filter((pref): pref is string => typeof pref === 'string')
-          .map(pref => pref.trim())
-          .filter(pref => pref.length > 2)
+          .map((pref) => pref.trim())
+          .filter((pref) => pref.length > 2)
           .slice(0, 10)
       : [];
     return { summary, preferences };
@@ -354,7 +369,10 @@ function extractJsonFence(response: string): string | null {
 }
 
 function parsePrefixSummaryResponse(response: string): { summary: string; preferences: string[] } {
-  const lines = response.split('\n').map(l => l.trim()).filter(Boolean);
+  const lines = response
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
   const summaryLines: string[] = [];
   const preferences: string[] = [];
 

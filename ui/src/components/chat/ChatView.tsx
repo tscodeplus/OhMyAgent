@@ -27,7 +27,7 @@ function fuzzyDuplicate(m: Message, fetched: Message[]): boolean {
   // quick succession (e.g. "继续") would falsely prune the live copy.
   if (m.role !== 'assistant') return false;
   const t = new Date(m.created_at).getTime();
-  return fetched.some(f => {
+  return fetched.some((f) => {
     if (f.role !== 'assistant' || !f.content) return false;
     const ft = new Date(f.created_at).getTime();
     if (Math.abs(ft - t) > 30_000) return false;
@@ -105,7 +105,7 @@ export default function ChatView() {
 
   /** Trigger an API refetch. */
   const triggerRefetch = useCallback(() => {
-    setRefetchKey(k => k + 1);
+    setRefetchKey((k) => k + 1);
   }, []);
 
   // Listen for agent turn completion notifications via WebSocket.
@@ -165,10 +165,10 @@ export default function ChatView() {
    *  mid-turn content when the user sent a message during an in-flight fetch. */
   const handleRefetched = useCallback((fetched?: Message[]) => {
     devLog('[ChatView] handleRefetched — pruning streamMessages (API fetch succeeded)');
-    setStreamMessages(prev => {
+    setStreamMessages((prev) => {
       const fetchedList = fetched ?? [];
-      const fetchedIds = new Set(fetchedList.map(m => m.id));
-      const kept = prev.filter(m => {
+      const fetchedIds = new Set(fetchedList.map((m) => m.id));
+      const kept = prev.filter((m) => {
         // Approval / pending question cards are streaming-only UI state — keep them.
         if (m.approval || (m.userQuestion && m.userQuestion.status !== 'answered')) return true;
         // Persisted under the same id (clientMsgId echo) — API copy wins.
@@ -199,7 +199,7 @@ export default function ChatView() {
   const [nonEmptySessions, setNonEmptySessions] = useState<Set<string>>(() => new Set());
   const handleHistoryCount = useCallback((sid: string, count: number) => {
     if (count <= 0) return;
-    setNonEmptySessions(prev => {
+    setNonEmptySessions((prev) => {
       if (prev.has(sid)) return prev;
       const next = new Set(prev);
       next.add(sid);
@@ -210,27 +210,32 @@ export default function ChatView() {
   /** Create a session and navigate to it; the typed text rides along via
    *  navigation state and ChatInput auto-sends it as the first message.
    *  Called by ChatInput when the user sends with no session selected. */
-  const handleQuickStart = useCallback(async (text: string) => {
-    if (!projectId || !text.trim()) return;
-    try {
-      const session = await apiRequest<Session>(`/api/projects/${projectId}/sessions`, { method: 'POST' });
-      bumpSessionsRefreshKey();
-      navigate(`/p/${projectId}/s/${session.id}`, { state: { initialMessage: text.trim() } });
-    } catch {
-      showToast(t('chat.createSessionError'), 'error');
-    }
-  }, [projectId, navigate, bumpSessionsRefreshKey, showToast, t]);
+  const handleQuickStart = useCallback(
+    async (text: string) => {
+      if (!projectId || !text.trim()) return;
+      try {
+        const session = await apiRequest<Session>(`/api/projects/${projectId}/sessions`, {
+          method: 'POST',
+        });
+        bumpSessionsRefreshKey();
+        navigate(`/p/${projectId}/s/${session.id}`, { state: { initialMessage: text.trim() } });
+      } catch {
+        showToast(t('chat.createSessionError'), 'error');
+      }
+    },
+    [projectId, navigate, bumpSessionsRefreshKey, showToast, t],
+  );
 
   const handleMessages = useCallback((msgs: Message[], clearPrevious?: boolean) => {
     // Drop messages that don't belong to the currently-viewed session.
     // Guards against stale SSE connections that may fire late after a
     // session switch (in case the unmount abort hasn't taken effect yet).
     const curSid = currentSessionIdRef.current;
-    msgs = msgs.filter(m => !m.session_id || m.session_id === curSid);
+    msgs = msgs.filter((m) => !m.session_id || m.session_id === curSid);
     if (msgs.length === 0) return;
     lastStreamActivityRef.current = Date.now();
 
-    setStreamMessages(prev => {
+    setStreamMessages((prev) => {
       // When a new user message arrives in a fresh turn (not steer/follow-up),
       // clear non-approval messages from the previous turn. Frontend-generated
       // IDs differ from server-generated IDs, so uncleared messages would
@@ -238,11 +243,14 @@ export default function ChatView() {
       // clearPrevious=false is used by steerMessage to preserve messages from
       // the current turn when the user sends a follow-up message mid-stream.
       const shouldClear = clearPrevious !== false;
-      const hasNewUser = msgs.some(m => m.role === 'user');
-      const base = (hasNewUser && shouldClear)
-        ? prev.filter(m => m.approval || (m.userQuestion && m.userQuestion.status !== 'answered'))
-        : prev;
-      const existing = new Map(base.map(m => [m.id, m]));
+      const hasNewUser = msgs.some((m) => m.role === 'user');
+      const base =
+        hasNewUser && shouldClear
+          ? prev.filter(
+              (m) => m.approval || (m.userQuestion && m.userQuestion.status !== 'answered'),
+            )
+          : prev;
+      const existing = new Map(base.map((m) => [m.id, m]));
       for (const msg of msgs) {
         const old = existing.get(msg.id);
         // Preserve tool_calls from old message if the new update
@@ -253,7 +261,9 @@ export default function ChatView() {
         }
         existing.set(msg.id, msg);
       }
-      const merged = Array.from(existing.values()).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      const merged = Array.from(existing.values()).sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+      );
       // Pin pending approval / user-question cards to the END of the list.
       // They represent a pause point waiting for user input, so any text the
       // agent streams afterwards must render ABOVE the card, not below it.
@@ -261,7 +271,9 @@ export default function ChatView() {
         (m.approval && m.approval.status === 'pending') ||
         (m.userQuestion && m.userQuestion.status === 'pending');
       const pinnedCards = merged.filter(isPinned);
-      return pinnedCards.length > 0 ? [...merged.filter(m => !isPinned(m)), ...pinnedCards] : merged;
+      return pinnedCards.length > 0
+        ? [...merged.filter((m) => !isPinned(m)), ...pinnedCards]
+        : merged;
     });
   }, []);
 
@@ -322,7 +334,11 @@ export default function ChatView() {
         centered={centeredNewSession}
         onQuickStart={handleQuickStart}
         onMessages={handleMessages}
-        onStreamStart={() => { setIsStreaming(true); lastStreamActivityRef.current = Date.now(); if (sessionId) pendingTurnSessionsRef.current.add(sessionId); }}
+        onStreamStart={() => {
+          setIsStreaming(true);
+          lastStreamActivityRef.current = Date.now();
+          if (sessionId) pendingTurnSessionsRef.current.add(sessionId);
+        }}
         onThinkingChange={handleThinkingChange}
         onRetryStatusChange={handleRetryStatusChange}
         onDone={handleTurnDone}

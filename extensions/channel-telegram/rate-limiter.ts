@@ -27,7 +27,7 @@ export class SlidingWindowRateLimiter {
       this.store.set(key, timestamps);
     }
 
-    const valid = timestamps.filter(t => t > windowStart);
+    const valid = timestamps.filter((t) => t > windowStart);
     if (valid.length >= this.maxRequests) {
       this.store.set(key, valid);
       return false;
@@ -41,7 +41,7 @@ export class SlidingWindowRateLimiter {
   private cleanup(): void {
     const now = Date.now();
     for (const [key, timestamps] of this.store.entries()) {
-      const valid = timestamps.filter(t => t > now - this.windowMs);
+      const valid = timestamps.filter((t) => t > now - this.windowMs);
       if (valid.length === 0) {
         this.store.delete(key);
       } else {

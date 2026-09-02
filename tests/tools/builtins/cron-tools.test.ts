@@ -18,7 +18,13 @@ import { extractToolText, expectToolResultContains } from '../../helpers/tool-re
 function createMockCronService(jobs: CronJob[] = []) {
   const store = [...jobs];
   return {
-    add: (input: { name: string; schedule: string; prompt: string; channel: string; chatId: string }) => {
+    add: (input: {
+      name: string;
+      schedule: string;
+      prompt: string;
+      channel: string;
+      chatId: string;
+    }) => {
       const job: CronJob = {
         id: `job_${store.length + 1}`,
         name: input.name,
@@ -40,25 +46,31 @@ function createMockCronService(jobs: CronJob[] = []) {
       return job;
     },
     list: () => [...store],
-    get: (id: string) => store.find(j => j.id === id),
+    get: (id: string) => store.find((j) => j.id === id),
     remove: (id: string) => {
-      const idx = store.findIndex(j => j.id === id);
+      const idx = store.findIndex((j) => j.id === id);
       if (idx === -1) return false;
       store.splice(idx, 1);
       return true;
     },
     listByChannel: (channel: string, chatId: string) =>
-      store.filter(j => j.channel === channel && j.chatId === chatId),
+      store.filter((j) => j.channel === channel && j.chatId === chatId),
     toggle: (id: string, enabled: boolean) => {
-      const job = store.find(j => j.id === id);
+      const job = store.find((j) => j.id === id);
       if (!job) return false;
       job.enabled = enabled;
-      job.state = enabled ? 'idle' as const : 'paused' as const;
+      job.state = enabled ? ('idle' as const) : ('paused' as const);
       return true;
     },
     pause: () => true,
     resume: () => true,
-    runOnce: async () => ({ jobId: '', status: 'success' as const, output: '', durationMs: 0, deliveredToChat: true }),
+    runOnce: async () => ({
+      jobId: '',
+      status: 'success' as const,
+      output: '',
+      durationMs: 0,
+      deliveredToChat: true,
+    }),
   };
 }
 
@@ -89,7 +101,11 @@ describe('cron_create', () => {
   it('creates a cron job with valid parameters', async () => {
     const ctx = makeCtx();
     const result = await createDef.execute(
-      { name: 'Morning briefing', schedule: '0 8 * * *', prompt: 'Give me a summary of today\'s news' },
+      {
+        name: 'Morning briefing',
+        schedule: '0 8 * * *',
+        prompt: "Give me a summary of today's news",
+      },
       ctx,
     );
     expect(result.isError).toBeFalsy();
@@ -142,10 +158,21 @@ describe('cron_list', () => {
   it('lists jobs for the current channel', async () => {
     const mockService = createMockCronService([
       {
-        id: 'job_a', name: 'Morning news', schedule: { type: 'cron', expression: '0 8 * * *' },
-        scheduleText: '0 8 * * *', prompt: 'news summary', chatId: 'oc_test123', channel: 'feishu',
-        enabled: true, state: 'idle', nextRunAt: Date.now() + 3600000,
-        lastRunAt: null, lastStatus: null, retryCount: 0, createdAt: Date.now(), updatedAt: Date.now(),
+        id: 'job_a',
+        name: 'Morning news',
+        schedule: { type: 'cron', expression: '0 8 * * *' },
+        scheduleText: '0 8 * * *',
+        prompt: 'news summary',
+        chatId: 'oc_test123',
+        channel: 'feishu',
+        enabled: true,
+        state: 'idle',
+        nextRunAt: Date.now() + 3600000,
+        lastRunAt: null,
+        lastStatus: null,
+        retryCount: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
       },
     ]);
     const ctx = makeCtx({ services: { cronService: mockService } as any });
@@ -159,16 +186,38 @@ describe('cron_list', () => {
   it('filters out disabled jobs by default', async () => {
     const mockService = createMockCronService([
       {
-        id: 'job_a', name: 'Enabled job', schedule: { type: 'cron', expression: '0 8 * * *' },
-        scheduleText: '0 8 * * *', prompt: 'enabled', chatId: 'oc_test123', channel: 'feishu',
-        enabled: true, state: 'idle', nextRunAt: Date.now() + 3600000,
-        lastRunAt: null, lastStatus: null, retryCount: 0, createdAt: Date.now(), updatedAt: Date.now(),
+        id: 'job_a',
+        name: 'Enabled job',
+        schedule: { type: 'cron', expression: '0 8 * * *' },
+        scheduleText: '0 8 * * *',
+        prompt: 'enabled',
+        chatId: 'oc_test123',
+        channel: 'feishu',
+        enabled: true,
+        state: 'idle',
+        nextRunAt: Date.now() + 3600000,
+        lastRunAt: null,
+        lastStatus: null,
+        retryCount: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
       },
       {
-        id: 'job_b', name: 'Disabled job', schedule: { type: 'cron', expression: '0 9 * * *' },
-        scheduleText: '0 9 * * *', prompt: 'disabled', chatId: 'oc_test123', channel: 'feishu',
-        enabled: false, state: 'paused', nextRunAt: null,
-        lastRunAt: null, lastStatus: null, retryCount: 0, createdAt: Date.now(), updatedAt: Date.now(),
+        id: 'job_b',
+        name: 'Disabled job',
+        schedule: { type: 'cron', expression: '0 9 * * *' },
+        scheduleText: '0 9 * * *',
+        prompt: 'disabled',
+        chatId: 'oc_test123',
+        channel: 'feishu',
+        enabled: false,
+        state: 'paused',
+        nextRunAt: null,
+        lastRunAt: null,
+        lastStatus: null,
+        retryCount: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
       },
     ]);
     const ctx = makeCtx({ services: { cronService: mockService } as any });
@@ -182,16 +231,38 @@ describe('cron_list', () => {
   it('includes disabled jobs when includeDisabled is true', async () => {
     const mockService = createMockCronService([
       {
-        id: 'job_a', name: 'Enabled job', schedule: { type: 'cron', expression: '0 8 * * *' },
-        scheduleText: '0 8 * * *', prompt: 'enabled', chatId: 'oc_test123', channel: 'feishu',
-        enabled: true, state: 'idle', nextRunAt: Date.now() + 3600000,
-        lastRunAt: null, lastStatus: null, retryCount: 0, createdAt: Date.now(), updatedAt: Date.now(),
+        id: 'job_a',
+        name: 'Enabled job',
+        schedule: { type: 'cron', expression: '0 8 * * *' },
+        scheduleText: '0 8 * * *',
+        prompt: 'enabled',
+        chatId: 'oc_test123',
+        channel: 'feishu',
+        enabled: true,
+        state: 'idle',
+        nextRunAt: Date.now() + 3600000,
+        lastRunAt: null,
+        lastStatus: null,
+        retryCount: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
       },
       {
-        id: 'job_b', name: 'Disabled job', schedule: { type: 'cron', expression: '0 9 * * *' },
-        scheduleText: '0 9 * * *', prompt: 'disabled', chatId: 'oc_test123', channel: 'feishu',
-        enabled: false, state: 'paused', nextRunAt: null,
-        lastRunAt: null, lastStatus: null, retryCount: 0, createdAt: Date.now(), updatedAt: Date.now(),
+        id: 'job_b',
+        name: 'Disabled job',
+        schedule: { type: 'cron', expression: '0 9 * * *' },
+        scheduleText: '0 9 * * *',
+        prompt: 'disabled',
+        chatId: 'oc_test123',
+        channel: 'feishu',
+        enabled: false,
+        state: 'paused',
+        nextRunAt: null,
+        lastRunAt: null,
+        lastStatus: null,
+        retryCount: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
       },
     ]);
     const ctx = makeCtx({ services: { cronService: mockService } as any });
@@ -213,10 +284,21 @@ describe('cron_delete', () => {
   it('deletes a job that belongs to the same channel and chatId', async () => {
     const mockService = createMockCronService([
       {
-        id: 'job_a', name: 'Test job', schedule: { type: 'cron', expression: '0 8 * * *' },
-        scheduleText: '0 8 * * *', prompt: 'test', chatId: 'oc_test123', channel: 'feishu',
-        enabled: true, state: 'idle', nextRunAt: Date.now() + 3600000,
-        lastRunAt: null, lastStatus: null, retryCount: 0, createdAt: Date.now(), updatedAt: Date.now(),
+        id: 'job_a',
+        name: 'Test job',
+        schedule: { type: 'cron', expression: '0 8 * * *' },
+        scheduleText: '0 8 * * *',
+        prompt: 'test',
+        chatId: 'oc_test123',
+        channel: 'feishu',
+        enabled: true,
+        state: 'idle',
+        nextRunAt: Date.now() + 3600000,
+        lastRunAt: null,
+        lastStatus: null,
+        retryCount: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
       },
     ]);
     const ctx = makeCtx({ services: { cronService: mockService } as any });
@@ -235,10 +317,21 @@ describe('cron_delete', () => {
   it('returns error when job belongs to a different channel', async () => {
     const mockService = createMockCronService([
       {
-        id: 'job_a', name: 'Other channel job', schedule: { type: 'cron', expression: '0 8 * * *' },
-        scheduleText: '0 8 * * *', prompt: 'test', chatId: 'other_chat', channel: 'telegram',
-        enabled: true, state: 'idle', nextRunAt: Date.now() + 3600000,
-        lastRunAt: null, lastStatus: null, retryCount: 0, createdAt: Date.now(), updatedAt: Date.now(),
+        id: 'job_a',
+        name: 'Other channel job',
+        schedule: { type: 'cron', expression: '0 8 * * *' },
+        scheduleText: '0 8 * * *',
+        prompt: 'test',
+        chatId: 'other_chat',
+        channel: 'telegram',
+        enabled: true,
+        state: 'idle',
+        nextRunAt: Date.now() + 3600000,
+        lastRunAt: null,
+        lastStatus: null,
+        retryCount: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
       },
     ]);
     const ctx = makeCtx({ services: { cronService: mockService } as any });
@@ -258,10 +351,21 @@ describe('cron_toggle', () => {
   it('enables a disabled job', async () => {
     const mockService = createMockCronService([
       {
-        id: 'job_a', name: 'Test job', schedule: { type: 'cron', expression: '0 8 * * *' },
-        scheduleText: '0 8 * * *', prompt: 'test', chatId: 'oc_test123', channel: 'feishu',
-        enabled: false, state: 'paused', nextRunAt: null,
-        lastRunAt: null, lastStatus: null, retryCount: 0, createdAt: Date.now(), updatedAt: Date.now(),
+        id: 'job_a',
+        name: 'Test job',
+        schedule: { type: 'cron', expression: '0 8 * * *' },
+        scheduleText: '0 8 * * *',
+        prompt: 'test',
+        chatId: 'oc_test123',
+        channel: 'feishu',
+        enabled: false,
+        state: 'paused',
+        nextRunAt: null,
+        lastRunAt: null,
+        lastStatus: null,
+        retryCount: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
       },
     ]);
     const ctx = makeCtx({ services: { cronService: mockService } as any });
@@ -273,10 +377,21 @@ describe('cron_toggle', () => {
   it('disables an enabled job', async () => {
     const mockService = createMockCronService([
       {
-        id: 'job_a', name: 'Test job', schedule: { type: 'cron', expression: '0 8 * * *' },
-        scheduleText: '0 8 * * *', prompt: 'test', chatId: 'oc_test123', channel: 'feishu',
-        enabled: true, state: 'idle', nextRunAt: Date.now() + 3600000,
-        lastRunAt: null, lastStatus: null, retryCount: 0, createdAt: Date.now(), updatedAt: Date.now(),
+        id: 'job_a',
+        name: 'Test job',
+        schedule: { type: 'cron', expression: '0 8 * * *' },
+        scheduleText: '0 8 * * *',
+        prompt: 'test',
+        chatId: 'oc_test123',
+        channel: 'feishu',
+        enabled: true,
+        state: 'idle',
+        nextRunAt: Date.now() + 3600000,
+        lastRunAt: null,
+        lastStatus: null,
+        retryCount: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
       },
     ]);
     const ctx = makeCtx({ services: { cronService: mockService } as any });
@@ -288,10 +403,21 @@ describe('cron_toggle', () => {
   it('returns error when job belongs to a different channel', async () => {
     const mockService = createMockCronService([
       {
-        id: 'job_a', name: 'Other channel job', schedule: { type: 'cron', expression: '0 8 * * *' },
-        scheduleText: '0 8 * * *', prompt: 'test', chatId: 'other_chat', channel: 'telegram',
-        enabled: true, state: 'idle', nextRunAt: Date.now() + 3600000,
-        lastRunAt: null, lastStatus: null, retryCount: 0, createdAt: Date.now(), updatedAt: Date.now(),
+        id: 'job_a',
+        name: 'Other channel job',
+        schedule: { type: 'cron', expression: '0 8 * * *' },
+        scheduleText: '0 8 * * *',
+        prompt: 'test',
+        chatId: 'other_chat',
+        channel: 'telegram',
+        enabled: true,
+        state: 'idle',
+        nextRunAt: Date.now() + 3600000,
+        lastRunAt: null,
+        lastStatus: null,
+        retryCount: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
       },
     ]);
     const ctx = makeCtx({ services: { cronService: mockService } as any });

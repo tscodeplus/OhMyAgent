@@ -10,15 +10,21 @@ export function runV3Migrations(db: Database.Database): V3MigrationResult {
   const skipped: string[] = [];
 
   const cols = db.pragma('table_info(memories)') as Array<{ name: string }>;
-  const colNames = new Set(cols.map(c => c.name));
+  const colNames = new Set(cols.map((c) => c.name));
 
   // Lifecycle fields
   const lifecycleFields = [
-    { name: 'status', ddl: "ALTER TABLE memories ADD COLUMN status TEXT NOT NULL DEFAULT 'active'" },
+    {
+      name: 'status',
+      ddl: "ALTER TABLE memories ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",
+    },
     { name: 'supersedes_id', ddl: 'ALTER TABLE memories ADD COLUMN supersedes_id TEXT' },
     { name: 'source_channel', ddl: 'ALTER TABLE memories ADD COLUMN source_channel TEXT' },
     { name: 'source_message_id', ddl: 'ALTER TABLE memories ADD COLUMN source_message_id TEXT' },
-    { name: 'confidence', ddl: 'ALTER TABLE memories ADD COLUMN confidence REAL NOT NULL DEFAULT 1.0' },
+    {
+      name: 'confidence',
+      ddl: 'ALTER TABLE memories ADD COLUMN confidence REAL NOT NULL DEFAULT 1.0',
+    },
     { name: 'invalidated_at', ddl: 'ALTER TABLE memories ADD COLUMN invalidated_at TEXT' },
   ];
 
@@ -74,7 +80,9 @@ export function runV3Migrations(db: Database.Database): V3MigrationResult {
       error TEXT
     )
   `);
-  db.exec('CREATE INDEX IF NOT EXISTS idx_maintenance_runs_job ON maintenance_runs(job_name, started_at)');
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_maintenance_runs_job ON maintenance_runs(job_name, started_at)',
+  );
 
   return { added, skipped };
 }

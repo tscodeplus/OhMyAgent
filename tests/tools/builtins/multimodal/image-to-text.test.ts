@@ -23,9 +23,21 @@ function createMockConfig(overrides?: Partial<AppConfig>): AppConfig {
     logging: { level: 'info' },
     uiLanguage: 'en',
     showToolCalls: true,
-    feishu: { enabled: false, appId: '', appSecret: '', verificationToken: '', encryptKey: '', wsEnabled: false },
+    feishu: {
+      enabled: false,
+      appId: '',
+      appSecret: '',
+      verificationToken: '',
+      encryptKey: '',
+      wsEnabled: false,
+    },
     piAi: { provider: 'openai', model: 'gpt-4o', reasoningModel: 'o3-mini', apiKey: 'sk-test' },
-    embedding: { baseUrl: 'https://test.com', apiKey: 'sk-test', model: 'text-embedding-ada-002', dimension: 1536 },
+    embedding: {
+      baseUrl: 'https://test.com',
+      apiKey: 'sk-test',
+      model: 'text-embedding-ada-002',
+      dimension: 1536,
+    },
     database: { path: ':memory:' },
     rateLimit: { webhookMaxRequests: 100, webhookWindowMs: 60000 },
     tools: {
@@ -86,28 +98,97 @@ describe('image_to_text', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'img-test-'));
     // Minimal valid PNG: 1x1 white pixel (IHDR + IDAT + IEND)
     const minimalPng = Buffer.from([
-      0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
-      0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR chunk header
-      0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // 1x1 pixel
-      0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, // grayscale
-      0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, // IDAT chunk header
-      0x54, 0x08, 0xD7, 0x63, 0x60, 0x60, 0x00, 0x00, // compressed data
-      0x00, 0x02, 0x00, 0x01, 0xE5, 0x27, 0xD2, 0x4D, // (continued)
-      0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, // IEND chunk
-      0xAE, 0x42, 0x60, 0x82,
+      0x89,
+      0x50,
+      0x4e,
+      0x47,
+      0x0d,
+      0x0a,
+      0x1a,
+      0x0a, // PNG signature
+      0x00,
+      0x00,
+      0x00,
+      0x0d,
+      0x49,
+      0x48,
+      0x44,
+      0x52, // IHDR chunk header
+      0x00,
+      0x00,
+      0x00,
+      0x01,
+      0x00,
+      0x00,
+      0x00,
+      0x01, // 1x1 pixel
+      0x08,
+      0x02,
+      0x00,
+      0x00,
+      0x00,
+      0x90,
+      0x77,
+      0x53, // grayscale
+      0xde,
+      0x00,
+      0x00,
+      0x00,
+      0x0c,
+      0x49,
+      0x44,
+      0x41, // IDAT chunk header
+      0x54,
+      0x08,
+      0xd7,
+      0x63,
+      0x60,
+      0x60,
+      0x00,
+      0x00, // compressed data
+      0x00,
+      0x02,
+      0x00,
+      0x01,
+      0xe5,
+      0x27,
+      0xd2,
+      0x4d, // (continued)
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x49,
+      0x45,
+      0x4e,
+      0x44, // IEND chunk
+      0xae,
+      0x42,
+      0x60,
+      0x82,
     ]);
     testImagePath = join(tmpDir, 'test.png');
     writeFileSync(testImagePath, minimalPng);
   });
 
   afterAll(() => {
-    try { unlinkSync(testImagePath); } catch {}
-    try { rmdirSync(tmpDir); } catch {}
+    try {
+      unlinkSync(testImagePath);
+    } catch {}
+    try {
+      rmdirSync(tmpDir);
+    } catch {}
   });
 
   it('rejects a non-existent image file', async () => {
     const config = createMockConfig({
-      visionBridge: { enabled: true, modelRef: 'openai/gpt-4o', timeoutMs: 30000, maxNoteChars: 3200, maxCacheEntries: 256 },
+      visionBridge: {
+        enabled: true,
+        modelRef: 'openai/gpt-4o',
+        timeoutMs: 30000,
+        maxNoteChars: 3200,
+        maxCacheEntries: 256,
+      },
     });
     const ctx = createMockCtx(config, tmpDir);
     const result = await toolDef.execute({ imagePath: 'does-not-exist.png' }, ctx);
@@ -128,7 +209,9 @@ describe('image_to_text', () => {
       expect(result2.isError).toBe(true);
       expectToolResultContains(result2, 'Unsupported image format');
     } finally {
-      try { unlinkSync(badPath); } catch {}
+      try {
+        unlinkSync(badPath);
+      } catch {}
     }
   });
 
@@ -142,7 +225,13 @@ describe('image_to_text', () => {
 
   it('rejects when no vision bridge model is configured', async () => {
     const config = createMockConfig({
-      visionBridge: { enabled: true, modelRef: undefined, timeoutMs: 30000, maxNoteChars: 3200, maxCacheEntries: 256 },
+      visionBridge: {
+        enabled: true,
+        modelRef: undefined,
+        timeoutMs: 30000,
+        maxNoteChars: 3200,
+        maxCacheEntries: 256,
+      },
     });
     const ctx = createMockCtx(config, tmpDir);
     const result = await toolDef.execute({ imagePath: testImagePath }, ctx);
@@ -152,7 +241,13 @@ describe('image_to_text', () => {
 
   it('rejects an invalid model reference format', async () => {
     const config = createMockConfig({
-      visionBridge: { enabled: true, modelRef: 'invalid-ref-no-slash', timeoutMs: 30000, maxNoteChars: 3200, maxCacheEntries: 256 },
+      visionBridge: {
+        enabled: true,
+        modelRef: 'invalid-ref-no-slash',
+        timeoutMs: 30000,
+        maxNoteChars: 3200,
+        maxCacheEntries: 256,
+      },
     });
     const ctx = createMockCtx(config, tmpDir);
     const result = await toolDef.execute({ imagePath: testImagePath }, ctx);
@@ -162,7 +257,13 @@ describe('image_to_text', () => {
 
   it('rejects a model that is not registered in pi-mono', async () => {
     const config = createMockConfig({
-      visionBridge: { enabled: true, modelRef: 'nonexistent/fake-model', timeoutMs: 30000, maxNoteChars: 3200, maxCacheEntries: 256 },
+      visionBridge: {
+        enabled: true,
+        modelRef: 'nonexistent/fake-model',
+        timeoutMs: 30000,
+        maxNoteChars: 3200,
+        maxCacheEntries: 256,
+      },
     });
     const ctx = createMockCtx(config, tmpDir);
     const result = await toolDef.execute({ imagePath: testImagePath }, ctx);

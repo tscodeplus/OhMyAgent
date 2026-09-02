@@ -18,7 +18,11 @@ import { MessageRepository } from '../../src/memory/repositories/message-reposit
 import { EpisodeRepository } from '../../src/memory/repositories/episode-repository.js';
 import { MemoryRepository } from '../../src/memory/repositories/memory-repository.js';
 import { createSessionSummarizeTool } from '../../src/tools/builtins/session-summarize-tool.js';
-import { MemorySummarizer, parseSummaryLLMResponse, resolveSummaryModelConnection } from '../../src/memory/memory-summarizer.js';
+import {
+  MemorySummarizer,
+  parseSummaryLLMResponse,
+  resolveSummaryModelConnection,
+} from '../../src/memory/memory-summarizer.js';
 
 // ---- Helpers ----
 
@@ -55,40 +59,42 @@ describe('Strategy 1: Batch-triggered summarization (maybeSummarize logic)', () 
   }
 
   it('triggers when messages cross the interval boundary', () => {
-    expect(shouldTrigger(10, 0)).toBe(true);   // 10/10 = 1 > 0 → trigger
-    expect(shouldTrigger(20, 1)).toBe(true);   // 20/10 = 2 > 1 → trigger
-    expect(shouldTrigger(30, 2)).toBe(true);   // 30/10 = 3 > 2 → trigger
+    expect(shouldTrigger(10, 0)).toBe(true); // 10/10 = 1 > 0 → trigger
+    expect(shouldTrigger(20, 1)).toBe(true); // 20/10 = 2 > 1 → trigger
+    expect(shouldTrigger(30, 2)).toBe(true); // 30/10 = 3 > 2 → trigger
   });
 
   it('skips when already summarized for this interval', () => {
-    expect(shouldTrigger(15, 1)).toBe(false);  // 15/10 = 1 = 1 → skip
-    expect(shouldTrigger(25, 2)).toBe(false);  // 25/10 = 2 = 2 → skip
-    expect(shouldTrigger(9, 0)).toBe(false);   // 9/10 = 0 = 0 → skip
+    expect(shouldTrigger(15, 1)).toBe(false); // 15/10 = 1 = 1 → skip
+    expect(shouldTrigger(25, 2)).toBe(false); // 25/10 = 2 = 2 → skip
+    expect(shouldTrigger(9, 0)).toBe(false); // 9/10 = 0 = 0 → skip
   });
 
   it('respects custom interval', () => {
     // Interval = 20
-    expect(shouldTrigger(20, 0, 20)).toBe(true);   // 20/20 = 1 > 0
-    expect(shouldTrigger(25, 1, 20)).toBe(false);  // 25/20 = 1 = 1
-    expect(shouldTrigger(40, 1, 20)).toBe(true);   // 40/20 = 2 > 1
-    expect(shouldTrigger(15, 0, 20)).toBe(false);  // 15/20 = 0 = 0
+    expect(shouldTrigger(20, 0, 20)).toBe(true); // 20/20 = 1 > 0
+    expect(shouldTrigger(25, 1, 20)).toBe(false); // 25/20 = 1 = 1
+    expect(shouldTrigger(40, 1, 20)).toBe(true); // 40/20 = 2 > 1
+    expect(shouldTrigger(15, 0, 20)).toBe(false); // 15/20 = 0 = 0
   });
 
   it('handles edge cases', () => {
     expect(shouldTrigger(0, 0)).toBe(false);
-    expect(shouldTrigger(10, 2)).toBe(false);   // 10/10 = 1 < 2
-    expect(shouldTrigger(10, 1)).toBe(false);   // 10/10 = 1 = 1
-    expect(shouldTrigger(100, 0)).toBe(true);   // far behind
+    expect(shouldTrigger(10, 2)).toBe(false); // 10/10 = 1 < 2
+    expect(shouldTrigger(10, 1)).toBe(false); // 10/10 = 1 = 1
+    expect(shouldTrigger(100, 0)).toBe(true); // far behind
     expect(shouldTrigger(100, 10)).toBe(false); // caught up
   });
 });
 
 describe('parseSummaryLLMResponse', () => {
   it('parses strict JSON summary output', () => {
-    const parsed = parseSummaryLLMResponse(JSON.stringify({
-      summary: 'User discussed editor setup.',
-      preferences: ['User prefers pnpm'],
-    }));
+    const parsed = parseSummaryLLMResponse(
+      JSON.stringify({
+        summary: 'User discussed editor setup.',
+        preferences: ['User prefers pnpm'],
+      }),
+    );
 
     expect(parsed.usedFallback).toBe(false);
     expect(parsed.summary).toBe('User discussed editor setup.');
@@ -96,14 +102,18 @@ describe('parseSummaryLLMResponse', () => {
   });
 
   it('parses JSON inside markdown code fences', () => {
-    const parsed = parseSummaryLLMResponse('```json\n{"summary":"Done","preferences":["User likes concise replies"]}\n```');
+    const parsed = parseSummaryLLMResponse(
+      '```json\n{"summary":"Done","preferences":["User likes concise replies"]}\n```',
+    );
 
     expect(parsed.usedFallback).toBe(false);
     expect(parsed.preferences).toEqual(['User likes concise replies']);
   });
 
   it('falls back to legacy SUMMARY/PREF format', () => {
-    const parsed = parseSummaryLLMResponse('SUMMARY: Talked about memory.\nPREF: User prefers Chinese.');
+    const parsed = parseSummaryLLMResponse(
+      'SUMMARY: Talked about memory.\nPREF: User prefers Chinese.',
+    );
 
     expect(parsed.usedFallback).toBe(true);
     expect(parsed.summary).toBe('Talked about memory.');
@@ -137,7 +147,13 @@ describe('Strategy 2: LLM-driven summarize-session tool', () => {
     const mockMemoryWriter = {
       write: vi.fn().mockResolvedValue({ id: 'mem-1', isDuplicate: false }),
     } as any;
-    const summarizer = new MemorySummarizer(messageRepo, episodeRepo, memoryRepo, mockMemoryWriter, mockLogger);
+    const summarizer = new MemorySummarizer(
+      messageRepo,
+      episodeRepo,
+      memoryRepo,
+      mockMemoryWriter,
+      mockLogger,
+    );
 
     const tool = createSessionSummarizeTool({
       memorySummarizer: summarizer,
@@ -161,7 +177,14 @@ describe('Strategy 2: LLM-driven summarize-session tool', () => {
 
     // Result text should mention success
     const text = Array.isArray(result.content) ? result.content[0].text : result.content;
-    expect(text).toContain(i18n.t('tools-session:summaryCreated', { id: 'test-session', index: 1, messageCount: 25, reason: 'topic concluded' }));
+    expect(text).toContain(
+      i18n.t('tools-session:summaryCreated', {
+        id: 'test-session',
+        index: 1,
+        messageCount: 25,
+        reason: 'topic concluded',
+      }),
+    );
   });
 
   it('skips session when messages below threshold', async () => {
@@ -173,7 +196,13 @@ describe('Strategy 2: LLM-driven summarize-session tool', () => {
 
     const mockLogger = { info: vi.fn(), debug: vi.fn(), warn: vi.fn() } as any;
     const mockMemoryWriter = { write: vi.fn() } as any;
-    const summarizer = new MemorySummarizer(messageRepo, episodeRepo, memoryRepo, mockMemoryWriter, mockLogger);
+    const summarizer = new MemorySummarizer(
+      messageRepo,
+      episodeRepo,
+      memoryRepo,
+      mockMemoryWriter,
+      mockLogger,
+    );
 
     const tool = createSessionSummarizeTool({
       memorySummarizer: summarizer,
@@ -184,7 +213,9 @@ describe('Strategy 2: LLM-driven summarize-session tool', () => {
 
     const result = await tool.execute('call-1', {});
     const text = Array.isArray(result.content) ? result.content[0].text : result.content;
-    expect(text).toContain(i18n.t('tools-session:tooFewMessages', { id: 'test-session', count: 3 }));
+    expect(text).toContain(
+      i18n.t('tools-session:tooFewMessages', { id: 'test-session', count: 3 }),
+    );
 
     // No episodes created
     expect(episodeRepo.findBySessionId(sessionId)).toHaveLength(0);
@@ -198,11 +229,22 @@ describe('Strategy 2: LLM-driven summarize-session tool', () => {
     insertMessages(messageRepo, sessionId, 10);
 
     // Already has 1 episode (10/20 = 0 < 1, so no new summary needed)
-    episodeRepo.create({ id: 'ep-1', session_id: sessionId, summary: 'old summary', key_points: '[]' });
+    episodeRepo.create({
+      id: 'ep-1',
+      session_id: sessionId,
+      summary: 'old summary',
+      key_points: '[]',
+    });
 
     const mockLogger = { info: vi.fn(), debug: vi.fn(), warn: vi.fn() } as any;
     const mockMemoryWriter = { write: vi.fn() } as any;
-    const summarizer = new MemorySummarizer(messageRepo, episodeRepo, memoryRepo, mockMemoryWriter, mockLogger);
+    const summarizer = new MemorySummarizer(
+      messageRepo,
+      episodeRepo,
+      memoryRepo,
+      mockMemoryWriter,
+      mockLogger,
+    );
 
     const tool = createSessionSummarizeTool({
       memorySummarizer: summarizer,
@@ -213,7 +255,13 @@ describe('Strategy 2: LLM-driven summarize-session tool', () => {
 
     const result = await tool.execute('call-1', {});
     const text = Array.isArray(result.content) ? result.content[0].text : result.content;
-    expect(text).toContain(i18n.t('tools-session:thresholdNotReached', { id: 'test-session', summaryCount: 1, messageCount: 10 }));
+    expect(text).toContain(
+      i18n.t('tools-session:thresholdNotReached', {
+        id: 'test-session',
+        summaryCount: 1,
+        messageCount: 10,
+      }),
+    );
 
     // Still only 1 episode
     expect(episodeRepo.findBySessionId(sessionId)).toHaveLength(1);
@@ -223,15 +271,36 @@ describe('Strategy 2: LLM-driven summarize-session tool', () => {
     const sessionId = 'test-session-4';
     sessionRepo.create({ id: sessionId, chat_id: sessionId, user_id: 'u1' });
 
-    messageRepo.create({ id: 'msg-1', session_id: sessionId, role: 'user', content: '我喜欢乒乓球' });
-    messageRepo.create({ id: 'msg-2', session_id: sessionId, role: 'toolResult', content: 'ls output should be ignored' });
-    messageRepo.create({ id: 'msg-3', session_id: sessionId, role: 'assistant', content: '你喜欢乒乓球。' });
+    messageRepo.create({
+      id: 'msg-1',
+      session_id: sessionId,
+      role: 'user',
+      content: '我喜欢乒乓球',
+    });
+    messageRepo.create({
+      id: 'msg-2',
+      session_id: sessionId,
+      role: 'toolResult',
+      content: 'ls output should be ignored',
+    });
+    messageRepo.create({
+      id: 'msg-3',
+      session_id: sessionId,
+      role: 'assistant',
+      content: '你喜欢乒乓球。',
+    });
 
     const mockLogger = { info: vi.fn(), debug: vi.fn(), warn: vi.fn() } as any;
     const mockMemoryWriter = {
       write: vi.fn().mockResolvedValue({ id: 'mem-1', isDuplicate: false }),
     } as any;
-    const summarizer = new MemorySummarizer(messageRepo, episodeRepo, memoryRepo, mockMemoryWriter, mockLogger);
+    const summarizer = new MemorySummarizer(
+      messageRepo,
+      episodeRepo,
+      memoryRepo,
+      mockMemoryWriter,
+      mockLogger,
+    );
 
     await summarizer.summarizeSession(sessionId, { maxMessages: 10 });
 
@@ -245,8 +314,18 @@ describe('Strategy 2: LLM-driven summarize-session tool', () => {
     const sessionId = 'test-session-5';
     sessionRepo.create({ id: sessionId, chat_id: sessionId, user_id: 'u1' });
 
-    messageRepo.create({ id: 'msg-1', session_id: sessionId, role: 'user', content: 'I like dragon fruit soda' });
-    messageRepo.create({ id: 'msg-2', session_id: sessionId, role: 'assistant', content: 'Noted.' });
+    messageRepo.create({
+      id: 'msg-1',
+      session_id: sessionId,
+      role: 'user',
+      content: 'I like dragon fruit soda',
+    });
+    messageRepo.create({
+      id: 'msg-2',
+      session_id: sessionId,
+      role: 'assistant',
+      content: 'Noted.',
+    });
 
     const mockLogger = { info: vi.fn(), debug: vi.fn(), warn: vi.fn() } as any;
     const mockMemoryWriter = {
@@ -271,7 +350,12 @@ describe('Strategy 2: LLM-driven summarize-session tool', () => {
     await summarizer.summarizeSession(sessionId, { maxMessages: 10 });
 
     expect(capturedPrompt).toContain('Write the summary and extracted preferences in Spanish.');
-    expect(mockMemoryWriter.writeSummary).toHaveBeenCalledWith(sessionId, 'Resumen corto', undefined, null);
+    expect(mockMemoryWriter.writeSummary).toHaveBeenCalledWith(
+      sessionId,
+      'Resumen corto',
+      undefined,
+      null,
+    );
     expect(mockMemoryWriter.writePreference).toHaveBeenCalledWith(
       sessionId,
       'Al usuario le gusta la soda de fruta del dragón',
@@ -285,7 +369,12 @@ describe('Strategy 2: LLM-driven summarize-session tool', () => {
     sessionRepo.create({ id: sessionId, chat_id: sessionId, user_id: 'u1' });
 
     messageRepo.create({ id: 'msg-1', session_id: sessionId, role: 'user', content: '哈喽' });
-    messageRepo.create({ id: 'msg-2', session_id: sessionId, role: 'assistant', content: '哈喽，大Boss！' });
+    messageRepo.create({
+      id: 'msg-2',
+      session_id: sessionId,
+      role: 'assistant',
+      content: '哈喽，大Boss！',
+    });
 
     const mockLogger = { info: vi.fn(), debug: vi.fn(), warn: vi.fn() } as any;
     const mockMemoryWriter = {
@@ -301,10 +390,9 @@ describe('Strategy 2: LLM-driven summarize-session tool', () => {
       { modelRef: 'test/model' },
     ) as any;
 
-    summarizer.callLLM = vi.fn(async () => [
-      'SUMMARY: 用户打招呼，助手回复问候。',
-      'PREF: 用户偏好被称呼为“大Boss”',
-    ].join('\n'));
+    summarizer.callLLM = vi.fn(async () =>
+      ['SUMMARY: 用户打招呼，助手回复问候。', 'PREF: 用户偏好被称呼为“大Boss”'].join('\n'),
+    );
 
     await summarizer.summarizeSession(sessionId, { maxMessages: 10 });
 
@@ -318,8 +406,18 @@ describe('Strategy 2: LLM-driven summarize-session tool', () => {
     const sessionId = 'test-session-7';
     sessionRepo.create({ id: sessionId, chat_id: sessionId, user_id: 'u1' });
 
-    messageRepo.create({ id: 'msg-1', session_id: sessionId, role: 'user', content: '以后称呼我为老板' });
-    messageRepo.create({ id: 'msg-2', session_id: sessionId, role: 'assistant', content: '好的，老板。' });
+    messageRepo.create({
+      id: 'msg-1',
+      session_id: sessionId,
+      role: 'user',
+      content: '以后称呼我为老板',
+    });
+    messageRepo.create({
+      id: 'msg-2',
+      session_id: sessionId,
+      role: 'assistant',
+      content: '好的，老板。',
+    });
 
     const mockLogger = { info: vi.fn(), debug: vi.fn(), warn: vi.fn() } as any;
     const mockMemoryWriter = {
@@ -335,10 +433,9 @@ describe('Strategy 2: LLM-driven summarize-session tool', () => {
       { modelRef: 'test/model' },
     ) as any;
 
-    summarizer.callLLM = vi.fn(async () => [
-      'SUMMARY: 用户更新称呼偏好。',
-      'PREF: 用户希望被称呼为"老板"',
-    ].join('\n'));
+    summarizer.callLLM = vi.fn(async () =>
+      ['SUMMARY: 用户更新称呼偏好。', 'PREF: 用户希望被称呼为"老板"'].join('\n'),
+    );
 
     await summarizer.summarizeSession(sessionId, { maxMessages: 10 });
 
@@ -351,11 +448,14 @@ describe('Strategy 2: LLM-driven summarize-session tool', () => {
   });
 
   it('resolves summary API key and base URL from provider maps', async () => {
-    const resolved = await resolveSummaryModelConnection({
-      modelRef: 'nvidia/minimaxai/minimax-m2.7',
-      apiKeys: { nvidia: 'provider-key' },
-      baseUrls: { nvidia: 'https://integrate.api.nvidia.com/v1' },
-    }, 'nvidia/minimaxai/minimax-m2.7');
+    const resolved = await resolveSummaryModelConnection(
+      {
+        modelRef: 'nvidia/minimaxai/minimax-m2.7',
+        apiKeys: { nvidia: 'provider-key' },
+        baseUrls: { nvidia: 'https://integrate.api.nvidia.com/v1' },
+      },
+      'nvidia/minimaxai/minimax-m2.7',
+    );
 
     expect(resolved).toEqual({
       provider: 'nvidia',

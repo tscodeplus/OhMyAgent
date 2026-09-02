@@ -72,9 +72,11 @@ export interface GlobalSkillStats {
 export function inferSatisfaction(followUpMessage: string | null): number | null {
   if (!followUpMessage) return null;
 
-  const satisfiedPattern = /谢谢|太好了|不错|很好|很棒|OK|好的|完美|搞定|可以了|thanks|great|nice|perfect|awesome|thank you|works/i;
+  const satisfiedPattern =
+    /谢谢|太好了|不错|很好|很棒|OK|好的|完美|搞定|可以了|thanks|great|nice|perfect|awesome|thank you|works/i;
   // 不含裸词"重新"：避免"重新整理一下，谢谢"等正面语境被误判为不满意
-  const unsatisfiedPattern = /不对|错了|不行|不是|不要|取消|重新做|重新弄|重写|再试一次|wrong|incorrect|redo|again|not working|bad|error/i;
+  const unsatisfiedPattern =
+    /不对|错了|不行|不是|不要|取消|重新做|重新弄|重写|再试一次|wrong|incorrect|redo|again|not working|bad|error/i;
 
   // Check dissatisfaction first: "not OK", "不对" etc. contain substrings
   // that the satisfied pattern would also match ("OK", "对").
@@ -95,11 +97,7 @@ export class SkillMetricsService {
   /**
    * Record a skill activation event.
    */
-  recordActivation(
-    skillId: string,
-    sessionId: string,
-    taskMessage: string,
-  ): string {
+  recordActivation(skillId: string, sessionId: string, taskMessage: string): string {
     const id = `skf-${generateId()}`;
     const stmt = this.db.prepare(`
       INSERT INTO skill_feedback (id, skill_id, session_id, task_message)
@@ -132,7 +130,7 @@ export class SkillMetricsService {
       id,
       success,
       duration_ms: durationMs,
-      tool_calls_json: JSON.stringify(toolCalls.map(tc => tc.name)),
+      tool_calls_json: JSON.stringify(toolCalls.map((tc) => tc.name)),
     });
   }
 
@@ -142,18 +140,24 @@ export class SkillMetricsService {
    * after the completion event has already been recorded.
    */
   recordSatisfaction(id: string, success: number): void {
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       UPDATE skill_feedback
       SET success = @success
       WHERE id = @id
-    `).run({ id, success });
+    `,
+      )
+      .run({ id, success });
   }
 
   /**
    * Get usage statistics for a specific skill.
    */
   getStats(skillId: string): SkillUsageStats | null {
-    const row = this.db.prepare(`
+    const row = this.db
+      .prepare(
+        `
       SELECT
         COUNT(*) as total,
         COUNT(CASE WHEN success IS NOT NULL THEN 1 END) as completed,
@@ -161,21 +165,29 @@ export class SkillMetricsService {
         ROUND(AVG(duration_ms)) as avg_duration
       FROM skill_feedback
       WHERE skill_id = ?
-    `).get(skillId) as {
-      total: number;
-      completed: number;
-      success_rate: number | null;
-      avg_duration: number | null;
-    } | undefined;
+    `,
+      )
+      .get(skillId) as
+      | {
+          total: number;
+          completed: number;
+          success_rate: number | null;
+          avg_duration: number | null;
+        }
+      | undefined;
 
     if (!row || row.total === 0) return null;
 
     // Top tools
-    const topTools = this.db.prepare(`
+    const topTools = this.db
+      .prepare(
+        `
       SELECT tool_calls_json FROM skill_feedback
       WHERE skill_id = ? AND tool_calls_json IS NOT NULL
       ORDER BY created_at DESC LIMIT 100
-    `).all(skillId) as Array<{ tool_calls_json: string }>;
+    `,
+      )
+      .all(skillId) as Array<{ tool_calls_json: string }>;
 
     const toolCounts = new Map<string, number>();
     for (const record of topTools) {
@@ -184,7 +196,9 @@ export class SkillMetricsService {
         for (const t of tools) {
           toolCounts.set(t, (toolCounts.get(t) ?? 0) + 1);
         }
-      } catch { /* ignore malformed JSON */ }
+      } catch {
+        /* ignore malformed JSON */
+      }
     }
 
     const sortedTools = [...toolCounts.entries()]
@@ -193,12 +207,16 @@ export class SkillMetricsService {
       .map(([name, count]) => ({ name, count }));
 
     // Recent feedback
-    const recent = this.db.prepare(`
+    const recent = this.db
+      .prepare(
+        `
       SELECT task_message as message, success, duration_ms, created_at
       FROM skill_feedback
       WHERE skill_id = ?
       ORDER BY created_at DESC LIMIT 20
-    `).all(skillId) as Array<{
+    `,
+      )
+      .all(skillId) as Array<{
       message: string;
       success: number | null;
       duration_ms: number | null;
@@ -212,7 +230,7 @@ export class SkillMetricsService {
       successRate: row.success_rate,
       avgDurationMs: row.avg_duration,
       topTools: sortedTools,
-      recentFeedback: recent.map(r => ({
+      recentFeedback: recent.map((r) => ({
         message: r.message.length > 100 ? r.message.slice(0, 100) + '…' : r.message,
         success: r.success,
         durationMs: r.duration_ms,
@@ -225,15 +243,19 @@ export class SkillMetricsService {
    * Get global statistics across all skills.
    */
   getGlobalStats(): GlobalSkillStats {
-    const rows = this.db.prepare(`
+    const rows = this.db
+      .prepare(
+        `
       SELECT skill_id, COUNT(*) as cnt
       FROM skill_feedback
       GROUP BY skill_id
       ORDER BY cnt DESC
-    `).all() as Array<{ skill_id: string; cnt: number }>;
+    `,
+      )
+      .all() as Array<{ skill_id: string; cnt: number }>;
 
     const skills = rows
-      .map(r => this.getStats(r.skill_id))
+      .map((r) => this.getStats(r.skill_id))
       .filter((s): s is SkillUsageStats => s !== null);
 
     const totalRecords = skills.reduce((sum, s) => sum + s.totalActivations, 0);
@@ -244,26 +266,30 @@ export class SkillMetricsService {
   /**
    * Get feedback records for a skill (paginated).
    */
-  getFeedback(
-    skillId: string,
-    limit: number = 50,
-    offset: number = 0,
-  ): Array<SkillFeedbackRecord> {
-    return this.db.prepare(`
+  getFeedback(skillId: string, limit: number = 50, offset: number = 0): Array<SkillFeedbackRecord> {
+    return this.db
+      .prepare(
+        `
       SELECT * FROM skill_feedback
       WHERE skill_id = ?
       ORDER BY created_at DESC
       LIMIT ? OFFSET ?
-    `).all(skillId, limit, offset) as SkillFeedbackRecord[];
+    `,
+      )
+      .all(skillId, limit, offset) as SkillFeedbackRecord[];
   }
 
   /**
    * Get the count of feedback records for a skill.
    */
   getFeedbackCount(skillId: string): number {
-    const row = this.db.prepare(`
+    const row = this.db
+      .prepare(
+        `
       SELECT COUNT(*) as cnt FROM skill_feedback WHERE skill_id = ?
-    `).get(skillId) as { cnt: number } | undefined;
+    `,
+      )
+      .get(skillId) as { cnt: number } | undefined;
     return row?.cnt ?? 0;
   }
 }

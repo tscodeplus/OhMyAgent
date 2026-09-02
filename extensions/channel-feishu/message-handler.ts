@@ -124,9 +124,7 @@ export class MessageHandler {
       context.rawEvent?.event?.message?.mentions;
     const botMentionKey = `@_bot_${this.options.botAppId}`;
     if (rawMentions?.length) {
-      return rawMentions.some(
-        (m) => m.key === botMentionKey || m.id?.open_id === botMentionKey,
-      );
+      return rawMentions.some((m) => m.key === botMentionKey || m.id?.open_id === botMentionKey);
     }
     return false;
   }
@@ -198,7 +196,10 @@ export class MessageHandler {
           // swapCard is async but the agent is still blocked on the pending
           // approval at this point — handleCommand → handleSteer will call
           // steer() which does clear → steer → reject synchronously AFTER
-          await this.options.commandDeps.agentService.swapCard(context.sessionKey, context.messageId);
+          await this.options.commandDeps.agentService.swapCard(
+            context.sessionKey,
+            context.messageId,
+          );
         }
       }
 
@@ -252,10 +253,7 @@ export class MessageHandler {
   }
 
   /** Enqueue agent execution with the full media-processing pipeline. */
-  private enqueueAgentExecution(
-    text: string,
-    context: FeishuMessageContext,
-  ): void {
+  private enqueueAgentExecution(text: string, context: FeishuMessageContext): void {
     // P1 M6: bounded queue — when the session is at capacity, tell the user
     // instead of silently dropping the message or queueing without limit.
     const accepted = this.options.chatQueue.enqueue(context.sessionKey, async () => {
@@ -270,7 +268,11 @@ export class MessageHandler {
       };
 
       // ── v4 Phase 4: Multimodal pipeline (when configured) ──
-      if (this.options.attachmentResolver && this.options.attachmentStore && context.resources.length > 0) {
+      if (
+        this.options.attachmentResolver &&
+        this.options.attachmentStore &&
+        context.resources.length > 0
+      ) {
         await this.processWithMultimodalPipeline(text, context, baseOptions);
         return;
       }
@@ -280,10 +282,7 @@ export class MessageHandler {
       // Messages with image resources: download and pass as multimodal input
       const imageResources = context.resources.filter((r) => r.type === 'image');
       if (imageResources.length > 0) {
-        const images = await this.downloadImageResources(
-          context.messageId,
-          imageResources,
-        );
+        const images = await this.downloadImageResources(context.messageId, imageResources);
         const input = text || i18n.t('messages:media.imageSent');
         await this.options.agentService.execute(input, { ...baseOptions, images });
         return;
@@ -293,11 +292,13 @@ export class MessageHandler {
       // On-demand download: tell the agent about the file and inject a
       // download tool so the agent can decide whether to fetch the content.
       if (context.messageType === 'file' && context.resources.length > 0) {
-        const fileInfos = context.resources.map((r, i) => {
-          const name = r.fileName || 'unknown';
-          const key = r.fileKey || '';
-          return `  ${i + 1}. ${name}${key ? ` (file_key: ${key})` : ''}`;
-        }).join('\n');
+        const fileInfos = context.resources
+          .map((r, i) => {
+            const name = r.fileName || 'unknown';
+            const key = r.fileKey || '';
+            return `  ${i + 1}. ${name}${key ? ` (file_key: ${key})` : ''}`;
+          })
+          .join('\n');
 
         // Create download tool scoped to this message
         let downloadTool: any = null;
@@ -307,7 +308,9 @@ export class MessageHandler {
               feishuClient: this.options.feishuClient,
               messageId: context.messageId,
             });
-          } catch { /* tool creation failed — agent can still use generic download_file */ }
+          } catch {
+            /* tool creation failed — agent can still use generic download_file */
+          }
         }
 
         const extraTools = [...baseOptions.extraTools];
@@ -350,7 +353,10 @@ export class MessageHandler {
       // Standalone video/media message
       if (context.messageType === 'media' && context.resources.length > 0) {
         const fileName = context.resources[0]?.fileName || '';
-        await this.options.agentService.execute(i18n.t('messages:media.videoSent', { name: fileName }), baseOptions);
+        await this.options.agentService.execute(
+          i18n.t('messages:media.videoSent', { name: fileName }),
+          baseOptions,
+        );
         return;
       }
 
@@ -365,7 +371,9 @@ export class MessageHandler {
     });
 
     if (!accepted) {
-      void this.options.sendTextReply(context.chatId, i18n.t('messages:errors.busy')).catch(() => {});
+      void this.options
+        .sendTextReply(context.chatId, i18n.t('messages:errors.busy'))
+        .catch(() => {});
     }
   }
 
@@ -394,7 +402,12 @@ export class MessageHandler {
         const ingestInput = await resolver.resolveFromChannel(
           {
             url: resource.fileKey,
-            type: resource.type === 'sticker' ? 'image' : resource.type === 'video' ? 'file' : resource.type,
+            type:
+              resource.type === 'sticker'
+                ? 'image'
+                : resource.type === 'video'
+                  ? 'file'
+                  : resource.type,
             name: resource.fileName,
             size: resource.duration,
           },
@@ -433,16 +446,19 @@ export class MessageHandler {
           }
         } else {
           // Non-image non-audio (or audio w/o auto-transcribe): generate description
-          const typeLabel = resource.type === 'file' ? '文件' : resource.type === 'audio' ? '音频' : '视频';
+          const typeLabel =
+            resource.type === 'file' ? '文件' : resource.type === 'audio' ? '音频' : '视频';
           const name = resource.fileName || resource.fileKey;
           descriptions.push(
             `📎 已接收${typeLabel}: ${name}\n` +
-            `   本地路径: ${record.localPath}\n` +
-            `   可使用 file_read 工具读取此文件的内容。`
+              `   本地路径: ${record.localPath}\n` +
+              `   可使用 file_read 工具读取此文件的内容。`,
           );
         }
       } catch (err) {
-        this.options.logger?.warn(`Failed to process resource ${resource.fileKey} via multimodal pipeline: ${err}`);
+        this.options.logger?.warn(
+          `Failed to process resource ${resource.fileKey} via multimodal pipeline: ${err}`,
+        );
         // Fallback description for failed resources
         descriptions.push(`[附件处理失败: ${resource.fileName || resource.fileKey}]`);
       }
@@ -527,12 +543,19 @@ export class MessageHandler {
         fileKey,
         'file',
       );
-      const tmpPath = join(tmpdir(), `feishu-audio-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.ogg`);
+      const tmpPath = join(
+        tmpdir(),
+        `feishu-audio-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.ogg`,
+      );
       await writeFile(tmpPath, buffer);
       try {
         return await this.transcribeAudioFromPath(tmpPath);
       } finally {
-        try { await unlink(tmpPath); } catch { /* best-effort cleanup */ }
+        try {
+          await unlink(tmpPath);
+        } catch {
+          /* best-effort cleanup */
+        }
       }
     } catch (err) {
       this.options.logger?.warn(`Audio download/transcription failed for ${fileKey}: ${err}`);

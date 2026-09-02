@@ -321,7 +321,18 @@ describe('E2E: Approval Flow', () => {
     );
 
     const agent = factory.create({
-      model: { id: 'test-model', name: 'Test Model', api: 'openai-completions', provider: 'test-provider', baseUrl: '', reasoning: false, input: [], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 4096, maxTokens: 2048 },
+      model: {
+        id: 'test-model',
+        name: 'Test Model',
+        api: 'openai-completions',
+        provider: 'test-provider',
+        baseUrl: '',
+        reasoning: false,
+        input: [],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 4096,
+        maxTokens: 2048,
+      },
       chatId: 'chat-123',
       sessionId: 'sess-1',
     });
@@ -331,7 +342,7 @@ describe('E2E: Approval Flow', () => {
     bridge.start(agent);
 
     const promptPromise = agent.prompt('Install the app');
-    await new Promise(r => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 100));
 
     // Verify approval card was sent
     expect(feishuClient.sendApprovalCard).toHaveBeenCalledOnce();
@@ -378,7 +389,18 @@ describe('E2E: Approval Flow', () => {
     );
 
     const agent = factory.create({
-      model: { id: 'test-model', name: 'Test Model', api: 'openai-completions', provider: 'test-provider', baseUrl: '', reasoning: false, input: [], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 4096, maxTokens: 2048 },
+      model: {
+        id: 'test-model',
+        name: 'Test Model',
+        api: 'openai-completions',
+        provider: 'test-provider',
+        baseUrl: '',
+        reasoning: false,
+        input: [],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 4096,
+        maxTokens: 2048,
+      },
       chatId: 'chat-123',
       sessionId: 'sess-1',
     });
@@ -388,7 +410,7 @@ describe('E2E: Approval Flow', () => {
     bridge.start(agent);
 
     const promptPromise = agent.prompt('Install the app');
-    await new Promise(r => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 100));
 
     const cardArg = feishuClient.sendApprovalCard.mock.calls[0][1] as any;
     const actionBlock = cardArg.elements?.find((e: any) => e.tag === 'action');
@@ -432,7 +454,18 @@ describe('E2E: Approval Flow', () => {
     );
 
     const agent = factory.create({
-      model: { id: 'test-model', name: 'Test Model', api: 'openai-completions', provider: 'test-provider', baseUrl: '', reasoning: false, input: [], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 4096, maxTokens: 2048 },
+      model: {
+        id: 'test-model',
+        name: 'Test Model',
+        api: 'openai-completions',
+        provider: 'test-provider',
+        baseUrl: '',
+        reasoning: false,
+        input: [],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 4096,
+        maxTokens: 2048,
+      },
       sessionId: 'sess-1',
     });
     agent.streamFn = createToolCallStreamFn('shell', { command: 'ls' }, 'Files listed');
@@ -471,7 +504,18 @@ describe('E2E: Approval Flow', () => {
     );
 
     const agent = factory.create({
-      model: { id: 'test-model', name: 'Test Model', api: 'openai-completions', provider: 'test-provider', baseUrl: '', reasoning: false, input: [], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 4096, maxTokens: 2048 },
+      model: {
+        id: 'test-model',
+        name: 'Test Model',
+        api: 'openai-completions',
+        provider: 'test-provider',
+        baseUrl: '',
+        reasoning: false,
+        input: [],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 4096,
+        maxTokens: 2048,
+      },
       chatId: 'chat-123',
       sessionId: 'sess-1',
     });

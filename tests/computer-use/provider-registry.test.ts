@@ -143,9 +143,7 @@ describe('ComputerProviderRegistry', () => {
   });
 
   it('require throws PROVIDER_UNAVAILABLE when provider is not found', () => {
-    expect(() => registry.require('missing')).toThrow(
-      'Computer provider not found: missing',
-    );
+    expect(() => registry.require('missing')).toThrow('Computer provider not found: missing');
   });
 
   it('list returns all registered providers in registration order', () => {

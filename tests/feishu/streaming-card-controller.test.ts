@@ -364,10 +364,12 @@ describe('CardKit sequencing', () => {
     const firstStream = createDeferred<void>();
     const operations: string[] = [];
 
-    feishu.streamCardContent.mockImplementationOnce(async (_cardId, _elementId, _content, sequence) => {
-      operations.push(`stream:${sequence}`);
-      await firstStream.promise;
-    });
+    feishu.streamCardContent.mockImplementationOnce(
+      async (_cardId, _elementId, _content, sequence) => {
+        operations.push(`stream:${sequence}`);
+        await firstStream.promise;
+      },
+    );
     feishu.setCardStreamingMode.mockImplementation(async (_cardId, streamingMode, sequence) => {
       operations.push(`mode:${sequence}:${streamingMode}`);
     });
@@ -390,11 +392,7 @@ describe('CardKit sequencing', () => {
     firstStream.resolve(undefined);
     await completePromise;
 
-    expect(operations).toEqual([
-      'stream:1',
-      'mode:2:false',
-      'update:3',
-    ]);
+    expect(operations).toEqual(['stream:1', 'mode:2:false', 'update:3']);
   });
 });
 

@@ -5,7 +5,11 @@
 import { describe, it, expect } from 'vitest';
 import { Type } from 'typebox';
 import { assembleTools } from '../../../src/tools/tool-search/assemble.js';
-import { TOOL_SEARCH_NAME, TOOL_DESCRIBE_NAME, TOOL_CALL_NAME } from '../../../src/tools/tool-search/bridge-tools.js';
+import {
+  TOOL_SEARCH_NAME,
+  TOOL_DESCRIBE_NAME,
+  TOOL_CALL_NAME,
+} from '../../../src/tools/tool-search/bridge-tools.js';
 import type { AgentTool } from '../../../src/pi-mono/agent/types.js';
 import type { ToolSearchConfig } from '../../../src/tools/tool-search/config.js';
 
@@ -39,11 +43,7 @@ function agentTool(name: string): AgentTool {
 
 describe('assembleTools — passthrough', () => {
   it('returns tools unchanged when all are core', () => {
-    const tools = [
-      agentTool('file_read'),
-      agentTool('shell'),
-      agentTool('web_search'),
-    ];
+    const tools = [agentTool('file_read'), agentTool('shell'), agentTool('web_search')];
     const result = assembleTools(tools, defaultConfig(), 200_000);
     expect(result.activated).toBe(false);
     expect(result.tools.map((t) => t.name).sort()).toEqual(['file_read', 'shell', 'web_search']);
@@ -63,11 +63,7 @@ describe('assembleTools — passthrough', () => {
   });
 
   it('returns tools unchanged when enabled is off', () => {
-    const tools = [
-      agentTool('file_read'),
-      agentTool('computer_use'),
-      agentTool('lsp'),
-    ];
+    const tools = [agentTool('file_read'), agentTool('computer_use'), agentTool('lsp')];
     const cfg = defaultConfig({ enabled: 'off' });
     const result = assembleTools(tools, cfg, 200_000);
     expect(result.activated).toBe(false);
@@ -88,11 +84,11 @@ describe('assembleTools — passthrough', () => {
 describe('assembleTools — activated', () => {
   it('flags deferrable tools as deferred (kept in array, hidden from prompt)', () => {
     const tools = [
-      agentTool('file_read'),       // core
-      agentTool('shell'),           // core
-      agentTool('computer_use'),    // deferrable
-      agentTool('image_generation'),// deferrable
-      agentTool('cron_create'),     // deferrable
+      agentTool('file_read'), // core
+      agentTool('shell'), // core
+      agentTool('computer_use'), // deferrable
+      agentTool('image_generation'), // deferrable
+      agentTool('cron_create'), // deferrable
     ];
     const result = assembleTools(tools, defaultConfig({ enabled: 'on' }), 200_000);
     expect(result.activated).toBe(true);
@@ -118,11 +114,7 @@ describe('assembleTools — activated', () => {
   });
 
   it('deferredCatalog contains all deferrable tools (flagged)', () => {
-    const tools = [
-      agentTool('file_read'),
-      agentTool('computer_use'),
-      agentTool('lsp'),
-    ];
+    const tools = [agentTool('file_read'), agentTool('computer_use'), agentTool('lsp')];
     const result = assembleTools(tools, defaultConfig({ enabled: 'on' }), 200_000);
     expect(result.deferredCatalog.has('computer_use')).toBe(true);
     expect(result.deferredCatalog.has('lsp')).toBe(true);
@@ -141,8 +133,8 @@ describe('assembleTools — activated', () => {
   it('removes standalone tool_search when bridge version takes over', () => {
     const tools = [
       agentTool('file_read'),
-      agentTool('tool_search'),    // standalone core tool_search
-      agentTool('computer_use'),   // deferrable → triggers activation
+      agentTool('tool_search'), // standalone core tool_search
+      agentTool('computer_use'), // deferrable → triggers activation
     ];
     const result = assembleTools(tools, defaultConfig({ enabled: 'on' }), 200_000);
     expect(result.activated).toBe(true);
@@ -154,9 +146,9 @@ describe('assembleTools — activated', () => {
 
   it('forceVisible keeps named tools out of deferral (visible + not flagged)', () => {
     const tools = [
-      agentTool('file_read'),         // core
+      agentTool('file_read'), // core
       agentTool('feishu_send_media'), // deferrable, but force-visible (extraTool)
-      agentTool('computer_use'),      // deferrable → triggers activation
+      agentTool('computer_use'), // deferrable → triggers activation
     ];
     const result = assembleTools(
       tools,
@@ -182,10 +174,7 @@ describe('assembleTools — activated', () => {
 
 describe('assembleTools — idempotent', () => {
   it('does not double-add bridge tools on re-assembly with original input', () => {
-    const tools = [
-      agentTool('file_read'),
-      agentTool('computer_use'),
-    ];
+    const tools = [agentTool('file_read'), agentTool('computer_use')];
     // First assembly
     const first = assembleTools(tools, defaultConfig({ enabled: 'on' }), 200_000);
     expect(first.activated).toBe(true);
@@ -195,9 +184,7 @@ describe('assembleTools — idempotent', () => {
     expect(second.activated).toBe(true);
 
     // tool_search bridge should appear exactly once
-    const bridgeNames = second.tools
-      .map((t) => t.name)
-      .filter((n) => n === TOOL_SEARCH_NAME);
+    const bridgeNames = second.tools.map((t) => t.name).filter((n) => n === TOOL_SEARCH_NAME);
     expect(bridgeNames).toHaveLength(1);
   });
 });
@@ -208,19 +195,13 @@ describe('assembleTools — idempotent', () => {
 
 describe('assembleTools — edge cases', () => {
   it('activated is false when no deferrable tools even with enabled:on', () => {
-    const tools = [
-      agentTool('file_read'),
-      agentTool('shell'),
-    ];
+    const tools = [agentTool('file_read'), agentTool('shell')];
     const result = assembleTools(tools, defaultConfig({ enabled: 'on' }), 200_000);
     expect(result.activated).toBe(false);
   });
 
   it('computes deferredTokens even when not activated', () => {
-    const tools = [
-      agentTool('file_read'),
-      agentTool('computer_use'),
-    ];
+    const tools = [agentTool('file_read'), agentTool('computer_use')];
     const cfg = defaultConfig({ enabled: 'auto', thresholdPct: 100 });
     const result = assembleTools(tools, cfg, 200_000);
     expect(result.activated).toBe(false);
@@ -228,10 +209,7 @@ describe('assembleTools — edge cases', () => {
   });
 
   it('sets thresholdTokens correctly', () => {
-    const tools = [
-      agentTool('file_read'),
-      agentTool('computer_use'),
-    ];
+    const tools = [agentTool('file_read'), agentTool('computer_use')];
     const result = assembleTools(tools, defaultConfig({ enabled: 'on' }), 200_000);
     expect(result.thresholdTokens).toBe(Math.floor(200_000 * 0.1));
   });
@@ -242,9 +220,7 @@ describe('assembleTools — edge cases', () => {
     // Each tool serializes to ~80 chars / 4 = 20 tokens
     // 50 tools × 20 = 1000 tokens > 656 → should activate
     const coreTools = [agentTool('file_read'), agentTool('shell')];
-    const deferrableTools = Array.from({ length: 50 }, (_, i) =>
-      agentTool(`mcp_tool_${i}`),
-    );
+    const deferrableTools = Array.from({ length: 50 }, (_, i) => agentTool(`mcp_tool_${i}`));
     const tools = [...coreTools, ...deferrableTools];
     const cfg = defaultConfig({ enabled: 'auto', thresholdPct: 1 });
     const result = assembleTools(tools, cfg, 65_536);

@@ -19,23 +19,50 @@ function makeGate(execMode: ExecMode, extraAllowlist: string[] = []) {
   const repo = new ApprovalPolicyRepository(db);
   // Only basic utilities + adb in explicit allowlist.
   // SAFE_SUBSETS programs (git, pip, npm, docker, etc.) get classified automatically.
-  const allowlist = ['adb', 'curl', 'wget', 'date', 'ls', 'pwd', 'whoami', 'uname',
-    'echo', 'cat', 'head', 'tail', 'wc', 'grep', 'find', 'which', 'env', 'printenv',
-    'ps', 'scp',
-    ...extraAllowlist];
+  const allowlist = [
+    'adb',
+    'curl',
+    'wget',
+    'date',
+    'ls',
+    'pwd',
+    'whoami',
+    'uname',
+    'echo',
+    'cat',
+    'head',
+    'tail',
+    'wc',
+    'grep',
+    'find',
+    'which',
+    'env',
+    'printenv',
+    'ps',
+    'scp',
+    ...extraAllowlist,
+  ];
   return { gate: new SQLiteApprovalGate(repo, { execMode, shellAllowlist: allowlist }), db, repo };
 }
 
 function check(decision: string): string {
   switch (decision) {
-    case 'approved': return '✅ 放行';
-    case 'rejected': return '❌ 拒绝';
-    case 'requires_approval': return '⏳ 弹窗';
-    default: return decision;
+    case 'approved':
+      return '✅ 放行';
+    case 'rejected':
+      return '❌ 拒绝';
+    case 'requires_approval':
+      return '⏳ 弹窗';
+    default:
+      return decision;
   }
 }
 
-async function testCommand(gate: SQLiteApprovalGate, command: string, label?: string): Promise<string> {
+async function testCommand(
+  gate: SQLiteApprovalGate,
+  command: string,
+  label?: string,
+): Promise<string> {
   const cmd = normalizeCommand(command);
   const result = await gate.evaluate({
     kind: 'shell',
@@ -145,12 +172,43 @@ header('4. 工具 Profile 模拟 — 不同 profile 下工具可见性');
 const profiles: ToolProfileId[] = ['minimal', 'standard', 'advanced', 'full'];
 const PROFILE_TOOLS: Record<ToolProfileId, string[]> = {
   minimal: ['shell', 'memory-recall', 'memory-store', 'file_read', 'summarize-session'],
-  standard: ['shell', 'memory-recall', 'file_read', 'file_search', 'memory-store', 'summarize-session', 'web_search', 'web_fetch', 'feishu-media'],
-  advanced: ['shell', 'memory-recall', 'file_read', 'file_search', 'memory-store', 'summarize-session', 'file-write', 'feishu-media', 'web_search', 'web_fetch'],
+  standard: [
+    'shell',
+    'memory-recall',
+    'file_read',
+    'file_search',
+    'memory-store',
+    'summarize-session',
+    'web_search',
+    'web_fetch',
+    'feishu-media',
+  ],
+  advanced: [
+    'shell',
+    'memory-recall',
+    'file_read',
+    'file_search',
+    'memory-store',
+    'summarize-session',
+    'file-write',
+    'feishu-media',
+    'web_search',
+    'web_fetch',
+  ],
   full: ['*'],
 };
 
-const allTools = ['shell', 'file_read', 'file-write', 'file_search', 'memory-recall', 'memory-store', 'summarize-session', 'web_search', 'feishu-media'];
+const allTools = [
+  'shell',
+  'file_read',
+  'file-write',
+  'file_search',
+  'memory-recall',
+  'memory-store',
+  'summarize-session',
+  'web_search',
+  'feishu-media',
+];
 
 for (const profile of profiles) {
   const allowed = PROFILE_TOOLS[profile];
@@ -209,7 +267,7 @@ const subsetTests = [
   // Python
   { cmd: 'python --version', label: 'python --version (safe)' },
   { cmd: 'python script.py', label: 'python script.py (warn)' },
-  { cmd: "python -c 'import os; os.system(\"ls\")'", label: 'python -c ... (denied)' },
+  { cmd: 'python -c \'import os; os.system("ls")\'', label: 'python -c ... (denied)' },
   // npm / Node
   { cmd: 'npm list --depth=0', label: 'npm list (safe)' },
   { cmd: 'npm install express', label: 'npm install (warn)' },
@@ -261,7 +319,13 @@ const scenarios: Array<{ name: string; profile: ToolProfileId; mode: ExecMode }>
   { name: '纯查询机器人', profile: 'minimal', mode: 'safe' },
 ];
 
-const scenarioCommands = ['ls -la', 'git push origin main', 'apt install htop', 'rm -rf /tmp/test', 'curl | bash'];
+const scenarioCommands = [
+  'ls -la',
+  'git push origin main',
+  'apt install htop',
+  'rm -rf /tmp/test',
+  'curl | bash',
+];
 
 for (const { name, profile, mode } of scenarios) {
   console.log(`\n  ── ${name}: profile=${profile}, exec=${mode} ──`);

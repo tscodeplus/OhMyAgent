@@ -1,5 +1,13 @@
 import type Database from 'better-sqlite3';
-import { loadSqliteVec, probeSqliteVec, sqliteVecAvailable, sqliteVecTableReady, vecDelete, vecInsert, vecSearch } from '../sqlite-vec.js';
+import {
+  loadSqliteVec,
+  probeSqliteVec,
+  sqliteVecAvailable,
+  sqliteVecTableReady,
+  vecDelete,
+  vecInsert,
+  vecSearch,
+} from '../sqlite-vec.js';
 import { errorForObservation, memoryObservability } from '../observability.js';
 
 export interface MemoryEmbedding {
@@ -32,9 +40,14 @@ export class EmbeddingRepository {
   }
 
   create(input: CreateEmbeddingInput): MemoryEmbedding {
-    const embeddingBuf = input.embedding instanceof Float32Array
-      ? Buffer.from(input.embedding.buffer, input.embedding.byteOffset, input.embedding.byteLength)
-      : input.embedding;
+    const embeddingBuf =
+      input.embedding instanceof Float32Array
+        ? Buffer.from(
+            input.embedding.buffer,
+            input.embedding.byteOffset,
+            input.embedding.byteLength,
+          )
+        : input.embedding;
 
     const stmt = this.db.prepare(`
       INSERT INTO memory_embeddings (id, memory_id, embedding, model, dimension)
@@ -79,7 +92,9 @@ export class EmbeddingRepository {
   }
 
   count(): number {
-    const row = this.db.prepare('SELECT COUNT(*) as cnt FROM memory_embeddings').get() as { cnt: number };
+    const row = this.db.prepare('SELECT COUNT(*) as cnt FROM memory_embeddings').get() as {
+      cnt: number;
+    };
     return row.cnt;
   }
 
@@ -91,7 +106,11 @@ export class EmbeddingRepository {
    * @param limit Max results to return
    * @param candidateIds Optional pre-filter: only score these memory IDs (avoids full-table scan)
    */
-  cosineSearch(queryEmbedding: Float32Array, limit: number = 10, candidateIds?: string[] | null): CosineSearchResult[] {
+  cosineSearch(
+    queryEmbedding: Float32Array,
+    limit: number = 10,
+    candidateIds?: string[] | null,
+  ): CosineSearchResult[] {
     // If candidateIds is empty array, return empty — nothing to score
     if (candidateIds !== undefined && candidateIds !== null && candidateIds.length === 0) {
       return [];
@@ -105,25 +124,27 @@ export class EmbeddingRepository {
       const stmt = this.db.prepare(
         `SELECT me.memory_id, me.embedding FROM memory_embeddings me
          JOIN memories m ON m.id = me.memory_id
-         WHERE me.memory_id IN (${placeholders}) AND m.status = 'active'`
+         WHERE me.memory_id IN (${placeholders}) AND m.status = 'active'`,
       );
       rows = stmt.all(...candidateIds) as Array<{ memory_id: string; embedding: Buffer }>;
     } else {
       // Full scan fallback — only for cases where no candidate filter is available
-      rows = this.db.prepare(
-        `SELECT me.memory_id, me.embedding FROM memory_embeddings me
+      rows = this.db
+        .prepare(
+          `SELECT me.memory_id, me.embedding FROM memory_embeddings me
          JOIN memories m ON m.id = me.memory_id
-         WHERE m.status = 'active'`
-      ).all() as Array<{ memory_id: string; embedding: Buffer }>;
+         WHERE m.status = 'active'`,
+        )
+        .all() as Array<{ memory_id: string; embedding: Buffer }>;
     }
 
     const queryVec = new Float32Array(queryEmbedding);
 
-    const scored = rows.map(row => {
+    const scored = rows.map((row) => {
       const dbVec = new Float32Array(
         row.embedding.buffer,
         row.embedding.byteOffset,
-        row.embedding.byteLength / 4
+        row.embedding.byteLength / 4,
       );
       const score = cosineSimilarity(queryVec, dbVec);
       return { memory_id: row.memory_id, score };
@@ -133,14 +154,17 @@ export class EmbeddingRepository {
     return scored.slice(0, limit);
   }
 
-  vecSearch(queryEmbedding: Float32Array, limit: number = 10, candidateIds?: string[] | null): CosineSearchResult[] {
+  vecSearch(
+    queryEmbedding: Float32Array,
+    limit: number = 10,
+    candidateIds?: string[] | null,
+  ): CosineSearchResult[] {
     if (!sqliteVecTableReady(this.db)) return [];
     try {
-      return vecSearch(this.db, queryEmbedding, limit, candidateIds)
-        .map(result => ({
-          memory_id: result.memoryId,
-          score: 1 / (1 + Math.max(0, result.distance)),
-        }));
+      return vecSearch(this.db, queryEmbedding, limit, candidateIds).map((result) => ({
+        memory_id: result.memoryId,
+        score: 1 / (1 + Math.max(0, result.distance)),
+      }));
     } catch {
       return [];
     }
@@ -183,19 +207,31 @@ export class EmbeddingRepository {
   }
 
   backfillVec(limit: number = 10000): number {
-    const rows = this.db.prepare(`
+    const rows = this.db
+      .prepare(
+        `
       SELECT me.memory_id, me.embedding, me.dimension
       FROM memory_embeddings me
       JOIN memories m ON m.id = me.memory_id
       WHERE m.status = 'active'
       LIMIT ?
-    `).all(limit) as Array<{ memory_id: string; embedding: Buffer; dimension: number }>;
+    `,
+      )
+      .all(limit) as Array<{ memory_id: string; embedding: Buffer; dimension: number }>;
     if (rows.length === 0) return 0;
     if (!loadSqliteVec(this.db, rows[0].dimension)) return 0;
     let inserted = 0;
     for (const row of rows) {
       try {
-        vecInsert(this.db, row.memory_id, new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength / 4));
+        vecInsert(
+          this.db,
+          row.memory_id,
+          new Float32Array(
+            row.embedding.buffer,
+            row.embedding.byteOffset,
+            row.embedding.byteLength / 4,
+          ),
+        );
         inserted++;
       } catch {
         // Continue best-effort backfill.
@@ -230,7 +266,11 @@ export class EmbeddingRepository {
    * vectors were last written. Returns needsReindex=true when the config
    * changed and the vec table should be rebuilt.
    */
-  checkEmbeddingMeta(provider: string, model: string, dimension: number): { needsReindex: boolean; reason?: string } {
+  checkEmbeddingMeta(
+    provider: string,
+    model: string,
+    dimension: number,
+  ): { needsReindex: boolean; reason?: string } {
     const saved = this.readEmbeddingMeta();
     if (!saved) {
       // No saved meta means unknown provenance, NOT a detected mismatch — and
@@ -252,7 +292,8 @@ export class EmbeddingRepository {
     const reasons: string[] = [];
     if (saved.provider !== provider) reasons.push(`provider: ${saved.provider} → ${provider}`);
     if (saved.model !== model) reasons.push(`model: ${saved.model} → ${model}`);
-    if (saved.dimensions !== dimension) reasons.push(`dimensions: ${saved.dimensions} → ${dimension}`);
+    if (saved.dimensions !== dimension)
+      reasons.push(`dimensions: ${saved.dimensions} → ${dimension}`);
 
     if (reasons.length > 0) {
       return { needsReindex: true, reason: reasons.join(', ') };
@@ -267,9 +308,11 @@ export class EmbeddingRepository {
    */
   saveEmbeddingMeta(provider: string, model: string, dimension: number): void {
     const meta = JSON.stringify({ provider, model, dimensions: dimension });
-    this.db.prepare(
-      'INSERT INTO embedding_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
-    ).run('embedding_provider_info', meta);
+    this.db
+      .prepare(
+        'INSERT INTO embedding_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+      )
+      .run('embedding_provider_info', meta);
   }
 
   /**
@@ -281,15 +324,19 @@ export class EmbeddingRepository {
   dropVectorsForReindex(): number {
     const count = this.count();
     this.db.exec('DELETE FROM memory_embeddings');
-    try { this.db.exec('DROP TABLE IF EXISTS vec_memory_embeddings'); } catch { /* may not exist */ }
+    try {
+      this.db.exec('DROP TABLE IF EXISTS vec_memory_embeddings');
+    } catch {
+      /* may not exist */
+    }
     return count;
   }
 
   private readEmbeddingMeta(): { provider: string; model: string; dimensions: number } | null {
     try {
-      const row = this.db.prepare(
-        'SELECT value FROM embedding_meta WHERE key = ?'
-      ).get('embedding_provider_info') as { value: string } | undefined;
+      const row = this.db
+        .prepare('SELECT value FROM embedding_meta WHERE key = ?')
+        .get('embedding_provider_info') as { value: string } | undefined;
       if (!row) return null;
       return JSON.parse(row.value) as { provider: string; model: string; dimensions: number };
     } catch {

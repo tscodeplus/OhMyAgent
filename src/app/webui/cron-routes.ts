@@ -61,23 +61,19 @@ function jobToDTO(job: CronJob): CronJobDTO {
   };
 }
 
-export function registerCronRoutes(
-  app: FastifyInstance,
-  cronService: CronService,
-): void {
+export function registerCronRoutes(app: FastifyInstance, cronService: CronService): void {
   // List all jobs with optional filtering
   app.get('/api/cron/jobs', async (request, reply) => {
     const query = request.query as { status?: string; q?: string };
     let jobs = cronService.list();
 
     if (query.status && query.status !== 'all') {
-      jobs = jobs.filter(j => j.state === query.status);
+      jobs = jobs.filter((j) => j.state === query.status);
     }
     if (query.q) {
       const keyword = query.q.toLowerCase();
-      jobs = jobs.filter(j =>
-        j.name.toLowerCase().includes(keyword) ||
-        j.prompt.toLowerCase().includes(keyword),
+      jobs = jobs.filter(
+        (j) => j.name.toLowerCase().includes(keyword) || j.prompt.toLowerCase().includes(keyword),
       );
     }
 
@@ -107,7 +103,9 @@ export function registerCronRoutes(
     };
 
     if (!body.name?.trim() || !body.expression?.trim()) {
-      return reply.status(400).send({ error: 'Bad Request', message: 'name and expression are required' });
+      return reply
+        .status(400)
+        .send({ error: 'Bad Request', message: 'name and expression are required' });
     }
 
     try {
@@ -166,7 +164,11 @@ export function registerCronRoutes(
     let scheduleChanged = false;
 
     // Re-parse schedule if expression changed
-    if (typeof body.expression === 'string' && body.expression.trim() && body.expression.trim() !== scheduleToExpression(job)) {
+    if (
+      typeof body.expression === 'string' &&
+      body.expression.trim() &&
+      body.expression.trim() !== scheduleToExpression(job)
+    ) {
       try {
         const { schedule, scheduleText, nextRunAt } = parseSchedule(body.expression.trim());
         patch.schedule = schedule;
@@ -228,7 +230,9 @@ export function registerCronRoutes(
     try {
       app.log.info(`[cron] running job now: id=${id}`);
       const result = await cronService.runOnce(id);
-      app.log.debug(`[cron] run result: status=${result.status} delivered=${result.deliveredToChat}`);
+      app.log.debug(
+        `[cron] run result: status=${result.status} delivered=${result.deliveredToChat}`,
+      );
       return reply.send({ ok: true, result });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

@@ -53,7 +53,10 @@ function stopTaskScheduler(): boolean {
 
 function hasTaskScheduler(): boolean {
   try {
-    const result = execSync('schtasks /Query /TN "OhMyAgent" 2>nul', { stdio: 'pipe', encoding: 'utf8' });
+    const result = execSync('schtasks /Query /TN "OhMyAgent" 2>nul', {
+      stdio: 'pipe',
+      encoding: 'utf8',
+    });
     return result.includes('OhMyAgent');
   } catch {
     return false;
@@ -62,7 +65,9 @@ function hasTaskScheduler(): boolean {
 
 function stopLaunchdService(): boolean {
   try {
-    execSync('launchctl unload ~/Library/LaunchAgents/com.ohmyagent.plist 2>/dev/null', { stdio: 'ignore' });
+    execSync('launchctl unload ~/Library/LaunchAgents/com.ohmyagent.plist 2>/dev/null', {
+      stdio: 'ignore',
+    });
     return true;
   } catch {
     return false;
@@ -170,9 +175,17 @@ export async function stopCommand(): Promise<void> {
 
   if (!stopped) {
     if (process.platform === 'win32') {
-      try { execSync(`taskkill /PID ${pid} /F`, { stdio: 'ignore' }); } catch { /* ok */ }
+      try {
+        execSync(`taskkill /PID ${pid} /F`, { stdio: 'ignore' });
+      } catch {
+        /* ok */
+      }
     } else {
-      try { process.kill(pid, 'SIGKILL'); } catch { /* ok */ }
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        /* ok */
+      }
     }
     await sleep(500);
   }

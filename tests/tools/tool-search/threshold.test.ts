@@ -12,7 +12,11 @@ import type { AgentTool } from '../../../src/pi-mono/agent/types.js';
 // Helpers
 // ---------------------------------------------------------------------------
 
-function agentTool(name: string, description: string = 'A test tool', numParams: number = 0): AgentTool {
+function agentTool(
+  name: string,
+  description: string = 'A test tool',
+  numParams: number = 0,
+): AgentTool {
   const props: Record<string, any> = {};
   for (let i = 0; i < numParams; i++) {
     props[`param_${i}`] = Type.String();
@@ -52,7 +56,9 @@ describe('estimateTokens', () => {
 
   it('scales roughly linearly with number of tools', () => {
     const one = [agentTool('a', 'desc')];
-    const ten = Array.from({ length: 10 }, (_, i) => agentTool(`tool_${i}`, `description for tool ${i}`));
+    const ten = Array.from({ length: 10 }, (_, i) =>
+      agentTool(`tool_${i}`, `description for tool ${i}`),
+    );
     const oneEst = estimateTokens(one);
     const tenEst = estimateTokens(ten);
     // ten tools should estimate at least 5× one tool

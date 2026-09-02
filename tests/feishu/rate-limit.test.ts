@@ -125,7 +125,7 @@ describe('Rate Limiter', () => {
     expect(response.statusCode).toBe(429);
 
     // Wait for the window to expire
-    await new Promise(resolve => setTimeout(resolve, 150));
+    await new Promise((resolve) => setTimeout(resolve, 150));
 
     // After window expires, request should succeed
     response = await server.inject({

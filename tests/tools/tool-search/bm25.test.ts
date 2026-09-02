@@ -10,12 +10,42 @@ import { tokenize, buildCatalog, searchCatalog } from '../../../src/tools/tool-s
 // ---------------------------------------------------------------------------
 
 const SAMPLE_TOOLS: { name: string; label: string; description: string; category: string }[] = [
-  { name: 'github_create_issue', label: 'Create Issue', description: 'Open a new issue in a GitHub repository', category: 'mcp' },
-  { name: 'github_search_repos', label: 'Search Repos', description: 'Search GitHub for matching repositories', category: 'mcp' },
-  { name: 'slack_send_message', label: 'Send Message', description: 'Post a message into a Slack channel', category: 'mcp' },
-  { name: 'calendar_create_event', label: 'Create Event', description: 'Add an event to the user calendar', category: 'mcp' },
-  { name: 'file_read', label: 'Read File', description: 'Read contents of a file from the filesystem', category: 'file' },
-  { name: 'file_write', label: 'Write File', description: 'Write contents to a file on the filesystem', category: 'file' },
+  {
+    name: 'github_create_issue',
+    label: 'Create Issue',
+    description: 'Open a new issue in a GitHub repository',
+    category: 'mcp',
+  },
+  {
+    name: 'github_search_repos',
+    label: 'Search Repos',
+    description: 'Search GitHub for matching repositories',
+    category: 'mcp',
+  },
+  {
+    name: 'slack_send_message',
+    label: 'Send Message',
+    description: 'Post a message into a Slack channel',
+    category: 'mcp',
+  },
+  {
+    name: 'calendar_create_event',
+    label: 'Create Event',
+    description: 'Add an event to the user calendar',
+    category: 'mcp',
+  },
+  {
+    name: 'file_read',
+    label: 'Read File',
+    description: 'Read contents of a file from the filesystem',
+    category: 'file',
+  },
+  {
+    name: 'file_write',
+    label: 'Write File',
+    description: 'Write contents to a file on the filesystem',
+    category: 'file',
+  },
 ];
 
 function sampleCatalog() {
@@ -91,7 +121,9 @@ describe('buildCatalog', () => {
   });
 
   it('handles entries with empty descriptions', () => {
-    const catalog = buildCatalog([{ name: 'test', label: 'Test', description: '', category: 'test' }]);
+    const catalog = buildCatalog([
+      { name: 'test', label: 'Test', description: '', category: 'test' },
+    ]);
     expect(catalog).toHaveLength(1);
     expect(catalog[0]!.tokens.length).toBeGreaterThan(0); // name + label still produces tokens
   });
@@ -172,9 +204,24 @@ describe('searchCatalog', () => {
   it('substring fallback matches partial tool name', () => {
     // Create a catalog where all tools share a prefix, making BM25 IDF zero
     const similarTools = buildCatalog([
-      { name: 'mcp_github_tool_a', label: 'Tool A', description: 'does something with github', category: 'mcp' },
-      { name: 'mcp_github_tool_b', label: 'Tool B', description: 'does something else with github', category: 'mcp' },
-      { name: 'mcp_github_tool_c', label: 'Tool C', description: 'yet another github tool', category: 'mcp' },
+      {
+        name: 'mcp_github_tool_a',
+        label: 'Tool A',
+        description: 'does something with github',
+        category: 'mcp',
+      },
+      {
+        name: 'mcp_github_tool_b',
+        label: 'Tool B',
+        description: 'does something else with github',
+        category: 'mcp',
+      },
+      {
+        name: 'mcp_github_tool_c',
+        label: 'Tool C',
+        description: 'yet another github tool',
+        category: 'mcp',
+      },
     ]);
     // All docs contain "github" → IDF ~0. But "tool_b" is unique enough.
     // Actually let's test the substring fallback more directly:

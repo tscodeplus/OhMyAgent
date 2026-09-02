@@ -51,7 +51,10 @@ export function createWebUIUserQuestionSender(
             "INSERT OR REPLACE INTO messages (id, session_id, role, content, created_at, metadata) VALUES (?, ?, 'assistant', ?, ?, ?)",
           ).run(msgId, sessionId, '', Date.now(), meta);
         } catch (err) {
-          (logger ?? fallbackLogger).warn({ err }, '[user-question-sender] Failed to persist question message');
+          (logger ?? fallbackLogger).warn(
+            { err },
+            '[user-question-sender] Failed to persist question message',
+          );
         }
       }
 
@@ -73,22 +76,29 @@ export function createWebUIUserQuestionSender(
       if (db && sessionId && _cardMessageId) {
         try {
           const msgId = `question-${_cardMessageId}`;
-          const row = db.prepare(
-            'SELECT metadata FROM messages WHERE id = ?',
-          ).get(msgId) as { metadata: string | null } | undefined;
+          const row = db.prepare('SELECT metadata FROM messages WHERE id = ?').get(msgId) as
+            { metadata: string | null } | undefined;
           if (row) {
             let meta: Record<string, unknown> = {};
-            try { meta = row.metadata ? JSON.parse(String(row.metadata)) : {}; } catch { /* ignore */ }
+            try {
+              meta = row.metadata ? JSON.parse(String(row.metadata)) : {};
+            } catch {
+              /* ignore */
+            }
             const uq = (meta.userQuestion || {}) as Record<string, unknown>;
             uq.status = 'answered';
             uq.answer = answer;
             meta.userQuestion = uq;
-            db.prepare(
-              'UPDATE messages SET metadata = ? WHERE id = ?',
-            ).run(JSON.stringify(meta), msgId);
+            db.prepare('UPDATE messages SET metadata = ? WHERE id = ?').run(
+              JSON.stringify(meta),
+              msgId,
+            );
           }
         } catch (err) {
-          (logger ?? fallbackLogger).warn({ err }, '[user-question-sender] Failed to update question message');
+          (logger ?? fallbackLogger).warn(
+            { err },
+            '[user-question-sender] Failed to update question message',
+          );
         }
       }
     },

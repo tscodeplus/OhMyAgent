@@ -77,10 +77,12 @@ describe('PolicyCenterImpl path argument extraction', () => {
 
     await evaluate(center, { imagePath: '/tmp/image.png' });
 
-    expect(check).toHaveBeenCalledWith(expect.objectContaining({
-      path: '/tmp/image.png',
-      operation: 'read',
-    }));
+    expect(check).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: '/tmp/image.png',
+        operation: 'read',
+      }),
+    );
   });
 
   it('checks cwd for directory-scoped read tools such as glob', async () => {
@@ -89,10 +91,12 @@ describe('PolicyCenterImpl path argument extraction', () => {
 
     const decision = await evaluate(center, { pattern: '*.ts', cwd: '/private' });
 
-    expect(check).toHaveBeenCalledWith(expect.objectContaining({
-      path: '/private',
-      operation: 'read',
-    }));
+    expect(check).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: '/private',
+        operation: 'read',
+      }),
+    );
     expect(decision.allowed).toBe(false);
     expect(decision.reason).toBe('outside roots');
   });
@@ -103,10 +107,12 @@ describe('PolicyCenterImpl path argument extraction', () => {
 
     const decision = await evaluate(center, { directory: '/private', pattern: '*.ts' });
 
-    expect(check).toHaveBeenCalledWith(expect.objectContaining({
-      path: '/private',
-      operation: 'read',
-    }));
+    expect(check).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: '/private',
+        operation: 'read',
+      }),
+    );
     expect(decision.allowed).toBe(false);
     expect(decision.reason).toBe('outside roots');
   });
@@ -128,7 +134,8 @@ describe('PolicyCenterImpl path argument extraction', () => {
 
   it('reuses generic tool approval by tool name after exact subject misses', async () => {
     const check = vi.fn(() => ({ allowed: true }));
-    const checkReuse = vi.fn()
+    const checkReuse = vi
+      .fn()
       .mockResolvedValueOnce({ canReuse: false })
       .mockResolvedValueOnce({ canReuse: true, decision: 'approve_session' });
     const center = makePolicyCenter(check, checkReuse);
@@ -188,11 +195,7 @@ describe('PolicyCenterImpl path argument extraction', () => {
       policyScope: scope({ computerUseEnabled: true }),
     });
 
-    expect(checkReuse).toHaveBeenCalledWith(
-      'session-1',
-      'tool',
-      'computer_use open_app 记事本',
-    );
+    expect(checkReuse).toHaveBeenCalledWith('session-1', 'tool', 'computer_use open_app 记事本');
     expect(decision.allowed).toBe(true);
   });
 });

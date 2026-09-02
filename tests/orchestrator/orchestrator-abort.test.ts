@@ -53,7 +53,11 @@ function createMockRuntime(agentId: string, sessionId: string = 'session-1'): Ma
   };
 }
 
-function createAgentRun(store: InMemoryAgentRunStore, agentId: string, sessionId: string = 'session-1'): AgentRun {
+function createAgentRun(
+  store: InMemoryAgentRunStore,
+  agentId: string,
+  sessionId: string = 'session-1',
+): AgentRun {
   return store.create({
     agentId,
     rootSessionId: sessionId,

@@ -17,11 +17,7 @@ import { SkillRegistry } from '../../src/skills/skill-registry.js';
 import { resolveSkillContext } from '../../src/skills/skill-router.js';
 import { compileSkillContext } from '../../src/skills/skill-compiler.js';
 import { loadAllSkills, type LoadedSkill } from '../../src/skills/skill-loader.js';
-import {
-  makeTestConfig,
-  makeMockTool,
-  makeMockModel,
-} from './helpers.js';
+import { makeTestConfig, makeMockTool, makeMockModel } from './helpers.js';
 import { join } from 'node:path';
 
 vi.mock('../../src/provider/pi-ai-setup.js', () => ({
@@ -41,7 +37,10 @@ vi.mock('../../src/provider/pi-ai-setup.js', () => ({
 
 const SKILLS_DIR = join(import.meta.dirname, '../../skills');
 
-function makeMockSkill(overrides: Partial<LoadedSkill['manifest']> & { id: string }, tools: string[] = ['file_read']): LoadedSkill {
+function makeMockSkill(
+  overrides: Partial<LoadedSkill['manifest']> & { id: string },
+  tools: string[] = ['file_read'],
+): LoadedSkill {
   return {
     manifest: {
       id: overrides.id,
@@ -71,7 +70,7 @@ describe('E2E: Skill Flow', () => {
   it('loads researcher skill from disk', async () => {
     const skills = await loadAllSkills(SKILLS_DIR);
     expect(skills.length).toBeGreaterThanOrEqual(1);
-    const ids = skills.map(s => s.manifest.id);
+    const ids = skills.map((s) => s.manifest.id);
     expect(ids).toContain('researcher');
   });
 
@@ -82,7 +81,7 @@ describe('E2E: Skill Flow', () => {
     const resolved = resolveSkillContext('research TypeScript generics', skills);
 
     expect(resolved.length).toBeGreaterThanOrEqual(1);
-    const match = resolved.find(r => r.skill.manifest.id === 'researcher');
+    const match = resolved.find((r) => r.skill.manifest.id === 'researcher');
     expect(match).toBeDefined();
     expect(match!.matchType).toBe('trigger');
     expect(match!.matchedTrigger).toBe('research');
@@ -173,7 +172,7 @@ describe('E2E: Skill Flow', () => {
 
   it('researcher prompt content is loaded from SKILL.md', async () => {
     const skills = await loadAllSkills(SKILLS_DIR);
-    const researcher = skills.find(s => s.manifest.id === 'researcher');
+    const researcher = skills.find((s) => s.manifest.id === 'researcher');
     expect(researcher).toBeDefined();
     expect(researcher!.promptContent.length).toBeGreaterThan(100);
   });
@@ -182,7 +181,7 @@ describe('E2E: Skill Flow', () => {
 
   it('researcher memory policy is loaded correctly', async () => {
     const skills = await loadAllSkills(SKILLS_DIR);
-    const researcher = skills.find(s => s.manifest.id === 'researcher');
+    const researcher = skills.find((s) => s.manifest.id === 'researcher');
     expect(researcher).toBeDefined();
     expect(researcher!.memoryPolicy.scopes.length).toBeGreaterThan(0);
   });
@@ -191,7 +190,7 @@ describe('E2E: Skill Flow', () => {
 
   it('researcher restricts to read-only tools (no shell)', async () => {
     const skills = await loadAllSkills(SKILLS_DIR);
-    const researcher = skills.find(s => s.manifest.id === 'researcher');
+    const researcher = skills.find((s) => s.manifest.id === 'researcher');
     expect(researcher).toBeDefined();
     expect(researcher!.tools.allowedTools).not.toContain('shell');
     expect(researcher!.tools.allowedTools).toContain('file_read');
@@ -243,7 +242,7 @@ describe('E2E: Skill Flow', () => {
     const skills = await loadAllSkills(SKILLS_DIR);
     // "研究" in "帮我研究一下" now matches — CJK triggers use substring match
     const resolved = resolveSkillContext('帮我研究一下这个问题', skills);
-    const match = resolved.find(r => r.skill.manifest.id === 'researcher');
+    const match = resolved.find((r) => r.skill.manifest.id === 'researcher');
     expect(match).toBeDefined();
     expect(match!.matchType).toBe('trigger');
     expect(match!.matchedTrigger).toBe('研究');

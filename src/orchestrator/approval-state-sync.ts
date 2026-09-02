@@ -20,22 +20,18 @@ export interface ApprovalStateSync {
   ): Promise<boolean>;
 
   /** Route a child agent's approval to the parent session. Returns a promise that resolves when the user decides. */
-  routeApproval(
-    approval: ApprovalRequest,
-    parentSessionId: string,
-  ): Promise<void>;
+  routeApproval(approval: ApprovalRequest, parentSessionId: string): Promise<void>;
 }
 
 export class ApprovalStateSyncImpl implements ApprovalStateSync {
-  constructor(private deps: {
-    approvalResolution: ApprovalResolutionPolicy;
-    pendingApprovals: PendingApprovalStore;
-    /** Channel-agnostic callback to send an approval card/message to a chat. Returns messageId. */
-    sendApprovalToChat: (
-      chatId: string,
-      approval: ApprovalRequest,
-    ) => Promise<string>;
-  }) {}
+  constructor(
+    private deps: {
+      approvalResolution: ApprovalResolutionPolicy;
+      pendingApprovals: PendingApprovalStore;
+      /** Channel-agnostic callback to send an approval card/message to a chat. Returns messageId. */
+      sendApprovalToChat: (chatId: string, approval: ApprovalRequest) => Promise<string>;
+    },
+  ) {}
 
   async checkParentApprovalReuse(
     parentSessionId: string,
@@ -46,10 +42,7 @@ export class ApprovalStateSyncImpl implements ApprovalStateSync {
     return result.canReuse;
   }
 
-  async routeApproval(
-    approval: ApprovalRequest,
-    parentSessionId: string,
-  ): Promise<void> {
+  async routeApproval(approval: ApprovalRequest, parentSessionId: string): Promise<void> {
     // 1. Check if parent session already has an approval that covers this.
     const canReuse = await this.checkParentApprovalReuse(parentSessionId, approval.kind);
     if (canReuse) return;

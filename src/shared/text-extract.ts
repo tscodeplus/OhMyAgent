@@ -11,8 +11,12 @@ export function extractText(content: unknown): string {
   if (!Array.isArray(content)) return String(content);
 
   return content
-    .filter((block): block is { type: string; text: string } =>
-      typeof block === 'object' && block !== null && 'text' in block && typeof (block as any).text === 'string'
+    .filter(
+      (block): block is { type: string; text: string } =>
+        typeof block === 'object' &&
+        block !== null &&
+        'text' in block &&
+        typeof (block as any).text === 'string',
     )
     .map((block) => stripXmlTag(block.text, 'think'))
     .join('\n');

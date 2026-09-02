@@ -1,25 +1,26 @@
 // src/memory/rrf-merge.ts
 
-export type RetrievalSource = 'vector' | 'fts5' | 'cosine' | 'entity_graph' | 'metadata_expansion' | 'terms';
+export type RetrievalSource =
+  'vector' | 'fts5' | 'cosine' | 'entity_graph' | 'metadata_expansion' | 'terms';
 
 export interface SourceResult {
-  id: string;           // memory_id
+  id: string; // memory_id
   content: string;
-  score: number;        // original score (vector similarity / BM25 normalized score)
+  score: number; // original score (vector similarity / BM25 normalized score)
   source: RetrievalSource;
   scope: string;
   scopeKey: string;
   kind: string;
-  createdAt: number;    // unix ms
+  createdAt: number; // unix ms
   sourcePool?: string;
-  speaker?: string;     // derived from metadata.speaker or "X said:" prefix
-  slot?: string;        // slotId that produced this candidate (coverage merge only)
+  speaker?: string; // derived from metadata.speaker or "X said:" prefix
+  slot?: string; // slotId that produced this candidate (coverage merge only)
 }
 
 export interface MergedResult {
   id: string;
   content: string;
-  score: number;        // RRF fused score
+  score: number; // RRF fused score
   source: RetrievalSource;
   scope: string;
   scopeKey: string;
@@ -48,7 +49,7 @@ export function rrfMerge(
   topK: number = 5,
 ): MergedResult[] {
   // Filter out empty lists
-  const nonEmpty = sourceLists.filter(l => l.length > 0);
+  const nonEmpty = sourceLists.filter((l) => l.length > 0);
   if (nonEmpty.length === 0) return [];
 
   // Single source: short-circuit — just apply RRF scoring to the single list

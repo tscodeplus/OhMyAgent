@@ -91,7 +91,9 @@ describe('FeishuRouter', () => {
       expect(msgHandler).toHaveBeenCalledOnce();
       expect(cardHandler).not.toHaveBeenCalled();
 
-      await router.route(makeEnvelope({ eventType: 'card.action.trigger', messageId: 'om_card001' }));
+      await router.route(
+        makeEnvelope({ eventType: 'card.action.trigger', messageId: 'om_card001' }),
+      );
       expect(cardHandler).toHaveBeenCalledOnce();
     });
 
@@ -215,16 +217,20 @@ describe('FeishuRouter', () => {
         createIfAbsent: vi.fn(() => true),
       };
       router = new FeishuRouter({ processedMessageRepository: persistentRepo as any });
-      router.on('im.message.receive_v1', vi.fn(async () => {
-        throw new Error('boom');
-      }));
+      router.on(
+        'im.message.receive_v1',
+        vi.fn(async () => {
+          throw new Error('boom');
+        }),
+      );
 
       await expect(router.route(makeEnvelope({ messageId: 'om_fail' }))).rejects.toThrow('boom');
       expect(persistentRepo.createIfAbsent).not.toHaveBeenCalled();
     });
 
     it('does not mark a message as seen when the handler fails, so a retry is re-processed', async () => {
-      const handler = vi.fn()
+      const handler = vi
+        .fn()
         .mockRejectedValueOnce(new Error('boom'))
         .mockResolvedValueOnce(undefined);
       router.on('im.message.receive_v1', handler);
@@ -244,8 +250,12 @@ describe('FeishuRouter', () => {
 
     it('drops a concurrent duplicate delivery while the handler is in flight', async () => {
       let release!: () => void;
-      const gate = new Promise<void>((resolve) => { release = resolve; });
-      const handler = vi.fn(async () => { await gate; });
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const handler = vi.fn(async () => {
+        await gate;
+      });
       router.on('im.message.receive_v1', handler);
 
       const envelope = makeEnvelope({ messageId: 'om_inflight' });
@@ -263,14 +273,19 @@ describe('FeishuRouter', () => {
 
     it('releases the in-flight guard after a failure so a later retry is processed', async () => {
       let release!: () => void;
-      const gate = new Promise<void>((resolve) => { release = resolve; });
-      const handler = vi.fn(async () => { await gate; throw new Error('boom'); });
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const handler = vi.fn(async () => {
+        await gate;
+        throw new Error('boom');
+      });
       router.on('im.message.receive_v1', handler);
 
       const envelope = makeEnvelope({ messageId: 'om_race' });
 
       const first = router.route(envelope); // handler now in flight
-      await router.route(envelope);         // racing retry — dropped, not double-processed
+      await router.route(envelope); // racing retry — dropped, not double-processed
       expect(handler).toHaveBeenCalledOnce();
 
       release();
@@ -285,13 +300,17 @@ describe('FeishuRouter', () => {
     it('marks seen before the persistent record, so a record failure cannot cause re-processing', async () => {
       const persistentRepo = {
         has: vi.fn(() => false),
-        createIfAbsent: vi.fn(() => { throw new Error('db down'); }),
+        createIfAbsent: vi.fn(() => {
+          throw new Error('db down');
+        }),
       };
       router = new FeishuRouter({ processedMessageRepository: persistentRepo as any });
       const handler = vi.fn();
       router.on('im.message.receive_v1', handler);
 
-      await expect(router.route(makeEnvelope({ messageId: 'om_dbdown' }))).rejects.toThrow('db down');
+      await expect(router.route(makeEnvelope({ messageId: 'om_dbdown' }))).rejects.toThrow(
+        'db down',
+      );
       expect(handler).toHaveBeenCalledOnce();
       expect(router.seenSize).toBe(1);
 
@@ -317,10 +336,12 @@ describe('FeishuRouter', () => {
       router = new FeishuRouter({ processedMessageRepository: persistentRepo as any });
       router.on('im.message.receive_v1', handler);
 
-      await router.route(makeEnvelope({
-        messageId: 'om_old',
-        createTime: String(new Date('2026-05-03T03:30:00+08:00').getTime()),
-      }));
+      await router.route(
+        makeEnvelope({
+          messageId: 'om_old',
+          createTime: String(new Date('2026-05-03T03:30:00+08:00').getTime()),
+        }),
+      );
 
       expect(handler).not.toHaveBeenCalled();
       expect(persistentRepo.createIfAbsent).toHaveBeenCalledOnce();
@@ -333,10 +354,12 @@ describe('FeishuRouter', () => {
       const handler = vi.fn();
       router.on('im.message.receive_v1', handler);
 
-      await router.route(makeEnvelope({
-        messageId: 'om_fresh',
-        createTime: String(new Date('2026-05-03T04:20:00+08:00').getTime()),
-      }));
+      await router.route(
+        makeEnvelope({
+          messageId: 'om_fresh',
+          createTime: String(new Date('2026-05-03T04:20:00+08:00').getTime()),
+        }),
+      );
 
       expect(handler).toHaveBeenCalledOnce();
     });

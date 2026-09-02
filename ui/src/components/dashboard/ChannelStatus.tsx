@@ -20,17 +20,28 @@ export default function ChannelStatus() {
       setLoading(true);
       const data = await apiRequest<{ channels: ChannelInfo[] }>('/api/channels/status');
       setChannels(data.channels || []);
-    } catch { /* fallback */ }
-    finally { setLoading(false); }
+    } catch {
+      /* fallback */
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  useEffect(() => { fetchChannels(); }, [fetchChannels]);
+  useEffect(() => {
+    fetchChannels();
+  }, [fetchChannels]);
 
   const statusDot = (status: string) => (
-    <span className={cn(
-      'block h-2 w-2 rounded-full shrink-0',
-      status === 'running' ? 'bg-green-500' : status === 'error' ? 'bg-red-500' : 'bg-neutral-300 dark:bg-neutral-600',
-    )} />
+    <span
+      className={cn(
+        'block h-2 w-2 rounded-full shrink-0',
+        status === 'running'
+          ? 'bg-green-500'
+          : status === 'error'
+            ? 'bg-red-500'
+            : 'bg-neutral-300 dark:bg-neutral-600',
+      )}
+    />
   );
 
   if (loading) return <Spinner size="sm" />;
@@ -44,7 +55,9 @@ export default function ChannelStatus() {
         >
           {statusDot(ch.status)}
           <div>
-            <p className="text-[13px] font-medium text-neutral-900 dark:text-neutral-100">{ch.name}</p>
+            <p className="text-[13px] font-medium text-neutral-900 dark:text-neutral-100">
+              {ch.name}
+            </p>
             <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
               {ch.status === 'running' ? t('dashboard.running') : t('dashboard.stopped')}
               {ch.mode && <span className="ml-1">· {ch.mode}</span>}

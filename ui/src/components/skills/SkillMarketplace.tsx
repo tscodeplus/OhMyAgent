@@ -60,7 +60,7 @@ function getInitials(name: string): string {
 
 const sourceColors: Record<string, string> = {
   'skills.sh': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  'skillhub': 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+  skillhub: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
 };
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -125,10 +125,9 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
 
     try {
       const params = new URLSearchParams({ q, source, limit: '30' });
-      const data = await apiRequest<SearchResult>(
-        `/api/marketplace/search?${params.toString()}`,
-        { timeoutMs: 90_000 },
-      );
+      const data = await apiRequest<SearchResult>(`/api/marketplace/search?${params.toString()}`, {
+        timeoutMs: 90_000,
+      });
       setResults(data.results ?? []);
     } catch {
       setSearchError(true);
@@ -162,7 +161,10 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
 
       if (result.success) {
         setInstalledPkgs((prev) => new Set(prev).add(selected.package));
-        showToast(t('marketplace.installSuccess', { name: result.skillName || selected.name }), 'success');
+        showToast(
+          t('marketplace.installSuccess', { name: result.skillName || selected.name }),
+          'success',
+        );
         onInstall?.();
       } else {
         showToast(result.error || t('marketplace.installError'), 'error');
@@ -177,7 +179,7 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
   // ── Display logic ────────────────────────────────────────────────────────
 
   // Searching: show search results. Popular: show popular results. Otherwise empty.
-  const displayList = searched ? results : (popularLoaded ? popular : []);
+  const displayList = searched ? results : popularLoaded ? popular : [];
   const isLoading = searching || popularLoading;
 
   return (
@@ -200,7 +202,10 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
 
           {/* Search input */}
           <div className="relative flex-1">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-400" />
+            <Search
+              size={14}
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-400"
+            />
             <input
               className="w-full h-8 pl-7.5 pr-3 text-xs rounded-md border border-neutral-300 bg-white dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-200 focus:outline-none"
               placeholder={t('marketplace.searchPlaceholder')}
@@ -237,7 +242,9 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
                 <Package className="h-8 w-8 opacity-50" strokeWidth={1.5} />
                 <span className="text-xs">
                   {searched
-                    ? (searchError ? t('marketplace.loadError') : t('marketplace.noResults'))
+                    ? searchError
+                      ? t('marketplace.loadError')
+                      : t('marketplace.noResults')
                     : t('marketplace.searchPlaceholder')}
                 </span>
               </div>
@@ -277,12 +284,15 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
                           {skill.description || skill.package}
                         </p>
                         <div className="mt-1.5 flex items-center gap-2">
-                          <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${sourceColors[skill.source] || 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400'}`}>
+                          <span
+                            className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${sourceColors[skill.source] || 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400'}`}
+                          >
                             {skill.source}
                           </span>
                           {skill.installs > 0 && (
                             <span className="text-[10px] text-neutral-400 dark:text-neutral-500">
-                              {formatInstalls(skill.installs)}{t('marketplace.installs')}
+                              {formatInstalls(skill.installs)}
+                              {t('marketplace.installs')}
                             </span>
                           )}
                         </div>
@@ -317,7 +327,9 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
 
                 {/* Meta chips */}
                 <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-                  <span className={`inline-block rounded px-2 py-0.5 text-[10px] font-medium ${sourceColors[selected.source] || ''}`}>
+                  <span
+                    className={`inline-block rounded px-2 py-0.5 text-[10px] font-medium ${sourceColors[selected.source] || ''}`}
+                  >
                     {selected.source}
                   </span>
                   {selected.author && (
@@ -332,7 +344,8 @@ export default function SkillMarketplace({ onInstall }: SkillMarketplaceProps) {
                   )}
                   {selected.installs > 0 && (
                     <span className="inline-block rounded bg-neutral-100 px-2 py-0.5 text-[10px] text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
-                      {formatInstalls(selected.installs)}{t('marketplace.installs')}
+                      {formatInstalls(selected.installs)}
+                      {t('marketplace.installs')}
                     </span>
                   )}
                 </div>

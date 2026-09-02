@@ -21,7 +21,9 @@ interface SettingsCardProps {
 
 export function SettingsCard({ children, className = '' }: SettingsCardProps) {
   return (
-    <div className={`space-y-3 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 ${className}`}>
+    <div
+      className={`space-y-3 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 ${className}`}
+    >
       {children}
     </div>
   );

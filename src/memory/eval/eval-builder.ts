@@ -38,7 +38,9 @@ function main() {
   const db = new Database(resolved, { readonly: true });
 
   // Sample up to 100 user messages from the last 30 days
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT DISTINCT m.content, m.session_id
     FROM messages m
     WHERE m.role = 'user'
@@ -46,7 +48,9 @@ function main() {
       AND length(m.content) >= 10
     ORDER BY random()
     LIMIT 100
-  `).all() as { content: string; session_id: string }[];
+  `,
+    )
+    .all() as { content: string; session_id: string }[];
 
   if (rows.length === 0) {
     console.error('No user messages found in the last 30 days.');
@@ -56,14 +60,14 @@ function main() {
 
   // Build eval pairs without running retrieval (that requires full bootstrap)
   // Instead, output candidate queries for annotation
-  const pairs: EvalPair[] = rows.map(r => ({
+  const pairs: EvalPair[] = rows.map((r) => ({
     query: r.content.trim().slice(0, 200),
     candidateMemoryIds: [],
   }));
 
   // Deduplicate by query similarity (simple: same first 20 chars)
   const seen = new Set<string>();
-  const deduped = pairs.filter(p => {
+  const deduped = pairs.filter((p) => {
     const key = p.query.slice(0, 20);
     if (seen.has(key)) return false;
     seen.add(key);

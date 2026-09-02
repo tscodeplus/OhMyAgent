@@ -3,7 +3,15 @@ export type { FilterResult, MemoryCategory } from './memory-filter.js';
 
 export { applySchema } from './schema.js';
 export { openDatabase, getDatabase, closeDatabase, resetDatabase } from './db.js';
-export { loadSqliteVec, probeSqliteVec, sqliteVecAvailable, sqliteVecTableReady, vecInsert, vecSearch, vecDelete } from './sqlite-vec.js';
+export {
+  loadSqliteVec,
+  probeSqliteVec,
+  sqliteVecAvailable,
+  sqliteVecTableReady,
+  vecInsert,
+  vecSearch,
+  vecDelete,
+} from './sqlite-vec.js';
 
 export { MemoryWriter } from './memory-writer.js';
 export type { WriteOptions, WriteResult, SimilarMemoryMatch } from './memory-writer.js';
@@ -27,11 +35,7 @@ export {
   personaToJson,
   personaFromJson,
 } from './persona-model.js';
-export type {
-  UserPersona,
-  PersonaRecord,
-  PartialPersona,
-} from './persona-model.js';
+export type { UserPersona, PersonaRecord, PartialPersona } from './persona-model.js';
 
 export { PersonaDistiller, createDistillerLLM } from './persona-distiller.js';
 export type { DistillerLLM, PersonaStore, PreferenceQuery } from './persona-distiller.js';

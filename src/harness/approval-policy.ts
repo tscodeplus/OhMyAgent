@@ -217,7 +217,8 @@ export class ApprovalPolicy {
       // --- failurePatterns ---
       // The context pattern (when provided) must appear in the rule's list.
       if (rule.failurePatterns && rule.failurePatterns.length > 0) {
-        if (!context.pattern || !(rule.failurePatterns as string[]).includes(context.pattern)) continue;
+        if (!context.pattern || !(rule.failurePatterns as string[]).includes(context.pattern))
+          continue;
       }
 
       // --- minConfidence ---
@@ -273,8 +274,8 @@ export class ApprovalPolicy {
       if (action !== 'require_approval') return action;
       // Never auto-apply permission / approval-rule changes or destructive edits.
       if (proposal.mechanismFamily === 'permission_interrupt') return action;
-      const destructive = (rule.changeTypes ?? []).some((ct) =>
-        ct === 'trigger_remove' || ct === 'tool_allow_remove' || ct === 'approval_policy',
+      const destructive = (rule.changeTypes ?? []).some(
+        (ct) => ct === 'trigger_remove' || ct === 'tool_allow_remove' || ct === 'approval_policy',
       );
       if (destructive) return action;
       const lowRisk =

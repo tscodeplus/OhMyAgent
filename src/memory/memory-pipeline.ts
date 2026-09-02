@@ -184,7 +184,10 @@ export class MemoryPipeline {
       try {
         const report = this.deps.memoryHygiene.runIfDue();
         if (report.cleanedCount > 0) {
-          this.deps.logger.info({ cleanedCount: report.cleanedCount }, 'MemoryPipeline: hygiene cleanup');
+          this.deps.logger.info(
+            { cleanedCount: report.cleanedCount },
+            'MemoryPipeline: hygiene cleanup',
+          );
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -195,11 +198,14 @@ export class MemoryPipeline {
     this.lastRunAt = Date.now();
     const durationMs = Date.now() - startMs;
 
-    this.deps.logger.info({
-      durationMs,
-      layers: layers.map(l => `${l.layer}=${l.recordCount}`),
-      errorCount: errors.length,
-    }, 'MemoryPipeline run complete');
+    this.deps.logger.info(
+      {
+        durationMs,
+        layers: layers.map((l) => `${l.layer}=${l.recordCount}`),
+        errorCount: errors.length,
+      },
+      'MemoryPipeline run complete',
+    );
 
     return { layers, durationMs, errors };
   }

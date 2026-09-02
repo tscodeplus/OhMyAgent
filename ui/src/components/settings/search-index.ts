@@ -18,21 +18,76 @@ export const SEARCH_INDEX: SearchEntry[] = [
   { tabId: 'general', labelKey: 'settings.general.rateLimit' },
 
   // Models - Router sub-tab
-  { tabId: 'models', subTabId: 'router', labelKey: 'settings.models.provider', contextKey: 'settings.models.subtabs.router' },
-  { tabId: 'models', subTabId: 'router', labelKey: 'settings.models.model', contextKey: 'settings.models.subtabs.router' },
-  { tabId: 'models', subTabId: 'router', labelKey: 'settings.models.apiKey', contextKey: 'settings.models.subtabs.router' },
-  { tabId: 'models', subTabId: 'router', labelKey: 'settings.models.baseUrl', contextKey: 'settings.models.subtabs.router' },
-  { tabId: 'models', subTabId: 'router', labelKey: 'settings.models.reasoningModel', contextKey: 'settings.models.subtabs.router' },
-  { tabId: 'models', subTabId: 'router', labelKey: 'settings.models.defaultReasoningLevel', contextKey: 'settings.models.subtabs.router' },
-  { tabId: 'models', subTabId: 'router', labelKey: 'settings.models.fallbackModels', contextKey: 'settings.models.subtabs.router' },
+  {
+    tabId: 'models',
+    subTabId: 'router',
+    labelKey: 'settings.models.provider',
+    contextKey: 'settings.models.subtabs.router',
+  },
+  {
+    tabId: 'models',
+    subTabId: 'router',
+    labelKey: 'settings.models.model',
+    contextKey: 'settings.models.subtabs.router',
+  },
+  {
+    tabId: 'models',
+    subTabId: 'router',
+    labelKey: 'settings.models.apiKey',
+    contextKey: 'settings.models.subtabs.router',
+  },
+  {
+    tabId: 'models',
+    subTabId: 'router',
+    labelKey: 'settings.models.baseUrl',
+    contextKey: 'settings.models.subtabs.router',
+  },
+  {
+    tabId: 'models',
+    subTabId: 'router',
+    labelKey: 'settings.models.reasoningModel',
+    contextKey: 'settings.models.subtabs.router',
+  },
+  {
+    tabId: 'models',
+    subTabId: 'router',
+    labelKey: 'settings.models.defaultReasoningLevel',
+    contextKey: 'settings.models.subtabs.router',
+  },
+  {
+    tabId: 'models',
+    subTabId: 'router',
+    labelKey: 'settings.models.fallbackModels',
+    contextKey: 'settings.models.subtabs.router',
+  },
 
   // Models - Auxiliary sub-tab
-  { tabId: 'models', subTabId: 'auxiliary', labelKey: 'settings.models.embeddingTitle', contextKey: 'settings.models.subtabs.auxiliary' },
-  { tabId: 'models', subTabId: 'auxiliary', labelKey: 'settings.models.memoryAuxModels', contextKey: 'settings.models.subtabs.auxiliary' },
+  {
+    tabId: 'models',
+    subTabId: 'auxiliary',
+    labelKey: 'settings.models.embeddingTitle',
+    contextKey: 'settings.models.subtabs.auxiliary',
+  },
+  {
+    tabId: 'models',
+    subTabId: 'auxiliary',
+    labelKey: 'settings.models.memoryAuxModels',
+    contextKey: 'settings.models.subtabs.auxiliary',
+  },
 
   // Models - Providers sub-tab
-  { tabId: 'models', subTabId: 'providers', labelKey: 'settings.groups.subscriptions', contextKey: 'settings.models.subtabs.subscription' },
-  { tabId: 'models', subTabId: 'providers', labelKey: 'settings.models.customProviders', contextKey: 'settings.models.subtabs.providers' },
+  {
+    tabId: 'models',
+    subTabId: 'providers',
+    labelKey: 'settings.groups.subscriptions',
+    contextKey: 'settings.models.subtabs.subscription',
+  },
+  {
+    tabId: 'models',
+    subTabId: 'providers',
+    labelKey: 'settings.models.customProviders',
+    contextKey: 'settings.models.subtabs.providers',
+  },
 
   // Agents
   { tabId: 'agents', labelKey: 'settings.agents.title' },

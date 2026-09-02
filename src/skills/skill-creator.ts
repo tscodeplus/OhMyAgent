@@ -114,7 +114,7 @@ export async function createSkill(
       .replace(/[，,、\s]+/g, ',')
       .replace(/[。.!！？?]+/g, ',')
       .split(',')
-      .filter(w => w.length >= 2 && w.length <= 8)
+      .filter((w) => w.length >= 2 && w.length <= 8)
       .slice(0, 6);
     triggers = [...new Set([input.name, ...words])].join(', ');
   }

@@ -78,12 +78,40 @@ function buildI18nKeyboard(requestId: string) {
   return {
     inline_keyboard: [
       [
-        { text: i18n.t('telegram-approval:button.approveOnce'),     callback_data: encodeCallbackAction({ type: 'approve', requestId, decision: 'approve_once' }) },
-        { text: i18n.t('telegram-approval:button.approveSession'),  callback_data: encodeCallbackAction({ type: 'approve', requestId, decision: 'approve_session' }) },
+        {
+          text: i18n.t('telegram-approval:button.approveOnce'),
+          callback_data: encodeCallbackAction({
+            type: 'approve',
+            requestId,
+            decision: 'approve_once',
+          }),
+        },
+        {
+          text: i18n.t('telegram-approval:button.approveSession'),
+          callback_data: encodeCallbackAction({
+            type: 'approve',
+            requestId,
+            decision: 'approve_session',
+          }),
+        },
       ],
       [
-        { text: i18n.t('telegram-approval:button.alwaysAllow'),     callback_data: encodeCallbackAction({ type: 'approve', requestId, decision: 'approve_always' }) },
-        { text: i18n.t('telegram-approval:button.denyOnce'),        callback_data: encodeCallbackAction({ type: 'approve', requestId, decision: 'reject_once' }) },
+        {
+          text: i18n.t('telegram-approval:button.alwaysAllow'),
+          callback_data: encodeCallbackAction({
+            type: 'approve',
+            requestId,
+            decision: 'approve_always',
+          }),
+        },
+        {
+          text: i18n.t('telegram-approval:button.denyOnce'),
+          callback_data: encodeCallbackAction({
+            type: 'approve',
+            requestId,
+            decision: 'reject_once',
+          }),
+        },
       ],
     ],
   };
@@ -94,9 +122,9 @@ function buildI18nKeyboard(requestId: string) {
 // ---------------------------------------------------------------------------
 
 const RISK_EMOJI: Record<string, string> = {
-  low:    '\u{1F7E2}', // green circle
+  low: '\u{1F7E2}', // green circle
   medium: '\u{1F7E0}', // orange circle
-  high:   '\u{1F534}', // red circle
+  high: '\u{1F534}', // red circle
 };
 
 function getApprovalTitleKey(command: string): string {
@@ -127,8 +155,5 @@ function buildApprovalHtml(
 }
 
 function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

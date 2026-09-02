@@ -25,11 +25,9 @@ export class ComputerProviderRegistry {
   require(id: string): ComputerUseProvider {
     const provider = this._providers.get(id);
     if (!provider) {
-      throw computerUseError(
-        'PROVIDER_UNAVAILABLE',
-        `Computer provider not found: ${id}`,
-        { providerId: id },
-      );
+      throw computerUseError('PROVIDER_UNAVAILABLE', `Computer provider not found: ${id}`, {
+        providerId: id,
+      });
     }
     return provider;
   }
@@ -52,7 +50,13 @@ export interface ResolveProviderOptions {
 }
 
 export function resolveComputerProviderId(options: ResolveProviderOptions): string {
-  const { explicitProviderId, settings, platform = process.platform, defaultProviderId, hasProvider } = options;
+  const {
+    explicitProviderId,
+    settings,
+    platform = process.platform,
+    defaultProviderId,
+    hasProvider,
+  } = options;
 
   // 1. Explicit provider ID takes priority
   if (explicitProviderId) return explicitProviderId;

@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { loadVisionBridgeConfig, resolveVisionModel } from '../../src/vision-bridge/vision-bridge-config.js';
+import {
+  loadVisionBridgeConfig,
+  resolveVisionModel,
+} from '../../src/vision-bridge/vision-bridge-config.js';
 import type { CustomProviderConfig } from '../../src/app/types.js';
 
 describe('loadVisionBridgeConfig', () => {

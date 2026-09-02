@@ -50,11 +50,24 @@ export interface BridgeToolDeps {
 // ---------------------------------------------------------------------------
 
 const ToolSearchParams = Type.Object({
-  query: Type.String({ description: 'Keywords describing the capability you need (e.g. "create github issue", "persona rebuild", "cron job")' }),
-  limit: Type.Optional(Type.Integer({ description: 'Maximum number of results to return. Default 5.' })),
+  query: Type.String({
+    description:
+      'Keywords describing the capability you need (e.g. "create github issue", "persona rebuild", "cron job")',
+  }),
+  limit: Type.Optional(
+    Type.Integer({ description: 'Maximum number of results to return. Default 5.' }),
+  ),
   /** Set to true to invoke the best-matching tool directly. Provide arguments for the tool. */
-  invoke: Type.Optional(Type.Boolean({ description: 'Set to true to execute the best-matching tool. Provide arguments below.' })),
-  arguments: Type.Optional(Type.Record(Type.String(), Type.Any(), { description: 'Arguments for the tool when invoke=true. Leave empty for no-arg tools.' })),
+  invoke: Type.Optional(
+    Type.Boolean({
+      description: 'Set to true to execute the best-matching tool. Provide arguments below.',
+    }),
+  ),
+  arguments: Type.Optional(
+    Type.Record(Type.String(), Type.Any(), {
+      description: 'Arguments for the tool when invoke=true. Leave empty for no-arg tools.',
+    }),
+  ),
 });
 type ToolSearchArgs = Static<typeof ToolSearchParams>;
 
@@ -65,7 +78,9 @@ type ToolDescribeArgs = Static<typeof ToolDescribeParams>;
 
 const ToolCallParams = Type.Object({
   name: Type.String({ description: 'Exact tool name to invoke' }),
-  arguments: Type.Record(Type.String(), Type.Any(), { description: 'Arguments for the tool, matching its schema' }),
+  arguments: Type.Record(Type.String(), Type.Any(), {
+    description: 'Arguments for the tool, matching its schema',
+  }),
 });
 type ToolCallArgs = Static<typeof ToolCallParams>;
 
@@ -85,7 +100,10 @@ const TOOL_CALL_OWN_KEYS = new Set(['name', 'arguments']);
  * and treat them as the target tool's arguments — this handles the common
  * LLM pattern of flattening tool args into the bridge call.
  */
-function resolveForwardedArgs(rawParams: Record<string, unknown>, ownKeys: Set<string>): Record<string, unknown> {
+function resolveForwardedArgs(
+  rawParams: Record<string, unknown>,
+  ownKeys: Set<string>,
+): Record<string, unknown> {
   const explicitArgs = rawParams.arguments as Record<string, unknown> | undefined;
   if (explicitArgs && Object.keys(explicitArgs).length > 0) {
     return explicitArgs;
@@ -151,9 +169,7 @@ function createToolSearchTool(deps: BridgeToolDeps, unlockedNames: Set<string>):
           (n) => !unlockedNames.has(n),
         );
         const remainingList =
-          remaining.length > 0
-            ? remaining.join(', ')
-            : '(none — all on-demand tools are unlocked)';
+          remaining.length > 0 ? remaining.join(', ') : '(none — all on-demand tools are unlocked)';
         return (
           `**Unlocked — call directly, do not search**: ${unlocked}. ` +
           `These tools are already in your tools list with full schemas; ` +
@@ -184,9 +200,7 @@ function createToolSearchTool(deps: BridgeToolDeps, unlockedNames: Set<string>):
       const clampedLimit = Math.max(1, Math.min(deps.config.maxSearchLimit, limit));
 
       // Determine search scope
-      const scopeTools = deps.activated
-        ? Array.from(deps.deferredCatalog.values())
-        : deps.allTools;
+      const scopeTools = deps.activated ? Array.from(deps.deferredCatalog.values()) : deps.allTools;
 
       // Build catalog and search
       const entries = scopeTools.map((t) => {
@@ -194,8 +208,16 @@ function createToolSearchTool(deps: BridgeToolDeps, unlockedNames: Set<string>):
         try {
           const props = (t.parameters as any)?.properties;
           if (props && typeof props === 'object') paramNames = Object.keys(props).join(' ');
-        } catch { /* ignore */ }
-        return { name: t.name, label: t.label ?? t.name, description: t.description ?? '', category: '', paramNames };
+        } catch {
+          /* ignore */
+        }
+        return {
+          name: t.name,
+          label: t.label ?? t.name,
+          description: t.description ?? '',
+          category: '',
+          paramNames,
+        };
       });
 
       const catalog = buildCatalog(entries);
@@ -213,8 +235,8 @@ function createToolSearchTool(deps: BridgeToolDeps, unlockedNames: Set<string>):
           if (unlockedNames.has(bestName)) {
             return errorResult(
               `'${bestName}' is UNLOCKED — it is already in your tools list ` +
-              `with its full schema. Call '${bestName}' directly by name; ` +
-              `tool_search no longer serves it.`,
+                `with its full schema. Call '${bestName}' directly by name; ` +
+                `tool_search no longer serves it.`,
             );
           }
           // 动态解锁(即时生效):取消 deferred 标志,该工具随后立即进入
@@ -223,21 +245,21 @@ function createToolSearchTool(deps: BridgeToolDeps, unlockedNames: Set<string>):
           // 登记解锁集合:tool_search 的 description 据此提示模型直接调用。
           unlockedNames.add(bestName);
           try {
-            const forwardedArgs = resolveForwardedArgs(params as unknown as Record<string, unknown>, TOOL_SEARCH_OWN_KEYS);
+            const forwardedArgs = resolveForwardedArgs(
+              params as unknown as Record<string, unknown>,
+              TOOL_SEARCH_OWN_KEYS,
+            );
             const hasRequiredArgs = hasRequiredParams(realTool);
             if (hasRequiredArgs && Object.keys(forwardedArgs).length === 0) {
               return errorResult(
                 `'${bestName}' requires arguments but none were provided. ` +
-                `Use tool_describe(name="${bestName}") to see the required parameters, ` +
-                `then call tool_call(name="${bestName}", arguments={...}) with the correct values.`,
+                  `Use tool_describe(name="${bestName}") to see the required parameters, ` +
+                  `then call tool_call(name="${bestName}", arguments={...}) with the correct values.`,
               );
             }
             const result = await realTool.execute(toolCallId, forwardedArgs, signal, onUpdate);
             return {
-              content: [
-                { type: 'text', text: `[invoked ${bestName}] ` },
-                ...result.content,
-              ],
+              content: [{ type: 'text', text: `[invoked ${bestName}] ` }, ...result.content],
               details: result.details,
               // 动态解锁:命中后该工具完整 schema 将追加到后续 LLM 请求
               // (见 openai-completions getDeferredToolNames),模型可直接
@@ -280,7 +302,7 @@ function createToolDescribeTool(deps: BridgeToolDeps, unlockedNames: Set<string>
     label: 'Tool Describe',
     description:
       'Load the full JSON schema for one tool returned by tool_search. ' +
-      'Required before tool_call if the tool\'s parameters are unknown.',
+      "Required before tool_call if the tool's parameters are unknown.",
     parameters: ToolDescribeParams,
     execute: async (_toolCallId, rawParams, _signal?) => {
       const params = rawParams as ToolDescribeArgs;
@@ -316,9 +338,7 @@ function createToolDescribeTool(deps: BridgeToolDeps, unlockedNames: Set<string>
             `'${name}' is already available as a direct tool. Call it directly instead of via tool_describe/tool_call.`,
           );
         }
-        return errorResult(
-          `'${name}' is not currently available. Re-run tool_search to refresh.`,
-        );
+        return errorResult(`'${name}' is not currently available. Re-run tool_search to refresh.`);
       }
 
       return jsonResult({
@@ -340,7 +360,7 @@ function createToolCallTool(deps: BridgeToolDeps, unlockedNames: Set<string>): A
     label: 'Tool Call',
     description:
       'Invoke a deferred tool by name with the given arguments. Argument shape ' +
-      'matches the tool\'s schema (see tool_describe). Policy, hooks, and ' +
+      "matches the tool's schema (see tool_describe). Policy, hooks, and " +
       'approvals run exactly as for any directly-listed tool.',
     parameters: ToolCallParams,
     execute: async (toolCallId, rawParams, signal?, onUpdate?) => {
@@ -378,16 +398,17 @@ function createToolCallTool(deps: BridgeToolDeps, unlockedNames: Set<string>): A
       // so its execute wrapper contains beforeExecute/afterExecute policy hooks.
       // Those hooks fire for the REAL tool name (not "tool_call").
       try {
-        const forwardedArgs = resolveForwardedArgs(params as unknown as Record<string, unknown>, TOOL_CALL_OWN_KEYS);
+        const forwardedArgs = resolveForwardedArgs(
+          params as unknown as Record<string, unknown>,
+          TOOL_CALL_OWN_KEYS,
+        );
         const result = await realTool.execute(toolCallId, forwardedArgs, signal, onUpdate);
         // 动态解锁:与 tool_search invoke 一致,直接调用过的延迟工具
         // 后续保持完整 schema 可见,模型可直接按名调用。
         return { ...result, addedToolNames: [name] };
       } catch (err) {
         return {
-          ...errorResult(
-            `Error executing '${name}': ${(err as Error).message}`,
-          ),
+          ...errorResult(`Error executing '${name}': ${(err as Error).message}`),
           addedToolNames: [name],
         };
       }

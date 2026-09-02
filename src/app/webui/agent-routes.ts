@@ -29,11 +29,13 @@ export function registerAgentRoutes(app: FastifyInstance, cfg: AgentRouteConfig)
       profile: a.tools?.profile,
       addTools: a.tools?.add,
       denyTools: a.tools?.deny,
-      subAgent: a.spawn ? {
-        enabled: a.spawn.enabled,
-        maxParallel: a.spawn.max_parallel,
-        allowedPersonas: a.spawn.allowed_personas,
-      } : undefined,
+      subAgent: a.spawn
+        ? {
+            enabled: a.spawn.enabled,
+            maxParallel: a.spawn.max_parallel,
+            allowedPersonas: a.spawn.allowed_personas,
+          }
+        : undefined,
       channelBindings: {
         feishu: a.channels?.includes('feishu') ? { triggerWords: [] } : undefined,
         telegram: a.channels?.includes('telegram'),
@@ -64,7 +66,13 @@ export function registerAgentRoutes(app: FastifyInstance, cfg: AgentRouteConfig)
         addTools: undefined,
         denyTools: undefined,
         subAgent: undefined,
-        channelBindings: { feishu: { triggerWords: [] }, telegram: true, wechat: true, qq: true, webui: true },
+        channelBindings: {
+          feishu: { triggerWords: [] },
+          telegram: true,
+          wechat: true,
+          qq: true,
+          webui: true,
+        },
         disabled: undefined,
       });
     }
@@ -93,7 +101,14 @@ export function registerAgentRoutes(app: FastifyInstance, cfg: AgentRouteConfig)
 
   // Create agent (adds to in-memory config — requires config persistence)
   app.post('/api/agents', async (request, reply) => {
-    const body = request.body as { id?: string; name?: string; description?: string; systemPrompt?: string; model?: string; channels?: string[] };
+    const body = request.body as {
+      id?: string;
+      name?: string;
+      description?: string;
+      systemPrompt?: string;
+      model?: string;
+      channels?: string[];
+    };
 
     if (!body.name?.trim()) {
       return reply.status(400).send({ error: 'Bad Request', message: 'name is required' });
@@ -104,7 +119,9 @@ export function registerAgentRoutes(app: FastifyInstance, cfg: AgentRouteConfig)
 
     // Check for duplicate
     if (config.agents?.some((a) => a.id === agentId)) {
-      return reply.status(409).send({ error: 'Conflict', message: `Agent with id '${agentId}' already exists` });
+      return reply
+        .status(409)
+        .send({ error: 'Conflict', message: `Agent with id '${agentId}' already exists` });
     }
 
     const newAgent: Record<string, unknown> = {
@@ -135,7 +152,13 @@ export function registerAgentRoutes(app: FastifyInstance, cfg: AgentRouteConfig)
   // Update agent (upsert — creates if editing the built-in fallback default)
   app.put('/api/agents/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const body = request.body as { name?: string; description?: string; systemPrompt?: string; model?: string; channels?: string[] };
+    const body = request.body as {
+      name?: string;
+      description?: string;
+      systemPrompt?: string;
+      model?: string;
+      channels?: string[];
+    };
 
     const config = cfg.getConfig();
     if (!config.agents) config.agents = [];
@@ -151,7 +174,11 @@ export function registerAgentRoutes(app: FastifyInstance, cfg: AgentRouteConfig)
 
       // Profile / tools
       const bodyAny = body as Record<string, unknown>;
-      if (bodyAny.profile !== undefined || bodyAny.addTools !== undefined || bodyAny.denyTools !== undefined) {
+      if (
+        bodyAny.profile !== undefined ||
+        bodyAny.addTools !== undefined ||
+        bodyAny.denyTools !== undefined
+      ) {
         if (!agent.tools) agent.tools = {};
         if (bodyAny.profile !== undefined) agent.tools.profile = bodyAny.profile as ToolProfileId;
         if (bodyAny.addTools !== undefined) agent.tools.add = bodyAny.addTools as string[];
@@ -181,7 +208,9 @@ export function registerAgentRoutes(app: FastifyInstance, cfg: AgentRouteConfig)
 
     // The built-in default agent is always available as a fallback and cannot be deleted
     if (id === 'default') {
-      return reply.status(409).send({ error: 'Conflict', message: 'The default agent cannot be deleted' });
+      return reply
+        .status(409)
+        .send({ error: 'Conflict', message: 'The default agent cannot be deleted' });
     }
 
     const idx = (config.agents || []).findIndex((a) => a.id === id);
@@ -191,7 +220,8 @@ export function registerAgentRoutes(app: FastifyInstance, cfg: AgentRouteConfig)
 
     // Check project bindings via project-store
     // The caller should inject a check function
-    const checkBindings = (request as any).__checkAgentBindings as ((agentId: string) => string[]) | undefined;
+    const checkBindings = (request as any).__checkAgentBindings as
+      ((agentId: string) => string[]) | undefined;
     if (checkBindings) {
       const bindings = checkBindings(id);
       if (bindings.length > 0) {

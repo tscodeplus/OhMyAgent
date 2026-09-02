@@ -128,13 +128,73 @@ export default function FilesView() {
 
   // Known text file extensions
   const TEXT_EXTS = new Set([
-    'txt', 'md', 'mdx', 'yaml', 'yml', 'json', 'jsonc', 'json5', 'xml', 'csv', 'tsv',
-    'js', 'jsx', 'mjs', 'cjs', 'ts', 'tsx', 'mts', 'py', 'pyw', 'pyi',
-    'rb', 'erb', 'php', 'java', 'kt', 'kts', 'c', 'h', 'cpp', 'hpp', 'cc', 'cs',
-    'rs', 'go', 'swift', 'lua', 'r', 'sh', 'bash', 'zsh', 'fish', 'ps1', 'bat', 'cmd',
-    'css', 'scss', 'sass', 'less', 'html', 'htm', 'vue', 'svelte',
-    'sql', 'graphql', 'gql', 'proto', 'toml', 'ini', 'cfg', 'conf', 'log',
-    'env', 'lock', 'gitignore', 'editorconfig', 'dockerignore',
+    'txt',
+    'md',
+    'mdx',
+    'yaml',
+    'yml',
+    'json',
+    'jsonc',
+    'json5',
+    'xml',
+    'csv',
+    'tsv',
+    'js',
+    'jsx',
+    'mjs',
+    'cjs',
+    'ts',
+    'tsx',
+    'mts',
+    'py',
+    'pyw',
+    'pyi',
+    'rb',
+    'erb',
+    'php',
+    'java',
+    'kt',
+    'kts',
+    'c',
+    'h',
+    'cpp',
+    'hpp',
+    'cc',
+    'cs',
+    'rs',
+    'go',
+    'swift',
+    'lua',
+    'r',
+    'sh',
+    'bash',
+    'zsh',
+    'fish',
+    'ps1',
+    'bat',
+    'cmd',
+    'css',
+    'scss',
+    'sass',
+    'less',
+    'html',
+    'htm',
+    'vue',
+    'svelte',
+    'sql',
+    'graphql',
+    'gql',
+    'proto',
+    'toml',
+    'ini',
+    'cfg',
+    'conf',
+    'log',
+    'env',
+    'lock',
+    'gitignore',
+    'editorconfig',
+    'dockerignore',
   ]);
 
   const isPreviewable = (name: string): boolean => {
@@ -171,7 +231,10 @@ export default function FilesView() {
   // ---- Dismiss menus on outside click ----
   useEffect(() => {
     if (!uploadMenuOpen && !rootMenuOpen) return;
-    const dismiss = () => { setUploadMenuOpen(false); setRootMenuOpen(false); };
+    const dismiss = () => {
+      setUploadMenuOpen(false);
+      setRootMenuOpen(false);
+    };
     window.addEventListener('click', dismiss);
     return () => window.removeEventListener('click', dismiss);
   }, [uploadMenuOpen, rootMenuOpen]);
@@ -193,7 +256,9 @@ export default function FilesView() {
   }, [rootPath, showToast, t]);
 
   useEffect(() => {
-    if (rootPath) { void fetchFiles(); }
+    if (rootPath) {
+      void fetchFiles();
+    }
   }, [rootPath, fetchFiles]);
 
   // Reset state when root changes
@@ -206,21 +271,24 @@ export default function FilesView() {
   }, [rootPath]);
 
   // ---- Switch root ----
-  const handleSwitchRoot = useCallback(async (root?: string) => {
-    const newRoot = (root || customRoot.trim());
-    if (!newRoot) return;
-    try {
-      await apiRequest('/api/files/root', {
-        method: 'PUT',
-        body: JSON.stringify({ root: newRoot }),
-      });
-      setRootPath(newRoot);
-      setCustomRoot(newRoot);
-      setRootMenuOpen(false);
-    } catch (e) {
-      showToast((e as Error).message || t('files.opError'), 'error');
-    }
-  }, [customRoot, showToast, t]);
+  const handleSwitchRoot = useCallback(
+    async (root?: string) => {
+      const newRoot = root || customRoot.trim();
+      if (!newRoot) return;
+      try {
+        await apiRequest('/api/files/root', {
+          method: 'PUT',
+          body: JSON.stringify({ root: newRoot }),
+        });
+        setRootPath(newRoot);
+        setCustomRoot(newRoot);
+        setRootMenuOpen(false);
+      } catch (e) {
+        showToast((e as Error).message || t('files.opError'), 'error');
+      }
+    },
+    [customRoot, showToast, t],
+  );
 
   // ---- Directory browser ----
   const fetchBrowserDirs = useCallback(async (dirPath: string) => {
@@ -245,10 +313,13 @@ export default function FilesView() {
     void fetchBrowserDirs(startPath);
   }, [customRoot, rootPath, platformInfo, fetchBrowserDirs]);
 
-  const navigateInto = useCallback((dirPath: string) => {
-    setBrowserHistory((prev) => [...prev, browserPath]);
-    void fetchBrowserDirs(dirPath);
-  }, [browserPath, fetchBrowserDirs]);
+  const navigateInto = useCallback(
+    (dirPath: string) => {
+      setBrowserHistory((prev) => [...prev, browserPath]);
+      void fetchBrowserDirs(dirPath);
+    },
+    [browserPath, fetchBrowserDirs],
+  );
 
   const navigateBack = useCallback(() => {
     setBrowserHistory((prev) => {
@@ -310,30 +381,26 @@ export default function FilesView() {
   // ---- Context menu ----
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
-  const handleContextMenu = useCallback(
-    (event: ReactMouseEvent, node: FileTreeNode) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const pos = clampMenuPos(event.clientX, event.clientY);
-      setContextMenu({ node, x: pos.x, y: pos.y });
-    },
-    [],
-  );
+  const handleContextMenu = useCallback((event: ReactMouseEvent, node: FileTreeNode) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const pos = clampMenuPos(event.clientX, event.clientY);
+    setContextMenu({ node, x: pos.x, y: pos.y });
+  }, []);
 
-  const handleBlankContextMenu = useCallback(
-    (event: ReactMouseEvent) => {
-      if ((event.target as HTMLElement).closest('li')) return;
-      event.preventDefault();
-      const pos = clampMenuPos(event.clientX, event.clientY);
-      setContextMenu({ node: null, x: pos.x, y: pos.y });
-    },
-    [],
-  );
+  const handleBlankContextMenu = useCallback((event: ReactMouseEvent) => {
+    if ((event.target as HTMLElement).closest('li')) return;
+    event.preventDefault();
+    const pos = clampMenuPos(event.clientX, event.clientY);
+    setContextMenu({ node: null, x: pos.x, y: pos.y });
+  }, []);
 
   useEffect(() => {
     if (!contextMenu) return;
     const dismiss = () => closeContextMenu();
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') dismiss(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') dismiss();
+    };
     window.addEventListener('click', dismiss);
     window.addEventListener('resize', dismiss);
     window.addEventListener('scroll', dismiss, true);
@@ -364,11 +431,17 @@ export default function FilesView() {
     async (value: string) => {
       if (!inlineEdit) return;
       const trimmed = value.trim();
-      if (!trimmed) { setInlineEdit(null); return; }
+      if (!trimmed) {
+        setInlineEdit(null);
+        return;
+      }
 
       try {
         if (inlineEdit.kind === 'rename') {
-          if (trimmed === inlineEdit.currentName) { setInlineEdit(null); return; }
+          if (trimmed === inlineEdit.currentName) {
+            setInlineEdit(null);
+            return;
+          }
           await apiRequest('/api/files/rename', {
             method: 'PUT',
             body: JSON.stringify({ oldPath: inlineEdit.path, newName: trimmed }),
@@ -377,10 +450,18 @@ export default function FilesView() {
           const parentPath = inlineEdit.parentPath || '';
           await apiRequest('/api/files', {
             method: 'POST',
-            body: JSON.stringify({ path: parentPath || undefined, type: inlineEdit.type, name: trimmed }),
+            body: JSON.stringify({
+              path: parentPath || undefined,
+              type: inlineEdit.type,
+              name: trimmed,
+            }),
           });
           if (parentPath) {
-            setExpanded((prev) => { const next = new Set(prev); next.add(parentPath); return next; });
+            setExpanded((prev) => {
+              const next = new Set(prev);
+              next.add(parentPath);
+              return next;
+            });
           }
         }
         await fetchFiles();
@@ -409,47 +490,78 @@ export default function FilesView() {
 
   const handleInlineBlur = useCallback(
     (e: React.FocusEvent<HTMLInputElement>) => {
-      if (escapePressedRef.current) { escapePressedRef.current = false; setInlineEdit(null); return; }
+      if (escapePressedRef.current) {
+        escapePressedRef.current = false;
+        setInlineEdit(null);
+        return;
+      }
       commitInlineEdit(e.currentTarget.value);
     },
     [commitInlineEdit],
   );
 
   // ---- Actions ----
-  const handleNewFile = useCallback((parentPath: string, depth: number) => {
-    closeContextMenu();
-    if (parentPath) {
-      setExpanded((prev) => { const next = new Set(prev); next.add(parentPath); return next; });
-    }
-    setInlineEdit({ kind: 'create', parentPath, type: 'file', depth });
-  }, [closeContextMenu]);
+  const handleNewFile = useCallback(
+    (parentPath: string, depth: number) => {
+      closeContextMenu();
+      if (parentPath) {
+        setExpanded((prev) => {
+          const next = new Set(prev);
+          next.add(parentPath);
+          return next;
+        });
+      }
+      setInlineEdit({ kind: 'create', parentPath, type: 'file', depth });
+    },
+    [closeContextMenu],
+  );
 
-  const handleNewFolder = useCallback((parentPath: string, depth: number) => {
-    closeContextMenu();
-    if (parentPath) {
-      setExpanded((prev) => { const next = new Set(prev); next.add(parentPath); return next; });
-    }
-    setInlineEdit({ kind: 'create', parentPath, type: 'directory', depth });
-  }, [closeContextMenu]);
+  const handleNewFolder = useCallback(
+    (parentPath: string, depth: number) => {
+      closeContextMenu();
+      if (parentPath) {
+        setExpanded((prev) => {
+          const next = new Set(prev);
+          next.add(parentPath);
+          return next;
+        });
+      }
+      setInlineEdit({ kind: 'create', parentPath, type: 'directory', depth });
+    },
+    [closeContextMenu],
+  );
 
-  const handleRename = useCallback((node: FileTreeNode, depth: number) => {
-    closeContextMenu();
-    setInlineEdit({ kind: 'rename', path: node.path, currentName: node.name, depth });
-  }, [closeContextMenu]);
+  const handleRename = useCallback(
+    (node: FileTreeNode, depth: number) => {
+      closeContextMenu();
+      setInlineEdit({ kind: 'rename', path: node.path, currentName: node.name, depth });
+    },
+    [closeContextMenu],
+  );
 
-  const handleDelete = useCallback(async (node: FileTreeNode) => {
-    closeContextMenu();
-    const msg = node.type === 'directory'
-      ? t('files.confirmDeleteDir', { name: node.name, defaultValue: `Delete "${node.name}"? This will delete all contents.` })
-      : t('files.confirmDelete', { name: node.name, defaultValue: `Delete "${node.name}"?` });
-    if (!window.confirm(msg as string)) return;
-    try {
-      await apiRequest('/api/files', { method: 'DELETE', body: JSON.stringify({ path: node.path }) });
-      await fetchFiles();
-    } catch (e) {
-      showToast((e as Error).message || t('files.opError'), 'error');
-    }
-  }, [closeContextMenu, fetchFiles, showToast, t]);
+  const handleDelete = useCallback(
+    async (node: FileTreeNode) => {
+      closeContextMenu();
+      const msg =
+        node.type === 'directory'
+          ? t('files.confirmDeleteDir', {
+              name: node.name,
+              defaultValue: `Delete "${node.name}"? This will delete all contents.`,
+            })
+          : t('files.confirmDelete', { name: node.name, defaultValue: `Delete "${node.name}"?` });
+      if (!window.confirm(msg as string)) return;
+      try {
+        await apiRequest('/api/files', {
+          method: 'DELETE',
+          body: JSON.stringify({ path: node.path }),
+        });
+        await fetchFiles();
+      } catch (e) {
+        showToast((e as Error).message || t('files.opError'), 'error');
+      }
+    },
+    [closeContextMenu, fetchFiles, showToast, t],
+  );
 
   const handleFileSave = useCallback(async () => {
     if (!selectedFile) return;
@@ -468,49 +580,55 @@ export default function FilesView() {
     }
   }, [selectedFile, fileContent, showToast, t]);
 
-  const handleCopyPath = useCallback((node: FileTreeNode) => {
-    closeContextMenu();
-    void copyTextToClipboard(node.path);
-  }, [closeContextMenu]);
+  const handleCopyPath = useCallback(
+    (node: FileTreeNode) => {
+      closeContextMenu();
+      void copyTextToClipboard(node.path);
+    },
+    [closeContextMenu],
+  );
 
   // ---- Upload ----
-  const uploadSelectedFiles = useCallback(async (fileList: FileList | null) => {
-    if (!fileList || fileList.length === 0) return;
-    const fileArray = Array.from(fileList);
-    const relativePaths = fileArray.map((file) => {
-      const withDir = file as File & { webkitRelativePath?: string };
-      return withDir.webkitRelativePath || file.name;
-    });
-
-    const formData = new FormData();
-    formData.append('targetPath', '');
-    formData.append('relativePaths', JSON.stringify(relativePaths));
-    for (const file of fileArray) {
-      formData.append('files', file);
-    }
-
-    try {
-      setUploading(true);
-      setUploadMenuOpen(false);
-      // Note: FormData upload uses fetch directly since Content-Type must be multipart
-      const token = localStorage.getItem('ohmyagent_token');
-      const r = await fetch('/api/files/upload', {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: formData,
+  const uploadSelectedFiles = useCallback(
+    async (fileList: FileList | null) => {
+      if (!fileList || fileList.length === 0) return;
+      const fileArray = Array.from(fileList);
+      const relativePaths = fileArray.map((file) => {
+        const withDir = file as File & { webkitRelativePath?: string };
+        return withDir.webkitRelativePath || file.name;
       });
-      if (!r.ok) {
-        const err = await r.json().catch(() => ({ error: `Upload failed (${r.status})` }));
-        throw new Error(err.error || 'Upload failed');
+
+      const formData = new FormData();
+      formData.append('targetPath', '');
+      formData.append('relativePaths', JSON.stringify(relativePaths));
+      for (const file of fileArray) {
+        formData.append('files', file);
       }
-      await fetchFiles();
-      showToast(t('files.uploaded', { defaultValue: 'Uploaded' }), 'success');
-    } catch (e) {
-      showToast((e as Error).message || t('files.opError'), 'error');
-    } finally {
-      setUploading(false);
-    }
-  }, [fetchFiles, showToast, t]);
+
+      try {
+        setUploading(true);
+        setUploadMenuOpen(false);
+        // Note: FormData upload uses fetch directly since Content-Type must be multipart
+        const token = localStorage.getItem('ohmyagent_token');
+        const r = await fetch('/api/files/upload', {
+          method: 'POST',
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: formData,
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({ error: `Upload failed (${r.status})` }));
+          throw new Error(err.error || 'Upload failed');
+        }
+        await fetchFiles();
+        showToast(t('files.uploaded', { defaultValue: 'Uploaded' }), 'success');
+      } catch (e) {
+        showToast((e as Error).message || t('files.opError'), 'error');
+      } finally {
+        setUploading(false);
+      }
+    },
+    [fetchFiles, showToast, t],
+  );
 
   // ---- Download ZIP ----
   const handleDownloadZip = useCallback(async () => {
@@ -522,7 +640,10 @@ export default function FilesView() {
         // save dialog (same path the chat image downloads use).
         const api = getElectronAPI();
         if (!api) return;
-        const result = await api.saveFileFromUrl(token ? `${url}&token=${encodeURIComponent(token)}` : url, 'download.zip');
+        const result = await api.saveFileFromUrl(
+          token ? `${url}&token=${encodeURIComponent(token)}` : url,
+          'download.zip',
+        );
         if (result?.ok) {
           showToast(t('chat.fileSaved'), 'success');
         } else if (result?.error !== 'cancelled') {
@@ -542,31 +663,34 @@ export default function FilesView() {
   }, [rootPath, showToast, t]);
 
   // ---- Download file ----
-  const handleDownloadFile = useCallback(async (event: ReactMouseEvent | null, node: FileTreeNode) => {
-    event?.stopPropagation();
-    if (isElectron()) {
-      // The file is already on disk — copy it via the native save dialog
-      // instead of an anchor click (WebView2 ignores <a download>).
-      const api = getElectronAPI();
-      if (!api) return;
-      const result = await api.saveLocalFile(node.path, node.name);
-      if (result?.ok) {
-        showToast(t('chat.fileSaved'), 'success');
-      } else if (result?.error !== 'cancelled') {
-        showToast(t('chat.saveFailed'), 'error');
+  const handleDownloadFile = useCallback(
+    async (event: ReactMouseEvent | null, node: FileTreeNode) => {
+      event?.stopPropagation();
+      if (isElectron()) {
+        // The file is already on disk — copy it via the native save dialog
+        // instead of an anchor click (WebView2 ignores <a download>).
+        const api = getElectronAPI();
+        if (!api) return;
+        const result = await api.saveLocalFile(node.path, node.name);
+        if (result?.ok) {
+          showToast(t('chat.fileSaved'), 'success');
+        } else if (result?.error !== 'cancelled') {
+          showToast(t('chat.saveFailed'), 'error');
+        }
+        return;
       }
-      return;
-    }
-    const url = `/api/files/download?path=${encodeURIComponent(node.path)}`;
-    const token = localStorage.getItem('ohmyagent_token');
-    const anchor = document.createElement('a');
-    anchor.href = token ? `${url}&token=${encodeURIComponent(token)}` : url;
-    anchor.download = node.name;
-    anchor.style.display = 'none';
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-  }, [showToast, t]);
+      const url = `/api/files/download?path=${encodeURIComponent(node.path)}`;
+      const token = localStorage.getItem('ohmyagent_token');
+      const anchor = document.createElement('a');
+      anchor.href = token ? `${url}&token=${encodeURIComponent(token)}` : url;
+      anchor.download = node.name;
+      anchor.style.display = 'none';
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+    },
+    [showToast, t],
+  );
 
   const handleDeleteActive = useCallback(() => {
     if (!activePath) return;
@@ -600,9 +724,15 @@ export default function FilesView() {
     >
       <span className="w-3.5" />
       {inlineEdit?.kind === 'create' && inlineEdit.type === 'directory' ? (
-        <Folder className="h-3.5 w-3.5 shrink-0 text-neutral-500 dark:text-neutral-400" strokeWidth={1.75} />
+        <Folder
+          className="h-3.5 w-3.5 shrink-0 text-neutral-500 dark:text-neutral-400"
+          strokeWidth={1.75}
+        />
       ) : inlineEdit?.kind === 'create' ? (
-        <FilePlus className="h-3.5 w-3.5 shrink-0 text-neutral-500 dark:text-neutral-400" strokeWidth={1.75} />
+        <FilePlus
+          className="h-3.5 w-3.5 shrink-0 text-neutral-500 dark:text-neutral-400"
+          strokeWidth={1.75}
+        />
       ) : null}
       <input
         ref={inlineInputRef}
@@ -645,14 +775,19 @@ export default function FilesView() {
             type="text"
             value={customRoot}
             onChange={(e) => setCustomRoot(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleSwitchRoot(); }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSwitchRoot();
+            }}
             placeholder={t('files.customPath') as string}
             className="min-w-0 flex-1 rounded-md border border-neutral-200 bg-white px-2 py-1 text-[13px] text-neutral-700 placeholder:text-neutral-400 dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-200 font-mono"
           />
           <div className="relative">
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); openDirBrowser(); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                openDirBrowser();
+              }}
               className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-neutral-600 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-900"
               title={t('files.switchRoot') as string}
             >
@@ -679,7 +814,10 @@ export default function FilesView() {
                   </span>
                   <button
                     type="button"
-                    onClick={() => { setCustomRoot(browserPath); handleSwitchRoot(browserPath); }}
+                    onClick={() => {
+                      setCustomRoot(browserPath);
+                      handleSwitchRoot(browserPath);
+                    }}
                     className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md bg-neutral-900 px-2 text-[11px] font-medium text-white transition hover:bg-neutral-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300"
                   >
                     <Check className="h-3 w-3" strokeWidth={2} />
@@ -690,7 +828,10 @@ export default function FilesView() {
                 <div className="max-h-64 overflow-y-auto py-1">
                   {browserLoading ? (
                     <div className="flex items-center justify-center py-6">
-                      <Loader2 className="h-4 w-4 animate-spin text-neutral-400" strokeWidth={1.75} />
+                      <Loader2
+                        className="h-4 w-4 animate-spin text-neutral-400"
+                        strokeWidth={1.75}
+                      />
                     </div>
                   ) : browserDirs.length === 0 ? (
                     <p className="py-4 text-center text-[12px] text-neutral-400 dark:text-neutral-500">
@@ -704,7 +845,10 @@ export default function FilesView() {
                         onClick={() => navigateInto(d.path)}
                         className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] text-neutral-700 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
                       >
-                        <Folder className="h-3.5 w-3.5 shrink-0 text-neutral-400" strokeWidth={1.75} />
+                        <Folder
+                          className="h-3.5 w-3.5 shrink-0 text-neutral-400"
+                          strokeWidth={1.75}
+                        />
                         <span className="min-w-0 truncate">{d.name}</span>
                       </button>
                     ))
@@ -717,7 +861,10 @@ export default function FilesView() {
                       <button
                         key={r}
                         type="button"
-                        onClick={() => { setCustomRoot(r); handleSwitchRoot(r); }}
+                        onClick={() => {
+                          setCustomRoot(r);
+                          handleSwitchRoot(r);
+                        }}
                         className="inline-flex items-center gap-1 rounded-md border border-neutral-200 px-2 py-0.5 text-[11px] text-neutral-500 transition hover:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800"
                       >
                         <Home className="h-3 w-3" strokeWidth={1.75} />
@@ -755,7 +902,10 @@ export default function FilesView() {
         <div className="relative">
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); setUploadMenuOpen((o) => !o); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setUploadMenuOpen((o) => !o);
+            }}
             disabled={uploading}
             className="inline-flex h-7 w-7 items-center justify-center rounded-md text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-50 dark:text-neutral-300 dark:hover:bg-neutral-900"
             title={t('files.upload') as string}
@@ -770,14 +920,22 @@ export default function FilesView() {
             <div className="absolute left-0 top-8 z-20 w-36 rounded-md border border-neutral-200 bg-white py-1 text-[12px] shadow-lg dark:border-neutral-800 dark:bg-neutral-950">
               <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); setUploadMenuOpen(false); fileInputRef.current?.click(); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setUploadMenuOpen(false);
+                  fileInputRef.current?.click();
+                }}
                 className="block w-full px-3 py-1.5 text-left text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-900"
               >
                 {t('files.uploadFiles')}
               </button>
               <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); setUploadMenuOpen(false); folderInputRef.current?.click(); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setUploadMenuOpen(false);
+                  folderInputRef.current?.click();
+                }}
                 className="block w-full px-3 py-1.5 text-left text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-900"
               >
                 {t('files.uploadFolder')}
@@ -789,14 +947,20 @@ export default function FilesView() {
             type="file"
             multiple
             className="hidden"
-            onChange={(e) => { void uploadSelectedFiles(e.currentTarget.files); e.currentTarget.value = ''; }}
+            onChange={(e) => {
+              void uploadSelectedFiles(e.currentTarget.files);
+              e.currentTarget.value = '';
+            }}
           />
           <input
             ref={setFolderInputRef}
             type="file"
             multiple
             className="hidden"
-            onChange={(e) => { void uploadSelectedFiles(e.currentTarget.files); e.currentTarget.value = ''; }}
+            onChange={(e) => {
+              void uploadSelectedFiles(e.currentTarget.files);
+              e.currentTarget.value = '';
+            }}
           />
         </div>
 
@@ -878,16 +1042,24 @@ export default function FilesView() {
                 return (
                   <li key={node.path} onContextMenu={(e) => handleContextMenu(e, node)}>
                     {isRenaming ? (
-                      <div style={{ marginLeft: `${depth * 20}px` }} className="flex items-center gap-2 rounded-md px-1.5 py-0.5">
+                      <div
+                        style={{ marginLeft: `${depth * 20}px` }}
+                        className="flex items-center gap-2 rounded-md px-1.5 py-0.5"
+                      >
                         {isDir ? (
-                          <ChevronRight className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" strokeWidth={1.75} />
+                          <ChevronRight
+                            className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400"
+                            strokeWidth={1.75}
+                          />
                         ) : (
                           <span className="w-3.5" />
                         )}
                         <Icon className={cn('h-3.5 w-3.5 shrink-0', color)} strokeWidth={1.75} />
                         <input
                           ref={inlineInputRef}
-                          defaultValue={inlineEdit!.kind === 'rename' ? inlineEdit!.currentName : ''}
+                          defaultValue={
+                            inlineEdit!.kind === 'rename' ? inlineEdit!.currentName : ''
+                          }
                           onKeyDown={handleInlineKeyDown}
                           onBlur={handleInlineBlur}
                           className={cn(
@@ -899,7 +1071,9 @@ export default function FilesView() {
                       </div>
                     ) : (
                       <div
-                        onClick={() => { void handleClick(node); }}
+                        onClick={() => {
+                          void handleClick(node);
+                        }}
                         style={{ marginLeft: `${depth * 20}px` }}
                         className={cn(
                           'group/row flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 transition-colors',
@@ -910,18 +1084,28 @@ export default function FilesView() {
                       >
                         {isDir ? (
                           isOpen ? (
-                            <ChevronDown className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" strokeWidth={1.75} />
+                            <ChevronDown
+                              className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400"
+                              strokeWidth={1.75}
+                            />
                           ) : (
-                            <ChevronRight className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" strokeWidth={1.75} />
+                            <ChevronRight
+                              className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400"
+                              strokeWidth={1.75}
+                            />
                           )
                         ) : (
                           <span className="w-3.5" />
                         )}
                         <Icon className={cn('h-3.5 w-3.5 shrink-0', color)} strokeWidth={1.75} />
-                        <span className={cn(
-                          'min-w-0 flex-1 truncate',
-                          isActive ? 'font-medium text-neutral-900 dark:text-neutral-100' : 'text-neutral-700 dark:text-neutral-300',
-                        )}>
+                        <span
+                          className={cn(
+                            'min-w-0 flex-1 truncate',
+                            isActive
+                              ? 'font-medium text-neutral-900 dark:text-neutral-100'
+                              : 'text-neutral-700 dark:text-neutral-300',
+                          )}
+                        >
                           {node.name}
                         </span>
                         {!isDir && (
@@ -940,7 +1124,9 @@ export default function FilesView() {
                   </li>
                 );
               })}
-              {inlineEdit?.kind === 'create' && flat.length === 0 ? renderInlineInput(inlineEdit.depth) : null}
+              {inlineEdit?.kind === 'create' && flat.length === 0
+                ? renderInlineInput(inlineEdit.depth)
+                : null}
             </ul>
           )}
         </div>
@@ -959,7 +1145,11 @@ export default function FilesView() {
               </div>
               <button
                 type="button"
-                onClick={() => { setSelectedFile(null); setFileContent(''); setFileError(''); }}
+                onClick={() => {
+                  setSelectedFile(null);
+                  setFileContent('');
+                  setFileError('');
+                }}
                 className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800 ml-2"
               >
                 <X className="h-3.5 w-3.5" strokeWidth={1.75} />
@@ -984,14 +1174,20 @@ export default function FilesView() {
                 </div>
                 <div className="flex shrink-0 items-center justify-end gap-2 border-t border-neutral-200 px-4 py-2 dark:border-neutral-800">
                   {fileContent !== fileOrigContent && (
-                    <Button variant="ghost" size="sm" onClick={() => setFileContent(fileOrigContent)}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setFileContent(fileOrigContent)}
+                    >
                       {t('skills.revert')}
                     </Button>
                   )}
                   <Button
                     variant="primary"
                     size="sm"
-                    onClick={() => { void handleFileSave(); }}
+                    onClick={() => {
+                      void handleFileSave();
+                    }}
                     loading={fileSaving}
                     disabled={fileContent === fileOrigContent}
                   >
@@ -1021,55 +1217,98 @@ export default function FilesView() {
             <>
               {contextMenu.node.type === 'directory' ? (
                 <>
-                  <button type="button" role="menuitem"
-                    onClick={() => handleNewFile(contextMenu.node!.path, (depthByPath.get(contextMenu.node!.path) ?? 0) + 1)}
-                    className={menuItemClass}>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() =>
+                      handleNewFile(
+                        contextMenu.node!.path,
+                        (depthByPath.get(contextMenu.node!.path) ?? 0) + 1,
+                      )
+                    }
+                    className={menuItemClass}
+                  >
                     <FilePlus className={menuIconClass} strokeWidth={1.75} />
                     {t('files.newFile')}
                   </button>
-                  <button type="button" role="menuitem"
-                    onClick={() => handleNewFolder(contextMenu.node!.path, (depthByPath.get(contextMenu.node!.path) ?? 0) + 1)}
-                    className={menuItemClass}>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() =>
+                      handleNewFolder(
+                        contextMenu.node!.path,
+                        (depthByPath.get(contextMenu.node!.path) ?? 0) + 1,
+                      )
+                    }
+                    className={menuItemClass}
+                  >
                     <FolderPlus className={menuIconClass} strokeWidth={1.75} />
                     {t('files.newFolder')}
                   </button>
                   <div className="my-1 border-t border-neutral-100 dark:border-neutral-800" />
                 </>
               ) : (
-                <button type="button" role="menuitem"
+                <button
+                  type="button"
+                  role="menuitem"
                   onClick={() => handleDownloadFile(null, contextMenu.node!)}
-                  className={menuItemClass}>
+                  className={menuItemClass}
+                >
                   <Download className={menuIconClass} strokeWidth={1.75} />
                   {t('files.download')}
                 </button>
               )}
-              <button type="button" role="menuitem"
-                onClick={() => handleRename(contextMenu.node!, depthByPath.get(contextMenu.node!.path) ?? 0)}
-                className={menuItemClass}>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() =>
+                  handleRename(contextMenu.node!, depthByPath.get(contextMenu.node!.path) ?? 0)
+                }
+                className={menuItemClass}
+              >
                 <Pencil className={menuIconClass} strokeWidth={1.75} />
                 {t('files.rename')}
               </button>
-              <button type="button" role="menuitem"
+              <button
+                type="button"
+                role="menuitem"
                 onClick={() => handleCopyPath(contextMenu.node!)}
-                className={menuItemClass}>
+                className={menuItemClass}
+              >
                 <ClipboardCopy className={menuIconClass} strokeWidth={1.75} />
                 {t('files.copyPath')}
               </button>
               <div className="my-1 border-t border-neutral-100 dark:border-neutral-800" />
-              <button type="button" role="menuitem"
+              <button
+                type="button"
+                role="menuitem"
                 onClick={() => handleDelete(contextMenu.node!)}
-                className={cn(menuItemClass, 'text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30')}>
+                className={cn(
+                  menuItemClass,
+                  'text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30',
+                )}
+              >
                 <Trash2 className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
                 {t('files.delete')}
               </button>
             </>
           ) : (
             <>
-              <button type="button" role="menuitem" onClick={() => handleNewFile(rootPath, 0)} className={menuItemClass}>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => handleNewFile(rootPath, 0)}
+                className={menuItemClass}
+              >
                 <FilePlus className={menuIconClass} strokeWidth={1.75} />
                 {t('files.newFile')}
               </button>
-              <button type="button" role="menuitem" onClick={() => handleNewFolder(rootPath, 0)} className={menuItemClass}>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => handleNewFolder(rootPath, 0)}
+                className={menuItemClass}
+              >
                 <FolderPlus className={menuIconClass} strokeWidth={1.75} />
                 {t('files.newFolder')}
               </button>

@@ -11,11 +11,11 @@ const localesPath = resolve(__dirname, '..', 'src', 'locales');
 const resources: Record<string, Record<string, unknown>> = {};
 
 for (const lang of readdirSync(localesPath, { withFileTypes: true })
-  .filter(d => d.isDirectory())
-  .map(d => d.name)) {
+  .filter((d) => d.isDirectory())
+  .map((d) => d.name)) {
   resources[lang] = {};
   const langDir = join(localesPath, lang);
-  for (const file of readdirSync(langDir).filter(f => f.endsWith('.json'))) {
+  for (const file of readdirSync(langDir).filter((f) => f.endsWith('.json'))) {
     const ns = file.replace('.json', '');
     resources[lang][ns] = JSON.parse(readFileSync(join(langDir, file), 'utf-8'));
   }

@@ -204,8 +204,21 @@ describe('truncateCommand', () => {
 describe('buildApprovalRecordsMarkdown', () => {
   it('renders approval records sorted by updatedAt', () => {
     const result = buildApprovalRecordsMarkdown([
-      { requestId: 'r1', command: 'adb install', risk: 'low' as const, status: 'approved' as const, decision: 'approve_once' as const, updatedAt: 2 },
-      { requestId: 'r2', command: 'adb push', risk: 'low' as const, status: 'pending' as const, updatedAt: 1 },
+      {
+        requestId: 'r1',
+        command: 'adb install',
+        risk: 'low' as const,
+        status: 'approved' as const,
+        decision: 'approve_once' as const,
+        updatedAt: 2,
+      },
+      {
+        requestId: 'r2',
+        command: 'adb push',
+        risk: 'low' as const,
+        status: 'pending' as const,
+        updatedAt: 1,
+      },
     ]);
     expect(result).toContain(i18n.t('feishu-cards:section.requestsAndApprovals'));
     expect(result).toContain(i18n.t('feishu-cards:status.pending'));
@@ -216,11 +229,19 @@ describe('buildApprovalRecordsMarkdown', () => {
   });
 
   it('truncates long commands in the output', () => {
-    const longCmd = 'adb shell cmd package list-packages --show-versioncode --filter myapp '
-      + 'extra-very-long-trailing-flags-to-exceed-the-hundred-character-limit';
+    const longCmd =
+      'adb shell cmd package list-packages --show-versioncode --filter myapp ' +
+      'extra-very-long-trailing-flags-to-exceed-the-hundred-character-limit';
     expect(longCmd.length).toBeGreaterThan(100);
     const result = buildApprovalRecordsMarkdown([
-      { requestId: 'r1', command: longCmd, risk: 'high' as const, status: 'approved' as const, decision: 'approve_once' as const, updatedAt: 1 },
+      {
+        requestId: 'r1',
+        command: longCmd,
+        risk: 'high' as const,
+        status: 'approved' as const,
+        decision: 'approve_once' as const,
+        updatedAt: 1,
+      },
     ]);
     expect(result).toContain(truncateCommand(longCmd));
     expect(result).not.toContain(longCmd);

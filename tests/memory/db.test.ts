@@ -66,7 +66,7 @@ describe('schema', () => {
     const rows = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all() as Array<{ name: string }>;
-    const tableNames = rows.map(r => r.name);
+    const tableNames = rows.map((r) => r.name);
 
     for (const table of EXPECTED_TABLES) {
       expect(tableNames).toContain(table);
@@ -78,9 +78,11 @@ describe('schema', () => {
   it('creates all required indexes', () => {
     const db = openDatabase(':memory:');
     const rows = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%' ORDER BY name")
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%' ORDER BY name",
+      )
       .all() as Array<{ name: string }>;
-    const indexNames = rows.map(r => r.name);
+    const indexNames = rows.map((r) => r.name);
 
     const expectedIndexes = [
       'idx_messages_session',
@@ -106,9 +108,9 @@ describe('schema', () => {
     expect(() => applySchema(db)).not.toThrow();
 
     // Verify tables still exist
-    const rows = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='table'")
-      .all() as Array<{ name: string }>;
+    const rows = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{
+      name: string;
+    }>;
     expect(rows.length).toBeGreaterThanOrEqual(10);
 
     db.close();
@@ -148,7 +150,10 @@ describe('openDatabase on pre-migration databases (boot-loop regression)', () =>
   });
 
   function createLegacyDb(columns: string[]): void {
-    tmpPath = path.join(os.tmpdir(), `legacy-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
+    tmpPath = path.join(
+      os.tmpdir(),
+      `legacy-${Date.now()}-${Math.random().toString(36).slice(2)}.db`,
+    );
     const raw = new Database(tmpPath);
     raw.exec(`CREATE TABLE memories (
       id TEXT PRIMARY KEY,
@@ -176,9 +181,11 @@ describe('openDatabase on pre-migration databases (boot-loop regression)', () =>
 
   function indexNames(db: Database.Database): Set<string> {
     return new Set(
-      (db
-        .prepare("SELECT name FROM sqlite_master WHERE type='index'")
-        .all() as Array<{ name: string }>).map((r) => r.name),
+      (
+        db.prepare("SELECT name FROM sqlite_master WHERE type='index'").all() as Array<{
+          name: string;
+        }>
+      ).map((r) => r.name),
     );
   }
 
@@ -201,7 +208,9 @@ describe('openDatabase on pre-migration databases (boot-loop regression)', () =>
     expect(indexes).toContain('idx_memories_status');
 
     // The backfill ran after the migrations rather than throwing before them.
-    const ftsCount = db!.prepare('SELECT COUNT(*) as cnt FROM memories_fts').get() as { cnt: number };
+    const ftsCount = db!.prepare('SELECT COUNT(*) as cnt FROM memories_fts').get() as {
+      cnt: number;
+    };
     expect(ftsCount.cnt).toBe(1);
 
     db!.close();

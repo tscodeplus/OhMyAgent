@@ -161,7 +161,11 @@ export function parseTitleResponse(raw: string): ParsedTitle | null {
     title = match[1];
   } else {
     try {
-      const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/, '').trim();
+      const cleaned = raw
+        .trim()
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/```$/, '')
+        .trim();
       const parsed = JSON.parse(cleaned);
       if (parsed && typeof parsed.title === 'string') title = parsed.title;
     } catch {
@@ -352,7 +356,10 @@ async function generateTitleWithModel(
     return parsed.title;
   } catch (err) {
     logger?.debug(
-      { err: err instanceof Error ? err.message : String(err), modelId: (model as { id?: string })?.id },
+      {
+        err: err instanceof Error ? err.message : String(err),
+        modelId: (model as { id?: string })?.id,
+      },
       'Title model call failed',
     );
     return null;
@@ -380,7 +387,13 @@ export async function generateSessionTitle(options: GenerateTitleOptions): Promi
   ];
   for (const candidate of candidates) {
     if (!candidate?.model) continue;
-    const title = await generateTitleWithModel(candidate.model, candidate.apiKey, systemPrompt, prompt, logger);
+    const title = await generateTitleWithModel(
+      candidate.model,
+      candidate.apiKey,
+      systemPrompt,
+      prompt,
+      logger,
+    );
     if (title) return title;
   }
   return fallbackTitle(input);

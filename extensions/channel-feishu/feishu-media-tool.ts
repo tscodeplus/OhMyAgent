@@ -15,9 +15,13 @@ import { execSync } from 'child_process';
 import { Type } from 'typebox';
 import type { AgentTool } from '../../src/pi-mono/agent/types.js';
 import { i18n } from '../../src/i18n/index.js';
-import { isImageExtension, isVideoExtension, detectFileType, getVideoDuration } from './feishu-media.js';
+import {
+  isImageExtension,
+  isVideoExtension,
+  detectFileType,
+  getVideoDuration,
+} from './feishu-media.js';
 import type { FeishuClient } from './feishu-client.js';
-
 
 export interface FeishuMediaToolOptions {
   feishuClient: FeishuClient;
@@ -64,7 +68,9 @@ export function createFeishuMediaTool(options: FeishuMediaToolOptions) {
         // Check denied patterns (.env, *.pem, etc.)
         for (const pattern of deniedPatterns) {
           if (isDeniedByPattern(filePath, path.basename(filePath), pattern)) {
-            return { content: [{ type: 'text' as const, text: i18n.t('tools-media:error.accessDenied') }] };
+            return {
+              content: [{ type: 'text' as const, text: i18n.t('tools-media:error.accessDenied') }],
+            };
           }
         }
 
@@ -80,11 +86,21 @@ export function createFeishuMediaTool(options: FeishuMediaToolOptions) {
         } catch (err: any) {
           if (err.code === 'ENOENT') {
             return {
-              content: [{ type: 'text' as const, text: i18n.t('tools-media:error.fileNotFound', { path: filePath }) }],
+              content: [
+                {
+                  type: 'text' as const,
+                  text: i18n.t('tools-media:error.fileNotFound', { path: filePath }),
+                },
+              ],
             };
           }
           return {
-            content: [{ type: 'text' as const, text: i18n.t('tools-media:error.readError', { message: err.message }) }],
+            content: [
+              {
+                type: 'text' as const,
+                text: i18n.t('tools-media:error.readError', { message: err.message }),
+              },
+            ],
           };
         }
 
@@ -103,10 +119,12 @@ export function createFeishuMediaTool(options: FeishuMediaToolOptions) {
           });
 
           return {
-            content: [{
-              type: 'text' as const,
-              text: i18n.t('tools-media:imageSent', { key: imageKey }),
-            }],
+            content: [
+              {
+                type: 'text' as const,
+                text: i18n.t('tools-media:imageSent', { key: imageKey }),
+              },
+            ],
           };
         }
 
@@ -118,12 +136,15 @@ export function createFeishuMediaTool(options: FeishuMediaToolOptions) {
 
           // Extract first frame as thumbnail for video preview
           let thumbnailImageKey: string | undefined;
-          const tmpThumb = path.join(os.tmpdir(), `thumb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.jpg`);
+          const tmpThumb = path.join(
+            os.tmpdir(),
+            `thumb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.jpg`,
+          );
           try {
-            execSync(
-              `ffmpeg -y -i "${filePath}" -vframes 1 -s 320x240 "${tmpThumb}"`,
-              { stdio: 'ignore', timeout: 10000 },
-            );
+            execSync(`ffmpeg -y -i "${filePath}" -vframes 1 -s 320x240 "${tmpThumb}"`, {
+              stdio: 'ignore',
+              timeout: 10000,
+            });
             const thumbBuffer = await readFile(tmpThumb);
             if (thumbBuffer.length > 0) {
               const { imageKey } = await feishuClient.uploadImage(thumbBuffer, 'message');
@@ -155,10 +176,12 @@ export function createFeishuMediaTool(options: FeishuMediaToolOptions) {
           });
 
           return {
-            content: [{
-              type: 'text' as const,
-              text: i18n.t('tools-media:fileSent', { name: fileName, key: fileKey }),
-            }],
+            content: [
+              {
+                type: 'text' as const,
+                text: i18n.t('tools-media:fileSent', { name: fileName, key: fileKey }),
+              },
+            ],
           };
         }
 
@@ -175,17 +198,21 @@ export function createFeishuMediaTool(options: FeishuMediaToolOptions) {
         });
 
         return {
-          content: [{
-            type: 'text' as const,
-            text: i18n.t('tools-media:fileSent', { name: fileName, key: fileKey }),
-          }],
+          content: [
+            {
+              type: 'text' as const,
+              text: i18n.t('tools-media:fileSent', { name: fileName, key: fileKey }),
+            },
+          ],
         };
       } catch (err: any) {
         return {
-          content: [{
-            type: 'text' as const,
-            text: i18n.t('tools-media:error.sendFailed', { message: err.message }),
-          }],
+          content: [
+            {
+              type: 'text' as const,
+              text: i18n.t('tools-media:error.sendFailed', { message: err.message }),
+            },
+          ],
         };
       }
     },
@@ -218,7 +245,11 @@ export function createFeishuDownloadTool(options: FeishuDownloadToolOptions) {
 
   // Ensure download directory exists
   const ensureDir = async () => {
-    try { await mkdir(downloadDir, { recursive: true }); } catch { /* exists */ }
+    try {
+      await mkdir(downloadDir, { recursive: true });
+    } catch {
+      /* exists */
+    }
   };
   // Fire and forget — directory will be ready by the time the tool is called
   // (ensureDir catches its own failures, so nothing can reject here).
@@ -234,7 +265,8 @@ export function createFeishuDownloadTool(options: FeishuDownloadToolOptions) {
       'File attachments include PDFs, documents, spreadsheets, archives, source code files, etc.',
     parameters: Type.Object({
       fileKey: Type.String({
-        description: 'The file_key of the attachment to download (mentioned in the system message about the incoming file)',
+        description:
+          'The file_key of the attachment to download (mentioned in the system message about the incoming file)',
       }),
     }),
     execute: async (_toolCallId: string, params: { fileKey: string }) => {
@@ -242,16 +274,18 @@ export function createFeishuDownloadTool(options: FeishuDownloadToolOptions) {
         const downloader = feishuClient as any;
         if (!downloader.downloadResource) {
           return {
-            content: [{ type: 'text' as const, text: i18n.t('messages:media.downloadUnavailable') }],
+            content: [
+              { type: 'text' as const, text: i18n.t('messages:media.downloadUnavailable') },
+            ],
           };
         }
 
         // Download from Feishu
-        const { buffer, fileName: discoveredName, contentType } = await downloader.downloadResource(
-          messageId,
-          params.fileKey,
-          'file',
-        );
+        const {
+          buffer,
+          fileName: discoveredName,
+          contentType,
+        } = await downloader.downloadResource(messageId, params.fileKey, 'file');
 
         // Determine filename
         const ext = (discoveredName && path.extname(discoveredName)) || '';
@@ -277,32 +311,37 @@ export function createFeishuDownloadTool(options: FeishuDownloadToolOptions) {
           }
         }
 
-        const sizeStr = buffer.length < 1024
-          ? `${buffer.length} B`
-          : buffer.length < 1024 * 1024
-            ? `${(buffer.length / 1024).toFixed(1)} KB`
-            : `${(buffer.length / (1024 * 1024)).toFixed(1)} MB`;
+        const sizeStr =
+          buffer.length < 1024
+            ? `${buffer.length} B`
+            : buffer.length < 1024 * 1024
+              ? `${(buffer.length / 1024).toFixed(1)} KB`
+              : `${(buffer.length / (1024 * 1024)).toFixed(1)} MB`;
 
         return {
-          content: [{
-            type: 'text' as const,
-            text:
-              `✅ 文件下载成功\n` +
-              `- 文件名: ${fileName}\n` +
-              `- 大小: ${sizeStr}\n` +
-              `- 本地路径: ${destPath}\n` +
-              `- 类型: ${contentType || '未知'}\n\n` +
-              `你可以使用 file_read 工具读取此文件的内容。`,
-          }],
+          content: [
+            {
+              type: 'text' as const,
+              text:
+                `✅ 文件下载成功\n` +
+                `- 文件名: ${fileName}\n` +
+                `- 大小: ${sizeStr}\n` +
+                `- 本地路径: ${destPath}\n` +
+                `- 类型: ${contentType || '未知'}\n\n` +
+                `你可以使用 file_read 工具读取此文件的内容。`,
+            },
+          ],
           details: { localPath: destPath, fileName, size: buffer.length },
         };
       } catch (err: any) {
         const message = err.message ?? String(err);
         return {
-          content: [{
-            type: 'text' as const,
-            text: `从飞书下载文件失败: ${message}`,
-          }],
+          content: [
+            {
+              type: 'text' as const,
+              text: `从飞书下载文件失败: ${message}`,
+            },
+          ],
         };
       }
     },

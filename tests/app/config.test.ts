@@ -2,7 +2,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, it, expect, beforeEach, vi } from 'vitest';
-import { loadConfig, resetConfig, startConfigWatcher, stopConfigWatcher } from '../../src/app/config';
+import {
+  loadConfig,
+  resetConfig,
+  startConfigWatcher,
+  stopConfigWatcher,
+} from '../../src/app/config';
 import { normalizeComputerUseSettings } from '../../src/computer-use/settings';
 
 describe('loadConfig', () => {
@@ -20,7 +25,7 @@ describe('loadConfig', () => {
     FEISHU_APP_SECRET: 'secret',
     PI_AI_API_KEY: 'sk-test',
     EMBEDDING_API_KEY: 'sk-embed',
-    CONFIG_FILE: '',  // skip config.yaml — test uses env-only path
+    CONFIG_FILE: '', // skip config.yaml — test uses env-only path
   };
 
   it('loads valid config with defaults', () => {
@@ -92,10 +97,12 @@ describe('loadConfig', () => {
   });
 
   it('rejects an out-of-range expansion minScoreTrigger', () => {
-    expect(() => loadConfig({
-      ...validEnv,
-      MEMORY_EXPANSION_MIN_SCORE_TRIGGER: '1.5',
-    })).toThrow();
+    expect(() =>
+      loadConfig({
+        ...validEnv,
+        MEMORY_EXPANSION_MIN_SCORE_TRIGGER: '1.5',
+      }),
+    ).toThrow();
   });
 
   it('overrides footer usage display from env', () => {
@@ -138,23 +145,29 @@ describe('loadConfig', () => {
   });
 
   it('rejects unsupported MEMORY_OUTPUT_LANGUAGE values', () => {
-    expect(() => loadConfig({
-      ...validEnv,
-      MEMORY_OUTPUT_LANGUAGE: 'Klingon',
-    })).toThrow('Invalid MEMORY_OUTPUT_LANGUAGE');
+    expect(() =>
+      loadConfig({
+        ...validEnv,
+        MEMORY_OUTPUT_LANGUAGE: 'Klingon',
+      }),
+    ).toThrow('Invalid MEMORY_OUTPUT_LANGUAGE');
   });
 
   it('rejects unsupported SHELL_APPROVAL_MODE values', () => {
-    expect(() => loadConfig({
-      ...validEnv,
-      SHELL_APPROVAL_MODE: 'unsafe',
-    })).toThrow('Configuration validation failed');
+    expect(() =>
+      loadConfig({
+        ...validEnv,
+        SHELL_APPROVAL_MODE: 'unsafe',
+      }),
+    ).toThrow('Configuration validation failed');
   });
 
   it('yaml → loadConfig → settings normalize:computer_use.node token/adb 链路生效', () => {
     const dir = mkdtempSync(join(tmpdir(), 'oma-cu-'));
     const yamlPath = join(dir, 'config.yaml');
-    writeFileSync(yamlPath, `provider:
+    writeFileSync(
+      yamlPath,
+      `provider:
   primary: openai/gpt-4o
   api_key: sk-test
 computer_use:
@@ -167,7 +180,9 @@ computer_use:
       path: /custom/adb
       serial: emulator-5554
       manage_screen: true
-`, 'utf-8');
+`,
+      'utf-8',
+    );
     resetConfig();
 
     const config = loadConfig({ CONFIG_FILE: yamlPath });
@@ -254,7 +269,10 @@ describe('startConfigWatcher', () => {
     const configPath = join(dir, 'config.yaml');
     mkdirSync(dir, { recursive: true });
 
-    const writeConfig = (model: string) => writeFileSync(configPath, `
+    const writeConfig = (model: string) =>
+      writeFileSync(
+        configPath,
+        `
 logging:
   level: info
 ui_language: en
@@ -271,19 +289,23 @@ embedding:
   api_key: sk-embed
 database:
   path: ':memory:'
-`, 'utf-8');
+`,
+        'utf-8',
+      );
 
     writeConfig('deepseek-chat');
     const onReload = vi.fn();
     startConfigWatcher(configPath, onReload);
 
-    await new Promise(resolve => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 20));
     writeConfig('deepseek-coder');
 
-    await expect.poll(() => onReload.mock.calls.length, {
-      timeout: 2000,
-      interval: 50,
-    }).toBeGreaterThan(0);
+    await expect
+      .poll(() => onReload.mock.calls.length, {
+        timeout: 2000,
+        interval: 50,
+      })
+      .toBeGreaterThan(0);
     expect(onReload.mock.calls.at(-1)?.[0].piAi.model).toBe('deepseek-coder');
 
     stopConfigWatcher();

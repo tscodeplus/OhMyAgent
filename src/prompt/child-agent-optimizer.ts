@@ -1,24 +1,20 @@
-import type {
-  PromptAssemblyResult,
-  PromptLayer,
-  ChildAgentOptimizeOptions,
-} from './types.js';
+import type { PromptAssemblyResult, PromptLayer, ChildAgentOptimizeOptions } from './types.js';
 
 // ── Layer name patterns to strip for child agents ─────────────────────────────
 
 const STRIP_LAYER_PATTERNS = [
-  /^base$/i,                // Base layer (contains memory/cron instructions)
-  /^agent:/,                // Agent override layer
-  /^skill:/,                // Skill patches (child doesn't need parent's skill context)
+  /^base$/i, // Base layer (contains memory/cron instructions)
+  /^agent:/, // Agent override layer
+  /^skill:/, // Skill patches (child doesn't need parent's skill context)
 ];
 
 // ── Content patterns to strip from base layer ─────────────────────────────────
 
 const STRIP_CONTENT_SECTIONS = [
-  /## Memory[\s\S]*?(?=## |$)/,        // Memory instructions block
+  /## Memory[\s\S]*?(?=## |$)/, // Memory instructions block
   /## Scheduled Tasks[\s\S]*?(?=## |$)/, // Cronjob instructions block
-  /## 记忆系统[\s\S]*?(?=## |$)/,        // Chinese Memory block
-  /## 定时任务[\s\S]*?(?=## |$)/,        // Chinese Cron block
+  /## 记忆系统[\s\S]*?(?=## |$)/, // Chinese Memory block
+  /## 定时任务[\s\S]*?(?=## |$)/, // Chinese Cron block
 ];
 
 // ── Token estimation (standalone, no PromptManager needed) ────────────────────
@@ -46,20 +42,14 @@ export class ChildAgentPromptOptimizer {
   private stripPatterns: RegExp[];
   private keepBlocks: Set<string>;
 
-  constructor(
-    stripPatterns?: RegExp[],
-    keepBlocks?: string[],
-  ) {
+  constructor(stripPatterns?: RegExp[], keepBlocks?: string[]) {
     this.stripPatterns = stripPatterns ?? [...STRIP_LAYER_PATTERNS];
     this.keepBlocks = new Set(keepBlocks ?? []);
   }
 
   optimize(options: ChildAgentOptimizeOptions): PromptAssemblyResult {
     const { parentAssembly, taskDescription } = options;
-    const keepBlocks = new Set([
-      ...this.keepBlocks,
-      ...(options.keepBlocks ?? []),
-    ]);
+    const keepBlocks = new Set([...this.keepBlocks, ...(options.keepBlocks ?? [])]);
 
     const childLayers: PromptLayer[] = [];
 
@@ -69,9 +59,7 @@ export class ChildAgentPromptOptimizer {
         continue;
       }
 
-      const shouldStrip = this.stripPatterns.some(pattern =>
-        pattern.test(layer.name),
-      );
+      const shouldStrip = this.stripPatterns.some((pattern) => pattern.test(layer.name));
 
       if (shouldStrip) {
         // For base layer: keep layer but strip memory/cron content sections
@@ -100,7 +88,7 @@ export class ChildAgentPromptOptimizer {
 
     // Assemble
     const sorted = childLayers.sort((a, b) => a.priority - b.priority);
-    const merged = sorted.map(l => l.content).join('\n\n');
+    const merged = sorted.map((l) => l.content).join('\n\n');
 
     return {
       systemPrompt: merged,

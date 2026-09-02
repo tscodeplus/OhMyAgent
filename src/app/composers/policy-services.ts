@@ -40,9 +40,10 @@ export function createPolicyServices(
     shellApprovalWhitelist: config.tools.shellApprovalWhitelist,
   });
 
-  const seedAllowlist = (config.tools.shellAllowlist?.length ?? 0) > 0
-    ? config.tools.shellAllowlist
-    : config.tools.shellApprovalWhitelist;
+  const seedAllowlist =
+    (config.tools.shellAllowlist?.length ?? 0) > 0
+      ? config.tools.shellAllowlist
+      : config.tools.shellApprovalWhitelist;
   approvalGate.createWhitelistPolicies(seedAllowlist);
 
   const replyApprovalRegistry = new ReplyApprovalRegistry();

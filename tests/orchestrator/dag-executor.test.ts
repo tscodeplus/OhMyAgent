@@ -16,13 +16,15 @@ function makeSubAgent() {
   };
 }
 
-function makeExecutorDeps(overrides?: Partial<{
-  agentManager: any;
-  createAgent: any;
-  orchestrator: any;
-  logger: any;
-  maxConcurrency: number;
-}>) {
+function makeExecutorDeps(
+  overrides?: Partial<{
+    agentManager: any;
+    createAgent: any;
+    orchestrator: any;
+    logger: any;
+    maxConcurrency: number;
+  }>,
+) {
   const childRun = {
     agentId: 'child-1',
     parentAgentId: 'parent-1',
@@ -34,34 +36,40 @@ function makeExecutorDeps(overrides?: Partial<{
   };
 
   return {
-    agentManager: overrides?.agentManager ?? {
-      get: vi.fn(() => ({
-        id: 'default',
-        name: 'Default',
-        system_prompt: '',
-        model: {},
-        tools: { profile: 'advanced', add: [], deny: [] },
-        channels: [],
-        memory: {},
-        metadata: {},
-      })),
-      list: vi.fn(() => [{ id: 'default' }]),
-    } as any,
+    agentManager:
+      overrides?.agentManager ??
+      ({
+        get: vi.fn(() => ({
+          id: 'default',
+          name: 'Default',
+          system_prompt: '',
+          model: {},
+          tools: { profile: 'advanced', add: [], deny: [] },
+          channels: [],
+          memory: {},
+          metadata: {},
+        })),
+        list: vi.fn(() => [{ id: 'default' }]),
+      } as any),
     createAgent: overrides?.createAgent ?? vi.fn(() => makeSubAgent() as any),
-    orchestrator: overrides?.orchestrator ?? {
-      spawnChildAgent: vi.fn(async () => ({ ...childRun, agentId: `child-${Date.now()}` })),
-      stopAgent: vi.fn(),
-      finishAgent: vi.fn(),
-      getAgentRun: vi.fn(() => childRun),
-      registerRuntime: vi.fn(),
-      unregisterRuntime: vi.fn(),
-    } as any,
-    logger: overrides?.logger ?? {
-      info: vi.fn(),
-      error: vi.fn(),
-      warn: vi.fn(),
-      debug: vi.fn(),
-    } as any,
+    orchestrator:
+      overrides?.orchestrator ??
+      ({
+        spawnChildAgent: vi.fn(async () => ({ ...childRun, agentId: `child-${Date.now()}` })),
+        stopAgent: vi.fn(),
+        finishAgent: vi.fn(),
+        getAgentRun: vi.fn(() => childRun),
+        registerRuntime: vi.fn(),
+        unregisterRuntime: vi.fn(),
+      } as any),
+    logger:
+      overrides?.logger ??
+      ({
+        info: vi.fn(),
+        error: vi.fn(),
+        warn: vi.fn(),
+        debug: vi.fn(),
+      } as any),
     maxConcurrency: overrides?.maxConcurrency ?? 4,
   };
 }
@@ -108,9 +116,7 @@ describe('P4: DAGExecutor — validateGraph', () => {
   it('rejects missing dependency reference', async () => {
     const executor = new DAGExecutor(makeExecutorDeps());
     const input = makeSimpleInput({
-      subtasks: [
-        { title: 'Task A', description: 'First', dependsOn: ['NonexistentTask'] },
-      ],
+      subtasks: [{ title: 'Task A', description: 'First', dependsOn: ['NonexistentTask'] }],
     });
     await expect(executor.execute(input)).rejects.toThrow('depends on unknown');
   });
@@ -140,9 +146,7 @@ describe('P4: DAGExecutor — validateGraph', () => {
   it('rejects self-dependency', async () => {
     const executor = new DAGExecutor(makeExecutorDeps());
     const input = makeSimpleInput({
-      subtasks: [
-        { title: 'Task A', description: 'Self-ref', dependsOn: ['Task A'] },
-      ],
+      subtasks: [{ title: 'Task A', description: 'Self-ref', dependsOn: ['Task A'] }],
     });
     await expect(executor.execute(input)).rejects.toThrow('Cycle');
   });
@@ -181,16 +185,19 @@ describe('P4: DAGExecutor — parallel execution', () => {
 
   it('blocks downstream tasks on upstream failure in parallel mode', async () => {
     const failingAgent = {
-      prompt: vi.fn(async () => { throw new Error('Task A failed!'); }),
+      prompt: vi.fn(async () => {
+        throw new Error('Task A failed!');
+      }),
       waitForIdle: vi.fn(async () => undefined),
       abort: vi.fn(),
       state: { messages: [] },
     };
     const normalAgent = makeSubAgent();
 
-    const createAgent = vi.fn()
-      .mockReturnValueOnce(failingAgent as any)  // Task A fails
-      .mockReturnValue(normalAgent as any);       // Task B should be blocked
+    const createAgent = vi
+      .fn()
+      .mockReturnValueOnce(failingAgent as any) // Task A fails
+      .mockReturnValue(normalAgent as any); // Task B should be blocked
 
     const executor = new DAGExecutor(makeExecutorDeps({ createAgent }));
 
@@ -234,7 +241,9 @@ describe('P4: DAGExecutor — sequential execution', () => {
 
   it('stops on first failure in sequential mode', async () => {
     const failingAgent = {
-      prompt: vi.fn(async () => { throw new Error('Failed!'); }),
+      prompt: vi.fn(async () => {
+        throw new Error('Failed!');
+      }),
       waitForIdle: vi.fn(async () => undefined),
       abort: vi.fn(),
       state: { messages: [] },
@@ -299,24 +308,24 @@ describe('P4: DAGExecutor — maxConcurrency enforcement', () => {
         concurrent++;
         maxConcurrent = Math.max(maxConcurrent, concurrent);
         // Simulate work
-        await new Promise(r => setTimeout(r, 50));
+        await new Promise((r) => setTimeout(r, 50));
         concurrent--;
       }),
       waitForIdle: vi.fn(async () => undefined),
       abort: vi.fn(),
       state: {
-        messages: [
-          { role: 'assistant', content: [{ type: 'text', text: 'done' }] },
-        ],
+        messages: [{ role: 'assistant', content: [{ type: 'text', text: 'done' }] }],
       },
     };
 
     const createAgent = vi.fn(() => slowAgent as any);
 
-    const executor = new DAGExecutor(makeExecutorDeps({
-      createAgent,
-      maxConcurrency: 2, // only 2 at a time
-    }));
+    const executor = new DAGExecutor(
+      makeExecutorDeps({
+        createAgent,
+        maxConcurrency: 2, // only 2 at a time
+      }),
+    );
 
     const input = makeSimpleInput({
       subtasks: [
@@ -342,7 +351,7 @@ describe('P4: DAGExecutor — maxConcurrency enforcement', () => {
       prompt: vi.fn(async () => {
         concurrent++;
         maxConcurrent = Math.max(maxConcurrent, concurrent);
-        await new Promise(r => setTimeout(r, 30));
+        await new Promise((r) => setTimeout(r, 30));
         concurrent--;
       }),
       waitForIdle: vi.fn(async () => undefined),
@@ -352,10 +361,12 @@ describe('P4: DAGExecutor — maxConcurrency enforcement', () => {
 
     const createAgent = vi.fn(() => slowAgent as any);
 
-    const executor = new DAGExecutor(makeExecutorDeps({
-      createAgent,
-      maxConcurrency: 4, // deps default
-    }));
+    const executor = new DAGExecutor(
+      makeExecutorDeps({
+        createAgent,
+        maxConcurrency: 4, // deps default
+      }),
+    );
 
     const input = makeSimpleInput({
       subtasks: [

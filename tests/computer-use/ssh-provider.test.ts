@@ -206,7 +206,7 @@ describe('SSHComputerUseProvider', () => {
   it('performAction click_element with tree element uses AT-SPI doAction (no mouse movement)', async () => {
     const { provider, mockPool } = createProvider({
       responses: {
-        'python3': { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
+        python3: { stdout: '{"ok":true}', stderr: '', exitCode: 0 },
       },
     });
     const lease = makeLease();

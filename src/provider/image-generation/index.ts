@@ -66,7 +66,7 @@ const VIDEO_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
   // different param names and a simpler status response envelope.
   bytedance: {
     responseMapping: {
-      statusField: 'status',       // flat "status": "succeeded"
+      statusField: 'status', // flat "status": "succeeded"
       successValue: 'succeeded',
       failureValues: ['failed', 'error'],
       videoUrlPaths: ['video_url', 'url', 'output_url', 'data.url'],
@@ -159,9 +159,7 @@ function getVideoProviderPreset(providerName: string): ProviderPreset | undefine
  * the provider (custom_providers or provider_keys) and create the
  * appropriate implementation.
  */
-export function createImageGenerationProvider(
-  config: AppConfig,
-): ImageGenerationProvider {
+export function createImageGenerationProvider(config: AppConfig): ImageGenerationProvider {
   const genConfig = config.multimodal?.imageGeneration;
   if (!genConfig?.enabled || !genConfig?.modelRef) {
     return new NoOpImageGenerationProvider();
@@ -196,9 +194,7 @@ export function createImageGenerationProvider(
  * are handled automatically; unknown providers use a generic OpenAI-compatible
  * mapping.
  */
-export function createVideoGenerationProvider(
-  config: AppConfig,
-): VideoGenerationProvider {
+export function createVideoGenerationProvider(config: AppConfig): VideoGenerationProvider {
   const genConfig = config.multimodal?.videoGeneration;
   if (!genConfig?.enabled || !genConfig?.modelRef) {
     return new NoOpVideoGenerationProvider();

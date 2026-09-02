@@ -61,9 +61,7 @@ describe('ftsSearch', () => {
     expect(results[0].normalizedScore).toBeLessThanOrEqual(1);
     // Scores should be in descending order
     for (let i = 1; i < results.length; i++) {
-      expect(results[i - 1].normalizedScore).toBeGreaterThanOrEqual(
-        results[i].normalizedScore,
-      );
+      expect(results[i - 1].normalizedScore).toBeGreaterThanOrEqual(results[i].normalizedScore);
     }
   });
 
@@ -181,22 +179,27 @@ describe('FTS triggers', () => {
   });
 
   it('INSERT trigger syncs FTS index', () => {
-    db.prepare(
-      'INSERT INTO memories (id, scope, scope_key, kind, content) VALUES (?,?,?,?,?)',
-    ).run('t1', 'user', 'u1', 'fact', '这是 一条 测试 记忆');
+    db.prepare('INSERT INTO memories (id, scope, scope_key, kind, content) VALUES (?,?,?,?,?)').run(
+      't1',
+      'user',
+      'u1',
+      'fact',
+      '这是 一条 测试 记忆',
+    );
     const results = ftsSearch(db, '测试', 5);
     expect(results.length).toBe(1);
   });
 
   it('UPDATE trigger syncs FTS index', () => {
-    db.prepare(
-      'INSERT INTO memories (id, scope, scope_key, kind, content) VALUES (?,?,?,?,?)',
-    ).run('t2', 'user', 'u1', 'fact', '旧 内容');
-
-    db.prepare('UPDATE memories SET content = ? WHERE id = ?').run(
-      '新内容 数据库',
+    db.prepare('INSERT INTO memories (id, scope, scope_key, kind, content) VALUES (?,?,?,?,?)').run(
       't2',
+      'user',
+      'u1',
+      'fact',
+      '旧 内容',
     );
+
+    db.prepare('UPDATE memories SET content = ? WHERE id = ?').run('新内容 数据库', 't2');
 
     // Old content should NOT be searchable
     const oldResults = ftsSearch(db, '旧', 5);
@@ -207,9 +210,13 @@ describe('FTS triggers', () => {
   });
 
   it('DELETE trigger removes from FTS index', () => {
-    db.prepare(
-      'INSERT INTO memories (id, scope, scope_key, kind, content) VALUES (?,?,?,?,?)',
-    ).run('t3', 'user', 'u1', 'fact', '要 删除 的 记忆');
+    db.prepare('INSERT INTO memories (id, scope, scope_key, kind, content) VALUES (?,?,?,?,?)').run(
+      't3',
+      'user',
+      'u1',
+      'fact',
+      '要 删除 的 记忆',
+    );
     db.prepare('DELETE FROM memories WHERE id = ?').run('t3');
     const results = ftsSearch(db, '删除', 5);
     expect(results).toHaveLength(0);

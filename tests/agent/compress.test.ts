@@ -77,9 +77,7 @@ describe('estimateTokens', () => {
   });
 
   it('scales with message count', () => {
-    const msgs = Array.from({ length: 10 }, (_, i) =>
-      makeUserMessage(`message number ${i}`),
-    );
+    const msgs = Array.from({ length: 10 }, (_, i) => makeUserMessage(`message number ${i}`));
     const halfTokens = estimateTokens(msgs.slice(0, 5));
     const allTokens = estimateTokens(msgs);
     expect(allTokens).toBeGreaterThan(halfTokens);
@@ -91,24 +89,29 @@ describe('estimateTokens', () => {
   });
 
   it('counts tool calls', () => {
-    const msg = { role: 'assistant' as const, content: [
-      { type: 'toolCall' as const, name: 'shell', arguments: { command: 'ls' } },
-    ]};
+    const msg = {
+      role: 'assistant' as const,
+      content: [{ type: 'toolCall' as const, name: 'shell', arguments: { command: 'ls' } }],
+    };
     const tokens = estimateTokens([msg]);
     expect(tokens).toBeGreaterThan(0);
   });
 
   it('does not crash when a toolCall block has no name (M9)', () => {
-    const msg = { role: 'assistant' as const, content: [
-      { type: 'toolCall' as const, arguments: { command: 'ls' } },
-    ]};
+    const msg = {
+      role: 'assistant' as const,
+      content: [{ type: 'toolCall' as const, arguments: { command: 'ls' } }],
+    };
     expect(() => estimateTokens([msg])).not.toThrow();
     expect(estimateTokens([msg])).toBeGreaterThan(0);
   });
 
   it('returns 0 for malformed content instead of crashing (M9)', () => {
     // BigInt makes JSON.stringify throw — estimation must degrade gracefully
-    const msg = { role: 'assistant' as const, content: [{ type: 'toolCall' as const, arguments: { big: 1n } }] };
+    const msg = {
+      role: 'assistant' as const,
+      content: [{ type: 'toolCall' as const, arguments: { big: 1n } }],
+    };
     expect(() => estimateTokens([msg])).not.toThrow();
     expect(estimateTokens([msg])).toBe(0);
   });
@@ -164,7 +167,14 @@ describe('findCutPoint', () => {
     const msgs = [
       makeUserMessage('run command'),
       makeAssistantMessage('ok'),
-      { role: 'toolResult' as const, toolCallId: '1', toolName: 'shell', content: [{ type: 'text' as const, text: 'output' }], isError: false, timestamp: 1 },
+      {
+        role: 'toolResult' as const,
+        toolCallId: '1',
+        toolName: 'shell',
+        content: [{ type: 'text' as const, text: 'output' }],
+        isError: false,
+        timestamp: 1,
+      },
       makeUserMessage('second message with a lot more content to push past budget'),
     ];
     const cut = findCutPoint(msgs, 20);
@@ -185,9 +195,7 @@ describe('compressContext', () => {
   });
 
   it('returns null with few compressible messages', async () => {
-    const msgs = Array.from({ length: 3 }, (_, i) =>
-      makeUserMessage(`msg ${i}`),
-    );
+    const msgs = Array.from({ length: 3 }, (_, i) => makeUserMessage(`msg ${i}`));
     // Token count is tiny → won't trigger
     const result = await compressContext({ ...baseInput, messages: msgs as any });
     expect(result.summaryMessage).toBeNull();
@@ -199,7 +207,9 @@ describe('compressContext', () => {
     // 200-token threshold (contextWindow 300 - reserve 100); keepRecentTokens
     // 50 → cut point lands inside the history.
     const msgs = Array.from({ length: 10 }, (_, i) =>
-      makeUserMessage(`message number ${i} with enough text to consume tokens and trigger compression here plus some extra padding`),
+      makeUserMessage(
+        `message number ${i} with enough text to consume tokens and trigger compression here plus some extra padding`,
+      ),
     );
     const result = await compressContext({
       ...baseInput,

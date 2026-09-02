@@ -12,7 +12,10 @@ async function createTempDir(): Promise<string> {
   return dir;
 }
 
-function buildSkillMd(frontmatter: Record<string, unknown>, body: string = '# Test\n\nHello world.'): string {
+function buildSkillMd(
+  frontmatter: Record<string, unknown>,
+  body: string = '# Test\n\nHello world.',
+): string {
   const yamlLines = Object.entries(frontmatter).map(([k, v]) => {
     if (typeof v === 'string') return `${k}: ${v}`;
     if (Array.isArray(v)) return `${k}: [${v.join(', ')}]`;
@@ -38,12 +41,15 @@ afterEach(async () => {
 
 describe('loadSkill', () => {
   it('loads a valid standard skill', async () => {
-    const content = buildSkillMd({
-      name: 'Test Skill',
-      description: 'A test skill',
-      metadata: { version: '2.0.0', priority: 10, triggers: 'test', tags: ['utility'] },
-      'allowed-tools': 'shell file_read',
-    }, '# Test Skill\n\nYou are a test assistant.');
+    const content = buildSkillMd(
+      {
+        name: 'Test Skill',
+        description: 'A test skill',
+        metadata: { version: '2.0.0', priority: 10, triggers: 'test', tags: ['utility'] },
+        'allowed-tools': 'shell file_read',
+      },
+      '# Test Skill\n\nYou are a test assistant.',
+    );
 
     const dir = await createSkillDir(content);
     const skill = await loadSkill(dir);
@@ -94,10 +100,13 @@ describe('loadSkill', () => {
     const parentDir = await createTempDir();
     const skillDir = join(parentDir, 'hello-world-skill');
     await mkdir(skillDir);
-    await writeFile(join(skillDir, 'SKILL.md'), buildSkillMd({
-      name: 'Hello World Skill',
-      description: 'Greets the world',
-    }));
+    await writeFile(
+      join(skillDir, 'SKILL.md'),
+      buildSkillMd({
+        name: 'Hello World Skill',
+        description: 'Greets the world',
+      }),
+    );
 
     const skill = await loadSkill(skillDir);
 
@@ -111,10 +120,13 @@ describe('loadSkill', () => {
     const parentDir = await createTempDir();
     const skillDir = join(parentDir, 'sk-a1b2c3d4');
     await mkdir(skillDir);
-    await writeFile(join(skillDir, 'SKILL.md'), buildSkillMd({
-      name: '日程管理',
-      description: '管理日程和提醒',
-    }));
+    await writeFile(
+      join(skillDir, 'SKILL.md'),
+      buildSkillMd({
+        name: '日程管理',
+        description: '管理日程和提醒',
+      }),
+    );
 
     const skill = await loadSkill(skillDir);
 
@@ -293,17 +305,23 @@ describe('loadAllSkills', () => {
 
     const skill1Dir = join(parentDir, 'alpha');
     await mkdir(skill1Dir);
-    await writeFile(join(skill1Dir, 'SKILL.md'), buildSkillMd({
-      name: 'Alpha',
-      description: 'First skill',
-    }));
+    await writeFile(
+      join(skill1Dir, 'SKILL.md'),
+      buildSkillMd({
+        name: 'Alpha',
+        description: 'First skill',
+      }),
+    );
 
     const skill2Dir = join(parentDir, 'beta');
     await mkdir(skill2Dir);
-    await writeFile(join(skill2Dir, 'SKILL.md'), buildSkillMd({
-      name: 'Beta',
-      description: 'Second skill',
-    }));
+    await writeFile(
+      join(skill2Dir, 'SKILL.md'),
+      buildSkillMd({
+        name: 'Beta',
+        description: 'Second skill',
+      }),
+    );
 
     const skills = await loadAllSkills(parentDir);
     expect(skills).toHaveLength(2);
@@ -317,10 +335,13 @@ describe('loadAllSkills', () => {
 
     const goodDir = join(parentDir, 'good');
     await mkdir(goodDir);
-    await writeFile(join(goodDir, 'SKILL.md'), buildSkillMd({
-      name: 'Good',
-      description: 'Valid skill',
-    }));
+    await writeFile(
+      join(goodDir, 'SKILL.md'),
+      buildSkillMd({
+        name: 'Good',
+        description: 'Valid skill',
+      }),
+    );
 
     const badDir = join(parentDir, 'bad');
     await mkdir(badDir);
@@ -392,7 +413,7 @@ describe('L3 Resource Scanning', () => {
 
     await writeFile(join(dir, 'SKILL.md'), content);
     await mkdir(join(dir, 'references')); // empty directory
-    await mkdir(join(dir, 'scripts'));    // empty directory
+    await mkdir(join(dir, 'scripts')); // empty directory
 
     const skill = await loadSkill(dir);
 

@@ -8,11 +8,11 @@ import { ToolTimeoutError } from '../shared/errors.js';
 // ── Exponential backoff schedule ──
 
 const BACKOFF_SCHEDULE_MS = [
-  30_000,       // attempt 1 → 30s
-  60_000,       // attempt 2 → 1m
-  300_000,      // attempt 3 → 5m
-  900_000,      // attempt 4 → 15m
-  3_600_000,    // attempt 5 → 60m (cap)
+  30_000, // attempt 1 → 30s
+  60_000, // attempt 2 → 1m
+  300_000, // attempt 3 → 5m
+  900_000, // attempt 4 → 15m
+  3_600_000, // attempt 5 → 60m (cap)
 ];
 
 function getBackoffMs(retryCount: number): number {
@@ -75,7 +75,10 @@ export class JobRunner {
         await this.deliver(job.channel, job.chatId, finalText, modelLabel, job.agentName);
         deliveredToChat = true;
       } catch (e) {
-        this.options.logger.warn({ jobId: job.id, channel: job.channel, err: e }, 'Failed to deliver cron result');
+        this.options.logger.warn(
+          { jobId: job.id, channel: job.channel, err: e },
+          'Failed to deliver cron result',
+        );
       }
 
       // Clean up the runtime
@@ -111,7 +114,13 @@ export class JobRunner {
     let result: AgentRunResult;
     try {
       result = await withTimeout(
-        this.agentRunner.run(job.prompt, sessionId, job.chatId, job.agentId, job.computerUseAllowed === true),
+        this.agentRunner.run(
+          job.prompt,
+          sessionId,
+          job.chatId,
+          job.agentId,
+          job.computerUseAllowed === true,
+        ),
         executionTimeoutMs,
         'timeout',
       );
@@ -124,16 +133,22 @@ export class JobRunner {
       throw err;
     }
 
-    logger.info(
-      { jobId: job.id, textLen: result.text.length },
-      'Cron agent execution complete',
-    );
+    logger.info({ jobId: job.id, textLen: result.text.length }, 'Cron agent execution complete');
 
     return result;
   }
 
-  private async deliver(channel: string, chatId: string, text: string, modelLabel: string, agentName?: string): Promise<void> {
-    this.options.logger.info({ channel, chatId, textLen: text.length }, '[job-runner] attempting delivery');
+  private async deliver(
+    channel: string,
+    chatId: string,
+    text: string,
+    modelLabel: string,
+    agentName?: string,
+  ): Promise<void> {
+    this.options.logger.info(
+      { channel, chatId, textLen: text.length },
+      '[job-runner] attempting delivery',
+    );
     const client = this.deliveryRegistry.get(channel);
     if (!client) {
       this.options.logger.warn(
@@ -142,7 +157,10 @@ export class JobRunner {
       );
       return;
     }
-    this.options.logger.info({ channel, chatId }, '[job-runner] delivery client found, calling deliver');
+    this.options.logger.info(
+      { channel, chatId },
+      '[job-runner] delivery client found, calling deliver',
+    );
     await client.deliver({ chatId, text, modelLabel, agentName, footer: this.options.footer });
     this.options.logger.info({ channel, chatId }, '[job-runner] delivery complete');
   }

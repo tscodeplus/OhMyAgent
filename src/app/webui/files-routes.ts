@@ -84,39 +84,19 @@ function detectPlatform(): PlatformInfo {
   let defaultRoot = '';
 
   if (isTermux) {
-    suggestedRoots = [
-      '/data/data/com.termux/files/home',
-      '/sdcard',
-      '/storage/emulated/0',
-    ];
+    suggestedRoots = ['/data/data/com.termux/files/home', '/sdcard', '/storage/emulated/0'];
     defaultRoot = '/data/data/com.termux/files/home';
   } else if (isWSL) {
-    suggestedRoots = [
-      '/home',
-      '/mnt/c',
-      '/mnt/d',
-      '/',
-    ];
+    suggestedRoots = ['/home', '/mnt/c', '/mnt/d', '/'];
     defaultRoot = process.env.HOME || '/home';
   } else if (osPlatform === 'linux') {
-    suggestedRoots = [
-      '/home',
-      '/',
-      '/mnt',
-    ];
+    suggestedRoots = ['/home', '/', '/mnt'];
     defaultRoot = process.env.HOME || '/home';
   } else if (osPlatform === 'darwin') {
-    suggestedRoots = [
-      '/Users',
-      '/',
-      '/Applications',
-    ];
+    suggestedRoots = ['/Users', '/', '/Applications'];
     defaultRoot = process.env.HOME || '/Users';
   } else if (osPlatform === 'win32') {
-    suggestedRoots = [
-      'C:\\',
-      'D:\\',
-    ];
+    suggestedRoots = ['C:\\', 'D:\\'];
     defaultRoot = process.env.USERPROFILE || 'C:\\';
   } else {
     suggestedRoots = ['/'];
@@ -280,7 +260,7 @@ export function computeServeAllowedRoots(appConfig: AppConfig, fileRoot: string)
   const cuOut = './data/computer-use-screenshots';
   for (const dir of [imgOut, vidOut, cuOut]) {
     const resolved = resolveAgentPath(dir);
-    if (!roots.some(r => resolve(r) === resolved)) {
+    if (!roots.some((r) => resolve(r) === resolved)) {
       roots.unshift(resolved);
     }
   }
@@ -354,15 +334,31 @@ function strictResolveWithinRoot(root: string, userPath: string): string {
  * as an attachment, whatever the caller asked for.
  */
 const NEVER_INLINE_EXTS = new Set([
-  '.html', '.htm', '.xhtml', '.svg', '.svgz', '.xml', '.xsl',
-  '.js', '.mjs', '.cjs',
+  '.html',
+  '.htm',
+  '.xhtml',
+  '.svg',
+  '.svgz',
+  '.xml',
+  '.xsl',
+  '.js',
+  '.mjs',
+  '.cjs',
 ]);
 
 const NEVER_INLINE_MIME_TYPES = new Set([
-  'text/html', 'text/xhtml', 'application/xhtml+xml', 'image/svg+xml',
-  'application/xml', 'text/xml', 'application/xml-dtd',
-  'text/javascript', 'application/javascript', 'application/x-javascript',
-  'text/ecmascript', 'application/ecmascript',
+  'text/html',
+  'text/xhtml',
+  'application/xhtml+xml',
+  'image/svg+xml',
+  'application/xml',
+  'text/xml',
+  'application/xml-dtd',
+  'text/javascript',
+  'application/javascript',
+  'application/x-javascript',
+  'text/ecmascript',
+  'application/ecmascript',
 ]);
 
 /**
@@ -394,8 +390,9 @@ export function applyFileResponseHeaders(
   reply: FastifyReply,
   params: { contentType: string; filename: string; allowInline: boolean; ext?: string },
 ): FastifyReply {
-  const inline = params.allowInline
-    && !isUnsafeInlineContent(params.ext ?? extname(params.filename), params.contentType);
+  const inline =
+    params.allowInline &&
+    !isUnsafeInlineContent(params.ext ?? extname(params.filename), params.contentType);
   return reply
     .header('Content-Type', params.contentType)
     .header('X-Content-Type-Options', 'nosniff')
@@ -554,7 +551,9 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
         return reply.status(400).send({ error: 'Cannot read directory as file' });
       }
       if (s.size > MAX_FILE_SIZE) {
-        return reply.status(413).send({ error: `File too large (max ${MAX_FILE_SIZE / 1024 / 1024}MB)` });
+        return reply
+          .status(413)
+          .send({ error: `File too large (max ${MAX_FILE_SIZE / 1024 / 1024}MB)` });
       }
 
       const content = await readFile(filePath, 'utf-8');
@@ -625,7 +624,11 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
       let filePath: string | null = null;
       const normalized = normalize(query.path);
 
-      if (normalized.startsWith('/') || normalized.startsWith('\\') || isDriveLetterPath(normalized)) {
+      if (
+        normalized.startsWith('/') ||
+        normalized.startsWith('\\') ||
+        isDriveLetterPath(normalized)
+      ) {
         // Absolute path: verify within an allowed root
         const resolvedAbs = resolve(normalized);
         for (const root of allowedRoots) {
@@ -703,7 +706,11 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
       let filePath: string | null = null;
       const normalized = normalize(query.path);
 
-      if (normalized.startsWith('/') || normalized.startsWith('\\') || isDriveLetterPath(normalized)) {
+      if (
+        normalized.startsWith('/') ||
+        normalized.startsWith('\\') ||
+        isDriveLetterPath(normalized)
+      ) {
         // Absolute path: verify it's within an allowed root
         const resolvedAbs = resolve(normalized);
         for (const root of allowedRoots) {
@@ -755,7 +762,9 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
         return reply.status(400).send({ error: 'Cannot serve directory' });
       }
       if (s.size > MAX_SERVE_SIZE) {
-        return reply.status(413).send({ error: `File too large (max ${MAX_SERVE_SIZE / 1024 / 1024}MB)` });
+        return reply
+          .status(413)
+          .send({ error: `File too large (max ${MAX_SERVE_SIZE / 1024 / 1024}MB)` });
       }
 
       const ext = extname(filePath!).toLowerCase();
@@ -871,7 +880,11 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
   // ---- POST /api/files ----
   app.post('/api/files', async (request, reply) => {
     try {
-      const { path: parentPath, type, name } = request.body as {
+      const {
+        path: parentPath,
+        type,
+        name,
+      } = request.body as {
         path?: string;
         type: 'file' | 'directory';
         name: string;
@@ -998,9 +1011,7 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
 
       // Sanitize filename — use only basename to prevent path traversal
       const sanitizedFilename = basename(data.filename);
-      const relativePath = relativePaths[0]
-        ? basename(relativePaths[0])
-        : sanitizedFilename;
+      const relativePath = relativePaths[0] ? basename(relativePaths[0]) : sanitizedFilename;
 
       const root = resolve(readFileRoot(cfg.configPath));
       let destDir: string;

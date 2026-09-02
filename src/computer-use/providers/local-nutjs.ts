@@ -10,8 +10,16 @@
 import type { ComputerUseProvider } from '../provider-contract.js';
 import { normalizeComputerProviderCapabilities } from '../provider-contract.js';
 import type {
-  Ctx, ProviderStatus, AppInfo, WindowInfo,
-  Lease, Target, AppState, UIElement, Action, ActionResult,
+  Ctx,
+  ProviderStatus,
+  AppInfo,
+  WindowInfo,
+  Lease,
+  Target,
+  AppState,
+  UIElement,
+  Action,
+  ActionResult,
 } from '../types.js';
 import type { Logger } from 'pino';
 import { Key, Button, Point } from '@nut-tree-fork/shared';
@@ -25,14 +33,35 @@ import { truncateToolOutput } from '../../shared/truncation.js';
  * Included here for reference and potential SSH macOS integration.
  */
 const MAC_KEY_CODES: Record<string, number> = {
-  'Return': 36, 'Enter': 36, 'Escape': 53, 'Esc': 53,
-  'Tab': 48, 'BackSpace': 51, 'Delete': 117,
-  'Home': 115, 'End': 119, 'Page_Up': 116, 'Page_Down': 121,
-  'Up': 126, 'Down': 125, 'Left': 123, 'Right': 124,
-  'F1': 122, 'F2': 120, 'F3': 99, 'F4': 118,
-  'F5': 96, 'F6': 97, 'F7': 98, 'F8': 100,
-  'F9': 101, 'F10': 109, 'F11': 103, 'F12': 111,
-  'space': 49, 'Space': 49,
+  Return: 36,
+  Enter: 36,
+  Escape: 53,
+  Esc: 53,
+  Tab: 48,
+  BackSpace: 51,
+  Delete: 117,
+  Home: 115,
+  End: 119,
+  Page_Up: 116,
+  Page_Down: 121,
+  Up: 126,
+  Down: 125,
+  Left: 123,
+  Right: 124,
+  F1: 122,
+  F2: 120,
+  F3: 99,
+  F4: 118,
+  F5: 96,
+  F6: 97,
+  F7: 98,
+  F8: 100,
+  F9: 101,
+  F10: 109,
+  F11: 103,
+  F12: 111,
+  space: 49,
+  Space: 49,
 };
 
 // ─── Provider ──────────────────────────────────────────────────────────────
@@ -157,7 +186,7 @@ export class NutJSProvider implements ComputerUseProvider {
       });
     }
 
-    return Array.from(apps.values()).map(a => ({
+    return Array.from(apps.values()).map((a) => ({
       appId: a.name,
       name: a.name,
       pid: a.pid,
@@ -192,7 +221,10 @@ export class NutJSProvider implements ComputerUseProvider {
         activeRegion = await activeWin.region;
       }
     } catch (err) {
-      this._logger?.debug({ err }, 'NutJSProvider: getActiveWindow failed (headless/Wayland?) — using defaults');
+      this._logger?.debug(
+        { err },
+        'NutJSProvider: getActiveWindow failed (headless/Wayland?) — using defaults',
+      );
     }
 
     const leaseId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -207,13 +239,23 @@ export class NutJSProvider implements ComputerUseProvider {
       createdAt: new Date().toISOString(),
       status: 'active',
       allowedActions: [
-        'click_point', 'double_click', 'type_text', 'press_key',
-        'scroll', 'drag', 'stop',
+        'click_point',
+        'double_click',
+        'type_text',
+        'press_key',
+        'scroll',
+        'drag',
+        'stop',
       ],
       providerState: {
         windowTitle: activeTitle,
         windowBounds: activeRegion
-          ? { left: activeRegion.left, top: activeRegion.top, width: activeRegion.width, height: activeRegion.height }
+          ? {
+              left: activeRegion.left,
+              top: activeRegion.top,
+              width: activeRegion.width,
+              height: activeRegion.height,
+            }
           : { left: 0, top: 0, width: 0, height: 0 },
         targetApp: target.appName,
       },
@@ -284,7 +326,9 @@ export class NutJSProvider implements ComputerUseProvider {
             height: pixelData.height,
             channels: pixelData.channels,
           },
-        }).png().toBuffer();
+        })
+          .png()
+          .toBuffer();
         base64Data = pngBuffer.toString('base64');
       }
     } catch (err: unknown) {
@@ -305,7 +349,10 @@ export class NutJSProvider implements ComputerUseProvider {
           winRegion = await windows[i].region;
           winTitle = await windows[i].title;
         } catch (err) {
-          this._logger?.debug({ err, windowIndex: i }, 'NutJSProvider: skipping inaccessible window');
+          this._logger?.debug(
+            { err, windowIndex: i },
+            'NutJSProvider: skipping inaccessible window',
+          );
         }
         if (winRegion && winRegion.width > 0 && winRegion.height > 0) {
           elements.push({
@@ -337,7 +384,10 @@ export class NutJSProvider implements ComputerUseProvider {
         windowTitle = await activeWin.title;
       }
     } catch (err) {
-      this._logger?.debug({ err }, 'NutJSProvider: activeWin.title failed — falling back to lease providerState');
+      this._logger?.debug(
+        { err },
+        'NutJSProvider: activeWin.title failed — falling back to lease providerState',
+      );
       windowTitle = lease.providerState?.windowTitle as string | undefined;
     }
 
@@ -504,10 +554,7 @@ export class NutJSProvider implements ComputerUseProvider {
         }
         try {
           const start = await nut.mouse.getPosition();
-          await nut.mouse.drag([
-            start,
-            new Point(Math.round(action.x), Math.round(action.y)),
-          ]);
+          await nut.mouse.drag([start, new Point(Math.round(action.x), Math.round(action.y))]);
           return { ok: true, action: action.type };
         } catch (err: unknown) {
           return {
@@ -549,7 +596,7 @@ export class NutJSProvider implements ComputerUseProvider {
    */
   private async _launchApp(appName: string): Promise<void> {
     const { spawn } = await import('child_process');
-    return new Promise<void>(resolve => {
+    return new Promise<void>((resolve) => {
       const platform = process.platform;
       let cmd: string;
       let args: string[];
@@ -585,38 +632,38 @@ export class NutJSProvider implements ComputerUseProvider {
    */
   private _mapKeyToNut(key: string): Key | null {
     const map: Record<string, Key> = {
-      'Enter': Key.Enter,
-      'Return': Key.Enter,
-      'Escape': Key.Escape,
-      'Esc': Key.Escape,
-      'Tab': Key.Tab,
-      'BackSpace': Key.Backspace,
-      'Delete': Key.Delete,
-      'Home': Key.Home,
-      'End': Key.End,
-      'Page_Up': Key.PageUp,
-      'Page_Down': Key.PageDown,
-      'Up': Key.Up,
-      'Down': Key.Down,
-      'Left': Key.Left,
-      'Right': Key.Right,
-      'F1': Key.F1,
-      'F2': Key.F2,
-      'F3': Key.F3,
-      'F4': Key.F4,
-      'F5': Key.F5,
-      'F6': Key.F6,
-      'F7': Key.F7,
-      'F8': Key.F8,
-      'F9': Key.F9,
-      'F10': Key.F10,
-      'F11': Key.F11,
-      'F12': Key.F12,
-      'space': Key.Space,
-      'Space': Key.Space,
-      'Control': Key.LeftControl,
-      'Alt': Key.LeftAlt,
-      'Shift': Key.LeftShift,
+      Enter: Key.Enter,
+      Return: Key.Enter,
+      Escape: Key.Escape,
+      Esc: Key.Escape,
+      Tab: Key.Tab,
+      BackSpace: Key.Backspace,
+      Delete: Key.Delete,
+      Home: Key.Home,
+      End: Key.End,
+      Page_Up: Key.PageUp,
+      Page_Down: Key.PageDown,
+      Up: Key.Up,
+      Down: Key.Down,
+      Left: Key.Left,
+      Right: Key.Right,
+      F1: Key.F1,
+      F2: Key.F2,
+      F3: Key.F3,
+      F4: Key.F4,
+      F5: Key.F5,
+      F6: Key.F6,
+      F7: Key.F7,
+      F8: Key.F8,
+      F9: Key.F9,
+      F10: Key.F10,
+      F11: Key.F11,
+      F12: Key.F12,
+      space: Key.Space,
+      Space: Key.Space,
+      Control: Key.LeftControl,
+      Alt: Key.LeftAlt,
+      Shift: Key.LeftShift,
     };
     return map[key] ?? null;
   }

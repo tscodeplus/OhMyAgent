@@ -15,7 +15,9 @@ export function createSessionSummarizeTool(options: {
   episodeRepository: EpisodeRepository;
 }): AgentTool<any> {
   const schema = z.object({
-    reason: z.string().optional()
+    reason: z
+      .string()
+      .optional()
       .describe('Brief reason for summarization (e.g., "topic concluded", "task completed")'),
   });
 
@@ -46,7 +48,12 @@ export function createSessionSummarizeTool(options: {
           const expectedSummaries = Math.floor(totalMessages / summarizeInterval);
 
           if (totalMessages < 5) {
-            results.push(i18n.t('tools-session:tooFewMessages', { id: session.id.slice(0, 12), count: totalMessages }));
+            results.push(
+              i18n.t('tools-session:tooFewMessages', {
+                id: session.id.slice(0, 12),
+                count: totalMessages,
+              }),
+            );
             continue;
           }
 
@@ -80,7 +87,14 @@ export function createSessionSummarizeTool(options: {
         return { content: [{ type: 'text', text: results.join('\n') }] };
       } catch (error) {
         return {
-          content: [{ type: 'text', text: i18n.t('tools-session:summaryFailed', { error: error instanceof Error ? error.message : String(error) }) }],
+          content: [
+            {
+              type: 'text',
+              text: i18n.t('tools-session:summaryFailed', {
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            },
+          ],
         };
       }
     },

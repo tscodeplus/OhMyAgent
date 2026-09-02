@@ -23,10 +23,7 @@ import type { ComputerUseHost } from '../computer-use/computer-host.js';
 import type { ResolvedAgentConfig } from './config-types.js';
 import type { PendingApprovalStore } from './approval-store.js';
 import type { AgentPolicyScope, ApprovalKind } from '../policy/types.js';
-import {
-  toolApprovalSubject,
-  type ToolPolicyInputWithSkill,
-} from '../policy/policy-center.js';
+import { toolApprovalSubject, type ToolPolicyInputWithSkill } from '../policy/policy-center.js';
 import { getSkillToolPolicy } from './skill-activator.js';
 import { generateId } from '../shared/ids.js';
 import { extractPathArg } from '../shared/path-utils.js';
@@ -313,8 +310,7 @@ async function handleShellApproval(
     if (!session || !activeChatId) {
       return {
         block: true,
-        reason:
-          'Shell command requires approval, but no interactive approval channel is available',
+        reason: 'Shell command requires approval, but no interactive approval channel is available',
       } satisfies BeforeToolCallResult;
     }
 

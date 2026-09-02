@@ -1,7 +1,16 @@
 // src/computer-use/providers/mock-provider.ts
 
 import type { ComputerUseProvider } from '../provider-contract.js';
-import type { Ctx, Lease, Target, AppState, AppInfo, ProviderStatus, Action, ActionResult } from '../types.js';
+import type {
+  Ctx,
+  Lease,
+  Target,
+  AppState,
+  AppInfo,
+  ProviderStatus,
+  Action,
+  ActionResult,
+} from '../types.js';
 import { normalizeComputerProviderCapabilities } from '../provider-contract.js';
 
 const ONE_PIXEL_PNG_BASE64 =
@@ -11,7 +20,9 @@ export interface MockComputerProvider extends ComputerUseProvider {
   readonly actions: ReadonlyArray<{ leaseId: string; action: Partial<Action> }>;
 }
 
-export function createMockComputerProvider(options?: { providerId?: string }): MockComputerProvider {
+export function createMockComputerProvider(options?: {
+  providerId?: string;
+}): MockComputerProvider {
   const providerId = options?.providerId ?? 'mock';
   const _actions: { leaseId: string; action: Partial<Action> }[] = [];
 

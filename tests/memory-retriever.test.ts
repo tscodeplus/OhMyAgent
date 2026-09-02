@@ -78,7 +78,13 @@ vi.mock('../src/memory/query-planner.js', () => ({
   })),
   extractSpeaker: vi.fn(() => undefined),
   augmentSlotQueries: vi.fn((slot: any, variants: string[]) => [slot.query, ...variants]),
-  DEFAULT_PLANNER_CONFIG: { enabled: false, maxEntities: 5, commonalityCoverage: false, speakerBoost: 1.2, perSlotFloor: 3 },
+  DEFAULT_PLANNER_CONFIG: {
+    enabled: false,
+    maxEntities: 5,
+    commonalityCoverage: false,
+    speakerBoost: 1.2,
+    perSlotFloor: 3,
+  },
 }));
 
 // Coverage merge — identity
@@ -144,7 +150,9 @@ function createMockEmbeddingClient(overrides: Partial<EmbeddingClient> = {}): Em
     embedOne: vi.fn().mockResolvedValue(new Float32Array([0.1, 0.2, 0.3])),
     embed: vi.fn().mockResolvedValue([]),
     isConfigured: vi.fn(() => true),
-    get model(): string { return 'test-embed-model'; },
+    get model(): string {
+      return 'test-embed-model';
+    },
     ...overrides,
   } as unknown as EmbeddingClient;
 }
@@ -277,13 +285,10 @@ describe('concurrentMap', () => {
 
   it('propagates errors from the mapper', async () => {
     await expect(
-      concurrentMap(
-        [1, 2, 3],
-        async (x) => {
-          if (x === 2) throw new Error('item-2-failed');
-          return x;
-        },
-      ),
+      concurrentMap([1, 2, 3], async (x) => {
+        if (x === 2) throw new Error('item-2-failed');
+        return x;
+      }),
     ).rejects.toThrow('item-2-failed');
   });
 
@@ -352,11 +357,29 @@ describe('MemoryRetriever', () => {
 
     it('returns results from text fallback when FTS has no matches', async () => {
       const mockRepo = createMockMemoryRepository({
-        mem1: { id: 'mem1', scope: 'user', scope_key: '', kind: 'fact', content: 'test content', status: 'active', created_at: '1000' },
+        mem1: {
+          id: 'mem1',
+          scope: 'user',
+          scope_key: '',
+          kind: 'fact',
+          content: 'test content',
+          status: 'active',
+          created_at: '1000',
+        },
       });
-      mockRepo.searchByContent = vi.fn().mockReturnValue([
-        { id: 'mem1', scope: 'user', scope_key: '', kind: 'fact', content: 'test content', status: 'active', created_at: '1000' },
-      ]);
+      mockRepo.searchByContent = vi
+        .fn()
+        .mockReturnValue([
+          {
+            id: 'mem1',
+            scope: 'user',
+            scope_key: '',
+            kind: 'fact',
+            content: 'test content',
+            status: 'active',
+            created_at: '1000',
+          },
+        ]);
       retriever = createRetriever({ memoryRepository: mockRepo as any });
       const results = await retriever.retrieve({ query: 'test', textOnly: true });
       expect(results).toHaveLength(1);
@@ -411,7 +434,11 @@ describe('MemoryRetriever', () => {
 
   describe('circuit breaker', () => {
     it('degrades to empty vector results when breaker is OPEN', async () => {
-      const breaker = new CircuitBreaker({ failureThreshold: 1, cooldownMs: 60000, nowFn: () => Date.now() });
+      const breaker = new CircuitBreaker({
+        failureThreshold: 1,
+        cooldownMs: 60000,
+        nowFn: () => Date.now(),
+      });
       breaker.recordFailure(); // Trip to OPEN
 
       retriever = createRetriever({ embeddingBreaker: breaker });

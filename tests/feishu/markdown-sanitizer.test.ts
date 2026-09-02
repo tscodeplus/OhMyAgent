@@ -1,12 +1,21 @@
 import { describe, it, expect } from 'vitest';
-import { fixFeishuBold, fixFeishuMarkdown } from '../../extensions/channel-feishu/render/markdown-sanitizer.js';
+import {
+  fixFeishuBold,
+  fixFeishuMarkdown,
+} from '../../extensions/channel-feishu/render/markdown-sanitizer.js';
 
 const ZWSP = '​';
 
 // Shorthand: marker with inner and outer CJK content
-function boldInner(c: string) { return `**${ZWSP}${c}${ZWSP}**`; }
-function italicInner(c: string) { return `*${ZWSP}${c}${ZWSP}*`; }
-function strikeInner(c: string) { return `~~${ZWSP}${c}${ZWSP}~~`; }
+function boldInner(c: string) {
+  return `**${ZWSP}${c}${ZWSP}**`;
+}
+function italicInner(c: string) {
+  return `*${ZWSP}${c}${ZWSP}*`;
+}
+function strikeInner(c: string) {
+  return `~~${ZWSP}${c}${ZWSP}~~`;
+}
 
 describe('fixFeishuMarkdown', () => {
   // ─── Bold (**) ───

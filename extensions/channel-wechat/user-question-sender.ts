@@ -25,9 +25,7 @@ export interface WechatUserQuestionDeps {
   logger?: Logger;
 }
 
-export function createWechatUserQuestionSender(
-  deps: WechatUserQuestionDeps,
-): UserQuestionSender {
+export function createWechatUserQuestionSender(deps: WechatUserQuestionDeps): UserQuestionSender {
   const { apiBase, botToken, toUserId, contextToken, textLimit, logger } = deps;
 
   return {
@@ -49,15 +47,7 @@ export function createWechatUserQuestionSender(
       }
 
       try {
-        await sendChunkedText(
-          apiBase,
-          botToken,
-          toUserId,
-          contextToken,
-          text,
-          textLimit,
-          logger,
-        );
+        await sendChunkedText(apiBase, botToken, toUserId, contextToken, text, textLimit, logger);
       } catch {
         // If we can't send, the tool will fall back
       }

@@ -4,7 +4,8 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { existsSync } from 'node:fs';
 
 const isWSL = process.platform === 'linux' && existsSync('/proc/sys/fs/binfmt_misc/WSLInterop');
-const hasDisplay = !!process.env.DISPLAY || process.platform === 'darwin' || process.platform === 'win32';
+const hasDisplay =
+  !!process.env.DISPLAY || process.platform === 'darwin' || process.platform === 'win32';
 const runSmoke = hasDisplay && !isWSL;
 
 describe.runIf(runSmoke)('nut.js smoke test', () => {

@@ -71,10 +71,7 @@ export interface TimingResult<T> {
   endTime: number;
 }
 
-export type TimingLoggerFn = (
-  obj: Record<string, unknown>,
-  msg: string,
-) => void;
+export type TimingLoggerFn = (obj: Record<string, unknown>, msg: string) => void;
 
 /**
  * Wrap an async function with duration logging using `performance.now()`.
@@ -112,7 +109,10 @@ export async function withTiming<T>(
     const endTime = performance.now();
     const durationMs = endTime - startTime;
 
-    logger.info({ label, durationMs, startTime, endTime }, `${label} completed in ${durationMs.toFixed(2)}ms`);
+    logger.info(
+      { label, durationMs, startTime, endTime },
+      `${label} completed in ${durationMs.toFixed(2)}ms`,
+    );
     return { result, durationMs, startTime, endTime };
   } catch (err) {
     const endTime = performance.now();
@@ -193,5 +193,8 @@ export function logErrorContext(
     };
   }
 
-  logger.error(base, `[${context.source ?? 'unknown'}] ${error instanceof Error ? error.message : String(error)}`);
+  logger.error(
+    base,
+    `[${context.source ?? 'unknown'}] ${error instanceof Error ? error.message : String(error)}`,
+  );
 }

@@ -168,11 +168,7 @@ describe('updateCard', () => {
     });
 
     expect(client.updateMessage).toHaveBeenCalledOnce();
-    expect(client.updateMessage).toHaveBeenCalledWith(
-      'om-msg-to-update',
-      'interactive',
-      card,
-    );
+    expect(client.updateMessage).toHaveBeenCalledWith('om-msg-to-update', 'interactive', card);
   });
 
   it('should return void', async () => {

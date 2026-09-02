@@ -51,7 +51,7 @@ describe('win-uia server script (PowerShell template)', () => {
     // .NET Framework builds (observed on Win11 + PS 5.1), so we focus via
     // the AutomationElement.SetFocus() method, which exists everywhere.
     expect(script).toContain("textbox='FOC'");
-    expect(script).toContain("$el.SetFocus()");
+    expect(script).toContain('$el.SetFocus()');
     expect(script).toContain("'FOC' { try { $el.SetFocus(); $r=$true } catch {}");
   });
 
@@ -124,15 +124,25 @@ describe('win-uia server script (PowerShell template)', () => {
     // startup with "当前上下文中不存在名称CloseHandle" and the whole
     // handshake timed out. PowerShell Parser::ParseFile can't catch this -
     // only the C# compiler can.
-    expect(script).toContain('[DllImport("kernel32.dll")]public static extern bool CloseHandle(IntPtr h);');
+    expect(script).toContain(
+      '[DllImport("kernel32.dll")]public static extern bool CloseHandle(IntPtr h);',
+    );
     expect(script).toContain('extern IntPtr OpenProcess(uint a,bool i,uint p);');
     expect(script).toContain('extern bool OpenProcessToken(IntPtr h,uint a,out IntPtr t);');
-    expect(script).toContain('extern bool GetTokenInformation(IntPtr t,uint c,byte[] b,uint n,out uint r);');
+    expect(script).toContain(
+      'extern bool GetTokenInformation(IntPtr t,uint c,byte[] b,uint n,out uint r);',
+    );
     // User-activity guard + focus-free launch (same Add-Type trap: a missing
     // [DllImport] compiles fine until Add-Type runs on the real machine).
-    expect(script).toContain('public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }');
-    expect(script).toContain('[DllImport("user32.dll")]public static extern bool GetLastInputInfo(ref LASTINPUTINFO li);');
-    expect(script).toContain('[DllImport("user32.dll")]public static extern bool ShowWindow(IntPtr h,int c);');
+    expect(script).toContain(
+      'public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }',
+    );
+    expect(script).toContain(
+      '[DllImport("user32.dll")]public static extern bool GetLastInputInfo(ref LASTINPUTINFO li);',
+    );
+    expect(script).toContain(
+      '[DllImport("user32.dll")]public static extern bool ShowWindow(IntPtr h,int c);',
+    );
   });
 
   it('WaitHwnd never assigns a null MainWindowHandle (PS 5.1 AppX trap)', () => {
@@ -238,8 +248,9 @@ describe('writeUiaServerScript', () => {
 
 describe('winToWslPath', () => {
   it('converts C:\\ paths to /mnt/c/ for WSL callers', () => {
-    expect(winToWslPath('C:\\Windows\\Temp\\ohmyagent\\win-uia-server.ps1'))
-      .toBe('/mnt/c/Windows/Temp/ohmyagent/win-uia-server.ps1');
+    expect(winToWslPath('C:\\Windows\\Temp\\ohmyagent\\win-uia-server.ps1')).toBe(
+      '/mnt/c/Windows/Temp/ohmyagent/win-uia-server.ps1',
+    );
     expect(winToWslPath(UIA_SERVER_SCRIPT_PATH)).toMatch(/^\/mnt\/c\//);
   });
 

@@ -52,7 +52,7 @@ function dcg(relevances: number[], k: number): number {
 }
 
 function ndcg(retrievedIds: string[], relevantIds: Set<string>, k: number): number {
-  const relevances = retrievedIds.map(id => relevantIds.has(id) ? 1 : 0);
+  const relevances = retrievedIds.map((id) => (relevantIds.has(id) ? 1 : 0));
   const ideal = [...relevances].sort((a, b) => b - a);
   const dcgVal = dcg(relevances, k);
   const idcgVal = dcg(ideal, k);
@@ -80,15 +80,17 @@ export function computeMetrics(
     queriesWithResults++;
 
     // P@5
-    const pAt5 = retrieved.slice(0, 5).filter(id => relevantSet.has(id)).length / 5;
+    const pAt5 = retrieved.slice(0, 5).filter((id) => relevantSet.has(id)).length / 5;
     totalPAt5 += pAt5;
 
     // R@5
-    const rAt5 = retrieved.slice(0, 5).filter(id => relevantSet.has(id)).length / relevantSet.size;
+    const rAt5 =
+      retrieved.slice(0, 5).filter((id) => relevantSet.has(id)).length / relevantSet.size;
     totalRAt5 += rAt5;
 
     // R@10
-    const rAt10 = retrieved.slice(0, 10).filter(id => relevantSet.has(id)).length / relevantSet.size;
+    const rAt10 =
+      retrieved.slice(0, 10).filter((id) => relevantSet.has(id)).length / relevantSet.size;
     totalRAt10 += rAt10;
 
     // MRR
@@ -105,7 +107,7 @@ export function computeMetrics(
     totalNdcg5 += ndcg(retrieved, relevantSet, 5);
   }
 
-  const n = pairs.filter(p => p.relevantMemoryIds && p.relevantMemoryIds.length > 0).length;
+  const n = pairs.filter((p) => p.relevantMemoryIds && p.relevantMemoryIds.length > 0).length;
   return {
     pAt5: n > 0 ? totalPAt5 / n : 0,
     rAt5: n > 0 ? totalRAt5 / n : 0,
@@ -151,8 +153,8 @@ export function computeV11EvalReport(cases: V11EvalCase[]): V11EvalReport {
 
     if (expected.length > 0) {
       precisionCases++;
-      const top1Hit = evalCase.retrievedIds.slice(0, 1).some(id => expectedSet.has(id));
-      const top3Hit = evalCase.retrievedIds.slice(0, 3).some(id => expectedSet.has(id));
+      const top1Hit = evalCase.retrievedIds.slice(0, 1).some((id) => expectedSet.has(id));
+      const top3Hit = evalCase.retrievedIds.slice(0, 3).some((id) => expectedSet.has(id));
       if (top1Hit) precisionAt1Hits++;
       if (top3Hit) precisionAt3Hits++;
       failed ||= !top3Hit;
@@ -160,7 +162,7 @@ export function computeV11EvalReport(cases: V11EvalCase[]): V11EvalReport {
 
     if (forbidden.length > 0) {
       forbiddenCases++;
-      const leaked = evalCase.retrievedIds.some(id => forbiddenSet.has(id));
+      const leaked = evalCase.retrievedIds.some((id) => forbiddenSet.has(id));
       if (leaked) forbiddenLeaks++;
       failed ||= leaked;
       if (evalCase.category === 'stale_summary' || evalCase.category === 'preference_freshness') {
@@ -194,47 +196,67 @@ function main() {
 
   if (!fs.existsSync(evalPath)) {
     console.log(`Eval file not found: ${evalPath}`);
-    console.log('Run pnpm eval:memory:build to generate eval pairs, then annotate relevantMemoryIds.');
+    console.log(
+      'Run pnpm eval:memory:build to generate eval pairs, then annotate relevantMemoryIds.',
+    );
     console.log('');
-    console.log(formatMetricsReport({
-      pAt5: 0,
-      rAt5: 0,
-      rAt10: 0,
-      mrr: 0,
-      ndcgAt5: 0,
-      totalQueries: 0,
-      queriesWithResults: 0,
-    }, 'Retrieval Evaluation (no dataset)'));
+    console.log(
+      formatMetricsReport(
+        {
+          pAt5: 0,
+          rAt5: 0,
+          rAt10: 0,
+          mrr: 0,
+          ndcgAt5: 0,
+          totalQueries: 0,
+          queriesWithResults: 0,
+        },
+        'Retrieval Evaluation (no dataset)',
+      ),
+    );
     return;
   }
 
   const pairs: EvalPair[] = JSON.parse(fs.readFileSync(evalPath, 'utf-8'));
-  const annotated = pairs.filter(p => p.relevantMemoryIds && p.relevantMemoryIds.length > 0);
+  const annotated = pairs.filter((p) => p.relevantMemoryIds && p.relevantMemoryIds.length > 0);
 
   if (annotated.length === 0) {
-    console.log('No annotated eval pairs found. Add relevantMemoryIds to each pair in the JSON file.');
+    console.log(
+      'No annotated eval pairs found. Add relevantMemoryIds to each pair in the JSON file.',
+    );
     console.log(`File: ${evalPath}`);
     console.log('');
-    console.log(formatMetricsReport({
-      pAt5: 0,
-      rAt5: 0,
-      rAt10: 0,
-      mrr: 0,
-      ndcgAt5: 0,
-      totalQueries: 0,
-      queriesWithResults: 0,
-    }, 'Retrieval Evaluation (no annotations)'));
+    console.log(
+      formatMetricsReport(
+        {
+          pAt5: 0,
+          rAt5: 0,
+          rAt10: 0,
+          mrr: 0,
+          ndcgAt5: 0,
+          totalQueries: 0,
+          queriesWithResults: 0,
+        },
+        'Retrieval Evaluation (no annotations)',
+      ),
+    );
     return;
   }
 
-  console.log(`Loaded ${annotated.length} annotated eval pairs (${pairs.length - annotated.length} unannotated skipped).`);
+  console.log(
+    `Loaded ${annotated.length} annotated eval pairs (${pairs.length - annotated.length} unannotated skipped).`,
+  );
   console.log('');
   console.log('To compute metrics, integrate with a live MemoryRetriever instance.');
-  console.log('This runner provides the metric computation functions — wire them into the app bootstrap for real numbers.');
+  console.log(
+    'This runner provides the metric computation functions — wire them into the app bootstrap for real numbers.',
+  );
   console.log('');
   console.log('Example integration:');
   console.log('  import { computeMetrics, formatMetricsReport } from "./eval-runner.js";');
-  console.log('  const retrieve = (q: string) => memoryRetriever.retrieve({ query: q, topK: 10 }).then(r => r.map(m => m.id));');
+  console.log(
+    '  const retrieve = (q: string) => memoryRetriever.retrieve({ query: q, topK: 10 }).then(r => r.map(m => m.id));',
+  );
   console.log('  const metrics = computeMetrics(pairs, retrieve);');
   console.log('  console.log(formatMetricsReport(metrics));');
 }

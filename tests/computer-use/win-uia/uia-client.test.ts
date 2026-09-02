@@ -29,14 +29,19 @@ function makeFakeChild(): FakeChild {
   const stderr = new EventEmitter();
   const sentLines: string[] = [];
   proc.stdin = {
-    write: vi.fn((line: string) => { sentLines.push(line); }),
+    write: vi.fn((line: string) => {
+      sentLines.push(line);
+    }),
     end: vi.fn(),
   };
   proc.stdout = stdout;
   proc.stderr = stderr;
-  proc.kill = vi.fn(() => { proc.emit('exit', null, 'SIGTERM'); });
+  proc.kill = vi.fn(() => {
+    proc.emit('exit', null, 'SIGTERM');
+  });
   (proc as FakeChild).sentLines = sentLines;
-  (proc as FakeChild).emitStdout = (line: string) => stdout.emit('data', Buffer.from(line + '\n', 'utf8'));
+  (proc as FakeChild).emitStdout = (line: string) =>
+    stdout.emit('data', Buffer.from(line + '\n', 'utf8'));
   (proc as FakeChild).emitExit = (code: number | null) => proc.emit('exit', code, null);
   return proc as unknown as FakeChild;
 }
@@ -51,7 +56,8 @@ vi.mock('node:child_process', () => ({
 
 // Never touch the real Windows filesystem in tests.
 vi.mock('../../../src/computer-use/win-uia/win-uia-scripts.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/computer-use/win-uia/win-uia-scripts.js')>();
+  const actual =
+    await importOriginal<typeof import('../../../src/computer-use/win-uia/win-uia-scripts.js')>();
   return { ...actual, writeUiaServerScript: vi.fn() };
 });
 

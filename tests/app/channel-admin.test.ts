@@ -11,7 +11,11 @@ import { describe, it, expect } from 'vitest';
 import { createChannelIsAdmin } from '../../src/app/composers/feishu-services.js';
 import type { AppConfig } from '../../src/app/types.js';
 
-function makeConfig(overrides: Partial<Record<'feishu' | 'telegram' | 'wechat' | 'qq', { allowedUsers: string[] }>> = {}): AppConfig {
+function makeConfig(
+  overrides: Partial<
+    Record<'feishu' | 'telegram' | 'wechat' | 'qq', { allowedUsers: string[] }>
+  > = {},
+): AppConfig {
   return {
     feishu: { allowedUsers: [] },
     telegram: { allowedUsers: [] },
@@ -51,7 +55,9 @@ describe('createChannelIsAdmin', () => {
 
   it('telegram: allowedUsers whitelist applies', () => {
     const isAdmin = createChannelIsAdmin(makeConfig({ telegram: { allowedUsers: ['t_admin'] } }));
-    expect(isAdmin({ senderId: 't_admin', chatType: 'supergroup', channel: 'telegram' })).toBe(true);
+    expect(isAdmin({ senderId: 't_admin', chatType: 'supergroup', channel: 'telegram' })).toBe(
+      true,
+    );
     expect(isAdmin({ senderId: 't_other', chatType: 'private', channel: 'telegram' })).toBe(false);
   });
 

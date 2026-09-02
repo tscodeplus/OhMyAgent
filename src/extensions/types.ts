@@ -11,7 +11,7 @@ export interface ExtensionManifest {
   version: string;
   kind: 'tool' | 'channel' | 'command' | 'hook';
   channel_type?: string;
-  main: string;  // default 'index.js'
+  main: string; // default 'index.js'
   description?: string;
 }
 
@@ -46,7 +46,7 @@ export interface LoadedExtension {
 export interface CommandContext {
   sessionKey: string;
   args: string;
-  deps: any;  // CommandDeps (will be refined later)
+  deps: any; // CommandDeps (will be refined later)
   messageId?: string;
   chatId?: string;
 }

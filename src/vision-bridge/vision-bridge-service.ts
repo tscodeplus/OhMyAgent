@@ -19,11 +19,7 @@ import { createHash } from 'node:crypto';
 
 // ─── Cache Key ───
 
-function imageCacheKey(
-  image: ImageContent,
-  userRequest: string,
-  modelSignature: string,
-): string {
+function imageCacheKey(image: ImageContent, userRequest: string, modelSignature: string): string {
   const hash = createHash('sha256');
   hash.update(String(image.type));
   if ('data' in image) hash.update(String(image.data));
@@ -77,7 +73,13 @@ export class VisionBridgeService {
     logger?: Logger,
   ) {
     this.cache = new VisionBridgeCache(config.maxCacheEntries);
-    this.logger = logger ?? { info: (..._args: any[]) => {}, warn: (..._args: any[]) => {}, error: (..._args: any[]) => {} } as unknown as Logger;
+    this.logger =
+      logger ??
+      ({
+        info: (..._args: any[]) => {},
+        warn: (..._args: any[]) => {},
+        error: (..._args: any[]) => {},
+      } as unknown as Logger);
   }
 
   /**
@@ -96,13 +98,16 @@ export class VisionBridgeService {
     if (!images.length) return { text: input, usedBridge: false };
 
     const modelHasVision = targetModel.input?.includes('image');
-    this.logger.info({
-      imageCount: images.length,
-      modelId: targetModel.id,
-      modelInput: targetModel.input,
-      modelHasVision,
-      forceBridge: opts?.forceBridge ?? false,
-    }, 'VisionBridge: bridge() called');
+    this.logger.info(
+      {
+        imageCount: images.length,
+        modelId: targetModel.id,
+        modelInput: targetModel.input,
+        modelHasVision,
+        forceBridge: opts?.forceBridge ?? false,
+      },
+      'VisionBridge: bridge() called',
+    );
 
     // When bridge is explicitly configured and enabled by the user,
     // it takes priority over model's declared image capabilities.
@@ -116,11 +121,14 @@ export class VisionBridgeService {
 
     try {
       const resolved = resolveVisionModel(this.config, this.customProviders);
-      this.logger.info({
-        provider: resolved.model.provider,
-        modelId: resolved.model.id,
-        hasCapabilities: getVisionCapabilities(resolved.model) !== null,
-      }, 'VisionBridge: vision model resolved');
+      this.logger.info(
+        {
+          provider: resolved.model.provider,
+          modelId: resolved.model.id,
+          hasCapabilities: getVisionCapabilities(resolved.model) !== null,
+        },
+        'VisionBridge: vision model resolved',
+      );
 
       const visionModel = withBaseUrl(resolved.model, resolved.baseUrl);
       const capabilities = getVisionCapabilities(resolved.model);
@@ -142,9 +150,18 @@ export class VisionBridgeService {
           this.logger.debug({ imageIndex: i }, 'VisionBridge: calling vision model');
           const t0 = Date.now();
           const note = capabilities
-            ? await this.analyzeWithPrimitives(visionModel, resolved.apiKey, image, input, capabilities)
+            ? await this.analyzeWithPrimitives(
+                visionModel,
+                resolved.apiKey,
+                image,
+                input,
+                capabilities,
+              )
             : await this.analyzeAsNote(visionModel, resolved.apiKey, image, input);
-          this.logger.debug({ imageIndex: i, durationMs: Date.now() - t0, noteLen: note.length }, 'VisionBridge: analysis done');
+          this.logger.debug(
+            { imageIndex: i, durationMs: Date.now() - t0, noteLen: note.length },
+            'VisionBridge: analysis done',
+          );
 
           this.cache.set(key, note);
           notes.push(note);
@@ -157,15 +174,18 @@ export class VisionBridgeService {
       const visionContext = notes.join('\n\n');
       const prefix = [
         '[System Note] The user sent an image that has been pre-analyzed by a vision model.',
-        'Below is the structured analysis result. Answer the user\'s question directly based on this information.',
+        "Below is the structured analysis result. Answer the user's question directly based on this information.",
         'Do NOT attempt to use any tools (file_read, file_search, shell, Python, etc.) to find or analyze the image file — analysis is complete and the original image is inaccessible.',
       ].join(' ');
 
       const text = `${prefix}\n\n${visionContext}\n\n${input}`;
-      this.logger.info({ contextLen: visionContext.length, totalLen: text.length }, 'VisionBridge: DONE');
+      this.logger.info(
+        { contextLen: visionContext.length, totalLen: text.length },
+        'VisionBridge: DONE',
+      );
       return { text, usedBridge: true };
     } catch (err) {
-      this.logger.error({err}, 'VisionBridge: FAILED to resolve/analyze');
+      this.logger.error({ err }, 'VisionBridge: FAILED to resolve/analyze');
       return { text: input, usedBridge: false };
     }
   }
@@ -184,7 +204,8 @@ export class VisionBridgeService {
     const response = await streamSimple(
       model,
       {
-        systemPrompt: 'You are a precise image analyst. Respond only with the requested structured note.',
+        systemPrompt:
+          'You are a precise image analyst. Respond only with the requested structured note.',
         messages: [message],
         tools: [],
       },
@@ -224,7 +245,8 @@ export class VisionBridgeService {
     const response = await streamSimple(
       model,
       {
-        systemPrompt: 'You are a precise image analyst. Respond only with the requested JSON object.',
+        systemPrompt:
+          'You are a precise image analyst. Respond only with the requested JSON object.',
         messages: [message],
         tools: [],
       },

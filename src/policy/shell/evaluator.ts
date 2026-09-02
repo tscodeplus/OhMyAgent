@@ -4,10 +4,7 @@
 
 import type { ShellPolicyInput, ShellPolicyDecision } from '../types.js';
 import type { ApprovalGate, ApprovalRequest as OldApprovalRequest } from '../../app/types.js';
-import {
-  getReadOnlyShellBlockReason,
-  normalizeCommand,
-} from '../../tools/shell-command-policy.js';
+import { getReadOnlyShellBlockReason, normalizeCommand } from '../../tools/shell-command-policy.js';
 
 export interface ShellExecutionPolicy {
   evaluate(input: ShellPolicyInput): Promise<ShellPolicyDecision>;
@@ -76,7 +73,10 @@ export class ShellExecutionPolicyImpl implements ShellExecutionPolicy {
     }
   }
 
-  private assessRisk(normalized: { program: string; containsSecrets: boolean }): 'low' | 'medium' | 'high' {
+  private assessRisk(normalized: {
+    program: string;
+    containsSecrets: boolean;
+  }): 'low' | 'medium' | 'high' {
     if (normalized.containsSecrets) return 'high';
 
     const riskPrograms = ['rm', 'dd', 'mkfs', 'shutdown', 'reboot', 'chmod', 'chown'];

@@ -96,7 +96,9 @@ ${bodyContent}
 }
 
 function feishuSetupPage(sessionId: string): string {
-  return basePage('Feishu Bot Setup', `
+  return basePage(
+    'Feishu Bot Setup',
+    `
 <h2>&#x1F4E1; Feishu Bot Configuration</h2>
 <p>Paste your Feishu bot credentials below. You can find them in the
 <a href="https://open.feishu.cn/app" target="_blank">Feishu Developer Console</a>
@@ -110,11 +112,14 @@ under your app's "Credentials" section.</p>
 <script>
 const sessionId = ${JSON.stringify(sessionId)};
 ${submitScript()}
-</script>`);
+</script>`,
+  );
 }
 
 function qqSetupPage(sessionId: string): string {
-  return basePage('QQ Bot Setup', `
+  return basePage(
+    'QQ Bot Setup',
+    `
 <h2>&#x1F4E2; QQ Bot Configuration</h2>
 <p>Paste your QQ bot credentials below. You can find them in the
 <a href="https://q.qq.com" target="_blank">QQ Open Platform</a>
@@ -128,7 +133,8 @@ under your bot's settings.</p>
 <script>
 const sessionId = ${JSON.stringify(sessionId)};
 ${submitScript()}
-</script>`);
+</script>`,
+  );
 }
 
 function submitScript(): string {
@@ -188,25 +194,28 @@ async function submitCreds(channel) {
 }
 
 function expiredPage(): string {
-  return basePage('Session Expired', `
+  return basePage(
+    'Session Expired',
+    `
 <h2>&#x23F0; Session Expired</h2>
-<p>This QR configuration session has expired. Please generate a new QR code from the settings page.</p>`);
+<p>This QR configuration session has expired. Please generate a new QR code from the settings page.</p>`,
+  );
 }
 
 function notFoundPage(): string {
-  return basePage('Not Found', `
+  return basePage(
+    'Not Found',
+    `
 <h2>&#x274C; Not Found</h2>
-<p>This configuration session does not exist. Please generate a new QR code from the settings page.</p>`);
+<p>This configuration session does not exist. Please generate a new QR code from the settings page.</p>`,
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Route registration
 // ---------------------------------------------------------------------------
 
-export function registerQRExchangeRoutes(
-  app: FastifyInstance,
-  sessionStore: QrSessionStore,
-): void {
+export function registerQRExchangeRoutes(app: FastifyInstance, sessionStore: QrSessionStore): void {
   // Feishu credential exchange page
   app.get('/qr-exchange/feishu/:sessionId', async (req, reply) => {
     const { sessionId } = req.params as { sessionId: string };

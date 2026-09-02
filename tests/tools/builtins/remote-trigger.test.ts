@@ -19,8 +19,19 @@ function makeCtx(overrides?: Partial<ToolExecutionContext>): ToolExecutionContex
       config: {
         remoteTriggers: {
           targets: [
-            { id: 'deploy-webhook', name: 'Deploy Webhook', url: 'https://127.0.0.1:19999/deploy', method: 'POST' },
-            { id: 'status-update', name: 'Status Update', url: 'https://api.example.com/status', method: 'PUT', headers: { 'X-Api-Key': 'secret123' } },
+            {
+              id: 'deploy-webhook',
+              name: 'Deploy Webhook',
+              url: 'https://127.0.0.1:19999/deploy',
+              method: 'POST',
+            },
+            {
+              id: 'status-update',
+              name: 'Status Update',
+              url: 'https://api.example.com/status',
+              method: 'PUT',
+              headers: { 'X-Api-Key': 'secret123' },
+            },
           ],
         },
       },
@@ -75,7 +86,12 @@ describe('remote_trigger', () => {
         config: {
           remoteTriggers: {
             targets: [
-              { id: 'http-endpoint', name: 'HTTP Endpoint', url: 'http://public-api.example.com/action', method: 'POST' },
+              {
+                id: 'http-endpoint',
+                name: 'HTTP Endpoint',
+                url: 'http://public-api.example.com/action',
+                method: 'POST',
+              },
             ],
           },
         },

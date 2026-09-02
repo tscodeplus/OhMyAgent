@@ -32,7 +32,13 @@ import { subscribeToolRunAudit } from './tool-audit.js';
 import { activeSkillFeedbackIds } from './skill-activator.js';
 import { inferSatisfaction } from '../skills/skill-evolution/skill-metrics.js';
 import type { HarnessServices } from '../harness/factory.js';
-import type { FailureContext, ToolCallRecord, FailureSignal, ImprovementProposal, SkillStatsInfo } from '../harness/types.js';
+import type {
+  FailureContext,
+  ToolCallRecord,
+  FailureSignal,
+  ImprovementProposal,
+  SkillStatsInfo,
+} from '../harness/types.js';
 import {
   generateSessionTitle,
   isPlaceholderTitle,
@@ -47,7 +53,11 @@ export interface AgentServiceOptions {
   messageId?: string;
   systemPrompt?: string;
   tools?: any[];
-  historyMessages?: Array<{ role: string; content: string | Array<{ type: string; text?: string }>; timestamp: number }>;
+  historyMessages?: Array<{
+    role: string;
+    content: string | Array<{ type: string; text?: string }>;
+    timestamp: number;
+  }>;
   images?: ImageContent[];
   /** If set, use this dispatcher instead of creating one via the factory. Used by channels. */
   replyDispatcherOverride?: ReplyDispatcher;
@@ -106,9 +116,7 @@ export interface AgentServicePersistenceOptions {
  * compression threshold disagree about the size of the same transcript.
  */
 function estimateTokens(content: string | Array<{ type: string; text?: string }>): number {
-  const text = typeof content === 'string'
-    ? content
-    : content.map(b => b.text ?? '').join('');
+  const text = typeof content === 'string' ? content : content.map((b) => b.text ?? '').join('');
   return Math.ceil(estimateTokensForText(text));
 }
 
@@ -168,38 +176,41 @@ export class AgentService {
   /** Sessions whose auto-title generation is currently in flight. */
   private pendingTitles = new Set<string>();
 
-  private runtimes = new Map<string, {
-    agent: Agent;
-    bridge: EventBridge | null;
-    auditUnsubscribe?: () => void;
-    persistedMessageCount: number;
-    turnElapsed?: number;
-    /** Agent message count at the start of the current turn. Tool-call
-     *  extraction (completion metrics, harness failure context) only
-     *  considers messages after this baseline, so historical failures
-     *  are not re-analyzed. */
-    turnMessageBaseline?: number;
-    /** Message objects present when the turn started. Identity-based window
-     *  for tool-call extraction: survives mid-turn context compression,
-     *  which shrinks state.messages and would otherwise make a length
-     *  baseline slice empty (missing the turn's metrics entirely). */
-    turnBaselineMessages?: Set<AgentMessage>;
-    turnContext: AgentTurnContext;
-    channel?: string;
-    /** Agent name captured from the dispatcher for metadata persistence. */
-    agentName?: string;
-    /** Footer display config captured from the dispatcher for metadata persistence. */
-    footerConfig?: FooterConfig;
-    /** Skill name activated for this turn (consumed by persistMessages on first assistant msg). */
-    skillActivatedName?: string;
-    /** Whether to persist tool call metadata (respects showToolCalls setting). */
-    showToolCalls?: boolean;
-    /** Timestamp of the last turn on this session — idle-TTL eviction key. */
-    lastTouchedAt: number;
-    /** True while execute() is running a turn; the sweeper must never drop
-     *  a runtime that is mid-turn (or waiting on an approval). */
-    turnActive: boolean;
-  }>();
+  private runtimes = new Map<
+    string,
+    {
+      agent: Agent;
+      bridge: EventBridge | null;
+      auditUnsubscribe?: () => void;
+      persistedMessageCount: number;
+      turnElapsed?: number;
+      /** Agent message count at the start of the current turn. Tool-call
+       *  extraction (completion metrics, harness failure context) only
+       *  considers messages after this baseline, so historical failures
+       *  are not re-analyzed. */
+      turnMessageBaseline?: number;
+      /** Message objects present when the turn started. Identity-based window
+       *  for tool-call extraction: survives mid-turn context compression,
+       *  which shrinks state.messages and would otherwise make a length
+       *  baseline slice empty (missing the turn's metrics entirely). */
+      turnBaselineMessages?: Set<AgentMessage>;
+      turnContext: AgentTurnContext;
+      channel?: string;
+      /** Agent name captured from the dispatcher for metadata persistence. */
+      agentName?: string;
+      /** Footer display config captured from the dispatcher for metadata persistence. */
+      footerConfig?: FooterConfig;
+      /** Skill name activated for this turn (consumed by persistMessages on first assistant msg). */
+      skillActivatedName?: string;
+      /** Whether to persist tool call metadata (respects showToolCalls setting). */
+      showToolCalls?: boolean;
+      /** Timestamp of the last turn on this session — idle-TTL eviction key. */
+      lastTouchedAt: number;
+      /** True while execute() is running a turn; the sweeper must never drop
+       *  a runtime that is mid-turn (or waiting on an approval). */
+      turnActive: boolean;
+    }
+  >();
 
   private sessionAgentMap = new Map<string, string>();
 
@@ -213,7 +224,11 @@ export class AgentService {
 
   constructor(
     private factory: AgentFactory,
-    private replyDispatcherFactory: (chatId: string, messageId?: string, agentId?: string) => ReplyDispatcher,
+    private replyDispatcherFactory: (
+      chatId: string,
+      messageId?: string,
+      agentId?: string,
+    ) => ReplyDispatcher,
     private persistence?: AgentServicePersistenceOptions,
     /** Lazy factory — VisionBridgeService is only created on first image analysis. */
     private getVisionBridge?: () => VisionBridgeService | undefined,
@@ -232,10 +247,7 @@ export class AgentService {
    * Execute a prompt — reuses the existing Agent for conversation continuity.
    * Creates a new Agent only on the first call or when the session changes.
    */
-  async execute(
-    input: string,
-    options?: AgentServiceOptions,
-  ): Promise<Agent> {
+  async execute(input: string, options?: AgentServiceOptions): Promise<Agent> {
     const sessionId = options?.sessionId ?? 'default';
     let runtime = this.runtimes.get(sessionId);
     if (runtime?.turnActive) {
@@ -265,7 +277,10 @@ export class AgentService {
           this.getServices?.()?.skillMetricsService?.recordSatisfaction(pendingFeedbackId, sat);
         } catch (err) {
           // Non-fatal — best-effort metrics recording must never break the turn
-          this.persistence?.logger?.debug({ err, sessionId }, 'recordSatisfaction failed — best-effort');
+          this.persistence?.logger?.debug(
+            { err, sessionId },
+            'recordSatisfaction failed — best-effort',
+          );
         }
         this.pendingSatisfaction.delete(sessionId);
       }
@@ -292,11 +307,10 @@ export class AgentService {
         if (limit > 0) {
           try {
             const rows = this.persistence.messageRepository.findBySessionIdDesc(sessionId, limit);
-            const parsed = rows.reverse().map(m => ({
+            const parsed = rows.reverse().map((m) => ({
               role: m.role,
-              content: m.role === 'assistant'
-                ? [{ type: 'text' as const, text: m.content }]
-                : m.content,
+              content:
+                m.role === 'assistant' ? [{ type: 'text' as const, text: m.content }] : m.content,
               timestamp: new Date(m.created_at).getTime(),
             }));
             // Apply token cap: keep newest messages that fit within maxTokens.
@@ -316,7 +330,10 @@ export class AgentService {
             }
           } catch {
             // Non-fatal — start with empty history if the DB read fails
-            this.persistence?.logger?.debug({ sessionId }, 'History load failed — starting with empty history');
+            this.persistence?.logger?.debug(
+              { sessionId },
+              'History load failed — starting with empty history',
+            );
           }
         }
       }
@@ -371,8 +388,9 @@ export class AgentService {
 
     // Create a fresh dispatcher and bridge for each turn (new card per message)
     runtime.bridge?.stop();
-    const dispatcher = options?.replyDispatcherOverride
-      ?? this.replyDispatcherFactory(options?.chatId ?? '', options?.messageId, agentIdFromSession);
+    const dispatcher =
+      options?.replyDispatcherOverride ??
+      this.replyDispatcherFactory(options?.chatId ?? '', options?.messageId, agentIdFromSession);
     runtime.turnContext.chatId = options?.chatId;
     runtime.turnContext.messageId = options?.messageId;
     if (options?.channel) runtime.channel = options.channel;
@@ -468,7 +486,10 @@ export class AgentService {
           runtime.persistedMessageCount++;
         } catch {
           // Non-fatal — persistMessages() at turn end will persist it
-          this.persistence?.logger?.debug({ sessionId }, 'Pre-persist user message failed — will be persisted at turn end');
+          this.persistence?.logger?.debug(
+            { sessionId },
+            'Pre-persist user message failed — will be persisted at turn end',
+          );
         }
       }
 
@@ -492,7 +513,12 @@ export class AgentService {
             // Always bridge — regardless of model capability
             const vb = this.getVisionBridge?.();
             if (vb) {
-              const result = await vb.bridge(finalInput, finalImages, model as import('@earendil-works/pi-ai').Model<any>, { forceBridge: true });
+              const result = await vb.bridge(
+                finalInput,
+                finalImages,
+                model as import('@earendil-works/pi-ai').Model<any>,
+                { forceBridge: true },
+              );
               finalInput = result.text;
               finalImages = undefined;
             }
@@ -504,7 +530,12 @@ export class AgentService {
               // Text-only model — use vision bridge if available
               const vb = this.getVisionBridge?.();
               if (vb) {
-                const result = await vb.bridge(finalInput, finalImages, model as import('@earendil-works/pi-ai').Model<any>, { forceBridge: true });
+                const result = await vb.bridge(
+                  finalInput,
+                  finalImages,
+                  model as import('@earendil-works/pi-ai').Model<any>,
+                  { forceBridge: true },
+                );
                 finalInput = result.text;
                 finalImages = undefined;
               }
@@ -529,16 +560,14 @@ export class AgentService {
       // Persist messages to database (backup, not the source of truth)
       if (this.persistence && sessionId) {
         await this.persistMessages(agent, sessionId, runtime);
-        this.maybeSummarize(sessionId).catch(err => {
+        this.maybeSummarize(sessionId).catch((err) => {
           this.persistence?.logger.warn({ err }, 'Background summarization failed');
         });
       }
 
       // ---- Skill self-evolution feedback loop: completion metrics ----
       try {
-        const extracted = this.extractToolCalls(
-          this.currentTurnMessages(runtime),
-        );
+        const extracted = this.extractToolCalls(this.currentTurnMessages(runtime));
         const feedbackEntry = activeSkillFeedbackIds.get(sessionId);
         if (feedbackEntry) {
           // success stays null — the user's next message infers satisfaction
@@ -557,17 +586,24 @@ export class AgentService {
           this.harness.autoApplyMonitor.onActivationComplete(
             runtime.turnContext?.activatedSkillId ?? null,
             (agent as any).state?.agentId || 'default',
-            { success: true, errorCount: extracted.errorCount, durationMs: runtime.turnElapsed ?? 0 },
+            {
+              success: true,
+              errorCount: extracted.errorCount,
+              durationMs: runtime.turnElapsed ?? 0,
+            },
           );
         }
       } catch (err) {
         // Non-fatal — best-effort metrics recording must never break the turn
-        this.persistence?.logger?.debug({ err, sessionId }, 'Skill feedback completion failed — best-effort');
+        this.persistence?.logger?.debug(
+          { err, sessionId },
+          'Skill feedback completion failed — best-effort',
+        );
       }
 
       // ---- Self-Harness: failure detection and optimization ----
       if (this.harness) {
-        this.detectAndOptimize(runtime, sessionId, null).catch(err => {
+        this.detectAndOptimize(runtime, sessionId, null).catch((err) => {
           this.persistence?.logger.warn({ err }, 'Harness optimization failed');
         });
       }
@@ -598,9 +634,7 @@ export class AgentService {
       // Same backfill as the success path; runtime.turnElapsed may not have
       // been updated here, so the duration falls back to Date.now() - turnStart.
       try {
-        const extracted = this.extractToolCalls(
-          this.currentTurnMessages(runtime),
-        );
+        const extracted = this.extractToolCalls(this.currentTurnMessages(runtime));
         const feedbackEntry = activeSkillFeedbackIds.get(sessionId);
         if (feedbackEntry) {
           this.getServices?.()?.skillMetricsService?.recordCompletion(
@@ -616,17 +650,24 @@ export class AgentService {
           this.harness.autoApplyMonitor.onActivationComplete(
             runtime.turnContext?.activatedSkillId ?? null,
             (agent as any).state?.agentId || 'default',
-            { success: false, errorCount: extracted.errorCount, durationMs: Date.now() - turnStart },
+            {
+              success: false,
+              errorCount: extracted.errorCount,
+              durationMs: Date.now() - turnStart,
+            },
           );
         }
       } catch (err) {
         // Non-fatal — best-effort metrics recording must never break the turn
-        this.persistence?.logger?.debug({ err, sessionId }, 'Skill feedback failure completion failed — best-effort');
+        this.persistence?.logger?.debug(
+          { err, sessionId },
+          'Skill feedback failure completion failed — best-effort',
+        );
       }
 
       // ---- Self-Harness: detect failure from error ----
       if (this.harness) {
-        this.detectAndOptimize(runtime, sessionId, error).catch(err => {
+        this.detectAndOptimize(runtime, sessionId, error).catch((err) => {
           this.persistence?.logger.warn({ err }, 'Harness optimization failed');
         });
       }
@@ -704,10 +745,7 @@ export class AgentService {
         resolveTimeout = resolve;
       });
       armTimer();
-      timedOut = await Promise.race([
-        turnPromise.then(() => false),
-        timeoutPromise,
-      ]);
+      timedOut = await Promise.race([turnPromise.then(() => false), timeoutPromise]);
     } finally {
       unsubscribeActivity();
       if (timer !== undefined) clearTimeout(timer);
@@ -716,15 +754,15 @@ export class AgentService {
     if (!timedOut) return;
 
     const message = `Agent turn timed out after ${timeoutMs / 1000}s`;
-    this.persistence?.logger?.warn({ err: new TurnTimeoutError(message), sessionId }, 'Agent turn timed out');
+    this.persistence?.logger?.warn(
+      { err: new TurnTimeoutError(message), sessionId },
+      'Agent turn timed out',
+    );
     // Consume any late rejection — the abort path below already handled the outcome.
     turnPromise.catch(() => {});
 
     agent.abort();
-    const settled = await waitForIdleWithTimeout(
-      () => agent.waitForIdle(),
-      TURN_SETTLE_GRACE_MS,
-    );
+    const settled = await waitForIdleWithTimeout(() => agent.waitForIdle(), TURN_SETTLE_GRACE_MS);
     if (!settled) {
       this.persistence?.logger?.warn(
         { sessionId },
@@ -732,7 +770,9 @@ export class AgentService {
       );
       // agent_end will never fire — deliver the error card ourselves.
       try {
-        await runtime.turnContext.replyDispatcher?.onError(new Error(buildFriendlyErrorMessage(message)));
+        await runtime.turnContext.replyDispatcher?.onError(
+          new Error(buildFriendlyErrorMessage(message)),
+        );
       } catch {
         // Best-effort — the turn is already failing.
       }
@@ -750,7 +790,10 @@ export class AgentService {
    * preserving correct chronological order.
    */
   async abort(sessionId?: string): Promise<void> {
-    const settle = async (runtime: NonNullable<ReturnType<typeof this.runtimes.get>>, sessionKey?: string): Promise<void> => {
+    const settle = async (
+      runtime: NonNullable<ReturnType<typeof this.runtimes.get>>,
+      sessionKey?: string,
+    ): Promise<void> => {
       // P1 M6: bounded settle — a hung tool may never unwind, so /stop must
       // not hang the command handler (and with it the session queue).
       const settled = await waitForIdleWithTimeout(
@@ -779,9 +822,7 @@ export class AgentService {
       runtime.agent.abort();
     }
     // Wait for all runtimes to settle
-    await Promise.allSettled(
-      Array.from(this.runtimes.values()).map(r => settle(r)),
-    );
+    await Promise.allSettled(Array.from(this.runtimes.values()).map((r) => settle(r)));
   }
 
   /**
@@ -904,11 +945,12 @@ export class AgentService {
     const stateModel = runtime.agent.state.model;
     if (stateModel?.provider && stateModel?.id) {
       try {
-        runtime.turnContext.replyDispatcher?.setModel(
-          `${stateModel.provider}/${stateModel.id}`,
-        );
+        runtime.turnContext.replyDispatcher?.setModel(`${stateModel.provider}/${stateModel.id}`);
       } catch {
-        this.persistence?.logger?.debug({ sessionId }, 'swapCard: setModel not supported by dispatcher');
+        this.persistence?.logger?.debug(
+          { sessionId },
+          'swapCard: setModel not supported by dispatcher',
+        );
       }
     }
 
@@ -997,22 +1039,21 @@ export class AgentService {
     runtime.bridge?.stop();
     const dispatcher = runtime.turnContext.replyDispatcherFactory
       ? runtime.turnContext.replyDispatcherFactory()
-      : this.replyDispatcherFactory(
-          runtime.turnContext.chatId ?? '',
-          replyToMessageId,
-          agentId,
-        );
+      : this.replyDispatcherFactory(runtime.turnContext.chatId ?? '', replyToMessageId, agentId);
     runtime.turnContext.replyDispatcher = dispatcher;
     runtime.bridge = new EventBridge(dispatcher, this.persistence?.logger);
     runtime.bridge.start(runtime.agent);
     runtime.turnActive = true;
     runtime.lastTouchedAt = Date.now();
-    runtime.agent.prompt(message).catch(() => {
-      this.persistence?.logger?.debug({ sessionId }, 'followUp prompt completed with error');
-    }).finally(() => {
-      runtime.turnActive = false;
-      runtime.lastTouchedAt = Date.now();
-    });
+    runtime.agent
+      .prompt(message)
+      .catch(() => {
+        this.persistence?.logger?.debug({ sessionId }, 'followUp prompt completed with error');
+      })
+      .finally(() => {
+        runtime.turnActive = false;
+        runtime.lastTouchedAt = Date.now();
+      });
   }
 
   /**
@@ -1043,10 +1084,13 @@ export class AgentService {
   }
 
   /** Release the bridge/audit subscription and drop the runtime entry. */
-  private disposeRuntime(sessionId: string, runtime: {
-    bridge: EventBridge | null;
-    auditUnsubscribe?: () => void;
-  }): void {
+  private disposeRuntime(
+    sessionId: string,
+    runtime: {
+      bridge: EventBridge | null;
+      auditUnsubscribe?: () => void;
+    },
+  ): void {
     runtime.bridge?.stop();
     runtime.auditUnsubscribe?.();
     this.runtimes.delete(sessionId);
@@ -1062,9 +1106,7 @@ export class AgentService {
    */
   private runtimeIsResumable(agent: Agent): boolean {
     const messages = agent.state?.messages ?? [];
-    const last = messages[messages.length - 1] as
-      | { role?: string; content?: unknown }
-      | undefined;
+    const last = messages[messages.length - 1] as { role?: string; content?: unknown } | undefined;
     if (!last || last.role !== 'assistant') return true;
     if (!Array.isArray(last.content)) return true;
     return !last.content.some((block) => (block as { type?: string })?.type === 'toolCall');
@@ -1082,10 +1124,10 @@ export class AgentService {
    */
   private enforceRuntimeBudget(keepSessionId: string): void {
     const now = Date.now();
-    const evictable = (id: string, rt: { lastTouchedAt: number; turnActive: boolean; agent: Agent }) =>
-      id !== keepSessionId &&
-      !rt.turnActive &&
-      !(rt.agent.state?.isStreaming ?? false);
+    const evictable = (
+      id: string,
+      rt: { lastTouchedAt: number; turnActive: boolean; agent: Agent },
+    ) => id !== keepSessionId && !rt.turnActive && !(rt.agent.state?.isStreaming ?? false);
 
     for (const [id, rt] of [...this.runtimes]) {
       if (now - rt.lastTouchedAt > RUNTIME_IDLE_TTL_MS && evictable(id, rt)) {
@@ -1159,7 +1201,12 @@ export class AgentService {
   private async persistMessages(
     agent: Agent,
     sessionKey: string,
-    runtime: { persistedMessageCount: number; turnElapsed?: number; footerConfig?: FooterConfig; agentName?: string },
+    runtime: {
+      persistedMessageCount: number;
+      turnElapsed?: number;
+      footerConfig?: FooterConfig;
+      agentName?: string;
+    },
   ): Promise<void> {
     const { messageRepository, logger } = this.persistence!;
     await persistMessages({
@@ -1209,7 +1256,9 @@ export class AgentService {
         // only auto-injects keys for well-known env vars, so custom providers
         // (e.g. agnes) would otherwise fail and silently fall back to the
         // user's first message as the title.
-        const state = agent.state as { model?: { provider?: string; id?: string; apiKey?: string } };
+        const state = agent.state as {
+          model?: { provider?: string; id?: string; apiKey?: string };
+        };
         const model = state.model;
         let apiKey: string | undefined = model?.apiKey;
         if (model?.provider && agent.getApiKey) {
@@ -1229,17 +1278,24 @@ export class AgentService {
           if (model?.provider === provider && model?.id === id) continue; // primary already tried
           try {
             const fb = getModel(provider as never, id as never) as unknown as
-              | (Record<string, unknown> & { apiKey?: string })
-              | undefined;
+              (Record<string, unknown> & { apiKey?: string }) | undefined;
             if (!fb) continue;
-            const fbKey = (fb as { apiKey?: string }).apiKey ?? (agent.getApiKey ? await agent.getApiKey(provider) : undefined);
+            const fbKey =
+              (fb as { apiKey?: string }).apiKey ??
+              (agent.getApiKey ? await agent.getApiKey(provider) : undefined);
             fallbackModels.push({ model: fb, apiKey: fbKey });
           } catch {
             // Unknown model ref — skip it
           }
         }
 
-        const title = await generateSessionTitle({ model, message: source, apiKey, fallbackModels, logger });
+        const title = await generateSessionTitle({
+          model,
+          message: source,
+          apiKey,
+          fallbackModels,
+          logger,
+        });
         if (!title) return;
 
         // Re-check before writing: a manual rename that landed while the LLM
@@ -1247,7 +1303,9 @@ export class AgentService {
         const current = sessionRepository.findById(sessionKey);
         if (!current) return;
         const currentMeta = parseSessionMetadata(current.metadata);
-        if (!isPlaceholderTitle(typeof currentMeta.title === 'string' ? currentMeta.title : undefined)) {
+        if (
+          !isPlaceholderTitle(typeof currentMeta.title === 'string' ? currentMeta.title : undefined)
+        ) {
           return;
         }
 
@@ -1267,7 +1325,8 @@ export class AgentService {
    * Trigger summarization when the session accumulates enough new messages.
    */
   private async maybeSummarize(sessionKey: string): Promise<void> {
-    const { messageRepository, episodeRepository, memorySummarizer, logger, summarizeInterval } = this.persistence!;
+    const { messageRepository, episodeRepository, memorySummarizer, logger, summarizeInterval } =
+      this.persistence!;
     const interval = summarizeInterval ?? 10;
 
     const totalMessages = messageRepository.countBySessionId(sessionKey);
@@ -1348,7 +1407,7 @@ export class AgentService {
   ): unknown[] {
     const baselineMessages = runtime.turnBaselineMessages;
     if (baselineMessages) {
-      return runtime.agent.state.messages.filter(m => !baselineMessages.has(m));
+      return runtime.agent.state.messages.filter((m) => !baselineMessages.has(m));
     }
     return runtime.agent.state.messages.slice(runtime.turnMessageBaseline ?? 0);
   }
@@ -1359,9 +1418,7 @@ export class AgentService {
    * Callers slice to `runtime.turnMessageBaseline` to only analyze the
    * current turn — otherwise historical failures get re-analyzed.
    */
-  private extractToolCalls(
-    messages: unknown[],
-  ): {
+  private extractToolCalls(messages: unknown[]): {
     toolCalls: ToolCallRecord[];
     errors: Array<{ toolName: string; message: string; timestamp: number }>;
     errorCount: number;
@@ -1373,7 +1430,10 @@ export class AgentService {
       const msg = rawMsg as any;
       if (msg.role !== 'toolResult') continue;
       const contentArr = Array.isArray(msg.content)
-        ? msg.content.filter((b: any) => b.type === 'text').map((b: any) => b.text || '').join('\n')
+        ? msg.content
+            .filter((b: any) => b.type === 'text')
+            .map((b: any) => b.text || '')
+            .join('\n')
         : typeof msg.content === 'string'
           ? msg.content
           : '';
@@ -1406,9 +1466,7 @@ export class AgentService {
 
     // Build FailureContext from runtime state — only the current turn's
     // messages (post-baseline) so historical failures are not re-analyzed.
-    const { toolCalls, errors } = this.extractToolCalls(
-      this.currentTurnMessages(runtime),
-    );
+    const { toolCalls, errors } = this.extractToolCalls(this.currentTurnMessages(runtime));
 
     // Historical usage stats for the active skill (when metrics are
     // reachable), injected so the diagnosis LLM can reason with data
@@ -1428,7 +1486,10 @@ export class AgentService {
         }
       } catch (statsErr) {
         // Non-fatal — stats are a nice-to-have for the diagnosis LLM
-        this.persistence?.logger?.debug({ err: statsErr, sessionId }, 'skillStats lookup failed — best-effort');
+        this.persistence?.logger?.debug(
+          { err: statsErr, sessionId },
+          'skillStats lookup failed — best-effort',
+        );
       }
     }
 
@@ -1453,11 +1514,14 @@ export class AgentService {
     if (!signal || !signal.detected) return;
 
     // Step 2: Check rate limits + cooldown
-    if (!harness.rateLimiter.canTrigger(
-      failureContext.skillId,
-      failureContext.agentId,
-      signal.pattern,
-    )) return;
+    if (
+      !harness.rateLimiter.canTrigger(
+        failureContext.skillId,
+        failureContext.agentId,
+        signal.pattern,
+      )
+    )
+      return;
 
     // Step 3: Optimize (async, non-blocking)
     try {
@@ -1533,7 +1597,16 @@ export class AgentService {
       },
       actions: [
         { id: 'approve', label: i18n.t('harness:actions.approveApply'), style: 'primary' as const },
-        { id: 'edit', label: i18n.t('harness:actions.editApply'), style: 'default' as const, inputField: { placeholder: i18n.t('harness:actions.editPlaceholder'), multiline: true, defaultValue: proposal.diff.after } },
+        {
+          id: 'edit',
+          label: i18n.t('harness:actions.editApply'),
+          style: 'default' as const,
+          inputField: {
+            placeholder: i18n.t('harness:actions.editPlaceholder'),
+            multiline: true,
+            defaultValue: proposal.diff.after,
+          },
+        },
         { id: 'reject', label: i18n.t('harness:actions.reject'), style: 'danger' as const },
         { id: 'dismiss', label: i18n.t('harness:actions.ignore'), style: 'default' as const },
       ],

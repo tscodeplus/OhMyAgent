@@ -172,16 +172,10 @@ export class ComputerLeaseRegistry {
   requireActiveLease(ctx: Ctx, leaseId: string): Lease {
     const lease = this.getLease(ctx, leaseId);
     if (!lease) {
-      throw computerUseError(
-        'LEASE_NOT_FOUND',
-        COMPUTER_USE_ERRORS.LEASE_NOT_FOUND,
-      );
+      throw computerUseError('LEASE_NOT_FOUND', COMPUTER_USE_ERRORS.LEASE_NOT_FOUND);
     }
     if (lease.status !== 'active') {
-      throw computerUseError(
-        'LEASE_RELEASED',
-        COMPUTER_USE_ERRORS.LEASE_RELEASED,
-      );
+      throw computerUseError('LEASE_RELEASED', COMPUTER_USE_ERRORS.LEASE_RELEASED);
     }
     return lease;
   }
@@ -213,10 +207,7 @@ export class ComputerLeaseRegistry {
     const key = leaseKey(ctx.sessionPath, ctx.agentId, leaseId);
     const lease = this.leases.get(key);
     if (!lease) {
-      throw computerUseError(
-        'LEASE_NOT_FOUND',
-        COMPUTER_USE_ERRORS.LEASE_NOT_FOUND,
-      );
+      throw computerUseError('LEASE_NOT_FOUND', COMPUTER_USE_ERRORS.LEASE_NOT_FOUND);
     }
     lease.status = 'stopping';
     return lease;
@@ -230,15 +221,11 @@ export class ComputerLeaseRegistry {
     const leaseKeyStr = leaseKey(ctx.sessionPath, ctx.agentId, leaseId);
     const lease = this.leases.get(leaseKeyStr);
     if (!lease) {
-      throw computerUseError(
-        'LEASE_NOT_FOUND',
-        COMPUTER_USE_ERRORS.LEASE_NOT_FOUND,
-      );
+      throw computerUseError('LEASE_NOT_FOUND', COMPUTER_USE_ERRORS.LEASE_NOT_FOUND);
     }
 
     const snapshotId = snapshot.snapshotId ?? this.snapshotIdFactory();
-    const capturedAt =
-      snapshot.capturedAt ?? new Date(this.now()).toISOString();
+    const capturedAt = snapshot.capturedAt ?? new Date(this.now()).toISOString();
 
     const record: SnapshotRecord = {
       mode: snapshot.mode,
@@ -268,29 +255,28 @@ export class ComputerLeaseRegistry {
     const record = this.snapshots.get(snapKey);
 
     if (!record) {
-      throw computerUseError(
-        'STALE_SNAPSHOT',
-        COMPUTER_USE_ERRORS.STALE_SNAPSHOT,
-        { leaseId, snapshotId },
-      );
+      throw computerUseError('STALE_SNAPSHOT', COMPUTER_USE_ERRORS.STALE_SNAPSHOT, {
+        leaseId,
+        snapshotId,
+      });
     }
 
     if (record.leaseId !== leaseId) {
-      throw computerUseError(
-        'STALE_SNAPSHOT',
-        COMPUTER_USE_ERRORS.STALE_SNAPSHOT,
-        { leaseId, snapshotId, expectedLeaseId: record.leaseId },
-      );
+      throw computerUseError('STALE_SNAPSHOT', COMPUTER_USE_ERRORS.STALE_SNAPSHOT, {
+        leaseId,
+        snapshotId,
+        expectedLeaseId: record.leaseId,
+      });
     }
 
     const leaseKeyStr = leaseKey(ctx.sessionPath, ctx.agentId, leaseId);
     const lease = this.leases.get(leaseKeyStr);
     if (lease && lease.lastSnapshotId !== snapshotId) {
-      throw computerUseError(
-        'STALE_SNAPSHOT',
-        COMPUTER_USE_ERRORS.STALE_SNAPSHOT,
-        { leaseId, snapshotId, lastSnapshotId: lease.lastSnapshotId },
-      );
+      throw computerUseError('STALE_SNAPSHOT', COMPUTER_USE_ERRORS.STALE_SNAPSHOT, {
+        leaseId,
+        snapshotId,
+        lastSnapshotId: lease.lastSnapshotId,
+      });
     }
 
     return {

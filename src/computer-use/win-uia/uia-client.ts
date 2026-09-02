@@ -25,9 +25,7 @@ export interface UiaErrorInfo {
   message: string;
 }
 
-export type UiaResult =
-  | { ok: true; result: unknown }
-  | { ok: false; error: UiaErrorInfo };
+export type UiaResult = { ok: true; result: unknown } | { ok: false; error: UiaErrorInfo };
 
 export interface UiaRequestOptions {
   timeoutMs?: number;
@@ -103,7 +101,10 @@ export class UiaClient {
       }
       if (!this.child) {
         // Server died while we waited for the handshake.
-        return { ok: false, error: { code: 'SERVER_CRASHED', message: 'UIA server is not running' } };
+        return {
+          ok: false,
+          error: { code: 'SERVER_CRASHED', message: 'UIA server is not running' },
+        };
       }
       return new Promise<UiaResult>((resolve) => {
         const id = this.nextId++;
@@ -111,7 +112,10 @@ export class UiaClient {
         const timer = setTimeout(() => {
           this.logger?.warn({ cmd, id }, 'UIA command timed out; restarting server');
           this._restart();
-          resolve({ ok: false, error: { code: 'TIMEOUT', message: `UIA command '${cmd}' timed out` } });
+          resolve({
+            ok: false,
+            error: { code: 'TIMEOUT', message: `UIA command '${cmd}' timed out` },
+          });
         }, timeoutMs);
         this.pending.push({ id, cmd, timeoutMs, timer, resolve });
         const line = JSON.stringify({ id, cmd, ...payload });
@@ -141,7 +145,9 @@ export class UiaClient {
     if (child && !child.killed) {
       try {
         child.stdin?.end();
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       child.kill();
     }
   }
@@ -180,7 +186,9 @@ export class UiaClient {
     try {
       child.stdin?.end();
       child.kill();
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   private async _ensureReady(): Promise<void> {
@@ -220,10 +228,18 @@ export class UiaClient {
 
     let child: ChildProcess;
     try {
-      child = spawn('powershell.exe', [
-        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-        '-File', UIA_SERVER_SCRIPT_PATH,
-      ], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      child = spawn(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-File',
+          UIA_SERVER_SCRIPT_PATH,
+        ],
+        { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] },
+      );
     } catch (err) {
       this.logger?.error({ err }, 'Failed to spawn UIA server');
       this._scheduleRestart();
@@ -325,7 +341,11 @@ export class UiaClient {
     this.ready = false;
     this._rejectPending('SERVER_CRASHED', 'UIA server restarted');
     if (child && !child.killed) {
-      try { child.kill(); } catch { /* ignore */ }
+      try {
+        child.kill();
+      } catch {
+        /* ignore */
+      }
     }
     this._scheduleRestart();
   }

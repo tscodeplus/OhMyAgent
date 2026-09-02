@@ -25,13 +25,18 @@ export default function ToolCallCard({ toolCall }: ToolCallCardProps) {
       >
         {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         <Wrench size={14} className="text-neutral-500 dark:text-neutral-400" />
-        <span className="font-medium">{t('chat.toolCall')}{toolCall.name}</span>
+        <span className="font-medium">
+          {t('chat.toolCall')}
+          {toolCall.name}
+        </span>
         {statusIcon[toolCall.status]}
       </button>
       {expanded && (
         <div className="px-4 py-2 border-t border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800/50 text-xs space-y-2">
           <div>
-            <span className="font-semibold text-neutral-500 dark:text-neutral-400">Parameters:</span>
+            <span className="font-semibold text-neutral-500 dark:text-neutral-400">
+              Parameters:
+            </span>
             <pre className="mt-1 whitespace-pre-wrap text-neutral-900 dark:text-neutral-100">
               {JSON.stringify(toolCall.arguments, null, 2)}
             </pre>
@@ -39,7 +44,9 @@ export default function ToolCallCard({ toolCall }: ToolCallCardProps) {
           {toolCall.output && (
             <div>
               <span className="font-semibold text-neutral-500 dark:text-neutral-400">Output:</span>
-              <pre className="mt-1 whitespace-pre-wrap text-neutral-900 dark:text-neutral-100">{toolCall.output}</pre>
+              <pre className="mt-1 whitespace-pre-wrap text-neutral-900 dark:text-neutral-100">
+                {toolCall.output}
+              </pre>
             </div>
           )}
         </div>

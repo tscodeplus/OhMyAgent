@@ -155,17 +155,16 @@ function normalizeNode(raw: unknown): MimicNode | null {
     : Array.isArray(rec.nodes)
       ? rec.nodes
       : [];
-  const children = childrenRaw
-    .map(normalizeNode)
-    .filter((n): n is MimicNode => n != null);
+  const children = childrenRaw.map(normalizeNode).filter((n): n is MimicNode => n != null);
   const actionsRaw = Array.isArray(rec.actions)
     ? rec.actions
     : Array.isArray(rec.actionList)
       ? rec.actionList
       : [];
-  const actions = actionsRaw.length > 0
-    ? actionsRaw.filter((a): a is string => typeof a === 'string')
-    : undefined;
+  const actions =
+    actionsRaw.length > 0
+      ? actionsRaw.filter((a): a is string => typeof a === 'string')
+      : undefined;
 
   const text = str(rec.text);
   const contentDescription = str(rec.desc) ?? str(rec.contentDescription) ?? str(rec.content_desc);
@@ -280,7 +279,9 @@ export class MimicClient {
         });
       } catch (err) {
         if (isAbortError(err)) {
-          throw new MimicError('connection', `mimic 请求超时(${this.timeoutMs}ms):${url}`, { cause: err });
+          throw new MimicError('connection', `mimic 请求超时(${this.timeoutMs}ms):${url}`, {
+            cause: err,
+          });
         }
         throw new MimicError(
           'connection',
@@ -291,7 +292,9 @@ export class MimicClient {
 
       if (!res.ok) {
         if (res.status === 401) {
-          throw new MimicError('auth', 'mimic 认证失败(HTTP 401):token 无效或未配置', { status: 401 });
+          throw new MimicError('auth', 'mimic 认证失败(HTTP 401):token 无效或未配置', {
+            status: 401,
+          });
         }
         if (res.status === 403) {
           throw new MimicError('http', 'mimic 拒绝访问(HTTP 403)', { status: 403 });
@@ -344,14 +347,16 @@ export class MimicClient {
   /**
    * 树 dump。opts 与 mimic 的 DUMP 参数对应;格式兼容差异见文件头注释。
    */
-  async getTree(opts: {
-    format?: 'tree' | 'flat' | 'compact';
-    filter?: 'interactive' | 'text' | 'visible' | 'all';
-    by?: 'text' | 'id' | 'class' | 'desc';
-    query?: string;
-    maxDepth?: number;
-    packageName?: string;
-  } = {}): Promise<MimicTree> {
+  async getTree(
+    opts: {
+      format?: 'tree' | 'flat' | 'compact';
+      filter?: 'interactive' | 'text' | 'visible' | 'all';
+      by?: 'text' | 'id' | 'class' | 'desc';
+      query?: string;
+      maxDepth?: number;
+      packageName?: string;
+    } = {},
+  ): Promise<MimicTree> {
     const args: Record<string, unknown> = {};
     if (opts.format) args.format = opts.format;
     if (opts.filter) args.filter = opts.filter;
@@ -477,5 +482,4 @@ export class MimicClient {
     const env = await this._request('STATUS');
     return env.data;
   }
-
 }

@@ -16,7 +16,7 @@ export async function runWithFallback<T extends MediaProvider, R>(
   providers: T[],
   fn: (p: T) => Promise<R>,
 ): Promise<{ result: R; providerId: string }> {
-  const available = providers.filter(p => p.isAvailable());
+  const available = providers.filter((p) => p.isAvailable());
   if (available.length === 0) {
     throw new Error(
       'No provider available. Configure at least one provider with a valid API key or endpoint.',
@@ -32,6 +32,6 @@ export async function runWithFallback<T extends MediaProvider, R>(
     }
   }
   throw new Error(
-    `All providers failed: ${errors.map(e => `${e.providerId}: ${e.error}`).join('; ')}`,
+    `All providers failed: ${errors.map((e) => `${e.providerId}: ${e.error}`).join('; ')}`,
   );
 }

@@ -23,12 +23,7 @@ export class OhMyAgentError extends Error {
   public readonly recoverable: boolean;
   public override readonly cause: unknown;
 
-  constructor(
-    message: string,
-    code: string,
-    recoverable: boolean,
-    cause?: unknown,
-  ) {
+  constructor(message: string, code: string, recoverable: boolean, cause?: unknown) {
     super(message, { cause });
     this.name = 'OhMyAgentError';
     this.code = code;
@@ -92,10 +87,7 @@ export class ToolError extends AppError {
 /** Tool execution timed out. */
 export class ToolTimeoutError extends ToolError {
   constructor(toolName: string, timeoutMs: number) {
-    super(
-      `Tool "${toolName}" timed out after ${timeoutMs}ms`,
-      'TOOL_TIMEOUT',
-    );
+    super(`Tool "${toolName}" timed out after ${timeoutMs}ms`, 'TOOL_TIMEOUT');
     this.name = 'ToolTimeoutError';
   }
 }

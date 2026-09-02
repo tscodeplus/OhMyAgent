@@ -24,7 +24,7 @@ const STRUCTURED_SECTIONS = [
  * Build a prompt for plain-text image analysis (no visual primitives).
  */
 export function buildNotePrompt(userRequest: string): string {
-  const sections = NOTE_ANALYSIS_SECTIONS.map(s => `### ${formatSectionName(s)}`).join('\n');
+  const sections = NOTE_ANALYSIS_SECTIONS.map((s) => `### ${formatSectionName(s)}`).join('\n');
   const request = userRequest || 'No specific request';
   return `Analyze the attached image and return a structured note. Use these sections:
 
@@ -44,7 +44,7 @@ export function buildPrimitivePrompt(
   capabilities: VisionCapabilities,
 ): string {
   const shape = primitivePromptShape(capabilities);
-  const sections = STRUCTURED_SECTIONS.map(s => `"${s}"`).join(', ');
+  const sections = STRUCTURED_SECTIONS.map((s) => `"${s}"`).join(', ');
   const request = userRequest || 'No specific request';
 
   return `Analyze the attached image and return a JSON object with these string fields:
@@ -94,9 +94,7 @@ function primitivePromptShape(capabilities: VisionCapabilities): string {
 }
 
 export function primitiveBoxOrderLabel(capabilities: VisionCapabilities): string {
-  return capabilities.boxOrder === 'yxyx'
-    ? '[ymin, xmin, ymax, xmax]'
-    : '[x1, y1, x2, y2]';
+  return capabilities.boxOrder === 'yxyx' ? '[ymin, xmin, ymax, xmax]' : '[x1, y1, x2, y2]';
 }
 
 // ─── Formatting ───
@@ -112,7 +110,7 @@ function formatSectionName(key: string): string {
     evidence: 'Evidence',
     uncertainty: 'Uncertainty',
   };
-  return map[key] ?? key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  return map[key] ?? key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export function formatSectionNamePublic(key: string): string {

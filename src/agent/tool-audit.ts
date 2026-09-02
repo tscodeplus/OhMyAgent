@@ -17,7 +17,10 @@ function summarizeToolArgs(args: unknown): string {
   if (!args || typeof args !== 'object') {
     return truncate(String(args ?? ''), 240);
   }
-  if ('command' in (args as Record<string, unknown>) && typeof (args as Record<string, unknown>).command === 'string') {
+  if (
+    'command' in (args as Record<string, unknown>) &&
+    typeof (args as Record<string, unknown>).command === 'string'
+  ) {
     return truncate((args as Record<string, unknown>).command as string, 240);
   }
   return truncate(JSON.stringify(args), 240);

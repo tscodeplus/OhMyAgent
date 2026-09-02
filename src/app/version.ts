@@ -98,7 +98,7 @@ export function compareVersions(a: string, b: string): number {
   if (pa.patch !== pb.patch) return pa.patch - pb.patch;
 
   // Core versions equal — compare beta status
-  if (!pa.isBeta && pb.isBeta) return 1;  // a is stable, b is beta → a > b
+  if (!pa.isBeta && pb.isBeta) return 1; // a is stable, b is beta → a > b
   if (pa.isBeta && !pb.isBeta) return -1; // a is beta, b is stable → a < b
   if (pa.isBeta && pb.isBeta) return pa.betaNum - pb.betaNum; // higher beta number wins
 

@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createAgentFactory } from '../../src/agent/agent-factory';
 import { createFeishuApprovalUiPort } from '../../extensions/channel-feishu/render/approval-ui-port-feishu.js';
-import type { AppConfig, ApprovalGate, ApprovalRequest, ApprovalDecision } from '../../src/app/types';
+import type {
+  AppConfig,
+  ApprovalGate,
+  ApprovalRequest,
+  ApprovalDecision,
+} from '../../src/app/types';
 
 // ─── Mocks ───
 
@@ -119,9 +124,7 @@ function makeMockTool(name: string) {
   };
 }
 
-function makeMockApprovalGate(
-  decisions: Record<string, ApprovalDecision> = {},
-): ApprovalGate {
+function makeMockApprovalGate(decisions: Record<string, ApprovalDecision> = {}): ApprovalGate {
   return {
     evaluate: vi.fn(async (request: ApprovalRequest) => {
       if (request.command) {
@@ -166,10 +169,7 @@ describe('Approval Integration in AgentFactory', () => {
   it('factory with approval gate — agent has beforeToolCall hook', () => {
     const registry = makeMockToolRegistry([makeMockTool('shell')]);
     const gate = makeMockApprovalGate();
-    const factory = createAgentFactory(
-      { config, toolRegistry: registry },
-      { approvalGate: gate },
-    );
+    const factory = createAgentFactory({ config, toolRegistry: registry }, { approvalGate: gate });
     const agent = factory.create();
     expect(agent.beforeToolCall).toBeDefined();
   });
@@ -177,10 +177,7 @@ describe('Approval Integration in AgentFactory', () => {
   it('non-shell tool bypasses approval check', async () => {
     const registry = makeMockToolRegistry([makeMockTool('web_search')]);
     const gate = makeMockApprovalGate();
-    const factory = createAgentFactory(
-      { config, toolRegistry: registry },
-      { approvalGate: gate },
-    );
+    const factory = createAgentFactory({ config, toolRegistry: registry }, { approvalGate: gate });
     const agent = factory.create();
 
     // Simulate beforeToolCall for a non-shell tool
@@ -215,10 +212,7 @@ describe('Approval Integration in AgentFactory', () => {
     const gate = makeMockApprovalGate({
       'ls -la': 'approved',
     });
-    const factory = createAgentFactory(
-      { config, toolRegistry: registry },
-      { approvalGate: gate },
-    );
+    const factory = createAgentFactory({ config, toolRegistry: registry }, { approvalGate: gate });
     const agent = factory.create();
 
     const hook = agent.beforeToolCall!;
@@ -251,10 +245,7 @@ describe('Approval Integration in AgentFactory', () => {
     const gate = makeMockApprovalGate({
       'rm -rf /': 'rejected',
     });
-    const factory = createAgentFactory(
-      { config, toolRegistry: registry },
-      { approvalGate: gate },
-    );
+    const factory = createAgentFactory({ config, toolRegistry: registry }, { approvalGate: gate });
     const agent = factory.create();
 
     const hook = agent.beforeToolCall!;
@@ -470,10 +461,7 @@ describe('Approval Integration in AgentFactory', () => {
   it('resolveApproval returns false for unknown request ID', () => {
     const registry = makeMockToolRegistry([makeMockTool('shell')]);
     const gate = makeMockApprovalGate();
-    const factory = createAgentFactory(
-      { config, toolRegistry: registry },
-      { approvalGate: gate },
-    );
+    const factory = createAgentFactory({ config, toolRegistry: registry }, { approvalGate: gate });
     expect(factory.resolveApproval('nonexistent-id', 'approved')).toBe(false);
   });
 
@@ -481,10 +469,7 @@ describe('Approval Integration in AgentFactory', () => {
     const registry = makeMockToolRegistry([makeMockTool('shell')]);
     const evaluateSpy = vi.fn(async () => 'approved' as ApprovalDecision);
     const gate = { ...makeMockApprovalGate(), evaluate: evaluateSpy };
-    const factory = createAgentFactory(
-      { config, toolRegistry: registry },
-      { approvalGate: gate },
-    );
+    const factory = createAgentFactory({ config, toolRegistry: registry }, { approvalGate: gate });
     const agent = factory.create({ sessionId: 'sess-test' });
 
     const hook = agent.beforeToolCall!;

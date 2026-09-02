@@ -13,7 +13,14 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { ToolPolicyInput, AgentPolicyScope, ShellPolicyInput, PathPolicyInput, ApprovalDecisionRecord, ChildAgentPolicyRequest } from '../src/policy/types.js';
+import type {
+  ToolPolicyInput,
+  AgentPolicyScope,
+  ShellPolicyInput,
+  PathPolicyInput,
+  ApprovalDecisionRecord,
+  ChildAgentPolicyRequest,
+} from '../src/policy/types.js';
 import type { ToolVisibilityPolicy } from '../src/policy/tool-visibility.js';
 import type { PathAccessPolicy } from '../src/policy/path-policy.js';
 import type { ShellExecutionPolicy } from '../src/policy/shell/evaluator.js';
@@ -22,7 +29,9 @@ import type { AgentInheritancePolicy } from '../src/policy/inheritance/scope-mer
 
 // ── Mock helpers ───────────────────────────────────────────────────────────────
 
-function createMockToolVisibility(): ToolVisibilityPolicy & { isVisible: ReturnType<typeof vi.fn> } {
+function createMockToolVisibility(): ToolVisibilityPolicy & {
+  isVisible: ReturnType<typeof vi.fn>;
+} {
   return {
     isVisible: vi.fn().mockReturnValue(true),
   };
@@ -51,14 +60,16 @@ function createMockApprovalResolution(): ApprovalResolutionPolicy & {
   };
 }
 
-function createMockAgentInheritance(): AgentInheritancePolicy & { deriveChildScope: ReturnType<typeof vi.fn> } {
+function createMockAgentInheritance(): AgentInheritancePolicy & {
+  deriveChildScope: ReturnType<typeof vi.fn>;
+} {
   return {
-    deriveChildScope: vi.fn().mockImplementation(
-      (parent: AgentPolicyScope, _request: ChildAgentPolicyRequest) => ({
+    deriveChildScope: vi
+      .fn()
+      .mockImplementation((parent: AgentPolicyScope, _request: ChildAgentPolicyRequest) => ({
         ...parent,
         computerUseEnabled: false,
-      }),
-    ),
+      })),
   };
 }
 
@@ -137,7 +148,17 @@ describe('PolicyCenterImpl', () => {
       const center = createCenter('safe');
       // In safe mode, non-readOnly tool requires approval
       const input = makeToolInput({
-        capability: { category: 'session', readOnly: false, usesShell: false, usesNetwork: false, usesComputerUse: false, readsFiles: false, writesFiles: false, pathAccess: 'none', approvalDefault: 'none' },
+        capability: {
+          category: 'session',
+          readOnly: false,
+          usesShell: false,
+          usesNetwork: false,
+          usesComputerUse: false,
+          readsFiles: false,
+          writesFiles: false,
+          pathAccess: 'none',
+          approvalDefault: 'none',
+        },
       });
       const r1 = await center.evaluateToolCall(input);
       expect(r1.allowed).toBe(false);
@@ -155,9 +176,21 @@ describe('PolicyCenterImpl', () => {
   describe('evaluateToolCall', () => {
     it('bypass mode allows everything', async () => {
       const center = createCenter('bypass');
-      const result = await center.evaluateToolCall(makeToolInput({
-        capability: { category: 'session', readOnly: false, readsFiles: false, writesFiles: false, usesShell: true, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'high_risk' },
-      }));
+      const result = await center.evaluateToolCall(
+        makeToolInput({
+          capability: {
+            category: 'session',
+            readOnly: false,
+            readsFiles: false,
+            writesFiles: false,
+            usesShell: true,
+            usesNetwork: false,
+            usesComputerUse: false,
+            pathAccess: 'none',
+            approvalDefault: 'high_risk',
+          },
+        }),
+      );
       expect(result.allowed).toBe(true);
       expect(result.requiresApproval).toBe(false);
       // Should NOT even check shell/visibility
@@ -166,45 +199,105 @@ describe('PolicyCenterImpl', () => {
 
     it('safe mode requires approval for non-readOnly tools', async () => {
       const center = createCenter('safe');
-      const result = await center.evaluateToolCall(makeToolInput({
-        capability: { category: 'session', readOnly: false, readsFiles: false, writesFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'none' },
-      }));
+      const result = await center.evaluateToolCall(
+        makeToolInput({
+          capability: {
+            category: 'session',
+            readOnly: false,
+            readsFiles: false,
+            writesFiles: false,
+            usesShell: false,
+            usesNetwork: false,
+            usesComputerUse: false,
+            pathAccess: 'none',
+            approvalDefault: 'none',
+          },
+        }),
+      );
       expect(result.allowed).toBe(false);
       expect(result.requiresApproval).toBe(true);
     });
 
     it('safe mode allows readOnly tools', async () => {
       const center = createCenter('safe');
-      const result = await center.evaluateToolCall(makeToolInput({
-        capability: { category: 'session', readOnly: true, readsFiles: false, writesFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'none' },
-      }));
+      const result = await center.evaluateToolCall(
+        makeToolInput({
+          capability: {
+            category: 'session',
+            readOnly: true,
+            readsFiles: false,
+            writesFiles: false,
+            usesShell: false,
+            usesNetwork: false,
+            usesComputerUse: false,
+            pathAccess: 'none',
+            approvalDefault: 'none',
+          },
+        }),
+      );
       expect(result.allowed).toBe(true);
       expect(result.requiresApproval).toBe(false);
     });
 
     it('balanced mode requires approval for high_risk tools', async () => {
       const center = createCenter('balanced');
-      const result = await center.evaluateToolCall(makeToolInput({
-        capability: { category: 'session', readOnly: false, readsFiles: false, writesFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'high_risk' },
-      }));
+      const result = await center.evaluateToolCall(
+        makeToolInput({
+          capability: {
+            category: 'session',
+            readOnly: false,
+            readsFiles: false,
+            writesFiles: false,
+            usesShell: false,
+            usesNetwork: false,
+            usesComputerUse: false,
+            pathAccess: 'none',
+            approvalDefault: 'high_risk',
+          },
+        }),
+      );
       expect(result.allowed).toBe(false);
       expect(result.requiresApproval).toBe(true);
     });
 
     it('balanced mode requires approval for mutating non-readOnly tools', async () => {
       const center = createCenter('balanced');
-      const result = await center.evaluateToolCall(makeToolInput({
-        capability: { category: 'session', readOnly: false, readsFiles: false, writesFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'mutating' },
-      }));
+      const result = await center.evaluateToolCall(
+        makeToolInput({
+          capability: {
+            category: 'session',
+            readOnly: false,
+            readsFiles: false,
+            writesFiles: false,
+            usesShell: false,
+            usesNetwork: false,
+            usesComputerUse: false,
+            pathAccess: 'none',
+            approvalDefault: 'mutating',
+          },
+        }),
+      );
       expect(result.allowed).toBe(false);
       expect(result.requiresApproval).toBe(true);
     });
 
     it('balanced mode allows readOnly tools with mutating default', async () => {
       const center = createCenter('balanced');
-      const result = await center.evaluateToolCall(makeToolInput({
-        capability: { category: 'session', readOnly: true, readsFiles: false, writesFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'mutating' },
-      }));
+      const result = await center.evaluateToolCall(
+        makeToolInput({
+          capability: {
+            category: 'session',
+            readOnly: true,
+            readsFiles: false,
+            writesFiles: false,
+            usesShell: false,
+            usesNetwork: false,
+            usesComputerUse: false,
+            pathAccess: 'none',
+            approvalDefault: 'mutating',
+          },
+        }),
+      );
       expect(result.allowed).toBe(true);
     });
 
@@ -237,12 +330,29 @@ describe('PolicyCenterImpl', () => {
   describe('shell command delegation', () => {
     it('delegates to shell execution policy when capability usesShell', async () => {
       const center = createCenter('balanced');
-      shellExecution.evaluate.mockResolvedValue({ allowed: false, requiresApproval: true, reason: 'needs approval', risk: 'medium' });
+      shellExecution.evaluate.mockResolvedValue({
+        allowed: false,
+        requiresApproval: true,
+        reason: 'needs approval',
+        risk: 'medium',
+      });
 
-      const result = await center.evaluateToolCall(makeToolInput({
-        capability: { category: 'session', readOnly: false, readsFiles: false, writesFiles: false, usesShell: true, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'none' },
-        args: { command: 'rm -rf /' },
-      }));
+      const result = await center.evaluateToolCall(
+        makeToolInput({
+          capability: {
+            category: 'session',
+            readOnly: false,
+            readsFiles: false,
+            writesFiles: false,
+            usesShell: true,
+            usesNetwork: false,
+            usesComputerUse: false,
+            pathAccess: 'none',
+            approvalDefault: 'none',
+          },
+          args: { command: 'rm -rf /' },
+        }),
+      );
 
       expect(result.allowed).toBe(false);
       expect(result.requiresApproval).toBe(true);
@@ -256,10 +366,22 @@ describe('PolicyCenterImpl', () => {
 
     it('extracts command from args for shell delegation', async () => {
       const center = createCenter('balanced');
-      await center.evaluateToolCall(makeToolInput({
-        capability: { category: 'session', readOnly: false, readsFiles: false, writesFiles: false, usesShell: true, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'none' },
-        args: { command: 'ls -la' },
-      }));
+      await center.evaluateToolCall(
+        makeToolInput({
+          capability: {
+            category: 'session',
+            readOnly: false,
+            readsFiles: false,
+            writesFiles: false,
+            usesShell: true,
+            usesNetwork: false,
+            usesComputerUse: false,
+            pathAccess: 'none',
+            approvalDefault: 'none',
+          },
+          args: { command: 'ls -la' },
+        }),
+      );
       expect(shellExecution.evaluate).toHaveBeenCalledWith(
         expect.objectContaining({ command: 'ls -la' }),
       );
@@ -273,10 +395,22 @@ describe('PolicyCenterImpl', () => {
       const center = createCenter('balanced');
       pathAccess.check.mockReturnValue({ allowed: true, resolvedPath: '/home/user/test.txt' });
 
-      const result = await center.evaluateToolCall(makeToolInput({
-        capability: { category: 'session', readOnly: true, readsFiles: true, writesFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'read', approvalDefault: 'none' },
-        args: { filePath: '/home/user/test.txt' },
-      }));
+      const result = await center.evaluateToolCall(
+        makeToolInput({
+          capability: {
+            category: 'session',
+            readOnly: true,
+            readsFiles: true,
+            writesFiles: false,
+            usesShell: false,
+            usesNetwork: false,
+            usesComputerUse: false,
+            pathAccess: 'read',
+            approvalDefault: 'none',
+          },
+          args: { filePath: '/home/user/test.txt' },
+        }),
+      );
 
       expect(result.allowed).toBe(true);
       expect(pathAccess.check).toHaveBeenCalledWith(
@@ -286,13 +420,29 @@ describe('PolicyCenterImpl', () => {
 
     it('blocks when path access is denied', async () => {
       const center = createCenter('balanced');
-      pathAccess.check.mockReturnValue({ allowed: false, reason: 'Outside allowed roots', resolvedPath: '/etc/passwd' });
+      pathAccess.check.mockReturnValue({
+        allowed: false,
+        reason: 'Outside allowed roots',
+        resolvedPath: '/etc/passwd',
+      });
 
-      const result = await center.evaluateToolCall(makeToolInput({
-        capability: { category: 'session', readOnly: true, readsFiles: true, writesFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'read', approvalDefault: 'none' },
-        args: { filePath: '/etc/passwd' },
-        sessionId: 'session-1',
-      }));
+      const result = await center.evaluateToolCall(
+        makeToolInput({
+          capability: {
+            category: 'session',
+            readOnly: true,
+            readsFiles: true,
+            writesFiles: false,
+            usesShell: false,
+            usesNetwork: false,
+            usesComputerUse: false,
+            pathAccess: 'read',
+            approvalDefault: 'none',
+          },
+          args: { filePath: '/etc/passwd' },
+          sessionId: 'session-1',
+        }),
+      );
 
       expect(result.allowed).toBe(false);
       expect(result.requiresApproval).toBe(true);
@@ -304,15 +454,25 @@ describe('PolicyCenterImpl', () => {
       const center = createCenter('balanced');
       pathAccess.check.mockReturnValue({ allowed: true });
 
-      await center.evaluateToolCall(makeToolInput({
-        capability: { category: 'session', readOnly: true, readsFiles: true, writesFiles: true, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'read_write', approvalDefault: 'none' },
-        args: { filePath: '/home/user/test.txt' },
-      }));
+      await center.evaluateToolCall(
+        makeToolInput({
+          capability: {
+            category: 'session',
+            readOnly: true,
+            readsFiles: true,
+            writesFiles: true,
+            usesShell: false,
+            usesNetwork: false,
+            usesComputerUse: false,
+            pathAccess: 'read_write',
+            approvalDefault: 'none',
+          },
+          args: { filePath: '/home/user/test.txt' },
+        }),
+      );
 
       expect(pathAccess.check).toHaveBeenCalledTimes(2);
-      expect(pathAccess.check).toHaveBeenCalledWith(
-        expect.objectContaining({ operation: 'read' }),
-      );
+      expect(pathAccess.check).toHaveBeenCalledWith(expect.objectContaining({ operation: 'read' }));
       expect(pathAccess.check).toHaveBeenCalledWith(
         expect.objectContaining({ operation: 'write' }),
       );
@@ -320,14 +480,33 @@ describe('PolicyCenterImpl', () => {
 
     it('reuses session approval for path access', async () => {
       const center = createCenter('balanced');
-      pathAccess.check.mockReturnValue({ allowed: false, reason: 'Outside allowed roots', resolvedPath: '/outside/path' });
-      approvalResolution.checkReuse.mockResolvedValue({ canReuse: true, decision: 'approve_session' });
+      pathAccess.check.mockReturnValue({
+        allowed: false,
+        reason: 'Outside allowed roots',
+        resolvedPath: '/outside/path',
+      });
+      approvalResolution.checkReuse.mockResolvedValue({
+        canReuse: true,
+        decision: 'approve_session',
+      });
 
-      const result = await center.evaluateToolCall(makeToolInput({
-        capability: { category: 'session', readOnly: true, readsFiles: true, writesFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'read', approvalDefault: 'none' },
-        args: { filePath: '/outside/path' },
-        sessionId: 'session-1',
-      }));
+      const result = await center.evaluateToolCall(
+        makeToolInput({
+          capability: {
+            category: 'session',
+            readOnly: true,
+            readsFiles: true,
+            writesFiles: false,
+            usesShell: false,
+            usesNetwork: false,
+            usesComputerUse: false,
+            pathAccess: 'read',
+            approvalDefault: 'none',
+          },
+          args: { filePath: '/outside/path' },
+          sessionId: 'session-1',
+        }),
+      );
 
       // When reuse is approved, path denial should be bypassed
       expect(result.allowed).toBe(true);
@@ -340,18 +519,33 @@ describe('PolicyCenterImpl', () => {
   describe('approval reuse', () => {
     it('bypasses tool-level approval reuse for computer_use', async () => {
       const center = createCenter('balanced');
-      approvalResolution.checkReuse.mockResolvedValue({ canReuse: true, decision: 'approve_always' });
+      approvalResolution.checkReuse.mockResolvedValue({
+        canReuse: true,
+        decision: 'approve_always',
+      });
 
-      await center.evaluateToolCall(makeToolInput({
-        toolName: 'computer_use',
-        capability: { category: 'session', readOnly: false, readsFiles: false, writesFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: true, pathAccess: 'none', approvalDefault: 'high_risk' },
-        args: { action: 'open_app', target: 'firefox' },
-      }));
+      await center.evaluateToolCall(
+        makeToolInput({
+          toolName: 'computer_use',
+          capability: {
+            category: 'session',
+            readOnly: false,
+            readsFiles: false,
+            writesFiles: false,
+            usesShell: false,
+            usesNetwork: false,
+            usesComputerUse: true,
+            pathAccess: 'none',
+            approvalDefault: 'high_risk',
+          },
+          args: { action: 'open_app', target: 'firefox' },
+        }),
+      );
 
       // For computer_use, generic tool-level reuse should not be checked
       // (only app-specific subjects are checked)
       const genericReuseCall = approvalResolution.checkReuse.mock.calls.find(
-        (call: any[]) => call[1] === 'tool' && call[2] === 'computer_use'
+        (call: any[]) => call[1] === 'tool' && call[2] === 'computer_use',
       );
       // It may be called with specific subjects, but not the generic tool name
     });
@@ -360,21 +554,35 @@ describe('PolicyCenterImpl', () => {
       const center = createCenter('balanced');
       // Step 1: First call — tools approvalDefault high_risk, check reuse
       // Simulate that checkReuse returns approved for the session
-      approvalResolution.checkReuse.mockImplementation(async (_sessionId: string, kind: string, subject?: string) => {
-        if (kind === 'tool' && subject?.startsWith('file_write')) {
-          return { canReuse: true, decision: 'approve_session' };
-        }
-        if (kind === 'tool' && subject === 'file_write') {
-          return { canReuse: true, decision: 'approve_session' };
-        }
-        return { canReuse: false };
-      });
+      approvalResolution.checkReuse.mockImplementation(
+        async (_sessionId: string, kind: string, subject?: string) => {
+          if (kind === 'tool' && subject?.startsWith('file_write')) {
+            return { canReuse: true, decision: 'approve_session' };
+          }
+          if (kind === 'tool' && subject === 'file_write') {
+            return { canReuse: true, decision: 'approve_session' };
+          }
+          return { canReuse: false };
+        },
+      );
 
-      const result = await center.evaluateToolCall(makeToolInput({
-        toolName: 'file_write',
-        capability: { category: 'session', readOnly: false, readsFiles: true, writesFiles: true, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'read_write', approvalDefault: 'high_risk' },
-        args: { filePath: '/home/user/test.txt' },
-      }));
+      const result = await center.evaluateToolCall(
+        makeToolInput({
+          toolName: 'file_write',
+          capability: {
+            category: 'session',
+            readOnly: false,
+            readsFiles: true,
+            writesFiles: true,
+            usesShell: false,
+            usesNetwork: false,
+            usesComputerUse: false,
+            pathAccess: 'read_write',
+            approvalDefault: 'high_risk',
+          },
+          args: { filePath: '/home/user/test.txt' },
+        }),
+      );
 
       // Path check might pass or fail, but if it passes and session approved, tool is allowed
       expect(result.allowed).toBeDefined();
@@ -392,7 +600,11 @@ describe('PolicyCenterImpl', () => {
         agentId: 'agent-1',
         scope: DEFAULT_POLICY_SCOPE,
       };
-      shellExecution.evaluate.mockResolvedValue({ allowed: true, requiresApproval: false, risk: 'low' });
+      shellExecution.evaluate.mockResolvedValue({
+        allowed: true,
+        requiresApproval: false,
+        risk: 'low',
+      });
 
       const result = await center.evaluateShellCommand(input);
       expect(result.allowed).toBe(true);
@@ -401,7 +613,12 @@ describe('PolicyCenterImpl', () => {
 
     it('returns high risk for destructive commands', async () => {
       const center = createCenter();
-      shellExecution.evaluate.mockResolvedValue({ allowed: false, requiresApproval: true, reason: 'requires approval', risk: 'high' });
+      shellExecution.evaluate.mockResolvedValue({
+        allowed: false,
+        requiresApproval: true,
+        reason: 'requires approval',
+        risk: 'high',
+      });
 
       const result = await center.evaluateShellCommand({
         command: 'rm -rf /',
@@ -437,7 +654,11 @@ describe('PolicyCenterImpl', () => {
 
     it('returns denied result when path outside roots', () => {
       const center = createCenter();
-      pathAccess.check.mockReturnValue({ allowed: false, reason: 'Outside allowed roots', resolvedPath: '/etc/passwd' });
+      pathAccess.check.mockReturnValue({
+        allowed: false,
+        reason: 'Outside allowed roots',
+        resolvedPath: '/etc/passwd',
+      });
 
       const result = center.evaluatePathAccess({
         path: '/etc/passwd',
@@ -503,29 +724,65 @@ describe('PolicyCenterImpl', () => {
   describe('edge cases', () => {
     it('handles empty args gracefully', async () => {
       const center = createCenter('balanced');
-      const result = await center.evaluateToolCall(makeToolInput({
-        args: undefined,
-        capability: { category: 'session', readOnly: true, readsFiles: true, writesFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'read', approvalDefault: 'none' },
-      }));
+      const result = await center.evaluateToolCall(
+        makeToolInput({
+          args: undefined,
+          capability: {
+            category: 'session',
+            readOnly: true,
+            readsFiles: true,
+            writesFiles: false,
+            usesShell: false,
+            usesNetwork: false,
+            usesComputerUse: false,
+            pathAccess: 'read',
+            approvalDefault: 'none',
+          },
+        }),
+      );
       // pathAccess check should be skipped when no path argument
       expect(result.allowed).toBe(true);
     });
 
     it('handles missing sessionId', async () => {
       const center = createCenter('balanced');
-      const result = await center.evaluateToolCall(makeToolInput({
-        sessionId: undefined,
-        capability: { category: 'session', readOnly: true, readsFiles: false, writesFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'none' },
-      }));
+      const result = await center.evaluateToolCall(
+        makeToolInput({
+          sessionId: undefined,
+          capability: {
+            category: 'session',
+            readOnly: true,
+            readsFiles: false,
+            writesFiles: false,
+            usesShell: false,
+            usesNetwork: false,
+            usesComputerUse: false,
+            pathAccess: 'none',
+            approvalDefault: 'none',
+          },
+        }),
+      );
       expect(result.allowed).toBe(true);
     });
 
     it('handles null args for shell', async () => {
       const center = createCenter('balanced');
-      await center.evaluateToolCall(makeToolInput({
-        capability: { category: 'session', readOnly: false, readsFiles: false, writesFiles: false, usesShell: true, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'none' },
-        args: null as unknown as Record<string, unknown>,
-      }));
+      await center.evaluateToolCall(
+        makeToolInput({
+          capability: {
+            category: 'session',
+            readOnly: false,
+            readsFiles: false,
+            writesFiles: false,
+            usesShell: true,
+            usesNetwork: false,
+            usesComputerUse: false,
+            pathAccess: 'none',
+            approvalDefault: 'none',
+          },
+          args: null as unknown as Record<string, unknown>,
+        }),
+      );
       expect(shellExecution.evaluate).toHaveBeenCalledWith(
         expect.objectContaining({ command: '' }),
       );
@@ -533,9 +790,21 @@ describe('PolicyCenterImpl', () => {
 
     it('safe mode does not check path access when pathAccess is none', async () => {
       const center = createCenter('safe');
-      const result = await center.evaluateToolCall(makeToolInput({
-        capability: { category: 'session', readOnly: true, readsFiles: false, writesFiles: false, usesShell: false, usesNetwork: false, usesComputerUse: false, pathAccess: 'none', approvalDefault: 'none' },
-      }));
+      const result = await center.evaluateToolCall(
+        makeToolInput({
+          capability: {
+            category: 'session',
+            readOnly: true,
+            readsFiles: false,
+            writesFiles: false,
+            usesShell: false,
+            usesNetwork: false,
+            usesComputerUse: false,
+            pathAccess: 'none',
+            approvalDefault: 'none',
+          },
+        }),
+      );
       expect(result.allowed).toBe(true);
       expect(pathAccess.check).not.toHaveBeenCalled();
     });

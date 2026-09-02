@@ -147,7 +147,12 @@ export class DesktopBridgeRegistry {
    * Forward a tool call to the desktop bridge for the given session.
    * Returns a Promise that resolves when the desktop replies.
    */
-  callTool(sessionId: string, tool: string, args: unknown, timeoutMs?: number): Promise<ToolCallResult> {
+  callTool(
+    sessionId: string,
+    tool: string,
+    args: unknown,
+    timeoutMs?: number,
+  ): Promise<ToolCallResult> {
     const connectionId = this.sessionMap.get(sessionId);
     if (!connectionId) {
       return Promise.reject(new Error(`No desktop bridge registered for session ${sessionId}`));
@@ -172,12 +177,14 @@ export class DesktopBridgeRegistry {
       this.pendingCalls.set(callId, { resolve, reject, timer });
 
       try {
-        conn.ws.send(JSON.stringify({
-          type: 'tool_call',
-          id: callId,
-          tool,
-          args,
-        }));
+        conn.ws.send(
+          JSON.stringify({
+            type: 'tool_call',
+            id: callId,
+            tool,
+            args,
+          }),
+        );
       } catch (err: any) {
         clearTimeout(timer);
         this.pendingCalls.delete(callId);
@@ -237,7 +244,8 @@ export class DesktopBridgeRegistry {
       case 'ping': {
         // Reply with pong to keep the connection alive
         const conn = this.connections.get(connectionId);
-        if (conn && conn.ws.readyState === 1) { // WebSocket.OPEN = 1
+        if (conn && conn.ws.readyState === 1) {
+          // WebSocket.OPEN = 1
           try {
             conn.ws.send(JSON.stringify({ type: 'pong' }));
           } catch {

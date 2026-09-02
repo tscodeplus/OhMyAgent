@@ -16,8 +16,12 @@ export default function LoginPage() {
   const handleSubmit = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
-      if (!token.trim()) { setError(t('auth.error')); return; }
-      setLoading(true); setError('');
+      if (!token.trim()) {
+        setError(t('auth.error'));
+        return;
+      }
+      setLoading(true);
+      setError('');
       const ok = await login(token.trim());
       if (!ok) setError(t('auth.error'));
       setLoading(false);
@@ -46,7 +50,7 @@ export default function LoginPage() {
               <Input
                 type="password"
                 value={token}
-                onChange={e => setTokenVal(e.target.value)}
+                onChange={(e) => setTokenVal(e.target.value)}
                 placeholder={t('auth.tokenPlaceholder')}
                 error={error || undefined}
                 autoFocus
@@ -58,8 +62,20 @@ export default function LoginPage() {
               >
                 {loading ? (
                   <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
-                    <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" className="opacity-75" />
+                    <circle
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      className="opacity-25"
+                    />
+                    <path
+                      d="M4 12a8 8 0 018-8"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      className="opacity-75"
+                    />
                   </svg>
                 ) : null}
                 {t('auth.loginButton')}

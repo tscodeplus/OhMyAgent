@@ -189,8 +189,14 @@ describe('i18n dictionary parity', () => {
     // Guards the parity checks themselves: an empty or truncated file would
     // otherwise pass every comparison above vacuously.
     for (const r of serverResults) {
-      expect(r.en.size, `${r.label} (en) is empty — parity checks would pass vacuously`).toBeGreaterThan(0);
-      expect(r.zh.size, `${r.label} (zh-CN) is empty — parity checks would pass vacuously`).toBeGreaterThan(0);
+      expect(
+        r.en.size,
+        `${r.label} (en) is empty — parity checks would pass vacuously`,
+      ).toBeGreaterThan(0);
+      expect(
+        r.zh.size,
+        `${r.label} (zh-CN) is empty — parity checks would pass vacuously`,
+      ).toBeGreaterThan(0);
     }
     expect(ui.en.size).toBeGreaterThan(500);
     expect(ui.zh.size).toBeGreaterThan(500);

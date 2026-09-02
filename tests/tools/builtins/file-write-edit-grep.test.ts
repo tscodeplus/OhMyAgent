@@ -37,7 +37,10 @@ function makeCtx(cwd: string): ToolExecutionContext {
 
 /** Create a temporary directory that is cleaned up after the test. */
 function createTempDir(): string {
-  const dir = join(tmpdir(), `ohmyagent-file-tools-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  const dir = join(
+    tmpdir(),
+    `ohmyagent-file-tools-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -76,7 +79,10 @@ describe('file_write', () => {
     const filePath = join(nestedDir, 'deep.txt');
     const ctx = makeCtx(tmpDir);
 
-    const result = await tool.execute({ filePath: join('a', 'b', 'c', 'deep.txt'), content: 'nested' }, ctx);
+    const result = await tool.execute(
+      { filePath: join('a', 'b', 'c', 'deep.txt'), content: 'nested' },
+      ctx,
+    );
 
     expect(result.isError).toBeFalsy();
     expect(existsSync(filePath)).toBe(true);
@@ -101,7 +107,10 @@ describe('file_write', () => {
     const tool = createFileWriteToolDefinition();
     const ctx = makeCtx('/');
 
-    const result = await tool.execute({ filePath: '/dev/null/test_write', content: 'should fail' }, ctx);
+    const result = await tool.execute(
+      { filePath: '/dev/null/test_write', content: 'should fail' },
+      ctx,
+    );
 
     expect(result.isError).toBe(true);
     expectToolResultContains(result, 'Failed to write file');
@@ -243,10 +252,7 @@ describe('grep', () => {
   it('finds matching lines in files', async () => {
     const tool = createGrepToolDefinition();
 
-    const result = await tool.execute(
-      { pattern: 'hello', path: tmpDir },
-      { ...ctx, cwd: tmpDir },
-    );
+    const result = await tool.execute({ pattern: 'hello', path: tmpDir }, { ...ctx, cwd: tmpDir });
 
     expect(result.isError).toBeFalsy();
     const text = extractToolText(result);
@@ -306,7 +312,7 @@ describe('grep', () => {
 
     expect(result.isError).toBeFalsy();
     const text = extractToolText(result);
-    const lines = text.split('\n').filter(l => l.length > 0);
+    const lines = text.split('\n').filter((l) => l.length > 0);
     expect(lines.length).toBe(10);
   });
 

@@ -95,10 +95,7 @@ async function postRegistration(
 // Route registration
 // ---------------------------------------------------------------------------
 
-export function registerFeishuQrRoutes(
-  server: FastifyInstance,
-  logger: Logger,
-): void {
+export function registerFeishuQrRoutes(server: FastifyInstance, logger: Logger): void {
   // ── Generate QR code (begin device flow) ──
   server.post('/api/channels/feishu/qr', async (req, reply) => {
     try {
@@ -217,7 +214,10 @@ export function registerFeishuQrRoutes(
         const appSecret = result['client_secret'] as string;
         const domain = session.domain;
 
-        logger.info({ sessionId: body.sessionId, domain, appId: appId.slice(0, 10) + '...' }, 'Feishu QR device flow completed');
+        logger.info(
+          { sessionId: body.sessionId, domain, appId: appId.slice(0, 10) + '...' },
+          'Feishu QR device flow completed',
+        );
 
         // Clean up session
         sessions.delete(body.sessionId);

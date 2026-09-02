@@ -18,10 +18,7 @@ const webFetchDef = createWebFetchToolDefinition();
 
 describe('web_fetch', () => {
   it('rejects an invalid URL', async () => {
-    const result = await webFetchDef.execute(
-      { url: 'not-a-url' },
-      {} as ToolExecutionContext,
-    );
+    const result = await webFetchDef.execute({ url: 'not-a-url' }, {} as ToolExecutionContext);
     expect(result.isError).toBe(true);
     expectToolResultContains(result, 'Invalid URL');
   });
@@ -63,10 +60,7 @@ describe('web_fetch', () => {
   });
 
   it('rejects IPv6 loopback addresses', async () => {
-    const result = await webFetchDef.execute(
-      { url: 'http://[::1]/' },
-      {} as ToolExecutionContext,
-    );
+    const result = await webFetchDef.execute({ url: 'http://[::1]/' }, {} as ToolExecutionContext);
     expect(result.isError).toBe(true);
     expectToolResultContains(result, 'internal hostname');
   });
@@ -81,9 +75,7 @@ const toolSearchDef = createToolSearchToolDefinition();
 /**
  * Minimal mock registry for testing tool_search formatting.
  */
-function createMockRegistry(
-  defs: ToolDefinition[],
-): ToolPlatformRegistry {
+function createMockRegistry(defs: ToolDefinition[]): ToolPlatformRegistry {
   return {
     registerDefinition: () => undefined,
     getDefinition: () => undefined,

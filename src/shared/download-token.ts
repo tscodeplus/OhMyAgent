@@ -26,8 +26,7 @@ function getSecret(): string {
   // tokens persisted in message history survive process restarts and
   // reinstalls. Without this, every start gets a fresh random key and all
   // previously signed /dl/ links become invalid.
-  const secretFile = process.env.OHMYAGENT_DOWNLOAD_SECRET_FILE
-    || dataPath('download-secret');
+  const secretFile = process.env.OHMYAGENT_DOWNLOAD_SECRET_FILE || dataPath('download-secret');
   try {
     if (fs.existsSync(secretFile)) {
       const existing = fs.readFileSync(secretFile, 'utf-8').trim();
@@ -75,10 +74,7 @@ export function generateDownloadToken(filePath: string, ttlMs: number = DEFAULT_
   });
 
   const payloadB64 = Buffer.from(payload, 'utf-8').toString('base64url');
-  const sig = crypto
-    .createHmac('sha256', secret())
-    .update(payloadB64)
-    .digest('base64url');
+  const sig = crypto.createHmac('sha256', secret()).update(payloadB64).digest('base64url');
 
   return `${payloadB64}.${sig}`;
 }
@@ -102,10 +98,7 @@ export function verifyDownloadToken(token: string): TokenPayload | null {
   const sig = token.slice(dotIndex + 1);
 
   // Verify HMAC signature
-  const expectedSig = crypto
-    .createHmac('sha256', secret())
-    .update(payloadB64)
-    .digest('base64url');
+  const expectedSig = crypto.createHmac('sha256', secret()).update(payloadB64).digest('base64url');
 
   if (sig.length !== expectedSig.length) return null;
   // Constant-time comparison

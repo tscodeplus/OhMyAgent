@@ -12,20 +12,11 @@ export interface AgentInheritancePolicy {
 export class AgentInheritancePolicyImpl implements AgentInheritancePolicy {
   deriveChildScope(parent: AgentPolicyScope, request: ChildAgentPolicyRequest): AgentPolicyScope {
     // toolsProfile: take the stricter value
-    const toolsProfile = this.stricterProfile(
-      parent.toolsProfile,
-      request.requestedToolsProfile,
-    );
+    const toolsProfile = this.stricterProfile(parent.toolsProfile, request.requestedToolsProfile);
 
     // readRoots / writeRoots: intersection
-    const readRoots = this.intersect(
-      parent.readRoots,
-      request.requestedReadRoots,
-    );
-    const writeRoots = this.intersect(
-      parent.writeRoots,
-      request.requestedWriteRoots,
-    );
+    const readRoots = this.intersect(parent.readRoots, request.requestedReadRoots);
+    const writeRoots = this.intersect(parent.writeRoots, request.requestedWriteRoots);
 
     // deniedPatterns: union
     const deniedPatterns = this.union(
@@ -34,9 +25,7 @@ export class AgentInheritancePolicyImpl implements AgentInheritancePolicy {
     );
 
     // shellExecMode: take the stricter value
-    const shellExecMode = this.stricterExecMode(
-      parent.shellExecMode,
-    );
+    const shellExecMode = this.stricterExecMode(parent.shellExecMode);
 
     // readOnly: either parent or child request → readOnly wins
     const readOnly = parent.readOnly || (request.requestedReadOnly ?? false);
@@ -65,7 +54,9 @@ export class AgentInheritancePolicyImpl implements AgentInheritancePolicy {
     return ToolVisibilityPolicyImpl.minProfile(parent, child);
   }
 
-  private stricterExecMode(parent: 'safe' | 'balanced' | 'trusted'): 'safe' | 'balanced' | 'trusted' {
+  private stricterExecMode(
+    parent: 'safe' | 'balanced' | 'trusted',
+  ): 'safe' | 'balanced' | 'trusted' {
     // child can never get a looser mode than parent
     return parent;
   }
@@ -73,8 +64,8 @@ export class AgentInheritancePolicyImpl implements AgentInheritancePolicy {
   private intersect(parentValues: string[], childValues?: string[]): string[] {
     if (!childValues || childValues.length === 0) return [...parentValues];
 
-    const parentSet = new Set(parentValues.map(v => v.toLowerCase()));
-    return childValues.filter(v => parentSet.has(v.toLowerCase()));
+    const parentSet = new Set(parentValues.map((v) => v.toLowerCase()));
+    return childValues.filter((v) => parentSet.has(v.toLowerCase()));
   }
 
   private union(parentValues: string[], childValues: string[]): string[] {

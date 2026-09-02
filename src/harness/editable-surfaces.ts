@@ -38,7 +38,9 @@ export class EditableSurfaceProvider {
 
     // The failure pattern is not part of the base FailureContext interface but
     // is provided at runtime by the caller (e.g. from a FailureSignal).
-    const pattern: FailurePattern | undefined = (context as FailureContext & { pattern?: FailurePattern }).pattern;
+    const pattern: FailurePattern | undefined = (
+      context as FailureContext & { pattern?: FailurePattern }
+    ).pattern;
 
     const addOnce = (surface: EditableSurface): void => {
       if (!seen.has(surface.id)) {
@@ -52,7 +54,10 @@ export class EditableSurfaceProvider {
     // AND whose path or aliases match any of the activated skill names
     // (the runtime may report several names joined by " | ").
     if (context.skillId) {
-      const skillTokens = context.skillId.split(' | ').map((s) => s.trim()).filter(Boolean);
+      const skillTokens = context.skillId
+        .split(' | ')
+        .map((s) => s.trim())
+        .filter(Boolean);
       for (const surface of this.surfaces.values()) {
         if (!surface.kind.startsWith('skill_')) continue;
         const matches = (token: string): boolean =>

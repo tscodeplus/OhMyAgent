@@ -21,16 +21,26 @@ const APPROVAL_PRESETS = [
   { value: 'low_risk_auto', labelKey: 'settings.harness.interactive.approval.lowRiskAuto' },
 ] as const;
 
-export default function HarnessSettings({ tabId = 'harness', registerHandle, onDirtyChange }: HarnessSettingsProps) {
+export default function HarnessSettings({
+  tabId = 'harness',
+  registerHandle,
+  onDirtyChange,
+}: HarnessSettingsProps) {
   const { t } = useTranslation('common');
   const { showToast } = useToast();
-  const { config, loading, dirtyCount, getField, setField, save, cancel } = useConfigDirty(tabId, registerHandle, onDirtyChange);
+  const { config, loading, dirtyCount, getField, setField, save, cancel } = useConfigDirty(
+    tabId,
+    registerHandle,
+    onDirtyChange,
+  );
 
   // Proposal model mode — use a flag to remember user's explicit dropdown choice,
   // avoiding the bug where setField('') causes derived mode to flip back to 'default'.
   const getConfigModel = () => {
     if (!config) return '';
-    return (((config.harness as Record<string, unknown>)?.proposal as Record<string, string>)?.model || '');
+    return (
+      ((config.harness as Record<string, unknown>)?.proposal as Record<string, string>)?.model || ''
+    );
   };
   const [userSelectedCustom, setUserSelectedCustom] = useState(() => {
     const m = getConfigModel();
@@ -55,13 +65,21 @@ export default function HarnessSettings({ tabId = 'harness', registerHandle, onD
   // Warn before leaving the page if there are unsaved changes
   useEffect(() => {
     if (dirtyCount === 0) return;
-    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, [dirtyCount]);
 
-  if (loading) return <div className="flex justify-center py-8"><Spinner /></div>;
-  if (!config) return <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('common.error')}</p>;
+  if (loading)
+    return (
+      <div className="flex justify-center py-8">
+        <Spinner />
+      </div>
+    );
+  if (!config)
+    return <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('common.error')}</p>;
 
   const harness = (config.harness as Record<string, unknown>) || {};
   const interactive = (harness.interactive as Record<string, unknown>) || {};
@@ -69,7 +87,8 @@ export default function HarnessSettings({ tabId = 'harness', registerHandle, onD
   const rateLimit = (harness.rateLimit as Record<string, number>) || {};
   const proposal = (harness.proposal as Record<string, string>) || {};
 
-  const sectionCardClass = 'rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4';
+  const sectionCardClass =
+    'rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4';
   const sectionTitleClass = 'text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3';
 
   return (
@@ -102,25 +121,45 @@ export default function HarnessSettings({ tabId = 'harness', registerHandle, onD
           <Input
             label={t('settings.harness.interactive.trigger.minIdenticalRetries')}
             type="number"
-            value={getField('harness.trigger.minIdenticalRetries', String(trigger.minIdenticalRetries ?? 3)) as string}
+            value={
+              getField(
+                'harness.trigger.minIdenticalRetries',
+                String(trigger.minIdenticalRetries ?? 3),
+              ) as string
+            }
             onChange={(e) => setField('harness.trigger.minIdenticalRetries', e.target.value)}
           />
           <Input
             label={t('settings.harness.interactive.trigger.minExplorationSteps')}
             type="number"
-            value={getField('harness.trigger.minExplorationSteps', String(trigger.minExplorationSteps ?? 8)) as string}
+            value={
+              getField(
+                'harness.trigger.minExplorationSteps',
+                String(trigger.minExplorationSteps ?? 8),
+              ) as string
+            }
             onChange={(e) => setField('harness.trigger.minExplorationSteps', e.target.value)}
           />
           <Input
             label={t('settings.harness.interactive.trigger.minConsecutiveErrors')}
             type="number"
-            value={getField('harness.trigger.minConsecutiveErrors', String(trigger.minConsecutiveErrors ?? 3)) as string}
+            value={
+              getField(
+                'harness.trigger.minConsecutiveErrors',
+                String(trigger.minConsecutiveErrors ?? 3),
+              ) as string
+            }
             onChange={(e) => setField('harness.trigger.minConsecutiveErrors', e.target.value)}
           />
           <Input
             label={t('settings.harness.interactive.trigger.cooldownMinutes')}
             type="number"
-            value={getField('harness.rateLimit.cooldownMinutes', String(rateLimit.cooldownMinutes ?? 30)) as string}
+            value={
+              getField(
+                'harness.rateLimit.cooldownMinutes',
+                String(rateLimit.cooldownMinutes ?? 30),
+              ) as string
+            }
             onChange={(e) => setField('harness.rateLimit.cooldownMinutes', e.target.value)}
           />
         </div>
@@ -131,8 +170,10 @@ export default function HarnessSettings({ tabId = 'harness', registerHandle, onD
         <h3 className={sectionTitleClass}>{t('settings.harness.interactive.approval.title')}</h3>
         <div className={`${sectionCardClass} space-y-3`}>
           {APPROVAL_PRESETS.map((preset) => {
-            const currentMode = getField('harness.interactive.approval.mode',
-              ((interactive?.approval as Record<string, string>)?.mode || 'smart_approve')) as string;
+            const currentMode = getField(
+              'harness.interactive.approval.mode',
+              (interactive?.approval as Record<string, string>)?.mode || 'smart_approve',
+            ) as string;
             return (
               <label key={preset.value} className="flex items-center gap-3 cursor-pointer py-1">
                 <input
@@ -153,7 +194,9 @@ export default function HarnessSettings({ tabId = 'harness', registerHandle, onD
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => showToast(t('settings.harness.interactive.approval.comingSoon'), 'info')}
+              onClick={() =>
+                showToast(t('settings.harness.interactive.approval.comingSoon'), 'info')
+              }
             >
               {t('settings.harness.interactive.approval.customRules')}
             </Button>
@@ -169,13 +212,20 @@ export default function HarnessSettings({ tabId = 'harness', registerHandle, onD
             <Input
               label={t('settings.harness.interactive.rateLimit.maxPerDay')}
               type="number"
-              value={getField('harness.rateLimit.maxPerDay', String(rateLimit.maxPerDay ?? 10)) as string}
+              value={
+                getField('harness.rateLimit.maxPerDay', String(rateLimit.maxPerDay ?? 10)) as string
+              }
               onChange={(e) => setField('harness.rateLimit.maxPerDay', e.target.value)}
             />
             <Input
               label={t('settings.harness.interactive.rateLimit.maxPerHour')}
               type="number"
-              value={getField('harness.rateLimit.maxPerHour', String(rateLimit.maxPerHour ?? 2)) as string}
+              value={
+                getField(
+                  'harness.rateLimit.maxPerHour',
+                  String(rateLimit.maxPerHour ?? 2),
+                ) as string
+              }
               onChange={(e) => setField('harness.rateLimit.maxPerHour', e.target.value)}
             />
           </div>

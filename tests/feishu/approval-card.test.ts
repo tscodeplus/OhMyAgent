@@ -71,12 +71,7 @@ describe('renderApprovalCard', () => {
 
     expect(actions).toHaveLength(4);
 
-    const expectedActions = [
-      'approve_once',
-      'approve_session',
-      'approve_always',
-      'reject_once',
-    ];
+    const expectedActions = ['approve_once', 'approve_session', 'approve_always', 'reject_once'];
 
     for (let i = 0; i < expectedActions.length; i++) {
       const btn = actions[i] as Record<string, unknown>;
@@ -192,7 +187,9 @@ describe('renderApprovalQueueCard', () => {
     ]) as Record<string, unknown>;
 
     const header = card.header as Record<string, unknown>;
-    expect((header.title as Record<string, unknown>).content).toBe(i18n.t('feishu-cards:card.approvalComplete'));
+    expect((header.title as Record<string, unknown>).content).toBe(
+      i18n.t('feishu-cards:card.approvalComplete'),
+    );
     expect(header.template).toBe('green');
 
     const elements = card.elements as Array<Record<string, unknown>>;
@@ -201,7 +198,10 @@ describe('renderApprovalQueueCard', () => {
 
     const statusEl = elements.find((element) => {
       const text = element.text as Record<string, unknown> | undefined;
-      return typeof text?.content === 'string' && text.content.includes(i18n.t('feishu-cards:overview.allDone'));
+      return (
+        typeof text?.content === 'string' &&
+        text.content.includes(i18n.t('feishu-cards:overview.allDone'))
+      );
     });
     expect(statusEl).toBeDefined();
 
@@ -215,47 +215,52 @@ describe('renderApprovalQueueCard', () => {
   });
 
   it('keeps collapse button available after history is expanded in completed state', () => {
-    const card = renderApprovalQueueCard([
-      {
-        requestId: 'req-1',
-        command: 'rm /tmp/1.txt',
-        risk: 'high',
-        status: 'approved',
-        decision: 'approve_once',
-        updatedAt: 1,
-      },
-      {
-        requestId: 'req-2',
-        command: 'rm /tmp/2.txt',
-        risk: 'high',
-        status: 'rejected',
-        decision: 'reject_once',
-        updatedAt: 2,
-      },
-      {
-        requestId: 'req-3',
-        command: 'rm /tmp/3.txt',
-        risk: 'high',
-        status: 'approved',
-        decision: 'approve_always',
-        updatedAt: 3,
-      },
-      {
-        requestId: 'req-4',
-        command: 'rm /tmp/4.txt',
-        risk: 'high',
-        status: 'rejected',
-        decision: 'reject_always',
-        updatedAt: 4,
-      },
-    ], { expanded: true, initialVisibleCount: 3 }) as Record<string, unknown>;
+    const card = renderApprovalQueueCard(
+      [
+        {
+          requestId: 'req-1',
+          command: 'rm /tmp/1.txt',
+          risk: 'high',
+          status: 'approved',
+          decision: 'approve_once',
+          updatedAt: 1,
+        },
+        {
+          requestId: 'req-2',
+          command: 'rm /tmp/2.txt',
+          risk: 'high',
+          status: 'rejected',
+          decision: 'reject_once',
+          updatedAt: 2,
+        },
+        {
+          requestId: 'req-3',
+          command: 'rm /tmp/3.txt',
+          risk: 'high',
+          status: 'approved',
+          decision: 'approve_always',
+          updatedAt: 3,
+        },
+        {
+          requestId: 'req-4',
+          command: 'rm /tmp/4.txt',
+          risk: 'high',
+          status: 'rejected',
+          decision: 'reject_always',
+          updatedAt: 4,
+        },
+      ],
+      { expanded: true, initialVisibleCount: 3 },
+    ) as Record<string, unknown>;
 
     const elements = card.elements as Array<Record<string, unknown>>;
-    const actionEl = elements.find((element) =>
-      element.tag === 'action' &&
-      Array.isArray(element.actions) &&
-      (element.actions as Array<Record<string, unknown>>)[0]?.value &&
-      ((element.actions as Array<Record<string, unknown>>)[0]?.value as Record<string, unknown>).action === 'collapse_history',
+    const actionEl = elements.find(
+      (element) =>
+        element.tag === 'action' &&
+        Array.isArray(element.actions) &&
+        (element.actions as Array<Record<string, unknown>>)[0]?.value &&
+        ((element.actions as Array<Record<string, unknown>>)[0]?.value as Record<string, unknown>)
+          .action === 'collapse_history',
     );
     expect(actionEl).toBeDefined();
   });

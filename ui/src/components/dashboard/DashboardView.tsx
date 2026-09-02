@@ -21,20 +21,47 @@ export default function DashboardView() {
       setLoading(true);
       const data = await apiRequest<DashboardStats>('/api/dashboard/stats');
       setStats(data);
-    } catch { /* fallback */ }
-    finally { setLoading(false); }
+    } catch {
+      /* fallback */
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  useEffect(() => { fetchStats(); }, [fetchStats]);
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
 
   if (loading) {
-    return <div className="flex h-full items-center justify-center"><Spinner /></div>;
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Spinner />
+      </div>
+    );
   }
 
   const cards = [
-    { title: t('dashboard.activeProjects'), value: stats?.activeProjects ?? 0, icon: BarChart3, color: 'text-neutral-600 dark:text-neutral-400', bg: 'bg-neutral-100 dark:bg-neutral-800' },
-    { title: t('dashboard.todaySessions'), value: stats?.todaySessions ?? 0, icon: MessageSquare, color: 'text-neutral-600 dark:text-neutral-400', bg: 'bg-neutral-100 dark:bg-neutral-800' },
-    { title: t('dashboard.monthlyTokens'), value: stats?.monthlyTokens?.toLocaleString() ?? '0', icon: Activity, color: 'text-neutral-600 dark:text-neutral-400', bg: 'bg-neutral-100 dark:bg-neutral-800' },
+    {
+      title: t('dashboard.activeProjects'),
+      value: stats?.activeProjects ?? 0,
+      icon: BarChart3,
+      color: 'text-neutral-600 dark:text-neutral-400',
+      bg: 'bg-neutral-100 dark:bg-neutral-800',
+    },
+    {
+      title: t('dashboard.todaySessions'),
+      value: stats?.todaySessions ?? 0,
+      icon: MessageSquare,
+      color: 'text-neutral-600 dark:text-neutral-400',
+      bg: 'bg-neutral-100 dark:bg-neutral-800',
+    },
+    {
+      title: t('dashboard.monthlyTokens'),
+      value: stats?.monthlyTokens?.toLocaleString() ?? '0',
+      icon: Activity,
+      color: 'text-neutral-600 dark:text-neutral-400',
+      bg: 'bg-neutral-100 dark:bg-neutral-800',
+    },
   ];
 
   return (
@@ -48,9 +75,14 @@ export default function DashboardView() {
         {cards.map((card, i) => {
           const Icon = card.icon;
           return (
-            <div key={i} className="rounded-xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
+            <div
+              key={i}
+              className="rounded-xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900"
+            >
               <div className="flex items-center gap-3">
-                <div className={`inline-flex h-10 w-10 items-center justify-center rounded-lg ${card.bg}`}>
+                <div
+                  className={`inline-flex h-10 w-10 items-center justify-center rounded-lg ${card.bg}`}
+                >
                   <Icon className={`h-5 w-5 ${card.color}`} strokeWidth={1.75} />
                 </div>
                 <div>

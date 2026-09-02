@@ -10,8 +10,12 @@ import { changeI18nLocale } from '../../src/i18n/i18n-service.js';
 describe('classifyProviderError', () => {
   it('classifies 404 / not-found as model_not_found', () => {
     expect(classifyProviderError('404 status code (no body)')).toBe('model_not_found');
-    expect(classifyProviderError("Function '...' Not found for account '...'")).toBe('model_not_found');
-    expect(classifyProviderError('no such model nvidia/moonshotai/kimi-k2.6')).toBe('model_not_found');
+    expect(classifyProviderError("Function '...' Not found for account '...'")).toBe(
+      'model_not_found',
+    );
+    expect(classifyProviderError('no such model nvidia/moonshotai/kimi-k2.6')).toBe(
+      'model_not_found',
+    );
   });
 
   it('classifies 429 / rate limit as rate_limited', () => {
@@ -39,9 +43,15 @@ describe('classifyProviderError', () => {
   // like "401: Model X is not supported" (status prefix + HTTP body, see
   // ai/utils/error-body.ts). The model wording must win over the 401 status.
   it('prefers model wording over auth status codes (gateway 401 + not-supported body)', () => {
-    expect(classifyProviderError('401: Model opencodezen/gpt-x is not supported')).toBe('model_not_found');
-    expect(classifyProviderError('401 Unauthorized — unsupported model "foo-bar"')).toBe('model_not_found');
-    expect(classifyProviderError("400 invalid request: unknown model 'x/y'")).toBe('model_not_found');
+    expect(classifyProviderError('401: Model opencodezen/gpt-x is not supported')).toBe(
+      'model_not_found',
+    );
+    expect(classifyProviderError('401 Unauthorized — unsupported model "foo-bar"')).toBe(
+      'model_not_found',
+    );
+    expect(classifyProviderError("400 invalid request: unknown model 'x/y'")).toBe(
+      'model_not_found',
+    );
   });
 });
 
@@ -49,7 +59,10 @@ describe('buildFriendlyErrorMessage', () => {
   it('renders an English friendly message + model + raw line for locale en', async () => {
     await changeI18nLocale('en');
     try {
-      const out = buildFriendlyErrorMessage('404 status code (no body)', 'nvidia/moonshotai/kimi-k2.6');
+      const out = buildFriendlyErrorMessage(
+        '404 status code (no body)',
+        'nvidia/moonshotai/kimi-k2.6',
+      );
       expect(out).toContain('Model or API key misconfigured');
       expect(out).toContain('(nvidia/moonshotai/kimi-k2.6)');
       expect(out).toContain('Raw error: 404 status code (no body)');

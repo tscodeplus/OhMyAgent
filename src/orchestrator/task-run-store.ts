@@ -40,15 +40,19 @@ export class InMemoryTaskRunStore implements TaskRunStore {
     return existing;
   }
 
-  get(taskId: string): TaskRun | undefined { return this.tasks.get(taskId); }
+  get(taskId: string): TaskRun | undefined {
+    return this.tasks.get(taskId);
+  }
 
   listBySession(sessionId: string): TaskRun[] {
-    return [...this.tasks.values()].filter(t => t.sessionId === sessionId);
+    return [...this.tasks.values()].filter((t) => t.sessionId === sessionId);
   }
 
   listByOwner(ownerAgentId: string): TaskRun[] {
-    return [...this.tasks.values()].filter(t => t.ownerAgentId === ownerAgentId);
+    return [...this.tasks.values()].filter((t) => t.ownerAgentId === ownerAgentId);
   }
 
-  delete(taskId: string): boolean { return this.tasks.delete(taskId); }
+  delete(taskId: string): boolean {
+    return this.tasks.delete(taskId);
+  }
 }

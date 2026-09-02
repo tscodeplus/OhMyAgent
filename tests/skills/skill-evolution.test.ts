@@ -109,7 +109,7 @@ describe('ProposalGenerator', () => {
     generator.generate('test-skill');
     const again = generator.generate('test-skill');
 
-    expect(again.filter(p => p.status === 'pending')).toHaveLength(1);
+    expect(again.filter((p) => p.status === 'pending')).toHaveLength(1);
   });
 
   it('apply/dismiss 状态持久化到 SQLite，新实例（模拟重启）可恢复', () => {
@@ -119,17 +119,17 @@ describe('ProposalGenerator', () => {
 
     // g1 中 apply —— 同时写入 DB
     expect(g1.applyProposal('test-skill', first[0].id)).toBe(true);
-    const row1 = db
-      .prepare('SELECT status FROM skill_proposals WHERE id = ?')
-      .get(first[0].id) as { status: string };
+    const row1 = db.prepare('SELECT status FROM skill_proposals WHERE id = ?').get(first[0].id) as {
+      status: string;
+    };
     expect(row1.status).toBe('applied');
 
     // 新实例 g2 从 DB 恢复 —— 能直接对旧提案操作即证明加载成功
     const g2 = new ProposalGenerator(metrics, makeRegistry(), db);
     expect(g2.dismissProposal('test-skill', first[0].id)).toBe(true);
-    const row2 = db
-      .prepare('SELECT status FROM skill_proposals WHERE id = ?')
-      .get(first[0].id) as { status: string };
+    const row2 = db.prepare('SELECT status FROM skill_proposals WHERE id = ?').get(first[0].id) as {
+      status: string;
+    };
     expect(row2.status).toBe('dismissed');
   });
 

@@ -5,7 +5,14 @@ import { execSync } from 'node:child_process';
 import { resolve as dnsResolve } from 'node:dns';
 import { join } from 'node:path';
 import { PROJECT_DIR, DATA_DIR, DIST_INDEX, PORT, DB_PATH } from '../config.js';
-import { isProcessAlive, readPidFile, checkPortInUse, checkHealthEndpoint, getNodeVersion, isWSL } from '../utils.js';
+import {
+  isProcessAlive,
+  readPidFile,
+  checkPortInUse,
+  checkHealthEndpoint,
+  getNodeVersion,
+  isWSL,
+} from '../utils.js';
 import { t } from '../i18n.js';
 
 type CheckResult = { status: 'ok' | 'warn' | 'error' | 'info'; label: string; message: string };
@@ -13,17 +20,29 @@ type CheckResult = { status: 'ok' | 'warn' | 'error' | 'info'; label: string; me
 const _require = createRequire(import.meta.url);
 const results: CheckResult[] = [];
 
-function ok(label: string, msg: string) { results.push({ status: 'ok', label, message: msg }); }
-function warn(label: string, msg: string) { results.push({ status: 'warn', label, message: msg }); }
-function err(label: string, msg: string) { results.push({ status: 'error', label, message: msg }); }
-function info(label: string, msg: string) { results.push({ status: 'info', label, message: msg }); }
+function ok(label: string, msg: string) {
+  results.push({ status: 'ok', label, message: msg });
+}
+function warn(label: string, msg: string) {
+  results.push({ status: 'warn', label, message: msg });
+}
+function err(label: string, msg: string) {
+  results.push({ status: 'error', label, message: msg });
+}
+function info(label: string, msg: string) {
+  results.push({ status: 'info', label, message: msg });
+}
 
 function checkSymbol(status: CheckResult['status']): string {
   switch (status) {
-    case 'ok': return '\x1b[32m✓\x1b[0m';
-    case 'warn': return '\x1b[33m!\x1b[0m';
-    case 'error': return '\x1b[31m✗\x1b[0m';
-    case 'info': return '\x1b[36m•\x1b[0m';
+    case 'ok':
+      return '\x1b[32m✓\x1b[0m';
+    case 'warn':
+      return '\x1b[33m!\x1b[0m';
+    case 'error':
+      return '\x1b[31m✗\x1b[0m';
+    case 'info':
+      return '\x1b[36m•\x1b[0m';
   }
 }
 
@@ -63,8 +82,12 @@ export async function doctorCommand(): Promise<void> {
   // 5. config.yaml
   const configYamlPath = join(PROJECT_DIR, 'config.yaml');
   if (existsSync(configYamlPath)) {
-    try { readFileSync(configYamlPath, 'utf8'); ok(t('doctor.configYaml'), t('doctor.configReadable')); }
-    catch { warn(t('doctor.configYaml'), t('doctor.configUnreadable')); }
+    try {
+      readFileSync(configYamlPath, 'utf8');
+      ok(t('doctor.configYaml'), t('doctor.configReadable'));
+    } catch {
+      warn(t('doctor.configYaml'), t('doctor.configUnreadable'));
+    }
   } else {
     warn(t('doctor.configYaml'), t('doctor.configMissing'));
   }
@@ -111,11 +134,20 @@ export async function doctorCommand(): Promise<void> {
 
   // 9. Native modules
   let betterSqlite3Ok = true;
-  try { _require.resolve('better-sqlite3'); ok(t('doctor.betterSqlite3'), t('doctor.moduleOk')); }
-  catch { betterSqlite3Ok = false; err(t('doctor.betterSqlite3'), t('doctor.moduleFail')); }
+  try {
+    _require.resolve('better-sqlite3');
+    ok(t('doctor.betterSqlite3'), t('doctor.moduleOk'));
+  } catch {
+    betterSqlite3Ok = false;
+    err(t('doctor.betterSqlite3'), t('doctor.moduleFail'));
+  }
 
-  try { _require.resolve('sharp'); ok(t('doctor.sharp'), t('doctor.moduleOk')); }
-  catch { warn(t('doctor.sharp'), t('doctor.sharpFail')); }
+  try {
+    _require.resolve('sharp');
+    ok(t('doctor.sharp'), t('doctor.moduleOk'));
+  } catch {
+    warn(t('doctor.sharp'), t('doctor.sharpFail'));
+  }
 
   // 10. Database
   if (betterSqlite3Ok) {
@@ -125,7 +157,9 @@ export async function doctorCommand(): Promise<void> {
       const testDb = new Database(join(DATA_DIR, '.doctor-test.db'));
       testDb.exec('SELECT 1');
       testDb.close();
-      try { unlinkSync(join(DATA_DIR, '.doctor-test.db')); } catch {}
+      try {
+        unlinkSync(join(DATA_DIR, '.doctor-test.db'));
+      } catch {}
       ok(t('doctor.db'), t('doctor.dbWritable'));
     } catch (e: any) {
       err(t('doctor.db'), `${t('doctor.dbFail')}: ${e.message}`);
@@ -147,7 +181,9 @@ export async function doctorCommand(): Promise<void> {
     } else {
       info(t('doctor.disk'), t('doctor.diskUnknown'));
     }
-  } catch { info(t('doctor.disk'), t('doctor.diskUnknown')); }
+  } catch {
+    info(t('doctor.disk'), t('doctor.diskUnknown'));
+  }
 
   // 12. Memory
   const freeMB = Math.round(freemem() / (1024 * 1024));
@@ -161,7 +197,10 @@ export async function doctorCommand(): Promise<void> {
   // 13. Network
   try {
     await new Promise<void>((res, rej) => {
-      dnsResolve('dns.google', (error: any) => { if (error) rej(error); else res(); });
+      dnsResolve('dns.google', (error: any) => {
+        if (error) rej(error);
+        else res();
+      });
     });
     ok(t('doctor.network'), t('doctor.networkOk'));
   } catch {

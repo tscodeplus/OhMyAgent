@@ -112,15 +112,23 @@ describe('AutoApplyMonitor rollback failure handling', () => {
     const monitor = new AutoApplyMonitor(
       `/tmp/harness-monitors-${Math.random().toString(36).slice(2)}.json`,
     );
-    monitor.watch('prop-rb', 'skill-a', null, {
-      satisfactionThreshold: 0.6,
-      observationWindow: 1,
-      errorRateMultiplier: 2.0,
-    }, 'commit1');
+    monitor.watch(
+      'prop-rb',
+      'skill-a',
+      null,
+      {
+        satisfactionThreshold: 0.6,
+        observationWindow: 1,
+        errorRateMultiplier: 2.0,
+      },
+      'commit1',
+    );
 
     // First failing activation → evaluate → rollback attempt #1 fails.
     monitor.onActivationComplete('skill-a', null, {
-      success: false, errorCount: 3, durationMs: 1000,
+      success: false,
+      errorCount: 3,
+      durationMs: 1000,
     });
 
     // Each evaluation must be fully awaited before firing the next one:
@@ -139,7 +147,9 @@ describe('AutoApplyMonitor rollback failure handling', () => {
 
     // Two more failing evaluations → attempts reach the limit → rollbackFailed.
     monitor.onActivationComplete('skill-a', null, {
-      success: false, errorCount: 3, durationMs: 1000,
+      success: false,
+      errorCount: 3,
+      durationMs: 1000,
     });
     await vi.waitFor(() => {
       expect(monitor.getActiveMonitors()[0]!.rollbackAttempts).toBe(2);
@@ -147,7 +157,9 @@ describe('AutoApplyMonitor rollback failure handling', () => {
     await vi.waitFor(() => expect(monitor.isReverting('prop-rb')).toBe(false));
 
     monitor.onActivationComplete('skill-a', null, {
-      success: false, errorCount: 3, durationMs: 1000,
+      success: false,
+      errorCount: 3,
+      durationMs: 1000,
     });
     await vi.waitFor(() => {
       const active = monitor.getActiveMonitors();
@@ -170,11 +182,17 @@ describe('AutoApplyMonitor rollback failure handling', () => {
     const monitor = new AutoApplyMonitor(
       `/tmp/harness-monitors-${Math.random().toString(36).slice(2)}.json`,
     );
-    monitor.watch('prop-rb2', 'skill-a', null, {
-      satisfactionThreshold: 0.6,
-      observationWindow: 1,
-      errorRateMultiplier: 2.0,
-    }, 'commit1');
+    monitor.watch(
+      'prop-rb2',
+      'skill-a',
+      null,
+      {
+        satisfactionThreshold: 0.6,
+        observationWindow: 1,
+        errorRateMultiplier: 2.0,
+      },
+      'commit1',
+    );
 
     // Drive 3 failed attempts (awaiting each evaluation so the in-flight
     // revert guard never coalesces two attempts into one). Wait for the
@@ -183,7 +201,9 @@ describe('AutoApplyMonitor rollback failure handling', () => {
     for (let i = 1; i <= 3; i++) {
       await vi.waitFor(() => expect(monitor.isReverting('prop-rb2')).toBe(false));
       monitor.onActivationComplete('skill-a', null, {
-        success: false, errorCount: 3, durationMs: 1000,
+        success: false,
+        errorCount: 3,
+        durationMs: 1000,
       });
       await vi.waitFor(() => {
         expect(monitor.getActiveMonitors()[0]!.rollbackAttempts).toBe(i);
@@ -197,7 +217,9 @@ describe('AutoApplyMonitor rollback failure handling', () => {
     // A 4th evaluation must not trigger another revert. Give any stray
     // async call time to surface before asserting the count is unchanged.
     monitor.onActivationComplete('skill-a', null, {
-      success: false, errorCount: 3, durationMs: 1000,
+      success: false,
+      errorCount: 3,
+      durationMs: 1000,
     });
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(execFileMock).toHaveBeenCalledTimes(3);
@@ -211,14 +233,22 @@ describe('AutoApplyMonitor rollback failure handling', () => {
     const monitor = new AutoApplyMonitor(
       `/tmp/harness-monitors-${Math.random().toString(36).slice(2)}.json`,
     );
-    monitor.watch('prop-ok', 'skill-a', null, {
-      satisfactionThreshold: 0.6,
-      observationWindow: 1,
-      errorRateMultiplier: 2.0,
-    }, 'commit1');
+    monitor.watch(
+      'prop-ok',
+      'skill-a',
+      null,
+      {
+        satisfactionThreshold: 0.6,
+        observationWindow: 1,
+        errorRateMultiplier: 2.0,
+      },
+      'commit1',
+    );
 
     monitor.onActivationComplete('skill-a', null, {
-      success: false, errorCount: 3, durationMs: 1000,
+      success: false,
+      errorCount: 3,
+      durationMs: 1000,
     });
 
     await vi.waitFor(() => {
@@ -259,9 +289,7 @@ describe('SkillEditor multi-occurrence diff.before', () => {
     const filePath = join(dir, 'SKILL.md');
     await writeFile(filePath, 'old text\nold text\n', 'utf-8');
 
-    const editor = new SkillEditor((id) =>
-      id === 'skill:multi:prompt' ? filePath : undefined,
-    );
+    const editor = new SkillEditor((id) => (id === 'skill:multi:prompt' ? filePath : undefined));
     const result = await editor.apply({
       id: 'prop-multi',
       skillId: null,
@@ -293,9 +321,7 @@ describe('SkillEditor multi-occurrence diff.before', () => {
     const filePath = join(dir, 'SKILL.md');
     await writeFile(filePath, 'old text\n', 'utf-8');
 
-    const editor = new SkillEditor((id) =>
-      id === 'skill:single:prompt' ? filePath : undefined,
-    );
+    const editor = new SkillEditor((id) => (id === 'skill:single:prompt' ? filePath : undefined));
     const result = await editor.apply({
       id: 'prop-single',
       skillId: null,
@@ -324,11 +350,15 @@ describe('HarnessOptimizer proposal dedup memory', () => {
   it('returns null for a repeated proposal with an identical failure context', async () => {
     const container: { capturedUserMessages: string[] } = { capturedUserMessages: [] };
     const mockLLM = makeAlternatingLlm(container);
-    const memoryPath =
-      `/tmp/harness-memory-${Math.random().toString(36).slice(2)}.json`;
+    const memoryPath = `/tmp/harness-memory-${Math.random().toString(36).slice(2)}.json`;
 
     const optimizer = new HarnessOptimizer(
-      { model: 'default', maxEditsPerProposal: 5, minConfidence: 0.5, allowedMechanisms: ['prompt_instruction'] },
+      {
+        model: 'default',
+        maxEditsPerProposal: 5,
+        minConfidence: 0.5,
+        allowedMechanisms: ['prompt_instruction'],
+      },
       makeSurfaceProvider(),
       mockLLM,
       memoryPath,
@@ -347,11 +377,15 @@ describe('HarnessOptimizer proposal dedup memory', () => {
 
   it('restores the dedup memory from disk across optimizer instances', async () => {
     const container: { capturedUserMessages: string[] } = { capturedUserMessages: [] };
-    const memoryPath =
-      `/tmp/harness-memory-${Math.random().toString(36).slice(2)}.json`;
+    const memoryPath = `/tmp/harness-memory-${Math.random().toString(36).slice(2)}.json`;
 
     const firstOptimizer = new HarnessOptimizer(
-      { model: 'default', maxEditsPerProposal: 5, minConfidence: 0.5, allowedMechanisms: ['prompt_instruction'] },
+      {
+        model: 'default',
+        maxEditsPerProposal: 5,
+        minConfidence: 0.5,
+        allowedMechanisms: ['prompt_instruction'],
+      },
       makeSurfaceProvider(),
       makeAlternatingLlm(container),
       memoryPath,
@@ -361,7 +395,12 @@ describe('HarnessOptimizer proposal dedup memory', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const secondOptimizer = new HarnessOptimizer(
-      { model: 'default', maxEditsPerProposal: 5, minConfidence: 0.5, allowedMechanisms: ['prompt_instruction'] },
+      {
+        model: 'default',
+        maxEditsPerProposal: 5,
+        minConfidence: 0.5,
+        allowedMechanisms: ['prompt_instruction'],
+      },
       makeSurfaceProvider(),
       makeAlternatingLlm(container),
       memoryPath,
@@ -377,7 +416,12 @@ describe('HarnessOptimizer historical-stats injection', () => {
   it('includes the skill stats block in the diagnosis user message', async () => {
     const container: { capturedUserMessages: string[] } = { capturedUserMessages: [] };
     const optimizer = new HarnessOptimizer(
-      { model: 'default', maxEditsPerProposal: 5, minConfidence: 0.5, allowedMechanisms: ['prompt_instruction'] },
+      {
+        model: 'default',
+        maxEditsPerProposal: 5,
+        minConfidence: 0.5,
+        allowedMechanisms: ['prompt_instruction'],
+      },
       makeSurfaceProvider(),
       makeAlternatingLlm(container),
       `/tmp/harness-memory-${Math.random().toString(36).slice(2)}.json`,
@@ -388,7 +432,10 @@ describe('HarnessOptimizer historical-stats injection', () => {
         totalActivations: 42,
         successRate: 0.75,
         avgDurationMs: 1234,
-        topTools: [{ name: 'shell', count: 5 }, { name: 'file_read', count: 3 }],
+        topTools: [
+          { name: 'shell', count: 5 },
+          { name: 'file_read', count: 3 },
+        ],
       },
     });
 
@@ -405,7 +452,12 @@ describe('HarnessOptimizer historical-stats injection', () => {
   it('renders "unknown" for missing success rate / duration', async () => {
     const container: { capturedUserMessages: string[] } = { capturedUserMessages: [] };
     const optimizer = new HarnessOptimizer(
-      { model: 'default', maxEditsPerProposal: 5, minConfidence: 0.5, allowedMechanisms: ['prompt_instruction'] },
+      {
+        model: 'default',
+        maxEditsPerProposal: 5,
+        minConfidence: 0.5,
+        allowedMechanisms: ['prompt_instruction'],
+      },
       makeSurfaceProvider(),
       makeAlternatingLlm(container),
       `/tmp/harness-memory-${Math.random().toString(36).slice(2)}.json`,
@@ -431,7 +483,12 @@ describe('HarnessOptimizer historical-stats injection', () => {
   it('omits the stats block when no skillStats are available', async () => {
     const container: { capturedUserMessages: string[] } = { capturedUserMessages: [] };
     const optimizer = new HarnessOptimizer(
-      { model: 'default', maxEditsPerProposal: 5, minConfidence: 0.5, allowedMechanisms: ['prompt_instruction'] },
+      {
+        model: 'default',
+        maxEditsPerProposal: 5,
+        minConfidence: 0.5,
+        allowedMechanisms: ['prompt_instruction'],
+      },
       makeSurfaceProvider(),
       makeAlternatingLlm(container),
       `/tmp/harness-memory-${Math.random().toString(36).slice(2)}.json`,

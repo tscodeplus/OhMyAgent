@@ -20,7 +20,9 @@ function makeSkill(overrides: Partial<LoadedSkill> & { id: string }): LoadedSkil
     promptContent: overrides.promptContent ?? '',
     tools: overrides.tools ?? { allowedTools: [] },
     memoryPolicy: overrides.memoryPolicy ?? {
-      scopes: [{ type: 'session' as const, readPolicy: 'always' as const, writePolicy: 'always' as const }],
+      scopes: [
+        { type: 'session' as const, readPolicy: 'always' as const, writePolicy: 'always' as const },
+      ],
     },
     path: overrides.path ?? `/fake/${overrides.id}`,
   };
@@ -96,8 +98,14 @@ describe('resolveSkillContext', () => {
 
   it('excludes disabled skills', () => {
     const skills = [
-      makeSkill({ id: 'disabled-skill', manifest: { triggers: ['test'], priority: 5, enabled: false } }),
-      makeSkill({ id: 'enabled-skill', manifest: { triggers: ['test'], priority: 1, enabled: true } }),
+      makeSkill({
+        id: 'disabled-skill',
+        manifest: { triggers: ['test'], priority: 5, enabled: false },
+      }),
+      makeSkill({
+        id: 'enabled-skill',
+        manifest: { triggers: ['test'], priority: 1, enabled: true },
+      }),
     ];
 
     const results = resolveSkillContext('test something', skills);
@@ -126,9 +134,7 @@ describe('resolveSkillContext', () => {
   });
 
   it('does not match trigger as substring of a word', () => {
-    const skills = [
-      makeSkill({ id: 'test-skill', manifest: { triggers: ['bad'], priority: 1 } }),
-    ];
+    const skills = [makeSkill({ id: 'test-skill', manifest: { triggers: ['bad'], priority: 1 } })];
 
     // "bad" appears inside "badminton" — word boundary should prevent match
     const results = resolveSkillContext('I play badminton', skills);
@@ -160,9 +166,7 @@ describe('resolveSkillContext', () => {
   });
 
   it('matches /skill:skill-id at start of message without trailing content', () => {
-    const skills = [
-      makeSkill({ id: 'my-skill', manifest: { triggers: ['test'], priority: 1 } }),
-    ];
+    const skills = [makeSkill({ id: 'my-skill', manifest: { triggers: ['test'], priority: 1 } })];
 
     const results = resolveSkillContext('/skill:my-skill', skills);
 
@@ -171,9 +175,7 @@ describe('resolveSkillContext', () => {
   });
 
   it('does not match /skill:skill-id in the middle of a message', () => {
-    const skills = [
-      makeSkill({ id: 'my-skill', manifest: { triggers: ['test'], priority: 1 } }),
-    ];
+    const skills = [makeSkill({ id: 'my-skill', manifest: { triggers: ['test'], priority: 1 } })];
 
     const results = resolveSkillContext('try /skill:my-skill in message', skills);
 
@@ -193,9 +195,7 @@ describe('resolveSkillContext', () => {
     expect(results).toHaveLength(0);
 
     // But "日程" bigram WOULD match if added as a trigger
-    const skills2 = [
-      makeSkill({ id: 'my-skill', manifest: { triggers: ['日程'], priority: 1 } }),
-    ];
+    const skills2 = [makeSkill({ id: 'my-skill', manifest: { triggers: ['日程'], priority: 1 } })];
     const results2 = resolveSkillContext('帮我管理日程', skills2);
     expect(results2).toHaveLength(1);
   });

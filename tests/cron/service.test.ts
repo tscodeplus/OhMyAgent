@@ -32,8 +32,9 @@ describe('parseSchedule', () => {
     const now = Date.now();
     const result = parseSchedule('30m');
     expect(result.schedule.type).toBe('oneshot');
-    expect((result.schedule as { type: 'oneshot'; timestampMs: number }).timestampMs)
-      .toBeGreaterThanOrEqual(now + 1_800_000 - 1000);
+    expect(
+      (result.schedule as { type: 'oneshot'; timestampMs: number }).timestampMs,
+    ).toBeGreaterThanOrEqual(now + 1_800_000 - 1000);
   });
 
   it('parses "2h" as oneshot', () => {
@@ -97,20 +98,40 @@ describe('parseSchedule', () => {
 describe('recomputeNextRun', () => {
   it('keeps existing nextRunAt for oneshot', () => {
     const job: CronJob = {
-      id: 'test', name: 'test', schedule: { type: 'oneshot', timestampMs: 999 },
-      scheduleText: '30m', prompt: 'test', chatId: '', enabled: true, state: 'idle',
-      nextRunAt: 123_456, retryCount: 0, lastRunAt: null, lastStatus: null,
-      createdAt: Date.now(), updatedAt: Date.now(),
+      id: 'test',
+      name: 'test',
+      schedule: { type: 'oneshot', timestampMs: 999 },
+      scheduleText: '30m',
+      prompt: 'test',
+      chatId: '',
+      enabled: true,
+      state: 'idle',
+      nextRunAt: 123_456,
+      retryCount: 0,
+      lastRunAt: null,
+      lastStatus: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
     };
     expect(recomputeNextRun(job)).toBe(123_456);
   });
 
   it('computes future timestamp for interval', () => {
     const job: CronJob = {
-      id: 'test', name: 'test', schedule: { type: 'interval', intervalMs: 60_000 },
-      scheduleText: 'every 1m', prompt: 'test', chatId: '', enabled: true, state: 'idle',
-      nextRunAt: null, retryCount: 0, lastRunAt: null, lastStatus: null,
-      createdAt: Date.now(), updatedAt: Date.now(),
+      id: 'test',
+      name: 'test',
+      schedule: { type: 'interval', intervalMs: 60_000 },
+      scheduleText: 'every 1m',
+      prompt: 'test',
+      chatId: '',
+      enabled: true,
+      state: 'idle',
+      nextRunAt: null,
+      retryCount: 0,
+      lastRunAt: null,
+      lastStatus: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
     };
     const next = recomputeNextRun(job);
     expect(next).toBeGreaterThan(Date.now());
@@ -119,10 +140,20 @@ describe('recomputeNextRun', () => {
 
   it('computes next cron fire for cron type', () => {
     const job: CronJob = {
-      id: 'test', name: 'test', schedule: { type: 'cron', expression: '0 8 * * *' },
-      scheduleText: '0 8 * * *', prompt: 'test', chatId: '', enabled: true, state: 'idle',
-      nextRunAt: null, retryCount: 0, lastRunAt: null, lastStatus: null,
-      createdAt: Date.now(), updatedAt: Date.now(),
+      id: 'test',
+      name: 'test',
+      schedule: { type: 'cron', expression: '0 8 * * *' },
+      scheduleText: '0 8 * * *',
+      prompt: 'test',
+      chatId: '',
+      enabled: true,
+      state: 'idle',
+      nextRunAt: null,
+      retryCount: 0,
+      lastRunAt: null,
+      lastStatus: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
     };
     const next = recomputeNextRun(job);
     expect(next).toBeGreaterThan(Date.now());
@@ -171,10 +202,18 @@ describe('CollectingReplyDispatcher', () => {
 
   it('tracks approval records', () => {
     const d = new CollectingReplyDispatcher();
-    d.setApprovalRecords([{
-      requestId: 'r1', command: 'rm -rf /', risk: 'high', status: 'pending',
-      updatedAt: Date.now(),
-    }], true);
+    d.setApprovalRecords(
+      [
+        {
+          requestId: 'r1',
+          command: 'rm -rf /',
+          risk: 'high',
+          status: 'pending',
+          updatedAt: Date.now(),
+        },
+      ],
+      true,
+    );
     expect(d.hasApprovals()).toBe(true);
   });
 });
@@ -200,10 +239,20 @@ describe('CronStore', () => {
   it('adds and retrieves jobs', () => {
     const store = new CronStore(tmpDir);
     const job: CronJob = {
-      id: 'abcd1234', name: 'test', schedule: { type: 'oneshot', timestampMs: Date.now() + 60000 },
-      scheduleText: '1m', prompt: 'hello', chatId: 'chat1', enabled: true, state: 'idle',
-      nextRunAt: Date.now() + 60000, retryCount: 0, lastRunAt: null, lastStatus: null,
-      createdAt: Date.now(), updatedAt: Date.now(),
+      id: 'abcd1234',
+      name: 'test',
+      schedule: { type: 'oneshot', timestampMs: Date.now() + 60000 },
+      scheduleText: '1m',
+      prompt: 'hello',
+      chatId: 'chat1',
+      enabled: true,
+      state: 'idle',
+      nextRunAt: Date.now() + 60000,
+      retryCount: 0,
+      lastRunAt: null,
+      lastStatus: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
     };
     store.add(job);
     expect(store.list()).toHaveLength(1);
@@ -213,22 +262,52 @@ describe('CronStore', () => {
   it('lists due jobs', () => {
     const store = new CronStore(tmpDir);
     const pastJob: CronJob = {
-      id: 'due1', name: 'past', schedule: { type: 'oneshot', timestampMs: Date.now() - 1000 },
-      scheduleText: 'past', prompt: '', chatId: '', enabled: true, state: 'idle',
-      nextRunAt: Date.now() - 1000, retryCount: 0, lastRunAt: null, lastStatus: null,
-      createdAt: Date.now(), updatedAt: Date.now(),
+      id: 'due1',
+      name: 'past',
+      schedule: { type: 'oneshot', timestampMs: Date.now() - 1000 },
+      scheduleText: 'past',
+      prompt: '',
+      chatId: '',
+      enabled: true,
+      state: 'idle',
+      nextRunAt: Date.now() - 1000,
+      retryCount: 0,
+      lastRunAt: null,
+      lastStatus: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
     };
     const futureJob: CronJob = {
-      id: 'future1', name: 'future', schedule: { type: 'oneshot', timestampMs: Date.now() + 3600000 },
-      scheduleText: 'future', prompt: '', chatId: '', enabled: true, state: 'idle',
-      nextRunAt: Date.now() + 3600000, retryCount: 0, lastRunAt: null, lastStatus: null,
-      createdAt: Date.now(), updatedAt: Date.now(),
+      id: 'future1',
+      name: 'future',
+      schedule: { type: 'oneshot', timestampMs: Date.now() + 3600000 },
+      scheduleText: 'future',
+      prompt: '',
+      chatId: '',
+      enabled: true,
+      state: 'idle',
+      nextRunAt: Date.now() + 3600000,
+      retryCount: 0,
+      lastRunAt: null,
+      lastStatus: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
     };
     const disabledJob: CronJob = {
-      id: 'disabled1', name: 'disabled', schedule: { type: 'oneshot', timestampMs: Date.now() - 1000 },
-      scheduleText: 'past', prompt: '', chatId: '', enabled: false, state: 'idle',
-      nextRunAt: Date.now() - 1000, retryCount: 0, lastRunAt: null, lastStatus: null,
-      createdAt: Date.now(), updatedAt: Date.now(),
+      id: 'disabled1',
+      name: 'disabled',
+      schedule: { type: 'oneshot', timestampMs: Date.now() - 1000 },
+      scheduleText: 'past',
+      prompt: '',
+      chatId: '',
+      enabled: false,
+      state: 'idle',
+      nextRunAt: Date.now() - 1000,
+      retryCount: 0,
+      lastRunAt: null,
+      lastStatus: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
     };
     store.add(pastJob);
     store.add(futureJob);
@@ -242,10 +321,20 @@ describe('CronStore', () => {
   it('updates a job', () => {
     const store = new CronStore(tmpDir);
     const job: CronJob = {
-      id: 'test', name: 'test', schedule: { type: 'oneshot', timestampMs: 0 },
-      scheduleText: '', prompt: '', chatId: '', enabled: true, state: 'idle',
-      nextRunAt: 0, retryCount: 0, lastRunAt: null, lastStatus: null,
-      createdAt: 0, updatedAt: 0,
+      id: 'test',
+      name: 'test',
+      schedule: { type: 'oneshot', timestampMs: 0 },
+      scheduleText: '',
+      prompt: '',
+      chatId: '',
+      enabled: true,
+      state: 'idle',
+      nextRunAt: 0,
+      retryCount: 0,
+      lastRunAt: null,
+      lastStatus: null,
+      createdAt: 0,
+      updatedAt: 0,
     };
     store.add(job);
     expect(store.update('test', { name: 'renamed', retryCount: 3 })).toBe(true);
@@ -255,10 +344,20 @@ describe('CronStore', () => {
   it('removes a job', () => {
     const store = new CronStore(tmpDir);
     const job: CronJob = {
-      id: 'test', name: 'test', schedule: { type: 'oneshot', timestampMs: 0 },
-      scheduleText: '', prompt: '', chatId: '', enabled: true, state: 'idle',
-      nextRunAt: 0, retryCount: 0, lastRunAt: null, lastStatus: null,
-      createdAt: 0, updatedAt: 0,
+      id: 'test',
+      name: 'test',
+      schedule: { type: 'oneshot', timestampMs: 0 },
+      scheduleText: '',
+      prompt: '',
+      chatId: '',
+      enabled: true,
+      state: 'idle',
+      nextRunAt: 0,
+      retryCount: 0,
+      lastRunAt: null,
+      lastStatus: null,
+      createdAt: 0,
+      updatedAt: 0,
     };
     store.add(job);
     expect(store.remove('test')).toBe(true);
@@ -274,10 +373,20 @@ describe('CronStore', () => {
   it('persists and reloads from disk', async () => {
     const store1 = new CronStore(tmpDir);
     store1.add({
-      id: 'persist', name: 'persist', schedule: { type: 'oneshot', timestampMs: 0 },
-      scheduleText: '', prompt: '', chatId: '', enabled: true, state: 'idle',
-      nextRunAt: 0, retryCount: 0, lastRunAt: null, lastStatus: null,
-      createdAt: 0, updatedAt: 0,
+      id: 'persist',
+      name: 'persist',
+      schedule: { type: 'oneshot', timestampMs: 0 },
+      scheduleText: '',
+      prompt: '',
+      chatId: '',
+      enabled: true,
+      state: 'idle',
+      nextRunAt: 0,
+      retryCount: 0,
+      lastRunAt: null,
+      lastStatus: null,
+      createdAt: 0,
+      updatedAt: 0,
     });
     await store1.flush();
 
@@ -317,8 +426,11 @@ describe('CronScheduler', () => {
 function createMockRunner(): JobRunner {
   return {
     run: async (job: CronJob) => ({
-      jobId: job.id, status: 'success' as const, output: 'done',
-      durationMs: 100, deliveredToChat: true,
+      jobId: job.id,
+      status: 'success' as const,
+      output: 'done',
+      durationMs: 100,
+      deliveredToChat: true,
     }),
     applyBackoff: () => null,
   } as unknown as JobRunner;
@@ -359,10 +471,16 @@ describe('CronService', () => {
 
   it('lists and gets jobs', () => {
     service.add({
-      name: 'J1', schedule: '30m', prompt: 'p1', chatId: 'c1',
+      name: 'J1',
+      schedule: '30m',
+      prompt: 'p1',
+      chatId: 'c1',
     });
     service.add({
-      name: 'J2', schedule: '1h', prompt: 'p2', chatId: 'c2',
+      name: 'J2',
+      schedule: '1h',
+      prompt: 'p2',
+      chatId: 'c2',
     });
     expect(service.list()).toHaveLength(2);
     expect(service.get(service.list()[0]!.id)?.name).toBe('J1');
@@ -370,7 +488,10 @@ describe('CronService', () => {
 
   it('pauses and resumes a job', () => {
     const job = service.add({
-      name: 'J', schedule: '1h', prompt: 'p', chatId: 'c',
+      name: 'J',
+      schedule: '1h',
+      prompt: 'p',
+      chatId: 'c',
     });
     expect(service.pause(job.id)).toBe(true);
     expect(service.get(job.id)?.enabled).toBe(false);
@@ -383,7 +504,10 @@ describe('CronService', () => {
 
   it('removes a job', () => {
     const job = service.add({
-      name: 'J', schedule: '1h', prompt: 'p', chatId: 'c',
+      name: 'J',
+      schedule: '1h',
+      prompt: 'p',
+      chatId: 'c',
     });
     expect(service.remove(job.id)).toBe(true);
     expect(service.list()).toHaveLength(0);
@@ -391,7 +515,10 @@ describe('CronService', () => {
 
   it('runs a job once immediately', async () => {
     const job = service.add({
-      name: 'J', schedule: '1h', prompt: 'hello', chatId: 'c',
+      name: 'J',
+      schedule: '1h',
+      prompt: 'hello',
+      chatId: 'c',
     });
     const result = await service.runOnce(job.id);
     expect(result.status).toBe('success');

@@ -85,7 +85,7 @@ export class SkillMetricsService {
    *                    Defaults to 0.5. Skills with zero calls are excluded.
    */
   getLowPerformanceSkills(threshold: number = 0.5): SkillMetrics[] {
-    return [...this.metrics.values()].filter(m => {
+    return [...this.metrics.values()].filter((m) => {
       if (m.totalCalls === 0) return false;
       const rate = m.successCount / m.totalCalls;
       return rate < threshold;

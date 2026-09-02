@@ -107,18 +107,27 @@ async function runWin32Once(
       await runner.exec(writeCmd, { timeoutMs: 15_000 });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return { ok: false, error: { code: 'SERVER_ERROR', message: `failed to write UIA script: ${message}` } };
+      return {
+        ok: false,
+        error: { code: 'SERVER_ERROR', message: `failed to write UIA script: ${message}` },
+      };
     }
   }
   try {
     const res = await runner.exec(buildWinUiaOnceRunCommand(), { timeoutMs: 15_000 });
-    const line = res.stdout.split('\n').find(l => l.trim().startsWith('{'));
+    const line = res.stdout.split('\n').find((l) => l.trim().startsWith('{'));
     if (!line) {
-      return { ok: false, error: { code: 'SERVER_ERROR', message: 'UIA script returned no JSON output' } };
+      return {
+        ok: false,
+        error: { code: 'SERVER_ERROR', message: 'UIA script returned no JSON output' },
+      };
     }
     const parsed: unknown = JSON.parse(line);
     if (!isRecord(parsed)) {
-      return { ok: false, error: { code: 'SERVER_ERROR', message: 'UIA script returned invalid JSON' } };
+      return {
+        ok: false,
+        error: { code: 'SERVER_ERROR', message: 'UIA script returned invalid JSON' },
+      };
     }
     if (parsed.ok === true) {
       return { ok: true, result: isRecord(parsed.result) ? parsed.result : {} };
@@ -248,7 +257,11 @@ async function runWin32DoubleClick(
 ): Promise<ActionResult> {
   const once = await runWin32Once(runner, 'double-click', { x, y });
   if (once.ok) return { ok: true, action: actionType };
-  return { ok: false, action: actionType, error: onceErrorToMessage(once, 'UIA double-click failed') };
+  return {
+    ok: false,
+    action: actionType,
+    error: onceErrorToMessage(once, 'UIA double-click failed'),
+  };
 }
 
 /**
@@ -289,7 +302,11 @@ export async function performWin32Action(
       }
       const once = await runWin32Once(runner, 'click-element', { elementId });
       if (once.ok) return { ok: true, action: action.type };
-      return { ok: false, action: action.type, error: onceErrorToMessage(once, 'UIA click failed') };
+      return {
+        ok: false,
+        action: action.type,
+        error: onceErrorToMessage(once, 'UIA click failed'),
+      };
     }
 
     case 'click_point': {
@@ -336,7 +353,11 @@ export async function performWin32Action(
       // PostMessage to the leased window (pidScoped semantics, no focus steal).
       const once = await runWin32Once(runner, 'press-key', { key: action.key, hwnd });
       if (once.ok) return { ok: true, action: action.type };
-      return { ok: false, action: action.type, error: onceErrorToMessage(once, 'UIA press failed') };
+      return {
+        ok: false,
+        action: action.type,
+        error: onceErrorToMessage(once, 'UIA press failed'),
+      };
     }
 
     case 'scroll': {
@@ -349,7 +370,11 @@ export async function performWin32Action(
         hwnd,
       });
       if (once.ok) return { ok: true, action: action.type };
-      return { ok: false, action: action.type, error: onceErrorToMessage(once, 'UIA scroll failed') };
+      return {
+        ok: false,
+        action: action.type,
+        error: onceErrorToMessage(once, 'UIA scroll failed'),
+      };
     }
 
     case 'double_click': {
@@ -359,7 +384,11 @@ export async function performWin32Action(
         if (WIN_UIA_ELEMENT_ID_RE.test(elementId)) {
           const once = await runWin32Once(runner, 'click-element', { elementId });
           if (once.ok) return { ok: true, action: action.type };
-          return { ok: false, action: action.type, error: onceErrorToMessage(once, 'UIA click failed') };
+          return {
+            ok: false,
+            action: action.type,
+            error: onceErrorToMessage(once, 'UIA click failed'),
+          };
         }
         const b = action.snapshotElement.bounds;
         return runWin32DoubleClick(

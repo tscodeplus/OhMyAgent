@@ -34,23 +34,27 @@ function convertColumn(
   column: string,
   nullable: boolean,
 ): number {
-  const tableCheck = db.prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name=?"
-  ).get(table);
+  const tableCheck = db
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
+    .get(table);
   if (!tableCheck) return 0;
 
   const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
-  if (!columns.some(c => c.name === column)) return 0;
+  if (!columns.some((c) => c.name === column)) return 0;
 
   const nullClause = nullable ? '' : `AND ${column} IS NOT NULL`;
   // Only convert old datetime strings (contain hyphens: 'YYYY-MM-DD HH:MM:SS').
   // New millisecond strings ('1780796411000') don't contain hyphens and must
   // be skipped — strftime('%s', '1780796411000') returns NULL.
-  const result = db.prepare(`
+  const result = db
+    .prepare(
+      `
     UPDATE ${table}
     SET ${column} = cast(strftime('%s', ${column}) as integer) * 1000
     WHERE ${column} LIKE '%-%'${nullClause}
-  `).run();
+  `,
+    )
+    .run();
   return result.changes;
 }
 

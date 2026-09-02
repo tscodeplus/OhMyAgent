@@ -22,10 +22,7 @@ const BOTFATHER_URL = 'https://t.me/botfather';
  * Called unconditionally from the extension entry point (before the
  * enabled/configured early-return check).
  */
-export function registerTelegramQrRoute(
-  server: FastifyInstance,
-  logger: Logger,
-): void {
+export function registerTelegramQrRoute(server: FastifyInstance, logger: Logger): void {
   // POST /api/channels/telegram/qr — generate a BotFather deep-link QR code
   server.post('/api/channels/telegram/qr', async (_req, reply) => {
     try {

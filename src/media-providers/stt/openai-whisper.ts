@@ -9,13 +9,15 @@ import type { STTProvider, STTInput, STTResult } from './types.js';
 export class OpenAIWhisperProvider implements STTProvider {
   readonly id = 'openai-whisper';
 
-  constructor(private options: {
-    apiKey: string;
-    /** Default: https://api.openai.com */
-    baseUrl?: string;
-    /** Default: whisper-1 */
-    model?: string;
-  }) {}
+  constructor(
+    private options: {
+      apiKey: string;
+      /** Default: https://api.openai.com */
+      baseUrl?: string;
+      /** Default: whisper-1 */
+      model?: string;
+    },
+  ) {}
 
   isAvailable(): boolean {
     return !!this.options.apiKey;

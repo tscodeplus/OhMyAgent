@@ -77,10 +77,7 @@ const sendMsgDef = createSendMessageToolDefinition();
 describe('send_message', () => {
   it('returns error when orchestrator is not available', async () => {
     const ctx = makeCtx({}, undefined);
-    const result = await sendMsgDef.execute(
-      { toAgentId: 'agent-1', content: 'hello' },
-      ctx,
-    );
+    const result = await sendMsgDef.execute({ toAgentId: 'agent-1', content: 'hello' }, ctx);
     expect(result.isError).toBe(true);
     expectToolResultContains(result, 'Orchestrator is not available');
   });
@@ -129,10 +126,7 @@ describe('send_message', () => {
     const { orchestrator } = createMockOrchestrator();
     const ctx = makeCtx({ agentId: 'sender-1', sessionId: 'session-1' }, orchestrator);
 
-    const result = await sendMsgDef.execute(
-      { toAgentId: 'agent-2', content: 'Hello' },
-      ctx,
-    );
+    const result = await sendMsgDef.execute({ toAgentId: 'agent-2', content: 'Hello' }, ctx);
 
     expect(result.isError).toBeFalsy();
     expect(orchestrator.sendMessage).toHaveBeenCalledWith(
@@ -144,10 +138,7 @@ describe('send_message', () => {
     const { orchestrator } = createMockOrchestrator();
     const ctx = makeCtx({ sessionId: 'session-1' }, orchestrator);
 
-    await sendMsgDef.execute(
-      { toAgentId: 'agent-2', content: 'Hello', kind: 'status' },
-      ctx,
-    );
+    await sendMsgDef.execute({ toAgentId: 'agent-2', content: 'Hello', kind: 'status' }, ctx);
 
     expect(orchestrator.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ fromAgentId: 'primary' }),
@@ -158,10 +149,7 @@ describe('send_message', () => {
     const { orchestrator } = createMockOrchestrator();
     const ctx = makeCtx({ agentId: 'sender-1' }, orchestrator);
 
-    await sendMsgDef.execute(
-      { toAgentId: 'agent-2', content: 'Hello', kind: 'status' },
-      ctx,
-    );
+    await sendMsgDef.execute({ toAgentId: 'agent-2', content: 'Hello', kind: 'status' }, ctx);
 
     expect(orchestrator.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: 'default' }),
@@ -190,10 +178,7 @@ describe('send_message', () => {
     };
     const ctx = makeCtx({ agentId: 'sender-1', sessionId: 'session-1' }, orchestrator);
 
-    const result = await sendMsgDef.execute(
-      { toAgentId: 'nonexistent', content: 'Hello' },
-      ctx,
-    );
+    const result = await sendMsgDef.execute({ toAgentId: 'nonexistent', content: 'Hello' }, ctx);
 
     expect(result.isError).toBe(true);
     expectToolResultContains(result, 'Target agent "nonexistent" not found');
@@ -523,7 +508,9 @@ describe('send_message', () => {
 
   it('external route: sender failure returns error', async () => {
     const mockSender = {
-      send: vi.fn(async () => { throw new Error('Network error'); }),
+      send: vi.fn(async () => {
+        throw new Error('Network error');
+      }),
     };
     const { orchestrator } = createMockOrchestrator();
     const ctx = makeCtx(

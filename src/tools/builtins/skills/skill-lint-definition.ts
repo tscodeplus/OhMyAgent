@@ -31,7 +31,12 @@ export function createSkillLintTool(deps: SkillLintToolDeps): AgentTool<any> {
       const args = params as { skillId: string };
       if (!args.skillId || typeof args.skillId !== 'string') {
         return {
-          content: [{ type: 'text' as const, text: 'Missing required parameter: skillId. Provide the kebab-case skill ID to validate.' }],
+          content: [
+            {
+              type: 'text' as const,
+              text: 'Missing required parameter: skillId. Provide the kebab-case skill ID to validate.',
+            },
+          ],
           details: { ok: false, skillId: String(args.skillId ?? 'undefined'), issues: [] },
         };
       }
@@ -48,7 +53,12 @@ export function createSkillLintTool(deps: SkillLintToolDeps): AgentTool<any> {
 
       if (result.issues.length === 0) {
         return {
-          content: [{ type: 'text' as const, text: `✅ Skill "${args.skillId}" passed all checks with no issues.` }],
+          content: [
+            {
+              type: 'text' as const,
+              text: `✅ Skill "${args.skillId}" passed all checks with no issues.`,
+            },
+          ],
           details: result,
         };
       }

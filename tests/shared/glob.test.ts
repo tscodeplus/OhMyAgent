@@ -87,10 +87,13 @@ describe('isDeniedByPattern', () => {
 });
 
 describe('malformed patterns never throw', () => {
-  it.each(['[', '[]', '[a-', '**', '(', ')', '\\', 'a{b', 'a^b', '$1', '[[]]', '+', '?*['])('%s', (pattern) => {
-    expect(() => matchGlobStrict('/some/path/file.ts', pattern)).not.toThrow();
-    expect(() => matchGlobGreedy('/some/path/file.ts', pattern)).not.toThrow();
-  });
+  it.each(['[', '[]', '[a-', '**', '(', ')', '\\', 'a{b', 'a^b', '$1', '[[]]', '+', '?*['])(
+    '%s',
+    (pattern) => {
+      expect(() => matchGlobStrict('/some/path/file.ts', pattern)).not.toThrow();
+      expect(() => matchGlobGreedy('/some/path/file.ts', pattern)).not.toThrow();
+    },
+  );
 });
 
 describe('globToRegExp', () => {

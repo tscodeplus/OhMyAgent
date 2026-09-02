@@ -9,15 +9,31 @@ export type { HardlinePatternEntry, HardlineCheckResult } from './types.js';
 
 export const HARDLINE_PATTERNS: HardlinePatternEntry[] = [
   // Filesystem destruction
-  { pattern: '^rm\\s+-rf\\s+/($|\\s|\\*)', type: 'regex', description: 'Recursively delete root filesystem' },
+  {
+    pattern: '^rm\\s+-rf\\s+/($|\\s|\\*)',
+    type: 'regex',
+    description: 'Recursively delete root filesystem',
+  },
   { pattern: '^rm\\s+-rf\\s+~($|\\s|/)', type: 'regex', description: 'Delete user home directory' },
-  { pattern: '^rm\\s+-rf\\s+\\$HOME($|\\s|/)', type: 'regex', description: 'Delete user home directory' },
-  { pattern: '^rm\\s+-rf\\s+/home($|\\s|/)', type: 'regex', description: 'Recursively delete /home' },
+  {
+    pattern: '^rm\\s+-rf\\s+\\$HOME($|\\s|/)',
+    type: 'regex',
+    description: 'Delete user home directory',
+  },
+  {
+    pattern: '^rm\\s+-rf\\s+/home($|\\s|/)',
+    type: 'regex',
+    description: 'Recursively delete /home',
+  },
   { pattern: '^rm\\s+-rf\\s+/etc($|\\s|/)', type: 'regex', description: 'Recursively delete /etc' },
   { pattern: '^rm\\s+-rf\\s+/usr($|\\s|/)', type: 'regex', description: 'Recursively delete /usr' },
   { pattern: '^rm\\s+-rf\\s+/var($|\\s|/)', type: 'regex', description: 'Recursively delete /var' },
   { pattern: '^rm\\s+-rf\\s+/bin($|\\s|/)', type: 'regex', description: 'Recursively delete /bin' },
-  { pattern: '^rm\\s+-rf\\s+/root($|\\s|/)', type: 'regex', description: 'Recursively delete /root' },
+  {
+    pattern: '^rm\\s+-rf\\s+/root($|\\s|/)',
+    type: 'regex',
+    description: 'Recursively delete /root',
+  },
   // Disk destruction
   { pattern: '^mkfs', type: 'regex', description: 'Format filesystem' },
   { pattern: 'dd\\s+.*of=/dev/sd', type: 'regex', description: 'Write to raw block device' },

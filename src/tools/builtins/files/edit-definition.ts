@@ -26,8 +26,7 @@ export function createFileEditToolDefinition(): ToolDefinition {
   return {
     name: 'file_edit',
     label: 'File Edit',
-    description:
-      'Edit a file by finding and replacing text. Supports single or replace-all mode.',
+    description: 'Edit a file by finding and replacing text. Supports single or replace-all mode.',
     category: 'file',
     parametersSchema: Type.Object({
       filePath: Type.String({
@@ -41,8 +40,7 @@ export function createFileEditToolDefinition(): ToolDefinition {
       }),
       replaceAll: Type.Optional(
         Type.Boolean({
-          description:
-            'Replace all occurrences if true; otherwise replace only the first',
+          description: 'Replace all occurrences if true; otherwise replace only the first',
         }),
       ),
     }),
@@ -66,9 +64,7 @@ export function createFileEditToolDefinition(): ToolDefinition {
         const occurrences = content.split(args.oldString).length - 1;
 
         if (occurrences === 0) {
-          return errorResult(
-            `The string "${args.oldString}" was not found in ${resolvedPath}`,
-          );
+          return errorResult(`The string "${args.oldString}" was not found in ${resolvedPath}`);
         }
 
         if (occurrences > 1 && !args.replaceAll) {
@@ -95,16 +91,12 @@ export function createFileEditToolDefinition(): ToolDefinition {
 
         // Write back (symlink-safe: O_NOFOLLOW closes the check→write TOCTOU gap).
         writeFileNoFollow(resolvedPath, newContent);
-        return textResult(
-          `Successfully replaced ${occurrences} occurrence(s) in ${resolvedPath}`,
-        );
+        return textResult(`Successfully replaced ${occurrences} occurrence(s) in ${resolvedPath}`);
       } catch (err: any) {
         if (err.code === 'ENOENT') {
           return errorResult(`File not found: ${args.filePath}`);
         }
-        return errorResult(
-          `Failed to edit file: ${err.message ?? String(err)}`,
-        );
+        return errorResult(`Failed to edit file: ${err.message ?? String(err)}`);
       }
     },
   };

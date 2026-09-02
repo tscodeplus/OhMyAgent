@@ -13,9 +13,9 @@ const logger = createLogger();
 
 export function migrateV4(db: Database.Database): void {
   // Check if sessions table exists first (fresh DB may not have it yet)
-  const tableCheck = db.prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'"
-  ).get() as { name: string } | undefined;
+  const tableCheck = db
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'")
+    .get() as { name: string } | undefined;
 
   if (tableCheck) {
     // Table exists — check for project_id column

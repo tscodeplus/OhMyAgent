@@ -62,12 +62,12 @@ export function ensureModelRegistered(
   if (existing) return existing;
 
   // ── Path 1: custom provider (custom_providers config) ──
-  const cp = config.customProviders?.find(p => p.provider === provider);
+  const cp = config.customProviders?.find((p) => p.provider === provider);
   if (cp) {
     return synthesizeAndRegister(provider, modelId, {
       apiKey: cp.apiKey,
       baseUrl: cp.baseUrl,
-      api: cp.models.find(m => m.api)?.api,
+      api: cp.models.find((m) => m.api)?.api,
       template: cp.models[0],
     });
   }
@@ -109,9 +109,7 @@ function synthesizeAndRegister(
   const api = source.api ?? 'openai-completions';
   const template = source.template;
 
-  const baseUrl = source.baseUrl
-    ? ensureV1BaseUrl(source.baseUrl, api)
-    : undefined;
+  const baseUrl = source.baseUrl ? ensureV1BaseUrl(source.baseUrl, api) : undefined;
 
   const model: Record<string, unknown> = {
     id: modelId,

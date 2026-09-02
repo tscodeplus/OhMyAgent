@@ -47,8 +47,18 @@ interface BotApi {
 
 /** Non-void HTML elements that can be opened/closed and must be tracked. */
 const CONTAINER_TAGS = new Set([
-  'b', 'i', 'u', 's', 'code', 'pre', 'a',
-  'em', 'strong', 'span', 'tg-spoiler', 'blockquote',
+  'b',
+  'i',
+  'u',
+  's',
+  'code',
+  'pre',
+  'a',
+  'em',
+  'strong',
+  'span',
+  'tg-spoiler',
+  'blockquote',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -369,8 +379,5 @@ async function sendSingleMedia(
  * Escape HTML special characters for safe inclusion in Telegram HTML messages.
  */
 function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

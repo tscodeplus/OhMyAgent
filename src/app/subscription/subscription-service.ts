@@ -38,7 +38,15 @@ export interface SubscriptionStatus {
 
 /** Events emitted during login, delivered via WebSocket channel "subscription:{providerId}". */
 export interface SubscriptionProgressEvent {
-  type: 'auth_url' | 'device_code' | 'progress' | 'prompt' | 'select' | 'manual_code_input' | 'success' | 'error';
+  type:
+    | 'auth_url'
+    | 'device_code'
+    | 'progress'
+    | 'prompt'
+    | 'select'
+    | 'manual_code_input'
+    | 'success'
+    | 'error';
   providerId: string;
   data: Record<string, unknown>;
 }
@@ -83,7 +91,10 @@ export class SubscriptionService {
       }
       return {};
     } catch (err) {
-      this.logger.warn({ err, path: this.authFile }, '[subscription] Failed to load auth.json, ignoring');
+      this.logger.warn(
+        { err, path: this.authFile },
+        '[subscription] Failed to load auth.json, ignoring',
+      );
       return {};
     }
   }
@@ -167,7 +178,10 @@ export class SubscriptionService {
     auth[providerId] = { type: 'oauth', ...credentials };
     this.saveCredentials(auth);
 
-    this.logger.info({ providerId, expires: credentials.expires }, '[subscription] Login succeeded');
+    this.logger.info(
+      { providerId, expires: credentials.expires },
+      '[subscription] Login succeeded',
+    );
     return credentials;
   }
 
@@ -220,7 +234,10 @@ export class SubscriptionService {
       if (!result) {
         // Credentials exist but we couldn't get a valid API key
         // (token expired and refresh failed — network, revoked, etc.)
-        this.logger.debug({ providerId }, '[subscription] OAuth token expired and refresh failed, skipping');
+        this.logger.debug(
+          { providerId },
+          '[subscription] OAuth token expired and refresh failed, skipping',
+        );
         return null;
       }
 

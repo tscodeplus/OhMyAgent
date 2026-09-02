@@ -45,16 +45,20 @@ export function createSpawnAgentTool(deps: SpawnAgentDeps): AgentTool<any> {
   return {
     name: 'spawn_agent',
     label: 'Spawn Agent',
-    description: 'Create a sub-agent for independent task execution. Use for research or complex multi-step operations.',
+    description:
+      'Create a sub-agent for independent task execution. Use for research or complex multi-step operations.',
     parameters: Type.Object({
-      task: Type.String({ description: 'task description for the sub-agent. Be specific and self-contained.' }),
-      persona: Type.Optional(Type.String({ description: 'agent ID to use as the sub-agent persona. Must match an existing agent configuration(e.g. "default", "coder", "designer"). If omitted, inherits current agent. Do NOT invent persona names — only use IDs from the agent list.' })),
+      task: Type.String({
+        description: 'task description for the sub-agent. Be specific and self-contained.',
+      }),
+      persona: Type.Optional(
+        Type.String({
+          description:
+            'agent ID to use as the sub-agent persona. Must match an existing agent configuration(e.g. "default", "coder", "designer"). If omitted, inherits current agent. Do NOT invent persona names — only use IDs from the agent list.',
+        }),
+      ),
     }),
-    execute: async (
-      _toolCallId: string,
-      params: unknown,
-      _signal?: AbortSignal,
-    ) => {
+    execute: async (_toolCallId: string, params: unknown, _signal?: AbortSignal) => {
       const { task, persona } = params as { task: string; persona?: string };
       const parentCtx = deps.getParentContext?.();
       const parentSessionId = parentCtx?.sessionId || 'default';
@@ -69,7 +73,12 @@ export function createSpawnAgentTool(deps: SpawnAgentDeps): AgentTool<any> {
       }
       if (sessionSubs.size >= limit) {
         return {
-          content: [{ type: 'text', text: `已达到最大并行子任务数 (${limit})。请等待当前子任务完成后再试。` }],
+          content: [
+            {
+              type: 'text',
+              text: `已达到最大并行子任务数 (${limit})。请等待当前子任务完成后再试。`,
+            },
+          ],
           details: {},
         };
       }
@@ -136,7 +145,12 @@ export function createSpawnAgentTool(deps: SpawnAgentDeps): AgentTool<any> {
           const partialSummary = extractSummary(messages, task, true);
 
           return {
-            content: [{ type: 'text', text: `子任务超时 (${timeoutMs / 1000}s)。\n\n部分结果:\n${partialSummary.content}` }],
+            content: [
+              {
+                type: 'text',
+                text: `子任务超时 (${timeoutMs / 1000}s)。\n\n部分结果:\n${partialSummary.content}`,
+              },
+            ],
             details: partialSummary.details,
           };
         }
@@ -173,10 +187,14 @@ function extractSummary(
   _timedOut?: boolean,
 ): {
   content: string;
-  details: { toolCalls: Array<{ name: string; count: number }>; messageCount: number; truncated: boolean };
+  details: {
+    toolCalls: Array<{ name: string; count: number }>;
+    messageCount: number;
+    truncated: boolean;
+  };
 } {
   // Extract last assistant message for the main response
-  const assistantMessages = messages.filter(m => m.role === 'assistant');
+  const assistantMessages = messages.filter((m) => m.role === 'assistant');
   const lastAssistant = assistantMessages[assistantMessages.length - 1];
 
   let text = '';

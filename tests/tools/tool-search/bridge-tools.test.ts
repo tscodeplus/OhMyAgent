@@ -27,7 +27,11 @@ function defaultConfig(overrides: Partial<ToolSearchConfig> = {}): ToolSearchCon
   };
 }
 
-function realTool(name: string, description: string = '', resultText: string = `result from ${name}`): AgentTool {
+function realTool(
+  name: string,
+  description: string = '',
+  resultText: string = `result from ${name}`,
+): AgentTool {
   return {
     name,
     label: name,
@@ -107,10 +111,7 @@ describe('tool_search', () => {
   });
 
   it('returns error when query is empty (matches Hermes behavior)', async () => {
-    const deferred = [
-      realTool('tool_a'),
-      realTool('tool_b'),
-    ];
+    const deferred = [realTool('tool_a'), realTool('tool_b')];
     const bridge = makeBridgeTools(deferred, deferred, true);
     const tool = findSearch(bridge);
 
@@ -284,9 +285,7 @@ describe('tool_search dynamic description', () => {
     expect(search.description).toContain('Search BEFORE using generic tools');
     expect(search.description).not.toContain('Unlocked');
     // 与静态时代逐字节一致(不破坏 prompt 缓存的关键)
-    expect(search.description).toContain(
-      'on-demand tools available: computer_use',
-    );
+    expect(search.description).toContain('on-demand tools available: computer_use');
   });
 
   it('switches to "call directly" description after invoke unlocks a tool', async () => {
@@ -307,10 +306,7 @@ describe('tool_search dynamic description', () => {
   });
 
   it('lists remaining on-demand tools excluding the unlocked one', async () => {
-    const bridge = makeBridgeTools([
-      realTool('computer_use'),
-      realTool('memory_rebuild_persona'),
-    ]);
+    const bridge = makeBridgeTools([realTool('computer_use'), realTool('memory_rebuild_persona')]);
     const search = findSearch(bridge);
     await search.execute!(
       '1',

@@ -54,10 +54,14 @@ class InMemoryObservationSink implements MemoryObservationSink {
     }
     if (this.db?.open) {
       try {
-        this.db.prepare(`
+        this.db
+          .prepare(
+            `
           INSERT INTO memory_observation_events (event, details)
           VALUES (?, ?)
-        `).run(event, sanitized ? JSON.stringify(sanitized) : null);
+        `,
+          )
+          .run(event, sanitized ? JSON.stringify(sanitized) : null);
       } catch {
         // Observability must never break the memory path.
       }
@@ -89,22 +93,34 @@ class InMemoryObservationSink implements MemoryObservationSink {
   private snapshotPersisted(): MemoryObservationReport | null {
     if (!this.db?.open) return null;
     try {
-      const countRows = this.db.prepare(`
+      const countRows = this.db
+        .prepare(
+          `
         SELECT event, COUNT(*) as count
         FROM memory_observation_events
         GROUP BY event
-      `).all() as Array<{ event: string; count: number }>;
-      const recentRows = this.db.prepare(`
+      `,
+        )
+        .all() as Array<{ event: string; count: number }>;
+      const recentRows = this.db
+        .prepare(
+          `
         SELECT event, details, created_at
         FROM memory_observation_events
         ORDER BY id DESC
         LIMIT ?
-      `).all(MAX_RECENT) as Array<{ event: MemoryObservationEvent; details: string | null; created_at: string }>;
-      const counts = Object.fromEntries(countRows.map(row => [row.event, row.count]));
+      `,
+        )
+        .all(MAX_RECENT) as Array<{
+        event: MemoryObservationEvent;
+        details: string | null;
+        created_at: string;
+      }>;
+      const counts = Object.fromEntries(countRows.map((row) => [row.event, row.count]));
       return {
         total: countRows.reduce((sum, row) => sum + row.count, 0),
         counts,
-        recent: recentRows.reverse().map(row => ({
+        recent: recentRows.reverse().map((row) => ({
           event: row.event,
           at: row.created_at,
           details: row.details ? safeParseDetails(row.details) : undefined,
@@ -147,7 +163,7 @@ function safeParseDetails(json: string): Record<string, unknown> | undefined {
   try {
     const parsed = JSON.parse(json);
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
+      ? (parsed as Record<string, unknown>)
       : undefined;
   } catch {
     return undefined;

@@ -51,8 +51,13 @@ const PRIORITY_KEYS: ReadonlyArray<string> = [
 
 /** Keys whose values should be shortened with ~ for $HOME prefix. */
 const PATH_KEYS = new Set([
-  'file_path', 'filePath', 'notebook_path',
-  'path', 'directory', 'imagePath', 'audioPath',
+  'file_path',
+  'filePath',
+  'notebook_path',
+  'path',
+  'directory',
+  'imagePath',
+  'audioPath',
 ]);
 
 /**

@@ -35,7 +35,13 @@ type LoginStage =
   | { type: 'device_code'; info: DeviceCodeInfo }
   | { type: 'auth_url'; url: string }
   | { type: 'waiting' }
-  | { type: 'prompt'; requestId: string; message: string; placeholder?: string; allowEmpty?: boolean }
+  | {
+      type: 'prompt';
+      requestId: string;
+      message: string;
+      placeholder?: string;
+      allowEmpty?: boolean;
+    }
   | { type: 'select'; requestId: string; message: string; options: SelectOption[] }
   | { type: 'manual_code_input'; requestId: string }
   | { type: 'error'; message: string };
@@ -284,7 +290,6 @@ export default function SubscriptionsSettings() {
                     </span>
                   )}
                 </div>
-
               </div>
 
               {/* Actions */}

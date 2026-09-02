@@ -89,7 +89,10 @@ describe('GET /api/files/content + /download — confinement', () => {
   });
 
   it('download denies a path outside every served root', async () => {
-    const res = await h.call('GET', `/api/files/download?path=${encodeURIComponent(h.outsideSecretPath)}`);
+    const res = await h.call(
+      'GET',
+      `/api/files/download?path=${encodeURIComponent(h.outsideSecretPath)}`,
+    );
 
     expect(res.statusCode).toBe(403);
     expect(res.json().error).toBe('Path traversal denied');
@@ -111,7 +114,10 @@ describe('GET /api/files/content + /download — confinement', () => {
 
 describe('GET /api/files/serve — out-of-root access is not self-serviceable', () => {
   it('denies an out-of-root path outright, with no approval offer', async () => {
-    const res = await h.call('GET', `/api/files/serve?path=${encodeURIComponent(h.outsideSecretPath)}`);
+    const res = await h.call(
+      'GET',
+      `/api/files/serve?path=${encodeURIComponent(h.outsideSecretPath)}`,
+    );
 
     expect(res.statusCode).toBe(403);
     expect(res.json().error).toBe('Path traversal denied');
@@ -122,7 +128,10 @@ describe('GET /api/files/serve — out-of-root access is not self-serviceable', 
   });
 
   it('walks the full request→approve→read chain without ever getting the file', async () => {
-    const probe = await h.call('GET', `/api/files/serve?path=${encodeURIComponent(h.outsideSecretPath)}`);
+    const probe = await h.call(
+      'GET',
+      `/api/files/serve?path=${encodeURIComponent(h.outsideSecretPath)}`,
+    );
     expect(probe.statusCode).toBe(403);
 
     // Guessing an id is not enough — no such request exists.
@@ -145,7 +154,10 @@ describe('GET /api/files/serve — out-of-root access is not self-serviceable', 
     });
     expect(forged.statusCode).toBe(403);
 
-    const reprobe = await h.call('GET', `/api/files/serve?path=${encodeURIComponent(h.outsideSecretPath)}`);
+    const reprobe = await h.call(
+      'GET',
+      `/api/files/serve?path=${encodeURIComponent(h.outsideSecretPath)}`,
+    );
     expect(reprobe.statusCode).toBe(403);
     expect(reprobe.body).not.toContain(OUTSIDE_SECRET_BODY);
 
@@ -165,7 +177,10 @@ describe('GET /api/files/serve — out-of-root access is not self-serviceable', 
     expect(approved.statusCode).toBe(200);
     expect(approved.json()).toEqual({ ok: true, path: h.outsideSecretPath });
 
-    const served = await h.call('GET', `/api/files/serve?path=${encodeURIComponent(h.outsideSecretPath)}`);
+    const served = await h.call(
+      'GET',
+      `/api/files/serve?path=${encodeURIComponent(h.outsideSecretPath)}`,
+    );
     expect(served.statusCode).toBe(200);
     expect(served.body).toBe(OUTSIDE_SECRET_BODY);
 
@@ -200,7 +215,10 @@ describe('GET /api/files/serve — inline rendering', () => {
   });
 
   it('forces svg and js to attachments', async () => {
-    const svg = await h.call('GET', `/api/files/serve?path=${encodeURIComponent(join(h.fileRoot, 'icon.svg'))}`);
+    const svg = await h.call(
+      'GET',
+      `/api/files/serve?path=${encodeURIComponent(join(h.fileRoot, 'icon.svg'))}`,
+    );
     expect(svg.statusCode).toBe(200);
     expect(svg.headers['content-type']).toContain('image/svg+xml');
     expect(svg.headers['content-disposition']).toContain('attachment');
@@ -209,7 +227,10 @@ describe('GET /api/files/serve — inline rendering', () => {
   });
 
   it('leaves raster images inline (the media preview path) but still nosniffed', async () => {
-    const res = await h.call('GET', `/api/files/serve?path=${encodeURIComponent(join(h.fileRoot, 'pic.png'))}`);
+    const res = await h.call(
+      'GET',
+      `/api/files/serve?path=${encodeURIComponent(join(h.fileRoot, 'pic.png'))}`,
+    );
 
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toContain('image/png');

@@ -77,7 +77,11 @@ function decodeResponseBody(body: Buffer, encodingHeader: string | string[] | un
  * Perform an HTTP GET request using Node.js built-in modules.
  * Returns the response body as a string along with the Content-Type header.
  */
-function httpGet(targetUrl: string, timeoutMs: number, resolvedAddress: ResolvedAddress): Promise<FetchResult> {
+function httpGet(
+  targetUrl: string,
+  timeoutMs: number,
+  resolvedAddress: ResolvedAddress,
+): Promise<FetchResult> {
   return new Promise((resolve, reject) => {
     const parsedUrl = new URL(targetUrl);
     const mod = parsedUrl.protocol === 'https:' ? https : http;
@@ -97,12 +101,15 @@ function httpGet(targetUrl: string, timeoutMs: number, resolvedAddress: Resolved
         timeout: timeoutMs,
         lookup,
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7339.208 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7339.208 Safari/537.36',
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
           'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
           'Accept-Encoding': 'gzip, deflate, br',
         },
-        servername: net.isIP(parsedUrl.hostname.replace(/^\[|\]$/g, '')) ? undefined : parsedUrl.hostname,
+        servername: net.isIP(parsedUrl.hostname.replace(/^\[|\]$/g, ''))
+          ? undefined
+          : parsedUrl.hostname,
       },
       (res) => {
         const contentType = res.headers['content-type'] ?? 'application/octet-stream';
@@ -156,7 +163,9 @@ export function createWebFetchToolDefinition(): ToolDefinition {
     category: 'web',
     parametersSchema: Type.Object({
       url: Type.String({ description: 'The URL to fetch' }),
-      prompt: Type.Optional(Type.String({ description: 'Optional context prompt to prepend to the result' })),
+      prompt: Type.Optional(
+        Type.String({ description: 'Optional context prompt to prepend to the result' }),
+      ),
     }),
     capability: webFetchToolCapability,
     execute: async (args: { url: string; prompt?: string }, _ctx: ToolExecutionContext) => {

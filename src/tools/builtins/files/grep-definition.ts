@@ -71,8 +71,7 @@ export function createGrepToolDefinition(): ToolDefinition {
   return {
     name: 'grep',
     label: 'Grep',
-    description:
-      'Search files with regex. Supports include globs and result caps.',
+    description: 'Search files with regex. Supports include globs and result caps.',
     category: 'file',
     parametersSchema: Type.Object({
       pattern: Type.String({
@@ -80,14 +79,12 @@ export function createGrepToolDefinition(): ToolDefinition {
       }),
       path: Type.Optional(
         Type.String({
-          description:
-            'The directory to search in (defaults to current working directory)',
+          description: 'The directory to search in (defaults to current working directory)',
         }),
       ),
       include: Type.Optional(
         Type.String({
-          description:
-            'Glob pattern to filter files (e.g. *.ts). Defaults to * (all files)',
+          description: 'Glob pattern to filter files (e.g. *.ts). Defaults to * (all files)',
         }),
       ),
       maxResults: Type.Optional(
@@ -117,9 +114,7 @@ export function createGrepToolDefinition(): ToolDefinition {
           );
         }
 
-        const searchPath = args.path
-          ? path.resolve(ctx.cwd, args.path)
-          : process.cwd();
+        const searchPath = args.path ? path.resolve(ctx.cwd, args.path) : process.cwd();
         const includePattern = args.include ?? '*';
         const maxResults = args.maxResults ?? 100;
 
@@ -146,16 +141,12 @@ export function createGrepToolDefinition(): ToolDefinition {
         }
 
         if (results.length === 0) {
-          return textResult(
-            `No matches found for pattern "${args.pattern}" in ${searchPath}`,
-          );
+          return textResult(`No matches found for pattern "${args.pattern}" in ${searchPath}`);
         }
 
         return textResult(results.join('\n'));
       } catch (err: any) {
-        return errorResult(
-          `Failed to search: ${err.message ?? String(err)}`,
-        );
+        return errorResult(`Failed to search: ${err.message ?? String(err)}`);
       }
     },
   };

@@ -45,7 +45,7 @@ describe('GET /api/providers', () => {
     app = Fastify({ logger: false });
 
     registerConfigRoutes(app, {
-      getConfig: () => ({ piAi: { provider: 'openai', model: 'gpt-4' } } as any),
+      getConfig: () => ({ piAi: { provider: 'openai', model: 'gpt-4' } }) as any,
       configPath: '/tmp/test-config.yaml',
     });
 
@@ -102,7 +102,7 @@ describe('GET /api/providers/:id/models', () => {
     app = Fastify({ logger: false });
 
     registerConfigRoutes(app, {
-      getConfig: () => ({ piAi: { provider: 'openai', model: 'gpt-4' } } as any),
+      getConfig: () => ({ piAi: { provider: 'openai', model: 'gpt-4' } }) as any,
       configPath: '/tmp/test-config.yaml',
     });
 
@@ -149,7 +149,9 @@ describe('GET /api/providers/:id/models', () => {
   });
 
   it('normalizes missing fields (reasoning false, input empty array)', async () => {
-    mockGetModels.mockReturnValue([{ id: 'bare-model', name: undefined, api: 'openai-completions' }]);
+    mockGetModels.mockReturnValue([
+      { id: 'bare-model', name: undefined, api: 'openai-completions' },
+    ]);
 
     const res = await app.inject({ method: 'GET', url: '/api/providers/x/models' });
     const body = JSON.parse(res.body);

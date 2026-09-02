@@ -7,7 +7,11 @@ interface AccordionItemProps {
   children: ReactNode;
 }
 
-export default function AccordionItem({ title, defaultOpen = false, children }: AccordionItemProps) {
+export default function AccordionItem({
+  title,
+  defaultOpen = false,
+  children,
+}: AccordionItemProps) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="border border-neutral-200 dark:border-neutral-800 rounded-lg overflow-hidden bg-white dark:bg-neutral-900">

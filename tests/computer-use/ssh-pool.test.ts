@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { SSHPool, SSHExitError, SSHTimeoutError } from '../../src/computer-use/transports/ssh-pool.js';
+import {
+  SSHPool,
+  SSHExitError,
+  SSHTimeoutError,
+} from '../../src/computer-use/transports/ssh-pool.js';
 import type { SSHPoolConfig } from '../../src/computer-use/transports/ssh-pool.js';
 import { spawn } from 'child_process';
 import { EventEmitter } from 'events';
@@ -141,7 +145,7 @@ describe('SSHPool', () => {
     expect(controlMasterIdx).toBeGreaterThanOrEqual(0);
     expect(sshArgs[controlMasterIdx - 1]).toBe('-o');
     // ControlPath
-    const controlPathIdx = sshArgs.findIndex(a => a.startsWith('ControlPath='));
+    const controlPathIdx = sshArgs.findIndex((a) => a.startsWith('ControlPath='));
     expect(controlPathIdx).toBeGreaterThanOrEqual(0);
     expect(sshArgs[controlPathIdx - 1]).toBe('-o');
     // user@host

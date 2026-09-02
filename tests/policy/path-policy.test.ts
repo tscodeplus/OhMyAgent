@@ -55,7 +55,7 @@ describe('PathAccessPolicyImpl', () => {
     // Double-star crosses segments explicitly; single-star legacy patterns
     // must still match nested paths (deny fails safe by widening).
     const starSsh = ['*', '*', 'id_rsa'].join('/'); // legacy multi-segment
-    const doubleStar = ['**', 'id_rsa'].join('/');   // explicit cross-segment
+    const doubleStar = ['**', 'id_rsa'].join('/'); // explicit cross-segment
 
     for (const pattern of [doubleStar, starSsh]) {
       const policy = new PathAccessPolicyImpl({
@@ -65,7 +65,8 @@ describe('PathAccessPolicyImpl', () => {
         autoInjectCwd: false,
       });
       expect(
-        policy.check({ path: path.join(deep, 'id_rsa'), operation: 'read', scope: scope() }).allowed,
+        policy.check({ path: path.join(deep, 'id_rsa'), operation: 'read', scope: scope() })
+          .allowed,
       ).toBe(false);
       // A non-matching sibling under the root stays allowed.
       expect(
@@ -121,17 +122,21 @@ describe('PathAccessPolicyImpl', () => {
       autoInjectCwd: false,
     });
 
-    expect(policy.check({
-      path: path.join(allowed, 'ok.txt'),
-      operation: 'read',
-      scope: scope({ readRoots: [allowed] }),
-    }).allowed).toBe(true);
+    expect(
+      policy.check({
+        path: path.join(allowed, 'ok.txt'),
+        operation: 'read',
+        scope: scope({ readRoots: [allowed] }),
+      }).allowed,
+    ).toBe(true);
 
-    expect(policy.check({
-      path: path.join(blocked, 'no.txt'),
-      operation: 'read',
-      scope: scope({ readRoots: [allowed] }),
-    }).allowed).toBe(false);
+    expect(
+      policy.check({
+        path: path.join(blocked, 'no.txt'),
+        operation: 'read',
+        scope: scope({ readRoots: [allowed] }),
+      }).allowed,
+    ).toBe(false);
 
     await rm(base, { recursive: true, force: true });
   });
@@ -156,21 +161,27 @@ describe('PathAccessPolicyImpl', () => {
       autoInjectCwd: false,
     });
 
-    expect(policy.check({
-      path: path.join(base, 'old.txt'),
-      operation: 'read',
-      scope: scope(),
-    }).allowed).toBe(false);
-    expect(policy.check({
-      path: path.join(next, 'ok.txt'),
-      operation: 'read',
-      scope: scope(),
-    }).allowed).toBe(true);
-    expect(policy.check({
-      path: path.join(next, 'secret.pem'),
-      operation: 'read',
-      scope: scope(),
-    }).allowed).toBe(false);
+    expect(
+      policy.check({
+        path: path.join(base, 'old.txt'),
+        operation: 'read',
+        scope: scope(),
+      }).allowed,
+    ).toBe(false);
+    expect(
+      policy.check({
+        path: path.join(next, 'ok.txt'),
+        operation: 'read',
+        scope: scope(),
+      }).allowed,
+    ).toBe(true);
+    expect(
+      policy.check({
+        path: path.join(next, 'secret.pem'),
+        operation: 'read',
+        scope: scope(),
+      }).allowed,
+    ).toBe(false);
 
     await rm(base, { recursive: true, force: true });
     await rm(next, { recursive: true, force: true });
@@ -223,7 +234,9 @@ describe('launch directory is not a write boundary', () => {
     });
 
     expect(policy.check({ path: insideCwd, operation: 'read', scope: scope() }).allowed).toBe(true);
-    expect(policy.check({ path: insideCwd, operation: 'write', scope: scope() }).allowed).toBe(false);
+    expect(policy.check({ path: insideCwd, operation: 'write', scope: scope() }).allowed).toBe(
+      false,
+    );
   });
 
   it('treats cwd injection as opt-in', () => {
@@ -233,7 +246,9 @@ describe('launch directory is not a write boundary', () => {
       deniedPatterns: [],
     });
 
-    expect(policy.check({ path: insideCwd, operation: 'read', scope: scope() }).allowed).toBe(false);
+    expect(policy.check({ path: insideCwd, operation: 'read', scope: scope() }).allowed).toBe(
+      false,
+    );
   });
 
   it('grants the explicit agent home read and write access without leaking to siblings', async () => {
@@ -248,10 +263,15 @@ describe('launch directory is not a write boundary', () => {
       agentHome: base,
     });
 
-    expect(policy.check({ path: path.join(base, 'a.txt'), operation: 'read', scope: scope() }).allowed).toBe(true);
-    expect(policy.check({ path: path.join(base, 'a.txt'), operation: 'write', scope: scope() }).allowed).toBe(true);
     expect(
-      policy.check({ path: path.join(sibling, 'a.txt'), operation: 'write', scope: scope() }).allowed,
+      policy.check({ path: path.join(base, 'a.txt'), operation: 'read', scope: scope() }).allowed,
+    ).toBe(true);
+    expect(
+      policy.check({ path: path.join(base, 'a.txt'), operation: 'write', scope: scope() }).allowed,
+    ).toBe(true);
+    expect(
+      policy.check({ path: path.join(sibling, 'a.txt'), operation: 'write', scope: scope() })
+        .allowed,
     ).toBe(false);
 
     await rm(base, { recursive: true, force: true });

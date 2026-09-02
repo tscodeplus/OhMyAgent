@@ -6,18 +6,22 @@ import type { CronJob } from './types.js';
 import { i18n } from '../i18n/index.js';
 
 const schema = z.object({
-  action: z.enum(["create", "list", "pause", "resume", "remove", "run"])
-    .describe("Action to perform on cron jobs"),
-  name: z.string().optional()
-    .describe("Job name (used with create)"),
-  schedule: z.string().optional()
-    .describe("Schedule: \"5m\", \"30m\", \"2h\", \"every 2h\", \"0 8 * * *\""),
-  prompt: z.string().optional()
-    .describe("Prompt for the cron agent to execute. For reminders: write the message the user will see."),
-  end_at: z.string().optional()
-    .describe("ISO 8601 end time. Scheduler auto-completes job after this."),
-  job_id: z.string().optional()
-    .describe("8-char job ID for operations on existing jobs"),
+  action: z
+    .enum(['create', 'list', 'pause', 'resume', 'remove', 'run'])
+    .describe('Action to perform on cron jobs'),
+  name: z.string().optional().describe('Job name (used with create)'),
+  schedule: z.string().optional().describe('Schedule: "5m", "30m", "2h", "every 2h", "0 8 * * *"'),
+  prompt: z
+    .string()
+    .optional()
+    .describe(
+      'Prompt for the cron agent to execute. For reminders: write the message the user will see.',
+    ),
+  end_at: z
+    .string()
+    .optional()
+    .describe('ISO 8601 end time. Scheduler auto-completes job after this.'),
+  job_id: z.string().optional().describe('8-char job ID for operations on existing jobs'),
 });
 
 function describeJob(job: CronJob): string {
@@ -54,7 +58,8 @@ export function createCronjobTool(options: {
   return {
     name: 'cronjob',
     label: 'Cron Job Manager',
-    description: "Schedule tasks: one-shot (\"30m\"), interval (\"every 2h\"), or cron (\"0 8 * * *\") jobs that run prompts and deliver results to this chat.",
+    description:
+      'Schedule tasks: one-shot ("30m"), interval ("every 2h"), or cron ("0 8 * * *") jobs that run prompts and deliver results to this chat.',
     parameters: zodToTypeBox(schema),
     execute: async (_callId: string, args: z.infer<typeof schema>) => {
       try {
@@ -62,7 +67,14 @@ export function createCronjobTool(options: {
           case 'create': {
             const endAt = args.end_at ? new Date(args.end_at).getTime() : undefined;
             if (args.end_at && isNaN(endAt!)) {
-              return { content: [{ type: 'text', text: i18n.t('tools-cron:error.parseEndAt', { endAt: args.end_at }) }] };
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: i18n.t('tools-cron:error.parseEndAt', { endAt: args.end_at }),
+                  },
+                ],
+              };
             }
             const job = options.cronService.add({
               name: args.name ?? 'Untitled',
@@ -76,10 +88,15 @@ export function createCronjobTool(options: {
               endAt,
             });
             return {
-              content: [{
-                type: 'text',
-                text: i18n.t('tools-cron:create.success', { id: job.id, detail: describeJob(job) }),
-              }],
+              content: [
+                {
+                  type: 'text',
+                  text: i18n.t('tools-cron:create.success', {
+                    id: job.id,
+                    detail: describeJob(job),
+                  }),
+                },
+              ],
             };
           }
 
@@ -89,7 +106,17 @@ export function createCronjobTool(options: {
               return { content: [{ type: 'text', text: i18n.t('tools-cron:list.empty') }] };
             }
             const lines = jobs.map(describeJob);
-            return { content: [{ type: 'text', text: i18n.t('tools-cron:list.title', { count: jobs.length, list: lines.join('\n\n') }) }] };
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: i18n.t('tools-cron:list.title', {
+                    count: jobs.length,
+                    list: lines.join('\n\n'),
+                  }),
+                },
+              ],
+            };
           }
 
           case 'pause': {
@@ -98,54 +125,102 @@ export function createCronjobTool(options: {
             }
             const ok = options.cronService.pause(args.job_id);
             return {
-              content: [{ type: 'text', text: ok ? i18n.t('tools-cron:pause.success', { id: args.job_id }) : i18n.t('tools-cron:error.jobNotFound', { id: args.job_id }) }],
+              content: [
+                {
+                  type: 'text',
+                  text: ok
+                    ? i18n.t('tools-cron:pause.success', { id: args.job_id })
+                    : i18n.t('tools-cron:error.jobNotFound', { id: args.job_id }),
+                },
+              ],
             };
           }
 
           case 'resume': {
             if (!args.job_id) {
-              return { content: [{ type: 'text', text: i18n.t('tools-cron:error.missingJobIdResume') }] };
+              return {
+                content: [{ type: 'text', text: i18n.t('tools-cron:error.missingJobIdResume') }],
+              };
             }
             const ok = options.cronService.resume(args.job_id);
             return {
-              content: [{ type: 'text', text: ok ? i18n.t('tools-cron:resume.success', { id: args.job_id }) : i18n.t('tools-cron:error.jobNotFound', { id: args.job_id }) }],
+              content: [
+                {
+                  type: 'text',
+                  text: ok
+                    ? i18n.t('tools-cron:resume.success', { id: args.job_id })
+                    : i18n.t('tools-cron:error.jobNotFound', { id: args.job_id }),
+                },
+              ],
             };
           }
 
           case 'remove': {
             if (!args.job_id) {
-              return { content: [{ type: 'text', text: i18n.t('tools-cron:error.missingJobIdRemove') }] };
+              return {
+                content: [{ type: 'text', text: i18n.t('tools-cron:error.missingJobIdRemove') }],
+              };
             }
             const ok = options.cronService.remove(args.job_id);
             return {
-              content: [{ type: 'text', text: ok ? i18n.t('tools-cron:remove.success', { id: args.job_id }) : i18n.t('tools-cron:error.jobNotFound', { id: args.job_id }) }],
+              content: [
+                {
+                  type: 'text',
+                  text: ok
+                    ? i18n.t('tools-cron:remove.success', { id: args.job_id })
+                    : i18n.t('tools-cron:error.jobNotFound', { id: args.job_id }),
+                },
+              ],
             };
           }
 
           case 'run': {
             if (!args.job_id) {
-              return { content: [{ type: 'text', text: i18n.t('tools-cron:error.missingJobIdRun') }] };
+              return {
+                content: [{ type: 'text', text: i18n.t('tools-cron:error.missingJobIdRun') }],
+              };
             }
             const result = await options.cronService.runOnce(args.job_id);
             return {
-              content: [{
-                type: 'text',
-                text: result.status === 'success'
-                  ? i18n.t('tools-cron:run.success', { id: result.jobId, ms: result.durationMs, output: result.output.slice(0, 500) })
-                  : i18n.t('tools-cron:run.failed', { id: result.jobId, error: result.error ?? 'unknown error' }),
-              }],
+              content: [
+                {
+                  type: 'text',
+                  text:
+                    result.status === 'success'
+                      ? i18n.t('tools-cron:run.success', {
+                          id: result.jobId,
+                          ms: result.durationMs,
+                          output: result.output.slice(0, 500),
+                        })
+                      : i18n.t('tools-cron:run.failed', {
+                          id: result.jobId,
+                          error: result.error ?? 'unknown error',
+                        }),
+                },
+              ],
             };
           }
 
           default:
-            return { content: [{ type: 'text', text: i18n.t('tools-cron:error.unknownAction', { action: args.action }) }] };
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: i18n.t('tools-cron:error.unknownAction', { action: args.action }),
+                },
+              ],
+            };
         }
       } catch (error) {
         return {
-          content: [{
-            type: 'text',
-            text: i18n.t('tools-cron:error.operationFailed', { error: error instanceof Error ? error.message : String(error) }),
-          }],
+          content: [
+            {
+              type: 'text',
+              text: i18n.t('tools-cron:error.operationFailed', {
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            },
+          ],
         };
       }
     },

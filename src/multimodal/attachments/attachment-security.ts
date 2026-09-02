@@ -14,7 +14,11 @@ export class AttachmentSecurity {
     // Path escape check
     const resolved = resolve(record.localPath);
     if (!isWithinRoot(resolved, this.cacheDir)) {
-      return { passed: false, reason: `Path escapes cache directory: ${record.localPath}`, resolvedPath: resolved };
+      return {
+        passed: false,
+        reason: `Path escapes cache directory: ${record.localPath}`,
+        resolvedPath: resolved,
+      };
     }
 
     // Null byte in filename
@@ -24,7 +28,11 @@ export class AttachmentSecurity {
 
     // Size check (max 50MB)
     if (record.sizeBytes > 50 * 1024 * 1024) {
-      return { passed: false, reason: `File too large: ${record.sizeBytes} bytes (max 50MB)`, resolvedPath: resolved };
+      return {
+        passed: false,
+        reason: `File too large: ${record.sizeBytes} bytes (max 50MB)`,
+        resolvedPath: resolved,
+      };
     }
 
     return { passed: true, resolvedPath: resolved };

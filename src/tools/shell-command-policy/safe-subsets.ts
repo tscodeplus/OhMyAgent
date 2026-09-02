@@ -4,294 +4,327 @@
 
 import type { ProgramPolicy, CommandClassification, NormalizedShellCommand } from './types.js';
 
-
 export const SAFE_SUBSETS: Record<string, ProgramPolicy> = {
-
   // ── Network ──
-  'curl': {
+  curl: {
     safe: ['get'],
     warn: ['post', 'put', 'patch', 'delete', 'download'],
     denied: ['pipe'],
   },
-  'wget': {
+  wget: {
     safe: ['spider'],
     warn: ['download'],
     denied: ['pipe', 'output-stdout'],
   },
 
   // ── Git ──
-  'git': {
-    safe: ['status', 'log', 'diff', 'branch', 'show', 'stash-list',
-           'tag-list', 'remote-show', 'config-list', 'rev-parse', 'describe', 'ls-files'],
-    warn: ['add', 'commit', 'checkout', 'merge', 'pull', 'push',
-           'rebase', 'stash-push', 'stash-pop', 'cherry-pick', 'fetch',
-           'clone-shallow', 'tag-create', 'remote-add', 'init', 'mv', 'rm'],
-    denied: ['push-force', 'reset-hard', 'clean-force', 'branch-delete-force',
-             'rebase-force', 'reflog-delete', 'filter-branch'],
+  git: {
+    safe: [
+      'status',
+      'log',
+      'diff',
+      'branch',
+      'show',
+      'stash-list',
+      'tag-list',
+      'remote-show',
+      'config-list',
+      'rev-parse',
+      'describe',
+      'ls-files',
+    ],
+    warn: [
+      'add',
+      'commit',
+      'checkout',
+      'merge',
+      'pull',
+      'push',
+      'rebase',
+      'stash-push',
+      'stash-pop',
+      'cherry-pick',
+      'fetch',
+      'clone-shallow',
+      'tag-create',
+      'remote-add',
+      'init',
+      'mv',
+      'rm',
+    ],
+    denied: [
+      'push-force',
+      'reset-hard',
+      'clean-force',
+      'branch-delete-force',
+      'rebase-force',
+      'reflog-delete',
+      'filter-branch',
+    ],
   },
 
   // ── Python ──
-  'python': {
+  python: {
     safe: ['version', 'check'],
     warn: ['script', 'module'],
     denied: ['inline', 'pipe'],
   },
-  'python3': { safe: [], warn: [], denied: [], ref: 'python' },
-  'pip': {
+  python3: { safe: [], warn: [], denied: [], ref: 'python' },
+  pip: {
     safe: ['list', 'show', 'freeze', 'check', 'cache-list'],
     warn: ['install', 'download', 'wheel'],
     denied: ['uninstall'],
   },
-  'pip3': { safe: [], warn: [], denied: [], ref: 'pip' },
+  pip3: { safe: [], warn: [], denied: [], ref: 'pip' },
 
   // ── Node.js ──
-  'node': {
+  node: {
     safe: ['version', 'eval-safe'],
     warn: ['script', 'require'],
     denied: ['eval-dangerous', 'pipe'],
   },
-  'npm': {
+  npm: {
     safe: ['list', 'outdated', 'view', 'info', 'search', 'docs', 'repo'],
     warn: ['install', 'ci', 'update', 'audit-fix', 'rebuild', 'fund'],
     denied: ['uninstall', 'prune', 'cache-clean'],
   },
-  'npx': {
+  npx: {
     safe: [],
     warn: ['info', 'version'],
     denied: ['exec'],
   },
-  'pnpm': { safe: [], warn: [], denied: [], ref: 'npm' },
-  'yarn': { safe: [], warn: [], denied: [], ref: 'npm' },
+  pnpm: { safe: [], warn: [], denied: [], ref: 'npm' },
+  yarn: { safe: [], warn: [], denied: [], ref: 'npm' },
 
   // ── Rust / Go ──
-  'cargo': {
+  cargo: {
     safe: ['check', 'build', 'test', 'doc', 'fmt-check', 'clippy'],
     warn: ['run', 'install', 'publish', 'update'],
     denied: ['clean', 'uninstall'],
   },
-  'rustup': {
+  rustup: {
     safe: ['show', 'check', 'list'],
     warn: ['update', 'install', 'target-add'],
     denied: ['uninstall', 'default-set'],
   },
-  'go': {
+  go: {
     safe: ['version', 'env', 'list', 'doc', 'fmt', 'vet'],
     warn: ['build', 'test', 'run', 'get', 'mod-tidy', 'mod-download'],
     denied: ['clean-cache'],
   },
 
   // ── Docker ──
-  'docker': {
+  docker: {
     safe: ['ps', 'images', 'info', 'version', 'inspect', 'logs', 'stats', 'top'],
     warn: ['start', 'stop', 'restart', 'pull', 'build', 'exec', 'compose-up'],
     denied: ['rm', 'rmi', 'prune', 'system-prune', 'compose-down-volumes'],
   },
 
   // ── Package managers ──
-  'apt': {
+  apt: {
     safe: ['list', 'search', 'show', 'policy'],
     warn: ['install', 'update', 'upgrade', 'full-upgrade', 'autoremove'],
     denied: ['remove', 'purge'],
   },
   'apt-get': { safe: [], warn: [], denied: [], ref: 'apt' },
-  'pkg': {
+  pkg: {
     safe: ['list', 'search', 'show', 'files', 'list-all'],
     warn: ['install', 'update', 'upgrade'],
     denied: ['uninstall'],
   },
 
   // ── File operations ──
-  'cp': {
+  cp: {
     safe: [],
     warn: ['copy'],
     denied: ['recursive-system', 'force-system'],
   },
-  'mv': {
+  mv: {
     safe: [],
     warn: ['rename'],
     denied: ['system-dir'],
   },
-  'mkdir': {
+  mkdir: {
     safe: ['create'],
     warn: ['recursive'],
     denied: [],
   },
-  'touch': {
+  touch: {
     safe: ['safe-op'],
     warn: [],
     denied: [],
   },
-  'diff': {
+  diff: {
     safe: ['safe-op'],
     warn: [],
     denied: [],
   },
-  'sed': {
+  sed: {
     safe: ['process'],
     warn: ['edit-in-place'],
     denied: ['system-file'],
   },
-  'awk': {
+  awk: {
     safe: ['process'],
     warn: ['edit-in-place'],
     denied: [],
   },
   // editors
-  'nano': {
+  nano: {
     safe: [],
     warn: ['edit'],
     denied: ['system-file'],
   },
-  'vim': {
+  vim: {
     safe: [],
     warn: ['edit'],
     denied: ['system-file'],
   },
-  'vi': { safe: [], warn: [], denied: [], ref: 'vim' },
+  vi: { safe: [], warn: [], denied: [], ref: 'vim' },
   // network diagnostics
-  'ping': {
+  ping: {
     safe: ['diagnostic'],
     warn: [],
     denied: ['flood'],
   },
-  'ping6': { safe: [], warn: [], denied: [], ref: 'ping' },
+  ping6: { safe: [], warn: [], denied: [], ref: 'ping' },
   // disk usage
-  'du': {
+  du: {
     safe: ['safe-op'],
     warn: [],
     denied: [],
   },
-  'df': {
+  df: {
     safe: ['safe-op'],
     warn: [],
     denied: [],
   },
   // file info
-  'file': {
+  file: {
     safe: ['safe-op'],
     warn: [],
     denied: [],
   },
-  'stat': {
+  stat: {
     safe: ['safe-op'],
     warn: [],
     denied: [],
   },
-  'md5sum': {
+  md5sum: {
     safe: ['safe-op'],
     warn: [],
     denied: [],
   },
-  'sha256sum': {
+  sha256sum: {
     safe: ['safe-op'],
     warn: [],
     denied: [],
   },
-  'sha1sum': { safe: [], warn: [], denied: [], ref: 'md5sum' },
-  'realpath': {
+  sha1sum: { safe: [], warn: [], denied: [], ref: 'md5sum' },
+  realpath: {
     safe: ['safe-op'],
     warn: [],
     denied: [],
   },
-  'basename': {
+  basename: {
     safe: ['safe-op'],
     warn: [],
     denied: [],
   },
-  'dirname': {
+  dirname: {
     safe: ['safe-op'],
     warn: [],
     denied: [],
   },
-  'ln': {
+  ln: {
     safe: [],
     warn: ['symbolic'],
     denied: ['force-system'],
   },
-  'tee': {
+  tee: {
     safe: [],
     warn: ['write'],
     denied: ['system-file', 'append-system'],
   },
-  'tar': {
+  tar: {
     safe: ['list'],
     warn: ['extract', 'create'],
     denied: ['extract-absolute'],
   },
-  'rsync': {
+  rsync: {
     safe: ['dry-run', 'list'],
     warn: ['sync'],
     denied: ['delete', 'delete-source'],
   },
-  'chmod': {
+  chmod: {
     safe: ['read'],
     warn: ['exec'],
     denied: ['permissive'],
   },
-  'chown': {
+  chown: {
     safe: ['user'],
     warn: ['recursive'],
     denied: ['root', 'system'],
   },
 
   // ── System / Process ──
-  'systemctl': {
+  systemctl: {
     safe: ['status', 'list', 'is-active', 'is-enabled', 'show', 'cat'],
     warn: ['start', 'stop', 'restart', 'reload', 'enable', 'disable'],
     denied: ['mask', 'unmask', 'daemon-reload'],
   },
-  'pm2': {
+  pm2: {
     safe: ['status', 'list', 'show', 'logs', 'monit', 'info', 'describe'],
     warn: ['start', 'stop', 'restart', 'reload', 'save'],
     denied: ['delete', 'kill', 'flush', 'reset'],
   },
-  'kill': {
+  kill: {
     safe: [],
     warn: ['signal-safe'],
     denied: ['force-all', 'signal-dangerous'],
   },
 
   // ── Databases ──
-  'sqlite3': {
+  sqlite3: {
     safe: ['read'],
     warn: ['import'],
     denied: ['write-destructive'],
   },
-  'psql': {
+  psql: {
     safe: ['list', 'info'],
     warn: ['connect', 'query'],
     denied: ['drop', 'truncate'],
   },
-  'mysql': {
+  mysql: {
     safe: ['show', 'describe'],
     warn: ['select', 'connect'],
     denied: ['drop', 'truncate', 'delete-all'],
   },
 
   // ── SSH ──
-  'ssh': {
+  ssh: {
     safe: ['version', 'key-scan'],
     warn: ['connect'],
     denied: ['tunnel', 'forward', 'command-exec'],
   },
-  'scp': {
+  scp: {
     safe: [],
     warn: ['upload', 'download'],
     denied: ['recursive-system'],
   },
 
   // ── Media ──
-  'ffmpeg': {
+  ffmpeg: {
     safe: ['info', 'probe'],
     warn: ['convert', 'compress'],
     denied: ['record', 'stream'],
   },
-  'ffprobe': { safe: ['probe'], warn: [], denied: [] },
+  ffprobe: { safe: ['probe'], warn: [], denied: [] },
 
   // ── Compression ──
-  'zip':    { safe: ['list'], warn: ['create', 'extract'], denied: ['overwrite'] },
-  'unzip':  { safe: ['list', 'test'], warn: ['extract'], denied: ['overwrite'] },
-  'gzip':   { safe: ['list', 'test'], warn: ['compress', 'decompress'], denied: ['force-overwrite'] },
+  zip: { safe: ['list'], warn: ['create', 'extract'], denied: ['overwrite'] },
+  unzip: { safe: ['list', 'test'], warn: ['extract'], denied: ['overwrite'] },
+  gzip: { safe: ['list', 'test'], warn: ['compress', 'decompress'], denied: ['force-overwrite'] },
 };
 
 export function classifyCommand(
@@ -302,9 +335,7 @@ export function classifyCommand(
   const policy = SAFE_SUBSETS[program];
 
   // Resolve ref alias
-  const resolved: ProgramPolicy | undefined = policy?.ref
-    ? SAFE_SUBSETS[policy.ref]
-    : policy;
+  const resolved: ProgramPolicy | undefined = policy?.ref ? SAFE_SUBSETS[policy.ref] : policy;
 
   // Determine subcommand label from args
   const subcommandLabel = determineSubcommandLabel(command, resolved);
@@ -359,7 +390,7 @@ export function determineSubcommandLabel(
   // git-specific
   if (command.program === 'git') {
     const sub = args[0] ?? '';
-    if (sub === 'push' && hasFlag('-f') || hasFlag('--force')) return 'push-force';
+    if ((sub === 'push' && hasFlag('-f')) || hasFlag('--force')) return 'push-force';
     if (sub === 'reset' && hasFlag('--hard')) return 'reset-hard';
     if (sub === 'clean' && (hasFlag('-f') || hasFlag('--force'))) return 'clean-force';
     if (sub === 'branch' && hasFlag('-D')) return 'branch-delete-force';
@@ -370,7 +401,7 @@ export function determineSubcommandLabel(
     if (sub === 'tag' && (args[1] === '-l' || args[1] === '--list' || !args[1])) return 'tag-list';
     if (sub === 'tag') return 'tag-create';
     if (sub === 'remote' && (args[1] === 'show' || args[1] === '-v')) return 'remote-show';
-    if (sub === 'remote' && (args[1] === 'add')) return 'remote-add';
+    if (sub === 'remote' && args[1] === 'add') return 'remote-add';
     if (sub === 'config' && (args[1] === '--list' || args[1] === '-l')) return 'config-list';
     if (sub === 'clone' && hasFlag('--depth')) return 'clone-shallow';
     if (sub === 'clone') return 'clone-shallow';
@@ -382,13 +413,20 @@ export function determineSubcommandLabel(
   // curl-specific
   if (command.program === 'curl' || command.program === 'wget') {
     if (raw.includes('|')) return 'pipe';
-    if (hasFlag('-o') || hasFlag('--output') || hasFlag('-O') || hasFlag('--remote-name')) return 'download';
+    if (hasFlag('-o') || hasFlag('--output') || hasFlag('-O') || hasFlag('--remote-name'))
+      return 'download';
     if (hasFlag('--spider') || hasFlag('-I') || hasFlag('--head')) return 'spider';
     // Data-carrying flags imply a request body (POST by default without -X).
     // These must never classify as a safe GET — data exfiltration surface.
-    if (hasFlag('-d') || hasFlag('--data') || hasFlag('--data-binary') ||
-        hasFlag('--data-raw') || hasFlag('--data-urlencode') ||
-        hasFlag('--post-data') || hasFlag('--post-file')) {
+    if (
+      hasFlag('-d') ||
+      hasFlag('--data') ||
+      hasFlag('--data-binary') ||
+      hasFlag('--data-raw') ||
+      hasFlag('--data-urlencode') ||
+      hasFlag('--post-data') ||
+      hasFlag('--post-file')
+    ) {
       return 'post';
     }
     // -X / --request METHOD (also the concatenated form -XPOST) and wget's
@@ -416,7 +454,13 @@ export function determineSubcommandLabel(
   // node-specific
   if (command.program === 'node') {
     if (hasFlag('--version') || hasFlag('-v')) return 'version';
-    if (hasFlag('-e') && !raw.includes('require') && !raw.includes('fs') && !raw.includes('child_process')) return 'eval-safe';
+    if (
+      hasFlag('-e') &&
+      !raw.includes('require') &&
+      !raw.includes('fs') &&
+      !raw.includes('child_process')
+    )
+      return 'eval-safe';
     if (hasFlag('-e')) return 'eval-dangerous';
     if (raw.includes('|')) return 'pipe';
     return 'script';
@@ -481,7 +525,7 @@ export function determineSubcommandLabel(
     if (sub === 'build') return 'build';
     if (sub === 'exec') return 'exec';
     if (sub === 'compose' && args[1] === 'up') return 'compose-up';
-    if (sub === 'compose' && (args[1] === 'down' && hasFlag('-v'))) return 'compose-down-volumes';
+    if (sub === 'compose' && args[1] === 'down' && hasFlag('-v')) return 'compose-down-volumes';
     if (sub === 'compose') return 'compose-up';
     if (sub === 'rm') return 'rm';
     if (sub === 'rmi') return 'rmi';
@@ -535,7 +579,22 @@ export function determineSubcommandLabel(
     return 'process';
   }
   // touch / diff / file / stat / du / df: always safe read or trivial write
-  if (['touch', 'diff', 'file', 'stat', 'du', 'df', 'basename', 'dirname', 'realpath', 'md5sum', 'sha256sum', 'sha1sum'].includes(command.program)) {
+  if (
+    [
+      'touch',
+      'diff',
+      'file',
+      'stat',
+      'du',
+      'df',
+      'basename',
+      'dirname',
+      'realpath',
+      'md5sum',
+      'sha256sum',
+      'sha1sum',
+    ].includes(command.program)
+  ) {
     return 'safe-op';
   }
   // ping: safe network diagnostic

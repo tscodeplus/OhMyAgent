@@ -110,7 +110,9 @@ export function buildCompletedCard(options: CompletedCardOptions): Record<string
       parts.push(i18n.t('feishu-cards:footer.completed'));
     }
     if ((cfg?.showElapsed ?? true) && options.elapsedMs !== undefined) {
-      parts.push(i18n.t('feishu-cards:footer.elapsed', { elapsed: formatElapsed(options.elapsedMs) }));
+      parts.push(
+        i18n.t('feishu-cards:footer.elapsed', { elapsed: formatElapsed(options.elapsedMs) }),
+      );
     }
     if ((cfg?.showModel ?? true) && options.model) {
       parts.push(options.model);
@@ -168,7 +170,10 @@ export function buildApprovalRecordsMarkdown(records: ReplyApprovalRecord[]): st
   const lines = records
     .slice()
     .sort((a, b) => a.updatedAt - b.updatedAt)
-    .map((record, index) => `${index + 1}. **${formatApprovalStatus(record)}** · \`${truncateCommand(record.command)}\``);
+    .map(
+      (record, index) =>
+        `${index + 1}. **${formatApprovalStatus(record)}** · \`${truncateCommand(record.command)}\``,
+    );
   const title = i18n.t('feishu-cards:section.requestsAndApprovals');
   return `**${title}**\n${lines.join('\n')}`;
 }

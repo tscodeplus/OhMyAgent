@@ -17,12 +17,11 @@ export default function SettingsSearch({ onSelect }: SettingsSearchProps) {
     if (!query.trim()) return [];
     const q = query.toLowerCase();
     const seen = new Set<string>();
-    return SEARCH_INDEX
-      .filter(entry => {
-        const label = t(entry.labelKey).toLowerCase();
-        return label.includes(q);
-      })
-      .filter(entry => {
+    return SEARCH_INDEX.filter((entry) => {
+      const label = t(entry.labelKey).toLowerCase();
+      return label.includes(q);
+    })
+      .filter((entry) => {
         const key = `${entry.tabId}:${entry.labelKey}`;
         if (seen.has(key)) return false;
         seen.add(key);
@@ -50,13 +49,23 @@ export default function SettingsSearch({ onSelect }: SettingsSearchProps) {
           data-form-type="other"
           data-lpignore="true"
           value={query}
-          onChange={e => { setQuery(e.target.value); setOpen(true); }}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+          }}
           onFocus={() => query.trim() && setOpen(true)}
           placeholder={t('settings.groups.searchPlaceholder')}
           className="w-32 bg-transparent text-sm text-neutral-900 placeholder-neutral-400 outline-none dark:text-neutral-100"
         />
         {query && (
-          <button type="button" onClick={() => { setQuery(''); setOpen(false); }} className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200">
+          <button
+            type="button"
+            onClick={() => {
+              setQuery('');
+              setOpen(false);
+            }}
+            className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
+          >
             <X size={12} />
           </button>
         )}
@@ -68,7 +77,11 @@ export default function SettingsSearch({ onSelect }: SettingsSearchProps) {
             <button
               key={i}
               type="button"
-              onClick={() => { onSelect(entry.tabId, entry.subTabId); setQuery(''); setOpen(false); }}
+              onClick={() => {
+                onSelect(entry.tabId, entry.subTabId);
+                setQuery('');
+                setOpen(false);
+              }}
               className="w-full px-3 py-2 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-700"
             >
               {entry.contextKey && (

@@ -3,8 +3,15 @@
 // ---------------------------------------------------------------------------
 
 import type {
-  Orchestrator, AgentRun, TaskRun, AgentResultSummary, AgentMessage,
-  SpawnChildAgentInput, CreateTaskInput, SendAgentMessageInput, ManagedAgentRuntime,
+  Orchestrator,
+  AgentRun,
+  TaskRun,
+  AgentResultSummary,
+  AgentMessage,
+  SpawnChildAgentInput,
+  CreateTaskInput,
+  SendAgentMessageInput,
+  ManagedAgentRuntime,
 } from './types.js';
 import type { AgentRunStore } from './agent-run-store.js';
 import type { TaskRunStore } from './task-run-store.js';
@@ -36,7 +43,9 @@ export class OrchestratorImpl implements Orchestrator {
   private messageLog: AgentMessage[] = [];
   private runtimes = new Map<string, ManagedAgentRuntime>();
 
-  constructor(deps: OrchestratorDeps) { this.deps = deps; }
+  constructor(deps: OrchestratorDeps) {
+    this.deps = deps;
+  }
 
   async spawnChildAgent(input: SpawnChildAgentInput): Promise<AgentRun> {
     // 1. Get parent AgentRun
@@ -53,7 +62,10 @@ export class OrchestratorImpl implements Orchestrator {
     }
 
     // 2. Derive child scope via permission inheritance
-    const childScope = this.deps.permissionInheritance.deriveChildScope(parent, input.requestedScope);
+    const childScope = this.deps.permissionInheritance.deriveChildScope(
+      parent,
+      input.requestedScope,
+    );
 
     // 3. Create child AgentRun
     const childAgentId = `child-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -83,7 +95,9 @@ export class OrchestratorImpl implements Orchestrator {
       try {
         await Promise.race([
           runtime.waitForIdle(),
-          new Promise<void>((resolve) => { idleTimer = setTimeout(resolve, 10_000); }),
+          new Promise<void>((resolve) => {
+            idleTimer = setTimeout(resolve, 10_000);
+          }),
         ]);
       } finally {
         if (idleTimer !== undefined) clearTimeout(idleTimer);
@@ -158,16 +172,14 @@ export class OrchestratorImpl implements Orchestrator {
 
   getMessages(agentId?: string): AgentMessage[] {
     if (agentId) {
-      return this.messageLog.filter(
-        m => m.fromAgentId === agentId || m.toAgentId === agentId,
-      );
+      return this.messageLog.filter((m) => m.fromAgentId === agentId || m.toAgentId === agentId);
     }
     return [...this.messageLog];
   }
 
   async collectResults(parentAgentId: string): Promise<AgentResultSummary[]> {
     const children = this.deps.agentRunStore.listByParent(parentAgentId);
-    return children.map(child => ({
+    return children.map((child) => ({
       agentId: child.agentId,
       status: child.status,
       summary: child.statusDetail,
@@ -186,7 +198,11 @@ export class OrchestratorImpl implements Orchestrator {
     await this.deps.approvalStateSync.routeApproval(_approval, _parentSessionId);
   }
 
-  async finishAgent(agentId: string, status: 'completed' | 'failed', detail?: string): Promise<void> {
+  async finishAgent(
+    agentId: string,
+    status: 'completed' | 'failed',
+    detail?: string,
+  ): Promise<void> {
     this.deps.agentRunStore.update(agentId, {
       status,
       statusDetail: detail,

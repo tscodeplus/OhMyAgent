@@ -19,9 +19,7 @@ export function resolveWechatErrorNotice(err: Error): string {
   }
 
   // CDN upload failures
-  if (
-    /\b(getUploadUrl|CDN upload|upload_param)\b/i.test(message)
-  ) {
+  if (/\b(getUploadUrl|CDN upload|upload_param)\b/i.test(message)) {
     return i18n.t('messages:media.uploadFailed');
   }
 

@@ -59,7 +59,15 @@ describe('isDeepSeekLikeModel', () => {
 
   it('returns false for non-deepseek models', () => {
     expect(isDeepSeekLikeModel(makeModel())).toBe(false);
-    expect(isDeepSeekLikeModel(makeModel({ provider: 'nvidia', id: 'llama-3.1-70b', baseUrl: 'https://api.nvcf.nvidia.com' }))).toBe(false);
+    expect(
+      isDeepSeekLikeModel(
+        makeModel({
+          provider: 'nvidia',
+          id: 'llama-3.1-70b',
+          baseUrl: 'https://api.nvcf.nvidia.com',
+        }),
+      ),
+    ).toBe(false);
   });
 
   it('returns false for undefined model', () => {
@@ -73,7 +81,9 @@ describe('resolveModelContextLength', () => {
   });
 
   it('falls back to context_length when contextWindow is absent', () => {
-    expect(resolveModelContextLength(makeModel({ contextWindow: undefined, context_length: 64000 }))).toBe(64000);
+    expect(
+      resolveModelContextLength(makeModel({ contextWindow: undefined, context_length: 64000 })),
+    ).toBe(64000);
   });
 
   it('does not mistake the output cap for the context window', () => {
@@ -237,9 +247,7 @@ describe('resolveModel', () => {
   it('does NOT patch non-NVIDIA models for reasoning', () => {
     const config = {
       ...baseConfig,
-      customProviders: [
-        { provider: 'openai', models: [{ id: 'gpt-4', reasoning: true }] },
-      ],
+      customProviders: [{ provider: 'openai', models: [{ id: 'gpt-4', reasoning: true }] }],
     };
     const model = makeModel({ provider: 'openai', id: 'gpt-4', reasoning: false, compat: {} });
     const result = resolveModel({ explicitModel: model, config });

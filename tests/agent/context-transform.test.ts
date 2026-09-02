@@ -485,7 +485,10 @@ describe('auto compression in transformContext (pi-style)', () => {
     // A 80000-token prefix leaves 20000 for the transcript, so 25000 must fire.
     mockEstimateTokens.mockReturnValue(25000);
     mockCompressContext.mockResolvedValue({
-      summaryMessage: { role: 'user' as const, content: [{ type: 'text' as const, text: 'summary' }] },
+      summaryMessage: {
+        role: 'user' as const,
+        content: [{ type: 'text' as const, text: 'summary' }],
+      },
       compressedIndex: 5,
       summary: 'summary',
     });

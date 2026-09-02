@@ -1,6 +1,13 @@
 import { existsSync } from 'node:fs';
 import { PID_FILE, PORT, LOG_FILE } from '../config.js';
-import { isProcessAlive, readPidFile, checkHealthEndpoint, getProcessUptime, getProcessMemory, findProcessByPort } from '../utils.js';
+import {
+  isProcessAlive,
+  readPidFile,
+  checkHealthEndpoint,
+  getProcessUptime,
+  getProcessMemory,
+  findProcessByPort,
+} from '../utils.js';
 import { t } from '../i18n.js';
 
 export async function statusCommand(): Promise<void> {
@@ -11,7 +18,7 @@ export async function statusCommand(): Promise<void> {
   const healthy = await checkHealthEndpoint();
 
   if (healthy) {
-    const effectivePid = (pid && isProcessAlive(pid)) ? pid : findProcessByPort();
+    const effectivePid = pid && isProcessAlive(pid) ? pid : findProcessByPort();
     console.log(`  Status:     \x1b[32m${t('status.running')}\x1b[0m`);
     if (effectivePid) {
       console.log(`  ${t('status.pidLabel')}:        ${effectivePid}`);

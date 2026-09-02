@@ -30,10 +30,7 @@ export class QrSessionStore {
    * @param ttlMs  - Time-to-live in milliseconds (default: 5 min).
    * @returns The created session.
    */
-  create(
-    channel: QrSession['channel'],
-    ttlMs: number = DEFAULT_TTL_MS,
-  ): QrSession {
+  create(channel: QrSession['channel'], ttlMs: number = DEFAULT_TTL_MS): QrSession {
     const id = crypto.randomUUID();
     const now = Date.now();
     const session: QrSession = {

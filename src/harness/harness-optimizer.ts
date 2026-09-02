@@ -105,10 +105,7 @@ export class HarnessOptimizer {
   /** Fingerprint of a generated proposal — used to reject repeat proposals
    *  for the same failure pattern on the same surface. */
   private dedupKey(context: FailureContext, proposal: ImprovementProposal): string {
-    const beforeHash = createHash('sha256')
-      .update(proposal.diff.before)
-      .digest('hex')
-      .slice(0, 12);
+    const beforeHash = createHash('sha256').update(proposal.diff.before).digest('hex').slice(0, 12);
     return `${context.skillId ?? '_'}:${proposal.type}:${proposal.diff.surface}:${beforeHash}`;
   }
 
@@ -118,7 +115,9 @@ export class HarnessOptimizer {
    * The factory creates a placeholder that throws; the agent system must
    * inject a real LLM caller before the optimizer is exercised.
    */
-  setLlmCaller(caller: (systemPrompt: string, userMessage: string, model?: string) => Promise<string>): void {
+  setLlmCaller(
+    caller: (systemPrompt: string, userMessage: string, model?: string) => Promise<string>,
+  ): void {
     this.llmCaller = caller;
   }
 
@@ -204,10 +203,12 @@ export class HarnessOptimizer {
       mechanismFamily: s.mechanismFamily,
     }));
 
-    const toolCallSummary = context.toolCalls.map((tc) => {
-      const status = tc.isError ? `ERROR: ${tc.errorMessage ?? 'unknown'}` : 'OK';
-      return `  - ${tc.name}(${JSON.stringify(tc.args)}) -> ${status}`;
-    }).join('\n');
+    const toolCallSummary = context.toolCalls
+      .map((tc) => {
+        const status = tc.isError ? `ERROR: ${tc.errorMessage ?? 'unknown'}` : 'OK';
+        return `  - ${tc.name}(${JSON.stringify(tc.args)}) -> ${status}`;
+      })
+      .join('\n');
 
     const systemPrompt = [
       'You are a diagnosis engine for an AI agent harness. Your task is to analyse',
@@ -280,7 +281,10 @@ export class HarnessOptimizer {
     try {
       raw = await this.callLLM(systemPrompt, userMessage);
     } catch (err) {
-      logger.warn({ err, sessionId: context.sessionId }, 'HarnessOptimizer: diagnosis LLM call failed');
+      logger.warn(
+        { err, sessionId: context.sessionId },
+        'HarnessOptimizer: diagnosis LLM call failed',
+      );
       return null;
     }
 
@@ -369,7 +373,10 @@ export class HarnessOptimizer {
     try {
       raw = await this.callLLM(systemPrompt, userMessage);
     } catch (err) {
-      logger.warn({ err, sessionId: context.sessionId }, 'HarnessOptimizer: proposal LLM call failed');
+      logger.warn(
+        { err, sessionId: context.sessionId },
+        'HarnessOptimizer: proposal LLM call failed',
+      );
       return null;
     }
 
@@ -411,7 +418,7 @@ export class HarnessOptimizer {
   private async callLLM(systemPrompt: string, userMessage: string): Promise<string> {
     // Resolve the model to use: empty or 'default' → undefined (caller uses system default)
     const configuredModel = this.config.model;
-    const model = (!configuredModel || configuredModel === 'default') ? undefined : configuredModel;
+    const model = !configuredModel || configuredModel === 'default' ? undefined : configuredModel;
     return this.llmCaller(systemPrompt, userMessage, model);
   }
 
@@ -603,10 +610,17 @@ export class HarnessOptimizer {
    * approval rules. Accepts both the canonical enum values and the looser
    * descriptive strings the model may produce.
    */
-  private validateScope(value: unknown): 'single_skill' | 'multi_skill' | 'global' | 'session' | 'unknown' {
+  private validateScope(
+    value: unknown,
+  ): 'single_skill' | 'multi_skill' | 'global' | 'session' | 'unknown' {
     if (typeof value !== 'string') return 'unknown';
     const lower = value.toLowerCase();
-    if (lower === 'single_skill' || lower.includes('single') || lower.includes('仅') || lower.includes('单个')) {
+    if (
+      lower === 'single_skill' ||
+      lower.includes('single') ||
+      lower.includes('仅') ||
+      lower.includes('单个')
+    ) {
       return 'single_skill';
     }
     if (lower === 'multi_skill' || lower.includes('multi') || lower.includes('多')) {

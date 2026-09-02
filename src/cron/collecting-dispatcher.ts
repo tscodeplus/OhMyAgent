@@ -32,11 +32,15 @@ export class CollectingReplyDispatcher implements ReplyDispatcher {
 
   onToolEnd(_name: string, _result: unknown, _isError?: boolean, _toolCallId?: string): void {}
 
-  setModel(model: string): void { this.model_ = model; }
+  setModel(model: string): void {
+    this.model_ = model;
+  }
 
   setAgentName(_name: string): void {}
 
-  getModel(): string | null { return this.model_; }
+  getModel(): string | null {
+    return this.model_;
+  }
 
   setApprovalStatus(status: string | null): void {
     this.approvalStatus = status;

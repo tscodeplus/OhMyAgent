@@ -170,11 +170,12 @@ export class PersonaStore {
         .replace(new RegExp(`用户${escapeRegExp(oldName)}`, 'g'), `用户${preferredName}`)
         .replace(new RegExp(`名为${escapeRegExp(oldName)}`, 'g'), `名为${preferredName}`)
         .replace(new RegExp(`称呼${escapeRegExp(oldName)}`, 'g'), `称呼${preferredName}`)
-        .replace(new RegExp(`(?:（|\\()${escapeRegExp(oldName)}(?:）|\\))`, 'g'), `（${preferredName}）`);
+        .replace(
+          new RegExp(`(?:（|\\()${escapeRegExp(oldName)}(?:）|\\))`, 'g'),
+          `（${preferredName}）`,
+        );
     }
-    persona.summary = summary
-      ? `${summaryPrefix}${summary}`
-      : summaryPrefix;
+    persona.summary = summary ? `${summaryPrefix}${summary}` : summaryPrefix;
 
     const communication = stripPreferredNameClauses(persona.preferences.communication);
     persona.preferences.communication = `称呼用户为${preferredName}；${communication || '回复直接、准确、简洁。'}`;
@@ -188,14 +189,16 @@ export class PersonaStore {
    */
   toContextString(): string {
     const persona = this.get();
-    const latestPreferences = this.getPreferencesNewerThan(persona?.lastUpdated)
-      .slice(0, LATEST_PREFERENCE_LIMIT);
+    const latestPreferences = this.getPreferencesNewerThan(persona?.lastUpdated).slice(
+      0,
+      LATEST_PREFERENCE_LIMIT,
+    );
 
     if (!persona && latestPreferences.length === 0) return '';
 
     const hasAnyData =
-      persona && (
-        persona.summary ||
+      persona &&
+      (persona.summary ||
         persona.preferences.tools.length > 0 ||
         persona.preferences.languages.length > 0 ||
         persona.preferences.workflows.length > 0 ||
@@ -203,8 +206,7 @@ export class PersonaStore {
         persona.skills.known.length > 0 ||
         persona.skills.learning.length > 0 ||
         persona.context.device ||
-        persona.context.environment
-      );
+        persona.context.environment);
 
     if (!hasAnyData && latestPreferences.length === 0) return '';
 
@@ -279,7 +281,8 @@ export class PersonaStore {
 
   private getPreferencesNewerThan(since?: string) {
     const sinceMs = timestampMs(since);
-    return this.memoryRepo.findByScopeKind(PERSONA_SCOPE, 'preference')
+    return this.memoryRepo
+      .findByScopeKind(PERSONA_SCOPE, 'preference')
       .filter((memory) => memoryChangedMs(memory) > sinceMs)
       .sort((a, b) => memoryChangedMs(b) - memoryChangedMs(a));
   }

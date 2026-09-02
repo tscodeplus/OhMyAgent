@@ -4,16 +4,18 @@ import type { FeishuMessageContext } from '../../extensions/channel-feishu/feish
 
 // ─── Helpers ───
 
-function makeEvent(overrides: {
-  chatType?: 'p2p' | 'group';
-  threadId?: string;
-  content?: string;
-  messageType?: string;
-  chatId?: string;
-  messageId?: string;
-  senderId?: string;
-  createTime?: string;
-} = {}) {
+function makeEvent(
+  overrides: {
+    chatType?: 'p2p' | 'group';
+    threadId?: string;
+    content?: string;
+    messageType?: string;
+    chatId?: string;
+    messageId?: string;
+    senderId?: string;
+    createTime?: string;
+  } = {},
+) {
   const {
     chatType = 'p2p',
     threadId,

@@ -48,7 +48,7 @@ export class CircuitBreaker {
         if (elapsed >= this.config.cooldownMs) {
           this.state = 'HALF_OPEN';
           this.halfOpenProbeSent = true;
-          return true;  // first probe after cooldown
+          return true; // first probe after cooldown
         }
         return false;
       }
@@ -57,7 +57,7 @@ export class CircuitBreaker {
           this.halfOpenProbeSent = true;
           return true;
         }
-        return false;  // probe already in flight
+        return false; // probe already in flight
     }
   }
 
@@ -81,8 +81,12 @@ export class CircuitBreaker {
     this.halfOpenProbeSent = false;
   }
 
-  get currentState(): CircuitState { return this.state; }
-  get failures(): number { return this.failureCount; }
+  get currentState(): CircuitState {
+    return this.state;
+  }
+  get failures(): number {
+    return this.failureCount;
+  }
 
   /** Force reset to initial state (for testing). */
   reset(): void {

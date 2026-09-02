@@ -8,12 +8,13 @@ export type {
 } from './skill-schema.js';
 
 // ── Loader ─────────────────────────────────────────────────────────────────────
-export { loadSkill, loadAllSkills, FrontmatterSchema, validateSkillDependencies } from './skill-loader.js';
-export type {
-  LoadedSkill,
-  SkillResources,
-  DependencyValidationResult,
+export {
+  loadSkill,
+  loadAllSkills,
+  FrontmatterSchema,
+  validateSkillDependencies,
 } from './skill-loader.js';
+export type { LoadedSkill, SkillResources, DependencyValidationResult } from './skill-loader.js';
 
 // ── Router ─────────────────────────────────────────────────────────────────────
 export { resolveSkillContext } from './skill-router.js';

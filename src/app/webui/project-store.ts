@@ -63,7 +63,9 @@ export class ProjectStore {
       WHERE id = ?
     `);
     this.stmt_delete = db.prepare('DELETE FROM projects WHERE id = ?');
-    this.stmt_countSessions = db.prepare('SELECT COUNT(*) as count FROM sessions WHERE project_id = ?');
+    this.stmt_countSessions = db.prepare(
+      'SELECT COUNT(*) as count FROM sessions WHERE project_id = ?',
+    );
   }
 
   create(input: CreateProjectInput): ProjectRow {
@@ -81,12 +83,7 @@ export class ProjectStore {
   }
 
   update(id: string, input: UpdateProjectInput): ProjectRow | undefined {
-    this.stmt_update.run(
-      input.name ?? null,
-      input.description ?? null,
-      input.agent_id ?? null,
-      id,
-    );
+    this.stmt_update.run(input.name ?? null, input.description ?? null, input.agent_id ?? null, id);
     return this.getById(id);
   }
 
@@ -109,9 +106,9 @@ export class ProjectStore {
    */
   cascadeDelete(id: string): { deletedSessions: number; deletedMemories: number } {
     // 1. Find all session IDs for this project
-    const sessions = this.db
-      .prepare('SELECT id FROM sessions WHERE project_id = ?')
-      .all(id) as { id: string }[];
+    const sessions = this.db.prepare('SELECT id FROM sessions WHERE project_id = ?').all(id) as {
+      id: string;
+    }[];
 
     this.db.exec('PRAGMA foreign_keys = OFF');
     let deletedMemories = 0;
@@ -119,9 +116,11 @@ export class ProjectStore {
       for (const session of sessions) {
         const sid = session.id;
         // Leaf tables referencing sessions(id) directly
-        this.db.prepare(
-          'DELETE FROM approval_decisions WHERE request_id IN (SELECT id FROM approval_requests WHERE session_key = ?)'
-        ).run(sid);
+        this.db
+          .prepare(
+            'DELETE FROM approval_decisions WHERE request_id IN (SELECT id FROM approval_requests WHERE session_key = ?)',
+          )
+          .run(sid);
         this.db.prepare('DELETE FROM approval_requests WHERE session_key = ?').run(sid);
         this.db.prepare('DELETE FROM messages WHERE session_id = ?').run(sid);
         this.db.prepare('DELETE FROM episodes WHERE session_id = ?').run(sid);
@@ -140,9 +139,7 @@ export class ProjectStore {
       deletedMemories += projMemResult.changes;
 
       // 3. Delete sessions
-      const sessionResult = this.db
-        .prepare('DELETE FROM sessions WHERE project_id = ?')
-        .run(id);
+      const sessionResult = this.db.prepare('DELETE FROM sessions WHERE project_id = ?').run(id);
 
       // 4. Delete project
       this.stmt_delete.run(id);

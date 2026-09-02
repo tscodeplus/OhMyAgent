@@ -22,7 +22,9 @@ export const cronCreateCapability: ToolCapabilityDescriptor = {
 
 const CronCreateParams = Type.Object({
   name: Type.String({ description: 'Human-readable name for this cron job' }),
-  schedule: Type.String({ description: 'Schedule in 5-field cron format(e.g. "0 8 * * *" for daily 8am)' }),
+  schedule: Type.String({
+    description: 'Schedule in 5-field cron format(e.g. "0 8 * * *" for daily 8am)',
+  }),
   prompt: Type.String({ description: 'Prompt sent to the agent when the job fires' }),
 });
 
@@ -77,7 +79,7 @@ export function createCronCreateToolDefinition(): ToolDefinition {
       if (!derived) {
         return errorResult(
           'Cannot determine channel and chatId from the execution context. ' +
-          'Ensure the session is bound to a specific channel.',
+            'Ensure the session is bound to a specific channel.',
         );
       }
 
@@ -92,11 +94,11 @@ export function createCronCreateToolDefinition(): ToolDefinition {
 
         return textResult(
           `Cron job created successfully.\n` +
-          `  ID:       ${job.id}\n` +
-          `  Name:     ${job.name}\n` +
-          `  Schedule: ${job.scheduleText}\n` +
-          `  Next run: ${new Date(job.nextRunAt!).toISOString()}\n` +
-          `  Channel:  ${job.channel} / ${job.chatId}`,
+            `  ID:       ${job.id}\n` +
+            `  Name:     ${job.name}\n` +
+            `  Schedule: ${job.scheduleText}\n` +
+            `  Next run: ${new Date(job.nextRunAt!).toISOString()}\n` +
+            `  Channel:  ${job.channel} / ${job.chatId}`,
         );
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);

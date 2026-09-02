@@ -36,7 +36,9 @@ export default function QRCodeModal({
   feishuRegion,
 }: QRCodeModalProps) {
   const { t } = useTranslation('common');
-  const [phase, setPhase] = useState<'loading' | 'show-qr' | 'polling' | 'confirmed' | 'expired' | 'error'>('loading');
+  const [phase, setPhase] = useState<
+    'loading' | 'show-qr' | 'polling' | 'confirmed' | 'expired' | 'error'
+  >('loading');
   const [qrcodeDataUrl, setQrcodeDataUrl] = useState<string>('');
   const [directUrl, setDirectUrl] = useState<string>('');
   const [errMsg, setErrMsg] = useState<string>('');
@@ -75,13 +77,10 @@ export default function QRCodeModal({
     if (!sid || !mountedRef.current) return;
 
     try {
-      const data = await apiRequest<QrStatusInfo>(
-        `/api/channels/${channel}/qr/poll`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ sessionId: sid }),
-        },
-      );
+      const data = await apiRequest<QrStatusInfo>(`/api/channels/${channel}/qr/poll`, {
+        method: 'POST',
+        body: JSON.stringify({ sessionId: sid }),
+      });
 
       if (!mountedRef.current) return;
 
@@ -188,9 +187,12 @@ export default function QRCodeModal({
       pollTimerRef.current = setTimeout(doPoll, 1500);
     } catch (err: unknown) {
       if (!mountedRef.current) return;
-      const msg = err instanceof Error ? err.message
-        : (err as ApiError)?.message ? (err as ApiError).message
-        : String(err);
+      const msg =
+        err instanceof Error
+          ? err.message
+          : (err as ApiError)?.message
+            ? (err as ApiError).message
+            : String(err);
       setErrMsg(msg);
       setPhase('error');
     }
@@ -279,7 +281,9 @@ export default function QRCodeModal({
         {/* Feishu: custom bot name (pre-fills creation form) */}
         {channel === 'feishu' && phase !== 'confirmed' && (
           <div className="w-full flex items-center gap-2">
-            <label className="text-sm whitespace-nowrap text-neutral-700 dark:text-neutral-200">{t('settings.channels.qrBotNameLabel')}</label>
+            <label className="text-sm whitespace-nowrap text-neutral-700 dark:text-neutral-200">
+              {t('settings.channels.qrBotNameLabel')}
+            </label>
             <input
               type="text"
               value={botName}
@@ -299,7 +303,10 @@ export default function QRCodeModal({
         )}
 
         {/* Show QR, Polling, Confirmed, Expired */}
-        {(phase === 'show-qr' || phase === 'polling' || phase === 'confirmed' || phase === 'expired') && (
+        {(phase === 'show-qr' ||
+          phase === 'polling' ||
+          phase === 'confirmed' ||
+          phase === 'expired') && (
           <>
             {qrcodeDataUrl && (
               <img
@@ -309,8 +316,8 @@ export default function QRCodeModal({
                   phase === 'expired'
                     ? 'border-red-300 opacity-40'
                     : phase === 'confirmed'
-                    ? 'border-green-400'
-                    : 'border-neutral-300 dark:border-neutral-600'
+                      ? 'border-green-400'
+                      : 'border-neutral-300 dark:border-neutral-600'
                 }`}
               />
             )}
@@ -405,7 +412,9 @@ export default function QRCodeModal({
         {/* Error */}
         {phase === 'error' && (
           <div className="flex flex-col items-center gap-2 py-2">
-            <p className="text-sm text-red-600 dark:text-red-400">{t('settings.channels.qrError')}</p>
+            <p className="text-sm text-red-600 dark:text-red-400">
+              {t('settings.channels.qrError')}
+            </p>
             {errMsg && (
               <p className="text-xs text-neutral-500 dark:text-neutral-400 font-mono break-all text-center max-w-xs">
                 {errMsg}

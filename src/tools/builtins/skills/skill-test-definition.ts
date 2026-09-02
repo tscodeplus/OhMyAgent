@@ -19,7 +19,9 @@ export interface SkillTestToolDeps {
 export function createSkillTestTool(deps: SkillTestToolDeps): AgentTool<any> {
   const schema = z.object({
     skillId: z.string().describe('The skill ID (kebab-case) to test'),
-    message: z.string().describe('A test user message to verify trigger matching (e.g. "帮我看看明天的日程")'),
+    message: z
+      .string()
+      .describe('A test user message to verify trigger matching (e.g. "帮我看看明天的日程")'),
   });
 
   return {
@@ -32,13 +34,23 @@ export function createSkillTestTool(deps: SkillTestToolDeps): AgentTool<any> {
       const args = params as { skillId: string; message: string };
       if (!args.skillId || typeof args.skillId !== 'string') {
         return {
-          content: [{ type: 'text' as const, text: 'Missing required parameter: skillId. Provide the kebab-case skill ID to test.' }],
+          content: [
+            {
+              type: 'text' as const,
+              text: 'Missing required parameter: skillId. Provide the kebab-case skill ID to test.',
+            },
+          ],
           details: { matched: false },
         };
       }
       if (!args.message || typeof args.message !== 'string') {
         return {
-          content: [{ type: 'text' as const, text: 'Missing required parameter: message. Provide a test user message to check trigger matching.' }],
+          content: [
+            {
+              type: 'text' as const,
+              text: 'Missing required parameter: message. Provide a test user message to check trigger matching.',
+            },
+          ],
           details: { matched: false },
         };
       }

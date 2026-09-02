@@ -141,7 +141,7 @@ describe('SessionRepository', () => {
 
     const results = repo.findByChatId('chat-1');
     expect(results).toHaveLength(2);
-    expect(results.every(s => s.chat_id === 'chat-1')).toBe(true);
+    expect(results.every((s) => s.chat_id === 'chat-1')).toBe(true);
   });
 });
 
@@ -191,14 +191,19 @@ describe('MessageRepository', () => {
 
     const results = repo.findBySessionId(sessionId1);
     expect(results).toHaveLength(2);
-    expect(results.every(m => m.session_id === sessionId1)).toBe(true);
+    expect(results.every((m) => m.session_id === sessionId1)).toBe(true);
   });
 
   it('findBySessionId respects limit and offset', () => {
     const sessionId = createTestSession();
     const repo = new MessageRepository(db);
     for (let i = 0; i < 5; i++) {
-      repo.create({ id: uniqueId('msg'), session_id: sessionId, role: 'user', content: `msg-${i}` });
+      repo.create({
+        id: uniqueId('msg'),
+        session_id: sessionId,
+        role: 'user',
+        content: `msg-${i}`,
+      });
     }
 
     const page1 = repo.findBySessionId(sessionId, 2, 0);
@@ -367,19 +372,37 @@ describe('MemoryRepository', () => {
 
   it('findByIds returns only the rows that exist', () => {
     const repo = new MemoryRepository(db);
-    const a = repo.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u1', kind: 'fact', content: 'A' });
-    const b = repo.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u1', kind: 'fact', content: 'B' });
+    const a = repo.create({
+      id: uniqueId('mem'),
+      scope: 'user',
+      scope_key: 'u1',
+      kind: 'fact',
+      content: 'A',
+    });
+    const b = repo.create({
+      id: uniqueId('mem'),
+      scope: 'user',
+      scope_key: 'u1',
+      kind: 'fact',
+      content: 'B',
+    });
 
     expect(repo.findByIds([])).toEqual([]);
     const found = repo.findByIds([a.id, b.id, 'mem-does-not-exist']);
-    expect(found.map(m => m.id).sort()).toEqual([a.id, b.id].sort());
+    expect(found.map((m) => m.id).sort()).toEqual([a.id, b.id].sort());
   });
 
   it('findByIds chunks past SQLite bound-variable limit', () => {
     const repo = new MemoryRepository(db);
     const ids: string[] = [];
     for (let i = 0; i < 600; i++) {
-      const memory = repo.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u1', kind: 'fact', content: `m${i}` });
+      const memory = repo.create({
+        id: uniqueId('mem'),
+        scope: 'user',
+        scope_key: 'u1',
+        kind: 'fact',
+        content: `m${i}`,
+      });
       ids.push(memory.id);
     }
 
@@ -390,32 +413,92 @@ describe('MemoryRepository', () => {
 
   it('findByScope returns memories for a scope', () => {
     const repo = new MemoryRepository(db);
-    repo.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u1', kind: 'fact', content: 'A' });
-    repo.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u1', kind: 'task', content: 'B' });
-    repo.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u2', kind: 'fact', content: 'C' });
-    repo.create({ id: uniqueId('mem'), scope: 'chat', scope_key: 'c1', kind: 'fact', content: 'D' });
+    repo.create({
+      id: uniqueId('mem'),
+      scope: 'user',
+      scope_key: 'u1',
+      kind: 'fact',
+      content: 'A',
+    });
+    repo.create({
+      id: uniqueId('mem'),
+      scope: 'user',
+      scope_key: 'u1',
+      kind: 'task',
+      content: 'B',
+    });
+    repo.create({
+      id: uniqueId('mem'),
+      scope: 'user',
+      scope_key: 'u2',
+      kind: 'fact',
+      content: 'C',
+    });
+    repo.create({
+      id: uniqueId('mem'),
+      scope: 'chat',
+      scope_key: 'c1',
+      kind: 'fact',
+      content: 'D',
+    });
 
     const results = repo.findByScope('user', 'u1');
     expect(results).toHaveLength(2);
-    expect(results.every(m => m.scope === 'user' && m.scope_key === 'u1')).toBe(true);
+    expect(results.every((m) => m.scope === 'user' && m.scope_key === 'u1')).toBe(true);
   });
 
   it('findByScopeAndKind filters by kind', () => {
     const repo = new MemoryRepository(db);
-    repo.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u1', kind: 'fact', content: 'A' });
-    repo.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u1', kind: 'task', content: 'B' });
-    repo.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u1', kind: 'fact', content: 'C' });
+    repo.create({
+      id: uniqueId('mem'),
+      scope: 'user',
+      scope_key: 'u1',
+      kind: 'fact',
+      content: 'A',
+    });
+    repo.create({
+      id: uniqueId('mem'),
+      scope: 'user',
+      scope_key: 'u1',
+      kind: 'task',
+      content: 'B',
+    });
+    repo.create({
+      id: uniqueId('mem'),
+      scope: 'user',
+      scope_key: 'u1',
+      kind: 'fact',
+      content: 'C',
+    });
 
     const results = repo.findByScopeAndKind('user', 'u1', 'fact');
     expect(results).toHaveLength(2);
-    expect(results.every(m => m.kind === 'fact')).toBe(true);
+    expect(results.every((m) => m.kind === 'fact')).toBe(true);
   });
 
   it('searchByContent finds memories by content text', () => {
     const repo = new MemoryRepository(db);
-    repo.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u1', kind: 'fact', content: 'User email is test@example.com' });
-    repo.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u1', kind: 'fact', content: 'User name is Alice' });
-    repo.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u2', kind: 'fact', content: 'User email is bob@example.com' });
+    repo.create({
+      id: uniqueId('mem'),
+      scope: 'user',
+      scope_key: 'u1',
+      kind: 'fact',
+      content: 'User email is test@example.com',
+    });
+    repo.create({
+      id: uniqueId('mem'),
+      scope: 'user',
+      scope_key: 'u1',
+      kind: 'fact',
+      content: 'User name is Alice',
+    });
+    repo.create({
+      id: uniqueId('mem'),
+      scope: 'user',
+      scope_key: 'u2',
+      kind: 'fact',
+      content: 'User email is bob@example.com',
+    });
 
     const results = repo.searchByContent('email');
     expect(results).toHaveLength(2);
@@ -423,8 +506,20 @@ describe('MemoryRepository', () => {
 
   it('searchByContent with scope filter', () => {
     const repo = new MemoryRepository(db);
-    repo.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u1', kind: 'fact', content: 'test email' });
-    repo.create({ id: uniqueId('mem'), scope: 'chat', scope_key: 'c1', kind: 'fact', content: 'test email' });
+    repo.create({
+      id: uniqueId('mem'),
+      scope: 'user',
+      scope_key: 'u1',
+      kind: 'fact',
+      content: 'test email',
+    });
+    repo.create({
+      id: uniqueId('mem'),
+      scope: 'chat',
+      scope_key: 'c1',
+      kind: 'fact',
+      content: 'test email',
+    });
 
     const results = repo.searchByContent('email', 'user', 'u1');
     expect(results).toHaveLength(1);
@@ -433,13 +528,31 @@ describe('MemoryRepository', () => {
 
   it('searchByContent with scope only (no scopeKey)', () => {
     const repo = new MemoryRepository(db);
-    repo.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u1', kind: 'fact', content: 'test email' });
-    repo.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u2', kind: 'fact', content: 'test email' });
-    repo.create({ id: uniqueId('mem'), scope: 'chat', scope_key: 'c1', kind: 'fact', content: 'test email' });
+    repo.create({
+      id: uniqueId('mem'),
+      scope: 'user',
+      scope_key: 'u1',
+      kind: 'fact',
+      content: 'test email',
+    });
+    repo.create({
+      id: uniqueId('mem'),
+      scope: 'user',
+      scope_key: 'u2',
+      kind: 'fact',
+      content: 'test email',
+    });
+    repo.create({
+      id: uniqueId('mem'),
+      scope: 'chat',
+      scope_key: 'c1',
+      kind: 'fact',
+      content: 'test email',
+    });
 
     const results = repo.searchByContent('email', 'user');
     expect(results).toHaveLength(2);
-    expect(results.every(m => m.scope === 'user')).toBe(true);
+    expect(results.every((m) => m.scope === 'user')).toBe(true);
   });
 
   it('update reflects changes and updates updated_at', () => {
@@ -474,9 +587,27 @@ describe('MemoryRepository', () => {
 
   it('deleteByScope removes all memories for a scope', () => {
     const repo = new MemoryRepository(db);
-    repo.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u1', kind: 'fact', content: 'A' });
-    repo.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u1', kind: 'task', content: 'B' });
-    repo.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u2', kind: 'fact', content: 'C' });
+    repo.create({
+      id: uniqueId('mem'),
+      scope: 'user',
+      scope_key: 'u1',
+      kind: 'fact',
+      content: 'A',
+    });
+    repo.create({
+      id: uniqueId('mem'),
+      scope: 'user',
+      scope_key: 'u1',
+      kind: 'task',
+      content: 'B',
+    });
+    repo.create({
+      id: uniqueId('mem'),
+      scope: 'user',
+      scope_key: 'u2',
+      kind: 'fact',
+      content: 'C',
+    });
 
     const deleted = repo.deleteByScope('user', 'u1');
     expect(deleted).toBe(2);
@@ -570,9 +701,27 @@ describe('EmbeddingRepository', () => {
     const memY = createTestMemory();
     const memZ = createTestMemory();
 
-    repo.create({ id: uniqueId('emb'), memory_id: memX, embedding: new Float32Array([1, 0, 0]), model: 'test', dimension: 3 });
-    repo.create({ id: uniqueId('emb'), memory_id: memY, embedding: new Float32Array([0, 1, 0]), model: 'test', dimension: 3 });
-    repo.create({ id: uniqueId('emb'), memory_id: memZ, embedding: new Float32Array([0.9, 0.1, 0]), model: 'test', dimension: 3 });
+    repo.create({
+      id: uniqueId('emb'),
+      memory_id: memX,
+      embedding: new Float32Array([1, 0, 0]),
+      model: 'test',
+      dimension: 3,
+    });
+    repo.create({
+      id: uniqueId('emb'),
+      memory_id: memY,
+      embedding: new Float32Array([0, 1, 0]),
+      model: 'test',
+      dimension: 3,
+    });
+    repo.create({
+      id: uniqueId('emb'),
+      memory_id: memZ,
+      embedding: new Float32Array([0.9, 0.1, 0]),
+      model: 'test',
+      dimension: 3,
+    });
 
     const results = repo.cosineSearch(new Float32Array([1, 0.1, 0]), 3);
     expect(results).toHaveLength(3);
@@ -588,9 +737,27 @@ describe('EmbeddingRepository', () => {
     const m1 = createTestMemory();
     const m2 = createTestMemory();
     const m3 = createTestMemory();
-    repo.create({ id: uniqueId('emb'), memory_id: m1, embedding: new Float32Array([1, 0]), model: 't', dimension: 2 });
-    repo.create({ id: uniqueId('emb'), memory_id: m2, embedding: new Float32Array([0, 1]), model: 't', dimension: 2 });
-    repo.create({ id: uniqueId('emb'), memory_id: m3, embedding: new Float32Array([0.5, 0.5]), model: 't', dimension: 2 });
+    repo.create({
+      id: uniqueId('emb'),
+      memory_id: m1,
+      embedding: new Float32Array([1, 0]),
+      model: 't',
+      dimension: 2,
+    });
+    repo.create({
+      id: uniqueId('emb'),
+      memory_id: m2,
+      embedding: new Float32Array([0, 1]),
+      model: 't',
+      dimension: 2,
+    });
+    repo.create({
+      id: uniqueId('emb'),
+      memory_id: m3,
+      embedding: new Float32Array([0.5, 0.5]),
+      model: 't',
+      dimension: 2,
+    });
 
     const results = repo.cosineSearch(new Float32Array([1, 0]), 2);
     expect(results).toHaveLength(2);
@@ -630,8 +797,20 @@ describe('EmbeddingRepository', () => {
     const repo = new EmbeddingRepository(db);
     const memX = createTestMemory();
     const memY = createTestMemory();
-    repo.create({ id: uniqueId('emb'), memory_id: memX, embedding: new Float32Array([1, 0, 0]), model: 'test', dimension: 3 });
-    repo.create({ id: uniqueId('emb'), memory_id: memY, embedding: new Float32Array([0, 1, 0]), model: 'test', dimension: 3 });
+    repo.create({
+      id: uniqueId('emb'),
+      memory_id: memX,
+      embedding: new Float32Array([1, 0, 0]),
+      model: 'test',
+      dimension: 3,
+    });
+    repo.create({
+      id: uniqueId('emb'),
+      memory_id: memY,
+      embedding: new Float32Array([0, 1, 0]),
+      model: 'test',
+      dimension: 3,
+    });
 
     const backfilled = repo.backfillVec();
     const results = repo.vecSearch(new Float32Array([1, 0, 0]), 2);
@@ -688,7 +867,7 @@ describe('ToolRunRepository', () => {
 
     const results = repo.findByToolName('shell');
     expect(results).toHaveLength(2);
-    expect(results.every(r => r.tool_name === 'shell')).toBe(true);
+    expect(results.every((r) => r.tool_name === 'shell')).toBe(true);
   });
 
   it('update reflects changes', () => {
@@ -808,9 +987,33 @@ describe('ApprovalPolicyRepository', () => {
 
   it('findByScope returns policies for a scope', () => {
     const repo = new ApprovalPolicyRepository(db);
-    repo.create({ id: uniqueId('pol'), scope: 'user', scope_key: 'u1', target_kind: 'tool', pattern_type: 'exact', pattern: 'a', effect: 'allow' });
-    repo.create({ id: uniqueId('pol'), scope: 'user', scope_key: 'u1', target_kind: 'command', pattern_type: 'regex', pattern: '.*', effect: 'deny' });
-    repo.create({ id: uniqueId('pol'), scope: 'user', scope_key: 'u2', target_kind: 'tool', pattern_type: 'exact', pattern: 'b', effect: 'allow' });
+    repo.create({
+      id: uniqueId('pol'),
+      scope: 'user',
+      scope_key: 'u1',
+      target_kind: 'tool',
+      pattern_type: 'exact',
+      pattern: 'a',
+      effect: 'allow',
+    });
+    repo.create({
+      id: uniqueId('pol'),
+      scope: 'user',
+      scope_key: 'u1',
+      target_kind: 'command',
+      pattern_type: 'regex',
+      pattern: '.*',
+      effect: 'deny',
+    });
+    repo.create({
+      id: uniqueId('pol'),
+      scope: 'user',
+      scope_key: 'u2',
+      target_kind: 'tool',
+      pattern_type: 'exact',
+      pattern: 'b',
+      effect: 'allow',
+    });
 
     const results = repo.findByScope('user', 'u1');
     expect(results).toHaveLength(2);
@@ -818,9 +1021,33 @@ describe('ApprovalPolicyRepository', () => {
 
   it('findByTargetKind returns policies for a target kind', () => {
     const repo = new ApprovalPolicyRepository(db);
-    repo.create({ id: uniqueId('pol'), scope: 'user', scope_key: 'u1', target_kind: 'tool', pattern_type: 'exact', pattern: 'a', effect: 'allow' });
-    repo.create({ id: uniqueId('pol'), scope: 'user', scope_key: 'u1', target_kind: 'tool', pattern_type: 'exact', pattern: 'b', effect: 'deny' });
-    repo.create({ id: uniqueId('pol'), scope: 'user', scope_key: 'u1', target_kind: 'command', pattern_type: 'exact', pattern: 'c', effect: 'allow' });
+    repo.create({
+      id: uniqueId('pol'),
+      scope: 'user',
+      scope_key: 'u1',
+      target_kind: 'tool',
+      pattern_type: 'exact',
+      pattern: 'a',
+      effect: 'allow',
+    });
+    repo.create({
+      id: uniqueId('pol'),
+      scope: 'user',
+      scope_key: 'u1',
+      target_kind: 'tool',
+      pattern_type: 'exact',
+      pattern: 'b',
+      effect: 'deny',
+    });
+    repo.create({
+      id: uniqueId('pol'),
+      scope: 'user',
+      scope_key: 'u1',
+      target_kind: 'command',
+      pattern_type: 'exact',
+      pattern: 'c',
+      effect: 'allow',
+    });
 
     const results = repo.findByTargetKind('tool');
     expect(results).toHaveLength(2);
@@ -921,7 +1148,12 @@ describe('ApprovalRequestRepository', () => {
   it('findByStatus returns requests with given status', () => {
     const repo = new ApprovalRequestRepository(db);
     repo.create({ id: uniqueId('req'), session_key: 's1', target_kind: 'tool', status: 'pending' });
-    repo.create({ id: uniqueId('req'), session_key: 's1', target_kind: 'tool', status: 'approved' });
+    repo.create({
+      id: uniqueId('req'),
+      session_key: 's1',
+      target_kind: 'tool',
+      status: 'approved',
+    });
     repo.create({ id: uniqueId('req'), session_key: 's1', target_kind: 'tool', status: 'pending' });
 
     const pending = repo.findByStatus('pending');
@@ -934,7 +1166,12 @@ describe('ApprovalRequestRepository', () => {
   it('findPending returns pending requests', () => {
     const repo = new ApprovalRequestRepository(db);
     repo.create({ id: uniqueId('req'), session_key: 's1', target_kind: 'tool', status: 'pending' });
-    repo.create({ id: uniqueId('req'), session_key: 's1', target_kind: 'tool', status: 'approved' });
+    repo.create({
+      id: uniqueId('req'),
+      session_key: 's1',
+      target_kind: 'tool',
+      status: 'approved',
+    });
 
     const results = repo.findPending();
     expect(results).toHaveLength(1);
@@ -1012,21 +1249,46 @@ describe('ApprovalDecisionRepository', () => {
     const requestId1 = createTestApprovalRequest();
     const requestId2 = createTestApprovalRequest();
     const repo = new ApprovalDecisionRepository(db);
-    repo.create({ id: uniqueId('dec'), request_id: requestId1, decided_by: 'admin', decision: 'approved' });
-    repo.create({ id: uniqueId('dec'), request_id: requestId1, decided_by: 'admin', decision: 'denied' });
-    repo.create({ id: uniqueId('dec'), request_id: requestId2, decided_by: 'admin', decision: 'approved' });
+    repo.create({
+      id: uniqueId('dec'),
+      request_id: requestId1,
+      decided_by: 'admin',
+      decision: 'approved',
+    });
+    repo.create({
+      id: uniqueId('dec'),
+      request_id: requestId1,
+      decided_by: 'admin',
+      decision: 'denied',
+    });
+    repo.create({
+      id: uniqueId('dec'),
+      request_id: requestId2,
+      decided_by: 'admin',
+      decision: 'approved',
+    });
 
     const results = repo.findByRequestId(requestId1);
     expect(results).toHaveLength(2);
-    expect(results.every(d => d.request_id === requestId1)).toBe(true);
+    expect(results.every((d) => d.request_id === requestId1)).toBe(true);
   });
 
   it('findLatestByRequestId returns most recent decision', () => {
     const requestId = createTestApprovalRequest();
     const repo = new ApprovalDecisionRepository(db);
-    const first = repo.create({ id: 'dec-first', request_id: requestId, decided_by: 'admin', decision: 'approved' });
+    const first = repo.create({
+      id: 'dec-first',
+      request_id: requestId,
+      decided_by: 'admin',
+      decision: 'approved',
+    });
     // Use different id so the second is clearly "later" when ordered by created_at DESC, id DESC
-    const second = repo.create({ id: 'dec-second', request_id: requestId, decided_by: 'admin', decision: 'denied' });
+    const second = repo.create({
+      id: 'dec-second',
+      request_id: requestId,
+      decided_by: 'admin',
+      decision: 'denied',
+    });
 
     const latest = repo.findLatestByRequestId(requestId);
     expect(latest).toBeDefined();
@@ -1054,9 +1316,24 @@ describe('ApprovalDecisionRepository', () => {
     const requestId1 = createTestApprovalRequest();
     const requestId2 = createTestApprovalRequest();
     const repo = new ApprovalDecisionRepository(db);
-    repo.create({ id: uniqueId('dec'), request_id: requestId1, decided_by: 'admin', decision: 'approved' });
-    repo.create({ id: uniqueId('dec'), request_id: requestId1, decided_by: 'admin', decision: 'denied' });
-    repo.create({ id: uniqueId('dec'), request_id: requestId2, decided_by: 'admin', decision: 'approved' });
+    repo.create({
+      id: uniqueId('dec'),
+      request_id: requestId1,
+      decided_by: 'admin',
+      decision: 'approved',
+    });
+    repo.create({
+      id: uniqueId('dec'),
+      request_id: requestId1,
+      decided_by: 'admin',
+      decision: 'denied',
+    });
+    repo.create({
+      id: uniqueId('dec'),
+      request_id: requestId2,
+      decided_by: 'admin',
+      decision: 'approved',
+    });
 
     const deleted = repo.deleteByRequestId(requestId1);
     expect(deleted).toBe(2);
@@ -1176,17 +1453,53 @@ describe('MemoryLinkRepository', () => {
   it('findByEntities groups links per entity, highest confidence first', () => {
     const memories = new MemoryRepository(db);
     const links = new MemoryLinkRepository(db);
-    const low = memories.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u1', kind: 'fact', content: 'A' });
-    const high = memories.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u1', kind: 'fact', content: 'B' });
-    const other = memories.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u1', kind: 'fact', content: 'C' });
+    const low = memories.create({
+      id: uniqueId('mem'),
+      scope: 'user',
+      scope_key: 'u1',
+      kind: 'fact',
+      content: 'A',
+    });
+    const high = memories.create({
+      id: uniqueId('mem'),
+      scope: 'user',
+      scope_key: 'u1',
+      kind: 'fact',
+      content: 'B',
+    });
+    const other = memories.create({
+      id: uniqueId('mem'),
+      scope: 'user',
+      scope_key: 'u1',
+      kind: 'fact',
+      content: 'C',
+    });
 
-    links.create({ id: uniqueId('link'), source_memory_id: low.id, target_entity: 'Alice', relation_type: 'mentions', confidence: 0.4 });
-    links.create({ id: uniqueId('link'), source_memory_id: high.id, target_entity: 'Alice', relation_type: 'mentions', confidence: 0.9 });
-    links.create({ id: uniqueId('link'), source_memory_id: other.id, target_entity: 'Berlin', relation_type: 'mentions', confidence: 0.8 });
+    links.create({
+      id: uniqueId('link'),
+      source_memory_id: low.id,
+      target_entity: 'Alice',
+      relation_type: 'mentions',
+      confidence: 0.4,
+    });
+    links.create({
+      id: uniqueId('link'),
+      source_memory_id: high.id,
+      target_entity: 'Alice',
+      relation_type: 'mentions',
+      confidence: 0.9,
+    });
+    links.create({
+      id: uniqueId('link'),
+      source_memory_id: other.id,
+      target_entity: 'Berlin',
+      relation_type: 'mentions',
+      confidence: 0.8,
+    });
 
     const grouped = links.findByEntities(['Alice', 'Berlin', 'Nowhere']);
     expect([...grouped.keys()].sort()).toEqual(['Alice', 'Berlin']);
-    expect(grouped.get('Alice')?.map(l => l.source_memory_id)).toEqual([high.id, low.id]);
+    expect(grouped.get('Alice')?.map((l) => l.source_memory_id)).toEqual([high.id, low.id]);
     expect(links.findByEntities([]).size).toBe(0);
   });
 });

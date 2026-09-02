@@ -35,30 +35,35 @@ export default function HarnessImprovementCard({
   onDecision,
 }: HarnessImprovementCardProps) {
   const { t } = useTranslation('common');
-  const [status, setStatus] = useState<'idle' | 'approved' | 'rejected' | 'editing' | 'dismissed'>('idle');
+  const [status, setStatus] = useState<'idle' | 'approved' | 'rejected' | 'editing' | 'dismissed'>(
+    'idle',
+  );
   const [editedValue, setEditedValue] = useState(proposal.diff.after);
   const [submitting, setSubmitting] = useState(false);
 
-  const handleAction = useCallback(async (action: HarnessAction) => {
-    if (action.style === 'danger') {
-      setStatus('rejected');
-      onDecision(action.id);
-      return;
-    }
+  const handleAction = useCallback(
+    async (action: HarnessAction) => {
+      if (action.style === 'danger') {
+        setStatus('rejected');
+        onDecision(action.id);
+        return;
+      }
 
-    if (action.inputField) {
-      setStatus('editing');
-      return;
-    }
+      if (action.inputField) {
+        setStatus('editing');
+        return;
+      }
 
-    setSubmitting(true);
-    try {
-      setStatus('approved');
-      onDecision(action.id);
-    } finally {
-      setSubmitting(false);
-    }
-  }, [onDecision]);
+      setSubmitting(true);
+      try {
+        setStatus('approved');
+        onDecision(action.id);
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [onDecision],
+  );
 
   const handleEditSubmit = useCallback(() => {
     setSubmitting(true);
@@ -142,25 +147,11 @@ export default function HarnessImprovementCard({
             rows={4}
           />
           <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={handleEditSubmit}
-              disabled={submitting}
-            >
-              {submitting ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <Check size={14} />
-              )}
+            <Button size="sm" variant="primary" onClick={handleEditSubmit} disabled={submitting}>
+              {submitting ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
               {t('chat.harnessImprovement.editSubmit', 'Submit Changes')}
             </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={handleEditCancel}
-              disabled={submitting}
-            >
+            <Button size="sm" variant="ghost" onClick={handleEditCancel} disabled={submitting}>
               {t('chat.harnessImprovement.editCancel', 'Cancel')}
             </Button>
           </div>
@@ -197,9 +188,7 @@ export default function HarnessImprovementCard({
         {/* Detail (markdown rendered) */}
         {proposal.detail && (
           <div className="text-sm text-neutral-600 dark:text-neutral-400 markdown-content prose prose-sm max-w-none dark:prose-invert">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {proposal.detail}
-            </ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{proposal.detail}</ReactMarkdown>
           </div>
         )}
 
@@ -235,9 +224,7 @@ export default function HarnessImprovementCard({
           </span>
           <span>
             {t('chat.harnessImprovement.risk')}:{' '}
-            <span className={`font-medium ${riskColor}`}>
-              {proposal.impact.riskLevel}
-            </span>
+            <span className={`font-medium ${riskColor}`}>{proposal.impact.riskLevel}</span>
           </span>
           {proposal.impact.expectedEffect && (
             <span className="text-neutral-400 dark:text-neutral-500">
@@ -260,11 +247,7 @@ export default function HarnessImprovementCard({
             );
 
           const variant =
-            action.style === 'primary'
-              ? 'primary'
-              : action.style === 'danger'
-                ? 'danger'
-                : 'ghost';
+            action.style === 'primary' ? 'primary' : action.style === 'danger' ? 'danger' : 'ghost';
 
           return (
             <Button

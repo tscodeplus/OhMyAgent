@@ -39,7 +39,11 @@ export interface ToolExecutionContext {
    * of running locally on the gateway.
    */
   desktopBridge?: {
-    callTool(tool: string, args: unknown, timeoutMs: number): Promise<{ ok: boolean; data?: unknown; error?: string }>;
+    callTool(
+      tool: string,
+      args: unknown,
+      timeoutMs: number,
+    ): Promise<{ ok: boolean; data?: unknown; error?: string }>;
   };
 }
 

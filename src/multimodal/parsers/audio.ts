@@ -9,7 +9,9 @@ export class AudioParser {
 
     // Rough duration estimate from file size
     const compressedFormats = ['audio/mpeg', 'audio/mp3', 'audio/aac', 'audio/ogg', 'audio/wma'];
-    const isCompressed = compressedFormats.some(f => mimeType.includes(f) || mimeType.includes(f.split('/')[1] ?? ''));
+    const isCompressed = compressedFormats.some(
+      (f) => mimeType.includes(f) || mimeType.includes(f.split('/')[1] ?? ''),
+    );
     const bitsPerSecond = isCompressed ? 128_000 : 705_600; // compressed vs PCM WAV
     const seconds = Math.round((stat.size * 8) / bitsPerSecond);
     const minutes = Math.floor(seconds / 60);

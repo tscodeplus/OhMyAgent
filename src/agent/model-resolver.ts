@@ -53,10 +53,7 @@ export function resolveModelRef(ref: string, config?: AppConfig): ModelInstance 
     const dynamic = ensureModelRegistered(config, provider, modelId);
     if (dynamic) return dynamic as ModelInstance;
   }
-  return getModel(
-    provider as KnownProvider,
-    modelId as never,
-  ) as ModelInstance | undefined;
+  return getModel(provider as KnownProvider, modelId as never) as ModelInstance | undefined;
 }
 
 /**
@@ -115,7 +112,8 @@ export function resolveModel(options: {
   const { explicitModel, agentConfig, servicesDefaultModel, config } = options;
 
   // 1. Start with explicit override → provider default → services default
-  let model: ModelInstance | undefined = explicitModel ?? getDefaultModel(config) ?? servicesDefaultModel;
+  let model: ModelInstance | undefined =
+    explicitModel ?? getDefaultModel(config) ?? servicesDefaultModel;
 
   // 2. Agent config model.primary overrides the default (but NOT an explicit override)
   if (agentConfig?.model.primary && !explicitModel) {
@@ -136,16 +134,13 @@ export function resolveModel(options: {
   // 3. Derive metadata from the resolved model
   const modelProvider = modelProp<string>(model, 'provider');
   const modelId = modelProp<string>(model, 'id');
-  const cacheProfile = isDeepSeekLikeModel(model) ? 'deepseek' as const : 'default' as const;
+  const cacheProfile = isDeepSeekLikeModel(model) ? ('deepseek' as const) : ('default' as const);
 
   // 4. Look up custom model config for reasoning / thinking level
   const customModelCfg = config.customProviders
-    ?.find(p => p.provider === modelProvider)
-    ?.models.find(m => m.id === modelId);
-  const thinkingLevel =
-    customModelCfg?.reasoningLevel ??
-    config.defaultReasoningLevel ??
-    'off';
+    ?.find((p) => p.provider === modelProvider)
+    ?.models.find((m) => m.id === modelId);
+  const thinkingLevel = customModelCfg?.reasoningLevel ?? config.defaultReasoningLevel ?? 'off';
 
   // 5. Resolve fallback model chain.
   // A fallback ref that fails to resolve (e.g. a model listed in fallback_models
@@ -155,7 +150,10 @@ export function resolveModel(options: {
   for (const ref of config.fallbackModels ?? []) {
     const m = resolveModelRef(ref, config);
     if (m === undefined) {
-      logger.warn({ ref }, `Fallback model "${ref}" could not be resolved and will be dropped from the fallback chain`);
+      logger.warn(
+        { ref },
+        `Fallback model "${ref}" could not be resolved and will be dropped from the fallback chain`,
+      );
     } else {
       fallbackModels.push(m);
     }
@@ -181,7 +179,7 @@ export function resolveModel(options: {
     //    template's built-in baseUrl, which may differ from the user's gateway.
     //    Normalize OpenAI-compatible URLs so a missing `/v1` segment is added
     //    (some built-in provider base URLs omit it, e.g. opencode).
-    const cp = config.customProviders?.find(p => p.provider === modelProvider);
+    const cp = config.customProviders?.find((p) => p.provider === modelProvider);
     let resolvedBaseUrl = (model as any).baseUrl as string | undefined;
     if (cp?.baseUrl) {
       // 1. Custom provider baseUrl
@@ -197,7 +195,10 @@ export function resolveModel(options: {
       }
     }
     if (resolvedBaseUrl) {
-      (model as any).baseUrl = ensureV1BaseUrl(resolvedBaseUrl, (model as any).api as string | undefined);
+      (model as any).baseUrl = ensureV1BaseUrl(
+        resolvedBaseUrl,
+        (model as any).api as string | undefined,
+      );
     }
 
     // 7b. Strip NVCF-POLL-SECONDS header inherited from the template model.
@@ -234,5 +235,13 @@ export function resolveModel(options: {
     }
   }
 
-  return { model, modelProvider, modelId, cacheProfile, thinkingLevel, fallbackModels, contextWindow };
+  return {
+    model,
+    modelProvider,
+    modelId,
+    cacheProfile,
+    thinkingLevel,
+    fallbackModels,
+    contextWindow,
+  };
 }

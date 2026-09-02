@@ -49,15 +49,19 @@ export function createHarnessServices(config: HarnessConfig): HarnessServices | 
       maxEditsPerProposal: config.proposal.maxEditsPerProposal,
       minConfidence: config.proposal.minConfidence ?? 0.5,
       allowedMechanisms: config.proposal.allowedMechanisms ?? [
-        'prompt_instruction', 'subagent', 'skill_procedure',
-        'tool_configuration', 'middleware', 'runtime_control',
+        'prompt_instruction',
+        'subagent',
+        'skill_procedure',
+        'tool_configuration',
+        'middleware',
+        'runtime_control',
       ],
     },
     surfaceProvider,
     async (_systemPrompt: string, _userMessage: string, _model?: string) => {
       throw new Error(
         'HarnessOptimizer LLM caller not wired. The agent system must provide ' +
-        'a real LLM invocation via optimizer construction before use.',
+          'a real LLM invocation via optimizer construction before use.',
       );
     },
   );

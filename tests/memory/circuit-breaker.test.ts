@@ -34,7 +34,11 @@ describe('CircuitBreaker', () => {
 
   it('transitions to HALF_OPEN after cooldown', () => {
     let now = 0;
-    const cb = new CircuitBreaker({ failureThreshold: defaultThreshold, cooldownMs: 1000, nowFn: () => now });
+    const cb = new CircuitBreaker({
+      failureThreshold: defaultThreshold,
+      cooldownMs: 1000,
+      nowFn: () => now,
+    });
     for (let i = 0; i < defaultThreshold; i++) cb.recordFailure();
     expect(cb.currentState).toBe('OPEN');
 
@@ -50,22 +54,30 @@ describe('CircuitBreaker', () => {
 
   it('only allows one probe in HALF_OPEN', () => {
     let now = 0;
-    const cb = new CircuitBreaker({ failureThreshold: defaultThreshold, cooldownMs: 1000, nowFn: () => now });
+    const cb = new CircuitBreaker({
+      failureThreshold: defaultThreshold,
+      cooldownMs: 1000,
+      nowFn: () => now,
+    });
     for (let i = 0; i < defaultThreshold; i++) cb.recordFailure();
     now = 1000;
 
-    expect(cb.allow()).toBe(true);   // first probe OK
-    expect(cb.allow()).toBe(false);  // second blocked
-    expect(cb.allow()).toBe(false);  // still blocked
+    expect(cb.allow()).toBe(true); // first probe OK
+    expect(cb.allow()).toBe(false); // second blocked
+    expect(cb.allow()).toBe(false); // still blocked
   });
 
   it('resets to CLOSED on success in HALF_OPEN', () => {
     let now = 0;
-    const cb = new CircuitBreaker({ failureThreshold: defaultThreshold, cooldownMs: 1000, nowFn: () => now });
+    const cb = new CircuitBreaker({
+      failureThreshold: defaultThreshold,
+      cooldownMs: 1000,
+      nowFn: () => now,
+    });
     for (let i = 0; i < defaultThreshold; i++) cb.recordFailure();
     now = 1000;
 
-    cb.allow();  // sends probe
+    cb.allow(); // sends probe
     cb.recordSuccess();
     expect(cb.currentState).toBe('CLOSED');
     expect(cb.failures).toBe(0);
@@ -73,11 +85,15 @@ describe('CircuitBreaker', () => {
 
   it('returns to OPEN on failure in HALF_OPEN', () => {
     let now = 0;
-    const cb = new CircuitBreaker({ failureThreshold: defaultThreshold, cooldownMs: 1000, nowFn: () => now });
+    const cb = new CircuitBreaker({
+      failureThreshold: defaultThreshold,
+      cooldownMs: 1000,
+      nowFn: () => now,
+    });
     for (let i = 0; i < defaultThreshold; i++) cb.recordFailure();
     now = 1000;
 
-    cb.allow();  // sends probe
+    cb.allow(); // sends probe
     cb.recordFailure();
     expect(cb.currentState).toBe('OPEN');
   });

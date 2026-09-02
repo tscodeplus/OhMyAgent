@@ -1266,7 +1266,8 @@ function applyEnvOverrides(
     // language sync writes ui_language into config.yaml at runtime; if .env
     // could override that, every language switch would be silently undone on
     // deployments that keep UI_LANGUAGE in their environment (Termux/desktop).
-    const yamlSetsUiLanguage = yamlRoot != null && Object.prototype.hasOwnProperty.call(yamlRoot, 'ui_language');
+    const yamlSetsUiLanguage =
+      yamlRoot != null && Object.prototype.hasOwnProperty.call(yamlRoot, 'ui_language');
     if (!yamlSetsUiLanguage) {
       raw.uiLanguage = envRaw.uiLanguage;
     }

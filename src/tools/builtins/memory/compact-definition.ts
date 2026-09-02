@@ -43,10 +43,12 @@ export function createMemoryCompactToolDefinition(options: {
       const execute = args.execute === true;
 
       // Count inactive memories older than maxAgeDays
-      const allPrefs = options.memoryRepository.findByScopeKind('user', 'preference', { includeInactive: true });
-      const inactive = allPrefs.filter(p => p.status !== 'active');
+      const allPrefs = options.memoryRepository.findByScopeKind('user', 'preference', {
+        includeInactive: true,
+      });
+      const inactive = allPrefs.filter((p) => p.status !== 'active');
       const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
-      const stale = inactive.filter(p => new Date(p.updated_at).getTime() < cutoff);
+      const stale = inactive.filter((p) => new Date(p.updated_at).getTime() < cutoff);
 
       if (stale.length === 0) {
         return textResult('No stale inactive memories to compact.', { wouldDelete: 0, deleted: 0 });
@@ -55,7 +57,9 @@ export function createMemoryCompactToolDefinition(options: {
       const lines: string[] = [];
       lines.push(`=== Memory Compact (${execute ? 'EXECUTE' : 'DRY RUN'}) ===`);
       lines.push(`Inactive memories older than ${maxAgeDays} days: ${stale.length}`);
-      lines.push(`Status breakdown: superseded=${stale.filter(p => p.status === 'superseded').length}, deleted=${stale.filter(p => p.status === 'deleted').length}`);
+      lines.push(
+        `Status breakdown: superseded=${stale.filter((p) => p.status === 'superseded').length}, deleted=${stale.filter((p) => p.status === 'deleted').length}`,
+      );
 
       if (execute) {
         let deleted = 0;
