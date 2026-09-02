@@ -433,6 +433,7 @@ export default function ApprovalRulesEditor({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Rule Name"
+              required
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               placeholder="e.g. Low-risk prompt edits"

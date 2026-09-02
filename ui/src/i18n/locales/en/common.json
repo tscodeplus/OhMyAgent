@@ -916,7 +916,8 @@
     "required": "Required",
     "skip": "Skip",
     "submitting": "Submitting...",
-    "submitError": "Failed to submit"
+    "submitError": "Failed to submit",
+    "missingRequired": "Still needed: {{fields}}"
   },
   "setupWizard": {
     "title": "Setup Wizard",

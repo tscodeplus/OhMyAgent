@@ -32,7 +32,8 @@ interface SkillDetailResponse {
 type SkillsTab = 'manage' | 'marketplace';
 
 export default function SkillsView() {
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
+  const listSeparator = i18n.language?.startsWith('zh') ? '、' : ', ';
   const { showToast } = useToast();
 
   const [activeTab, setActiveTab] = useState<SkillsTab>('manage');
@@ -51,6 +52,7 @@ export default function SkillsView() {
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [creating, setCreating] = useState(false);
+  const [newSkillHint, setNewSkillHint] = useState(false);
 
   const isDirty = editorContent !== originalContent;
 
@@ -254,7 +256,13 @@ export default function SkillsView() {
                 strokeWidth={1.75}
               />
             </button>
-            <Button size="sm" onClick={() => setShowNewModal(true)}>
+            <Button
+              size="sm"
+              onClick={() => {
+                setNewSkillHint(false);
+                setShowNewModal(true);
+              }}
+            >
               <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
               <span>{t('skills.newSkill')}</span>
             </Button>
@@ -414,9 +422,14 @@ export default function SkillsView() {
               <Button
                 variant="primary"
                 size="sm"
-                onClick={handleCreate}
+                onClick={() => {
+                  if (!newSlug.trim() || !newName.trim()) {
+                    setNewSkillHint(true);
+                    return;
+                  }
+                  handleCreate();
+                }}
                 loading={creating}
-                disabled={!newSlug.trim() || !newName.trim()}
               >
                 {t('skills.createSkill')}
               </Button>
@@ -426,16 +439,36 @@ export default function SkillsView() {
           <div className="space-y-4">
             <Input
               label={t('skills.slug')}
+              required
+              error={
+                !newSlug.trim() && newSkillHint ? t('settings.validation.required') : undefined
+              }
               value={newSlug}
               onChange={(e) => setNewSlug(e.target.value)}
               placeholder={t('skills.slugPlaceholder') as string}
             />
             <Input
               label={t('skills.name')}
+              required
+              error={
+                !newName.trim() && newSkillHint ? t('settings.validation.required') : undefined
+              }
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder={t('skills.namePlaceholder') as string}
             />
+            {newSkillHint && (!newSlug.trim() || !newName.trim()) && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                {t('common.missingRequired', {
+                  fields: [
+                    !newSlug.trim() ? t('skills.slug') : null,
+                    !newName.trim() ? t('skills.name') : null,
+                  ]
+                    .filter(Boolean)
+                    .join(listSeparator),
+                })}
+              </p>
+            )}
             <Input
               label={t('skills.description')}
               value={newDesc}

@@ -25,6 +25,7 @@ export default function CreateProjectModal({ onClose, onCreated }: CreateProject
   const [description, setDescription] = useState('');
   const [selectedAgentId, setSelectedAgentId] = useState('');
   const [nameError, setNameError] = useState('');
+  const [agentError, setAgentError] = useState('');
 
   useEffect(() => {
     apiRequest<Agent[]>('/api/agents')
@@ -44,6 +45,7 @@ export default function CreateProjectModal({ onClose, onCreated }: CreateProject
         return;
       }
       if (!selectedAgentId) {
+        setAgentError(t('project.selectAgentRequired'));
         showToast(t('project.selectAgentRequired'), 'error');
         return;
       }
@@ -94,6 +96,7 @@ export default function CreateProjectModal({ onClose, onCreated }: CreateProject
       <form onSubmit={handleSubmit} className="space-y-4">
         <Input
           label={t('project.name')}
+          required
           value={name}
           onChange={(e) => {
             setName(e.target.value);
@@ -106,8 +109,13 @@ export default function CreateProjectModal({ onClose, onCreated }: CreateProject
         />
         <Select
           label={t('project.selectAgent')}
+          required
+          error={agentError || undefined}
           value={selectedAgentId}
-          onChange={(e) => setSelectedAgentId(e.target.value)}
+          onChange={(e) => {
+            setSelectedAgentId(e.target.value);
+            setAgentError('');
+          }}
           options={[
             { value: '', label: t('project.selectAgentPlaceholder'), disabled: true },
             ...agentOptions,

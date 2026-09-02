@@ -74,6 +74,7 @@ export default function CronView() {
   // Form state
   const [formName, setFormName] = useState('');
   const [formExpr, setFormExpr] = useState('');
+  const [formErrors, setFormErrors] = useState<Set<string>>(new Set());
   const [formDesc, setFormDesc] = useState('');
   const [formPrompt, setFormPrompt] = useState('');
   const [formAgentId, setFormAgentId] = useState('');
@@ -115,6 +116,7 @@ export default function CronView() {
     setFormChannel('webui');
     setFormNextRun('');
     setFormEnabled(true);
+    setFormErrors(new Set());
     setShowEditor(true);
   };
 
@@ -129,11 +131,16 @@ export default function CronView() {
     // Format next_run_at as local datetime-local string for the input
     setFormNextRun(job.next_run_at ? toLocalDatetime(job.next_run_at) : '');
     setFormEnabled(job.enabled);
+    setFormErrors(new Set());
     setShowEditor(true);
   };
 
   const handleSave = async () => {
-    if (!formName.trim() || !formExpr.trim()) {
+    const errors = new Set<string>();
+    if (!formName.trim()) errors.add('name');
+    if (!formExpr.trim()) errors.add('expr');
+    if (errors.size > 0) {
+      setFormErrors(errors);
       showToast(t('cron.nameExprRequired'), 'error');
       return;
     }
@@ -431,6 +438,8 @@ export default function CronView() {
           <div className="space-y-4">
             <Input
               label={t('cron.name')}
+              required
+              error={formErrors.has('name') ? t('cron.nameExprRequired') : undefined}
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
               placeholder={t('cron.namePlaceholder')}
@@ -457,6 +466,8 @@ export default function CronView() {
               />
               {expressionSelectValue === '__custom__' && (
                 <Input
+                  required
+                  error={formErrors.has('expr') ? t('cron.nameExprRequired') : undefined}
                   value={formExpr}
                   onChange={(e) => setFormExpr(e.target.value)}
                   placeholder={t('cron.customExpr')}

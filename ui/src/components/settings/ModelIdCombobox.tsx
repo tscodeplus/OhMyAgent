@@ -13,6 +13,8 @@ export interface ModelIdComboboxProps {
   value: string;
   onChange: (id: string) => void;
   label?: string;
+  /** Visual-only required marker (red asterisk next to the label). */
+  required?: boolean;
   placeholder?: string;
   className?: string;
 }
@@ -29,6 +31,7 @@ export default function ModelIdCombobox({
   value,
   onChange,
   label,
+  required,
   placeholder,
   className = '',
 }: ModelIdComboboxProps) {
@@ -140,6 +143,7 @@ export default function ModelIdCombobox({
         {label ? (
           <label className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300">
             {label}
+            {required && <span className="ml-0.5 text-red-500">*</span>}
           </label>
         ) : (
           <span />

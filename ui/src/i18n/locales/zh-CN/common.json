@@ -849,7 +849,8 @@
     "required": "必填",
     "skip": "跳过",
     "submitting": "提交中...",
-    "submitError": "提交失败"
+    "submitError": "提交失败",
+    "missingRequired": "还需填写：{{fields}}"
   },
   "memory_page": {
     "detail": "记忆详情",

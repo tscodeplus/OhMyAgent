@@ -89,7 +89,8 @@ export default function ModelSettings({
   onDirtyChange,
   initialSubTab,
 }: ModelSettingsProps) {
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
+  const listSeparator = i18n.language?.startsWith('zh') ? '、' : ', ';
   const { showToast } = useToast();
   const {
     config,
@@ -137,6 +138,11 @@ export default function ModelSettings({
   const [customProvidersNeedsRestart, setCustomProvidersNeedsRestart] = useState(false);
 
   /* ─── Add/Edit Model Modal ─── */
+  // Set to true when the user clicks Save with missing required fields; shows
+  // red errors + a "still needed" hint instead of a silently disabled button.
+  const [showBuiltinHint, setShowBuiltinHint] = useState(false);
+  const [showCustomHint, setShowCustomHint] = useState(false);
+  const [showModelHint, setShowModelHint] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalProviderIdx, setModalProviderIdx] = useState<number>(0);
   const [modalModel, setModalModel] = useState<ProviderModel | null>(null);
@@ -144,6 +150,7 @@ export default function ModelSettings({
   const openAddModelModal = (pIdx: number) => {
     setModalProviderIdx(pIdx);
     setModalModel({ id: '', name: '', api: 'openai-completions', reasoning: false });
+    setShowModelHint(false);
     setModalOpen(true);
   };
 
@@ -550,7 +557,11 @@ export default function ModelSettings({
               {t('settings.models.builtinProviders')}
             </h4>
             <button
-              onClick={() => setShowBuiltinModal(true)}
+              onClick={() => {
+                setNewBuiltinForm({ provider: '', apiKey: '', baseUrl: '' });
+                setShowBuiltinHint(false);
+                setShowBuiltinModal(true);
+              }}
               className="flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
             >
               <Plus size={12} />
@@ -699,7 +710,11 @@ export default function ModelSettings({
               {t('settings.models.customProviders')}
             </h4>
             <button
-              onClick={() => setShowCustomModal(true)}
+              onClick={() => {
+                setNewCustomForm({ provider: '', apiKey: '', baseUrl: '' });
+                setShowCustomHint(false);
+                setShowCustomModal(true);
+              }}
               className="flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
             >
               <Plus size={12} />
@@ -824,6 +839,7 @@ export default function ModelSettings({
                                   <ModelIdCombobox
                                     provider={cp.provider}
                                     label={t('settings.models.modelId')}
+                                    required
                                     value={model.id}
                                     onChange={(id) => updateModel(pIdx, mIdx, 'id', id)}
                                     placeholder="e.g. gpt-4o"
@@ -1163,6 +1179,12 @@ export default function ModelSettings({
             <div className="space-y-3">
               <Select
                 label={t('settings.models.providerName')}
+                required
+                error={
+                  !newBuiltinForm.provider && showBuiltinHint
+                    ? t('settings.validation.required')
+                    : undefined
+                }
                 value={newBuiltinForm.provider}
                 onChange={(e) => setNewBuiltinForm({ ...newBuiltinForm, provider: e.target.value })}
                 options={[
@@ -1175,6 +1197,12 @@ export default function ModelSettings({
               <Input
                 label="API Key"
                 type="password"
+                required
+                error={
+                  !newBuiltinForm.apiKey.trim() && showBuiltinHint
+                    ? t('settings.validation.required')
+                    : undefined
+                }
                 value={newBuiltinForm.apiKey}
                 onChange={(e) => setNewBuiltinForm({ ...newBuiltinForm, apiKey: e.target.value })}
               />
@@ -1194,6 +1222,18 @@ export default function ModelSettings({
                 </p>
               </div>
             </div>
+            {showBuiltinHint && (!newBuiltinForm.provider || !newBuiltinForm.apiKey.trim()) && (
+              <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                {t('common.missingRequired', {
+                  fields: [
+                    !newBuiltinForm.provider ? t('settings.models.providerName') : null,
+                    !newBuiltinForm.apiKey.trim() ? 'API Key' : null,
+                  ]
+                    .filter(Boolean)
+                    .join(listSeparator),
+                })}
+              </p>
+            )}
             <div className="flex justify-end gap-2 mt-4">
               <button
                 onClick={() => setShowBuiltinModal(false)}
@@ -1202,8 +1242,13 @@ export default function ModelSettings({
                 {t('common.cancel')}
               </button>
               <button
-                onClick={addProviderKey}
-                disabled={!newBuiltinForm.provider || !newBuiltinForm.apiKey}
+                onClick={() => {
+                  if (!newBuiltinForm.provider || !newBuiltinForm.apiKey.trim()) {
+                    setShowBuiltinHint(true);
+                    return;
+                  }
+                  addProviderKey();
+                }}
                 className="px-3 py-1.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 {t('common.save')}
@@ -1237,6 +1282,12 @@ export default function ModelSettings({
             <div className="space-y-3">
               <Input
                 label={t('settings.models.providerName')}
+                required
+                error={
+                  !newCustomForm.provider.trim() && showCustomHint
+                    ? t('settings.validation.required')
+                    : undefined
+                }
                 value={newCustomForm.provider}
                 onChange={(e) => setNewCustomForm({ ...newCustomForm, provider: e.target.value })}
                 placeholder="e.g. openrouter"
@@ -1244,6 +1295,12 @@ export default function ModelSettings({
               <Input
                 label="API Key"
                 type="password"
+                required
+                error={
+                  !newCustomForm.apiKey.trim() && showCustomHint
+                    ? t('settings.validation.required')
+                    : undefined
+                }
                 value={newCustomForm.apiKey}
                 onChange={(e) => setNewCustomForm({ ...newCustomForm, apiKey: e.target.value })}
               />
@@ -1254,6 +1311,18 @@ export default function ModelSettings({
                 placeholder="e.g. https://api.example.com/v1"
               />
             </div>
+            {showCustomHint && (!newCustomForm.provider.trim() || !newCustomForm.apiKey.trim()) && (
+              <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                {t('common.missingRequired', {
+                  fields: [
+                    !newCustomForm.provider.trim() ? t('settings.models.providerName') : null,
+                    !newCustomForm.apiKey.trim() ? 'API Key' : null,
+                  ]
+                    .filter(Boolean)
+                    .join(listSeparator),
+                })}
+              </p>
+            )}
             <div className="flex justify-end gap-2 mt-4">
               <button
                 onClick={() => setShowCustomModal(false)}
@@ -1262,8 +1331,13 @@ export default function ModelSettings({
                 {t('common.cancel')}
               </button>
               <button
-                onClick={addCustomProviderHandler}
-                disabled={!newCustomForm.provider || !newCustomForm.apiKey}
+                onClick={() => {
+                  if (!newCustomForm.provider.trim() || !newCustomForm.apiKey.trim()) {
+                    setShowCustomHint(true);
+                    return;
+                  }
+                  addCustomProviderHandler();
+                }}
                 className="px-3 py-1.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 {t('common.save')}
@@ -1284,7 +1358,16 @@ export default function ModelSettings({
             <Button variant="ghost" size="sm" onClick={() => setModalOpen(false)}>
               {t('common.cancel')}
             </Button>
-            <Button size="sm" onClick={handleModalSave} disabled={!modalModel?.id.trim()}>
+            <Button
+              size="sm"
+              onClick={() => {
+                if (!modalModel?.id.trim()) {
+                  setShowModelHint(true);
+                  return;
+                }
+                handleModalSave();
+              }}
+            >
               {t('common.save')}
             </Button>
           </>
@@ -1296,6 +1379,7 @@ export default function ModelSettings({
               <ModelIdCombobox
                 provider={customProviders[modalProviderIdx]?.provider || ''}
                 label={t('settings.models.modelId')}
+                required
                 value={modalModel.id}
                 onChange={(id) => setModalModel({ ...modalModel, id })}
                 placeholder="e.g. gpt-4o"
@@ -1307,6 +1391,11 @@ export default function ModelSettings({
                 placeholder="e.g. GPT-4o"
               />
             </div>
+            {showModelHint && !modalModel.id.trim() && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                {t('common.missingRequired', { fields: t('settings.models.modelId') })}
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <Select
                 label={t('settings.models.modelApi')}
