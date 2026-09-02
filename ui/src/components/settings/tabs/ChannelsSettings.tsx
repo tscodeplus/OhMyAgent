@@ -282,11 +282,6 @@ export default function ChannelsSettings({
                 getField('wechat.botToken', String(wechat.botToken || '')) ? undefined : ''
               }
             />
-            <Input
-              label={t('settings.channels.apiBase')}
-              value={getField('wechat.apiBase', String(wechat.apiBase || ''))}
-              onChange={(e) => setField('wechat.apiBase', e.target.value)}
-            />
           </>
         ) : null}
       </ChannelCard>

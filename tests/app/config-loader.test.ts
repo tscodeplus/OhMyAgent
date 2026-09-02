@@ -162,6 +162,22 @@ describe('yamlToAppConfigRaw', () => {
     expect(raw.wechat.botToken).toBe('test-token');
   });
 
+  it('folds an empty wechat api_base back to the iLink default', () => {
+    // The WebUI no longer exposes api_base, but a previously saved empty
+    // string (or a hand-edited yaml) must not disable the channel by
+    // pointing every wechat API call at an invalid URL.
+    for (const api_base of ['', '   ']) {
+      const raw = yamlToAppConfigRaw({
+        ...minimalYaml,
+        channels: {
+          ...minimalYaml.channels,
+          wechat: { enabled: true, bot_token: 'test-token', api_base },
+        },
+      });
+      expect(raw.wechat.apiBase).toBe('https://ilinkai.weixin.qq.com');
+    }
+  });
+
   it('maps qq channel config', () => {
     const raw = yamlToAppConfigRaw({
       ...minimalYaml,

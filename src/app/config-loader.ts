@@ -696,11 +696,12 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
                   'wechat?.botToken??wechat?.bot_token',
                 )
               : undefined,
-          apiBase: str(
-            wechat?.apiBase ?? wechat?.api_base,
-            'https://ilinkai.weixin.qq.com',
-            'wechat?.apiBase??wechat?.api_base',
-          ),
+          apiBase:
+            str(
+              wechat?.apiBase ?? wechat?.api_base,
+              'https://ilinkai.weixin.qq.com',
+              'wechat?.apiBase??wechat?.api_base',
+            ).trim() || 'https://ilinkai.weixin.qq.com',
           cursorDir: str(
             wechat?.cursorDir ?? wechat?.cursor_dir,
             './data/wechat',

@@ -529,7 +529,6 @@
       "botNamePlaceholder": "留空使用默认名称",
       "botToken": "Bot Token",
       "clientSecret": "Client Secret",
-      "apiBase": "API Base",
       "wsEnabled": "WebSocket 模式",
       "mode": "模式",
       "streamMode": "流式模式",
