@@ -444,6 +444,20 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
     });
   });
 
+  // Session-pinned chat-input selectors (model / reasoning level). The WebUI
+  // restores its selector state from here on mount and session switch so the
+  // pins survive page reloads. Null = no pin (follow the configured chain).
+  app.get('/api/projects/:projectId/chat/session-overrides', async (request, reply) => {
+    const { sessionId } = request.query as { sessionId?: string };
+    if (!sessionId) {
+      return reply.status(400).send({ error: 'Bad Request', message: 'sessionId is required' });
+    }
+    return reply.send({
+      model: cfg.agentService.getSessionModel(sessionId) ?? null,
+      reasoningLevel: cfg.agentService.getSessionReasoningLevel(sessionId) ?? null,
+    });
+  });
+
   // SSE chat endpoint
   app.post('/api/projects/:projectId/chat', async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
@@ -466,13 +480,15 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
       agentId?: string;
       /** Chat input's model selector: "provider/modelId" ref. Resolved into a
        *  ModelInstance and passed as an explicit model override (wins over the
-       *  agent's primary model). */
-      model?: string;
+       *  agent's primary model). An explicit null clears the session pin;
+       *  undefined (callers that don't manage this selector) keeps the pin. */
+      model?: string | null;
       /** Chat input's per-turn reasoning level (off|minimal|low|medium|high|
        *  xhigh|max). Wins over the per-model config and the global
-       *  defaultReasoningLevel. Invalid values are ignored (fall back to the
-       *  configured defaults). */
-      reasoningLevel?: string;
+       *  defaultReasoningLevel. Null clears the session pin; undefined keeps
+       *  it. Invalid values are ignored (fall back to the configured
+       *  defaults). */
+      reasoningLevel?: string | null;
     };
     // Only accept well-formed ids — never let arbitrary user input become a DB primary key.
     const safeClientMsgId =
@@ -506,25 +522,45 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
       // clears a previous session-level override.
       cfg.agentService.setSessionAgentId(sessionId, effectiveAgentId);
     }
-    // Model: resolve the "provider/modelId" ref into a ModelInstance here so
-    // an unresolvable selection degrades to the agent's primary model instead
-    // of failing the turn.
-    const explicitModel = requestedModelRef
-      ? resolveModelRef(requestedModelRef, cfg.getConfig?.())
-      : undefined;
-    if (requestedModelRef && !explicitModel) {
+    // ── Model + reasoning level: per-turn values with session pinning ──
+    // Pin lifecycle mirrors the agent selector: an explicit value updates the
+    // session pin, explicit null clears it (the WebUI sends null when the user
+    // is back on the defaults), and undefined — from callers that don't manage
+    // these selectors — leaves the pin untouched and re-applies it for this
+    // turn. Gateway restarts drop the pins (in-memory, like the agent pin).
+    let modelRef: string | undefined;
+    if (requestedModelRef === null) {
+      cfg.agentService.clearSessionModel(sessionId);
+    } else if (requestedModelRef) {
+      cfg.agentService.setSessionModel(sessionId, requestedModelRef);
+      modelRef = requestedModelRef;
+    } else {
+      modelRef = cfg.agentService.getSessionModel(sessionId);
+    }
+
+    // Resolve the "provider/modelId" ref into a ModelInstance here so an
+    // unresolvable selection degrades to the agent's primary model instead of
+    // failing the turn.
+    const explicitModel = modelRef ? resolveModelRef(modelRef, cfg.getConfig?.()) : undefined;
+    if (modelRef && !explicitModel) {
       app.log.warn(
-        { model: requestedModelRef },
+        { model: modelRef },
         '[chat] Model override could not be resolved — using agent default',
       );
     }
 
     // Reasoning level: only well-known values pass through — anything else
-    // (undefined included) falls back to the configured defaults server-side.
+    // falls back to the configured defaults server-side.
     const REASONING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
-    const reasoningLevel = REASONING_LEVELS.includes(requestedReasoningLevel ?? '')
-      ? requestedReasoningLevel
-      : undefined;
+    let reasoningLevel: string | undefined;
+    if (requestedReasoningLevel === null) {
+      cfg.agentService.clearSessionReasoningLevel(sessionId);
+    } else if (requestedReasoningLevel && REASONING_LEVELS.includes(requestedReasoningLevel)) {
+      reasoningLevel = requestedReasoningLevel;
+      cfg.agentService.setSessionReasoningLevel(sessionId, reasoningLevel);
+    } else {
+      reasoningLevel = cfg.agentService.getSessionReasoningLevel(sessionId);
+    }
 
     // Set SSE headers
     reply.raw.writeHead(200, {

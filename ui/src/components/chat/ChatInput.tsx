@@ -351,6 +351,33 @@ export default function ChatInput({
     // deviating happens through the 深度思考 switch or the level chips.
     if (on) setSelectedReasoningLevel(null);
   }, []);
+
+  // ── Session-pinned selector state ──
+  // The server pins the model / reasoning level to the session (surviving page
+  // reloads and session switches). Reset the local selectors first — they are
+  // component state shared across sessions — then restore this session's pins.
+  useEffect(() => {
+    setSelectedModel(null);
+    setSelectedReasoningLevel(null);
+    if (!projectId || !sessionId) return;
+    let cancelled = false;
+    apiRequest<{ model: string | null; reasoningLevel: string | null }>(
+      `/api/projects/${projectId}/chat/session-overrides?sessionId=${encodeURIComponent(sessionId)}`,
+    )
+      .then((data) => {
+        if (cancelled) return;
+        // Functional updates: never clobber a choice the user already made
+        // while the fetch was in flight.
+        if (data?.model) setSelectedModel((cur) => cur ?? data.model);
+        if (data?.reasoningLevel) setSelectedReasoningLevel((cur) => cur ?? data.reasoningLevel);
+      })
+      .catch(() => {
+        /* Best-effort restore — a failed fetch just leaves the defaults. */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, sessionId]);
   const handleSelectReasoningLevel = useCallback(
     (level: string) => {
       // Choosing the model's own default clears the override — the 默认强度
@@ -771,8 +798,10 @@ export default function ChatInput({
           message: userMessage.content,
           clientMsgId: userMessage.id,
           agentId: effectiveAgentId ?? undefined,
-          model: effectiveModel ?? undefined,
-          reasoningLevel: selectedReasoningLevel ?? undefined,
+          // Null (not undefined) signals "user is back on the defaults" — the
+          // server clears the session pin. A value pins it to the session.
+          model: selectedModel,
+          reasoningLevel: selectedReasoningLevel,
         },
         (event: SSEEvent) => {
           devLog('[ChatInput] SSE event', { type: event.type, ts: Date.now() - streamStartTime });
@@ -1238,7 +1267,7 @@ export default function ChatInput({
       fileUploads,
       buildFileRefs,
       effectiveAgentId,
-      effectiveModel,
+      selectedModel,
       selectedReasoningLevel,
     ],
   );

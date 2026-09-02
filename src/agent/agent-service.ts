@@ -218,6 +218,13 @@ export class AgentService {
   >();
 
   private sessionAgentMap = new Map<string, string>();
+  /** Session-pinned model override ("provider/modelId" ref) from the WebUI
+   *  chat input's model selector. Same lifecycle as sessionAgentMap: sticky
+   *  until the user changes/clears it or the gateway restarts. */
+  private sessionModelMap = new Map<string, string>();
+  /** Session-pinned reasoning level (off|minimal|low|medium|high|xhigh|max)
+   *  from the WebUI chat input's deep-thinking selector. */
+  private sessionReasoningLevelMap = new Map<string, string>();
 
   /** sessionId → feedbackId awaiting satisfaction inference from the user's
    *  next message (skill self-evolution feedback loop). */
@@ -911,6 +918,34 @@ export class AgentService {
   setSessionAgentId(sessionId: string, agentId: string): void {
     this.sessionAgentMap.set(sessionId, agentId);
     setSessionAgent(sessionId, agentId);
+  }
+
+  // ── Session-pinned chat-input selectors (model / reasoning level) ──
+  // Applied per request by the chat route; null payloads clear the pin so the
+  // session falls back to the configured chain (model cfg > global default).
+
+  setSessionModel(sessionId: string, modelRef: string): void {
+    this.sessionModelMap.set(sessionId, modelRef);
+  }
+
+  clearSessionModel(sessionId: string): void {
+    this.sessionModelMap.delete(sessionId);
+  }
+
+  getSessionModel(sessionId: string): string | undefined {
+    return this.sessionModelMap.get(sessionId);
+  }
+
+  setSessionReasoningLevel(sessionId: string, level: string): void {
+    this.sessionReasoningLevelMap.set(sessionId, level);
+  }
+
+  clearSessionReasoningLevel(sessionId: string): void {
+    this.sessionReasoningLevelMap.delete(sessionId);
+  }
+
+  getSessionReasoningLevel(sessionId: string): string | undefined {
+    return this.sessionReasoningLevelMap.get(sessionId);
   }
 
   /**

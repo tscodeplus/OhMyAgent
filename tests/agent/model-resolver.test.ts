@@ -277,6 +277,45 @@ describe('resolveModel', () => {
     expect(result.thinkingLevel).toBe('low');
   });
 
+  it('per-turn reasoningLevelOverride wins over config-derived levels', () => {
+    const config = {
+      ...baseConfig,
+      defaultReasoningLevel: 'low',
+      customProviders: [
+        { provider: 'nvidia', models: [{ id: 'meta/llama-3.1-70b', reasoningLevel: 'medium' }] },
+      ],
+    };
+    const model = makeModel({ provider: 'nvidia', id: 'meta/llama-3.1-70b', reasoning: true });
+    const result = resolveModel({
+      explicitModel: model,
+      config,
+      reasoningLevelOverride: 'xhigh',
+    });
+
+    expect(result.thinkingLevel).toBe('xhigh');
+  });
+
+  it('clamps the reasoningLevelOverride to off for non-reasoning models', () => {
+    const model = makeModel({ reasoning: false });
+    const result = resolveModel({
+      explicitModel: model,
+      config: baseConfig,
+      reasoningLevelOverride: 'high',
+    });
+
+    expect(result.thinkingLevel).toBe('off');
+  });
+
+  it('does not clamp config-derived levels for non-reasoning models', () => {
+    // Config-derived levels keep their existing behavior — only the per-turn
+    // override is clamped (the WebUI hides its selector for these models).
+    const config = { ...baseConfig, defaultReasoningLevel: 'high' };
+    const model = makeModel({ reasoning: false });
+    const result = resolveModel({ explicitModel: model, config });
+
+    expect(result.thinkingLevel).toBe('high');
+  });
+
   it('uses deepseek cache profile for deepseek models', () => {
     const model = makeModel({ provider: 'deepseek', id: 'deepseek-chat' });
     const result = resolveModel({ explicitModel: model, config: baseConfig });

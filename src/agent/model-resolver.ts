@@ -146,7 +146,7 @@ export function resolveModel(options: {
   const customModelCfg = config.customProviders
     ?.find((p) => p.provider === modelProvider)
     ?.models.find((m) => m.id === modelId);
-  const thinkingLevel =
+  let thinkingLevel =
     options.reasoningLevelOverride ??
     customModelCfg?.reasoningLevel ??
     config.defaultReasoningLevel ??
@@ -243,6 +243,23 @@ export function resolveModel(options: {
         }
       }
     }
+  }
+
+  // 8. Capability clamp for the per-turn override. The WebUI hides its level
+  //    selector for models flagged reasoning:false, but a session-pinned level
+  //    can still pair with a non-reasoning model (e.g. after an agent switch).
+  //    Clamping ONLY the override keeps config-derived levels (custom model
+  //    config / defaultReasoningLevel) on their existing behavior.
+  if (
+    options.reasoningLevelOverride !== undefined &&
+    thinkingLevel !== 'off' &&
+    modelProp<boolean>(model, 'reasoning') === false
+  ) {
+    logger.warn(
+      { provider: modelProvider, model: modelId, requestedLevel: thinkingLevel },
+      'Reasoning level override clamped to off — model does not support reasoning',
+    );
+    thinkingLevel = 'off';
   }
 
   return {
