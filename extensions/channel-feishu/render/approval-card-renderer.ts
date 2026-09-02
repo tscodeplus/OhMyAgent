@@ -326,6 +326,44 @@ function formatDecisionStatus(record: ReplyApprovalRecord): string {
   }
 }
 
+// ─── Harness Result Card (post-decision) ───
+
+/**
+ * Render a card showing the harness improvement proposal (task failure
+ * analysis) decision result. Returned from the card action handler so the
+ * original card is replaced after a button click — the same mechanism
+ * `renderApprovalResultCard` uses for shell-command approval cards. Without
+ * this, the approve/reject/ignore buttons stay clickable after the decision.
+ */
+export function renderHarnessResultCard(
+  decision: 'approve' | 'reject' | 'dismiss' | 'handled',
+): Record<string, unknown> {
+  const title =
+    decision === 'approve'
+      ? `✅ ${i18n.t('harness:card.resultApproved')}`
+      : decision === 'reject'
+        ? `❌ ${i18n.t('harness:card.resultRejected')}`
+        : decision === 'dismiss'
+          ? i18n.t('harness:card.resultIgnored')
+          : i18n.t('harness:card.resultHandled');
+  const template =
+    decision === 'approve' ? 'green' : decision === 'reject' ? 'red' : 'grey';
+
+  return {
+    config: { wide_screen_mode: true },
+    header: {
+      title: { tag: 'plain_text', content: `${i18n.t('harness:card.title')} · ${title}` },
+      template,
+    },
+    elements: [
+      {
+        tag: 'div',
+        text: { tag: 'lark_md', content: title },
+      },
+    ],
+  };
+}
+
 // ─── Approval Result Card (post-decision) ───
 
 /**

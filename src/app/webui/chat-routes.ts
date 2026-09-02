@@ -892,8 +892,12 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
     let decision: import('../../harness/types.js').ApprovalDecision;
     if (action === 'approve') {
       decision = 'approve';
-    } else if (action === 'reject' || action === 'ignore') {
+    } else if (action === 'reject') {
       decision = 'reject';
+    } else if (action === 'ignore') {
+      // Align with other channels (Feishu/QQ/Telegram), which resolve the
+      // ignore button to 'dismiss' rather than 'reject'.
+      decision = 'dismiss';
     } else if (action === 'edit_submit') {
       decision = 'edit';
     } else {

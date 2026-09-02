@@ -32,7 +32,11 @@
     "rejectEmoji": "❌ Reject",
     "ignoreText": "Ignore",
     "approveEmoji": "✅ Approve",
-    "rejectButton": "❌ Reject"
+    "rejectButton": "❌ Reject",
+    "resultApproved": "Approved & Applied",
+    "resultRejected": "Rejected",
+    "resultIgnored": "Ignored",
+    "resultHandled": "This card has been handled"
   },
   "approval": {
     "defaultDenyDeletion": "Deny destructive changes",

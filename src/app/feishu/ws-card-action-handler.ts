@@ -8,7 +8,7 @@
 import { i18n } from '../../i18n/index.js';
 import { generateId } from '../../shared/ids.js';
 import { harnessApprovalRegistry } from '../../harness/harness-approval-registry.js';
-import { renderApprovalResultCard } from '../../../extensions/channel-feishu/render/approval-card-renderer.js';
+import { renderApprovalResultCard, renderHarnessResultCard } from '../../../extensions/channel-feishu/render/approval-card-renderer.js';
 import type { AgentFactory } from '../../agent/agent-factory.js';
 import type { ApprovalDecisionType } from '../types.js';
 import type { ApprovalDecisionRepository } from '../../memory/repositories/approval-decision-repository.js';
@@ -50,6 +50,8 @@ export function createWSCardActionHandler(opts: WSCardActionHandlerOptions): (
       if (!resolved) {
         return {
           toast: { type: 'info', content: i18n.t('bootstrap:toast.alreadyHandled') },
+          // Replace the card so the stale buttons can no longer be clicked.
+          card: { type: 'raw', data: renderHarnessResultCard('handled') },
         };
       }
       const toastContent =
@@ -62,6 +64,18 @@ export function createWSCardActionHandler(opts: WSCardActionHandlerOptions): (
         toast: {
           type: harnessAction === 'approve' ? 'success' : 'info',
           content: toastContent,
+        },
+        // Replace the original card (same mechanism as approval cards) so the
+        // approve/reject/ignore buttons are removed once a decision is made.
+        card: {
+          type: 'raw',
+          data: renderHarnessResultCard(
+            harnessAction === 'approve'
+              ? 'approve'
+              : harnessAction === 'reject'
+                ? 'reject'
+                : 'dismiss',
+          ),
         },
       };
     }

@@ -49,6 +49,14 @@ export default function HarnessImprovementCard({
         return;
       }
 
+      // Ignore (dismiss) must show the dismissed state, not the green
+      // "Applied" banner — previously it fell through to the approve branch.
+      if (action.id === 'dismiss') {
+        setStatus('dismissed');
+        onDecision('ignore');
+        return;
+      }
+
       if (action.inputField) {
         setStatus('editing');
         return;
@@ -79,11 +87,6 @@ export default function HarnessImprovementCard({
     setStatus('idle');
     setEditedValue(proposal.diff.after);
   }, [proposal.diff.after]);
-
-  const handleDismiss = useCallback(() => {
-    setStatus('dismissed');
-    onDecision('ignore');
-  }, [onDecision]);
 
   if (status === 'dismissed') {
     return null;

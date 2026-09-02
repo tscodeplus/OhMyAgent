@@ -32,7 +32,11 @@
     "rejectEmoji": "❌ 拒绝",
     "ignoreText": "忽略",
     "approveEmoji": "✅ 批准",
-    "rejectButton": "❌ 拒绝"
+    "rejectButton": "❌ 拒绝",
+    "resultApproved": "已批准并应用",
+    "resultRejected": "已拒绝",
+    "resultIgnored": "已忽略",
+    "resultHandled": "该卡片已处理"
   },
   "approval": {
     "defaultDenyDeletion": "拒绝破坏性变更",

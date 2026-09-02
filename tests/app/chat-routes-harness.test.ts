@@ -46,12 +46,12 @@ describe('POST /api/harness/proposals/:id/decide', () => {
     expect(registry.has('prop-1')).toBe(false);
   });
 
-  it('maps reject and ignore actions onto the reject decision', async () => {
+  it('maps reject to the reject decision and ignore to dismiss', async () => {
     const { app, registry } = makeApp();
-    for (const [id, action] of [
-      ['prop-2', 'reject'],
-      ['prop-3', 'ignore'],
-    ] as const) {
+    for (const [id, [action, decision]] of [
+      ['prop-2', ['reject', 'reject']],
+      ['prop-3', ['ignore', 'dismiss']],
+    ] as Array<[string, ['reject' | 'ignore', 'reject' | 'dismiss']]>) {
       const resolver = vi.fn();
       registry.set(id, resolver);
 
@@ -62,7 +62,7 @@ describe('POST /api/harness/proposals/:id/decide', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(resolver).toHaveBeenCalledWith({ decision: 'reject' });
+      expect(resolver).toHaveBeenCalledWith({ decision });
     }
   });
 
