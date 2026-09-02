@@ -54,7 +54,9 @@
       "modelSearch": "搜索模型…",
       "modelSearchNoMatch": "没有匹配的模型",
       "manageAgents": "管理智能体",
-      "manageProviders": "管理模型与供应商"
+      "manageProviders": "管理模型与供应商",
+      "reasoningLevel": "深度思考",
+      "reasoningLevelDefault": "默认强度"
     },
     "thinking": "思考中",
     "streamRetryRetry": "模型 {{failed}} 暂时调用失败，正在重试（第 {{attempt}}/{{max}} 次）…",

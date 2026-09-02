@@ -81,6 +81,11 @@ export interface AgentServiceOptions {
    *  over the agent config's primary model (resolveModel priority 1). Used by
    *  the WebUI chat input's model selector. */
   model?: any;
+  /** Per-turn reasoning (thinking) level override for this turn. Valid values:
+   *  off|minimal|low|medium|high|xhigh|max. Wins over the per-model config and
+   *  the global defaultReasoningLevel. Used by the WebUI chat input's reasoning
+   *  selector. */
+  reasoningLevel?: string;
   /** Cron permission snapshot: false removes Computer Use for this run. */
   computerUseAllowed?: boolean;
   /** Persist the user message BEFORE starting agent execution. When true,

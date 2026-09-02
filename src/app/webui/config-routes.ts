@@ -213,7 +213,12 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
     }
 
     const providers = [...ids].map((id) => ({ id, name: id }));
-    return reply.send({ providers });
+    return reply.send({
+      providers,
+      // Global default reasoning level (Model Router tab) — the chat input's
+      // reasoning selector uses it to compute a model's effective default.
+      defaultReasoningLevel: cfg.getConfig()?.defaultReasoningLevel,
+    });
   });
 
   // Return the catalog of models for a given provider (builtin + custom).
@@ -221,12 +226,22 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
   app.get('/api/providers/:id/models', async (request, reply) => {
     const { id } = request.params as { id: string };
     try {
+      // Per-model reasoningLevel overrides configured on custom providers —
+      // the chat input's reasoning selector needs them to display the model's
+      // effective default (server precedence: model cfg > global default).
+      const customModels = new Map(
+        (cfg.getConfig()?.customProviders ?? [])
+          .find((p) => p.provider === id)
+          ?.models.map((m) => [m.id, m.reasoningLevel])
+          .filter((entry): entry is [string, string] => Boolean(entry[1])) ?? [],
+      );
       const models = getModels(id as any).map((m: any) => ({
         id: m.id,
         name: m.name || m.id,
         api: m.api,
         baseUrl: m.baseUrl || undefined,
         reasoning: !!m.reasoning,
+        reasoningLevel: customModels.get(m.id),
         input: Array.isArray(m.input) ? m.input : [],
         contextWindow: m.contextWindow || undefined,
         maxTokens: m.maxTokens || undefined,

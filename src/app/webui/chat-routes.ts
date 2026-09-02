@@ -453,6 +453,7 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
       clientMsgId,
       agentId: requestedAgentId,
       model: requestedModelRef,
+      reasoningLevel: requestedReasoningLevel,
     } = request.body as {
       sessionId?: string;
       message?: string;
@@ -467,6 +468,11 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
        *  ModelInstance and passed as an explicit model override (wins over the
        *  agent's primary model). */
       model?: string;
+      /** Chat input's per-turn reasoning level (off|minimal|low|medium|high|
+       *  xhigh|max). Wins over the per-model config and the global
+       *  defaultReasoningLevel. Invalid values are ignored (fall back to the
+       *  configured defaults). */
+      reasoningLevel?: string;
     };
     // Only accept well-formed ids — never let arbitrary user input become a DB primary key.
     const safeClientMsgId =
@@ -512,6 +518,13 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
         '[chat] Model override could not be resolved — using agent default',
       );
     }
+
+    // Reasoning level: only well-known values pass through — anything else
+    // (undefined included) falls back to the configured defaults server-side.
+    const REASONING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+    const reasoningLevel = REASONING_LEVELS.includes(requestedReasoningLevel ?? '')
+      ? requestedReasoningLevel
+      : undefined;
 
     // Set SSE headers
     reply.raw.writeHead(200, {
@@ -758,6 +771,7 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
         chatId: `webui:${projectId}`,
         agentId: effectiveAgentId,
         model: explicitModel,
+        reasoningLevel,
         replyDispatcherOverride: dispatcher,
         channel: 'webui',
         channelApprovalSender: approvalSender,

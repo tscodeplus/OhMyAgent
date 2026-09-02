@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { createSSEClient, type SSEEvent } from '../../utils/sse-client';
 import { apiRequest, getToken } from '../../utils/api';
+import Toggle from '../ui/Toggle';
 import { useSettings } from '../../contexts/SettingsContext';
 import { devLog } from '../../utils/logger';
 import { CHAT_MEDIA_TOOL_NAMES, isChatMediaUrl } from '../../utils/chatMedia';
@@ -87,8 +88,12 @@ interface AgentOption {
 
 interface ModelGroup {
   provider: string;
-  models: Array<{ id: string; name: string }>;
+  models: Array<{ id: string; name: string; reasoning?: boolean; reasoningLevel?: string }>;
 }
+
+/** Full thinking-level set exposed by the reasoning selector (pi-mono
+ *  ThinkingLevel + 'off'). Mirrors the server-side validator in chat-routes. */
+const REASONING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
 const sseClient = createSSEClient();
 
@@ -188,6 +193,10 @@ export default function ChatInput({
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [modelGroups, setModelGroups] = useState<ModelGroup[]>([]);
+  /** Per-turn reasoning level override (null = use the model's effective
+   *  default). Kept across turns ("last level the user set"); cleared when the
+   *  selected model can't do reasoning at all. */
+  const [selectedReasoningLevel, setSelectedReasoningLevel] = useState<string | null>(null);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const selectorRef = useRef<HTMLDivElement>(null);
@@ -227,20 +236,36 @@ export default function ChatInput({
   }, []);
 
   // Model catalog grouped by configured provider (builtin with key + custom).
+  // Also captures the global defaultReasoningLevel (Model Router tab) so the
+  // reasoning selector can display each model's effective default.
   useEffect(() => {
     let cancelled = false;
-    apiRequest<{ providers: Array<{ id: string }> }>('/api/providers/configured')
+    apiRequest<{
+      providers: Array<{ id: string }>;
+      defaultReasoningLevel?: string;
+    }>('/api/providers/configured')
       .then(async (data) => {
         const providers = data?.providers ?? [];
+        if (!cancelled) setGlobalDefaultReasoningLevel(data?.defaultReasoningLevel ?? null);
         const groups = await Promise.all(
           providers.map(async (p) => {
             try {
-              const res = await apiRequest<{ models: Array<{ id: string; name?: string }> }>(
-                `/api/providers/${p.id}/models`,
-              );
+              const res = await apiRequest<{
+                models: Array<{
+                  id: string;
+                  name?: string;
+                  reasoning?: boolean;
+                  reasoningLevel?: string;
+                }>;
+              }>(`/api/providers/${p.id}/models`);
               return {
                 provider: p.id,
-                models: (res?.models ?? []).map((m) => ({ id: m.id, name: m.name || m.id })),
+                models: (res?.models ?? []).map((m) => ({
+                  id: m.id,
+                  name: m.name || m.id,
+                  reasoning: m.reasoning,
+                  reasoningLevel: m.reasoningLevel,
+                })),
               };
             } catch {
               return { provider: p.id, models: [] };
@@ -272,6 +297,70 @@ export default function ChatInput({
   /** Model shown/used: explicit pick, else the selected agent's primary. */
   const effectiveModel = selectedModel ?? effectiveAgent?.model ?? null;
 
+  // ── Reasoning level (per-turn override + effective default) ──
+  const [globalDefaultReasoningLevel, setGlobalDefaultReasoningLevel] = useState<string | null>(
+    null,
+  );
+  /** Catalog entry of the model actually in use (for capability gating and the
+   *  per-model configured reasoningLevel). */
+  const effectiveModelEntry = useMemo(() => {
+    if (!effectiveModel) return null;
+    const idx = effectiveModel.indexOf('/');
+    if (idx === -1) return null;
+    const provider = effectiveModel.slice(0, idx);
+    const modelId = effectiveModel.slice(idx + 1);
+    return (
+      modelGroups.find((g) => g.provider === provider)?.models.find((m) => m.id === modelId) ??
+      null
+    );
+  }, [effectiveModel, modelGroups]);
+  /** Server precedence: per-model config (customProviders) > global
+   *  defaultReasoningLevel (Model Router tab) > 'off'. */
+  const modelDefaultReasoningLevel =
+    effectiveModelEntry?.reasoningLevel ?? globalDefaultReasoningLevel ?? 'off';
+  /** Level in effect this turn: user override, else the model's default. */
+  const effectiveReasoningLevel = selectedReasoningLevel ?? modelDefaultReasoningLevel;
+  /** Hide the selector entirely for models the catalog marks non-reasoning
+   *  (unknown entries stay visible — the catalog may simply not list them). */
+  const reasoningAvailable = effectiveModelEntry ? effectiveModelEntry.reasoning !== false : true;
+  // A level picked for a reasoning model must not leak into a non-reasoning one.
+  useEffect(() => {
+    if (selectedReasoningLevel && !reasoningAvailable) setSelectedReasoningLevel(null);
+  }, [reasoningAvailable, selectedReasoningLevel]);
+  /** "深度思考" switch: on = any non-off level is in effect. */
+  const depthEnabled = effectiveReasoningLevel !== 'off';
+  /** "默认强度" switch: on = the selection still matches the model's default
+   *  (no user override). Turning it on restores that default in one click. */
+  const followingDefault = selectedReasoningLevel === null;
+  const NEUTRAL_LEVEL = 'high'; // used when deep-thinking is switched on with an 'off' default
+  const handleToggleDepth = useCallback(
+    (on: boolean) => {
+      if (!on) {
+        setSelectedReasoningLevel('off');
+        return;
+      }
+      // Switching deep thinking on: restore the model's default level when it
+      // is non-off, otherwise fall back to a neutral level for the user to
+      // refine (the 默认强度 switch shows OFF — this is now an override).
+      setSelectedReasoningLevel(modelDefaultReasoningLevel !== 'off' ? null : NEUTRAL_LEVEL);
+    },
+    [modelDefaultReasoningLevel],
+  );
+  const handleToggleDefault = useCallback((on: boolean) => {
+    // OFF→ON: one-click restore to the model's default. ON→OFF is a no-op —
+    // deviating happens through the 深度思考 switch or the level chips.
+    if (on) setSelectedReasoningLevel(null);
+  }, []);
+  const handleSelectReasoningLevel = useCallback(
+    (level: string) => {
+      // Choosing the model's own default clears the override — the 默认强度
+      // switch then flips back ON and the next turns follow the configured
+      // chain again.
+      setSelectedReasoningLevel(level === modelDefaultReasoningLevel ? null : level);
+    },
+    [modelDefaultReasoningLevel],
+  );
+
   // Switching agent resets the model to that agent's primary (unless the user
   // had explicitly picked a model — then keep it; the backend still honors it).
   const handleSelectAgent = useCallback(
@@ -286,7 +375,9 @@ export default function ChatInput({
 
   const handleSelectModel = useCallback((ref: string) => {
     setSelectedModel(ref);
-    setModelMenuOpen(false);
+    // Deliberately keep the menu open: the reasoning-level section below the
+    // model list is part of the same selection flow (the model's effective
+    // default level is highlighted there), and an outside click closes both.
   }, []);
 
   // Model menu keyword search: filters the provider/model list while typing
@@ -681,6 +772,7 @@ export default function ChatInput({
           clientMsgId: userMessage.id,
           agentId: effectiveAgentId ?? undefined,
           model: effectiveModel ?? undefined,
+          reasoningLevel: selectedReasoningLevel ?? undefined,
         },
         (event: SSEEvent) => {
           devLog('[ChatInput] SSE event', { type: event.type, ts: Date.now() - streamStartTime });
@@ -1147,6 +1239,7 @@ export default function ChatInput({
       buildFileRefs,
       effectiveAgentId,
       effectiveModel,
+      selectedReasoningLevel,
     ],
   );
 
@@ -1876,10 +1969,18 @@ export default function ChatInput({
                 <span className="min-w-0 truncate">
                   {effectiveModel ?? t('chat.input.modelDefault')}
                 </span>
+                {/* Reasoning-level override badge — only shown when the user
+                  deviates from the model's effective default (which would just
+                  duplicate the model name otherwise). */}
+                {selectedReasoningLevel && reasoningAvailable && (
+                  <span className="shrink-0 rounded-full bg-blue-100 px-1.5 py-px text-[10px] font-semibold text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">
+                    {selectedReasoningLevel}
+                  </span>
+                )}
                 <ChevronDown size={11} className="shrink-0 opacity-60" />
               </button>
               {modelMenuOpen && (
-                <div className="absolute bottom-full left-0 z-30 mb-2 max-h-72 w-64 overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
+                <div className="absolute bottom-full left-0 z-30 mb-2 max-h-[min(24rem,70vh)] w-64 overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
                   {/* Keyword search — filters the model list as you type.
                     The + button on the right opens settings on the providers
                     sub-tab for adding providers/models. */}
@@ -1952,6 +2053,66 @@ export default function ChatInput({
                       </div>
                     ))}
                   </div>
+                  {/* Deep thinking — inline at the bottom of the same menu
+                    instead of a separate selector/bottom-bar button (the mobile
+                    input bar has no room for one). The 深度思考 switch off =
+                    'off' level; on = pick one of the 6 level chips (3 per row).
+                    The 默认强度 switch is ON while the selection equals the
+                    model's effective default (per-model config > Model Router
+                    tab's defaultReasoningLevel > 'off') and restores it in one
+                    click. Hidden for models the catalog marks non-reasoning. */}
+                  {reasoningAvailable && (
+                    <div className="border-t border-neutral-200 dark:border-neutral-700">
+                      <div className="flex items-center justify-between px-2.5 pb-1 pt-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] font-medium text-neutral-600 dark:text-neutral-300">
+                            {t('chat.input.reasoningLevel')}
+                          </span>
+                          <Toggle
+                            checked={depthEnabled}
+                            onChange={handleToggleDepth}
+                            ariaLabel={t('chat.input.reasoningLevel')}
+                            // Same colors as a selected level chip, with the
+                            // tinted background one step deeper for contrast.
+                            checkedClassName="border-blue-500 bg-blue-100 dark:border-blue-400 dark:bg-blue-500/25"
+                          />
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] text-neutral-400 dark:text-neutral-500">
+                            {t('chat.input.reasoningLevelDefault')}
+                          </span>
+                          <Toggle
+                            checked={followingDefault}
+                            onChange={handleToggleDefault}
+                            ariaLabel={t('chat.input.reasoningLevelDefault')}
+                            checkedClassName="border-blue-500 bg-blue-100 dark:border-blue-400 dark:bg-blue-500/25"
+                          />
+                        </div>
+                      </div>
+                      {depthEnabled && (
+                        <div className="grid grid-cols-3 gap-1 px-2.5 pb-1.5">
+                          {REASONING_LEVELS.filter((level) => level !== 'off').map((level) => (
+                            <button
+                              key={level}
+                              type="button"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => handleSelectReasoningLevel(level)}
+                              className={`flex items-center justify-center gap-1 rounded-md border px-1 py-1 text-[11px] transition-colors ${
+                                level === effectiveReasoningLevel
+                                  ? 'border-blue-500 bg-blue-50 font-semibold text-blue-700 dark:border-blue-400 dark:bg-blue-500/15 dark:text-blue-300'
+                                  : 'border-neutral-200 text-neutral-700 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800'
+                              }`}
+                            >
+                              <span className="min-w-0 truncate">{level}</span>
+                              {level === effectiveReasoningLevel && (
+                                <Check size={11} className="shrink-0" />
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

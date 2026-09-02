@@ -54,7 +54,9 @@
       "modelSearch": "Search models…",
       "modelSearchNoMatch": "No matching model",
       "manageAgents": "Manage agents",
-      "manageProviders": "Manage models & providers"
+      "manageProviders": "Manage models & providers",
+      "reasoningLevel": "Deep thinking",
+      "reasoningLevelDefault": "Default"
     },
     "thinking": "Thinking",
     "streamRetryRetry": "Model {{failed}} failed temporarily, retrying (attempt {{attempt}}/{{max}})…",

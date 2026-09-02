@@ -159,6 +159,10 @@ export interface AgentCreateOptions {
   agentId?: string;
   systemPrompt?: string;
   model?: any;
+  /** Per-turn thinking/reasoning level override (WebUI chat input's reasoning
+   *  selector). Valid values: off|minimal|low|medium|high|xhigh|max. Wins over
+   *  the per-model config and the global defaultReasoningLevel. */
+  reasoningLevel?: string;
   tools?: any[];
   /** Extra tools to append to the agent's tool list (used by channels for send_media). */
   extraTools?: any[];
@@ -431,6 +435,7 @@ export function createAgentFactory(
         agentConfig,
         servicesDefaultModel: defaultModel,
         config: configRef.current,
+        reasoningLevelOverride: options?.reasoningLevel,
       });
       const {
         model,

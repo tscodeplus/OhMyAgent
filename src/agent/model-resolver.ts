@@ -108,6 +108,9 @@ export function resolveModel(options: {
   agentConfig?: ResolvedAgentConfig;
   servicesDefaultModel?: ModelInstance;
   config: AppConfig;
+  /** Per-turn thinking-level override (WebUI chat input's reasoning selector).
+   *  Wins over the per-model config and the global defaultReasoningLevel. */
+  reasoningLevelOverride?: string;
 }): ResolvedModel {
   const { explicitModel, agentConfig, servicesDefaultModel, config } = options;
 
@@ -136,11 +139,18 @@ export function resolveModel(options: {
   const modelId = modelProp<string>(model, 'id');
   const cacheProfile = isDeepSeekLikeModel(model) ? ('deepseek' as const) : ('default' as const);
 
-  // 4. Look up custom model config for reasoning / thinking level
+  // 4. Look up custom model config for reasoning / thinking level.
+  //    Precedence: per-turn override (WebUI chat input's reasoning selector)
+  //    > per-model config (customProviders models[].reasoningLevel) > the
+  //    global defaultReasoningLevel (Model Router tab) > 'off'.
   const customModelCfg = config.customProviders
     ?.find((p) => p.provider === modelProvider)
     ?.models.find((m) => m.id === modelId);
-  const thinkingLevel = customModelCfg?.reasoningLevel ?? config.defaultReasoningLevel ?? 'off';
+  const thinkingLevel =
+    options.reasoningLevelOverride ??
+    customModelCfg?.reasoningLevel ??
+    config.defaultReasoningLevel ??
+    'off';
 
   // 5. Resolve fallback model chain.
   // A fallback ref that fails to resolve (e.g. a model listed in fallback_models
