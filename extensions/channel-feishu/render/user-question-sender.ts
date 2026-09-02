@@ -21,12 +21,13 @@ import type {
   UserQuestionSender,
   UserQuestionOption,
 } from '../../../src/agent/user-question-port.js';
-import { buildCard20, button20, selectStatic20 } from './card20.js';
+import { buildCard20, button20 } from './card20.js';
 
 /**
- * Buttons display a single line of text — labels longer than this wrap or
- * truncate. Above the threshold the card switches to a select_static
- * dropdown, whose expanded list shows each option's full text.
+ * Button text is a single line — labels longer than this truncate. When any
+ * option exceeds the threshold, a numbered markdown list (which wraps
+ * naturally) is rendered above the buttons so the full text stays readable;
+ * list numbers map 1:1 to the button order.
  */
 const SHORT_OPTION_LABEL_MAX = 10;
 
@@ -69,24 +70,23 @@ export function createFeishuUserQuestionSender(deps: FeishuUserQuestionDeps): Us
           answer: label,
         });
 
-        if (options.every((opt) => opt.label.length <= SHORT_OPTION_LABEL_MAX)) {
-          // Short labels: one full-width button per row (2.0 stacks buttons
-          // placed directly in body.elements vertically) — avoids the cramped
-          // 2-per-row grid that forced long text to wrap.
-          elements.push(
-            ...options.map((opt) => button20(opt.label, 'primary', answerValue(opt.label))),
-          );
-        } else {
-          // Long labels: single-select dropdown — the expanded option list
-          // always shows the full text, unaffected by card width.
-          elements.push(
-            selectStatic20(
-              '请选择你的回答',
-              options.map((opt) => ({ label: opt.label, value: answerValue(opt.label) })),
-              { action: 'answer_question', requestId },
-            ),
-          );
+        // Buttons cannot wrap — their text truncates on a single line. For
+        // long labels, render the full option text as a numbered markdown
+        // list (markdown wraps) directly above the buttons; the list order
+        // matches the button order.
+        if (options.some((opt) => opt.label.length > SHORT_OPTION_LABEL_MAX)) {
+          elements.push({
+            tag: 'markdown',
+            content: options.map((opt, i) => `${i + 1}. ${opt.label}`).join('\n'),
+          });
         }
+
+        // One full-width button per row (2.0 stacks buttons placed directly
+        // in body.elements vertically) — avoids the cramped 2-per-row grid
+        // that forced text wrapping.
+        elements.push(
+          ...options.map((opt) => button20(opt.label, 'primary', answerValue(opt.label))),
+        );
       } else {
         // No options — hint for text reply
         elements.push({

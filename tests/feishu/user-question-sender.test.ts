@@ -51,7 +51,7 @@ describe('FeishuUserQuestionSender card layout', () => {
     });
   });
 
-  it('renders long options as a select_static dropdown with full-text options', async () => {
+  it('renders long options as a numbered markdown list above the buttons', async () => {
     const { sender, sent } = makeSender();
     const longLabel = '使用密钥认证并启用自动重试机制';
     await sender.sendQuestion('chat-1', 'req-2', '选择认证方式', [
@@ -60,20 +60,18 @@ describe('FeishuUserQuestionSender card layout', () => {
     ]);
 
     const elements = bodyElements(sent[0]);
-    const select = elements.find((el) => el.tag === 'select_static') as
-      | Record<string, unknown>
-      | undefined;
-    expect(select).toBeDefined();
+    // Full text preserved in a wrapping markdown list (numbered, matches
+    // button order) — buttons themselves cannot wrap.
+    const markdown = elements.find(
+      (el) => el.tag === 'markdown' && String(el.content).startsWith('1. '),
+    ) as Record<string, unknown> | undefined;
+    expect(markdown).toBeDefined();
+    expect(String(markdown!.content)).toBe(`1. ${longLabel}\n2. 匿名访问`);
 
-    const options = select!.options as { text: { content: string }; value: string }[];
-    expect(options).toHaveLength(2);
-    // Full text preserved in option labels (nothing truncated)
-    expect(options[0].text.content).toBe(longLabel);
-    // Option value carries the full callback payload as JSON
-    expect(JSON.parse(options[0].value)).toMatchObject({
-      action: 'answer_question',
-      requestId: 'req-2',
-      answer: longLabel,
-    });
+    // One full-width button per row, no 2-per-row grid, no dropdown
+    const buttons = elements.filter((el) => el.tag === 'button');
+    expect(buttons).toHaveLength(2);
+    expect(elements.some((el) => el.tag === 'column_set')).toBe(false);
+    expect(elements.some((el) => el.tag === 'select_static')).toBe(false);
   });
 });

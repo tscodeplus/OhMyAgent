@@ -23,6 +23,16 @@ export interface FeishuWSClientOptions {
   logger?: any;
 }
 
+/**
+ * The lark SDK's LoggerProxy forwards its varargs as ONE array argument
+ * (this.logger.warn(msg) where msg = [...args]), which is why unfiltered
+ * output shows bracketed arrays like [ 'no ... handle' ]. Flatten before
+ * passing to the host logger.
+ */
+function flattenSdkArgs(args: unknown[]): unknown[] {
+  return args.length === 1 && Array.isArray(args[0]) ? args[0] : args;
+}
+
 // ─── Client ───
 
 export class FeishuWSClient {
@@ -56,10 +66,14 @@ export class FeishuWSClient {
     // warnings (verification failures, etc.) visible.
     this.eventDispatcher = new EventDispatcher({
       logger: {
-        debug: (...args: unknown[]) => this.logger.debug(...args),
-        info: (...args: unknown[]) => this.logger.info(...args),
+        // The SDK's LoggerProxy packs its varargs into a single array
+        // argument: this.logger.warn(['no <type> handle']) — flatten before
+        // forwarding so the host logger prints readable lines.
+        debug: (...args: unknown[]) => this.logger.debug(...flattenSdkArgs(args)),
+        info: (...args: unknown[]) => this.logger.info(...flattenSdkArgs(args)),
         warn: (...args: unknown[]) => {
-          const msg = args[0];
+          const flat = flattenSdkArgs(args);
+          const msg = flat[0];
           if (typeof msg === 'string' && /^no \S+ handle$/.test(msg)) {
             this.logger.debug(
               { event: msg },
@@ -67,9 +81,9 @@ export class FeishuWSClient {
             );
             return;
           }
-          this.logger.warn(...args);
+          this.logger.warn(...flat);
         },
-        error: (...args: unknown[]) => this.logger.error(...args),
+        error: (...args: unknown[]) => this.logger.error(...flattenSdkArgs(args)),
       },
     } as any);
 

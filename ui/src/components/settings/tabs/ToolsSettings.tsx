@@ -83,8 +83,8 @@ export default function ToolsSettings() {
             onChange={(e) => saveField('tools.shellExecMode', e.target.value)}
             options={[
               { value: 'balanced', label: t('settings.tools.opt_balanced') },
-              { value: 'safe', label: t('settings.policy.mode') + ': safe' },
-              { value: 'trusted', label: 'trusted' },
+              { value: 'safe', label: t('settings.tools.opt_safe') },
+              { value: 'trusted', label: t('settings.tools.opt_trusted') },
             ]}
           />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
