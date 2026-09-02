@@ -8,6 +8,9 @@
 import { readFile, unlink, writeFile, mkdir } from 'fs/promises';
 import path from 'path';
 import os from 'os';
+import { isDeniedByPattern } from '../../src/shared/glob.js';
+import { allowedRootsWithFallback } from '../../src/shared/path-utils.js';
+import { dataPath } from '../../src/shared/agent-home.js';
 import { execSync } from 'child_process';
 import { Type } from 'typebox';
 import type { AgentTool } from '../../src/pi-mono/agent/types.js';
@@ -15,13 +18,6 @@ import { i18n } from '../../src/i18n/index.js';
 import { isImageExtension, isVideoExtension, detectFileType, getVideoDuration } from './feishu-media.js';
 import type { FeishuClient } from './feishu-client.js';
 
-
-function matchGlob(filePath: string, pattern: string): boolean {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '.*');
-  return new RegExp(`^${escaped}$`).test(filePath);
-}
 
 export interface FeishuMediaToolOptions {
   feishuClient: FeishuClient;
@@ -42,15 +38,7 @@ export interface FeishuMediaToolOptions {
 export function createFeishuMediaTool(options: FeishuMediaToolOptions) {
   const { feishuClient, chatId } = options;
 
-  const allowedRoots = [process.cwd()];
-  if (options.allowedRoots && options.allowedRoots.length > 0) {
-    for (const r of options.allowedRoots) {
-      const resolved = path.resolve(r);
-      if (!allowedRoots.includes(resolved)) {
-        allowedRoots.push(resolved);
-      }
-    }
-  }
+  const allowedRoots = allowedRootsWithFallback(options.allowedRoots);
   const deniedPatterns = options.deniedPatterns ?? [];
 
   return {
@@ -75,7 +63,7 @@ export function createFeishuMediaTool(options: FeishuMediaToolOptions) {
 
         // Check denied patterns (.env, *.pem, etc.)
         for (const pattern of deniedPatterns) {
-          if (matchGlob(filePath, pattern) || matchGlob(path.basename(filePath), pattern)) {
+          if (isDeniedByPattern(filePath, path.basename(filePath), pattern)) {
             return { content: [{ type: 'text' as const, text: i18n.t('tools-media:error.accessDenied') }] };
           }
         }
@@ -226,14 +214,15 @@ export interface FeishuDownloadToolOptions {
 export function createFeishuDownloadTool(options: FeishuDownloadToolOptions) {
   const { feishuClient, messageId } = options;
 
-  const downloadDir = path.resolve(process.cwd(), 'data', 'downloads');
+  const downloadDir = dataPath('downloads');
 
   // Ensure download directory exists
   const ensureDir = async () => {
     try { await mkdir(downloadDir, { recursive: true }); } catch { /* exists */ }
   };
   // Fire and forget — directory will be ready by the time the tool is called
-  ensureDir();
+  // (ensureDir catches its own failures, so nothing can reject here).
+  void ensureDir();
 
   return {
     name: 'download_feishu_file',

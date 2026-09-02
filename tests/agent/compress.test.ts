@@ -5,6 +5,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   estimateTokens,
+  estimateStaticContextTokens,
   findCutPoint,
   compressContext,
   DEFAULT_SETTINGS,
@@ -116,6 +117,26 @@ describe('estimateTokens', () => {
     const msg = { role: 'user' as const, content: null as any };
     expect(() => estimateTokens([msg])).not.toThrow();
     expect(estimateTokens([msg])).toBe(0);
+  });
+});
+
+describe('estimateStaticContextTokens', () => {
+  it('prices the system prompt and each tool schema', () => {
+    const empty = estimateStaticContextTokens(undefined, undefined);
+    expect(empty).toBe(0);
+
+    const promptOnly = estimateStaticContextTokens('You are a helpful agent.', []);
+    const withTool = estimateStaticContextTokens('You are a helpful agent.', [
+      { name: 'shell', description: 'Run a command', parameters: { type: 'object' } },
+    ]);
+    expect(promptOnly).toBeGreaterThan(0);
+    expect(withTool).toBeGreaterThan(promptOnly);
+  });
+
+  it('weights non-ASCII prompt text like the transcript estimator', () => {
+    const ascii = estimateStaticContextTokens('abcdefgh', []);
+    const cjk = estimateStaticContextTokens('你好你好你好你好', []);
+    expect(cjk).toBe(ascii * 2);
   });
 });
 

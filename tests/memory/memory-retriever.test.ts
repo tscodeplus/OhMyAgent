@@ -50,6 +50,9 @@ function createMockMemoryRepository(memories: Memory[] = []) {
   const byId = new Map(memories.map(m => [m.id, m]));
   return {
     findById: vi.fn((id: string) => byId.get(id) ?? undefined),
+    findByIds: vi.fn((ids: string[]) => ids
+      .map(id => byId.get(id))
+      .filter((m): m is Memory => m !== undefined)),
     searchByContent: vi.fn((_query: string, _scope?: string, _scopeKey?: string) => {
       return memories;
     }),
@@ -152,6 +155,121 @@ describe('MemoryRetriever', () => {
 
       const results = await retriever.retrieve({ query: 'nonexistent' });
       expect(results).toHaveLength(0);
+    });
+
+    it('resolves hits with batch lookups instead of one findById per hit', async () => {
+      const memories = Array.from({ length: 3 }, (_, i) =>
+        createMockMemory({ id: `mem-batch-${i}`, content: `Batched ${i}` })
+      );
+      const memoryRepo = createMockMemoryRepository(memories);
+      const embeddingRepo = createMockEmbeddingRepository(
+        memories.map((m, i) => ({ memory_id: m.id, score: 0.9 - i * 0.1 })),
+      );
+      const retriever = new MemoryRetriever({
+        memoryRepository: memoryRepo as any,
+        embeddingRepository: embeddingRepo as any,
+        embeddingClient: createMockEmbeddingClient() as any,
+        embeddingCacheRepo: createMockEmbeddingCacheRepo(),
+        db: createMockDb(),
+      });
+
+      const results = await retriever.retrieve({ query: 'test', topK: 3 });
+      expect(results).toHaveLength(3);
+      expect(memoryRepo.findByIds).toHaveBeenCalled();
+      expect(memoryRepo.findById).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('entity-graph expansion', () => {
+    function createLinkRepo(sourceId: string, neighbourId: string, confidence = 0.9) {
+      return {
+        findEntitiesByMemoryIds: vi.fn(() => [
+          { target_entity: 'Alice', source_memory_id: sourceId, confidence: 0.9 },
+        ]),
+        findByEntities: vi.fn(() => new Map([[
+          'Alice',
+          [
+            { source_memory_id: sourceId, confidence: 1.0 },
+            { source_memory_id: neighbourId, confidence },
+          ],
+        ]])),
+      };
+    }
+
+    function createExpandingRetriever(
+      memories: Memory[],
+      hits: Array<{ memory_id: string; score: number }>,
+      linkRepo: unknown,
+    ) {
+      const memoryRepo = createMockMemoryRepository(memories);
+      // Keep the LIKE fallback out of it: otherwise it feeds every memory into
+      // the merged list and the assertions never reach the graph expansion.
+      memoryRepo.searchByContent.mockReturnValue([]);
+      return new MemoryRetriever({
+        memoryRepository: memoryRepo as any,
+        embeddingRepository: createMockEmbeddingRepository(hits) as any,
+        embeddingClient: createMockEmbeddingClient() as any,
+        embeddingCacheRepo: createMockEmbeddingCacheRepo(),
+        memoryLinkRepo: linkRepo as any,
+        db: createMockDb(),
+      });
+    }
+
+    it('ranks derived neighbours inside topK instead of appending past it', async () => {
+      const a = createMockMemory({ id: 'mem-a', content: 'Alice orders latte every morning' });
+      const b = createMockMemory({ id: 'mem-b', content: 'Alice prefers espresso in the afternoon' });
+      const neighbour = createMockMemory({ id: 'mem-n', content: 'Alice lives in Rotterdam' });
+      const retriever = createExpandingRetriever(
+        [a, b, neighbour],
+        [{ memory_id: 'mem-a', score: 0.9 }, { memory_id: 'mem-b', score: 0.8 }],
+        createLinkRepo('mem-a', 'mem-n'),
+      );
+
+      const page = await retriever.retrieve({ query: 'beverage', topK: 2 });
+      expect(page.map(r => r.id)).toEqual(['mem-a', 'mem-b']);
+
+      const wider = await retriever.retrieve({ query: 'beverage', topK: 3 });
+      expect(wider.map(r => r.id)).toEqual(['mem-a', 'mem-b', 'mem-n']);
+    });
+
+    it('never lets a derived neighbour outrank the only real hit', async () => {
+      const a = createMockMemory({ id: 'mem-solo', content: 'Alice orders latte every morning' });
+      const neighbour = createMockMemory({ id: 'mem-n', content: 'Alice lives in Rotterdam' });
+      const retriever = createExpandingRetriever(
+        [a, neighbour],
+        [{ memory_id: 'mem-solo', score: 0.9 }],
+        createLinkRepo('mem-solo', 'mem-n'),
+      );
+
+      const page = await retriever.retrieve({ query: 'beverage', topK: 1 });
+      expect(page.map(r => r.id)).toEqual(['mem-solo']);
+    });
+  });
+
+  describe('metadata expansion', () => {
+    it('surfaces child memories below the matched parent', async () => {
+      const parent = createMockMemory({
+        id: 'mem-parent',
+        content: 'Alice orders latte every morning',
+        metadata: JSON.stringify({ childMemoryIds: ['mem-child'] }),
+      });
+      const child = createMockMemory({ id: 'mem-child', content: 'Oat milk, extra shot' });
+      const memoryRepo = createMockMemoryRepository([parent, child]);
+      memoryRepo.searchByContent.mockReturnValue([]);
+      const retriever = new MemoryRetriever({
+        memoryRepository: memoryRepo as any,
+        embeddingRepository: createMockEmbeddingRepository([{ memory_id: 'mem-parent', score: 0.9 }]) as any,
+        embeddingClient: createMockEmbeddingClient() as any,
+        embeddingCacheRepo: createMockEmbeddingCacheRepo(),
+        db: createMockDb(),
+      });
+
+      const top = await retriever.retrieve({ query: 'beverage', topK: 1 });
+      expect(top.map(r => r.id)).toEqual(['mem-parent']);
+
+      const both = await retriever.retrieve({ query: 'beverage', topK: 2 });
+      expect(both.map(r => r.id)).toEqual(['mem-parent', 'mem-child']);
+      expect(both[1].score).toBeLessThan(both[0].score);
     });
   });
 

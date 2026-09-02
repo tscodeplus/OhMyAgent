@@ -65,15 +65,23 @@ export async function recoverFromOverflow(opts: OverflowRecoveryOptions): Promis
       logger,
     });
 
-    if (result.summaryMessage && result.compressedIndex > 0) {
-      const recentMessages = agent.state.messages.slice(result.compressedIndex);
-      agent.state.messages = [result.summaryMessage, ...recentMessages];
-      logger.info({
-        sessionId,
-        compressedCount: result.compressedIndex,
-        keptCount: recentMessages.length,
-      }, 'Context compacted after overflow, retrying');
+    if (!result.summaryMessage || result.compressedIndex <= 0) {
+      // Nothing was dropped, so a retry would resend the exact request the
+      // provider already rejected.
+      logger.info(
+        { sessionId, compressedIndex: result.compressedIndex },
+        'Compaction produced no cut point, skipping the doomed retry',
+      );
+      return false;
     }
+
+    const recentMessages = agent.state.messages.slice(result.compressedIndex);
+    agent.state.messages = [result.summaryMessage, ...recentMessages];
+    logger.info({
+      sessionId,
+      compressedCount: result.compressedIndex,
+      keptCount: recentMessages.length,
+    }, 'Context compacted after overflow, retrying');
   } catch (err) {
     logger.info({ sessionId, err }, 'Overflow compaction failed, continuing without retry');
     return false;

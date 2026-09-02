@@ -334,7 +334,24 @@ export class QQGateway {
 
     switch (payload.op) {
       case 10: // Hello
-        this.handleHello(payload);
+        // handleHello() awaits getAccessToken(), which throws on API errors —
+        // an unawaited async call here would become an unhandled rejection and
+        // take down the whole gateway (src/index.ts exits on one).
+        this.handleHello(payload).catch((err: unknown) => {
+          this.logger.error({ err }, 'QQ Hello handling failed — dropping connection');
+          if (this.handshakeReject) {
+            this.handshakeReject(err instanceof Error ? err : new Error(String(err)));
+            this.cleanupHandshake();
+          }
+          this.clearHeartbeat();
+          // Close the socket only (NOT close()): the 'close' handler schedules
+          // the reconnect, and an intentional close would cancel it.
+          try {
+            this.ws?.close(1000, 'Hello handling failed');
+          } catch {
+            /* best-effort */
+          }
+        });
         break;
 
       case 0: // Dispatch (event)
@@ -408,8 +425,17 @@ export class QQGateway {
         this.logger.error('QQ Identify / Resume timed out');
         this.handshakeReject(new Error('QQ handshake timed out'));
         this.cleanupHandshake();
-        // Close so we can reconnect
-        this.close().catch(() => {});
+        // Close the SOCKET only. The public close() sets intentionalClose and
+        // strips the socket listeners, which cancels the very reconnect we
+        // need: the 'close' handler is what calls scheduleReconnect(), and that
+        // method early-returns while intentionalClose is true — so a handshake
+        // timeout would otherwise leave the gateway permanently disconnected.
+        this.clearHeartbeat();
+        try {
+          this.ws?.close(1000, 'Handshake timeout');
+        } catch {
+          /* best-effort */
+        }
       }
     }, IDENTIFY_TIMEOUT_MS);
   }

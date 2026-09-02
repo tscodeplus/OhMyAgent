@@ -151,8 +151,15 @@ export class CronService {
     this.scheduler.start();
   }
 
-  stop(): void {
+  /**
+   * Stop the scheduler and drain any queued persistence so the final job
+   * state is on disk before the process exits.
+   */
+  async stop(): Promise<void> {
     this.scheduler.stop();
+    // The write queue never rejects (see CronStore.schedulePersist), but a
+    // catch here keeps shutdown out of the unhandled-rejection path either way.
+    await this.store.flush().catch(() => {});
   }
 
   /** Trigger an immediate tick (for manual run or testing). */
@@ -222,11 +229,34 @@ export class CronService {
 
   /**
    * Immediately run a single job regardless of its schedule.
+   *
+   * The scheduler only picks up jobs in state `idle`, so a manual run has to
+   * mark the job `running` for its duration — otherwise a due job triggered by
+   * hand would also be fired by the next scheduled tick, running it twice
+   * concurrently.
    */
   async runOnce(id: string): Promise<JobRunResult> {
     const job = this.store.get(id);
     if (!job) throw new Error(`Job not found: ${id}`);
-    return this.runner.run(job);
+    if (job.state === 'running') {
+      throw new Error(`Job is already running: ${id}`);
+    }
+
+    const hadNextRunAt = job.nextRunAt;
+    const hadState = job.state;
+    this.store.update(id, { state: 'running', updatedAt: Date.now() });
+    try {
+      return await this.runner.run(job);
+    } finally {
+      // Restore the pre-run state/nextRunAt. The scheduled path owns advancing
+      // nextRunAt and marking oneshots completed — a manual run must not
+      // silently reschedule the job or un-pause it.
+      this.store.update(id, {
+        state: hadState,
+        nextRunAt: hadNextRunAt,
+        updatedAt: Date.now(),
+      });
+    }
   }
 
   /** List jobs scoped to a specific channel + chatId. */

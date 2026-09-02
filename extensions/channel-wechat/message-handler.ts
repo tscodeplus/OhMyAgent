@@ -30,6 +30,7 @@ import { createWechatMediaTool, sendWechatMediaBuffer } from './wechat-media-too
 import { createWechatApprovalSender } from './wechat-approval-sender.js';
 import { createWechatUserQuestionSender } from './user-question-sender.js';
 import { harnessApprovalRegistry } from '../../src/harness/harness-approval-registry.js';
+import { isSenderAllowed } from '../../src/shared/access-control.js';
 import type { UserQuestionSender } from '../../src/agent/user-question-port.js';
 import { resolveWechatErrorNotice } from './wechat-error.js';
 import { i18n } from '../../src/i18n/index.js';
@@ -529,8 +530,7 @@ async function executeAgent(
 
 function isAllowed(ctx: ReturnType<typeof buildMessageContext>, config: WechatConfig): boolean {
   if (!ctx) return false;
-  if (config.allowedUsers.length === 0) return true;
-  return config.allowedUsers.includes(ctx.message.senderId);
+  return isSenderAllowed(config.allowedUsers, ctx.message.senderId);
 }
 
 /**

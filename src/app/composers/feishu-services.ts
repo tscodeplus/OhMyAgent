@@ -11,6 +11,7 @@ import { fixFeishuMarkdown } from '../../../extensions/channel-feishu/render/mar
 import { buildSimpleMarkdownCard } from '../../../extensions/channel-feishu/render/cardkit-builder.js';
 import { loadConfig, resetConfig } from '../config.js';
 import { configManager } from '../config-manager.js';
+import { isSenderAllowed } from '../../shared/access-control.js';
 import type { AppConfig } from '../types.js';
 import type { CommandDeps } from '../../commands/command-handler.js';
 import type { AgentService } from '../../agent/agent-service.js';
@@ -58,7 +59,7 @@ export function createChannelIsAdmin(config: AppConfig) {
       }
     })();
     if (allowedUsers.length > 0) {
-      return !!operator.senderId && allowedUsers.includes(operator.senderId);
+      return isSenderAllowed(allowedUsers, operator.senderId);
     }
     switch (channel) {
       case 'telegram':

@@ -27,6 +27,9 @@ export class EventBridge {
   private agent?: Agent;
   /** Called before onComplete/onError/onAborted to persist state. */
   private preCompleteCallback?: () => Promise<void>;
+  /** Whether the current run has already dispatched its terminal signal.
+   *  Re-armed on agent_start — see dispatchTerminal. */
+  private terminalDispatched = false;
   private logger?: Logger;
   /**
    * Skill name to dispatch after the next agent_start event.
@@ -70,8 +73,15 @@ export class EventBridge {
       const closeIdx = fullDelta.indexOf('</think>', i);
 
       if (this.thinkDepth === 0 && openIdx === -1) {
-        result += fullDelta.slice(i);
-        break;
+        if (closeIdx === -1) {
+          result += fullDelta.slice(i);
+          break;
+        }
+        // No opener left in this slice but a closing tag: a stray. Emit the
+        // text before it, drop the tag itself, and keep scanning.
+        result += fullDelta.slice(i, closeIdx);
+        i = closeIdx + 8;
+        continue;
       }
 
       if (this.thinkDepth > 0 && closeIdx === -1) {
@@ -94,12 +104,31 @@ export class EventBridge {
         continue;
       }
 
-      if (openIdx !== -1) {
+      if (this.thinkDepth > 0 && openIdx !== -1) {
         // openIdx < closeIdx and we're inside a think block → nested open
         this.thinkBuffer += fullDelta.slice(i, openIdx + 7);
         this.thinkDepth++;
         i = openIdx + 7;
+        continue;
       }
+
+      // depth === 0 with a close tag ahead of any open tag: a stray `</think>`
+      // (model-emitted, or left over from a provider that already separated its
+      // reasoning). The old code fell through to the nested-open branch here and
+      // bumped depth to 1, which swallowed the ENTIRE remainder of the answer
+      // into thinkBuffer — a card truncated mid-sentence. Strip the stray tag
+      // and keep passing text through.
+      if (this.thinkDepth === 0 && closeIdx !== -1) {
+        result += fullDelta.slice(i, closeIdx);
+        this.thinkPartial = ''; // the stray tag is consumed here, never shown
+        i = closeIdx + 8;
+        continue;
+      }
+
+      // Unreachable for well-formed input; pass the remainder through rather
+      // than risk an infinite loop.
+      result += fullDelta.slice(i);
+      break;
     }
 
     // Buffer the tail in case a <think> / </think> tag is split across deltas
@@ -243,6 +272,20 @@ export class EventBridge {
   }
 
   /**
+   * Reset think-block filter state at turn boundaries.
+   *
+   * Without this, a turn that ended while thinkDepth > 0 (aborted mid-block,
+   * or an unbalanced tag from the model) would swallow the whole next turn's
+   * text into thinkBuffer — the filter state is otherwise only cleared in
+   * stop().
+   */
+  private resetThinkFilter(): void {
+    this.thinkDepth = 0;
+    this.thinkBuffer = '';
+    this.thinkPartial = '';
+  }
+
+  /**
    * Localize well-known English plan-template strings emitted by the model.
    *
    * The team-mode prompt layer is English by design (model-facing), but the
@@ -305,6 +348,8 @@ export class EventBridge {
       switch (event.type) {
         case 'agent_start':
           this.resetPlanFilter(); // Prevent <plan> state leakage across turns
+          this.resetThinkFilter(); // ... and the same for unbalanced think tags
+          this.terminalDispatched = false; // New run, new terminal signal allowed
           await this.dispatchSafely(() => this.replyDispatcher.onStart());
           // Dispatch skill activation AFTER turn_start so the frontend has
           // already created the message bubble (beginTurn) before the
@@ -404,7 +449,7 @@ export class EventBridge {
               assistantMsg.errorMessage ?? 'Agent error',
               qualifyModelRef(assistantMsg.provider, assistantMsg.model),
             );
-            await this.dispatchSafely(() =>
+            await this.dispatchTerminal(() =>
               this.replyDispatcher.onError(new Error(friendlyMsg)),
             );
           } else if (assistantMsg && assistantMsg.stopReason === 'aborted') {
@@ -412,7 +457,7 @@ export class EventBridge {
               { model: assistantMsg.model, provider: assistantMsg.provider },
               'Agent turn aborted',
             );
-            await this.dispatchSafely(() => this.replyDispatcher.onAborted());
+            await this.dispatchTerminal(() => this.replyDispatcher.onAborted());
           } else {
             const src = assistantMsg?.usage;
             const usageOut: Usage | undefined = src
@@ -426,7 +471,7 @@ export class EventBridge {
                   cacheHitRate: computeCacheHitRate(src),
                 }
               : undefined;
-            await this.dispatchSafely(() => this.replyDispatcher.onComplete(usageOut));
+            await this.dispatchTerminal(() => this.replyDispatcher.onComplete(usageOut));
           }
           break;
         }
@@ -457,6 +502,27 @@ export class EventBridge {
         this.logger?.debug({ err: dispatchErr }, 'onError dispatch failed');
       }
     }
+  }
+
+  /**
+   * Dispatch a turn-ending signal once per agent run.
+   *
+   * One run can end twice: the loop emits `agent_end` itself, and the agent's
+   * catch-all failure handler emits another when something throws on the way
+   * out. The card controller absorbs same-kind repeats, but error-then-success
+   * slips past it and re-sends the answer as a stray text message.
+   *
+   * `agent_start` re-arms this, so the overflow-recovery retry — a second run
+   * on this same subscription that follows a failed one — still delivers its
+   * answer.
+   */
+  private async dispatchTerminal(operation: () => void | Promise<void>): Promise<void> {
+    if (this.terminalDispatched) {
+      this.logger?.debug('agent_end already dispatched terminally — skipping duplicate');
+      return;
+    }
+    this.terminalDispatched = true;
+    await this.dispatchSafely(operation);
   }
 }
 

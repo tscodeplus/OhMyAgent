@@ -2,6 +2,7 @@ import type { MemoryRepository } from '../../repositories/memory-repository.js';
 import type { PersonaStore } from '../../persona-store.js';
 import type { PersonaDistiller } from '../../persona-distiller.js';
 import type { Logger } from 'pino';
+import { parseEpochMs } from '../../../shared/timestamp.js';
 import type { MaintenanceJob, MaintenanceJobResult } from '../maintenance-job.js';
 
 export function createPersonaConsistencyJob(
@@ -45,7 +46,7 @@ export function createPersonaConsistencyJob(
       // Check if persona lastUpdated is behind active preferences
       const personaLastUpdated = new Date(persona.lastUpdated).getTime();
       const stalePrefs = activePrefs.filter(
-        p => new Date(p.updated_at).getTime() > personaLastUpdated,
+        p => parseEpochMs(p.updated_at) > personaLastUpdated,
       );
 
       const isStale = stalePrefs.length > 0;

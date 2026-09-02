@@ -171,10 +171,32 @@ function withCustomProviderCacheCompat(
 
 // ─── Bootstrap ───
 
+/** In-flight assembly — see bootstrap(). */
+let bootstrapInFlight = false;
+
 /**
  * Assemble all application modules into a fully-wired AppServices container.
+ *
+ * Not re-entrant: a second concurrent call would open a second write handle on
+ * the same SQLite file and register a second set of config/env watchers, and
+ * the two halves then deadlock. Restart the process instead of bootstrapping
+ * twice (what the desktop shell's relaunch does).
  */
 export async function bootstrap(): Promise<BootstrapResult> {
+  if (bootstrapInFlight) {
+    throw new Error(
+      'bootstrap() is already running in this process — restart the process instead of bootstrapping twice',
+    );
+  }
+  bootstrapInFlight = true;
+  try {
+    return await runBootstrap();
+  } finally {
+    bootstrapInFlight = false;
+  }
+}
+
+async function runBootstrap(): Promise<BootstrapResult> {
   // 1. Load config & logger
   let config = loadConfig();
   const logger = createLogger(config.logging.level);
@@ -897,8 +919,11 @@ export async function bootstrap(): Promise<BootstrapResult> {
         // V2: Stop all channels
         await channelManager.stopAll();
 
-        // Stop cron scheduler
-        cronService.stop();
+        // Stop cron scheduler and flush queued job persistence
+        await cronService.stop();
+
+        // Stop the QR session prune timer (otherwise it outlives shutdown)
+        qrSessionStore.destroy();
 
         // Stop maintenance scheduler and DreamCycle
         maintenanceScheduler.stop();

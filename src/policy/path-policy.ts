@@ -7,7 +7,8 @@ import { existsSync } from 'node:fs';
 import { i18n } from '../i18n/index.js';
 import type { PathPolicyInput, PathPolicyDecision, PathPolicyConfig } from './types.js';
 import { resolveSymlinks } from '../tools/shell-command-policy/file-paths.js';
-import { expandHomePath } from '../shared/path-utils.js';
+import { expandHomePath, isWithinRoot } from '../shared/path-utils.js';
+import { isDeniedByPattern } from '../shared/glob.js';
 
 export interface PathAccessPolicy {
   check(input: PathPolicyInput): PathPolicyDecision;
@@ -18,8 +19,21 @@ export interface PathAccessPolicy {
 }
 
 export interface PathAccessPolicyConfig extends PathPolicyConfig {
-  /** Auto-inject process.cwd() into read + write roots. Default true. */
+  /**
+   * Add `process.cwd()` to the READ roots. Default false.
+   *
+   * cwd is deliberately never a write root: the launch directory depends on how
+   * the process was started (repo root under `pnpm dev`, `$HOME` under Termux,
+   * the install directory for the desktop sidecar), so treating it as writable
+   * would make the sandbox scope vary silently between deployments. Declared
+   * write access belongs in `writeRoots` / `agentHome`.
+   */
   autoInjectCwd?: boolean;
+  /**
+   * Explicit data root (see src/shared/agent-home.ts). Readable and writable —
+   * unlike cwd this is operator-declared rather than inferred from the launch dir.
+   */
+  agentHome?: string;
   /** Auto-inject this directory into read + write roots. */
   autoInjectMediaCache?: string;
 }
@@ -126,10 +140,16 @@ function normalizeConfig(config: PathAccessPolicyConfig): {
   const resolvedReadRoots = (config.readRoots ?? []).map((r) => normalizePath(r));
   const resolvedWriteRoots = (config.writeRoots ?? []).map((w) => normalizePath(w));
 
-  if (config.autoInjectCwd !== false) {
+  if (config.autoInjectCwd) {
+    // Read only — see PathAccessPolicyConfig.autoInjectCwd.
     const cwd = normalizePath(process.cwd());
     if (!resolvedReadRoots.includes(cwd)) resolvedReadRoots.push(cwd);
-    if (!resolvedWriteRoots.includes(cwd)) resolvedWriteRoots.push(cwd);
+  }
+
+  if (config.agentHome) {
+    const home = normalizePath(config.agentHome);
+    if (!resolvedReadRoots.includes(home)) resolvedReadRoots.push(home);
+    if (!resolvedWriteRoots.includes(home)) resolvedWriteRoots.push(home);
   }
 
   if (config.autoInjectMediaCache) {
@@ -187,59 +207,6 @@ function normalizeWritePath(input: string): string {
   return missingParts.length === 0 ? realExisting : path.join(realExisting, ...missingParts);
 }
 
-function isWithinRoot(filePath: string, root: string): boolean {
-  const relative = path.relative(root, filePath);
-  return (
-    relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative))
-  );
-}
-
-/**
- * Convert a glob pattern to a regex source string with conventional segment
- * semantics:
- *   - `**` matches across path separators (any number of segments).
- *   - `*`  matches within a single segment only (never crosses `/`).
- *
- * Previously every `*` became `.*`, so a single `*` silently crossed `/`.
- * That made allow-style patterns over-match. Deny patterns that intentionally
- * span segments should now use the double-star form (e.g. `<star><star>/.ssh/<star><star>`).
- */
-function globToRegexSource(pattern: string): string {
-  let out = '';
-  for (let i = 0; i < pattern.length; i++) {
-    const c = pattern[i];
-    if (c === '*') {
-      if (pattern[i + 1] === '*') {
-        out += '.*'; // cross-segment
-        i++;
-      } else {
-        out += '[^/]*'; // within-segment
-      }
-    } else if (/[.+^${}()|[\]\\?]/.test(c)) {
-      out += '\\' + c;
-    } else {
-      out += c;
-    }
-  }
-  return out;
-}
-
-function matchGlob(filePath: string, pattern: string): boolean {
-  return new RegExp(`^${globToRegexSource(pattern)}$`).test(filePath);
-}
-
-/**
- * Legacy greedy glob: every `*` crosses path separators. Retained ONLY as a
- * widening fallback for deny matching so that pre-existing deny configs (such
- * as a star-slash-dot-ssh-slash-star pattern) keep matching nested paths after
- * the semantics change — for a deny list, over-matching fails safe. New configs
- * should prefer the double-star form.
- */
-function matchGlobGreedy(filePath: string, pattern: string): boolean {
-  const escaped = pattern.replace(/[.+^${}()|[\]\\?]/g, '\\$&').replace(/\*/g, '.*');
-  return new RegExp(`^${escaped}$`).test(filePath);
-}
-
 function matchesDeniedPattern(resolvedPath: string, pattern: string): boolean {
   const expanded = expandHome(pattern);
   const normalizedPattern =
@@ -249,15 +216,8 @@ function matchesDeniedPattern(resolvedPath: string, pattern: string): boolean {
     return isWithinRoot(resolvedPath, normalizedPattern);
   }
 
-  // Deny matching fails safe by widening: a path is denied if it matches the
-  // strict-glob semantics OR the legacy greedy interpretation OR the pattern
-  // against the basename. This keeps existing deny configs effective while
-  // making `**`/within-segment `*` semantics available going forward.
-  return (
-    matchGlob(resolvedPath, normalizedPattern) ||
-    matchGlobGreedy(resolvedPath, normalizedPattern) ||
-    matchGlob(path.basename(resolvedPath), pattern)
-  );
+  // Deny matching fails safe by widening — see src/shared/glob.ts.
+  return isDeniedByPattern(resolvedPath, path.basename(resolvedPath), normalizedPattern);
 }
 
 function unique(values: string[]): string[] {

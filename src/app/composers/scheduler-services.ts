@@ -170,7 +170,7 @@ export function createSchedulers(input: {
   // Cron on/off + footer update on config reload
   configEventBus.onReload((c) => {
     if (c.cron.enabled) cronService.start();
-    else cronService.stop();
+    else void cronService.stop();
   });
   configEventBus.onReload((c) => {
     jobRunner.updateConfig({ footer: c.footer });

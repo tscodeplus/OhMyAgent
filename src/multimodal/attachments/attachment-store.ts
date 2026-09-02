@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { basename, resolve, join, relative, isAbsolute } from 'node:path';
+import { basename, resolve, join } from 'node:path';
 import * as https from 'node:https';
 import * as http from 'node:http';
 import type { AttachmentRecord } from '../types.js';
+import { isWithinRoot } from '../../shared/path-utils.js';
+import { resolveAgentPath } from '../../shared/agent-home.js';
 
 export interface AttachmentIngestInput {
   sessionId: string;
@@ -19,7 +21,7 @@ export class AttachmentStore {
   private cacheDir: string;
 
   constructor(cacheDir: string) {
-    this.cacheDir = resolve(cacheDir);
+    this.cacheDir = resolveAgentPath(cacheDir);
     mkdirSync(this.cacheDir, { recursive: true });
   }
 
@@ -124,9 +126,4 @@ function sanitizePathSegment(value: string): string {
 function sanitizeFileName(value: string): string {
   const sanitized = value.replace(/[<>:"/\\|?*\x00]/g, '_');
   return sanitized || 'attachment';
-}
-
-function isWithinRoot(filePath: string, root: string): boolean {
-  const rel = relative(root, filePath);
-  return rel === '' || (!!rel && !rel.startsWith('..') && !isAbsolute(rel));
 }

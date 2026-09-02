@@ -7,6 +7,7 @@ import type { ToolDefinition } from '../../platform/tool-definition.js';
 import type { ToolCapabilityDescriptor } from '../../platform/tool-capabilities.js';
 import type { ToolExecutionContext } from '../../platform/tool-context.js';
 import { textResult, errorResult } from '../../platform/tool-result.js';
+import { isBlockedAddress, isInternalHostname } from '../../../shared/ssrf.js';
 import * as https from 'node:https';
 import * as http from 'node:http';
 import { URL } from 'node:url';
@@ -37,43 +38,8 @@ interface RemoteTriggerArgs {
 }
 
 // ---------------------------------------------------------------------------
-// Security helpers
+// Security helpers — see src/shared/ssrf.ts
 // ---------------------------------------------------------------------------
-
-/** Convert dotted-quad IPv4 string to 32-bit integer. */
-function ipToInt(ip: string): number {
-  const parts = ip.split('.').map(Number);
-  return ((parts[0]! << 24) | (parts[1]! << 16) | (parts[2]! << 8) | parts[3]!) >>> 0;
-}
-
-const PRIVATE_RANGES: ReadonlyArray<{ min: number; max: number }> = [
-  { min: ipToInt('10.0.0.0'), max: ipToInt('10.255.255.255') },
-  { min: ipToInt('127.0.0.0'), max: ipToInt('127.255.255.255') },
-  { min: ipToInt('169.254.0.0'), max: ipToInt('169.254.255.255') },
-  { min: ipToInt('172.16.0.0'), max: ipToInt('172.31.255.255') },
-  { min: ipToInt('192.168.0.0'), max: ipToInt('192.168.255.255') },
-];
-
-function isPrivateIP(ip: string): boolean {
-  const normalized = ip.toLowerCase().replace(/^\[|\]$/g, '');
-  if (normalized === '::1'
-      || normalized.startsWith('fe80:')
-      || normalized.startsWith('fc')
-      || normalized.startsWith('fd')
-      || normalized === '::'
-      || normalized.startsWith('::ffff:127.')
-      || normalized.startsWith('::ffff:10.')
-      || normalized.startsWith('::ffff:192.168.')
-      || /^::ffff:172\.(1[6-9]|2\d|3[0-1])\./.test(normalized)) return true;
-  if (normalized.includes(':')) return false;
-  const int = ipToInt(normalized);
-  return PRIVATE_RANGES.some(r => int >= r.min && int <= r.max);
-}
-
-function isInternalHostname(hostname: string): boolean {
-  const lower = hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  return lower === 'localhost' || lower.endsWith('.local') || isPrivateIP(lower);
-}
 
 interface ResolvedAddress { address: string; family: 4 | 6 }
 
@@ -244,9 +210,9 @@ export function createRemoteTriggerToolDefinition(): ToolDefinition {
       if (!isLocalhost) {
         try {
           resolved = await dnsLookup(parsedUrl.hostname);
-          if (isPrivateIP(resolved.address)) {
+          if (isBlockedAddress(resolved.address)) {
             return errorResult(
-              `Target "${args.targetId}" resolves to private IP "${resolved.address}". Blocked for security.`,
+              `Target "${args.targetId}" resolves to a private or reserved address "${resolved.address}". Blocked for security.`,
             );
           }
         } catch {

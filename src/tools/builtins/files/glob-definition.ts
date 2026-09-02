@@ -10,6 +10,7 @@ import type { ToolDefinition } from '../../platform/tool-definition.js';
 import type { ToolCapabilityDescriptor } from '../../platform/tool-capabilities.js';
 import type { ToolExecutionContext } from '../../platform/tool-context.js';
 import { textResult, errorResult } from '../../platform/tool-result.js';
+import { globToRegExp } from '../../../shared/glob.js';
 
 export const globCapability: ToolCapabilityDescriptor = {
   category: 'file',
@@ -51,7 +52,7 @@ export function createGlobToolDefinition(): ToolDefinition<GlobArgs> {
           return errorResult(`Not a directory: ${cwd}`);
         }
 
-        const regex = globToRegex(pattern);
+        const regex = globToRegExp(pattern);
         const results: string[] = [];
         await searchDir(cwd, cwd, regex, results, maxResults);
 
@@ -96,25 +97,4 @@ async function searchDir(
       }
     }
   }
-}
-
-/** Convert a glob pattern to a RegExp. Supports **, *, ?, [abc]. */
-function globToRegex(pattern: string): RegExp {
-  // Escape regex special chars, but leave glob specials (* ? [ ] -) unescaped
-  const escaped = pattern
-    .replace(/[.+^${}()|\\]/g, '\\$&')
-    // **/ and /** are cross-directory matches; handling order matters:
-    // (a) **/  → match zero or more leading path segments
-    // (b) /**  → match zero or more trailing path segments
-    // (c) **   → isolated globstar (e.g. **.ts) → match anything within a single segment
-    .replace(/\*\*\//g, '{{GLOBSTAR_SLASH}}')
-    .replace(/\/\*\*/g, '{{SLASH_GLOBSTAR}}')
-    .replace(/\*\*/g, '{{GLOBSTAR}}')
-    .replace(/\*/g, '[^/]*')
-    .replace(/\?/g, '[^/]')
-    .replace(/\{\{GLOBSTAR_SLASH\}\}/g, '(.*/)?')
-    .replace(/\{\{SLASH_GLOBSTAR\}\}/g, '(/.*)?')
-    .replace(/\{\{GLOBSTAR\}\}/g, '.*');
-
-  return new RegExp(`^${escaped}$`);
 }

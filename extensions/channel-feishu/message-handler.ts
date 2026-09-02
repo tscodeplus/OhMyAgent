@@ -31,6 +31,7 @@ import type { AttachmentSecurity } from '../../src/multimodal/attachments/attach
 import type { MultimodalRuntimeConfig } from '../../src/multimodal/types.js';
 import type { FeishuClient } from './feishu-client.js';
 import { handleCommand } from '../../src/commands/command-handler.js';
+import { isSenderAllowed } from '../../src/shared/access-control.js';
 import type { CommandDeps } from '../../src/commands/command-handler.js';
 import { createFeishuMediaTool, createFeishuDownloadTool } from './feishu-media-tool.js';
 import { i18n } from '../../src/i18n/index.js';
@@ -136,8 +137,7 @@ export class MessageHandler {
    *  - Group chats are only answered when the bot is @-mentioned.
    */
   private isAllowed(context: FeishuMessageContext): boolean {
-    const allowed = this.options.allowedUsers;
-    if (allowed && allowed.length > 0 && !allowed.includes(context.senderId)) {
+    if (!isSenderAllowed(this.options.allowedUsers, context.senderId)) {
       this.options.logger?.warn(
         `Feishu user ${context.senderId} not in allowedUsers, skipping message ${context.messageId}`,
       );

@@ -8,6 +8,7 @@
 import { getDefaultModel } from '../../provider/pi-ai-setup.js';
 import { getModel, completeSimple } from '@earendil-works/pi-ai';
 import { createAgentFactory, resolveProviderApiKey } from '../../agent/agent-factory.js';
+import { grantFileServeAccess } from '../webui/files-routes.js';
 import { AgentService } from '../../agent/agent-service.js';
 import { VisionBridgeService } from '../../vision-bridge/vision-bridge-service.js';
 import { ReplyDispatcher } from '../../../extensions/channel-feishu/render/reply-dispatcher.js';
@@ -160,6 +161,11 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
         timestamp: Date.now(),
       }, reason === 'timeout' || reason === 'expired_before_recovery' ? 'timeout' : reason === 'steered' ? 'steered' : 'restart');
       feishuClient.updateMessage(req.card_message_id, 'interactive', resultCard).catch((err: unknown) => { logger.warn({ err, requestId }, 'Failed to update approval result card — non-critical'); });
+    },
+    onFileServeApproved: ({ path }) => {
+      // Report #6b option B: a human just approved a file-access card, so the
+      // approved path becomes servable by the WebUI for the allowlist TTL.
+      grantFileServeAccess(path);
     },
     logger,
     promptManager,

@@ -6,7 +6,7 @@
  * and configurable root directory switching.
  */
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import {
   readFile,
   readdir,
@@ -17,10 +17,14 @@ import {
   rename as fsRename,
 } from 'node:fs/promises';
 import { existsSync, readFileSync, writeFileSync, statSync, createReadStream } from 'node:fs';
-import { resolve, join, normalize, sep, relative, extname, basename } from 'node:path';
+import { resolve, join, normalize, sep, extname, basename } from 'node:path';
 import { platform } from 'node:os';
+import crypto from 'node:crypto';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import type { AppConfig } from '../types.js';
+import { safeEqual } from '../../shared/safe-equal.js';
+import { isWithinRoot } from '../../shared/path-utils.js';
+import { dataPath, resolveAgentPath } from '../../shared/agent-home.js';
 import { toolAllowedRoots } from '../../tools/platform/serve-roots.js';
 import * as archiverModule from 'archiver';
 const archiver = archiverModule.default;
@@ -132,13 +136,28 @@ function detectPlatform(): PlatformInfo {
 
 // ---------------------------------------------------------------------------
 // In-memory file access approval allowlist (paths approved for serve)
+//
+// Threat this used to miss: `pendingFileAccess` used to be populated by the
+// *requesting client's own* path argument on GET /api/files/serve, and
+// POST /api/files/approve-serve then accepted any approvalId from that map.
+// One caller could therefore perform both "request" and "approve" steps and
+// read any file on the host. A decision now has to carry a grant that only the
+// in-process approval round-trip ever sees (see registerFileServeApproval).
 // ---------------------------------------------------------------------------
 
 const APPROVAL_TTL_MS = 5 * 60 * 1000; // 5 minutes
+/** Cap on outstanding requests so a leak cannot become unbounded memory growth. */
+const MAX_PENDING_FILE_ACCESS = 200;
 
 interface PendingFileAccess {
   path: string;
   createdAt: number;
+  /** One-time capability handed to the human-facing approval prompt. Only a
+   *  caller that received it from that channel can record a decision. */
+  grant: string;
+  /** Identity the request was presented to (audit; mirrors requesterId in the
+   *  agent approval store). */
+  requesterId?: string;
 }
 
 const fileAccessAllowlist = new Map<string, number>(); // path → expiry timestamp
@@ -152,6 +171,72 @@ function isPathApproved(absPath: string): boolean {
     return false;
   }
   return true;
+}
+
+function pruneExpiredFileAccess(): void {
+  const now = Date.now();
+  for (const [id, entry] of pendingFileAccess) {
+    if (now - entry.createdAt > APPROVAL_TTL_MS) pendingFileAccess.delete(id);
+  }
+}
+
+/**
+ * Register a file-access approval request from server-side code (the agent
+ * tool pipeline that is about to present a real approval prompt), never from
+ * an HTTP request body.
+ *
+ * Returns the approvalId plus the one-time grant that MUST be presented back to
+ * POST /api/files/approve-serve for the decision to count. The grant is random
+ * per-process and is not readable through any HTTP endpoint, so a caller that
+ * can only make requests cannot approve its own access. Returns null when the
+ * pending set is full.
+ */
+export function registerFileServeApproval(params: {
+  path: string;
+  requesterId?: string;
+}): { approvalId: string; grant: string } | null {
+  pruneExpiredFileAccess();
+  if (pendingFileAccess.size >= MAX_PENDING_FILE_ACCESS) return null;
+  const approvalId = crypto.randomUUID();
+  const grant = crypto.randomBytes(24).toString('base64url');
+  pendingFileAccess.set(approvalId, {
+    path: resolve(params.path),
+    createdAt: Date.now(),
+    grant,
+    requesterId: params.requesterId,
+  });
+  return { approvalId, grant };
+}
+
+/**
+ * Outstanding approval requests. Grants are intentionally NOT part of this
+ * shape — the list is readable over HTTP by the client that wants the file, and
+ * must stay useless to it without the grant it was never given.
+ */
+export function pendingFileServeApprovals(): { approvalId: string; path: string }[] {
+  pruneExpiredFileAccess();
+  return [...pendingFileAccess.entries()].map(([approvalId, entry]) => ({
+    approvalId,
+    path: entry.path,
+  }));
+}
+
+export function resetFileServeApprovals(): void {
+  // Only used for testing.
+  pendingFileAccess.clear();
+  fileAccessAllowlist.clear();
+}
+
+/**
+ * Grant serve access for an absolute path directly from an in-process human
+ * decision — report #6b option B. The agent approval flow calls this when an
+ * operator approves a file-access card for a path outside the served roots,
+ * so the WebUI can render that file for the approval TTL. No HTTP caller can
+ * reach this function; it exists only for the approval-card round trip.
+ */
+export function grantFileServeAccess(path: string): void {
+  if (fileAccessAllowlist.size >= MAX_PENDING_FILE_ACCESS) pruneExpiredFileAccess();
+  fileAccessAllowlist.set(resolve(path), Date.now() + APPROVAL_TTL_MS);
 }
 
 // ---------------------------------------------------------------------------
@@ -194,7 +279,7 @@ export function computeServeAllowedRoots(appConfig: AppConfig, fileRoot: string)
   // computerUseImageSender) so they can be served to the WebUI chat.
   const cuOut = './data/computer-use-screenshots';
   for (const dir of [imgOut, vidOut, cuOut]) {
-    const resolved = resolve(dir);
+    const resolved = resolveAgentPath(dir);
     if (!roots.some(r => resolve(r) === resolved)) {
       roots.unshift(resolved);
     }
@@ -223,39 +308,101 @@ function writeFileRoot(configPath: string, root: string): void {
 // Path Security
 // ---------------------------------------------------------------------------
 
-/**
- * True when `candidate` resolves to a path inside `root` (or root itself).
- *
- * Naively this is `resolved.startsWith(resolvedRoot + sep)`, but that breaks
- * on Windows drive roots: resolve("D:\\") ends with sep, so appending sep
- * yields "D:\\\\" which never matches a real path ("D:\\Users\\..."). When the
- * root already ends with sep, the root itself is the prefix.
- *
- * The path module is injectable so tests can exercise Windows semantics
- * (path.win32) from a Linux runner.
- */
-export function isWithinRoot(
-  root: string,
-  candidate: string,
-  p: { resolve(...paths: string[]): string; sep: string } = { resolve, sep },
-): boolean {
-  const resolvedRoot = p.resolve(root);
-  const resolved = p.resolve(candidate);
-  if (resolved === resolvedRoot) return true;
-  const prefix = resolvedRoot.endsWith(p.sep) ? resolvedRoot : resolvedRoot + p.sep;
-  return resolved.startsWith(prefix);
-}
+// Containment is checked by the shared isWithinRoot() — one implementation for
+// every root guard in the codebase, so file serve cannot drift from the tool
+// and policy guards that protect the same paths.
 
 function safeResolve(root: string, userPath: string): string {
   const normalized = normalize(userPath).replace(/^(\.\.(\/|\\|$))+/, '');
   const resolved = resolve(root, normalized);
 
   // Ensure resolved path stays within root
-  if (!isWithinRoot(root, resolved)) {
+  if (!isWithinRoot(resolved, root)) {
     throw new Error('Path traversal denied');
   }
 
   return resolved;
+}
+
+/**
+ * Confinement check for parameters that name a tree to *walk* rather than a
+ * single file to read.
+ *
+ * safeResolve() clamps a leading "../" away (a convenience for the file editor
+ * UX); that is the wrong property for a directory listing, where the traversal
+ * attempt itself is the payload. Here anything that resolves outside `root` —
+ * parent-directory segments, an absolute path under a different root, or a
+ * mix of both — is denied outright.
+ */
+function strictResolveWithinRoot(root: string, userPath: string): string {
+  const resolved = resolve(root, normalize(userPath));
+  if (!isWithinRoot(resolved, root)) {
+    throw new Error('Path traversal denied');
+  }
+  return resolved;
+}
+
+// ---------------------------------------------------------------------------
+// Response safety for served files
+// ---------------------------------------------------------------------------
+
+/**
+ * Extensions whose bodies a browser will render or sniff as script/markup.
+ * Serving any of these inline from the gateway origin turns attacker-influenced
+ * content into stored XSS — and that origin is where the WebUI bearer token
+ * lives, so one script there is a full API takeover. They are always delivered
+ * as an attachment, whatever the caller asked for.
+ */
+const NEVER_INLINE_EXTS = new Set([
+  '.html', '.htm', '.xhtml', '.svg', '.svgz', '.xml', '.xsl',
+  '.js', '.mjs', '.cjs',
+]);
+
+const NEVER_INLINE_MIME_TYPES = new Set([
+  'text/html', 'text/xhtml', 'application/xhtml+xml', 'image/svg+xml',
+  'application/xml', 'text/xml', 'application/xml-dtd',
+  'text/javascript', 'application/javascript', 'application/x-javascript',
+  'text/ecmascript', 'application/ecmascript',
+]);
+
+/**
+ * The only content these routes render inline on purpose: raster images,
+ * audio and video, plus plain text/markdown/JSON. Anything else fails closed to
+ * an attachment — the mime tables on the routes are not exhaustive, and the
+ * browser's fallback for an unrecognised inline body is to sniff it.
+ */
+const INLINE_ALLOWED_MIME_RE =
+  /^(image\/(png|jpeg|gif|webp|bmp|apng|tiff|x-icon)$|video\/|audio\/|text\/plain$|text\/markdown$|application\/json$)/;
+
+/** True when `contentType`/`ext` must never be rendered inline by the browser. */
+export function isUnsafeInlineContent(ext: string, contentType: string): boolean {
+  if (NEVER_INLINE_EXTS.has(ext.toLowerCase())) return true;
+  const type = contentType.toLowerCase().split(';')[0].trim();
+  if (NEVER_INLINE_MIME_TYPES.has(type)) return true;
+  return !INLINE_ALLOWED_MIME_RE.test(type);
+}
+
+/**
+ * Apply the download/preview headers shared by every file-serving response.
+ *
+ * `allowInline` is clamped to false for anything {@link isUnsafeInlineContent}
+ * rejects, so a caller cannot opt into inline HTML/SVG by omitting ?download.
+ * `X-Content-Type-Options: nosniff` goes on every file response so a body that
+ * disagrees with its declared type is never re-typed by the browser.
+ */
+export function applyFileResponseHeaders(
+  reply: FastifyReply,
+  params: { contentType: string; filename: string; allowInline: boolean; ext?: string },
+): FastifyReply {
+  const inline = params.allowInline
+    && !isUnsafeInlineContent(params.ext ?? extname(params.filename), params.contentType);
+  return reply
+    .header('Content-Type', params.contentType)
+    .header('X-Content-Type-Options', 'nosniff')
+    .header(
+      'Content-Disposition',
+      `${inline ? 'inline' : 'attachment'}; filename="${encodeURIComponent(params.filename)}"`,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -333,6 +480,11 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
   });
 
   // ---- PUT /api/files/root ----
+  // This endpoint is the deliberate operator-facing escape hatch: file_root
+  // is a configuration preference, not a security boundary (any authenticated
+  // user can move it), which is why the routes below enforce containment
+  // against the *current* root while this one accepts any existing absolute
+  // directory. Bearer auth is the barrier here, by design.
   app.put('/api/files/root', async (request, reply) => {
     const { root } = request.body as { root: string };
     if (!root || typeof root !== 'string') {
@@ -359,20 +511,26 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
   app.get('/api/files/tree', async (request, reply) => {
     try {
       const query = request.query as { root?: string };
-      const root = query.root ? resolve(query.root) : resolve(readFileRoot(cfg.configPath));
+      // Confinement: the tree walks recursively and returns full paths, so an
+      // unconfined root is a whole-filesystem listing. Everything outside
+      // webui.file_root must go through PUT /api/files/root first, exactly like
+      // the read/write/delete siblings of this route.
+      const fileRoot = resolve(readFileRoot(cfg.configPath));
+      const root = query.root ? strictResolveWithinRoot(fileRoot, query.root) : fileRoot;
 
       if (!existsSync(root)) {
-        const s = statSync(root);
-        if (!s.isDirectory()) {
-          return reply.status(400).send({ error: `Not a directory: ${root}` });
-        }
+        return reply.status(404).send({ error: `Directory not found: ${root}` });
+      }
+      if (!statSync(root).isDirectory()) {
+        return reply.status(400).send({ error: `Not a directory: ${root}` });
       }
 
       const tree = await buildFileTree(root, 0);
       return reply.send({ root, tree });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return reply.status(500).send({ error: message });
+      const status = message === 'Path traversal denied' ? 403 : 500;
+      return reply.status(status).send({ error: message });
     }
   });
 
@@ -404,10 +562,12 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
       if (download !== undefined) {
         // Download mode
         const fileName = filePath.split(sep).pop() || 'download';
-        return reply
-          .header('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`)
-          .header('Content-Type', 'application/octet-stream')
-          .send(content);
+        return applyFileResponseHeaders(reply, {
+          contentType: 'application/octet-stream',
+          filename: fileName,
+          allowInline: false,
+          ext: extname(filePath),
+        }).send(content);
       }
 
       return reply.send({ path: filePath, content, size: s.size });
@@ -469,7 +629,7 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
         // Absolute path: verify within an allowed root
         const resolvedAbs = resolve(normalized);
         for (const root of allowedRoots) {
-          if (isWithinRoot(root, resolvedAbs)) {
+          if (isWithinRoot(resolvedAbs, root)) {
             filePath = resolvedAbs;
             break;
           }
@@ -479,7 +639,7 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
         for (const root of allowedRoots) {
           const candidate = resolve(root, normalized);
           if (existsSync(candidate)) {
-            if (isWithinRoot(root, candidate)) {
+            if (isWithinRoot(candidate, root)) {
               filePath = candidate;
               break;
             }
@@ -487,7 +647,11 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
         }
       }
 
-      if (!filePath || !existsSync(filePath)) {
+      if (!filePath) {
+        return reply.status(403).send({ error: 'Path traversal denied' });
+      }
+
+      if (!existsSync(filePath)) {
         return reply.status(404).send({ error: 'File not found' });
       }
 
@@ -499,9 +663,12 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
       const fileName = filePath.split(sep).pop() || 'download';
       const stream = createReadStream(filePath);
 
-      return reply
-        .header('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`)
-        .header('Content-Type', 'application/octet-stream')
+      return applyFileResponseHeaders(reply, {
+        contentType: 'application/octet-stream',
+        filename: fileName,
+        allowInline: false,
+        ext: extname(filePath),
+      })
         .header('Content-Length', s.size.toString())
         .send(stream);
     } catch (err) {
@@ -540,29 +707,26 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
         // Absolute path: verify it's within an allowed root
         const resolvedAbs = resolve(normalized);
         for (const root of allowedRoots) {
-          if (isWithinRoot(root, resolvedAbs)) {
+          if (isWithinRoot(resolvedAbs, root)) {
             filePath = resolvedAbs;
             break;
           }
         }
         if (!filePath) {
-          // Try to resolve as absolute path and check if already approved
-          const resolvedAbs = resolve(normalized);
-          if (isPathApproved(resolvedAbs)) {
-            filePath = resolvedAbs;
+          // Out of every served root. isPathApproved() is the only way in, and
+          // its entries are created exclusively by in-process human decisions:
+          // grantFileServeAccess from the agent approval card (option B) or
+          // POST /api/files/approve-serve presenting a grant issued in-process
+          // (see registerFileServeApproval). The requesting client can neither
+          // create a pending request here nor approve one it created itself.
+          if (!isPathApproved(resolvedAbs)) {
+            return reply.status(403).send({
+              error: 'Path traversal denied',
+              message:
+                'Path is outside the served roots — widen webui.file_root, or approve the file-access card in your chat channel and retry within 5 minutes',
+            });
           }
-        }
-        if (!filePath) {
-          // Create a pending approval for this path
-          const approvalId = `file-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-          const resolvedAbs = resolve(normalized);
-          pendingFileAccess.set(approvalId, { path: resolvedAbs, createdAt: Date.now() });
-          return reply.status(403).send({
-            error: 'Path requires approval',
-            needsApproval: true,
-            approvalId,
-            path: normalized,
-          });
+          filePath = resolvedAbs;
         }
       } else {
         // Relative path: try each root
@@ -570,7 +734,7 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
           const candidate = resolve(root, normalized);
           if (existsSync(candidate)) {
             // Security check: must be within this root
-            if (isWithinRoot(root, candidate)) {
+            if (isWithinRoot(candidate, root)) {
               filePath = candidate;
               break;
             }
@@ -621,13 +785,15 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
       const originalName = (filePath! as string).split(sep).pop() || 'download';
 
       const stream = createReadStream(filePath!);
-      const resp = reply
-        .header('Content-Type', contentType)
+      const resp = applyFileResponseHeaders(reply, {
+        contentType,
+        filename: originalName,
+        ext,
+        // ?download=1 never grants inline rendering; it only ever removes it.
+        allowInline: !asDownload,
+      })
         .header('Content-Length', s.size.toString())
         .header('Cache-Control', 'public, max-age=3600');
-      if (asDownload) {
-        resp.header('Content-Disposition', `attachment; filename="${encodeURIComponent(originalName)}"`);
-      }
       return resp.send(stream);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -639,30 +805,53 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
   // ---- GET /api/files/pending-approvals ----
   // Returns pending file access approval requests (for the frontend to show approval cards).
   app.get('/api/files/pending-approvals', async (_request, reply) => {
-    const pending: { approvalId: string; path: string }[] = [];
-    const now = Date.now();
-    for (const [id, entry] of pendingFileAccess) {
-      if (now - entry.createdAt > APPROVAL_TTL_MS) {
-        pendingFileAccess.delete(id);
-      } else {
-        pending.push({ approvalId: id, path: entry.path });
-      }
-    }
-    return reply.send({ pending });
+    return reply.send({ pending: pendingFileServeApprovals() });
   });
 
   // ---- POST /api/files/approve-serve ----
-  // Approve or reject a pending file access request.
+  // Record a human decision about a pending file access request.
+  //
+  // `grant` is the proof that the decision came out of the approval
+  // round-trip: it is minted by registerFileServeApproval() in-process and
+  // delivered to the approval prompt, and no HTTP endpoint ever echoes it back
+  // (GET /api/files/pending-approvals lists ids and paths only). A caller that
+  // merely knows an approvalId — e.g. the same client that asked for the file —
+  // cannot record a decision with it.
   app.post('/api/files/approve-serve', async (request, reply) => {
     try {
-      const body = request.body as { approvalId: string; decision: 'approve' | 'reject' };
+      const body = request.body as {
+        approvalId?: string;
+        decision?: string;
+        grant?: string;
+      };
       if (!body.approvalId || !body.decision) {
         return reply.status(400).send({ error: 'approvalId and decision are required' });
+      }
+      if (body.decision !== 'approve' && body.decision !== 'reject') {
+        return reply.status(400).send({ error: "decision must be 'approve' or 'reject'" });
       }
 
       const entry = pendingFileAccess.get(body.approvalId);
       if (!entry) {
         return reply.status(404).send({ error: 'Approval request not found or expired' });
+      }
+      if (Date.now() - entry.createdAt > APPROVAL_TTL_MS) {
+        pendingFileAccess.delete(body.approvalId);
+        return reply.status(404).send({ error: 'Approval request not found or expired' });
+      }
+
+      if (!safeEqual(body.grant, entry.grant)) {
+        // Untrusted decision — consume the request so it cannot be retried
+        // against, and grant nothing.
+        pendingFileAccess.delete(body.approvalId);
+        app.log.warn(
+          { approvalId: body.approvalId, path: entry.path },
+          '[files] rejected a file-access decision without a valid grant',
+        );
+        return reply.status(403).send({
+          error: 'Forbidden',
+          message: 'A file-access decision must present the grant issued with the approval request',
+        });
       }
 
       pendingFileAccess.delete(body.approvalId);
@@ -822,7 +1011,7 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
       } else {
         // Chat attachment upload — use guaranteed-writable directory
         // (file_root may not be writable, e.g. /home)
-        destDir = resolve(process.cwd(), 'data', 'chat-uploads');
+        destDir = dataPath('chat-uploads');
       }
 
       if (!existsSync(destDir)) {
@@ -861,11 +1050,12 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
       const s = statSync(targetPath);
       const dirName = targetPath.split(sep).pop() || 'download';
 
-      reply.header('Content-Type', 'application/zip');
-      reply.header(
-        'Content-Disposition',
-        `attachment; filename="${encodeURIComponent(dirName)}.zip"`,
-      );
+      applyFileResponseHeaders(reply, {
+        contentType: 'application/zip',
+        filename: `${dirName}.zip`,
+        ext: '.zip',
+        allowInline: false,
+      });
 
       const archive = archiver('zip', { zlib: { level: 1 } });
 

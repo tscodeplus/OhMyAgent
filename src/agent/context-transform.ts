@@ -25,6 +25,7 @@ import { compressContext, estimateTokensCached } from './compress.js';
 import { extractPreferredName } from '../memory/persona-store.js';
 import { isPromptInjection } from '../memory/memory-filter.js';
 import { truncate } from '../shared/truncation.js';
+import { neutralizePromptTags } from '../shared/prompt-boundary.js';
 import { LRUCache } from 'lru-cache';
 import type { Logger } from 'pino';
 
@@ -211,7 +212,7 @@ function buildMemoryLines(memories: RetrievedMemory[], query: string): string[] 
       // predate the write-side filter or have bypassed it via non-tool writes
       // (summarizer, offload, dream cycle). Never let it override instructions.
       .filter((m) => !isPromptInjection(m.content))
-      .map((m) => `- ${m.content}`)
+      .map((m) => neutralizePromptTags(`- ${m.content}`))
       .slice(0, 5)
   );
 }
@@ -290,6 +291,13 @@ export interface TransformOptions {
   /** Provider-tuned cache behavior. Currently used for DeepSeek automatic prefix cache. */
   cacheProfile?: 'default' | 'deepseek';
   /**
+   * Tokens of the per-turn fixed prefix — system prompt plus every tool schema.
+   * pi-mono hands the transform only `messages`, so the compression budget
+   * cannot see this itself, and an auto-compress trigger measured on messages
+   * alone reads a 128k window as roomy while 10k+ tokens are already spent.
+   */
+  staticContextTokens?: number;
+  /**
    * Called with the compacted transcript after context compression succeeds.
    * Lets the owner (agent factory) write the result back to agent state so
    * future turns start from the summary instead of the full history.
@@ -300,9 +308,14 @@ export interface TransformOptions {
 /**
  * Convert a string user message content to an array of content blocks,
  * preserving the original text as the first block.
+ *
+ * Array input is copied, not returned as-is: callers append injected blocks to
+ * what they get back, and that array is usually the live `AgentMessage.content`
+ * held by `agent.state.messages` — mutating it there would leak injected
+ * context (date hints, memories) into the persisted transcript.
  */
 function ensureContentBlocks(content: string | any[]): any[] {
-  if (Array.isArray(content)) return content;
+  if (Array.isArray(content)) return [...content];
   return [{ type: 'text', text: content }];
 }
 
@@ -350,6 +363,7 @@ export function createTransformContext(options?: TransformOptions) {
   // NOT session state — see module-level caches above for the hoisted ones)
   const dateLanguage = options?.dateLanguage;
   const cacheProfile = options?.cacheProfile ?? 'default';
+  const prefixTokens = options?.staticContextTokens ?? 0;
   const dateGranularity = 'day';
 
   return async (messages: any[], _signal?: AbortSignal): Promise<any[]> => {
@@ -531,10 +545,11 @@ export function createTransformContext(options?: TransformOptions) {
             'Repeated static Mermaid canvas skipped for DeepSeek cache profile',
           );
         } else if (nodes.length <= options.mermaidCanvasConfig.maxNodesInContext) {
-          const canvasText =
+          const canvasText = neutralizePromptTags(
             options.mermaidCanvasConfig.injectFormat === 'full'
               ? options.mermaidCanvas.toMermaid()
-              : options.mermaidCanvas.toContextSummary();
+              : options.mermaidCanvas.toContextSummary(),
+          );
           if (canvasText) {
             const canvasHint = `\n\n<task_progress>\n${canvasText}\n</task_progress>`;
             if (lastUserMsg) {
@@ -563,7 +578,7 @@ export function createTransformContext(options?: TransformOptions) {
         } else {
           // Too many nodes — inject a concise count summary instead
           const max = options.mermaidCanvasConfig.maxNodesInContext;
-          const countHint = `\n\n<task_progress>\n[任务进度] 当前阶段: ${currentPhase} (${completed}/${total} 完成, 显示最近 ${max}/${total} 步)\n</task_progress>`;
+          const countHint = `\n\n<task_progress>\n[任务进度] 当前阶段: ${neutralizePromptTags(currentPhase)} (${completed}/${total} 完成, 显示最近 ${max}/${total} 步)\n</task_progress>`;
           if (lastUserMsg) {
             const idx = result.lastIndexOf(lastUserMsg);
             const blocks = ensureContentBlocks(lastUserMsg.content);
@@ -650,7 +665,7 @@ export function createTransformContext(options?: TransformOptions) {
               const blocks = ensureContentBlocks(lastUserMsg.content);
               const personaBlock = {
                 type: 'text' as const,
-                text: `<persona>\n${personaText}\n</persona>\n`,
+                text: `<persona>\n${neutralizePromptTags(personaText)}\n</persona>\n`,
               };
               const nextBlocks = [...blocks, personaBlock];
               result[idx] = { ...lastUserMsg, content: nextBlocks };
@@ -665,13 +680,17 @@ export function createTransformContext(options?: TransformOptions) {
     }
 
     // ── v9: Auto context compression (pi-style) ──
-    // Trigger: estimatedTokens > contextWindow - reserveTokens.
+    // Trigger: (prefix + estimatedTokens) > contextWindow - reserveTokens.
     // Keeps keepRecentTokens worth of recent messages, compresses older ones.
     // Hard truncation below is the safety net.
     const compressCfg = options?.compressConfig;
     if (compressCfg?.config.enabled && sessionKey) {
-      const estimatedTokens = estimateTokensCached(result);
-      const defaultThreshold = compressCfg.contextWindow - compressCfg.config.reserveTokens;
+      // The prefix (system prompt + tool schemas) is part of the request the
+      // provider sizes, but is not part of `result` — leaving it out made the
+      // trigger fire thousands of tokens late on tool-heavy profiles.
+      const estimatedTokens = estimateTokensCached(result) + prefixTokens;
+      const messageWindow = Math.max(1000, compressCfg.contextWindow - prefixTokens);
+      const defaultThreshold = messageWindow - compressCfg.config.reserveTokens;
       const triggerThreshold =
         cacheProfile === 'deepseek' ? Math.min(defaultThreshold, 12000) : defaultThreshold;
 
@@ -680,7 +699,7 @@ export function createTransformContext(options?: TransformOptions) {
           const previousSummary = lastCompressionSummaryBySession.get(nsSessionKey);
           const compressResult = await compressContext({
             messages: result as any,
-            contextWindow: compressCfg.contextWindow,
+            contextWindow: messageWindow,
             settings: {
               reserveTokens: compressCfg.config.reserveTokens,
               keepRecentTokens:
@@ -785,7 +804,7 @@ export function createTransformContext(options?: TransformOptions) {
               return `${icon} [${r.nodeId}] ${r.summary || r.toolName} | ${sessionDir}/${r.refPath}`;
             });
             if (lines.length > 0) {
-              const hint = `\n\n<archived_tool_results>\n[已归档的早期工具结果 (使用 file_read 恢复)]\n${lines.join('\n')}\n</archived_tool_results>`;
+              const hint = `\n\n<archived_tool_results>\n[已归档的早期工具结果 (使用 file_read 恢复)]\n${neutralizePromptTags(lines.join('\n'))}\n</archived_tool_results>`;
               const firstUser = trimmed.find((m: any) => m.role === 'user');
               if (firstUser) {
                 const idx = trimmed.indexOf(firstUser);

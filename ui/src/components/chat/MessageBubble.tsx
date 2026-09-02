@@ -169,17 +169,6 @@ function MessageBubble({ message }: MessageBubbleProps) {
   const { showToast } = useToast();
   const { t } = useTranslation('common');
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
-  // Track images that need file-access approval
-  const [approvalStates, setApprovalStates] = useState<
-    Record<
-      string,
-      {
-        approvalId: string;
-        path: string;
-        status: 'pending' | 'approved' | 'rejected';
-      }
-    >
-  >({});
 
   const handleDownload = useCallback(
     async (url: string, filename: string) => {
@@ -345,50 +334,11 @@ function MessageBubble({ message }: MessageBubbleProps) {
     },
   };
 
-  async function handleImageError(imgUrl: string) {
-    // Check if the serve endpoint wants approval. The probe needs the token;
-    // the approval-state key stays the raw URL so the render loop lookup matches.
-    try {
-      const resp = await fetch(withAuthUrl(imgUrl));
-      if (resp.status === 403) {
-        const data = await resp.json().catch(() => null);
-        if (data?.needsApproval) {
-          setApprovalStates((prev) => ({
-            ...prev,
-            [imgUrl]: { approvalId: data.approvalId, path: data.path, status: 'pending' },
-          }));
-        }
-      }
-    } catch {
-      /* ignore fetch errors */
-    }
-  }
-
-  async function handleApprove(imgUrl: string) {
-    const state = approvalStates[imgUrl];
-    if (!state) return;
-    try {
-      const resp = await apiRequest('/api/files/approve-serve', {
-        method: 'POST',
-        body: JSON.stringify({ approvalId: state.approvalId, decision: 'approve' }),
-      });
-      if ((resp as any).ok) {
-        setApprovalStates((prev) => ({ ...prev, [imgUrl]: { ...state, status: 'approved' } }));
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-
-  function handleReject(imgUrl: string) {
-    const state = approvalStates[imgUrl];
-    if (!state) return;
-    apiRequest('/api/files/approve-serve', {
-      method: 'POST',
-      body: JSON.stringify({ approvalId: state.approvalId, decision: 'reject' }),
-    }).catch(() => {});
-    setApprovalStates((prev) => ({ ...prev, [imgUrl]: { ...state, status: 'rejected' } }));
-  }
+  // NOTE: the old self-service file-serve approval flow (probe a 403
+  // /api/files/serve response for { needsApproval, approvalId }, then POST
+  // /api/files/approve-serve) is gone: approvals are now server-initiated
+  // grants (registerFileServeApproval + safeEqual-checked decision), so the
+  // web client can never mint its own approval. No client-side UI remains.
 
   function formatElapsed(ms: number): string {
     if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
@@ -592,10 +542,6 @@ function MessageBubble({ message }: MessageBubbleProps) {
             return (
               <div className="mt-2 flex flex-wrap gap-2">
                 {extracted.map((img, i) => {
-                  const approval = approvalStates[img.url];
-                  const needsApproval = approval?.status === 'pending';
-                  const wasRejected = approval?.status === 'rejected';
-                  const imgKey = approval?.status === 'approved' ? `${img.url}-approved` : img.url;
                   // Extract filename from URL (e.g. /api/files/serve?path=foo.png → foo.png)
                   const imgFilename = (() => {
                     try {
@@ -614,25 +560,15 @@ function MessageBubble({ message }: MessageBubbleProps) {
                     <div key={i} className="flex flex-col gap-1">
                       <div className="relative group">
                         <button
-                          onClick={() =>
-                            !needsApproval && !wasRejected && setLightboxUrl(withAuthUrl(img.url))
-                          }
-                          className={`block max-w-[240px] rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-800 hover:opacity-90 transition-opacity ${needsApproval || wasRejected ? 'cursor-default opacity-50' : 'cursor-pointer'}`}
+                          onClick={() => setLightboxUrl(withAuthUrl(img.url))}
+                          className="block max-w-[240px] rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-800 hover:opacity-90 transition-opacity cursor-pointer"
                         >
-                          {wasRejected ? (
-                            <div className="w-[240px] h-[120px] flex items-center justify-center bg-neutral-100 dark:bg-neutral-800 text-sm text-neutral-500">
-                              Access denied
-                            </div>
-                          ) : (
-                            <img
-                              key={imgKey}
-                              src={withAuthUrl(img.url)}
-                              alt={img.alt || 'Generated image'}
-                              className="w-full h-auto object-cover"
-                              loading="lazy"
-                              onError={() => handleImageError(img.url)}
-                            />
-                          )}
+                          <img
+                            src={withAuthUrl(img.url)}
+                            alt={img.alt || 'Generated image'}
+                            className="w-full h-auto object-cover"
+                            loading="lazy"
+                          />
                         </button>
                         {/* Download button — bottom-right corner, visible on hover */}
                         <button
@@ -647,22 +583,6 @@ function MessageBubble({ message }: MessageBubbleProps) {
                           <span>保存</span>
                         </button>
                       </div>
-                      {needsApproval && (
-                        <div className="flex gap-1">
-                          <button
-                            onClick={() => handleApprove(img.url)}
-                            className="text-xs px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700"
-                          >
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => handleReject(img.url)}
-                            className="text-xs px-2 py-1 rounded bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-300 dark:hover:bg-neutral-600"
-                          >
-                            Reject
-                          </button>
-                        </div>
-                      )}
                     </div>
                   );
                 })}

@@ -10,6 +10,7 @@ import { ToolRunRepository } from '../../src/memory/repositories/tool-run-reposi
 import { ApprovalPolicyRepository } from '../../src/memory/repositories/approval-policy-repository';
 import { ApprovalRequestRepository } from '../../src/memory/repositories/approval-request-repository';
 import { ApprovalDecisionRepository } from '../../src/memory/repositories/approval-decision-repository';
+import { MemoryLinkRepository } from '../../src/memory/repositories/memory-link-repository';
 
 let db: Database.Database;
 let idCounter = 0;
@@ -362,6 +363,29 @@ describe('MemoryRepository', () => {
     expect(memory.kind).toBe('fact');
     expect(memory.content).toBe('User prefers dark mode');
     expect(memory.metadata).toBeNull();
+  });
+
+  it('findByIds returns only the rows that exist', () => {
+    const repo = new MemoryRepository(db);
+    const a = repo.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u1', kind: 'fact', content: 'A' });
+    const b = repo.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u1', kind: 'fact', content: 'B' });
+
+    expect(repo.findByIds([])).toEqual([]);
+    const found = repo.findByIds([a.id, b.id, 'mem-does-not-exist']);
+    expect(found.map(m => m.id).sort()).toEqual([a.id, b.id].sort());
+  });
+
+  it('findByIds chunks past SQLite bound-variable limit', () => {
+    const repo = new MemoryRepository(db);
+    const ids: string[] = [];
+    for (let i = 0; i < 600; i++) {
+      const memory = repo.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u1', kind: 'fact', content: `m${i}` });
+      ids.push(memory.id);
+    }
+
+    // An IN list larger than SQLITE_MAX_VARIABLE_NUMBER (999) throws unless
+    // the lookup is split, and retrieval expansions can exceed it easily.
+    expect(repo.findByIds(ids)).toHaveLength(600);
   });
 
   it('findByScope returns memories for a scope', () => {
@@ -1145,5 +1169,24 @@ describe('Cross-repository integration', () => {
     decisionRepo.deleteByRequestId(request.id);
     expect(requestRepo.delete(request.id)).toBe(true);
     expect(requestRepo.findById(request.id)).toBeUndefined();
+  });
+});
+
+describe('MemoryLinkRepository', () => {
+  it('findByEntities groups links per entity, highest confidence first', () => {
+    const memories = new MemoryRepository(db);
+    const links = new MemoryLinkRepository(db);
+    const low = memories.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u1', kind: 'fact', content: 'A' });
+    const high = memories.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u1', kind: 'fact', content: 'B' });
+    const other = memories.create({ id: uniqueId('mem'), scope: 'user', scope_key: 'u1', kind: 'fact', content: 'C' });
+
+    links.create({ id: uniqueId('link'), source_memory_id: low.id, target_entity: 'Alice', relation_type: 'mentions', confidence: 0.4 });
+    links.create({ id: uniqueId('link'), source_memory_id: high.id, target_entity: 'Alice', relation_type: 'mentions', confidence: 0.9 });
+    links.create({ id: uniqueId('link'), source_memory_id: other.id, target_entity: 'Berlin', relation_type: 'mentions', confidence: 0.8 });
+
+    const grouped = links.findByEntities(['Alice', 'Berlin', 'Nowhere']);
+    expect([...grouped.keys()].sort()).toEqual(['Alice', 'Berlin']);
+    expect(grouped.get('Alice')?.map(l => l.source_memory_id)).toEqual([high.id, low.id]);
+    expect(links.findByEntities([]).size).toBe(0);
   });
 });

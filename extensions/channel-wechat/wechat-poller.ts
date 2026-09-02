@@ -48,6 +48,13 @@ export class WechatPoller {
     private botToken: string,
     cursorDir: string,
     private logger: Logger,
+    /**
+     * Called once when the iLink session expires (errcode -14). Historically
+     * the poller just stopped and the channel went silent until restart
+     * (report #11h). The callback lets the adapter surface the outage and
+     * clear its poller handle so operators can re-auth via QR login.
+     */
+    private onSessionExpired?: (info: { errcode: number; errmsg?: string }) => void,
   ) {
     this.abortController = new AbortController();
     this.cursorFile = getCursorPath(cursorDir, botToken);
@@ -96,6 +103,10 @@ export class WechatPoller {
             { errcode: (resp as any).errcode, errmsg: (resp as any).errmsg },
             'WeChat session expired — stopping poller',
           );
+          this.onSessionExpired?.({
+            errcode: -14,
+            errmsg: String((resp as any).errmsg ?? ''),
+          });
           this.running = false;
           return;
         }
@@ -148,6 +159,10 @@ export class WechatPoller {
         // Check for session expiry (errcode -14) — fatal
         if (isSessionExpiredError(err)) {
           this.logger.error({ err }, 'WeChat session expired — stopping poller');
+          this.onSessionExpired?.({
+            errcode: -14,
+            errmsg: err instanceof Error ? err.message : String(err),
+          });
           this.running = false;
           return;
         }

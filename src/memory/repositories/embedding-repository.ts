@@ -233,13 +233,17 @@ export class EmbeddingRepository {
   checkEmbeddingMeta(provider: string, model: string, dimension: number): { needsReindex: boolean; reason?: string } {
     const saved = this.readEmbeddingMeta();
     if (!saved) {
-      // No saved meta — first run or legacy DB. If there's existing data
-      // in the embedding table, we can't verify compatibility → needs reindex.
+      // No saved meta means unknown provenance, NOT a detected mismatch — and
+      // the remedy here is destructive: a Termux install whose embedding
+      // provider is unreachable would drop every vector at startup and never
+      // rebuild them. Vectors of a foreign dimension score 0 in
+      // cosineSimilarity(), so they rank themselves out of results; keeping
+      // them costs nothing and preserves recall for the compatible majority.
       const count = this.count();
       if (count > 0) {
         return {
-          needsReindex: true,
-          reason: `legacy DB without embedding_meta, ${count} existing vectors — cannot verify compatibility`,
+          needsReindex: false,
+          reason: `legacy DB without embedding_meta, ${count} existing vectors kept (incompatible ones score 0)`,
         };
       }
       return { needsReindex: false };

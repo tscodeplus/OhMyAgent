@@ -9,6 +9,7 @@ import { join, relative, resolve } from 'node:path';
 import { createFileSearchTool } from '../file-search-tool.js';
 import type { FileReadToolOptions } from '../file-read-tool.js';
 import { textResult, errorResult } from '../../platform/tool-result.js';
+import { globToRegExp } from '../../../shared/glob.js';
 
 export const fileSearchToolCapability: ToolCapabilityDescriptor = {
   category: 'file',
@@ -54,7 +55,7 @@ async function executeApprovedSearch(args: {
   try {
     const maxResults = args.maxResults ?? 100;
     const resolvedDir = resolve(args.directory);
-    const pattern = globToRegex(args.pattern);
+    const pattern = globToRegExp(args.pattern);
     const results: string[] = [];
     await searchDir(resolvedDir, resolvedDir, pattern, results, maxResults);
 
@@ -97,15 +98,4 @@ async function searchDir(
       }
     }
   }
-}
-
-function globToRegex(pattern: string): RegExp {
-  const regexStr = pattern
-    .replace(/\./g, '\\.')
-    .replace(/\*\*/g, '{{GLOBSTAR}}')
-    .replace(/\*/g, '[^/]*')
-    .replace(/\?/g, '[^/]')
-    .replace(/\{\{GLOBSTAR\}\}/g, '.*');
-
-  return new RegExp(`^${regexStr}$`);
 }

@@ -22,6 +22,7 @@ import type { ToolDefinition } from '../../platform/tool-definition.js';
 import type { ToolCapabilityDescriptor } from '../../platform/tool-capabilities.js';
 import { textResult, errorResult } from '../../platform/tool-result.js';
 import { createDownloadUrl } from '../../../shared/download-token.js';
+import { dataPath } from '../../../shared/agent-home.js';
 
 export const downloadFileCapability: ToolCapabilityDescriptor = {
   category: 'file',
@@ -35,7 +36,7 @@ export const downloadFileCapability: ToolCapabilityDescriptor = {
   approvalDefault: 'none',
 };
 
-const DOWNLOADS_DIR = path.resolve(process.cwd(), 'data', 'downloads');
+const DOWNLOADS_DIR = dataPath('downloads');
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 
 function sanitizeFileName(value: string): string {

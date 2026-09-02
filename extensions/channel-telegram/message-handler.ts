@@ -17,6 +17,7 @@ import type { FooterConfig } from '../../src/app/types.js';
 import type { ExtensionAPI } from '../../src/extensions/types.js';
 import { handleCommand } from '../../src/commands/command-handler.js';
 import { harnessApprovalRegistry } from '../../src/harness/harness-approval-registry.js';
+import { isSenderAllowed } from '../../src/shared/access-control.js';
 import { buildMessageContext } from './message-context.js';
 import { StreamControllerImpl } from './stream-controller.js';
 import { TelegramReplyDispatcher } from './telegram-dispatcher.js';
@@ -555,8 +556,7 @@ async function executeAgent(
 
 function isAllowed(ctx: ReturnType<typeof buildMessageContext>, config: TelegramConfig): boolean {
   if (!ctx) return false;
-  if (config.allowedUsers.length === 0) return true;
-  return config.allowedUsers.includes(ctx.message.senderId);
+  return isSenderAllowed(config.allowedUsers, ctx.message.senderId);
 }
 
 function isGroup(ctx: ReturnType<typeof buildMessageContext>): boolean {

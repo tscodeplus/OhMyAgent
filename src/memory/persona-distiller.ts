@@ -140,6 +140,13 @@ function buildIncrementalExtra(_outputLanguage?: string): string {
 
 function timestampMs(value: string | undefined): number {
   if (!value) return 0;
+  // Handle epoch millisecond numeric strings produced by the DB default:
+  //   cast(strftime('%s','now') as integer) * 1000
+  // Date.parse rejects pure numeric strings, so convert directly.
+  if (/^\d+$/.test(value)) {
+    const ms = Number(value);
+    return Number.isFinite(ms) ? ms : 0;
+  }
   const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)
     ? `${value.replace(' ', 'T')}Z`
     : value;

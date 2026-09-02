@@ -175,19 +175,24 @@ export class FeishuWSClient {
     this.wsClient.close();
     this.clearTimers();
 
-    this.reconnectTimer = setTimeout(async () => {
+    this.reconnectTimer = setTimeout(() => {
       if (!this.running) return;
-      try {
-        await this.wsClient.start({
-          eventDispatcher: this.eventDispatcher,
-        });
-        this.resetStaleTimer();
-        this.logger.info('[ws-client] reconnected');
-      } catch (error) {
-        this.logger.error('[ws-client] reconnect failed:', error);
-        // Retry after delay
-        this.reconnect();
-      }
+      // startAfterReconnect handles (and reschedules) its own failures.
+      void this.startAfterReconnect();
     }, this.reconnectDelayMs);
+  }
+
+  private async startAfterReconnect(): Promise<void> {
+    try {
+      await this.wsClient.start({
+        eventDispatcher: this.eventDispatcher,
+      });
+      this.resetStaleTimer();
+      this.logger.info('[ws-client] reconnected');
+    } catch (error) {
+      this.logger.error('[ws-client] reconnect failed:', error);
+      // Retry after delay
+      this.reconnect();
+    }
   }
 }

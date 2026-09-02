@@ -8,7 +8,7 @@
  * Both modes share the same Fastify server on /webui/ prefix.
  */
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Logger } from 'pino';
 import path from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
@@ -161,7 +161,22 @@ export async function setupWebUIMiddleware(options: {
     });
     logger.info({ uiDist, prefix: '/webui/' }, 'WebUI static files registered');
   } else if (!viteDevServer) {
-    logger.info('WebUI not available — run "cd ui && pnpm build" to build it');
+    // Used to be an info log plus a 404: a packaged install whose build output
+    // is missing started "fine" and showed a blank page with no clue why.
+    const reason = process.env.WEBUI_STATIC_ROOT
+      ? `WEBUI_STATIC_ROOT points at ${uiDist}`
+      : `no index.html under ${uiDist}`;
+    logger.error(
+      { uiDist, isDevMode },
+      `WebUI unavailable (${reason}) — run "pnpm build:ui" to build it`,
+    );
+    const unavailable = (_request: FastifyRequest, reply: FastifyReply) =>
+      reply
+        .status(503)
+        .type('text/plain; charset=utf-8')
+        .send(`WebUI unavailable (${reason}).\nRun "pnpm build:ui" and restart.\n`);
+    server.route({ method: 'GET', url: '/webui', handler: unavailable });
+    server.route({ method: 'GET', url: '/webui/*', handler: unavailable });
   }
 
   // Redirect root to WebUI

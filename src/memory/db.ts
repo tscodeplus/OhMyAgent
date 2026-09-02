@@ -53,6 +53,11 @@ export function openDatabase(dbPath: string): Database.Database {
 
   // Enable foreign keys
   db.pragma('foreign_keys = ON');
+  // Wait (rather than instantly failing with SQLITE_BUSY) when another process
+  // holds the write lock — e.g. the desktop sidecar plus a CLI invocation on
+  // the same data/app.db, or an overlapping restart. WAL keeps readers
+  // non-blocking; this covers the writer-vs-writer case.
+  db.pragma('busy_timeout = 5000');
 
   // Set file permissions to 0600 (owner read/write only) for file-based databases
   if (resolvedPath !== ':memory:') {
@@ -78,14 +83,47 @@ export function openDatabase(dbPath: string): Database.Database {
   // so that the idx_sessions_project index creation succeeds on existing DBs)
   migrateV4(db);
 
-  // Apply schema (creates tables + indexes, idempotent for existing tables)
-  applySchema(db);
+  // V2 + V3 migrations: the same ordering constraint as V4, for `memories`.
+  // applySchema's index DDL covers agent_id / visibility / status, but
+  // `CREATE TABLE IF NOT EXISTS` cannot add a column to a table that already
+  // exists — so on an upgraded install the index statement threw inside
+  // applySchema, escaped openDatabase() and killed bootstrap(), and the
+  // migrations that would have fixed it were never reached. On a fresh database
+  // both no-op (no `memories` table yet; DDL_MEMORIES declares the columns).
+  const v2Result = runV2Migrations(db);
+  if (v2Result.added.length > 0) {
+    logger.info(`[V2] Memory migration: added columns: ${v2Result.added.join(', ')}`);
+  }
+
+  const v3Result = runV3Migrations(db);
+  if (v3Result.added.length > 0) {
+    logger.info(`[V3] Memory migration: added columns: ${v3Result.added.join(', ')}`);
+  }
+
+  // Apply schema (creates tables + indexes, idempotent for existing tables).
+  const { failedIndexes } = applySchema(db);
+  for (const failed of failedIndexes) {
+    // Query performance only — the database is usable and boots.
+    logger.warn(`[schema] index not created (${failed.reason}): ${failed.statement}`);
+  }
   attachMemoryObservabilityDb(db);
+
+  // NOTE: the memories_fts backfill used to run here — BEFORE the V2/V3
+  // migrations. Its COUNT(...) query references `status`, which only exists
+  // once runV3Migrations has added it, so on such a database the throw escaped
+  // openDatabase() the same way. It now runs after every migration (below).
+
+  // V5 migration: convert TEXT timestamps to INTEGER milliseconds (idempotent)
+  migrateV5(db);
+
+  // V6 migration: add performance-optimizing composite indexes (idempotent)
+  migrateV6(db);
 
   // Backfill FTS index for memories that are missing from it (first-time
   // migration for existing databases, plus partial corruption self-heal:
-  // previously only a fully-empty index triggered the rebuild).
-  {
+  // previously only a fully-empty index triggered the rebuild). Runs LAST so
+  // every column it references has been added by the migrations above.
+  try {
     const ftsCount = (
       db.prepare('SELECT COUNT(*) as cnt FROM memories_fts').get() as { cnt: number }
     ).cnt;
@@ -106,32 +144,14 @@ export function openDatabase(dbPath: string): Database.Database {
            WHERE f.rowid IS NULL`,
         ),
       );
-      try {
-        backfilled();
-        logger.info(`[FTS] Backfilled memories_fts (${ftsCount} -> ${memCount} rows)`);
-      } catch (err) {
-        logger.warn({ err }, '[FTS] memories_fts backfill failed — search falls back to LIKE');
-      }
+      backfilled();
+      logger.info(`[FTS] Backfilled memories_fts (${ftsCount} -> ${memCount} rows)`);
     }
+  } catch (err) {
+    // Never let an index-maintenance step abort startup: search degrades to
+    // LIKE rather than the gateway failing to boot.
+    logger.warn({ err }, '[FTS] memories_fts backfill failed — search falls back to LIKE');
   }
-
-  // V2 migration: add agent_id and visibility columns (idempotent)
-  const v2Result = runV2Migrations(db);
-  if (v2Result.added.length > 0) {
-    logger.info(`[V2] Memory migration: added columns: ${v2Result.added.join(', ')}`);
-  }
-
-  // V3 migration: add lifecycle fields, persona/maintenance run tables (idempotent)
-  const v3Result = runV3Migrations(db);
-  if (v3Result.added.length > 0) {
-    logger.info(`[V3] Memory migration: added columns: ${v3Result.added.join(', ')}`);
-  }
-
-  // V5 migration: convert TEXT timestamps to INTEGER milliseconds (idempotent)
-  migrateV5(db);
-
-  // V6 migration: add performance-optimizing composite indexes (idempotent)
-  migrateV6(db);
 
   return db;
 }

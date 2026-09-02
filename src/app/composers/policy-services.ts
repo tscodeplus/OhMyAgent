@@ -9,6 +9,7 @@ import { ToolVisibilityPolicyImpl } from '../../policy/tool-visibility.js';
 import { ApprovalResolutionPolicyImpl } from '../../policy/approval/resolution.js';
 import { AgentInheritancePolicyImpl } from '../../policy/inheritance/scope-merge.js';
 import { PolicyCenterImpl } from '../../policy/policy-center.js';
+import { getAgentHome, resolveAgentPath } from '../../shared/agent-home.js';
 import { configEventBus } from '../config-event-bus.js';
 
 export interface PolicyServices {
@@ -18,6 +19,12 @@ export interface PolicyServices {
   pathPolicy: PathAccessPolicyImpl;
   approvalResolution: ApprovalResolutionPolicyImpl;
   policyCenter: PolicyCenterImpl;
+}
+
+/** Attachment cache dir is a relative config value — anchor it like its writer does. */
+function mediaCacheRoot(config: AppConfig): string | undefined {
+  const cacheDir = config.multimodal?.attachments?.cacheDir;
+  return cacheDir ? resolveAgentPath(cacheDir) : undefined;
 }
 
 export function createPolicyServices(
@@ -43,8 +50,11 @@ export function createPolicyServices(
     readRoots: config.policy?.path?.readRoots ?? config.tools.fileRead.allowedRoots,
     writeRoots: config.policy?.path?.writeRoots ?? [],
     deniedPatterns: config.policy?.path?.deniedPatterns ?? config.tools.fileRead.deniedPatterns,
+    // cwd: readable only (launch dir is not a write boundary). agentHome: the
+    // explicit read+write root, from OHMYAGENT_HOME — see src/shared/agent-home.ts.
     autoInjectCwd: true,
-    autoInjectMediaCache: config.multimodal?.attachments?.cacheDir,
+    agentHome: getAgentHome(),
+    autoInjectMediaCache: mediaCacheRoot(config),
   });
 
   const shellPolicy = new ShellExecutionPolicyImpl({ approvalGate });
@@ -83,7 +93,8 @@ export function createPolicyServices(
       writeRoots: c.policy?.path?.writeRoots ?? [],
       deniedPatterns: c.policy?.path?.deniedPatterns ?? c.tools.fileRead.deniedPatterns,
       autoInjectCwd: true,
-      autoInjectMediaCache: c.multimodal?.attachments?.cacheDir,
+      agentHome: getAgentHome(),
+      autoInjectMediaCache: mediaCacheRoot(c),
     });
   });
 

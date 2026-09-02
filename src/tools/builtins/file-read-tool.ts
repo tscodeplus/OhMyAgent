@@ -3,19 +3,13 @@ import path from 'path';
 import os from 'os';
 import { Type } from 'typebox';
 import { i18n } from '../../i18n/index.js';
-import { isWithinRoot } from '../../shared/path-utils.js';
+import { isWithinRoot, allowedRootsWithFallback } from '../../shared/path-utils.js';
+import { isDeniedByPatterns } from '../../shared/glob.js';
 import type { AgentTool } from '../../pi-mono/agent/types.js';
 import type { PolicyCenter } from '../../policy/types.js';
 import type { AppConfig } from '../../app/types.js';
 
 const MAX_FILE_SIZE = 100_000; // 100K characters
-
-export function matchGlob(filePath: string, pattern: string): boolean {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '.*');
-  return new RegExp(`^${escaped}$`).test(filePath);
-}
 
 export interface FileReadToolOptions {
   /** Absolute directory paths that are allowed for reading. Empty falls back to [process.cwd()]. */
@@ -56,34 +50,22 @@ export function createFileReadTool(param?: FileReadToolDeps | FileReadToolOption
     ? (param as FileReadToolDeps).policyCenter
     : undefined;
 
-  const allowedRoots: string[] = [process.cwd()];
   const deniedPatterns: string[] = [];
+  let configuredRoots: readonly string[] = [];
 
   if (isNewStyle) {
     const deps = param as FileReadToolDeps;
-    if (deps.config.tools.fileRead.allowedRoots.length > 0) {
-      for (const r of deps.config.tools.fileRead.allowedRoots) {
-        const resolved = path.resolve(r);
-        if (!allowedRoots.includes(resolved)) {
-          allowedRoots.push(resolved);
-        }
-      }
-    }
+    configuredRoots = deps.config.tools.fileRead.allowedRoots;
     deniedPatterns.push(...deps.config.tools.fileRead.deniedPatterns);
   } else {
     const options = (param || {}) as FileReadToolOptions;
-    if (options.allowedRoots && options.allowedRoots.length > 0) {
-      for (const r of options.allowedRoots) {
-        const resolved = path.resolve(r);
-        if (!allowedRoots.includes(resolved)) {
-          allowedRoots.push(resolved);
-        }
-      }
-    }
+    configuredRoots = options.allowedRoots ?? [];
     if (options.deniedPatterns) {
       deniedPatterns.push(...options.deniedPatterns);
     }
   }
+
+  const allowedRoots = allowedRootsWithFallback(configuredRoots);
 
   return {
     name: 'file_read',
@@ -130,11 +112,8 @@ export function createFileReadTool(param?: FileReadToolDeps | FileReadToolOption
           }
         } else {
           // ── Legacy path (policyCenter not available) ──
-          // Old logic — keep EXACTLY as-is for backward compat
-          for (const pattern of deniedPatterns) {
-            if (matchGlob(resolvedPath, pattern) || matchGlob(path.basename(resolvedPath), pattern)) {
-              return { content: [{ type: 'text' as const, text: i18n.t('tools-builtins:fileRead.accessDenied') }] };
-            }
+          if (isDeniedByPatterns(resolvedPath, path.basename(resolvedPath), deniedPatterns)) {
+            return { content: [{ type: 'text' as const, text: i18n.t('tools-builtins:fileRead.accessDenied') }] };
           }
 
           // Check that resolved path is within an allowed root

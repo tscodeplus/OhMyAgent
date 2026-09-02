@@ -62,7 +62,18 @@ export class CronStore {
   // ── persistence ──
 
   private schedulePersist(): void {
-    this.writeQueue = this.writeQueue.then(() => this.doPersist());
+    // doPersist() is synchronous and CAN throw (ENOSPC, EACCES, a Windows AV
+    // locking the rename). Without a catch the rejection (a) escapes as an
+    // unhandled rejection — src/index.ts turns that into process.exit(1) — and
+    // (b) poisons the chain forever, because every later schedulePersist()
+    // derives from the already-rejected promise, so no cron write is ever
+    // persisted again. Swallow-and-log keeps the chain fulfilled.
+    this.writeQueue = this.writeQueue.then(() => this.doPersist()).catch((err: unknown) => {
+      // No logger is injected into CronStore, and creating a pino transport at
+      // module scope would leak a worker thread into every importer (tests).
+      // console.error is the same emergency channel bootstrap uses on shutdown.
+      console.error('[CronStore] persist failed — cron.json may be stale:', err);
+    });
   }
 
   private doPersist(): void {

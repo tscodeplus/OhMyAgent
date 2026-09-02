@@ -24,16 +24,21 @@ import { createWebUIApprovalSender } from './approval-sender.js';
 import { createWebUIUserQuestionSender } from './user-question-sender.js';
 import type { UserQuestionSender } from '../../agent/user-question-port.js';
 import { safeEqual } from '../../shared/safe-equal.js';
+// Reuse the gateway's existing sliding-window limiter rather than a second
+// implementation. (Ideally this class lives in src/shared — src/ should not
+// depend on extensions/ — but moving it is out of scope for these routes.)
+import { SlidingWindowRateLimiter } from '../../../extensions/channel-telegram/rate-limiter.js';
 import { createSendMediaTool } from '../../tools/builtins/multimodal/send-media-tool.js';
 import fs from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getAppVersion } from '../version.js';
+import { dataPath } from '../../shared/agent-home.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const DEBUG_LOG = path.resolve('./data/webui-debug.log');
+const DEBUG_LOG = dataPath('webui-debug.log');
 function debugLog(msg: string, data?: Record<string, unknown>): void {
   const ts = new Date().toISOString();
   const line = `[${ts}] ${msg}${data ? ' ' + JSON.stringify(data) : ''}\n`;
@@ -337,9 +342,49 @@ export interface ChatRouteConfig {
   harnessApprovalRegistry?: Map<string, (result: import('../../harness/types.js').HarnessApprovalResult) => void>;
 }
 
+// ─── Login throttling ───
+//
+// POST /api/auth/login is the only authentication factor on the public API
+// surface and used to be unlimited. Budgets (documented on purpose):
+//   per IP: 20 attempts / 60 s. The WebUI attempts exactly one login per page
+//     load, so this tolerates a whole office or phone fleet behind one NAT
+//     egress (≈20 reloads a minute) while still cutting online guessing of a
+//     weak WEBUI_TOKEN by two orders of magnitude.
+//   global: 120 attempts / 60 s across all clients. The per-IP key is only as
+//     good as the client address, and the server runs with trustProxy enabled
+//     (extensions/channel-feishu/feishu-server.ts), so X-Forwarded-For can be
+//     rotated. Without a direct-connection deployment the global window is the
+//     limit that actually bounds a brute-force run.
+export const LOGIN_WINDOW_MS = 60_000;
+export const LOGIN_MAX_ATTEMPTS_PER_IP = 20;
+export const LOGIN_MAX_ATTEMPTS_GLOBAL = 120;
+
+let loginRateLimiter = new SlidingWindowRateLimiter(LOGIN_MAX_ATTEMPTS_PER_IP, LOGIN_WINDOW_MS);
+let loginRateLimiterGlobal = new SlidingWindowRateLimiter(LOGIN_MAX_ATTEMPTS_GLOBAL, LOGIN_WINDOW_MS);
+
+/** Test seam: drop all accumulated login-attempt state. */
+export function resetLoginRateLimits(): void {
+  loginRateLimiter.destroy();
+  loginRateLimiterGlobal.destroy();
+  loginRateLimiter = new SlidingWindowRateLimiter(LOGIN_MAX_ATTEMPTS_PER_IP, LOGIN_WINDOW_MS);
+  loginRateLimiterGlobal = new SlidingWindowRateLimiter(LOGIN_MAX_ATTEMPTS_GLOBAL, LOGIN_WINDOW_MS);
+}
+
 export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): void {
   // Auth endpoint — used by frontend to validate token
   app.post('/api/auth/login', async (request, reply) => {
+    // Counted before the token comparison so guessing and reload storms share
+    // one budget. Rejecting a legitimate user for a minute is recoverable;
+    // an unthrottled oracle is not.
+    const throttled = !loginRateLimiter.check(request.ip || 'unknown')
+      || !loginRateLimiterGlobal.check('global');
+    if (throttled) {
+      return reply
+        .header('Retry-After', String(Math.ceil(LOGIN_WINDOW_MS / 1000)))
+        .status(429)
+        .send({ error: 'Too Many Requests', message: 'Too many login attempts, try again later' });
+    }
+
     const { token } = request.body as { token?: string };
     const { getWebUIToken } = await import('../webui-auth.js');
     if (!token || !safeEqual(token, getWebUIToken())) {
@@ -435,7 +480,12 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
     });
 
     const sendSSE = (data: Record<string, unknown>): void => {
-      reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+      // A tab closed mid-turn makes this write throw, and any uncaught
+      // exception takes the whole gateway down (src/index.ts exit handlers) —
+      // the same reason the keepalive below is wrapped.
+      try {
+        reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+      } catch { /* connection already closed */ }
     };
 
     // SSE keepalive — write an SSE comment every 15s so the connection stays
@@ -607,7 +657,7 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
     // persisted: one that also carried markdown would render twice (React-
     // Markdown + the extracted-images array in MessageBubble).
     const computerUseImageSender = async (image: { data: string; mimeType: string }): Promise<string> => {
-      const dir = path.resolve('./data/computer-use-screenshots');
+      const dir = dataPath('computer-use-screenshots');
       fs.mkdirSync(dir, { recursive: true });
       const ext = image.mimeType === 'image/jpeg' ? '.jpg'
         : image.mimeType === 'image/webp' ? '.webp'

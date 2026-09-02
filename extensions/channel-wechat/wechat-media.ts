@@ -16,6 +16,15 @@ import type { ILUploadUrlResponse, ILMediaParam } from './wechat-types.js';
 
 const CDN_BASE = 'https://novac2c.cdn.weixin.qq.com/c2c';
 
+/**
+ * Hard deadline for CDN transfers. The long-poll loop awaits each message
+ * handler before issuing the next getupdates, and these fetches run inside it:
+ * an unbounded transfer (undici's own defaults are measured in minutes) stalls
+ * inbound delivery for every other chat.
+ */
+const CDN_DOWNLOAD_TIMEOUT_MS = 60_000;
+const CDN_UPLOAD_TIMEOUT_MS = 120_000;
+
 /** CDN hostname for inbound media download. */
 export const ILINK_CDN_HOST = 'novac2c.cdn.weixin.qq.com';
 
@@ -109,6 +118,7 @@ export async function uploadMedia(
     method: 'POST',
     headers: { 'Content-Type': 'application/octet-stream' },
     body: encrypted as BodyInit,
+    signal: AbortSignal.timeout(CDN_UPLOAD_TIMEOUT_MS),
   });
 
   if (!cdnRes.ok) {
@@ -148,7 +158,7 @@ export async function uploadMedia(
 export async function downloadMedia(mediaParam: ILMediaParam): Promise<Buffer> {
   const cdnUrl = buildCdnDownloadUrl(mediaParam.encrypt_query_param);
 
-  const res = await fetch(cdnUrl);
+  const res = await fetch(cdnUrl, { signal: AbortSignal.timeout(CDN_DOWNLOAD_TIMEOUT_MS) });
   if (!res.ok) {
     throw new Error(
       `CDN download failed: HTTP ${res.status} ${res.statusText}`,
@@ -214,7 +224,7 @@ export async function downloadInboundMedia(
   const cdnUrl = `https://${cdnBaseUrl}/c2c/download?${queryParam}`;
   logger.debug({ cdnUrl }, 'Downloading inbound media from CDN');
 
-  const res = await fetch(cdnUrl);
+  const res = await fetch(cdnUrl, { signal: AbortSignal.timeout(CDN_DOWNLOAD_TIMEOUT_MS) });
   if (!res.ok) {
     throw new Error(
       `CDN download failed: HTTP ${res.status} ${res.statusText}`,

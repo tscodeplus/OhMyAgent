@@ -9,18 +9,35 @@
 #   This lets you keep secrets in .env while everything else lives here.
 #
 # Priority: process.env > config.yaml > defaults
+#
+# KEYS ARE SNAKE_CASE HERE, camelCase in the loaded AppConfig object. The single
+# source of truth for what this file accepts is yamlToAppConfigRaw() and
+# buildMemorySection() in src/app/config-loader.ts — a key it never reads is
+# silently ignored, and an unreadable value falls back to its default instead of
+# failing startup. There is no unknown-key error.
 # ============================================================================
 
 # --- LLM Provider (required) ---
 provider:
   # Format: provider/model-id (same format used by fallback_models and agents)
   primary: deepseek/deepseek-chat
-  # Reasoning model (optional, defaults to primary model)
+  # Reasoning model (optional, defaults to primary model). Only the part after
+  # the slash is used, to pick a model within the primary's provider.
   reasoning: deepseek/deepseek-reasoner
   # API key — inline or use ${DEEPSEEK_API_KEY} to reference .env
   api_key: sk-xxx
   # Optional base URL override
   # base_url: https://api.deepseek.com/v1
+
+# --- Per-provider keys (optional) ---
+# Credentials for providers other than `primary`, so each can be reached without
+# repeating the whole custom_providers block. Only api_key / base_url are read.
+# provider_keys:
+#   openai:
+#     api_key: ${OPENAI_API_KEY}
+#   nvidia:
+#     api_key: ${NVIDIA_API_KEY}
+#     base_url: https://integrate.api.nvidia.com/v1
 
 # --- Fallback Models ---
 # Tried in order when the primary model fails. Format: provider/model-id.
@@ -33,23 +50,28 @@ provider:
 # Accepts provider-specific values: low, medium, high, max, xhigh.
 # default_reasoning_level: medium
 
-# --- Summary LLM (optional) ---
-# Used for session summarization. Falls back to rule-based summary if unset.
-# summary:
-#   model: deepseek/deepseek-chat
-#   # api_key: sk-xxx
-#   # base_url: https://api.deepseek.com/v1
+# --- Memory Auxiliary Models (optional) ---
+# Models used by background memory work (extraction, summarization) instead of
+# the conversational primary model — usually a cheaper one.
+# memory_aux_models:
+#   primary: deepseek/deepseek-chat
+#   fallback_models:
+#     - mimo/mimo-v2.5
 
 # --- Vision Bridge (optional) ---
 # When enabled, images sent to text-only models are first analyzed
-# by a separate vision-capable model. See docs/VISION_BRIDGE_PLAN.md.
+# by a separate vision-capable model.
 # vision_bridge:
 #   enabled: true
 #   model_ref: nvidia/moonshotai/kimi-k2.6
 #   # timeout_ms: 120000
+#   # max_note_chars: 3200
+#   # max_cache_entries: 256
 
 # --- Custom Providers (optional) ---
 # Define LLM providers not in pi-mono's built-in registry.
+# NOTE: an entry missing api_key, base_url or a models list is dropped without a
+# warning — a typo in one of those three keys looks identical to "not configured".
 # custom_providers:
 #   ai-next:
 #     api_key: sk-xxx
@@ -59,7 +81,10 @@ provider:
 #         name: GPT-5.4
 #         api: openai-responses         # or: openai-completions
 #         reasoning: true
+#         # reasoning_level: medium
+#         # context_window: 200000
 #         max_tokens: 128000
+#         # input: [text, image]
 #         cost:
 #           input: 0
 #           output: 0
@@ -72,54 +97,91 @@ provider:
 #   api_key: sk-xxx
 #   model: BAAI/bge-m3
 #   dimension: 1024
+#   # max_input_chars: 8000
 
 # --- Channels ---
 # At least one channel must be configured.
+#
+# telegram / wechat / qq are only registered when `enabled: true` AND their
+# credential field are both present; otherwise the whole section resolves to
+# undefined and the channel never starts, with no error at startup.
+# Feishu reads `enabled` normally, but its allowlist is env-only
+# (FEISHU_ALLOWED_USERS) — allowed_users under channels.feishu is NOT read,
+# unlike the other three channels.
 channels:
   # feishu:
   #   enabled: true                     # Set to true to enable
   #   app_id: cli_xxx
   #   app_secret: yyy
+  #   # bot_name: ""
   #   # verification_token: ""
   #   # encrypt_key: ""
-  #   # connection_mode: websocket   # websocket | webhook
+  #   # region: feishu                  # feishu (CN) | lark (international)
+  #   # connection_mode: websocket      # websocket | webhook
 
   # telegram:
+  #   enabled: true
   #   bot_token: xxx
-  #   mode: polling               # polling | webhook
+  #   mode: polling                     # polling | webhook
   #   proxy_url: http://127.0.0.1:7897
+  #   # bot_name: ""
+  #   # webhook_url: https://example.com/telegram/webhook
+  #   # webhook_port: 8443
+  #   # webhook_secret: ""              # required in webhook mode to fail closed
+  #   # allowed_users: []
+  #   # allowed_groups: []
+  #   # stream_mode: edit               # edit | off
+  #   # text_limit: 4096
+  #   # stream_interval: 500
 
   # wechat:
   #   enabled: true
   #   bot_token: xxx
+  #   # api_base: https://ilinkai.weixin.qq.com
+  #   # cursor_dir: ./data/wechat
+  #   # aes_key: ""
+  #   # text_limit: 2048
+  #   # allowed_users: []
 
   # qq:
   #   enabled: true
   #   app_id: xxx
   #   client_secret: xxx
+  #   # sandbox: false
+  #   # text_limit: 1500
+  #   # allowed_users: []
+  #   # allowed_groups: []
 
 # --- Database ---
 # database:
 #   path: ~/.ohmyagent/data/app.db
 
+# --- Rate Limiting ---
+# Inbound webhook flood guard (applies to webhook-mode channels).
+# rate_limit:
+#   webhook_max: 100
+#   webhook_window_ms: 60000
+
 # --- Web Search ---
 # web_search:
 #   provider_order:
+#     - anysearch
 #     - tavily
 #     - exa
 #     - baidu
+#   # anysearch_api_key: ""
 #   # tavily_api_key: tvly-xxx
+#   # exa_api_key: ""
 #   # baidu_api_key: bce-v3/xxx
 #   # timeout_ms: 30000
 #   # max_results: 5
 
 # --- Tools ---
 # tools:
-#   profile: standard             # minimal | standard | developer | full
-#   # Include skills/tools catalog layers in the system prompt. Disable (false)
-#   # for providers WITHOUT prompt caching to save per-turn tokens.
-#   # Env: SYSTEM_PROMPT_CATALOGS
-#   system_prompt_catalogs: true
+#   profile: standard             # minimal | standard | advanced | full
+#   # Not settable here: the catalog layers toggle is read from the environment
+#   # only (SYSTEM_PROMPT_CATALOGS=true|false). Disable it for providers WITHOUT
+#   # prompt caching to save per-turn tokens.
 #   shell:
 #     enabled: true
 #     exec_mode: balanced         # safe | balanced | trusted
@@ -131,8 +193,9 @@ channels:
 #       - find
 #     # command_timeout_ms: 60000
 #     # max_output_chars: 12000
-#     # approval_timeout_sec: 120
-#     # approval_timeout_action: deny
+#     # approval_mode: balanced   # strict | balanced | relaxed (legacy v1 field)
+#     # approval_timeout_sec: 600
+#     # approval_timeout_action: deny   # deny | allow
 #   file_read:
 #     # allowed_roots:
 #     #   - /tmp
@@ -141,24 +204,103 @@ channels:
 #     #   - .env
 #     #   - "*.pem"
 
+# --- Computer Use (optional) ---
+# Desktop/phone automation. `provider: auto` picks local Windows UIA, an SSH
+# X11 host, or a remote node. Only section with nested transport config.
+# computer_use:
+#   enabled: true
+#   # provider: auto                    # auto | windows | ssh | node
+#   # allowed_apps: []                  # empty = no app restriction
+#   # allowed_agents: []
+#   # approval_whitelist: []
+#   # per_platform_provider:
+#   #   android: node
+#   #   windows: windows
+#   ssh:
+#     host: 192.168.1.10
+#     user: me
+#     key_path: ~/.ssh/id_ed25519
+#     # port: 22
+#     # jump_host: bastion.example.com
+#     # display: ":0"
+#   node:
+#     url: http://192.168.1.20:8080
+#     # token: ""
+#     adb:
+#       # path: adb
+#       # serial: ""
+#       # manage_screen: false
+
 # --- Memory ---
 # memory:
 #   auto_recall: false
 #   auto_recall_frequency: first   # first | every
+#   # auto_capture: false          # deprecated, unimplemented
 #   summarize_interval: 20
 #   output_language: Auto          # Auto | English | Simplified Chinese | ...
 #   # recall_top_k: 3
 #   # recall_min_score: 0.01
 #   # capture_max_chars: 500
-#   # decay_half_life_days: 30
+#   # history_load_count: 5
+#   # history_max_tokens: 1000       # 0 = no limit
+#   # decay_half_life_days: 30       # 0 disables temporal decay
 #   # embedding_cache_max_entries: 10000
 #   # query_embedding_timeout_ms: 10000
+#   query_planner:
+#     enabled: true
+#     # commonality_coverage: true
+#     # speaker_boost: 0.05
+#     # per_slot_floor: 2
+#     # max_entities: 4
+#     llm:
+#       enabled: false
+#   recall:
+#     # prefilter_multiplier: 5
+#     # prefilter_min: 20
+#     # merge_candidate_multiplier: 3
+#   expansion:
+#     enabled: false
+#     # min_query_length: 15
+#     # min_score_trigger: 0.3
+#     # max_variants: 4
 #   hygiene:
 #     enabled: true
 #     retention_days: 90
 #   embedding_circuit_breaker:
 #     failure_threshold: 5
 #     cooldown_sec: 30
+#   offloading:
+#     enabled: true
+#     # max_refs_in_context: 10
+#     # preserve_in_messages: 2
+#     # ref_dir: ""                    # empty = default under the agent home
+#     # retention_days: 7
+#   mermaid_canvas:
+#     enabled: false
+#     # inject_format: summary         # summary | mermaid
+#     # phase_tagging: auto
+#     # max_nodes_in_context: 20
+#   persona:
+#     enabled: true
+#     # distill_threshold: 3
+#     # min_distill_interval_hours: 0
+#   scene_clustering:
+#     enabled: false
+#     # window_days: 7
+#     # min_memories: 5
+#   auto_compress:
+#     enabled: true
+#     # reserve_tokens: 16384
+#     # keep_recent_tokens: 20000
+#     # model:
+#     #   primary: deepseek/deepseek-chat
+#     #   fallback_models: []
+#   maintenance:
+#     enabled: true
+#     # interval_ms: 300000
+#     # jobs:                          # per-job switches; note that memory_hygiene
+#     #   memory_hygiene: true         # and scene_cluster are not wired into the
+#     #   scene_cluster: false         # scheduler, so their values are inert.
 
 # --- Agents ---
 # Define agent personas. Each key is an agent ID.
@@ -176,9 +318,22 @@ channels:
 #     description: "Developer assistant"
 #     system_prompt: "You are a developer assistant. Help with code."
 #     tools:
-#       profile: developer
+#       profile: advanced
+#       add: []                     # extra tool names on top of the profile
+#       deny: []                    # tool names removed from the profile
 #     model:
 #       primary: deepseek/deepseek-chat
+#       fallback: []                # per-agent fallback chain
+#       # reasoning_level: high
+#       # transport: ""
+#       # max_retry: 0
+#     channels: [feishu, telegram]  # restrict this agent to certain channels
+#     spawn:
+#       enabled: false
+#       max_parallel: 2
+#       allowed_personas: []
+#     extensions:
+#       disable: []                 # per-agent extension opt-out
 #
 #   designer:
 #     name: Designer
@@ -193,15 +348,12 @@ channels:
 #   tick_interval_ms: 30000
 #   data_dir: ./cron
 #   execution_timeout_ms: 600000
+#   # max_concurrency: 4
 
 # --- Agent Watchdog (optional) ---
 # agent:
 #   turn_timeout_sec: 300         # wall-clock cap per agent turn (0 disables)
 #   max_retries: 2                # transient provider/transport error retries
-#   max_tool_cycles: 25           # soft cap on tool-calling rounds per turn
-#   request_timeout_ms: 120000    # LLM first-response timeout (0 disables);
-#                                 # bounds connect + response headers only —
-#                                 # streaming generation is never cut off.
 
 # --- Extensions ---
 # extensions:
@@ -210,10 +362,6 @@ channels:
 # --- v4 Policy Center (optional) ---
 # policy:
 #   mode: balanced                # safe | balanced | permissive
-#   path:
-#     read_roots: []
-#     write_roots: []
-#     denied_patterns: []
 #   approval:
 #     timeout_sec: 120
 #     timeout_action: deny        # deny | allow
@@ -226,17 +374,31 @@ channels:
 #   inherit_approvals: true
 #   inherit_app_approvals: true
 
+# --- Smart Agent Team (optional) ---
+# smart_agent_team:
+#   enabled: true
+#   max_children: 4
+#   child_timeout_sec: 300
+#   child_settle_timeout_ms: 15000
+
 # --- v4 Multimodal Runtime (optional) ---
+# Passed through to the Zod schema as-is, so keys here are camelCase — the one
+# section that is not snake_case.
 # multimodal:
 #   enabled: true
 #   attachments:
-#     cache_dir: ./data/media-cache
-#     auto_parse_images: true
-#     auto_parse_documents: true
-#     auto_transcribe_audio: false
+#     cacheDir: ./data/media-cache
+#     autoParseImages: true
+#     autoParseDocuments: true
+#     autoTranscribeAudio: false
 #   image:
 #     mode: native_first           # native_first | bridge_only | native_only
-#     bridge_model_ref: nvidia/moonshotai/kimi-k2.6
+#     bridge:
+#       enabled: true
+#       modelRef: nvidia/moonshotai/kimi-k2.6
+#       # timeoutMs: 120000
+#       # (snake_case spellings are NOT accepted in this section — Zod drops them
+#       #  as unknown keys, so they read as unset rather than as an error)
 #   imageGeneration:
 #     enabled: true
 #     modelRef: agnes/agnes-image-2.1-flash
@@ -249,20 +411,57 @@ channels:
 #     maxPromptChars: 4000
 #     defaultSeconds: "5.0"
 #     defaultSize: 1280x768
+#   stt:
+#     enabled: false
+#     # language: auto
+#     # autoTranscribe: true
+#     # maxDurationSec: 300
+#     # maxFileSizeMb: 25
+#     # providers:
+#       # - id: openai
+#         # model: whisper-1
 
-# --- v4 MCP Servers (optional) ---
-# mcp:
-#   servers:
-#     - id: filesystem
-#       name: Filesystem
-#       command: npx
-#       args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
-#       resources:
-#         - id: root
-#           name: Root directory
-#           description: Access to /tmp files
+# --- Harness (optional) ---
+# Self-improvement proposals: watches repeated failures and suggests rule edits.
+# harness:
+#   enabled: true
+#   channels:                         # which surfaces may receive proposals
+#     webui: true
+#     feishu: true
+#     telegram: true
+#     wechat: false
+#     qq: false
+#   trigger:
+#     min_identical_retries: 3
+#     min_exploration_steps: 8
+#     min_consecutive_errors: 3
+#     min_dependency_errors: 2
+#   rate_limit:
+#     cooldown_minutes: 30
+#     max_per_hour: 2
+#     max_per_day: 10
+#     max_auto_apply_per_day: 5
+#   proposal:
+#     model: default
+#     max_edits_per_proposal: 5
+#     # min_confidence: 0.5
+#   interactive:
+#     approval:
+#       mode: smart_approve          # always_ask | smart_approve | low_risk_auto
+#   rules: []
+
+# --- Reply Footer (optional) ---
+# footer:
+#   show_agent_name: true
+#   show_model: true
+#   show_completed: false
+#   show_elapsed: true
+#   show_usage: false
+#   show_cache_hit_rate: false
 
 # --- Display & I18n ---
 # show_tool_calls: true          # Show tool indicators in chat
+# show_skill_calls: true
 # ui_language: en                # en | zh-CN
 # log_level: info                # fatal | error | warn | info | debug | trace
+# setup_wizard_done: false       # Set by the WebUI first-run wizard

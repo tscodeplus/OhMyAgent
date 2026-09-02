@@ -23,6 +23,11 @@ import type { ComputerUseHost } from '../computer-use/computer-host.js';
 import type { ResolvedAgentConfig } from './config-types.js';
 import type { PendingApprovalStore } from './approval-store.js';
 import type { AgentPolicyScope, ApprovalKind } from '../policy/types.js';
+import {
+  toolApprovalSubject,
+  type ToolPolicyInputWithSkill,
+} from '../policy/policy-center.js';
+import { getSkillToolPolicy } from './skill-activator.js';
 import { generateId } from '../shared/ids.js';
 import { extractPathArg } from '../shared/path-utils.js';
 import { i18n } from '../i18n/index.js';
@@ -301,19 +306,29 @@ async function handleShellApproval(
     const rejectReason = approvalGate?.lastRejectReason;
     const session = resolveApprovalSession(deps, activeChatId, activeDispatcher);
 
-    const risk = session && activeChatId ? assessCommandRisk(command) : 'low';
-    let cardMessageId: string | undefined;
-
-    if (session && activeChatId) {
-      cardMessageId = await session.present({
-        requestId,
-        command,
-        risk,
-        reason: rejectReason,
-        chatId: activeChatId,
-        sessionId: sessionId ?? '',
-      });
+    // Fail closed: without an interactive channel nobody can answer, so
+    // awaiting a decision only stalls the turn until the inactivity watchdog
+    // kills it — and a timeout_action of 'allow' would auto-approve a command
+    // no human ever reviewed. Matches the file-access/generic-tool handlers.
+    if (!session || !activeChatId) {
+      return {
+        block: true,
+        reason:
+          'Shell command requires approval, but no interactive approval channel is available',
+      } satisfies BeforeToolCallResult;
     }
+
+    // Risk must be assessed unconditionally: approval-store only shields
+    // 'high' from timeout auto-approval, so a false 'low' defeats that guard.
+    const risk = assessCommandRisk(command);
+    const cardMessageId = await session.present({
+      requestId,
+      command,
+      risk,
+      reason: rejectReason,
+      chatId: activeChatId,
+      sessionId: sessionId ?? '',
+    });
 
     const decisionType = await pendingApprovals.create(
       requestId,
@@ -332,15 +347,13 @@ async function handleShellApproval(
       },
     );
 
-    if (session && activeChatId) {
-      await session.resolve({
-        requestId,
-        decision: decisionType,
-        cardMessageId,
-        chatId: activeChatId,
-        command,
-      });
-    }
+    await session.resolve({
+      requestId,
+      decision: decisionType,
+      cardMessageId,
+      chatId: activeChatId,
+      command,
+    });
 
     if (approvalGate) {
       await approvalGate.recordDecision(requestId, decisionType, command, sessionId ?? undefined);
@@ -417,6 +430,9 @@ async function handleFileAccessApproval(
       reason,
       policyScope: 'path',
       requesterId: deps.senderId,
+      // Option B (report #6b): when a human approves this card, the store's
+      // onFileServeApproved hook grants WebUI serving for this path (TTL).
+      fileServePath: pathArg,
     },
   );
 
@@ -459,8 +475,14 @@ async function handleGenericToolApproval(
   const { approvalTimeoutMs, approvalRequestRepo, sessionId, pendingApprovals } = deps;
   const requestId = generateId();
   const command = `${toolName} ${JSON.stringify(args ?? {})}`;
-  const subject = toolName;
-  const risk: 'low' | 'medium' | 'high' = 'medium';
+  // Bind the recorded decision to what was actually approved. Keying it by the
+  // bare tool name let one approve_session/approve_always on remote_trigger,
+  // spawn_agent, memory_delete, … authorise every later call with any args.
+  const subject = toolApprovalSubject(toolName, args);
+  // Risk is not cosmetic: approval-store only shields 'high' requests from
+  // `approval_timeout_action: allow`, so a hardcoded 'medium' silently
+  // auto-approved high-risk tools when nobody was watching.
+  const risk = approvalRiskForTool(toolName, args);
 
   const session = resolveApprovalSession(deps, activeChatId, activeDispatcher);
   if (!session || !activeChatId) {
@@ -1060,6 +1082,18 @@ function getCapabilityForTool(
   );
 }
 
+/**
+ * Map a tool's declared capability onto the risk label shown on the approval
+ * card and used by the timeout guard (only 'high' is protected from
+ * `approval_timeout_action: allow`).
+ */
+function approvalRiskForTool(toolName: string, args: unknown): 'low' | 'medium' | 'high' {
+  const capability = getCapabilityForTool(toolName, args);
+  if (capability.approvalDefault === 'high_risk' || capability.usesComputerUse) return 'high';
+  if (capability.approvalDefault === 'mutating' || !capability.readOnly) return 'medium';
+  return 'low';
+}
+
 async function handleViaPolicyCenter(
   deps: BeforeToolCallDeps & { policyCenter: NonNullable<BeforeToolCallDeps['policyCenter']> },
   context: { toolCall: { name: string }; args: unknown },
@@ -1099,14 +1133,17 @@ async function handleViaPolicyCenter(
   const capability = getCapabilityForTool(context.toolCall.name, context.args);
 
   // Step 3: Call PolicyCenter.evaluateToolCall()
-  const decision = await deps.policyCenter.evaluateToolCall({
+  const evaluationInput: ToolPolicyInputWithSkill = {
     toolName: context.toolCall.name,
     capability,
     args: context.args,
     sessionId: deps.sessionId,
     agentId: deps.policyAgentId ?? deps.agentConfig?.id,
     policyScope: scope,
-  });
+    // Compiled skill allow/deny lists — enforced by the visibility check.
+    skillToolOverrides: getSkillToolPolicy(deps.resolvedSkillScope),
+  };
+  const decision = await deps.policyCenter.evaluateToolCall(evaluationInput);
 
   // Step 4: Handle the decision
   cuLog('handleViaPolicyCenter: decision', {
@@ -1275,9 +1312,28 @@ export function createBeforeToolCall(deps: BeforeToolCallDeps) {
       );
     }
 
-    // ── Only gate the shell tool ──
+    // ── Non-shell tools ──
+    // Without a PolicyCenter there is no visibility/path check, so previously
+    // every tool except shell/computer_use returned `undefined` — an ungated
+    // allow for memory_delete, spawn_agent, remote_trigger, … Fail closed
+    // instead: anything whose capability says it needs approval goes through the
+    // generic approval handler (which blocks when no UI can answer).
     if (toolName !== 'shell') {
-      return undefined;
+      const capability = getCapabilityForTool(toolName, context.args);
+      const needsApproval =
+        capability.approvalDefault === 'high_risk' ||
+        (capability.approvalDefault === 'mutating' && !capability.readOnly);
+      if (!needsApproval) return undefined;
+
+      return handleGenericToolApproval(
+        deps,
+        toolName,
+        context.args,
+        `Tool "${toolName}" requires approval`,
+        activeChatId ?? '',
+        activeMessageId,
+        activeDispatcher,
+      );
     }
 
     const args = context.args as { command?: string };

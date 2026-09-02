@@ -44,12 +44,25 @@ export class MemoryLinkRepository {
     return stmt.get(id) as MemoryLink | undefined;
   }
 
-  /** Find all links pointing to a given entity. */
-  findByEntity(entity: string): MemoryLink[] {
+  /**
+   * Find all links pointing to any of the given entities, grouped by entity.
+   * One query instead of one per entity; each group keeps the confidence-DESC
+   * ordering a single-entity lookup would return.
+   */
+  findByEntities(entities: string[]): Map<string, MemoryLink[]> {
+    const grouped = new Map<string, MemoryLink[]>();
+    if (entities.length === 0) return grouped;
+    const placeholders = entities.map(() => '?').join(',');
     const stmt = this.db.prepare(
-      'SELECT * FROM memory_links WHERE target_entity = ? ORDER BY confidence DESC',
+      `SELECT * FROM memory_links WHERE target_entity IN (${placeholders}) ORDER BY target_entity, confidence DESC`,
     );
-    return stmt.all(entity) as MemoryLink[];
+    const rows = stmt.all(...entities) as MemoryLink[];
+    for (const row of rows) {
+      const bucket = grouped.get(row.target_entity);
+      if (bucket) bucket.push(row);
+      else grouped.set(row.target_entity, [row]);
+    }
+    return grouped;
   }
 
   /** Find all links originating from a given memory. */
@@ -76,7 +89,7 @@ export class MemoryLinkRepository {
     const stmt = this.db.prepare(
       `SELECT target_entity, source_memory_id, confidence FROM memory_links WHERE source_memory_id IN (${placeholders})`,
     );
-    return stmt.all(...memoryIds) as any[];
+    return stmt.all(...memoryIds) as { target_entity: string; source_memory_id: string; confidence: number }[];
   }
 
   deleteByMemory(memoryId: string): number {

@@ -275,10 +275,22 @@ export class TelegramReplyDispatcher implements ReplyDispatcher {
         ],
       };
 
-      this.bot.api.sendMessage(this.chatId, text, {
-        parse_mode: 'Markdown',
-        reply_markup: inlineKeyboard,
-      });
+      // Delivery failure must not become an unhandled rejection (src/index.ts
+      // exits the process on one), and must not leave the turn blocked until
+      // the timeout — treat it as the same 'timeout' outcome.
+      const onDeliveryFailed = (): void => {
+        clearTimeout(timeout);
+        this._harnessResolvers.delete(prompt.id);
+        harnessApprovalRegistry.remove(prompt.id);
+        resolve({ decision: 'timeout' });
+      };
+
+      Promise.resolve(
+        this.bot.api.sendMessage(this.chatId, text, {
+          parse_mode: 'Markdown',
+          reply_markup: inlineKeyboard,
+        }),
+      ).then(undefined, onDeliveryFailed);
     });
   }
 

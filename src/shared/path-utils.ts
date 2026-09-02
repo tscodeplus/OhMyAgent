@@ -3,15 +3,31 @@ import os from 'node:os';
 import { homedir } from 'node:os';
 
 /**
- * Check whether filePath is within the given root directory.
- * Uses path.relative() which is case-insensitive on Windows
- * and correctly handles mixed path separators on all platforms.
+ * Minimal `node:path` surface a containment check needs. Injectable so tests
+ * can exercise Windows semantics (`path.win32`) from a POSIX runner.
  */
-export function isWithinRoot(filePath: string, root: string): boolean {
-  const relative = path.relative(root, filePath);
-  return (
-    relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative))
-  );
+export interface PathImpl {
+  relative(from: string, to: string): string;
+  isAbsolute(p: string): boolean;
+  sep: string;
+}
+
+/**
+ * Check whether filePath is within the given root directory.
+ *
+ * Deliberately uses relative() instead of `resolved.startsWith(root + sep)`:
+ * a string prefix treats `C:\repo\files-root` as containing
+ * `C:\repo\files-root2`, while relative() compares whole components.
+ * relative() also normalizes both inputs, handles Windows drive roots
+ * (relative('D:\\', 'D:\\x') is 'x', not '\\x') and is case-insensitive on
+ * Windows.
+ */
+export function isWithinRoot(filePath: string, root: string, p: PathImpl = path): boolean {
+  const relative = p.relative(root, filePath);
+  if (relative === '') return true;
+  if (!relative || p.isAbsolute(relative)) return false;
+  // Only '..' and '../..' style parents escape; '..bak' is an ordinary name.
+  return relative !== '..' && !relative.startsWith(`..${p.sep}`);
 }
 
 /**
@@ -44,6 +60,24 @@ export function normalizeRoots(roots: string[]): string[] {
     }
   }
   return result;
+}
+
+/**
+ * A configured `allowedRoots` option → absolute, de-duplicated roots.
+ *
+ * The launch directory joins the set ONLY when nothing was configured, which is
+ * the documented default of every `allowedRoots` option. Seeding cwd
+ * unconditionally would let whichever directory the process happened to start in
+ * silently widen the sandbox — repo root under `pnpm dev`, `$HOME` under Termux,
+ * the install directory for the desktop sidecar — so the same config would grant
+ * different permissions on each deployment.
+ */
+export function allowedRootsWithFallback(
+  roots: readonly string[] | undefined,
+  fallback: string = process.cwd(),
+): string[] {
+  const normalized = normalizeRoots([...(roots ?? [])]);
+  return normalized.length > 0 ? normalized : [path.resolve(fallback)];
 }
 
 /**

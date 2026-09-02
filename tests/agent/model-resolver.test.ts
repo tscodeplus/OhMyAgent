@@ -76,8 +76,16 @@ describe('resolveModelContextLength', () => {
     expect(resolveModelContextLength(makeModel({ contextWindow: undefined, context_length: 64000 }))).toBe(64000);
   });
 
-  it('falls back to maxTokens when both contextWindow and context_length are absent', () => {
-    expect(resolveModelContextLength(makeModel({ contextWindow: undefined, context_length: undefined, maxTokens: 32000 }))).toBe(32000);
+  it('does not mistake the output cap for the context window', () => {
+    // maxTokens limits a single completion. Treating it as the window made an
+    // 8k-output model look like an 8k-context model, so compression triggered
+    // on nearly every turn. Unknown must stay unknown (0).
+    const model = makeModel({
+      contextWindow: undefined,
+      context_length: undefined,
+      maxTokens: 32000,
+    });
+    expect(resolveModelContextLength(model)).toBe(0);
   });
 
   it('returns 0 when no context info is present', () => {
@@ -178,6 +186,30 @@ describe('resolveModel', () => {
     const result = resolveModel({ explicitModel: model, config: baseConfig });
 
     expect((result.model as any).headers).toEqual({ 'Content-Type': 'application/json' });
+  });
+
+  it('does not write overrides through to the model it was given', () => {
+    // The registry returns one shared instance per registered model, so a
+    // second agent (or the next config reload) used to inherit this agent's
+    // gateway baseUrl and a stripped header.
+    const shared = makeModel({
+      provider: 'nvidia',
+      id: 'minimaxai/minimax-m3',
+      headers: { 'NVCF-POLL-SECONDS': '30' },
+    });
+    const config = {
+      ...baseConfig,
+      customProviders: [
+        { provider: 'nvidia', baseUrl: 'https://gateway.example.com/v1', models: [] },
+      ],
+    };
+
+    const result = resolveModel({ explicitModel: shared, config });
+
+    expect(result.model).not.toBe(shared);
+    expect((result.model as any).baseUrl).toBe('https://gateway.example.com/v1');
+    expect(shared.baseUrl).toBe('https://api.openai.com/v1');
+    expect((shared as any).headers).toEqual({ 'NVCF-POLL-SECONDS': '30' });
   });
 
   it('does not crash when model has no headers', () => {

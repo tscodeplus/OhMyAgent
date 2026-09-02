@@ -428,6 +428,14 @@ describe('bootstrap', () => {
     expect(openDatabase).toHaveBeenCalledWith(mockConfig.database.path);
   });
 
+  it('rejects a bootstrap that overlaps one already in flight', async () => {
+    const first = bootstrap();
+    await expect(bootstrap()).rejects.toThrow(/already running/);
+    await first;
+    // Sequential use is unaffected — only overlap is refused.
+    await expect(bootstrap()).resolves.toBeDefined();
+  });
+
   it('creates FeishuClient with appId and appSecret', async () => {
     await bootstrap();
     expect(FeishuClient).toHaveBeenCalledWith(

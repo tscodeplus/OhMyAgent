@@ -1,5 +1,6 @@
 import type { MemoryRepository } from './repositories/memory-repository.js';
 import type { RetrievedMemory } from './memory-retriever.js';
+import { parseEpochMs } from '../shared/timestamp.js';
 
 const TEXT_FALLBACK_SCORE = 0.5;
 
@@ -24,6 +25,6 @@ export async function textFallbackRetrieve(
     scopeKey: m.scope_key,
     kind: m.kind,
     score: TEXT_FALLBACK_SCORE,
-    createdAt: new Date(m.created_at).getTime(),
+    createdAt: parseEpochMs(m.created_at),
   }));
 }

@@ -277,8 +277,80 @@ pub fn compat_set_auto_start(app: AppHandle, enable: bool) -> Result<(), String>
 // Save dialogs (port of main.ts save-file-from-url / save-local-file)
 // ---------------------------------------------------------------------------
 
+/// Directories the bridge may read a file out of, canonicalized.
+///
+/// Deliberately the same bases the Node route treats as served roots
+/// (`toolAllowedRoots()` in `src/tools/platform/serve-roots.ts`: cwd, temp dir,
+/// home) plus the desktop data dir, so the bridge stays as capable as the
+/// gateway it fronts while still refusing everything else (`C:\Windows\…`,
+/// `/etc/shadow`, another user's home). This is defence in depth, not the
+/// primary boundary — the Node routes confine first.
+fn readable_roots(app: &AppHandle) -> Vec<std::path::PathBuf> {
+    let mut candidates: Vec<std::path::PathBuf> = vec![
+        ShellConfig::load(app).data_dir,
+        std::env::current_dir().unwrap_or_default(),
+        std::env::temp_dir(),
+    ];
+    if let Some(home) = dirs::home_dir() {
+        candidates.push(home);
+    }
+    candidates
+        .into_iter()
+        .filter_map(|p| std::fs::canonicalize(p).ok())
+        .collect()
+}
+
+/// Canonicalize `file_path` and require it to sit inside one of
+/// [`readable_roots`]. Returns `None` for anything unresolvable, not a regular
+/// file, or outside — the caller must not distinguish those cases, or the
+/// command becomes a filesystem existence oracle.
+fn read_target_within_roots(app: &AppHandle, file_path: &str) -> Option<std::path::PathBuf> {
+    let resolved = std::fs::canonicalize(file_path).ok()?;
+    if !resolved.is_file() {
+        return None;
+    }
+    // Path::starts_with compares whole components, so "/tmp/fo" never matches a
+    // "/tmp/foo" root the way a string prefix check would.
+    readable_roots(app)
+        .into_iter()
+        .find(|root| resolved.starts_with(root))
+        .map(|_| resolved)
+}
+
+/// Reduce a webview-supplied download name to a bare file name.
+///
+/// The value is handed to the native save dialog as the suggested name; a
+/// `../../x` or an absolute path in it moves the dialog's default location.
+fn safe_file_name(name: &str) -> String {
+    let trimmed = name.trim();
+    let base = trimmed
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(trimmed)
+        .trim_matches(['.', ' ']);
+    let cleaned: String = base
+        .chars()
+        .map(|c| match c {
+            ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\0' => '_',
+            _ => c,
+        })
+        .collect();
+    if cleaned.is_empty() {
+        "download".to_string()
+    } else {
+        cleaned
+    }
+}
+
 /// data: URL → decode; http(s) URL → resolve base then download; then a native
 /// save dialog. Returns the chosen path (empty string when cancelled).
+///
+/// Scheme is restricted to data:/http(s); the destination is always a
+/// user-confirmed save dialog, so this cannot silently write the filesystem.
+/// Residual risk (accepted): the URL's host is not validated — the webview can
+/// make the shell fetch any http(s) URL. Chat media legitimately arrives from
+/// provider CDNs, so a host allowlist would break real saves; the exposure is
+/// limited to fetching content the user then explicitly saves.
 #[tauri::command]
 pub fn compat_save_file_from_url(
     app: AppHandle,
@@ -302,7 +374,7 @@ pub fn compat_save_file_from_url(
         download_bytes(&full).map_err(|e| e.to_string())?
     };
 
-    let Some(path) = save_dialog(&app, &filename) else {
+    let Some(path) = save_dialog(&app, &safe_file_name(&filename)) else {
         return Ok(String::new()); // cancelled
     };
     std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
@@ -316,17 +388,22 @@ pub fn compat_save_local_file(
     file_path: String,
     file_name: String,
 ) -> Result<String, String> {
-    let src = std::path::PathBuf::from(&file_path);
-    if !src.is_file() {
-        let zh = crate::i18n::is_zh(&app);
-        return Err(format!(
-            "{}: {file_path}",
-            crate::i18n::tr("文件不存在或不可读", "File does not exist or is unreadable", zh)
-        ));
-    }
-    let Some(dst) = save_dialog(&app, &file_name) else {
+    // The dialog runs first on purpose: validating before it would let a
+    // compromised page probe the filesystem silently, one error reply at a
+    // time. With the dialog in front, every probe costs the user a click.
+    let Some(dst) = save_dialog(&app, &safe_file_name(&file_name)) else {
         return Ok(String::new()); // cancelled
     };
+    // One message for "outside the served roots", "does not exist" and "not a
+    // file" — distinguishing them is what made this command readable-as-oracle.
+    let denied = || {
+        let zh = crate::i18n::is_zh(&app);
+        format!(
+            "{}: {file_path}",
+            crate::i18n::tr("文件不存在或不可读", "File does not exist or is unreadable", zh)
+        )
+    };
+    let src = read_target_within_roots(&app, &file_path).ok_or_else(denied)?;
     std::fs::copy(&src, &dst).map_err(|e| e.to_string())?;
     Ok(dst.to_string_lossy().to_string())
 }

@@ -7,10 +7,39 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import type { AppServices } from '../types.js';
+import { MemoryRepository } from '../../memory/repositories/memory-repository.js';
+import { EmbeddingRepository } from '../../memory/repositories/embedding-repository.js';
+import {
+  MemoryTermRepository,
+  extractMemoryTerms,
+} from '../../memory/repositories/memory-term-repository.js';
 
 interface MemoryRouteConfig {
   db: Database.Database;
   services: AppServices;
+}
+
+/**
+ * `memories` is the write target, but three derived stores read it back: the
+ * jieba FTS index (synced inside MemoryRepository), `memory_terms` and
+ * `vec_memory_embeddings` — the latter two have no FK cascade, so a raw
+ * UPDATE/DELETE here would leave the edited memory matching its OLD text and a
+ * deleted memory matchable at all.
+ */
+function reindexLexicalTerms(db: Database.Database, id: string, content: string): void {
+  try {
+    new MemoryTermRepository(db).replaceForMemory(id, extractMemoryTerms(content));
+  } catch {
+    // Term reindex is an optimization; the row itself is already persisted.
+  }
+}
+
+function dropEmbedding(db: Database.Database, id: string): void {
+  try {
+    new EmbeddingRepository(db).deleteByMemoryId(id);
+  } catch {
+    // vec0 may be unavailable on this platform — nothing to invalidate.
+  }
 }
 
 export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfig): void {
@@ -97,9 +126,12 @@ export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfi
       const row = cfg.db.prepare('SELECT * FROM memories WHERE id = ?').get(request.params.id) as Record<string, unknown> | undefined;
       if (!row) return reply.status(404).send({ error: 'Memory not found' });
 
-      cfg.db.prepare(
-        'UPDATE memories SET content = ?, updated_at = ? WHERE id = ?',
-      ).run(content, Date.now(), request.params.id);
+      new MemoryRepository(cfg.db).update(request.params.id, { content });
+      reindexLexicalTerms(cfg.db, request.params.id, content);
+      // The stored vector still describes the previous text; re-embedding is an
+      // async provider call this route cannot make, so drop it — lexical and
+      // FTS recall keep working, and the next write re-embeds.
+      dropEmbedding(cfg.db, request.params.id);
 
       return reply.send({ ok: true, id: request.params.id });
     } catch (err) {
@@ -114,7 +146,9 @@ export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfi
       const row = cfg.db.prepare('SELECT * FROM memories WHERE id = ?').get(request.params.id);
       if (!row) return reply.status(404).send({ error: 'Memory not found' });
 
-      cfg.db.prepare('DELETE FROM memories WHERE id = ?').run(request.params.id);
+      new MemoryRepository(cfg.db).delete(request.params.id);
+      cfg.db.prepare('DELETE FROM memory_terms WHERE memory_id = ?').run(request.params.id);
+      dropEmbedding(cfg.db, request.params.id);
       return reply.send({ ok: true, id: request.params.id });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -180,13 +214,23 @@ export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfi
         .get() as { id: string } | undefined;
 
       if (existing) {
-        cfg.db.prepare(
-          "UPDATE memories SET content = ?, updated_at = ? WHERE id = ?",
-        ).run(content, Date.now(), existing.id);
+        // Route through the repository (syncs jieba FTS) and refresh the
+        // derived stores — lexical terms and the stale vector — the same way
+        // PUT /:id above does. The old raw UPDATE left all three stale.
+        new MemoryRepository(cfg.db).update(existing.id, { content });
+        reindexLexicalTerms(cfg.db, existing.id, content);
+        dropEmbedding(cfg.db, existing.id);
       } else {
-        cfg.db.prepare(
-          "INSERT INTO memories (id, scope, scope_key, kind, content, visibility, created_at, updated_at) VALUES (?, 'user', '__persona__', 'persona', ?, 'shared', ?, ?)",
-        ).run('__persona__', content, Date.now(), Date.now());
+        // create() syncs jieba FTS internally; terms need explicit indexing.
+        const created = new MemoryRepository(cfg.db).create({
+          id: '__persona__',
+          scope: 'user',
+          scope_key: '__persona__',
+          kind: 'persona',
+          content,
+          visibility: 'shared',
+        });
+        reindexLexicalTerms(cfg.db, created.id, content);
       }
 
       return reply.send({ ok: true });

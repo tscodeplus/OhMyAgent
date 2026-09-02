@@ -3,6 +3,7 @@ import type { MemoryRepository } from '../repositories/memory-repository.js';
 import type { PersonaStore } from '../persona-store.js';
 import type { PersonaDistiller } from '../persona-distiller.js';
 import { memoryObservability } from '../observability.js';
+import { parseEpochMs } from '../../shared/timestamp.js';
 
 export interface DoctorCheck {
   name: string;
@@ -84,7 +85,7 @@ export class MemoryDoctor {
           .filter(p => p.status === 'active');
         const personaLastUpdated = new Date(persona.lastUpdated).getTime();
         const stalePrefs = activePrefs.filter(
-          p => new Date(p.updated_at).getTime() > personaLastUpdated,
+          p => parseEpochMs(p.updated_at) > personaLastUpdated,
         );
         checks.push({
           name: 'persona_staleness',

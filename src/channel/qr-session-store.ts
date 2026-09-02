@@ -18,6 +18,9 @@ export class QrSessionStore {
 
   constructor() {
     this.pruneTimer = setInterval(() => this.prune(), PRUNE_INTERVAL_MS);
+    // Housekeeping must not hold the process open: an un-unref'd interval keeps
+    // the event loop alive even after every route and channel has wound down.
+    this.pruneTimer.unref();
   }
 
   /**

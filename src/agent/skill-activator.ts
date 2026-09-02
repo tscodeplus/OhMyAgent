@@ -7,7 +7,9 @@
  */
 
 import type { SkillRegistry } from '../skills/skill-registry.js';
+import type { ConflictReport } from '../skills/skill-compiler.js';
 import type { ApprovalGate, PatternType, PolicyEffect } from '../app/types.js';
+import type { SkillToolOverrides } from '../policy/tool-visibility.js';
 import type { Logger } from 'pino';
 import type { LoadedSkill } from '../skills/skill-loader.js';
 import { LRUCache } from 'lru-cache';
@@ -23,6 +25,12 @@ export interface SkillActivationResult {
   cleanMessage: string;
   /** All activated skill names joined by " | " for display (ordered by priority). */
   activatedSkillNames?: string;
+  /**
+   * Conflict reports for the co-activated skills. Historically these were
+   * computed and dropped — no consumer existed (report #8). They are logged
+   * at activation time and exposed here so the agent layer can enforce them.
+   */
+  conflicts?: ConflictReport[];
 }
 
 export interface SkillActivationDeps {
@@ -59,6 +67,28 @@ export const activeSkillFeedbackIds = new LRUCache<
   max: 1000,
   ttl: 1000 * 60 * 60 * 24,
 });
+
+/**
+ * Compiled skill tool policy, keyed by skill scope key (the manifest id the
+ * approval gate sees as `resolvedSkillScope.scopeKey`). Skill allow/deny lists
+ * used to be compiled and then only logged, so a skill declaring
+ * `deniedTools: [shell]` never actually lost shell.
+ *
+ * Keyed by skill id rather than session on purpose: a global-scope turn looks up
+ * nothing, so a stale entry can never leak into a skill-less turn.
+ */
+export const skillToolPolicyByScopeKey = new LRUCache<string, SkillToolOverrides>({
+  max: 200,
+});
+
+/** Tool policy for the activated skill scope, or undefined when none applies. */
+export function getSkillToolPolicy(scope: {
+  scope: 'global' | 'skill';
+  scopeKey: string;
+}): SkillToolOverrides | undefined {
+  if (scope.scope !== 'skill' || !scope.scopeKey) return undefined;
+  return skillToolPolicyByScopeKey.get(scope.scopeKey);
+}
 
 // ── Activation ──
 
@@ -103,6 +133,24 @@ export function activateSkill(
   }
 
   const compiled = skillRegistry.compile(resolved);
+
+  // Report #8 follow-up: detectConflicts() output used to have zero
+  // consumers — reports were computed and silently dropped. Surface them:
+  // error-level conflicts (declared via metadata.x-ohmyagent.conflicts or
+  // deny-priority tool clashes) log as errors, the rest as warnings, and
+  // they ride on the result for downstream enforcement.
+  // (Tolerate registries/mocks that predate the conflicts field.)
+  const conflicts = compiled.conflicts ?? [];
+  if (conflicts.length > 0) {
+    for (const conflict of conflicts) {
+      if (conflict.level === 'error') {
+        logger?.error({ conflict }, '[skill-activator] skill conflict detected');
+      } else {
+        logger?.warn({ conflict }, '[skill-activator] skill conflict detected');
+      }
+    }
+  }
+
   const skill = resolved[0]!.skill;
   const scope = {
     scope: 'skill' as const,
@@ -138,28 +186,47 @@ export function activateSkill(
     cleanMessage = 'I am ready to help with this skill.';
   }
 
-  // Register skill-level approval overrides
+  // Record the compiled tool policy so the runtime approval gate can enforce
+  // skill allow/deny lists (see getSkillToolPolicy / PolicyCenter.evaluateToolCall).
+  skillToolPolicyByScopeKey.set(scope.scopeKey, {
+    allowedTools: compiled.allowedTools,
+    deniedTools: compiled.deniedTools,
+  });
+
+  // Register skill-level approval overrides, scoped to the activating skill.
+  // ApprovalGate.scopeMatches() treats an empty scope key as a wildcard, so
+  // registering with scopeKey: '' would turn a skill's `allow` override into a
+  // permanent, never-revoked approval bypass for every skill-activated session.
+  // Ids embed the skill id and registration is an upsert, so re-activating the
+  // same skill (i.e. every inbound message it matches) is idempotent.
   if (compiled.approvalOverrides && approvalGate?.createPolicy) {
-    for (const [key, override] of Object.entries(compiled.approvalOverrides)) {
-      const ov = override as {
-        targetKind: string;
-        patternType: string;
-        pattern: string;
-        effect: string;
-      };
-      approvalGate.createPolicy({
-        id: `skill-${key}`,
-        scope: 'skill',
-        scopeKey: '',
-        targetKind: ov.targetKind,
-        patternType: ov.patternType as PatternType,
-        pattern: ov.pattern,
-        effect: ov.effect as PolicyEffect,
-      });
+    if (!scope.scopeKey) {
+      logger?.warn(
+        { skillId: skill.manifest.id },
+        '[skill-activator] skipping approval overrides: no skill scope key to bind to',
+      );
+    } else {
+      for (const [key, override] of Object.entries(compiled.approvalOverrides)) {
+        const ov = override as {
+          targetKind: string;
+          patternType: string;
+          pattern: string;
+          effect: string;
+        };
+        approvalGate.createPolicy({
+          id: `skill-${scope.scopeKey}-${key}`,
+          scope: 'skill',
+          scopeKey: scope.scopeKey,
+          targetKind: ov.targetKind,
+          patternType: ov.patternType as PatternType,
+          pattern: ov.pattern,
+          effect: ov.effect as PolicyEffect,
+        });
+      }
     }
   }
 
   const activatedSkillNames = resolved.map((r) => r.skill.manifest.name).join(' | ');
 
-  return { compiled, scope, cleanMessage, activatedSkillNames };
+  return { compiled, scope, cleanMessage, activatedSkillNames, conflicts };
 }

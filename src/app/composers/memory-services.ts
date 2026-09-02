@@ -118,6 +118,8 @@ export async function createMemoryServices(
     }, 'Embedding config changed — vectors dropped, will re-index on next write');
     // Re-probe vec after dropping to ensure the virtual table is re-created
     try { embeddingRepository.probeVec(); } catch { /* already logged */ }
+  } else if (metaCheck.reason) {
+    logger.info({ reason: metaCheck.reason }, 'Embedding vectors kept despite missing embedding_meta');
   }
   embeddingRepository.saveEmbeddingMeta(embProvider, embModel, embDim);
 

@@ -7,9 +7,10 @@
 import { mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import path from 'path';
 import os from 'os';
+import { isDeniedByPattern } from '../../src/shared/glob.js';
 import { Type } from 'typebox';
 import { i18n } from '../../src/i18n/index.js';
-import { isWithinRoot } from '../../src/shared/path-utils.js';
+import { isWithinRoot, allowedRootsWithFallback } from '../../src/shared/path-utils.js';
 import type { AgentTool } from '../../src/pi-mono/agent/types.js';
 import { uploadMedia } from './wechat-media.js';
 import { sendMessage } from './wechat-sender.js';
@@ -27,25 +28,10 @@ export interface WechatMediaToolOptions {
   deniedPatterns?: string[];
 }
 
-function matchGlob(filePath: string, pattern: string): boolean {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '.*');
-  return new RegExp(`^${escaped}$`).test(filePath);
-}
-
 export function createWechatMediaTool(options: WechatMediaToolOptions): AgentTool<any> {
   const { apiBase, botToken, toUserId, contextToken, logger } = options;
 
-  const allowedRoots = [process.cwd()];
-  if (options.allowedRoots && options.allowedRoots.length > 0) {
-    for (const r of options.allowedRoots) {
-      const resolved = path.resolve(r);
-      if (!allowedRoots.includes(resolved)) {
-        allowedRoots.push(resolved);
-      }
-    }
-  }
+  const allowedRoots = allowedRootsWithFallback(options.allowedRoots);
   const deniedPatterns = options.deniedPatterns ?? [];
 
   return {
@@ -68,7 +54,7 @@ export function createWechatMediaTool(options: WechatMediaToolOptions): AgentToo
         }
 
         for (const pattern of deniedPatterns) {
-          if (matchGlob(filePath, pattern) || matchGlob(path.basename(filePath), pattern)) {
+          if (isDeniedByPattern(filePath, path.basename(filePath), pattern)) {
             return { content: [{ type: 'text' as const, text: `Access denied: ${rawPath}` }] };
           }
         }

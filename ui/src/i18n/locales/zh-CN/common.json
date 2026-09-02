@@ -31,7 +31,6 @@
     "expandPanels": "展开功能面板",
     "noProjects": "还没有对话",
     "createFirst": "创建第一个 Project",
-    "searchProject": "搜索空间...",
     "rename": "重命名",
     "delete": "删除",
     "confirmDelete": "确认删除",
@@ -254,8 +253,7 @@
       "rateLimit": "速率限制 (最大并发)",
       "rateLimitWindow": "速率限制 (时间窗口 ms)",
       "advanced": "高级设置",
-      "loggingAndDisplay": "日志与显示",
-      "uiLanguage": "界面语言"
+      "loggingAndDisplay": "日志与显示"
     },
     "models": {
       "subtabs": {
@@ -572,10 +570,7 @@
       "searchTimeout": "搜索超时 (ms)",
       "maxResults": "最大结果数",
       "apiKeys": "API Keys",
-      "testConnection": "测试搜索连接",
-      "connectionOk": "连接测试通过",
-      "connectionFail": "连接测试失败",
-      "testError": "测试请求失败"
+      "testConnection": "测试搜索连接"
     },
     "policy": {
       "globalPolicy": "全局审批策略",
@@ -850,21 +845,6 @@
     "skip": "跳过",
     "submitting": "提交中...",
     "submitError": "提交失败"
-  },
-  "agents": {
-    "list": "Agent 列表",
-    "new": "新建 Agent",
-    "edit": "编辑",
-    "id": "ID",
-    "name": "名称",
-    "model": "模型",
-    "actions": "操作",
-    "description": "描述",
-    "systemPrompt": "系统提示词",
-    "defaultModel": "模型 (供应商/模型id)",
-    "modelPlaceholder": "留空使用全局设置",
-    "namePlaceholder": "Agent 显示名称",
-    "promptPlaceholder": "定义 Agent 的行为和角色..."
   },
   "memory_page": {
     "detail": "记忆详情",

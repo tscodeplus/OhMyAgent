@@ -120,6 +120,7 @@ import type { EmbeddingClient } from '../src/provider/embedding-client.js';
 function createMockMemoryRepository(memories: Record<string, any> = {}) {
   return {
     findById: vi.fn((id: string) => memories[id] ?? null),
+    findByIds: vi.fn((ids: string[]) => ids.map((id: string) => memories[id]).filter(Boolean)),
     findByScopeKind: vi.fn(() => []),
     searchByContent: vi.fn(() => []),
     create: vi.fn(),

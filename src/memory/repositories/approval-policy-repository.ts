@@ -52,7 +52,38 @@ export class ApprovalPolicyRepository {
       INSERT INTO approval_policies (id, scope, scope_key, target_kind, pattern_type, pattern, effect, created_by, source, note)
       VALUES (@id, @scope, @scope_key, @target_kind, @pattern_type, @pattern, @effect, @created_by, @source, @note)
     `);
-    stmt.run({
+    stmt.run(this.bind(input));
+    return this.findById(input.id)!;
+  }
+
+  /**
+   * Insert or replace by id. Registrations that derive a deterministic id from
+   * their source (e.g. skill approval overrides, re-registered on every inbound
+   * message) must be idempotent — a plain INSERT throws SQLITE_CONSTRAINT_UNIQUE
+   * the second time and the error escapes into the agent turn.
+   */
+  upsert(input: CreateApprovalPolicyInput): ApprovalPolicy {
+    const stmt = this.db.prepare(`
+      INSERT INTO approval_policies (id, scope, scope_key, target_kind, pattern_type, pattern, effect, created_by, source, note)
+      VALUES (@id, @scope, @scope_key, @target_kind, @pattern_type, @pattern, @effect, @created_by, @source, @note)
+      ON CONFLICT(id) DO UPDATE SET
+        scope = excluded.scope,
+        scope_key = excluded.scope_key,
+        target_kind = excluded.target_kind,
+        pattern_type = excluded.pattern_type,
+        pattern = excluded.pattern,
+        effect = excluded.effect,
+        created_by = excluded.created_by,
+        source = excluded.source,
+        note = excluded.note,
+        updated_at = cast(strftime('%s','now') as integer) * 1000
+    `);
+    stmt.run(this.bind(input));
+    return this.findById(input.id)!;
+  }
+
+  private bind(input: CreateApprovalPolicyInput): Record<string, unknown> {
+    return {
       id: input.id,
       scope: input.scope,
       scope_key: input.scope_key,
@@ -63,8 +94,7 @@ export class ApprovalPolicyRepository {
       created_by: input.created_by ?? null,
       source: input.source ?? null,
       note: input.note ?? null,
-    });
-    return this.findById(input.id)!;
+    };
   }
 
   findById(id: string): ApprovalPolicy | undefined {

@@ -16,10 +16,12 @@ ohmyagent.pid
 AGENTS.md
 CLAUDE.md
 .claude/
+.qoder/
 .codegraph/
 coverage/
 MyDocs/
 *.tsbuildinfo
+.DS_Store
 .pi/
 skills/skills-lock.json
 skills/.pi/

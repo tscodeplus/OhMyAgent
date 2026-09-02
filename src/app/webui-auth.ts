@@ -91,13 +91,27 @@ function extractToken(request: FastifyRequest): string | null {
     const parts = header.split(' ');
     if (parts.length === 2 && parts[0].toLowerCase() === 'bearer') return parts[1];
   }
-  // WebSocket query param (used by browser WebSocket API which can't set headers)
+  // Query param exists for the requests a browser cannot attach headers to:
+  // <img>/<a download> and the WebSocket handshake, all of which are GETs.
+  // A token in a URL ends up in browser history, proxies and Referer headers,
+  // so it is never accepted on a state-changing method.
+  if (request.method !== 'GET') return null;
   const url = new URL(request.url, 'http://localhost');
   return url.searchParams.get('token') || null;
 }
 
+/**
+ * Segment-aware prefix match. A bare startsWith() also matched siblings that
+ * merely share a spelling — `/api/feishu-admin` would have inherited the public
+ * exemption of the `/api/feishu` webhook prefix.
+ */
+function matchesPrefix(path: string, prefix: string): boolean {
+  if (prefix.endsWith('/')) return path.startsWith(prefix);
+  return path === prefix || path.startsWith(`${prefix}/`);
+}
+
 function isPublic(path: string): boolean {
-  return PUBLIC_EXACT.includes(path) || PUBLIC_PREFIXES.some((prefix) => path.startsWith(prefix));
+  return PUBLIC_EXACT.includes(path) || PUBLIC_PREFIXES.some((prefix) => matchesPrefix(path, prefix));
 }
 
 export async function webuiAuthHook(request: FastifyRequest, reply: FastifyReply): Promise<void> {

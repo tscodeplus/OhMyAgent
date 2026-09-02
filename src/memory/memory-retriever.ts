@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import type { MemoryRepository } from './repositories/memory-repository.js';
+import type { Memory } from './repositories/memory-repository.js';
 import type { EmbeddingRepository } from './repositories/embedding-repository.js';
 import type { EmbeddingClient } from '../provider/embedding-client.js';
 import { CircuitBreaker } from './circuit-breaker.js';
@@ -8,6 +9,7 @@ import { EmbeddingCacheRepo, hashContent, bufferToFloat32Array } from './reposit
 import { expandQuery } from './query-expansion.js';
 import type { ExpandedQuery } from './query-expansion.js';
 import { withTimeout } from '../shared/with-timeout.js';
+import { parseEpochMs } from '../shared/timestamp.js';
 import { ftsSearch, ftsSearchJieba } from './fts.js';
 import type { FtsSearchResult } from './fts.js';
 import { rrfMerge } from './rrf-merge.js';
@@ -63,6 +65,9 @@ export interface RetrievedMemory {
 
 const DEFAULT_TOP_K = 3;
 const DEFAULT_MIN_SCORE = 0.01;
+
+/** How many entity-graph candidates to prefetch per addition the expansion may emit. */
+const ENTITY_LINK_CANDIDATE_LOOKAHEAD = 8;
 
 // ── Concurrency limiter ──
 
@@ -347,16 +352,16 @@ export class MemoryRetriever {
     const expandedByMetadata = this.expandByMemoryMetadata(decayed, retrievalPolicy.access, sourcePool);
     const reranked = rerankMemoryResults(effectiveOptions.query, expandedByMetadata, rerankOptions);
 
-    // Filter by minScore and truncate to topK
-    const filtered = reranked
-      .filter(r => r.score >= minScore)
-      .slice(0, topK);
-
-    // Phase 3.5: Entity graph expansion
-    const expanded = this.expandByEntityLinks(filtered, retrievalPolicy.access, sourcePool);
+    // Filter by minScore, then Phase 3.5 entity-graph expansion, THEN the topK
+    // cut. Expanding after truncation appended up to 3 neighbours on top of a
+    // full page (callers asked for topK and got topK + 3) and let them bypass
+    // ranking entirely.
+    const qualified = reranked.filter((r) => r.score >= minScore);
+    const expanded = this.expandByEntityLinks(qualified, retrievalPolicy.access, sourcePool);
+    const finalList = expanded.sort((a, b) => b.score - a.score).slice(0, topK);
 
     // Enrich with full memory data
-    const results = this.enrichResults(expanded);
+    const results = this.enrichResults(finalList);
 
     // Phase 1: Cache results
     if (useCache) this.queryCache?.set(
@@ -432,47 +437,11 @@ export class MemoryRetriever {
       // Prefer jieba FTS for Chinese text recall, fall back to original FTS5
       const results = ftsSearchJieba(this.db, options.query, limit, textScope, options.scopeKey);
 
-      if (results.length > 0) {
-        return results
-          .flatMap(r => {
-            const memory = this.memoryRepository.findById(r.memoryId);
-            if (!memory || !matchesMemoryAccess(memory, policy)) return [];
-            return [{
-              id: r.memoryId,
-              content: r.content,
-              score: r.normalizedScore,
-              source: 'fts5' as const,
-              scope: memory.scope,
-              scopeKey: memory.scope_key,
-              kind: memory.kind,
-              createdAt: new Date(memory.created_at).getTime(),
-              sourcePool,
-              speaker: extractSpeaker(r.content, memory.metadata),
-            }];
-          });
-      }
+      if (results.length > 0) return this.ftsSourceResults(results, policy, sourcePool);
 
       // Fallback: original FTS5 with query-expansion tokenization
       const legacyResults = ftsSearch(this.db, expanded.ftsQuery, limit, textScope, options.scopeKey);
-      if (legacyResults.length > 0) {
-        return legacyResults
-          .flatMap(r => {
-            const memory = this.memoryRepository.findById(r.memoryId);
-            if (!memory || !matchesMemoryAccess(memory, policy)) return [];
-            return [{
-              id: r.memoryId,
-              content: r.content,
-              score: r.normalizedScore,
-              source: 'fts5' as const,
-              scope: memory.scope,
-              scopeKey: memory.scope_key,
-              kind: memory.kind,
-              createdAt: new Date(memory.created_at).getTime(),
-              sourcePool,
-              speaker: extractSpeaker(r.content, memory.metadata),
-            }];
-          });
-      }
+      if (legacyResults.length > 0) return this.ftsSourceResults(legacyResults, policy, sourcePool);
 
       // FTS5 no results → legacy LIKE fallback
       return this.legacyLikeSourceResults(options, policy, sourcePool);
@@ -485,6 +454,30 @@ export class MemoryRetriever {
       });
       return [];
     }
+  }
+
+  private ftsSourceResults(
+    results: FtsSearchResult[],
+    policy: MemoryAccessPolicy,
+    sourcePool?: MemoryPool,
+  ): SourceResult[] {
+    const memories = this.loadMemoriesById(results.map(r => r.memoryId));
+    return results.flatMap(r => {
+      const memory = memories.get(r.memoryId);
+      if (!memory || !matchesMemoryAccess(memory, policy)) return [];
+      return [{
+        id: r.memoryId,
+        content: r.content,
+        score: r.normalizedScore,
+        source: 'fts5' as const,
+        scope: memory.scope,
+        scopeKey: memory.scope_key,
+        kind: memory.kind,
+        createdAt: parseEpochMs(memory.created_at),
+        sourcePool,
+        speaker: extractSpeaker(r.content, memory.metadata),
+      }];
+    });
   }
 
   private async termSearchWrapper(options: RetrievalOptions, policy: MemoryAccessPolicy, sourcePool?: MemoryPool): Promise<SourceResult[]> {
@@ -503,8 +496,9 @@ export class MemoryRetriever {
         LIMIT ?
       `).all(...terms, this.prefilterLimit(options.topK ?? DEFAULT_TOP_K)) as Array<{ memoryId: string; score: number }>;
 
+      const memories = this.loadMemoriesById(rows.map(row => row.memoryId));
       return rows.flatMap(row => {
-        const memory = this.memoryRepository.findById(row.memoryId);
+        const memory = memories.get(row.memoryId);
         if (!memory || !matchesMemoryAccess(memory, policy)) return [];
         return [{
           id: row.memoryId,
@@ -514,7 +508,7 @@ export class MemoryRetriever {
           scope: memory.scope,
           scopeKey: memory.scope_key,
           kind: memory.kind,
-          createdAt: new Date(memory.created_at).getTime(),
+          createdAt: parseEpochMs(memory.created_at),
           sourcePool,
           speaker: extractSpeaker(memory.content, memory.metadata),
         }];
@@ -535,13 +529,13 @@ export class MemoryRetriever {
     policy: MemoryAccessPolicy,
     sourcePool?: MemoryPool,
   ): SourceResult[] {
+    const memories = this.loadMemoriesById(results.map(r => r.memoryId));
     return results.flatMap(r => {
-      const memory = this.memoryRepository.findById(r.memoryId);
+      const memory = memories.get(r.memoryId);
       if (!memory || !matchesMemoryAccess(memory, policy)) return [];
-      const createdAt = memory ? new Date(memory.created_at).getTime() : 0;
       return {
         id: r.memoryId,
-        content: memory?.content ?? '',
+        content: memory.content,
         // Both 'vector' and 'cosine' inputs arrive as distance = 1 - similarity
         // (see callers), so recover the [0,1] similarity symmetrically. Previously
         // the 'cosine' branch returned the raw distance (1 - similarity), inverting
@@ -549,12 +543,12 @@ export class MemoryRetriever {
         // but any reader of the pre-merge score (the expansion probe) saw it flipped.
         score: 1 - r.distance,
         source,
-        scope: memory?.scope ?? '',
-        scopeKey: memory?.scope_key ?? '',
-        kind: memory?.kind ?? '',
-        createdAt,
+        scope: memory.scope,
+        scopeKey: memory.scope_key,
+        kind: memory.kind,
+        createdAt: parseEpochMs(memory.created_at),
         sourcePool,
-        speaker: extractSpeaker(memory?.content ?? '', memory?.metadata),
+        speaker: extractSpeaker(memory.content, memory.metadata),
       };
     });
   }
@@ -573,21 +567,45 @@ export class MemoryRetriever {
 
       if (entities.length === 0) return merged;
 
+      const linksByEntity = this.memoryLinkRepo.findByEntities(
+        [...new Set(entities.filter(e => e.confidence >= 0.5).map(e => e.target_entity))],
+      );
+
       const relatedIds = new Set<string>(memoryIds);
       const additions: MergedResult[] = [];
       const maxAdditions = 3;
       const decayFactor = 0.8;
+      // A hub entity can hold thousands of links, so only the rows the
+      // traversal can actually reach are fetched — in traversal order.
+      const candidateLimit = maxAdditions * ENTITY_LINK_CANDIDATE_LOOKAHEAD;
 
-      // Get highest score among existing results for decay weighting
-      const maxScore = Math.max(...merged.map(r => r.score), 0.1);
+      const candidateIds: string[] = [];
+      const fetched = new Set<string>();
+      outer: for (const { target_entity, confidence } of entities) {
+        if (confidence < 0.5) continue;
+        for (const link of linksByEntity.get(target_entity) ?? []) {
+          if (link.confidence < 0.5) continue;
+          if (relatedIds.has(link.source_memory_id) || fetched.has(link.source_memory_id)) continue;
+          fetched.add(link.source_memory_id);
+          candidateIds.push(link.source_memory_id);
+          if (candidateIds.length >= candidateLimit) break outer;
+        }
+      }
+      const memories = this.loadMemoriesById(candidateIds);
+
+      // Derived neighbours decay off the best real hit. The old 0.1 floor was
+      // above the top score whenever rerank skipped normalization — it returns
+      // early for a one-result page, leaving RRF-scale scores (~0.016) — which
+      // let a graph neighbour outrank the memory that actually matched.
+      const topScore = Math.max(...merged.map(r => r.score));
 
       for (const { target_entity, confidence } of entities) {
         if (confidence < 0.5) continue;
-        const related = this.memoryLinkRepo!.findByEntity(target_entity);
+        const related = linksByEntity.get(target_entity) ?? [];
         for (const link of related) {
           if (relatedIds.has(link.source_memory_id)) continue;
           if (link.confidence < 0.5) continue;
-          const linkedMemory = this.memoryRepository.findById(link.source_memory_id);
+          const linkedMemory = memories.get(link.source_memory_id);
           if (!linkedMemory || !matchesMemoryAccess(linkedMemory, policy)) continue;
           if (additions.length >= maxAdditions) break;
 
@@ -595,8 +613,8 @@ export class MemoryRetriever {
           additions.push({
             id: link.source_memory_id,
             content: '', // filled by enrichResults
-            score: maxScore * decayFactor * link.confidence,
-              source: 'entity_graph',
+            score: topScore * decayFactor * link.confidence,
+            source: 'entity_graph',
             scope: '',
             scopeKey: '',
             kind: '',
@@ -624,26 +642,41 @@ export class MemoryRetriever {
     const additions: MergedResult[] = [];
     const addLimit = Math.max(12, merged.length * 2);
 
+    const parents = this.loadMemoriesById(merged.map(result => result.id));
+    const childIdsByParent = new Map<string, string[]>();
+    const allChildIds = new Set<string>();
     for (const result of merged) {
-      const memory = this.memoryRepository.findById(result.id);
+      const memory = parents.get(result.id);
       if (!memory?.metadata) continue;
-      const childIds = childMemoryIdsFromMetadata(memory.metadata);
+      const childIds = childMemoryIdsFromMetadata(memory.metadata).filter(id => !byId.has(id));
       if (childIds.length === 0) continue;
+      childIdsByParent.set(result.id, childIds);
+      for (const id of childIds) allChildIds.add(id);
+    }
+    if (allChildIds.size === 0) return merged;
+    const children = this.loadMemoriesById([...allChildIds]);
+
+    for (const result of merged) {
+      const childIds = childIdsByParent.get(result.id);
+      if (!childIds) continue;
 
       let addedForParent = 0;
       for (const childId of childIds) {
         if (byId.has(childId)) continue;
-        const child = this.memoryRepository.findById(childId);
+        const child = children.get(childId);
         if (!child || child.status !== 'active' || !matchesMemoryAccess(child, policy)) continue;
         const childResult: MergedResult = {
           id: child.id,
           content: child.content,
-          score: result.score * (addedForParent === 0 ? 1.15 : 0.82),
+          // Monotone decay, always below the parent: the old 1.15x for the
+          // first child made a derived neighbour outrank the memory that
+          // actually matched the query.
+          score: result.score * (0.95 - addedForParent * 0.05),
           source: 'metadata_expansion',
           scope: child.scope,
           scopeKey: child.scope_key,
           kind: child.kind,
-          createdAt: new Date(child.created_at).getTime(),
+          createdAt: parseEpochMs(child.created_at),
           sourcePool,
           speaker: extractSpeaker(child.content, child.metadata),
         };
@@ -671,14 +704,28 @@ export class MemoryRetriever {
       scope: m.scope,
       scopeKey: m.scope_key,
       kind: m.kind,
-      createdAt: new Date(m.created_at).getTime(),
+      createdAt: parseEpochMs(m.created_at),
       sourcePool,
     }));
   }
 
+  /**
+   * Resolve search hits to memory rows in as few queries as possible.
+   *
+   * Every source search returns up to `prefilterLimit` ids, and one retrieval
+   * runs each source per query variant per pool — calling findById per hit
+   * multiplied into hundreds of synchronous statements for a single recall.
+   */
+  private loadMemoriesById(ids: string[]): Map<string, Memory> {
+    const byId = new Map<string, Memory>();
+    for (const memory of this.memoryRepository.findByIds(ids)) byId.set(memory.id, memory);
+    return byId;
+  }
+
   private enrichResults(merged: MergedResult[]): RetrievedMemory[] {
+    const memories = this.loadMemoriesById(merged.map(m => m.id));
     return merged.flatMap(m => {
-      const memory = this.memoryRepository.findById(m.id);
+      const memory = memories.get(m.id);
       if (!memory) return [];
       // Lifecycle filter: only return active memories
       if (memory.status !== 'active') return [];
@@ -689,7 +736,7 @@ export class MemoryRetriever {
         scopeKey: memory.scope_key,
         kind: memory.kind,
         score: m.score,
-        createdAt: new Date(memory.created_at).getTime(),
+        createdAt: parseEpochMs(memory.created_at),
         sourcePool: m.sourcePool,
       };
     });
@@ -758,10 +805,11 @@ export class MemoryRetriever {
     }
 
     // 4. Filter by minScore and map to RetrievedMemory
+    const qualified = ftsResults.filter(r => r.normalizedScore >= minScore);
+    const memories = this.loadMemoriesById(qualified.map(r => r.memoryId));
     const results: RetrievedMemory[] = [];
-    for (const r of ftsResults) {
-      if (r.normalizedScore < minScore) continue;
-      const memory = this.memoryRepository.findById(r.memoryId);
+    for (const r of qualified) {
+      const memory = memories.get(r.memoryId);
       if (!memory) continue;
       if (!matchesMemoryAccess(memory, policy)) continue;
       results.push({
@@ -771,7 +819,7 @@ export class MemoryRetriever {
         scopeKey: memory.scope_key,
         kind: memory.kind,
         score: r.normalizedScore,
-        createdAt: new Date(memory.created_at).getTime(),
+        createdAt: parseEpochMs(memory.created_at),
       });
     }
 
@@ -795,7 +843,7 @@ export class MemoryRetriever {
       scopeKey: m.scope_key,
       kind: m.kind,
       score: TEXT_FALLBACK_SCORE,
-      createdAt: new Date(m.created_at).getTime(),
+      createdAt: parseEpochMs(m.created_at),
     }));
   }
 

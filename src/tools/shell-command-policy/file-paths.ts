@@ -227,7 +227,12 @@ export function checkFilePathsOutsideRoots(
   command: NormalizedShellCommand,
   allowedRoots: string[],
 ): string[] {
-  const roots = [process.cwd()];
+  // Fall back to cwd ONLY when nothing was configured. Seeding cwd into a
+  // non-empty root list would silently widen the sandbox to whichever
+  // directory the process happened to launch from (Termux vs systemd vs the
+  // desktop sidecar all differ). Whether cwd belongs in scope at all is the
+  // policy layer's call — see autoInjectCwd in src/policy/path-policy.ts.
+  const roots: string[] = allowedRoots.length === 0 ? [process.cwd()] : [];
   for (const r of allowedRoots) {
     const resolved = path.resolve(r);
     // Case-insensitive dedup on Windows

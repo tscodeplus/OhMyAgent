@@ -335,8 +335,10 @@ export class StreamingCardController {
     if (this.state !== 'streaming') return;
     const key = toolCallId ?? toolName;
     this.toolIndicators.set(key, { name: toolName, status: 'running', args });
-    this.cancelScheduledFlush();
-    this.requestFlush();
+    // Ride the scheduled flush like markToolComplete/Error: a parallel tool
+    // batch would otherwise cost one immediate card API call per starting
+    // tool (report #11j). Worst-case indicator delay is flushIntervalMs.
+    this.scheduleFlush();
   }
 
   /**
@@ -347,8 +349,9 @@ export class StreamingCardController {
     const key = toolCallId ?? toolName;
     const existing = this.toolIndicators.get(key);
     this.toolIndicators.set(key, { name: toolName, status: 'done', args: existing?.args });
-    this.cancelScheduledFlush();
-    this.requestFlush();
+    // Only removes the ⏳ line, so let it ride the next scheduled flush: a
+    // parallel tool batch would otherwise cost one card API call per result.
+    this.scheduleFlush();
   }
 
   /**
@@ -359,8 +362,7 @@ export class StreamingCardController {
     const key = toolCallId ?? toolName;
     const existing = this.toolIndicators.get(key);
     this.toolIndicators.set(key, { name: toolName, status: 'error', args: existing?.args });
-    this.cancelScheduledFlush();
-    this.requestFlush();
+    this.scheduleFlush();
   }
 
   /**
@@ -742,6 +744,22 @@ export class StreamingCardController {
   }
 
   /**
+   * `fixFeishuMarkdown` rewrites the whole accumulated answer, and a flush can
+   * be triggered by a tool-indicator change alone — re-sanitizing identical
+   * text each time costs O(flushes × length) over a turn. `pendingContent` is
+   * append-only, so an unchanged string means an unchanged result.
+   */
+  private sanitizedCache?: { raw: string; fixed: string };
+
+  private sanitizedPendingContent(): string {
+    const raw = this.pendingContent.trimEnd();
+    if (this.sanitizedCache && this.sanitizedCache.raw === raw) return this.sanitizedCache.fixed;
+    const fixed = fixFeishuMarkdown(raw);
+    this.sanitizedCache = { raw, fixed };
+    return fixed;
+  }
+
+  /**
    * Build the streaming content text.
    * Running tools always shown on top with ⏳.
    * Answer text (with completed tool lines woven in) shown below.
@@ -752,7 +770,7 @@ export class StreamingCardController {
 
     // Show completed tool lines + answer text first (older content on top)
     if (this.pendingContent.trim()) {
-      sections.push(fixFeishuMarkdown(this.pendingContent.trimEnd()));
+      sections.push(this.sanitizedPendingContent());
     }
 
     // Show running tools below completed content

@@ -31,9 +31,12 @@ import { generateId } from '../shared/ids.js';
 /**
  * Legacy approval gate — SQLite-backed implementation of ApprovalGate.
  *
- * v4: This class is now accessed exclusively through PolicyCenter adapters
- * (ApprovalGateAdapter and ShellExecutionPolicy). Direct external usage
- * outside these adapters is deprecated.
+ * Constructed once in `createPolicyServices()`
+ * (`src/app/composers/policy-services.ts`) and shared with `ShellExecutionPolicy`
+ * and `ApprovalResolutionPolicy`, then on to the agent layer.
+ * `src/policy/policy-center.ts` is the newer evaluation path and does not
+ * consult this class; both are live, so changes here and there must stay
+ * consistent on effect precedence and risk handling.
  */
 
 // ─── Specificity ordering (lower = higher priority) ───
@@ -275,8 +278,11 @@ export class SQLiteApprovalGate implements IApprovalGate {
   }
 
   /**
-   * Create a new approval policy directly (non-persistent session-level
-   * policies from skill approval overrides are stored with scope='skill').
+   * Create a policy directly (non-persistent session-level policies from skill
+   * approval overrides are stored with scope='skill' and the skill's own id as
+   * scope key — an empty scope key is a wildcard in scopeMatches(), so callers
+   * must always pass a concrete one). Registration is an upsert: skill
+   * overrides are re-registered on every activation with a deterministic id.
    */
   createPolicy(input: {
     id: string;
@@ -287,7 +293,7 @@ export class SQLiteApprovalGate implements IApprovalGate {
     pattern: string;
     effect: PolicyEffect;
   }): void {
-    this.policyRepository.create({
+    this.policyRepository.upsert({
       id: input.id,
       scope: input.scope,
       scope_key: input.scopeKey,

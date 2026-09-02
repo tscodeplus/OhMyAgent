@@ -62,8 +62,12 @@ export class MaintenanceScheduler {
         if (!job.enabled) continue;
         const lastRun = this.runRepo.getLastRun(job.name);
         if (lastRun) {
-          const lastMs = new Date(lastRun.started_at).getTime();
-          if (Date.now() - lastMs < job.intervalMs) continue;
+          // started_at is TEXT holding epoch millis (see the schema DEFAULT),
+          // so `new Date(str)` would give Invalid Date → NaN → the interval
+          // comparison below is always false and every job re-runs each tick.
+          const raw = String(lastRun.started_at ?? '');
+          const lastMs = /^\d+$/.test(raw) ? Number(raw) : Date.parse(raw);
+          if (Number.isFinite(lastMs) && Date.now() - lastMs < job.intervalMs) continue;
         }
         const result = await this.runJob(job.name, false);
         results.push(result);

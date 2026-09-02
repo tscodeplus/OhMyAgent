@@ -22,23 +22,30 @@ export function runV3Migrations(db: Database.Database): V3MigrationResult {
     { name: 'invalidated_at', ddl: 'ALTER TABLE memories ADD COLUMN invalidated_at TEXT' },
   ];
 
-  for (const field of lifecycleFields) {
-    if (!colNames.has(field.name)) {
-      db.exec(field.ddl);
-      added.push(field.name);
-    } else {
-      skipped.push(field.name);
+  // This migration runs BEFORE applySchema (see openDatabase) so that a pre-v3
+  // database has `status` and the other lifecycle columns in time for
+  // applySchema's index DDL. On a brand-new database the table does not exist
+  // yet and DDL_MEMORIES already declares every lifecycle column — skip
+  // straight to the table creations below, which no other step covers.
+  if (cols.length > 0) {
+    for (const field of lifecycleFields) {
+      if (!colNames.has(field.name)) {
+        db.exec(field.ddl);
+        added.push(field.name);
+      } else {
+        skipped.push(field.name);
+      }
     }
-  }
 
-  // Indexes
-  const indexStatements = [
-    'CREATE INDEX IF NOT EXISTS idx_memories_status ON memories(status)',
-    'CREATE INDEX IF NOT EXISTS idx_memories_supersedes ON memories(supersedes_id)',
-    'CREATE INDEX IF NOT EXISTS idx_memories_source ON memories(source_channel, source_message_id)',
-  ];
-  for (const idx of indexStatements) {
-    db.exec(idx);
+    // Indexes
+    const indexStatements = [
+      'CREATE INDEX IF NOT EXISTS idx_memories_status ON memories(status)',
+      'CREATE INDEX IF NOT EXISTS idx_memories_supersedes ON memories(supersedes_id)',
+      'CREATE INDEX IF NOT EXISTS idx_memories_source ON memories(source_channel, source_message_id)',
+    ];
+    for (const idx of indexStatements) {
+      db.exec(idx);
+    }
   }
 
   // Persona distillation runs table

@@ -1,9 +1,9 @@
 /**
  * generate-template-index.ts
  *
- * Walks data/templates/agency-agents/ and data/templates/agency-agents-zh/,
+ * Walks templates/agency-agents/ and templates/agency-agents-zh/,
  * parses YAML frontmatter from each .md file, and writes
- * data/templates/index.json.
+ * templates/index.json.
  */
 
 import { readdir, readFile, stat, writeFile } from 'node:fs/promises';

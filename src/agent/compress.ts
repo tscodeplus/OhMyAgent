@@ -4,7 +4,7 @@
  * Follows pi coding-agent conventions:
  * - Trigger: estimatedTokens > contextWindow - reserveTokens
  * - Cut point: walk backwards, keep keepRecentTokens worth of recent messages
- * - Token estimation: chars/4 heuristic (conservative, overestimates)
+ * - Token estimation: CJK-aware weighting (src/shared/token-estimate.ts)
  * - Summarization: structured Markdown with incremental update support
  */
 
@@ -12,32 +12,39 @@ import type { Logger } from 'pino';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { auxLLMCall, type AuxModelConfig } from '../memory/aux-llm-client.js';
 import { truncate } from '../shared/truncation.js';
+import { estimateTokensForText, IMAGE_BLOCK_TOKENS } from '../shared/token-estimate.js';
 
 // ---------------------------------------------------------------------------
-// Token estimation — chars/4, conservative (pi convention)
+// Token estimation — CJK-aware, see src/shared/token-estimate.ts
 // ---------------------------------------------------------------------------
 
-/** Estimate token count for a single message using chars/4 heuristic. */
+/**
+ * Estimate token count for a single message. CJK-aware — see
+ * src/shared/token-estimate.ts: the flat chars/4 heuristic this replaces
+ * underestimated a zh-CN transcript by ~2x, which delayed the compression
+ * trigger until the provider rejected the request.
+ */
 function estimateMessageTokens(m: AgentMessage): number {
   try {
-    let chars = 0;
+    let tokens = 0;
     if (typeof m.content === 'string') {
-      chars = m.content.length;
+      tokens = estimateTokensForText(m.content);
     } else if (Array.isArray(m.content)) {
       for (const b of m.content) {
-        if (b.type === 'text' && typeof b.text === 'string') chars += b.text.length;
+        if (b.type === 'text' && typeof b.text === 'string') tokens += estimateTokensForText(b.text);
         else if (b.type === 'thinking' && typeof b.thinking === 'string')
-          chars += b.thinking.length;
+          tokens += estimateTokensForText(b.thinking);
         // b.name may be missing on malformed toolCall blocks — dereference
         // only after the nullish check (b.name.length ?? 0 would throw).
         else if (b.type === 'toolCall')
-          chars += (b.name?.length ?? 0) + JSON.stringify(b.arguments ?? {}).length;
-        else if (b.type === 'image')
-          chars += 4800; // image estimate
-        else chars += JSON.stringify(b).length;
+          tokens += estimateTokensForText(
+            (b.name ?? '') + JSON.stringify(b.arguments ?? {}),
+          );
+        else if (b.type === 'image') tokens += IMAGE_BLOCK_TOKENS;
+        else tokens += estimateTokensForText(JSON.stringify(b));
       }
     }
-    return Math.ceil(chars / 4);
+    return Math.ceil(tokens);
   } catch {
     // Malformed content (e.g. BigInt in arguments makes JSON.stringify throw)
     // must never crash the request — estimate as 0 and let callers proceed.
@@ -47,6 +54,29 @@ function estimateMessageTokens(m: AgentMessage): number {
 
 export function estimateTokens(messages: AgentMessage[]): number {
   return messages.reduce((sum, m) => sum + estimateMessageTokens(m), 0);
+}
+
+/**
+ * Price the per-turn fixed prefix: the system prompt and every tool schema.
+ *
+ * The context transform is handed `messages` only, so a compression trigger
+ * measured there cannot see a prefix that routinely runs to five figures —
+ * the request then exceeds the window while the transcript still looks small.
+ */
+export function estimateStaticContextTokens(
+  systemPrompt: string | undefined,
+  tools: ReadonlyArray<{ name?: string; description?: string; parameters?: unknown }> | undefined,
+): number {
+  let tokens = estimateTokensForText(systemPrompt ?? '');
+  for (const tool of tools ?? []) {
+    tokens += estimateTokensForText((tool.name ?? '') + (tool.description ?? ''));
+    try {
+      tokens += estimateTokensForText(JSON.stringify(tool.parameters ?? null));
+    } catch {
+      // An unserializable schema costs its name and description, nothing more.
+    }
+  }
+  return Math.ceil(tokens);
 }
 
 // ---------------------------------------------------------------------------

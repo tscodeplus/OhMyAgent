@@ -19,6 +19,7 @@ import type {
 import type { SkillRegistry } from '../skills/skill-registry.js';
 import { getDefaultModel } from '../provider/pi-ai-setup.js';
 import { createTransformContext } from './context-transform.js';
+import { estimateStaticContextTokens } from './compress.js';
 import { convertToLlm } from './convert-to-llm.js';
 import type { ApprovalDecisionType } from '../app/types.js';
 import type { ApprovalRequestRepository } from '../memory/repositories/approval-request-repository.js';
@@ -257,6 +258,10 @@ export interface AgentFactoryOptions {
     reason: 'timeout' | 'stale_after_restart' | 'expired_before_recovery' | 'steered',
   ) => void;
   onApprovalAutoApprove?: (requestId: string) => void;
+  /** Called when a human approves a file-access approval; wired by the
+   *  composer to grantFileServeAccess so the approved path becomes servable
+   *  by the WebUI for the allowlist TTL (report #6b option B). */
+  onFileServeApproved?: (info: { path: string; requestId: string }) => void;
   logger?: Logger;
   promptManager?: PromptManager;
   userQuestionStore?: import('./user-question-store.js').UserQuestionStore;
@@ -392,6 +397,7 @@ export function createAgentFactory(
   const pendingApprovals = new PendingApprovalStore({
     onAutoReject: factoryOptions.onApprovalAutoReject,
     onAutoApprove: factoryOptions.onApprovalAutoApprove,
+    onFileServeApproved: factoryOptions.onFileServeApproved,
     timeoutAction: approvalTimeoutAction,
   });
 
@@ -771,6 +777,7 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
           mermaidCanvasConfig: configRef.current.memory.mermaidCanvas,
           mermaidCanvas: mermaidCanvas,
           cacheProfile,
+          staticContextTokens: estimateStaticContextTokens(systemPrompt, tools),
           compressConfig: (() => {
             const cc = configRef.current.memory.autoCompress;
             if (!cc?.enabled) return undefined;
@@ -852,11 +859,15 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
           }
 
           // Shared Mermaid phase-tagger initializer for both offloading branches
+          let phaseTaggerPromise: Promise<void> | undefined;
           const ensurePhaseTagger = (): MermaidPhaseTagger | undefined => {
             if (!logger) return undefined;
-            if (!phaseTagger) {
+            if (!phaseTagger && !phaseTaggerPromise) {
               const summaryConfig = buildSummaryLLMConfig(configRef.current);
-              createDistillerLLM(summaryConfig, logger)
+              // Single-flight: compaction runs per tool result, and until this
+              // resolves `phaseTagger` is still undefined — without the guard a
+              // burst of tool calls created one LLM client each.
+              phaseTaggerPromise = createDistillerLLM(summaryConfig, logger)
                 .then((llm) => {
                   phaseTagger = new MermaidPhaseTagger(llm, logger);
                 })

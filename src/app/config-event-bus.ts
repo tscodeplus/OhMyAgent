@@ -5,23 +5,15 @@
  * self-registered listeners. Services subscribe to 'config:reload' at
  * construction time, so adding a new config-aware service no longer
  * requires modifying the bootstrap hot-reload chain.
- *
- * Pattern borrowed from PendingApprovalStore (src/agent/approval-store.ts)
- * which uses Node's EventEmitter for one-shot approval decisions.
  */
 
-import { EventEmitter } from 'node:events';
 import type { AppConfig } from './types.js';
 
-const CONFIG_RELOAD_EVENT = 'config:reload';
+type ReloadHandler = (config: AppConfig) => void | Promise<void>;
 
 class ConfigEventBus {
-  private emitter = new EventEmitter();
+  private handlers = new Set<ReloadHandler>();
   private logger?: { error: (...args: any[]) => void };
-
-  constructor() {
-    this.emitter.setMaxListeners(50);
-  }
 
   setLogger(logger: { error: (...args: any[]) => void }): void {
     this.logger = logger;
@@ -34,10 +26,10 @@ class ConfigEventBus {
    * Errors thrown by individual handlers are caught by emit(),
    * so a single broken handler won't break the reload chain.
    */
-  onReload(handler: (config: AppConfig) => void | Promise<void>): () => void {
-    this.emitter.on(CONFIG_RELOAD_EVENT, handler);
+  onReload(handler: ReloadHandler): () => void {
+    this.handlers.add(handler);
     return () => {
-      this.emitter.off(CONFIG_RELOAD_EVENT, handler);
+      this.handlers.delete(handler);
     };
   }
 
@@ -47,11 +39,9 @@ class ConfigEventBus {
    * never propagated (one broken handler must not block others).
    */
   async emit(config: AppConfig): Promise<void> {
-    const listeners = this.emitter.listeners(CONFIG_RELOAD_EVENT);
+    // Snapshot: a handler may unsubscribe (or register) while running.
     const results = await Promise.allSettled(
-      listeners.map((fn) =>
-        Promise.resolve((fn as (config: AppConfig) => void | Promise<void>)(config)),
-      ),
+      Array.from(this.handlers).map((handler) => Promise.resolve(handler(config))),
     );
     for (const r of results) {
       if (r.status === 'rejected') {

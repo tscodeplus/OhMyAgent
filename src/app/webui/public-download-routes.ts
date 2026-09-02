@@ -1,7 +1,5 @@
 /**
- * Public download routes — serve files to external channels without WebUI auth.
- *
- * Endpoint: GET /dl/:token/:filename
+ * Signed download routes — /dl/<token>/<filename>.
  *
  * The token is an HMAC-signed payload (see src/shared/download-token.ts) that
  * encodes the absolute file path and expiry. The filename in the URL is purely
@@ -11,25 +9,29 @@
  * - Token MUST be valid and unexpired
  * - Resolved path MUST be within allowed roots
  * - Path traversal is rejected
+ * - WebUI bearer auth still applies (see the note in the handler below)
+ * - Content a browser could execute is forced to attachment (files-routes.ts)
  */
 
 import type { FastifyInstance } from 'fastify';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { resolve, sep, extname, basename } from 'node:path';
 import { verifyDownloadToken } from '../../shared/download-token.js';
+import { dataPath } from '../../shared/agent-home.js';
 import { isWithinRoot } from '../../shared/path-utils.js';
+import { applyFileResponseHeaders } from './files-routes.js';
 
 // ---------------------------------------------------------------------------
 // Allowed roots
 // ---------------------------------------------------------------------------
 
-const DOWNLOADS_DIR = resolve(process.cwd(), 'data', 'downloads');
+const DOWNLOADS_DIR = dataPath('downloads');
 const TMP_DIR = '/tmp';
-const GENERATED_IMAGES_DIR = resolve(process.cwd(), 'data', 'generated-images');
-const GENERATED_VIDEOS_DIR = resolve(process.cwd(), 'data', 'generated-videos');
-const CHAT_UPLOADS_DIR = resolve(process.cwd(), 'data', 'chat-uploads');
+const GENERATED_IMAGES_DIR = dataPath('generated-images');
+const GENERATED_VIDEOS_DIR = dataPath('generated-videos');
+const CHAT_UPLOADS_DIR = dataPath('chat-uploads');
 // Attachment store cache dir (used by the multimodal pipeline)
-const ATTACHMENT_CACHE_DIR = resolve(process.cwd(), 'data', 'attachments');
+const ATTACHMENT_CACHE_DIR = dataPath('attachments');
 
 function getAllowedRoots(): string[] {
   return [
@@ -84,13 +86,16 @@ const MAX_SERVE_SIZE = 50 * 1024 * 1024; // 50 MB
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20 MB for images (inline display)
 
 export function registerPublicDownloadRoutes(app: FastifyInstance): void {
-  // Register BEFORE the auth hook — this endpoint is intentionally public.
-  // We use a separate Fastify plugin context with its own scope so the
-  // global auth hook does not apply.
+  // NOTE: despite the module name this route is NOT exempt from WebUI auth.
+  // webuiAuthHook is a plain onRequest hook on the root instance that only
+  // matches URL prefixes (see PUBLIC_PREFIXES in src/app/webui-auth.ts) and
+  // never reads route config, and /dl is not in that list — so a bearer token
+  // is required here. The old `config: { skipAuth: true }` option was inert
+  // dead weight and has been removed rather than wired up: making the route
+  // genuinely anonymous would trade a working signed-link capability for a
+  // wider anonymous read surface, which is a product decision, not a fix.
 
-  app.get('/dl/:token/:filename', {
-    config: { skipAuth: true },
-  }, async (request, reply) => {
+  app.get('/dl/:token/:filename', async (request, reply) => {
     try {
       const { token, filename } = request.params as { token: string; filename: string };
 
@@ -141,15 +146,17 @@ export function registerPublicDownloadRoutes(app: FastifyInstance): void {
       const displayName = decodeURIComponent(filename || basename(filePath));
 
       // Images and videos: serve inline so they render in <img>/<video> tags.
-      // Other files: force download with Content-Disposition: attachment.
+      // The shared helper clamps that request for anything a browser can
+      // execute or sniff (SVG included).
       const isInline = isImage || ['.mp4', '.webm', '.mov', '.avi', '.mkv'].includes(ext);
 
-      return reply
-        .header('Content-Type', contentType)
+      return applyFileResponseHeaders(reply, {
+        contentType,
+        filename: displayName,
+        ext,
+        allowInline: isInline,
+      })
         .header('Content-Length', stat.size.toString())
-        .header('Content-Disposition', isInline
-          ? `inline; filename="${encodeURIComponent(displayName)}"`
-          : `attachment; filename="${encodeURIComponent(displayName)}"`)
         .header('Cache-Control', 'public, max-age=3600')
         .send(stream);
     } catch (err) {

@@ -8,7 +8,8 @@
 import { readFile } from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { isWithinRoot } from '../../src/shared/path-utils.js';
+import { isDeniedByPattern } from '../../src/shared/glob.js';
+import { isWithinRoot, allowedRootsWithFallback } from '../../src/shared/path-utils.js';
 import { Type } from 'typebox';
 import type { AgentTool } from '../../src/pi-mono/agent/types.js';
 import type { QQGateway } from './qq-gateway.js';
@@ -22,25 +23,10 @@ export interface QqMediaToolOptions {
   deniedPatterns?: string[];
 }
 
-function matchGlob(filePath: string, pattern: string): boolean {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '.*');
-  return new RegExp(`^${escaped}$`).test(filePath);
-}
-
 export function createQqMediaTool(options: QqMediaToolOptions): AgentTool<any> {
   const { gateway, openid, groupOpenid } = options;
 
-  const allowedRoots = [process.cwd()];
-  if (options.allowedRoots && options.allowedRoots.length > 0) {
-    for (const r of options.allowedRoots) {
-      const resolved = path.resolve(r);
-      if (!allowedRoots.includes(resolved)) {
-        allowedRoots.push(resolved);
-      }
-    }
-  }
+  const allowedRoots = allowedRootsWithFallback(options.allowedRoots);
   const deniedPatterns = options.deniedPatterns ?? [];
 
   const target: { openid?: string; groupOpenid?: string } = {};
@@ -68,7 +54,7 @@ export function createQqMediaTool(options: QqMediaToolOptions): AgentTool<any> {
         }
 
         for (const pattern of deniedPatterns) {
-          if (matchGlob(filePath, pattern) || matchGlob(path.basename(filePath), pattern)) {
+          if (isDeniedByPattern(filePath, path.basename(filePath), pattern)) {
             return { content: [{ type: 'text' as const, text: `Access denied: ${rawPath}` }] };
           }
         }

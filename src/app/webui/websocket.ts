@@ -30,6 +30,13 @@ interface WSClient {
   subscribedChannels: Set<string>;
 }
 
+/**
+ * Per-client ceiling on unsent bytes before the connection is dropped. Well
+ * above what a streaming tab on a slow link accumulates, far below what a
+ * wedged one can pin for the life of the process.
+ */
+const MAX_SOCKET_BUFFER_BYTES = 4 * 1024 * 1024;
+
 export class WebSocketManager {
   private clients: Map<WebSocket, WSClient> = new Map();
   private channelSubscribers: Map<string, Set<WebSocket>> = new Map();
@@ -89,14 +96,31 @@ export class WebSocketManager {
   }
 
   /**
+   * Send pre-serialized data, dropping clients that cannot drain.
+   *
+   * `socket.send()` queues into server memory without limit, and chat chunks
+   * are produced token by token — a backgrounded tab or a phone that lost its
+   * network would otherwise pin an ever-growing buffer for the life of the
+   * process. Closing is recoverable: the client reconnects and refetches.
+   */
+  private writeToSocket(socket: WebSocket, data: string): void {
+    if (socket.readyState !== socket.OPEN) return;
+    if (socket.bufferedAmount > MAX_SOCKET_BUFFER_BYTES) {
+      this.logger?.debug(`[ws] dropping client with ${socket.bufferedAmount}B unsent buffer`);
+      socket.terminate();
+      this.unregister(socket);
+      return;
+    }
+    socket.send(data);
+  }
+
+  /**
    * Broadcast a message to all connected clients.
    */
   broadcast(message: Record<string, unknown>): void {
     const data = JSON.stringify(message);
     for (const [socket] of this.clients) {
-      if (socket.readyState === socket.OPEN) {
-        socket.send(data);
-      }
+      this.writeToSocket(socket, data);
     }
   }
 
@@ -108,9 +132,7 @@ export class WebSocketManager {
     if (!subscribers) return;
     const data = JSON.stringify(message);
     for (const socket of subscribers) {
-      if (socket.readyState === socket.OPEN) {
-        socket.send(data);
-      }
+      this.writeToSocket(socket, data);
     }
   }
 
@@ -118,9 +140,7 @@ export class WebSocketManager {
    * Send a message to a specific client.
    */
   sendToClient(socket: WebSocket, message: Record<string, unknown>): void {
-    if (socket.readyState === socket.OPEN) {
-      socket.send(JSON.stringify(message));
-    }
+    this.writeToSocket(socket, JSON.stringify(message));
   }
 
   /**
@@ -160,7 +180,18 @@ export function createWebSocketPlugin(manager: WebSocketManager) {
     // Hook into the underlying HTTP server's upgrade event.  We only
     // handle /ws — Vite's own WS server handles /webui/ for HMR.
     app.server.on('upgrade', (request, socket, head) => {
-      const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
+      // A malformed Host header (empty, or containing spaces) survives Node's
+      // HTTP parser but makes `new URL` throw. Throws inside an 'upgrade'
+      // listener are not absorbed by clientError handling, and our top-level
+      // uncaughtException handler exits the process — so without this guard a
+      // single unauthenticated packet can kill the gateway.
+      let url: URL;
+      try {
+        url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
+      } catch {
+        socket.destroy();
+        return;
+      }
 
       if (url.pathname !== '/ws') {
         // Not our path — leave it for the next listener (Vite HMR, etc.)

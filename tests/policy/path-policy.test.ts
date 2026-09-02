@@ -209,3 +209,52 @@ describe('PathAccessPolicyImpl', () => {
     await rm(outside, { recursive: true, force: true });
   });
 });
+
+describe('launch directory is not a write boundary', () => {
+  // package.json exists in every checkout, so it stands in for "a path under cwd".
+  const insideCwd = path.join(process.cwd(), 'package.json');
+
+  it('never grants write access to cwd, even when cwd injection is enabled', () => {
+    const policy = new PathAccessPolicyImpl({
+      readRoots: [],
+      writeRoots: [],
+      deniedPatterns: [],
+      autoInjectCwd: true,
+    });
+
+    expect(policy.check({ path: insideCwd, operation: 'read', scope: scope() }).allowed).toBe(true);
+    expect(policy.check({ path: insideCwd, operation: 'write', scope: scope() }).allowed).toBe(false);
+  });
+
+  it('treats cwd injection as opt-in', () => {
+    const policy = new PathAccessPolicyImpl({
+      readRoots: [],
+      writeRoots: [],
+      deniedPatterns: [],
+    });
+
+    expect(policy.check({ path: insideCwd, operation: 'read', scope: scope() }).allowed).toBe(false);
+  });
+
+  it('grants the explicit agent home read and write access without leaking to siblings', async () => {
+    const base = await mkdtemp(path.join(tmpdir(), 'oma-policy-home-'));
+    const sibling = `${base}-other`;
+    await mkdir(sibling, { recursive: true });
+
+    const policy = new PathAccessPolicyImpl({
+      readRoots: [],
+      writeRoots: [],
+      deniedPatterns: [],
+      agentHome: base,
+    });
+
+    expect(policy.check({ path: path.join(base, 'a.txt'), operation: 'read', scope: scope() }).allowed).toBe(true);
+    expect(policy.check({ path: path.join(base, 'a.txt'), operation: 'write', scope: scope() }).allowed).toBe(true);
+    expect(
+      policy.check({ path: path.join(sibling, 'a.txt'), operation: 'write', scope: scope() }).allowed,
+    ).toBe(false);
+
+    await rm(base, { recursive: true, force: true });
+    await rm(sibling, { recursive: true, force: true });
+  });
+});

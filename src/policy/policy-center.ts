@@ -15,7 +15,7 @@ import type {
   ChildAgentPolicyRequest,
   ApprovalDecisionRecord,
 } from './types.js';
-import type { ToolVisibilityPolicy } from './tool-visibility.js';
+import type { ToolVisibilityPolicy, SkillToolOverrides } from './tool-visibility.js';
 import type { PathAccessPolicy } from './path-policy.js';
 import type { ShellExecutionPolicy } from './shell/evaluator.js';
 import type { ApprovalResolutionPolicy } from './approval/resolution.js';
@@ -37,6 +37,24 @@ export interface PolicyCenterDeps {
   shellExecution: ShellExecutionPolicy;
   approvalResolution: ApprovalResolutionPolicy;
   agentInheritance: AgentInheritancePolicy;
+}
+
+export type { SkillToolOverrides } from './tool-visibility.js';
+
+/**
+ * {@link ToolPolicyInput} extended with the compiled skill tool policy.
+ *
+ * Declared here instead of on the base `ToolPolicyInput` so the many existing
+ * callers that construct a plain input keep compiling; pass an object of this
+ * type to opt a single evaluation into skill-level visibility rules.
+ */
+export interface ToolPolicyInputWithSkill extends ToolPolicyInput {
+  skillToolOverrides?: SkillToolOverrides;
+}
+
+/** Reads the optional skill tool policy attached to a {@link ToolPolicyInput}. */
+export function skillToolOverridesOf(input: ToolPolicyInput): SkillToolOverrides | undefined {
+  return (input as ToolPolicyInputWithSkill).skillToolOverrides;
 }
 
 // ─── Implementation ─────────────────────────────────────────────────────────
@@ -73,12 +91,21 @@ export class PolicyCenterImpl implements PolicyCenter {
       return { allowed: true, requiresApproval: false };
     }
 
-    // 1. Tool visibility check
-    if (!this.toolVisibility.isVisible(input.toolName, input.policyScope)) {
+    // 1. Tool visibility check (profile + compiled skill allow/deny lists).
+    // The third argument is passed only when a skill policy exists, so callers
+    // without skill context keep the exact pre-existing isVisible call shape.
+    const skillOverrides = skillToolOverridesOf(input);
+    const visible = skillOverrides
+      ? this.toolVisibility.isVisible(input.toolName, input.policyScope, skillOverrides)
+      : this.toolVisibility.isVisible(input.toolName, input.policyScope);
+    if (!visible) {
+      const deniedBySkill = skillOverrides?.deniedTools?.includes(input.toolName);
       return {
         allowed: false,
         requiresApproval: false,
-        reason: `Tool "${input.toolName}" is not available in profile "${input.policyScope.toolsProfile}"`,
+        reason: deniedBySkill
+          ? `Tool "${input.toolName}" is not available: denied by the active skill`
+          : `Tool "${input.toolName}" is not available in profile "${input.policyScope.toolsProfile}"`,
       };
     }
 
@@ -224,6 +251,15 @@ export class PolicyCenterImpl implements PolicyCenter {
 
 function extractPathArgument(args: unknown): string | undefined {
   return extractPathArg(args);
+}
+
+/**
+ * Subject a stored approval is keyed by — identical to what the reuse lookup in
+ * {@link PolicyCenterImpl.evaluateToolCall} builds, so an approval is bound to
+ * the arguments it actually covered and cannot be replayed for a different call.
+ */
+export function toolApprovalSubject(toolName: string, args: unknown): string {
+  return approvalSubject(toolName, args);
 }
 
 function approvalSubjects(toolName: string, args: unknown): string[] {

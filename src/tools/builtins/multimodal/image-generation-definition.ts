@@ -8,6 +8,7 @@ import path from 'node:path';
 import type { ToolDefinition } from '../../platform/tool-definition.js';
 import type { ToolCapabilityDescriptor } from '../../platform/tool-capabilities.js';
 import { textResult, errorResult } from '../../platform/tool-result.js';
+import { resolveAgentPath } from '../../../shared/agent-home.js';
 import type { ImageGenerationProvider } from './image-generation-provider.js';
 import { NoOpImageGenerationProvider } from './image-generation-provider.js';
 
@@ -141,7 +142,7 @@ export function createImageGenerationToolDefinition(
         sanitizedName = `generated_${Date.now()}`;
       }
 
-      const outputDir = path.resolve(genConfig.outputDir);
+      const outputDir = resolveAgentPath(genConfig.outputDir);
 
       try {
         // Generate the image

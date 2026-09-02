@@ -4,10 +4,11 @@
 
 import { Type } from 'typebox';
 import { execFileSync, execSync } from 'node:child_process';
-import { basename, isAbsolute, relative, resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import type { ToolDefinition } from '../../platform/tool-definition.js';
 import type { ToolCapabilityDescriptor } from '../../platform/tool-capabilities.js';
 import { textResult, errorResult } from '../../platform/tool-result.js';
+import { isWithinRoot } from '../../../shared/path-utils.js';
 import { sessionMetadata } from './shared-metadata.js';
 
 export const enterWorktreeCapability: ToolCapabilityDescriptor = {
@@ -96,9 +97,4 @@ export function createEnterWorktreeToolDefinition(): ToolDefinition {
 function sanitizeWorktreeName(value: string): string {
   const sanitized = basename(value).replace(/[^a-zA-Z0-9._-]/g, '_');
   return sanitized || `worktree-${Date.now()}`;
-}
-
-function isWithinRoot(filePath: string, root: string): boolean {
-  const rel = relative(root, filePath);
-  return rel === '' || (!!rel && !rel.startsWith('..') && !isAbsolute(rel));
 }

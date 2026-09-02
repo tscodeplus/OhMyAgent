@@ -357,23 +357,52 @@ const ALL_TRIGGERS = [
   TRIGGER_MEMORIES_FTS_AU,
 ];
 
+export interface FailedIndex {
+  /** The `CREATE INDEX …` statement that was rejected. */
+  statement: string;
+  reason: string;
+}
+
+export interface SchemaApplyResult {
+  failedIndexes: FailedIndex[];
+}
+
 /**
  * Apply all DDL statements (tables + indexes) to the database.
+ *
+ * Index DDL is applied per statement and a failure is collected rather than
+ * thrown. Some indexes cover columns introduced after the first schema (e.g.
+ * `idx_memories_kind_updated` on `memories.updated_at`), and a database written
+ * by an old release may still lack them — letting that abort here would make
+ * the install unbootable, and the migrations that add the columns run later.
+ * A missing index costs query speed, nothing more. Table and trigger DDL stay
+ * fatal: without them the repositories cannot work.
  */
-export function applySchema(db: Database.Database): void {
+export function applySchema(db: Database.Database): SchemaApplyResult {
+  const failedIndexes: FailedIndex[] = [];
   const runInTransaction = db.transaction(() => {
     for (const ddl of ALL_DDL) {
       db.exec(ddl);
     }
     migrateProcessedMessagesSchema(db);
     for (const idx of INDEXES) {
-      db.exec(idx);
+      try {
+        db.exec(idx);
+      } catch (err) {
+        // SQLite rolls back only the failing statement, so the transaction is
+        // still usable after this.
+        failedIndexes.push({
+          statement: idx,
+          reason: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
     for (const trig of ALL_TRIGGERS) {
       db.exec(trig);
     }
   });
   runInTransaction();
+  return { failedIndexes };
 }
 
 function migrateProcessedMessagesSchema(db: Database.Database): void {

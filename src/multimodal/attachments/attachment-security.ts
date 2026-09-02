@@ -1,11 +1,13 @@
-import { isAbsolute, relative, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import type { AttachmentRecord, AttachmentSecurityCheck } from '../types.js';
+import { isWithinRoot } from '../../shared/path-utils.js';
+import { resolveAgentPath } from '../../shared/agent-home.js';
 
 export class AttachmentSecurity {
   private cacheDir: string;
 
   constructor(config: { cacheDir: string }) {
-    this.cacheDir = resolve(config.cacheDir);
+    this.cacheDir = resolveAgentPath(config.cacheDir);
   }
 
   validate(record: AttachmentRecord): AttachmentSecurityCheck {
@@ -27,9 +29,4 @@ export class AttachmentSecurity {
 
     return { passed: true, resolvedPath: resolved };
   }
-}
-
-function isWithinRoot(filePath: string, root: string): boolean {
-  const rel = relative(root, filePath);
-  return rel === '' || (!!rel && !rel.startsWith('..') && !isAbsolute(rel));
 }

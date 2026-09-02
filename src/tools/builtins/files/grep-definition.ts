@@ -8,6 +8,7 @@ import path from 'node:path';
 import type { ToolDefinition } from '../../platform/tool-definition.js';
 import type { ToolCapabilityDescriptor } from '../../platform/tool-capabilities.js';
 import { textResult, errorResult } from '../../platform/tool-result.js';
+import { matchGlobStrict } from '../../../shared/glob.js';
 
 export const grepCapability: ToolCapabilityDescriptor = {
   category: 'file',
@@ -25,13 +26,10 @@ export const grepCapability: ToolCapabilityDescriptor = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Simple glob match against a file's basename. */
-function matchGlob(filePath: string, pattern: string): boolean {
+/** Include filter on a file's basename — strict semantics, over-match leaks. */
+function matchesInclude(filePath: string, pattern: string): boolean {
   if (pattern === '*' || pattern === '') return true;
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '.*');
-  return new RegExp(`^${escaped}$`).test(path.basename(filePath));
+  return matchGlobStrict(path.basename(filePath), pattern);
 }
 
 /** Quick check for null bytes in the first 8 KB — heuristic for binary files. */
@@ -128,7 +126,7 @@ export function createGrepToolDefinition(): ToolDefinition {
         const results: string[] = [];
 
         for (const filePath of walkDir(searchPath)) {
-          if (!matchGlob(filePath, includePattern)) continue;
+          if (!matchesInclude(filePath, includePattern)) continue;
           if (isBinary(filePath)) continue;
 
           try {

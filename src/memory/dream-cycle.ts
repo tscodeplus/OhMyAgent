@@ -44,6 +44,7 @@ import { mergeMemory } from './memory-merge.js';
 import type { MergeConfig } from './memory-merge.js';
 import { extractEntities } from './entity-extractor.js';
 import { generateId } from '../shared/ids.js';
+import { parseEpochMs } from '../shared/timestamp.js';
 
 // ── Config ──────────────────────────────────────────────────────────────
 
@@ -380,8 +381,8 @@ export class DreamCycle {
 
         // Try merge — newer content goes into the older memory
         const isNewer =
-          new Date(anchorMem.created_at).getTime() >
-          new Date(neighborMem.created_at).getTime();
+          parseEpochMs(anchorMem.created_at) >
+          parseEpochMs(neighborMem.created_at);
         const existing = isNewer ? neighborMem : anchorMem;
         const newContent = isNewer ? anchorMem.content : neighborMem.content;
 

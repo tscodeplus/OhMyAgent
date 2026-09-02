@@ -81,16 +81,19 @@ export class WechatReplyDispatcher implements ReplyDispatcher {
   onStart(): void {
     this.startTime = Date.now();
 
+    // Typing indicators and the placeholder are cosmetic, and none of them is
+    // awaited from this sync hook — an unhandled rejection would exit the
+    // process, so each swallows its own failure.
     // 1. Send typing indicator
-    this.options.startTyping?.();
+    this.options.startTyping?.().catch(() => {});
 
     // 2. Start typing keepalive interval (5s)
     this.typingInterval = setInterval(() => {
-      this.options.startTyping?.();
+      this.options.startTyping?.().catch(() => {});
     }, TYPING_KEEPALIVE_MS);
 
     // 3. Send placeholder message with GENERATING state
-    this.options.sendPlaceholder?.();
+    this.options.sendPlaceholder?.().catch(() => {});
   }
 
   onTextDelta(delta: string): void {

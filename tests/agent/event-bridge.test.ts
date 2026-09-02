@@ -283,6 +283,51 @@ describe('EventBridge', () => {
     expect(err.message).toContain('Agent error');
   });
 
+  // ---------------------------------------------------- terminal dispatch per run
+
+  function endEvent(stopReason: 'stop' | 'error') {
+    return {
+      type: 'agent_end',
+      messages: [
+        {
+          role: 'assistant',
+          stopReason,
+          errorMessage: stopReason === 'error' ? 'Rate limit exceeded' : undefined,
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+          content: [],
+          api: 'openai-chat',
+          provider: 'openai',
+          model: 'gpt-4o',
+          timestamp: Date.now(),
+        },
+      ],
+    };
+  }
+
+  it('a second agent_end within one run does not dispatch a second terminal', async () => {
+    bridge.start(agent as any);
+    await agent.emit(endEvent('stop'));
+    await agent.emit(endEvent('error')); // agent's catch-all failure handler
+    expect(dispatcher.onComplete).toHaveBeenCalledTimes(1);
+    expect(dispatcher.onError).not.toHaveBeenCalled();
+  });
+
+  it('agent_start re-arms the terminal guard so a retry run still reports its result', async () => {
+    bridge.start(agent as any);
+    await agent.emit(endEvent('error'));
+    await agent.emit({ type: 'agent_start' }); // overflow-recovery retry
+    await agent.emit(endEvent('stop'));
+    expect(dispatcher.onError).toHaveBeenCalledTimes(1);
+    expect(dispatcher.onComplete).toHaveBeenCalledTimes(1);
+  });
+
   // ------------------------------------------------------------------ multiple events in sequence
   it('forwards a full agent lifecycle in order', async () => {
     bridge.start(agent as any);
@@ -452,5 +497,24 @@ describe('EventBridge', () => {
     const out = emittedText();
     expect(out).toContain('### Subtask Decomposition');
     expect(out).toContain('**Plan**');
+  });
+
+  // ---------------------------------------------------- think tag filtering
+
+  it('strips a complete think block and keeps the answer', async () => {
+    bridge.start(agent as any);
+    await emitText('<think>hidden reasoning</think> visible answer');
+    expect(emittedText()).toBe(' visible answer');
+  });
+
+  it('does not swallow the answer when a stray closing think tag arrives', async () => {
+    bridge.start(agent as any);
+    // A closing tag with no matching opener must be stripped, not treated as
+    // the start of a block — otherwise every later delta is buffered into the
+    // think buffer and the card is truncated mid-sentence.
+    await emitText('</think>');
+    await emitText('still here');
+    await emitText(' and still here');
+    expect(emittedText()).toBe('still here and still here');
   });
 });

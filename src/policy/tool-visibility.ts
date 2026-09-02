@@ -156,16 +156,29 @@ const PROFILE_RANK: Record<ToolProfileId, number> = {
   full: 3,
 };
 
+/**
+ * Skill-declared tool lists for a turn.
+ *
+ * Semantics (deny-first): `deniedTools` always removes a tool, even from a
+ * wider profile; `allowedTools` grants a tool beyond the profile but never
+ * narrows it — skill `allowed-tools` frontmatter is authored as "tools this
+ * skill needs", not an exclusive whitelist.
+ */
+export interface SkillToolOverrides {
+  allowedTools?: string[];
+  deniedTools?: string[];
+}
+
 export interface ToolVisibilityPolicy {
   /** Returns true if the named tool is visible under the given scope. */
-  isVisible(toolName: string, scope: AgentPolicyScope, skillOverrides?: { allowedTools?: string[]; deniedTools?: string[] }): boolean;
+  isVisible(toolName: string, scope: AgentPolicyScope, skillOverrides?: SkillToolOverrides): boolean;
 }
 
 export class ToolVisibilityPolicyImpl implements ToolVisibilityPolicy {
   isVisible(
     toolName: string,
     scope: AgentPolicyScope,
-    skillOverrides?: { allowedTools?: string[]; deniedTools?: string[] },
+    skillOverrides?: SkillToolOverrides,
   ): boolean {
     // Explicit deny always wins
     if (skillOverrides?.deniedTools?.includes(toolName)) {

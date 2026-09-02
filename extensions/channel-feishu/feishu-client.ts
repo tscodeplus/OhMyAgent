@@ -23,6 +23,14 @@ const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 1500;
 const CARD_ID_RETRY_ATTEMPTS = 5;
 const CARD_ID_RETRY_BASE_DELAY_MS = 300;
+/**
+ * Hard deadline for a single Feishu HTTP call. undici's own defaults are
+ * measured in minutes, and every call here sits behind the per-chat queue and
+ * the card operation chain — a stalled TCP session would serialise (and
+ * effectively wedge) a whole turn until the turn watchdog fired.
+ */
+const HTTP_TIMEOUT_MS = 15_000;
+const TOKEN_TIMEOUT_MS = 10_000;
 
 function isRateLimited(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
@@ -173,6 +181,9 @@ function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
 export class FeishuClient {
   private accessToken: string | null = null;
   private tokenExpiresAt = 0;
+  /** In-flight tenant_access_token refresh — concurrent callers join it
+   *  instead of each firing their own POST at the token endpoint. */
+  private tokenRefresh: Promise<string> | null = null;
   private readonly appId: string;
   private readonly appSecret: string;
   private readonly logger: Logger;
@@ -213,6 +224,16 @@ export class FeishuClient {
     throw lastErr;
   }
 
+  /** fetch() with a hard deadline — AbortSignal.timeout() aborts a connection
+   *  that accepted the request but never answers. */
+  private fetchWithTimeout(
+    url: string,
+    init: RequestInit,
+    timeoutMs: number = HTTP_TIMEOUT_MS,
+  ): Promise<Response> {
+    return fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  }
+
   // ─── Token Management ───
 
   /**
@@ -224,16 +245,34 @@ export class FeishuClient {
       return this.accessToken;
     }
 
+    // Single-flight: without this, every call that arrives while the cache is
+    // expired fires its own token POST (Feishu rate-limits that endpoint) and
+    // the responses race each other's cache write. Late callers join the
+    // refresh already in flight and share its outcome — including its
+    // rejection, which propagates to each awaiting caller as before.
+    if (!this.tokenRefresh) {
+      this.tokenRefresh = this.doRefreshToken().finally(() => {
+        this.tokenRefresh = null;
+      });
+    }
+    return this.tokenRefresh;
+  }
+
+  private async doRefreshToken(): Promise<string> {
     this.logger.debug('Refreshing Feishu tenant access token');
 
-    const response = await fetch(`${this.apiBase}/open-apis/auth/v3/tenant_access_token/internal`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json; charset=utf-8' },
-      body: JSON.stringify({
-        app_id: this.appId,
-        app_secret: this.appSecret,
-      }),
-    });
+    const response = await this.fetchWithTimeout(
+      `${this.apiBase}/open-apis/auth/v3/tenant_access_token/internal`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        body: JSON.stringify({
+          app_id: this.appId,
+          app_secret: this.appSecret,
+        }),
+      },
+      TOKEN_TIMEOUT_MS,
+    );
 
     if (!response.ok) {
       const text = await response.text();
@@ -283,7 +322,7 @@ export class FeishuClient {
     _retryOnAuthFailure = true,
   ): Promise<any> {
     const token = await this.getAccessToken();
-    const response = await fetch(`${this.apiBase}/open-apis${path}`, {
+    const response = await this.fetchWithTimeout(`${this.apiBase}/open-apis${path}`, {
       method,
       headers: {
         Authorization: `Bearer ${token}`,
@@ -703,7 +742,7 @@ export class FeishuClient {
   async removeReaction(messageId: string, reactionId: string): Promise<void> {
     try {
       const token = await this.getAccessToken();
-      const response = await fetch(
+      const response = await this.fetchWithTimeout(
         `${this.apiBase}/open-apis/im/v1/messages/${messageId}/reactions/${reactionId}`,
         {
           method: 'DELETE',

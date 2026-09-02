@@ -7,6 +7,7 @@ import type { ToolDefinition } from '../../platform/tool-definition.js';
 import type { ToolCapabilityDescriptor } from '../../platform/tool-capabilities.js';
 import type { ToolExecutionContext } from '../../platform/tool-context.js';
 import { textResult, errorResult } from '../../platform/tool-result.js';
+import { isBlockedAddress, isInternalHostname } from '../../../shared/ssrf.js';
 import * as https from 'node:https';
 import * as http from 'node:http';
 import * as dns from 'node:dns';
@@ -28,47 +29,8 @@ export const webFetchToolCapability: ToolCapabilityDescriptor = {
 };
 
 // ---------------------------------------------------------------------------
-// Private IP detection helpers
+// Private address detection — see src/shared/ssrf.ts
 // ---------------------------------------------------------------------------
-
-/** Convert a dotted-quad IPv4 string to a 32-bit integer. */
-function ipToInt(ip: string): number {
-  const parts = ip.split('.').map(Number);
-  return ((parts[0]! << 24) | (parts[1]! << 16) | (parts[2]! << 8) | parts[3]!) >>> 0;
-}
-
-/** Common private / reserved IPv4 CIDR ranges. */
-const PRIVATE_RANGES: ReadonlyArray<{ min: number; max: number }> = [
-  { min: ipToInt('10.0.0.0'), max: ipToInt('10.255.255.255') },
-  { min: ipToInt('127.0.0.0'), max: ipToInt('127.255.255.255') },
-  { min: ipToInt('169.254.0.0'), max: ipToInt('169.254.255.255') },
-  { min: ipToInt('172.16.0.0'), max: ipToInt('172.31.255.255') },
-  { min: ipToInt('192.168.0.0'), max: ipToInt('192.168.255.255') },
-];
-
-/** Returns true when `ip` falls in a private/reserved range. */
-function isPrivateIP(ip: string): boolean {
-  const normalized = ip.toLowerCase().replace(/^\[|\]$/g, '');
-  if (normalized === '::1'
-      || normalized.startsWith('fe80:')
-      || normalized.startsWith('fc')
-      || normalized.startsWith('fd')
-      || normalized === '::'
-      || normalized.startsWith('::ffff:127.')
-      || normalized.startsWith('::ffff:10.')
-      || normalized.startsWith('::ffff:192.168.')
-      || /^::ffff:172\.(1[6-9]|2\d|3[0-1])\./.test(normalized)) return true;
-  if (normalized.includes(':')) return false;
-
-  const int = ipToInt(normalized);
-  return PRIVATE_RANGES.some((r) => int >= r.min && int <= r.max);
-}
-
-/** Returns true when the hostname is a well-known internal name. */
-function isInternalHostname(hostname: string): boolean {
-  const lower = hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  return lower === 'localhost' || lower.endsWith('.local') || isPrivateIP(lower);
-}
 
 interface ResolvedAddress {
   address: string;
@@ -233,9 +195,9 @@ export function createWebFetchToolDefinition(): ToolDefinition {
           );
         }
 
-        if (isPrivateIP(resolvedAddress.address)) {
+        if (isBlockedAddress(resolvedAddress.address)) {
           return errorResult(
-            `Access denied: "${hostname}" resolves to private IP "${resolvedAddress.address}".`,
+            `Access denied: "${hostname}" resolves to a private or reserved address "${resolvedAddress.address}".`,
           );
         }
 

@@ -117,9 +117,17 @@ export class MemoryRepository {
    */
   findByIds(ids: string[]): Memory[] {
     if (ids.length === 0) return [];
-    const placeholders = ids.map(() => '?').join(',');
-    const stmt = this.db.prepare(`SELECT * FROM memories WHERE id IN (${placeholders})`);
-    return stmt.all(ids) as Memory[];
+    // SQLite rejects more bound parameters than SQLITE_MAX_VARIABLE_NUMBER
+    // (999 by default), which a multi-pool expansion can exceed.
+    const chunkSize = 500;
+    const rows: Memory[] = [];
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const chunk = ids.slice(i, i + chunkSize);
+      const placeholders = chunk.map(() => '?').join(',');
+      const stmt = this.db.prepare(`SELECT * FROM memories WHERE id IN (${placeholders})`);
+      rows.push(...(stmt.all(...chunk) as Memory[]));
+    }
+    return rows;
   }
 
   /**

@@ -1,0 +1,28 @@
+{
+  // Type-checks the test suite, which tsconfig.json deliberately excludes.
+  // Tests were never compiled by anything before this file existed, so type
+  // errors in tests were invisible until vitest happened to exercise the line.
+  //
+  // moduleResolution is overridden to "Bundler" on purpose: tests import
+  // helpers extensionlessly (`../../src/shared/errors`), which NodeNext —
+  // required by the emit config for src — rejects. vitest resolves them via
+  // vite, so Bundler matches how these files actually run.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node", "vitest/globals"]
+  },
+  "include": ["src/**/*.ts", "extensions/**/*.ts", "tests/**/*.ts"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "tests/manual/**",
+    "tests/v2/manual/**",
+    "tests/e2e/webui/**"
+  ]
+}

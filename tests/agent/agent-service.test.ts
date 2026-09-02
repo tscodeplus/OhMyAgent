@@ -246,6 +246,64 @@ describe('AgentService', () => {
     await expect(service.execute('test')).rejects.toBe('string error');
   });
 
+  it('execute() keeps the cached agent after a failed turn with a clean transcript', async () => {
+    factory.agent.prompt.mockImplementation(async () => {
+      factory.agent.state.messages.push({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'partial answer before the failure' }],
+      });
+      throw new Error('provider stream died');
+    });
+
+    await expect(service.execute('test')).rejects.toThrow('provider stream died');
+    factory.agent.prompt.mockResolvedValue(undefined);
+    await service.execute('next message');
+
+    // Rebuilding from the messages table would have thrown away the partial
+    // assistant turn above — the live agent is reused instead.
+    expect(factory.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('execute() drops the cached agent when the turn died on an unanswered tool call', async () => {
+    factory.agent.prompt.mockImplementation(async () => {
+      factory.agent.state.messages.push({
+        role: 'assistant',
+        content: [{ type: 'toolCall', id: 'call-1', name: 'shell', arguments: {} }],
+      });
+      throw new Error('tool crashed');
+    });
+
+    await expect(service.execute('test')).rejects.toThrow('tool crashed');
+    factory.agent.prompt.mockResolvedValue(undefined);
+    await service.execute('next message');
+
+    expect(factory.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('execute() refuses to overlap a running turn on the same session', async () => {
+    let resolvePrompt: () => void;
+    const agent = factory.agent as any;
+    agent.prompt.mockImplementation(async () => {
+      await new Promise<void>((resolve) => { resolvePrompt = resolve; });
+    });
+
+    const running = service.execute('first', { sessionId: 'busy' });
+    await new Promise((r) => setTimeout(r, 0));
+
+    await expect(service.execute('second', { sessionId: 'busy' })).rejects.toThrow(/turn in flight/);
+    // The running turn keeps its own dispatcher — nothing was swapped.
+    expect(factory.create).toHaveBeenCalledTimes(1);
+    expect(factory.agent.prompt).toHaveBeenCalledTimes(1);
+
+    resolvePrompt!();
+    await running;
+
+    // Once the turn settles the session accepts work again.
+    factory.agent.prompt.mockResolvedValue(undefined);
+    await service.execute('third', { sessionId: 'busy' });
+    expect(factory.agent.prompt).toHaveBeenCalledTimes(2);
+  });
+
   // ------------------------------------------------------------------ abort
 
   it('abort() calls agent.abort() when running', async () => {

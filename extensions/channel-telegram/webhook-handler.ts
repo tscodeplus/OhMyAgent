@@ -33,17 +33,22 @@ export function registerWebhookHandler(
 
     // Secret token validation (constant-time comparison — the webhook is
     // publicly reachable so timing attacks on a plain !== are realistic).
-    if (options.secretToken) {
-      const provided = (req.headers as Record<string, string>)['x-telegram-bot-api-secret-token'];
-      if (!safeEqual(provided, options.secretToken)) {
-        logger.warn({ ip: clientIp }, 'Webhook: invalid secret token');
-        return reply.status(401).send({ error: 'Unauthorized' });
-      }
-    } else {
-      logger.warn(
+    // Fail CLOSED when no secret is configured: this route is in
+    // PUBLIC_PREFIXES, so an unauthenticated caller on the network could
+    // otherwise POST a forged Update (with their own chat_id) and drive the
+    // whole agent/tool pipeline — the same fail-closed contract the Feishu
+    // webhook enforces with its 'no-credentials' path.
+    if (!options.secretToken) {
+      logger.error(
         { path: options.path },
-        'SECURITY: Telegram webhook has no secret_token configured — anyone reachable can forge updates. Set telegram.webhookSecret.',
+        'SECURITY: Telegram webhook has no secret_token configured — refusing update. Set telegram.webhookSecret.',
       );
+      return reply.status(401).send({ error: 'Webhook secret not configured' });
+    }
+    const provided = (req.headers as Record<string, string>)['x-telegram-bot-api-secret-token'];
+    if (!safeEqual(provided, options.secretToken)) {
+      logger.warn({ ip: clientIp }, 'Webhook: invalid secret token');
+      return reply.status(401).send({ error: 'Unauthorized' });
     }
 
     try {

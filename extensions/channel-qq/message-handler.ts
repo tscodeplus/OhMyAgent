@@ -28,6 +28,7 @@ import { createQQApprovalSender } from './send-message.js';
 import { handleApprovalInteraction } from './qq-approval-handler.js';
 import { parseQuestionCallback } from './qq-keyboard.js';
 import { i18n } from '../../src/i18n/index.js';
+import { isSenderAllowed } from '../../src/shared/access-control.js';
 import { writeFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -93,10 +94,7 @@ export function setupMessageHandlers(
       if (!channelCtx) return;
 
       // ── Stage 3: Access control (allowedUsers) ──
-      if (
-        config.allowedUsers.length > 0 &&
-        !config.allowedUsers.includes(channelCtx.message.senderId)
-      ) {
+      if (!isSenderAllowed(config.allowedUsers, channelCtx.message.senderId)) {
         logger.debug({ userId: channelCtx.message.senderId }, 'QQ user not in allowedUsers, skipping');
         return;
       }

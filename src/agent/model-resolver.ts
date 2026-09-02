@@ -83,14 +83,17 @@ export function isDeepSeekLikeModel(model: ModelInstance | undefined): boolean {
 /**
  * Resolve the context window size from the model object.
  * Tries common property names; returns 0 if none found (fallback in threshold.ts).
+ *
+ * `maxTokens` is deliberately NOT a fallback here: it caps the model's OUTPUT,
+ * so a model with an 8k completion limit would have been treated as an 8k
+ * *context window* — which makes the compression trigger fire on almost every
+ * turn. 0 means "unknown" and callers already handle it that way.
  */
 export function resolveModelContextLength(model: ModelInstance | undefined): number {
   const contextWindow = modelProp<number>(model, 'contextWindow');
   if (typeof contextWindow === 'number') return contextWindow;
   const contextLength = modelProp<number>(model, 'context_length');
   if (typeof contextLength === 'number') return contextLength;
-  const maxTokens = modelProp<number>(model, 'maxTokens');
-  if (typeof maxTokens === 'number') return maxTokens;
   return 0;
 }
 
@@ -163,6 +166,16 @@ export function resolveModel(options: {
 
   // 7. Apply config overrides to the resolved model.
   if (model) {
+    // getModel() hands out the registry's own object for registered models, and
+    // everything below is this agent's configuration. Writing it through would
+    // leak a baseUrl/header/reasoning change into every other agent sharing the
+    // model and keep serving stale values after a config hot-reload, so the
+    // overrides run on a copy.
+    const owned = { ...model } as unknown as Record<string, unknown>;
+    if (owned.headers && typeof owned.headers === 'object') {
+      owned.headers = { ...(owned.headers as Record<string, string>) };
+    }
+    model = owned as unknown as ModelInstance;
     // 7a. baseUrl override — priority mirrors getApiKey in agent-factory.ts.
     //    Dynamically-cloned models (from getModel's fallback path) inherit the
     //    template's built-in baseUrl, which may differ from the user's gateway.

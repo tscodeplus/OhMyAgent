@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import Database from 'better-sqlite3';
 import { openDatabase, closeDatabase, getDatabase, resetDatabase } from '../../src/memory/db';
 import { applySchema } from '../../src/memory/schema';
 
@@ -127,5 +128,108 @@ describe('getDatabase', () => {
 
   it('throws when first call has no path (no silent :memory: fallback)', () => {
     expect(() => getDatabase()).toThrow(/before initialization/);
+  });
+});
+
+describe('openDatabase on pre-migration databases (boot-loop regression)', () => {
+  // applySchema's index DDL and the memories_fts backfill both reference
+  // columns that V2/V3 add. On a database written before those migrations
+  // existed, the resulting "no such column" used to escape openDatabase() and
+  // abort bootstrap() — so the migrations that would have repaired it were
+  // unreachable and the install could never start again.
+
+  let tmpPath: string;
+
+  afterEach(() => {
+    closeDatabase();
+    for (const suffix of ['', '-wal', '-shm']) {
+      fs.rmSync(tmpPath + suffix, { force: true });
+    }
+  });
+
+  function createLegacyDb(columns: string[]): void {
+    tmpPath = path.join(os.tmpdir(), `legacy-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
+    const raw = new Database(tmpPath);
+    raw.exec(`CREATE TABLE memories (
+      id TEXT PRIMARY KEY,
+      scope TEXT NOT NULL,
+      scope_key TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      content TEXT NOT NULL,
+      ${columns.join(',\n      ')}
+    )`);
+    raw.exec(`CREATE VIRTUAL TABLE memories_fts USING fts5(
+      content, content=memories, content_rowid=rowid,
+      tokenize='unicode61 remove_diacritics 2'
+    )`);
+    raw
+      .prepare('INSERT INTO memories (id, scope, scope_key, kind, content) VALUES (?, ?, ?, ?, ?)')
+      .run('m1', 'user', 'u1', 'fact', 'the quick brown fox');
+    raw.close();
+  }
+
+  function columnNames(db: Database.Database, table: string): Set<string> {
+    return new Set(
+      (db.pragma(`table_info(${table})`) as Array<{ name: string }>).map((c) => c.name),
+    );
+  }
+
+  function indexNames(db: Database.Database): Set<string> {
+    return new Set(
+      (db
+        .prepare("SELECT name FROM sqlite_master WHERE type='index'")
+        .all() as Array<{ name: string }>).map((r) => r.name),
+    );
+  }
+
+  it('boots a database that predates the v2/v3 memories columns', () => {
+    createLegacyDb(['metadata TEXT', 'created_at TEXT', 'updated_at TEXT']);
+
+    let db: Database.Database | undefined;
+    expect(() => {
+      db = openDatabase(tmpPath);
+    }).not.toThrow();
+
+    const cols = columnNames(db!, 'memories');
+    for (const migrated of ['agent_id', 'visibility', 'status', 'supersedes_id', 'confidence']) {
+      expect(cols, `${migrated} should have been added`).toContain(migrated);
+    }
+
+    // Indexes over migrated columns must exist, not merely be skipped.
+    const indexes = indexNames(db!);
+    expect(indexes).toContain('idx_memories_agent');
+    expect(indexes).toContain('idx_memories_status');
+
+    // The backfill ran after the migrations rather than throwing before them.
+    const ftsCount = db!.prepare('SELECT COUNT(*) as cnt FROM memories_fts').get() as { cnt: number };
+    expect(ftsCount.cnt).toBe(1);
+
+    db!.close();
+  });
+
+  it('still boots when a column no migration ever adds is missing', () => {
+    // `memories.updated_at` has no ALTER anywhere, so idx_memories_kind_updated
+    // cannot be created on such a row. That costs query speed — it must not
+    // cost the ability to start.
+    createLegacyDb(['metadata TEXT', 'created_at TEXT']);
+
+    let db: Database.Database | undefined;
+    expect(() => {
+      db = openDatabase(tmpPath);
+    }).not.toThrow();
+
+    expect(indexNames(db!)).not.toContain('idx_memories_kind_updated');
+    expect(indexNames(db!)).toContain('idx_memories_status');
+    db!.close();
+  });
+
+  it('leaves a fresh database fully indexed', () => {
+    const db = openDatabase(':memory:');
+    const indexes = indexNames(db);
+    expect(indexes).toContain('idx_memories_kind_updated');
+    expect(indexes).toContain('idx_memories_agent');
+    expect(indexes).toContain('idx_memories_status');
+    expect(indexes).toContain('idx_sessions_project');
+    db.close();
   });
 });

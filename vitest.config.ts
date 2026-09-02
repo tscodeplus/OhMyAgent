@@ -33,12 +33,21 @@ export default defineConfig({
       ],
       // Baseline set below measured coverage. Ratchet upward over time,
       // never down. CI fails if coverage regresses below these.
-      // Current measured: stmts ~53.0% / branches ~73.8% / funcs ~65.1% / lines ~53.0%
+      // Current measured: stmts/lines 59.9% / branches 75.6% / funcs 70.5%
+      //
+      // The glob keys are enforced per group on top of the global ones. The
+      // global average alone is satisfiable while one area sits at zero — that
+      // is exactly how src/app/webui reached 2.5% statement coverage.
       thresholds: {
-        statements: 52,
+        statements: 56,
         branches: 72,
-        functions: 64,
-        lines: 52,
+        functions: 67,
+        lines: 56,
+        // Measured 18.5% / 68.0% after the route harness landed here.
+        'src/app/webui/**': { statements: 18, branches: 65 },
+        // Measured 86.7% / 82.7%. This is approval gating — a coverage
+        // regression in it is a security boundary going untested.
+        'src/policy/**': { statements: 85, branches: 80 },
       },
     },
   },

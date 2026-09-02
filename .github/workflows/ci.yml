@@ -36,15 +36,25 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install UI dependencies
-        run: |
-          # pnpm-workspace.yaml forces workspace mode, which hoists ui/ deps
-          # to the root. Temporarily hide it so ui/ gets its own node_modules.
-          mv pnpm-workspace.yaml pnpm-workspace.yaml.bak
-          (cd ui && pnpm install --frozen-lockfile)
-          mv pnpm-workspace.yaml.bak pnpm-workspace.yaml
+        # No rename dance: ui/pnpm-workspace.yaml is what stops pnpm from
+        # walking up to the root workspace, so ui/ installs its own
+        # node_modules either way (`pnpm -C ui root` confirms both).
+        run: pnpm -C ui install --frozen-lockfile
 
       - name: Typecheck
         run: pnpm typecheck
+
+      # no-floating-promises / no-misused-promises are crash rules here:
+      # src/index.ts turns any unhandled rejection into process.exit(1).
+      - name: Lint
+        run: pnpm lint
+
+      # tests/ is compiled by tsconfig.test.json only, and never was before it
+      # existed, so the backlog is real (~485 errors). Inventory, not gate:
+      # flip `continue-on-error` off once it is cleared to make this blocking.
+      - name: Typecheck tests (inventory)
+        run: pnpm typecheck:tests
+        continue-on-error: true
 
       - name: Test with coverage
         run: pnpm test:coverage
@@ -66,9 +76,15 @@ jobs:
 
       - name: Install desktop dependencies
         run: |
+          # desktop/ deliberately has no pnpm-workspace.yaml of its own (unlike
+          # ui/): it declares zero dependencies and `pnpm build:sidecar` below
+          # resolves tsc through the *root* workspace's node_modules/.bin.
+          # Hiding the root file makes the install standalone; the trap restores
+          # it even when the install fails, so a later step can never run
+          # against a half-renamed repository.
           mv pnpm-workspace.yaml pnpm-workspace.yaml.bak
-          (cd desktop && pnpm install --frozen-lockfile)
-          mv pnpm-workspace.yaml.bak pnpm-workspace.yaml
+          trap 'mv pnpm-workspace.yaml.bak pnpm-workspace.yaml' EXIT
+          pnpm -C desktop install --frozen-lockfile
 
       - name: Build desktop sidecar
-        run: cd desktop && pnpm build:sidecar
+        run: pnpm -C desktop build:sidecar

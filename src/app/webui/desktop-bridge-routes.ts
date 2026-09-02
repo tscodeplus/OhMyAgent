@@ -37,7 +37,16 @@ export function registerDesktopBridge(app: FastifyInstance): DesktopBridgeRegist
   // handler both check for their own paths and return early, so adding one
   // more listener to the same upgrade event is safe.
   app.server.on('upgrade', (request, socket, head) => {
-    const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
+    // See the identical guard in websocket.ts: both listeners run for every
+    // upgrade event, and a malformed Host header would throw out of `new URL`
+    // into the top-level uncaughtException handler (which exits the process).
+    let url: URL;
+    try {
+      url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
+    } catch {
+      socket.destroy();
+      return;
+    }
 
     if (url.pathname !== '/desktop/bridge' && !url.pathname.startsWith('/desktop/bridge')) {
       // Not our path — leave it for the next listener (existing /ws, Vite HMR)

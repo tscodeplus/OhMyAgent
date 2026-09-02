@@ -1,5 +1,5 @@
 import { generateId } from '../shared/ids.js';
-import type { MemoryRepository } from './repositories/memory-repository.js';
+import type { Memory, MemoryRepository } from './repositories/memory-repository.js';
 import type { EmbeddingRepository } from './repositories/embedding-repository.js';
 import type { EmbeddingClient } from '../provider/embedding-client.js';
 import type { EmbeddingCacheRepo } from './repositories/embedding-cache-repository.js';
@@ -247,7 +247,15 @@ export class MemoryWriter {
     // crash/throw between them could leave a row with no embedding (permanent
     // recall gap) or stale terms. Entity extraction (async) stays best-effort
     // outside the transaction.
-    const memory = this.memoryRepository.runInTransaction(() => {
+    type WriteOutcome = { raced: Memory } | { created: Memory };
+    const outcome = this.memoryRepository.runInTransaction<WriteOutcome>(() => {
+      // Step 1's dedup probe ran before the embedding await above — a window
+      // wide enough for a concurrent writer to insert the same content. A
+      // synchronous transaction is where probe and insert stop interleaving.
+      const raced = this.memoryRepository.findExactMatch(options.scope, scopeKey, kind, options.content);
+      if (raced && matchesMemoryAccess(raced, accessPolicy)) {
+        return { raced };
+      }
       const created = this.memoryRepository.create(createInput);
       this.memoryTermRepo?.replaceForMemory(created.id, extractMemoryTerms(created.content, metadataObject));
       if (embeddingToStore) {
@@ -259,8 +267,16 @@ export class MemoryWriter {
           dimension: embeddingToStore.length,
         });
       }
-      return created;
+      return { created };
     });
+
+    if ('raced' in outcome) {
+      const raced = outcome.raced;
+      this.memoryRepository.update(raced.id, { content: options.content });
+      this.notifyMemoryChanged(options.content, kind, options.scope, scopeKey);
+      return { id: raced.id, action: 'exact_duplicate', isDuplicate: true, duplicateOf: raced.id };
+    }
+    const memory = outcome.created;
 
     // 3.1. For preferences: resolve topic conflicts with the new resolver.
     // Must happen AFTER creation so the new memory exists in DB.

@@ -15,9 +15,10 @@ import { resetWebUIToken, webuiAuthHook } from '../../src/app/webui-auth';
  * bypassed prefix, they fail here first.
  */
 
-function makeRequest(url: string, authorization?: string) {
+function makeRequest(url: string, authorization?: string, method = 'GET') {
   return {
     url,
+    method,
     headers: authorization ? { authorization } : {},
   } as never;
 }
@@ -109,5 +110,62 @@ describe('webuiAuthHook exemption list', () => {
     const reply = makeReply();
     await webuiAuthHook(makeRequest('/api/channels/wechat/qr/start', 'Bearer wrong-token'), reply);
     expect(reply.statusCode).toBe(403);
+  });
+
+  describe('public prefixes match whole path segments', () => {
+    // startsWith('/api/feishu') used to exempt any sibling spelling too, so a
+    // future /api/feishu-admin route would have been reachable unauthenticated.
+    const siblingsThatMustStayProtected = [
+      '/api/feishu-admin',
+      '/api/telegram-stats',
+      '/api/wechatconsole',
+      '/api/health-report',
+      '/api/healthcheck',
+    ];
+
+    for (const path of siblingsThatMustStayProtected) {
+      it(`401s ${path}`, async () => {
+        const reply = makeReply();
+        await webuiAuthHook(makeRequest(path), reply);
+        expect(reply.statusCode).toBe(401);
+      });
+    }
+
+    it('still exempts real sub-paths of a public prefix', async () => {
+      const reply = makeReply();
+      await webuiAuthHook(makeRequest('/api/feishu/webhook/callback'), reply);
+      expect(reply.statusCode).toBeUndefined();
+    });
+  });
+
+  describe('query-string token', () => {
+    // <img>/<a download>/WebSocket cannot set headers, so GET may carry the
+    // token in the URL. Everything else must use the Authorization header —
+    // URLs land in history, proxies and Referer headers.
+    it('authenticates a GET', async () => {
+      const reply = makeReply();
+      await webuiAuthHook(makeRequest(`/api/files/serve?path=a.txt&token=${TEST_TOKEN}`), reply);
+      expect(reply.statusCode).toBeUndefined();
+    });
+
+    for (const method of ['POST', 'PUT', 'DELETE']) {
+      it(`is ignored on ${method}`, async () => {
+        const reply = makeReply();
+        await webuiAuthHook(
+          makeRequest(`/api/files/upload?token=${TEST_TOKEN}`, undefined, method),
+          reply,
+        );
+        expect(reply.statusCode).toBe(401);
+      });
+    }
+
+    it('still accepts a bearer token on state-changing methods', async () => {
+      const reply = makeReply();
+      await webuiAuthHook(
+        makeRequest('/api/files/upload', `Bearer ${TEST_TOKEN}`, 'POST'),
+        reply,
+      );
+      expect(reply.statusCode).toBeUndefined();
+    });
   });
 });

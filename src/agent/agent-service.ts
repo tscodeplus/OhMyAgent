@@ -20,6 +20,7 @@ import type { ToolRunRepository } from '../memory/repositories/tool-run-reposito
 import type { MemorySummarizer } from '../memory/memory-summarizer.js';
 import type { Logger } from 'pino';
 import { generateId } from '../shared/ids.js';
+import { estimateTokensForText } from '../shared/token-estimate.js';
 import { EventBridge } from './event-bridge.js';
 import type { ImageContent } from '../pi-mono/ai/types.js';
 import type { VisionBridgeService } from '../vision-bridge/vision-bridge-service.js';
@@ -99,18 +100,16 @@ export interface AgentServicePersistenceOptions {
 }
 
 /**
- * Rough token count estimation. ASCII ≈ char/4, CJK/non-ASCII ≈ char/2.
- * Overestimates for CJK safety; accuracy ±30% is fine for a soft cap.
+ * Rough token count for the history budget. Delegates to the same estimator the
+ * compression trigger uses (src/shared/token-estimate.ts) — two copies of the
+ * weighting drifted once already, which made the history cap and the
+ * compression threshold disagree about the size of the same transcript.
  */
 function estimateTokens(content: string | Array<{ type: string; text?: string }>): number {
   const text = typeof content === 'string'
     ? content
     : content.map(b => b.text ?? '').join('');
-  let tokens = 0;
-  for (const ch of text) {
-    tokens += ch.charCodeAt(0) > 127 ? 0.5 : 0.25;
-  }
-  return Math.ceil(tokens);
+  return Math.ceil(estimateTokensForText(text));
 }
 
 /** P1 M6: default wall-clock cap for a single agent turn (5 minutes). */
@@ -118,6 +117,25 @@ const DEFAULT_TURN_TIMEOUT_MS = 300_000;
 /** P1 M6: grace period for an aborted turn to unwind before we abandon the
  *  wait (matches the orchestrator's 10s stopAgent settle window). */
 const TURN_SETTLE_GRACE_MS = 10_000;
+
+/**
+ * Budget for the cached per-session runtimes.
+ *
+ * `runtimes` is keyed by session id and entries were historically only removed
+ * on a turn error or by destroyRuntime() (/new, /clear, cron). Every entry pins
+ * a pi-mono Agent holding its full `state.messages`, so a gateway that runs for
+ * weeks (Termux, desktop sidecar) accumulated one live conversation per chat
+ * with no upper bound.
+ *
+ * Eviction is cheap by design: the next execute() on a cold session reloads
+ * history from the DB — the same path a process restart already takes. It only
+ * costs a DB read, and never applies to a session that is mid-turn.
+ */
+const MAX_CACHED_RUNTIMES = 64;
+/** Idle runtimes older than this are eligible for eviction. */
+const RUNTIME_IDLE_TTL_MS = 30 * 60_000;
+/** Soft cap for the small per-session bookkeeping maps/sets (insertion order). */
+const MAX_SESSION_ENTRIES = 500;
 
 /**
  * Thrown when an agent turn exceeds the configured wall-clock cap.
@@ -128,6 +146,18 @@ export class TurnTimeoutError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'TurnTimeoutError';
+  }
+}
+
+/**
+ * Thrown when execute() is called on a session whose previous turn is still
+ * running. Not a turn failure — nothing started, so no card, transcript or
+ * feedback entry needs cleanup.
+ */
+export class SessionBusyError extends Error {
+  constructor(sessionId: string) {
+    super(`Session already has a turn in flight: ${sessionId}`);
+    this.name = 'SessionBusyError';
   }
 }
 
@@ -164,6 +194,11 @@ export class AgentService {
     skillActivatedName?: string;
     /** Whether to persist tool call metadata (respects showToolCalls setting). */
     showToolCalls?: boolean;
+    /** Timestamp of the last turn on this session — idle-TTL eviction key. */
+    lastTouchedAt: number;
+    /** True while execute() is running a turn; the sweeper must never drop
+     *  a runtime that is mid-turn (or waiting on an approval). */
+    turnActive: boolean;
   }>();
 
   private sessionAgentMap = new Map<string, string>();
@@ -203,6 +238,13 @@ export class AgentService {
   ): Promise<Agent> {
     const sessionId = options?.sessionId ?? 'default';
     let runtime = this.runtimes.get(sessionId);
+    if (runtime?.turnActive) {
+      // A second turn on a live session would overwrite the bridge and
+      // dispatcher the first one is still streaming through, splitting its
+      // output across two cards. Channels serialize per session and route
+      // overlap to /steer; this is the backstop for callers that don't.
+      throw new SessionBusyError(sessionId);
+    }
 
     // ---- Skill self-evolution feedback loop: satisfaction inference ----
     // Runs before the runtime build so it only picks up entries left over
@@ -293,6 +335,8 @@ export class AgentService {
         persistedMessageCount: historyMessages?.length ?? 0,
         turnContext,
         channel: options?.channel,
+        lastTouchedAt: Date.now(),
+        turnActive: false,
       };
       if (this.persistence?.toolRunRepository) {
         runtime.auditUnsubscribe = this.subscribeToolRunAudit(
@@ -302,6 +346,7 @@ export class AgentService {
         );
       }
       this.runtimes.set(sessionId, runtime);
+      this.enforceRuntimeBudget(sessionId);
     } else if (options?.channel) {
       const previousAgent = runtime.agent;
       const preservedMessages = previousAgent.state.messages;
@@ -387,6 +432,12 @@ export class AgentService {
     }
 
     try {
+      // Mark the runtime busy for the whole turn: the idle sweeper must never
+      // evict a session that is generating, running a tool, or parked on an
+      // approval (isStreaming is false during tool execution).
+      runtime.turnActive = true;
+      runtime.lastTouchedAt = turnStart;
+
       if (this.persistence && sessionId) {
         this.ensureSession(sessionId);
         // Auto-title the conversation from its first user message. Fire-and-forget:
@@ -525,7 +576,22 @@ export class AgentService {
     } catch (error) {
       runtime.bridge?.stop();
       runtime.auditUnsubscribe?.();
-      this.runtimes.delete(sessionId);
+      // The pre-complete persist only runs on agent_end, so an error mid-turn
+      // used to lose the turn's messages as well as the in-memory transcript.
+      if (this.persistence && sessionId) {
+        try {
+          await this.persistMessages(agent, sessionId, runtime);
+        } catch (err) {
+          this.persistence?.logger?.debug({ err, sessionId }, 'Persist after failed turn skipped');
+        }
+      }
+      // Dropping the runtime rebuilds history from the `messages` table — text
+      // only, every tool_use/toolResult pair gone. Keep the live agent unless
+      // its transcript ends on a tool call with no result, which the next
+      // request would reject the same way.
+      if (!this.runtimeIsResumable(agent)) {
+        this.runtimes.delete(sessionId);
+      }
       this.persistence?.logger.error({ err: error }, 'agent execute error');
 
       // ---- Skill self-evolution feedback loop: failure completion ----
@@ -566,6 +632,11 @@ export class AgentService {
       }
 
       throw error;
+    } finally {
+      // The error path may keep this runtime for the next turn; either way the
+      // session is no longer mid-turn and becomes eligible for idle eviction.
+      runtime.turnActive = false;
+      runtime.lastTouchedAt = Date.now();
     }
   }
 
@@ -895,7 +966,12 @@ export class AgentService {
     const runtime = this.runtimes.get(sessionId);
     if (!runtime) return false;
     const agentId = this.sessionAgentMap.get(sessionId);
-    this.runOnIdleCard(runtime, message, replyToMessageId, agentId, sessionId);
+    // fire-and-forget by design (the caller gets `true` as soon as the run is
+    // queued), so the rejection must be swallowed here — an unhandled one
+    // exits the process.
+    this.runOnIdleCard(runtime, message, replyToMessageId, agentId, sessionId).catch((err) => {
+      this.persistence?.logger?.warn({ err, sessionId }, 'followUp run failed');
+    });
     return true;
   }
 
@@ -929,8 +1005,13 @@ export class AgentService {
     runtime.turnContext.replyDispatcher = dispatcher;
     runtime.bridge = new EventBridge(dispatcher, this.persistence?.logger);
     runtime.bridge.start(runtime.agent);
+    runtime.turnActive = true;
+    runtime.lastTouchedAt = Date.now();
     runtime.agent.prompt(message).catch(() => {
       this.persistence?.logger?.debug({ sessionId }, 'followUp prompt completed with error');
+    }).finally(() => {
+      runtime.turnActive = false;
+      runtime.lastTouchedAt = Date.now();
     });
   }
 
@@ -956,11 +1037,108 @@ export class AgentService {
   destroyRuntime(sessionId: string): boolean {
     const runtime = this.runtimes.get(sessionId);
     if (!runtime) return false;
+    this.disposeRuntime(sessionId, runtime);
+    this.clearedSessions.add(sessionId);
+    return true;
+  }
+
+  /** Release the bridge/audit subscription and drop the runtime entry. */
+  private disposeRuntime(sessionId: string, runtime: {
+    bridge: EventBridge | null;
+    auditUnsubscribe?: () => void;
+  }): void {
     runtime.bridge?.stop();
     runtime.auditUnsubscribe?.();
     this.runtimes.delete(sessionId);
-    this.clearedSessions.add(sessionId);
-    return true;
+  }
+
+  /**
+   * Whether a failed turn's live transcript can serve the next request.
+   *
+   * A turn that dies mid-tool-call leaves an assistant message whose tool calls
+   * never got results; providers reject that shape outright and the context
+   * trimmer would drop the message anyway, so such a runtime must be rebuilt
+   * from the database.
+   */
+  private runtimeIsResumable(agent: Agent): boolean {
+    const messages = agent.state?.messages ?? [];
+    const last = messages[messages.length - 1] as
+      | { role?: string; content?: unknown }
+      | undefined;
+    if (!last || last.role !== 'assistant') return true;
+    if (!Array.isArray(last.content)) return true;
+    return !last.content.some((block) => (block as { type?: string })?.type === 'toolCall');
+  }
+
+  /**
+   * Bound the cached runtime map: idle-TTL sweep first, then LRU eviction
+   * down to MAX_CACHED_RUNTIMES.
+   *
+   * Called opportunistically whenever a new session runtime is created — the
+   * only place the map grows — so no background timer is needed. A runtime that
+   * is mid-turn (turnActive) or still streaming is never evicted; conversation
+   * state lives in the DB and execute() reloads it for a cold session, so
+   * eviction costs one DB read rather than lost context.
+   */
+  private enforceRuntimeBudget(keepSessionId: string): void {
+    const now = Date.now();
+    const evictable = (id: string, rt: { lastTouchedAt: number; turnActive: boolean; agent: Agent }) =>
+      id !== keepSessionId &&
+      !rt.turnActive &&
+      !(rt.agent.state?.isStreaming ?? false);
+
+    for (const [id, rt] of [...this.runtimes]) {
+      if (now - rt.lastTouchedAt > RUNTIME_IDLE_TTL_MS && evictable(id, rt)) {
+        this.evictRuntime(id, 'idle');
+      }
+    }
+
+    if (this.runtimes.size > MAX_CACHED_RUNTIMES) {
+      const byAge = [...this.runtimes.entries()]
+        .filter(([id, rt]) => evictable(id, rt))
+        .sort((a, b) => a[1].lastTouchedAt - b[1].lastTouchedAt);
+      for (const [id] of byAge) {
+        if (this.runtimes.size <= MAX_CACHED_RUNTIMES) break;
+        this.evictRuntime(id, 'capacity');
+      }
+    }
+
+    this.boundSessionEntries();
+  }
+
+  private evictRuntime(sessionId: string, reason: 'idle' | 'capacity'): void {
+    const runtime = this.runtimes.get(sessionId);
+    if (!runtime) return;
+    this.disposeRuntime(sessionId, runtime);
+    this.persistence?.logger?.debug(
+      { sessionId, reason, cached: this.runtimes.size },
+      'Agent runtime evicted — history reloads from DB on the next message',
+    );
+  }
+
+  /**
+   * Keep the best-effort per-session bookkeeping collections bounded. These
+   * hold small scalars (feedback ids, inferred satisfaction, "skip history
+   * load" flags), but nothing removed them for sessions that went quiet —
+   * Map/Set iterate in insertion order, so the oldest entries are dropped.
+   */
+  private boundSessionEntries(): void {
+    if (this.clearedSessions.size > MAX_SESSION_ENTRIES) {
+      for (const id of this.clearedSessions) {
+        if (this.clearedSessions.size <= MAX_SESSION_ENTRIES) break;
+        this.clearedSessions.delete(id);
+      }
+    }
+    for (const map of [
+      this.pendingSatisfaction as Map<string, unknown>,
+      this.sessionSatisfaction as Map<string, unknown>,
+    ]) {
+      if (map.size <= MAX_SESSION_ENTRIES) continue;
+      for (const key of [...map.keys()]) {
+        if (map.size <= MAX_SESSION_ENTRIES) break;
+        map.delete(key);
+      }
+    }
   }
 
   /**
@@ -1107,7 +1285,6 @@ export class AgentService {
     }
   }
 
-  /** v9: Check for context overflow and recover via compression + retry. */
   /** v9: Check for context overflow and recover via compression + retry. */
   private async _recoverFromOverflow(
     agent: Agent,

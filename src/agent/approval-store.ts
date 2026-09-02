@@ -22,6 +22,10 @@ interface PendingApprovalEntry {
   sessionKey: string;
   /** Risk level captured at create() — timeout-allow must never auto-approve high-risk requests. */
   riskLevel?: string;
+  /** Absolute path this approval was about (file-access approvals only). When
+   *  a human approves, onFileServeApproved fires so the WebUI file-serve
+   *  allowlist learns the path (report #6b option B). */
+  fileServePath?: string;
 }
 
 export class PendingApprovalStore {
@@ -32,6 +36,11 @@ export class PendingApprovalStore {
     reason: 'timeout' | 'stale_after_restart' | 'expired_before_recovery' | 'steered',
   ) => void;
   private onAutoApprove?: (requestId: string) => void;
+  /** Fired when a human approves a file-access approval carrying a serve
+   *  path. Injected by the composer with the WebUI grant function so the
+   *  approval decision and the file-serve allowlist share one source of
+   *  truth (the human decision) without src/agent importing webui. */
+  private onFileServeApproved?: (info: { path: string; requestId: string }) => void;
   private timeoutAction: 'deny' | 'allow';
 
   constructor(options?: {
@@ -40,11 +49,13 @@ export class PendingApprovalStore {
       reason: 'timeout' | 'stale_after_restart' | 'expired_before_recovery' | 'steered',
     ) => void;
     onAutoApprove?: (requestId: string) => void;
+    onFileServeApproved?: (info: { path: string; requestId: string }) => void;
     timeoutAction?: 'deny' | 'allow';
   }) {
     this.events.setMaxListeners(100);
     this.onAutoReject = options?.onAutoReject;
     this.onAutoApprove = options?.onAutoApprove;
+    this.onFileServeApproved = options?.onFileServeApproved;
     this.timeoutAction = options?.timeoutAction ?? 'deny';
   }
 
@@ -66,6 +77,9 @@ export class PendingApprovalStore {
       /** Operator identity of the requester (e.g. Feishu open_id). Used by
        *  approval callbacks to verify that the clicker is the requester. */
       requesterId?: string;
+      /** Absolute path whose WebUI serving should be granted when a human
+       *  approves (file-access approvals only, see handleFileAccessApproval). */
+      fileServePath?: string;
     },
   ): Promise<ApprovalDecisionType> {
     if (approvalRepo) {
@@ -88,7 +102,14 @@ export class PendingApprovalStore {
       });
     }
 
-    return this._awaitDecision(requestId, timeoutMs, approvalRepo, sessionKey ?? '', riskLevel);
+    return this._awaitDecision(
+      requestId,
+      timeoutMs,
+      approvalRepo,
+      sessionKey ?? '',
+      riskLevel,
+      metadata?.fileServePath,
+    );
   }
 
   setTimeoutAction(action: 'deny' | 'allow'): void {
@@ -96,8 +117,10 @@ export class PendingApprovalStore {
   }
 
   resolve(requestId: string, decision: ApprovalDecisionType): boolean {
-    if (!this.pending.has(requestId)) return false;
+    const entry = this.pending.get(requestId);
+    if (!entry) return false;
     this.events.emit(requestId, decision);
+    this.notifyFileServeApproved(entry, requestId, decision);
     return true;
   }
 
@@ -111,6 +134,7 @@ export class PendingApprovalStore {
       clearTimeout(entry.timer);
       this.pending.delete(requestId);
       this.events.emit(requestId, decision);
+      this.notifyFileServeApproved(entry, requestId, decision);
       return true;
     }
     return false;
@@ -127,6 +151,7 @@ export class PendingApprovalStore {
       clearTimeout(entry.timer);
       this.pending.delete(requestId);
       this.events.emit(requestId, decision);
+      this.notifyFileServeApproved(entry, requestId, decision);
       count++;
     }
     return count;
@@ -177,6 +202,7 @@ export class PendingApprovalStore {
     approvalRepo?: ApprovalRequestRepository,
     sessionKey?: string,
     riskLevel?: string,
+    fileServePath?: string,
   ): Promise<ApprovalDecisionType> {
     return new Promise<ApprovalDecisionType>((resolve) => {
       const timer = setTimeout(() => {
@@ -209,7 +235,23 @@ export class PendingApprovalStore {
       };
 
       this.events.once(requestId, handler);
-      this.pending.set(requestId, { timer, sessionKey: sessionKey ?? '', riskLevel });
+      this.pending.set(requestId, { timer, sessionKey: sessionKey ?? '', riskLevel, fileServePath });
     });
+  }
+
+  /** Fire the file-serve grant hook for an approve decision on a
+   *  file-access approval. Called from every resolve path. */
+  private notifyFileServeApproved(
+    entry: PendingApprovalEntry,
+    requestId: string,
+    decision: ApprovalDecisionType,
+  ): void {
+    if (!entry.fileServePath || !decision.startsWith('approve')) return;
+    try {
+      this.onFileServeApproved?.({ path: entry.fileServePath, requestId });
+    } catch {
+      // The hook is an additive capability grant; a failure here must not
+      // turn an approved tool call into an error.
+    }
   }
 }

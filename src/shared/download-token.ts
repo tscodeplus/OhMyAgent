@@ -9,14 +9,17 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { dataPath } from './agent-home.js';
 
 const DEFAULT_TTL_MS = 60 * 60 * 1000; // 1 hour
 const TOKEN_VERSION = 1;
 
 function getSecret(): string {
-  // Prefer an explicit env override.
-  const envSecret = process.env.OHMYAGENT_DOWNLOAD_SECRET
-    || process.env.FEISHU_APP_SECRET;
+  // Deliberately a dedicated secret. FEISHU_APP_SECRET used to be the fallback
+  // here, which meant the credential that signs channel webhooks also signed
+  // /dl/ links: rotating either one silently invalidated the other, and a leak
+  // of one became a forgery capability for the other.
+  const envSecret = process.env.OHMYAGENT_DOWNLOAD_SECRET;
   if (envSecret) return envSecret;
 
   // Persistent fallback: keep the key on disk (data/download-secret) so
@@ -24,7 +27,7 @@ function getSecret(): string {
   // reinstalls. Without this, every start gets a fresh random key and all
   // previously signed /dl/ links become invalid.
   const secretFile = process.env.OHMYAGENT_DOWNLOAD_SECRET_FILE
-    || path.resolve(process.cwd(), 'data', 'download-secret');
+    || dataPath('download-secret');
   try {
     if (fs.existsSync(secretFile)) {
       const existing = fs.readFileSync(secretFile, 'utf-8').trim();

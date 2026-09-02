@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { Logger } from 'pino';
+import { parseEpochMs } from '../shared/timestamp.js';
 import { MemoryRepository, Memory } from './repositories/memory-repository.js';
 
 export interface SceneCluster {
@@ -75,8 +76,8 @@ export class SceneClusterer {
       for (const windowMemories of windows) {
         if (windowMemories.length < minMemories) continue;
 
-        const startDate = windowMemories[0].created_at.slice(0, 10);
-        const endDate = windowMemories[windowMemories.length - 1].created_at.slice(0, 10);
+        const startDate = dateLabel(windowMemories[0].created_at);
+        const endDate = dateLabel(windowMemories[windowMemories.length - 1].created_at);
         const content = this.generateMarkdown(scopeKey, windowMemories);
         const safeScopeKey = safePathSegment(scopeKey);
         const refPath = `scenes/${safeScopeKey}_${startDate}_${endDate}.md`;
@@ -128,13 +129,13 @@ export class SceneClusterer {
   private splitIntoWindows(memories: Memory[], windowDays: number): Memory[][] {
     if (memories.length === 0) return [];
 
-    const earliest = new Date(memories[0].created_at);
+    const earliestMs = parseEpochMs(memories[0].created_at);
     const windows = new Map<number, Memory[]>();
 
     for (const mem of memories) {
-      const memDate = new Date(mem.created_at);
+      const memMs = parseEpochMs(mem.created_at);
       const daysSinceEarliest = Math.floor(
-        (memDate.getTime() - earliest.getTime()) / (1000 * 60 * 60 * 24),
+        (memMs - earliestMs) / (1000 * 60 * 60 * 24),
       );
       const windowIndex = Math.floor(daysSinceEarliest / windowDays);
 
@@ -155,11 +156,11 @@ export class SceneClusterer {
    */
   private generateMarkdown(scopeKey: string, memories: Memory[]): string {
     const sorted = [...memories].sort(
-      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+      (a, b) => parseEpochMs(a.created_at) - parseEpochMs(b.created_at),
     );
 
-    const startDate = sorted[0].created_at.slice(0, 10);
-    const endDate = sorted[sorted.length - 1].created_at.slice(0, 10);
+    const startDate = dateLabel(sorted[0].created_at);
+    const endDate = dateLabel(sorted[sorted.length - 1].created_at);
 
     // 按 kind 分组
     const grouped = new Map<string, Memory[]>();
@@ -226,6 +227,17 @@ export class SceneClusterer {
       }),
     });
   }
+}
+
+/**
+ * `created_at` 是 TEXT 列：schema 默认值写入纯数字 epoch 毫秒
+ * （"1788237296000"），其前 10 个字符不是日期；应用层写入的则是 ISO 或
+ * SQLite datetime 字符串（本身就以 YYYY-MM-DD 开头）。只对前者做转换，
+ * 避免按时区偏移解读日期字符串导致标签跨天。
+ */
+function dateLabel(value: string): string {
+  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+  return new Date(parseEpochMs(value)).toISOString().slice(0, 10);
 }
 
 function safePathSegment(input: string): string {

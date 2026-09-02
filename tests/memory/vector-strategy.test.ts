@@ -5,6 +5,7 @@ import { memoryObservability } from '../../src/memory/observability.js';
 function createMemoryRepository() {
   return {
     findById: vi.fn(),
+    findByIds: vi.fn(() => []),
     searchByContent: vi.fn(() => []),
   };
 }

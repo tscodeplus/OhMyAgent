@@ -101,6 +101,13 @@ export default function (api: ExtensionAPI) {
   // ── Module-level state ──
   let poller: WechatPoller | null = null;
   let started = false;
+  /**
+   * In-flight startWechatBot() from adapter.start(). Until it resolves,
+   * `poller` is still null — an activation that reads `poller` in that window
+   * would conclude "no poller running" and start a SECOND long-poller sharing
+   * the same cursor file (each overwriting the other's cursor every poll).
+   */
+  let pendingStart: Promise<WechatPoller> | null = null;
 
   // ── QR code login REST endpoints (always registered for initial auth / re-auth) ──
   if (server) {
@@ -115,6 +122,7 @@ export default function (api: ExtensionAPI) {
       (p) => {
         poller = p;
       },
+      () => pendingStart,
     );
   }
 
@@ -129,13 +137,24 @@ export default function (api: ExtensionAPI) {
       }
 
       if (wechatConfig.botToken) {
-        startWechatBot(wechatConfig, agentService, deps, logger, api)
-          .then(async (p) => {
+        const starting = startWechatBot(wechatConfig, agentService, deps, logger, api, () => {
+          // Session expired (errcode -14): the poller stopped itself. Clear the
+          // handle so adapter status reflects reality and re-auth goes through
+          // the QR login routes (report #11h — channel used to go silent).
+          poller = null;
+          started = false;
+        });
+        pendingStart = starting;
+        starting
+          .then((p) => {
             poller = p;
             started = true;
           })
           .catch((err: unknown) => {
             logger.error({ err }, 'Failed to start WeChat bot');
+          })
+          .finally(() => {
+            pendingStart = null;
           });
       } else {
         logger.info('WeChat bot token not set — waiting for QR login');
@@ -209,11 +228,33 @@ function registerQrRoutes(
   api: ExtensionAPI,
   getPoller: () => WechatPoller | null,
   setPoller: (p: WechatPoller | null) => void,
+  getPendingStart: () => Promise<WechatPoller> | null,
 ): void {
+  /**
+   * Activations run strictly one after another. Concurrent QR confirmations
+   * (two browser tabs, or /wechat/login/poll racing POST /wechat/login/start)
+   * would otherwise both observe "no poller" and start a second long-poller
+   * over the same cursor file.
+   */
+  let activationChain: Promise<void> = Promise.resolve();
+
+  function activateBot(botToken: string, source: string): Promise<void> {
+    const run = activationChain.then(
+      () => doActivateBot(botToken, source),
+      () => doActivateBot(botToken, source),
+    );
+    // Never let a failed activation poison the chain.
+    activationChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
   // Persist the bot token to config + .env and (re)start the poller.
   // Shared by /wechat/login/poll (server-side auto-activation on scan confirm),
   // POST /wechat/login/start (token-authenticated) and the /api/channels/wechat/qr/start wrapper.
-  async function activateBot(botToken: string, source: string): Promise<void> {
+  async function doActivateBot(botToken: string, source: string): Promise<void> {
     wechatConfig.botToken = botToken;
     try {
       const fs = await import('node:fs/promises');
@@ -239,6 +280,9 @@ function registerQrRoutes(
     }
 
     // Stop old poller if running (token might have expired), then start fresh
+    await getPendingStart()?.catch(() => {
+      /* the failed start logged itself */
+    });
     const old = getPoller();
     if (old) {
       try {
@@ -248,7 +292,13 @@ function registerQrRoutes(
       }
       setPoller(null);
     }
-    const p = await startWechatBot(wechatConfig, agentService, deps, logger, api);
+    const p = await startWechatBot(wechatConfig, agentService, deps, logger, api, (info) => {
+      logger.warn(
+        info,
+        'WeChat session expired — poller stopped, re-authenticate via QR login (/wechat/login)',
+      );
+      setPoller(null);
+    });
     setPoller(p);
   }
 
@@ -436,12 +486,13 @@ async function startWechatBot(
   deps: CommandDeps | undefined,
   logger: Logger,
   api: ExtensionAPI,
+  onSessionExpired?: (info: { errcode: number; errmsg?: string }) => void,
 ): Promise<WechatPoller> {
   if (!config.botToken) {
     throw new Error('Cannot start WeChat bot without a bot token');
   }
 
-  const poller = new WechatPoller(config.apiBase, config.botToken, config.cursorDir, logger);
+  const poller = new WechatPoller(config.apiBase, config.botToken, config.cursorDir, logger, onSessionExpired);
 
   // v5 P2: Build STT transcriber for WeChat voice messages
   let sttTranscriber: ((path: string, lang?: string) => Promise<string>) | undefined;
