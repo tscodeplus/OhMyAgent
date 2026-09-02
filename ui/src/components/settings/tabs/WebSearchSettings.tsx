@@ -13,6 +13,14 @@ interface WebSearchSettingsProps {
 
 const KNOWN_SEARCH_PROVIDERS = ['anysearch', 'tavily', 'exa', 'baidu'];
 
+/**
+ * Providers whose API key is genuinely required: buildProviders
+ * (extensions/web-search) skips them entirely without a key. anysearch works
+ * anonymously and exa works via its public MCP endpoint, so their keys stay
+ * optional no matter whether they are selected.
+ */
+const KEY_REQUIRED_PROVIDERS = new Set(['tavily', 'baidu']);
+
 /** Parse comma-separated (or array) provider order into a clean list */
 function parseProviderOrder(raw: unknown): string[] {
   if (Array.isArray(raw)) return raw.map(String);
@@ -35,14 +43,19 @@ export default function WebSearchSettings({
     registerHandle,
     onDirtyChange,
     undefined,
-    // A provider that is part of the (effective) provider order must have its
-    // API key. Lazy getter: selectedProviders is derived from this same hook
-    // below, and the rules are only evaluated at validation time.
+    // Only providers that cannot work without credentials are required:
+    // tavily and baidu are skipped entirely by buildProviders when their key
+    // is missing, while exa (public MCP endpoint) and anysearch (anonymous
+    // mode with automatic fallback) work keyless. Lazy getter:
+    // selectedProviders is derived from this same hook below and the rules
+    // are only evaluated at validation time.
     () =>
-      selectedProviders.map((provider) => ({
-        path: `webSearch.${provider}ApiKey`,
-        label: `${provider.toUpperCase()} API Key`,
-      })),
+      selectedProviders
+        .filter((provider) => KEY_REQUIRED_PROVIDERS.has(provider))
+        .map((provider) => ({
+          path: `webSearch.${provider}ApiKey`,
+          label: `${provider.toUpperCase()} API Key`,
+        })),
   );
 
   const ws = (config?.webSearch as Record<string, unknown>) || {};
@@ -251,7 +264,9 @@ export default function WebSearchSettings({
                 key={provider}
                 label={`${provider.toUpperCase()} API Key`}
                 type="password"
-                required
+                required={
+                  KEY_REQUIRED_PROVIDERS.has(provider) && selectedProviders.includes(provider)
+                }
                 error={requiredError(path)}
                 value={getField(path, fallback) as string}
                 onChange={(e) => setField(path, e.target.value)}

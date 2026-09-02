@@ -50,6 +50,15 @@ export default function ComputerUseSettings({
   const cuSsh = (cu.ssh as Record<string, unknown>) || {};
   const cuNode = (cu.node as Record<string, unknown>) || {};
 
+  // Required markers only apply to the fields of the selected provider
+  // (mirrors COMPUTER_REQUIRED_RULES gating; 'auto'/'local' need nothing).
+  const sshSelected =
+    (getField('computerUse.enabled', !!cu.enabled) as boolean) &&
+    (getField('computerUse.provider', String(cu.provider || 'auto')) as string) === 'ssh';
+  const nodeSelected =
+    (getField('computerUse.enabled', !!cu.enabled) as boolean) &&
+    (getField('computerUse.provider', String(cu.provider || 'auto')) as string) === 'node';
+
   return (
     <div className="space-y-6">
       <section>
@@ -82,7 +91,7 @@ export default function ComputerUseSettings({
         <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
           <Input
             label="Host"
-            required
+            required={sshSelected}
             error={requiredError('computerUse.ssh.host')}
             value={getField('computerUse.ssh.host', String(cuSsh.host || '')) as string}
             onChange={(e) => setField('computerUse.ssh.host', e.target.value)}
@@ -90,7 +99,7 @@ export default function ComputerUseSettings({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="User"
-              required
+              required={sshSelected}
               error={requiredError('computerUse.ssh.user')}
               value={getField('computerUse.ssh.user', String(cuSsh.user || '')) as string}
               onChange={(e) => setField('computerUse.ssh.user', e.target.value)}
@@ -104,6 +113,8 @@ export default function ComputerUseSettings({
           </div>
           <Input
             label="Key Path"
+            required={sshSelected}
+            error={requiredError('computerUse.ssh.keyPath')}
             value={getField('computerUse.ssh.keyPath', String(cuSsh.keyPath || '')) as string}
             onChange={(e) => setField('computerUse.ssh.keyPath', e.target.value)}
           />
@@ -122,7 +133,7 @@ export default function ComputerUseSettings({
         <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
           <Input
             label="URL"
-            required
+            required={nodeSelected}
             error={requiredError('computerUse.node.url')}
             value={getField('computerUse.node.url', String(cuNode.url || '')) as string}
             onChange={(e) => setField('computerUse.node.url', e.target.value)}
