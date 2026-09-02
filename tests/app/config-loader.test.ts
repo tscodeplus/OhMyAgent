@@ -388,3 +388,60 @@ describe('loadYamlFile', () => {
     expect(result).toBeNull();
   });
 });
+
+describe('strict config parsing (fail-fast)', () => {
+  const base = {
+    provider: { primary: 'openai/gpt-4o', api_key: 'sk-test' },
+  };
+
+  it('throws an aggregate error listing every invalid key', () => {
+    expect(() =>
+      yamlToAppConfigRaw({
+        ...base,
+        log_level: { nested: 'object' },
+        tools: { shell: { command_timeout_ms: 'abc' } },
+      }),
+    ).toThrowError(/log_level[\s\S]*command_timeout_ms/);
+  });
+
+  it('error message contains the key label and the offending value', () => {
+    expect(() => yamlToAppConfigRaw({ ...base, log_level: ['info'] })).toThrowError(
+      /log_level.*expected a string, got array \["info"\]/,
+    );
+  });
+
+  it('accepts numeric strings (env interpolation yields strings)', () => {
+    const raw = yamlToAppConfigRaw({
+      ...base,
+      tools: { shell: { command_timeout_ms: '30000' } },
+    });
+    expect((raw.tools as Record<string, unknown>).defaultTimeoutMs).toBe(30000);
+  });
+
+  it('accepts numeric strings for booleans ("true"/"1"/"false"/"0")', () => {
+    const raw = yamlToAppConfigRaw({
+      ...base,
+      show_tool_calls: 'false',
+      show_skill_calls: '1',
+    });
+    expect(raw.showToolCalls).toBe(false);
+    expect(raw.showSkillCalls).toBe(true);
+  });
+
+  it('rejects unrecognized boolean values like "yes" instead of silently defaulting', () => {
+    expect(() => yamlToAppConfigRaw({ ...base, show_tool_calls: 'yes' })).toThrowError(
+      /show_tool_calls.*expected a boolean/,
+    );
+  });
+
+  it('rejects non-numeric strings for numbers instead of silently defaulting', () => {
+    expect(() =>
+      yamlToAppConfigRaw({ ...base, tools: { shell: { command_timeout_ms: '9O1' } } }),
+    ).toThrowError(/command_timeout_ms.*expected a number/);
+  });
+
+  it('missing keys still fall back to defaults without errors', () => {
+    const raw = yamlToAppConfigRaw({ ...base });
+    expect((raw.rateLimit as Record<string, unknown>).globalPerMinute).toBeUndefined();
+  });
+});

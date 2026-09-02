@@ -2,7 +2,6 @@ import { readFileSync, existsSync } from 'node:fs';
 import { parse as parseYaml } from 'yaml';
 import type { CustomProviderConfig, CustomModelConfig, ToolProfileId } from './types.js';
 import type { AgentConfig } from '../agent/config-types.js';
-import { envBool } from '../shared/env.js';
 
 // ─── Env interpolation ───
 
@@ -53,34 +52,142 @@ function parseModelRef(ref: string): { provider: string; model: string } {
   return { provider: ref.slice(0, idx), model: ref.slice(idx + 1) };
 }
 
-function str(val: unknown, defaultVal: string): string {
-  if (typeof val === 'string') return val;
-  if (val === undefined || val === null) return defaultVal;
-  return String(val);
+// ─── Strict scalar coercion (fail-fast) ───
+//
+// A config typo must surface as a startup error, not silently become a
+// default (previously `port: 91O1` quietly became the default port and
+// `show_tool_calls: "false"` quietly became `true`). Rules:
+//
+//   - missing (undefined/null)  → default (normal absence)
+//   - correct scalar type       → used as-is
+//   - numeric string for num()  → accepted (env interpolation ${VAR} always
+//                                 yields strings)
+//   - anything else             → recorded as an issue; yamlToAppConfigRaw
+//                                 throws an aggregate error listing every
+//                                 offending key at the end of the pass
+
+interface ConfigIssue {
+  key: string;
+  message: string;
 }
 
-function num(val: unknown, defaultVal: number): number {
-  if (typeof val === 'number') return val;
-  if (typeof val === 'string') {
-    const n = Number(val);
-    return isNaN(n) ? defaultVal : n;
+const configIssues: ConfigIssue[] = [];
+
+function describeValue(val: unknown): string {
+  const t = val === null ? 'null' : Array.isArray(val) ? 'array' : typeof val;
+  let rendered: string;
+  try {
+    rendered = JSON.stringify(val) ?? String(val);
+  } catch {
+    rendered = String(val);
   }
+  if (rendered.length > 60) rendered = rendered.slice(0, 57) + '...';
+  return `${t} ${rendered}`;
+}
+
+function recordIssue(key: string, expected: string, val: unknown): void {
+  configIssues.push({
+    key: key || '(unlabeled config key)',
+    message: `expected ${expected}, got ${describeValue(val)}`,
+  });
+}
+
+/**
+ * Local node variable → config.yaml path, so error messages point at the key
+ * the user actually wrote instead of an internal identifier (vbCfg.enabled →
+ * vision_bridge.enabled). Variables not listed here fall through as-is.
+ */
+const nodeVarToYamlKey: Record<string, string> = {
+  root: '',
+  channels: 'channels',
+  provider: 'provider',
+  feishu: 'channels.feishu',
+  telegram: 'channels.telegram',
+  wechat: 'channels.wechat',
+  qq: 'channels.qq',
+  toolsCfg: 'tools',
+  shellCfg: 'tools.shell',
+  fileReadCfg: 'tools.file_read',
+  memCfg: 'memory',
+  vbCfg: 'vision_bridge',
+  wsCfg: 'web_search',
+  rlCfg: 'rate_limit',
+  cronCfg: 'cron',
+  embCfg: 'embedding',
+  dbCfg: 'database',
+  extCfg: 'extensions',
+  memAuxCfg: 'memory_aux_models',
+  cuCfg: 'computer_use',
+};
+
+function yamlKeyFromLabel(label: string): string {
+  return label
+    .split('??')
+    .map((part) => {
+      const segs = part.trim().split(/\?\?\.|\./);
+      const mapped = nodeVarToYamlKey[segs[0]];
+      if (mapped === undefined) return part.trim();
+      return [mapped, ...segs.slice(1)].filter(Boolean).join('.');
+    })
+    .filter(Boolean)
+    .join(' | ');
+}
+
+function str(val: unknown, defaultVal: string, key = ''): string {
+  if (val === undefined || val === null) return defaultVal;
+  if (typeof val === 'string') return val;
+  // number/boolean → string is a benign YAML type slip (`app_id: 12345`)
+  if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+  recordIssue(key, 'a string', val);
   return defaultVal;
 }
 
-function strList(val: unknown, defaultVal: string): string[] {
+function num(val: unknown, defaultVal: number, key = ''): number {
+  if (val === undefined || val === null) return defaultVal;
+  if (typeof val === 'number') return val;
+  if (typeof val === 'string' && val.trim() !== '' && !isNaN(Number(val))) return Number(val);
+  recordIssue(key, 'a number', val);
+  return defaultVal;
+}
+
+function strList(val: unknown, defaultVal: string, key = ''): string[] {
   if (Array.isArray(val)) return val.map((v) => String(v).trim()).filter(Boolean);
-  if (typeof val === 'string')
+  if (val === undefined || val === null) {
+    return defaultVal
+      ? defaultVal
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+  }
+  if (typeof val === 'string') {
     return val
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
+  }
+  recordIssue(key, 'a string or list of strings', val);
   return defaultVal
     ? defaultVal
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean)
     : [];
+}
+
+/**
+ * Strict boolean for YAML values. Unlike shared/env.ts envBool (which is
+ * lenient because env vars are always strings), an unrecognized YAML value
+ * here is a typo — e.g. `enabled: "yes"` previously fell back to the default
+ * silently, which could be the opposite of what was written.
+ */
+function yamlBool(val: unknown, defaultVal: boolean, key = ''): boolean {
+  if (val === undefined || val === null) return defaultVal;
+  if (typeof val === 'boolean') return val;
+  if (val === 'true' || val === '1') return true;
+  if (val === 'false' || val === '0') return false;
+  recordIssue(key, 'a boolean', val);
+  return defaultVal;
 }
 
 // ─── YAML → AppConfig raw object ───
@@ -98,92 +205,196 @@ function buildMemorySection(memCfg: YamlNode): Record<string, unknown> {
   const compressModelCfg = compressCfg?.model as YamlNode;
 
   return {
-    autoRecall: envBool(memCfg?.auto_recall, false),
-    autoRecallFrequency: str(memCfg?.auto_recall_frequency, 'first'),
-    autoCapture: envBool(memCfg?.auto_capture, false),
-    recallTopK: num(memCfg?.recall_top_k, 3),
-    recallMinScore: num(memCfg?.recall_min_score, 0.01),
-    captureMaxChars: num(memCfg?.capture_max_chars, 500),
-    historyLoadCount: num(memCfg?.history_load_count, 5),
-    historyMaxTokens: num(memCfg?.history_max_tokens, 1000),
-    summarizeInterval: num(memCfg?.summarize_interval, 20),
-    outputLanguage: str(memCfg?.output_language, 'Auto'),
-    decayHalfLifeDays: num(memCfg?.decay_half_life_days, 30),
-    embeddingCacheMaxEntries: num(memCfg?.embedding_cache_max_entries, 10000),
-    queryEmbeddingTimeoutMs: num(memCfg?.query_embedding_timeout_ms, 10_000),
+    autoRecall: yamlBool(memCfg?.auto_recall, false, 'memCfg?.auto_recall'),
+    autoRecallFrequency: str(
+      memCfg?.auto_recall_frequency,
+      'first',
+      'memCfg?.auto_recall_frequency',
+    ),
+    autoCapture: yamlBool(memCfg?.auto_capture, false, 'memCfg?.auto_capture'),
+    recallTopK: num(memCfg?.recall_top_k, 3, 'memCfg?.recall_top_k'),
+    recallMinScore: num(memCfg?.recall_min_score, 0.01, 'memCfg?.recall_min_score'),
+    captureMaxChars: num(memCfg?.capture_max_chars, 500, 'memCfg?.capture_max_chars'),
+    historyLoadCount: num(memCfg?.history_load_count, 5, 'memCfg?.history_load_count'),
+    historyMaxTokens: num(memCfg?.history_max_tokens, 1000, 'memCfg?.history_max_tokens'),
+    summarizeInterval: num(memCfg?.summarize_interval, 20, 'memCfg?.summarize_interval'),
+    outputLanguage: str(memCfg?.output_language, 'Auto', 'memCfg?.output_language'),
+    decayHalfLifeDays: num(memCfg?.decay_half_life_days, 30, 'memCfg?.decay_half_life_days'),
+    embeddingCacheMaxEntries: num(
+      memCfg?.embedding_cache_max_entries,
+      10000,
+      'memCfg?.embedding_cache_max_entries',
+    ),
+    queryEmbeddingTimeoutMs: num(
+      memCfg?.query_embedding_timeout_ms,
+      10_000,
+      'memCfg?.query_embedding_timeout_ms',
+    ),
     queryPlanner: {
-      enabled: envBool(memCfg?.query_planner?.enabled, true),
-      commonalityCoverage: envBool(memCfg?.query_planner?.commonality_coverage, true),
-      speakerBoost: num(memCfg?.query_planner?.speaker_boost, 0.05),
-      perSlotFloor: num(memCfg?.query_planner?.per_slot_floor, 2),
-      maxEntities: num(memCfg?.query_planner?.max_entities, 4),
-      llm: { enabled: envBool(memCfg?.query_planner?.llm?.enabled, false) },
+      enabled: yamlBool(memCfg?.query_planner?.enabled, true, 'memCfg?.query_planner?.enabled'),
+      commonalityCoverage: yamlBool(
+        memCfg?.query_planner?.commonality_coverage,
+        true,
+        'memCfg?.query_planner?.commonality_coverage',
+      ),
+      speakerBoost: num(
+        memCfg?.query_planner?.speaker_boost,
+        0.05,
+        'memCfg?.query_planner?.speaker_boost',
+      ),
+      perSlotFloor: num(
+        memCfg?.query_planner?.per_slot_floor,
+        2,
+        'memCfg?.query_planner?.per_slot_floor',
+      ),
+      maxEntities: num(
+        memCfg?.query_planner?.max_entities,
+        4,
+        'memCfg?.query_planner?.max_entities',
+      ),
+      llm: {
+        enabled: yamlBool(
+          memCfg?.query_planner?.llm?.enabled,
+          false,
+          'memCfg?.query_planner?.llm?.enabled',
+        ),
+      },
     },
     recall: {
-      prefilterMultiplier: num(memCfg?.recall?.prefilter_multiplier, 5),
-      prefilterMin: num(memCfg?.recall?.prefilter_min, 20),
-      mergeCandidateMultiplier: num(memCfg?.recall?.merge_candidate_multiplier, 3),
+      prefilterMultiplier: num(
+        memCfg?.recall?.prefilter_multiplier,
+        5,
+        'memCfg?.recall?.prefilter_multiplier',
+      ),
+      prefilterMin: num(memCfg?.recall?.prefilter_min, 20, 'memCfg?.recall?.prefilter_min'),
+      mergeCandidateMultiplier: num(
+        memCfg?.recall?.merge_candidate_multiplier,
+        3,
+        'memCfg?.recall?.merge_candidate_multiplier',
+      ),
     },
     expansion: {
-      enabled: envBool(memCfg?.expansion?.enabled, false),
-      minQueryLength: num(memCfg?.expansion?.min_query_length, 15),
-      minScoreTrigger: num(memCfg?.expansion?.min_score_trigger, 0.3),
-      maxVariants: num(memCfg?.expansion?.max_variants, 4),
+      enabled: yamlBool(memCfg?.expansion?.enabled, false, 'memCfg?.expansion?.enabled'),
+      minQueryLength: num(
+        memCfg?.expansion?.min_query_length,
+        15,
+        'memCfg?.expansion?.min_query_length',
+      ),
+      minScoreTrigger: num(
+        memCfg?.expansion?.min_score_trigger,
+        0.3,
+        'memCfg?.expansion?.min_score_trigger',
+      ),
+      maxVariants: num(memCfg?.expansion?.max_variants, 4, 'memCfg?.expansion?.max_variants'),
     },
     hygiene: {
-      enabled: envBool(hygieneCfg?.enabled, true),
-      retentionDays: num(hygieneCfg?.retention_days, 90),
+      enabled: yamlBool(hygieneCfg?.enabled, true, 'hygieneCfg?.enabled'),
+      retentionDays: num(hygieneCfg?.retention_days, 90, 'hygieneCfg?.retention_days'),
     },
     embeddingCircuitBreaker: {
-      failureThreshold: num(cbCfg?.failure_threshold, 5),
-      cooldownSec: num(cbCfg?.cooldown_sec, 30),
+      failureThreshold: num(cbCfg?.failure_threshold, 5, 'cbCfg?.failure_threshold'),
+      cooldownSec: num(cbCfg?.cooldown_sec, 30, 'cbCfg?.cooldown_sec'),
     },
     offloading: {
-      enabled: envBool(offloadCfg?.enabled, true),
-      maxRefsInContext: num(offloadCfg?.max_refs_in_context, 10),
-      preserveInMessages: num(offloadCfg?.preserve_in_messages, 2),
-      refDir: offloadCfg?.ref_dir ? str(offloadCfg.ref_dir, '') : '',
-      retentionDays: num(offloadCfg?.retention_days, 7),
+      enabled: yamlBool(offloadCfg?.enabled, true, 'offloadCfg?.enabled'),
+      maxRefsInContext: num(offloadCfg?.max_refs_in_context, 10, 'offloadCfg?.max_refs_in_context'),
+      preserveInMessages: num(
+        offloadCfg?.preserve_in_messages,
+        2,
+        'offloadCfg?.preserve_in_messages',
+      ),
+      refDir: offloadCfg?.ref_dir ? str(offloadCfg.ref_dir, '', 'offloadCfg.ref_dir') : '',
+      retentionDays: num(offloadCfg?.retention_days, 7, 'offloadCfg?.retention_days'),
     },
     mermaidCanvas: {
-      enabled: envBool(mermaidCfg?.enabled, false),
-      injectFormat: str(mermaidCfg?.inject_format, 'summary'),
-      phaseTagging: str(mermaidCfg?.phase_tagging, 'auto'),
-      maxNodesInContext: num(mermaidCfg?.max_nodes_in_context, 20),
+      enabled: yamlBool(mermaidCfg?.enabled, false, 'mermaidCfg?.enabled'),
+      injectFormat: str(mermaidCfg?.inject_format, 'summary', 'mermaidCfg?.inject_format'),
+      phaseTagging: str(mermaidCfg?.phase_tagging, 'auto', 'mermaidCfg?.phase_tagging'),
+      maxNodesInContext: num(
+        mermaidCfg?.max_nodes_in_context,
+        20,
+        'mermaidCfg?.max_nodes_in_context',
+      ),
     },
     persona: {
-      enabled: envBool(personaCfg?.enabled, true),
-      distillThreshold: num(personaCfg?.distill_threshold, 3),
-      minDistillIntervalHours: num(personaCfg?.min_distill_interval_hours, 0),
+      enabled: yamlBool(personaCfg?.enabled, true, 'personaCfg?.enabled'),
+      distillThreshold: num(personaCfg?.distill_threshold, 3, 'personaCfg?.distill_threshold'),
+      minDistillIntervalHours: num(
+        personaCfg?.min_distill_interval_hours,
+        0,
+        'personaCfg?.min_distill_interval_hours',
+      ),
     },
     sceneClustering: {
-      enabled: envBool(sceneCfg?.enabled, false),
-      windowDays: num(sceneCfg?.window_days, 7),
-      minMemories: num(sceneCfg?.min_memories, 5),
+      enabled: yamlBool(sceneCfg?.enabled, false, 'sceneCfg?.enabled'),
+      windowDays: num(sceneCfg?.window_days, 7, 'sceneCfg?.window_days'),
+      minMemories: num(sceneCfg?.min_memories, 5, 'sceneCfg?.min_memories'),
     },
     autoCompress: {
-      enabled: envBool(compressCfg?.enabled, true),
-      reserveTokens: num(compressCfg?.reserve_tokens, 16384),
-      keepRecentTokens: num(compressCfg?.keep_recent_tokens, 20000),
+      enabled: yamlBool(compressCfg?.enabled, true, 'compressCfg?.enabled'),
+      reserveTokens: num(compressCfg?.reserve_tokens, 16384, 'compressCfg?.reserve_tokens'),
+      keepRecentTokens: num(
+        compressCfg?.keep_recent_tokens,
+        20000,
+        'compressCfg?.keep_recent_tokens',
+      ),
       model: compressModelCfg
         ? {
-            primary: compressModelCfg.primary ? str(compressModelCfg.primary, '') : undefined,
-            fallback_models: strList(compressModelCfg.fallback_models, ''),
+            primary: compressModelCfg.primary
+              ? str(compressModelCfg.primary, '', 'compressModelCfg.primary')
+              : undefined,
+            fallback_models: strList(
+              compressModelCfg.fallback_models,
+              '',
+              'compressModelCfg.fallback_models',
+            ),
           }
         : undefined,
     },
     maintenance: {
-      enabled: envBool(memCfg?.maintenance?.enabled, true),
-      intervalMs: num(memCfg?.maintenance?.interval_ms, 300000),
+      enabled: yamlBool(memCfg?.maintenance?.enabled, true, 'memCfg?.maintenance?.enabled'),
+      intervalMs: num(memCfg?.maintenance?.interval_ms, 300000, 'memCfg?.maintenance?.interval_ms'),
       jobs: {
-        memory_hygiene: envBool(memCfg?.maintenance?.jobs?.memory_hygiene, true),
-        embedding_backfill: envBool(memCfg?.maintenance?.jobs?.embedding_backfill, true),
-        embedding_cache_trim: envBool(memCfg?.maintenance?.jobs?.embedding_cache_trim, true),
-        entity_backfill: envBool(memCfg?.maintenance?.jobs?.entity_backfill, true),
-        persona_consistency: envBool(memCfg?.maintenance?.jobs?.persona_consistency, true),
-        offload_hygiene: envBool(memCfg?.maintenance?.jobs?.offload_hygiene, true),
-        scene_cluster: envBool(memCfg?.maintenance?.jobs?.scene_cluster, false),
-        memory_doctor: envBool(memCfg?.maintenance?.jobs?.memory_doctor, false),
+        memory_hygiene: yamlBool(
+          memCfg?.maintenance?.jobs?.memory_hygiene,
+          true,
+          'memCfg?.maintenance?.jobs?.memory_hygiene',
+        ),
+        embedding_backfill: yamlBool(
+          memCfg?.maintenance?.jobs?.embedding_backfill,
+          true,
+          'memCfg?.maintenance?.jobs?.embedding_backfill',
+        ),
+        embedding_cache_trim: yamlBool(
+          memCfg?.maintenance?.jobs?.embedding_cache_trim,
+          true,
+          'memCfg?.maintenance?.jobs?.embedding_cache_trim',
+        ),
+        entity_backfill: yamlBool(
+          memCfg?.maintenance?.jobs?.entity_backfill,
+          true,
+          'memCfg?.maintenance?.jobs?.entity_backfill',
+        ),
+        persona_consistency: yamlBool(
+          memCfg?.maintenance?.jobs?.persona_consistency,
+          true,
+          'memCfg?.maintenance?.jobs?.persona_consistency',
+        ),
+        offload_hygiene: yamlBool(
+          memCfg?.maintenance?.jobs?.offload_hygiene,
+          true,
+          'memCfg?.maintenance?.jobs?.offload_hygiene',
+        ),
+        scene_cluster: yamlBool(
+          memCfg?.maintenance?.jobs?.scene_cluster,
+          false,
+          'memCfg?.maintenance?.jobs?.scene_cluster',
+        ),
+        memory_doctor: yamlBool(
+          memCfg?.maintenance?.jobs?.memory_doctor,
+          false,
+          'memCfg?.maintenance?.jobs?.memory_doctor',
+        ),
       },
     },
   };
@@ -194,13 +405,15 @@ function buildMemorySection(memCfg: YamlNode): Record<string, unknown> {
  * Defaults are handled by the Zod schema — this function only maps keys.
  */
 export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, unknown> {
+  configIssues.length = 0;
+
   // Provider
   const provider = root.provider as YamlNode;
-  const primaryRef = str(provider?.primary, '');
+  const primaryRef = str(provider?.primary, '', 'provider?.primary');
   const { provider: piProvider, model: piModel } = primaryRef
     ? parseModelRef(primaryRef)
     : { provider: '', model: '' };
-  const reasoningRef = str(provider?.reasoning, '');
+  const reasoningRef = str(provider?.reasoning, '', 'provider?.reasoning');
   const reasoningModel = reasoningRef.includes('/') ? parseModelRef(reasoningRef).model : '';
 
   // Channels
@@ -232,21 +445,33 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
   const cuNode = cuCfg?.node as YamlNode;
 
   const raw: Record<string, unknown> = {
-    logging: { level: str(root.log_level, 'info') },
-    uiLanguage: str(root.ui_language, 'en'),
+    logging: { level: str(root.log_level, 'info', 'root.log_level') },
+    uiLanguage: str(root.ui_language, 'en', 'root.ui_language'),
     setupWizardDone: root.setup_wizard_done === true,
-    showToolCalls: envBool(root.show_tool_calls, true),
-    showSkillCalls: envBool(root.show_skill_calls, true),
+    showToolCalls: yamlBool(root.show_tool_calls, true, 'root.show_tool_calls'),
+    showSkillCalls: yamlBool(root.show_skill_calls, true, 'root.show_skill_calls'),
 
     feishu: {
-      enabled: envBool(feishu?.enabled, false),
+      enabled: yamlBool(feishu?.enabled, false, 'feishu?.enabled'),
       // Accept both camelCase (from WebUI save) and snake_case (from manual YAML edit)
-      appId: str(feishu?.appId ?? feishu?.app_id, ''),
-      appSecret: str(feishu?.appSecret ?? feishu?.app_secret, ''),
-      botName: str(feishu?.botName ?? feishu?.bot_name, ''),
-      region: str(feishu?.region, 'feishu'),
-      verificationToken: str(feishu?.verificationToken ?? feishu?.verification_token, ''),
-      encryptKey: str(feishu?.encryptKey ?? feishu?.encrypt_key, ''),
+      appId: str(feishu?.appId ?? feishu?.app_id, '', 'feishu?.appId??feishu?.app_id'),
+      appSecret: str(
+        feishu?.appSecret ?? feishu?.app_secret,
+        '',
+        'feishu?.appSecret??feishu?.app_secret',
+      ),
+      botName: str(feishu?.botName ?? feishu?.bot_name, '', 'feishu?.botName??feishu?.bot_name'),
+      region: str(feishu?.region, 'feishu', 'feishu?.region'),
+      verificationToken: str(
+        feishu?.verificationToken ?? feishu?.verification_token,
+        '',
+        'feishu?.verificationToken??feishu?.verification_token',
+      ),
+      encryptKey: str(
+        feishu?.encryptKey ?? feishu?.encrypt_key,
+        '',
+        'feishu?.encryptKey??feishu?.encrypt_key',
+      ),
       wsEnabled:
         str(feishu?.wsEnabled ?? feishu?.connection_mode ?? 'websocket', 'websocket') !== 'webhook',
     },
@@ -255,8 +480,8 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
       provider: piProvider,
       model: piModel,
       reasoningModel: reasoningModel || '',
-      apiKey: str(provider?.api_key, ''),
-      baseUrl: str(provider?.base_url, '') || undefined,
+      apiKey: str(provider?.api_key, '', 'provider?.api_key'),
+      baseUrl: str(provider?.base_url, '', 'provider?.base_url') || undefined,
     },
 
     customProviders: mapCustomProviders(root.custom_providers),
@@ -266,14 +491,18 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
         ? mapProviderKeys(root.provider_keys || root.providerKeys)
         : undefined,
 
-    fallbackModels: strList(root.fallback_models, ''),
+    fallbackModels: strList(root.fallback_models, '', 'root.fallback_models'),
 
-    defaultReasoningLevel: str(root.default_reasoning_level, 'high'),
+    defaultReasoningLevel: str(
+      root.default_reasoning_level,
+      'high',
+      'root.default_reasoning_level',
+    ),
 
     memoryAuxModels: memAuxCfg
       ? {
-          primary: memAuxCfg.primary ? str(memAuxCfg.primary, '') : undefined,
-          fallback_models: strList(memAuxCfg.fallback_models, ''),
+          primary: memAuxCfg.primary ? str(memAuxCfg.primary, '', 'memAuxCfg.primary') : undefined,
+          fallback_models: strList(memAuxCfg.fallback_models, '', 'memAuxCfg.fallback_models'),
         }
       : undefined,
 
@@ -283,171 +512,281 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
     // Legacy: kept for backward-compat; prefer multimodal.image.bridge
     visionBridge: vbCfg
       ? {
-          enabled: envBool(vbCfg.enabled, false),
-          modelRef: vbCfg.model_ref ? str(vbCfg.model_ref, '') : undefined,
-          apiKey: vbCfg.api_key ? str(vbCfg.api_key, '') : undefined,
-          baseUrl: vbCfg.base_url ? str(vbCfg.base_url, '') : undefined,
-          timeoutMs: num(vbCfg.timeout_ms, 120_000),
-          maxNoteChars: num(vbCfg.max_note_chars, 3200),
-          maxCacheEntries: num(vbCfg.max_cache_entries, 256),
+          enabled: yamlBool(vbCfg.enabled, false, 'vbCfg.enabled'),
+          modelRef: vbCfg.model_ref ? str(vbCfg.model_ref, '', 'vbCfg.model_ref') : undefined,
+          apiKey: vbCfg.api_key ? str(vbCfg.api_key, '', 'vbCfg.api_key') : undefined,
+          baseUrl: vbCfg.base_url ? str(vbCfg.base_url, '', 'vbCfg.base_url') : undefined,
+          timeoutMs: num(vbCfg.timeout_ms, 120_000, 'vbCfg.timeout_ms'),
+          maxNoteChars: num(vbCfg.max_note_chars, 3200, 'vbCfg.max_note_chars'),
+          maxCacheEntries: num(vbCfg.max_cache_entries, 256, 'vbCfg.max_cache_entries'),
         }
       : undefined,
 
     embedding: {
-      baseUrl: str(embCfg?.base_url, ''),
-      apiKey: str(embCfg?.api_key, ''),
-      model: str(embCfg?.model, ''),
-      dimension: num(embCfg?.dimension, 0),
-      maxInputChars: num(embCfg?.max_input_chars, 8000),
+      baseUrl: str(embCfg?.base_url, '', 'embCfg?.base_url'),
+      apiKey: str(embCfg?.api_key, '', 'embCfg?.api_key'),
+      model: str(embCfg?.model, '', 'embCfg?.model'),
+      dimension: num(embCfg?.dimension, 0, 'embCfg?.dimension'),
+      maxInputChars: num(embCfg?.max_input_chars, 8000, 'embCfg?.max_input_chars'),
     },
 
     database: {
-      path: str(dbCfg?.path, '~/.ohmyagent/data/app.db'),
+      path: str(dbCfg?.path, '~/.ohmyagent/data/app.db', 'dbCfg?.path'),
     },
 
     rateLimit: {
-      webhookMaxRequests: num(rlCfg?.webhook_max, 100),
-      webhookWindowMs: num(rlCfg?.webhook_window_ms, 60000),
+      webhookMaxRequests: num(rlCfg?.webhook_max, 100, 'rlCfg?.webhook_max'),
+      webhookWindowMs: num(rlCfg?.webhook_window_ms, 60000, 'rlCfg?.webhook_window_ms'),
     },
 
     tools: {
-      shellEnabled: envBool(shellCfg?.enabled ?? toolsCfg?.shell_enabled, true),
-      defaultTimeoutMs: num(shellCfg?.command_timeout_ms, 60000),
-      maxOutputLength: num(shellCfg?.max_output_chars, 12000),
-      toolsProfile: str(toolsCfg?.profile, 'standard'),
-      shellExecMode: str(shellCfg?.exec_mode, 'balanced'),
-      shellAllowlist: strList(shellCfg?.allowlist, ''),
-      shellApprovalMode: str(shellCfg?.approval_mode, 'balanced'),
+      shellEnabled: yamlBool(
+        shellCfg?.enabled ?? toolsCfg?.shell_enabled,
+        true,
+        'shellCfg?.enabled??toolsCfg?.shell_enabled',
+      ),
+      defaultTimeoutMs: num(shellCfg?.command_timeout_ms, 60000, 'shellCfg?.command_timeout_ms'),
+      maxOutputLength: num(shellCfg?.max_output_chars, 12000, 'shellCfg?.max_output_chars'),
+      toolsProfile: str(toolsCfg?.profile, 'standard', 'toolsCfg?.profile'),
+      shellExecMode: str(shellCfg?.exec_mode, 'balanced', 'shellCfg?.exec_mode'),
+      shellAllowlist: strList(shellCfg?.allowlist, '', 'shellCfg?.allowlist'),
+      shellApprovalMode: str(shellCfg?.approval_mode, 'balanced', 'shellCfg?.approval_mode'),
       shellApprovalWhitelist: strList(
         shellCfg?.approval_whitelist,
         'date,ls,pwd,whoami,uname,echo,cat,head,tail,wc,grep,find,which,env,printenv',
+        'tools.shell.approval_whitelist',
       ),
       shellApprovalTimeoutSec: num(
         toolsCfg?.shellApprovalTimeoutSec ?? shellCfg?.approval_timeout_sec,
         600,
+        'tools.shell.approval_timeout_sec',
       ),
-      shellApprovalTimeoutAction: str(shellCfg?.approval_timeout_action, 'deny'),
+      shellApprovalTimeoutAction: str(
+        shellCfg?.approval_timeout_action,
+        'deny',
+        'shellCfg?.approval_timeout_action',
+      ),
       fileRead: {
-        allowedRoots: strList(fileReadCfg?.allowed_roots, ''),
-        deniedPatterns: strList(fileReadCfg?.denied_patterns, '.env,*.pem,/etc/passwd,*/.ssh/*'),
+        allowedRoots: strList(fileReadCfg?.allowed_roots, '', 'fileReadCfg?.allowed_roots'),
+        deniedPatterns: strList(
+          fileReadCfg?.denied_patterns,
+          '.env,*.pem,/etc/passwd,*/.ssh/*',
+          'fileReadCfg?.denied_patterns',
+        ),
       },
     },
 
     memory: buildMemorySection(memCfg),
 
     cron: {
-      enabled: envBool(cronCfg?.enabled, true),
-      tickIntervalMs: num(cronCfg?.tick_interval_ms, 30000),
-      dataDir: str(cronCfg?.data_dir, './cron'),
-      executionTimeoutMs: num(cronCfg?.execution_timeout_ms, 600_000),
-      maxConcurrency: num(cronCfg?.max_concurrency, 4),
+      enabled: yamlBool(cronCfg?.enabled, true, 'cronCfg?.enabled'),
+      tickIntervalMs: num(cronCfg?.tick_interval_ms, 30000, 'cronCfg?.tick_interval_ms'),
+      dataDir: str(cronCfg?.data_dir, './cron', 'cronCfg?.data_dir'),
+      executionTimeoutMs: num(
+        cronCfg?.execution_timeout_ms,
+        600_000,
+        'cronCfg?.execution_timeout_ms',
+      ),
+      maxConcurrency: num(cronCfg?.max_concurrency, 4, 'cronCfg?.max_concurrency'),
     },
 
     webSearch: {
-      providerOrder: strList(wsCfg?.provider_order, 'anysearch, tavily, exa, baidu'),
-      tavilyApiKey: wsCfg?.tavily_api_key ? str(wsCfg.tavily_api_key, '') : undefined,
-      exaApiKey: wsCfg?.exa_api_key ? str(wsCfg.exa_api_key, '') : undefined,
-      baiduApiKey: wsCfg?.baidu_api_key ? str(wsCfg.baidu_api_key, '') : undefined,
-      anysearchApiKey: wsCfg?.anysearch_api_key ? str(wsCfg.anysearch_api_key, '') : undefined,
-      searchTimeoutMs: num(wsCfg?.timeout_ms, 30000),
-      maxResults: num(wsCfg?.max_results, 5),
+      providerOrder: strList(
+        wsCfg?.provider_order,
+        'anysearch, tavily, exa, baidu',
+        'wsCfg?.provider_order',
+      ),
+      tavilyApiKey: wsCfg?.tavily_api_key
+        ? str(wsCfg.tavily_api_key, '', 'wsCfg.tavily_api_key')
+        : undefined,
+      exaApiKey: wsCfg?.exa_api_key ? str(wsCfg.exa_api_key, '', 'wsCfg.exa_api_key') : undefined,
+      baiduApiKey: wsCfg?.baidu_api_key
+        ? str(wsCfg.baidu_api_key, '', 'wsCfg.baidu_api_key')
+        : undefined,
+      anysearchApiKey: wsCfg?.anysearch_api_key
+        ? str(wsCfg.anysearch_api_key, '', 'wsCfg.anysearch_api_key')
+        : undefined,
+      searchTimeoutMs: num(wsCfg?.timeout_ms, 30000, 'wsCfg?.timeout_ms'),
+      maxResults: num(wsCfg?.max_results, 5, 'wsCfg?.max_results'),
     },
 
     telegram:
-      envBool(telegram?.enabled, false) && (telegram?.botToken || telegram?.bot_token)
+      yamlBool(telegram?.enabled, false, 'telegram?.enabled') &&
+      (telegram?.botToken || telegram?.bot_token)
         ? {
             enabled: true,
             // Accept both camelCase (from WebUI) and snake_case (manual YAML)
-            botToken: str(telegram?.botToken ?? telegram?.bot_token, ''),
-            botName: str(telegram?.botName ?? telegram?.bot_name, ''),
-            mode: str(telegram?.mode, 'polling'),
+            botToken: str(
+              telegram?.botToken ?? telegram?.bot_token,
+              '',
+              'telegram?.botToken??telegram?.bot_token',
+            ),
+            botName: str(
+              telegram?.botName ?? telegram?.bot_name,
+              '',
+              'telegram?.botName??telegram?.bot_name',
+            ),
+            mode: str(telegram?.mode, 'polling', 'telegram?.mode'),
             webhookUrl:
               (telegram?.webhookUrl ?? telegram?.webhook_url)
-                ? str(telegram?.webhookUrl ?? telegram?.webhook_url, '')
+                ? str(
+                    telegram?.webhookUrl ?? telegram?.webhook_url,
+                    '',
+                    'telegram?.webhookUrl??telegram?.webhook_url',
+                  )
                 : undefined,
-            webhookPort: num(telegram?.webhookPort ?? telegram?.webhook_port, 8443),
+            webhookPort: num(
+              telegram?.webhookPort ?? telegram?.webhook_port,
+              8443,
+              'telegram?.webhookPort??telegram?.webhook_port',
+            ),
             webhookSecret:
               (telegram?.webhookSecret ?? telegram?.webhook_secret)
-                ? str(telegram?.webhookSecret ?? telegram?.webhook_secret, '')
+                ? str(
+                    telegram?.webhookSecret ?? telegram?.webhook_secret,
+                    '',
+                    'telegram?.webhookSecret??telegram?.webhook_secret',
+                  )
                 : undefined,
-            allowedUsers: strList(telegram?.allowedUsers ?? telegram?.allowed_users, ''),
-            allowedGroups: strList(telegram?.allowedGroups ?? telegram?.allowed_groups, ''),
+            allowedUsers: strList(
+              telegram?.allowedUsers ?? telegram?.allowed_users,
+              '',
+              'telegram?.allowedUsers??telegram?.allowed_users',
+            ),
+            allowedGroups: strList(
+              telegram?.allowedGroups ?? telegram?.allowed_groups,
+              '',
+              'telegram?.allowedGroups??telegram?.allowed_groups',
+            ),
             proxyUrl:
               (telegram?.proxyUrl ?? telegram?.proxy_url)
-                ? str(telegram?.proxyUrl ?? telegram?.proxy_url, '')
+                ? str(
+                    telegram?.proxyUrl ?? telegram?.proxy_url,
+                    '',
+                    'telegram?.proxyUrl??telegram?.proxy_url',
+                  )
                 : undefined,
-            streamMode: str(telegram?.streamMode ?? telegram?.stream_mode, 'edit'),
-            textLimit: num(telegram?.textLimit ?? telegram?.text_limit, 4096),
-            streamIntervalMs: num(telegram?.streamIntervalMs ?? telegram?.stream_interval, 500),
+            streamMode: str(
+              telegram?.streamMode ?? telegram?.stream_mode,
+              'edit',
+              'telegram?.streamMode??telegram?.stream_mode',
+            ),
+            textLimit: num(
+              telegram?.textLimit ?? telegram?.text_limit,
+              4096,
+              'telegram?.textLimit??telegram?.text_limit',
+            ),
+            streamIntervalMs: num(
+              telegram?.streamIntervalMs ?? telegram?.stream_interval,
+              500,
+              'telegram?.streamIntervalMs??telegram?.stream_interval',
+            ),
           }
         : undefined,
 
-    wechat: envBool(wechat?.enabled, false)
+    wechat: yamlBool(wechat?.enabled, false, 'wechat?.enabled')
       ? {
           enabled: true,
           // Accept both camelCase (from WebUI) and snake_case (manual YAML)
           botToken:
             (wechat?.botToken ?? wechat?.bot_token)
-              ? str(wechat?.botToken ?? wechat?.bot_token, '')
+              ? str(
+                  wechat?.botToken ?? wechat?.bot_token,
+                  '',
+                  'wechat?.botToken??wechat?.bot_token',
+                )
               : undefined,
-          apiBase: str(wechat?.apiBase ?? wechat?.api_base, 'https://ilinkai.weixin.qq.com'),
-          cursorDir: str(wechat?.cursorDir ?? wechat?.cursor_dir, './data/wechat'),
-          textLimit: num(wechat?.textLimit ?? wechat?.text_limit, 2048),
+          apiBase: str(
+            wechat?.apiBase ?? wechat?.api_base,
+            'https://ilinkai.weixin.qq.com',
+            'wechat?.apiBase??wechat?.api_base',
+          ),
+          cursorDir: str(
+            wechat?.cursorDir ?? wechat?.cursor_dir,
+            './data/wechat',
+            'wechat?.cursorDir??wechat?.cursor_dir',
+          ),
+          textLimit: num(
+            wechat?.textLimit ?? wechat?.text_limit,
+            2048,
+            'wechat?.textLimit??wechat?.text_limit',
+          ),
           aesKey:
             (wechat?.aesKey ?? wechat?.aes_key)
-              ? str(wechat?.aesKey ?? wechat?.aes_key, '')
+              ? str(wechat?.aesKey ?? wechat?.aes_key, '', 'wechat?.aesKey??wechat?.aes_key')
               : undefined,
-          allowedUsers: strList(wechat?.allowedUsers ?? wechat?.allowed_users, ''),
+          allowedUsers: strList(
+            wechat?.allowedUsers ?? wechat?.allowed_users,
+            '',
+            'wechat?.allowedUsers??wechat?.allowed_users',
+          ),
         }
       : undefined,
 
     qq:
-      envBool(qq?.enabled, false) &&
+      yamlBool(qq?.enabled, false, 'qq?.enabled') &&
       (qq?.appId || qq?.app_id) &&
       (qq?.clientSecret || qq?.client_secret)
         ? {
             enabled: true,
             // Accept both camelCase (from WebUI) and snake_case (manual YAML)
-            appId: str(qq?.appId ?? qq?.app_id, ''),
-            clientSecret: str(qq?.clientSecret ?? qq?.client_secret, ''),
-            sandbox: envBool(qq?.sandbox, false),
-            allowedUsers: strList(qq?.allowedUsers ?? qq?.allowed_users, ''),
-            allowedGroups: strList(qq?.allowedGroups ?? qq?.allowed_groups, ''),
-            textLimit: num(qq?.textLimit ?? qq?.text_limit, 1500),
+            appId: str(qq?.appId ?? qq?.app_id, '', 'qq?.appId??qq?.app_id'),
+            clientSecret: str(
+              qq?.clientSecret ?? qq?.client_secret,
+              '',
+              'qq?.clientSecret??qq?.client_secret',
+            ),
+            sandbox: yamlBool(qq?.sandbox, false, 'qq?.sandbox'),
+            allowedUsers: strList(
+              qq?.allowedUsers ?? qq?.allowed_users,
+              '',
+              'qq?.allowedUsers??qq?.allowed_users',
+            ),
+            allowedGroups: strList(
+              qq?.allowedGroups ?? qq?.allowed_groups,
+              '',
+              'qq?.allowedGroups??qq?.allowed_groups',
+            ),
+            textLimit: num(qq?.textLimit ?? qq?.text_limit, 1500, 'qq?.textLimit??qq?.text_limit'),
           }
         : undefined,
 
     extensions: {
-      directory: str(extCfg?.directory, 'extensions'),
+      directory: str(extCfg?.directory, 'extensions', 'extCfg?.directory'),
     },
 
     agents: mapAgents(root.agents),
 
     computerUse: cuCfg
       ? {
-          enabled: envBool(cuCfg?.enabled, false),
-          provider: cuCfg.provider ? str(cuCfg.provider, 'auto') : undefined,
-          allowedApps: cuCfg.allowed_apps != null ? strList(cuCfg.allowed_apps, '') : undefined,
-          allowedAgents: strList(cuCfg.allowed_agents, ''),
-          approvalWhitelist: strList(cuCfg.approval_whitelist, ''),
+          enabled: yamlBool(cuCfg?.enabled, false, 'cuCfg?.enabled'),
+          provider: cuCfg.provider ? str(cuCfg.provider, 'auto', 'cuCfg.provider') : undefined,
+          allowedApps:
+            cuCfg.allowed_apps != null
+              ? strList(cuCfg.allowed_apps, '', 'cuCfg.allowed_apps')
+              : undefined,
+          allowedAgents: strList(cuCfg.allowed_agents, '', 'cuCfg.allowed_agents'),
+          approvalWhitelist: strList(cuCfg.approval_whitelist, '', 'cuCfg.approval_whitelist'),
           ssh: cuSSH
             ? {
-                host: str(cuSSH.host, ''),
-                user: str(cuSSH.user, ''),
-                keyPath: str(cuSSH.key_path, ''),
-                port: num(cuSSH.port, 22),
-                jumpHost: str(cuSSH.jump_host, ''),
-                display: str(cuSSH.display, ':0'),
+                host: str(cuSSH.host, '', 'cuSSH.host'),
+                user: str(cuSSH.user, '', 'cuSSH.user'),
+                keyPath: str(cuSSH.key_path, '', 'cuSSH.key_path'),
+                port: num(cuSSH.port, 22, 'cuSSH.port'),
+                jumpHost: str(cuSSH.jump_host, '', 'cuSSH.jump_host'),
+                display: str(cuSSH.display, ':0', 'cuSSH.display'),
               }
             : undefined,
           node: cuNode
             ? {
-                url: str(cuNode.url, ''),
-                token: cuNode.token ? str(cuNode.token, '') : undefined,
+                url: str(cuNode.url, '', 'cuNode.url'),
+                token: cuNode.token ? str(cuNode.token, '', 'cuNode.token') : undefined,
                 adb: cuNode.adb
                   ? {
-                      path: str(cuNode.adb.path, 'adb'),
-                      serial: cuNode.adb.serial ? str(cuNode.adb.serial, '') : undefined,
+                      path: str(cuNode.adb.path, 'adb', 'cuNode.adb.path'),
+                      serial: cuNode.adb.serial
+                        ? str(cuNode.adb.serial, '', 'cuNode.adb.serial')
+                        : undefined,
                       // 兼容 snake_case(手写 YAML)与 camelCase(WebUI 保存),camelCase 优先
                       manageScreen:
                         cuNode.adb.manageScreen !== undefined
@@ -468,38 +807,40 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
     footer: (() => {
       const ftCfg = root.footer as YamlNode;
       return {
-        showAgentName: envBool(ftCfg?.show_agent_name, true),
-        showModel: envBool(ftCfg?.show_model, true),
-        showCompleted: envBool(ftCfg?.show_completed, false),
-        showElapsed: envBool(ftCfg?.show_elapsed, true),
-        showUsage: envBool(ftCfg?.show_usage, false),
-        showCacheHitRate: envBool(ftCfg?.show_cache_hit_rate, false),
+        showAgentName: yamlBool(ftCfg?.show_agent_name, true, 'ftCfg?.show_agent_name'),
+        showModel: yamlBool(ftCfg?.show_model, true, 'ftCfg?.show_model'),
+        showCompleted: yamlBool(ftCfg?.show_completed, false, 'ftCfg?.show_completed'),
+        showElapsed: yamlBool(ftCfg?.show_elapsed, true, 'ftCfg?.show_elapsed'),
+        showUsage: yamlBool(ftCfg?.show_usage, false, 'ftCfg?.show_usage'),
+        showCacheHitRate: yamlBool(ftCfg?.show_cache_hit_rate, false, 'ftCfg?.show_cache_hit_rate'),
       };
     })(),
 
     // ── v4 sections (orchestrator, smart_agent_team, multimodal, policy) ──
     orchestrator: root.orchestrator
       ? {
-          enabled: envBool((root.orchestrator as YamlNode)?.enabled, true),
+          enabled: yamlBool((root.orchestrator as YamlNode)?.enabled, true),
           maxChildAgents: num((root.orchestrator as YamlNode)?.max_child_agents, 4),
-          allowGrandchildren: envBool((root.orchestrator as YamlNode)?.allow_grandchildren, false),
-          inheritApprovals: envBool((root.orchestrator as YamlNode)?.inherit_approvals, true),
-          inheritAppApprovals: envBool(
+          allowGrandchildren: yamlBool((root.orchestrator as YamlNode)?.allow_grandchildren, false),
+          inheritApprovals: yamlBool((root.orchestrator as YamlNode)?.inherit_approvals, true),
+          inheritAppApprovals: yamlBool(
             (root.orchestrator as YamlNode)?.inherit_app_approvals,
             true,
+            'orchestrator.inherit_app_approvals',
           ),
         }
       : undefined,
 
     smart_agent_team: root.smart_agent_team
       ? {
-          enabled: envBool((root.smart_agent_team as YamlNode)?.enabled, true),
+          enabled: yamlBool((root.smart_agent_team as YamlNode)?.enabled, true),
           max_children: num((root.smart_agent_team as YamlNode)?.max_children, 4),
           // P1 M5: child agent wall-clock cap + abort settle grace period
           child_timeout_sec: num((root.smart_agent_team as YamlNode)?.child_timeout_sec, 300),
           child_settle_timeout_ms: num(
             (root.smart_agent_team as YamlNode)?.child_settle_timeout_ms,
             15_000,
+            'smart_agent_team.child_settle_timeout_ms',
           ),
         }
       : undefined,
@@ -520,10 +861,12 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
                 timeoutSec: num(
                   ((root.policy as YamlNode)?.approval as YamlNode)?.timeout_sec,
                   120,
+                  'policy.approval.timeout_sec',
                 ),
                 timeoutAction: str(
                   ((root.policy as YamlNode)?.approval as YamlNode)?.timeout_action,
                   'deny',
+                  'policy.approval.timeout_action',
                 ),
               }
             : undefined,
@@ -543,24 +886,24 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
         channels: hc.channels,
         trigger: ht
           ? {
-              minIdenticalRetries: num(ht.min_identical_retries, 3),
-              minExplorationSteps: num(ht.min_exploration_steps, 8),
-              minConsecutiveErrors: num(ht.min_consecutive_errors, 3),
-              minDependencyErrors: num(ht.min_dependency_errors, 2),
+              minIdenticalRetries: num(ht.min_identical_retries, 3, 'ht.min_identical_retries'),
+              minExplorationSteps: num(ht.min_exploration_steps, 8, 'ht.min_exploration_steps'),
+              minConsecutiveErrors: num(ht.min_consecutive_errors, 3, 'ht.min_consecutive_errors'),
+              minDependencyErrors: num(ht.min_dependency_errors, 2, 'ht.min_dependency_errors'),
             }
           : undefined,
         rateLimit: hr
           ? {
-              cooldownMinutes: num(hr.cooldown_minutes, 30),
-              maxPerHour: num(hr.max_per_hour, 2),
-              maxPerDay: num(hr.max_per_day, 10),
-              maxAutoApplyPerDay: num(hr.max_auto_apply_per_day, 5),
+              cooldownMinutes: num(hr.cooldown_minutes, 30, 'hr.cooldown_minutes'),
+              maxPerHour: num(hr.max_per_hour, 2, 'hr.max_per_hour'),
+              maxPerDay: num(hr.max_per_day, 10, 'hr.max_per_day'),
+              maxAutoApplyPerDay: num(hr.max_auto_apply_per_day, 5, 'hr.max_auto_apply_per_day'),
             }
           : undefined,
         proposal: hp
           ? {
-              model: str(hp.model, 'default'),
-              maxEditsPerProposal: num(hp.max_edits_per_proposal, 5),
+              model: str(hp.model, 'default', 'hp.model'),
+              maxEditsPerProposal: num(hp.max_edits_per_proposal, 5, 'hp.max_edits_per_proposal'),
             }
           : undefined,
         interactive: {
@@ -571,6 +914,17 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
       };
     })(),
   };
+
+  if (configIssues.length > 0) {
+    const details = configIssues
+      .map((i) => `  - ${yamlKeyFromLabel(i.key)}: ${i.message}`)
+      .join('\n');
+    throw new Error(
+      `Invalid config.yaml: ${configIssues.length} value(s) have the wrong type.\n${details}\n` +
+        `Fix these keys (or remove them to accept defaults). Numeric strings are accepted so ${'$'}{ENV}` +
+        ` interpolation keeps working.`,
+    );
+  }
 
   return raw;
 }
@@ -584,28 +938,30 @@ function mapCustomProviders(yamlVal: unknown): CustomProviderConfig[] | undefine
     const p = cfg as Record<string, any>;
     if (!p.api_key || !p.base_url || !Array.isArray(p.models)) continue;
     const models: CustomModelConfig[] = p.models.map((m: any) => ({
-      id: str(m.id, ''),
-      name: str(m.name, m.id ?? ''),
-      api: str(m.api, 'openai-completions'),
+      id: str(m.id, '', 'm.id'),
+      name: str(m.name, m.id ?? '', 'm.name'),
+      api: str(m.api, 'openai-completions', 'm.api'),
       reasoning: m.reasoning !== undefined ? Boolean(m.reasoning) : undefined,
-      reasoningLevel: m.reasoning_level ? str(m.reasoning_level, '') : undefined,
-      contextWindow: m.context_window ? num(m.context_window, 0) : undefined,
-      maxTokens: m.max_tokens ? num(m.max_tokens, 0) : undefined,
+      reasoningLevel: m.reasoning_level
+        ? str(m.reasoning_level, '', 'm.reasoning_level')
+        : undefined,
+      contextWindow: m.context_window ? num(m.context_window, 0, 'm.context_window') : undefined,
+      maxTokens: m.max_tokens ? num(m.max_tokens, 0, 'm.max_tokens') : undefined,
       input: Array.isArray(m.input) ? (m.input as ('text' | 'image')[]) : undefined,
       compat: mapCompat(m.compat),
       cost: m.cost
         ? {
-            input: num(m.cost.input, 0),
-            output: num(m.cost.output, 0),
-            cacheRead: m.cost.cache_read ? num(m.cost.cache_read, 0) : 0,
-            cacheWrite: m.cost.cache_write ? num(m.cost.cache_write, 0) : 0,
+            input: num(m.cost.input, 0, 'm.cost.input'),
+            output: num(m.cost.output, 0, 'm.cost.output'),
+            cacheRead: m.cost.cache_read ? num(m.cost.cache_read, 0, 'm.cost.cache_read') : 0,
+            cacheWrite: m.cost.cache_write ? num(m.cost.cache_write, 0, 'm.cost.cache_write') : 0,
           }
         : undefined,
     }));
     providers.push({
       provider: name,
-      apiKey: str(p.api_key, ''),
-      baseUrl: str(p.base_url, ''),
+      apiKey: str(p.api_key, '', 'p.api_key'),
+      baseUrl: str(p.base_url, '', 'p.base_url'),
       models,
     });
   }
@@ -618,8 +974,8 @@ function mapProviderKeys(yamlVal: unknown): Record<string, { apiKey?: string; ba
   for (const [name, cfg] of Object.entries(yamlVal as Record<string, any>)) {
     const c = cfg as Record<string, any>;
     result[name] = {
-      apiKey: c.api_key ? str(c.api_key, '') : undefined,
-      baseUrl: c.base_url ? str(c.base_url, '') : undefined,
+      apiKey: c.api_key ? str(c.api_key, '', 'c.api_key') : undefined,
+      baseUrl: c.base_url ? str(c.base_url, '', 'c.base_url') : undefined,
     };
   }
   return result;
@@ -675,42 +1031,52 @@ function mapAgents(yamlVal: unknown): AgentConfig[] | undefined {
     const extCfg = o.extensions as Record<string, any> | undefined;
     agents.push({
       id,
-      name: str(o.name, id),
-      description: o.description ? str(o.description, '') : undefined,
-      system_prompt: o.system_prompt ? str(o.system_prompt, '') : undefined,
+      name: str(o.name, id, 'o.name'),
+      description: o.description ? str(o.description, '', 'o.description') : undefined,
+      system_prompt: o.system_prompt ? str(o.system_prompt, '', 'o.system_prompt') : undefined,
       model: modelCfg
         ? {
-            primary: modelCfg.primary ? str(modelCfg.primary, '') : undefined,
-            fallback: modelCfg.fallback ? strList(modelCfg.fallback, '') : undefined,
-            reasoning_level: modelCfg.reasoning_level
-              ? str(modelCfg.reasoning_level, '')
+            primary: modelCfg.primary ? str(modelCfg.primary, '', 'modelCfg.primary') : undefined,
+            fallback: modelCfg.fallback
+              ? strList(modelCfg.fallback, '', 'modelCfg.fallback')
               : undefined,
-            transport: modelCfg.transport ? str(modelCfg.transport, '') : undefined,
-            max_retry: modelCfg.max_retry ? num(modelCfg.max_retry, 0) : undefined,
+            reasoning_level: modelCfg.reasoning_level
+              ? str(modelCfg.reasoning_level, '', 'modelCfg.reasoning_level')
+              : undefined,
+            transport: modelCfg.transport
+              ? str(modelCfg.transport, '', 'modelCfg.transport')
+              : undefined,
+            max_retry: modelCfg.max_retry
+              ? num(modelCfg.max_retry, 0, 'modelCfg.max_retry')
+              : undefined,
           }
         : undefined,
       tools: toolsCfg
         ? {
-            profile: toolsCfg.profile ? (str(toolsCfg.profile, '') as ToolProfileId) : undefined,
-            add: toolsCfg.add ? strList(toolsCfg.add, '') : undefined,
-            deny: toolsCfg.deny ? strList(toolsCfg.deny, '') : undefined,
+            profile: toolsCfg.profile
+              ? (str(toolsCfg.profile, '', 'toolsCfg.profile') as ToolProfileId)
+              : undefined,
+            add: toolsCfg.add ? strList(toolsCfg.add, '', 'toolsCfg.add') : undefined,
+            deny: toolsCfg.deny ? strList(toolsCfg.deny, '', 'toolsCfg.deny') : undefined,
           }
         : undefined,
       spawn: spawnCfg
         ? {
             enabled: spawnCfg.enabled !== undefined ? Boolean(spawnCfg.enabled) : undefined,
-            max_parallel: spawnCfg.max_parallel ? num(spawnCfg.max_parallel, 0) : undefined,
+            max_parallel: spawnCfg.max_parallel
+              ? num(spawnCfg.max_parallel, 0, 'spawnCfg.max_parallel')
+              : undefined,
             allowed_personas: spawnCfg.allowed_personas
-              ? strList(spawnCfg.allowed_personas, '')
+              ? strList(spawnCfg.allowed_personas, '', 'spawnCfg.allowed_personas')
               : undefined,
           }
         : undefined,
       extensions: extCfg
         ? {
-            disable: extCfg.disable ? strList(extCfg.disable, '') : undefined,
+            disable: extCfg.disable ? strList(extCfg.disable, '', 'extCfg.disable') : undefined,
           }
         : undefined,
-      channels: o.channels ? strList(o.channels, '') : undefined,
+      channels: o.channels ? strList(o.channels, '', 'o.channels') : undefined,
     });
   }
   return agents.length > 0 ? agents : undefined;
