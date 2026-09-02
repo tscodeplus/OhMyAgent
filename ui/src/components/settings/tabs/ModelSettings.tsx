@@ -784,6 +784,7 @@ export default function ModelSettings({
                         />
                         <Input
                           label={t('settings.models.providerBaseUrl')}
+                          required
                           value={cp.baseUrl}
                           onChange={(e) => updateCustomProvider(pIdx, 'baseUrl', e.target.value)}
                           placeholder="e.g. https://api.example.com/v1"
@@ -1003,6 +1004,7 @@ export default function ModelSettings({
                   modelLabel={t('settings.models.model')}
                   showMetaBadges={false}
                   configuredProviders={configuredProviders}
+                  required
                 />
               </div>
               <div className="space-y-3">
@@ -1306,6 +1308,12 @@ export default function ModelSettings({
               />
               <Input
                 label="Base URL"
+                required
+                error={
+                  !newCustomForm.baseUrl.trim() && showCustomHint
+                    ? t('settings.validation.required')
+                    : undefined
+                }
                 value={newCustomForm.baseUrl}
                 onChange={(e) => setNewCustomForm({ ...newCustomForm, baseUrl: e.target.value })}
                 placeholder="e.g. https://api.example.com/v1"
@@ -1332,7 +1340,11 @@ export default function ModelSettings({
               </button>
               <button
                 onClick={() => {
-                  if (!newCustomForm.provider.trim() || !newCustomForm.apiKey.trim()) {
+                  if (
+                    !newCustomForm.provider.trim() ||
+                    !newCustomForm.apiKey.trim() ||
+                    !newCustomForm.baseUrl.trim()
+                  ) {
                     setShowCustomHint(true);
                     return;
                   }

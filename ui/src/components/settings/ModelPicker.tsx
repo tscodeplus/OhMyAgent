@@ -35,6 +35,8 @@ export interface ModelPickerProps {
   onModelMeta?: (meta: ModelInfo | null) => void;
   providerLabel?: string;
   modelLabel?: string;
+  /** Visual-only required marker (red asterisks on both labels). */
+  required?: boolean;
   modelPlaceholder?: string;
   showTestButton?: boolean;
   onTestConnection?: () => Promise<boolean>;
@@ -68,6 +70,7 @@ export default function ModelPicker({
   onModelMeta,
   providerLabel,
   modelLabel,
+  required,
   modelPlaceholder,
   showTestButton = false,
   onTestConnection,
@@ -267,6 +270,7 @@ export default function ModelPicker({
         <div className="flex-1 min-w-0">
           <Select
             label={providerLabel}
+            required={required}
             dense={dense}
             value={provider}
             onChange={(e) => onChangeProvider(e.target.value)}
@@ -324,6 +328,7 @@ export default function ModelPicker({
             className={`block text-[13px] font-medium text-neutral-700 dark:text-neutral-300 ${dense ? 'mb-1.5 sm:mb-1' : 'mb-1.5'}`}
           >
             {modelLabel}
+            {required && <span className="ml-0.5 text-red-500">*</span>}
           </label>
         )}
         <div className="flex items-center w-full rounded-lg border border-neutral-300 bg-white dark:border-neutral-800 dark:bg-neutral-800">
