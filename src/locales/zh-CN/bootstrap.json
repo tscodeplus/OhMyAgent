@@ -12,6 +12,7 @@
     "deniedAlways": "已拒绝（始终拒绝）",
     "harnessApproved": "已批准，正在应用改进方案…",
     "harnessRejected": "已拒绝该改进方案",
-    "harnessIgnored": "已忽略该改进方案"
+    "harnessIgnored": "已忽略该改进方案",
+    "harnessEditHint": "请在卡片中修改内容后提交"
   }
 }

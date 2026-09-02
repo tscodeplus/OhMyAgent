@@ -9,6 +9,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createWSCardActionHandler } from '../../src/app/feishu/ws-card-action-handler.js';
+import { harnessApprovalRegistry } from '../../src/harness/harness-approval-registry.js';
 
 interface FakeApprovalRequest {
   id: string;
@@ -172,5 +173,80 @@ describe('createWSCardActionHandler', () => {
 
     expect(result).toEqual({ code: 0 });
     expect(agentFactory.resolveApproval).not.toHaveBeenCalled();
+  });
+});
+
+describe('createWSCardActionHandler — harness improvement (task failure analysis)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    harnessApprovalRegistry.remove('prop-1');
+  });
+
+  function registerPendingProposal() {
+    const resolveFn = vi.fn();
+    harnessApprovalRegistry.register({
+      proposalId: 'prop-1',
+      channel: 'feishu',
+      chatId: 'oc_chat',
+      editedDefault: 'current skill content',
+      resolve: resolveFn,
+    });
+    return resolveFn;
+  }
+
+  it('swaps in an edit form card on edit click without resolving the proposal', async () => {
+    const { handler } = makeHandler({});
+    registerPendingProposal();
+
+    const result = await handler({
+      operator: { openId: 'ou_requester' },
+      action: { value: { proposalId: 'prop-1', action: 'edit' } },
+    });
+
+    // Proposal stays pending until the form is submitted.
+    expect(harnessApprovalRegistry.has('prop-1')).toBe(true);
+    const card = (result as { card?: { data: { elements: Array<Record<string, any>> } } }).card;
+    expect(card).toBeDefined();
+    const form = card!.data.elements.find((el) => el.tag === 'form');
+    expect(form).toBeDefined();
+    const input = form.elements.find((el) => el.tag === 'input');
+    expect(input.name).toBe('editedValue');
+    expect(input.default_value).toBe('current skill content');
+    const submit = form.elements.find((el) => el.tag === 'button');
+    expect(submit.action_type).toBe('form_submit');
+    expect(submit.value).toEqual({ proposalId: 'prop-1', action: 'edit_submit' });
+  });
+
+  it('resolves the proposal with the edited value on edit_submit', async () => {
+    const { handler } = makeHandler({});
+    const resolveFn = registerPendingProposal();
+
+    const result = await handler({
+      operator: { openId: 'ou_requester' },
+      action: {
+        value: { proposalId: 'prop-1', action: 'edit_submit' },
+        form_value: { editedValue: 'user-edited content' },
+      },
+    });
+
+    expect(resolveFn).toHaveBeenCalledWith('edit', 'user-edited content');
+    expect(harnessApprovalRegistry.has('prop-1')).toBe(false);
+    // Card is replaced with the decision result — no buttons left.
+    const data = (result as { card?: { data: { elements: unknown[] } } }).card?.data;
+    expect(JSON.stringify(data)).not.toContain('"tag":"button"');
+  });
+
+  it('replaces a stale proposal card with the handled result', async () => {
+    const { handler } = makeHandler({});
+
+    const result = await handler({
+      operator: { openId: 'ou_requester' },
+      action: { value: { proposalId: 'prop-1', action: 'approve' } },
+    });
+
+    expect(result).toMatchObject({ toast: { type: 'info' } });
+    const data = (result as { card?: { data: { header: { title: { content: string } } } } })
+      .card?.data;
+    expect(data?.header.title.content).toContain('This card has been handled');
   });
 });

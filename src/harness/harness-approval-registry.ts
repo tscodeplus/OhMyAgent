@@ -17,8 +17,13 @@ export interface PendingHarnessApproval {
   channel: 'feishu' | 'qq' | 'wechat' | 'telegram' | string;
   /** Chat/user identifier within the channel. */
   chatId: string;
+  /**
+   * Current proposal value to prefill "edit & apply" flows (e.g. the Feishu
+   * edit form input). Optional: only channels that support editing set it.
+   */
+  editedDefault?: string;
   /** Resolves the promise returned by requestHarnessApproval(). */
-  resolve: (decision: ApprovalDecision) => void;
+  resolve: (decision: ApprovalDecision, editedValue?: string) => void;
 }
 
 class HarnessApprovalRegistryImpl {
@@ -38,13 +43,15 @@ class HarnessApprovalRegistryImpl {
 
   /**
    * Resolve a pending approval. Returns false when no pending entry exists
-   * for the proposalId (already handled or expired).
+   * for the proposalId (already handled or expired). `editedValue` carries
+   * the user-modified content for the 'edit' decision when the channel
+   * supports collecting it (Feishu edit form).
    */
-  resolve(proposalId: string, decision: ApprovalDecision): boolean {
+  resolve(proposalId: string, decision: ApprovalDecision, editedValue?: string): boolean {
     const entry = this.pending.get(proposalId);
     if (!entry) return false;
     this.pending.delete(proposalId);
-    entry.resolve(decision);
+    entry.resolve(decision, editedValue);
     return true;
   }
 

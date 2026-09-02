@@ -333,21 +333,28 @@ function formatDecisionStatus(record: ReplyApprovalRecord): string {
  * analysis) decision result. Returned from the card action handler so the
  * original card is replaced after a button click — the same mechanism
  * `renderApprovalResultCard` uses for shell-command approval cards. Without
- * this, the approve/reject/ignore buttons stay clickable after the decision.
+ * this, the approve/edit/reject/ignore buttons stay clickable after the
+ * decision.
  */
 export function renderHarnessResultCard(
-  decision: 'approve' | 'reject' | 'dismiss' | 'handled',
+  decision: 'approve' | 'edit' | 'reject' | 'dismiss' | 'handled',
 ): Record<string, unknown> {
   const title =
     decision === 'approve'
       ? `✅ ${i18n.t('harness:card.resultApproved')}`
-      : decision === 'reject'
-        ? `❌ ${i18n.t('harness:card.resultRejected')}`
-        : decision === 'dismiss'
-          ? i18n.t('harness:card.resultIgnored')
-          : i18n.t('harness:card.resultHandled');
+      : decision === 'edit'
+        ? `✅ ${i18n.t('harness:card.resultEdited')}`
+        : decision === 'reject'
+          ? `❌ ${i18n.t('harness:card.resultRejected')}`
+          : decision === 'dismiss'
+            ? i18n.t('harness:card.resultIgnored')
+            : i18n.t('harness:card.resultHandled');
   const template =
-    decision === 'approve' ? 'green' : decision === 'reject' ? 'red' : 'grey';
+    decision === 'approve' || decision === 'edit'
+      ? 'green'
+      : decision === 'reject'
+        ? 'red'
+        : 'grey';
 
   return {
     config: { wide_screen_mode: true },
@@ -359,6 +366,52 @@ export function renderHarnessResultCard(
       {
         tag: 'div',
         text: { tag: 'lark_md', content: title },
+      },
+    ],
+  };
+}
+
+/**
+ * Render the "edit & apply" form card for a harness improvement proposal.
+ * Shown when the user clicks the edit button: a Feishu JSON 1.0 form with an
+ * input prefilled with the current proposal value; submitting resolves the
+ * pending approval with the edited content (action 'edit_submit', value read
+ * from the callback's form_value).
+ */
+export function renderHarnessEditCard(
+  proposalId: string,
+  defaultValue: string,
+): Record<string, unknown> {
+  return {
+    config: { wide_screen_mode: true },
+    header: {
+      title: {
+        tag: 'plain_text',
+        content: `${i18n.t('harness:card.title')} · ${i18n.t('harness:actions.editApply')}`,
+      },
+      template: 'wathet',
+    },
+    elements: [
+      {
+        tag: 'form',
+        name: 'harness_edit_form',
+        elements: [
+          {
+            tag: 'input',
+            name: 'editedValue',
+            default_value: defaultValue,
+            label: { tag: 'plain_text', content: i18n.t('harness:card.editInputLabel') },
+            label_position: 'top',
+          },
+          {
+            tag: 'button',
+            action_type: 'form_submit',
+            name: 'harness_edit_submit',
+            text: { tag: 'plain_text', content: i18n.t('harness:card.editSubmit') },
+            type: 'primary',
+            value: { proposalId, action: 'edit_submit' },
+          },
+        ],
       },
     ],
   };

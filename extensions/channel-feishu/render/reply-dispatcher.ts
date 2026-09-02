@@ -42,7 +42,7 @@ export class ReplyDispatcher {
   private readonly showToolCalls: boolean;
   private readonly showSkillCalls: boolean;
   private readonly chatId: string;
-  private harnessResolvers = new Map<string, (decision: string) => void>();
+  private harnessResolvers = new Map<string, (decision: string, editedValue?: string) => void>();
 
   constructor(options: ReplyDispatcherOptions) {
     this.showToolCalls = options.showToolCalls !== false;
@@ -204,21 +204,26 @@ export class ReplyDispatcher {
         resolve({ decision: 'timeout' as const });
       }, timeoutMs ?? 120_000);
 
-      const resolver = (decision: string) => {
+      const resolver = (decision: string, editedValue?: string) => {
         clearTimeout(timeout);
         harnessApprovalRegistry.remove(prompt.id);
-        resolve({ decision: decision as import('../../../src/harness/types.js').ApprovalDecision });
+        resolve({
+          decision: decision as import('../../../src/harness/types.js').ApprovalDecision,
+          ...(typeof editedValue === 'string' && editedValue.length > 0 ? { editedValue } : {}),
+        });
       };
       this.harnessResolvers.set(prompt.id, resolver);
       // Also expose the resolver via the process-wide registry so the card
       // action handler (which has no dispatcher reference) can route clicks.
+      // editedDefault prefills the "edit & apply" form input.
       harnessApprovalRegistry.register({
         proposalId: prompt.id,
         channel: 'feishu',
         chatId: this.chatId,
-        resolve: (d) => {
+        editedDefault: prompt.diff.after,
+        resolve: (d, editedValue) => {
           this.harnessResolvers.delete(prompt.id);
-          resolver(d as string);
+          resolver(d, editedValue);
         },
       });
 
@@ -250,6 +255,12 @@ export class ReplyDispatcher {
                 text: { tag: 'plain_text', content: i18n.t('harness:card.approveAndApply') },
                 type: 'primary',
                 value: { proposalId: prompt.id, action: 'approve' },
+              },
+              {
+                tag: 'button',
+                text: { tag: 'plain_text', content: i18n.t('harness:actions.editApply') },
+                type: 'default',
+                value: { proposalId: prompt.id, action: 'edit' },
               },
               {
                 tag: 'button',

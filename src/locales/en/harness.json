@@ -34,6 +34,9 @@
     "approveEmoji": "✅ Approve",
     "rejectButton": "❌ Reject",
     "resultApproved": "Approved & Applied",
+    "resultEdited": "Edited & Applied",
+    "editInputLabel": "Edited content",
+    "editSubmit": "Submit changes",
     "resultRejected": "Rejected",
     "resultIgnored": "Ignored",
     "resultHandled": "This card has been handled"

@@ -8,7 +8,11 @@
 import { i18n } from '../../i18n/index.js';
 import { generateId } from '../../shared/ids.js';
 import { harnessApprovalRegistry } from '../../harness/harness-approval-registry.js';
-import { renderApprovalResultCard, renderHarnessResultCard } from '../../../extensions/channel-feishu/render/approval-card-renderer.js';
+import {
+  renderApprovalResultCard,
+  renderHarnessEditCard,
+  renderHarnessResultCard,
+} from '../../../extensions/channel-feishu/render/approval-card-renderer.js';
 import type { AgentFactory } from '../../agent/agent-factory.js';
 import type { ApprovalDecisionType } from '../types.js';
 import type { ApprovalDecisionRepository } from '../../memory/repositories/approval-decision-repository.js';
@@ -43,9 +47,40 @@ export function createWSCardActionHandler(opts: WSCardActionHandlerOptions): (
     if (!requestId && value.proposalId && action) {
       const proposalId = String(value.proposalId);
       const harnessAction = String(action);
+
+      // 'edit' is a two-step flow: the first click swaps in an edit form card
+      // (prefilled with the current proposal value); the decision resolves
+      // when the form's submit button (action 'edit_submit') delivers the
+      // edited content via the callback's form_value.
+      if (harnessAction === 'edit') {
+        const entry = harnessApprovalRegistry.get(proposalId);
+        if (!entry) {
+          return {
+            toast: { type: 'info', content: i18n.t('bootstrap:toast.alreadyHandled') },
+            card: { type: 'raw', data: renderHarnessResultCard('handled') },
+          };
+        }
+        return {
+          toast: { type: 'info', content: i18n.t('bootstrap:toast.harnessEditHint') },
+          card: {
+            type: 'raw',
+            data: renderHarnessEditCard(proposalId, entry.editedDefault ?? ''),
+          },
+        };
+      }
+
+      const isEditSubmit = harnessAction === 'edit_submit';
+      const decision = isEditSubmit ? 'edit' : harnessAction;
+      const formValue = (callback?.action?.form_value ??
+        callback?.action?.formValue) as Record<string, unknown> | undefined;
+      const editedValue =
+        isEditSubmit && formValue && typeof formValue.editedValue === 'string'
+          ? formValue.editedValue
+          : undefined;
       const resolved = harnessApprovalRegistry.resolve(
         proposalId,
-        harnessAction as 'approve' | 'reject' | 'dismiss' | 'edit',
+        decision as 'approve' | 'reject' | 'dismiss' | 'edit',
+        editedValue,
       );
       if (!resolved) {
         return {
@@ -54,27 +89,29 @@ export function createWSCardActionHandler(opts: WSCardActionHandlerOptions): (
           card: { type: 'raw', data: renderHarnessResultCard('handled') },
         };
       }
-      const toastContent =
-        harnessAction === 'approve'
-          ? i18n.t('bootstrap:toast.harnessApproved')
-          : harnessAction === 'reject'
-            ? i18n.t('bootstrap:toast.harnessRejected')
-            : i18n.t('bootstrap:toast.harnessIgnored');
+      const applied = harnessAction === 'approve' || isEditSubmit;
+      const toastContent = applied
+        ? i18n.t('bootstrap:toast.harnessApproved')
+        : harnessAction === 'reject'
+          ? i18n.t('bootstrap:toast.harnessRejected')
+          : i18n.t('bootstrap:toast.harnessIgnored');
       return {
         toast: {
-          type: harnessAction === 'approve' ? 'success' : 'info',
+          type: applied ? 'success' : 'info',
           content: toastContent,
         },
         // Replace the original card (same mechanism as approval cards) so the
-        // approve/reject/ignore buttons are removed once a decision is made.
+        // action buttons are removed once a decision is made.
         card: {
           type: 'raw',
           data: renderHarnessResultCard(
-            harnessAction === 'approve'
-              ? 'approve'
-              : harnessAction === 'reject'
-                ? 'reject'
-                : 'dismiss',
+            isEditSubmit
+              ? 'edit'
+              : harnessAction === 'approve'
+                ? 'approve'
+                : harnessAction === 'reject'
+                  ? 'reject'
+                  : 'dismiss',
           ),
         },
       };

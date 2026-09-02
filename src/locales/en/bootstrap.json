@@ -12,6 +12,7 @@
     "deniedAlways": "Denied (always deny)",
     "harnessApproved": "Approved — applying the improvement proposal…",
     "harnessRejected": "Improvement proposal rejected",
-    "harnessIgnored": "Improvement proposal ignored"
+    "harnessIgnored": "Improvement proposal ignored",
+    "harnessEditHint": "Edit the content in the card, then submit"
   }
 }

@@ -34,6 +34,9 @@
     "approveEmoji": "✅ 批准",
     "rejectButton": "❌ 拒绝",
     "resultApproved": "已批准并应用",
+    "resultEdited": "已修改并应用",
+    "editInputLabel": "修改后的内容",
+    "editSubmit": "提交修改",
     "resultRejected": "已拒绝",
     "resultIgnored": "已忽略",
     "resultHandled": "该卡片已处理"
