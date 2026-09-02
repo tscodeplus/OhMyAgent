@@ -724,7 +724,12 @@
       "restartHint": "修改将在重启应用后生效。"
     },
     "testConnection": "测试模型连接",
-    "testWebSearch": "测试搜索连接"
+    "testWebSearch": "测试搜索连接",
+    "validation": {
+      "required": "必填",
+      "missingFields": "以下必填项未填写，请补全后保存：{{fields}}",
+      "stagedMissing": "提醒：本页还有未填写的必填项（修改已暂存，不会丢失）：{{fields}}"
+    }
   },
   "auth": {
     "title": "OhMyAgent",
@@ -1000,7 +1005,8 @@
       "embedding": "向量模型",
       "embeddingNotSet": "未配置（建议配置）",
       "edit": "编辑"
-    }
+    },
+    "missingRequired": "还需填写：{{fields}}"
   },
   "marketplace": {
     "title": "技能市场",

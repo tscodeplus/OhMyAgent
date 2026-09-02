@@ -724,7 +724,12 @@
       "restartHint": "Changes take effect after restarting the app."
     },
     "testConnection": "Test Connection",
-    "testWebSearch": "Test Web Search"
+    "testWebSearch": "Test Web Search",
+    "validation": {
+      "required": "Required",
+      "missingFields": "Missing required fields — please fill them in before saving: {{fields}}",
+      "stagedMissing": "Reminder: this page has empty required fields (changes are staged and not lost): {{fields}}"
+    }
   },
   "auth": {
     "title": "OhMyAgent",
@@ -990,7 +995,8 @@
       "embedding": "Embedding Model",
       "embeddingNotSet": "Not configured (recommended)",
       "edit": "Edit"
-    }
+    },
+    "missingRequired": "Still needed: {{fields}}"
   },
   "marketplace": {
     "title": "Skill Marketplace",

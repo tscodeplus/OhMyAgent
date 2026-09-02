@@ -7,6 +7,7 @@ import Select from '../../ui/Select';
 import Toggle from '../../ui/Toggle';
 import Spinner from '../../ui/Spinner';
 import QRCodeModal from '../QRCodeModal';
+import { CHANNELS_REQUIRED_RULES } from '../requiredFields';
 
 function ChannelCard({ name, children }: { name: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
@@ -42,10 +43,12 @@ export default function ChannelsSettings({
   onDirtyChange,
 }: ChannelsSettingsProps) {
   const { t } = useTranslation('common');
-  const { config, loading, getField, setField, fetchConfig } = useConfigDirty(
+  const { config, loading, getField, setField, fetchConfig, requiredError } = useConfigDirty(
     tabId,
     registerHandle,
     onDirtyChange,
+    undefined,
+    CHANNELS_REQUIRED_RULES,
   );
 
   const [qrModal, setQrModal] = useState<ChannelType | null>(null);
@@ -151,12 +154,16 @@ export default function ChannelsSettings({
             />
             <Input
               label="App ID"
+              required
+              error={requiredError('feishu.appId')}
               value={getField('feishu.appId', String(feishu.appId || ''))}
               onChange={(e) => setField('feishu.appId', e.target.value)}
             />
             <Input
               label={t('settings.channels.appSecret')}
               type="password"
+              required
+              error={requiredError('feishu.appSecret')}
               value={getField('feishu.appSecret', String(feishu.appSecret || ''))}
               onChange={(e) => setField('feishu.appSecret', e.target.value)}
               placeholder={
@@ -189,6 +196,8 @@ export default function ChannelsSettings({
             <Input
               label={t('settings.channels.botToken')}
               type="password"
+              required
+              error={requiredError('telegram.botToken')}
               value={getField('telegram.botToken', String(telegram.botToken || ''))}
               onChange={(e) => setField('telegram.botToken', e.target.value)}
               placeholder={
@@ -238,6 +247,8 @@ export default function ChannelsSettings({
             <Input
               label={t('settings.channels.botToken')}
               type="password"
+              required
+              error={requiredError('wechat.botToken')}
               value={getField('wechat.botToken', String(wechat.botToken || ''))}
               onChange={(e) => setField('wechat.botToken', e.target.value)}
               placeholder={
@@ -267,12 +278,16 @@ export default function ChannelsSettings({
             {scanButton('qq')}
             <Input
               label="App ID"
+              required
+              error={requiredError('qq.appId')}
               value={getField('qq.appId', String(qq.appId || ''))}
               onChange={(e) => setField('qq.appId', e.target.value)}
             />
             <Input
               label={t('settings.channels.clientSecret')}
               type="password"
+              required
+              error={requiredError('qq.clientSecret')}
               value={getField('qq.clientSecret', String(qq.clientSecret || ''))}
               onChange={(e) => setField('qq.clientSecret', e.target.value)}
               placeholder={

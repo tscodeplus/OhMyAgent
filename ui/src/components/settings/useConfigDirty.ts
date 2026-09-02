@@ -2,11 +2,23 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { apiRequest } from '../../utils/api';
 import { useToast } from '../ui/Toast';
+import {
+  missingRequiredFields,
+  type MissingRequiredField,
+  type RequiredFieldRule,
+} from './requiredFields';
 
 export interface SettingsTabHandle {
   save: (opts?: { silent?: boolean }) => Promise<void>;
   cancel: () => void;
   isDirty: () => boolean;
+  /**
+   * Optional: evaluate the tab's required-field rules. With { mark: true } the
+   * missing fields are also flagged red in the tab's inputs. Returns one entry
+   * per missing field (label already localized). The settings modal uses this
+   * to block save / warn on tab switch (staging).
+   */
+  validateRequired?: (opts?: { mark?: boolean }) => MissingRequiredField[];
   /** Optional: returns true when the current dirty changes require a service restart.
    *  Only override when per-item granularity is needed; otherwise the parent
    *  falls back to RESTART_REQUIRED_TABS for the whole tab. */
@@ -19,6 +31,10 @@ export interface UseConfigDirtyResult {
   dirtyCount: number;
   /** Paths of currently dirty fields (useful for sub-tab dirty badges). */
   dirtyPaths: string[];
+  /** Error string for a required field currently flagged missing, else undefined. */
+  requiredError: (path: string) => string | undefined;
+  /** Clear the red flags set by validateRequired({ mark: true }). */
+  clearRequiredMarks: () => void;
   fetchConfig: (showLoading?: boolean) => Promise<void>;
   getField: <T>(path: string, fallback: T) => T;
   setField: (path: string, value: unknown) => void;
@@ -31,6 +47,12 @@ export function useConfigDirty(
   registerHandle?: (tabId: string, handle: SettingsTabHandle | null) => void,
   onDirtyChange?: (tabId: string, dirty: boolean) => void,
   restartFieldPrefixes?: string[],
+  /**
+   * Required-field rules for this tab; enables validateRequired on the handle.
+   * May be a getter — evaluated lazily at validation time, so it can depend on
+   * values derived from this hook (e.g. the selected provider list).
+   */
+  requiredRules?: RequiredFieldRule[] | (() => RequiredFieldRule[]),
 ): UseConfigDirtyResult {
   const { t } = useTranslation('common');
   const { showToast } = useToast();
@@ -167,6 +189,46 @@ export function useConfigDirty(
     setDirtyFields({});
   }, []);
 
+  // ── Required-field validation (enabled-gating) ──
+  // Marks are the set of paths currently flagged red; validateRequired()
+  // recomputes them from the rules and the dirty-first resolver below.
+  const [requiredMarks, setRequiredMarks] = useState<Set<string>>(new Set());
+  const rulesRef = useRef<RequiredFieldRule[] | (() => RequiredFieldRule[])>(requiredRules ?? []);
+  rulesRef.current = requiredRules ?? [];
+  const configRef = useRef(config);
+  configRef.current = config;
+
+  const getResolved = useCallback((path: string, fallback: unknown = ''): unknown => {
+    const dirty = dirtyFieldsRef.current;
+    if (path in dirty) return dirty[path];
+    // Saved config lookup: walk 'a.b.c' segments
+    let cur: unknown = configRef.current;
+    for (const seg of path.split('.')) {
+      if (cur === null || cur === undefined || typeof cur !== 'object') return fallback;
+      cur = (cur as Record<string, unknown>)[seg];
+    }
+    return cur === undefined ? fallback : cur;
+  }, []);
+
+  const validateRequiredRef = useRef<(opts?: { mark?: boolean }) => MissingRequiredField[]>(
+    () => [],
+  );
+  validateRequiredRef.current = (opts?: { mark?: boolean }) => {
+    const resolved = rulesRef.current;
+    const rules = typeof resolved === 'function' ? resolved() : resolved;
+    if (rules.length === 0) return [];
+    const missing = missingRequiredFields(rules, getResolved);
+    setRequiredMarks(opts?.mark ? new Set(missing.map((m) => m.path)) : new Set());
+    return missing.map((m) => ({ path: m.path, label: t(m.label) }));
+  };
+
+  const requiredError = useCallback(
+    (path: string) => (requiredMarks.has(path) ? t('settings.validation.required') : undefined),
+    [requiredMarks, t],
+  );
+
+  const clearRequiredMarks = useCallback(() => setRequiredMarks(new Set()), []);
+
   // Register/unregister this tab's handle with the parent modal
   const saveRef = useRef(save);
   saveRef.current = save;
@@ -185,6 +247,7 @@ export function useConfigDirty(
       cancel: () => cancelRef.current(),
       isDirty: () => Object.keys(dirtyFieldsRef.current).length > 0,
       needsRestart,
+      validateRequired: (opts) => validateRequiredRef.current(opts),
     };
     registerHandle?.(tabId, handle);
     return () => registerHandle?.(tabId, null);
@@ -200,5 +263,7 @@ export function useConfigDirty(
     setField,
     save,
     cancel,
+    requiredError,
+    clearRequiredMarks,
   };
 }

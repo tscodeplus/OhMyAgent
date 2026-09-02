@@ -15,6 +15,8 @@ export interface SelectGroup {
 interface SelectProps {
   label?: string;
   error?: string;
+  /** Visual-only required marker (red asterisk next to the label). */
+  required?: boolean;
   /** Smaller label gap and control padding */
   dense?: boolean;
   /** Extra-compact trigger (h-8, text-xs) for toolbar filter rows */
@@ -44,6 +46,7 @@ interface SelectProps {
 const Select = forwardRef(function Select(
   {
     label,
+    required,
     error,
     dense = false,
     compact = false,
@@ -160,6 +163,7 @@ const Select = forwardRef(function Select(
           className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300"
         >
           {label}
+          {required && <span className="ml-0.5 text-red-500">*</span>}
         </label>
       )}
       <button

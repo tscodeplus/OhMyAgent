@@ -30,10 +30,19 @@ export default function WebSearchSettings({
   onDirtyChange,
 }: WebSearchSettingsProps) {
   const { t } = useTranslation('common');
-  const { config, loading, getField, setField } = useConfigDirty(
+  const { config, loading, getField, setField, requiredError } = useConfigDirty(
     tabId,
     registerHandle,
     onDirtyChange,
+    undefined,
+    // A provider that is part of the (effective) provider order must have its
+    // API key. Lazy getter: selectedProviders is derived from this same hook
+    // below, and the rules are only evaluated at validation time.
+    () =>
+      selectedProviders.map((provider) => ({
+        path: `webSearch.${provider}ApiKey`,
+        label: `${provider.toUpperCase()} API Key`,
+      })),
   );
 
   const ws = (config?.webSearch as Record<string, unknown>) || {};
@@ -217,14 +226,14 @@ export default function WebSearchSettings({
               label={t('settings.websearch.searchTimeout')}
               type="number"
               value={
-                getField('webSearch.searchTimeoutMs', String(ws.searchTimeoutMs ?? '')) as string
+                getField('webSearch.searchTimeoutMs', String(ws.searchTimeoutMs ?? 30000)) as string
               }
               onChange={(e) => setField('webSearch.searchTimeoutMs', e.target.value)}
             />
             <Input
               label={t('settings.websearch.maxResults')}
               type="number"
-              value={getField('webSearch.maxResults', String(ws.maxResults ?? '')) as string}
+              value={getField('webSearch.maxResults', String(ws.maxResults ?? 5)) as string}
               onChange={(e) => setField('webSearch.maxResults', e.target.value)}
             />
           </div>
@@ -242,6 +251,8 @@ export default function WebSearchSettings({
                 key={provider}
                 label={`${provider.toUpperCase()} API Key`}
                 type="password"
+                required
+                error={requiredError(path)}
                 value={getField(path, fallback) as string}
                 onChange={(e) => setField(path, e.target.value)}
                 placeholder={fallback ? undefined : ''}

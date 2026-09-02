@@ -5,6 +5,7 @@ import Input from '../../ui/Input';
 import Select from '../../ui/Select';
 import Toggle from '../../ui/Toggle';
 import Spinner from '../../ui/Spinner';
+import { COMPUTER_REQUIRED_RULES } from '../requiredFields';
 
 interface ComputerUseSettingsProps {
   tabId?: string;
@@ -18,10 +19,12 @@ export default function ComputerUseSettings({
   onDirtyChange,
 }: ComputerUseSettingsProps) {
   const { t } = useTranslation('common');
-  const { config, loading, dirtyCount, getField, setField } = useConfigDirty(
+  const { config, loading, dirtyCount, getField, setField, requiredError } = useConfigDirty(
     tabId,
     registerHandle,
     onDirtyChange,
+    undefined,
+    COMPUTER_REQUIRED_RULES,
   );
 
   // Warn before leaving the page if there are unsaved changes
@@ -79,12 +82,16 @@ export default function ComputerUseSettings({
         <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
           <Input
             label="Host"
+            required
+            error={requiredError('computerUse.ssh.host')}
             value={getField('computerUse.ssh.host', String(cuSsh.host || '')) as string}
             onChange={(e) => setField('computerUse.ssh.host', e.target.value)}
           />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="User"
+              required
+              error={requiredError('computerUse.ssh.user')}
               value={getField('computerUse.ssh.user', String(cuSsh.user || '')) as string}
               onChange={(e) => setField('computerUse.ssh.user', e.target.value)}
             />
@@ -115,6 +122,8 @@ export default function ComputerUseSettings({
         <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
           <Input
             label="URL"
+            required
+            error={requiredError('computerUse.node.url')}
             value={getField('computerUse.node.url', String(cuNode.url || '')) as string}
             onChange={(e) => setField('computerUse.node.url', e.target.value)}
           />

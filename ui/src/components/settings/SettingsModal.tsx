@@ -147,7 +147,8 @@ const COMPONENT_MAP: Record<string, React.ComponentType<any>> = {
 };
 
 export default function SettingsModal({ onClose, initialTab, initialSubTab }: SettingsModalProps) {
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
+  const listSeparator = i18n.language?.startsWith('zh') ? '、' : ', ';
   const { showToast, dismissToast } = useToast();
   const [activeGroup, setActiveGroup] = useState<string>(initialTab || 'general');
   const [modelSubTab, setModelSubTab] = useState<string | undefined>(initialSubTab);
@@ -292,6 +293,30 @@ export default function SettingsModal({ onClose, initialTab, initialSubTab }: Se
     let savedCount = 0;
     let needsRestart = false;
     try {
+      // Required-field gate: validate every dirty tab first; if anything is
+      // missing, block the save, mark the fields red and jump to the first
+      // offending tab.
+      const missingByTab: Array<{ tabId: string; labels: string[] }> = [];
+      for (const tabId of dirtyTabs) {
+        const handle = tabHandles.current.get(tabId);
+        if (!handle?.isDirty()) continue;
+        const missing = handle.validateRequired?.({ mark: true }) ?? [];
+        if (missing.length > 0) {
+          missingByTab.push({ tabId, labels: missing.map((m) => m.label) });
+        }
+      }
+      if (missingByTab.length > 0) {
+        setActiveGroup(missingByTab[0].tabId);
+        showToast(
+          t('settings.validation.missingFields', {
+            fields: missingByTab.flatMap((m) => m.labels).join(listSeparator),
+          }),
+          'error',
+          6000,
+        );
+        return;
+      }
+
       // Save ALL dirty tabs silently, then show one toast
       for (const tabId of dirtyTabs) {
         const handle = tabHandles.current.get(tabId);
@@ -323,7 +348,7 @@ export default function SettingsModal({ onClose, initialTab, initialSubTab }: Se
     } finally {
       setSaving(false);
     }
-  }, [dirtyTabs, showToast, t, handleRestart, handleServerRestart]);
+  }, [dirtyTabs, showToast, t, listSeparator, handleRestart, handleServerRestart]);
 
   const handleCancel = useCallback(() => {
     // Cancel ALL registered tabs
@@ -364,10 +389,29 @@ export default function SettingsModal({ onClose, initialTab, initialSubTab }: Se
     </div>
   );
 
-  // Tab switching is always allowed — no confirmation.
-  const handleSidebarSelect = useCallback((id: string) => {
-    setActiveGroup(id);
-  }, []);
+  const handleSidebarSelect = useCallback(
+    (id: string) => {
+      // Staging check: when leaving a dirty tab whose required fields are
+      // empty, remind the user (changes stay staged; only save blocks).
+      if (id !== activeGroup) {
+        const handle = tabHandles.current.get(activeGroup);
+        if (handle?.isDirty()) {
+          const missing = handle.validateRequired?.() ?? [];
+          if (missing.length > 0) {
+            showToast(
+              t('settings.validation.stagedMissing', {
+                fields: missing.map((m) => m.label).join(listSeparator),
+              }),
+              'warning',
+              6000,
+            );
+          }
+        }
+      }
+      setActiveGroup(id);
+    },
+    [activeGroup, showToast, t, listSeparator],
+  );
 
   // ── Render helpers ──
 

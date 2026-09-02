@@ -11,7 +11,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { X, CheckCircle, AlertCircle, Info } from 'lucide-react';
 
-type ToastType = 'success' | 'error' | 'info';
+type ToastType = 'success' | 'error' | 'info' | 'warning';
 
 export interface ToastAction {
   label: string;
@@ -102,6 +102,7 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: () => void }) 
     success: CheckCircle,
     error: AlertCircle,
     info: Info,
+    warning: AlertCircle,
   };
 
   // Type-specific colored background — stands out clearly from page bg
@@ -118,12 +119,17 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: () => void }) 
       'bg-blue-50 dark:bg-blue-950 ' +
       'border-2 border-blue-300 dark:border-blue-700 ' +
       'shadow-2xl shadow-blue-500/10 dark:shadow-black/50',
+    warning:
+      'bg-amber-50 dark:bg-amber-950 ' +
+      'border-2 border-amber-300 dark:border-amber-700 ' +
+      'shadow-2xl shadow-amber-500/10 dark:shadow-black/50',
   };
 
   const typeIcon: Record<ToastType, string> = {
     success: 'text-emerald-700 dark:text-emerald-300',
     error: 'text-red-700 dark:text-red-300',
     info: 'text-blue-700 dark:text-blue-300',
+    warning: 'text-amber-700 dark:text-amber-300',
   };
 
   const card = typeCard[toast.type];

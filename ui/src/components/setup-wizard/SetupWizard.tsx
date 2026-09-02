@@ -83,8 +83,9 @@ export default function SetupWizard({
   onComplete,
   onDismiss,
 }: SetupWizardProps) {
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
   const { setThemeMode } = useTheme();
+  const listSeparator = i18n.language?.startsWith('zh') ? '、' : ', ';
 
   const [currentStep, setCurrentStep] = useState(1);
   const [saving, setSaving] = useState(false);
@@ -133,6 +134,31 @@ export default function SetupWizard({
         return state.modelId.trim().length > 0 && state.apiKey.trim().length > 0;
       default:
         return true;
+    }
+  }
+
+  // ─── Missing required fields per step (shown when Next is disabled) ───
+
+  function missingForStep(step: number): string[] {
+    switch (step) {
+      case 3: {
+        const out: string[] = [];
+        if (isCustomProvider) {
+          if (!state.customProviderName.trim()) out.push(t('setupWizard.provider.customName'));
+          if (!state.customApiKey.trim()) out.push(t('setupWizard.provider.customApiKey'));
+        } else if (!state.provider) {
+          out.push(t('setupWizard.review.provider'));
+        }
+        return out;
+      }
+      case 4: {
+        const out: string[] = [];
+        if (!state.modelId.trim()) out.push(t('setupWizard.mainModel.modelId'));
+        if (!isCustomProvider && !state.apiKey.trim()) out.push(t('setupWizard.mainModel.apiKey'));
+        return out;
+      }
+      default:
+        return [];
     }
   }
 
@@ -377,6 +403,7 @@ export default function SetupWizard({
               </div>
               <Select
                 label={t('setupWizard.review.provider')}
+                required
                 options={providerOptions}
                 value={state.provider}
                 onChange={(e) => update({ provider: e.target.value })}
@@ -385,12 +412,14 @@ export default function SetupWizard({
                 <div className="flex flex-col gap-3 rounded-lg border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-800 dark:bg-blue-950/30">
                   <Input
                     label={t('setupWizard.provider.customName')}
+                    required
                     placeholder={t('setupWizard.provider.customNamePlaceholder')}
                     value={state.customProviderName}
                     onChange={(e) => update({ customProviderName: e.target.value })}
                   />
                   <PasswordInput
                     label={t('setupWizard.provider.customApiKey')}
+                    required
                     value={state.customApiKey}
                     onChange={(e) => update({ customApiKey: e.target.value })}
                   />
@@ -426,6 +455,7 @@ export default function SetupWizard({
               </div>
               <Input
                 label={t('setupWizard.mainModel.modelId')}
+                required
                 placeholder={t('setupWizard.mainModel.modelIdPlaceholder')}
                 value={state.modelId}
                 onChange={(e) => update({ modelId: e.target.value })}
@@ -435,6 +465,7 @@ export default function SetupWizard({
                 <>
                   <PasswordInput
                     label={t('setupWizard.mainModel.apiKey')}
+                    required
                     value={state.apiKey}
                     onChange={(e) => update({ apiKey: e.target.value })}
                   />
@@ -589,7 +620,14 @@ export default function SetupWizard({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-neutral-200 dark:border-neutral-800 shrink-0">
+        <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-neutral-200 dark:border-neutral-800 shrink-0">
+          {currentStep < TOTAL_STEPS && !canProceed(currentStep) && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 min-w-0">
+              {t('setupWizard.missingRequired', {
+                fields: missingForStep(currentStep).join(listSeparator),
+              })}
+            </p>
+          )}
           <div>
             {currentStep > 1 && (
               <Button variant="secondary" size="md" onClick={handleBack}>

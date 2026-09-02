@@ -4,10 +4,14 @@ import { Eye, EyeOff } from 'lucide-react';
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
+  /** Visual-only required marker (red asterisk next to the label). Not
+   *  forwarded to the <input> — required-ness is validated in the settings
+   *  layer, not by native browser tooltips. */
+  required?: boolean;
 }
 
 const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, error, className = '', id, type, ...props }, ref) => {
+  ({ label, error, required, className = '', id, type, ...props }, ref) => {
     const inputId = id || label?.toLowerCase().replace(/\s+/g, '-');
     const isPassword = type === 'password';
     const [showPw, setShowPw] = useState(false);
@@ -21,6 +25,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
             className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300"
           >
             {label}
+            {required && <span className="ml-0.5 text-red-500">*</span>}
           </label>
         )}
         <div className="relative">

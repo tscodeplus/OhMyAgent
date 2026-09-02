@@ -10,10 +10,15 @@ interface PasswordInputProps {
   id?: string;
   autoFocus?: boolean;
   className?: string;
+  /** Visual-only required marker (red asterisk next to the label). */
+  required?: boolean;
 }
 
 const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
-  ({ label, value, onChange, placeholder, error, id, autoFocus, className = '' }, ref) => {
+  (
+    { label, value, onChange, placeholder, error, id, autoFocus, required, className = '' },
+    ref,
+  ) => {
     const [visible, setVisible] = useState(false);
     const inputId = id || label?.toLowerCase().replace(/\s+/g, '-');
 
@@ -25,6 +30,7 @@ const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
             className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300"
           >
             {label}
+            {required && <span className="ml-0.5 text-red-500">*</span>}
           </label>
         )}
         <div className="relative">
