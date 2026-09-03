@@ -103,16 +103,6 @@ export default function ToolsSettings() {
               onBlur={() => saveField('tools.maxOutputLength', Number(maxOutput))}
             />
           </div>
-          <Select
-            label={t('settings.tools.toolsProfile')}
-            value={String(tools.toolsProfile || 'standard')}
-            onChange={(e) => saveField('tools.toolsProfile', e.target.value)}
-            options={[
-              { value: 'restricted', label: t('settings.tools.opt_profile_restricted') },
-              { value: 'standard', label: t('settings.tools.opt_profile_standard') },
-              { value: 'full', label: t('settings.tools.opt_profile_full') },
-            ]}
-          />
         </div>
       </section>
 

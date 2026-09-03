@@ -207,7 +207,6 @@ describe('yamlToAppConfigRaw', () => {
         },
       },
     });
-    expect(raw.tools.toolsProfile).toBe('full');
     expect(raw.tools.shellExecMode).toBe('trusted');
     expect(raw.tools.shellAllowlist).toEqual(['adb', 'date', 'ls']);
     expect(raw.tools.shellApprovalTimeoutSec).toBe(300);

@@ -814,7 +814,6 @@ async function runBootstrap(): Promise<BootstrapResult> {
         logLevel: newConfig.logging.level,
         showToolCalls: newConfig.showToolCalls,
         uiLanguage: newConfig.uiLanguage,
-        toolsProfile: newConfig.tools.toolsProfile,
         memoryAutoRecall: newConfig.memory.autoRecall,
         fallbackModels: newConfig.fallbackModels,
         agents: (newConfig.agents ?? []).length,

@@ -42,7 +42,6 @@ const mockConfig = {
     shellEnabled: true,
     defaultTimeoutMs: 60000,
     maxOutputLength: 12000,
-    toolsProfile: 'standard',
     shellExecMode: 'balanced',
     shellAllowlist: [],
     shellApprovalMode: 'balanced',

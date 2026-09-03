@@ -146,7 +146,6 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
       shellEnabled: config.tools.shellEnabled,
       approvalRequestRepo,
       approvalPort,
-      defaultToolsProfile: config.tools.toolsProfile,
       cronServiceFactory: () => cronServiceRef.current,
       policyCenter,
       orchestratorFactory: () => orchestratorRef.current,

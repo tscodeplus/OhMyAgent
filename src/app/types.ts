@@ -154,8 +154,6 @@ export interface AppConfig {
     shellEnabled: boolean;
     defaultTimeoutMs: number;
     maxOutputLength: number;
-    /** v2: Tool profile for first-layer tool gating. */
-    toolsProfile: ToolProfileId;
     /** P4: per-turn intent narrowing ('off' disables; 'auto' narrows on confident match). Optional in hand-written scopes; config loader always populates it. */
     intentNarrowing?: 'off' | 'auto';
     /** Include skills/tools catalog layers in the system prompt (disable for providers without prompt caching). */

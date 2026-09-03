@@ -37,7 +37,6 @@ function makeBaseConfig(overrides?: Partial<AppConfig>): AppConfig {
         allowPathTraversal: false,
         allowHomeReference: false,
       },
-      toolsProfile: 'standard',
     },
     memory: {
       autoRecall: false,

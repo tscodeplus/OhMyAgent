@@ -17,8 +17,8 @@ function resolveModel(agent: AgentConfig, global: AppConfig): ResolvedAgentConfi
   return { primary, fallback, reasoning_level, transport, max_retry };
 }
 
-function resolveTools(agent: AgentConfig, global: AppConfig): ResolvedAgentConfig['tools'] {
-  const profile = agent.tools?.profile || global.tools.toolsProfile || DEFAULT_TOOL_PROFILE;
+function resolveTools(agent: AgentConfig, _global: AppConfig): ResolvedAgentConfig['tools'] {
+  const profile = agent.tools?.profile || DEFAULT_TOOL_PROFILE;
 
   const add = agent.tools?.add || [];
   const deny = agent.tools?.deny || [];

@@ -154,8 +154,6 @@ const configSchema = z.object({
     shellEnabled: z.boolean().default(true),
     defaultTimeoutMs: z.coerce.number().int().positive().default(60000),
     maxOutputLength: z.coerce.number().int().positive().default(12000),
-    // v2 fields
-    toolsProfile: z.enum(['restricted', 'standard', 'full']).default('standard'),
     // P4: per-turn intent narrowing — 'off' disables, 'auto' narrows the
     // profile-allowed surface to the detected intent domain when confident.
     intentNarrowing: z.enum(['off', 'auto']).default('auto'),
@@ -627,7 +625,7 @@ const configSchema = z.object({
           .optional(),
         tools: z
           .object({
-            profile: z.enum(['restricted', 'standard', 'full']).optional(),
+            profile: z.enum(['restricted', 'standard', 'full']).default('standard'),
             add: z.array(z.string()).optional(),
             deny: z.array(z.string()).optional(),
           })
@@ -845,7 +843,6 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
       shellEnabled: envBool(env.SHELL_ENABLED, true),
       defaultTimeoutMs: env.SHELL_COMMAND_TIMEOUT_MS,
       maxOutputLength: env.SHELL_MAX_OUTPUT_CHARS,
-      toolsProfile: env.TOOLS_PROFILE,
       systemPromptCatalogs: envBool(env.SYSTEM_PROMPT_CATALOGS, true),
       shellAllowlist: env.SHELL_ALLOWLIST,
       shellApprovalMode: env.SHELL_APPROVAL_MODE,
@@ -1119,7 +1116,6 @@ function applyEnvOverrides(
     { env: env.SHELL_ENABLED, field: 'shellEnabled' },
     { env: env.SHELL_COMMAND_TIMEOUT_MS, field: 'defaultTimeoutMs' },
     { env: env.SHELL_MAX_OUTPUT_CHARS, field: 'maxOutputLength' },
-    { env: env.TOOLS_PROFILE, field: 'toolsProfile' },
     { env: env.SYSTEM_PROMPT_CATALOGS, field: 'systemPromptCatalogs' },
     { env: env.SHELL_EXEC_MODE, field: 'shellExecMode' },
     { env: env.SHELL_ALLOWLIST, field: 'shellAllowlist' },

@@ -547,7 +547,6 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
       ),
       defaultTimeoutMs: num(shellCfg?.command_timeout_ms, 60000, 'shellCfg?.command_timeout_ms'),
       maxOutputLength: num(shellCfg?.max_output_chars, 12000, 'shellCfg?.max_output_chars'),
-      toolsProfile: str(toolsCfg?.profile, 'standard', 'toolsCfg?.profile'),
       shellExecMode: str(shellCfg?.exec_mode, 'balanced', 'shellCfg?.exec_mode'),
       shellAllowlist: strList(shellCfg?.allowlist, '', 'shellCfg?.allowlist'),
       shellApprovalMode: str(shellCfg?.approval_mode, 'balanced', 'shellCfg?.approval_mode'),
@@ -1484,7 +1483,6 @@ export function jsConfigToYaml(
         };
         const t = yaml.tools as Record<string, unknown>;
         const toolsTopMap: Record<string, string> = {
-          toolsProfile: 'profile',
           shellEnabled: 'shell_enabled',
           shellExecMode: 'shell_exec_mode',
           shellApprovalMode: 'shell_approval_mode',

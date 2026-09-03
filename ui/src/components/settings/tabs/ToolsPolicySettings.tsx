@@ -141,16 +141,6 @@ export default function ToolsPolicySettings({
             onChange={(e) => setField('tools.maxOutputLength', e.target.value)}
           />
         </div>
-        <Select
-          label={t('settings.tools.toolsProfile')}
-          value={getField('tools.toolsProfile', str(tools.toolsProfile, 'standard')) as string}
-          onChange={(e) => setField('tools.toolsProfile', e.target.value)}
-          options={[
-            { value: 'restricted', label: t('settings.tools.opt_profile_restricted') },
-            { value: 'standard', label: t('settings.tools.opt_profile_standard') },
-            { value: 'full', label: t('settings.tools.opt_profile_full') },
-          ]}
-        />
       </AccordionItem>
 
       <AccordionItem title={t('settings.tools.shellApproval')}>

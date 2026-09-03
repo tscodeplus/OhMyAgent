@@ -257,7 +257,6 @@ export interface AgentFactoryOptions {
   approvalRequestRepo?: ApprovalRequestRepository;
   /** Channel-agnostic approval UI port (Feishu impl injected at bootstrap). */
   approvalPort?: ApprovalUiPort;
-  defaultToolsProfile?: ToolProfileId;
   cronServiceFactory?: () => any;
   policyCenter?: PolicyCenter;
   orchestratorFactory?: () => Orchestrator | undefined;
@@ -395,7 +394,6 @@ export function createAgentFactory(
     shellEnabled = true,
     approvalRequestRepo,
     approvalPort,
-    defaultToolsProfile,
     policyCenter,
     orchestratorFactory,
     getServices,
@@ -519,10 +517,8 @@ export function createAgentFactory(
       // Computed before prompt assembly — used by the catalog filter inside the
       // assembly block AND by the runtime policy scope / tool pipeline below.
       const skillProfile = compiled?.toolsProfile as ToolProfileId | undefined;
-      const globalProfile =
-        defaultToolsProfile ?? configRef.current.tools.toolsProfile ?? 'standard';
       const effectiveProfile: ToolProfileId =
-        options?.toolsProfileOverride ?? skillProfile ?? globalProfile;
+        options?.toolsProfileOverride ?? skillProfile ?? 'standard';
       // P1: skill strict tool surface — replaces the profile baseline in the
       // pipeline filter and the runtime one-line catalog.
       const skillToolsStrict = compiled?.toolsSurfaceStrict === true;

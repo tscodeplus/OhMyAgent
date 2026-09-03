@@ -178,7 +178,6 @@ channels:
 
 # --- Tools ---
 # tools:
-#   profile: standard             # restricted | standard | full (old minimal/advanced are removed — fail-fast at startup)
 #   intentNarrowing: auto         # off | auto — per-turn narrowing of the profile surface to the detected intent domain (code/web/multimedia/memory/project-management/bare-chat)
 #   # Not settable here: the catalog layers toggle is read from the environment
 #   # only (SYSTEM_PROMPT_CATALOGS=true|false). Disable it for providers WITHOUT
