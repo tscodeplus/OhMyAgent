@@ -578,8 +578,13 @@ export default function AppShell() {
           overlays page content; desktop keeps content flush at the top
           (browser) or under the drag-region caption strip (desktop shell). */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {/* Mobile top bar — md:hidden */}
-        <div className="flex h-11 shrink-0 items-center gap-1 border-b border-neutral-200 bg-white px-2 pt-safe md:hidden dark:border-neutral-800 dark:bg-neutral-950">
+        {/* Mobile top bar — md:hidden. data-topbar identifies the fixed top
+            strip (session title) so upward popovers (chat model/agent menus)
+            can size themselves to stay below it. */}
+        <div
+          data-topbar
+          className="flex h-11 shrink-0 items-center gap-1 border-b border-neutral-200 bg-white px-2 pt-safe md:hidden dark:border-neutral-800 dark:bg-neutral-950"
+        >
           <button
             type="button"
             onClick={() => setMobileSidebar(true)}

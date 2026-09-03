@@ -200,6 +200,44 @@ export default function ChatInput({
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const selectorRef = useRef<HTMLDivElement>(null);
+  // Selector menu placement — direction is FIXED upward for both selectors in
+  // every mode (matches the pre-existing behavior; downward never happens).
+  // The MAX HEIGHT is measured (synchronously on open, re-measured on
+  // viewport changes) and capped to the usable space above the input: on
+  // phones that's below the mobile topbar (session-title strip) so the panel
+  // — search box included — never extends under it and gets clipped; on
+  // desktop it's the top of the viewport (no topbar, identical to before).
+  const [selectorMenuMaxH, setSelectorMenuMaxH] = useState<number | null>(null);
+  const measureSelectorMenus = useCallback(
+    (forModel: boolean) => {
+      const anchor = selectorRef.current;
+      if (!anchor) return;
+      const rect = anchor.getBoundingClientRect();
+      // visualViewport: on phones the address bar expands/collapses and
+      // window.innerHeight no longer equals the visible area — visualViewport
+      // does (offsetTop = top of the visible area). Identical to innerHeight
+      // on desktop.
+      const vv = window.visualViewport;
+      const vtop = vv?.offsetTop ?? 0;
+      const cap = forModel ? 384 : 256; // 24rem / 16rem
+      // The mobile top bar sits inside the layout above the chat column, so
+      // an upward panel can extend past it and be clipped by the column's
+      // overflow — hiding the search box. Account for its bottom edge when
+      // sizing: the panel stays below it. Desktop has no such bar (the
+      // element is md:hidden → getClientRects() is empty) → falls back to
+      // vtop, keeping desktop sizing unchanged.
+      const topbar = document.querySelector<HTMLElement>('[data-topbar]');
+      const topbarBottom =
+        topbar && topbar.getClientRects().length > 0
+          ? topbar.getBoundingClientRect().bottom
+          : vtop;
+      // Space above the selector row (bottom of panel → below the topbar /
+      // top of viewport); mb-2 = 8px + 4px slack so the panel never kisses.
+      const sideSpace = rect.top - Math.max(vtop, topbarBottom) - 12;
+      setSelectorMenuMaxH(Math.max(96, Math.floor(Math.min(cap, sideSpace))));
+    },
+    [],
+  );
 
   // Project's default agent — the agent dropdown's initial value.
   useEffect(() => {
@@ -478,6 +516,25 @@ export default function ChatInput({
       requestAnimationFrame(() => modelSearchRef.current?.focus());
     }
   }, [modelMenuOpen]);
+
+  // While a selector menu is open, re-measure on viewport changes (window
+  // resize, mobile address-bar collapse) so the panel stays on-screen. The
+  // initial placement is already correct because the button's onClick
+  // measures synchronously — this effect only re-measures later changes.
+  useEffect(() => {
+    if (!agentMenuOpen && !modelMenuOpen) {
+      setSelectorMenuMaxH(null);
+      return;
+    }
+    const compute = () => measureSelectorMenus(modelMenuOpen);
+    compute();
+    window.addEventListener('resize', compute);
+    window.visualViewport?.addEventListener('resize', compute);
+    return () => {
+      window.removeEventListener('resize', compute);
+      window.visualViewport?.removeEventListener('resize', compute);
+    };
+  }, [agentMenuOpen, modelMenuOpen, measureSelectorMenus]);
 
   // Close either selector when clicking outside it.
   useEffect(() => {
@@ -1955,7 +2012,15 @@ export default function ChatInput({
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
-                  setAgentMenuOpen((o) => !o);
+                  if (agentMenuOpen) {
+                    setAgentMenuOpen(false);
+                    return;
+                  }
+                  // Measure synchronously BEFORE opening so the first frame
+                  // already has the capped height (panel opens upward, capped
+                  // to the space above the input).
+                  measureSelectorMenus(false);
+                  setAgentMenuOpen(true);
                   setModelMenuOpen(false);
                 }}
                 disabled={!projectId || (!sessionId && !onQuickStart) || agents.length === 0}
@@ -1970,7 +2035,10 @@ export default function ChatInput({
                 <ChevronDown size={11} className="shrink-0 opacity-60" />
               </button>
               {agentMenuOpen && (
-                <div className="absolute bottom-full left-0 z-30 mb-2 max-h-64 w-56 overflow-y-auto rounded-xl border border-neutral-200 bg-white py-1 shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
+                <div
+                  style={selectorMenuMaxH != null ? { maxHeight: selectorMenuMaxH } : undefined}
+                  className="absolute bottom-full left-0 z-30 mb-2 w-56 overflow-y-auto rounded-xl border border-neutral-200 bg-white py-1 shadow-xl dark:border-neutral-700 dark:bg-neutral-900"
+                >
                   <div className="flex items-center justify-between gap-2 pb-1 pe-2 ps-3 pt-1.5">
                     <span className="text-[11px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
                       {t('chat.input.agentMenuHeader')}
@@ -2021,7 +2089,16 @@ export default function ChatInput({
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
-                  setModelMenuOpen((o) => !o);
+                  if (modelMenuOpen) {
+                    setModelMenuOpen(false);
+                    return;
+                  }
+                  // Measure synchronously BEFORE opening so the first frame
+                  // already has the capped height; the panel opens upward in
+                  // every mode (incl. centered new-session) and stays inside
+                  // the space above the input, so the search box is visible.
+                  measureSelectorMenus(true);
+                  setModelMenuOpen(true);
                   setAgentMenuOpen(false);
                 }}
                 disabled={!projectId || (!sessionId && !onQuickStart) || modelGroups.length === 0}
@@ -2044,11 +2121,14 @@ export default function ChatInput({
                 <ChevronDown size={11} className="shrink-0 opacity-60" />
               </button>
               {modelMenuOpen && (
-                <div className="absolute bottom-full left-0 z-30 mb-2 max-h-[min(24rem,70vh)] w-64 overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
+                <div
+                  style={selectorMenuMaxH != null ? { maxHeight: selectorMenuMaxH } : undefined}
+                  className="absolute bottom-full left-0 z-30 mb-2 flex max-h-[min(24rem,70vh)] w-64 flex-col overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-xl dark:border-neutral-700 dark:bg-neutral-900"
+                >
                   {/* Keyword search — filters the model list as you type.
                     The + button on the right opens settings on the providers
                     sub-tab for adding providers/models. */}
-                  <div className="sticky top-0 z-10 flex items-center gap-1 bg-white pe-1.5 ps-2 pb-1.5 pt-1.5 dark:bg-neutral-900">
+                  <div className="sticky top-0 z-10 flex shrink-0 items-center gap-1 bg-white pe-1.5 ps-2 pb-1.5 pt-1.5 dark:bg-neutral-900">
                     <input
                       ref={modelSearchRef}
                       type="text"
@@ -2080,7 +2160,7 @@ export default function ChatInput({
                       <Settings size={14} />
                     </button>
                   </div>
-                  <div className="max-h-56 overflow-y-auto">
+                  <div className="min-h-0 flex-1 overflow-y-auto">
                     {filteredModelGroups.length === 0 && (
                       <div className="px-3 py-2 text-xs text-neutral-400 dark:text-neutral-500">
                         {t('chat.input.modelSearchNoMatch')}
@@ -2126,7 +2206,7 @@ export default function ChatInput({
                     tab's defaultReasoningLevel > 'off') and restores it in one
                     click. Hidden for models the catalog marks non-reasoning. */}
                   {reasoningAvailable && (
-                    <div className="border-t border-neutral-200 dark:border-neutral-700">
+                    <div className="shrink-0 border-t border-neutral-200 dark:border-neutral-700">
                       <div className="flex items-center justify-between px-2.5 pb-1 pt-1.5">
                         <div className="flex items-center gap-1.5">
                           <span className="text-[11px] font-medium text-neutral-600 dark:text-neutral-300">
