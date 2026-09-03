@@ -390,9 +390,21 @@ export async function loadSkill(skillDirPath: string): Promise<LoadedSkill> {
       ? rawAllowed.split(/\s+/).filter(Boolean)
       : [];
   const deniedTools = Array.isArray(oma.deniedTools) ? oma.deniedTools.map(String) : [];
+  // tools-surface strict mode: narrow the per-turn surface to allowedTools.
+  let surface: 'default' | 'strict' = 'default';
+  if (typeof oma.toolsSurface === 'string') {
+    if (oma.toolsSurface === 'strict' || oma.toolsSurface === 'default') {
+      surface = oma.toolsSurface;
+    } else {
+      fallbackLogger.warn(
+        `[skill-loader] Invalid toolsSurface "${oma.toolsSurface}" in skill frontmatter (valid: default | strict) — ignoring`,
+      );
+    }
+  }
   const tools: ToolsConfig = {
     allowedTools,
     ...(deniedTools.length > 0 ? { deniedTools } : {}),
+    ...(surface === 'strict' ? { surface } : {}),
   };
 
   // Build memory policy (from x-ohmyagent extension, or defaults)

@@ -30,6 +30,12 @@ export interface Manifest {
 export interface ToolsConfig {
   allowedTools: string[];
   deniedTools?: string[];
+  /**
+   * 'strict' narrows the per-turn tool surface to allowedTools ∪ forced core
+   * (denied tools always removed first). Default 'default' keeps additive
+   * semantics (allowed grants, never narrows).
+   */
+  surface?: 'default' | 'strict';
   toolConfigs?: Record<string, unknown>;
 }
 

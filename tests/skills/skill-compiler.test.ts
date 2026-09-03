@@ -159,4 +159,31 @@ describe('compileSkillContext', () => {
 
     expect(result.deniedTools).toEqual(['c']);
   });
+
+  it('toolsSurfaceStrict is false by default', () => {
+    const skill = makeSkill({ id: 'plain', tools: { allowedTools: ['a'] } });
+    const result = compileSkillContext([makeResolved(skill)]);
+    expect(result.toolsSurfaceStrict).toBe(false);
+  });
+
+  it('toolsSurfaceStrict is true when a single skill declares surface strict', () => {
+    const skill = makeSkill({
+      id: 'strict-skill',
+      tools: { allowedTools: ['web_search'], surface: 'strict' },
+    });
+    const result = compileSkillContext([makeResolved(skill)]);
+    expect(result.toolsSurfaceStrict).toBe(true);
+  });
+
+  it('toolsSurfaceStrict union rule: any strict skill among co-activated ones sets the flag', () => {
+    const lenient = makeSkill({ id: 'lenient', tools: { allowedTools: ['a'] } });
+    const strict = makeSkill({
+      id: 'strict',
+      tools: { allowedTools: ['b'], surface: 'strict' },
+    });
+    const result = compileSkillContext([makeResolved(lenient), makeResolved(strict)]);
+    expect(result.toolsSurfaceStrict).toBe(true);
+    // allowedTools remain the union of all active skills
+    expect(result.allowedTools).toEqual(expect.arrayContaining(['a', 'b']));
+  });
 });

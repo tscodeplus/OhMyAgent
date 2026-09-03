@@ -146,6 +146,39 @@ describe('PolicyCenterImpl skill tool visibility enforcement', () => {
     expect(granted.allowed).toBe(false);
     expect(granted.requiresApproval).toBe(true);
   });
+
+  it('P1 strict mode: surface narrows to allowedTools ∪ forced core, profile skipped', async () => {
+    const { center } = makeCenter();
+    // Profile full would normally allow everything; strict narrows regardless.
+    const s = scope({ toolsProfile: 'full' });
+
+    // Not in allowedTools and not in forced core → hidden even under profile full
+    const notAllowed = await center.evaluateToolCall({
+      toolName: 'shell',
+      capability: shellCapability,
+      args: { command: 'ls -la' },
+      sessionId: 'session-1',
+      agentId: 'agent-1',
+      policyScope: s,
+      skillToolOverrides: { strict: true, allowedTools: ['web_search'], deniedTools: [] },
+    });
+    expect(notAllowed.allowed).toBe(false);
+    expect(notAllowed.reason).toContain('not available');
+
+    // In allowedTools → passes visibility (then gated by high_risk approval)
+    const allowed = await center.evaluateToolCall({
+      toolName: 'web_search',
+      capability: webCapability,
+      args: { query: 'x' },
+      sessionId: 'session-1',
+      agentId: 'agent-1',
+      policyScope: s,
+      skillToolOverrides: { strict: true, allowedTools: ['web_search'], deniedTools: [] },
+    });
+    expect(allowed.reason).toBeUndefined();
+    expect(allowed.requiresApproval).toBe(true);
+  });
+
   it('P1 strict mode: deny-first still wins over allowedTools and forced core', () => {
     const visibility = new ToolVisibilityPolicyImpl();
     const overrides = {
@@ -156,5 +189,6 @@ describe('PolicyCenterImpl skill tool visibility enforcement', () => {
     expect(visibility.isVisible('shell', scope(), overrides)).toBe(false);
     expect(visibility.isVisible('ask_user_question', scope(), overrides)).toBe(true);
     expect(visibility.isVisible('tool_search', scope(), overrides)).toBe(true); // forced core
+    expect(visibility.isVisible('file_read', scope(), overrides)).toBe(false); // not allowed, not core
   });
-})
+});

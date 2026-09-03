@@ -18,6 +18,8 @@ export interface CompiledSkillContext {
   memoryScopes: SkillMemoryScope[];
   approvalOverrides: Record<string, ApprovalOverride>;
   toolsProfile?: ToolProfileId;
+  /** True when any active skill declares tools surface strict (P1) */
+  toolsSurfaceStrict: boolean;
   /** Conflict reports for multi-skill activation (P1-2) */
   conflicts: ConflictReport[];
 }
@@ -364,6 +366,7 @@ export function compileSkillContext(resolved: ResolvedSkill[]): CompiledSkillCon
     promptLayers: [],
     memoryScopes: [],
     approvalOverrides: {},
+    toolsSurfaceStrict: false,
     conflicts: [],
   };
 
@@ -373,6 +376,7 @@ export function compileSkillContext(resolved: ResolvedSkill[]): CompiledSkillCon
 
   const allAllowedTools: string[] = [];
   const allDeniedTools: string[] = [];
+  let toolsSurfaceStrict = false;
   const allPromptParts: string[] = [];
   const promptLayers: PromptLayer[] = [];
   const allMemoryScopes: SkillMemoryScope[] = [];
@@ -386,6 +390,11 @@ export function compileSkillContext(resolved: ResolvedSkill[]): CompiledSkillCon
 
     if (skill.tools.deniedTools) {
       allDeniedTools.push(...skill.tools.deniedTools);
+    }
+
+    // Union rule: any strict skill narrows the whole turn's surface.
+    if (skill.tools.surface === 'strict') {
+      toolsSurfaceStrict = true;
     }
 
     if (skill.promptContent) {
@@ -442,6 +451,7 @@ export function compileSkillContext(resolved: ResolvedSkill[]): CompiledSkillCon
   result.memoryScopes = allMemoryScopes;
   result.approvalOverrides = approvalOverrides;
   result.toolsProfile = effectiveProfile;
+  result.toolsSurfaceStrict = toolsSurfaceStrict;
 
   return result;
 }

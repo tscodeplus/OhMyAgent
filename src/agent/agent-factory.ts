@@ -37,7 +37,7 @@ import { createRetryingStreamFn } from './retrying-stream.js';
 import { createBeforeToolCall, type BeforeToolCallDeps } from './before-tool-call.js';
 import type { PolicyCenter } from '../policy/policy-center.js';
 import type { AgentPolicyScope } from '../policy/types.js';
-import { PROFILE_TOOLS } from '../policy/tool-visibility.js';
+import { PROFILE_TOOLS, STRICT_FORCED_CORE_TOOLS } from '../policy/tool-visibility.js';
 import type { Orchestrator } from '../orchestrator/orchestrator.js';
 import type { Logger } from 'pino';
 import { OffloadStore } from '../runtime-artifacts/offload-store.js';
@@ -518,6 +518,11 @@ export function createAgentFactory(
         defaultToolsProfile ?? configRef.current.tools.toolsProfile ?? 'standard';
       const effectiveProfile: ToolProfileId =
         options?.toolsProfileOverride ?? skillProfile ?? globalProfile;
+      // P1: skill strict tool surface — replaces the profile baseline in the
+      // pipeline filter and the runtime one-line catalog.
+      const skillToolsStrict = compiled?.toolsSurfaceStrict === true;
+      const skillAllowedTools = compiled?.allowedTools;
+      const skillDeniedTools = compiled?.deniedTools;
 
       let promptAssembly: ReturnType<PromptManager['assemble']> | undefined;
       if (promptManager && !options?.systemPrompt) {
@@ -557,13 +562,24 @@ export function createAgentFactory(
         // pays catalog tokens for unusable entries.
         let availableTools: Array<{ name: string; snippet: string }> | undefined;
         if (catalogsEnabled) {
-          const allowedCatalogTools = PROFILE_TOOLS[effectiveProfile] || PROFILE_TOOLS.standard;
-          const catalogCandidates =
-            allowedCatalogTools[0] === '*' || effectiveProfile === 'full'
-              ? tools
-              : tools.filter(
-                  (t: any) => allowedCatalogTools.includes(t.name) || t.name === 'computer_use',
-                );
+          // P1: strict mode narrows the catalog to the skill-allowed surface;
+          // otherwise the profile baseline applies.
+          let catalogCandidates: any[];
+          if (skillToolsStrict) {
+            const strictAllowed = new Set(skillAllowedTools ?? []);
+            for (const d of skillDeniedTools ?? []) strictAllowed.delete(d);
+            catalogCandidates = tools.filter(
+              (t: any) => strictAllowed.has(t.name) || STRICT_FORCED_CORE_TOOLS.has(t.name),
+            );
+          } else {
+            const allowedCatalogTools = PROFILE_TOOLS[effectiveProfile] || PROFILE_TOOLS.standard;
+            catalogCandidates =
+              allowedCatalogTools[0] === '*' || effectiveProfile === 'full'
+                ? tools
+                : tools.filter(
+                    (t: any) => allowedCatalogTools.includes(t.name) || t.name === 'computer_use',
+                  );
+          }
           availableTools =
             catalogCandidates.length > 0
               ? catalogCandidates
@@ -682,6 +698,9 @@ export function createAgentFactory(
         effectiveProfile,
         effectiveShellMode,
         runtimePolicyScope,
+        skillToolsStrict,
+        skillAllowedTools,
+        skillDeniedTools,
         computerUseAllowed: options?.computerUseAllowed,
         modelProvider,
         modelId,

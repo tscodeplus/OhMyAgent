@@ -23,6 +23,7 @@ import type { AppConfig, ToolRegistry, ApprovalGate, ToolProfileId } from '../ap
 import type { ResolvedAgentConfig } from './config-types.js';
 import type { AgentManager } from './agent-manager.js';
 import { PROFILE_TOOLS } from './agent-manager.js';
+import { STRICT_FORCED_CORE_TOOLS } from '../policy/tool-visibility.js';
 import type { ToolExecutionContext } from '../tools/platform/tool-context.js';
 import type { ComputerUseHost } from '../computer-use/computer-host.js';
 import type { FeishuApprovalClient } from './agent-factory.js';
@@ -82,6 +83,14 @@ export interface ToolPipelineOptions {
   effectiveShellMode: 'full' | 'read-only';
   runtimePolicyScope: AgentPolicyScope;
   computerUseAllowed?: boolean;
+
+  // ── P1: skill strict tool surface ──
+  /** True when any active skill declares tools-surface strict */
+  skillToolsStrict?: boolean;
+  /** Union of active skills' allowedTools (used as the strict surface) */
+  skillAllowedTools?: string[];
+  /** Union of active skills' deniedTools (deny-first also in strict mode) */
+  skillDeniedTools?: string[];
 
   // ── Model metadata (for computer_use context + tool search) ──
   modelProvider?: string;
@@ -159,17 +168,27 @@ export function assembleAgentTools(opts: ToolPipelineOptions): ToolPipelineResul
   }
 
   // ── Stage 3: Profile-based filtering ──
-  // 'full' is an empty allowlist (= everything visible) — skip filtering,
-  // same as AgentManager.filterByProfile.
-  const profileAllowedTools = PROFILE_TOOLS[opts.effectiveProfile] ?? PROFILE_TOOLS.standard;
-  if (
-    opts.effectiveProfile !== 'full' &&
-    profileAllowedTools[0] !== '*' &&
-    !opts.explicitTools
-  ) {
+  // P1: skill strict mode REPLACES the profile baseline — the surface narrows
+  // to (allowedTools − deniedTools) ∪ STRICT_FORCED_CORE_TOOLS.
+  if (opts.skillToolsStrict) {
+    const strictAllowed = new Set(opts.skillAllowedTools ?? []);
+    for (const d of opts.skillDeniedTools ?? []) strictAllowed.delete(d);
     tools = tools.filter(
-      (t: any) => profileAllowedTools.includes(t.name) || t.name === 'computer_use',
+      (t: any) => strictAllowed.has(t.name) || STRICT_FORCED_CORE_TOOLS.has(t.name),
     );
+  } else {
+    // 'full' is an empty allowlist (= everything visible) — skip filtering,
+    // same as AgentManager.filterByProfile.
+    const profileAllowedTools = PROFILE_TOOLS[opts.effectiveProfile] ?? PROFILE_TOOLS.standard;
+    if (
+      opts.effectiveProfile !== 'full' &&
+      profileAllowedTools[0] !== '*' &&
+      !opts.explicitTools
+    ) {
+      tools = tools.filter(
+        (t: any) => profileAllowedTools.includes(t.name) || t.name === 'computer_use',
+      );
+    }
   }
 
   if (opts.computerUseAllowed === false) {

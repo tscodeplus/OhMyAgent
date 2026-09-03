@@ -191,6 +191,7 @@ export function activateSkill(
   skillToolPolicyByScopeKey.set(scope.scopeKey, {
     allowedTools: compiled.allowedTools,
     deniedTools: compiled.deniedTools,
+    strict: compiled.toolsSurfaceStrict,
   });
 
   // Register skill-level approval overrides, scoped to the activating skill.

@@ -185,6 +185,7 @@ describe('activateSkill — compiled tool policy', () => {
     expect(getSkillToolPolicy({ scope: 'skill', scopeKey: 'deny-shell-skill' })).toEqual({
       allowedTools: ['web_search'],
       deniedTools: ['shell'],
+      strict: false,
     });
   });
 

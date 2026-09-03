@@ -94,7 +94,26 @@ const PROFILE_RANK: Record<ToolProfileId, number> = {
 export interface SkillToolOverrides {
   allowedTools?: string[];
   deniedTools?: string[];
+  /**
+   * P1 strict mode: when true, the visible surface narrows to allowedTools ∪
+   * STRICT_FORCED_CORE_TOOLS (deny-first still wins) — the profile baseline is
+   * skipped entirely for this turn.
+   */
+  strict?: boolean;
 }
+
+/**
+ * Tools always visible even in strict mode (IM interaction + progressive
+ * disclosure bridges). Denied-tools still remove these.
+ */
+export const STRICT_FORCED_CORE_TOOLS: ReadonlySet<string> = new Set([
+  'tool_search',
+  'tool_describe',
+  'tool_call',
+  'ask_user_question',
+  'send_message',
+  'brief',
+]);
 
 export interface ToolVisibilityPolicy {
   /** Returns true if the named tool is visible under the given scope. */
@@ -114,6 +133,16 @@ export class ToolVisibilityPolicyImpl implements ToolVisibilityPolicy {
     // Explicit deny always wins
     if (skillOverrides?.deniedTools?.includes(toolName)) {
       return false;
+    }
+
+    // P1 strict mode: surface narrows to allowedTools ∪ forced core. The
+    // profile baseline is skipped — the strict skill is the capability boundary
+    // for this turn.
+    if (skillOverrides?.strict) {
+      return (
+        (skillOverrides.allowedTools?.includes(toolName) ?? false) ||
+        STRICT_FORCED_CORE_TOOLS.has(toolName)
+      );
     }
 
     // Explicit allow overrides profile
