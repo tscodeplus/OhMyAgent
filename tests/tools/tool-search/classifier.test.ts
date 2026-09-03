@@ -31,8 +31,8 @@ function agentTool(name: string): AgentTool {
 // ---------------------------------------------------------------------------
 
 describe('CORE_TOOL_NAMES', () => {
-  it('contains exactly 23 core tool names', () => {
-    expect(CORE_TOOL_NAMES.size).toBe(23);
+  it('contains exactly 10 core tool names (P2: shrunk from 23)', () => {
+    expect(CORE_TOOL_NAMES.size).toBe(10);
   });
 
   it('contains critical file system tools', () => {
@@ -41,9 +41,9 @@ describe('CORE_TOOL_NAMES', () => {
     }
   });
 
-  it('contains shell tools', () => {
+  it('contains shell but not sleep', () => {
     expect(CORE_TOOL_NAMES.has('shell')).toBe(true);
-    expect(CORE_TOOL_NAMES.has('sleep')).toBe(true);
+    expect(CORE_TOOL_NAMES.has('sleep')).toBe(false); // deferred (P2)
   });
 
   it('contains memory tools', () => {
@@ -69,14 +69,25 @@ describe('CORE_TOOL_NAMES', () => {
     }
   });
 
-  it('contains session tools', () => {
-    for (const name of ['todo_write', 'ask_user_question', 'send_message', 'feishu_send_media']) {
-      expect(CORE_TOOL_NAMES.has(name)).toBe(true);
-    }
+  it('keeps IM interaction tools core, media deferred (P2)', () => {
+    expect(CORE_TOOL_NAMES.has('ask_user_question')).toBe(true);
+    expect(CORE_TOOL_NAMES.has('send_message')).toBe(true);
+    expect(CORE_TOOL_NAMES.has('feishu_send_media')).toBe(false); // deferred (P2)
   });
 
-  it('does not contain session tools that are now deferrable', () => {
-    for (const name of ['brief', 'summarize-session']) {
+  it('defers web, tasks, config, todo, file_search (P2)', () => {
+    for (const name of [
+      'web_search',
+      'file_search',
+      'task_create',
+      'task_get',
+      'task_list',
+      'task_update',
+      'task_output',
+      'task_stop',
+      'todo_write',
+      'config',
+    ]) {
       expect(CORE_TOOL_NAMES.has(name)).toBe(false);
     }
   });
@@ -190,7 +201,8 @@ describe('classifyTools', () => {
 
     expect(visNames).toContain('file_read');
     expect(visNames).toContain('shell');
-    expect(visNames).toContain('web_search');
+    // web_search is deferrable since P2 (unlocked via tool_search)
+    expect(defNames).toContain('web_search');
     expect(defNames).toContain('computer_use');
     expect(defNames).toContain('image_generation');
     expect(defNames).toContain('cron_create');
@@ -208,7 +220,7 @@ describe('classifyTools', () => {
   });
 
   it('returns all tools in visible when no deferrable tools', () => {
-    const tools = [agentTool('file_read'), agentTool('shell'), agentTool('web_search')];
+    const tools = [agentTool('file_read'), agentTool('shell'), agentTool('ask_user_question')];
     const { visible, deferrable } = classifyTools(tools);
     expect(deferrable).toEqual([]);
     expect(visible.length).toBe(tools.length);

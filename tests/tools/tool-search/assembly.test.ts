@@ -43,10 +43,14 @@ function agentTool(name: string): AgentTool {
 
 describe('assembleTools — passthrough', () => {
   it('returns tools unchanged when all are core', () => {
-    const tools = [agentTool('file_read'), agentTool('shell'), agentTool('web_search')];
+    const tools = [agentTool('file_read'), agentTool('shell'), agentTool('ask_user_question')];
     const result = assembleTools(tools, defaultConfig(), 200_000);
     expect(result.activated).toBe(false);
-    expect(result.tools.map((t) => t.name).sort()).toEqual(['file_read', 'shell', 'web_search']);
+    expect(result.tools.map((t) => t.name).sort()).toEqual([
+      'ask_user_question',
+      'file_read',
+      'shell',
+    ]);
   });
 
   it('returns tools unchanged when below threshold (auto mode)', () => {

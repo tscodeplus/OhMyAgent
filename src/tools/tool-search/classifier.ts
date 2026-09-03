@@ -27,40 +27,28 @@ export const BRIDGE_TOOL_NAMES: ReadonlySet<string> = new Set([
 ]);
 
 // ---------------------------------------------------------------------------
-// Core tool whitelist — 23 tools that are never deferred
+// Core tool whitelist — tools that are never deferred (P2: shrunk 23 → 10)
 // ---------------------------------------------------------------------------
+// Only true "needed every turn" primitives stay core; long-tail tools
+// (web, tasks, media, config, sleep, file_search) are deferred and unlocked
+// on demand via tool_search. IM interaction tools (ask_user_question /
+// send_message) stay core because deferral would hurt conversational UX.
 
 export const CORE_TOOL_NAMES: ReadonlySet<string> = new Set([
-  // 文件系统 (6)
+  // 文件系统 (5) — file_search 降级为延迟池（tool_search 可按需解锁）
   'file_read',
   'file_write',
   'file_edit',
-  'file_search',
   'glob',
   'grep',
-  // Shell (2)
+  // Shell (1) — sleep 降级为延迟池
   'shell',
-  'sleep',
-  // Web (1)
-  'web_search',
-  // 任务管理 (6)
-  'task_create',
-  'task_get',
-  'task_list',
-  'task_update',
-  'task_output',
-  'task_stop',
   // 记忆核心 (2)
   'memory-recall',
   'memory-store',
-  // 会话控制 (5)
-  'todo_write',
-  'tool_search',
+  // 会话即时交互 (2) — IM 场景延迟会伤 UX，保留核心
   'ask_user_question',
   'send_message',
-  'feishu_send_media',
-  // 配置 (1)
-  'config',
 ]);
 
 // ---------------------------------------------------------------------------
