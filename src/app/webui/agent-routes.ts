@@ -62,7 +62,7 @@ export function registerAgentRoutes(app: FastifyInstance, cfg: AgentRouteConfig)
         reasoningLevel: undefined,
         transport: undefined,
         maxRetry: undefined,
-        profile: 'advanced',
+        profile: 'standard',
         addTools: undefined,
         denyTools: undefined,
         subAgent: undefined,

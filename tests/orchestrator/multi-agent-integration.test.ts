@@ -38,7 +38,7 @@ function makeMinimalPermissionInheritance() {
   return {
     deriveChildScope: vi.fn((_parent: AgentRun, request: ChildAgentPolicyRequest) => ({
       ...DEFAULT_POLICY_SCOPE,
-      toolsProfile: request.requestedToolsProfile ?? 'minimal',
+      toolsProfile: request.requestedToolsProfile ?? 'restricted',
       computerUseEnabled: false,
     })),
   };
@@ -102,7 +102,7 @@ describe('场景1: 主Agent调度多子Agent并行工作', () => {
         parentAgentId: primaryId,
         sessionId,
         prompt: task,
-        requestedScope: { requestedToolsProfile: 'minimal' },
+        requestedScope: { requestedToolsProfile: 'restricted' },
       }),
     );
 
@@ -737,7 +737,7 @@ describe('场景7: 子Agent权限继承', () => {
       parentAgentId: 'primary',
       sessionId,
       prompt: 'task1',
-      requestedScope: { requestedToolsProfile: 'minimal' },
+      requestedScope: { requestedToolsProfile: 'restricted' },
     });
     const child2 = await orch.spawnChildAgent({
       parentAgentId: 'primary',
@@ -746,7 +746,7 @@ describe('场景7: 子Agent权限继承', () => {
       requestedScope: { requestedToolsProfile: 'standard' },
     });
 
-    expect(child1.scope.toolsProfile).toBe('minimal');
+    expect(child1.scope.toolsProfile).toBe('restricted');
     expect(child2.scope.toolsProfile).toBe('standard');
   });
 });

@@ -55,7 +55,7 @@ describe('web_search extension availability', () => {
     expect(agentManager.resolveTools(cfg).map((t: any) => t.name)).toContain('web_search');
   });
 
-  it('coder agent (advanced profile) has web_search', () => {
+  it('coder agent (full profile) has web_search', () => {
     const cfg = agentManager.get('coder');
     if (!cfg) return; // skip when coder agent is not configured
     expect(agentManager.resolveTools(cfg).map((t: any) => t.name)).toContain('web_search');
@@ -87,7 +87,7 @@ describe('web_search extension availability', () => {
     const cfg = agentManager.get('default')!;
     const minimal = {
       ...cfg,
-      tools: { profile: 'minimal' as const, add: [] as string[], deny: [] as string[] },
+      tools: { profile: 'restricted' as const, add: [] as string[], deny: [] as string[] },
     };
     expect(agentManager.resolveTools(minimal).map((t: any) => t.name)).not.toContain('web_search');
   });

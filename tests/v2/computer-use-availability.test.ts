@@ -24,25 +24,25 @@ describe('computer_use channel availability', () => {
   }
 
   it('computer_use is NOT tied to any profile in PROFILE_TOOLS', () => {
-    expect(PROFILE_TOOLS.advanced).not.toContain('computer_use');
+    expect(PROFILE_TOOLS.full).not.toContain('computer_use'); // full is an empty allowlist; computer_use is scope-gated
+    expect(PROFILE_TOOLS.restricted).not.toContain('computer_use');
     expect(PROFILE_TOOLS.standard).not.toContain('computer_use');
-    expect(PROFILE_TOOLS.minimal).not.toContain('computer_use');
   });
 
   it('ToolVisibilityPolicy allows computer_use for standard scope when computerUseEnabled is true', () => {
     expect(visibility.isVisible('computer_use', makeScope('standard'))).toBe(true);
   });
 
-  it('ToolVisibilityPolicy allows computer_use for advanced scope when computerUseEnabled is true', () => {
-    expect(visibility.isVisible('computer_use', makeScope('advanced'))).toBe(true);
+  it('ToolVisibilityPolicy allows computer_use for full scope when computerUseEnabled is true', () => {
+    expect(visibility.isVisible('computer_use', makeScope('full'))).toBe(true);
   });
 
-  it('ToolVisibilityPolicy allows computer_use for minimal scope when computerUseEnabled is true', () => {
-    expect(visibility.isVisible('computer_use', makeScope('minimal'))).toBe(true);
+  it('ToolVisibilityPolicy allows computer_use for restricted scope when computerUseEnabled is true', () => {
+    expect(visibility.isVisible('computer_use', makeScope('restricted'))).toBe(true);
   });
 
   it('ToolVisibilityPolicy rejects computer_use when computerUseEnabled is false regardless of profile', () => {
-    const scope = makeScope('advanced');
+    const scope = makeScope('full');
     scope.computerUseEnabled = false;
     expect(visibility.isVisible('computer_use', scope)).toBe(false);
   });

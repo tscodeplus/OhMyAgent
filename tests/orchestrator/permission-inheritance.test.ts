@@ -149,13 +149,13 @@ describe('PermissionInheritanceServiceImpl', () => {
     const parentScope = makeParentScope();
     const parent = makeAgentRun(parentScope);
     const childRequest: ChildAgentPolicyRequest = {
-      requestedToolsProfile: 'minimal',
+      requestedToolsProfile: 'restricted',
       requestedReadRoots: ['/child'],
     };
 
     const inheritResult: AgentPolicyScope = {
       ...parentScope,
-      toolsProfile: 'minimal',
+      toolsProfile: 'restricted',
       readRoots: [],
     };
 

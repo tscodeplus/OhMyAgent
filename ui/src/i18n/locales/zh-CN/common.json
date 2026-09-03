@@ -516,9 +516,8 @@
       "opt_trusted": "信任",
       "opt_strict": "严格",
       "opt_relaxed": "宽松",
-      "opt_profile_minimal": "极简",
+      "opt_profile_restricted": "受限（无写入/无网络/无子代理）",
       "opt_profile_standard": "标准",
-      "opt_profile_advanced": "进阶",
       "opt_profile_full": "完整"
     },
     "channels": {

@@ -178,7 +178,7 @@ channels:
 
 # --- Tools ---
 # tools:
-#   profile: standard             # minimal | standard | advanced | full
+#   profile: standard             # restricted | standard | full (old minimal/advanced are removed — fail-fast at startup)
 #   # Not settable here: the catalog layers toggle is read from the environment
 #   # only (SYSTEM_PROMPT_CATALOGS=true|false). Disable it for providers WITHOUT
 #   # prompt caching to save per-turn tokens.
@@ -318,7 +318,7 @@ channels:
 #     description: "Developer assistant"
 #     system_prompt: "You are a developer assistant. Help with code."
 #     tools:
-#       profile: advanced
+#       profile: standard          # restricted | standard | full — full includes spawn/team/computer_use/worktree
 #       add: []                     # extra tool names on top of the profile
 #       deny: []                    # tool names removed from the profile
 #     model:

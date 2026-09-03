@@ -52,7 +52,7 @@ export class AgentManager {
     return resolveAgentConfig(this.global, {
       id: 'default',
       name: 'Default',
-      tools: { profile: 'advanced' },
+      tools: { profile: 'standard' },
       channels: ['feishu', 'telegram', 'wechat', 'qq', 'webui'],
     });
   }

@@ -11,11 +11,10 @@ import type { Agent } from '../../../types/agent';
 import TemplateBrowser from './TemplateBrowser';
 import ModelRefInput from '../ModelRefInput';
 
-// Order matches the server-side profile progression (minimal → full).
+// Capability domains (restricted ⊆ standard ⊆ full) — not a power ladder.
 const PROFILE_OPTIONS = [
-  { value: 'minimal', label: 'Minimal' },
+  { value: 'restricted', label: 'Restricted' },
   { value: 'standard', label: 'Standard' },
-  { value: 'advanced', label: 'Advanced' },
   { value: 'full', label: 'Full' },
 ];
 
@@ -49,7 +48,7 @@ export default function AgentEditor({
     description: agent?.description || '',
     systemPrompt: agent?.systemPrompt || '',
     model: agent?.model || '',
-    profile: agent?.profile || 'advanced',
+    profile: agent?.profile || 'standard',
     harness: { enabled: agent?.harness?.enabled !== false },
   };
 

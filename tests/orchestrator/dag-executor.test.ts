@@ -32,7 +32,7 @@ function makeExecutorDeps(
     role: 'child' as const,
     status: 'running' as const,
     createdAt: Date.now(),
-    scope: { ...DEFAULT_POLICY_SCOPE, toolsProfile: 'minimal', computerUseEnabled: false },
+    scope: { ...DEFAULT_POLICY_SCOPE, toolsProfile: 'restricted', computerUseEnabled: false },
   };
 
   return {
@@ -44,7 +44,7 @@ function makeExecutorDeps(
           name: 'Default',
           system_prompt: '',
           model: {},
-          tools: { profile: 'advanced', add: [], deny: [] },
+          tools: { profile: 'full', add: [], deny: [] },
           channels: [],
           memory: {},
           metadata: {},

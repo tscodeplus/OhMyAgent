@@ -515,9 +515,8 @@
       "opt_trusted": "Trusted",
       "opt_strict": "Strict",
       "opt_relaxed": "Relaxed",
-      "opt_profile_minimal": "Minimal",
+      "opt_profile_restricted": "Restricted (read-only, no network write, no subagents)",
       "opt_profile_standard": "Standard",
-      "opt_profile_advanced": "Advanced",
       "opt_profile_full": "Full",
       "enabled": "Enabled"
     },

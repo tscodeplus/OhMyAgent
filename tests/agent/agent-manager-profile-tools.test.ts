@@ -8,23 +8,29 @@ describe('AgentManager PROFILE_TOOLS', () => {
     );
   });
 
-  it('exposes Phase 6 orchestration and environment tools in the advanced profile', () => {
-    expect(PROFILE_TOOLS.advanced).toEqual(
+  it('full profile is an empty allowlist (= all tools visible), including orchestration', () => {
+    expect(PROFILE_TOOLS.full).toEqual([]);
+  });
+
+  it('restricted profile has no shell, no persisting members and no write tools', () => {
+    expect(PROFILE_TOOLS.restricted).not.toContain('shell');
+    expect(PROFILE_TOOLS.restricted).not.toContain('file_write');
+    expect(PROFILE_TOOLS.restricted).not.toContain('file-edit');
+    expect(PROFILE_TOOLS.restricted).not.toContain('cronjob');
+    expect(PROFILE_TOOLS.restricted).not.toContain('skill_create');
+    expect(PROFILE_TOOLS.restricted).not.toContain('skill-lint');
+    expect(PROFILE_TOOLS.restricted).toEqual(
       expect.arrayContaining([
-        'spawn_agent',
-        'task_create',
-        'task_get',
-        'task_list',
-        'send_message',
-        'task_stop',
-        'task_output',
-        'task_update',
-        'team_create',
-        'team_delete',
-        'enter_plan_mode',
-        'exit_plan_mode',
-        'enter_worktree',
-        'exit_worktree',
+        'file_read',
+        'memory_recall',
+        'memory-recall',
+        'memory_store',
+        'memory-store',
+        'memory_list',
+        'session_summarize',
+        'tool_search',
+        'brief',
+        'ask_user_question',
       ]),
     );
   });

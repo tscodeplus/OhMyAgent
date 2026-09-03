@@ -573,8 +573,8 @@ export type ShellApprovalMode = 'strict' | 'balanced' | 'relaxed';
 /** v2: Execution mode replacing shellApprovalMode. */
 export type ExecMode = 'safe' | 'balanced' | 'trusted';
 
-/** v2: Tool profile for first-layer tool gating. */
-export type ToolProfileId = 'minimal' | 'standard' | 'advanced' | 'full';
+/** v2: Tool profile for first-layer tool gating (capability domain, not a ladder). */
+export type ToolProfileId = 'restricted' | 'standard' | 'full';
 
 /** v2: Hardline blocklist entry — always blocked, no exceptions. */
 export interface HardlinePatternEntry {

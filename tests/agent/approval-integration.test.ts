@@ -502,12 +502,12 @@ describe('Approval Integration in AgentFactory', () => {
     expect(callArgs.command!.args).toEqual(['devices']);
   });
 
-  it('minimal profile blocks direct tee even when approval gate would approve', async () => {
+  it('read-only shell mode (shell disabled) blocks direct tee even when approval gate would approve', async () => {
     const registry = makeMockToolRegistry([makeMockTool('shell')]);
     const gate = makeMockApprovalGate({ 'tee output.txt': 'approved' });
     const factory = createAgentFactory(
       { config, toolRegistry: registry },
-      { approvalGate: gate, defaultToolsProfile: 'minimal' },
+      { approvalGate: gate, shellEnabled: false, defaultToolsProfile: 'standard' },
     );
     const agent = factory.create();
 
@@ -525,17 +525,17 @@ describe('Approval Integration in AgentFactory', () => {
 
     expect(result).toEqual({
       block: true,
-      reason: 'Program "tee" is blocked by read-only shell mode (toolsProfile: minimal)',
+      reason: 'Program "tee" is blocked by read-only shell mode (toolsProfile: standard)',
     });
     expect(gate.evaluate).not.toHaveBeenCalled();
   });
 
-  it('minimal profile blocks find deletion before approval evaluation', async () => {
+  it('read-only shell mode (shell disabled) blocks find deletion before approval evaluation', async () => {
     const registry = makeMockToolRegistry([makeMockTool('shell')]);
     const gate = makeMockApprovalGate({ 'find . -delete': 'approved' });
     const factory = createAgentFactory(
       { config, toolRegistry: registry },
-      { approvalGate: gate, defaultToolsProfile: 'minimal' },
+      { approvalGate: gate, shellEnabled: false, defaultToolsProfile: 'standard' },
     );
     const agent = factory.create();
 
@@ -553,17 +553,17 @@ describe('Approval Integration in AgentFactory', () => {
 
     expect(result).toEqual({
       block: true,
-      reason: 'find -delete is blocked by read-only shell mode (toolsProfile: minimal)',
+      reason: 'find -delete is blocked by read-only shell mode (toolsProfile: standard)',
     });
     expect(gate.evaluate).not.toHaveBeenCalled();
   });
 
-  it('minimal profile blocks pipe to tee before approval evaluation', async () => {
+  it('read-only shell mode (shell disabled) blocks pipe to tee before approval evaluation', async () => {
     const registry = makeMockToolRegistry([makeMockTool('shell')]);
     const gate = makeMockApprovalGate({ 'echo hello | tee output.txt': 'approved' });
     const factory = createAgentFactory(
       { config, toolRegistry: registry },
-      { approvalGate: gate, defaultToolsProfile: 'minimal' },
+      { approvalGate: gate, shellEnabled: false, defaultToolsProfile: 'standard' },
     );
     const agent = factory.create();
 
@@ -581,7 +581,7 @@ describe('Approval Integration in AgentFactory', () => {
 
     expect(result).toEqual({
       block: true,
-      reason: 'pipe to tee is blocked by read-only shell mode (toolsProfile: minimal)',
+      reason: 'pipe to tee is blocked by read-only shell mode (toolsProfile: standard)',
     });
     expect(gate.evaluate).not.toHaveBeenCalled();
   });

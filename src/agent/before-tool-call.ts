@@ -5,7 +5,8 @@
  *   1. Computer Use open_app approval — sends approval card, waits for decision
  *   2. Shell command approval — evaluates against policy, sends card if needed
  *
- * Also enforces read-only shell mode for minimal-profile agents.
+ * Profile gating itself lives in policy-center (tool visibility); this hook
+ * carries the effective profile into the runtime policy scope.
  */
 
 import type { BeforeToolCallResult } from '../pi-mono/agent/types.js';
@@ -601,17 +602,19 @@ async function handleViaPolicyCenter(
 
   // Step 1: Build a minimal AgentPolicyScope from deps
   const scope = deps.policyScope ?? {
-    toolsProfile: (deps.effectiveProfile || 'standard') as
-      'minimal' | 'standard' | 'advanced' | 'full',
+    toolsProfile: (deps.effectiveProfile || 'standard') as AgentPolicyScope['toolsProfile'],
     readRoots: [] as string[],
     writeRoots: [] as string[],
     deniedPatterns: [] as string[],
     shellExecMode: (deps.shellMode === 'read-only' ? 'safe' : 'balanced') as
-      'safe' | 'balanced' | 'trusted',
+      | 'safe'
+      | 'balanced'
+      | 'trusted',
     sessionApprovals: [] as string[],
     appApprovals: [] as string[],
     readOnly: deps.shellMode === 'read-only',
-    computerUseEnabled: deps.effectiveProfile !== 'minimal',
+    // restricted is the no-escalation capability domain: no computer_use.
+    computerUseEnabled: deps.effectiveProfile !== 'restricted',
     policyMode: 'balanced',
   };
 

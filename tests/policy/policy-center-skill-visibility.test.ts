@@ -119,9 +119,9 @@ describe('PolicyCenterImpl skill tool visibility enforcement', () => {
 
   it('a skill allow-list widens a narrow profile, a deny-list narrows it', async () => {
     const { center } = makeCenter();
-    const minimal = scope({ toolsProfile: 'minimal' });
+    const restricted = scope({ toolsProfile: 'restricted' });
 
-    // shell is in the minimal profile; remote_trigger is not.
+    // remote_trigger is not in the restricted profile.
     await expect(
       center.evaluateToolCall({
         toolName: 'remote_trigger',
@@ -129,7 +129,7 @@ describe('PolicyCenterImpl skill tool visibility enforcement', () => {
         args: { route: 'deploy' },
         sessionId: 'session-1',
         agentId: 'agent-1',
-        policyScope: minimal,
+        policyScope: restricted,
       }),
     ).resolves.toMatchObject({ allowed: false });
 
@@ -139,11 +139,22 @@ describe('PolicyCenterImpl skill tool visibility enforcement', () => {
       args: { route: 'deploy' },
       sessionId: 'session-1',
       agentId: 'agent-1',
-      policyScope: minimal,
+      policyScope: restricted,
       skillToolOverrides: { allowedTools: ['remote_trigger'] },
     });
     // Widened past visibility, but the high_risk capability still gates it.
     expect(granted.allowed).toBe(false);
     expect(granted.requiresApproval).toBe(true);
   });
-});
+  it('P1 strict mode: deny-first still wins over allowedTools and forced core', () => {
+    const visibility = new ToolVisibilityPolicyImpl();
+    const overrides = {
+      strict: true,
+      allowedTools: ['shell', 'ask_user_question'],
+      deniedTools: ['shell'],
+    };
+    expect(visibility.isVisible('shell', scope(), overrides)).toBe(false);
+    expect(visibility.isVisible('ask_user_question', scope(), overrides)).toBe(true);
+    expect(visibility.isVisible('tool_search', scope(), overrides)).toBe(true); // forced core
+  });
+})

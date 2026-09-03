@@ -8,7 +8,7 @@ import type { ToolCapabilityDescriptor } from '../tools/platform/tool-capabiliti
 // Agent policy scope
 // ---------------------------------------------------------------------------
 
-export type ToolProfileId = 'minimal' | 'standard' | 'advanced' | 'full';
+export type ToolProfileId = 'restricted' | 'standard' | 'full';
 export type ExecMode = 'safe' | 'balanced' | 'trusted';
 
 export type PolicyMode = 'bypass' | 'safe' | 'balanced' | 'permissive';

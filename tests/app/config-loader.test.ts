@@ -199,7 +199,7 @@ describe('yamlToAppConfigRaw', () => {
     const raw = yamlToAppConfigRaw({
       ...minimalYaml,
       tools: {
-        profile: 'advanced',
+        profile: 'full',
         shell: {
           exec_mode: 'trusted',
           allowlist: ['adb', 'date', 'ls'],
@@ -207,7 +207,7 @@ describe('yamlToAppConfigRaw', () => {
         },
       },
     });
-    expect(raw.tools.toolsProfile).toBe('advanced');
+    expect(raw.tools.toolsProfile).toBe('full');
     expect(raw.tools.shellExecMode).toBe('trusted');
     expect(raw.tools.shellAllowlist).toEqual(['adb', 'date', 'ls']);
     expect(raw.tools.shellApprovalTimeoutSec).toBe(300);
@@ -305,7 +305,7 @@ describe('yamlToAppConfigRaw', () => {
         },
         coder: {
           name: 'Coder',
-          tools: { profile: 'advanced' },
+          tools: { profile: 'full' },
           model: { primary: 'deepseek/deepseek-chat' },
         },
       },
@@ -316,7 +316,7 @@ describe('yamlToAppConfigRaw', () => {
     expect(defaultAgent.system_prompt).toBe('You are helpful.');
     const coder = raw.agents.find((a: any) => a.id === 'coder');
     expect(coder.name).toBe('Coder');
-    expect(coder.tools.profile).toBe('advanced');
+    expect(coder.tools.profile).toBe('full');
     expect(coder.model.primary).toBe('deepseek/deepseek-chat');
   });
 

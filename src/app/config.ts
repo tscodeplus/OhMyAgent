@@ -155,7 +155,7 @@ const configSchema = z.object({
     defaultTimeoutMs: z.coerce.number().int().positive().default(60000),
     maxOutputLength: z.coerce.number().int().positive().default(12000),
     // v2 fields
-    toolsProfile: z.enum(['minimal', 'standard', 'advanced', 'full']).default('standard'),
+    toolsProfile: z.enum(['restricted', 'standard', 'full']).default('standard'),
     // Include the skills/tools one-line catalog layers in the system prompt.
     // Disable for providers WITHOUT prompt caching to save per-turn tokens.
     systemPromptCatalogs: z.boolean().default(true),
@@ -624,7 +624,7 @@ const configSchema = z.object({
           .optional(),
         tools: z
           .object({
-            profile: z.enum(['minimal', 'standard', 'advanced', 'full']).optional(),
+            profile: z.enum(['restricted', 'standard', 'full']).optional(),
             add: z.array(z.string()).optional(),
             deny: z.array(z.string()).optional(),
           })

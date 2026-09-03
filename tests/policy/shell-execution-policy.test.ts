@@ -5,7 +5,7 @@ import type { AgentPolicyScope } from '../../src/policy/types';
 
 function readOnlyScope(): AgentPolicyScope {
   return {
-    toolsProfile: 'minimal',
+    toolsProfile: 'restricted',
     readRoots: [],
     writeRoots: [],
     deniedPatterns: [],
@@ -55,7 +55,7 @@ describe('ShellExecutionPolicyImpl read-only scopes', () => {
     expect(decision).toEqual({
       allowed: false,
       requiresApproval: false,
-      reason: 'Program "tee" is blocked by read-only shell mode (toolsProfile: minimal)',
+      reason: 'Program "tee" is blocked by read-only shell mode (toolsProfile: restricted)',
       risk: 'high',
     });
     expect(gate.evaluate).not.toHaveBeenCalled();

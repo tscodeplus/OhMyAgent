@@ -5,7 +5,7 @@ import type { ToolCapabilityDescriptor } from '../../src/tools/platform/tool-cap
 
 function scope(overrides: Partial<AgentPolicyScope> = {}): AgentPolicyScope {
   return {
-    toolsProfile: 'advanced',
+    toolsProfile: 'full',
     readRoots: [],
     writeRoots: [],
     deniedPatterns: [],

@@ -199,7 +199,7 @@ describe('image_generation', () => {
       agentId: 'agent-1',
       services: { config, policyCenter } as any,
       policyScope: {
-        toolsProfile: 'advanced',
+        toolsProfile: 'full',
         readRoots: [],
         writeRoots: [],
         deniedPatterns: [],

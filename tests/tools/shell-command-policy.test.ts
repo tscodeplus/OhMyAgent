@@ -569,7 +569,7 @@ describe('expandPathVariables', () => {
 // ─── Read-only shell mode (H4: substitution / pipe / escape tools) ───
 
 describe('getReadOnlyShellBlockReason', () => {
-  const profile = 'minimal';
+  const profile = 'restricted'; // scope-level label; read-only shell mode is now set via scope.readOnly, not derived from profile
   const blocked = (cmd: string): boolean => getReadOnlyShellBlockReason(cmd, profile) !== null;
   const blockedReason = (cmd: string): string | null => getReadOnlyShellBlockReason(cmd, profile);
 

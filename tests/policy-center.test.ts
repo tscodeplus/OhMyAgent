@@ -687,7 +687,7 @@ describe('PolicyCenterImpl', () => {
         policyMode: 'balanced',
       };
       const childRequest: ChildAgentPolicyRequest = {
-        requestedToolsProfile: 'minimal',
+        requestedToolsProfile: 'restricted',
         requestedReadRoots: ['/child'],
         requestedWriteRoots: [],
         requestedReadOnly: true,

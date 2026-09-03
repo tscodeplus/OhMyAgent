@@ -68,7 +68,7 @@ function makeAgentConfig(overrides?: Partial<AgentConfig>): AgentConfig {
     name: 'Default',
     description: '',
     system_prompt: 'You are helpful.',
-    tools: { profile: 'advanced', add: [], deny: [] },
+    tools: { profile: 'full', add: [], deny: [] },
     ...overrides,
   };
 }

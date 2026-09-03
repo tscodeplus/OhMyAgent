@@ -40,8 +40,12 @@ import { loadConfig as loadToolSearchConfig, assembleTools } from '../tools/tool
 
 // ─── Profile helper ───
 
-export function shellModeForProfile(profile: ToolProfileId): 'full' | 'read-only' {
-  return profile === 'minimal' ? 'read-only' : 'full';
+export function shellModeForProfile(_profile: ToolProfileId): 'full' | 'read-only' {
+  // P3' redesign: profiles no longer derive a read-only shell mode. The
+  // restricted profile simply has no shell tool at all; standard/full keep
+  // the default exec mode. scope.readOnly remains available for callers that
+  // disable shell explicitly.
+  return 'full';
 }
 
 // ─── Types ───
@@ -155,8 +159,14 @@ export function assembleAgentTools(opts: ToolPipelineOptions): ToolPipelineResul
   }
 
   // ── Stage 3: Profile-based filtering ──
+  // 'full' is an empty allowlist (= everything visible) — skip filtering,
+  // same as AgentManager.filterByProfile.
   const profileAllowedTools = PROFILE_TOOLS[opts.effectiveProfile] ?? PROFILE_TOOLS.standard;
-  if (profileAllowedTools[0] !== '*' && !opts.explicitTools) {
+  if (
+    opts.effectiveProfile !== 'full' &&
+    profileAllowedTools[0] !== '*' &&
+    !opts.explicitTools
+  ) {
     tools = tools.filter(
       (t: any) => profileAllowedTools.includes(t.name) || t.name === 'computer_use',
     );

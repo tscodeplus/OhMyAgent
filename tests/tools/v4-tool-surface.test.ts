@@ -15,6 +15,7 @@ import { AgentToolAdapterImpl } from '../../src/tools/platform/agent-tool-adapte
 import { ToolRegistryImpl } from '../../src/tools/registry.js';
 import { ToolVisibilityPolicyImpl } from '../../src/policy/tool-visibility.js';
 import { PROFILE_TOOLS as AGENT_MANAGER_PROFILE_TOOLS } from '../../src/agent/agent-manager.js';
+import { PROFILE_TOOLS as VISIBILITY_PROFILE_TOOLS } from '../../src/policy/tool-visibility.js';
 import type { ToolCategory } from '../../src/tools/platform/tool-definition.js';
 import type { ToolCapabilityDescriptor } from '../../src/tools/platform/tool-capabilities.js';
 import type { ToolDefinition } from '../../src/tools/platform/tool-definition.js';
@@ -534,98 +535,6 @@ const TOOL_CAPABILITIES: Record<string, ToolCapabilityDescriptor> = {
 // AgentManager.PROFILE_TOOLS uses hyphens; ToolVisibilityPolicy uses underscores.
 // Both are checked below.
 
-// ToolVisibilityPolicy PROFILE_TOOLS (hardcoded here since it is not exported)
-const VISIBILITY_PROFILE_TOOLS: Record<string, string[]> = {
-  minimal: [
-    'shell',
-    'file_read',
-    'memory_recall',
-    'memory-recall',
-    'tool_search',
-    'brief',
-    'ask_user_question',
-    'cronjob',
-  ],
-  standard: [
-    'shell',
-    'file_read',
-    'file_search',
-    'memory_recall',
-    'memory-recall',
-    'memory_store',
-    'memory-store',
-    'session_summarize',
-    'summarize-session',
-    'web_fetch',
-    'web-fetch',
-    'web_search',
-    'web-search',
-    'image_to_text',
-    'tool_search',
-    'ask_user_question',
-    'brief',
-    'todo_write',
-    'sleep',
-    'config',
-    'task_create',
-    'task_get',
-    'task_list',
-    'send_message',
-    'feishu_send_media',
-    'wechat_send_media',
-    'qq_send_media',
-    'telegram_send_media',
-    'cronjob',
-  ],
-  advanced: [
-    'shell',
-    'file_read',
-    'file_write',
-    'file-write',
-    'file_edit',
-    'file_search',
-    'glob',
-    'grep',
-    'memory_recall',
-    'memory-recall',
-    'memory_store',
-    'memory-store',
-    'session_summarize',
-    'summarize-session',
-    'web_fetch',
-    'web-fetch',
-    'web_search',
-    'web-search',
-    'image_to_text',
-    'tool_search',
-    'ask_user_question',
-    'brief',
-    'todo_write',
-    'sleep',
-    'config',
-    'spawn_agent',
-    'computer_use',
-    'task_create',
-    'task_get',
-    'task_list',
-    'send_message',
-    'task_stop',
-    'task_output',
-    'task_update',
-    'enter_plan_mode',
-    'exit_plan_mode',
-    'enter_worktree',
-    'exit_worktree',
-    'team_create',
-    'team_delete',
-    'feishu_send_media',
-    'wechat_send_media',
-    'qq_send_media',
-    'telegram_send_media',
-    'cronjob',
-  ],
-  full: [],
-};
 
 // ─── Factory imports for tools with existing definition files ────────────────
 
@@ -860,10 +769,10 @@ describe('v4 final tool surface', () => {
   // ── Test 3: Profile consistency between AgentManager and ToolVisibilityPolicy ──
 
   it('ToolVisibilityPolicy PROFILE_TOOLS and AgentManager.PROFILE_TOOLS are consistent', () => {
+    const agentRes: string[] = AGENT_MANAGER_PROFILE_TOOLS.restricted ?? [];
     const agentStd: string[] = AGENT_MANAGER_PROFILE_TOOLS.standard ?? [];
-    const agentDev: string[] = AGENT_MANAGER_PROFILE_TOOLS.advanced ?? [];
+    const visRes: string[] = VISIBILITY_PROFILE_TOOLS.restricted ?? [];
     const visStd: string[] = VISIBILITY_PROFILE_TOOLS.standard ?? [];
-    const visDev: string[] = VISIBILITY_PROFILE_TOOLS.advanced ?? [];
 
     // Tools that must appear in standard
     const mustBeStandard = [
@@ -883,23 +792,33 @@ describe('v4 final tool surface', () => {
       'send_message',
     ];
 
-    // Tools that must appear in advanced (in addition to standard)
-    const mustBeDeveloper = [
+    // Tools that must NOT appear in restricted (structural capability boundary)
+    const mustNotBeRestricted = [
+      'shell',
       'file_write',
       'file_edit',
-      'glob',
-      'grep',
+      'download_file',
+      'web_fetch',
+      'web_search',
+      'cronjob',
+      'skill_create',
+      'skill_lint',
       'spawn_agent',
-      'task_stop',
-      'task_output',
-      'task_update',
-      'enter_plan_mode',
-      'exit_plan_mode',
-      'enter_worktree',
-      'exit_worktree',
-      'team_create',
-      'team_delete',
+      'computer_use',
     ];
+
+    // Tools that must appear in restricted
+    const mustBeRestricted = [
+      'file_read',
+      'memory_recall',
+      'tool_search',
+      'brief',
+      'ask_user_question',
+    ];
+
+    // full is an empty allowlist = everything visible
+    expect(AGENT_MANAGER_PROFILE_TOOLS.full).toEqual([]);
+    expect(VISIBILITY_PROFILE_TOOLS.full).toEqual([]);
 
     // Normalize: both underscore and hyphen variants are used
     const hasTool = (tool: string, list: string[]): boolean =>
@@ -912,11 +831,18 @@ describe('v4 final tool surface', () => {
       expect(inVis, `ToolVisibilityPolicy.standard should include ${tool}`).toBe(true);
     }
 
-    for (const tool of mustBeDeveloper) {
-      const inAgent = hasTool(tool, agentDev);
-      const inVis = hasTool(tool, visDev);
-      expect(inAgent, `AgentManager.advanced should include ${tool}`).toBe(true);
-      expect(inVis, `ToolVisibilityPolicy.advanced should include ${tool}`).toBe(true);
+    for (const tool of mustBeRestricted) {
+      const inAgent = hasTool(tool, agentRes);
+      const inVis = hasTool(tool, visRes);
+      expect(inAgent, `AgentManager.restricted should include ${tool}`).toBe(true);
+      expect(inVis, `ToolVisibilityPolicy.restricted should include ${tool}`).toBe(true);
+    }
+
+    for (const tool of mustNotBeRestricted) {
+      const inAgent = hasTool(tool, agentRes);
+      const inVis = hasTool(tool, visRes);
+      expect(inAgent, `AgentManager.restricted should NOT include ${tool}`).toBe(false);
+      expect(inVis, `ToolVisibilityPolicy.restricted should NOT include ${tool}`).toBe(false);
     }
 
     // Verify computer_use is NOT in standard

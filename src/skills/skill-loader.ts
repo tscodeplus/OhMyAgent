@@ -9,6 +9,8 @@ import type { ApprovalOverride, ToolProfileId } from '../app/types.js';
 
 const fallbackLogger = pino();
 
+const VALID_SKILL_TOOLS_PROFILES = new Set<string>(['restricted', 'standard', 'full']);
+
 // ── LoadedSkill type ────────────────────────────────────────────────────────
 
 /** L3 resource paths collected from the skill directory */
@@ -401,9 +403,20 @@ export async function loadSkill(skillDirPath: string): Promise<LoadedSkill> {
     ? (oma.approvalOverrides as ApprovalOverride[])
     : undefined;
 
-  // Build tools profile override (from x-ohmyagent extension)
-  const toolsProfile =
-    typeof oma.toolsProfile === 'string' ? (oma.toolsProfile as ToolProfileId) : undefined;
+  // Build tools profile override (from x-ohmyagent extension).
+  // Validated against the 3-preset enum (restricted/standard/full); unknown
+  // values (e.g. removed 'minimal'/'advanced') are ignored with a warning
+  // instead of poisoning the runtime profile.
+  let toolsProfile: ToolProfileId | undefined;
+  if (typeof oma.toolsProfile === 'string') {
+    if (VALID_SKILL_TOOLS_PROFILES.has(oma.toolsProfile)) {
+      toolsProfile = oma.toolsProfile as ToolProfileId;
+    } else {
+      fallbackLogger.warn(
+        `[skill-loader] Invalid toolsProfile "${oma.toolsProfile}" in skill frontmatter (valid: restricted | standard | full) — ignoring`,
+      );
+    }
+  }
 
   // L3: Scan resource directories
   const resources = await scanResources(absolutePath);

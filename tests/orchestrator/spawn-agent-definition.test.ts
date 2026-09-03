@@ -12,7 +12,7 @@ describe('spawn_agent ToolDefinition orchestrator path', () => {
       role: 'child',
       status: 'running',
       createdAt: Date.now(),
-      scope: { ...DEFAULT_POLICY_SCOPE, toolsProfile: 'minimal', computerUseEnabled: false },
+      scope: { ...DEFAULT_POLICY_SCOPE, toolsProfile: 'restricted', computerUseEnabled: false },
     };
 
     const orchestrator = {
@@ -41,7 +41,7 @@ describe('spawn_agent ToolDefinition orchestrator path', () => {
           name: 'Coder',
           system_prompt: 'code',
           model: {},
-          tools: { profile: 'advanced', add: [], deny: [] },
+          tools: { profile: 'full', add: [], deny: [] },
           channels: [],
           memory: {},
           metadata: {},
@@ -54,7 +54,7 @@ describe('spawn_agent ToolDefinition orchestrator path', () => {
     });
 
     const result = await def.execute(
-      { persona: 'coder', task: 'do work', toolsProfile: 'minimal' },
+      { persona: 'coder', task: 'do work', toolsProfile: 'restricted' },
       {
         cwd: process.cwd(),
         services: {} as any,
@@ -149,7 +149,7 @@ describe('spawn_agent ToolDefinition orchestrator path', () => {
       role: 'child',
       status: 'running',
       createdAt: Date.now(),
-      scope: { ...DEFAULT_POLICY_SCOPE, toolsProfile: 'minimal', computerUseEnabled: false },
+      scope: { ...DEFAULT_POLICY_SCOPE, toolsProfile: 'restricted', computerUseEnabled: false },
     };
 
     const orchestrator = {
@@ -345,7 +345,7 @@ describe('spawn_agent ToolDefinition — P0 maxParallel', () => {
           name: 'Default',
           system_prompt: '',
           model: {},
-          tools: { profile: 'advanced', add: [], deny: [] },
+          tools: { profile: 'full', add: [], deny: [] },
           channels: [],
           memory: {},
           metadata: {},

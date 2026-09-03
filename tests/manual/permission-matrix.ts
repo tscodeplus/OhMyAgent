@@ -169,9 +169,9 @@ for (const mode of modes) {
 
 header('4. 工具 Profile 模拟 — 不同 profile 下工具可见性');
 
-const profiles: ToolProfileId[] = ['minimal', 'standard', 'advanced', 'full'];
+const profiles: ToolProfileId[] = ['restricted', 'standard', 'full'];
 const PROFILE_TOOLS: Record<ToolProfileId, string[]> = {
-  minimal: ['shell', 'memory-recall', 'memory-store', 'file_read', 'summarize-session'],
+  restricted: ['memory-recall', 'memory-store', 'file_read', 'summarize-session'],
   standard: [
     'shell',
     'memory-recall',
@@ -182,18 +182,6 @@ const PROFILE_TOOLS: Record<ToolProfileId, string[]> = {
     'web_search',
     'web_fetch',
     'feishu-media',
-  ],
-  advanced: [
-    'shell',
-    'memory-recall',
-    'file_read',
-    'file_search',
-    'memory-store',
-    'summarize-session',
-    'file-write',
-    'feishu-media',
-    'web_search',
-    'web_fetch',
   ],
   full: ['*'],
 };
@@ -313,10 +301,10 @@ for (const mode of modes) {
 header('7. 推荐配置场景');
 
 const scenarios: Array<{ name: string; profile: ToolProfileId; mode: ExecMode }> = [
-  { name: '个人手机助手', profile: 'advanced', mode: 'trusted' },
+  { name: '个人桌面助手', profile: 'full', mode: 'trusted' },
   { name: '日常开发 (默认)', profile: 'standard', mode: 'balanced' },
   { name: '团队共享', profile: 'standard', mode: 'safe' },
-  { name: '纯查询机器人', profile: 'minimal', mode: 'safe' },
+  { name: '纯查询机器人 (cron/公共群)', profile: 'restricted', mode: 'safe' },
 ];
 
 const scenarioCommands = [
