@@ -33,6 +33,9 @@ import type { PromptManager } from '../prompt/prompt-manager.js';
 import type { PromptAssemblyOptions } from '../prompt/types.js';
 import { teamModeStore } from './team-mode-store.js';
 import { turnCounter, planOnlyReflection, hasSpawnCapability } from './turn-counter.js';
+import { isDeferrable } from '../tools/tool-search/classifier.js';
+import { estimateTokens, shouldActivate } from '../tools/tool-search/threshold.js';
+import { loadConfig as loadToolSearchConfig } from '../tools/tool-search/index.js';
 import { createRetryingStreamFn } from './retrying-stream.js';
 import { createBeforeToolCall, type BeforeToolCallDeps } from './before-tool-call.js';
 import type { PolicyCenter } from '../policy/policy-center.js';
@@ -591,10 +594,42 @@ export function createAgentFactory(
                     (t: any) => allowedCatalogTools.includes(t.name) || t.name === 'computer_use',
                   );
           }
+
+          // Mirror Stage 8's deferral predicate so catalog entries can be
+          // annotated with their true callability. Without this the catalog
+          // reads "available in this session" for deferred tools too, and the
+          // model hallucinates direct calls that fail as unknown tools.
+          const tsConfig = loadToolSearchConfig(configRef.current);
+          const forceVisibleNames = new Set(
+            (options?.extraTools ?? []).map((t: any) => String(t.name)),
+          );
+          // Stage 3.5 spawn gate: when this agent has spawn disabled, the
+          // pipeline removes spawn tools entirely — the catalog must not list
+          // them either, or the model searches for tools that cannot exist.
+          const spawnGateOpen = agentConfig?.spawn?.enabled === true;
+          const isDeferredHere = (t: any): boolean =>
+            tsConfig.enabled !== 'off' &&
+            isDeferrable(String(t.name)) &&
+            !forceVisibleNames.has(String(t.name));
+          const inCatalog = (t: any): boolean =>
+            spawnGateOpen || !['spawn_agent', 'plan_and_spawn'].includes(String(t.name));
+          const deferredCandidates = catalogCandidates.filter((t: any) => inCatalog(t));
+          const deferrablePool = deferredCandidates.filter((t: any) => isDeferredHere(t));
+          const deferralActive =
+            deferrablePool.length > 0 &&
+            shouldActivate(tsConfig, estimateTokens(deferrablePool), contextWindow);
+
           availableTools =
-            catalogCandidates.length > 0
-              ? catalogCandidates
-                  .map((t: any) => ({ name: String(t.name ?? ''), snippet: toolOneLineSnippet(t) }))
+            deferredCandidates.length > 0
+              ? deferredCandidates
+                  .map((t: any) => ({
+                    name: String(t.name ?? ''),
+                    snippet:
+                      toolOneLineSnippet(t) +
+                      (deferralActive && isDeferredHere(t)
+                        ? ' [deferred — discover via tool_search, invoke via tool_call]'
+                        : ''),
+                  }))
                   .filter((t) => t.name.length > 0)
               : undefined;
         }

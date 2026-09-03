@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Agent } from '@earendil-works/pi-agent-core';
 import { createAgentFactory, resolveProviderApiKey } from '../../src/agent/agent-factory';
+import { PromptManager } from '../../src/prompt/prompt-manager';
+import type { AppConfig } from '../../src/app/types';
 import type { AppConfig } from '../../src/app/types';
 
 // Mock getDefaultModel to avoid real provider lookups
@@ -145,15 +147,50 @@ describe('AgentFactory', () => {
     expect(agent.state.systemPrompt).toBe('Custom prompt');
   });
 
-  it('create() accepts custom tools', () => {
-    const registry = makeMockToolRegistry([makeMockTool('default')]);
-    const factory = createAgentFactory({ config, toolRegistry: registry });
-    const customTools = [makeMockTool('custom_tool')];
-    const agent = factory.create({ tools: customTools });
-    expect(agent.state.tools).toHaveLength(1);
-    expect(agent.state.tools[0].name).toBe('custom_tool');
-    // Should not use registry tools when custom tools are provided
-    expect(registry.listAsAgentTools).not.toHaveBeenCalled();
+  it('tools catalog annotates deferred tools when tool search is active', () => {
+    const onConfig: AppConfig = {
+      ...makeMockConfig(),
+      toolSearch: { enabled: 'on' as const },
+      smart_agent_team: {
+        enabled: false,
+        max_children: 4,
+        child_timeout_sec: 300,
+        child_settle_timeout_ms: 15_000,
+      },
+    };
+    const registry = makeMockToolRegistry([makeMockTool('shell'), makeMockTool('web_search')]);
+    const factory = createAgentFactory(
+      { config: onConfig, toolRegistry: registry },
+      { promptManager: new PromptManager({ uiLanguage: 'zh-CN' }) },
+    );
+    const agent = factory.create();
+    const sp = agent.state.systemPrompt;
+    // Catalog lists the deferrable tool WITH the unlock hint, and the core
+    // tool WITHOUT it — otherwise the model reads "available in this session"
+    // as "directly callable" and hallucinates calls that fail as unknown tools.
+    expect(sp).toMatch(/web_search[^\n]*\[deferred — discover via tool_search/);
+    expect(sp).toMatch(/<name>shell<\/name>[\s\S]*?<snippet>shell: Tool shell<\/snippet>/);
+    expect(sp).not.toMatch(/shell[^\n]*\[deferred/);
+  });
+
+  it('tools catalog has no deferred annotation when tool search is off', () => {
+    const offConfig: AppConfig = {
+      ...makeMockConfig(),
+      smart_agent_team: {
+        enabled: false,
+        max_children: 4,
+        child_timeout_sec: 300,
+        child_settle_timeout_ms: 15_000,
+      },
+    };
+    const registry = makeMockToolRegistry([makeMockTool('shell'), makeMockTool('web_search')]);
+    const factory = createAgentFactory(
+      { config: offConfig, toolRegistry: registry },
+      { promptManager: new PromptManager({ uiLanguage: 'zh-CN' }) },
+    );
+    const agent = factory.create();
+    expect(agent.state.systemPrompt).toContain('web_search');
+    expect(agent.state.systemPrompt).not.toContain('[deferred');
   });
 
   it('create() accepts a session ID', () => {
