@@ -8,6 +8,12 @@ describe('AgentManager PROFILE_TOOLS', () => {
     );
   });
 
+  it('exposes agent orchestration in the standard profile (deferred, non-core)', () => {
+    expect(PROFILE_TOOLS.standard).toEqual(
+      expect.arrayContaining(['spawn_agent', 'plan_and_spawn', 'team_create', 'team_delete']),
+    );
+  });
+
   it('full profile is an empty allowlist (= all tools visible), including orchestration', () => {
     expect(PROFILE_TOOLS.full).toEqual([]);
   });

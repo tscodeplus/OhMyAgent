@@ -3,6 +3,9 @@ import { turnCounter, planOnlyReflection } from '../../src/agent/turn-counter.js
 
 const SESSION = 'test-session';
 
+/** The deferred-discovery hint appended to every spawn reflection. */
+const HINT = 'find it with tool_search and invoke it via tool_call';
+
 describe('P3: TurnCounter — recordTurn', () => {
   beforeEach(() => {
     turnCounter.delete(SESSION);
@@ -227,5 +230,30 @@ describe('P3: planOnlyReflection', () => {
     expect(reflection).toContain('execute');
     expect(reflection).toContain('spawn_agent');
     expect(reflection).toContain('take action');
+  });
+});
+
+// ============================================================================
+// Deferred-discovery hint (standard profile keeps spawn_agent out of core)
+// ============================================================================
+
+describe('P3: spawn reflections carry the tool_search discovery hint', () => {
+  beforeEach(() => {
+    turnCounter.delete(SESSION);
+  });
+
+  it('burst reflection mentions the deferred-unlock path', () => {
+    turnCounter.recordTurn(SESSION, { toolCallCount: 6, didSpawn: false });
+    const result = turnCounter.evaluate(SESSION, 6);
+    expect(result).toContain('spawn_agent');
+    expect(result).toContain(HINT);
+  });
+
+  it('gentle reminder mentions the deferred-unlock path', () => {
+    for (let i = 0; i < 5; i++) {
+      turnCounter.recordTurn(SESSION, { toolCallCount: 0, didSpawn: false });
+    }
+    const result = turnCounter.evaluate(SESSION, 0);
+    expect(result).toContain(HINT);
   });
 });

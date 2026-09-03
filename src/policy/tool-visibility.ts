@@ -68,6 +68,13 @@ export const PROFILE_TOOLS: Record<ToolProfileId, string[]> = {
     'telegram_send_media',
     'webui_send_media',
     'cronjob',
+    // Agent orchestration: capability belongs to standard, but the surface
+    // stays lean — these are non-core, so they sit in the tool-search deferral
+    // pool and are discovered/unlocked on demand (see turn-counter gating).
+    'spawn_agent',
+    'plan_and_spawn',
+    'team_create',
+    'team_delete',
     'skill_create',
     'skill-create',
     'skill_lint',

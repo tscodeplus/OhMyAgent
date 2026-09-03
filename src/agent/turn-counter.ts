@@ -40,6 +40,7 @@ function strongReflection(serialCalls: number, turns: number): string {
     '1. Output a <plan> tag to decompose parallel subtasks',
     '2. Call spawn_agent to dispatch them in parallel',
     '3. Stop serial execution — switch to team mode now',
+    SPAWN_DISCOVERY_HINT,
     '</system-reminder>',
   ].join('\n');
 }
@@ -50,6 +51,7 @@ function burstReflection(thisTurnCalls: number): string {
     `This turn you executed ${thisTurnCalls} serial tool calls — these could all be parallelized via spawn_agent.`,
     'Do not read many files serially in a single turn — each sub-agent can independently complete its own portion.',
     'Immediately output a <plan> to decompose the task, then use spawn_agent to dispatch in parallel.',
+    SPAWN_DISCOVERY_HINT,
     '</system-reminder>',
   ].join('\n');
 }
@@ -59,8 +61,28 @@ function gentleReminder(turns: number): string {
     '<system-reminder>',
     `${turns} turns since last spawn. Evaluate whether independent parallel subtasks exist.`,
     'If yes, output a <plan> and dispatch with spawn_agent. If not needed, ignore this reminder.',
+    SPAWN_DISCOVERY_HINT,
     '</system-reminder>',
   ].join('\n');
+}
+
+/**
+ * spawn_agent may be deferred (standard profile keeps it out of the core
+ * whitelist) — point the model at the discovery path instead of letting it
+ * hallucinate a direct call.
+ */
+const SPAWN_DISCOVERY_HINT =
+  'Note: if spawn_agent is not in your visible tool list, it is deferred — ' +
+  'find it with tool_search and invoke it via tool_call first.';
+
+/**
+ * Capability gate for the team auto-trigger: only inject spawn-oriented
+ * reflections when spawn_agent is in the turn's assembled tool surface.
+ * standard carries it deferred (discoverable via tool_search); restricted
+ * never has it — a skill grant re-opens it by adding it back to the surface.
+ */
+export function hasSpawnCapability(tools: { name: string }[]): boolean {
+  return tools.some((t) => t.name === 'spawn_agent');
 }
 
 /**

@@ -32,7 +32,7 @@ import { PendingApprovalStore } from './approval-store.js';
 import type { PromptManager } from '../prompt/prompt-manager.js';
 import type { PromptAssemblyOptions } from '../prompt/types.js';
 import { teamModeStore } from './team-mode-store.js';
-import { turnCounter, planOnlyReflection } from './turn-counter.js';
+import { turnCounter, planOnlyReflection, hasSpawnCapability } from './turn-counter.js';
 import { createRetryingStreamFn } from './retrying-stream.js';
 import { createBeforeToolCall, type BeforeToolCallDeps } from './before-tool-call.js';
 import type { PolicyCenter } from '../policy/policy-center.js';
@@ -1128,6 +1128,18 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
               logger?.debug(
                 { sessionId, isTeamActive },
                 '[P3] prepareNextTurn: team mode not active, skip',
+              );
+              return undefined;
+            }
+
+            // Capability gate: only steer toward orchestration when spawn_agent
+            // is in this turn's assembled surface. standard carries it deferred
+            // (discoverable via tool_search); restricted never has it — injecting
+            // a reminder for a tool the model cannot call is pure token noise.
+            if (!hasSpawnCapability(tools)) {
+              logger?.debug(
+                { sessionId, profile: effectiveProfile },
+                '[P3] prepareNextTurn: spawn_agent not in surface, skip reflection',
               );
               return undefined;
             }
