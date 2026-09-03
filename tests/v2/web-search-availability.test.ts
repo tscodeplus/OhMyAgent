@@ -26,6 +26,9 @@ describe('web_search extension availability', () => {
     searchDefaultLimit: 5,
     maxSearchLimit: 20,
   };
+  // These tests assert unconditional tool availability / chatId plumbing, not
+  // P4 intent narrowing — disable it so arbitrary message text doesn't narrow.
+  config.tools.intentNarrowing = 'off';
   const toolRegistry = new ToolRegistryImpl();
 
   // Simulate extension registration (same as extensions/web-search/index.ts)

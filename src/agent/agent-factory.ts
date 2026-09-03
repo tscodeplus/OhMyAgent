@@ -53,6 +53,8 @@ import path from 'node:path';
 import { SkillComplianceTracker } from '../skills/skill-compliance.js';
 import { resolveModel } from './model-resolver.js';
 import { assembleAgentTools, shellModeForProfile } from './tool-pipeline.js';
+import { detectIntentDomain } from './intent.js';
+import { recordToolSurfaceTurn } from './tool-surface-stats.js';
 import type { CreateChildAgent } from './tool-pipeline.js';
 
 // ─── Types ───
@@ -523,6 +525,15 @@ export function createAgentFactory(
       const skillToolsStrict = compiled?.toolsSurfaceStrict === true;
       const skillAllowedTools = compiled?.allowedTools;
       const skillDeniedTools = compiled?.deniedTools;
+      // P4: per-turn intent narrowing — only when NO skill owns the turn
+      // (strict mode replaces it entirely; skill-activated turns are already
+      // domain-scoped by the skill itself).
+      const intentNarrowingEnabled =
+        (configRef.current.tools.intentNarrowing ?? 'auto') !== 'off';
+      const intentDomain =
+        !compiled && intentNarrowingEnabled
+          ? detectIntentDomain(options?.message ?? '')?.domain
+          : undefined;
 
       let promptAssembly: ReturnType<PromptManager['assemble']> | undefined;
       if (promptManager && !options?.systemPrompt) {
@@ -701,6 +712,7 @@ export function createAgentFactory(
         skillToolsStrict,
         skillAllowedTools,
         skillDeniedTools,
+        intentDomain,
         computerUseAllowed: options?.computerUseAllowed,
         modelProvider,
         modelId,
@@ -739,6 +751,29 @@ export function createAgentFactory(
       });
 
       tools = toolPipelineResult.tools;
+
+      // P5: per-turn tool-surface health stats (debug log + in-memory window).
+      recordToolSurfaceTurn({
+        sessionId: sessionId ?? 'default',
+        profile: effectiveProfile,
+        skillStrict: skillToolsStrict,
+        intentDomain,
+        visibleCount: tools.length,
+        deferredCount: toolPipelineResult.toolSearchAssembly?.deferredCount,
+        toolSearchActivated: toolPipelineResult.toolSearchAssembly?.activated,
+        at: Date.now(),
+      });
+      logger?.debug(
+        {
+          sessionId,
+          profile: effectiveProfile,
+          skillStrict: skillToolsStrict,
+          intentDomain,
+          visibleTools: tools.length,
+          deferred: toolPipelineResult.toolSearchAssembly?.deferredCount,
+        },
+        'tool surface stats',
+      );
 
       // Declared before construction so the transform closure can write
       // compression results back to state. The transform only runs during

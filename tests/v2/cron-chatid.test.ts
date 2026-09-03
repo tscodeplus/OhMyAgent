@@ -19,6 +19,8 @@ describe('cronjob chatId propagation', () => {
       searchDefaultLimit: 5,
       maxSearchLimit: 20,
     };
+    // These tests assert chatId plumbing, not P4 intent narrowing.
+    config.tools.intentNarrowing = 'off';
     const toolRegistry = new ToolRegistryImpl();
     toolRegistry.register({
       name: 'dummy',
@@ -83,6 +85,8 @@ describe('cronjob chatId propagation', () => {
       searchDefaultLimit: 5,
       maxSearchLimit: 20,
     };
+    // These tests assert chatId plumbing, not P4 intent narrowing.
+    config.tools.intentNarrowing = 'off';
     const toolRegistry = new ToolRegistryImpl();
     toolRegistry.register(createComputerUseTool({} as any));
 
@@ -127,6 +131,8 @@ describe('cronjob chatId propagation', () => {
       searchDefaultLimit: 5,
       maxSearchLimit: 20,
     };
+    // These tests assert chatId plumbing, not P4 intent narrowing.
+    config.tools.intentNarrowing = 'off';
     const toolRegistry = new ToolRegistryImpl();
 
     const factory = createAgentFactory({ config, toolRegistry }, {});

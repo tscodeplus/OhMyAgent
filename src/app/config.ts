@@ -156,6 +156,9 @@ const configSchema = z.object({
     maxOutputLength: z.coerce.number().int().positive().default(12000),
     // v2 fields
     toolsProfile: z.enum(['restricted', 'standard', 'full']).default('standard'),
+    // P4: per-turn intent narrowing — 'off' disables, 'auto' narrows the
+    // profile-allowed surface to the detected intent domain when confident.
+    intentNarrowing: z.enum(['off', 'auto']).default('auto'),
     // Include the skills/tools one-line catalog layers in the system prompt.
     // Disable for providers WITHOUT prompt caching to save per-turn tokens.
     systemPromptCatalogs: z.boolean().default(true),

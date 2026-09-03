@@ -24,6 +24,7 @@ import type { ResolvedAgentConfig } from './config-types.js';
 import type { AgentManager } from './agent-manager.js';
 import { PROFILE_TOOLS } from './agent-manager.js';
 import { STRICT_FORCED_CORE_TOOLS } from '../policy/tool-visibility.js';
+import { isToolVisibleForIntent, type IntentDomain } from './intent.js';
 import type { ToolExecutionContext } from '../tools/platform/tool-context.js';
 import type { ComputerUseHost } from '../computer-use/computer-host.js';
 import type { FeishuApprovalClient } from './agent-factory.js';
@@ -91,6 +92,10 @@ export interface ToolPipelineOptions {
   skillAllowedTools?: string[];
   /** Union of active skills' deniedTools (deny-first also in strict mode) */
   skillDeniedTools?: string[];
+
+  // ── P4: intent narrowing ──
+  /** Detected per-turn intent domain; undefined = no narrowing */
+  intentDomain?: IntentDomain;
 
   // ── Model metadata (for computer_use context + tool search) ──
   modelProvider?: string;
@@ -202,6 +207,25 @@ export function assembleAgentTools(opts: ToolPipelineOptions): ToolPipelineResul
   const spawnEnabled = opts.agentConfig?.spawn?.enabled ?? false;
   if (!spawnEnabled) {
     tools = tools.filter((t: any) => t.name !== 'spawn_agent' && t.name !== 'plan_and_spawn');
+  }
+
+  // ── Stage 3.7: P4 intent narrowing ──
+  // Per-turn conditional narrowing: when a message confidently maps to an
+  // intent domain, intersect the profile-allowed surface with that domain's
+  // tool set. Skipped when skill strict mode owns the surface or explicitTools
+  // were provided (both represent explicit surface decisions).
+  if (
+    opts.intentDomain &&
+    !opts.skillToolsStrict &&
+    !opts.explicitTools &&
+    (opts.config.tools.intentNarrowing ?? 'auto') !== 'off'
+  ) {
+    const before = tools.length;
+    tools = tools.filter((t: any) => isToolVisibleForIntent(String(t.name), opts.intentDomain!));
+    opts.logger?.debug(
+      { domain: opts.intentDomain, before, after: tools.length },
+      'intent narrowing applied',
+    );
   }
 
   // ── Stage 4: Runtime policy adapter wrapping ──
