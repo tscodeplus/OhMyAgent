@@ -22,6 +22,9 @@ function getHelpText(): string {
   ohmyagent skill create <name>     创建新技能
   ohmyagent skill list-templates    列出可用模板
 
+工具面:
+  ohmyagent tools lint              校验内置工具描述正交性 (P6)
+
 订阅管理:
   ohmyagent login [provider]   登录 AI 订阅（Anthropic / GitHub Copilot / ChatGPT）
   ohmyagent logout [provider]  登出订阅
@@ -131,6 +134,11 @@ async function main(): Promise<void> {
     case 'skill': {
       const { skillCommand } = await import('./commands/skill.js');
       await skillCommand(subAction ?? 'help', args.slice(2));
+      break;
+    }
+    case 'tools': {
+      const { toolsCommand } = await import('./commands/tools.js');
+      await toolsCommand(subAction ?? 'lint');
       break;
     }
     default:
