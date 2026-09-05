@@ -22,6 +22,7 @@ coverage/
 MyDocs/
 *.tsbuildinfo
 .DS_Store
+!desktop/scripts/dmg-layout/.DS_Store
 .pi/
 skills/skills-lock.json
 skills/.pi/
