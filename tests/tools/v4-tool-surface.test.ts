@@ -535,7 +535,6 @@ const TOOL_CAPABILITIES: Record<string, ToolCapabilityDescriptor> = {
 // AgentManager.PROFILE_TOOLS uses hyphens; ToolVisibilityPolicy uses underscores.
 // Both are checked below.
 
-
 // ─── Factory imports for tools with existing definition files ────────────────
 
 import { createShellToolDefinition } from '../../src/tools/builtins/shell/definition.js';

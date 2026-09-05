@@ -15,12 +15,7 @@
 import { STRICT_FORCED_CORE_TOOLS } from '../policy/tool-visibility.js';
 
 export type IntentDomain =
-  | 'code'
-  | 'web'
-  | 'multimedia'
-  | 'memory'
-  | 'project-management'
-  | 'bare-chat';
+  'code' | 'web' | 'multimedia' | 'memory' | 'project-management' | 'bare-chat';
 
 export interface IntentMatch {
   domain: IntentDomain;

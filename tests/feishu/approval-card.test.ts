@@ -32,7 +32,6 @@ function bodyElements(card: Record<string, unknown>): Array<Record<string, unkno
   return body.elements as Array<Record<string, unknown>>;
 }
 
-
 // ─── renderApprovalCard ───
 
 describe('renderApprovalCard', () => {

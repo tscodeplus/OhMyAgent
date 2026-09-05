@@ -71,14 +71,22 @@ describe('lintToolDescriptions', () => {
 
 describe('builtin tool description orthogonality (inventory)', () => {
   it('every lintable builtin definition has a non-empty description', async () => {
-    const { createShellToolDefinition } = await import('../../src/tools/builtins/shell/definition.js');
-    const { createFileWriteToolDefinition } = await import('../../src/tools/builtins/files/write-definition.js');
-    const { createFileEditToolDefinition } = await import('../../src/tools/builtins/files/edit-definition.js');
-    const { createGlobToolDefinition } = await import('../../src/tools/builtins/files/glob-definition.js');
-    const { createGrepToolDefinition } = await import('../../src/tools/builtins/files/grep-definition.js');
-    const { createToolSearchToolDefinition } = await import('../../src/tools/builtins/session/tool-search-definition.js');
-    const { createAskUserQuestionToolDefinition } = await import('../../src/tools/builtins/session/ask-definition.js');
-    const { createBriefToolDefinition } = await import('../../src/tools/builtins/session/brief-definition.js');
+    const { createShellToolDefinition } =
+      await import('../../src/tools/builtins/shell/definition.js');
+    const { createFileWriteToolDefinition } =
+      await import('../../src/tools/builtins/files/write-definition.js');
+    const { createFileEditToolDefinition } =
+      await import('../../src/tools/builtins/files/edit-definition.js');
+    const { createGlobToolDefinition } =
+      await import('../../src/tools/builtins/files/glob-definition.js');
+    const { createGrepToolDefinition } =
+      await import('../../src/tools/builtins/files/grep-definition.js');
+    const { createToolSearchToolDefinition } =
+      await import('../../src/tools/builtins/session/tool-search-definition.js');
+    const { createAskUserQuestionToolDefinition } =
+      await import('../../src/tools/builtins/session/ask-definition.js');
+    const { createBriefToolDefinition } =
+      await import('../../src/tools/builtins/session/brief-definition.js');
 
     const report = lintToolDescriptions(
       [
@@ -94,9 +102,6 @@ describe('builtin tool description orthogonality (inventory)', () => {
     );
 
     // Errors are hard failures; warnings are advisory (reported for triage).
-    expect(
-      report.errors,
-      report.errors.map((e) => e.message).join('\n'),
-    ).toEqual([]);
+    expect(report.errors, report.errors.map((e) => e.message).join('\n')).toEqual([]);
   });
 });

@@ -299,9 +299,8 @@ describe('createWSCardActionHandler — harness improvement (task failure analys
 
     // Proposal stays pending until the form is submitted.
     expect(harnessApprovalRegistry.has('prop-1')).toBe(true);
-    const card = (
-      result as { card?: { data: { body: { elements: Array<Record<string, any>> } } } }
-    ).card;
+    const card = (result as { card?: { data: { body: { elements: Array<Record<string, any>> } } } })
+      .card;
     expect(card).toBeDefined();
     expect(card!.data.schema).toBe('2.0');
     const form = card!.data.body.elements.find((el) => el.tag === 'form');
@@ -344,8 +343,8 @@ describe('createWSCardActionHandler — harness improvement (task failure analys
     });
 
     expect(result).toMatchObject({ toast: { type: 'info' } });
-    const data = (result as { card?: { data: { header: { title: { content: string } } } } })
-      .card?.data;
+    const data = (result as { card?: { data: { header: { title: { content: string } } } } }).card
+      ?.data;
     expect(data?.header.title.content).toContain('This card has been handled');
   });
 });

@@ -17,7 +17,10 @@
  */
 
 import { loadConfig } from '../src/app/config.js';
-import { createToolServices, registerV4ToolDefinitions } from '../src/app/composers/tool-services.js';
+import {
+  createToolServices,
+  registerV4ToolDefinitions,
+} from '../src/app/composers/tool-services.js';
 import { createAgentFactory } from '../src/agent/agent-factory.js';
 import { PromptManager } from '../src/prompt/prompt-manager.js';
 import type { AppConfig, AppServices } from '../src/app/types.js';
@@ -55,7 +58,9 @@ const toolsRegistryForResolve: any = { listAsAgentTools: () => [] };
 const agentManager: any = {
   resolveTools: () => toolsRegistryForResolve.listAsAgentTools(),
   get: (id: string) =>
-    typeof id === 'string' && id.startsWith('verify-') ? { id, spawn: { enabled: true }, model: {}, tools: {} } : undefined,
+    typeof id === 'string' && id.startsWith('verify-')
+      ? { id, spawn: { enabled: true }, model: {}, tools: {} }
+      : undefined,
   getDefault: () => undefined,
 };
 const agentFactoryStub: any = { create: () => ({}) };
@@ -90,22 +95,43 @@ registerV4ToolDefinitions({
 const promptManager = new PromptManager({ uiLanguage: config.uiLanguage ?? 'zh-CN' });
 
 const factory = createAgentFactory(
-  { config, toolRegistry: tools.toolRegistry, toolPlatformRegistry: tools.toolPlatformRegistry, agentManager, logger } as any,
+  {
+    config,
+    toolRegistry: tools.toolRegistry,
+    toolPlatformRegistry: tools.toolPlatformRegistry,
+    agentManager,
+    logger,
+  } as any,
   { promptManager, logger },
 );
 
 const allRegistered = tools.toolRegistry.names().sort();
 console.log('\nREGISTRY (' + allRegistered.length + '):', allRegistered.join(', '));
-console.log('has spawn_agent:', allRegistered.includes('spawn_agent'), ' has plan_and_spawn:', allRegistered.includes('plan_and_spawn'));
+console.log(
+  'has spawn_agent:',
+  allRegistered.includes('spawn_agent'),
+  ' has plan_and_spawn:',
+  allRegistered.includes('plan_and_spawn'),
+);
 
 const PROFILES: ToolProfileId[] = ['restricted', 'standard', 'full'];
 
 // Tools that the design says are ALWAYS directly exposed when eligible
 // (CORE_TOOL_NAMES + the three bridge tools added by the assembler).
 const CORE = new Set([
-  'file_read', 'file_write', 'file_edit', 'glob', 'grep', 'shell',
-  'memory-recall', 'memory-store', 'ask_user_question', 'send_message',
-  'tool_search', 'tool_describe', 'tool_call',
+  'file_read',
+  'file_write',
+  'file_edit',
+  'glob',
+  'grep',
+  'shell',
+  'memory-recall',
+  'memory-store',
+  'ask_user_question',
+  'send_message',
+  'tool_search',
+  'tool_describe',
+  'tool_call',
 ]);
 
 for (const profile of PROFILES) {
@@ -125,24 +151,39 @@ for (const profile of PROFILES) {
     .filter((n: string) => ['spawn_agent', 'plan_and_spawn'].includes(n));
 
   const all: any[] = agent.state.tools ?? [];
-  const direct = all.filter((t) => !t.deferred).map((t) => t.name).sort();
-  const deferred = all.filter((t) => t.deferred).map((t) => t.name).sort();
+  const direct = all
+    .filter((t) => !t.deferred)
+    .map((t) => t.name)
+    .sort();
+  const deferred = all
+    .filter((t) => t.deferred)
+    .map((t) => t.name)
+    .sort();
 
   const sp: string = agent.state.systemPrompt ?? '';
   const catalogEntries = (sp.match(/<tool>/g) ?? []).length;
   const annotated = (sp.match(/\[deferred — discover via tool_search/g) ?? []).length;
 
   console.log(`\n=== ${profile.toUpperCase()} ===`);
-  console.log(`registry surface: ${all.length} tools  (direct ${direct.length} / deferred ${deferred.length})`);
-  console.log(`system-prompt catalog: ${catalogEntries} entries, ${annotated} annotated as deferred`);
+  console.log(
+    `registry surface: ${all.length} tools  (direct ${direct.length} / deferred ${deferred.length})`,
+  );
+  console.log(
+    `system-prompt catalog: ${catalogEntries} entries, ${annotated} annotated as deferred`,
+  );
   console.log(`DIRECT : ${direct.join(', ')}`);
   console.log(`DEFERRED: ${deferred.join(', ')}`);
-  console.log(`with agent spawn.enabled=true -> spawn family in surface: [${spawnTools.join(', ')}]`);
+  console.log(
+    `with agent spawn.enabled=true -> spawn family in surface: [${spawnTools.join(', ')}]`,
+  );
 
   // Invariants from the design doc appendix
   const problems: string[] = [];
   for (const t of direct) {
-    if (profile === 'restricted' && ['shell', 'file_write', 'file_edit', 'glob', 'grep', 'send_message'].includes(t)) {
+    if (
+      profile === 'restricted' &&
+      ['shell', 'file_write', 'file_edit', 'glob', 'grep', 'send_message'].includes(t)
+    ) {
       problems.push(`restricted directly exposes forbidden tool: ${t}`);
     }
   }
@@ -153,15 +194,28 @@ for (const profile of PROFILES) {
     }
   }
   if (profile === 'restricted') {
-    for (const forbidden of ['shell', 'file_write', 'file_edit', 'download_file', 'web_fetch', 'web_search', 'spawn_agent', 'cronjob', 'skill_create']) {
-      if (all.some((t) => t.name === forbidden)) problems.push(`restricted has ineligible tool: ${forbidden}`);
+    for (const forbidden of [
+      'shell',
+      'file_write',
+      'file_edit',
+      'download_file',
+      'web_fetch',
+      'web_search',
+      'spawn_agent',
+      'cronjob',
+      'skill_create',
+    ]) {
+      if (all.some((t) => t.name === forbidden))
+        problems.push(`restricted has ineligible tool: ${forbidden}`);
     }
   }
   if (catalogEntries !== all.length) {
     problems.push(`catalog entries (${catalogEntries}) != registry surface (${all.length})`);
   }
   if (annotated !== deferred.length) {
-    problems.push(`catalog deferred annotations (${annotated}) != deferred count (${deferred.length})`);
+    problems.push(
+      `catalog deferred annotations (${annotated}) != deferred count (${deferred.length})`,
+    );
   }
   console.log(problems.length > 0 ? `PROBLEMS:\n  - ${problems.join('\n  - ')}` : 'INVARIANTS OK');
 }

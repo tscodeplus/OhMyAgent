@@ -607,9 +607,7 @@ async function handleViaPolicyCenter(
     writeRoots: [] as string[],
     deniedPatterns: [] as string[],
     shellExecMode: (deps.shellMode === 'read-only' ? 'safe' : 'balanced') as
-      | 'safe'
-      | 'balanced'
-      | 'trusted',
+      'safe' | 'balanced' | 'trusted',
     sessionApprovals: [] as string[],
     appApprovals: [] as string[],
     readOnly: deps.shellMode === 'read-only',

@@ -185,11 +185,7 @@ export function assembleAgentTools(opts: ToolPipelineOptions): ToolPipelineResul
     // 'full' is an empty allowlist (= everything visible) — skip filtering,
     // same as AgentManager.filterByProfile.
     const profileAllowedTools = PROFILE_TOOLS[opts.effectiveProfile] ?? PROFILE_TOOLS.standard;
-    if (
-      opts.effectiveProfile !== 'full' &&
-      profileAllowedTools[0] !== '*' &&
-      !opts.explicitTools
-    ) {
+    if (opts.effectiveProfile !== 'full' && profileAllowedTools[0] !== '*' && !opts.explicitTools) {
       tools = tools.filter(
         (t: any) => profileAllowedTools.includes(t.name) || t.name === 'computer_use',
       );

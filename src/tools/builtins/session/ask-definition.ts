@@ -42,7 +42,6 @@ interface AskUserQuestionArgs {
   options?: string[];
 }
 
-
 /**
  * Create the ask_user_question ToolDefinition.
  *
@@ -117,8 +116,7 @@ export function createAskUserQuestionToolDefinition(): ToolDefinition {
         const answer = await userQuestionStore.create(requestId, undefined, ctx.sessionId);
 
         // Cancelled questions must not render as "answered" in the question UI.
-        const cancelled =
-          answer.startsWith('[Cancelled]') || answer.startsWith('[Timeout]');
+        const cancelled = answer.startsWith('[Cancelled]') || answer.startsWith('[Timeout]');
 
         // Close/resolve the question UI (best-effort)
         if (sender.closeQuestion) {

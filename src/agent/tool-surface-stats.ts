@@ -83,7 +83,9 @@ export function getToolSurfaceSnapshot(): ToolSurfaceSnapshot {
     windowSize: ring.length,
     avgVisibleTools: Math.round((sumVisible / ring.length) * 10) / 10,
     avgDeferredTools:
-      withDeferred.length > 0 ? Math.round((sumDeferred / withDeferred.length) * 10) / 10 : undefined,
+      withDeferred.length > 0
+        ? Math.round((sumDeferred / withDeferred.length) * 10) / 10
+        : undefined,
     narrowTurns,
     narrowRate: Math.round((narrowTurns / ring.length) * 1000) / 1000,
     strictTurns,

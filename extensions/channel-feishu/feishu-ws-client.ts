@@ -75,10 +75,7 @@ export class FeishuWSClient {
           const flat = flattenSdkArgs(args);
           const msg = flat[0];
           if (typeof msg === 'string' && /^no \S+ handle$/.test(msg)) {
-            this.logger.debug(
-              { event: msg },
-              '[ws] unhandled Feishu event type (benign, ignored)',
-            );
+            this.logger.debug({ event: msg }, '[ws] unhandled Feishu event type (benign, ignored)');
             return;
           }
           this.logger.warn(...flat);

@@ -23,7 +23,8 @@ function makeSender() {
 function bodyElements(card: Record<string, unknown>): Record<string, unknown>[] {
   return ((card.body as { elements: Record<string, unknown>[] }).elements ?? []) as Record<
     string,
-    unknown>[];
+    unknown
+  >[];
 }
 
 describe('FeishuUserQuestionSender card layout', () => {

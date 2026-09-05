@@ -110,8 +110,8 @@ export function createWSCardActionHandler(opts: WSCardActionHandlerOptions): (
 
       const isEditSubmit = harnessAction === 'edit_submit';
       const decision = isEditSubmit ? 'edit' : harnessAction;
-      const formValue = (callback?.action?.form_value ??
-        callback?.action?.formValue) as Record<string, unknown> | undefined;
+      const formValue = (callback?.action?.form_value ?? callback?.action?.formValue) as
+        Record<string, unknown> | undefined;
       const editedValue =
         isEditSubmit && formValue && typeof formValue.editedValue === 'string'
           ? formValue.editedValue

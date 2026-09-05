@@ -208,36 +208,31 @@ export default function ChatInput({
   // — search box included — never extends under it and gets clipped; on
   // desktop it's the top of the viewport (no topbar, identical to before).
   const [selectorMenuMaxH, setSelectorMenuMaxH] = useState<number | null>(null);
-  const measureSelectorMenus = useCallback(
-    (forModel: boolean) => {
-      const anchor = selectorRef.current;
-      if (!anchor) return;
-      const rect = anchor.getBoundingClientRect();
-      // visualViewport: on phones the address bar expands/collapses and
-      // window.innerHeight no longer equals the visible area — visualViewport
-      // does (offsetTop = top of the visible area). Identical to innerHeight
-      // on desktop.
-      const vv = window.visualViewport;
-      const vtop = vv?.offsetTop ?? 0;
-      const cap = forModel ? 384 : 256; // 24rem / 16rem
-      // The mobile top bar sits inside the layout above the chat column, so
-      // an upward panel can extend past it and be clipped by the column's
-      // overflow — hiding the search box. Account for its bottom edge when
-      // sizing: the panel stays below it. Desktop has no such bar (the
-      // element is md:hidden → getClientRects() is empty) → falls back to
-      // vtop, keeping desktop sizing unchanged.
-      const topbar = document.querySelector<HTMLElement>('[data-topbar]');
-      const topbarBottom =
-        topbar && topbar.getClientRects().length > 0
-          ? topbar.getBoundingClientRect().bottom
-          : vtop;
-      // Space above the selector row (bottom of panel → below the topbar /
-      // top of viewport); mb-2 = 8px + 4px slack so the panel never kisses.
-      const sideSpace = rect.top - Math.max(vtop, topbarBottom) - 12;
-      setSelectorMenuMaxH(Math.max(96, Math.floor(Math.min(cap, sideSpace))));
-    },
-    [],
-  );
+  const measureSelectorMenus = useCallback((forModel: boolean) => {
+    const anchor = selectorRef.current;
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    // visualViewport: on phones the address bar expands/collapses and
+    // window.innerHeight no longer equals the visible area — visualViewport
+    // does (offsetTop = top of the visible area). Identical to innerHeight
+    // on desktop.
+    const vv = window.visualViewport;
+    const vtop = vv?.offsetTop ?? 0;
+    const cap = forModel ? 384 : 256; // 24rem / 16rem
+    // The mobile top bar sits inside the layout above the chat column, so
+    // an upward panel can extend past it and be clipped by the column's
+    // overflow — hiding the search box. Account for its bottom edge when
+    // sizing: the panel stays below it. Desktop has no such bar (the
+    // element is md:hidden → getClientRects() is empty) → falls back to
+    // vtop, keeping desktop sizing unchanged.
+    const topbar = document.querySelector<HTMLElement>('[data-topbar]');
+    const topbarBottom =
+      topbar && topbar.getClientRects().length > 0 ? topbar.getBoundingClientRect().bottom : vtop;
+    // Space above the selector row (bottom of panel → below the topbar /
+    // top of viewport); mb-2 = 8px + 4px slack so the panel never kisses.
+    const sideSpace = rect.top - Math.max(vtop, topbarBottom) - 12;
+    setSelectorMenuMaxH(Math.max(96, Math.floor(Math.min(cap, sideSpace))));
+  }, []);
 
   // Project's default agent — the agent dropdown's initial value.
   useEffect(() => {
@@ -348,8 +343,7 @@ export default function ChatInput({
     const provider = effectiveModel.slice(0, idx);
     const modelId = effectiveModel.slice(idx + 1);
     return (
-      modelGroups.find((g) => g.provider === provider)?.models.find((m) => m.id === modelId) ??
-      null
+      modelGroups.find((g) => g.provider === provider)?.models.find((m) => m.id === modelId) ?? null
     );
   }, [effectiveModel, modelGroups]);
   /** Server precedence: per-model config (customProviders) > global

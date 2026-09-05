@@ -57,11 +57,7 @@ describe('detectIntentDomain', () => {
 
 describe('isToolVisibleForIntent', () => {
   it('always keeps forced-core tools (bridges + IM interaction)', () => {
-    for (const domain of [
-      'bare-chat',
-      'code',
-      'web',
-    ] as IntentDomain[]) {
+    for (const domain of ['bare-chat', 'code', 'web'] as IntentDomain[]) {
       expect(isToolVisibleForIntent('tool_search', domain)).toBe(true);
       expect(isToolVisibleForIntent('tool_call', domain)).toBe(true);
       expect(isToolVisibleForIntent('ask_user_question', domain)).toBe(true);

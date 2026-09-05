@@ -527,8 +527,7 @@ export function createAgentFactory(
       // P4: per-turn intent narrowing — only when NO skill owns the turn
       // (strict mode replaces it entirely; skill-activated turns are already
       // domain-scoped by the skill itself).
-      const intentNarrowingEnabled =
-        (configRef.current.tools.intentNarrowing ?? 'auto') !== 'off';
+      const intentNarrowingEnabled = (configRef.current.tools.intentNarrowing ?? 'auto') !== 'off';
       const intentDomain =
         !compiled && intentNarrowingEnabled
           ? detectIntentDomain(options?.message ?? '')?.domain
