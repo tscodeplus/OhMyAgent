@@ -1,0 +1,168 @@
+name: Desktop macOS Screenshot
+
+# Visual verification of the macOS shell chrome (traffic-light position fix):
+# builds the same .app bundle the release workflow produces, launches it on the
+# runner's GUI session, waits for the gateway to become healthy (the main
+# window — the only one with native traffic lights — is revealed lazily after
+# /api/health), then captures the screen and uploads the PNGs + app logs.
+#
+# Run via: gh workflow run desktop-macos-screenshot.yml --ref <branch>
+# (or from the Actions UI). The screenshots land in the run's artifacts.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screenshot:
+    runs-on: macos-14
+    timeout-minutes: 100
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Install Node (matches bundled runtime)
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: desktop/.node-version
+          cache: pnpm
+          package-manager-cache: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.94.1
+        with:
+          targets: aarch64-apple-darwin
+
+      # Same cache keys as desktop-release.yml's aarch64 job, so a warm cache
+      # turns this into a link+package run instead of a full recompile.
+      - name: Cache cargo (registry + toolchain + build artifacts)
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.rustup
+            desktop/src-tauri/target
+          key: cargo-aarch64-apple-darwin-${{ hashFiles('desktop/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            cargo-aarch64-apple-darwin-
+
+      - name: Cache bundled Node runtime
+        uses: actions/cache@v5
+        with:
+          path: desktop/.sidecar-deps/runtime
+          key: node-darwin-arm64-${{ hashFiles('desktop/.node-version') }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build WebUI
+        run: cd ui && pnpm install --frozen-lockfile && pnpm build
+
+      - name: Build server (root TS)
+        run: pnpm build
+
+      - name: Bundle sidecar deps
+        run: cd desktop && node scripts/bundle-deps.cjs
+        env:
+          OMA_TARGET_PLATFORM: darwin-arm64
+
+      - name: Fetch bundled Node runtime
+        run: cd desktop && node scripts/fetch-node.cjs
+        env:
+          OMA_TARGET_PLATFORM: darwin-arm64
+
+      - name: Build Tauri app (.app bundle)
+        timeout-minutes: 90
+        run: cd desktop && npm run tauri:build:mac
+        env:
+          OMA_TARGET_PLATFORM: darwin-arm64
+
+      # The main window (native traffic lights) is only revealed after the
+      # sidecar answers /api/health — and only when first-run is already done.
+      # Without this seed the runner would screenshot the frameless
+      # gateway-chooser window instead, which has no traffic lights.
+      - name: Seed desktop config (skip first-run chooser)
+        run: |
+          DIR="$HOME/Library/Application Support/OhMyAgent"
+          mkdir -p "$DIR/data" "$DIR/logs"
+          cat > "$DIR/desktop-config.json" <<'EOF'
+          {
+            "closeToTray": true,
+            "autoStart": false,
+            "theme": "dark",
+            "language": "zh-CN",
+            "firstRunDone": true,
+            "webuiToken": "ci-screenshot-token",
+            "gateway": { "mode": "local", "remoteUrl": "", "remoteToken": "" }
+          }
+          EOF
+          # A fresh data dir otherwise trips the WebUI setup wizard (missing
+          # piAi provider/model/apiKey), whose blurred modal hides the main
+          # UI in the screenshot. Placeholder credentials skip the wizard —
+          # nothing calls the provider during a screenshot run.
+          cat > "$DIR/config.yaml" <<'EOF'
+          setup_wizard_done: true
+          provider:
+            primary: openai-completions/gpt-4o-mini
+            api_key: ci-placeholder-key
+          EOF
+          cat "$DIR/desktop-config.json" "$DIR/config.yaml"
+
+      - name: Launch app and capture screenshots
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          APP="desktop/src-tauri/target/release/bundle/macos/OhMyAgent.app"
+          system_profiler SPDisplaysDataType 2>/dev/null | grep -i resolution || true
+
+          # Wake the display so the capture isn't a black frame.
+          caffeinate -u -t 5
+          open -n "$APP"
+          echo "launched, polling /api/health…"
+
+          HEALTHY=0
+          for i in $(seq 1 120); do
+            if curl -fsS -m 5 "http://127.0.0.1:9191/api/health" > /dev/null 2>&1; then
+              HEALTHY=1
+              echo "healthy after ~$((i * 3))s"
+              break
+            fi
+            sleep 3
+          done
+          if [ "$HEALTHY" != "1" ]; then
+            echo "::warning::gateway never became healthy — screenshots will show whatever state the app reached"
+          fi
+
+          # Margin for the reveal + WebUI first paint.
+          sleep 20
+          caffeinate -u -t 5
+          screencapture -x "$RUNNER_TEMP/oma-screen-1.png" || echo "::warning::screencapture 1 failed"
+          sleep 30
+          caffeinate -u -t 5
+          screencapture -x "$RUNNER_TEMP/oma-screen-2.png" || echo "::warning::screencapture 2 failed"
+
+          ls -la "$RUNNER_TEMP"/oma-screen-*.png
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-screenshots
+          path: ${{ runner.temp }}/oma-screen-*.png
+          if-no-files-found: error
+
+      - name: Upload app logs (for diagnosis)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-app-logs
+          path: |
+            ~/Library/Application Support/OhMyAgent/logs/
+            ~/Library/Application Support/OhMyAgent/desktop-config.json
+          if-no-files-found: ignore
