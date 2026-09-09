@@ -43,7 +43,7 @@
   },
   "packageManager": "pnpm@10.30.3",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.91.1",
+    "@anthropic-ai/sdk": "^0.123.0",
     "@aws-sdk/client-bedrock-runtime": "^3.1048.0",
     "@fastify/cors": "^11.2.0",
     "@fastify/multipart": "^10.0.0",

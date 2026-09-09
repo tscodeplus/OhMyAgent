@@ -1,10 +1,11 @@
+import { anthropicMessagesApi } from "../api/anthropic-messages.lazy.js";
 import { openAICompletionsApi } from "../api/openai-completions.lazy.js";
 import { envApiKeyAuth, lazyOAuth } from "../auth/helpers.js";
 import { loadOpenRouterOAuth } from "../auth/oauth/load.js";
 import { createProvider, type Provider } from "../models.js";
 import { OPENROUTER_MODELS } from "./openrouter.models.js";
 
-export function openrouterProvider(): Provider<"openai-completions"> {
+export function openrouterProvider(): Provider<"anthropic-messages" | "openai-completions"> {
 	return createProvider({
 		id: "openrouter",
 		name: "OpenRouter",
@@ -18,6 +19,9 @@ export function openrouterProvider(): Provider<"openai-completions"> {
 			}),
 		},
 		models: Object.values(OPENROUTER_MODELS),
-		api: openAICompletionsApi(),
+		api: {
+			"anthropic-messages": anthropicMessagesApi(),
+			"openai-completions": openAICompletionsApi(),
+		},
 	});
 }
