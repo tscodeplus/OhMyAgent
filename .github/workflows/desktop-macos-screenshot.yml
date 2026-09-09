@@ -102,7 +102,18 @@ jobs:
             "gateway": { "mode": "local", "remoteUrl": "", "remoteToken": "" }
           }
           EOF
-          cat "$DIR/desktop-config.json"
+          # A fresh data dir otherwise trips the WebUI setup wizard (missing
+          # piAi provider/model/apiKey), whose blurred modal hides the main
+          # UI in the screenshot. Placeholder credentials skip the wizard —
+          # nothing calls the provider during a screenshot run.
+          cat > "$DIR/config.yaml" <<'EOF'
+          setupWizardDone: true
+          piAi:
+            provider: openai-completions
+            model: gpt-4o-mini
+            apiKey: ci-placeholder-key
+          EOF
+          cat "$DIR/desktop-config.json" "$DIR/config.yaml"
 
       - name: Launch app and capture screenshots
         timeout-minutes: 10
