@@ -371,8 +371,12 @@ export default function AppShell() {
       <div
         className={`absolute inset-0 flex flex-col transition-opacity duration-200 ${sidebarVisible || mobileSidebar ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
       >
-        {/* Header — brand + collapse toggle */}
-        <div className="flex h-16 shrink-0 items-center justify-between pl-2 pr-4">
+        {/* Header — brand + collapse toggle. On macOS the native traffic
+            lights overlay the top strip; the extra margin gives the brand
+            row a little more breathing room below them. */}
+        <div
+          className={`flex h-16 shrink-0 items-center justify-between pl-2 pr-4 ${isMac ? 'mt-3' : ''}`}
+        >
           <button
             type="button"
             onClick={() => navigate('/')}
