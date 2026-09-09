@@ -127,13 +127,20 @@ pub fn create_splash(app: &AppHandle) -> tauri::Result<()> {
     // The page is a static resource (pages/splash.html) loaded over the App
     // URL — data: URLs are unreliable on WKWebView (charset detection, and
     // plain-text rendering of the payload — wry dropped native data: URL
-    // support in 0.37). The label is localized in-page from
-    // navigator.language.
+    // support in 0.37). The label is localized from the configured UI language
+    // (desktop-config.json, same source the tray uses — i18n.rs), injected via
+    // an initialization script; the page itself falls back to
+    // navigator.language when the variable is absent (e.g. manual page loads).
+    let init_script = format!(
+        "window.__SPLASH_LANG = '{}';",
+        if crate::i18n::is_zh(app) { "zh" } else { "en" }
+    );
     let builder = WebviewWindowBuilder::new(
         app,
         SPLASH_LABEL,
         WebviewUrl::App("pages/splash.html".into()),
     )
+    .initialization_script(&init_script)
         .title("OhMyAgent")
         .inner_size(340.0, 240.0)
         .resizable(false)

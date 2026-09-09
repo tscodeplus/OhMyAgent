@@ -3,7 +3,9 @@
      (desktop/src/main.ts:createSplashHtml). Loaded as a static resource via
      the App URL: data: URLs are unreliable on WKWebView (charset detection,
      plain-text rendering — wry dropped native data: URL support in 0.37).
-     The label is localized in-page from navigator.language. -->
+     The label is localized from window.__SPLASH_LANG, injected by the shell
+     (windows.rs reads desktop-config.json via i18n.rs); falls back to
+     navigator.language (system locale) when the variable is absent. -->
 <html><head><meta charset="utf-8">
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
@@ -40,8 +42,13 @@
     <div class="text" id="text">OhMyAgent Starting…</div>
   </div>
   <script>
-    if (navigator.language && navigator.language.toLowerCase().startsWith('zh')) {
-      document.getElementById('text').textContent = 'OhMyAgent 启动中…';
-    }
+    (function () {
+      var lang = window.__SPLASH_LANG;
+      if (!lang) {
+        lang = navigator.language && navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en';
+      }
+      document.getElementById('text').textContent =
+        lang === 'zh' ? 'OhMyAgent 启动中…' : 'OhMyAgent Starting…';
+    })();
   </script>
 </body></html>
