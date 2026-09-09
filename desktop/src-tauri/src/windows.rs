@@ -87,11 +87,11 @@ pub fn create_main_window(app: &AppHandle) -> tauri::Result<()> {
         .initialization_script(compat_js);
     #[cfg(target_os = "macos")]
     {
-        // hiddenInset-style: transparent title bar, content under it, native
-        // traffic lights parked where the WebUI's sidebar clears them.
-        builder = builder
-            .title_bar_style(tauri::TitleBarStyle::Overlay)
-            .traffic_light_position(tauri::LogicalPosition::new(16.0, 18.0));
+        // Overlay style: transparent title bar with content under it. The
+        // traffic lights stay at AppKit's default (the conventional top-left
+        // spot, ~7pt inset) — any custom traffic_light_position here shifted
+        // the group low enough to graze the sidebar's pt-8 clearing strip.
+        builder = builder.title_bar_style(tauri::TitleBarStyle::Overlay);
     }
     #[cfg(not(target_os = "macos"))]
     {
