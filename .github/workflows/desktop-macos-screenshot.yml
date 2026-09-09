@@ -107,11 +107,10 @@ jobs:
           # UI in the screenshot. Placeholder credentials skip the wizard —
           # nothing calls the provider during a screenshot run.
           cat > "$DIR/config.yaml" <<'EOF'
-          setupWizardDone: true
-          piAi:
-            provider: openai-completions
-            model: gpt-4o-mini
-            apiKey: ci-placeholder-key
+          setup_wizard_done: true
+          provider:
+            primary: openai-completions/gpt-4o-mini
+            api_key: ci-placeholder-key
           EOF
           cat "$DIR/desktop-config.json" "$DIR/config.yaml"
 
