@@ -7,7 +7,7 @@ export function createMemoryDoctorJob(
 ): MaintenanceJob {
   return {
     name: 'memory_doctor',
-    enabled: false, // Default off — explicit trigger via tool or config
+    enabled: true, // Diagnostic + safe repair; opt out via maintenance.jobs.memory_doctor: false
     intervalMs,
     async run({ dryRun }): Promise<MaintenanceJobResult> {
       if (dryRun) {

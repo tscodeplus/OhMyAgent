@@ -5,6 +5,7 @@ import { runV3Migrations } from './migration-v3.js';
 import { migrateV4 } from './migration-v4.js';
 import { migrateV5 } from './migration-v5.js';
 import { migrateV6 } from './migration-v6.js';
+import { migrateV7 } from './migration-v7.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -118,6 +119,11 @@ export function openDatabase(dbPath: string): Database.Database {
 
   // V6 migration: add performance-optimizing composite indexes (idempotent)
   migrateV6(db);
+
+  // V7 migration: normalize memory_observation_events.created_at to epoch-ms
+  // (legacy tables carry a datetime('now') DEFAULT that survives CREATE TABLE
+  // IF NOT EXISTS and breaks time-window queries mixing formats).
+  migrateV7(db);
 
   // Backfill FTS index for memories that are missing from it (first-time
   // migration for existing databases, plus partial corruption self-heal:

@@ -2,8 +2,8 @@ import type Database from 'better-sqlite3';
 import type { MemoryRepository } from '../repositories/memory-repository.js';
 import type { PersonaStore } from '../persona-store.js';
 import type { PersonaDistiller } from '../persona-distiller.js';
-import { memoryObservability } from '../observability.js';
 import { parseEpochMs } from '../../shared/timestamp.js';
+import { loadSqliteVecExtension } from '../sqlite-vec.js';
 
 export interface DoctorCheck {
   name: string;
@@ -29,16 +29,46 @@ export class MemoryDoctor {
   async diagnose(): Promise<DoctorReport> {
     const checks: DoctorCheck[] = [];
 
-    // 1. Orphan embeddings
-    const orphanEmbeddings = this.db
-      .prepare(
-        `
+    // The doctor may be invoked on a connection that hasn't loaded sqlite-vec
+    // yet (standalone tool runs) — without it, vec_* virtual tables error as
+    // "no such module: vec0" and vec-side checks silently no-op.
+    try {
+      loadSqliteVecExtension(this.db);
+    } catch {
+      // vec0 unavailable on this platform — vec table checks will be skipped.
+    }
+
+    // 1. Orphan embeddings (fallback table + vec0 virtual table)
+    const orphanEmbeddings = [
+      ...(
+        this.db
+          .prepare(
+            `
       SELECT me.id FROM memory_embeddings me
       LEFT JOIN memories m ON me.memory_id = m.id
       WHERE m.id IS NULL
     `,
-      )
-      .all() as Array<{ id: string }>;
+          )
+          .all() as Array<{ id: string }>
+      ).map((r) => r.id),
+    ];
+    try {
+      orphanEmbeddings.push(
+        ...(
+          this.db
+            .prepare(
+              `
+      SELECT v.memory_id AS id FROM vec_memory_embeddings v
+      LEFT JOIN memories m ON v.memory_id = m.id
+      WHERE m.id IS NULL
+    `,
+            )
+            .all() as Array<{ id: string }>
+        ).map((r) => r.id),
+      );
+    } catch {
+      // vec0 unavailable on this platform — table absent.
+    }
     checks.push({
       name: 'orphan_embeddings',
       status: orphanEmbeddings.length > 0 ? 'warning' : 'ok',
@@ -65,6 +95,45 @@ export class MemoryDoctor {
       message:
         orphanLinks.length > 0 ? `${orphanLinks.length} orphan links found` : 'No orphan links',
       details: { count: orphanLinks.length },
+    });
+
+    // 2b. Orphan terms
+    const orphanTerms = this.db
+      .prepare(
+        `
+      SELECT mt.memory_id FROM memory_terms mt
+      LEFT JOIN memories m ON mt.memory_id = m.id
+      WHERE m.id IS NULL
+    `,
+      )
+      .all() as Array<{ memory_id: string }>;
+    checks.push({
+      name: 'orphan_terms',
+      status: orphanTerms.length > 0 ? 'warning' : 'ok',
+      message:
+        orphanTerms.length > 0 ? `${orphanTerms.length} orphan terms found` : 'No orphan terms',
+      details: { count: orphanTerms.length },
+    });
+
+    // 2c. Lexical terms coverage — memories with no memory_terms rows are
+    // invisible to the lexical recall channel (termSearchWrapper).
+    const missingTerms = this.db
+      .prepare(
+        `
+      SELECT COUNT(*) as cnt FROM memories m
+      WHERE m.status = 'active'
+        AND NOT EXISTS (SELECT 1 FROM memory_terms mt WHERE mt.memory_id = m.id)
+    `,
+      )
+      .get() as { cnt: number };
+    checks.push({
+      name: 'terms_coverage',
+      status: missingTerms.cnt > 0 ? 'warning' : 'ok',
+      message:
+        missingTerms.cnt > 0
+          ? `${missingTerms.cnt} active memories missing lexical terms (terms_backfill will repair)`
+          : 'All active memories have lexical terms',
+      details: { count: missingTerms.cnt },
     });
 
     // 3. FTS vs lifecycle consistency
@@ -158,18 +227,34 @@ export class MemoryDoctor {
       details: { count: inactiveCount.cnt },
     });
 
-    const observationReport = memoryObservability.snapshot();
+    // Degradation events from the last 24h only — all-time counts are
+    // dominated by historical noise and would flag permanently (same windowing
+    // convention as GET /api/memory/pipeline/status).
+    let recentTotal = 0;
+    let recentCounts: Record<string, number> = {};
+    try {
+      const rows = this.db
+        .prepare(
+          `SELECT event, COUNT(*) AS n FROM memory_observation_events
+           WHERE CAST(created_at AS INTEGER) >= ? GROUP BY event`,
+        )
+        .all(Date.now() - 24 * 60 * 60 * 1000) as Array<{ event: string; n: number }>;
+      recentTotal = rows.reduce((sum, row) => sum + row.n, 0);
+      recentCounts = Object.fromEntries(rows.map((row) => [row.event, row.n]));
+    } catch {
+      // Table may not exist yet on fresh DBs.
+    }
     checks.push({
       name: 'memory_observability',
-      status: observationReport.total > 0 ? 'warning' : 'ok',
+      status: recentTotal > 0 ? 'warning' : 'ok',
       message:
-        observationReport.total > 0
-          ? `${observationReport.total} memory degradation/error events recorded`
-          : 'No memory degradation/error events recorded',
+        recentTotal > 0
+          ? `${recentTotal} memory degradation/error events in the last 24h`
+          : 'No memory degradation/error events in the last 24h',
       details: {
-        total: observationReport.total,
-        counts: observationReport.counts,
-        recent: observationReport.recent.slice(-5),
+        windowHours: 24,
+        total: recentTotal,
+        counts: recentCounts,
       },
     });
 
@@ -195,11 +280,22 @@ export class MemoryDoctor {
     const report = await this.diagnose();
     let repaired = 0;
 
-    // Repair orphan embeddings
+    // Repair orphan embeddings — both the fallback table and the vec0
+    // virtual table (which has no FK cascade and is invisible to raw SQL
+    // joins the checks use).
     const orphanEmbeddings = report.checks.find((c) => c.name === 'orphan_embeddings');
     if (orphanEmbeddings?.status !== 'ok') {
       const count = (orphanEmbeddings?.details?.count as number) ?? 0;
       if (count > 0) {
+        const danglingIds = (
+          this.db
+            .prepare(
+              `
+          SELECT memory_id FROM memory_embeddings WHERE memory_id NOT IN (SELECT id FROM memories)
+        `,
+            )
+            .all() as Array<{ memory_id: string }>
+        ).map((r) => r.memory_id);
         this.db
           .prepare(
             `
@@ -207,7 +303,21 @@ export class MemoryDoctor {
         `,
           )
           .run();
-        repaired += count;
+        // vec0 rows for the same dangling ids (SQLite drops the table when
+        // the vec0 extension is missing — tolerate that).
+        try {
+          const vecResult = this.db
+            .prepare(
+              `
+            DELETE FROM vec_memory_embeddings WHERE memory_id NOT IN (SELECT id FROM memories)
+          `,
+            )
+            .run();
+          repaired += vecResult.changes;
+        } catch {
+          // vec0 unavailable on this platform — vec table absent.
+        }
+        repaired += danglingIds.length;
       }
     }
 
@@ -220,6 +330,22 @@ export class MemoryDoctor {
           .prepare(
             `
           DELETE FROM memory_links WHERE source_memory_id NOT IN (SELECT id FROM memories)
+        `,
+          )
+          .run();
+        repaired += count;
+      }
+    }
+
+    // Repair orphan terms
+    const orphanTerms = report.checks.find((c) => c.name === 'orphan_terms');
+    if (orphanTerms?.status !== 'ok') {
+      const count = (orphanTerms?.details?.count as number) ?? 0;
+      if (count > 0) {
+        this.db
+          .prepare(
+            `
+          DELETE FROM memory_terms WHERE memory_id NOT IN (SELECT id FROM memories)
         `,
           )
           .run();

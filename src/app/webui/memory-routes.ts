@@ -13,6 +13,21 @@ import {
   MemoryTermRepository,
   extractMemoryTerms,
 } from '../../memory/repositories/memory-term-repository.js';
+import { MaintenanceRunRepository } from '../../memory/maintenance/maintenance-run-repository.js';
+import { parseEpochMs } from '../../shared/timestamp.js';
+
+/** DreamCycle phases — mirrors the phase list in dream-cycle.ts runAll(). */
+const DREAMCYCLE_PHASES = [
+  'synthesize',
+  'backlinks',
+  'extract',
+  'sceneCluster',
+  'hygiene',
+  'embed',
+  'purge',
+] as const;
+
+const VALID_VISIBILITIES = new Set(['shared', 'private', 'agent']);
 
 interface MemoryRouteConfig {
   db: Database.Database;
@@ -42,6 +57,162 @@ function dropEmbedding(db: Database.Database, id: string): void {
   }
 }
 
+/** Delete a memory row plus its derived stores (terms + embedding). */
+function deleteMemoryWithDerivedStores(db: Database.Database, id: string): void {
+  new MemoryRepository(db).delete(id);
+  db.prepare('DELETE FROM memory_terms WHERE memory_id = ?').run(id);
+  dropEmbedding(db, id);
+}
+
+/**
+ * Degradation events within the last 24h, counted straight from
+ * memory_observation_events (epoch-ms digit-string timestamps).
+ */
+function recentObservabilityEvents(db: Database.Database): {
+  windowHours: number;
+  total: number;
+  counts: Record<string, number>;
+} {
+  const since = Date.now() - 24 * 60 * 60 * 1000;
+  const counts: Record<string, number> = {};
+  let total = 0;
+  try {
+    const rows = db
+      .prepare(
+        'SELECT event, COUNT(*) AS n FROM memory_observation_events WHERE CAST(created_at AS INTEGER) >= ? GROUP BY event',
+      )
+      .all(since) as Array<{ event: string; n: number | string }>;
+    for (const row of rows) {
+      counts[row.event] = Number(row.n);
+      total += Number(row.n);
+    }
+  } catch {
+    // Table may not exist yet on fresh DBs — report an empty window.
+  }
+  return { windowHours: 24, total, counts };
+}
+
+/** All-time degradation counters from memory_observation_events. */
+function allTimeObservabilityEvents(db: Database.Database): {
+  total: number;
+  counts: Record<string, number>;
+} {
+  const counts: Record<string, number> = {};
+  let total = 0;
+  try {
+    const rows = db
+      .prepare('SELECT event, COUNT(*) AS n FROM memory_observation_events GROUP BY event')
+      .all() as Array<{ event: string; n: number | string }>;
+    for (const row of rows) {
+      counts[row.event] = Number(row.n);
+      total += Number(row.n);
+    }
+  } catch {
+    // Table may not exist yet on fresh DBs.
+  }
+  return { total, counts };
+}
+
+/**
+ * Degradation events since the last DreamCycle run started — the "latest run
+ * was clean?" signal that the rolling 24h window cannot answer.
+ */
+function sinceLastRunObservabilityEvents(db: Database.Database): {
+  runStartedAt: number | null;
+  total: number;
+  counts: Record<string, number>;
+} {
+  let runStartedAt: number | null = null;
+  try {
+    const row = db
+      .prepare(
+        "SELECT MAX(started_at) AS started_at FROM maintenance_runs WHERE job_name LIKE 'dreamcycle_%'",
+      )
+      .get() as { started_at: string | null };
+    const parsed = parseEpochMs(row?.started_at);
+    runStartedAt = parsed > 0 ? parsed : null;
+  } catch {
+    // maintenance_runs may not exist yet on fresh DBs.
+  }
+  const counts: Record<string, number> = {};
+  let total = 0;
+  if (runStartedAt !== null) {
+    try {
+      const rows = db
+        .prepare(
+          'SELECT event, COUNT(*) AS n FROM memory_observation_events WHERE CAST(created_at AS INTEGER) >= ? GROUP BY event',
+        )
+        .all(runStartedAt) as Array<{ event: string; n: number | string }>;
+      for (const row of rows) {
+        counts[row.event] = Number(row.n);
+        total += Number(row.n);
+      }
+    } catch {
+      // Table may not exist yet on fresh DBs — report empty.
+    }
+  }
+  return { runStartedAt, total, counts };
+}
+
+/**
+ * Per-layer record counts for the pipeline status route, using the same L0–L3
+ * mapping as MemoryPipeline (memory-pipeline.ts):
+ *   L0 = raw sessions/messages, L1 = atomic memories (non-scene/persona),
+ *   L2 = scene clusters, L3 = persona rows.
+ */
+function buildLayerCounts(db: Database.Database): Array<{
+  layer: string;
+  label: string;
+  recordCount: number;
+  lastProcessedAt: string | null;
+}> {
+  const scalar = (sql: string): number => {
+    const row = db.prepare(sql).get() as { n?: number | string } | undefined;
+    return row?.n != null ? Number(row.n) : 0;
+  };
+  const lastProcessed = (sql: string): string | null =>
+    (db.prepare(sql).get() as { t?: string } | undefined)?.t ?? null;
+
+  const l1 = scalar(
+    "SELECT COUNT(*) AS n FROM memories WHERE status = 'active' AND kind NOT IN ('scene', 'persona')",
+  );
+  const l2 = scalar("SELECT COUNT(*) AS n FROM memories WHERE kind = 'scene'");
+  const l3 = scalar("SELECT COUNT(*) AS n FROM memories WHERE kind = 'persona'");
+
+  return [
+    {
+      layer: 'L0',
+      label: 'Raw Conversation',
+      recordCount: scalar('SELECT COUNT(*) AS n FROM sessions'),
+      lastProcessedAt: lastProcessed('SELECT MAX(created_at) AS t FROM sessions'),
+    },
+    {
+      layer: 'L1',
+      label: 'Atomic Memories',
+      recordCount: l1,
+      lastProcessedAt: lastProcessed(
+        "SELECT MAX(updated_at) AS t FROM memories WHERE status = 'active' AND kind NOT IN ('scene', 'persona')",
+      ),
+    },
+    {
+      layer: 'L2',
+      label: 'Scene Clusters',
+      recordCount: l2,
+      lastProcessedAt: lastProcessed(
+        "SELECT MAX(updated_at) AS t FROM memories WHERE kind = 'scene'",
+      ),
+    },
+    {
+      layer: 'L3',
+      label: 'User Persona',
+      recordCount: l3,
+      lastProcessedAt: lastProcessed(
+        "SELECT MAX(updated_at) AS t FROM memories WHERE kind = 'persona'",
+      ),
+    },
+  ];
+}
+
 export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfig): void {
   // ---- Memories ----
 
@@ -52,6 +223,10 @@ export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfi
         q?: string;
         scope?: string;
         project_id?: string;
+        agent_id?: string;
+        visibility?: string;
+        kind?: string;
+        status?: string;
         offset?: string;
         limit?: string;
       };
@@ -70,6 +245,27 @@ export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfi
       if (query.project_id && query.project_id !== 'all') {
         sql += ' AND scope_key LIKE ?';
         params.push(`%${query.project_id}%`);
+      }
+      if (query.agent_id) {
+        // 'none' = unowned/global memories (agent_id IS NULL)
+        if (query.agent_id === 'none') {
+          sql += ' AND agent_id IS NULL';
+        } else {
+          sql += ' AND agent_id = ?';
+          params.push(query.agent_id);
+        }
+      }
+      if (query.visibility && query.visibility !== 'all') {
+        sql += ' AND visibility = ?';
+        params.push(query.visibility);
+      }
+      if (query.kind && query.kind !== 'all') {
+        sql += ' AND kind = ?';
+        params.push(query.kind);
+      }
+      if (query.status && query.status !== 'all') {
+        sql += ' AND status = ?';
+        params.push(query.status);
       }
 
       sql += ' ORDER BY updated_at DESC';
@@ -92,6 +288,7 @@ export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfi
         status: r.status || 'active',
         confidence: r.confidence ?? 0.5,
         source_channel: r.source_channel || null,
+        metadata: r.metadata ?? null,
         created_at: r.created_at,
         updated_at: r.updated_at,
       }));
@@ -117,23 +314,66 @@ export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfi
   });
 
   /** Update memory content */
+  /** Update memory content and/or governance fields (visibility / agent_id / status) */
   app.put<{ Params: { id: string } }>('/api/memory/:id', async (request, reply) => {
     try {
-      const { content } = request.body as { content?: string };
-      if (typeof content !== 'string') {
-        return reply.status(400).send({ error: 'content is required' });
+      const body = request.body as {
+        content?: string;
+        visibility?: string;
+        agent_id?: string | null;
+        status?: string;
+      };
+
+      const hasGovernanceFields =
+        body.visibility !== undefined || body.agent_id !== undefined || body.status !== undefined;
+      if (typeof body.content !== 'string' && !hasGovernanceFields) {
+        return reply
+          .status(400)
+          .send({ error: 'content is required (or visibility/agent_id/status to update)' });
       }
 
       const row = cfg.db.prepare('SELECT * FROM memories WHERE id = ?').get(request.params.id) as
         Record<string, unknown> | undefined;
       if (!row) return reply.status(404).send({ error: 'Memory not found' });
 
-      new MemoryRepository(cfg.db).update(request.params.id, { content });
-      reindexLexicalTerms(cfg.db, request.params.id, content);
-      // The stored vector still describes the previous text; re-embedding is an
-      // async provider call this route cannot make, so drop it — lexical and
-      // FTS recall keep working, and the next write re-embeds.
-      dropEmbedding(cfg.db, request.params.id);
+      const repo = new MemoryRepository(cfg.db);
+
+      // Governance fields only — no content rewrite, so the stored embedding
+      // and FTS index stay valid and are left untouched.
+      const governanceUpdate: {
+        visibility?: string;
+        agent_id?: string | null;
+        status?: string;
+      } = {};
+      if (body.visibility !== undefined) {
+        if (!VALID_VISIBILITIES.has(body.visibility)) {
+          return reply
+            .status(400)
+            .send({ error: `visibility must be one of: ${[...VALID_VISIBILITIES].join(', ')}` });
+        }
+        governanceUpdate.visibility = body.visibility;
+      }
+      if (body.agent_id !== undefined) {
+        governanceUpdate.agent_id = body.agent_id === null ? null : String(body.agent_id);
+      }
+      if (body.status !== undefined) {
+        if (!['active', 'superseded', 'deleted'].includes(body.status)) {
+          return reply.status(400).send({ error: 'status must be active | superseded | deleted' });
+        }
+        governanceUpdate.status = body.status;
+      }
+      if (Object.keys(governanceUpdate).length > 0) {
+        repo.update(request.params.id, governanceUpdate);
+      }
+
+      if (typeof body.content === 'string') {
+        repo.update(request.params.id, { content: body.content });
+        reindexLexicalTerms(cfg.db, request.params.id, body.content);
+        // The stored vector still describes the previous text; re-embedding is an
+        // async provider call this route cannot make, so drop it — lexical and
+        // FTS recall keep working, and the next write re-embeds.
+        dropEmbedding(cfg.db, request.params.id);
+      }
 
       return reply.send({ ok: true, id: request.params.id });
     } catch (err) {
@@ -148,10 +388,105 @@ export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfi
       const row = cfg.db.prepare('SELECT * FROM memories WHERE id = ?').get(request.params.id);
       if (!row) return reply.status(404).send({ error: 'Memory not found' });
 
-      new MemoryRepository(cfg.db).delete(request.params.id);
-      cfg.db.prepare('DELETE FROM memory_terms WHERE memory_id = ?').run(request.params.id);
-      dropEmbedding(cfg.db, request.params.id);
+      deleteMemoryWithDerivedStores(cfg.db, request.params.id);
       return reply.send({ ok: true, id: request.params.id });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  });
+
+  /**
+   * Batch delete memories (TDAM v2.0.1-beta.2 "清空对话记忆" feature).
+   * Body: { ids: string[] } — bounded at 200 to keep the sync SQLite work short.
+   * Derived stores (memory_terms + embedding) are cleaned per id, same as the
+   * single DELETE route.
+   */
+  app.post('/api/memory/batch-delete', async (request, reply) => {
+    try {
+      const body = request.body as { ids?: unknown };
+      const ids = Array.isArray(body.ids)
+        ? body.ids.filter((id): id is string => typeof id === 'string')
+        : [];
+      if (ids.length === 0) {
+        return reply.status(400).send({ error: 'ids must be a non-empty string array' });
+      }
+      if (ids.length > 200) {
+        return reply.status(400).send({ error: 'ids must contain at most 200 entries' });
+      }
+
+      const deleted: string[] = [];
+      const missing: string[] = [];
+      const deleteAll = cfg.db.transaction(() => {
+        for (const id of ids) {
+          const row = cfg.db.prepare('SELECT id FROM memories WHERE id = ?').get(id);
+          if (!row) {
+            missing.push(id);
+            continue;
+          }
+          deleteMemoryWithDerivedStores(cfg.db, id);
+          deleted.push(id);
+        }
+      });
+      deleteAll();
+
+      return reply.send({ ok: true, deleted, missing });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  });
+
+  /**
+   * Memory pipeline status (TDAM `/v2/pipeline/status` analogue):
+   * per-layer record counts, last DreamCycle phase runs, and memory
+   * observability event counters. Read-only, computed live from the DB.
+   */
+  app.get('/api/memory/pipeline/status', async (_request, reply) => {
+    try {
+      const runRepo = new MaintenanceRunRepository(cfg.db);
+      const dreamCycle = DREAMCYCLE_PHASES.map((phase) => {
+        const run = runRepo.getLastRun(`dreamcycle_${phase}`);
+        return {
+          phase,
+          status: run?.status ?? null,
+          startedAt: run?.started_at ?? null,
+          durationMs: run?.duration_ms ?? null,
+          affectedRows: run?.affected_rows ?? null,
+          error: run?.error ?? null,
+        };
+      });
+
+      return reply.send({
+        layers: buildLayerCounts(cfg.db),
+        dreamCycle,
+        // Recent-window counters only — the all-time count is dominated by
+        // historical degradation and reads like a current fault otherwise.
+        observability: recentObservabilityEvents(cfg.db),
+        observabilityAllTime: allTimeObservabilityEvents(cfg.db),
+        observabilitySinceLastRun: sinceLastRunObservabilityEvents(cfg.db),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  });
+
+  /**
+   * Manual pipeline run trigger (DreamCycle runAll with force=true — heavy
+   * phases are not grace-window-skipped). Fire-and-forget: the endpoint
+   * returns immediately; poll /status for per-phase rows appearing.
+   */
+  app.post('/api/memory/pipeline/run', async (_request, reply) => {
+    try {
+      const dreamCycle = cfg.services.dreamCycle;
+      if (!dreamCycle) {
+        return reply.status(503).send({ error: 'DreamCycle not configured' });
+      }
+      dreamCycle
+        .runAll({ force: true })
+        .catch((err: unknown) => cfg.services.logger.warn({ err }, 'Manual DreamCycle run failed'));
+      return reply.send({ ok: true, started: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: message });

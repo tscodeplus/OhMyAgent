@@ -63,6 +63,10 @@ export interface DreamCycleConfig {
   phaseTimeoutMs: number;
   /** Max memory pairs to merge per synthesize phase. */
   synthesizeBatchSize: number;
+  /** On startup, run a catch-up cycle if the last run is older than 24h
+   * (covers dev machines / Termux devices that are off at the nightly fire
+   * time; without catch-up the cycle can be missed forever). Default true. */
+  catchUpOnStart: boolean;
 }
 
 // ── Phase result ─────────────────────────────────────────────────────────
@@ -111,7 +115,27 @@ export class DreamCycle {
       },
       'DreamCycle starting — nightly maintenance orchestrator',
     );
+    if (this.config.catchUpOnStart && this.shouldCatchUpOnStart()) {
+      this.logger.info('DreamCycle catch-up: last run older than 24h — running now');
+      // Fire-and-forget catch-up; the regular nightly timer is still armed and
+      // runAll() itself deduplicates concurrent invocations.
+      this.runAll({ force: true }).catch((err) =>
+        this.logger.warn({ err }, 'DreamCycle startup catch-up failed'),
+      );
+    }
     this.scheduleNext();
+  }
+
+  /**
+   * True when no DreamCycle run is recorded in maintenance_runs, or the last
+   * recorded run started more than 24h ago (nightly cadence was missed).
+   */
+  shouldCatchUpOnStart(): boolean {
+    const last = this.runRepo.getLastRunByPrefix('dreamcycle_');
+    if (!last) return true;
+    const lastAt = Number(last.started_at);
+    if (!Number.isFinite(lastAt) || lastAt <= 0) return true;
+    return Date.now() - lastAt > 24 * 60 * 60 * 1000;
   }
 
   async stop(): Promise<void> {
@@ -213,7 +237,13 @@ export class DreamCycle {
    * isolation — a failure in one phase does not prevent subsequent phases.
    * Heavy phases are skipped when outside the grace window.
    */
-  async runAll(): Promise<PhaseResult[]> {
+  /**
+   * Run all phases sequentially. Each phase has its own timeout and error
+   * isolation — a failure in one phase does not prevent subsequent phases.
+   * Heavy phases are skipped when outside the grace window, unless
+   * `options.force` is set (manual trigger / missed-nightly catch-up).
+   */
+  async runAll(options?: { force?: boolean }): Promise<PhaseResult[]> {
     if (this.running) {
       this.logger.debug('DreamCycle runAll already in progress, skipping');
       return [];
@@ -221,7 +251,7 @@ export class DreamCycle {
     this.running = true;
 
     try {
-      const withinGrace = this.isWithinGraceWindow();
+      const withinGrace = options?.force === true || this.isWithinGraceWindow();
 
       if (!withinGrace) {
         this.logger.info('DreamCycle started outside grace window — heavy phases will be skipped');

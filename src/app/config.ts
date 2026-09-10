@@ -214,6 +214,11 @@ const configSchema = z.object({
         prefilterMultiplier: z.coerce.number().int().positive().default(5),
         prefilterMin: z.coerce.number().int().positive().default(20),
         mergeCandidateMultiplier: z.coerce.number().int().positive().default(3),
+        // Recall character budgets (TencentDB-Agent-Memory pattern). 0 = no cap:
+        // oversized items are truncated (per-item) or dropped (total) in score
+        // order to keep memory injection from crowding the context window.
+        maxCharsPerMemory: z.coerce.number().int().nonnegative().default(0),
+        maxTotalRecallChars: z.coerce.number().int().nonnegative().default(0),
       })
       .default({}),
     // Score-gated LLM query expansion. When enabled, a query whose initial recall
@@ -282,12 +287,13 @@ const configSchema = z.object({
           .object({
             memory_hygiene: z.boolean().default(true),
             embedding_backfill: z.boolean().default(true),
+            terms_backfill: z.boolean().default(true),
             embedding_cache_trim: z.boolean().default(true),
             entity_backfill: z.boolean().default(true),
             persona_consistency: z.boolean().default(true),
             offload_hygiene: z.boolean().default(true),
             scene_cluster: z.boolean().default(false),
-            memory_doctor: z.boolean().default(false),
+            memory_doctor: z.boolean().default(true),
           })
           .default({}),
       })
@@ -301,6 +307,9 @@ const configSchema = z.object({
         windowGraceMinutes: z.coerce.number().int().positive().default(120),
         phaseTimeoutMs: z.coerce.number().int().positive().default(1_800_000),
         synthesizeBatchSize: z.coerce.number().int().positive().default(50),
+        // Run a catch-up cycle on startup when the last nightly run is >24h old
+        // (covers machines that are off at the scheduled fire time).
+        catchUpOnStart: z.boolean().default(true),
       })
       .default({}),
     // v9: Auto context compression
@@ -879,6 +888,8 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
         prefilterMultiplier: env.MEMORY_RECALL_PREFILTER_MULTIPLIER,
         prefilterMin: env.MEMORY_RECALL_PREFILTER_MIN,
         mergeCandidateMultiplier: env.MEMORY_RECALL_MERGE_CANDIDATE_MULTIPLIER,
+        maxCharsPerMemory: env.MEMORY_RECALL_MAX_CHARS_PER_MEMORY,
+        maxTotalRecallChars: env.MEMORY_RECALL_MAX_TOTAL_RECALL_CHARS,
       },
       expansion: {
         enabled: envBool(env.MEMORY_EXPANSION_ENABLED, false),
@@ -1152,7 +1163,9 @@ function applyEnvOverrides(
       : []),
     ...(env.MEMORY_RECALL_PREFILTER_MULTIPLIER !== undefined ||
     env.MEMORY_RECALL_PREFILTER_MIN !== undefined ||
-    env.MEMORY_RECALL_MERGE_CANDIDATE_MULTIPLIER !== undefined
+    env.MEMORY_RECALL_MERGE_CANDIDATE_MULTIPLIER !== undefined ||
+    env.MEMORY_RECALL_MAX_CHARS_PER_MEMORY !== undefined ||
+    env.MEMORY_RECALL_MAX_TOTAL_RECALL_CHARS !== undefined
       ? [{ env: '1', field: 'recall' }]
       : []),
     ...(env.MEMORY_EXPANSION_ENABLED !== undefined ||

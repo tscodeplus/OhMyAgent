@@ -13,6 +13,8 @@ import type { ExtensionManager } from '../extensions/extension-manager.js';
 import type { MemoryRetriever } from '../memory/memory-retriever.js';
 import type { MemoryWriter } from '../memory/memory-writer.js';
 import type { MemorySummarizer } from '../memory/memory-summarizer.js';
+import type { MemoryPipeline } from '../memory/memory-pipeline.js';
+import type { DreamCycle } from '../memory/dream-cycle.js';
 import type { SessionRepository } from '../memory/repositories/session-repository.js';
 import type { MessageRepository } from '../memory/repositories/message-repository.js';
 import type { EpisodeRepository } from '../memory/repositories/episode-repository.js';
@@ -208,6 +210,10 @@ export interface AppConfig {
       prefilterMultiplier: number;
       prefilterMin: number;
       mergeCandidateMultiplier: number;
+      /** Per-item recall char cap (0 = disabled). */
+      maxCharsPerMemory: number;
+      /** Total recall char budget (0 = disabled). */
+      maxTotalRecallChars: number;
     };
     /** Score-gated LLM query expansion (opt-in; uses memory_aux_models). */
     expansion: {
@@ -254,6 +260,7 @@ export interface AppConfig {
       jobs: {
         memory_hygiene: boolean;
         embedding_backfill: boolean;
+        terms_backfill: boolean;
         embedding_cache_trim: boolean;
         entity_backfill: boolean;
         persona_consistency: boolean;
@@ -270,6 +277,8 @@ export interface AppConfig {
       windowGraceMinutes: number;
       phaseTimeoutMs: number;
       synthesizeBatchSize: number;
+      /** Catch-up run on startup when the last run is >24h old. */
+      catchUpOnStart: boolean;
     };
   };
   cron: {
@@ -899,6 +908,10 @@ export interface AppServices {
   memoryRetriever: MemoryRetriever;
   memoryWriter: MemoryWriter;
   memorySummarizer: MemorySummarizer;
+  /** On-demand L0→L3 pipeline run/status surface (DreamCycle stays the nightly scheduler). */
+  memoryPipeline?: MemoryPipeline;
+  /** Nightly maintenance orchestrator — exposed for manual trigger/status. */
+  dreamCycle?: DreamCycle;
   sessionRepository: SessionRepository;
   messageRepository: MessageRepository;
   episodeRepository: EpisodeRepository;

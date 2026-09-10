@@ -4,6 +4,7 @@ import { AgentService } from '../../agent/agent-service.js';
 import { MaintenanceScheduler } from '../../memory/maintenance/maintenance-scheduler.js';
 import { MaintenanceRunRepository } from '../../memory/maintenance/maintenance-run-repository.js';
 import { createEmbeddingBackfillJob } from '../../memory/maintenance/jobs/embedding-backfill-job.js';
+import { createTermsBackfillJob } from '../../memory/maintenance/jobs/terms-backfill-job.js';
 import { createEmbeddingCacheTrimJob } from '../../memory/maintenance/jobs/embedding-cache-trim-job.js';
 import { createEntityBackfillJob } from '../../memory/maintenance/jobs/entity-backfill-job.js';
 import { createOffloadHygieneJob } from '../../memory/maintenance/jobs/offload-hygiene-job.js';
@@ -90,12 +91,13 @@ export function createSchedulers(input: {
     jobs: {
       memory_hygiene: true,
       embedding_backfill: true,
+      terms_backfill: true,
       embedding_cache_trim: true,
       entity_backfill: true,
       persona_consistency: true,
       offload_hygiene: true,
       scene_cluster: false,
-      memory_doctor: false,
+      memory_doctor: true,
     },
   };
   const maintenanceScheduler = new MaintenanceScheduler(
@@ -114,6 +116,9 @@ export function createSchedulers(input: {
     maintenanceScheduler.register(
       createEmbeddingBackfillJob(db, memory.embeddingRepository, memory.embeddingClient),
     );
+  }
+  if (jobConfigs.terms_backfill !== false) {
+    maintenanceScheduler.register(createTermsBackfillJob(db));
   }
   if (jobConfigs.embedding_cache_trim !== false) {
     maintenanceScheduler.register(
@@ -137,7 +142,8 @@ export function createSchedulers(input: {
     maintenanceScheduler.register(createOffloadHygieneJob(memory.offloadDir));
   }
   // scene_cluster is now handled by DreamCycle (nightly)
-  if (jobConfigs.memory_doctor === true) {
+  // memory_doctor now defaults to true — it is diagnostic + safe repair.
+  if (jobConfigs.memory_doctor !== false) {
     maintenanceScheduler.register(createMemoryDoctorJob(memory.memoryDoctor));
   }
   logger.info(
@@ -154,11 +160,13 @@ export function createSchedulers(input: {
     windowGraceMinutes: 120,
     phaseTimeoutMs: 1_800_000,
     synthesizeBatchSize: 50,
+    catchUpOnStart: true,
   };
 
   const mergeConfig: MergeConfig = {
     auxConfig: memory.auxModelConfig,
     mergeThreshold: 0.85,
+    outputLanguage: config.memory.outputLanguage,
     logger,
   };
 

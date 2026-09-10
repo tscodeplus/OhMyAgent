@@ -670,6 +670,8 @@ async function runBootstrap(): Promise<BootstrapResult> {
     // Harness
     harness: harnessServices,
     harnessApprovalRegistry,
+    // Memory pipeline / nightly orchestration
+    dreamCycle,
   };
   servicesRef.current = services;
 

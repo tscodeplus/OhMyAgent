@@ -21,11 +21,11 @@ export class MaintenanceRunRepository {
     this.db
       .prepare(
         `
-      INSERT INTO maintenance_runs (id, job_name, status, dry_run)
-      VALUES (?, ?, 'running', ?)
+      INSERT INTO maintenance_runs (id, job_name, status, dry_run, started_at)
+      VALUES (?, ?, 'running', ?, ?)
     `,
       )
-      .run(id, jobName, dryRun ? 1 : 0);
+      .run(id, jobName, dryRun ? 1 : 0, String(Date.now()));
     return id;
   }
 
@@ -45,6 +45,16 @@ export class MaintenanceRunRepository {
     const row = this.db
       .prepare('SELECT * FROM maintenance_runs WHERE job_name = ? ORDER BY started_at DESC LIMIT 1')
       .get(jobName) as MaintenanceRunRecord | undefined;
+    return row ?? undefined;
+  }
+
+  /** Last run across all job names sharing a prefix (e.g. `dreamcycle_`). */
+  getLastRunByPrefix(prefix: string): MaintenanceRunRecord | undefined {
+    const row = this.db
+      .prepare(
+        "SELECT * FROM maintenance_runs WHERE job_name LIKE ? || '%' ORDER BY started_at DESC LIMIT 1",
+      )
+      .get(prefix) as MaintenanceRunRecord | undefined;
     return row ?? undefined;
   }
 

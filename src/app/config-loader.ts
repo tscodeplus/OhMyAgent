@@ -392,8 +392,13 @@ function buildMemorySection(memCfg: YamlNode): Record<string, unknown> {
         ),
         memory_doctor: yamlBool(
           memCfg?.maintenance?.jobs?.memory_doctor,
-          false,
+          true,
           'memCfg?.maintenance?.jobs?.memory_doctor',
+        ),
+        terms_backfill: yamlBool(
+          memCfg?.maintenance?.jobs?.terms_backfill,
+          true,
+          'memCfg?.maintenance?.jobs?.terms_backfill',
         ),
       },
     },
