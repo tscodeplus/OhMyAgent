@@ -6,9 +6,35 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import Fastify from 'fastify';
 import type { Logger } from 'pino';
-import { setupWebUIMiddleware } from '../../src/app/webui/setup-vite.js';
+import { setupWebUIMiddleware, resolveWebUIMode } from '../../src/app/webui/setup-vite.js';
 
 const UI_ROOT = '/nonexistent-ui-root';
+
+describe('resolveWebUIMode', () => {
+  it('prefers Vite HMR when sources exist, even if a pre-built dist is present', () => {
+    expect(resolveWebUIMode({ uiSrcExists: true, staticRoot: undefined, nodeEnv: undefined })).toBe(
+      'vite',
+    );
+  });
+
+  it('serves static build output in production even when sources exist', () => {
+    expect(
+      resolveWebUIMode({ uiSrcExists: true, staticRoot: undefined, nodeEnv: 'production' }),
+    ).toBe('static');
+  });
+
+  it('WEBUI_STATIC_ROOT explicitly forces static mode', () => {
+    expect(
+      resolveWebUIMode({ uiSrcExists: true, staticRoot: '/somewhere/dist', nodeEnv: undefined }),
+    ).toBe('static');
+  });
+
+  it('falls back to static when there are no sources', () => {
+    expect(
+      resolveWebUIMode({ uiSrcExists: false, staticRoot: undefined, nodeEnv: undefined }),
+    ).toBe('static');
+  });
+});
 
 describe('setupWebUIMiddleware with no build output', () => {
   let server: ReturnType<typeof Fastify> | undefined;

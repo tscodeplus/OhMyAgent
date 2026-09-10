@@ -14,6 +14,22 @@ import path from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import fastifyStatic from '@fastify/static';
 
+/**
+ * Which WebUI serving mode to use. Vite HMR wins whenever source files exist
+ * and we are not in a production runtime (NODE_ENV=production, i.e. the
+ * desktop sidecar) — a pre-built ui/dist snapshot must never shadow source
+ * edits during development. WEBUI_STATIC_ROOT explicitly forces static mode.
+ */
+export function resolveWebUIMode(input: {
+  uiSrcExists: boolean;
+  staticRoot?: string;
+  nodeEnv?: string;
+}): 'vite' | 'static' {
+  if (input.staticRoot) return 'static';
+  if (input.nodeEnv === 'production') return 'static';
+  return input.uiSrcExists ? 'vite' : 'static';
+}
+
 export async function setupWebUIMiddleware(options: {
   server: FastifyInstance;
   logger: Logger;
@@ -30,11 +46,17 @@ export async function setupWebUIMiddleware(options: {
 
   const uiDist = process.env.WEBUI_STATIC_ROOT || path.join(uiRoot, 'dist');
   const uiSrc = path.join(uiRoot, 'src');
-  // Prefer pre-built static files when available (production mode).
-  // Only use Vite dev middleware when there are NO pre-built files AND
-  // source files exist (actual development with "pnpm dev").
-  const hasPrebuilt = existsSync(path.join(uiDist, 'index.html'));
-  const isDevMode = !hasPrebuilt && !process.env.WEBUI_STATIC_ROOT && existsSync(uiSrc);
+  // Vite HMR dev middleware is the default whenever sources exist — a stale
+  // ui/dist snapshot used to shadow source edits (rebuilding dist while the
+  // server was up also 404'd the old hashed assets → blank page). Pre-built
+  // static files are only served in production (NODE_ENV=production, i.e. the
+  // desktop sidecar) or when WEBUI_STATIC_ROOT points at a build explicitly.
+  const isDevMode =
+    resolveWebUIMode({
+      uiSrcExists: existsSync(uiSrc),
+      staticRoot: process.env.WEBUI_STATIC_ROOT,
+      nodeEnv: process.env.NODE_ENV,
+    }) === 'vite';
   let viteDevServer: Awaited<ReturnType<typeof import('vite').createServer>> | undefined;
 
   if (isDevMode) {
