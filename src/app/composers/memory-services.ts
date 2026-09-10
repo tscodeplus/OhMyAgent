@@ -1,5 +1,6 @@
 import path from 'node:path';
 import type { AppConfig, AppServices } from '../types.js';
+import { configEventBus } from '../config-event-bus.js';
 import type { SummaryLLMConfig } from '../../memory/memory-summarizer.js';
 import type { AuxModelConfig } from '../../memory/aux-llm-client.js';
 import type { LLMExpansionConfig } from '../../memory/query-expansion-llm.js';
@@ -77,6 +78,65 @@ function buildSummaryLLMConfig(
     baseUrls: auxConfig.baseUrls,
     baseUrl: auxConfig.baseUrl,
     outputLanguage,
+  };
+}
+
+/**
+ * Build the aux LLM config (model chain + per-provider key/baseUrl maps) from
+ * a config snapshot. Pure — called at composer time and again on every config
+ * hot-reload; the composer mutates the shared AuxModelConfig object in place
+ * so every consumer (MemoryWriter merge, summarizer, query expansion, entity
+ * extraction, DreamCycle) picks up the new model chain by reference.
+ */
+function buildAuxModelConfig(config: AppConfig): AuxModelConfig {
+  const auxApiKeys: Record<string, string> = {};
+  const auxBaseUrls: Record<string, string> = {};
+  // provider_keys entries (per-provider api_key + base_url) must take part in
+  // aux resolution — without this, a model like `opencode/glm-5.3-flash`
+  // falls through to the wildcard (main provider's key + baseUrl) and gets
+  // rejected with 401 by an unrelated endpoint.
+  for (const [name, pk] of Object.entries(config.providerKeys ?? {})) {
+    if (pk?.apiKey) auxApiKeys[name] = pk.apiKey;
+    if (pk?.baseUrl) auxBaseUrls[name] = pk.baseUrl;
+  }
+  for (const [envVar, provider] of [
+    ['DEEPSEEK_API_KEY', 'deepseek'],
+    ['XIAOMI_API_KEY', 'xiaomi'],
+    ['MINIMAX_API_KEY', 'minimax'],
+    ['MOONSHOT_API_KEY', 'moonshotai'],
+    ['ANTHROPIC_API_KEY', 'anthropic'],
+    ['OPENAI_API_KEY', 'openai'],
+    ['GEMINI_API_KEY', 'google'],
+    ['MISTRAL_API_KEY', 'mistral'],
+    ['GROQ_API_KEY', 'groq'],
+  ] as const) {
+    const key = process.env[envVar];
+    if (key) auxApiKeys[provider] = key;
+  }
+  for (const cp of config.customProviders ?? []) {
+    if (cp.apiKey) auxApiKeys[cp.provider] = cp.apiKey;
+  }
+  if (config.piAi.apiKey) {
+    auxApiKeys['*'] = config.piAi.apiKey;
+  }
+
+  const memAux = config.memoryAuxModels;
+  const mainModel = `${config.piAi.provider}/${config.piAi.model}`;
+  const auxPrimary = memAux?.primary || mainModel;
+  const configuredFallbackModels = Array.isArray(config.fallbackModels)
+    ? config.fallbackModels
+    : [];
+  const auxFallbacks = [
+    ...(memAux?.fallback_models ?? []),
+    ...(memAux?.primary ? [] : configuredFallbackModels),
+  ];
+  return {
+    modelRef: auxPrimary,
+    fallbackRefs: auxFallbacks,
+    apiKeys: auxApiKeys,
+    baseUrls: auxBaseUrls,
+    baseUrl: config.piAi.baseUrl,
+    disableThinking: memAux?.disableThinking,
   };
 }
 
@@ -163,58 +223,10 @@ export async function createMemoryServices(
   const memoryLinkRepo = new MemoryLinkRepository(db);
   const memoryTermRepo = new MemoryTermRepository(db);
 
-  const auxApiKeys: Record<string, string> = {};
-  const auxBaseUrls: Record<string, string> = {};
-  // provider_keys entries (per-provider api_key + base_url) must take part in
-  // aux resolution — without this, a model like `opencode/glm-5.3-flash`
-  // falls through to the wildcard (main provider's key + baseUrl) and gets
-  // rejected with 401 by an unrelated endpoint.
-  for (const [name, pk] of Object.entries(config.providerKeys ?? {})) {
-    if (pk?.apiKey) auxApiKeys[name] = pk.apiKey;
-    if (pk?.baseUrl) auxBaseUrls[name] = pk.baseUrl;
-  }
-  for (const [envVar, provider] of [
-    ['DEEPSEEK_API_KEY', 'deepseek'],
-    ['XIAOMI_API_KEY', 'xiaomi'],
-    ['MINIMAX_API_KEY', 'minimax'],
-    ['MOONSHOT_API_KEY', 'moonshotai'],
-    ['ANTHROPIC_API_KEY', 'anthropic'],
-    ['OPENAI_API_KEY', 'openai'],
-    ['GEMINI_API_KEY', 'google'],
-    ['MISTRAL_API_KEY', 'mistral'],
-    ['GROQ_API_KEY', 'groq'],
-  ] as const) {
-    const key = process.env[envVar];
-    if (key) auxApiKeys[provider] = key;
-  }
-  for (const cp of config.customProviders ?? []) {
-    if (cp.apiKey) auxApiKeys[cp.provider] = cp.apiKey;
-  }
-  if (config.piAi.apiKey) {
-    auxApiKeys['*'] = config.piAi.apiKey;
-  }
-
-  const memAux = config.memoryAuxModels;
-  const mainModel = `${config.piAi.provider}/${config.piAi.model}`;
-  const auxPrimary = memAux?.primary || mainModel;
-  const configuredFallbackModels = Array.isArray(config.fallbackModels)
-    ? config.fallbackModels
-    : [];
-  const auxFallbacks = [
-    ...(memAux?.fallback_models ?? []),
-    ...(memAux?.primary ? [] : configuredFallbackModels),
-  ];
-  const auxModelConfig: AuxModelConfig = {
-    modelRef: auxPrimary,
-    fallbackRefs: auxFallbacks,
-    apiKeys: auxApiKeys,
-    baseUrls: auxBaseUrls,
-    baseUrl: config.piAi.baseUrl,
-    disableThinking: memAux?.disableThinking,
-  };
+  const auxModelConfig = buildAuxModelConfig(config);
 
   logger.info(
-    { primary: auxPrimary, fallbackCount: auxFallbacks.length },
+    { primary: auxModelConfig.modelRef, fallbackCount: auxModelConfig.fallbackRefs?.length ?? 0 },
     'Memory aux models configured',
   );
 
@@ -324,6 +336,25 @@ export async function createMemoryServices(
   const approvalDecisionRepository = new ApprovalDecisionRepository(db);
 
   const summaryConfig = buildSummaryLLMConfig(auxModelConfig, config.memory.outputLanguage);
+
+  // Hot-reload the aux model chain + summary LLM config in place. The shared
+  // auxModelConfig object is mutated (not replaced) so every consumer holding
+  // a reference — MemoryWriter's mergeConfig, query expansion, entity
+  // extraction, DreamCycle's mergeConfig, MemorySummarizer — picks up the new
+  // model/keys on its next aux call without a restart. The openai client pool
+  // in aux-llm-client is keyed by baseUrl+apiKey, so new endpoints get fresh
+  // clients automatically.
+  configEventBus.onReload((c) => {
+    Object.assign(auxModelConfig, buildAuxModelConfig(c));
+    Object.assign(summaryConfig, buildSummaryLLMConfig(auxModelConfig, c.memory.outputLanguage));
+    logger.info(
+      {
+        primary: auxModelConfig.modelRef,
+        fallbackCount: auxModelConfig.fallbackRefs?.length ?? 0,
+      },
+      'Memory aux models reloaded (hot)',
+    );
+  });
   const personaDistillationLog = new PersonaDistillationLog(db);
   const personaStore = config.memory.persona?.enabled
     ? new PersonaStore(memoryRepository)
