@@ -760,6 +760,7 @@
     "projectScope": "Project",
     "sessionScope": "Session",
     "userScope": "User",
+    "tierLabel": "Tier",
     "systemScope": "System",
     "channel": "Channel",
     "noChannel": "No channel",

@@ -609,7 +609,7 @@ export default function MemoryView() {
 
       {/* Search & Filters */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-4">
-        <div className="relative flex-1 min-w-[160px] max-w-md">
+        <div className="relative w-full sm:flex-1 sm:min-w-[160px] sm:max-w-md">
           <Search
             size={14}
             className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 dark:text-neutral-400"
@@ -625,7 +625,7 @@ export default function MemoryView() {
             className="w-full rounded-lg border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-neutral-900 pl-9 pr-3 py-2 text-sm focus:border-primary focus:outline-none"
           />
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
           <Select
             value={scopeFilter}
             onChange={(e) => {
@@ -635,13 +635,14 @@ export default function MemoryView() {
               setPage(0);
             }}
             options={[
-              { value: 'all', label: t('memory.all') },
+              { value: 'all', label: t('memory.tierLabel') + ': ' + t('memory.all') },
               { value: 'user', label: t('memory.userScope') },
               { value: 'project', label: t('memory.projectScope') },
               { value: 'session', label: t('memory.sessionScope') },
               { value: 'system', label: t('memory.systemScope') },
             ]}
-            className="w-[110px] sm:w-[140px]"
+            compact
+            className="w-full sm:w-[130px]"
           />
           {scopeFilter === 'project' && (
             <Select
@@ -654,7 +655,8 @@ export default function MemoryView() {
                 { value: 'all', label: t('memory.filterProject') + ': ' + t('memory.all') },
                 ...projects.map((p) => ({ value: p.id, label: p.name })),
               ]}
-              className="w-[140px] sm:w-[180px]"
+              compact
+              className="w-full sm:w-[170px]"
             />
           )}
           <Select
@@ -670,7 +672,8 @@ export default function MemoryView() {
                 label: t(`memory.kindLabels.${k}`, k),
               })),
             ]}
-            className="w-[120px] sm:w-[150px]"
+            compact
+            className="w-full sm:w-[140px]"
           />
           <Select
             value={channelFilter}
@@ -683,7 +686,8 @@ export default function MemoryView() {
               ...channelOptions.map((c) => ({ value: c, label: c })),
               { value: 'none', label: t('memory.noChannel') },
             ]}
-            className="w-[120px] sm:w-[150px]"
+            compact
+            className="w-full sm:w-[140px]"
           />
         </div>
       </div>

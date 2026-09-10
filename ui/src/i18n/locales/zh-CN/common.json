@@ -760,6 +760,7 @@
     "projectScope": "Project 级",
     "sessionScope": "Session 级",
     "userScope": "用户级",
+    "tierLabel": "层级",
     "systemScope": "系统级",
     "channel": "渠道",
     "noChannel": "无渠道",
