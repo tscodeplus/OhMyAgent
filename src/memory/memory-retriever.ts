@@ -118,13 +118,63 @@ export interface RecallConfig {
   prefilterMin: number;
   /** Candidates kept after RRF/coverage merge = topK * mergeCandidateMultiplier. */
   mergeCandidateMultiplier: number;
+  /**
+   * Per-item recall char cap (0 = disabled). Oversized items are truncated in
+   * score order with an ellipsis marker instead of being dropped wholesale.
+   * Mirrors TencentDB-Agent-Memory's `recall.maxCharsPerMemory`.
+   */
+  maxCharsPerMemory: number;
+  /** Total recall char budget across the final result set (0 = no cap).
+   * Items that would overflow the budget are dropped in score order; the first
+   * item alone is truncated to fit rather than dropped. Mirrors TDAM's
+   * `recall.maxTotalRecallChars`. */
+  maxTotalRecallChars: number;
 }
 
 export const DEFAULT_RECALL_CONFIG: RecallConfig = {
   prefilterMultiplier: 5,
   prefilterMin: 20,
   mergeCandidateMultiplier: 3,
+  maxCharsPerMemory: 0,
+  maxTotalRecallChars: 0,
 };
+
+/**
+ * Enforce recall character budgets on an already-ranked result list.
+ * Results arrive sorted by score descending; trimming/dropping therefore walks
+ * the list from the most relevant item to the least. 0-valued knobs are no-ops.
+ */
+export function applyRecallCharBudget(
+  results: RetrievedMemory[],
+  config: Pick<RecallConfig, 'maxCharsPerMemory' | 'maxTotalRecallChars'>,
+): RetrievedMemory[] {
+  const perItem = config.maxCharsPerMemory;
+  const total = config.maxTotalRecallChars;
+  if (perItem <= 0 && total <= 0) return results;
+
+  const kept: RetrievedMemory[] = [];
+  let used = 0;
+  for (const result of results) {
+    let content = result.content;
+    if (perItem > 0 && content.length > perItem) {
+      content = `${content.slice(0, perItem)}…`;
+    }
+    if (total > 0 && used + content.length > total) {
+      if (kept.length === 0) {
+        // Keep at least the top item even when it alone exceeds the budget.
+        content = `${content.slice(0, total)}…`;
+        used += content.length;
+        kept.push({ ...result, content });
+      }
+      // Budget exhausted for this item — skip it but keep scanning smaller
+      // (still score-ordered) items that may fit the remaining budget.
+      continue;
+    }
+    used += content.length;
+    kept.push({ ...result, content });
+  }
+  return kept;
+}
 
 export interface MemoryRetrieverOptions {
   /** Core dependencies (required). */
@@ -375,8 +425,8 @@ export class MemoryRetriever {
     const expanded = this.expandByEntityLinks(qualified, retrievalPolicy.access, sourcePool);
     const finalList = expanded.sort((a, b) => b.score - a.score).slice(0, topK);
 
-    // Enrich with full memory data
-    const results = this.enrichResults(finalList);
+    // Enrich with full memory data, then enforce recall char budgets
+    const results = applyRecallCharBudget(this.enrichResults(finalList), this.recallConfig);
 
     // Phase 1: Cache results
     if (useCache)
@@ -893,7 +943,7 @@ export class MemoryRetriever {
       });
     }
 
-    return results.slice(0, topK);
+    return applyRecallCharBudget(results.slice(0, topK), this.recallConfig);
   }
 
   private legacyLikeSearch(
@@ -911,18 +961,21 @@ export class MemoryRetriever {
       options.scopeKey,
     );
 
-    return memories
-      .filter((m) => matchesMemoryAccess(m, policy))
-      .slice(0, topK)
-      .map((m) => ({
-        id: m.id,
-        content: m.content,
-        scope: m.scope,
-        scopeKey: m.scope_key,
-        kind: m.kind,
-        score: TEXT_FALLBACK_SCORE,
-        createdAt: parseEpochMs(m.created_at),
-      }));
+    return applyRecallCharBudget(
+      memories
+        .filter((m) => matchesMemoryAccess(m, policy))
+        .slice(0, topK)
+        .map((m) => ({
+          id: m.id,
+          content: m.content,
+          scope: m.scope,
+          scopeKey: m.scope_key,
+          kind: m.kind,
+          score: TEXT_FALLBACK_SCORE,
+          createdAt: parseEpochMs(m.created_at),
+        })),
+      this.recallConfig,
+    );
   }
 
   /**
@@ -1027,9 +1080,12 @@ export class MemoryRetriever {
       }
     }
 
-    const merged = Array.from(byId.values())
-      .sort((a, b) => b.score - a.score)
-      .slice(0, topK);
+    const merged = applyRecallCharBudget(
+      Array.from(byId.values())
+        .sort((a, b) => b.score - a.score)
+        .slice(0, topK),
+      this.recallConfig,
+    );
     this.groupedCache.set(groupedKey, merged);
     return merged;
   }

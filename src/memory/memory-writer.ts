@@ -29,6 +29,10 @@ export interface WriteOptions {
   sourceChannel?: string | null;
   sourceMessageId?: string | null;
   confidence?: number;
+  /** Original creation time in epoch ms. Omit → now. Import/backfill paths MUST
+   * pass the source message's own timestamp so memory timelines stay truthful
+   * (TDAM v2.0.1-beta.2 lesson: re-timestamped imports scramble chronology). */
+  createdAt?: number;
 }
 
 export type WriteAction =
@@ -254,6 +258,10 @@ export class MemoryWriter {
       source_channel: options.sourceChannel ?? null,
       source_message_id: options.sourceMessageId ?? null,
       confidence: options.confidence ?? 1.0,
+      created_at:
+        options.createdAt !== undefined && options.createdAt !== null
+          ? String(options.createdAt)
+          : null,
     };
     // Pre-compute the embedding BEFORE opening the transaction: SQLite
     // transactions are synchronous and cannot span the async embed() call.

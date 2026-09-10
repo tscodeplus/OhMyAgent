@@ -105,6 +105,30 @@ export function tokenizeForIndex(text: string): string {
 }
 
 /**
+ * Segment CJK words from text (lexical-recall side).
+ *
+ * Returns deduplicated, meaningful Chinese tokens (len ≥ 2, stop-words
+ * filtered). Latin-only text returns [] — callers combine this with their
+ * Latin tokenizer. Empty when jieba is unavailable.
+ */
+export function segmentCJK(text: string): string[] {
+  const jieba = getJieba();
+  if (!jieba) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of jieba.cutForSearch(text, true)) {
+    const token = raw.trim();
+    if (token.length < 2) continue; // single chars are noise
+    if (!/\p{Script=Han}/u.test(token)) continue; // CJK-only; Latin is caller's job
+    if (ZH_STOP_WORDS.has(token)) continue;
+    if (seen.has(token)) continue;
+    seen.add(token);
+    out.push(token);
+  }
+  return out;
+}
+
+/**
  * Build an FTS5 MATCH query string from raw user text.
  *
  * Uses jieba `cutForSearch()` for accurate Chinese word segmentation,

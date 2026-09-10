@@ -72,6 +72,48 @@ export class SceneClusterer {
 
     const results: SceneCluster[] = [];
 
+    // Fail-soft (TDAM v0.3.6 `scene_blocks` pattern): snapshot existing scene
+    // files before writing; a mid-run failure restores the snapshot instead of
+    // leaving a half-written, partially-stale scenes directory.
+    const backupDir = path.join(this.baseDir, 'scenes.bak');
+    this.backupScenesDir(backupDir);
+    try {
+      this.buildClusters(grouped, scope, windowDays, minMemories, results);
+    } catch (err) {
+      this.restoreScenesDir(backupDir);
+      this.logger?.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        'Scene clustering failed; scene files restored from backup snapshot',
+      );
+      throw err instanceof Error ? err : new Error(String(err));
+    }
+
+    if (results.length > 0) {
+      this.logger?.info(
+        {
+          scope,
+          clusterCount: results.length,
+          windowDays,
+          minMemories,
+        },
+        'Scene clustering completed',
+      );
+    }
+
+    return results;
+  }
+
+  /**
+   * Window/group loop extracted from cluster() so the fail-soft backup can wrap
+   * file writes + memory persistence in one try/catch.
+   */
+  private buildClusters(
+    grouped: Map<string, Memory[]>,
+    scope: string,
+    windowDays: number,
+    minMemories: number,
+    results: SceneCluster[],
+  ): void {
     for (const [scopeKey, memories] of grouped) {
       // 记忆已按 created_at ASC 排序（findAllByScope 保证）
       // 按时间窗口切割
@@ -116,20 +158,22 @@ export class SceneClusterer {
         results.push(cluster);
       }
     }
+  }
 
-    if (results.length > 0) {
-      this.logger?.info(
-        {
-          scope,
-          clusterCount: results.length,
-          windowDays,
-          minMemories,
-        },
-        'Scene clustering completed',
-      );
-    }
+  /** Snapshot `<baseDir>/scenes` to `backupDir`. No-op when there are no scenes yet. */
+  private backupScenesDir(backupDir: string): void {
+    const scenesDir = path.join(this.baseDir, 'scenes');
+    if (!fs.existsSync(scenesDir)) return;
+    fs.rmSync(backupDir, { recursive: true, force: true });
+    fs.cpSync(scenesDir, backupDir, { recursive: true });
+  }
 
-    return results;
+  /** Replace the scenes directory with the backup snapshot (idempotent). */
+  private restoreScenesDir(backupDir: string): void {
+    if (!fs.existsSync(backupDir)) return;
+    const scenesDir = path.join(this.baseDir, 'scenes');
+    fs.rmSync(scenesDir, { recursive: true, force: true });
+    fs.renameSync(backupDir, scenesDir);
   }
 
   /**

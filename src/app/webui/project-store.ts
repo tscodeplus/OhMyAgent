@@ -4,6 +4,7 @@
 
 import type Database from 'better-sqlite3';
 import { generateId } from '../../shared/ids.js';
+import { MemoryRepository } from '../../memory/repositories/memory-repository.js';
 
 export interface ProjectRow {
   id: string;
@@ -125,18 +126,14 @@ export class ProjectStore {
         this.db.prepare('DELETE FROM messages WHERE session_id = ?').run(sid);
         this.db.prepare('DELETE FROM episodes WHERE session_id = ?').run(sid);
         this.db.prepare('DELETE FROM tool_runs WHERE session_id = ?').run(sid);
-        // Session-level memories
-        const memResult = this.db
-          .prepare("DELETE FROM memories WHERE scope = 'session' AND scope_key = ?")
-          .run(sid);
-        deletedMemories += memResult.changes;
+        // Session-level memories — via repository so derived stores
+        // (terms/links/embeddings/FTS) are cleaned too.
+        const memRepo = new MemoryRepository(this.db);
+        deletedMemories += memRepo.deleteByScope('session', sid);
       }
 
       // 2. Delete project-level memories
-      const projMemResult = this.db
-        .prepare("DELETE FROM memories WHERE scope = 'project' AND scope_key = ?")
-        .run(id);
-      deletedMemories += projMemResult.changes;
+      deletedMemories += new MemoryRepository(this.db).deleteByScope('project', id);
 
       // 3. Delete sessions
       const sessionResult = this.db.prepare('DELETE FROM sessions WHERE project_id = ?').run(id);

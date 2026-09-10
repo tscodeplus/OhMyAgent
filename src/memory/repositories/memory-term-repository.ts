@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { segmentCJK } from '../fts-tokenizer.js';
 
 export interface MemoryTermInput {
   memoryId: string;
@@ -64,6 +65,12 @@ export function extractMemoryTerms(
   for (const token of tokenize(text)) {
     terms.push({ term: token, termType: 'token', weight: token.length >= 6 ? 1.2 : 1 });
   }
+  // CJK segmentation — the Latin tokenizer above strips all Han characters,
+  // which left pure-Chinese memories (the majority in this gateway) with zero
+  // terms and made the lexical recall channel blind to them.
+  for (const token of segmentCJK(text)) {
+    terms.push({ term: token, termType: 'token', weight: token.length >= 3 ? 1.2 : 1 });
+  }
   for (const number of text.match(/\b\d+(?:\.\d+)?\b/g) ?? []) {
     terms.push({ term: number, termType: 'number', weight: 1.6 });
   }
@@ -93,6 +100,7 @@ export function extractMemoryTerms(
 
 export function extractQueryTerms(query: string): string[] {
   return [
+    ...segmentCJK(query),
     ...tokenize(query),
     ...(query.match(/\b\d+(?:\.\d+)?\b/g) ?? []),
     ...MONTHS.filter((month) => query.toLowerCase().includes(month)),

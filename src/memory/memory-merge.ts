@@ -22,6 +22,10 @@ export interface MergeConfig {
   auxConfig?: AuxModelConfig;
   /** Cosine similarity threshold to trigger merge (0-1). Default 0.85. */
   mergeThreshold: number;
+  /** Output language for merged memories. 'Auto'/unset → follow the existing
+   * memory's language via prompt instruction (TDAM v0.3.6 language-adaptive
+   * prompt pattern; a bare merge prompt let zh memories come back English). */
+  outputLanguage?: string;
   logger: Logger;
 }
 
@@ -31,8 +35,20 @@ export interface TimelineEntry {
   newEvidence: string;
 }
 
-const MERGE_SYSTEM_PROMPT =
+const MERGE_SYSTEM_PROMPT_BASE =
   'Merge the following existing knowledge with new evidence. Update the current best understanding. Output ONLY JSON: {"mergedContent":"merged text"}.';
+
+/**
+ * Build the merge system prompt. When a concrete output language is configured,
+ * instruct the model to write the merged content in it; 'Auto' defers to the
+ * conversation/existing memory language (same semantics as the summarizer).
+ */
+export function buildMergeSystemPrompt(outputLanguage?: string): string {
+  if (outputLanguage && outputLanguage !== 'Auto') {
+    return `${MERGE_SYSTEM_PROMPT_BASE} Write the merged content in ${outputLanguage}.`;
+  }
+  return `${MERGE_SYSTEM_PROMPT_BASE} Write the merged content in the same language as the CURRENT text.`;
+}
 
 /**
  * Attempt to merge new evidence into an existing memory.
@@ -80,7 +96,7 @@ export async function mergeMemory(
 
   try {
     const response = await auxLLMCall(config.auxConfig!, {
-      systemPrompt: MERGE_SYSTEM_PROMPT,
+      systemPrompt: buildMergeSystemPrompt(config.outputLanguage),
       userPrompt,
       temperature: 0.3,
       maxTokens: 1000,

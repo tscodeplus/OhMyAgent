@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { syncJiebaFts } from '../fts.js';
+import { EmbeddingRepository } from './embedding-repository.js';
 
 export interface Memory {
   id: string;
@@ -30,6 +31,9 @@ export interface CreateMemoryInput {
   agent_id?: string | null;
   visibility?: string;
   status?: string;
+  /** Explicit created_at override (ISO or epoch-ms string). Omit → DB default.
+   * Import paths MUST pass the original timestamp so timelines stay truthful. */
+  created_at?: string | null;
   supersedes_id?: string | null;
   source_channel?: string | null;
   source_message_id?: string | null;
@@ -70,10 +74,17 @@ export class MemoryRepository {
   }
 
   create(input: CreateMemoryInput): Memory {
-    const stmt = this.db.prepare(`
-      INSERT INTO memories (id, scope, scope_key, kind, content, metadata, agent_id, visibility, status, supersedes_id, source_channel, source_message_id, confidence)
-      VALUES (@id, @scope, @scope_key, @kind, @content, @metadata, @agent_id, @visibility, @status, @supersedes_id, @source_channel, @source_message_id, @confidence)
-    `);
+    // created_at is NOT NULL with a DB-side epoch-ms default, so a NULL bind
+    // would violate the constraint — only include the column when the caller
+    // supplies an explicit timestamp (import paths preserving original time).
+    const withCreatedAt = input.created_at != null && input.created_at !== '';
+    const stmt = this.db.prepare(
+      withCreatedAt
+        ? `INSERT INTO memories (id, scope, scope_key, kind, content, metadata, agent_id, visibility, status, supersedes_id, source_channel, source_message_id, confidence, created_at)
+      VALUES (@id, @scope, @scope_key, @kind, @content, @metadata, @agent_id, @visibility, @status, @supersedes_id, @source_channel, @source_message_id, @confidence, @created_at)`
+        : `INSERT INTO memories (id, scope, scope_key, kind, content, metadata, agent_id, visibility, status, supersedes_id, source_channel, source_message_id, confidence)
+      VALUES (@id, @scope, @scope_key, @kind, @content, @metadata, @agent_id, @visibility, @status, @supersedes_id, @source_channel, @source_message_id, @confidence)`,
+    );
     stmt.run({
       id: input.id,
       scope: input.scope,
@@ -88,6 +99,7 @@ export class MemoryRepository {
       source_channel: input.source_channel ?? null,
       source_message_id: input.source_message_id ?? null,
       confidence: input.confidence ?? 1.0,
+      created_at: input.created_at ?? null,
     });
     const created = this.findById(input.id)!;
     syncJiebaFts(this.db, 'insert', {
@@ -282,12 +294,20 @@ export class MemoryRepository {
     return updated;
   }
 
-  /** Physical delete — only for hygiene purge. */
+  /**
+   * Physical delete — hygiene purge, memory tools, writer dedupe.
+   *
+   * Cleans derived stores explicitly: memory_terms' FK cascade only applies
+   * on connections with foreign_keys=ON (historical deletes prove some paths
+   * lacked it), embeddings live in vec0 virtual tables with no FK cascade at
+   * all, and memory_links would leave orphan rows behind otherwise.
+   */
   delete(id: string): boolean {
     const memory = this.findById(id);
     const stmt = this.db.prepare('DELETE FROM memories WHERE id = ?');
     const result = stmt.run(id);
     if (result.changes > 0 && memory) {
+      this.deleteDerivedStores(id);
       syncJiebaFts(this.db, 'delete', {
         id: memory.id,
         content: memory.content,
@@ -370,9 +390,22 @@ export class MemoryRepository {
   }
 
   deleteByScope(scope: string, scopeKey: string): number {
+    const ids = this.db
+      .prepare('SELECT id FROM memories WHERE scope = ? AND scope_key = ?')
+      .all(scope, scopeKey) as Array<{ id: string }>;
     const stmt = this.db.prepare('DELETE FROM memories WHERE scope = ? AND scope_key = ?');
     const result = stmt.run(scope, scopeKey);
+    if (result.changes > 0) {
+      for (const { id } of ids) this.deleteDerivedStores(id);
+    }
     return result.changes;
+  }
+
+  /** Remove a memory's derived rows (terms / links / embeddings). */
+  private deleteDerivedStores(id: string): void {
+    this.db.prepare('DELETE FROM memory_terms WHERE memory_id = ?').run(id);
+    this.db.prepare('DELETE FROM memory_links WHERE source_memory_id = ?').run(id);
+    new EmbeddingRepository(this.db).deleteByMemoryId(id);
   }
 
   upsert(input: {
