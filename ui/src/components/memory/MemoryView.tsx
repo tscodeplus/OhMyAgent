@@ -10,6 +10,7 @@ import {
   X,
   Save,
   User,
+  Activity,
 } from 'lucide-react';
 import { apiRequest } from '../../utils/api';
 import { useToast } from '../ui/Toast';
@@ -36,6 +37,24 @@ interface MemoryItem {
   updated_at: string;
 }
 
+interface PipelineStatus {
+  layers: { layer: string; label: string; recordCount: number; lastProcessedAt: string | null }[];
+  dreamCycle: {
+    phase: string;
+    status: string | null;
+    startedAt: string | null;
+    durationMs: number | null;
+    error: string | null;
+  }[];
+  observability: { windowHours: number; total: number; counts: Record<string, number> };
+  observabilityAllTime: { total: number; counts: Record<string, number> };
+  observabilitySinceLastRun?: {
+    runStartedAt: number | null;
+    total: number;
+    counts: Record<string, number>;
+  };
+}
+
 export default function MemoryView() {
   const { t } = useTranslation('common');
   const { showToast } = useToast();
@@ -56,6 +75,22 @@ export default function MemoryView() {
   const [personaSaving, setPersonaSaving] = useState(false);
   const [showPersona, setShowPersona] = useState(false);
   const [personaForm, setPersonaForm] = useState<Record<string, string>>({});
+
+  // Batch selection (TDAM v2.0.1 "清空对话记忆" batch delete)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchDeleting, setBatchDeleting] = useState(false);
+
+  // Pipeline status (TDAM /v2/pipeline/status analogue)
+  const [showPipeline, setShowPipeline] = useState(false);
+  const [pipelineStatus, setPipelineStatus] = useState<PipelineStatus | null>(null);
+  const [pipelineLoading, setPipelineLoading] = useState(false);
+  const [pipelineRunning, setPipelineRunning] = useState(false);
+
+  // Governance editing (visibility / status / agent ownership)
+  const [editVisibility, setEditVisibility] = useState('shared');
+  const [editStatus, setEditStatus] = useState('active');
+  const [editAgentId, setEditAgentId] = useState('');
+  const [savingGovernance, setSavingGovernance] = useState(false);
 
   const PERSONA_DRAFT_KEY = 'oma-persona-draft';
 
@@ -186,9 +221,107 @@ export default function MemoryView() {
     try {
       await apiRequest(`/api/memory/${id}`, { method: 'DELETE' });
       showToast(t('project.deleted'), 'success');
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
       fetchMemories();
     } catch {
       showToast(t('project.deleteError'), 'error');
+    }
+  };
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setBatchDeleting(true);
+    try {
+      await apiRequest('/api/memory/batch-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids: Array.from(selectedIds) }),
+      });
+      showToast(t('memory.batchDeleteDone', { count: selectedIds.size }), 'success');
+      setSelectedIds(new Set());
+      setSelectedMemory(null);
+      fetchMemories();
+    } catch {
+      showToast(t('memory.batchDeleteError'), 'error');
+    } finally {
+      setBatchDeleting(false);
+    }
+  };
+
+  const fetchPipelineStatus = useCallback(async () => {
+    setPipelineLoading(true);
+    try {
+      const data = await apiRequest<PipelineStatus>('/api/memory/pipeline/status');
+      setPipelineStatus(data);
+    } catch {
+      setPipelineStatus(null);
+    } finally {
+      setPipelineLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (showPipeline) fetchPipelineStatus();
+  }, [showPipeline, fetchPipelineStatus]);
+
+  const handlePipelineRun = async () => {
+    setPipelineRunning(true);
+    try {
+      await apiRequest('/api/memory/pipeline/run', { method: 'POST' });
+      showToast(t('memory.pipeline.runStarted'), 'success');
+      // Poll a few times while the run progresses (light phases finish fast;
+      // heavy ones can take minutes with real data).
+      for (let i = 0; i < 10; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        await fetchPipelineStatus();
+      }
+    } catch {
+      showToast(t('memory.pipeline.runError'), 'error');
+    } finally {
+      setPipelineRunning(false);
+    }
+  };
+
+  // Initialize governance edit fields when the drawer opens
+  useEffect(() => {
+    if (selectedMemory) {
+      setEditVisibility(selectedMemory.visibility || 'shared');
+      setEditStatus(selectedMemory.status || 'active');
+      setEditAgentId(selectedMemory.agent_id || '');
+    }
+  }, [selectedMemory]);
+
+  const handleGovernanceSave = async () => {
+    if (!selectedMemory) return;
+    setSavingGovernance(true);
+    try {
+      await apiRequest(`/api/memory/${selectedMemory.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          visibility: editVisibility,
+          status: editStatus,
+          agent_id: editAgentId.trim() ? editAgentId.trim() : null,
+        }),
+      });
+      showToast(t('memory_page.saved'), 'success');
+      setSelectedMemory(null);
+      fetchMemories();
+    } catch {
+      showToast(t('memory_page.saveError'), 'error');
+    } finally {
+      setSavingGovernance(false);
     }
   };
 
@@ -205,6 +338,12 @@ export default function MemoryView() {
     } catch {
       showToast(t('cron.saveError'), 'error');
     }
+  };
+
+  const visibilityColors: Record<string, string> = {
+    shared: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300',
+    private: 'bg-orange-50 text-orange-600 dark:bg-orange-950/40 dark:text-orange-300',
+    agent: 'bg-teal-50 text-teal-600 dark:bg-teal-950/40 dark:text-teal-300',
   };
 
   const scopeColors: Record<string, string> = {
@@ -332,6 +471,130 @@ export default function MemoryView() {
         )}
       </div>
 
+      {/* Pipeline Status (collapsible) */}
+      <div className="mb-6 rounded-lg border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowPipeline(!showPipeline)}
+          className="flex w-full items-center gap-2 px-4 py-2.5 text-sm font-medium text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 transition-colors"
+        >
+          <Activity className="h-4 w-4" strokeWidth={1.75} />
+          <span>{t('memory.pipeline.title')}</span>
+          {showPipeline ? (
+            <ChevronDown size={14} className="ml-auto" />
+          ) : (
+            <ChevronRight size={14} className="ml-auto" />
+          )}
+        </button>
+        {showPipeline && (
+          <div className="px-4 py-3 border-t border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+            {pipelineLoading ? (
+              <div className="flex justify-center py-3">
+                <Spinner />
+              </div>
+            ) : pipelineStatus ? (
+              <div className="space-y-3">
+                <div className="flex justify-end">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handlePipelineRun}
+                    loading={pipelineRunning}
+                  >
+                    <Activity className="h-3.5 w-3.5" strokeWidth={1.75} />
+                    <span>{t('memory.pipeline.runNow')}</span>
+                  </Button>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {pipelineStatus.layers.map((l) => (
+                    <div
+                      key={l.layer}
+                      className="rounded-md bg-neutral-50 dark:bg-neutral-800/60 px-3 py-2"
+                    >
+                      <div className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                        {l.layer} · {t(`memory.pipeline.layer_${l.layer}`)}
+                      </div>
+                      <div className="text-lg font-semibold">{l.recordCount}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="space-y-1">
+                  {pipelineStatus.dreamCycle.map((p) => (
+                    <div key={p.phase} className="flex items-center gap-2 text-xs">
+                      <span className="font-mono w-24 shrink-0">{p.phase}</span>
+                      {p.status === 'success' ? (
+                        <span className="text-green-600 dark:text-green-400">✓</span>
+                      ) : p.status === 'failed' ? (
+                        <span className="text-danger" title={p.error || ''}>
+                          ✗
+                        </span>
+                      ) : p.status ? (
+                        <span className="text-warning">…</span>
+                      ) : (
+                        <span className="text-neutral-400">—</span>
+                      )}
+                      <span className="text-neutral-500 dark:text-neutral-400 truncate">
+                        {p.startedAt
+                          ? formatRelativeTime(p.startedAt)
+                          : t('memory.pipeline.neverRan')}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {(() => {
+                  const since = pipelineStatus.observabilitySinceLastRun;
+                  const sinceText =
+                    since?.runStartedAt != null
+                      ? since.total > 0
+                        ? t('memory.pipeline.sinceLastRunEvents', {
+                            time: formatRelativeTime(since.runStartedAt),
+                            count: since.total,
+                          })
+                        : t('memory.pipeline.lastRunClean', {
+                            time: formatRelativeTime(since.runStartedAt),
+                          })
+                      : null;
+                  const mainText =
+                    pipelineStatus.observability.total > 0
+                      ? t('memory.pipeline.degradationEvents', {
+                          count: pipelineStatus.observability.total,
+                        })
+                      : t('memory.pipeline.noDegradation');
+                  return (
+                    <div
+                      className={
+                        pipelineStatus.observability.total > 0
+                          ? 'text-xs text-warning'
+                          : 'text-xs text-neutral-500 dark:text-neutral-400'
+                      }
+                      title={
+                        pipelineStatus.observability.total > 0
+                          ? t('memory.pipeline.allTimeTooltip', {
+                              count: pipelineStatus.observabilityAllTime.total,
+                            })
+                          : undefined
+                      }
+                    >
+                      {mainText}
+                      {sinceText && (
+                        <>
+                          {' | '}
+                          {sinceText}
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            ) : (
+              <div className="text-sm text-neutral-500 dark:text-neutral-400 py-2">
+                {t('memory.pipeline.unavailable')}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Search & Filters */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-4">
         <div className="relative flex-1 min-w-[160px] max-w-md">
@@ -379,6 +642,22 @@ export default function MemoryView() {
         </div>
       </div>
 
+      {/* Batch toolbar */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center justify-between gap-3 mb-3 rounded-lg border border-danger/30 bg-danger/5 px-4 py-2">
+          <span className="text-sm">{t('memory.selectedCount', { count: selectedIds.size })}</span>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" size="sm" onClick={() => setSelectedIds(new Set())}>
+              {t('memory_page.cancel')}
+            </Button>
+            <Button variant="danger" size="sm" onClick={handleBatchDelete} loading={batchDeleting}>
+              <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+              <span>{t('memory.batchDelete')}</span>
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Memory List */}
       {loading ? (
         <div className="flex justify-center py-12">
@@ -395,34 +674,50 @@ export default function MemoryView() {
               key={mem.id}
               className={`rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 cursor-pointer hover:shadow-sm transition-shadow ${
                 selectedMemory?.id === mem.id ? 'ring-2 ring-primary' : ''
-              }`}
+              } ${selectedIds.has(mem.id) ? 'border-primary/50' : ''}`}
               onClick={() => {
                 setSelectedMemory(mem);
                 setIsEditing(false);
               }}
             >
               <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-neutral-900 dark:text-neutral-100 line-clamp-2">
-                    {mem.content}
-                  </p>
-                  <div className="flex items-center gap-2 mt-2 flex-wrap">
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full ${scopeColors[mem.scope] || 'bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300'}`}
-                    >
-                      {mem.scope}
-                    </span>
-                    <span className="text-xs text-neutral-500 dark:text-neutral-400">
-                      {mem.kind}
-                    </span>
-                    {mem.confidence < 1 && (
-                      <span className="text-xs text-warning">
-                        {Math.round(mem.confidence * 100)}%
+                <div className="flex items-start gap-3 flex-1 min-w-0">
+                  <input
+                    type="checkbox"
+                    className="mt-1 accent-[var(--color-primary)] cursor-pointer"
+                    checked={selectedIds.has(mem.id)}
+                    onChange={() => toggleSelected(mem.id)}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-neutral-900 dark:text-neutral-100 line-clamp-2">
+                      {mem.content}
+                    </p>
+                    <div className="flex items-center gap-2 mt-2 flex-wrap">
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full ${scopeColors[mem.scope] || 'bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300'}`}
+                      >
+                        {mem.scope}
                       </span>
-                    )}
-                    <span className="text-xs text-neutral-500 dark:text-neutral-400">
-                      {formatRelativeTime(mem.created_at)}
-                    </span>
+                      <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                        {mem.kind}
+                      </span>
+                      {mem.visibility !== 'shared' && (
+                        <span
+                          className={`text-xs px-2 py-0.5 rounded-full ${visibilityColors[mem.visibility] || 'bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300'}`}
+                        >
+                          {t(`memory.visibility_${mem.visibility}`, mem.visibility)}
+                        </span>
+                      )}
+                      {mem.confidence < 1 && (
+                        <span className="text-xs text-warning">
+                          {Math.round(mem.confidence * 100)}%
+                        </span>
+                      )}
+                      <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                        {formatRelativeTime(mem.created_at)}
+                      </span>
+                    </div>
                   </div>
                 </div>
                 <div
@@ -534,20 +829,54 @@ export default function MemoryView() {
                 <span className="text-neutral-500 dark:text-neutral-400">Confidence</span>
                 <span>{selectedMemory.confidence}</span>
               </div>
-              <div className="flex justify-between">
+              <div className="flex items-center justify-between gap-3">
                 <span className="text-neutral-500 dark:text-neutral-400">Visibility</span>
-                <span>{selectedMemory.visibility}</span>
+                <Select
+                  value={editVisibility}
+                  onChange={(e) => setEditVisibility(e.target.value)}
+                  options={[
+                    { value: 'shared', label: t('memory.visibility_shared') },
+                    { value: 'private', label: t('memory.visibility_private') },
+                    { value: 'agent', label: t('memory.visibility_agent') },
+                  ]}
+                  className="w-[140px]"
+                />
               </div>
-              <div className="flex justify-between">
+              <div className="flex items-center justify-between gap-3">
                 <span className="text-neutral-500 dark:text-neutral-400">Status</span>
-                <span>{selectedMemory.status}</span>
+                <Select
+                  value={editStatus}
+                  onChange={(e) => setEditStatus(e.target.value)}
+                  options={[
+                    { value: 'active', label: t('memory.status_active') },
+                    { value: 'superseded', label: t('memory.status_superseded') },
+                    { value: 'deleted', label: t('memory.status_deleted') },
+                  ]}
+                  className="w-[140px]"
+                />
               </div>
-              {selectedMemory.agent_id && (
-                <div className="flex justify-between">
-                  <span className="text-neutral-500 dark:text-neutral-400">Agent</span>
-                  <span>{selectedMemory.agent_id}</span>
-                </div>
-              )}
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-neutral-500 dark:text-neutral-400">
+                  {t('memory.ownerAgent')}
+                </span>
+                <Input
+                  value={editAgentId}
+                  onChange={(e) => setEditAgentId(e.target.value)}
+                  placeholder={t('memory.ownerAgentPlaceholder')}
+                  className="w-[160px]"
+                />
+              </div>
+              <div className="flex justify-end">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleGovernanceSave}
+                  loading={savingGovernance}
+                >
+                  <Save className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  <span>{t('memory_page.save')}</span>
+                </Button>
+              </div>
               <div className="flex justify-between">
                 <span className="text-neutral-500 dark:text-neutral-400">Created</span>
                 <span>{formatRelativeTime(selectedMemory.created_at)}</span>
