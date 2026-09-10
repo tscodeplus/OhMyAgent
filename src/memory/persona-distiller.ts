@@ -212,7 +212,7 @@ export class PersonaDistiller {
 
     try {
       const response = await this.llm.call(
-        `${buildSystemPrompt(this.outputLanguage)}\n${buildFullDistillExtra(this.outputLanguage)}`,
+        `${buildSystemPrompt(this.config.outputLanguage)}\n${buildFullDistillExtra(this.config.outputLanguage)}`,
         userPrompt,
       );
       return this.parseFullResponse(response) ?? createEmptyPersona();
@@ -259,7 +259,7 @@ export class PersonaDistiller {
     let rebuildSucceeded = false;
     try {
       const response = await this.llm.call(
-        `${buildSystemPrompt(this.outputLanguage)}\n${buildFullDistillExtra(this.outputLanguage)}`,
+        `${buildSystemPrompt(this.config.outputLanguage)}\n${buildFullDistillExtra(this.config.outputLanguage)}`,
         userPrompt,
       );
       const persona = this.parseFullResponse(response);
@@ -345,7 +345,7 @@ export class PersonaDistiller {
 
     try {
       const response = await this.llm.call(
-        `${buildSystemPrompt(this.outputLanguage)}\n${buildIncrementalExtra(this.outputLanguage)}`,
+        `${buildSystemPrompt(this.config.outputLanguage)}\n${buildIncrementalExtra(this.config.outputLanguage)}`,
         userPrompt,
       );
       const partial = this.parsePartialResponse(response);

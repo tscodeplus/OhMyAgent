@@ -65,6 +65,8 @@ export interface MemoryServices {
   memoryChangeCallbacks: Array<(event?: MemoryChangeEvent) => void>;
   offloadDir: string;
   auxModelConfig: AuxModelConfig;
+  /** Writer-level merge config — outputLanguage hot-reloads in place. */
+  mergeConfig: MergeConfig;
 }
 
 function buildSummaryLLMConfig(
@@ -337,20 +339,23 @@ export async function createMemoryServices(
 
   const summaryConfig = buildSummaryLLMConfig(auxModelConfig, config.memory.outputLanguage);
 
-  // Hot-reload the aux model chain + summary LLM config in place. The shared
-  // auxModelConfig object is mutated (not replaced) so every consumer holding
-  // a reference — MemoryWriter's mergeConfig, query expansion, entity
-  // extraction, DreamCycle's mergeConfig, MemorySummarizer — picks up the new
-  // model/keys on its next aux call without a restart. The openai client pool
-  // in aux-llm-client is keyed by baseUrl+apiKey, so new endpoints get fresh
-  // clients automatically.
+  // Hot-reload the aux model chain + summary LLM config + merge/summary output
+  // language in place. The shared objects are mutated (not replaced) so every
+  // consumer holding a reference — MemoryWriter's mergeConfig, query expansion,
+  // entity extraction, DreamCycle's mergeConfig, MemorySummarizer, persona
+  // distiller — picks up the new model/keys/language on its next aux call
+  // without a restart. The openai client pool in aux-llm-client is keyed by
+  // baseUrl+apiKey, so new endpoints get fresh clients automatically.
   configEventBus.onReload((c) => {
     Object.assign(auxModelConfig, buildAuxModelConfig(c));
     Object.assign(summaryConfig, buildSummaryLLMConfig(auxModelConfig, c.memory.outputLanguage));
+    mergeConfig.outputLanguage = c.memory.outputLanguage;
+    if (distillerConfig) distillerConfig.outputLanguage = c.memory.outputLanguage;
     logger.info(
       {
         primary: auxModelConfig.modelRef,
         fallbackCount: auxModelConfig.fallbackRefs?.length ?? 0,
+        outputLanguage: c.memory.outputLanguage,
       },
       'Memory aux models reloaded (hot)',
     );
@@ -365,18 +370,22 @@ export async function createMemoryServices(
     personaDistillationLog,
   );
   let personaDistiller: PersonaDistiller | undefined;
+  let distillerConfig:
+    | { distillThreshold?: number; minDistillIntervalHours?: number; outputLanguage?: string }
+    | undefined;
   if (config.memory.persona?.enabled) {
     const distillerLLM = await createDistillerLLM(summaryConfig, logger);
+    distillerConfig = {
+      distillThreshold: config.memory.persona.distillThreshold,
+      minDistillIntervalHours: config.memory.persona.minDistillIntervalHours,
+      outputLanguage: config.memory.outputLanguage,
+    };
     personaDistiller = new PersonaDistiller(
       distillerLLM,
       memoryRepository,
       personaStore!,
       logger,
-      {
-        distillThreshold: config.memory.persona.distillThreshold,
-        minDistillIntervalHours: config.memory.persona.minDistillIntervalHours,
-        outputLanguage: config.memory.outputLanguage,
-      },
+      distillerConfig,
       personaDistillationLog,
     );
     logger.info(
@@ -481,5 +490,6 @@ export async function createMemoryServices(
     memoryChangeCallbacks,
     offloadDir,
     auxModelConfig,
+    mergeConfig,
   };
 }

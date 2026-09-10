@@ -206,6 +206,11 @@ export function createSchedulers(input: {
   configEventBus.onReload((c) => {
     jobRunner.updateConfig({ footer: c.footer });
   });
+  // DreamCycle merge language hot-reload (aux model chain lives on the shared
+  // memory.auxModelConfig object, already mutated by memory-services' handler)
+  configEventBus.onReload((c) => {
+    mergeConfig.outputLanguage = c.memory.outputLanguage;
+  });
 
   return {
     maintenanceScheduler,

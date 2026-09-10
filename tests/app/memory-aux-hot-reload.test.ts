@@ -60,6 +60,31 @@ describe('memory aux model config hot reload', () => {
     expect(aux.baseUrls?.['deepseek']).toBe('https://api.deepseek.com');
     expect(aux.apiKeys?.['opencode']).toBe('sk-opencode');
   });
+
+  it('hot-reloads outputLanguage into writer mergeConfig and persona distiller config', async () => {
+    const logger = {
+      info: () => {},
+      warn: () => {},
+      error: () => {},
+      debug: () => {},
+      child: () => logger,
+    } as never;
+
+    const db = openDatabase(':memory:');
+    const memory = await createMemoryServices(baseConfig(), logger, db);
+    expect(memory.mergeConfig.outputLanguage).toBe('English');
+
+    const reloaded = baseConfig();
+    (reloaded as Record<string, unknown>).memory = {
+      ...((reloaded as Record<string, unknown>).memory as Record<string, unknown>),
+      outputLanguage: 'Simplified Chinese',
+    };
+
+    await configEventBus.emit(reloaded);
+
+    // Same object mutated in place — writer/DreamCycle see the new language
+    expect(memory.mergeConfig.outputLanguage).toBe('Simplified Chinese');
+  });
 });
 
 afterEach(() => {
