@@ -164,6 +164,15 @@ export async function createMemoryServices(
   const memoryTermRepo = new MemoryTermRepository(db);
 
   const auxApiKeys: Record<string, string> = {};
+  const auxBaseUrls: Record<string, string> = {};
+  // provider_keys entries (per-provider api_key + base_url) must take part in
+  // aux resolution — without this, a model like `opencode/glm-5.3-flash`
+  // falls through to the wildcard (main provider's key + baseUrl) and gets
+  // rejected with 401 by an unrelated endpoint.
+  for (const [name, pk] of Object.entries(config.providerKeys ?? {})) {
+    if (pk?.apiKey) auxApiKeys[name] = pk.apiKey;
+    if (pk?.baseUrl) auxBaseUrls[name] = pk.baseUrl;
+  }
   for (const [envVar, provider] of [
     ['DEEPSEEK_API_KEY', 'deepseek'],
     ['XIAOMI_API_KEY', 'xiaomi'],
@@ -199,6 +208,7 @@ export async function createMemoryServices(
     modelRef: auxPrimary,
     fallbackRefs: auxFallbacks,
     apiKeys: auxApiKeys,
+    baseUrls: auxBaseUrls,
     baseUrl: config.piAi.baseUrl,
     disableThinking: memAux?.disableThinking,
   };
