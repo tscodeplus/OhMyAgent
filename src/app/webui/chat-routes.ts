@@ -844,6 +844,7 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
       await cfg.agentService.execute(message, {
         sessionId: sessionId,
         chatId: `webui:${projectId}`,
+        projectId,
         agentId: effectiveAgentId,
         model: explicitModel,
         reasoningLevel,

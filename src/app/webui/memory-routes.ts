@@ -216,6 +216,30 @@ function buildLayerCounts(db: Database.Database): Array<{
 export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfig): void {
   // ---- Memories ----
 
+  /** Distinct filter facet values (channels, kinds) for dropdown population. */
+  app.get('/api/memory/filters', async (_request, reply) => {
+    try {
+      const channels = (
+        cfg.db
+          .prepare(
+            'SELECT DISTINCT source_channel FROM memories WHERE source_channel IS NOT NULL ORDER BY source_channel',
+          )
+          .all() as Array<{ source_channel: string }>
+      ).map((r) => r.source_channel);
+      const kinds = (
+        cfg.db
+          .prepare("SELECT DISTINCT kind FROM memories WHERE status = 'active' ORDER BY kind")
+          .all() as Array<{
+          kind: string;
+        }>
+      ).map((r) => r.kind);
+      return reply.send({ channels, kinds });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  });
+
   /** List / search memories */
   app.get('/api/memory', async (request, reply) => {
     try {
@@ -227,6 +251,7 @@ export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfi
         visibility?: string;
         kind?: string;
         status?: string;
+        channel?: string;
         offset?: string;
         limit?: string;
       };
@@ -243,8 +268,18 @@ export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfi
         params.push(query.scope);
       }
       if (query.project_id && query.project_id !== 'all') {
-        sql += ' AND scope_key LIKE ?';
-        params.push(`%${query.project_id}%`);
+        // Project memories are scope='project' rows whose scope_key holds the
+        // project id — match exactly (LIKE matched unrelated channel ids).
+        sql += " AND scope = 'project' AND scope_key = ?";
+        params.push(query.project_id);
+      }
+      if (query.channel && query.channel !== 'all') {
+        if (query.channel === 'none') {
+          sql += ' AND source_channel IS NULL';
+        } else {
+          sql += ' AND source_channel = ?';
+          params.push(query.channel);
+        }
       }
       if (query.agent_id) {
         // 'none' = unowned/global memories (agent_id IS NULL)

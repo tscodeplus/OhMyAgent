@@ -173,6 +173,8 @@ export interface AgentCreateOptions {
   extraTools?: any[];
   sessionId?: string;
   chatId?: string;
+  /** WebUI project id — enables project-scope memory writes via memory-store. */
+  projectId?: string;
   messageId?: string;
   /** Operator identity of the current message sender (e.g. Feishu open_id).
    *  Threaded into approval request records as the requester so approval
@@ -736,6 +738,7 @@ export function createAgentFactory(
         channel: options?.channel,
         sessionId,
         runtimeAgentId,
+        projectId: options?.projectId,
         effectiveProfile,
         effectiveShellMode,
         runtimePolicyScope,

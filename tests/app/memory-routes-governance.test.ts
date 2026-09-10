@@ -129,6 +129,86 @@ describe('memory routes — governance / batch / pipeline status', () => {
       const res = await app.inject({ method: 'GET', url: '/api/memory?agent_id=none' });
       expect(res.json()).toHaveLength(1);
     });
+
+    it('filters by channel and channel=none', async () => {
+      repo.create({
+        id: 'mem-feishu',
+        scope: 'user',
+        scope_key: 'u1',
+        kind: 'fact',
+        content: 'feishu memory',
+        source_channel: 'feishu',
+      });
+      repo.create({
+        id: 'mem-noch',
+        scope: 'user',
+        scope_key: 'u1',
+        kind: 'fact',
+        content: 'no channel memory',
+      });
+
+      const feishu = await app.inject({ method: 'GET', url: '/api/memory?channel=feishu' });
+      expect(feishu.json()).toHaveLength(1);
+      expect(feishu.json()[0].source_channel).toBe('feishu');
+
+      const none = await app.inject({ method: 'GET', url: '/api/memory?channel=none' });
+      expect(none.json()).toHaveLength(1);
+      expect(none.json()[0].id).toBe('mem-noch');
+    });
+
+    it('matches project memories by exact project id (implies scope=project)', async () => {
+      repo.create({
+        id: 'mem-proj',
+        scope: 'project',
+        scope_key: 'proj-1',
+        kind: 'fact',
+        content: 'project convention',
+      });
+      // A user memory whose scope_key happens to contain the project id must NOT match
+      repo.create({
+        id: 'mem-user',
+        scope: 'user',
+        scope_key: 'xproj-1y',
+        kind: 'fact',
+        content: 'unrelated user memory',
+      });
+
+      const res = await app.inject({ method: 'GET', url: '/api/memory?project_id=proj-1' });
+      expect(res.json()).toHaveLength(1);
+      expect(res.json()[0].id).toBe('mem-proj');
+      expect(res.json()[0].scope).toBe('project');
+    });
+
+    it('GET /api/memory/filters returns distinct channels and kinds', async () => {
+      repo.create({
+        id: 'mem-f1',
+        scope: 'user',
+        scope_key: 'u1',
+        kind: 'preference',
+        content: 'a',
+        source_channel: 'feishu',
+      });
+      repo.create({
+        id: 'mem-f2',
+        scope: 'user',
+        scope_key: 'u1',
+        kind: 'scene',
+        content: 'b',
+        source_channel: 'qq',
+      });
+      repo.create({
+        id: 'mem-f3',
+        scope: 'user',
+        scope_key: 'u1',
+        kind: 'preference',
+        content: 'c',
+      });
+
+      const res = await app.inject({ method: 'GET', url: '/api/memory/filters' });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().channels).toEqual(['feishu', 'qq']);
+      expect(res.json().kinds).toEqual(['preference', 'scene']);
+    });
   });
 
   describe('POST /api/memory/batch-delete', () => {

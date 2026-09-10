@@ -38,6 +38,7 @@ export function createMemoryStoreToolDefinition(options: {
         getAgentId: () => ctx.agentId,
         getChannel: () => ctx.channel,
         getMessageId: () => ctx.messageId,
+        getProjectId: () => ctx.projectId,
       });
       const result = await tool.execute('' as any, args as any);
       return {

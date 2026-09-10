@@ -78,6 +78,8 @@ export interface ToolPipelineOptions {
   channel?: string;
   sessionId?: string;
   runtimeAgentId?: string;
+  /** WebUI project id (from the session row) for project-scope memory writes. */
+  projectId?: string;
 
   // ── Resolved profile & policy (computed in agent-factory.ts) ──
   effectiveProfile: ToolProfileId;
@@ -237,6 +239,7 @@ export function assembleAgentTools(opts: ToolPipelineOptions): ToolPipelineResul
           agentId: opts.runtimeAgentId,
           channel: opts.channel,
           chatId: opts.chatId,
+          projectId: opts.projectId,
           policyScope: opts.runtimePolicyScope,
           // Invariant: when approvalGate is configured, agent-factory installs
           // a beforeToolCall hook that agent-loop runs UNCONDITIONALLY before

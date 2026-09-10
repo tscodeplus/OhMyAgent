@@ -50,6 +50,8 @@ import { getModel } from '@earendil-works/pi-ai';
 export interface AgentServiceOptions {
   sessionId?: string;
   chatId?: string;
+  /** WebUI project id — enables project-scope memory writes via memory-store. */
+  projectId?: string;
   messageId?: string;
   systemPrompt?: string;
   tools?: any[];

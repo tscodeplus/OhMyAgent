@@ -63,7 +63,11 @@ export default function MemoryView() {
   const [searchQuery, setSearchQuery] = useState('');
   const [scopeFilter, setScopeFilter] = useState('all');
   const [projectFilter, setProjectFilter] = useState('all');
+  const [kindFilter, setKindFilter] = useState('all');
+  const [channelFilter, setChannelFilter] = useState('all');
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
+  const [channelOptions, setChannelOptions] = useState<string[]>([]);
+  const [kindOptions, setKindOptions] = useState<string[]>([]);
   const [selectedMemory, setSelectedMemory] = useState<MemoryItem | null>(null);
   const [editingContent, setEditingContent] = useState('');
   const [isEditing, setIsEditing] = useState(false);
@@ -194,6 +198,8 @@ export default function MemoryView() {
       if (searchQuery) params.set('q', searchQuery);
       if (scopeFilter !== 'all') params.set('scope', scopeFilter);
       if (projectFilter !== 'all') params.set('project_id', projectFilter);
+      if (kindFilter !== 'all') params.set('kind', kindFilter);
+      if (channelFilter !== 'all') params.set('channel', channelFilter);
       params.set('offset', String(page * 20));
       params.set('limit', '20');
 
@@ -205,7 +211,7 @@ export default function MemoryView() {
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, scopeFilter, projectFilter, page]);
+  }, [searchQuery, scopeFilter, projectFilter, kindFilter, channelFilter, page]);
 
   useEffect(() => {
     fetchMemories();
@@ -214,6 +220,12 @@ export default function MemoryView() {
   useEffect(() => {
     apiRequest<{ id: string; name: string }[]>('/api/projects')
       .then(setProjects)
+      .catch(() => {});
+    apiRequest<{ channels: string[]; kinds: string[] }>('/api/memory/filters')
+      .then(({ channels, kinds }) => {
+        setChannelOptions(channels);
+        setKindOptions(kinds);
+      })
       .catch(() => {});
   }, []);
 
@@ -613,31 +625,65 @@ export default function MemoryView() {
             className="w-full rounded-lg border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-neutral-900 pl-9 pr-3 py-2 text-sm focus:border-primary focus:outline-none"
           />
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Select
             value={scopeFilter}
             onChange={(e) => {
               setScopeFilter(e.target.value);
+              // project_id only applies to scope=project rows
+              if (e.target.value !== 'project') setProjectFilter('all');
               setPage(0);
             }}
             options={[
               { value: 'all', label: t('memory.all') },
+              { value: 'user', label: t('memory.userScope') },
               { value: 'project', label: t('memory.projectScope') },
               { value: 'session', label: t('memory.sessionScope') },
+              { value: 'system', label: t('memory.systemScope') },
             ]}
             className="w-[110px] sm:w-[140px]"
           />
+          {scopeFilter === 'project' && (
+            <Select
+              value={projectFilter}
+              onChange={(e) => {
+                setProjectFilter(e.target.value);
+                setPage(0);
+              }}
+              options={[
+                { value: 'all', label: t('memory.filterProject') + ': ' + t('memory.all') },
+                ...projects.map((p) => ({ value: p.id, label: p.name })),
+              ]}
+              className="w-[140px] sm:w-[180px]"
+            />
+          )}
           <Select
-            value={projectFilter}
+            value={kindFilter}
             onChange={(e) => {
-              setProjectFilter(e.target.value);
+              setKindFilter(e.target.value);
               setPage(0);
             }}
             options={[
-              { value: 'all', label: t('memory.filterProject') + ': ' + t('memory.all') },
-              ...projects.map((p) => ({ value: p.id, label: p.name })),
+              { value: 'all', label: t('memory.kind') + ': ' + t('memory.all') },
+              ...kindOptions.map((k) => ({
+                value: k,
+                label: t(`memory.kindLabels.${k}`, k),
+              })),
             ]}
-            className="w-[140px] sm:w-[180px]"
+            className="w-[120px] sm:w-[150px]"
+          />
+          <Select
+            value={channelFilter}
+            onChange={(e) => {
+              setChannelFilter(e.target.value);
+              setPage(0);
+            }}
+            options={[
+              { value: 'all', label: t('memory.channel') + ': ' + t('memory.all') },
+              ...channelOptions.map((c) => ({ value: c, label: c })),
+              { value: 'none', label: t('memory.noChannel') },
+            ]}
+            className="w-[120px] sm:w-[150px]"
           />
         </div>
       </div>

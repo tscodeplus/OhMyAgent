@@ -34,7 +34,8 @@
     "rejected": "Content rejected by safety filter (reason: {{reason}}).",
     "duplicate": "This memory already exists (similar content detected).",
     "stored": "Memory stored successfully (ID: {{id}}).",
-    "error": "Error storing memory: {{message}}"
+    "error": "Error storing memory: {{message}}",
+    "noProject": "No project context in the current session — project-scope memories can only be written from a WebUI project chat."
   },
   "offloadRecall": {
     "noRecords": "No offloaded tool execution records found for the current session.",

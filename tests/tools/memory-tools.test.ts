@@ -180,6 +180,70 @@ describe('memory-store tool', () => {
     expect(text).toContain('injection_detected');
   });
 
+  it('writes project-scope memory when scope=project and project context is present', async () => {
+    const mockWriter = {
+      write: vi.fn().mockResolvedValue({ id: 'mem-proj', isDuplicate: false }),
+    };
+
+    const tool = createMemoryStoreTool({
+      memoryWriter: mockWriter,
+      getProjectId: () => 'proj-42',
+    });
+    const result = await tool.execute('call-p1', {
+      content: 'Build uses pnpm, not npm',
+      category: 'fact',
+      scope: 'project',
+    });
+
+    expect(mockWriter.write).toHaveBeenCalledWith({
+      content: 'Build uses pnpm, not npm',
+      scope: 'project',
+      scopeKey: 'proj-42',
+      kind: 'fact',
+      visibility: 'shared',
+      sourceChannel: null,
+      sourceMessageId: null,
+    });
+    expect(contentText(result)).toContain('mem-proj');
+  });
+
+  it('returns noProject error when scope=project without project context', async () => {
+    const mockWriter = { write: vi.fn() };
+
+    const tool = createMemoryStoreTool({
+      memoryWriter: mockWriter,
+      getProjectId: () => undefined,
+    });
+    const result = await tool.execute('call-p2', {
+      content: 'Build uses pnpm',
+      scope: 'project',
+    });
+
+    expect(mockWriter.write).not.toHaveBeenCalled();
+    expect(contentText(result)).toContain('project');
+  });
+
+  it('v4 definition passes ctx.projectId to project-scope writes', async () => {
+    const mockWriter = {
+      write: vi.fn().mockResolvedValue({ id: 'mem-ctx-proj', isDuplicate: false }),
+    };
+    const def = createMemoryStoreToolDefinition({ memoryWriter: mockWriter as any });
+
+    await def.execute(
+      { content: 'Deploy target is win32-x64', category: 'fact', scope: 'project' },
+      {
+        cwd: process.cwd(),
+        policyScope: {} as any,
+        services: {} as any,
+        projectId: 'proj-99',
+      } as any,
+    );
+
+    expect(mockWriter.write).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: 'project', scopeKey: 'proj-99' }),
+    );
+  });
+
   it('auto-detects category when not provided', async () => {
     const mockWriter = {
       write: vi.fn().mockResolvedValue({ id: 'mem-002', isDuplicate: false }),

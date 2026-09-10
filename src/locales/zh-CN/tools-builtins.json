@@ -34,7 +34,8 @@
     "rejected": "内容因安全过滤被拒绝（原因：{{reason}}）。",
     "duplicate": "此记忆已存在（检测到相似内容）。",
     "stored": "记忆已成功存储（ID：{{id}}）。",
-    "error": "存储记忆时出错：{{message}}"
+    "error": "存储记忆时出错：{{message}}",
+    "noProject": "当前会话没有项目上下文，无法写入项目级记忆（scope=project 仅在 WebUI 项目会话中可用）。"
   },
   "offloadRecall": {
     "noRecords": "当前会话没有已卸载的工具执行记录。",

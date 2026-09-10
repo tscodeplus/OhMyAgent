@@ -20,6 +20,8 @@ export function createMemoryStoreTool(options: {
   getAgentId?: () => string | undefined;
   getChannel?: () => string | undefined;
   getMessageId?: () => string | undefined;
+  /** WebUI project context — enables scope="project" writes. */
+  getProjectId?: () => string | undefined;
 }): AgentTool<any> {
   const schema = z.object({
     content: z.string().describe('The memory content to store'),
@@ -33,6 +35,12 @@ export function createMemoryStoreTool(options: {
       .describe(
         'Memory visibility — "shared" (accessible across agents, default) or "private" (only accessible by this agent)',
       ),
+    scope: z
+      .enum(['user', 'project'])
+      .optional()
+      .describe(
+        'Memory tier — "user" (personal, default) or "project" (knowledge specific to the current WebUI project, e.g. decisions, conventions, environment facts)',
+      ),
   });
 
   return {
@@ -43,7 +51,7 @@ export function createMemoryStoreTool(options: {
     parameters: zodToTypeBox(schema),
     execute: async (
       callId: string,
-      args: { content: string; category?: string; visibility?: string },
+      args: { content: string; category?: string; visibility?: string; scope?: string },
     ) => {
       try {
         // Safety check: validate size & detect prompt injection only.
@@ -73,9 +81,27 @@ export function createMemoryStoreTool(options: {
 
         const agentId = options.getAgentId?.() ?? defaultAgentId;
 
+        // Project-scope writes require project context from the current run
+        const scope = args.scope === 'project' ? 'project' : 'user';
+        let scopeKey: string | undefined;
+        if (scope === 'project') {
+          scopeKey = options.getProjectId?.();
+          if (!scopeKey) {
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: i18n.t('tools-builtins:memoryStore.noProject'),
+                },
+              ],
+            };
+          }
+        }
+
         const writeOptions = {
           content: args.content,
-          scope: 'user',
+          scope,
+          scopeKey,
           kind: category,
           visibility: args.visibility ?? 'shared',
           ...(agentId ? { agentId } : {}),

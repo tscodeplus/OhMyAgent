@@ -22,6 +22,8 @@ export interface ToolExecutionContext {
   skillId?: string;
   channel?: string;
   chatId?: string;
+  /** WebUI project context — set from the session's project_id for project-scope memory writes. */
+  projectId?: string;
   /**
    * Set by the Agent runtime when beforeToolCall approval handling is installed
    * for this invocation path. Tool adapters must not infer approval from the
