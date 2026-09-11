@@ -20,8 +20,8 @@ OhMyAgent 是一个以记忆系统为核心的自托管 AI Agent 网关。与那
 | 🛡️ **审批门控** | 策略引擎，工具执行前逐条审批，路径级文件访问控制，可配置的工具可见性等级（minimal / standard / advanced / full） |
 | 💸 **省 Token** | 分层上下文、渐进式技能加载、按需工具搜索 |
 | 🪶 **轻量** | 单进程，嵌入式框架，手机就能跑 |
-| 📲 **到处能跑** | Android Termux、Windows、macOS、Linux、Docker、Electron 桌面应用 |
-| 🖥️ **桌面应用** | Electron 托盘应用 — 本地网关或远程连接 |
+| 📲 **到处能跑** | Android Termux、Windows、macOS、Linux、Docker、Tauri 桌面应用 |
+| 🖥️ **桌面应用** | Tauri 桌面应用 — 本地网关或远程连接 |
 
 ## 快速开始
 
@@ -126,7 +126,7 @@ Agent 决策 → 策略检查 → 审批门控 → 执行（或拒绝）
 |---|---|
 | CLI / 服务 | `pnpm dev` — 最小体积，任何能跑 Node.js 的地方都能跑 |
 | WebUI | 完整聊天界面 `http://host:port/webui` |
-| 桌面应用 | Electron 托盘应用 — 关闭到托盘、开机自启 |
+| 桌面应用 | Tauri 桌面应用 — 关闭到托盘、开机自启 |
 | 本地网关 | 服务+界面打包在一个桌面窗口 |
 | 远程网关 | 桌面应用连接远程服务器 |
 | Android (Termux) | 原生运行 — 手机就是服务器 |

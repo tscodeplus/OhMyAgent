@@ -20,8 +20,8 @@ It runs on Termux (Android), Windows, macOS, and Linux. It's lightweight, token-
 | 🛡️ **Approval gating** | Policy engine with per-tool approval before execution, path-scoped file access, and configurable tool visibility profiles (minimal / standard / advanced / full) |
 | 💸 **Token efficient** | Layered context, progressive skill loading, tool search on demand |
 | 🪶 **Lightweight** | Single process, embedded framework, runs on a phone |
-| 📲 **Runs anywhere** | Termux on Android, Windows, macOS, Linux, Docker, or Electron desktop app |
-| 🖥️ **Desktop app** | Electron tray app — local gateway or remote connect |
+| 📲 **Runs anywhere** | Termux on Android, Windows, macOS, Linux, Docker, or Tauri desktop app |
+| 🖥️ **Desktop app** | Tauri desktop app — local gateway or remote connect |
 
 ## Quick Start
 
@@ -126,7 +126,7 @@ One agent across your messaging apps: **Feishu (Lark)** with CardKit 2.0 streami
 |---|---|
 | CLI / Service | `pnpm dev` — minimal footprint, runs anywhere Node.js does |
 | WebUI | Full chat interface at `http://host:port/webui` |
-| Desktop App | Electron tray app — close-to-tray, auto-start |
+| Desktop App | Tauri desktop app — close-to-tray, auto-start |
 | Local Gateway | Server + UI bundled in one desktop window |
 | Remote Gateway | Desktop app connects to a remote server |
 | Android (Termux) | Native — your phone as the server |
