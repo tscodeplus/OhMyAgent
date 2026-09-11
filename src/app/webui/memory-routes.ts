@@ -6,6 +6,8 @@
 
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
+import path from 'node:path';
+import { readFileSync } from 'node:fs';
 import type { AppServices } from '../types.js';
 import { MemoryRepository } from '../../memory/repositories/memory-repository.js';
 import { EmbeddingRepository } from '../../memory/repositories/embedding-repository.js';
@@ -32,6 +34,13 @@ const VALID_VISIBILITIES = new Set(['shared', 'private', 'agent']);
 interface MemoryRouteConfig {
   db: Database.Database;
   services: AppServices;
+  /**
+   * Base directory for scene digest files (`scenes/<scope>_<start>_<end>.md`)
+   * — mirrors SceneClusterer's baseDir (`memory.offloading.refDir || './data'`).
+   * When set, GET /api/memory/:id resolves kind='scene' rows to their digest
+   * Markdown instead of the raw relative path stored in `content`.
+   */
+  sceneBaseDir?: string;
 }
 
 /**
@@ -341,6 +350,22 @@ export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfi
       const row = cfg.db.prepare('SELECT * FROM memories WHERE id = ?').get(request.params.id) as
         Record<string, unknown> | undefined;
       if (!row) return reply.status(404).send({ error: 'Memory not found' });
+      // Scene rows store a relative digest path in `content` — resolve the
+      // actual Markdown so the WebUI detail view shows the digest itself.
+      if (row.kind === 'scene' && typeof row.content === 'string' && cfg.sceneBaseDir) {
+        const refPath = row.content;
+        // Only allow `scenes/<safe-name>.md` inside the scene base directory.
+        if (refPath.startsWith('scenes/') && !refPath.includes('..') && refPath.endsWith('.md')) {
+          try {
+            const abs = path.join(cfg.sceneBaseDir, refPath);
+            if (path.resolve(abs).startsWith(path.resolve(cfg.sceneBaseDir) + path.sep)) {
+              row.sceneContent = readFileSync(abs, 'utf-8');
+            }
+          } catch {
+            // File missing/unreadable — frontend falls back to the raw refPath.
+          }
+        }
+      }
       return reply.send(row);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

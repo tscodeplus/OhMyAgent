@@ -162,6 +162,8 @@ export async function registerWebUIRoutes(
   registerMemoryRoutes(app, {
     db: cfg.db,
     services: cfg.services,
+    // Scene digest files live under the same base dir SceneClusterer writes to
+    sceneBaseDir: cfg.getConfig().memory.offloading?.refDir || './data',
   });
 
   registerCronRoutes(app, cfg.services.cronService);

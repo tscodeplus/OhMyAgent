@@ -35,6 +35,9 @@ interface MemoryItem {
   source_channel?: string;
   created_at: string;
   updated_at: string;
+  /** Resolved scene digest Markdown (kind='scene' detail fetch only) */
+  sceneContent?: string;
+  metadata?: string;
 }
 
 interface PipelineStatus {
@@ -728,6 +731,15 @@ export default function MemoryView() {
               onClick={() => {
                 setSelectedMemory(mem);
                 setIsEditing(false);
+                // Scene rows store a relative digest path — fetch the detail
+                // endpoint which resolves the Markdown content for kind='scene'.
+                if (mem.kind === 'scene') {
+                  apiRequest<MemoryItem>(`/api/memory/${mem.id}`)
+                    .then((detail) => {
+                      if (detail.id === mem.id) setSelectedMemory(detail);
+                    })
+                    .catch(() => {});
+                }
               }}
             >
               <div className="flex items-start justify-between gap-3">
@@ -820,7 +832,7 @@ export default function MemoryView() {
           <div className="flex items-center justify-between p-4 border-b border-neutral-200 dark:border-neutral-800">
             <h3 className="font-semibold">{t('memory_page.detail')}</h3>
             <div className="flex items-center gap-1">
-              {!isEditing && (
+              {!isEditing && selectedMemory.kind !== 'scene' && (
                 <button
                   className="p-1.5 hover:bg-neutral-100 dark:bg-neutral-800 rounded"
                   onClick={() => {
@@ -858,29 +870,41 @@ export default function MemoryView() {
                   </Button>
                 </div>
               </>
+            ) : selectedMemory.kind === 'scene' ? (
+              <SceneDigest memory={selectedMemory} />
             ) : (
               <p className="text-sm whitespace-pre-wrap">{selectedMemory.content}</p>
             )}
 
             <div className="space-y-2 text-sm border-t border-neutral-200 dark:border-neutral-800 pt-3">
               <div className="flex justify-between">
-                <span className="text-neutral-500 dark:text-neutral-400">Scope</span>
+                <span className="text-neutral-500 dark:text-neutral-400">
+                  {t('memory.fieldScope')}
+                </span>
                 <span>{selectedMemory.scope}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-neutral-500 dark:text-neutral-400">Scope Key</span>
+                <span className="text-neutral-500 dark:text-neutral-400">
+                  {t('memory.fieldScopeKey')}
+                </span>
                 <span className="text-xs font-mono">{selectedMemory.scope_key}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-neutral-500 dark:text-neutral-400">Kind</span>
+                <span className="text-neutral-500 dark:text-neutral-400">
+                  {t('memory.fieldKind')}
+                </span>
                 <span>{selectedMemory.kind}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-neutral-500 dark:text-neutral-400">Confidence</span>
+                <span className="text-neutral-500 dark:text-neutral-400">
+                  {t('memory.fieldConfidence')}
+                </span>
                 <span>{selectedMemory.confidence}</span>
               </div>
               <div className="flex items-center justify-between gap-3">
-                <span className="text-neutral-500 dark:text-neutral-400">Visibility</span>
+                <span className="text-neutral-500 dark:text-neutral-400">
+                  {t('memory.fieldVisibility')}
+                </span>
                 <Select
                   value={editVisibility}
                   onChange={(e) => setEditVisibility(e.target.value)}
@@ -893,7 +917,9 @@ export default function MemoryView() {
                 />
               </div>
               <div className="flex items-center justify-between gap-3">
-                <span className="text-neutral-500 dark:text-neutral-400">Status</span>
+                <span className="text-neutral-500 dark:text-neutral-400">
+                  {t('memory.fieldStatus')}
+                </span>
                 <Select
                   value={editStatus}
                   onChange={(e) => setEditStatus(e.target.value)}
@@ -928,12 +954,51 @@ export default function MemoryView() {
                 </Button>
               </div>
               <div className="flex justify-between">
-                <span className="text-neutral-500 dark:text-neutral-400">Created</span>
+                <span className="text-neutral-500 dark:text-neutral-400">
+                  {t('memory.fieldCreated')}
+                </span>
                 <span>{formatRelativeTime(selectedMemory.created_at)}</span>
               </div>
             </div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Scene-kind rows store a relative digest path in `content`; the detail
+ * endpoint resolves the actual Markdown. Metadata carries the time range and
+ * clustered-memory count. Content editing is disabled for scenes (the edit
+ * PUT would overwrite the refPath).
+ */
+function SceneDigest({ memory }: { memory: MemoryItem }) {
+  const { t } = useTranslation();
+  let meta: { startDate?: string; endDate?: string; memoryCount?: number } = {};
+  try {
+    meta = JSON.parse(memory.metadata ?? '{}');
+  } catch {
+    // ignore
+  }
+
+  return (
+    <div className="space-y-2">
+      {meta.startDate && meta.endDate && (
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">
+          {t('memory.sceneDigestMeta', {
+            start: meta.startDate,
+            end: meta.endDate,
+            count: meta.memoryCount ?? '?',
+          })}
+        </p>
+      )}
+      {memory.sceneContent ? (
+        <pre className="text-sm whitespace-pre-wrap font-sans">{memory.sceneContent}</pre>
+      ) : (
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">
+          {t('memory.sceneDigestMissing')}
+        </p>
       )}
     </div>
   );
