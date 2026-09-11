@@ -907,58 +907,62 @@ export default function MemoryView() {
                 </span>
                 <span>{selectedMemory.confidence}</span>
               </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-neutral-500 dark:text-neutral-400">
-                  {t('memory.fieldVisibility')}
-                </span>
-                <Select
-                  value={editVisibility}
-                  onChange={(e) => setEditVisibility(e.target.value)}
-                  options={[
-                    { value: 'shared', label: t('memory.visibility_shared') },
-                    { value: 'private', label: t('memory.visibility_private') },
-                    { value: 'agent', label: t('memory.visibility_agent') },
-                  ]}
-                  className="w-[140px]"
-                />
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-neutral-500 dark:text-neutral-400">
-                  {t('memory.fieldStatus')}
-                </span>
-                <Select
-                  value={editStatus}
-                  onChange={(e) => setEditStatus(e.target.value)}
-                  options={[
-                    { value: 'active', label: t('memory.status_active') },
-                    { value: 'superseded', label: t('memory.status_superseded') },
-                    { value: 'deleted', label: t('memory.status_deleted') },
-                  ]}
-                  className="w-[140px]"
-                />
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-neutral-500 dark:text-neutral-400">
-                  {t('memory.ownerAgent')}
-                </span>
-                <Input
-                  value={editAgentId}
-                  onChange={(e) => setEditAgentId(e.target.value)}
-                  placeholder={t('memory.ownerAgentPlaceholder')}
-                  className="w-[160px]"
-                />
-              </div>
-              <div className="flex justify-end">
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={handleGovernanceSave}
-                  loading={savingGovernance}
-                >
-                  <Save className="h-3.5 w-3.5" strokeWidth={1.75} />
-                  <span>{t('memory_page.save')}</span>
-                </Button>
-              </div>
+              {selectedMemory.kind !== 'hygiene_checkpoint' && (
+                <>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-neutral-500 dark:text-neutral-400">
+                      {t('memory.fieldVisibility')}
+                    </span>
+                    <Select
+                      value={editVisibility}
+                      onChange={(e) => setEditVisibility(e.target.value)}
+                      options={[
+                        { value: 'shared', label: t('memory.visibility_shared') },
+                        { value: 'private', label: t('memory.visibility_private') },
+                        { value: 'agent', label: t('memory.visibility_agent') },
+                      ]}
+                      className="w-[140px]"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-neutral-500 dark:text-neutral-400">
+                      {t('memory.fieldStatus')}
+                    </span>
+                    <Select
+                      value={editStatus}
+                      onChange={(e) => setEditStatus(e.target.value)}
+                      options={[
+                        { value: 'active', label: t('memory.status_active') },
+                        { value: 'superseded', label: t('memory.status_superseded') },
+                        { value: 'deleted', label: t('memory.status_deleted') },
+                      ]}
+                      className="w-[140px]"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-neutral-500 dark:text-neutral-400">
+                      {t('memory.ownerAgent')}
+                    </span>
+                    <Input
+                      value={editAgentId}
+                      onChange={(e) => setEditAgentId(e.target.value)}
+                      placeholder={t('memory.ownerAgentPlaceholder')}
+                      className="w-[160px]"
+                    />
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={handleGovernanceSave}
+                      loading={savingGovernance}
+                    >
+                      <Save className="h-3.5 w-3.5" strokeWidth={1.75} />
+                      <span>{t('memory_page.save')}</span>
+                    </Button>
+                  </div>
+                </>
+              )}
               <div className="flex justify-between">
                 <span className="text-neutral-500 dark:text-neutral-400">
                   {t('memory.fieldCreated')}

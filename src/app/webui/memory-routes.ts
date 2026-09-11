@@ -396,6 +396,17 @@ export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfi
         Record<string, unknown> | undefined;
       if (!row) return reply.status(404).send({ error: 'Memory not found' });
 
+      // hygiene_checkpoint rows are machine-managed internal bookmarks (the
+      // content is the last-check epoch timestamp) — rewriting content or
+      // governance fields would corrupt MemoryHygiene's bookkeeping. Deletion
+      // via DELETE /api/memory/:id is still allowed.
+      if (row.kind === 'hygiene_checkpoint') {
+        return reply.status(400).send({
+          error:
+            'hygiene_checkpoint is a machine-managed internal bookmark and cannot be updated via API',
+        });
+      }
+
       const repo = new MemoryRepository(cfg.db);
 
       // Governance fields only — no content rewrite, so the stored embedding
