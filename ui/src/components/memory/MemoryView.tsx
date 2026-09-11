@@ -381,7 +381,7 @@ export default function MemoryView() {
           className="flex w-full items-center gap-2 px-4 py-2.5 text-sm font-medium text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 transition-colors"
         >
           <User className="h-4 w-4" strokeWidth={1.75} />
-          <span>Persona</span>
+          <span>{t('memory.persona.title')}</span>
           {persona && !showPersona && (
             <span className="text-[11px] text-neutral-400 dark:text-neutral-500 truncate max-w-[300px] ml-2">
               {String((persona as any)?.summary || '').slice(0, 80)}
@@ -402,14 +402,14 @@ export default function MemoryView() {
             ) : (
               <>
                 <Textarea
-                  label="Summary"
+                  label={t('memory.persona.summary')}
                   value={personaForm.summary || ''}
                   onChange={(e) => setPersonaForm((p) => ({ ...p, summary: e.target.value }))}
-                  placeholder="Brief summary of the user..."
+                  placeholder={t('memory.persona.summaryPlaceholder')}
                 />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Input
-                    label="Communication"
+                    label={t('memory.persona.communication')}
                     value={personaForm.communication || ''}
                     onChange={(e) =>
                       setPersonaForm((p) => ({ ...p, communication: e.target.value }))
@@ -417,7 +417,7 @@ export default function MemoryView() {
                     placeholder="e.g. 称呼用户为小明；回复简洁直接"
                   />
                   <Input
-                    label="Device"
+                    label={t('memory.persona.device')}
                     value={personaForm.device || ''}
                     onChange={(e) => setPersonaForm((p) => ({ ...p, device: e.target.value }))}
                     placeholder="e.g. Android phone, MacBook Pro"
@@ -425,13 +425,13 @@ export default function MemoryView() {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Input
-                    label="Tools (comma separated)"
+                    label={t('memory.persona.tools')}
                     value={personaForm.tools || ''}
                     onChange={(e) => setPersonaForm((p) => ({ ...p, tools: e.target.value }))}
                     placeholder="e.g. vscode, git, docker"
                   />
                   <Input
-                    label="Languages (comma separated)"
+                    label={t('memory.persona.languages')}
                     value={personaForm.languages || ''}
                     onChange={(e) => setPersonaForm((p) => ({ ...p, languages: e.target.value }))}
                     placeholder="e.g. TypeScript, Python, Go"
@@ -439,7 +439,7 @@ export default function MemoryView() {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Input
-                    label="Known Skills (comma separated)"
+                    label={t('memory.persona.knownSkills')}
                     value={personaForm.known_skills || ''}
                     onChange={(e) =>
                       setPersonaForm((p) => ({ ...p, known_skills: e.target.value }))
@@ -447,7 +447,7 @@ export default function MemoryView() {
                     placeholder="e.g. React, Node.js, SQL"
                   />
                   <Input
-                    label="Learning (comma separated)"
+                    label={t('memory.persona.learningSkills')}
                     value={personaForm.learning_skills || ''}
                     onChange={(e) =>
                       setPersonaForm((p) => ({ ...p, learning_skills: e.target.value }))
@@ -457,13 +457,13 @@ export default function MemoryView() {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Input
-                    label="Workflows (comma separated)"
+                    label={t('memory.persona.workflows')}
                     value={personaForm.workflows || ''}
                     onChange={(e) => setPersonaForm((p) => ({ ...p, workflows: e.target.value }))}
                     placeholder="e.g. TDD, code review"
                   />
                   <Input
-                    label="Environment"
+                    label={t('memory.persona.environment')}
                     value={personaForm.environment || ''}
                     onChange={(e) => setPersonaForm((p) => ({ ...p, environment: e.target.value }))}
                     placeholder="e.g. WSL2, Ubuntu 22.04"
