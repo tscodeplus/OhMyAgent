@@ -37,6 +37,7 @@ import { isDeferrable } from '../tools/tool-search/classifier.js';
 import { estimateTokens, shouldActivate } from '../tools/tool-search/threshold.js';
 import { loadConfig as loadToolSearchConfig } from '../tools/tool-search/index.js';
 import { createRetryingStreamFn } from './retrying-stream.js';
+import { withOpenCodeSessionHeaders } from '../utils/opencode-session.js';
 import { createBeforeToolCall, type BeforeToolCallDeps } from './before-tool-call.js';
 import type { PolicyCenter } from '../policy/policy-center.js';
 import type { AgentPolicyScope } from '../policy/types.js';
@@ -825,6 +826,13 @@ export function createAgentFactory(
           const baseStreamFn = createRetryingStreamFn(streamSimple as any, {
             maxRetries: options?.maxRetries ?? configRef.current.agent?.max_retries ?? 2,
           }) as any;
+          // OpenCode session-affinity headers (mirrors upstream pi's coding-agent
+          // provider-attribution layer, which is NOT part of the embedded
+          // pi-mono). The opencode Go gateway rejects header-less requests with
+          // MissingSessionID, and the Console gateway rejects free-tier models.
+          // All header logic lives in utils/opencode-session.ts.
+          const withOpenCodeSession = (opts: any, model: any): any =>
+            withOpenCodeSessionHeaders(opts, model, sessionId);
           // HTTP-level first-response timeout: bounds connect + response-headers
           // wait so a provider that accepts the connection but never responds
           // fails fast into the retry wrapper instead of hanging until the turn
@@ -832,9 +840,11 @@ export function createAgentFactory(
           // mid-generation — the OpenAI-compatible SDK applies the timeout only
           // until the response starts. 0 disables.
           const requestTimeoutMs = configRef.current.agent?.request_timeout_ms ?? 0;
-          if (requestTimeoutMs <= 0) return baseStreamFn;
-          return ((model: any, ctx: any, opts: any) =>
-            baseStreamFn(model, ctx, { timeoutMs: requestTimeoutMs, ...opts })) as any;
+          return ((model: any, ctx: any, opts: any) => {
+            const scoped = withOpenCodeSession(opts, model);
+            if (requestTimeoutMs <= 0) return baseStreamFn(model, ctx, scoped);
+            return baseStreamFn(model, ctx, { timeoutMs: requestTimeoutMs, ...scoped });
+          }) as any;
         })(),
         maxToolCycles: configRef.current.agent?.max_tool_cycles,
         convertToLlm,

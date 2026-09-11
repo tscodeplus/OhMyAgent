@@ -16,6 +16,7 @@ import type { MessageRepository } from './repositories/message-repository.js';
 import type { EpisodeRepository } from './repositories/episode-repository.js';
 import type { MemoryRepository } from './repositories/memory-repository.js';
 import type { MemoryWriter } from './memory-writer.js';
+import { openCodeClientOptions } from '../utils/opencode-session.js';
 import type { PersonaDistiller } from './persona-distiller.js';
 import { detectTopic } from './write/preference-conflict-resolver.js';
 import { hashForObservation, memoryObservability } from './observability.js';
@@ -240,11 +241,19 @@ Output ONLY valid JSON with this shape:
     let lastError: string | null = null;
 
     for (const modelRef of modelRefs) {
-      const { modelId, apiKey, baseUrl } = await resolveSummaryModelConnection(cfg, modelRef);
+      const { provider, modelId, apiKey, baseUrl } = await resolveSummaryModelConnection(
+        cfg,
+        modelRef,
+      );
 
       try {
         const OpenAI = (await import('openai')).default;
-        const client = new OpenAI({ apiKey, baseURL: baseUrl });
+        const client = new OpenAI({
+          apiKey,
+          baseURL: baseUrl,
+          // opencode rejects header-less requests (MissingSessionID / free-tier restriction)
+          ...openCodeClientOptions(provider, baseUrl),
+        });
 
         const completion = await client.chat.completions.create({
           model: modelId,

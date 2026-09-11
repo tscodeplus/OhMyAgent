@@ -12,6 +12,7 @@ import { extractJson } from './json-utils.js';
 import type { Logger } from 'pino';
 import type { Memory } from './repositories/memory-repository.js';
 import { resolveSummaryModelConnection, type SummaryLLMConfig } from './memory-summarizer.js';
+import { openCodeClientOptions } from '../utils/opencode-session.js';
 import {
   createEmptyPersona,
   personaJsonSchema,
@@ -82,11 +83,19 @@ export async function createDistillerLLM(
       let lastError: string | null = null;
 
       for (const modelRef of modelRefs) {
-        const { modelId, apiKey, baseUrl } = await resolveSummaryModelConnection(config, modelRef);
+        const { provider, modelId, apiKey, baseUrl } = await resolveSummaryModelConnection(
+          config,
+          modelRef,
+        );
 
         try {
           const OpenAI = (await import('openai')).default;
-          const client = new OpenAI({ apiKey, baseURL: baseUrl });
+          const client = new OpenAI({
+            apiKey,
+            baseURL: baseUrl,
+            // opencode rejects header-less requests (MissingSessionID / free-tier restriction)
+            ...openCodeClientOptions(provider, baseUrl),
+          });
 
           const completion = await client.chat.completions.create({
             model: modelId,
