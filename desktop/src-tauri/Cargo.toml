@@ -1,6 +1,6 @@
 [package]
 name = "ohmyagent-desktop"
-version = "4.0.1"
+version = "4.1.0"
 description = "OhMyAgent Desktop — Tauri shell for local and remote Agent Gateway"
 authors = ["tscodeplus"]
 edition = "2021"
