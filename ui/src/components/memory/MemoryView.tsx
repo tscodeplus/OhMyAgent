@@ -832,17 +832,19 @@ export default function MemoryView() {
           <div className="flex items-center justify-between p-4 border-b border-neutral-200 dark:border-neutral-800">
             <h3 className="font-semibold">{t('memory_page.detail')}</h3>
             <div className="flex items-center gap-1">
-              {!isEditing && selectedMemory.kind !== 'scene' && (
-                <button
-                  className="p-1.5 hover:bg-neutral-100 dark:bg-neutral-800 rounded"
-                  onClick={() => {
-                    setEditingContent(selectedMemory.content);
-                    setIsEditing(true);
-                  }}
-                >
-                  <Pencil size={16} />
-                </button>
-              )}
+              {!isEditing &&
+                selectedMemory.kind !== 'scene' &&
+                selectedMemory.kind !== 'hygiene_checkpoint' && (
+                  <button
+                    className="p-1.5 hover:bg-neutral-100 dark:bg-neutral-800 rounded"
+                    onClick={() => {
+                      setEditingContent(selectedMemory.content);
+                      setIsEditing(true);
+                    }}
+                  >
+                    <Pencil size={16} />
+                  </button>
+                )}
               <button
                 className="p-1.5 hover:bg-neutral-100 dark:bg-neutral-800 rounded"
                 onClick={() => setSelectedMemory(null)}
@@ -872,6 +874,10 @@ export default function MemoryView() {
               </>
             ) : selectedMemory.kind === 'scene' ? (
               <SceneDigest memory={selectedMemory} />
+            ) : selectedMemory.kind === 'hygiene_checkpoint' ? (
+              <HygieneCheckpointDetail memory={selectedMemory} />
+            ) : selectedMemory.kind === 'persona' ? (
+              <PersonaDetail memory={selectedMemory} />
             ) : (
               <p className="text-sm whitespace-pre-wrap">{selectedMemory.content}</p>
             )}
@@ -998,6 +1004,70 @@ function SceneDigest({ memory }: { memory: MemoryItem }) {
       ) : (
         <p className="text-xs text-neutral-500 dark:text-neutral-400">
           {t('memory.sceneDigestMissing')}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * hygiene_checkpoint rows are internal bookmarks — content is an epoch-ms
+ * digit string recording the last memory-hygiene check time. Render it as a
+ * formatted timestamp instead of the raw digits. Editing is disabled (the
+ * bookmark is machine-managed by MemoryHygiene).
+ */
+function HygieneCheckpointDetail({ memory }: { memory: MemoryItem }) {
+  const { t } = useTranslation();
+  const epochMs = /^\d{12,14}$/.test(memory.content) ? Number(memory.content) : NaN;
+
+  return (
+    <div className="space-y-2">
+      {Number.isFinite(epochMs) ? (
+        <p className="text-sm">
+          {t('memory.hygieneCheckpointMeta', { time: new Date(epochMs).toLocaleString() })}
+        </p>
+      ) : (
+        <p className="text-sm whitespace-pre-wrap">{memory.content}</p>
+      )}
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">
+        {t('memory.hygieneCheckpointHint')}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * persona rows store a distilled UserPersona JSON snapshot (version/summary/
+ * preferences/...). Surface the human-readable summary and last-updated time;
+ * fall back to the raw content when the JSON cannot be parsed.
+ */
+function PersonaDetail({ memory }: { memory: MemoryItem }) {
+  const { t } = useTranslation();
+  let persona: { summary?: string; lastUpdated?: string } | null = null;
+  try {
+    const parsed = JSON.parse(memory.content);
+    if (parsed && typeof parsed === 'object') persona = parsed;
+  } catch {
+    // fall through to raw content
+  }
+
+  if (!persona) {
+    return <p className="text-sm whitespace-pre-wrap">{memory.content}</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {persona.summary && (
+        <>
+          <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
+            {t('memory.personaSummaryTitle')}
+          </p>
+          <p className="text-sm whitespace-pre-wrap">{persona.summary}</p>
+        </>
+      )}
+      {persona.lastUpdated && (
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">
+          {t('memory.personaUpdated', { time: new Date(persona.lastUpdated).toLocaleString() })}
         </p>
       )}
     </div>
