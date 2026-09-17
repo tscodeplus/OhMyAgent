@@ -737,11 +737,15 @@ export default function ModelSettings({
           ) : (
             <div className="space-y-2">
               {customProviders.map((cp, pIdx) => (
+                // overflow-hidden only while collapsed: when open it would clip the
+                // absolutely-positioned ModelIdCombobox / Select dropdowns inside.
                 <div
                   key={pIdx}
-                  className="rounded-lg border border-neutral-100 dark:border-neutral-800 overflow-hidden"
+                  className={`rounded-lg border border-neutral-100 dark:border-neutral-800 ${
+                    expandedCustom.has(pIdx) ? '' : 'overflow-hidden'
+                  }`}
                 >
-                  <div className="flex items-center gap-2 px-3 py-2 bg-neutral-50 dark:bg-neutral-950/50">
+                  <div className="flex items-center gap-2 px-3 py-2 bg-neutral-50 dark:bg-neutral-950/50 rounded-t-lg">
                     <button
                       onClick={() => toggleCustomProvider(pIdx)}
                       className="text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 transition-colors"
@@ -776,7 +780,7 @@ export default function ModelSettings({
                     </button>
                   </div>
                   {expandedCustom.has(pIdx) && (
-                    <div className="px-3 py-3 space-y-3 border-t border-neutral-100 dark:border-neutral-800">
+                    <div className="px-3 py-3 space-y-3 border-t border-neutral-100 dark:border-neutral-800 rounded-b-lg">
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <Input
                           label={t('settings.models.providerName')}
