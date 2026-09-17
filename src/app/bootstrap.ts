@@ -850,7 +850,11 @@ async function runBootstrap(): Promise<BootstrapResult> {
   const envPath = './.env';
   startEnvWatcher(envPath, yamlPath, onConfigReload);
 
-  return {
+  // `start` must be able to roll back through `stop` when the HTTP listen fails,
+  // so the container needs a name: referring to the sibling method as a bare
+  // `stop()` throws ReferenceError and replaces the real error (e.g.
+  // EADDRINUSE) with "stop is not defined".
+  const app: BootstrapResult = {
     services,
 
     start: async () => {
@@ -902,7 +906,7 @@ async function runBootstrap(): Promise<BootstrapResult> {
         // half-initialized with running channels/schedulers/timers — roll back
         // via stop() so the caller's exit path finds a clean state.
         logger.error({ err }, 'server.listen failed — rolling back started services');
-        await Promise.resolve(stop()).catch(() => {
+        await app.stop().catch(() => {
           /* best-effort rollback */
         });
         throw err;
@@ -982,4 +986,6 @@ async function runBootstrap(): Promise<BootstrapResult> {
       logger.info('[OhMyAgent] Shutdown complete');
     },
   };
+
+  return app;
 }

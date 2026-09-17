@@ -427,6 +427,29 @@ describe('bootstrap', () => {
     expect(openDatabase).toHaveBeenCalledWith(mockConfig.database.path);
   });
 
+  it('rolls back through stop() when the HTTP listen fails, without masking the error', async () => {
+    // Port conflict: `server.listen` rejects (EADDRINUSE). The rollback path must
+    // surface that error — an out-of-scope `stop()` reference used to throw
+    // "ReferenceError: stop is not defined" instead and hide the real cause.
+    const listenError = Object.assign(
+      new Error('listen EADDRINUSE: address already in use 0.0.0.0:9191'),
+      { code: 'EADDRINUSE' },
+    );
+    vi.mocked(createFeishuServer).mockReturnValueOnce({
+      listen: vi.fn(async () => {
+        throw listenError;
+      }),
+      close: vi.fn(async () => {}),
+      get: vi.fn(),
+      post: vi.fn(),
+      addHook: vi.fn(),
+    } as any);
+
+    const app = await bootstrap();
+
+    await expect(app.start()).rejects.toThrow('listen EADDRINUSE');
+  });
+
   it('rejects a bootstrap that overlaps one already in flight', async () => {
     const first = bootstrap();
     await expect(bootstrap()).rejects.toThrow(/already running/);
