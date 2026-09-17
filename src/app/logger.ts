@@ -21,8 +21,14 @@ function resolveLogDir(): string {
  * Create a pino logger instance.
  *
  * Console output:
- *   - Development: uses pino-pretty for human-readable output.
- *   - Production: raw JSON to stdout.
+ *   - Development: pino-pretty formatting for human-readable output.
+ *   - Production: raw JSON lines.
+ *
+ * Both go through the console-transport.js worker, which writes each line with
+ * `process.stdout.write` instead of a raw fd. On Windows a console decodes
+ * fd writes with its output code page (CP936 on a Chinese system), which turns
+ * UTF-8 log lines into mojibake; the stream API uses the code-page-independent
+ * `WriteConsoleW` path. See that file's header for the measurements.
  *
  * File output:
  *   - Always writes to <logDir>/ohmyagent.log (appended, never truncated).
@@ -46,19 +52,21 @@ export function createLogger(level?: string): pino.Logger {
 
   if (isDev) {
     targets.push({
-      target: 'pino-pretty',
+      target: './console-transport.js',
       options: {
-        colorize: true,
-        translateTime: 'SYS:HH:MM:ss',
-        ignore: 'pid,hostname',
+        pretty: {
+          colorize: true,
+          translateTime: 'SYS:HH:MM:ss',
+          ignore: 'pid,hostname',
+        },
       },
       level: logLevel,
     });
   } else {
-    // Production: raw JSON to stdout
+    // Production: raw JSON lines to stdout
     targets.push({
-      target: 'pino/file',
-      options: { destination: 1 }, // stdout
+      target: './console-transport.js',
+      options: {},
       level: logLevel,
     });
   }
