@@ -29,7 +29,7 @@
 import Fastify, { type FastifyInstance, type InjectOptions } from 'fastify';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, parse, resolve } from 'node:path';
 import { stringify as stringifyYaml } from 'yaml';
 
 import {
@@ -69,12 +69,26 @@ export interface FilesHarness {
 function makeOutsideDir(servedRoots: string[]): string {
   // Candidates in preference order; the first writable one that is not inside
   // any served root wins. /var/tmp is the Linux case that survives a /tmp-based
-  // tmpdir; the others keep this working on macOS/Windows runners.
-  const candidates = ['/var/tmp', tmpdir(), '/tmp', '/dev/shm'];
+  // tmpdir; %PUBLIC% and the drive root keep this working on Windows, where
+  // tmpdir() lives under the (served) home directory so every POSIX candidate
+  // above is inside a served root. The drive root is last: it is writable on
+  // most Windows installs but not guaranteed for standard users.
+  const candidates = [
+    '/var/tmp',
+    tmpdir(),
+    '/tmp',
+    '/dev/shm',
+    process.env.PUBLIC,
+    parse(tmpdir()).root,
+  ];
   for (const base of candidates) {
+    if (!base) continue;
     let dir: string | null = null;
     try {
-      dir = mkdtempSync(join(base, 'oma-files-outside-'));
+      // resolve() qualifies drive-relative results (e.g. `\tmp\...` from a
+      // `/tmp` candidate on Windows) so the path round-trips through path.resolve
+      // when the product normalizes it.
+      dir = resolve(mkdtempSync(join(base, 'oma-files-outside-')));
     } catch {
       continue;
     }

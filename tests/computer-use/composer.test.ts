@@ -136,6 +136,9 @@ describe('createComputerUseServices (native local providers)', () => {
   });
 
   it('registers linux:local (AT-SPI) on native Linux instead of NutJS', async () => {
+    // Force the platform so this exercises the Linux branch even on a Windows
+    // host; under WSL it already is 'linux'.
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
     await mockNativeEnv();
     const services = await createComputerUseServices(baseConfig(), noopLogger);
     const status = await services.computerUseHost!.getStatus({ sessionPath: '', agentId: '' });

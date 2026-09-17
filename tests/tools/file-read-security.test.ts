@@ -26,10 +26,20 @@ describe('FileReadTool path security', () => {
     expectToolResultContains(result, 'Access denied');
   });
 
-  it('rejects /etc/passwd via denied pattern', async () => {
-    const tool = createFileReadTool({ allowedRoots: ['/'], deniedPatterns: ['/etc/passwd'] });
-    const result = await tool.execute('call-1', { path: '/etc/passwd' });
+  it('rejects a file matching an absolute-path denied pattern', async () => {
+    // /etc/passwd is the classic target but it does not exist on Windows
+    // (E:\etc\passwd), so the read would fail before the deny check runs.
+    // Use a real file whose absolute path is the deny pattern — same code path.
+    const dir = join(tmpdir(), 'ohmyagent-deny-abs-test-' + Date.now());
+    await mkdir(dir, { recursive: true });
+    const secretPath = join(dir, 'passwd');
+    await writeFile(secretPath, 'secret');
+
+    const tool = createFileReadTool({ allowedRoots: [dir], deniedPatterns: [secretPath] });
+    const result = await tool.execute('call-1', { path: secretPath });
     expectToolResultContains(result, 'Access denied');
+
+    await rm(dir, { recursive: true });
   });
 
   it('rejects home directory reference (~) via allowed roots check', async () => {

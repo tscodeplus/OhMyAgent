@@ -86,6 +86,10 @@ describe('POST /api/system/restart', () => {
   });
 
   it('writes a posix restart script and spawns it detached', async () => {
+    // The endpoint branches on process.platform; force the branch under test so
+    // this runs (and stays meaningful) on a Windows host too.
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+
     const res = await app.inject({ method: 'POST', url: '/api/system/restart' });
 
     expect(res.statusCode).toBe(200);
@@ -108,8 +112,15 @@ describe('POST /api/system/restart', () => {
   });
 
   it.skipIf(!bashAvailable)('writes a syntactically valid bash script', async () => {
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+
     const res = await app.inject({ method: 'POST', url: '/api/system/restart' });
     expect(res.statusCode).toBe(200);
+
+    // Restore the real platform before running an external command: Node's
+    // child_process picks the shell from process.platform, and a mocked
+    // 'linux' on Windows makes execSync look for /bin/sh.
+    Object.defineProperty(process, 'platform', { value: prevPlatform, configurable: true });
 
     const [, args] = mockSpawn.mock.calls[0] as [string, string[]];
     const script = fs.readFileSync(args[0], 'utf-8');

@@ -11,6 +11,7 @@ import { createFileEditToolDefinition } from '../../../src/tools/builtins/files/
 import { createGrepToolDefinition } from '../../../src/tools/builtins/files/grep-definition';
 import type { ToolExecutionContext } from '../../../src/tools/platform/tool-context';
 import { extractToolText, expectToolResultContains } from '../../helpers/tool-result';
+import { canCreateSymlinks } from '../../helpers/symlink-support';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -103,36 +104,42 @@ describe('file_write', () => {
     expect(existsSync(join(tmpDir, 'ignored.txt'))).toBe(false);
   });
 
-  it('returns error for an invalid path (permission denied edge case)', async () => {
+  it('returns error when a parent path component is a file, not a directory', async () => {
     const tool = createFileWriteToolDefinition();
-    const ctx = makeCtx('/');
+    const blocker = join(tmpDir, 'blocker.txt');
+    writeFileSync(blocker, 'not a directory', 'utf-8');
 
+    // `/dev/null/test_write` used to stand in for this, but on Windows that
+    // resolves to a creatable drive-relative path and the write succeeds.
     const result = await tool.execute(
-      { filePath: '/dev/null/test_write', content: 'should fail' },
-      ctx,
+      { filePath: join(blocker, 'test_write'), content: 'should fail' },
+      makeCtx(tmpDir),
     );
 
     expect(result.isError).toBe(true);
     expectToolResultContains(result, 'Failed to write file');
   });
 
-  it('refuses to write through a symlink at the target (TOCTOU/path-escape)', async () => {
-    const tool = createFileWriteToolDefinition();
-    // Simulate an attacker planting a symlink at the approved target that
-    // points outside the write root, after the policy check resolved the path.
-    const outside = join(tmpDir, 'outside-secret.txt');
-    writeFileSync(outside, 'ORIGINAL', 'utf-8');
-    const target = join(tmpDir, 'link.txt');
-    symlinkSync(outside, target);
+  it.skipIf(!canCreateSymlinks)(
+    'refuses to write through a symlink at the target (TOCTOU/path-escape)',
+    async () => {
+      const tool = createFileWriteToolDefinition();
+      // Simulate an attacker planting a symlink at the approved target that
+      // points outside the write root, after the policy check resolved the path.
+      const outside = join(tmpDir, 'outside-secret.txt');
+      writeFileSync(outside, 'ORIGINAL', 'utf-8');
+      const target = join(tmpDir, 'link.txt');
+      symlinkSync(outside, target);
 
-    const ctx = { ...makeCtx(tmpDir), resolvedPath: target };
-    const result = await tool.execute({ filePath: 'link.txt', content: 'HIJACKED' }, ctx);
+      const ctx = { ...makeCtx(tmpDir), resolvedPath: target };
+      const result = await tool.execute({ filePath: 'link.txt', content: 'HIJACKED' }, ctx);
 
-    expect(result.isError).toBe(true);
-    expectToolResultContains(result, 'symlink');
-    // The symlink's destination must be untouched.
-    expect(readFileSync(outside, 'utf-8')).toBe('ORIGINAL');
-  });
+      expect(result.isError).toBe(true);
+      expectToolResultContains(result, 'symlink');
+      // The symlink's destination must be untouched.
+      expect(readFileSync(outside, 'utf-8')).toBe('ORIGINAL');
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------

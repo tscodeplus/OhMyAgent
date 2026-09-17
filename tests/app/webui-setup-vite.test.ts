@@ -5,6 +5,7 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import Fastify from 'fastify';
+import path from 'node:path';
 import type { Logger } from 'pino';
 import { setupWebUIMiddleware, resolveWebUIMode } from '../../src/app/webui/setup-vite.js';
 
@@ -64,7 +65,7 @@ describe('setupWebUIMiddleware with no build output', () => {
     for (const url of ['/webui', '/webui/', '/webui/sessions']) {
       const res = await server.inject({ method: 'GET', url });
       expect(res.statusCode).toBe(503);
-      expect(res.body).toContain(`${UI_ROOT}/dist`);
+      expect(res.body).toContain(path.join(UI_ROOT, 'dist'));
     }
   });
 });

@@ -15,6 +15,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { createReadStream, existsSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve, sep, extname, basename } from 'node:path';
 import { verifyDownloadToken } from '../../shared/download-token.js';
 import { dataPath } from '../../shared/agent-home.js';
@@ -26,7 +27,10 @@ import { applyFileResponseHeaders } from './files-routes.js';
 // ---------------------------------------------------------------------------
 
 const DOWNLOADS_DIR = dataPath('downloads');
-const TMP_DIR = '/tmp';
+// The OS temp dir, not the literal '/tmp': on Windows tmpdir() is %TEMP%
+// (C:\Users\...\Temp), so a hardcoded '/tmp' resolves to a drive-relative
+// path that never contains the temp files the rest of the gateway writes.
+const TMP_DIR = tmpdir();
 const GENERATED_IMAGES_DIR = dataPath('generated-images');
 const GENERATED_VIDEOS_DIR = dataPath('generated-videos');
 const CHAT_UPLOADS_DIR = dataPath('chat-uploads');

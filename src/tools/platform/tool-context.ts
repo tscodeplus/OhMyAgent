@@ -57,16 +57,27 @@ export interface ToolExecutionContext {
  *   macOS desktop:    /Users/...     (not present on Termux)
  *   Linux desktop:    /home/...      (Termux uses /data/data/com.termux/files/home)
  *
+ * A gateway running natively on Windows is the exception: Windows paths are on
+ * its own disk, so they stay local (and a missing one is simply missing).
+ *
  * Paths that always stay on the gateway:
  *   /data/*, /proc/*, /sys/*, /dev/*, /etc/*, /system/*, /tmp/*
  *   Relative paths, ~/ paths, $HOME paths
  */
 export function shouldRouteToDesktopBridge(filePath: string | undefined): boolean {
   if (!filePath) return false;
-  // Windows drive letter: C:\..., E:\...
-  if (/^[A-Za-z]:[/\\]/.test(filePath)) return true;
-  // UNC path: \\server\share\...
-  if (filePath.startsWith('\\\\')) return true;
+
+  const isWindowsPath = /^[A-Za-z]:[/\\]/.test(filePath) || filePath.startsWith('\\\\');
+
+  // A native Windows gateway owns the Windows filesystem: `C:\...` and UNC
+  // paths are local, so a missing one is "File not found" — never a bridge
+  // target. The heuristic below exists for a gateway on another machine (WSL /
+  // Termux / mobile) reaching a Windows desktop, where the path is not on the
+  // gateway's own disk.
+  if (isWindowsPath && process.platform === 'win32') return false;
+
+  // Windows drive letter / UNC path: C:\..., E:\..., \\server\share
+  if (isWindowsPath) return true;
   // macOS home directories
   if (filePath.startsWith('/Users/')) return true;
   // Linux desktop home directories (Termux home is under /data/, not /home/)

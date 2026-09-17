@@ -18,6 +18,7 @@ import {
   classifyCommand,
 } from '../../src/tools/shell-command-policy';
 import type { NormalizedShellCommand } from '../../src/tools/shell-command-policy';
+import { canCreateSymlinks } from '../helpers/symlink-support';
 
 describe('normalizeCommand', () => {
   it('parses a simple command', () => {
@@ -459,7 +460,7 @@ describe('checkFilePathsOutsideRoots', () => {
     expect(outside).toEqual(['${HOME}/secret.txt']);
   });
 
-  it('detects symlink escapes: link pointing outside the root', () => {
+  it.skipIf(!canCreateSymlinks)('detects symlink escapes: link pointing outside the root', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'oma-path-test-'));
     try {
       const rootDir = path.join(tmp, 'root');
@@ -492,7 +493,7 @@ describe('checkFilePathsOutsideRoots', () => {
     }
   });
 
-  it('detects symlink escapes via a symlinked allowed root', () => {
+  it.skipIf(!canCreateSymlinks)('detects symlink escapes via a symlinked allowed root', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'oma-root-test-'));
     try {
       const realRoot = path.join(tmp, 'real-root');
@@ -561,7 +562,9 @@ describe('expandPathVariables', () => {
   it('preserves .. components for symlink-aware resolution', () => {
     // path.join/path.resolve collapse `..` string-wise; the boundary check
     // needs them preserved until realpath resolves them with kernel semantics.
-    expect(expandPathVariables('a/../b')).toBe(`${process.cwd()}/a/../b`);
+    // joinNoNormalize joins with the platform separator, so build the
+    // expectation the same way (a hardcoded `/` fails on Windows).
+    expect(expandPathVariables('a/../b')).toBe(`${process.cwd()}${path.sep}a/../b`);
     expect(expandPathVariables('/abs/../x')).toBe('/abs/../x');
   });
 });

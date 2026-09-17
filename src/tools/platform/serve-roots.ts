@@ -8,9 +8,12 @@
 // 端点侧在此基础之上再追加 webui.file_root 与图片/视频生成输出目录
 // (见 files-routes.ts 的 computeServeAllowedRoots)。
 
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 
-/** 基础允许根:网关工作目录、/tmp、用户主目录。 */
+/** 基础允许根:网关工作目录、系统临时目录、用户主目录。 */
 export function toolAllowedRoots(): string[] {
-  return [process.cwd(), '/tmp', homedir()];
+  // tmpdir(), not the literal '/tmp': on Windows '/tmp' is a drive-relative
+  // path that never holds the temp files the gateway writes (see the same fix
+  // in public-download-routes.ts).
+  return [process.cwd(), tmpdir(), homedir()];
 }

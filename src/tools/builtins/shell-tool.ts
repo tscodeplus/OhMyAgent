@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import { StringDecoder } from 'string_decoder';
 import { Type } from 'typebox';
 import { i18n } from '../../i18n/index.js';
@@ -126,12 +126,32 @@ export function createShellTool(options: ShellToolOptions = {}) {
 
         /** Kill the whole process tree (shell + grandchildren). */
         const killTree = (sig: NodeJS.Signals) => {
-          try {
-            if (process.platform === 'win32') {
-              child.kill(sig);
-            } else if (child.pid) {
-              process.kill(-child.pid, sig);
+          if (process.platform === 'win32') {
+            // On Windows `shell: true` only makes cmd.exe the parent: killing it
+            // leaves the real command (a grandchild) alive and holding the
+            // stdio pipes, so 'close' never fires and abort/timeout would hang
+            // until the exec timeout. taskkill /T walks the tree. It must finish
+            // BEFORE the shell is killed — killing cmd.exe first orphans the
+            // grandchild and taskkill then finds nothing — and the async
+            // spawn would race the kill, so block on spawnSync here.
+            if (child.pid) {
+              try {
+                spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+                  stdio: 'ignore',
+                });
+              } catch {
+                // taskkill unavailable — fall back to killing the shell itself.
+              }
             }
+            try {
+              child.kill(sig);
+            } catch {
+              // Process already gone.
+            }
+            return;
+          }
+          try {
+            if (child.pid) process.kill(-child.pid, sig);
           } catch {
             // Process group already gone.
             child.kill(sig);

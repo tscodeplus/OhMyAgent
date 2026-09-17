@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { PathAccessPolicyImpl } from '../../src/policy/path-policy';
 import type { AgentPolicyScope } from '../../src/policy/types';
+import { canCreateSymlinks } from '../helpers/symlink-support';
 
 function scope(overrides: Partial<AgentPolicyScope> = {}): AgentPolicyScope {
   return {
@@ -187,38 +188,41 @@ describe('PathAccessPolicyImpl', () => {
     await rm(next, { recursive: true, force: true });
   });
 
-  it('canonicalizes write targets through existing symlink parents', async () => {
-    const base = await mkdtemp(path.join(tmpdir(), 'oma-policy-write-root-'));
-    const outside = await mkdtemp(path.join(tmpdir(), 'oma-policy-write-outside-'));
-    const link = path.join(base, 'link');
+  it.skipIf(!canCreateSymlinks)(
+    'canonicalizes write targets through existing symlink parents',
+    async () => {
+      const base = await mkdtemp(path.join(tmpdir(), 'oma-policy-write-root-'));
+      const outside = await mkdtemp(path.join(tmpdir(), 'oma-policy-write-outside-'));
+      const link = path.join(base, 'link');
 
-    try {
-      await symlink(outside, link, 'dir');
-    } catch (err) {
+      try {
+        await symlink(outside, link, 'dir');
+      } catch (err) {
+        await rm(base, { recursive: true, force: true });
+        await rm(outside, { recursive: true, force: true });
+        throw err;
+      }
+
+      const policy = new PathAccessPolicyImpl({
+        readRoots: [],
+        writeRoots: [base],
+        deniedPatterns: [],
+        autoInjectCwd: false,
+      });
+
+      const decision = policy.check({
+        path: path.join(link, 'created.txt'),
+        operation: 'write',
+        scope: scope(),
+      });
+
+      expect(decision.allowed).toBe(false);
+      expect(decision.resolvedPath).toBe(path.join(outside, 'created.txt'));
+
       await rm(base, { recursive: true, force: true });
       await rm(outside, { recursive: true, force: true });
-      throw err;
-    }
-
-    const policy = new PathAccessPolicyImpl({
-      readRoots: [],
-      writeRoots: [base],
-      deniedPatterns: [],
-      autoInjectCwd: false,
-    });
-
-    const decision = policy.check({
-      path: path.join(link, 'created.txt'),
-      operation: 'write',
-      scope: scope(),
-    });
-
-    expect(decision.allowed).toBe(false);
-    expect(decision.resolvedPath).toBe(path.join(outside, 'created.txt'));
-
-    await rm(base, { recursive: true, force: true });
-    await rm(outside, { recursive: true, force: true });
-  });
+    },
+  );
 });
 
 describe('launch directory is not a write boundary', () => {

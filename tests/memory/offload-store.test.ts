@@ -203,11 +203,17 @@ describe('OffloadStore', () => {
     });
 
     it('deletes legacy unsanitized session directories returned by directory scans', () => {
-      const legacyDir = path.join(baseDir, 'offload', 'group-chat:thread-1');
+      // `:` is a normal session-key separator but an illegal filename character
+      // on Windows, so pick a key whose sanitized form differs yet is creatable
+      // there. Either way the raw name differs from `safePathSegment(key)`,
+      // which is what this test is about.
+      const legacyKey =
+        process.platform === 'win32' ? 'group chat@thread-1' : 'group-chat:thread-1';
+      const legacyDir = path.join(baseDir, 'offload', legacyKey);
       fs.mkdirSync(legacyDir, { recursive: true });
       fs.writeFileSync(path.join(legacyDir, 'offload.jsonl'), '', 'utf-8');
 
-      store.deleteSession('group-chat:thread-1');
+      store.deleteSession(legacyKey);
 
       expect(fs.existsSync(legacyDir)).toBe(false);
     });

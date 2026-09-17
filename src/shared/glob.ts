@@ -2,6 +2,9 @@
 // Glob matching — the shared engine behind deny patterns and include filters
 // ---------------------------------------------------------------------------
 //
+// Separators: patterns use `/`; Windows paths use `\`, which SEP/NON_SEP below
+// bridge so one pattern matches both (see the note before SEP).
+//
 // Nine copies of this matcher existed (four channel media tools, file-read,
 // file-search, grep, search, glob, and the path policy), and they disagreed:
 // some mapped `*` across path separators, some mapped `**/` differently from
@@ -20,6 +23,20 @@
 // must not lose their teeth when semantics tighten. `[abc]` / `[!abc]` classes
 // are supported by the strict matcher; an unbalanced `[` matches literally so a
 // malformed pattern can never throw inside a security check.
+
+import path from 'node:path';
+
+// Patterns are always written with `/` (config files, deny lists and docs all
+// use it), but Windows resolves paths with `\`. Without this, `**/.ssh/**`
+// silently stops matching on Windows and a deny list loses its teeth — while
+// the same pattern keeps working under WSL. On Windows a separator therefore
+// matches either slash; on POSIX a backslash is an ordinary filename character
+// and must stay one.
+const WINDOWS_SEPARATORS = path.sep === '\\';
+/** Regex source for exactly one path separator. */
+const SEP = WINDOWS_SEPARATORS ? '[/\\\\]' : '/';
+/** Regex source for exactly one non-separator character. */
+const NON_SEP = WINDOWS_SEPARATORS ? '[^/\\\\]' : '[^/]';
 
 /** Escape every regex metacharacter except the glob specials handled below. */
 function escapeLiteral(char: string): string {
@@ -65,22 +82,26 @@ export function globToRegexSource(pattern: string): string {
     if (char === '*') {
       if (pattern[i + 1] === '*') {
         if (pattern[i + 2] === '/') {
-          out += '(.*/)?';
+          out += `(.*${SEP})?`;
           i += 2;
-        } else if (out.endsWith('/')) {
+        } else if (out.endsWith(SEP)) {
           // `/**` at the end (or before a non-separator) — the whole subtree,
           // including the directory itself.
-          out = `${out.slice(0, -1)}(/.*)?`;
+          out = `${out.slice(0, -SEP.length)}(${SEP}.*)?`;
           i++;
         } else {
           out += '.*';
           i++;
         }
       } else {
-        out += '[^/]*';
+        out += `${NON_SEP}*`;
       }
     } else if (char === '?') {
-      out += '[^/]';
+      out += NON_SEP;
+    } else if (char === '/') {
+      // An explicit separator in the pattern: on Windows the subject may use
+      // either slash, so emit the platform separator class.
+      out += SEP;
     } else if (char === '[') {
       const klass = readCharClass(pattern, i);
       if (klass) {
@@ -103,7 +124,9 @@ export function globToRegexSource(pattern: string): string {
 export function greedyGlobToRegexSource(pattern: string): string {
   let out = '';
   for (const char of pattern) {
-    out += char === '*' ? '.*' : /[.+^${}()|[\]\\?]/.test(char) ? `\\${char}` : char;
+    if (char === '*') out += '.*';
+    else if (char === '/') out += SEP;
+    else out += /[.+^${}()|[\]\\?]/.test(char) ? `\\${char}` : char;
   }
   return out;
 }
