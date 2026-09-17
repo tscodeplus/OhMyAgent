@@ -95,6 +95,243 @@ export function _resetRestartGuardForTests(): void {
 }
 
 /**
+ * PowerShell preamble shared by the Windows restart / update scripts.
+ *
+ * Two Windows-only pitfalls are encoded here — both verified on Windows 11
+ * with Windows PowerShell 5.1:
+ *
+ *   1. `Start-Process -NoNewWindow pnpm …` cannot launch the CLI. PowerShell
+ *      resolves `pnpm` to `pnpm.ps1`, which CreateProcess refuses to run
+ *      ("%1 is not a valid Win32 application"), so the relaunch died and the
+ *      service stayed down. A real executable path is required.
+ *   2. Stopping the server alone does not free the port while tsx's node
+ *      worker is alive, so children are stopped first — skipping this
+ *      script's own pid, which is a child of the server as well.
+ *
+ * It also captures how the server was started, so a restart can replay the
+ * original command line (the POSIX scripts do the same via /proc/<pid>/cmdline).
+ */
+function windowsScriptPreamble(projectRoot: string): string {
+  const escRoot = projectRoot.replace(/'/g, "''");
+  return `
+# ── Helpers ──────────────────────────────────────────────────────────────────
+function Stop-Server([int]$ServerPid) {
+  try {
+    Get-CimInstance Win32_Process -Filter "ParentProcessId=$ServerPid" -ErrorAction SilentlyContinue |
+      Where-Object { $_.ProcessId -ne $PID } |
+      ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  } catch { }
+  try { Stop-Process -Id $ServerPid -Force -ErrorAction SilentlyContinue } catch { }
+}
+
+# Arguments of a recorded command line. The executable is handed to
+# Start-Process separately and ArgumentList is forwarded verbatim, so the
+# original argv is replayed exactly — embedded quotes included.
+function Get-ServerArgs([string]$CommandLine) {
+  if (-not $CommandLine) { return '' }
+  $line = $CommandLine.Trim()
+  if ($line.StartsWith('"')) {
+    $end = $line.IndexOf('"', 1)
+    if ($end -ge 0) { return $line.Substring($end + 1).Trim() }
+  }
+  $space = $line.IndexOf(' ')
+  if ($space -ge 0) { return $line.Substring($space + 1).Trim() }
+  return ''
+}
+
+function Start-Server([string]$ExePath, [string]$CommandLine) {
+  if (-not $ExePath) {
+    # WMI reported no executable — fall back to the documented dev mode.
+    Start-Process -NoNewWindow -FilePath 'cmd.exe' -ArgumentList '/c pnpm dev' -WorkingDirectory '${escRoot}'
+    return
+  }
+  $rest = Get-ServerArgs $CommandLine
+  if ($rest) {
+    Start-Process -NoNewWindow -FilePath $ExePath -ArgumentList $rest -WorkingDirectory '${escRoot}'
+  } else {
+    Start-Process -NoNewWindow -FilePath $ExePath -WorkingDirectory '${escRoot}'
+  }
+}
+
+# Capture the startup mode BEFORE the server is stopped.
+$exePath = ''
+$cmdLine = ''
+try {
+  $serverProc = Get-CimInstance Win32_Process -Filter "ProcessId=$MainPid" -ErrorAction SilentlyContinue
+  if ($serverProc) { $exePath = $serverProc.ExecutablePath; $cmdLine = $serverProc.CommandLine }
+} catch { }
+`;
+}
+
+/**
+ * PowerShell that stops the server and starts a fresh one, using the same
+ * strategy the CLI does: an installed Task Scheduler service is re-run,
+ * everything else replays the original command line.
+ *
+ * Sets `$restarted` instead of returning, so callers can keep going (the
+ * update script still has to publish its final status afterwards).
+ */
+function windowsRestartServerBlock(projectRoot: string): string {
+  const escRoot = projectRoot.replace(/'/g, "''");
+  return `
+# ── Restart ──────────────────────────────────────────────────────────────────
+$restarted = $false
+
+# 1) Task Scheduler service mode (installed via 'ohmyagent service install').
+#    The task's launcher (wscript.exe) exits as soon as it has started the
+#    server, so the server keeps running while the task itself looks finished:
+#    /End alone would leave the OLD process holding the port and the fresh
+#    instance would fail to bind. Stop the known pid first.
+$task = schtasks /Query /TN "OhMyAgent" 2>$null
+if ($LASTEXITCODE -eq 0) {
+  Stop-Server -ServerPid $MainPid
+  Start-Sleep -Seconds 2
+  schtasks /Run /TN "OhMyAgent" 2>$null | Out-Null
+  if ($LASTEXITCODE -eq 0) { $restarted = $true }
+  if (-not $restarted) {
+    # /Run is rejected while the task is still considered running.
+    schtasks /End /TN "OhMyAgent" 2>$null | Out-Null
+    Start-Sleep -Seconds 1
+    schtasks /Run /TN "OhMyAgent" 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) { $restarted = $true }
+  }
+  if (-not $restarted) {
+    # Last resort: the hidden launcher written by 'ohmyagent service install'.
+    $launcher = Join-Path '${escRoot}' 'start-ohmyagent.vbs'
+    if (Test-Path $launcher) {
+      Start-Process -NoNewWindow -FilePath 'wscript.exe' -ArgumentList ('"' + $launcher + '"') -WorkingDirectory '${escRoot}'
+      $restarted = $true
+    }
+  }
+}
+
+# 2) Fallback (pnpm dev, 'ohmyagent start', plain node): stop the server and
+#    replay its original command line, so the startup mode is preserved.
+if (-not $restarted) {
+  Stop-Server -ServerPid $MainPid
+  Start-Sleep -Seconds 2
+  Start-Server -ExePath $exePath -CommandLine $cmdLine
+}
+`;
+}
+
+/**
+ * Options for spawning a helper script.
+ *
+ * Windows deliberately does NOT use `detached: true`: Node then creates the
+ * process with DETACHED_PROCESS, and Windows PowerShell 5.1 exits immediately
+ * (code 0, stdout ignored) without running `-File` at all — the restart became
+ * a no-op that also left the script file behind. `windowsHide` keeps a console
+ * window from flashing.
+ */
+const WINDOWS_SCRIPT_SPAWN_OPTIONS = { stdio: 'ignore', windowsHide: true } as const;
+const POSIX_SCRIPT_SPAWN_OPTIONS = { stdio: 'ignore', detached: true } as const;
+
+/** PowerShell argv for a helper script (same flags for restart and update). */
+function powershellArgs(scriptPath: string, mainPid: number): string[] {
+  return [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-File',
+    scriptPath,
+    '-MainPid',
+    String(mainPid),
+  ];
+}
+
+/**
+ * Windows: hand a helper script (restart / update) to the WMI service so it
+ * runs *outside* this process' tree and job object.
+ *
+ * Spawning the script as a plain child is not enough: Windows Terminal, psmux,
+ * task schedulers and CI runners run the server inside a Job Object, and once
+ * the server the script stops is gone, that job's teardown takes the whole tree
+ * with it — script included. Observed on Windows 11: the server went down (the
+ * terminal reported the dev command failing), no new server was started and
+ * `.restart-script.ps1` was left behind, so the WebUI's health poll timed out
+ * and reported a failed restart.
+ *
+ * A process created by the WMI provider host (WmiPrvSE) belongs to no such job,
+ * so it survives. `ShowWindow = 0` keeps it from flashing a console window and
+ * `EnvironmentVariables` keeps the restarted server's environment identical to
+ * the current one (a WMI-created process would otherwise inherit the service's).
+ *
+ * Returns null when the helper was created. Otherwise the reason is returned
+ * and the caller should fall back to spawning the script as a child process.
+ */
+async function launchWindowsHelperScript(
+  scriptPath: string,
+  projectRoot: string,
+  mainPid: number,
+): Promise<string | null> {
+  /** PowerShell single-quoted literal (only `'` needs escaping). */
+  const psLiteral = (value: string) => `'${value.replace(/'/g, "''")}'`;
+
+  const launcher = [
+    `$ErrorActionPreference = 'Stop'`,
+    `try {`,
+    `  $ps = Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe'`,
+    // `-f` instead of string concatenation: the helper path is a value, not
+    // source text, so quotes/spaces in it cannot break the format string.
+    `  $cmd = '{0} -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{1}" -MainPid {2}' -f $ps, ${psLiteral(scriptPath)}, ${mainPid}`,
+    `  $envPairs = [string[]]([System.Environment]::GetEnvironmentVariables().GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" })`,
+    `  $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ ShowWindow = [uint16]0; EnvironmentVariables = $envPairs }`,
+    `  $res = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmd; CurrentDirectory = ${psLiteral(projectRoot)}; ProcessStartupInformation = $startup }`,
+    `  if ($res.ReturnValue -eq 0) { exit 0 }`,
+    `  [Console]::Error.WriteLine('Win32_Process.Create returned ' + $res.ReturnValue)`,
+    `} catch { [Console]::Error.WriteLine($_.Exception.Message) }`,
+    `exit 1`,
+  ].join('\n');
+
+  return new Promise<string | null>((resolve) => {
+    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', launcher], {
+      ...WINDOWS_SCRIPT_SPAWN_OPTIONS,
+      stdio: ['ignore', 'ignore', 'pipe'],
+      cwd: projectRoot,
+    });
+    const stderr: string[] = [];
+    child.stderr?.on('data', (chunk: unknown) => stderr.push(String(chunk)));
+    const reason = (fallback: string) =>
+      stderr.join('').trim().replace(/\s+/g, ' ').slice(0, 300) || fallback;
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve('timeout waiting for the WMI hand-off');
+    }, 20_000);
+    child.on('error', (error: Error) => {
+      clearTimeout(timer);
+      resolve(error.message);
+    });
+    child.on('exit', (code: number | null) => {
+      clearTimeout(timer);
+      resolve(code === 0 ? null : reason(`launcher exited with code ${code}`));
+    });
+  });
+}
+
+/**
+ * Windows: start a helper script, preferring the WMI hand-off and falling back
+ * to a plain child process when WMI is unavailable.
+ */
+async function spawnWindowsHelperScript(
+  scriptPath: string,
+  projectRoot: string,
+  mainPid: number,
+  log: { warn: (message: string) => void },
+): Promise<void> {
+  const failure = await launchWindowsHelperScript(scriptPath, projectRoot, mainPid);
+  if (failure === null) return;
+
+  log.warn(`webui helper script: WMI hand-off failed (${failure}) — running it as a child process`);
+  const child = spawn('powershell.exe', powershellArgs(scriptPath, mainPid), {
+    ...WINDOWS_SCRIPT_SPAWN_OPTIONS,
+    cwd: projectRoot,
+  });
+  child.unref();
+}
+
+/**
  * POST /api/system/restart — restart the server from the WebUI, preserving
  * whichever startup mode is in use. Like perform-update, the actual work
  * runs in a detached script so this handler can reply before the process
@@ -133,35 +370,16 @@ export function registerSystemRoutes(app: FastifyInstance): void {
       const scriptPath = path.join(projectRoot, '.restart-script.ps1');
 
       const script = `# OhMyAgent service restart script (Windows)
-  param([int]$MainPid)
+param([int]$MainPid)
+${windowsScriptPreamble(projectRoot)}
+Start-Sleep -Seconds 1
 
-  Start-Sleep -Seconds 1
-
-  # 1) Task Scheduler service mode — /End + /Run = stop + start
-  $task = schtasks /Query /TN "OhMyAgent" 2>$null
-  if ($LASTEXITCODE -eq 0 -and ("$task" -match 'OhMyAgent')) {
-    schtasks /End /TN "OhMyAgent" 2>$null | Out-Null
-    Start-Sleep -Seconds 2
-    schtasks /Run /TN "OhMyAgent" 2>$null | Out-Null
-    if ($LASTEXITCODE -eq 0) {
-      Remove-Item -Force '${scriptPath.replace(/'/g, "''")}'
-      exit 0
-    }
-  }
-
-  # 2) Fallback: kill the process tree, restart pnpm dev
-  # Exclude our own pid ($PID) — this script is itself a child of MainPid.
-  try {
-    Get-CimInstance Win32_Process -Filter "ParentProcessId=$MainPid" -ErrorAction SilentlyContinue |
-      Where-Object { $_.ProcessId -ne $PID } |
-      ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-  } catch { }
-  try { Stop-Process -Id $MainPid -Force -ErrorAction SilentlyContinue } catch { }
-  Start-Sleep -Seconds 2
-
-  Start-Process -NoNewWindow pnpm -ArgumentList "dev"
-  Remove-Item -Force '${scriptPath.replace(/'/g, "''")}'
-  `;
+try {
+${windowsRestartServerBlock(projectRoot)}
+} finally {
+  Remove-Item -Force '${scriptPath.replace(/'/g, "''")}' -ErrorAction SilentlyContinue
+}
+`;
 
       try {
         fs.writeFileSync(scriptPath, script, { mode: 0o700 });
@@ -169,12 +387,7 @@ export function registerSystemRoutes(app: FastifyInstance): void {
         return reply.status(500).send({ ok: false, error: 'failed to write restart script' });
       }
 
-      const child = spawn(
-        'powershell.exe',
-        ['-ExecutionPolicy', 'Bypass', '-File', scriptPath, '-MainPid', String(mainPid)],
-        { detached: true, stdio: 'ignore', cwd: projectRoot },
-      );
-      child.unref();
+      await spawnWindowsHelperScript(scriptPath, projectRoot, mainPid, app.log);
 
       return reply.send({ ok: true });
     }
@@ -262,8 +475,7 @@ export function registerSystemRoutes(app: FastifyInstance): void {
     }
 
     const child = spawn('bash', [scriptPath, String(mainPid)], {
-      detached: true,
-      stdio: 'ignore',
+      ...POSIX_SCRIPT_SPAWN_OPTIONS,
       cwd: projectRoot,
     });
     child.unref();
@@ -441,7 +653,7 @@ export function registerSystemRoutes(app: FastifyInstance): void {
 
       const script = `# OhMyAgent update script (Windows)
 param([int]$MainPid)
-
+${windowsScriptPreamble(projectRoot)}
 Start-Sleep -Seconds 2
 
 # pnpm needs CI=true in non-TTY environments to skip the interactive
@@ -489,13 +701,7 @@ pnpm build:ui
 if ($LASTEXITCODE -ne 0) { Write-Status "error" "WebUI build failed" 80; exit 1 }
 
 Write-Status "restarting" "" 95
-
-# Kill the current server process
-try { Stop-Process -Id $MainPid -Force -ErrorAction Stop } catch {}
-Start-Sleep -Seconds 1
-
-Start-Process -NoNewWindow pnpm -ArgumentList "dev"
-
+${windowsRestartServerBlock(projectRoot)}
 Write-Status "complete" "" 100
 Remove-Item -Force '${scriptPath.replace(/'/g, "''")}'
 `;
@@ -506,12 +712,7 @@ Remove-Item -Force '${scriptPath.replace(/'/g, "''")}'
         return reply.status(500).send({ ok: false, error: 'failed to write update script' });
       }
 
-      const child = spawn(
-        'powershell.exe',
-        ['-ExecutionPolicy', 'Bypass', '-File', scriptPath, '-MainPid', String(mainPid)],
-        { detached: true, stdio: 'ignore', cwd: projectRoot },
-      );
-      child.unref();
+      await spawnWindowsHelperScript(scriptPath, projectRoot, mainPid, app.log);
 
       return reply.send({ ok: true, message: 'Update started — server will restart shortly' });
     }
