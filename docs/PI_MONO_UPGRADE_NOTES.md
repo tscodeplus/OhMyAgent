@@ -61,9 +61,9 @@ cp package/dist/providers/data/. src/pi-mono/ai/providers/data/
 | agent-loop.ts | fallback 多模型重试 | `streamAssistantResponse` 内 `models = [config.model, ...config.fallbackModels]` 串行重试循环 |
 | agent-loop.ts | sticky fallback | 成功应答后把实际使用的 fallback 模型钉住为本 run 后续 turn 的首选（run 内有效，下条用户消息重新从主模型开始） |
 | agent-loop.ts | `emitFallback` + retry-scope `stream_retry` 事件 | fallback 切换发 `stream_retry`（scope=fallback）；通过 `onStreamRetry` 选项把 retrying-stream 的重试进度转为 `stream_retry`（scope=retry）。**注意**：terminal 事件 case 内不可用裸 `continue` 切换模型（它作用于 for-await 而非模型循环），必须 `break` + `finalized` 标志（2026-09 修复的双发 `message_end` bug，见 tests/agent/agent-loop-fallback.test.ts） |
-| agent-loop.ts | 工具循环守卫 | failureStreak / maxToolCycles 诊断注入 + compactToolsForPrompt（deferred 工具过滤） |
+| agent-loop.ts | 工具循环守卫 | failureStreak / maxToolCycles 诊断注入 + `selectDeclarableTools`（v0.86.0 起：deferred 工具不进声明集，执行集不变）+ `unlockDeferredTools`（把 `addedToolNames` 转成 `toolsAdded` 系统消息，transcript 作用域解锁） |
 | agent/types.ts | `AgentEvent` 扩展 | `stream_retry` 事件成员（scope/failedProvider/failedModel/provider/model/attempt/maxRetries/delayMs/errorMessage） |
-| agent/types.ts | 配置字段 | `AgentLoopConfig.fallbackModels`、`maxToolCycles`、`deferred` |
+| agent/types.ts | 配置字段 | `AgentLoopConfig.fallbackModels`、`maxToolCycles`、`AgentTool.deferred`、`AgentToolResult.addedToolNames`（v0.86.0 上游已删，本项目保留给 tool_search 桥接） |
 | agent/agent.ts | 运行时字段 | `fallbackModels`、`getApiKey`、streamFn 别名、`ohmyagent_agentName` |
 
 ### ai 包（src/pi-mono/ai/）
@@ -87,6 +87,9 @@ cp package/dist/providers/data/. src/pi-mono/ai/providers/data/
 - `src/agent/agent-service.ts` — 看门狗 `ACTIVITY_EVENTS` 含 `stream_retry`
 - `src/agent/event-bridge.ts` — `stream_retry` 分发到 `ReplyDispatcher.onStreamRetry`
 - `src/app/webui/chat-routes.ts` + `ui/src/components/chat/*` — WebUI 重试状态线
+- `src/agent/convert-to-llm.ts` — **必须放行 `system` 消息**（v0.86.0 起 prompt/tools 在 system 消息里）
+- `src/tools/registry.ts` — `register()` 把 v4 `ToolDefinition.parametersSchema` 归一化为 `parameters`
+- `src/tools/tool-search/bridge-tools.ts` — 写 `addedToolNames`（现由 agent-loop 转成系统消息）
 
 ## 4. 速查 — v0.84.4 实证
 

@@ -16,7 +16,7 @@ export class ToolRegistryImpl implements ToolRegistry {
   private cachedAgentTools: AgentTool<any>[] | null = null;
 
   register(tool: AgentTool<any>): void {
-    this.tools.set(tool.name, tool);
+    this.tools.set(tool.name, normalizeRegisteredTool(tool));
     this.version++;
     this.cachedAgentTools = null;
   }
@@ -61,4 +61,21 @@ export class ToolRegistryImpl implements ToolRegistry {
  */
 export function createToolRegistry(): ToolRegistry {
   return new ToolRegistryImpl();
+}
+
+/**
+ * Normalize a registered tool so it satisfies the pi-mono AgentTool contract.
+ *
+ * v4 `ToolDefinition`s carry their schema as `parametersSchema`; the platform
+ * path (AgentToolAdapter) maps it to `parameters`, but extensions can also be
+ * registered directly on the legacy registry. pi-mono v0.86.0 serializes every
+ * tool's `parameters` when building the transcript's tool declarations, so a
+ * tool that only has `parametersSchema` would throw there.
+ */
+function normalizeRegisteredTool(tool: AgentTool<any>): AgentTool<any> {
+  const candidate = tool as AgentTool<any> & { parametersSchema?: unknown };
+  if (candidate.parameters === undefined && candidate.parametersSchema !== undefined) {
+    return { ...candidate, parameters: candidate.parametersSchema as AgentTool<any>['parameters'] };
+  }
+  return tool;
 }

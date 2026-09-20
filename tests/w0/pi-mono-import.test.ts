@@ -19,8 +19,8 @@ describe('pi-mono source embedding', () => {
   });
 
   it('can get deepseek model', () => {
-    const model = getModel('deepseek', 'deepseek-v4-flash');
+    const model = getModel('deepseek', 'deepseek-flash');
     expect(model).toBeDefined();
-    expect(model.id).toBe('deepseek-v4-flash');
+    expect(model.id).toBe('deepseek-flash');
   });
 });

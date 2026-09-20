@@ -13,6 +13,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Type } from 'typebox';
 import { Agent } from '../../../src/pi-mono/agent/agent.js';
 import { AssistantMessageEventStream } from '../../../src/pi-mono/ai/utils/event-stream.js';
+import { getCurrentTools } from '../../../src/pi-mono/ai/utils/transcript.js';
 import type { AssistantMessage } from '../../../src/pi-mono/ai/types.js';
 import type { AgentTool } from '../../../src/pi-mono/agent/types.js';
 
@@ -39,7 +40,10 @@ function makeModel(): any {
   };
 }
 
-function makeTool(name: string, opts: { deferred?: boolean } = {}): AgentTool {
+function makeTool(
+  name: string,
+  opts: { deferred?: boolean; addedToolNames?: string[] } = {},
+): AgentTool {
   return {
     name,
     label: name,
@@ -49,6 +53,7 @@ function makeTool(name: string, opts: { deferred?: boolean } = {}): AgentTool {
     execute: vi.fn(async () => ({
       content: [{ type: 'text', text: `${name} ran` }],
       details: {},
+      ...(opts.addedToolNames ? { addedToolNames: opts.addedToolNames } : {}),
     })),
   };
 }
@@ -60,7 +65,9 @@ describe('deferred tool resolution', () => {
 
     let capturedToolNames: string[] | undefined;
     const streamFn = (_model: any, context: any): AssistantMessageEventStream => {
-      capturedToolNames = (context.tools ?? []).map((t: any) => t.name);
+      // v0.86.0+ carries tool declarations in the transcript's system messages,
+      // not on the context itself.
+      capturedToolNames = getCurrentTools(context.messages).map((t: any) => t.name);
       const message: AssistantMessage = {
         role: 'assistant',
         content: [{ type: 'text', text: 'done' }],
@@ -166,5 +173,62 @@ describe('deferred tool resolution', () => {
 
     // The deferred tool resolved and executed — no "Tool not found".
     expect(deferred.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('unlocks a deferred tool for the model after a tool result reports it', async () => {
+    const core = makeTool('file_read');
+    const deferred = makeTool('memory_rebuild_persona', { deferred: true });
+    // A discovery tool (tool_search) reports the deferred tool through
+    // addedToolNames; the loop must turn that into a transcript system message
+    // declaring the tool from that point on.
+    const search = makeTool('tool_search', { addedToolNames: ['memory_rebuild_persona'] });
+
+    const declaredPerCall: string[][] = [];
+    let callCount = 0;
+    const streamFn = (_model: any, context: any): AssistantMessageEventStream => {
+      callCount++;
+      declaredPerCall.push(getCurrentTools(context.messages).map((t: any) => t.name));
+      const stream = new AssistantMessageEventStream();
+      const message: AssistantMessage =
+        callCount === 1
+          ? {
+              role: 'assistant',
+              content: [{ type: 'toolCall', id: 'tc-1', name: 'tool_search', arguments: {} }],
+              api: 'openai-completions',
+              provider: 'test-provider',
+              model: 'test-model',
+              usage: EMPTY_USAGE,
+              stopReason: 'toolUse',
+              timestamp: Date.now(),
+            }
+          : {
+              role: 'assistant',
+              content: [{ type: 'text', text: 'done' }],
+              api: 'openai-completions',
+              provider: 'test-provider',
+              model: 'test-model',
+              usage: EMPTY_USAGE,
+              stopReason: 'stop',
+              timestamp: Date.now(),
+            };
+      stream.push({ type: 'start', partial: { ...message } });
+      stream.push({ type: 'text_start', contentIndex: 0, partial: { ...message } });
+      stream.push({ type: 'text_delta', contentIndex: 0, delta: 'x', partial: { ...message } });
+      stream.push({ type: 'text_end', contentIndex: 0, content: 'x', partial: { ...message } });
+      stream.push({ type: 'done', reason: 'stop', message });
+      return stream;
+    };
+
+    const agent = new Agent({
+      initialState: { systemPrompt: 'test', model: makeModel(), tools: [core, search, deferred] },
+      streamFn,
+    });
+    await agent.prompt('find a tool');
+
+    // Hidden before discovery...
+    expect(declaredPerCall[0]).toContain('file_read');
+    expect(declaredPerCall[0]).not.toContain('memory_rebuild_persona');
+    // ...and declared to the model once a result reported it.
+    expect(declaredPerCall[1]).toContain('memory_rebuild_persona');
   });
 });

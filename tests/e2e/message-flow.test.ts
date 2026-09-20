@@ -301,12 +301,14 @@ describe('E2E: Message Flow', () => {
     await agent.prompt('Second message');
     bridge.stop();
 
-    // Agent should have 4 messages: user1, assistant1, user2, assistant2
-    expect(agent.state.messages).toHaveLength(4);
-    expect(agent.state.messages[0].role).toBe('user');
-    expect(agent.state.messages[1].role).toBe('assistant');
-    expect(agent.state.messages[2].role).toBe('user');
-    expect(agent.state.messages[3].role).toBe('assistant');
+    // Agent should have 5 messages: system (v0.86.0 leading prompt message),
+    // user1, assistant1, user2, assistant2
+    expect(agent.state.messages).toHaveLength(5);
+    expect(agent.state.messages[0].role).toBe('system');
+    expect(agent.state.messages[1].role).toBe('user');
+    expect(agent.state.messages[2].role).toBe('assistant');
+    expect(agent.state.messages[3].role).toBe('user');
+    expect(agent.state.messages[4].role).toBe('assistant');
   });
 
   // ─── Tool not found ──────────────────────────────────────────────────────

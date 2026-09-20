@@ -22,9 +22,9 @@ describe('pi-ai-setup', () => {
   };
 
   it('getModelInstance returns a model from the registry', () => {
-    const model = getModelInstance('deepseek', 'deepseek-v4-flash');
+    const model = getModelInstance('deepseek', 'deepseek-flash');
     expect(model).toBeDefined();
-    expect(model.id).toBe('deepseek-v4-flash');
+    expect(model.id).toBe('deepseek-flash');
   });
 
   it('getModelInstance returns undefined for unknown provider', () => {
@@ -35,11 +35,11 @@ describe('pi-ai-setup', () => {
   it('getDefaultModel returns model from config', () => {
     const config = loadConfig({
       ...validEnv,
-      PI_AI_MODEL: 'deepseek-v4-flash',
+      PI_AI_MODEL: 'deepseek-flash',
     });
     const model = getDefaultModel(config);
     expect(model).toBeDefined();
-    expect(model.id).toBe('deepseek-v4-flash');
+    expect(model.id).toBe('deepseek-flash');
     expect(model.provider).toBe('deepseek');
   });
 
@@ -102,9 +102,9 @@ describe('ensureModelRegistered', () => {
 
   it('returns the existing model when already resolvable', () => {
     const config = makeConfig();
-    const model = ensureModelRegistered(config, 'deepseek', 'deepseek-v4-flash');
+    const model = ensureModelRegistered(config, 'deepseek', 'deepseek-flash');
     expect(model).toBeDefined();
-    expect(model.id).toBe('deepseek-v4-flash');
+    expect(model.id).toBe('deepseek-flash');
   });
 
   it('returns undefined for providers that are not configured custom providers', () => {

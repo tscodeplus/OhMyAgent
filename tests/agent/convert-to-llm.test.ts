@@ -27,10 +27,11 @@ describe('convertToLlm', () => {
     expect(result[0].role).toBe('toolResult');
   });
 
-  it('removes system messages', () => {
+  it('keeps system messages', () => {
     const messages = [makeMessage('system')];
     const result = convertToLlm(messages);
-    expect(result).toHaveLength(0);
+    expect(result).toHaveLength(1);
+    expect(result[0].role).toBe('system');
   });
 
   it('removes unknown role messages', () => {
@@ -49,8 +50,14 @@ describe('convertToLlm', () => {
       makeMessage('user', 'bye'),
     ];
     const result = convertToLlm(messages);
-    expect(result).toHaveLength(4);
-    expect(result.map((m: any) => m.role)).toEqual(['user', 'assistant', 'toolResult', 'user']);
+    expect(result).toHaveLength(5);
+    expect(result.map((m: any) => m.role)).toEqual([
+      'system',
+      'user',
+      'assistant',
+      'toolResult',
+      'user',
+    ]);
   });
 
   it('handles empty array', () => {

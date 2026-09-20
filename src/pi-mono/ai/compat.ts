@@ -41,7 +41,6 @@ import { piMessagesApi } from "./api/pi-messages.lazy.js";
 import { getEnvApiKey } from "./env-api-keys.js";
 import type { ModelsApiStreamOptions } from "./models.js";
 import { builtinModels, getBuiltinModel, getBuiltinModels, getBuiltinProviders } from "./providers/all.js";
-export { getBuiltinProviders } from "./providers/all.js";
 
 export type { BuiltinProvider } from "./providers/all.js";
 
@@ -58,11 +57,13 @@ import type {
 	SimpleStreamOptions,
 	StreamFunction,
 	StreamOptions,
+	TranscriptContext,
 } from "./types.js";
-
-/** @deprecated Static catalog read. Use `getBuiltinModel` from "@earendil-works/pi-ai/providers/all" or `Models.getModel()`. */
+import { normalizeContext } from "./utils/transcript.js";
 
 // ── Custom model registry (OhMyAgent extension) ────────────────────────
+// @deprecated Static catalog read. Use `getBuiltinModel` from
+// "@earendil-works/pi-ai/providers/all" or `Models.getModel()`.
 
 const pendingCustomModels = new Map<string, Model<Api>[]>();
 
@@ -107,15 +108,17 @@ export const getProviders = (): string[] => {
 	return [...new Set([...custom, ...builtin])];
 };
 
+export { getBuiltinProviders } from "./providers/all.js";
+
 export type ApiStreamFunction = (
 	model: Model<Api>,
-	context: Context,
+	context: TranscriptContext,
 	options?: StreamOptions,
 ) => AssistantMessageEventStream;
 
 export type ApiStreamSimpleFunction = (
 	model: Model<Api>,
-	context: Context,
+	context: TranscriptContext,
 	options?: SimpleStreamOptions,
 ) => AssistantMessageEventStream;
 
@@ -291,15 +294,16 @@ export function stream<TApi extends Api>(
 	context: Context,
 	options?: ProviderStreamOptions,
 ): AssistantMessageEventStream {
+	const transcript = normalizeContext(context);
 	const builtinProvider = getBuiltinProviderForModel(model);
 	if (builtinProvider) {
 		if (model.provider.startsWith("cloudflare-") && !hasResolvedCloudflareAuth(options)) {
-			return compatModels.stream(model, context, options as ModelsApiStreamOptions<TApi> | undefined);
+			return compatModels.stream(model, transcript, options as ModelsApiStreamOptions<TApi> | undefined);
 		}
-		return builtinProvider.stream(model, context, withEnvApiKey(model, options) as ApiStreamOptions<TApi>);
+		return builtinProvider.stream(model, transcript, withEnvApiKey(model, options) as ApiStreamOptions<TApi>);
 	}
 	const provider = resolveApiProvider(model.api);
-	return provider.stream(model, context, withEnvApiKey(model, options) as StreamOptions);
+	return provider.stream(model, transcript, withEnvApiKey(model, options) as StreamOptions);
 }
 
 export async function complete<TApi extends Api>(
@@ -316,15 +320,16 @@ export function streamSimple<TApi extends Api>(
 	context: Context,
 	options?: SimpleStreamOptions,
 ): AssistantMessageEventStream {
+	const transcript = normalizeContext(context);
 	const builtinProvider = getBuiltinProviderForModel(model);
 	if (builtinProvider) {
 		if (model.provider.startsWith("cloudflare-") && !hasResolvedCloudflareAuth(options)) {
-			return compatModels.streamSimple(model, context, options);
+			return compatModels.streamSimple(model, transcript, options);
 		}
-		return builtinProvider.streamSimple(model, context, withEnvApiKey(model, options));
+		return builtinProvider.streamSimple(model, transcript, withEnvApiKey(model, options));
 	}
 	const provider = resolveApiProvider(model.api);
-	return provider.streamSimple(model, context, withEnvApiKey(model, options));
+	return provider.streamSimple(model, transcript, withEnvApiKey(model, options));
 }
 
 export async function completeSimple<TApi extends Api>(

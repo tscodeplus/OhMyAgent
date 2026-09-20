@@ -1103,8 +1103,10 @@ describe('AgentFactory config injection', () => {
       { role: 'assistant', content: 'Hi there!', timestamp: 1001 },
     ];
     const agent = factory.create({ sessionId: 's1', historyMessages: history });
-    expect(agent.state.messages).toHaveLength(2);
-    expect(agent.state.messages[0].role).toBe('user');
-    expect(agent.state.messages[1].content).toBe('Hi there!');
+    // pi-mono v0.86.0 folds the system prompt into a leading system message.
+    expect(agent.state.messages).toHaveLength(3);
+    expect(agent.state.messages[0].role).toBe('system');
+    expect(agent.state.messages[1].role).toBe('user');
+    expect(agent.state.messages[2].content).toBe('Hi there!');
   });
 });

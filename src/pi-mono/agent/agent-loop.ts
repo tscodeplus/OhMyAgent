@@ -5,9 +5,15 @@
 
 import {
 	type AssistantMessage,
-	type Context,
 	EventStream,
+	getCurrentTools,
+	getToolStateChanges,
+	normalizeContext,
+	type SystemMessage,
+	type Tool,
 	type ToolResultMessage,
+	type ToolStateChanges,
+	toToolDeclaration,
 	validateToolArguments,
 } from "@earendil-works/pi-ai";
 import { getDefaultStreamFn } from "./stream-fn.js";
@@ -101,17 +107,18 @@ export async function runAgentLoop(
 	signal: AbortSignal | undefined,
 	streamFn: StreamFn,
 ): Promise<AgentMessage[]> {
-	const newMessages: AgentMessage[] = [...prompts];
+	const initialMessages = declareToolChanges(context, prompts);
+	const newMessages: AgentMessage[] = [...initialMessages];
 	const currentContext: AgentContext = {
 		...context,
-		messages: [...context.messages, ...prompts],
+		messages: [...context.messages, ...initialMessages],
 	};
 
 	await emit({ type: "agent_start" });
 	await emit({ type: "turn_start" });
-	for (const prompt of prompts) {
-		await emit({ type: "message_start", message: prompt });
-		await emit({ type: "message_end", message: prompt });
+	for (const message of initialMessages) {
+		await emit({ type: "message_start", message });
+		await emit({ type: "message_end", message });
 	}
 
 	await runLoop(currentContext, newMessages, config, signal, emit, streamFn ?? getDefaultStreamFn());
@@ -184,10 +191,12 @@ async function runLoop(
 
 		// Inner loop: process tool calls and steering messages
 		while (hasMoreToolCalls || pendingMessages.length > 0) {
+			let preparedMessages: AgentMessage[] = [];
 			if (lastCompletedTurn) {
 				const nextTurnSnapshot = await config.prepareNextTurn?.(lastCompletedTurn);
 				if (nextTurnSnapshot) {
 					currentContext = nextTurnSnapshot.context ?? currentContext;
+					preparedMessages = nextTurnSnapshot.messages ?? [];
 					config = {
 						...config,
 						model: nextTurnSnapshot.model ?? config.model,
@@ -208,16 +217,14 @@ async function runLoop(
 				await emit({ type: "turn_start" });
 			}
 
-			// Process pending messages (inject before next assistant response)
-			if (pendingMessages.length > 0) {
-				for (const message of pendingMessages) {
-					await emit({ type: "message_start", message });
-					await emit({ type: "message_end", message });
-					currentContext.messages.push(message);
-					newMessages.push(message);
-				}
-				pendingMessages = [];
+			// Process prepared and queued messages before the next assistant response.
+			for (const message of declareToolChanges(currentContext, [...preparedMessages, ...pendingMessages])) {
+				await emit({ type: "message_start", message });
+				await emit({ type: "message_end", message });
+				currentContext.messages.push(message);
+				newMessages.push(message);
 			}
+			pendingMessages = [];
 
 			// Stream assistant response
 			const message = await streamAssistantResponse(currentContext, config, signal, emit, streamFunction);
@@ -267,6 +274,18 @@ async function runLoop(
 				for (const result of toolResults) {
 					currentContext.messages.push(result);
 					newMessages.push(result);
+				}
+
+				// ── OhMyAgent extension: unlock dynamically discovered tools. A tool
+				// result reporting `addedToolNames` becomes a transcript system message
+				// declaring those tools, so deferred tools stay hidden until discovered
+				// and remain callable afterwards (transcript-scoped unlock). ──
+				const unlock = unlockDeferredTools(currentContext, executedToolBatch.addedToolNames);
+				if (unlock) {
+					await emit({ type: "message_start", message: unlock });
+					await emit({ type: "message_end", message: unlock });
+					currentContext.messages.push(unlock);
+					newMessages.push(unlock);
 				}
 
 				// ── OhMyAgent extension: count cycles and same-tool failure
@@ -350,6 +369,79 @@ async function runLoop(
 }
 
 /**
+ * Declare tool loadout changes to the model.
+ *
+ * `context.tools` is what the runtime can execute; the transcript's system messages declare
+ * what the model may call. Before each request the difference becomes `toolsAdded` and
+ * `toolsRemoved` on a system message. When a pending system message exists, its tool fields
+ * are treated as intent and replaced with the delta between the committed transcript and
+ * the executable set, so replay always yields exactly `context.tools`. Otherwise a new
+ * system message is inserted before the first non-system pending message.
+ */
+function declareToolChanges(context: AgentContext, pendingMessages: AgentMessage[]): AgentMessage[] {
+	let systemIndex = -1;
+	for (let i = pendingMessages.length - 1; i >= 0; i--) {
+		if (pendingMessages[i].role === "system") {
+			systemIndex = i;
+			break;
+		}
+	}
+	const pending = pendingMessages[systemIndex] as SystemMessage | undefined;
+	const baseline = pending
+		? pendingMessages.map((message, index) =>
+				index === systemIndex ? withToolChanges(pending, NO_CHANGES) : message,
+			)
+		: pendingMessages;
+	const changes = getToolStateChanges(
+		getCurrentTools([...context.messages, ...baseline]),
+		// OhMyAgent extension: deferred tools are executable but stay hidden from
+		// the model until a tool result unlocks them (see unlockDeferredTools).
+		// Once a tool is declared in the transcript (its unlock system message is
+		// committed), it keeps being declared — the unlock is transcript-scoped.
+		selectDeclarableTools(context),
+	);
+	const unchanged = changes.toolsAdded.length === 0 && changes.toolsRemoved.length === 0;
+
+	if (pending) {
+		// Keep the caller's message object when it already declares no tool changes.
+		if (unchanged && !pending.toolsAdded?.length && !pending.toolsRemoved?.length) return pendingMessages;
+		return baseline.map((message, index) => (index === systemIndex ? withToolChanges(pending, changes) : message));
+	}
+	if (unchanged) return pendingMessages;
+	const update = withToolChanges({ role: "system", content: "", timestamp: Date.now() }, changes);
+	const insertIndex = pendingMessages.findIndex((message) => message.role !== "system");
+	const index = insertIndex === -1 ? pendingMessages.length : insertIndex;
+	return [...pendingMessages.slice(0, index), update, ...pendingMessages.slice(index)];
+}
+
+const NO_CHANGES: ToolStateChanges = { toolsAdded: [], toolsRemoved: [] };
+
+/**
+ * OhMyAgent extension: the tool declarations to keep in the transcript.
+ *
+ * `context.tools` is what the runtime can execute. Tools flagged `deferred`
+ * (dynamic discovery via tool_search) are withheld until a system message in
+ * the transcript declares them — which happens when a tool result reports them
+ * through `addedToolNames` and the loop appends an unlock message.
+ */
+function selectDeclarableTools(context: AgentContext): Tool[] {
+	const declared = new Set(getCurrentTools(context.messages).map((tool) => tool.name));
+	return (context.tools ?? [])
+		.filter((tool) => !tool.deferred || declared.has(tool.name))
+		.map(toToolDeclaration);
+}
+
+/** Copy a system message with its tool fields replaced by `changes`; empty lists omit the field. */
+function withToolChanges(message: SystemMessage, { toolsAdded, toolsRemoved }: ToolStateChanges): SystemMessage {
+	const { toolsAdded: _added, toolsRemoved: _removed, ...rest } = message;
+	return {
+		...rest,
+		...(toolsAdded.length > 0 ? { toolsAdded } : {}),
+		...(toolsRemoved.length > 0 ? { toolsRemoved } : {}),
+	};
+}
+
+/**
  * Stream an assistant response from the LLM.
  * This is where AgentMessage[] gets transformed to Message[] for the LLM.
  */
@@ -369,12 +461,7 @@ async function streamAssistantResponse(
 	// Convert to LLM-compatible messages (AgentMessage[] → Message[])
 	const llmMessages = await config.convertToLlm(messages);
 
-	// Build LLM context (OhMyAgent: filter out deferred tools)
-	const llmContext: Context = {
-		systemPrompt: context.systemPrompt,
-		messages: llmMessages,
-		tools: compactToolsForPrompt(context.tools, context.messages),
-	};
+	const llmContext = normalizeContext({ messages: llmMessages });
 
 	// Build model list: primary + fallbacks (OhMyAgent extension)
 	const models = [config.model, ...(config.fallbackModels ?? [])];
@@ -532,26 +619,6 @@ async function streamAssistantResponse(
 }
 
 /**
- * Filter out deferred tools before sending to the LLM. (OhMyAgent extension.)
- *
- * Dynamic tool discovery (OhMyAgent): tools declared via tool_result
- * ``addedToolNames`` (tool_search/tool_call 命中后) are unlocked and stay in
- * the prompt even with the ``deferred`` flag, so the model can call them
- * directly without re-searching. Unlock is transcript-scoped: once a tool
- * result declared it, every subsequent request keeps it visible.
- */
-function compactToolsForPrompt(tools?: AgentTool<any>[], messages?: AgentMessage[]): any[] | undefined {
-	if (!tools) return undefined;
-	const unlocked = new Set<string>();
-	for (const m of messages ?? []) {
-		if (m.role === "toolResult") {
-			for (const name of m.addedToolNames ?? []) unlocked.add(name);
-		}
-	}
-	return tools.filter((t) => !(t as any).deferred || unlocked.has(t.name)) as any[];
-}
-
-/**
  * Fail all tool calls from an assistant message that was truncated by the
  * output token limit. Streamed tool-call arguments are finalized with a
  * best-effort JSON salvage parser, so a truncated message can yield tool calls
@@ -582,13 +649,13 @@ async function failToolCallsFromTruncatedMessage(
 		await emitToolResultMessage(toolResultMessage, emit);
 		messages.push(toolResultMessage);
 	}
-	return { messages, terminate: false };
+	return { messages, terminate: false, addedToolNames: [] };
 }
 
 /**
- * Build a user-role steering message for the tool-cycle guard. The LLM sees
- * it as the last message of the next call, so it is not part of any
- * tool_call/toolResult pairing.
+ * Build a user-role steering message for the tool-cycle guard (OhMyAgent
+ * extension). The LLM sees it as the last message of the next call, so it is
+ * not part of any tool_call/toolResult pairing.
  */
 function createGuardMessage(text: string): AgentMessage {
 	return {
@@ -627,7 +694,39 @@ async function failToolCallsWithSystemHalt(
 		await emitToolResultMessage(toolResultMessage, emit);
 		messages.push(toolResultMessage);
 	}
-	return { messages, terminate: false };
+	return { messages, terminate: false, addedToolNames: [] };
+}
+
+/**
+ * Collect the tools that tool results asked to unlock in this batch
+ * (OhMyAgent extension, from `AgentToolResult.addedToolNames`).
+ */
+function collectAddedToolNames(finalizedCalls: FinalizedToolCallOutcome[]): string[] {
+	const names = new Set<string>();
+	for (const finalized of finalizedCalls) {
+		for (const name of finalized.result.addedToolNames ?? []) names.add(name);
+	}
+	return [...names];
+}
+
+/**
+ * Turn `addedToolNames` reported by tool results into a system message that
+ * declares those tools to the model (OhMyAgent extension).
+ *
+ * Upstream v0.86.0 removed the per-result `addedToolNames` field and now
+ * announces tool loadout changes through transcript system messages, so this is
+ * the unlock path for deferred tools: the appended system message is replayed by
+ * `getCurrentTools()`, which makes `selectDeclarableTools()` keep the tool
+ * declared from this transcript point onward.
+ */
+function unlockDeferredTools(context: AgentContext, names: string[]): SystemMessage | undefined {
+	if (names.length === 0) return undefined;
+	const wanted = new Set(names);
+	const tools = (context.tools ?? [])
+		.filter((tool) => wanted.has(tool.name))
+		.map(toToolDeclaration);
+	if (tools.length === 0) return undefined;
+	return { role: "system", content: "", toolsAdded: tools, timestamp: Date.now() };
 }
 
 /**
@@ -653,6 +752,8 @@ async function executeToolCalls(
 type ExecutedToolCallBatch = {
 	messages: ToolResultMessage[];
 	terminate: boolean;
+	/** OhMyAgent extension: tools the results asked to unlock (dynamic discovery). */
+	addedToolNames: string[];
 };
 
 async function executeToolCallsSequential(
@@ -708,6 +809,7 @@ async function executeToolCallsSequential(
 	return {
 		messages,
 		terminate: shouldTerminateToolBatch(finalizedCalls),
+		addedToolNames: collectAddedToolNames(finalizedCalls),
 	};
 }
 
@@ -784,6 +886,7 @@ async function executeToolCallsParallel(
 	return {
 		messages,
 		terminate: shouldTerminateToolBatch(orderedFinalizedCalls),
+		addedToolNames: collectAddedToolNames(orderedFinalizedCalls),
 	};
 }
 
@@ -1022,7 +1125,6 @@ function createToolResultMessage(finalized: FinalizedToolCallOutcome): ToolResul
 		content: finalized.result.content ?? [],
 		details: finalized.result.details,
 		usage: finalized.result.usage,
-		...(finalized.result.addedToolNames?.length ? { addedToolNames: finalized.result.addedToolNames } : {}),
 		isError: finalized.isError,
 		timestamp: Date.now(),
 	};

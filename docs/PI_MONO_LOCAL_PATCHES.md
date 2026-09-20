@@ -29,31 +29,40 @@ As of the last audit, exactly **5 files** carry load-bearing edits.
 
 Five distinct patches in the hot loop:
 
-1. **Tool-cycle abort guard** (`:170-179`, `:272-317`)
-   Counters `toolCycles` / `lastFailedTool` / `failureStreak` plus the
-   `failureDiagnosticInjected` / `haltDiagnosticInjected` / `toolExecutionHalted` flags.
+1. **Tool-cycle abort guard** (`toolCycles` / `lastFailedTool` / `failureStreak` plus the
+   `failureDiagnosticInjected` / `haltDiagnosticInjected` / `toolExecutionHalted` flags).
    Two injected user-role steering messages (`createGuardMessage`):
    - after **3 identical consecutive tool failures** → "stop repeating it";
    - when `config.maxToolCycles` is reached → "tool execution is stopped, answer the user".
    Without this a looping agent spins until the turn watchdog kills the request.
 
-2. **Sticky fallback** (`:232-247`)
+2. **Sticky fallback** (right after the assistant message is produced)
    Upstream's retry/fallback walk in `streamAssistantResponse` is *per LLM call*. This pins
    whichever fallback actually answered as `config.model` for the remainder of the **run**, so
    each tool round does not re-walk the whole failure chain against a dead primary. Deliberately
    run-scoped — the next user message starts from the configured primary again.
 
-3. **Deferred-tool filter** (`:372`, `:535-552`)
-   `compactToolsForPrompt()` drops tools flagged `deferred` from the prompt to keep token cost
-   down, **except** those already unlocked in the transcript via a tool result's
-   `addedToolNames` (`tool_search` / `tool_call` hits). The unlock is transcript-scoped so the
-   model can call an already-discovered tool directly.
+3. **Deferred-tool handling on the v0.86.0 transcript model**
+   Upstream removed `ToolResultMessage.addedToolNames` and `ai/utils/deferred-tools.ts`, and now
+   declares tools through transcript **system messages** (`SystemMessage.toolsAdded`, replayed by
+   `getCurrentTools()`). The local patches keep OhMyAgent's deferred surface working:
+   - `selectDeclarableTools()` — the declaration target fed to upstream `declareToolChanges()`.
+     Tools flagged `deferred` are withheld until a transcript system message declares them, while
+     `context.tools` (the executable set) stays complete so a direct call still resolves.
+   - `ExecutedToolCallBatch.addedToolNames` + `collectAddedToolNames()` + `unlockDeferredTools()` —
+     a tool result reporting `addedToolNames` is turned into a `{ role: "system", toolsAdded }`
+     message (emitted and pushed into the transcript), which unlocks the tool from that transcript
+     point onward and rides upstream's native mid-conversation tool-addition channel.
+   - `AgentToolResult.addedToolNames` is re-added in `agent/types.ts` (upstream deleted it) because
+     `src/tools/tool-search/bridge-tools.ts` still writes it.
+   - `agent.ts` keeps deferred tools out of the **initial** system message
+     (`tools.filter((tool) => !tool.deferred).map(toToolDeclaration)`).
 
-4. **`failToolCallsWithSystemHalt()`** (`:601-631`)
+4. **`failToolCallsWithSystemHalt()`**
    Once the budget is spent, executes nothing and returns an error result per call, telling the
    model to reply now. Required for the halt guard to be more than advice.
 
-5. **v4 tool adapter error surfacing** (`:925-929`)
+5. **v4 tool adapter error surfacing**
    `AgentToolAdapter` results carry `isError` outside the `AgentToolResult` contract. This reads
    it so patch #1's failure streak tracking sees adapter failures at all.
 
@@ -65,23 +74,37 @@ Five distinct patches in the hot loop:
 
 ### `src/pi-mono/agent/types.ts`
 
-- `fallbackModels` / `maxToolCycles` on `AgentLoopConfig` (`:151-157`); `0`/`undefined` = unlimited.
-- `deferred?: boolean` on the tool type (`:420`) — consumed by patch #3 above.
-- `stream_retry` agent event (`:453-463`) — see below.
+- `fallbackModels` / `maxToolCycles` on `AgentLoopConfig`; `0`/`undefined` = unlimited.
+- `deferred?: boolean` on the tool type — consumed by patch #3 above.
+- `addedToolNames?: string[]` on `AgentToolResult` — re-added after upstream v0.86.0 deleted it;
+  the app's `tool_search` bridge still reports discovered tools this way.
+- `stream_retry` agent event — see below.
 
 ### `src/pi-mono/ai/types.ts`
 
-- `SimpleStreamOptions.onStreamRetry` (`:322-328`) + `StreamRetryInfo` (`:331+`). The retrying
-  stream wrapper calls it just before sleeping the backoff delay. Provider adapters ignore the
-  field; hosts use it to feed inactivity watchdogs and render retry status.
+- `SimpleStreamOptions.onStreamRetry` + `StreamRetryInfo`. The retrying stream wrapper calls it
+  just before sleeping the backoff delay. Provider adapters ignore the field; hosts use it to feed
+  inactivity watchdogs and render retry status.
 
 ### `src/pi-mono/ai/compat.ts`
 
-- **Custom model registry** (`:65-108`): `registerModel()` plus patched `getModel()` /
-  `getModels()` / `getProviders()` that check `pendingCustomModels` before falling back to the
-  builtin catalog. This is how custom providers (e.g. MiMo) become resolvable without callers
-  migrating to `createProvider`. `getModels()` also de-duplicates builtin entries whose id
-  collides with a custom model (nvidia's multi-vendor catalog overlaps user-added ids).
+- **Custom model registry**: `registerModel()` plus patched `getModel()` / `getModels()` /
+  `getProviders()` that check `pendingCustomModels` before falling back to the builtin catalog.
+  This is how custom providers (e.g. MiMo/agnes) become resolvable without callers migrating to
+  `createProvider`. `getModels()` also de-duplicates builtin entries whose id collides with a
+  custom model (nvidia's multi-vendor catalog overlaps user-added ids). It also re-exports
+  `getBuiltinProviders` (the app imports it from `@earendil-works/pi-ai`, which maps to this file).
+
+### App-side adaptations that must survive upgrades
+
+Not inside `src/pi-mono/`, but they exist because of the vendored contract and are easy to
+regress when re-implementing:
+
+- `src/agent/convert-to-llm.ts` — **must pass `system` messages through**. Since v0.86.0 the system
+  prompt and tool declarations live in transcript system messages; filtering them out drops the
+  prompt and every tool from the request.
+- `src/tools/registry.ts` — `register()` normalizes a v4 `ToolDefinition` (`parametersSchema` →
+  `parameters`) because v0.86.0 serializes each tool's `parameters` when building tool declarations.
 
 ## Event: `stream_retry`
 
@@ -93,8 +116,8 @@ surface — if this event goes missing after an upgrade, long provider outages l
 ## Upgrade procedure
 
 1. Read the newest `docs/PI_MONO_UPGRADE_*.md` for the copy + `.ts` → `.js` import rewrite.
-2. `git diff` the 5 files above **before** replacing them; save the diff somewhere outside the
-   worktree.
+2. `git diff` the patched files above **before** replacing them; save the diff somewhere outside the
+   worktree (the tree is normally fully committed, so back up the files themselves).
 3. After the wholesale copy, re-apply each patch, then confirm:
    ```bash
    grep -rc "OhMyAgent" src/pi-mono --include="*.ts" | grep -v ':0$'

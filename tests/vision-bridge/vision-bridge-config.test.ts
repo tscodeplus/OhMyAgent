@@ -77,7 +77,7 @@ describe('resolveVisionModel', () => {
   it('resolves deepseek models (text-only) — validation catches lack of image support', () => {
     const config = loadVisionBridgeConfig({
       VISION_BRIDGE_ENABLED: 'true',
-      VISION_BRIDGE_MODEL_REF: 'deepseek/deepseek-v4-flash',
+      VISION_BRIDGE_MODEL_REF: 'deepseek/deepseek-v4-pro',
     });
     // deepseek models are text-only — should throw about missing image support
     expect(() => resolveVisionModel(config, [])).toThrow('does not support image input');
