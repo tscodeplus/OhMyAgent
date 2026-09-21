@@ -17,6 +17,7 @@ import { GOOGLE_VERTEX_MODELS } from "./providers/google-vertex.models.js";
 import { GROQ_MODELS } from "./providers/groq.models.js";
 import { HUGGINGFACE_MODELS } from "./providers/huggingface.models.js";
 import { KIMI_CODING_MODELS } from "./providers/kimi-coding.models.js";
+import { META_MODELS } from "./providers/meta.models.js";
 import { MINIMAX_MODELS } from "./providers/minimax.models.js";
 import { MINIMAX_CN_MODELS } from "./providers/minimax-cn.models.js";
 import { MISTRAL_MODELS } from "./providers/mistral.models.js";
@@ -59,6 +60,7 @@ export const MODELS: {
 	readonly "groq": typeof GROQ_MODELS;
 	readonly "huggingface": typeof HUGGINGFACE_MODELS;
 	readonly "kimi-coding": typeof KIMI_CODING_MODELS;
+	readonly "meta": typeof META_MODELS;
 	readonly "minimax": typeof MINIMAX_MODELS;
 	readonly "minimax-cn": typeof MINIMAX_CN_MODELS;
 	readonly "mistral": typeof MISTRAL_MODELS;
@@ -100,6 +102,7 @@ export const MODELS: {
 	"groq": GROQ_MODELS,
 	"huggingface": HUGGINGFACE_MODELS,
 	"kimi-coding": KIMI_CODING_MODELS,
+	"meta": META_MODELS,
 	"minimax": MINIMAX_MODELS,
 	"minimax-cn": MINIMAX_CN_MODELS,
 	"mistral": MISTRAL_MODELS,
