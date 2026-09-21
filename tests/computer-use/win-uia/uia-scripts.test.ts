@@ -248,13 +248,18 @@ describe('writeUiaServerScript', () => {
 
 describe('winToWslPath', () => {
   it('converts C:\\ paths to /mnt/c/ for WSL callers', () => {
-    expect(winToWslPath('C:\\Windows\\Temp\\ohmyagent\\win-uia-server.ps1')).toBe(
+    expect(winToWslPath('C:\\Windows\\Temp\\ohmyagent\\win-uia-server.ps1', true)).toBe(
       '/mnt/c/Windows/Temp/ohmyagent/win-uia-server.ps1',
     );
-    expect(winToWslPath(UIA_SERVER_SCRIPT_PATH)).toMatch(/^\/mnt\/c\//);
+    expect(winToWslPath(UIA_SERVER_SCRIPT_PATH, true)).toMatch(/^\/mnt\/c\//);
+  });
+
+  it('passes Windows paths through unchanged on native Windows', () => {
+    expect(winToWslPath(UIA_SERVER_SCRIPT_PATH, false)).toBe(UIA_SERVER_SCRIPT_PATH);
   });
 
   it('passes non-Windows paths through unchanged', () => {
-    expect(winToWslPath('/tmp/x.ps1')).toBe('/tmp/x.ps1');
+    expect(winToWslPath('/tmp/x.ps1', true)).toBe('/tmp/x.ps1');
+    expect(winToWslPath('/tmp/x.ps1', false)).toBe('/tmp/x.ps1');
   });
 });

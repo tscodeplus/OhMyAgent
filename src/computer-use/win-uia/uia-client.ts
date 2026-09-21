@@ -8,6 +8,7 @@
 // rejected (an in-flight action may have already executed server-side).
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import type { Logger } from 'pino';
 import {
   UIA_HANDSHAKE_MARKER,
@@ -35,10 +36,39 @@ const MAX_RESTART_DELAY_MS = 10_000;
 const INITIAL_RESTART_DELAY_MS = 500;
 
 /**
+ * Lines PowerShell prints when it starts interactively instead of running the
+ * `-File` script (e.g. the script is missing). They are never protocol output,
+ * so logging them as "non-JSON" warnings only produces startup noise.
+ */
+const POWERSHELL_BANNER_LINES = new Set([
+  'Windows PowerShell',
+  'Copyright (C) Microsoft Corporation. All rights reserved.',
+  'Try the new cross-platform PowerShell https://aka.ms/pscore6',
+]);
+
+/**
+ * True when the current process runs inside WSL, where a Windows path must be
+ * rewritten to its /mnt/<drive> equivalent to be reachable by the Linux process.
+ * Native Windows (win32) uses the path unchanged.
+ */
+export function isWslRuntime(): boolean {
+  if (process.platform !== 'linux') return false;
+  try {
+    return existsSync('/proc/sys/fs/binfmt_misc/WSLInterop');
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Translate a Windows path (C:\...) to the path a WSL process needs to touch
  * the same file (/mnt/c/...). On native Windows the path is returned as-is.
+ *
+ * `wsl` defaults to runtime detection; tests pass it explicitly to stay
+ * deterministic across host platforms.
  */
-export function winToWslPath(winPath: string): string {
+export function winToWslPath(winPath: string, wsl: boolean = isWslRuntime()): string {
+  if (!wsl) return winPath;
   const m = /^([A-Za-z]):\\(.*)$/.exec(winPath);
   if (!m) return winPath;
   return `/mnt/${m[1].toLowerCase()}/${m[2].replace(/\\/g, '/')}`;
@@ -307,6 +337,9 @@ export class UiaClient {
       this.idleExited = true;
       return;
     }
+    // PowerShell banner output (see POWERSHELL_BANNER_LINES) is not protocol;
+    // drop it silently rather than warn on every restart.
+    if (!this.ready && POWERSHELL_BANNER_LINES.has(line)) return;
     let msg: { id?: number; ok?: boolean; result?: unknown; error?: UiaErrorInfo };
     try {
       msg = JSON.parse(line);

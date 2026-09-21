@@ -29,6 +29,26 @@ vi.mock('../../src/computer-use/ssh-actions-darwin.js', async (importOriginal) =
   };
 });
 
+// The windows:local provider probes availability by spawning a real
+// powershell.exe UIA helper (Add-Type compilation takes several seconds), so a
+// real probe blows the 10s test timeout. Mock the client; this is a composer
+// unit test and must not launch a desktop helper.
+vi.mock('../../src/computer-use/win-uia/uia-client.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../src/computer-use/win-uia/uia-client.js')>();
+  return {
+    ...actual,
+    UiaClient: class {
+      request() {
+        return Promise.resolve({ ok: true, result: {} });
+      }
+      stop() {
+        /* no-op */
+      }
+    },
+  };
+});
+
 const noopLogger = {
   info: vi.fn(),
   warn: vi.fn(),
