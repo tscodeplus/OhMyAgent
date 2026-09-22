@@ -12,6 +12,7 @@
  */
 
 import type { LoadedSkill } from './skill-loader.js';
+import { STRICT_FORCED_CORE_TOOLS } from '../policy/tool-visibility.js';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -167,12 +168,14 @@ export class SkillComplianceTracker {
         ) {
           continue;
         }
-        // Check if the rule mentions a tool that must be used
-        const toolMention = rule.match(
-          /使用\s*(?:`)?(\w+)(?:`)?|use\s*(?:`)?(\w+)(?:`)?|call\s*(?:`)?(\w+)(?:`)?/i,
-        );
+        // Check if the rule mentions a tool that must be used. A tool mention
+        // must pair a use/call verb with a tool-like identifier (snake_case).
+        // The previous bare `use|call` match fired on ordinary prose — e.g.
+        // "what the user wanted" matched "use"+"r" and "use the injected
+        // variables" matched "the".
+        const toolMention = rule.match(/(?:使用|use|call)\s+`?([a-z][a-z0-9]*_[a-z0-9_]+)`?/i);
         if (toolMention) {
-          const requiredTool = (toolMention[1] || toolMention[2] || toolMention[3])?.toLowerCase();
+          const requiredTool = toolMention[1]?.toLowerCase();
           if (requiredTool) {
             const wasCalled = toolCalls.some((tc) => tc.name.toLowerCase() === requiredTool);
             if (!wasCalled) {
@@ -187,16 +190,30 @@ export class SkillComplianceTracker {
       }
     }
 
-    // Rule 2: Check if allowed tools constraint was violated
-    if (skill.tools.allowedTools.length > 0) {
-      for (const tc of toolCalls) {
-        if (!skill.tools.allowedTools.includes(tc.name)) {
-          violations.push({
-            rule: 'unauthorized-tool',
-            message: `Tool "${tc.name}" was called but is not in the skill's allowed-tools list`,
-            evidence: `Allowed: ${skill.tools.allowedTools.join(', ')}`,
-          });
-        }
+    // Rule 2: Check the skill's tool constraints. `allowed-tools` is an
+    // exclusive whitelist ONLY in strict surface mode; by default it is
+    // additive (a grant, never a narrowing) — see tool-visibility.ts. Forced
+    // core bridges (tool_search/tool_call/tool_describe/...) are always
+    // callable and must never be reported as violations.
+    const strictSurface = skill.tools.surface === 'strict';
+    const deniedTools = new Set(skill.tools.deniedTools ?? []);
+    const allowedTools = new Set(skill.tools.allowedTools);
+    for (const tc of toolCalls) {
+      if (STRICT_FORCED_CORE_TOOLS.has(tc.name)) continue;
+      if (deniedTools.has(tc.name)) {
+        violations.push({
+          rule: 'denied-tool',
+          message: `Tool "${tc.name}" was called but is denied by the skill`,
+          evidence: `Denied: ${[...deniedTools].join(', ')}`,
+        });
+        continue;
+      }
+      if (strictSurface && allowedTools.size > 0 && !allowedTools.has(tc.name)) {
+        violations.push({
+          rule: 'unauthorized-tool',
+          message: `Tool "${tc.name}" was called but is not in the skill's strict allowed-tools list`,
+          evidence: `Allowed: ${[...allowedTools].join(', ')}`,
+        });
       }
     }
 
