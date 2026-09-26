@@ -126,7 +126,9 @@ export async function createFilesHarness(options?: {
     // Mirrors createFeishuServer(): find-my-way's default maxParamLength (100)
     // is shorter than a /dl token, so without this the download route 404s here
     // while working in production.
-    maxParamLength: 500,
+    routerOptions: {
+      maxParamLength: 500,
+    },
     bodyLimit: 5 * 1024 * 1024,
   });
   // Registered FIRST: Fastify applies onRequest hooks to routes registered

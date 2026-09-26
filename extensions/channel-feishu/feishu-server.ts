@@ -139,7 +139,11 @@ export function createFeishuServer(options: FeishuServerOptions): FastifyInstanc
     // Feishu events are KB-sized; 5 MB is a generous ceiling (was 50 MB — an
     // unnecessary DoS amplification surface on a public webhook route).
     bodyLimit: 5 * 1024 * 1024,
-    maxParamLength: 500, // accommodate download tokens (~210 chars for Termux paths)
+    // Router options must live under `routerOptions` — passing `maxParamLength`
+    // top-level triggers Fastify's FSTDEP022 deprecation warning (removed in v6).
+    routerOptions: {
+      maxParamLength: 500, // accommodate download tokens (~210 chars for Termux paths)
+    },
     // Trust X-Forwarded-For when behind a reverse proxy so per-IP rate limiting
     // keys on the real client instead of collapsing all requests into one bucket.
     trustProxy: true,
