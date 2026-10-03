@@ -30,7 +30,6 @@ export type {
 	OAuthSelectOption,
 	OAuthSelectPrompt,
 } from "./compat/extension-oauth-types.js";
-export * from "./images-models.js";
 export * from "./models.js";
 export * from "./models-store.js";
 export * from "./providers/faux.js";

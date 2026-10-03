@@ -27,7 +27,8 @@ As of the last audit, exactly **5 files** carry load-bearing edits.
 
 ### `src/pi-mono/agent/agent-loop.ts` — highest risk
 
-Five distinct patches in the hot loop:
+Four distinct patches in the hot loop (a fifth — v4 adapter `isError` surfacing — was adopted
+upstream in v1.0.0 and is no longer local):
 
 1. **Tool-cycle abort guard** (`toolCycles` / `lastFailedTool` / `failureStreak` plus the
    `failureDiagnosticInjected` / `haltDiagnosticInjected` / `toolExecutionHalted` flags).
@@ -62,9 +63,10 @@ Five distinct patches in the hot loop:
    Once the budget is spent, executes nothing and returns an error result per call, telling the
    model to reply now. Required for the halt guard to be more than advice.
 
-5. **v4 tool adapter error surfacing**
-   `AgentToolAdapter` results carry `isError` outside the `AgentToolResult` contract. This reads
-   it so patch #1's failure streak tracking sees adapter failures at all.
+> **Retired in v1.0.0**: the v4 tool-adapter `isError` surfacing patch. Upstream now returns
+> `{ result, isError: result.isError === true }` from `executePreparedToolCall` itself, so patch
+> #1's failure-streak tracking sees adapter failures without a local edit. `AgentToolResult.isError`
+> is also an upstream field again.
 
 ### `src/pi-mono/agent/agent.ts`
 
@@ -122,12 +124,28 @@ surface — if this event goes missing after an upgrade, long provider outages l
    ```bash
    grep -rc "OhMyAgent" src/pi-mono --include="*.ts" | grep -v ':0$'
    ```
-   — the file list must match the inventory above.
+   — the file list must match the inventory above (v1.0.0: 5 files / 27 markers).
 4. Build, then run the loop-behaviour tests specifically:
    ```bash
    pnpm build && npx vitest run tests/agent
    ```
 5. Record anything that had to be re-applied in the new `docs/PI_MONO_UPGRADE_*.md`.
+
+### Finding the real patch set after an upstream sync
+
+A plain `diff -rq` against the upstream tarball flags **every** file, because the vendored tree
+rewrites `.ts` import specifiers to `.js`. Normalize both sides first (strip the extension from
+`from "…"`, `import "…"`, `import("…")` and `("…")` specifiers) and only then diff — that
+leaves the handful of files with real local edits.
+
+## Version-specific notes
+
+- **v1.0.0** — `agent/node.ts` was deleted (upstream dropped the `./node` subpath and the whole
+  `harness/` + `search/` trees). Nothing in the repo imports them; do not restore the file.
+  `openai` was bumped to `7.19.0` to match upstream `pi-ai@1.0.0`. Generated `providers/data/*.json`
+  keys now carry a `chat:` / `image:` / `classifier:` prefix plus a `type` field; `model-catalog.ts`
+  strips them, so `getModel` / `getModels` keep working — but anything that parses those JSONs
+  directly must strip the prefix itself.
 
 ## Do not
 

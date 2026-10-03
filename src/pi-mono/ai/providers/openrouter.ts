@@ -1,12 +1,14 @@
 import { anthropicMessagesApi } from "../api/anthropic-messages.lazy.js";
 import { openAICompletionsApi } from "../api/openai-completions.lazy.js";
+import { openrouterImagesApi } from "../api/openrouter-images.lazy.js";
+import { typesafeSystemOneApi } from "../api/typesafe-system-one.lazy.js";
 import { envApiKeyAuth, lazyOAuth } from "../auth/helpers.js";
 import { loadOpenRouterOAuth } from "../auth/oauth/load.js";
 import { createProvider, type Provider } from "../models.js";
-import { OPENROUTER_MODELS } from "./openrouter.models.js";
+import { OPENROUTER_CLASSIFIER_MODELS, OPENROUTER_IMAGE_MODELS, OPENROUTER_MODELS } from "./openrouter.models.js";
 
 export function openrouterProvider(): Provider<"anthropic-messages" | "openai-completions"> {
-	return createProvider({
+	return createProvider<"anthropic-messages" | "openai-completions">({
 		id: "openrouter",
 		name: "OpenRouter",
 		baseUrl: "https://openrouter.ai/api/v1",
@@ -18,10 +20,17 @@ export function openrouterProvider(): Provider<"anthropic-messages" | "openai-co
 				load: loadOpenRouterOAuth,
 			}),
 		},
-		models: Object.values(OPENROUTER_MODELS),
+		models: [
+			...Object.values(OPENROUTER_MODELS),
+			...Object.values(OPENROUTER_IMAGE_MODELS),
+			...Object.values(OPENROUTER_CLASSIFIER_MODELS),
+		],
 		api: {
 			"anthropic-messages": anthropicMessagesApi(),
 			"openai-completions": openAICompletionsApi(),
 		},
+		images: { "openrouter-images": openrouterImagesApi() },
+		// OpenRouter serves TypeSafe's System One protocol at /api/v1/systemone.
+		classifiers: { "typesafe-system-one": typesafeSystemOneApi() },
 	});
 }
