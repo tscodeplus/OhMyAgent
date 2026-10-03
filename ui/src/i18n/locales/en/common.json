@@ -196,6 +196,7 @@
       "channels": "Channels",
       "websearch": "Web Search",
       "computer": "Computer Use",
+      "mcp": "MCP Servers",
       "vision": "Vision Bridge",
       "multimodal": "Multimodal",
       "appearance": "Appearance",
@@ -611,6 +612,143 @@
       "jumpHost": "Jump Host",
       "node": "Node Config",
       "url": "URL"
+    },
+    "mcp": {
+      "title": "MCP Servers",
+      "subtitle": "Connect external Model Context Protocol servers and expose their tools to the agent",
+      "statusBar": "Installed {{installed}} · Enabled {{enabled}} · Connected {{connected}} · Needs login {{authRequired}}",
+      "searchPlaceholder": "Search servers or tools…",
+      "addServer": "Add server",
+      "installFromPreset": "Install from preset",
+      "addManual": "Add manually",
+      "enable": "Enable",
+      "disable": "Disable",
+      "toolCount": "{{count}} tool(s)",
+      "toolsEmpty": "This server has not reported any tools yet",
+      "empty": {
+        "title": "No MCP servers yet",
+        "description": "Install one from a preset, or add one manually with a command or URL."
+      },
+      "state": {
+        "connected": "Connected",
+        "connecting": "Connecting…",
+        "disconnected": "Not connected",
+        "authRequired": "Login required",
+        "error": "Connection failed",
+        "disabled": "Disabled"
+      },
+      "transport": {
+        "stdio": "stdio",
+        "http": "HTTP"
+      },
+      "action": {
+        "edit": "Edit",
+        "reconnect": "Reconnect",
+        "login": "Log in",
+        "logout": "Log out",
+        "logs": "View logs",
+        "uninstall": "Uninstall",
+        "details": "Details"
+      },
+      "confirm": {
+        "uninstallTitle": "Uninstall MCP server",
+        "uninstallBody": "Uninstall {{name}} ({{transport}}, {{count}} tools)? The connection is closed, its tools are unregistered and the entry is removed from config.yaml.",
+        "purgeCredentials": "Also delete the stored OAuth credentials",
+        "impactSkills": "These skills reference mcp__{{server}}__*:",
+        "impactAllowList": "mcp.allow_servers references {{server}}",
+        "impactDenyList": "mcp.deny_servers references {{server}}",
+        "impactNone": "No skill references this server's tools, and it is not listed in allow_servers / deny_servers.",
+        "scanning": "Scanning for references…",
+        "disableTitle": "Disable MCP server",
+        "disableBody": "Disabling {{name}} closes the connection and unregisters its tools — the model will no longer see them."
+      },
+      "form": {
+        "name": "Name",
+        "command": "Command",
+        "args": "Arguments",
+        "env": "Environment variables",
+        "cwd": "Working directory",
+        "url": "URL",
+        "headers": "Headers",
+        "oauth": "OAuth authorization",
+        "oauthHint": "Only needed when the server uses OAuth 2.1; leave empty to connect without authentication.",
+        "timeout": "Timeout (seconds)",
+        "exposure": "Exposure",
+        "description": "Description",
+        "transport": "Transport",
+        "testConnection": "Test Connection",
+        "testSuccess": "Connection succeeded",
+        "testFailed": "Connection failed",
+        "testHint": "“Test Connection” starts the server right away (the first npx run downloads dependencies) and never writes to the config.",
+        "saveAnyway": "Save anyway",
+        "install": "Install",
+        "update": "Save changes",
+        "addRow": "Add",
+        "removeRow": "Remove row",
+        "secretMaskedHint": "Stored secrets are shown as ••••••; leave them untouched to keep the existing value.",
+        "exposureHint": {
+          "direct": "Tools are injected into the prompt and always visible",
+          "deferred": "Default: discovered on demand through tool_search (recommended)",
+          "hidden": "Not registered at all — the model never sees these tools"
+        },
+        "errors": {
+          "nameRequired": "Name is required",
+          "nameInvalid": "Only letters, digits, hyphens and underscores are allowed",
+          "nameTaken": "This name is already taken (- and _ are treated as equal)",
+          "commandRequired": "A command is required for stdio",
+          "urlRequired": "A URL is required for HTTP",
+          "sseUnsupported": "The legacy HTTP+SSE transport is not supported — use a streamable HTTP endpoint",
+          "timeoutInvalid": "Timeout must be a positive integer (seconds)",
+          "duplicateKey": "Duplicate key: {{key}}",
+          "envRequired": "Missing required environment variables: {{vars}}"
+        }
+      },
+      "preset": {
+        "installed": "Installed",
+        "requiredEnv": "Requires env vars: {{vars}}",
+        "docs": "Docs"
+      },
+      "detail": {
+        "title": "Server details",
+        "connection": "Connection",
+        "tools": "Tools",
+        "auth": "Authentication",
+        "logs": "Logs",
+        "rawConfig": "Raw config",
+        "rawConfigHint": "Normalised view from /api/config: secrets are masked and ${ENV} placeholders are already expanded.",
+        "state": "State",
+        "endpoint": "Endpoint",
+        "connectedAt": "Last connected",
+        "errorCount": "Errors",
+        "credentials": "Stored credentials",
+        "yes": "Yes",
+        "no": "No"
+      },
+      "logs": {
+        "empty": "No log output yet",
+        "autoRefresh": "Auto refresh"
+      },
+      "annotations": {
+        "title": "Annotations",
+        "readOnly": "Read-only",
+        "destructive": "Destructive",
+        "idempotent": "Idempotent",
+        "openWorld": "Open world"
+      },
+      "notice": {
+        "toolsetUpdated": "Tool set updated — it applies to the next turn",
+        "reconnected": "{{name}} reconnected",
+        "loggedIn": "Logged in to {{name}}",
+        "loggedOut": "Logged out of {{name}}",
+        "uninstalled": "Uninstalled {{name}} — {{count}} tool(s) unregistered"
+      },
+      "errors": {
+        "loadFailed": "Failed to load MCP status"
+      },
+      "oauth": {
+        "headlessHint": "If the browser did not open automatically, copy the authorization link below, open it manually, then paste the callback URL back.",
+        "pasteCallbackUrl": "Paste callback URL"
+      }
     },
     "vision": {
       "title": "Vision Bridge",

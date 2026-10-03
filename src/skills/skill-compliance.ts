@@ -13,6 +13,7 @@
 
 import type { LoadedSkill } from './skill-loader.js';
 import { STRICT_FORCED_CORE_TOOLS } from '../policy/tool-visibility.js';
+import { matchesAnyToolPattern } from '../policy/tool-pattern.js';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -196,23 +197,29 @@ export class SkillComplianceTracker {
     // core bridges (tool_search/tool_call/tool_describe/...) are always
     // callable and must never be reported as violations.
     const strictSurface = skill.tools.surface === 'strict';
-    const deniedTools = new Set(skill.tools.deniedTools ?? []);
-    const allowedTools = new Set(skill.tools.allowedTools);
+    const deniedTools = skill.tools.deniedTools ?? [];
+    const allowedTools = skill.tools.allowedTools;
     for (const tc of toolCalls) {
       if (STRICT_FORCED_CORE_TOOLS.has(tc.name)) continue;
-      if (deniedTools.has(tc.name)) {
+      // Both lists are patterns (trailing `*` = prefix, §12.2), so a call is
+      // judged with the shared matcher the runtime visibility check uses.
+      if (matchesAnyToolPattern(deniedTools, tc.name)) {
         violations.push({
           rule: 'denied-tool',
           message: `Tool "${tc.name}" was called but is denied by the skill`,
-          evidence: `Denied: ${[...deniedTools].join(', ')}`,
+          evidence: `Denied: ${deniedTools.join(', ')}`,
         });
         continue;
       }
-      if (strictSurface && allowedTools.size > 0 && !allowedTools.has(tc.name)) {
+      if (
+        strictSurface &&
+        allowedTools.length > 0 &&
+        !matchesAnyToolPattern(allowedTools, tc.name)
+      ) {
         violations.push({
           rule: 'unauthorized-tool',
           message: `Tool "${tc.name}" was called but is not in the skill's strict allowed-tools list`,
-          evidence: `Allowed: ${[...allowedTools].join(', ')}`,
+          evidence: `Allowed: ${allowedTools.join(', ')}`,
         });
       }
     }

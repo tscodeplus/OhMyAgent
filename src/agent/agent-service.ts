@@ -134,6 +134,19 @@ const DEFAULT_TURN_TIMEOUT_MS = 300_000;
 const TURN_SETTLE_GRACE_MS = 10_000;
 
 /**
+ * Hard cap on the first-turn wait for MCP servers (design §7.0 / §19-5).
+ *
+ * The tool array is frozen when the Agent is created, so a session that starts
+ * before the MCP servers have connected would never see their tools. Waiting is
+ * bounded because a slow (or hung) `npx` must not hold the first answer hostage:
+ * servers that connect later reach the model through {@link AgentService.invalidateRuntimes}.
+ */
+const MCP_READY_TIMEOUT_MS = 5_000;
+
+/** Debounce for rebuilding runtimes after the MCP tool set changed (§13.9). */
+const MCP_RUNTIME_INVALIDATE_DEBOUNCE_MS = 500;
+
+/**
  * Budget for the cached per-session runtimes.
  *
  * `runtimes` is keyed by session id and entries were historically only removed
@@ -182,6 +195,15 @@ export class AgentService {
 
   /** Sessions whose auto-title generation is currently in flight. */
   private pendingTitles = new Set<string>();
+
+  /**
+   * Memoised wait for the MCP servers' initial connect pass. `manager.ready()`
+   * settles once per process, so only the first Agent build can ever block.
+   */
+  private mcpReadyWait: Promise<void> | undefined;
+
+  /** Pending debounced {@link invalidateRuntimes} timer, if any. */
+  private runtimeInvalidationTimer: ReturnType<typeof setTimeout> | undefined;
 
   private runtimes = new Map<
     string,
@@ -301,6 +323,10 @@ export class AgentService {
     }
 
     const agentIdFromSession = this.sessionAgentMap.get(sessionId);
+
+    // First Agent build: let the MCP servers settle before the tool array is
+    // frozen (bounded — see MCP_READY_TIMEOUT_MS).
+    await this.waitForMcpReady();
 
     if (!runtime) {
       if (agentIdFromSession) {
@@ -1145,6 +1171,74 @@ export class AgentService {
     this.disposeRuntime(sessionId, runtime);
     this.clearedSessions.add(sessionId);
     return true;
+  }
+
+  /**
+   * Drop cached runtimes so the next turn rebuilds each Agent with the current
+   * tool set (design §7.0 / §13.9).
+   *
+   * Called when the MCP tool set changes (`onToolsChanged`: a server connected,
+   * disconnected or sent `tools/list_changed`). Debounced, because one server
+   * connecting registers N tools and rebuilding the runtime N times is waste.
+   * A runtime that is mid-turn is left alone — invalidation lands on the turn
+   * after it — and unlike {@link destroyRuntime} the session is NOT marked
+   * cleared, so the next turn reloads its history from the database.
+   */
+  invalidateRuntimes(): void {
+    if (this.runtimeInvalidationTimer !== undefined) {
+      clearTimeout(this.runtimeInvalidationTimer);
+    }
+
+    this.runtimeInvalidationTimer = setTimeout(() => {
+      this.runtimeInvalidationTimer = undefined;
+
+      let invalidated = 0;
+      for (const [sessionId, runtime] of [...this.runtimes]) {
+        if (runtime.turnActive || (runtime.agent.state?.isStreaming ?? false)) continue;
+        this.disposeRuntime(sessionId, runtime);
+        invalidated += 1;
+      }
+
+      if (invalidated > 0) {
+        this.persistence?.logger?.info(
+          { invalidated },
+          'MCP tool set changed — cached agent runtimes invalidated',
+        );
+      }
+    }, MCP_RUNTIME_INVALIDATE_DEBOUNCE_MS);
+
+    // A deferred tool-set refresh must never keep the process alive.
+    this.runtimeInvalidationTimer.unref?.();
+  }
+
+  /**
+   * Wait for the MCP manager's initial connect pass, capped at
+   * {@link MCP_READY_TIMEOUT_MS}. No manager (MCP off) resolves immediately.
+   */
+  private waitForMcpReady(): Promise<void> {
+    this.mcpReadyWait ??= this.runMcpReadyWait();
+    return this.mcpReadyWait;
+  }
+
+  private async runMcpReadyWait(): Promise<void> {
+    const manager = this.getServices?.()?.mcpManager;
+    if (!manager) return;
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        manager.ready().catch((err: unknown) => {
+          // `ready()` never rejects by contract; a regression here must not
+          // fail the user's turn.
+          this.getServices?.()?.logger?.warn({ err }, 'MCP ready() rejected');
+        }),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, MCP_READY_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
   }
 
   /** Release the bridge/audit subscription and drop the runtime entry. */

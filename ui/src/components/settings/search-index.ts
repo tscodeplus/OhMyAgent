@@ -127,6 +127,18 @@ export const SEARCH_INDEX: SearchEntry[] = [
   // Computer Use
   { tabId: 'computer', labelKey: 'settings.computer.title' },
 
+  // MCP
+  { tabId: 'mcp', labelKey: 'settings.groups.mcp' },
+  { tabId: 'mcp', labelKey: 'settings.mcp.title' },
+  { tabId: 'mcp', labelKey: 'settings.mcp.addServer' },
+  { tabId: 'mcp', labelKey: 'settings.mcp.installFromPreset' },
+  { tabId: 'mcp', labelKey: 'settings.mcp.form.command' },
+  { tabId: 'mcp', labelKey: 'settings.mcp.form.env' },
+  { tabId: 'mcp', labelKey: 'settings.mcp.form.url' },
+  { tabId: 'mcp', labelKey: 'settings.mcp.form.headers' },
+  { tabId: 'mcp', labelKey: 'settings.mcp.form.exposure' },
+  { tabId: 'mcp', labelKey: 'settings.mcp.form.oauth' },
+
   // Gateway
   { tabId: 'gateway', labelKey: 'settings.gateway.title' },
 

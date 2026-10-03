@@ -6,6 +6,7 @@ import { migrateV4 } from './migration-v4.js';
 import { migrateV5 } from './migration-v5.js';
 import { migrateV6 } from './migration-v6.js';
 import { migrateV7 } from './migration-v7.js';
+import { migrateV8 } from './migration-v8.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -124,6 +125,10 @@ export function openDatabase(dbPath: string): Database.Database {
   // (legacy tables carry a datetime('now') DEFAULT that survives CREATE TABLE
   // IF NOT EXISTS and breaks time-window queries mixing formats).
   migrateV7(db);
+
+  // V8 migration: create mcp_oauth_credentials for MCP OAuth state (idempotent;
+  // nothing writes to it unless the user configures a server with `oauth:`).
+  migrateV8(db);
 
   // Backfill FTS index for memories that are missing from it (first-time
   // migration for existing databases, plus partial corruption self-heal:

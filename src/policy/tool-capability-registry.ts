@@ -10,6 +10,59 @@
  */
 import type { ToolCapabilityDescriptor } from '../tools/platform/tool-capabilities.js';
 
+/**
+ * Capabilities registered at runtime (MCP tools and any other dynamic tool
+ * source), keyed by exact tool name.
+ *
+ * Precedence inside {@link getCapabilityForTool} — first hit wins:
+ *
+ *   1. argument-dependent built-in rules (`send_message` external route,
+ *      `cronjob remove`) — evaluated before any table lookup
+ *   2. the static built-in table below
+ *   3. this registry
+ *   4. the fail-closed default (mutating / read_write)
+ *
+ * The static table deliberately keeps winning, so a runtime registration can
+ * never silently weaken the approval requirements of a built-in tool —
+ * registering a built-in name is a documented no-op.
+ */
+const registeredCapabilities = new Map<string, ToolCapabilityDescriptor>();
+
+/**
+ * Register (or replace) the capability of a dynamically provided tool — e.g. an
+ * MCP tool whose server annotations were mapped to a descriptor.
+ *
+ * Idempotent: registering the same name twice keeps the last descriptor.
+ * Precedence against the built-in table is documented in this module's header.
+ */
+export function registerToolCapability(
+  toolName: string,
+  capability: ToolCapabilityDescriptor,
+): void {
+  if (!toolName) throw new Error('registerToolCapability: toolName must be non-empty');
+  registeredCapabilities.set(toolName, { ...capability });
+}
+
+/** Drop a runtime registration. Returns true when one existed (idempotent). */
+export function unregisterToolCapability(toolName: string): boolean {
+  return registeredCapabilities.delete(toolName);
+}
+
+/**
+ * Read the runtime registration for a tool, ignoring built-ins.
+ * Returns undefined when the tool was never registered dynamically.
+ */
+export function getRegisteredToolCapability(
+  toolName: string,
+): ToolCapabilityDescriptor | undefined {
+  return registeredCapabilities.get(toolName);
+}
+
+/** Every runtime registration, for diagnostics and tests. */
+export function listRegisteredToolCapabilities(): ReadonlyMap<string, ToolCapabilityDescriptor> {
+  return registeredCapabilities;
+}
+
 export function getCapabilityForTool(toolName: string, args?: unknown): ToolCapabilityDescriptor {
   if (
     toolName === 'send_message' &&
@@ -489,7 +542,8 @@ export function getCapabilityForTool(toolName: string, args?: unknown): ToolCapa
   // Unknown tools default to mutating/approval-required (fail-closed):
   // new tools must be explicitly registered here before they run without approval.
   return (
-    map[toolName] ?? {
+    map[toolName] ??
+    registeredCapabilities.get(toolName) ?? {
       category: 'session',
       readOnly: false,
       writesFiles: true,

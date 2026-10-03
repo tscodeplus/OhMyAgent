@@ -166,6 +166,18 @@ export function registerV4ToolDefinitions(input: {
   } = input;
   const { toolPlatformRegistry, memoryFilter } = tools;
 
+  // MCP visibility must reflect the CURRENT config: the `config` argument is a
+  // startup snapshot, while spawn/plan_and_spawn resolve child tools lazily at
+  // call time. Mirrors agent-factory: section present and not explicitly disabled.
+  let currentAppConfig = config;
+  const currentMcpVisibility = () => {
+    const mcp = currentAppConfig.mcp;
+    return mcp && mcp.enabled !== false ? mcp : undefined;
+  };
+  configEventBus.onReload((c) => {
+    currentAppConfig = c;
+  });
+
   toolPlatformRegistry.registerDefinition(
     createShellToolDefinition({
       timeoutMs: config.tools.defaultTimeoutMs,
@@ -256,7 +268,9 @@ export function registerV4ToolDefinitions(input: {
         agentFactory.create({
           agentId: config.id,
           systemPrompt: config.system_prompt,
-          tools: agentManager.resolveTools(config).filter((t: any) => t.name !== 'spawn_agent'),
+          tools: agentManager
+            .resolveTools(config, undefined, currentMcpVisibility())
+            .filter((t: any) => t.name !== 'spawn_agent'),
           message: task,
           sessionId: childOptions?.sessionId,
           toolsProfileOverride: config.tools.profile,
@@ -282,7 +296,9 @@ export function registerV4ToolDefinitions(input: {
         agentFactory.create({
           agentId: config.id,
           systemPrompt: config.system_prompt,
-          tools: agentManager.resolveTools(config).filter((t: any) => t.name !== 'spawn_agent'),
+          tools: agentManager
+            .resolveTools(config, undefined, currentMcpVisibility())
+            .filter((t: any) => t.name !== 'spawn_agent'),
           message: task,
           sessionId: childOptions?.sessionId,
           toolsProfileOverride: config.tools.profile,

@@ -30,6 +30,7 @@ import WebSearchSettings from './tabs/WebSearchSettings';
 import MemorySettings from './tabs/MemorySettings';
 import MultimodalSettings from './tabs/MultimodalSettings';
 import ComputerUseSettings from './tabs/ComputerUseSettings';
+import McpSettings from './tabs/McpSettings';
 import DesktopSettings from './tabs/DesktopSettings';
 import GatewaySettings from './tabs/GatewaySettings';
 import HarnessSettings from './tabs/HarnessSettings';
@@ -115,6 +116,7 @@ export const SETTINGS_GROUPS: readonly SettingsTabDef[] = [
     icon: ImageIcon,
   },
   { id: 'computer', labelKey: 'settings.groups.computer', group: 'integration', icon: Monitor },
+  { id: 'mcp', labelKey: 'settings.groups.mcp', group: 'integration', icon: Plug },
   // ── ⚙️ 系统 ──
   { id: 'tools', labelKey: 'settings.groups.toolsPolicy', group: 'system', icon: Wrench },
   { id: 'memory', labelKey: 'settings.groups.memory', group: 'system', icon: BrainCircuit },
@@ -142,6 +144,7 @@ const COMPONENT_MAP: Record<string, React.ComponentType<any>> = {
   memory: MemorySettings,
   multimodal: MultimodalSettings,
   computer: ComputerUseSettings,
+  mcp: McpSettings,
   gateway: GatewaySettings,
   about: DesktopSettings,
 };
@@ -522,6 +525,12 @@ export default function SettingsModal({ onClose, initialTab, initialSubTab }: Se
             {mountedTabs.has('computer') && (
               <div style={{ display: activeGroup === 'computer' ? undefined : 'none' }}>
                 <ComputerUseSettings {...tabProps} />
+              </div>
+            )}
+            {/* MCP is immediate-action (no dirty state, §13.8) — it registers no handle. */}
+            {mountedTabs.has('mcp') && (
+              <div style={{ display: activeGroup === 'mcp' ? undefined : 'none' }}>
+                <McpSettings />
               </div>
             )}
             {mountedTabs.has('gateway') && (

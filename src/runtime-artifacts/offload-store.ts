@@ -37,6 +37,8 @@ export interface OffloadRecord {
  * ├── offload.jsonl          # one OffloadRecord JSON per line
  * ├── 001-{toolName}.md       # full tool result wrapped in a Markdown fenced block
  * ├── 002-{toolName}.md
+ * ├── spill/                  # oversized outputs, outside the ref ledger (§6.6)
+ * │   └── {timestamp}-{toolName}.md
  * └── ...
  * ```
  *
@@ -124,6 +126,46 @@ export class OffloadStore {
     fs.appendFileSync(this.jsonlPath(sessionKey), JSON.stringify(record) + '\n', 'utf-8');
 
     return record;
+  }
+
+  /**
+   * Spill an oversized tool output to `<sessionDir>/spill/<ts>-<tool>.md`.
+   *
+   * Unlike {@link writeToolResult} this is a side ledger: it never appends to
+   * `offload.jsonl`, never allocates a `node-NNN` id and never counts against
+   * the ref budget. That index is consumed by `MermaidCanvas.fromRecords()` and
+   * by `countTokens()` against `memory.offloading.maxRefsInContext`, so a spill
+   * that never left the context would corrupt both — and would collide with the
+   * context-offload sequence numbers.
+   *
+   * The file is written verbatim (no Markdown fence) so callers can hand the
+   * model a truncated head/tail plus the returned `absPath`. The spill directory
+   * is created on demand and reclaimed together with the session directory by
+   * `offload-hygiene-job` (whole-directory mtime sweep).
+   *
+   * @returns `refPath` relative to the session directory, and its absolute path.
+   */
+  writeSpill(
+    sessionKey: string,
+    toolName: string,
+    text: string,
+  ): { refPath: string; absPath: string } {
+    const sessionDir = this.sessionDir(sessionKey);
+    const spillDir = safeJoin(sessionDir, 'spill');
+    fs.mkdirSync(spillDir, { recursive: true });
+
+    const stamp = Date.now();
+    const safeTool = safePathSegment(toolName);
+    let fileName = `${stamp}-${safeTool}.md`;
+    // Two spills in the same millisecond must not overwrite each other.
+    for (let n = 2; fs.existsSync(safeJoin(spillDir, fileName)); n++) {
+      fileName = `${stamp}-${safeTool}-${n}.md`;
+    }
+
+    const absPath = safeJoin(spillDir, fileName);
+    fs.writeFileSync(absPath, text, 'utf-8');
+
+    return { refPath: path.posix.join('spill', fileName), absPath };
   }
 
   /**

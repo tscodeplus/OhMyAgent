@@ -196,6 +196,7 @@
       "channels": "渠道管理",
       "websearch": "网络搜索",
       "computer": "电脑使用",
+      "mcp": "MCP 服务器",
       "vision": "视觉桥接",
       "multimodal": "多模态",
       "appearance": "外观设置",
@@ -611,6 +612,143 @@
       "jumpHost": "Jump Host",
       "node": "Node 配置",
       "url": "URL"
+    },
+    "mcp": {
+      "title": "MCP 服务器",
+      "subtitle": "接入外部 MCP（Model Context Protocol）服务器，把它的工具交给智能体使用",
+      "statusBar": "已安装 {{installed}} · 已启用 {{enabled}} · 已连接 {{connected}} · 需要登录 {{authRequired}}",
+      "searchPlaceholder": "搜索服务器或工具…",
+      "addServer": "添加服务器",
+      "installFromPreset": "从预设安装",
+      "addManual": "手动添加",
+      "enable": "启用",
+      "disable": "停用",
+      "toolCount": "{{count}} 个工具",
+      "toolsEmpty": "该服务器尚未上报任何工具",
+      "empty": {
+        "title": "还没有 MCP 服务器",
+        "description": "从预设一键安装，或手动填写命令 / URL 添加一个 MCP 服务器。"
+      },
+      "state": {
+        "connected": "已连接",
+        "connecting": "连接中…",
+        "disconnected": "未连接",
+        "authRequired": "需要登录",
+        "error": "连接失败",
+        "disabled": "已停用"
+      },
+      "transport": {
+        "stdio": "stdio",
+        "http": "HTTP"
+      },
+      "action": {
+        "edit": "编辑",
+        "reconnect": "重新连接",
+        "login": "登录",
+        "logout": "退出登录",
+        "logs": "查看日志",
+        "uninstall": "卸载",
+        "details": "详情"
+      },
+      "confirm": {
+        "uninstallTitle": "卸载 MCP 服务器",
+        "uninstallBody": "确定卸载 {{name}}（{{transport}}，{{count}} 个工具）吗？将关闭连接、注销工具，并从 config.yaml 中删除该条目。",
+        "purgeCredentials": "同时删除已保存的 OAuth 凭证",
+        "impactSkills": "以下 skill 引用了 mcp__{{server}}__*：",
+        "impactAllowList": "mcp.allow_servers 引用了 {{server}}",
+        "impactDenyList": "mcp.deny_servers 引用了 {{server}}",
+        "impactNone": "未发现引用该服务器工具的 skill，也未出现在 allow_servers / deny_servers 中。",
+        "scanning": "正在扫描影响面…",
+        "disableTitle": "停用 MCP 服务器",
+        "disableBody": "停用 {{name}} 会关闭连接并注销其工具，模型将不再看到这些工具。"
+      },
+      "form": {
+        "name": "名称",
+        "command": "命令",
+        "args": "参数",
+        "env": "环境变量",
+        "cwd": "工作目录",
+        "url": "URL",
+        "headers": "请求头",
+        "oauth": "OAuth 授权",
+        "oauthHint": "仅当服务器使用 OAuth 2.1 授权时填写，留空表示无认证连接。",
+        "timeout": "超时（秒）",
+        "exposure": "暴露方式",
+        "description": "描述",
+        "transport": "传输方式",
+        "testConnection": "测试连接",
+        "testSuccess": "连接成功",
+        "testFailed": "连接失败",
+        "testHint": "「测试连接」会立即拉起服务器（npx 首次运行需要下载依赖），不会写入配置。",
+        "saveAnyway": "仍要保存",
+        "install": "安装",
+        "update": "保存修改",
+        "addRow": "添加",
+        "removeRow": "删除该行",
+        "secretMaskedHint": "已有密钥以 •••••• 显示，不修改则保留原值。",
+        "exposureHint": {
+          "direct": "工具直接注入提示词，模型始终可见",
+          "deferred": "默认：工具按需通过 tool_search 检索（推荐）",
+          "hidden": "不注册工具，模型完全看不到"
+        },
+        "errors": {
+          "nameRequired": "请填写名称",
+          "nameInvalid": "名称只能包含字母、数字、连字符和下划线",
+          "nameTaken": "该名称已被占用（- 与 _ 视为相同）",
+          "commandRequired": "stdio 模式必须填写命令",
+          "urlRequired": "HTTP 模式必须填写 URL",
+          "sseUnsupported": "不支持旧版 HTTP+SSE 传输，请改用 streamable HTTP 端点",
+          "timeoutInvalid": "超时必须是正整数（秒）",
+          "duplicateKey": "重复的键：{{key}}",
+          "envRequired": "缺少必填环境变量：{{vars}}"
+        }
+      },
+      "preset": {
+        "installed": "已安装",
+        "requiredEnv": "需要环境变量：{{vars}}",
+        "docs": "文档"
+      },
+      "detail": {
+        "title": "服务器详情",
+        "connection": "连接",
+        "tools": "工具",
+        "auth": "认证",
+        "logs": "日志",
+        "rawConfig": "原始配置",
+        "rawConfigHint": "来自 /api/config 的规范化配置：密钥已掩码，${ENV} 占位符已展开。",
+        "state": "状态",
+        "endpoint": "端点",
+        "connectedAt": "最近连接",
+        "errorCount": "错误次数",
+        "credentials": "已保存凭证",
+        "yes": "是",
+        "no": "否"
+      },
+      "logs": {
+        "empty": "暂无日志输出",
+        "autoRefresh": "自动刷新"
+      },
+      "annotations": {
+        "title": "标注",
+        "readOnly": "只读",
+        "destructive": "破坏性",
+        "idempotent": "幂等",
+        "openWorld": "开放世界"
+      },
+      "notice": {
+        "toolsetUpdated": "工具集已更新，下一轮对话生效",
+        "reconnected": "{{name}} 已重新连接",
+        "loggedIn": "{{name}} 登录成功",
+        "loggedOut": "{{name}} 已退出登录",
+        "uninstalled": "已卸载 {{name}}，注销 {{count}} 个工具"
+      },
+      "errors": {
+        "loadFailed": "加载 MCP 状态失败"
+      },
+      "oauth": {
+        "headlessHint": "如果浏览器没有自动打开，请复制下面的授权链接手动打开，再把回调 URL 粘贴回来。",
+        "pasteCallbackUrl": "粘贴回调 URL"
+      }
     },
     "vision": {
       "title": "视觉桥接",

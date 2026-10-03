@@ -3,6 +3,8 @@ import type { AppConfig, ToolProfileId, ToolRegistry } from '../app/types.js';
 import type { AgentPolicyScope } from '../policy/types.js';
 import { resolveAllAgents, resolveAgentConfig } from './config-resolver.js';
 import { PROFILE_TOOLS } from '../policy/tool-visibility.js';
+import { isMcpToolVisible, toMcpVisibilityScope } from '../policy/mcp-visibility.js';
+import type { McpVisibilityConfig } from '../policy/mcp-visibility.js';
 
 /**
  * AgentManager resolves agent configuration and applies the shared policy
@@ -57,11 +59,17 @@ export class AgentManager {
     });
   }
 
-  // Resolve tools for an agent based on its config and optional policy scope
-  resolveTools(config: ResolvedAgentConfig, scope?: AgentPolicyScope): any[] {
+  // Resolve tools for an agent based on its config and optional policy scope.
+  // `mcpVisibility` (mcp.allow_servers / deny_servers) is optional: absent means
+  // no MCP branch at all, i.e. the pre-MCP tool surface (§12.3).
+  resolveTools(
+    config: ResolvedAgentConfig,
+    scope?: AgentPolicyScope,
+    mcpVisibility?: McpVisibilityConfig,
+  ): any[] {
     const allTools = this.toolRegistry.listAsAgentTools();
     const profile = config.tools.profile;
-    let filteredTools = this.filterByProfile(allTools, profile);
+    let filteredTools = this.filterByProfile(allTools, profile, mcpVisibility);
 
     for (const toolName of config.tools.add) {
       const tool = this.toolRegistry.get(toolName);
@@ -80,10 +88,23 @@ export class AgentManager {
     return filteredTools;
   }
 
-  private filterByProfile(tools: any[], profile: ToolProfileId): any[] {
+  private filterByProfile(
+    tools: any[],
+    profile: ToolProfileId,
+    mcpVisibility?: McpVisibilityConfig,
+  ): any[] {
     const allowed = PROFILE_TOOLS[profile] || PROFILE_TOOLS.standard;
     if (profile === 'full' || allowed[0] === '*') return tools;
-    return tools.filter((t: any) => allowed.includes(t.name) || t.name === 'computer_use');
+    // MCP tool names are dynamic, so the static allow-list cannot enumerate
+    // them — the shared predicate decides instead. Skipped entirely when no
+    // MCP config is present.
+    const mcpScope = mcpVisibility ? toMcpVisibilityScope(profile, mcpVisibility) : undefined;
+    return tools.filter(
+      (t: any) =>
+        allowed.includes(t.name) ||
+        t.name === 'computer_use' ||
+        (mcpScope !== undefined && isMcpToolVisible(t.name, mcpScope) === true),
+    );
   }
 }
 

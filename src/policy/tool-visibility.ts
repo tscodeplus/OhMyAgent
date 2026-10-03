@@ -3,6 +3,8 @@
 // ---------------------------------------------------------------------------
 
 import type { ToolProfileId, AgentPolicyScope } from './types.js';
+import { isMcpToolVisible, toMcpVisibilityScope } from './mcp-visibility.js';
+import { matchesAnyToolPattern } from './tool-pattern.js';
 
 export const PROFILE_TOOLS: Record<ToolProfileId, string[]> = {
   // restricted: read-only + memory + basic session. No shell (structural write
@@ -137,8 +139,12 @@ export class ToolVisibilityPolicyImpl implements ToolVisibilityPolicy {
     scope: AgentPolicyScope,
     skillOverrides?: SkillToolOverrides,
   ): boolean {
+    // Skill allow/deny lists are patterns, not a Set: a trailing `*` is a
+    // prefix match (§12.2). Without a wildcard the matcher is an exact
+    // comparison, so this stays byte-identical to the previous Set lookup.
+
     // Explicit deny always wins
-    if (skillOverrides?.deniedTools?.includes(toolName)) {
+    if (matchesAnyToolPattern(skillOverrides?.deniedTools, toolName)) {
       return false;
     }
 
@@ -147,14 +153,26 @@ export class ToolVisibilityPolicyImpl implements ToolVisibilityPolicy {
     // for this turn.
     if (skillOverrides?.strict) {
       return (
-        (skillOverrides.allowedTools?.includes(toolName) ?? false) ||
+        matchesAnyToolPattern(skillOverrides.allowedTools, toolName) ||
         STRICT_FORCED_CORE_TOOLS.has(toolName)
       );
     }
 
     // Explicit allow overrides profile
-    if (skillOverrides?.allowedTools?.includes(toolName)) {
+    if (matchesAnyToolPattern(skillOverrides?.allowedTools, toolName)) {
       return true;
+    }
+
+    // MCP tools are not enumerable in PROFILE_TOOLS (their names are derived
+    // from the installed servers), so visibility is decided by the shared
+    // predicate every consumer uses (§12.3). Absent config means the MCP
+    // branch does not exist — pre-MCP behaviour, byte for byte.
+    if (scope.mcpVisibility) {
+      const mcpVisible = isMcpToolVisible(
+        toolName,
+        toMcpVisibilityScope(scope.toolsProfile, scope.mcpVisibility),
+      );
+      if (mcpVisible !== undefined) return mcpVisible;
     }
 
     // computer_use gated by scope flag and runtime config, not by profile

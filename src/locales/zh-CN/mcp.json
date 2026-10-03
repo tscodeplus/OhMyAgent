@@ -1,0 +1,19 @@
+{
+  "error": {
+    "invalidBody": "请求体无效：{{detail}}",
+    "nameInvalid": "服务器名称只能包含字母、数字、- 和 _",
+    "nameTaken": "已存在同名服务器：{{name}}",
+    "serverNotFound": "未找到 MCP 服务器：{{name}}",
+    "renameUnsupported": "重命名不受支持：请在 /api/mcp/servers/{{name}} 中保持 name 不变",
+    "endpointRequired": "必须提供 command（stdio）或 url（HTTP）之一",
+    "endpointBoth": "command（stdio）与 url（HTTP）只能提供其中一个",
+    "sseUnsupported": "不支持旧版 HTTP+SSE 传输，请使用 streamable HTTP 端点",
+    "configWriteFailed": "写入 config.yaml 失败：{{message}}",
+    "managerUnavailable": "MCP 运行时未启动（config.yaml 中没有启用 mcp 段），请重启网关后重试",
+    "notInstalled": "MCP 服务器 {{name}} 尚未安装",
+    "alreadyRunning": "MCP 服务器 {{name}} 正在连接中",
+    "connectFailed": "连接 MCP 服务器失败：{{message}}",
+    "loginFailed": "OAuth 登录失败：{{message}}",
+    "actionFailed": "操作失败：{{message}}"
+  }
+}

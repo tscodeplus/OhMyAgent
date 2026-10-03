@@ -3,6 +3,8 @@
 // ---------------------------------------------------------------------------
 
 import type { ToolCapabilityDescriptor } from '../tools/platform/tool-capabilities.js';
+// Type-only, so the `types.ts` ↔ `mcp-visibility.ts` cycle is erased at emit.
+import type { McpVisibilityConfig } from './mcp-visibility.js';
 
 // ---------------------------------------------------------------------------
 // Agent policy scope
@@ -24,6 +26,16 @@ export interface AgentPolicyScope {
   readOnly: boolean;
   computerUseEnabled: boolean;
   policyMode: PolicyMode;
+  /**
+   * MCP visibility source (`mcp.allow_servers` / `mcp.deny_servers`, §12.3).
+   *
+   * Optional on purpose: an ABSENT field means "no MCP section in config" and
+   * keeps the pre-MCP behaviour of `ToolVisibilityPolicy.isVisible()` — the
+   * shared predicate is not consulted at all. It must stay distinguishable
+   * from a present-but-empty config ({ allowServers: [], denyServers: [] }),
+   * which enables the MCP branch with no server restrictions.
+   */
+  mcpVisibility?: McpVisibilityConfig;
 }
 
 export interface ChildAgentPolicyRequest {

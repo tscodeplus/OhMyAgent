@@ -21,6 +21,7 @@ import type { ShellExecutionPolicy } from './shell/evaluator.js';
 import type { ApprovalResolutionPolicy } from './approval/resolution.js';
 import type { AgentInheritancePolicy } from './inheritance/scope-merge.js';
 import { extractPathArg } from '../shared/path-utils.js';
+import { matchesAnyToolPattern } from './tool-pattern.js';
 import {
   computerUseApprovalSubject,
   computerUseApprovalSubjectCandidates,
@@ -99,7 +100,9 @@ export class PolicyCenterImpl implements PolicyCenter {
       ? this.toolVisibility.isVisible(input.toolName, input.policyScope, skillOverrides)
       : this.toolVisibility.isVisible(input.toolName, input.policyScope);
     if (!visible) {
-      const deniedBySkill = skillOverrides?.deniedTools?.includes(input.toolName);
+      // Pattern match (trailing `*` = prefix) so the reason matches the verdict
+      // `isVisible()` reached with the same matcher (§12.2).
+      const deniedBySkill = matchesAnyToolPattern(skillOverrides?.deniedTools, input.toolName);
       return {
         allowed: false,
         requiresApproval: false,

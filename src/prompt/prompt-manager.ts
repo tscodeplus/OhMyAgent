@@ -4,6 +4,7 @@ import type {
   PromptAssemblyResult,
   PromptManagerDeps,
   CacheAnchor,
+  McpPromptServer,
 } from './types.js';
 import { LRUCache } from 'lru-cache';
 
@@ -12,6 +13,8 @@ import { LRUCache } from 'lru-cache';
 const PRIORITY_BASE = 0;
 const PRIORITY_SKILLS_CATALOG = 25;
 const PRIORITY_TOOLS_CATALOG = 26;
+/** MCP server list — stable static config, sits next to the tool catalog. */
+const PRIORITY_MCP_SERVERS = 27;
 const PRIORITY_AGENT_OVERRIDE = 50;
 const PRIORITY_TEAM_MODE = 60;
 const PRIORITY_CHILD_MODIFIER = 200;
@@ -114,6 +117,7 @@ export class PromptManager {
       o.childTaskDescription ?? '',
       o.availableSkills?.map((s) => s.id).join(',') ?? '',
       o.availableTools?.map((t) => `${t.name}=${t.snippet}`).join('|') ?? '',
+      o.mcpServers?.map((s) => `${s.name}:${s.exposure}:${s.description}`).join('|') ?? '',
       o.includeCatalogs === false ? 'no-catalogs' : 'catalogs',
     ].join('\u0000');
   }
@@ -187,6 +191,11 @@ export class PromptManager {
       if (options.availableTools && options.availableTools.length > 0) {
         layers.push(this.buildToolsCatalogLayer(options.availableTools));
       }
+    }
+
+    // Layer 1.57: MCP servers (static config only — see buildMcpServersLayer)
+    if (options.mcpServers && options.mcpServers.length > 0) {
+      layers.push(this.buildMcpServersLayer(options.mcpServers));
     }
 
     // Layer 1.6: Active skill prompt layers (injected from skill-compiler output)
@@ -337,6 +346,40 @@ When a skill fits the task, the full skill instructions are injected automatical
       cacheKey: 'tools-catalog',
       volatile: false,
       blockTag: 'tools-catalog',
+    };
+  }
+
+  /**
+   * Render the `mcp_servers` section: one line per configured server.
+   *
+   * Only static config reaches this layer (name / exposure / description) —
+   * never live connection state, because `assemble()` runs during agent
+   * construction, before the MCP servers have connected. A server whose
+   * description only becomes known after connecting is picked up the next
+   * time the runtime is rebuilt. The section is stable and non-volatile so it
+   * keeps the provider prefix cache intact.
+   */
+  private buildMcpServersLayer(servers: McpPromptServer[]): PromptLayer {
+    const lines: string[] = [];
+
+    lines.push('## MCP servers');
+    lines.push('');
+    lines.push('<mcp_servers>');
+    for (const server of servers) {
+      const description = server.description.trim();
+      lines.push(
+        `- ${escapeXml(server.name)} (${server.exposure})${description ? `: ${escapeXml(description)}` : ''}`,
+      );
+    }
+    lines.push('</mcp_servers>');
+
+    return {
+      name: 'mcp-servers',
+      content: lines.join('\n'),
+      priority: PRIORITY_MCP_SERVERS,
+      cacheKey: 'mcp-servers',
+      volatile: false,
+      blockTag: 'mcp-servers',
     };
   }
 

@@ -15,6 +15,22 @@ export interface PromptLayer {
   blockTag?: string;
 }
 
+/**
+ * One MCP server as advertised in the `mcp_servers` system-prompt section.
+ *
+ * Derived from static `config.yaml` only — never from live connection state,
+ * because the system prompt is assembled before any server has connected
+ * (MCP_INTEGRATION_DESIGN §12.1).
+ */
+export interface McpPromptServer {
+  /** Server name as written in `config.yaml`, also the tool-name segment. */
+  name: string;
+  /** How the server's tools are surfaced to the model. */
+  exposure: 'direct' | 'deferred' | 'hidden';
+  /** Static description from `config.yaml`; may be empty. */
+  description: string;
+}
+
 export interface PromptAssemblyOptions {
   agentId?: string;
   isChildAgent?: boolean;
@@ -43,6 +59,12 @@ export interface PromptAssemblyOptions {
     /** Short one-line description of what the tool does. */
     snippet: string;
   }>;
+  /**
+   * MCP servers to list in the `mcp_servers` section. Omitted or empty → no
+   * section at all, keeping the assembled prompt byte-identical to a build
+   * without MCP support.
+   */
+  mcpServers?: McpPromptServer[];
   /** v7: Agent Team mode — inject orchestrator role layer */
   isTeamMode?: boolean;
   /** v7: Agent Team mode — max parallel child agents */

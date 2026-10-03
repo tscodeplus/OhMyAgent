@@ -3,6 +3,7 @@ import { existsSync, watch, type FSWatcher } from 'node:fs';
 import { config as dotenvConfig } from 'dotenv';
 import type { AppConfig } from './types.js';
 import { loadYamlFile, yamlToAppConfigRaw } from './config-loader.js';
+import { DEFAULT_MCP_SECTION, MCP_SERVER_NAME_PATTERN } from '../mcp/config.js';
 import { envBool } from '../shared/env.js';
 import { ConfigError } from '../shared/errors.js';
 
@@ -71,6 +72,79 @@ function normalizeMemoryOutputLanguage(val: string | undefined): string {
   }
   return mapped;
 }
+
+// ---------------------------------------------------------------------------
+// mcp: section (§5.2)
+// ---------------------------------------------------------------------------
+//
+// Unlike every other section, this one is validated *after* normalisation:
+// `config-loader.ts` runs the raw `mcp:` YAML through `normaliseMcpSection()`
+// first, because a malformed server must be skipped with a log instead of
+// blocking startup. The strict per-server schema (unknown keys such as the
+// unsupported legacy `sse` are an error there) lives in `src/mcp/config.ts`.
+
+const mcpOAuthConfigSchema = z
+  .object({
+    clientId: z.string(),
+    clientSecret: z.string(),
+    callbackPort: z.number().int().min(0),
+    callbackUrl: z.string(),
+    scope: z.string(),
+    clientName: z.string(),
+    authServerMetadataUrl: z.string(),
+  })
+  .strict();
+
+const mcpServerCommonShape = {
+  name: z.string().regex(MCP_SERVER_NAME_PATTERN),
+  enabled: z.boolean(),
+  exposure: z.enum(['direct', 'deferred', 'hidden']),
+  toolExposure: z.record(z.enum(['direct', 'deferred', 'hidden'])),
+  timeoutSec: z.number().positive().optional(),
+  description: z.string(),
+  oauth: mcpOAuthConfigSchema.optional(),
+};
+
+const mcpServerConfigSchema = z.union([
+  z
+    .object({
+      ...mcpServerCommonShape,
+      transport: z.literal('stdio'),
+      command: z.string().min(1),
+      args: z.array(z.string()),
+      env: z.record(z.string()),
+      cwd: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      ...mcpServerCommonShape,
+      transport: z.literal('http'),
+      url: z.string().min(1),
+      headers: z.record(z.string()),
+    })
+    .strict(),
+]);
+
+/**
+ * The normalised `mcp:` section. Defaults mirror
+ * {@link DEFAULT_MCP_SECTION} so the two cannot drift apart.
+ */
+export const mcpSectionSchema = z.object({
+  enabled: z.boolean().default(DEFAULT_MCP_SECTION.enabled),
+  connectTimeoutSec: z.number().int().positive().default(DEFAULT_MCP_SECTION.connectTimeoutSec),
+  requestTimeoutSec: z.number().int().positive().default(DEFAULT_MCP_SECTION.requestTimeoutSec),
+  maxOutputBytes: z.number().int().positive().default(DEFAULT_MCP_SECTION.maxOutputBytes),
+  maxConcurrentConnects: z
+    .number()
+    .int()
+    .positive()
+    .default(DEFAULT_MCP_SECTION.maxConcurrentConnects),
+  injectSystemPrompt: z.boolean().default(DEFAULT_MCP_SECTION.injectSystemPrompt),
+  allowServers: z.array(z.string()).default([]),
+  denyServers: z.array(z.string()).default([]),
+  servers: z.record(z.string().regex(MCP_SERVER_NAME_PATTERN), mcpServerConfigSchema),
+});
 
 const configSchema = z.object({
   logging: z
@@ -742,6 +816,7 @@ const configSchema = z.object({
     })
     .optional()
     .default({}),
+  mcp: mcpSectionSchema.optional(),
 });
 
 let cachedConfig: AppConfig | null = null;

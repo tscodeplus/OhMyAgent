@@ -6,6 +6,7 @@ import type {
   LoadedSkill,
 } from '../app/types.js';
 import type { PromptLayer } from '../prompt/types.js';
+import { matchesToolPattern } from '../policy/tool-pattern.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -66,9 +67,11 @@ export function detectConflicts(skills: LoadedSkill[]): ConflictReport[] {
       const a = skills[i]!;
       const b = skills[j]!;
 
-      // A allows + B denies same tool → conflict
+      // A allows + B denies the same tool → conflict. Both sides are patterns
+      // (trailing `*` = prefix), so the check is pattern overlap rather than
+      // string equality; exact patterns still compare as before.
       for (const allowed of a.tools.allowedTools) {
-        if (b.tools.deniedTools?.includes(allowed)) {
+        if ((b.tools.deniedTools ?? []).some((d) => toolPatternsOverlap(d, allowed))) {
           reports.push({
             level: 'warning',
             type: 'tool_conflict',
@@ -79,7 +82,7 @@ export function detectConflicts(skills: LoadedSkill[]): ConflictReport[] {
         }
       }
       for (const allowed of b.tools.allowedTools) {
-        if (a.tools.deniedTools?.includes(allowed)) {
+        if ((a.tools.deniedTools ?? []).some((d) => toolPatternsOverlap(d, allowed))) {
           reports.push({
             level: 'warning',
             type: 'tool_conflict',
@@ -150,13 +153,61 @@ export function detectConflicts(skills: LoadedSkill[]): ConflictReport[] {
 }
 
 /**
+ * Prefix form of a tool pattern, mirroring `matchesToolPattern`'s branches:
+ * `''` = matches every tool (`*`), a non-empty string = matched name prefix,
+ * `null` = the pattern is a literal tool name (`matchesToolPattern` treats a
+ * `*` that is not trailing as a literal character).
+ */
+function toolPatternPrefix(pattern: string): string | null {
+  if (pattern === '*') return '';
+  if (!pattern.endsWith('*')) return null;
+  const prefix = pattern.slice(0, -1);
+  return prefix.includes('*') ? null : prefix;
+}
+
+/**
+ * True when some tool name can match both patterns — the question conflict
+ * detection must answer, since the tools an MCP skill references may not exist
+ * yet when the skills are compiled.
+ */
+export function toolPatternsOverlap(a: string, b: string): boolean {
+  // Literal-vs-anything is decided by the shared matcher itself.
+  if (matchesToolPattern(a, b) || matchesToolPattern(b, a)) return true;
+  const prefixA = toolPatternPrefix(a);
+  const prefixB = toolPatternPrefix(b);
+  // Two prefixes overlap when one contains the other (`ab*` ⊆ `a*`).
+  return (
+    prefixA !== null &&
+    prefixB !== null &&
+    (prefixA.startsWith(prefixB) || prefixB.startsWith(prefixA))
+  );
+}
+
+/** True when every tool matched by `allowed` is also matched by a denied pattern. */
+export function isToolPatternFullyDenied(allowed: string, deniedTools: readonly string[]): boolean {
+  const allowedPrefix = toolPatternPrefix(allowed);
+  for (const denied of deniedTools) {
+    const deniedPrefix = toolPatternPrefix(denied);
+    if (allowedPrefix === null) {
+      // A literal name is denied by the identical literal or by a covering prefix.
+      if (deniedPrefix === null ? denied === allowed : allowed.startsWith(deniedPrefix)) {
+        return true;
+      }
+    } else if (deniedPrefix !== null && allowedPrefix.startsWith(deniedPrefix)) {
+      // `ab*` ⊆ `a*` (and `a*` ⊆ `*`, whose prefix is the empty string).
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Resolve tool conflicts using deny-priority strategy.
  * When skill A allows a tool and skill B denies it, the tool is removed from the allowed set.
  */
 export function resolveToolConflicts(allowedTools: string[], deniedTools: string[]): string[] {
   if (deniedTools.length === 0) return allowedTools;
-  const denied = new Set(deniedTools);
-  return allowedTools.filter((t) => !denied.has(t));
+  return allowedTools.filter((t) => !isToolPatternFullyDenied(t, deniedTools));
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

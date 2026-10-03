@@ -1,0 +1,19 @@
+{
+  "error": {
+    "invalidBody": "Invalid request body: {{detail}}",
+    "nameInvalid": "Server name may only contain letters, digits, - and _",
+    "nameTaken": "A server with this name already exists: {{name}}",
+    "serverNotFound": "Unknown MCP server: {{name}}",
+    "renameUnsupported": "Renaming is not supported: keep name unchanged in /api/mcp/servers/{{name}}",
+    "endpointRequired": "Either command (stdio) or url (HTTP) is required",
+    "endpointBoth": "command (stdio) and url (HTTP) are mutually exclusive",
+    "sseUnsupported": "The legacy HTTP+SSE transport is not supported; use a streamable HTTP endpoint",
+    "configWriteFailed": "Could not write config.yaml: {{message}}",
+    "managerUnavailable": "The MCP runtime is not running (no enabled mcp section in config.yaml); restart the gateway and try again",
+    "notInstalled": "MCP server {{name}} is not installed",
+    "alreadyRunning": "MCP server {{name}} is already connecting",
+    "connectFailed": "Could not connect to the MCP server: {{message}}",
+    "loginFailed": "OAuth login failed: {{message}}",
+    "actionFailed": "The operation failed: {{message}}"
+  }
+}

@@ -2,6 +2,7 @@ export { PromptManager } from './prompt-manager.js';
 export type {
   PromptLayer,
   PromptAssemblyOptions,
+  McpPromptServer,
   PromptAssemblyResult,
   PromptManagerDeps,
   CacheAnchor,

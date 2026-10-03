@@ -62,6 +62,7 @@ import { createChannelServices } from './composers/channel-services.js';
 import { createSchedulers } from './composers/scheduler-services.js';
 import { createComputerUseServices } from './composers/computer-use-services.js';
 import { createAgentServices } from './composers/agent-services.js';
+import { createMcpServices } from './composers/mcp-services.js';
 import { createFeishuServices } from './composers/feishu-services.js';
 import { SubscriptionService } from './subscription/subscription-service.js';
 import { configEventBus } from './config-event-bus.js';
@@ -614,6 +615,19 @@ async function runBootstrap(): Promise<BootstrapResult> {
     orchestrator,
   });
 
+  // ── MCP runtime (design §4.2 / §9.1) ──
+  // Assembled after the v4 definitions so MCP tools cannot be shadowed by a
+  // later built-in registration, and before the HTTP server listens. Absent
+  // (or disabled) `mcp:` config leaves `mcpManager` undefined and every MCP
+  // path inert.
+  const { mcpManager } = createMcpServices({ config, logger, toolPlatformRegistry, db });
+
+  // A change to the MCP tool set (connect / disconnect / tools/list_changed)
+  // must reach the model through a rebuilt Agent, because the tool array is
+  // frozen at `factory.create()` time (§7.0). `invalidateRuntimes()` is
+  // debounced, so registering N tools costs one rebuild, not N.
+  mcpManager?.onToolsChanged(() => agentService.invalidateRuntimes());
+
   // ─── Register skill management tools (deferrable via tool_search) ────
 
   const skillToolsDeps = {
@@ -661,6 +675,8 @@ async function runBootstrap(): Promise<BootstrapResult> {
     policyCenter,
     toolPlatformRegistry,
     orchestrator,
+    // MCP (undefined unless `config.yaml` has an enabled `mcp:` section)
+    mcpManager,
     // Subscription
     subscriptionService,
     // User question
@@ -783,6 +799,17 @@ async function runBootstrap(): Promise<BootstrapResult> {
 
     // Computer use: re-compute settings from new config (mutable ref)
     cuaSettingsRef.current = normalizeComputerUseSettings(newConfig.computerUse);
+
+    // ── MCP servers: reconcile connections and the registered tool set ──
+    // The manager re-reads `config.yaml` itself through its `resolveConfig`
+    // hook, so a hand-edit caught by the file watcher and a WebUI save both
+    // take the same path. Without this branch the manager would never learn
+    // about an externally edited section (design §5.4).
+    // Deliberately not awaited: a cold `npx -y` can outlast this callback, and
+    // each server's outcome is already reported through its own state.
+    mcpManager?.reload().catch((err: unknown) => {
+      logger.warn({ err }, 'MCP reload failed');
+    });
 
     // Rate limiter: dynamic method on Fastify server (typed via FastifyWithRateLimit)
     if (hasRateLimitPlugin(server)) {
@@ -921,6 +948,11 @@ async function runBootstrap(): Promise<BootstrapResult> {
       safeLogWrapper(logger);
 
       try {
+        // Stop MCP servers early: closing a stdio server runs the transport's
+        // stdin-close → SIGTERM → SIGKILL sequence on the server's whole
+        // process group, which needs a live event loop to reap (§9.3).
+        await mcpManager?.stop();
+
         // V2: Stop all channels
         await channelManager.stopAll();
 

@@ -450,6 +450,61 @@ channels:
 #       mode: smart_approve          # always_ask | smart_approve | low_risk_auto
 #   rules: []
 
+# --- MCP Servers (optional) ---
+# Model Context Protocol servers add tools to the agent (filesystem, databases,
+# SaaS APIs, …) without any OhMyAgent code change.
+#
+# Everything is inert while this section is absent: no process is spawned, no
+# connection is attempted, no MCP tool exists. Backward compatible by default.
+#
+# This section is the single source of truth. A standard mcp.json can be
+# converted once with `pnpm mcp:import [path/to/mcp.json]` (`--dry-run` prints
+# the change); it never overwrites an existing server. Only stdio and streamable
+# HTTP servers are supported — `sse` is rejected.
+#
+# WebUI: Settings → MCP installs, tests, enables/disables servers and runs the
+# OAuth login. Exposure decides how tools reach the model:
+#   direct   — always in the tool list (costs context on every turn)
+#   deferred — hidden until `tool_search` finds it (default; recommended)
+#   codemode — alias of deferred, accepted for upstream compatibility
+#   hidden   — registered but never exposed (callable only from code)
+#
+# mcp:
+#   enabled: true                  # false keeps the config but connects nothing
+#   connect_timeout_sec: 15        # Connection timeout for every server
+#   request_timeout_sec: 60        # Default per-call timeout (server `timeout_sec` overrides)
+#   max_output_bytes: 20480        # Larger tool results are spilled to data/offload/
+#   max_concurrent_connects: 4     # Parallel connects during startup
+#   inject_system_prompt: true     # List connected servers in the system prompt
+#   allow_servers: []              # Profile visibility allow list (empty = all visible)
+#   deny_servers: []               # Profile visibility deny list (wins over allow_servers)
+#   servers:
+#     filesystem:                  # stdio server: command + args
+#       command: npx
+#       args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+#       env: {}                    # Extra environment for the child process
+#       cwd: ""                    # Working directory (empty = the agent's own)
+#       exposure: deferred          # Default exposure for every tool of this server
+#       tool_exposure:              # Per-tool override; trailing `*` wildcard is supported
+#         read_file: direct
+#         write_*: hidden
+#       timeout_sec: 60             # Per-server request timeout override
+#       enabled: true               # false = connected to nothing, tools unregistered
+#       description: "Local filesystem access"
+#     docs:                         # streamable HTTP server: url + headers
+#       url: https://example.com/mcp
+#       headers:
+#         Authorization: "Bearer ${DOCS_TOKEN}"
+#       exposure: deferred
+#       oauth:                      # Only for servers that require OAuth
+#         client_id: ""             # Empty = dynamic client registration
+#         client_secret: "${DOCS_SECRET}"
+#         callback_port: 8765       # Local redirect port shown to the user
+#         callback_url: ""          # Full redirect URL override (e.g. behind a proxy)
+#         scope: ""                 # Extra scopes to request (space separated)
+#         client_name: "OhMyAgent"  # Displayed on the provider's consent page
+#         auth_server_metadata_url: ""  # Skip discovery when the server has no metadata doc
+
 # --- Reply Footer (optional) ---
 # footer:
 #   show_agent_name: true

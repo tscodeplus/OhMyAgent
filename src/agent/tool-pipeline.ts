@@ -24,6 +24,9 @@ import type { ResolvedAgentConfig } from './config-types.js';
 import type { AgentManager } from './agent-manager.js';
 import { PROFILE_TOOLS } from './agent-manager.js';
 import { STRICT_FORCED_CORE_TOOLS } from '../policy/tool-visibility.js';
+import { isMcpToolVisible, toMcpVisibilityScope } from '../policy/mcp-visibility.js';
+import type { McpVisibilityConfig } from '../policy/mcp-visibility.js';
+import { matchesAnyToolPattern } from '../policy/tool-pattern.js';
 import { isToolVisibleForIntent, type IntentDomain } from './intent.js';
 import type { ToolExecutionContext } from '../tools/platform/tool-context.js';
 import type { ComputerUseHost } from '../computer-use/computer-host.js';
@@ -95,6 +98,16 @@ export interface ToolPipelineOptions {
   /** Union of active skills' deniedTools (deny-first also in strict mode) */
   skillDeniedTools?: string[];
 
+  // ── MCP ──
+  /** `mcp.allow_servers` / `mcp.deny_servers`. Absent = pre-MCP behaviour. */
+  mcpVisibility?: McpVisibilityConfig;
+  /**
+   * Tool names that must be declared up front regardless of deferral
+   * (`exposure: 'direct'` MCP tools, §7). Merged into tool_search's
+   * `forceVisible` set, which otherwise only holds channel extra tools.
+   */
+  alwaysVisibleTools?: string[];
+
   // ── P4: intent narrowing ──
   /** Detected per-turn intent domain; undefined = no narrowing */
   intentDomain?: IntentDomain;
@@ -151,7 +164,9 @@ export function assembleAgentTools(opts: ToolPipelineOptions): ToolPipelineResul
   let tools = opts.explicitTools ?? opts.toolRegistry.listAsAgentTools();
 
   if (opts.agentConfig && !opts.explicitTools) {
-    tools = opts.agentManager!.resolveTools(opts.agentConfig);
+    // The policy scope is deliberately not passed here: Stage 3 applies the
+    // computer_use gate, and resolveTools must keep its pre-existing surface.
+    tools = opts.agentManager!.resolveTools(opts.agentConfig, undefined, opts.mcpVisibility);
   }
 
   // ── Stage 2: Cronjob tool ──
@@ -178,18 +193,29 @@ export function assembleAgentTools(opts: ToolPipelineOptions): ToolPipelineResul
   // P1: skill strict mode REPLACES the profile baseline — the surface narrows
   // to (allowedTools − deniedTools) ∪ STRICT_FORCED_CORE_TOOLS.
   if (opts.skillToolsStrict) {
-    const strictAllowed = new Set(opts.skillAllowedTools ?? []);
-    for (const d of opts.skillDeniedTools ?? []) strictAllowed.delete(d);
+    // Patterns, not a Set: a trailing `*` is a prefix match (§12.2). Deny-first
+    // still wins, and non-wildcard patterns match exactly as they did before.
+    const allowedPatterns = opts.skillAllowedTools ?? [];
+    const deniedPatterns = opts.skillDeniedTools ?? [];
     tools = tools.filter(
-      (t: any) => strictAllowed.has(t.name) || STRICT_FORCED_CORE_TOOLS.has(t.name),
+      (t: any) =>
+        STRICT_FORCED_CORE_TOOLS.has(t.name) ||
+        (matchesAnyToolPattern(allowedPatterns, t.name) &&
+          !matchesAnyToolPattern(deniedPatterns, t.name)),
     );
   } else {
     // 'full' is an empty allowlist (= everything visible) — skip filtering,
     // same as AgentManager.filterByProfile.
     const profileAllowedTools = PROFILE_TOOLS[opts.effectiveProfile] ?? PROFILE_TOOLS.standard;
     if (opts.effectiveProfile !== 'full' && profileAllowedTools[0] !== '*' && !opts.explicitTools) {
+      const mcpScope = opts.mcpVisibility
+        ? toMcpVisibilityScope(opts.effectiveProfile, opts.mcpVisibility)
+        : undefined;
       tools = tools.filter(
-        (t: any) => profileAllowedTools.includes(t.name) || t.name === 'computer_use',
+        (t: any) =>
+          profileAllowedTools.includes(t.name) ||
+          t.name === 'computer_use' ||
+          (mcpScope !== undefined && isMcpToolVisible(t.name, mcpScope) === true),
       );
     }
   }
@@ -384,9 +410,13 @@ export function assembleAgentTools(opts: ToolPipelineOptions): ToolPipelineResul
 
     if (tsConfig.enabled !== 'off') {
       const contextLength = opts.contextLength ?? 0;
-      const forceVisible = opts.extraTools?.length
-        ? new Set(opts.extraTools.map((t: any) => t.name))
-        : undefined;
+      // `exposure: 'direct'` MCP tools must be declared up front; absent/empty
+      // entries leave `forceVisible` undefined, exactly as before.
+      const forceVisibleNames = [
+        ...(opts.extraTools ?? []).map((t: any) => String(t.name)),
+        ...(opts.alwaysVisibleTools ?? []),
+      ];
+      const forceVisible = forceVisibleNames.length > 0 ? new Set(forceVisibleNames) : undefined;
       toolSearchAssembly = assembleTools(tools, tsConfig, contextLength, forceVisible);
 
       opts.logger?.debug(

@@ -1,6 +1,8 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { parse as parseYaml } from 'yaml';
 import type { CustomProviderConfig, CustomModelConfig, ToolProfileId } from './types.js';
+import type { McpSectionConfig } from '../mcp/types.js';
+import { normaliseMcpSection } from '../mcp/config.js';
 import type { AgentConfig } from '../agent/config-types.js';
 
 // ─── Env interpolation ───
@@ -118,6 +120,7 @@ const nodeVarToYamlKey: Record<string, string> = {
   extCfg: 'extensions',
   memAuxCfg: 'memory_aux_models',
   cuCfg: 'computer_use',
+  mcpCfg: 'mcp',
 };
 
 function yamlKeyFromLabel(label: string): string {
@@ -406,6 +409,28 @@ function buildMemorySection(memCfg: YamlNode): Record<string, unknown> {
 }
 
 /**
+ * Map the raw `mcp:` YAML node into a fully-defaulted `McpSectionConfig`.
+ *
+ * An absent section stays absent (`undefined`) so a config without `mcp:`
+ * behaves exactly as before MCP support existed.
+ *
+ * Failure handling follows §5.2: a malformed *server* is logged and dropped,
+ * while a type-invalid *scalar* is pushed into `configIssues` and therefore
+ * fails startup with the aggregate error at the end of this file.
+ */
+function buildMcpSection(mcpCfg: YamlNode): McpSectionConfig | undefined {
+  if (!mcpCfg) return undefined;
+  return normaliseMcpSection(mcpCfg, {
+    onScalarError: (key, expected, val) => recordIssue(key, expected, val),
+    onServerError: (serverName, message) => {
+      // `loadYamlFile()` runs before bootstrap's `createLogger()`, so no pino
+      // logger exists yet — the console is the only sink available here.
+      console.warn(`[mcp] skipping server "${serverName}": ${message}`);
+    },
+  });
+}
+
+/**
  * Convert a parsed config.yaml object into the raw shape expected by configSchema.
  * Defaults are handled by the Zod schema — this function only maps keys.
  */
@@ -446,6 +471,7 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
   const extCfg = root.extensions as YamlNode;
   const memAuxCfg = root.memory_aux_models as YamlNode;
   const cuCfg = root.computer_use as YamlNode;
+  const mcpCfg = root.mcp as YamlNode;
   const cuSSH = cuCfg?.ssh as YamlNode;
   const cuNode = cuCfg?.node as YamlNode;
 
@@ -759,6 +785,8 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
     extensions: {
       directory: str(extCfg?.directory, 'extensions', 'extCfg?.directory'),
     },
+
+    mcp: buildMcpSection(mcpCfg),
 
     agents: mapAgents(root.agents),
 
@@ -1356,6 +1384,15 @@ export function jsConfigToYaml(
       // ─── agent (P1 M6, already snake_case) ───
       case 'agent':
         yaml.agent = value;
+        break;
+
+      // ─── mcp: deliberately NOT round-tripped ───
+      // The MCP section is camelCase in AppConfig but snake_case in YAML, so
+      // the `default:` branch would write keys the loader cannot read back and
+      // silently destroy the user's MCP config on the next load. MCP edits are
+      // owned exclusively by /api/mcp/* through mutateConfigYaml(); a generic
+      // config PUT must leave the existing section untouched.
+      case 'mcp':
         break;
 
       // ─── multimodal (already snake_case) ───

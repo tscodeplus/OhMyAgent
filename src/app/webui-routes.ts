@@ -17,6 +17,7 @@ import { registerAgentRoutes } from './webui/agent-routes.js';
 import { registerSessionRoutes } from './webui/session-routes.js';
 import { registerChatRoutes, type ChatRouteConfig } from './webui/chat-routes.js';
 import { registerConfigRoutes } from './webui/config-routes.js';
+import { registerMcpRoutes } from './webui/mcp-routes.js';
 import { registerDashboardRoutes } from './webui/dashboard-routes.js';
 import { registerChannelRoutes } from './webui/channel-routes.js';
 import { registerSkillsRoutes } from './webui/skills-routes.js';
@@ -132,6 +133,13 @@ export async function registerWebUIRoutes(
   registerConfigRoutes(app, {
     getConfig: cfg.getConfig,
     configPath: process.env.CONFIG_FILE || './config.yaml',
+    onConfigSaved: cfg.onConfigSaved,
+  });
+
+  registerMcpRoutes(app, {
+    db: cfg.db,
+    getConfig: cfg.getConfig,
+    getManager: () => cfg.services.mcpManager,
     onConfigSaved: cfg.onConfigSaved,
   });
 

@@ -21,7 +21,8 @@ export type ToolCategory =
   | 'config'
   | 'session'
   | 'cron'
-  | 'computer_use';
+  | 'computer_use'
+  | 'mcp';
 
 // ---------------------------------------------------------------------------
 // ToolDefinition

@@ -31,6 +31,7 @@ import type { FastifyInstance } from 'fastify';
 import type { VisionBridgeConfig } from '../vision-bridge/vision-bridge-types.js';
 import type { AgentConfig } from '../agent/config-types.js';
 import type { OpenAICompletionsCompat, OpenAIResponsesCompat } from '../pi-mono/ai/types.js';
+import type { McpSectionConfig } from '../mcp/types.js';
 
 // ---------------------------------------------------------------------------
 // 1. AppConfig
@@ -341,6 +342,11 @@ export interface AppConfig {
   agents?: AgentConfig[];
   /** Computer Use: remote/local desktop control. */
   computerUse?: ComputerUseConfig;
+  /**
+   * MCP servers (MyDocs/MCP_INTEGRATION_DESIGN.md §5). Absent when `config.yaml`
+   * has no `mcp:` section, which leaves MCP entirely inert.
+   */
+  mcp?: McpSectionConfig;
   /** Footer display options. Applies to all channels. */
   footer: FooterConfig;
 
@@ -928,6 +934,13 @@ export interface AppServices {
   toolPlatformRegistry?: import('../tools/platform/registry.js').ToolPlatformRegistry;
   /** Desktop Bridge registry for remote tool execution. */
   desktopBridgeRegistry?: import('../agent/desktop-bridge-registry.js').DesktopBridgeRegistry;
+
+  // ── MCP ──
+  /**
+   * MCP server lifecycle surface. Present only when `config.yaml` has an
+   * `mcp:` section; consumers must treat a missing manager as "MCP is off".
+   */
+  mcpManager?: import('../mcp/types.js').McpManager;
 
   // ── Policy / Approval ──
   approvalGate: ApprovalGate;

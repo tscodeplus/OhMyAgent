@@ -8,12 +8,12 @@
 
 import type { FastifyInstance } from 'fastify';
 import type { AppConfig } from '../types.js';
-import { writeFileSync, readFileSync, existsSync } from 'node:fs';
-import { load as parseYaml, dump as dumpYaml } from 'js-yaml';
 import { getModels, getProviders, getBuiltinProviders } from '@earendil-works/pi-ai';
 import { ensureV1BaseUrl } from '../../utils/base-url.js';
-import { resetConfig, loadConfig, startConfigWatcher } from '../config.js';
+import { loadConfig, startConfigWatcher } from '../config.js';
 import { jsConfigToYaml } from '../config-loader.js';
+import { maskMcpSection } from '../../mcp/masking.js';
+import { applyConfigObject, mutateConfigYaml, readConfigObject } from './yaml-mutation.js';
 
 const SECRET_FIELDS = [
   'apiKey',
@@ -167,7 +167,13 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
       config.providerKeys = enriched;
     }
 
-    return reply.send(config);
+    // `mcp` carries env values, HTTP Authorization headers and OAuth client
+    // secrets. `/api/mcp/*` masks those, so this endpoint must too — otherwise
+    // the masking is trivially defeated by calling the generic config route.
+    // Build a copy: `config` is the live object and must not be mutated.
+    const body = config.mcp ? { ...config, mcp: maskMcpSection(config.mcp) } : config;
+
+    return reply.send(body);
   });
 
   // Return the list of built-in pi-mono providers so the frontend never
@@ -415,48 +421,43 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
           .send({ error: 'Bad Request', message: 'Body must be a JSON object' });
       }
 
-      const yamlPath = process.env.CONFIG_FILE || './config.yaml';
+      // Serialised read-modify-write (yaml-mutation.ts): the merge runs on a
+      // plain-object view of the parsed document, and only the top-level keys
+      // that changed are written back — comments and formatting of the
+      // untouched sections survive. The helper also invalidates the cached
+      // config so the next GET returns fresh data.
+      await mutateConfigYaml((doc) => {
+        const existing = readConfigObject(doc);
 
-      // Read existing YAML
-      let existing: Record<string, unknown> = {};
-      if (existsSync(yamlPath)) {
-        const raw = readFileSync(yamlPath, 'utf-8');
-        existing = (parseYaml(raw) as Record<string, unknown>) || {};
-      }
+        // ── Preprocess body ──
+        // 1. Expand dot-notation keys into nested objects
+        const expanded = expandDotKeys(updates);
 
-      // ── Preprocess body ──
-      // 1. Expand dot-notation keys into nested objects
-      const expanded = expandDotKeys(updates);
-
-      // 2. provider_keys: full replacement (frontend sends the complete set)
-      if (expanded.provider_keys !== undefined) {
-        existing.provider_keys = {};
-      }
-
-      // 3. customProviders: full replacement (frontend sends the complete set)
-      if (expanded.customProviders !== undefined) {
-        existing.custom_providers = {};
-      }
-
-      // 4. Clean up known junk keys created by previous dot-notation writes
-      for (const key of Object.keys(existing)) {
-        if (key.includes('.')) {
-          delete existing[key];
+        // 2. provider_keys: full replacement (frontend sends the complete set)
+        if (expanded.provider_keys !== undefined) {
+          existing.provider_keys = {};
         }
-      }
 
-      // 5. Convert JS config shape → YAML shape (inverse of yamlToAppConfigRaw)
-      const yamlBody = jsConfigToYaml(expanded, existing);
+        // 3. customProviders: full replacement (frontend sends the complete set)
+        if (expanded.customProviders !== undefined) {
+          existing.custom_providers = {};
+        }
 
-      // Merge updates into existing YAML
-      deepMerge(existing, yamlBody);
+        // 4. Clean up known junk keys created by previous dot-notation writes
+        for (const key of Object.keys(existing)) {
+          if (key.includes('.')) {
+            delete existing[key];
+          }
+        }
 
-      // Write back
-      const yamlStr = dumpYaml(existing, { indent: 2, lineWidth: 120 });
-      writeFileSync(yamlPath, yamlStr, 'utf-8');
+        // 5. Convert JS config shape → YAML shape (inverse of yamlToAppConfigRaw)
+        const yamlBody = jsConfigToYaml(expanded, existing);
 
-      // Invalidate cached config so next GET returns fresh data
-      resetConfig();
+        // Merge updates into existing YAML
+        deepMerge(existing, yamlBody);
+
+        applyConfigObject(doc, existing);
+      });
 
       // Trigger hot-reload of services with the new config (critical for first-run
       // setup wizard where the config.yaml didn't exist at bootstrap time, so the

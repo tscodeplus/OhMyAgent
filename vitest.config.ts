@@ -9,6 +9,9 @@ export default defineConfig({
       { find: '@earendil-works/pi-ai/compat', replacement: path.resolve(__dirname, 'src/pi-mono/ai/compat.ts') },
       { find: '@earendil-works/pi-ai', replacement: path.resolve(__dirname, 'src/pi-mono/ai/compat.ts') },
       { find: '@earendil-works/pi-agent-core', replacement: path.resolve(__dirname, 'src/pi-mono/agent/index.ts') },
+      { find: '@earendil-works/pi-mcp/oauth', replacement: path.resolve(__dirname, 'src/pi-mono/mcp/oauth/index.ts') },
+      { find: '@earendil-works/pi-mcp/testing', replacement: path.resolve(__dirname, 'src/pi-mono/mcp/testing/index.ts') },
+      { find: '@earendil-works/pi-mcp', replacement: path.resolve(__dirname, 'src/pi-mono/mcp/index.ts') },
     ],
   },
   test: {
