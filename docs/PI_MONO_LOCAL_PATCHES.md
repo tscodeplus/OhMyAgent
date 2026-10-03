@@ -108,6 +108,20 @@ regress when re-implementing:
 - `src/tools/registry.ts` — `register()` normalizes a v4 `ToolDefinition` (`parametersSchema` →
   `parameters`) because v0.86.0 serializes each tool's `parameters` when building tool declarations.
 
+### `src/pi-mono/mcp/` — embedded, NO local patches
+
+`@earendil-works/pi-mcp` v1.0.0 is embedded the same way as `pi-ai` and `pi-agent-core`, but it
+carries **zero** first-party edits — `grep -rn "OhMyAgent" src/pi-mono/mcp` returns nothing.
+That makes it the cheapest of the three to upgrade: replace the tree wholesale, then re-apply
+the `.ts` → `.js` import rewrite, which it *does* need (41 internal specifiers).
+
+Two things to keep in step when copying it in:
+
+- `cross-spawn` is its only runtime dependency and must stay in `package.json`.
+- `tsconfig.json` and `vitest.config.ts` need the three exact-match path entries
+  (`@earendil-works/pi-mcp`, `/oauth`, `/testing`). They are exact-match keys, not wildcards,
+  so a new subpath export upstream needs a new entry here.
+
 ## Event: `stream_retry`
 
 Emitted when a model attempt fails and the loop is about to retry the same model

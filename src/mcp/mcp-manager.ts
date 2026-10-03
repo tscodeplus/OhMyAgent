@@ -247,17 +247,17 @@ class McpManagerImpl implements McpManager {
    * it with `manager.resources?`.
    */
   readonly resources: McpResourceAccess = {
-    listResources: (serverName, cursor) =>
+    listResources: (serverName, cursor, opts) =>
       this.withResourceClient(serverName, (client, timeoutMs) =>
-        client.listResourcesPage(cursor, { timeoutMs }),
+        client.listResourcesPage(cursor, { timeoutMs, signal: opts?.signal }),
       ),
-    listResourceTemplates: (serverName, cursor) =>
+    listResourceTemplates: (serverName, cursor, opts) =>
       this.withResourceClient(serverName, (client, timeoutMs) =>
-        client.listResourceTemplatesPage(cursor, { timeoutMs }),
+        client.listResourceTemplatesPage(cursor, { timeoutMs, signal: opts?.signal }),
       ),
-    readResource: (serverName, uri) =>
+    readResource: (serverName, uri, opts) =>
       this.withResourceClient(serverName, (client, timeoutMs) =>
-        client.readResource(uri, { timeoutMs }),
+        client.readResource(uri, { timeoutMs, signal: opts?.signal }),
       ),
     serversWithResources: () =>
       [...this.servers.values()]
