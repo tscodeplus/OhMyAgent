@@ -471,9 +471,12 @@ export default function McpServerForm({
             <Input
               label={t('settings.mcp.form.cwd')}
               value={cwd}
-              placeholder="~/projects/demo"
+              placeholder="./data"
               onChange={(e) => setCwd(e.target.value)}
             />
+            <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+              {t('settings.mcp.form.cwdHint')}
+            </p>
           </>
         ) : (
           <>
