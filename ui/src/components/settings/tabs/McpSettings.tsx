@@ -17,7 +17,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plug, Plus, Search } from 'lucide-react';
+import { Plug, Plus, Search, Server, Settings2 } from 'lucide-react';
 import Button from '../../ui/Button';
 import Input from '../../ui/Input';
 import Modal from '../../ui/Modal';
@@ -44,6 +44,13 @@ import McpPresetList from '../mcp/McpPresetList';
 
 /** Delay before re-reading state after an action that (re)connects a server. */
 const RECONNECT_SETTLE_MS = 1500;
+
+/** Internal sub-tabs: the server list is the default view; global tunables live in "settings". */
+const MCP_SUB_TABS = [
+  { id: 'servers' as const, icon: Server, labelKey: 'settings.mcp.subTabs.servers' },
+  { id: 'settings' as const, icon: Settings2, labelKey: 'settings.mcp.subTabs.settings' },
+];
+type McpSubTab = (typeof MCP_SUB_TABS)[number]['id'];
 
 /** One entry of the uninstall/disable impact scan (§13.4). */
 interface ImpactScan {
@@ -83,6 +90,8 @@ export default function McpSettings() {
   const [login, setLogin] = useState<{ server: McpServerView; url: string } | null>(null);
   const [callbackUrl, setCallbackUrl] = useState('');
   const [loginBusy, setLoginBusy] = useState(false);
+
+  const [activeSubTab, setActiveSubTab] = useState<McpSubTab>('servers');
 
   // Section-level tunable (`mcp.connect_timeout_sec`): loaded with the rest,
   // edited inline and PATCHed immediately (this tab has no Save-bar).
@@ -523,8 +532,8 @@ export default function McpSettings() {
   const detailServer = detail ? (servers?.find((s) => s.name === detail.name) ?? null) : null;
 
   const connectTimeoutBox = (
-    <section className="rounded-lg border border-neutral-200 px-3 py-2.5 dark:border-neutral-800">
-      <div className="flex flex-wrap items-end gap-3">
+    <section className="rounded-lg border border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="max-w-52 min-w-40">
           <Input
             label={t('settings.mcp.connectTimeout.label')}
@@ -545,10 +554,19 @@ export default function McpSettings() {
           {t('common.save')}
         </Button>
       </div>
-      <p className="mt-1 text-[11px] text-neutral-500 dark:text-neutral-400">
+      <p className="mt-2 text-[11px] text-neutral-500 dark:text-neutral-400">
         {t('settings.mcp.connectTimeout.hint')}
       </p>
     </section>
+  );
+
+  const settingsTab = (
+    <div className="space-y-3">
+      {connectTimeoutBox}
+      <p className="px-1 text-[11px] text-neutral-500 dark:text-neutral-400">
+        {t('settings.mcp.settingsNote')}
+      </p>
+    </div>
   );
 
   const openDetail = useCallback((server: McpServerView, section: McpDetailSection) => {
@@ -567,16 +585,6 @@ export default function McpSettings() {
           <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
             {t('settings.mcp.subtitle')}
           </p>
-          {status && (
-            <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-              {t('settings.mcp.statusBar', {
-                installed: status.installed,
-                enabled: status.enabled,
-                connected: status.connected,
-                authRequired: status.authRequired,
-              })}
-            </p>
-          )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Button variant="secondary" size="sm" onClick={() => setPresetsOpen(true)}>
@@ -588,6 +596,27 @@ export default function McpSettings() {
           </Button>
         </div>
       </div>
+      {status && status.installed > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <StatusChip label={t('settings.mcp.chips.installed', { count: status.installed })} />
+          <StatusChip
+            label={t('settings.mcp.chips.connected', { count: status.connected })}
+            tone="ok"
+          />
+          {status.authRequired > 0 && (
+            <StatusChip
+              label={t('settings.mcp.chips.needsLogin', { count: status.authRequired })}
+              tone="warn"
+            />
+          )}
+          {status.errorCount > 0 && (
+            <StatusChip
+              label={t('settings.mcp.chips.errors', { count: status.errorCount })}
+              tone="danger"
+            />
+          )}
+        </div>
+      )}
       {(servers?.length ?? 0) > 0 && (
         <div className="flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 dark:border-neutral-800 dark:bg-neutral-800">
           <Search size={14} className="shrink-0 text-neutral-400" />
@@ -679,11 +708,54 @@ export default function McpSettings() {
     );
   }
 
+  // Same segmented-control language as ModelSettings' sub-tab bar.
+  const subTabBar = (
+    <div
+      className="flex max-sm:overflow-x-auto gap-1 rounded-lg bg-neutral-100 p-1 dark:bg-neutral-800"
+      role="tablist"
+    >
+      {MCP_SUB_TABS.map((st) => {
+        const Icon = st.icon;
+        const active = activeSubTab === st.id;
+        return (
+          <button
+            key={st.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => setActiveSubTab(st.id)}
+            className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-[13px] transition-all ${
+              active
+                ? 'bg-white font-medium text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
+                : 'text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100'
+            }`}
+          >
+            <Icon size={14} strokeWidth={1.75} />
+            <span>{t(st.labelKey)}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
   return (
     <div className="space-y-4">
-      {header}
-      {connectTimeoutBox}
-      {body}
+      {subTabBar}
+
+      <div
+        className="space-y-4"
+        style={{ display: activeSubTab === 'servers' ? undefined : 'none' }}
+      >
+        {header}
+        {body}
+      </div>
+
+      <div
+        className="space-y-3"
+        style={{ display: activeSubTab === 'settings' ? undefined : 'none' }}
+      >
+        {settingsTab}
+      </div>
 
       {detail && detailServer && (
         <McpServerDetail
@@ -923,4 +995,25 @@ function errorText(err: unknown): string {
     if (typeof message === 'string' && message) return message;
   }
   return '';
+}
+
+/** Small count chip in the header. Colour is an extra signal, never the only one. */
+function StatusChip({
+  label,
+  tone = 'neutral',
+}: {
+  label: string;
+  tone?: 'neutral' | 'ok' | 'warn' | 'danger';
+}) {
+  const cls = {
+    neutral: 'border-neutral-200 text-neutral-600 dark:border-neutral-700 dark:text-neutral-300',
+    ok: 'border-emerald-200 text-emerald-700 dark:border-emerald-900 dark:text-emerald-300',
+    warn: 'border-amber-200 text-amber-700 dark:border-amber-900 dark:text-amber-300',
+    danger: 'border-red-200 text-red-700 dark:border-red-900 dark:text-red-300',
+  }[tone];
+  return (
+    <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium leading-none ${cls}`}>
+      {label}
+    </span>
+  );
 }

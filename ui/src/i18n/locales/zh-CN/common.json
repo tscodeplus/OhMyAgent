@@ -616,7 +616,17 @@
     "mcp": {
       "title": "MCP 服务器",
       "subtitle": "接入外部 MCP（Model Context Protocol）服务器，把它的工具交给智能体使用",
-      "statusBar": "已安装 {{installed}} · 已启用 {{enabled}} · 已连接 {{connected}} · 需要登录 {{authRequired}}",
+      "subTabs": {
+        "servers": "服务器",
+        "settings": "设置"
+      },
+      "chips": {
+        "installed": "已安装 {{count}}",
+        "connected": "已连接 {{count}}",
+        "needsLogin": "需登录 {{count}}",
+        "errors": "错误 {{count}}"
+      },
+      "settingsNote": "每个服务器自己的“工具调用超时”等参数，在各服务器卡片的编辑表单里修改。",
       "connectTimeout": {
         "label": "连接超时（秒）",
         "hint": "建立 MCP 服务器连接（含冷启动 npx 下载依赖）的最长等待时间，写入 mcp.connect_timeout_sec。",
