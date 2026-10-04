@@ -681,7 +681,7 @@
         "command": "Command",
         "commandHint": "A single executable; leave blank to use npx",
         "args": "Arguments",
-        "argsHint": "One argument per row: press Enter for a new row, or paste multi-line text and it is split automatically",
+        "argsHint": "One argument per row: press Enter for a new row, or paste multi-line text and it is split automatically; blank rows save as -y for npx commands, and are ignored otherwise",
         "env": "Environment variables",
         "cwd": "Working directory",
         "url": "URL",

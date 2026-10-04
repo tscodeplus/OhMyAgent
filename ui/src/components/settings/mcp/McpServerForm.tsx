@@ -87,6 +87,10 @@ export function emptyMcpDraft(): McpServerDraft {
     exposure: 'deferred',
     description: '',
     command: '',
+    // Kept empty on purpose: a blank args row means "use the row's `-y`
+    // placeholder", and `buildInput` writes it out as a real `-y` for `npx`
+    // (the resolved default command). Prefilling here instead would force a
+    // manual row deletion on users who switch the command to another runtime.
     args: [],
     env: [],
     cwd: '',
@@ -302,8 +306,20 @@ export default function McpServerForm({
     const timeout = timeoutSec.trim();
     if (timeout) input.timeoutSec = Number(timeout);
     if (transport === 'stdio') {
-      input.command = command.trim() || 'npx';
-      const cleanedArgs = args.filter((a) => a.length > 0);
+      // A blank command stands for `npx`, which is what the input shows.
+      const resolvedCommand = command.trim() || 'npx';
+      input.command = resolvedCommand;
+      // A blank args row stands for the row's gray `-y` placeholder: what the
+      // form displays must match what reaches `config.yaml`. For `npx` the
+      // blank row is real content and `-y` (skip the install prompt) is the
+      // default, so it is written out for real. For other runtimes (`uvx`,
+      // `python -m`, …) `-y` is not a valid flag and would corrupt working
+      // presets like `uvx mcp-server-fetch` on an unrelated edit, so blank
+      // rows are dropped there instead.
+      const cleanedArgs = args
+        .map((a) => a.trim())
+        .map((a) => (a.length > 0 ? a : resolvedCommand === 'npx' ? '-y' : ''))
+        .filter((a) => a.length > 0);
       if (cleanedArgs.length > 0) input.args = cleanedArgs;
       const envRecord = rowsToRecord(env);
       if (Object.keys(envRecord).length > 0) input.env = envRecord;
@@ -428,7 +444,7 @@ export default function McpServerForm({
             <StringListEditor
               label={t('settings.mcp.form.args')}
               values={args}
-              placeholder="-y"
+              placeholder={(command.trim() || 'npx') === 'npx' ? '-y' : undefined}
               hint={t('settings.mcp.form.argsHint')}
               onChange={setArgs}
               addLabel={t('settings.mcp.form.addRow')}
