@@ -44,6 +44,17 @@ const markdownProcessor = unified()
 // Version compare + latest.yml parser (verbatim from desktop/src/updater.ts)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------
+// Network timeouts
+// ----------------------------------------------------------------
+// Timeout must cover the WHOLE redirect chain of one fetch (abort signal is
+// armed once per request): github.com/releases/download → 302 →
+// release-assets.githubusercontent.com is two hops, and each hop can cost
+// 5–6s on a TUN/rule-mode proxy whose DNS answers slowly (real-IP mode).
+// 10s made the update check time out even though the network worked.
+const UPDATER_API_TIMEOUT_MS = 30_000;
+const UPDATER_YML_TIMEOUT_MS = 30_000;
+
 function stripLeadingV(v: string): string {
   return v.replace(/^[vV]/, '');
 }
@@ -85,8 +96,7 @@ function parseSemver(v: string): ParsedSemver {
 }
 
 /** Minimal YAML parser for latest.yml format (flat key: value + array of objects). */
-function parseLatestYml(  text: string,
-): {
+function parseLatestYml(text: string): {
   version: string;
   files: Array<{ url: string; sha512: string }>;
   path: string;
@@ -205,7 +215,13 @@ async function shellFetch(pathname: string, body?: unknown): Promise<void> {
   }
 }
 
-function showWindow(kind: string, html: string, width: number, height: number, dark: boolean): void {
+function showWindow(
+  kind: string,
+  html: string,
+  width: number,
+  height: number,
+  dark: boolean,
+): void {
   // The Rust shell builds the dialog window against a real http:// page
   // (data: URLs are rejected by the remote-origin ACL), so the HTML is cached
   // here and served from the control API; /show-window only carries geometry.
@@ -252,7 +268,9 @@ export class AppUpdater {
     this.downloadCancelled = false;
     this.pendingUpdate = null;
     diagLog(`checkForUpdates() called includeBeta=${includeBeta}`);
-    await this.runNetworkDiagnostic();
+    // Network diagnostics run in parallel with the real check (see
+    // runNetworkDiagnostic) — don't let their failures/rejections escape.
+    void this.runNetworkDiagnostic();
 
     try {
       const result = await this.checkForUpdateResult(includeBeta);
@@ -320,7 +338,7 @@ export class AppUpdater {
     const apiUrl = 'https://api.github.com/repos/tscodeplus/OhMyAgent/releases?per_page=30';
     const resp = await fetchWithProxy(apiUrl, {
       headers: { Accept: 'application/vnd.github.v3+json' },
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(UPDATER_API_TIMEOUT_MS),
     });
     if (!resp.ok) {
       // Surface GitHub's own reason — a 403 is usually a rate-limit rejection
@@ -331,12 +349,9 @@ export class AppUpdater {
       const body = await resp.text().catch(() => '');
       const remaining = resp.headers.get('x-ratelimit-remaining');
       const status = resp.status;
-      const detail =
-        remaining !== null ? ` rate-limit remaining: ${remaining}` : '';
+      const detail = remaining !== null ? ` rate-limit remaining: ${remaining}` : '';
       if ((status === 403 || status === 429) && remaining === '0') {
-        throw new Error(
-          `${getT().updater.rateLimitExceeded} (${status}${detail})`,
-        );
+        throw new Error(`${getT().updater.rateLimitExceeded} (${status}${detail})`);
       }
       const snippet = body ? ` — ${body.trim().slice(0, 80)}` : '';
       throw new Error(`GitHub API returned ${status}${detail}${snippet}`);
@@ -361,9 +376,7 @@ export class AppUpdater {
       .filter((r) => r.tag_name && /^v?\d+(\.\d+)+/.test(r.tag_name))
       .map((r) => ({ ...r, version: r.tag_name!.replace(/^v/, '') }));
     tagged.sort((a, b) => compareVersions(b.version, a.version));
-    const release = includeBeta
-      ? tagged[0]
-      : tagged.find((r) => !/beta/i.test(r.version));
+    const release = includeBeta ? tagged[0] : tagged.find((r) => !/beta/i.test(r.version));
     if (!release) {
       return null;
     }
@@ -387,7 +400,9 @@ export class AppUpdater {
           : 'latest-linux.yml';
     const latestYmlUrl = `https://github.com/tscodeplus/OhMyAgent/releases/download/${release.tag_name}/${ymlName}`;
     diagLog(`checkForUpdateResult: fetching ${latestYmlUrl}`);
-    const ymlResp = await fetchWithProxy(latestYmlUrl, { signal: AbortSignal.timeout(10_000) });
+    const ymlResp = await fetchWithProxy(latestYmlUrl, {
+      signal: AbortSignal.timeout(UPDATER_YML_TIMEOUT_MS),
+    });
     if (!ymlResp.ok) {
       throw new Error(`${ymlName} returned ${ymlResp.status}`);
     }
@@ -457,7 +472,8 @@ export class AppUpdater {
       let partVersion = '';
       try {
         if (fs.existsSync(metaPath)) {
-          partVersion = (JSON.parse(fs.readFileSync(metaPath, 'utf8')) as { version?: string }).version ?? '';
+          partVersion =
+            (JSON.parse(fs.readFileSync(metaPath, 'utf8')) as { version?: string }).version ?? '';
         }
       } catch {
         /* corrupt meta — treat as unknown version */
@@ -465,9 +481,13 @@ export class AppUpdater {
 
       if (partVersion === update.version) {
         existingSize = fs.statSync(partPath).size;
-        diagLog(`downloadFromPendingUpdate: resuming from byte ${existingSize} (version ${update.version})`);
+        diagLog(
+          `downloadFromPendingUpdate: resuming from byte ${existingSize} (version ${update.version})`,
+        );
       } else {
-        diagLog(`downloadFromPendingUpdate: stale .part for v${partVersion}, discarding (wanted v${update.version})`);
+        diagLog(
+          `downloadFromPendingUpdate: stale .part for v${partVersion}, discarding (wanted v${update.version})`,
+        );
         fs.unlinkSync(partPath);
         try {
           fs.unlinkSync(metaPath);
@@ -537,7 +557,9 @@ export class AppUpdater {
       while (true) {
         if (this.downloadCancelled) {
           reader.cancel();
-          diagLog(`downloadFromPendingUpdate: cancelled (kept ${downloaded} / ${totalSize} bytes in .part)`);
+          diagLog(
+            `downloadFromPendingUpdate: cancelled (kept ${downloaded} / ${totalSize} bytes in .part)`,
+          );
           return;
         }
         const { done, value } = await reader.read();
@@ -604,7 +626,12 @@ export class AppUpdater {
     this.sendDownloaded(update.version, update.releaseNotes, unsigned);
   }
 
-  private sendProgress(percent: number, bytesPerSecond: number, total: number, transferred: number): void {
+  private sendProgress(
+    percent: number,
+    bytesPerSecond: number,
+    total: number,
+    transferred: number,
+  ): void {
     broadcastEvent('update-download-progress', { percent, bytesPerSecond, total, transferred });
   }
 
@@ -643,7 +670,9 @@ export class AppUpdater {
     }
     if (this.isMacOSUnsigned()) {
       diagLog('installUpdate: unsigned macOS build — opening GitHub Releases');
-      void shellFetch('/open-external', { url: 'https://github.com/tscodeplus/OhMyAgent/releases' });
+      void shellFetch('/open-external', {
+        url: 'https://github.com/tscodeplus/OhMyAgent/releases',
+      });
       return;
     }
 
@@ -834,8 +863,7 @@ export class AppUpdater {
     const scrollThumb = isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)';
     const scrollThumbHover = isDark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.28)';
 
-    const notesBody =
-      notesHtml || `<p style="color:${muted}">${getT().updater.noReleaseNotes}</p>`;
+    const notesBody = notesHtml || `<p style="color:${muted}">${getT().updater.noReleaseNotes}</p>`;
 
     const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
@@ -1003,22 +1031,37 @@ export class AppUpdater {
 
   /** Log proxy / connectivity diagnostics (fetch-based, no Electron session). */
   private async runNetworkDiagnostic(): Promise<void> {
+    // Test URLs derived from the real update-check targets: api.github.com
+    // (the metadata hop) and a release-asset download on the CURRENT repo
+    // (the redirect target that actually fails on slow TUN/DNS setups). The
+    // old hardcoded v2.0.0-beta3 asset 404'd silently and told us nothing.
+    const assetProbe = `https://github.com/tscodeplus/OhMyAgent/releases/tags/v${process.env.OMA_APP_VERSION ?? '0.0.0'}`;
     const testUrls = [
-      { label: 'GitHub API', url: 'https://api.github.com/repos/tscodeplus/OhMyAgent/releases/latest' },
-      { label: 'latest.yml (beta3)', url: 'https://github.com/tscodeplus/OhMyAgent/releases/download/v2.0.0-beta3/latest.yml' },
+      {
+        label: 'GitHub API',
+        url: 'https://api.github.com/repos/tscodeplus/OhMyAgent/releases/latest',
+      },
+      { label: 'release-asset (current version)', url: assetProbe },
     ];
-    for (const { label, url } of testUrls) {
-      try {
-        const resp = await fetchWithProxy(url, {
-          method: 'GET',
-          redirect: 'follow',
-          signal: AbortSignal.timeout(10_000),
-        });
-        diagLog(`[${label}] OK status=${resp.status} (${resp.headers.get('content-length') || '?'} bytes)`);
-      } catch (e: unknown) {
-        diagLog(`[${label}] FAILED: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
+    // Run in parallel with the real update check instead of serially before
+    // it — on a slow/flaky link two 30s probes used to add up to a minute of
+    // dead time before checkForUpdateResult() even started.
+    void Promise.all(
+      testUrls.map(async ({ label, url }) => {
+        try {
+          const resp = await fetchWithProxy(url, {
+            method: 'GET',
+            redirect: 'follow',
+            signal: AbortSignal.timeout(UPDATER_YML_TIMEOUT_MS),
+          });
+          // Drain the body so the socket returns to the pool, then log.
+          await resp.arrayBuffer().catch(() => undefined);
+          diagLog(`[${label}] OK status=${resp.status}`);
+        } catch (e: unknown) {
+          diagLog(`[${label}] FAILED: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }),
+    );
   }
 
   /**
@@ -1050,10 +1093,7 @@ export class AppUpdater {
     } catch (err: unknown) {
       // Never let a renderer failure blank the dialog — fall back to
       // escaped plain text with preserved line breaks.
-      const escaped = markdown
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
+      const escaped = markdown.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       return `<p>${escaped.replace(/\n/g, '<br>')}</p>`;
     }
   }
