@@ -14,8 +14,12 @@ type EnvMap = Record<string, string | undefined>;
 /**
  * Recursively replace ${VAR_NAME} placeholders in strings.
  * Looks up values from `env` first, then falls back to process.env.
+ *
+ * Exported so a caller that holds *raw* config values — e.g. the MCP dry
+ * connect (`POST /api/mcp/test`) — resolves them exactly the way the loader
+ * would, instead of sending the literal `${VAR}` to a live server.
  */
-function interpolateEnv(obj: unknown, env?: EnvMap): unknown {
+export function interpolateEnv(obj: unknown, env?: EnvMap): unknown {
   if (typeof obj === 'string') {
     return obj.replace(
       ENV_INTERP_RE,

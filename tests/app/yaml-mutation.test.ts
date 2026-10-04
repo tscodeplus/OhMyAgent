@@ -7,15 +7,21 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parse as parseYaml } from 'yaml';
+import Fastify from 'fastify';
+import { parse as parseYaml, parseDocument } from 'yaml';
 import {
   applyConfigObject,
+  describeYamlParseError,
   mutateConfigYaml,
   readConfigObject,
+  readRawConfigFile,
 } from '../../src/app/webui/yaml-mutation.js';
+import { registerFilesRoutes } from '../../src/app/webui/files-routes.js';
+import { handleCommand, type CommandDeps } from '../../src/commands/command-handler.js';
+import type { AppConfig } from '../../src/app/types.js';
 
 let dir: string;
 let configPath: string;
@@ -180,6 +186,35 @@ describe('mutateConfigYaml', () => {
     expect(readFileSync(configPath, 'utf-8')).toBe(malformed);
   });
 
+  it('scrubs the offending source line out of a parse error', async () => {
+    // `yaml` appends the source line and a caret to `error.message`; the API
+    // returns that message verbatim, so a secret-bearing line must not survive.
+    const malformed = 'mcp:\n  client_secret: hunter2: x\n';
+    writeConfig(malformed);
+
+    const failure = await mutateConfigYaml(() => {}).catch((err: Error) => err);
+
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toContain('Failed to parse config file');
+    expect((failure as Error).message).toContain('line 2, column 18');
+    expect((failure as Error).message).not.toContain('hunter2');
+  });
+
+  it('writes the file the caller names, not only the CONFIG_FILE default', async () => {
+    const other = join(dir, 'other.yaml');
+    writeFileSync(other, 'log_level: info\n', 'utf-8');
+
+    await mutateConfigYaml((doc) => {
+      const next = readConfigObject(doc);
+      next.log_level = 'debug';
+      applyConfigObject(doc, next);
+    }, other);
+
+    expect(parseYaml(readFileSync(other, 'utf-8'))).toEqual({ log_level: 'debug' });
+    // The default file was never touched.
+    expect(existsSync(configPath)).toBe(false);
+  });
+
   it('writes through a temp file and leaves no leftovers behind', async () => {
     writeConfig('log_level: info\n');
 
@@ -217,5 +252,108 @@ describe('mutateConfigYaml', () => {
     });
 
     expect(readFileSync(configPath, 'utf-8')).toBe('tuned: 8\n');
+  });
+});
+
+describe('readRawConfigFile', () => {
+  it('reads the file without interpolating ${ENV} or filling in defaults', () => {
+    process.env.OMA_TEST_TEAM = 'acme';
+    try {
+      writeConfig(
+        [
+          'mcp:',
+          '  servers:',
+          '    docs:',
+          '      url: https://mcp.example/api',
+          '      headers:',
+          '        X-Team: ${OMA_TEST_TEAM}',
+          '',
+        ].join('\n'),
+      );
+
+      expect(readRawConfigFile()).toEqual({
+        mcp: {
+          servers: {
+            docs: {
+              url: 'https://mcp.example/api',
+              headers: { 'X-Team': '${OMA_TEST_TEAM}' },
+            },
+          },
+        },
+      });
+    } finally {
+      delete process.env.OMA_TEST_TEAM;
+    }
+  });
+
+  it('returns an empty object for a missing file', () => {
+    expect(readRawConfigFile()).toEqual({});
+  });
+
+  it('throws a scrubbed error on malformed YAML', () => {
+    writeConfig('mcp:\n  client_secret: hunter2: x\n');
+
+    expect(() => readRawConfigFile()).toThrowError(/Failed to parse config file/);
+    expect(() => readRawConfigFile()).not.toThrowError(/hunter2/);
+  });
+});
+
+// Every writer of config.yaml shares this queue; these two used to do their own
+// unguarded read-modify-write, so they could lose — or be lost by — a
+// concurrent save (the settings form, agent CRUD, an MCP install).
+describe('config.yaml writers go through the queue', () => {
+  it('routes PUT /api/files/root through the queue and keeps the rest of the file', async () => {
+    writeConfig(
+      ['# keep me', 'webui:', '  file_root: /old # inline note', 'log_level: info', ''].join('\n'),
+    );
+
+    const app = Fastify({ logger: false });
+    registerFilesRoutes(app, {
+      getConfig: () => ({}) as AppConfig,
+      onConfigChanged: () => {},
+      configPath,
+    });
+    await app.ready();
+    try {
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/api/files/root',
+        payload: { root: dir },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(readConfig()).toEqual({ webui: { file_root: dir }, log_level: 'info' });
+      // The queue's Document round trip is what keeps this — the previous
+      // js-yaml re-dump rewrote the whole file from scratch. (The changed key
+      // loses only its own inline comment, which is the documented trade-off.)
+      expect(readFileSync(configPath, 'utf-8')).toContain('# keep me');
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('routes the /permission slash command through the queue', async () => {
+    writeConfig(['# keep me', 'policy:', '  mode: balanced', 'log_level: info', ''].join('\n'));
+
+    const result = await handleCommand('/permission safe', 'session-1', {
+      configPath,
+    } as unknown as CommandDeps);
+
+    expect(result?.reply).toBeTruthy();
+    expect(readConfig()).toEqual({ policy: { mode: 'safe' }, log_level: 'info' });
+    expect(readFileSync(configPath, 'utf-8')).toContain('# keep me');
+  });
+});
+
+describe('describeYamlParseError', () => {
+  it('keeps the code and position and drops the source line', () => {
+    const doc = parseDocument('mcp:\n  client_secret: hunter2: x\n');
+
+    const description = describeYamlParseError(doc.errors[0], 'config.yaml');
+
+    expect(description).toBe(
+      'Failed to parse config file config.yaml: not valid YAML at line 2, column 18 ' +
+        '(BLOCK_AS_IMPLICIT_KEY)',
+    );
   });
 });

@@ -3,13 +3,21 @@
 // ---------------------------------------------------------------------------
 //
 // Right-hand drawer opened from a card's `⋯` menu. Sections: connection, tools,
-// auth, logs and the (masked) raw config. Auth scope/expiry are not exposed by
-// `McpServerView`, so the auth block shows the stored-credentials flag and the
-// login/logout actions instead of inventing fields.
+// resources, auth, logs and the raw `config.yaml` fragment. Auth scope/expiry
+// are not exposed by `McpServerView`, so the auth block shows the stored-
+// credentials flag and the login/logout actions instead of inventing fields.
 //
 // Logs are tailed from `GET /api/mcp/servers/:name/logs?lines=200` with an
 // opt-in auto-refresh — the route reads the tail of the file, it never loads
 // the whole log into the response.
+//
+// Two panes read dedicated routes rather than `GET /api/config`:
+//   - resources: `GET /api/mcp/servers/:name/resources` (read-only list of the
+//     server's resources and templates).
+//   - raw config: `GET /api/mcp/servers/:name/raw`, which returns the masked
+//     `config.yaml` fragment with `${ENV}` placeholders *unexpanded* (§13.6).
+//     `/api/config` is deliberately NOT used: it is normalised, camelCase and
+//     already expanded, which is exactly what the raw pane must not show.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -18,8 +26,14 @@ import Button from '../../ui/Button';
 import Toggle from '../../ui/Toggle';
 import { apiRequest } from '../../../utils/api';
 import { McpToolTable, mcpCardState, mcpStateKey, mcpStatusDotClass } from './McpServerCard';
-import { readRawServerConfig } from './McpServerForm';
-import type { McpDetailSection, McpExposure, McpServerView, McpToolView } from './McpServerCard';
+import type {
+  McpDetailSection,
+  McpExposure,
+  McpResourceView,
+  McpResourcesResponse,
+  McpServerView,
+  McpToolView,
+} from './McpServerCard';
 
 const LOG_TAIL_LINES = 200;
 const LOG_POLL_MS = 5000;
@@ -35,6 +49,7 @@ export interface McpServerDetailProps {
   onLogout: (server: McpServerView) => void;
   onReconnect: (server: McpServerView) => void;
   onSetToolExposure: (server: McpServerView, tool: McpToolView, exposure: McpExposure) => void;
+  onSetToolEnabled: (server: McpServerView, tool: McpToolView, enabled: boolean) => void;
 }
 
 export default function McpServerDetail({
@@ -47,13 +62,17 @@ export default function McpServerDetail({
   onLogout,
   onReconnect,
   onSetToolExposure,
+  onSetToolEnabled,
 }: McpServerDetailProps) {
   const { t } = useTranslation('common');
   const state = mcpCardState(server);
   const [lines, setLines] = useState<string[] | null>(null);
   const [logsFailed, setLogsFailed] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
-  const [rawConfig, setRawConfig] = useState<Record<string, unknown> | null | undefined>(undefined);
+  // `undefined` = loading, `null` = \"no raw fragment available\", string = the fragment.
+  const [rawYaml, setRawYaml] = useState<string | null | undefined>(undefined);
+  const [resources, setResources] = useState<McpResourcesResponse | null>(null);
+  const [resourcesFailed, setResourcesFailed] = useState(false);
 
   const sections = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -82,10 +101,42 @@ export default function McpServerDetail({
     return () => clearInterval(timer);
   }, [autoRefresh, loadLogs]);
 
+  const loadResources = useCallback(() => {
+    // Reset before the fetch so a retry (or a server switch) shows the loading
+    // state instead of the previous server's list.
+    setResources(null);
+    setResourcesFailed(false);
+    apiRequest<McpResourcesResponse>(
+      `/api/mcp/servers/${encodeURIComponent(server.name)}/resources`,
+    )
+      .then((data) => setResources(data))
+      .catch(() => {
+        setResources(null);
+        setResourcesFailed(true);
+      });
+  }, [server.name]);
+
   useEffect(() => {
-    apiRequest<Record<string, unknown>>('/api/config')
-      .then((config) => setRawConfig(readRawServerConfig(config, server.name) ?? null))
-      .catch(() => setRawConfig(null));
+    loadResources();
+  }, [loadResources]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setRawYaml(undefined);
+    apiRequest<{ yaml: string | null; reason?: string }>(
+      `/api/mcp/servers/${encodeURIComponent(server.name)}/raw`,
+    )
+      .then((data) => {
+        if (!cancelled) setRawYaml(data.yaml ?? null);
+      })
+      .catch(() => {
+        // Route unavailable / server vanished: say \"unavailable\", never fall
+        // back to the expanded `/api/config` view this pane must not show.
+        if (!cancelled) setRawYaml(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [server.name]);
 
   useEffect(() => {
@@ -158,6 +209,21 @@ export default function McpServerDetail({
               }
               mono
             />
+            <Row
+              label={t('settings.mcp.detail.protocolVersion')}
+              value={server.serverInfo?.protocolVersion || '—'}
+              mono
+            />
+            <Row
+              label={t('settings.mcp.detail.serverName')}
+              value={server.serverInfo?.name || '—'}
+              mono
+            />
+            <Row
+              label={t('settings.mcp.detail.serverVersion')}
+              value={server.serverInfo?.version || '—'}
+              mono
+            />
             {server.transport === 'stdio' ? (
               <>
                 <Row label={t('settings.mcp.form.cwd')} value={server.cwd || '—'} mono />
@@ -183,6 +249,16 @@ export default function McpServerDetail({
               <Row label={t('settings.mcp.form.timeout')} value={String(server.timeoutSec)} />
             ) : null}
           </dl>
+          {server.instructionsSummary ? (
+            <details className="rounded-md border border-neutral-200 dark:border-neutral-800">
+              <summary className="cursor-pointer px-3 py-2 text-[11px] font-medium text-neutral-600 dark:text-neutral-300">
+                {t('settings.mcp.detail.instructions')}
+              </summary>
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap border-t border-neutral-200 px-3 py-2 font-mono text-[11px] text-neutral-700 dark:border-neutral-800 dark:text-neutral-300">
+                {server.instructionsSummary}
+              </pre>
+            </details>
+          ) : null}
           {server.error ? (
             <div className="space-y-1">
               <p className="text-[11px] font-medium text-red-600 dark:text-red-400">
@@ -190,6 +266,17 @@ export default function McpServerDetail({
               </p>
               <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-red-200 bg-red-50 px-3 py-2 font-mono text-[11px] text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
                 {server.error}
+              </pre>
+            </div>
+          ) : null}
+          {server.lastError ? (
+            <div className="space-y-1">
+              <p className="text-[11px] font-medium text-red-600 dark:text-red-400">
+                {t('settings.mcp.detail.lastError')} ·{' '}
+                {new Date(server.lastError.at).toLocaleString()}
+              </p>
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-red-200 bg-red-50 px-3 py-2 font-mono text-[11px] text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+                {server.lastError.message}
               </pre>
             </div>
           ) : null}
@@ -202,7 +289,14 @@ export default function McpServerDetail({
             tools={tools}
             pendingTool={pendingTool}
             onSetExposure={(tool, exposure) => onSetToolExposure(server, tool, exposure)}
+            onSetToolEnabled={(tool, enabled) => onSetToolEnabled(server, tool, enabled)}
           />
+        </section>
+
+        {/* ── Resources ── */}
+        <section ref={registerSection('resources')} className="space-y-2">
+          <SectionTitle title={t('settings.mcp.detail.resources')} />
+          <ResourcesBlock resources={resources} failed={resourcesFailed} onRetry={loadResources} />
         </section>
 
         {/* ── Auth ── */}
@@ -212,7 +306,9 @@ export default function McpServerDetail({
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
               <Row
                 label={t('settings.mcp.detail.credentials')}
-                value={server.oauth ? t('settings.mcp.detail.yes') : t('settings.mcp.detail.no')}
+                value={
+                  server.hasCredentials ? t('settings.mcp.detail.yes') : t('settings.mcp.detail.no')
+                }
               />
               <Row label={t('settings.mcp.detail.state')} value={t(mcpStateKey(state))} />
             </dl>
@@ -221,7 +317,7 @@ export default function McpServerDetail({
                 <LogIn size={13} />
                 {t('settings.mcp.action.login')}
               </Button>
-              {server.oauth && (
+              {server.hasCredentials && (
                 <Button size="sm" variant="secondary" onClick={() => onLogout(server)}>
                   <LogOut size={13} />
                   {t('settings.mcp.action.logout')}
@@ -268,18 +364,112 @@ export default function McpServerDetail({
           <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
             {t('settings.mcp.detail.rawConfigHint')}
           </p>
-          {rawConfig === undefined ? (
+          {rawYaml === undefined ? (
             <p className="text-xs text-neutral-400">{t('common.loading')}</p>
-          ) : rawConfig === null ? (
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('common.noData')}</p>
+          ) : rawYaml === null ? (
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              {t('settings.mcp.detail.rawConfigUnavailable')}
+            </p>
           ) : (
             <pre className="max-h-64 overflow-auto rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 font-mono text-[11px] text-neutral-700 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-300">
-              {JSON.stringify(rawConfig, null, 2)}
+              {rawYaml}
             </pre>
           )}
         </section>
       </div>
     </div>
+  );
+}
+
+/** Read-only list of a server's resources and templates, with one message per state. */
+function ResourcesBlock({
+  resources,
+  failed,
+  onRetry,
+}: {
+  resources: McpResourcesResponse | null;
+  failed: boolean;
+  onRetry: () => void;
+}) {
+  const { t } = useTranslation('common');
+
+  if (failed) {
+    return (
+      <div className="space-y-2">
+        <p className="text-xs text-red-600 dark:text-red-400">
+          {t('settings.mcp.detail.resourcesError')}
+        </p>
+        <Button size="sm" variant="secondary" onClick={onRetry}>
+          {t('common.retry')}
+        </Button>
+      </div>
+    );
+  }
+  if (resources === null) {
+    return <p className="text-xs text-neutral-400">{t('common.loading')}</p>;
+  }
+  if (!resources.supported) {
+    return (
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">
+        {t('settings.mcp.detail.resourcesNotSupported')}
+      </p>
+    );
+  }
+  if (!resources.connected) {
+    return (
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">
+        {t('settings.mcp.detail.resourcesNotConnected')}
+      </p>
+    );
+  }
+  if (resources.resources.length === 0) {
+    return (
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">
+        {t('settings.mcp.detail.resourcesEmpty')}
+      </p>
+    );
+  }
+  return (
+    <ul className="space-y-1.5">
+      {resources.resources.map((item, i) => (
+        <ResourceRow
+          key={`${item.uri ?? item.uriTemplate ?? item.name ?? 'resource'}-${i}`}
+          item={item}
+        />
+      ))}
+    </ul>
+  );
+}
+
+function ResourceRow({ item }: { item: McpResourceView }) {
+  const { t } = useTranslation('common');
+  const label = item.title || item.name || item.uri || item.uriTemplate || '—';
+  return (
+    <li className="rounded-md border border-neutral-200 px-3 py-2 dark:border-neutral-800">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="min-w-0 flex-1 truncate text-xs font-medium text-neutral-800 dark:text-neutral-200">
+          {label}
+        </span>
+        {item.template && (
+          <span className="rounded border border-neutral-200 px-1.5 py-0.5 text-[10px] leading-none text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
+            {t('settings.mcp.detail.resourceTemplate')}
+          </span>
+        )}
+        {item.mimeType && (
+          <span className="rounded border border-neutral-200 px-1.5 py-0.5 font-mono text-[10px] leading-none text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
+            {item.mimeType}
+          </span>
+        )}
+      </div>
+      <p className="mt-0.5 break-all font-mono text-[11px] text-neutral-500 dark:text-neutral-400">
+        {item.uri ?? item.uriTemplate ?? '—'}
+      </p>
+      {item.description && (
+        <p className="mt-0.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+          {item.description}
+        </p>
+      )}
+    </li>
   );
 }
 

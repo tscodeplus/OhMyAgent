@@ -205,6 +205,16 @@ export class AgentService {
   /** Pending debounced {@link invalidateRuntimes} timer, if any. */
   private runtimeInvalidationTimer: ReturnType<typeof setTimeout> | undefined;
 
+  /**
+   * True when the last sweep had to skip a runtime that was mid-turn (or still
+   * streaming). Nothing re-arms the debounce on its own, so without this flag a
+   * turn that outlives the sweep would keep its stale tool array forever —
+   * contradicting {@link invalidateRuntimes}'s promise that the invalidation
+   * lands on the turn after it. Every path that clears `turnActive` re-arms the
+   * sweep while the flag is set.
+   */
+  private runtimeInvalidationPending = false;
+
   private runtimes = new Map<
     string,
     {
@@ -718,6 +728,9 @@ export class AgentService {
       // session is no longer mid-turn and becomes eligible for idle eviction.
       runtime.turnActive = false;
       runtime.lastTouchedAt = Date.now();
+      // A tool-set change that arrived during this turn was skipped by the
+      // sweeper; this is the earliest moment its rebuild can be applied.
+      this.rearmRuntimeInvalidationIfPending();
     }
   }
 
@@ -1143,6 +1156,7 @@ export class AgentService {
       .finally(() => {
         runtime.turnActive = false;
         runtime.lastTouchedAt = Date.now();
+        this.rearmRuntimeInvalidationIfPending();
       });
   }
 
@@ -1191,24 +1205,59 @@ export class AgentService {
 
     this.runtimeInvalidationTimer = setTimeout(() => {
       this.runtimeInvalidationTimer = undefined;
-
-      let invalidated = 0;
-      for (const [sessionId, runtime] of [...this.runtimes]) {
-        if (runtime.turnActive || (runtime.agent.state?.isStreaming ?? false)) continue;
-        this.disposeRuntime(sessionId, runtime);
-        invalidated += 1;
-      }
-
-      if (invalidated > 0) {
-        this.persistence?.logger?.info(
-          { invalidated },
-          'MCP tool set changed — cached agent runtimes invalidated',
-        );
-      }
+      this.sweepInvalidRuntimes();
     }, MCP_RUNTIME_INVALIDATE_DEBOUNCE_MS);
 
     // A deferred tool-set refresh must never keep the process alive.
     this.runtimeInvalidationTimer.unref?.();
+  }
+
+  /**
+   * Drop every idle runtime, and remember that a busy one still owes a rebuild.
+   *
+   * The busy runtime is skipped because disposing it would tear down the bridge
+   * and dispatcher its in-flight turn is streaming through. It is not forgotten:
+   * {@link runtimeInvalidationPending} makes the turn-end paths re-arm the
+   * debounced sweep, so the rebuild lands on the next turn (as documented).
+   */
+  private sweepInvalidRuntimes(): void {
+    let invalidated = 0;
+    let skipped = 0;
+    for (const [sessionId, runtime] of [...this.runtimes]) {
+      if (runtime.turnActive || (runtime.agent.state?.isStreaming ?? false)) {
+        skipped += 1;
+        continue;
+      }
+      this.disposeRuntime(sessionId, runtime);
+      invalidated += 1;
+    }
+
+    this.runtimeInvalidationPending = skipped > 0;
+
+    if (invalidated > 0) {
+      this.persistence?.logger?.info(
+        { invalidated },
+        'MCP tool set changed — cached agent runtimes invalidated',
+      );
+    }
+    if (skipped > 0) {
+      this.persistence?.logger?.debug(
+        { skipped },
+        'MCP tool set changed — mid-turn runtimes deferred until their turn ends',
+      );
+    }
+  }
+
+  /**
+   * Re-arm the debounced sweep when the last one skipped a busy runtime.
+   * Called from every place that clears `turnActive` (execute's `finally` and
+   * the follow-up card's `finally`), which is the only moment a skipped runtime
+   * becomes disposable.
+   */
+  private rearmRuntimeInvalidationIfPending(): void {
+    if (this.runtimeInvalidationPending) {
+      this.invalidateRuntimes();
+    }
   }
 
   /**

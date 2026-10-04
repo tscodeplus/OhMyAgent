@@ -351,7 +351,7 @@ export default function McpSettings() {
 
   const handleUninstall = useCallback(
     async (server: McpServerView) => {
-      setPurgeCredentials(Boolean(server.oauth));
+      setPurgeCredentials(Boolean(server.hasCredentials));
       setUninstall({ server, skills: null, allowList: false, denyList: false });
       const impact = await buildImpact(server);
       setUninstall((current) =>
@@ -406,8 +406,50 @@ export default function McpSettings() {
           {
             method: 'PATCH',
             body: JSON.stringify({
-              tool_exposure: { ...server.toolExposure, [tool.rawName]: exposure },
+              tool_exposure: { ...server.toolExposure, [tool.serverToolName]: exposure },
             }),
+          },
+        );
+        setServers(
+          (prev) => prev?.map((s) => (s.name === server.name ? result.server : s)) ?? prev,
+        );
+        showToast(t('settings.mcp.notice.toolsetUpdated'), 'info');
+        loadTools(server.name);
+      } catch (err) {
+        if (snapshot) setToolsByName((prev) => ({ ...prev, [server.name]: snapshot }));
+        else loadTools(server.name);
+        showToast(errorText(err) || t('settings.saveError'), 'error', 6000);
+      } finally {
+        setPendingTool(null);
+      }
+    },
+    [toolsByName, showToast, t, loadTools],
+  );
+
+  /**
+   * Toggle one tool on/off (§13.6).
+   *
+   * `tool_enabled` is keyed by the *raw* server tool name (the same key
+   * `tool_exposure` uses), and the PATCH merges per key — sending one entry
+   * must not clear the others. A disabled tool stays in `GET .../tools` so it
+   * can be switched back on; it is simply not registered for the model.
+   */
+  const handleSetToolEnabled = useCallback(
+    async (server: McpServerView, tool: McpToolView, enabled: boolean) => {
+      const snapshot = toolsByName[server.name];
+      setPendingTool(tool.name);
+      setToolsByName((prev) => ({
+        ...prev,
+        [server.name]: (prev[server.name] ?? []).map((item) =>
+          item.name === tool.name ? { ...item, enabled } : item,
+        ),
+      }));
+      try {
+        const result = await apiRequest<{ ok: boolean; server: McpServerView }>(
+          `/api/mcp/servers/${encodeURIComponent(server.name)}`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify({ tool_enabled: { [tool.serverToolName]: enabled } }),
           },
         );
         setServers(
@@ -439,7 +481,7 @@ export default function McpSettings() {
       return tools.some(
         (tool) =>
           tool.name.toLowerCase().includes(q) ||
-          tool.rawName.toLowerCase().includes(q) ||
+          tool.serverToolName.toLowerCase().includes(q) ||
           (tool.description ?? '').toLowerCase().includes(q),
       );
     });
@@ -568,6 +610,7 @@ export default function McpSettings() {
             onLogout={handleLogout}
             onUninstall={handleUninstall}
             onSetToolExposure={handleSetToolExposure}
+            onSetToolEnabled={handleSetToolEnabled}
           />
         ))}
       </div>
@@ -590,6 +633,7 @@ export default function McpSettings() {
           onLogout={handleLogout}
           onReconnect={handleReconnect}
           onSetToolExposure={handleSetToolExposure}
+          onSetToolEnabled={handleSetToolEnabled}
         />
       )}
 
@@ -703,7 +747,7 @@ export default function McpSettings() {
               })}
             </p>
             <ImpactBlock impact={uninstall} />
-            {uninstall.server.oauth && (
+            {uninstall.server.hasCredentials && (
               <label className="flex items-start gap-2 text-xs text-neutral-600 dark:text-neutral-400">
                 <input
                   type="checkbox"

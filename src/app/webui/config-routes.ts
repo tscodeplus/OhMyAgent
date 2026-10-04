@@ -13,7 +13,13 @@ import { ensureV1BaseUrl } from '../../utils/base-url.js';
 import { loadConfig, startConfigWatcher } from '../config.js';
 import { jsConfigToYaml } from '../config-loader.js';
 import { maskMcpSection } from '../../mcp/masking.js';
+import { maskRawServerEntry, readRawMcpServers } from './mcp-routes.js';
 import { applyConfigObject, mutateConfigYaml, readConfigObject } from './yaml-mutation.js';
+
+/** True for a plain object (a YAML mapping), not an array or a scalar. */
+function isMapping(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
 const SECRET_FIELDS = [
   'apiKey',
@@ -140,6 +146,36 @@ function expandDotKeys(body: Record<string, unknown>): Record<string, unknown> {
   return result;
 }
 
+/**
+ * Masked RAW `mcp.servers` entries — what the MCP edit form and the detail
+ * drawer read `GET /api/config` for.
+ *
+ * `undefined` (config.yaml unreadable, or no raw server at all) tells the caller
+ * to keep the normalised section it already has: a broken file must not turn the
+ * whole settings page into a 500. Masking goes through the shared
+ * `maskRawServerEntry()`, so a name-based secret is hidden here exactly as it is
+ * in `GET /api/mcp/servers/:name/raw`, and a pure `${VAR}` placeholder survives
+ * both.
+ */
+function rawMaskedServers(
+  app: FastifyInstance,
+): Record<string, Record<string, unknown>> | undefined {
+  let raw: Record<string, unknown> | undefined;
+  try {
+    raw = readRawMcpServers();
+  } catch (err) {
+    app.log.warn({ err }, '[config] config.yaml is unreadable; serving the loaded MCP section');
+    return undefined;
+  }
+  if (!raw) return undefined;
+
+  const servers: Record<string, Record<string, unknown>> = {};
+  for (const [name, entry] of Object.entries(raw)) {
+    if (isMapping(entry)) servers[name] = maskRawServerEntry(entry);
+  }
+  return Object.keys(servers).length > 0 ? servers : undefined;
+}
+
 interface ConfigRouteConfig {
   getConfig: () => AppConfig;
   configPath: string;
@@ -171,7 +207,21 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
     // secrets. `/api/mcp/*` masks those, so this endpoint must too — otherwise
     // the masking is trivially defeated by calling the generic config route.
     // Build a copy: `config` is the live object and must not be mutated.
-    const body = config.mcp ? { ...config, mcp: maskMcpSection(config.mcp) } : config;
+    //
+    // `mcp.servers` is additionally served RAW (un-interpolated, snake_case, no
+    // defaults filled in): the MCP edit form and the detail drawer both read it
+    // from here, and a normalised value round-trips its `${ENV}` expansion into
+    // `config.yaml` on the next save — `X-Team: ${TEAM_ID}` would come back as
+    // `X-Team: acme` and the placeholder would be gone for good (§13.7). The
+    // source and the masking are shared with `GET /api/mcp/servers/:name/raw`,
+    // so the two surfaces cannot drift.
+    let body: unknown = config;
+    if (config.mcp) {
+      const mcp: Record<string, unknown> = { ...(maskMcpSection(config.mcp) ?? {}) };
+      const rawServers = rawMaskedServers(app);
+      if (rawServers) mcp.servers = rawServers;
+      body = { ...config, mcp };
+    }
 
     return reply.send(body);
   });

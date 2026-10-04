@@ -8,8 +8,13 @@
 
 import { i18n } from '../i18n/index.js';
 import { teamModeStore } from '../agent/team-mode-store.js';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { load as parseYaml, dump as dumpYaml } from 'js-yaml';
+import { existsSync, readFileSync } from 'node:fs';
+import { load as parseYaml } from 'js-yaml';
+import {
+  applyConfigObject,
+  mutateConfigYaml,
+  readConfigObject,
+} from '../app/webui/yaml-mutation.js';
 
 const VALID_MODES = ['bypass', 'permissive', 'balanced', 'safe'] as const;
 type PolicyMode = (typeof VALID_MODES)[number];
@@ -603,6 +608,11 @@ function handleAnswer(args: string, sessionKey: string, deps: CommandDeps): Comm
 
 // ── /permission command ───────────────────────────────────────────────────────
 
+/** True for a plain object (a YAML mapping), not an array or a scalar. */
+function isMapping(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 function getCurrentMode(configPath?: string): PolicyMode | null {
   if (!configPath || !existsSync(configPath)) return null;
   try {
@@ -619,6 +629,15 @@ function getCurrentMode(configPath?: string): PolicyMode | null {
   }
 }
 
+/**
+ * Persist `policy.mode` for `/permission <mode>`.
+ *
+ * Goes through the shared serialised writer (`yaml-mutation.ts`) like every
+ * other `config.yaml` writer: the previous unguarded read-modify-write could
+ * drop a concurrent MCP install or settings save — and lose `policy` to it.
+ * Comments and formatting of the untouched sections survive, which the previous
+ * `js-yaml` dump rewrote from scratch.
+ */
 async function setMode(
   mode: PolicyMode,
   deps: CommandDeps,
@@ -629,19 +648,13 @@ async function setMode(
   }
 
   try {
-    let existing: Record<string, unknown> = {};
-    if (existsSync(configPath)) {
-      const raw = readFileSync(configPath, 'utf-8');
-      existing = (parseYaml(raw) as Record<string, unknown>) || {};
-    }
-
-    // Set policy.mode
-    const policy = (existing.policy as Record<string, unknown>) || {};
-    policy.mode = mode;
-    existing.policy = policy;
-
-    const yamlStr = dumpYaml(existing, { indent: 2, lineWidth: 120 });
-    writeFileSync(configPath, yamlStr, 'utf-8');
+    await mutateConfigYaml((doc) => {
+      const next = readConfigObject(doc);
+      const policy = isMapping(next.policy) ? next.policy : {};
+      policy.mode = mode;
+      next.policy = policy;
+      applyConfigObject(doc, next);
+    }, configPath);
 
     // Trigger config hot-reload
     deps.triggerConfigReload?.();

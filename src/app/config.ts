@@ -100,6 +100,10 @@ const mcpServerCommonShape = {
   enabled: z.boolean(),
   exposure: z.enum(['direct', 'deferred', 'hidden']),
   toolExposure: z.record(z.enum(['direct', 'deferred', 'hidden'])),
+  /** Per-tool on/off, keyed by the raw server tool name; always present after normalisation. */
+  toolEnabled: z.record(z.boolean()),
+  /** Server-level trust override for unannotated tools (§8.1). */
+  trust: z.enum(['read_only', 'normal', 'high_risk']).optional(),
   timeoutSec: z.number().positive().optional(),
   description: z.string(),
   oauth: mcpOAuthConfigSchema.optional(),

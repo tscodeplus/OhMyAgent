@@ -712,17 +712,29 @@
         "title": "服务器详情",
         "connection": "连接",
         "tools": "工具",
+        "resources": "资源",
         "auth": "认证",
         "logs": "日志",
         "rawConfig": "原始配置",
-        "rawConfigHint": "来自 /api/config 的规范化配置：密钥已掩码，${ENV} 占位符已展开。",
+        "rawConfigHint": "config.yaml 片段原文：密钥已掩码，${ENV} 占位符保持未展开。",
+        "rawConfigUnavailable": "该服务器没有可展示的 config.yaml 原文片段。",
         "state": "状态",
         "endpoint": "端点",
+        "protocolVersion": "协议版本",
+        "serverName": "服务器名",
+        "serverVersion": "服务器版本",
+        "instructions": "服务器说明",
+        "lastError": "最近错误",
         "connectedAt": "最近连接",
         "errorCount": "错误次数",
         "credentials": "已保存凭证",
         "yes": "是",
-        "no": "否"
+        "no": "否",
+        "resourcesNotSupported": "该服务器未声明 resources 能力。",
+        "resourcesNotConnected": "服务器未连接，无法列出其资源。",
+        "resourcesEmpty": "该服务器已声明 resources，但当前没有可列出的资源。",
+        "resourcesError": "加载该服务器的资源失败。",
+        "resourceTemplate": "模板"
       },
       "logs": {
         "empty": "暂无日志输出",
@@ -734,6 +746,11 @@
         "destructive": "破坏性",
         "idempotent": "幂等",
         "openWorld": "开放世界"
+      },
+      "approvalRisk": {
+        "low": "低风险",
+        "medium": "中风险",
+        "high": "高风险"
       },
       "notice": {
         "toolsetUpdated": "工具集已更新，下一轮对话生效",

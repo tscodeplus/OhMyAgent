@@ -24,6 +24,12 @@
  *
  * A missing `/api/mcp/*` route fails **loudly** rather than skipping: a smoke
  * suite that silently skips absent endpoints proves nothing.
+ *
+ * Secret masking for installed servers is deliberately NOT asserted here: this
+ * spec runs against an arbitrary live installation, often with zero servers, so
+ * any per-server leak assertion would be vacuous. That guarantee is owned by
+ * `tests/app/mcp-routes.test.ts`, which installs a server carrying a secret in
+ * env/headers and asserts the masked view.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -89,24 +95,41 @@ describe('WebUI MCP API', () => {
     }
   });
 
-  it('GET /api/mcp/servers returns McpServerView[] and leaks no credential', async () => {
-    const { status, body, text } = await getJson(baseUrl, token, '/api/mcp/servers');
+  it('GET /api/mcp/servers returns McpServerView[] for the installed servers', async () => {
+    const { status, body } = await getJson(baseUrl, token, '/api/mcp/servers');
     expect(status).toBe(200);
     expect(Array.isArray(body)).toBe(true);
 
+    // Field shapes are asserted against whatever this installation has. A fresh
+    // install has no servers, so the leak guarantee for installed servers is NOT
+    // asserted here — it is owned by `tests/app/mcp-routes.test.ts` (a unit test
+    // that installs a server carrying a secret env/header and asserts masking).
+    // Asserting it here would be vacuous on an empty list.
     for (const server of body as McpServerView[]) {
       expect(typeof server.name).toBe('string');
       expect(['stdio', 'http']).toContain(server.transport);
       expect(typeof server.enabled).toBe('boolean');
-      expect(['connected', 'connecting', 'disconnected', 'auth_required', 'error']).toContain(
-        server.state,
-      );
+      // `disabled` is what resolveConnectionState() returns for every
+      // `enabled: false` server — omitting it made this spec fail on any
+      // installation with a paused server (E11).
+      expect([
+        'connected',
+        'connecting',
+        'disconnected',
+        'auth_required',
+        'error',
+        'disabled',
+      ]).toContain(server.state);
       expect(['direct', 'deferred', 'hidden']).toContain(server.exposure);
       expect(typeof server.toolCount).toBe('number');
-      expect(typeof server.oauth).toBe('boolean');
+      expect(typeof server.hasCredentials).toBe('boolean');
+      expect(server).not.toHaveProperty('oauth');
+      expect(server.installed).toBe(true);
+      expect(server.source).toBe('config.yaml');
       expect(server.toolExposure).toBeTypeOf('object');
 
-      // Secrets are returned as key names only, never as values (§13.7 masking).
+      // Secrets are returned as key names only, never as values (§13.7 masking):
+      // the view carries `envKeys` / `headerKeys` and never the value maps.
       for (const key of server.envKeys ?? []) expect(typeof key).toBe('string');
       for (const key of server.headerKeys ?? []) expect(typeof key).toBe('string');
       expect(server).not.toHaveProperty('headers');
@@ -115,11 +138,29 @@ describe('WebUI MCP API', () => {
       expect(server).not.toHaveProperty('accessToken');
       expect(server).not.toHaveProperty('refreshToken');
     }
+  });
 
-    // The raw payload must not carry a bearer token or an OAuth secret, whatever
-    // the installation looks like (acceptance: "no token leaks from the list API").
-    expect(text).not.toMatch(/Bearer [A-Za-z0-9._-]{8,}/);
-    expect(text).not.toMatch(/"access_token"|"refresh_token"|"client_secret"/);
+  it('GET /api/mcp/servers/:name/resources handles the contract states', async () => {
+    // An unknown server must hit the route's own 404 (`mcp.error.serverNotFound`),
+    // not Fastify's default `Not Found`. That distinction is what proves the
+    // `/resources` route is actually mounted — a bare 404 from a missing route
+    // would otherwise be indistinguishable.
+    const missing = await fetch(`${baseUrl}/api/mcp/servers/__smoke_missing__/resources`, {
+      headers: authHeaders(token),
+    });
+    expect(missing.status).toBe(404);
+    expect((await missing.json()).error).toBe('mcp.error.serverNotFound');
+  });
+
+  it('GET /api/mcp/servers/:name/raw handles the contract states', async () => {
+    // Same mounted-route proof as /resources: a real server name resolves to a
+    // 200 `{ yaml }` (see tests/app/mcp-routes.test.ts); an unknown one is the
+    // route's own 404.
+    const missing = await fetch(`${baseUrl}/api/mcp/servers/__smoke_missing__/raw`, {
+      headers: authHeaders(token),
+    });
+    expect(missing.status).toBe(404);
+    expect((await missing.json()).error).toBe('mcp.error.serverNotFound');
   });
 
   it('GET /api/mcp/presets serves the built-in catalogue unchanged', async () => {
@@ -201,5 +242,113 @@ describe('WebUI MCP settings tab', () => {
     expect(source).toMatch(/<McpServerForm/);
     expect(source).toMatch(/<McpPresetList/);
     expect(source).toMatch(/export default function McpSettings/);
+  });
+});
+
+/**
+ * Source-level assertions for the §13.6 detail drawer and the §13.7 view
+ * fields. There is no DOM harness in this repo (see the file header), so the
+ * drawer's contract is read out of the authoritative component source — the
+ * same approach the tab-position test above uses. Each of these facts was a
+ * gap before the six-lane review fix, so the test would have failed then.
+ */
+describe('WebUI MCP detail contract (§13.6 / §13.7)', () => {
+  const mcpDir = join(REPO_ROOT, 'ui/src/components/settings/mcp');
+  const detail = readFileSync(join(mcpDir, 'McpServerDetail.tsx'), 'utf-8');
+  const card = readFileSync(join(mcpDir, 'McpServerCard.tsx'), 'utf-8');
+  const form = readFileSync(join(mcpDir, 'McpServerForm.tsx'), 'utf-8');
+  const settings = readFileSync(
+    join(REPO_ROOT, 'ui/src/components/settings/tabs/McpSettings.tsx'),
+    'utf-8',
+  );
+
+  it('renders the serverInfo identity fields in the connection block', () => {
+    // Before the fix these came from `serverInfo` which the view never carried,
+    // so the block always rendered "—".
+    for (const field of ['protocolVersion', 'name', 'version']) {
+      expect(detail).toMatch(new RegExp(`serverInfo\\?\\.${field}\\b`));
+    }
+  });
+
+  it('renders instructionsSummary and lastError when present', () => {
+    expect(detail).toMatch(/server\.instructionsSummary/);
+    expect(detail).toMatch(/server\.lastError/);
+    // The error is shown with a readable timestamp derived from `at`.
+    expect(detail).toMatch(/lastError\.at/);
+  });
+
+  it('reads hasCredentials, not the removed oauth flag', () => {
+    expect(detail).toMatch(/server\.hasCredentials/);
+    expect(card).toMatch(/server\.hasCredentials/);
+    expect(settings).toMatch(/server\.hasCredentials/);
+    expect(detail).not.toMatch(/server\.oauth\b/);
+    expect(card).not.toMatch(/server\.oauth\b/);
+  });
+
+  it('keys tool actions on serverToolName', () => {
+    expect(card).toMatch(/serverToolName/);
+    expect(settings).toMatch(/serverToolName/);
+    expect(card).not.toMatch(/rawName/);
+    expect(settings).not.toMatch(/rawName/);
+  });
+
+  it('renders an approval-risk badge for each tool', () => {
+    expect(card).toMatch(/approvalRisk/);
+    expect(card).toMatch(/settings\.mcp\.approvalRisk\.\$\{risk\}/);
+  });
+
+  it('writes per-tool enable via tool_enabled and keeps disabled tools listed', () => {
+    // The PATCH body is snake_case like `tool_exposure`; the map key is the raw
+    // server tool name. Before the fix there was no per-tool control at all.
+    expect(card).toMatch(/onSetToolEnabled/);
+    expect(settings).toMatch(/tool_enabled/);
+    expect(settings).toMatch(/tool\.serverToolName/);
+    // A disabled tool still renders, dimmed (`tool.enabled` gates the row class).
+    expect(card).toMatch(/tool\.enabled/);
+  });
+
+  it('fetches the resources list and the raw config fragment', () => {
+    expect(detail).toContain('/resources`');
+    expect(detail).toContain('/raw`');
+    expect(detail).toMatch(/detail\.resourcesNotSupported/);
+    expect(detail).toMatch(/detail\.resourcesNotConnected/);
+    expect(detail).toMatch(/detail\.resourcesEmpty/);
+    expect(detail).toMatch(/detail\.resourcesError/);
+    expect(detail).toMatch(/detail\.rawConfigUnavailable/);
+    // The raw pane must not fall back to the normalised, expanded /api/config
+    // view it used before the fix.
+    expect(detail).not.toContain("apiRequest('/api/config')");
+    expect(detail).not.toMatch(/readRawServerConfig/);
+  });
+
+  it('renders preset env hints and masks secret env rows', () => {
+    // Before the fix the rows went through a plain-text KeyValueEditor: no hint,
+    // and secrets were typed in cleartext.
+    expect(form).toMatch(/row\.hint/);
+    expect(form).toMatch(/row\.secret \? 'password' : 'text'/);
+    expect(form).toMatch(/hint: e\.hint/);
+    expect(form).toMatch(/secret: e\.secret/);
+  });
+
+  it('declares the new MCP i18n keys in both locales', () => {
+    const load = (
+      lang: string,
+    ): { approvalRisk: Record<string, string>; detail: Record<string, string> } =>
+      (
+        JSON.parse(
+          readFileSync(join(REPO_ROOT, `ui/src/i18n/locales/${lang}/common.json`), 'utf-8'),
+        ) as {
+          settings: {
+            mcp: { approvalRisk: Record<string, string>; detail: Record<string, string> };
+          };
+        }
+      ).settings.mcp;
+    for (const lang of ['en', 'zh-CN']) {
+      const mcp = load(lang);
+      expect(mcp.approvalRisk.low).toBeTruthy();
+      expect(mcp.approvalRisk.medium).toBeTruthy();
+      expect(mcp.approvalRisk.high).toBeTruthy();
+      expect(mcp.detail.resources).toBeTruthy();
+    }
   });
 });

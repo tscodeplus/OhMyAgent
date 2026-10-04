@@ -14,6 +14,7 @@
     "alreadyRunning": "MCP server {{name}} is already connecting",
     "connectFailed": "Could not connect to the MCP server: {{message}}",
     "loginFailed": "OAuth login failed: {{message}}",
+    "resourceListFailed": "Could not list the server's resources: {{message}}",
     "actionFailed": "The operation failed: {{message}}"
   }
 }

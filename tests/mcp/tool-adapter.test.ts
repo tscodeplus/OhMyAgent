@@ -209,7 +209,7 @@ function createAdapter(options: {
       if (options.error) throw options.error;
       return options.result ?? { content: [{ type: 'text', text: 'ok' }] };
     },
-    offload: { store, maxBytes: options.maxBytes ?? 20_480 },
+    offload: { store, maxBytes: () => options.maxBytes ?? 20_480 },
   });
 
   return { def, store, baseDir, calls };
@@ -314,6 +314,31 @@ describe('toMcpToolDefinition', () => {
     expect(result.content).toHaveLength(2);
     expect(result.content[0].type).toBe('text');
     expect(result.content[1]).toEqual({ type: 'image', data: 'aGk=', mimeType: 'image/png' });
+  });
+
+  it('reads the output limit on every call, so a later edit applies (R5)', async () => {
+    const store = new OffloadStore(tempDir());
+    const text = 'Q'.repeat(2_000);
+    let maxBytes = 64;
+    const def = toMcpToolDefinition({
+      server: stdioServer(),
+      tool: tool(),
+      name: 'mcp__fs__read_file',
+      exposure: 'deferred',
+      callTool: async () => ({ content: [{ type: 'text', text }] }),
+      // The manager hands over a getter: capturing the number at registration
+      // time meant a `mcp.max_output_bytes` edit never reached a live tool.
+      offload: { store, maxBytes: () => maxBytes },
+    });
+    const context = createToolContext({} as AppServices, { sessionId: 'sess-live' });
+
+    expect((await def.execute({}, context)).metadata?.fullOutputPath).toBeTruthy();
+
+    maxBytes = 100_000;
+
+    const second = await def.execute({}, context);
+    expect(second.metadata?.fullOutputPath).toBeUndefined();
+    expect((second.content[0] as { text: string }).text).toBe(text);
   });
 });
 

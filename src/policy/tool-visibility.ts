@@ -98,7 +98,9 @@ const PROFILE_RANK: Record<ToolProfileId, number> = {
  * Semantics (deny-first): `deniedTools` always removes a tool, even from a
  * wider profile; `allowedTools` grants a tool beyond the profile but never
  * narrows it — skill `allowed-tools` frontmatter is authored as "tools this
- * skill needs", not an exclusive whitelist.
+ * skill needs", not an exclusive whitelist. Both are subordinate to the
+ * `mcp.allow_servers` / `mcp.deny_servers` verdict, which a skill can never
+ * widen.
  */
 export interface SkillToolOverrides {
   allowedTools?: string[];
@@ -148,6 +150,21 @@ export class ToolVisibilityPolicyImpl implements ToolVisibilityPolicy {
       return false;
     }
 
+    // MCP tools are not enumerable in PROFILE_TOOLS (their names are derived
+    // from the installed servers), so visibility is decided by the shared
+    // predicate every consumer uses (§12.3). Absent config means the MCP
+    // branch does not exist — pre-MCP behaviour, byte for byte.
+    //
+    // The predicate is consulted BEFORE the skill allow-list on purpose: an
+    // `allowed-tools: ['mcp__<server>__*']` entry is authored as "tools this
+    // skill needs", so it may grant a tool the profile hides — but it may never
+    // re-open a server the operator denied via `mcp.deny_servers` (or omitted
+    // from a non-empty `mcp.allow_servers`). A deny always wins.
+    const mcpVisible = scope.mcpVisibility
+      ? isMcpToolVisible(toolName, toMcpVisibilityScope(scope.toolsProfile, scope.mcpVisibility))
+      : undefined;
+    if (mcpVisible === false) return false;
+
     // P1 strict mode: surface narrows to allowedTools ∪ forced core. The
     // profile baseline is skipped — the strict skill is the capability boundary
     // for this turn.
@@ -163,17 +180,9 @@ export class ToolVisibilityPolicyImpl implements ToolVisibilityPolicy {
       return true;
     }
 
-    // MCP tools are not enumerable in PROFILE_TOOLS (their names are derived
-    // from the installed servers), so visibility is decided by the shared
-    // predicate every consumer uses (§12.3). Absent config means the MCP
-    // branch does not exist — pre-MCP behaviour, byte for byte.
-    if (scope.mcpVisibility) {
-      const mcpVisible = isMcpToolVisible(
-        toolName,
-        toMcpVisibilityScope(scope.toolsProfile, scope.mcpVisibility),
-      );
-      if (mcpVisible !== undefined) return mcpVisible;
-    }
+    // A visible MCP tool is visible even in a profile whose static allow-list
+    // cannot enumerate it.
+    if (mcpVisible !== undefined) return mcpVisible;
 
     // computer_use gated by scope flag and runtime config, not by profile
     if (toolName === 'computer_use') {

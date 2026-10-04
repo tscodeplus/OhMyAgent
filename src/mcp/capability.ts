@@ -53,6 +53,13 @@ export function mcpAnnotationFlags(annotations: ToolAnnotations | undefined): Mc
  *   `readOnlyHint: true`             → `none`      (auto-approved)
  *   absent / unknown annotations     → `mutating`  (first call needs approval)
  *
+ * A tool that declares no annotations at all is where the server-level
+ * `trust: read_only | normal | high_risk` override applies (§8.1), because a
+ * server that does not annotate cannot be distinguished from a dangerous one.
+ * Annotations always win when they exist: a tool that declares a hint makes a
+ * more specific statement than the server-wide default, so `trust: high_risk`
+ * must not override a tool's own `readOnlyHint`.
+ *
  * Registered through `registerToolCapability()` so `approvalRiskForTool()`
  * agrees with the v4 policy path (`AgentToolAdapterImpl` passes this very
  * descriptor to `policyCenter.evaluateToolCall`).
@@ -63,15 +70,28 @@ export function capabilityFromAnnotations(
 ): ToolCapabilityDescriptor {
   const flags = mcpAnnotationFlags(annotations);
 
+  // `{}` carries no hint, so it counts as "no annotations" for the override.
+  const unannotated = annotations === undefined || Object.keys(annotations).length === 0;
+  // `trust: 'normal'` is the ladder below, so it is deliberately a no-op here
+  // rather than a third branch with the same result.
+  const trust =
+    unannotated && server.trust !== undefined && server.trust !== 'normal'
+      ? server.trust
+      : undefined;
+
+  const readOnly =
+    trust === undefined ? flags.readOnly && !flags.destructive : trust === 'read_only';
+  const destructive = trust === undefined ? flags.destructive : trust === 'high_risk';
+
   return {
     category: 'mcp',
-    readOnly: flags.readOnly && !flags.destructive,
+    readOnly,
     readsFiles: false,
     writesFiles: false,
     usesShell: false,
     usesNetwork: server.transport === 'http',
     usesComputerUse: false,
     pathAccess: 'none',
-    approvalDefault: flags.destructive ? 'high_risk' : flags.readOnly ? 'none' : 'mutating',
+    approvalDefault: destructive ? 'high_risk' : readOnly ? 'none' : 'mutating',
   };
 }

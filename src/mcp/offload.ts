@@ -25,8 +25,12 @@ import type { OffloadStore } from '../runtime-artifacts/offload-store.js';
 import type { ToolResultContent } from '../tools/platform/tool-result.js';
 
 export interface McpOutputLimitOptions {
-  /** MCP-owned offload store — its `baseDir` is the shared offload root. */
-  store: OffloadStore;
+  /**
+   * MCP-owned offload store — its `baseDir` is the shared offload root. Only
+   * `writeSpill()` is needed, so a caller that was handed a narrow slice of the
+   * store (the resource tools) can pass it straight through.
+   */
+  store: Pick<OffloadStore, 'writeSpill'>;
   /** `mcp.max_output_bytes` (UTF-8 bytes of the merged text output). */
   maxBytes: number;
   /** Session the tool call belongs to; spills land under its directory. */
@@ -109,8 +113,13 @@ function takeHeadBytes(text: string, maxBytes: number): string {
   return text.slice(0, end);
 }
 
-/** Longest suffix of `text` that fits in `maxBytes` UTF-8 bytes, code-point safe. */
-function takeTailBytes(text: string, maxBytes: number): string {
+/**
+ * Longest suffix of `text` that fits in `maxBytes` UTF-8 bytes, code-point safe.
+ *
+ * Exported so every byte budget in the MCP layer is spent in bytes: a character
+ * count let non-ASCII text hold roughly twice its intended size (R7).
+ */
+export function takeTailBytes(text: string, maxBytes: number): string {
   let bytes = 0;
   let start = text.length;
   while (start > 0) {

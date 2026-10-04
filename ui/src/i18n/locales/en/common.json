@@ -712,17 +712,29 @@
         "title": "Server details",
         "connection": "Connection",
         "tools": "Tools",
+        "resources": "Resources",
         "auth": "Authentication",
         "logs": "Logs",
         "rawConfig": "Raw config",
-        "rawConfigHint": "Normalised view from /api/config: secrets are masked and ${ENV} placeholders are already expanded.",
+        "rawConfigHint": "Raw config.yaml fragment: secrets are masked and ${ENV} placeholders are kept unexpanded.",
+        "rawConfigUnavailable": "The raw config.yaml fragment is not available for this server.",
         "state": "State",
         "endpoint": "Endpoint",
+        "protocolVersion": "Protocol version",
+        "serverName": "Server name",
+        "serverVersion": "Server version",
+        "instructions": "Server instructions",
+        "lastError": "Last error",
         "connectedAt": "Last connected",
         "errorCount": "Errors",
         "credentials": "Stored credentials",
         "yes": "Yes",
-        "no": "No"
+        "no": "No",
+        "resourcesNotSupported": "This server does not declare the resources capability.",
+        "resourcesNotConnected": "The server is not connected, so its resources cannot be listed.",
+        "resourcesEmpty": "This server declares resources but currently exposes none.",
+        "resourcesError": "Failed to load this server's resources.",
+        "resourceTemplate": "template"
       },
       "logs": {
         "empty": "No log output yet",
@@ -734,6 +746,11 @@
         "destructive": "Destructive",
         "idempotent": "Idempotent",
         "openWorld": "Open world"
+      },
+      "approvalRisk": {
+        "low": "Low risk",
+        "medium": "Medium risk",
+        "high": "High risk"
       },
       "notice": {
         "toolsetUpdated": "Tool set updated — it applies to the next turn",

@@ -11,6 +11,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { parse as parseYaml } from 'yaml';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_MCP_SECTION,
@@ -23,6 +24,7 @@ import { yamlToAppConfigRaw } from '../../src/app/config-loader.js';
 import type {
   McpHttpServerConfig,
   McpSectionConfig,
+  McpServerConfig,
   McpStdioServerConfig,
 } from '../../src/mcp/types.js';
 
@@ -74,6 +76,7 @@ describe('normaliseMcpSection', () => {
       enabled: true,
       exposure: 'deferred',
       toolExposure: {},
+      toolEnabled: {},
       description: '',
       transport: 'stdio',
       command: 'npx',
@@ -81,6 +84,30 @@ describe('normaliseMcpSection', () => {
       env: { PORT: '8080' },
       cwd: '',
     });
+  });
+
+  it('round-trips tool_enabled, defaulting to an empty map', () => {
+    const section = normaliseMcpSection({
+      servers: {
+        a: { command: 'npx', tool_enabled: { write_file: false, read_file: true } },
+        b: { command: 'npx' },
+      },
+    });
+
+    expect(expectStdio(section, 'a').toolEnabled).toEqual({ write_file: false, read_file: true });
+    expect(expectStdio(section, 'b').toolEnabled).toEqual({});
+    expect(mcpSectionSchema.safeParse(section).success).toBe(true);
+  });
+
+  it('rejects a non-boolean tool_enabled value as a server-level error', () => {
+    const onServerError = vi.fn();
+    const section = normaliseMcpSection(
+      { servers: { a: { command: 'npx', tool_enabled: { write_file: 'no' } } } },
+      { onServerError },
+    );
+
+    expect(section.servers).toEqual({});
+    expect(onServerError.mock.calls[0][1]).toContain('tool_enabled');
   });
 
   it('normalises an http server and its oauth block', () => {
@@ -229,6 +256,106 @@ describe('normaliseMcpSection', () => {
     expect(section.servers).toEqual({});
     expect(onServerError.mock.calls[0][0]).toBe('my server');
     expect(onServerError.mock.calls[0][1]).toContain('[A-Za-z0-9_-]');
+  });
+
+  it('rejects the reserved pseudo-server name `resources`', () => {
+    const onServerError = vi.fn();
+    const section = normaliseMcpSection(
+      {
+        servers: {
+          resources: { command: 'npx' },
+          good: { command: 'npx' },
+        },
+      },
+      { onServerError },
+    );
+
+    expect(Object.keys(section.servers)).toEqual(['good']);
+    expect(onServerError.mock.calls[0][0]).toBe('resources');
+    expect(onServerError.mock.calls[0][1]).toContain('reserved');
+  });
+
+  it('rejects `__proto__` instead of letting it poison the server map', () => {
+    const onServerError = vi.fn();
+    // `JSON.parse` (and the YAML parser) keep `__proto__` as an own, enumerable
+    // key — exactly the shape `yamlToAppConfigRaw()` hands to the normaliser.
+    const rawServers = JSON.parse(
+      '{"__proto__":{"command":"npx"},"good":{"command":"npx"}}',
+    ) as Record<string, unknown>;
+
+    const section = normaliseMcpSection({ servers: rawServers }, { onServerError });
+
+    expect(Object.keys(section.servers)).toEqual(['good']);
+    expect(onServerError).toHaveBeenCalledTimes(1);
+    expect(onServerError.mock.calls[0][0]).toBe('__proto__');
+    // Before the fix the entry vanished silently and `servers['enabled']`
+    // resolved through the polluted prototype.
+    expect(section.servers['enabled']).toBeUndefined();
+    expect(Object.getPrototypeOf(section.servers)).toBeNull();
+  });
+
+  it('rejects `constructor` and `prototype` as server names', () => {
+    const onServerError = vi.fn();
+    const section = normaliseMcpSection(
+      {
+        servers: {
+          constructor: { command: 'npx' },
+          prototype: { command: 'npx' },
+          good: { command: 'npx' },
+        },
+      },
+      { onServerError },
+    );
+
+    expect(Object.keys(section.servers)).toEqual(['good']);
+    expect(onServerError.mock.calls.map((call) => call[0])).toEqual(['constructor', 'prototype']);
+  });
+
+  it('drops out-of-range per-server scalars instead of failing startup (§5.2)', () => {
+    const onServerError = vi.fn();
+    const section = normaliseMcpSection(
+      {
+        servers: {
+          zeroTimeout: { command: 'npx', timeout_sec: 0 },
+          negativePort: { url: 'https://example.com/mcp', oauth: { callback_port: -1 } },
+          good: { command: 'npx' },
+        },
+      },
+      { onServerError },
+    );
+
+    expect(Object.keys(section.servers)).toEqual(['good']);
+    expect(onServerError.mock.calls.map((call) => call[0])).toEqual([
+      'zeroTimeout',
+      'negativePort',
+    ]);
+    expect(onServerError.mock.calls[0][1]).toContain('timeout_sec');
+    expect(onServerError.mock.calls[1][1]).toContain('callback_port');
+    // The normalised section must still satisfy the schema the loader applies.
+    expect(mcpSectionSchema.safeParse(section).success).toBe(true);
+  });
+
+  it('carries the documented `trust` override instead of dropping the server', () => {
+    const onServerError = vi.fn();
+    const section = normaliseMcpSection(
+      { servers: { a: { command: 'npx', trust: 'read_only' } } },
+      { onServerError },
+    );
+
+    expect(onServerError).not.toHaveBeenCalled();
+    expect(expectStdio(section, 'a').trust).toBe('read_only');
+    // A server without the key must stay byte-identical to the pre-trust shape.
+    expect(
+      'trust' in expectStdio(normaliseMcpSection({ servers: { b: { command: 'npx' } } }), 'b'),
+    ).toBe(false);
+    expect(mcpSectionSchema.safeParse(section).success).toBe(true);
+
+    const bad = normaliseMcpSection(
+      { servers: { a: { command: 'npx', trust: 'sometimes' } } },
+      { onServerError },
+    );
+    expect(bad.servers).toEqual({});
+    expect(onServerError.mock.calls[0][1]).toContain('trust');
   });
 
   it('throws when two server names differ only in "-" vs "_"', () => {
@@ -389,6 +516,9 @@ describe('config.yaml → AppConfig.mcp', () => {
           '      headers:',
           '        Authorization: "Bearer ${DOCS_TOKEN}"',
           '      exposure: codemode',
+          '      trust: read_only',
+          '      tool_enabled:',
+          '        write_page: false',
           '',
         ].join('\n'),
         'utf-8',
@@ -401,6 +531,9 @@ describe('config.yaml → AppConfig.mcp', () => {
         Authorization: 'Bearer sk-from-env',
       });
       expect(config.mcp?.servers.docs.exposure).toBe('deferred');
+      // Both keys have to survive normalisation *and* the AppConfig schema.
+      expect(config.mcp?.servers.docs.trust).toBe('read_only');
+      expect(config.mcp?.servers.docs.toolEnabled).toEqual({ write_page: false });
     } finally {
       rmSync(dir, { recursive: true, force: true });
       resetConfig();
@@ -419,5 +552,63 @@ describe('config.yaml → AppConfig.mcp', () => {
       rmSync(dir, { recursive: true, force: true });
       resetConfig();
     }
+  });
+
+  it('boots past an out-of-range per-server scalar instead of dying (§5.2)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const dir = mkdtempSync(join(tmpdir(), 'oma-mcp-range-'));
+    try {
+      const configPath = join(dir, 'config.yaml');
+      writeFileSync(
+        configPath,
+        [
+          'ui_language: en',
+          'mcp:',
+          '  servers:',
+          '    slow:',
+          '      command: npx',
+          '      timeout_sec: 0',
+          '    good:',
+          '      command: npx',
+          '',
+        ].join('\n'),
+        'utf-8',
+      );
+
+      const config = loadConfig({}, configPath);
+
+      expect(Object.keys(config.mcp?.servers ?? {})).toEqual(['good']);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('[mcp] skipping server "slow"'));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      resetConfig();
+    }
+  });
+
+  it('drops a `__proto__` server through the loader seam instead of swallowing it', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // `yamlToAppConfigRaw()` receives the parsed (already interpolated) root,
+    // and `parseYaml` keeps `__proto__` as an own enumerable key — the shape
+    // that used to poison the server map with no report at all.
+    const raw = yamlToAppConfigRaw(
+      parseYaml(
+        [
+          'ui_language: en',
+          'mcp:',
+          '  servers:',
+          '    __proto__:',
+          '      command: npx',
+          '    good:',
+          '      command: npx',
+          '',
+        ].join('\n'),
+      ),
+    );
+
+    const section = raw.mcp as McpSectionConfig | undefined;
+    const servers: Record<string, McpServerConfig> = section?.servers ?? {};
+    expect(Object.keys(servers)).toEqual(['good']);
+    expect(servers['enabled']).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"__proto__"'));
   });
 });

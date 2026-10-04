@@ -20,9 +20,14 @@ import {
   type McpProbe,
   type McpProbeResult,
 } from '../../src/app/webui/mcp-routes.js';
+import { registerConfigRoutes } from '../../src/app/webui/config-routes.js';
 import type { AppConfig } from '../../src/app/types.js';
 import { normaliseMcpSection } from '../../src/mcp/config.js';
 import { MASKED_SECRET } from '../../src/mcp/masking.js';
+import {
+  registerToolCapability,
+  unregisterToolCapability,
+} from '../../src/policy/tool-capability-registry.js';
 import type { McpManager, McpServerState, Tool } from '../../src/mcp/types.js';
 import { migrateV8 } from '../../src/memory/migration-v8.js';
 
@@ -60,6 +65,8 @@ interface StubManager {
   submitCallback: Mock;
   tools: Map<string, Tool[]>;
   states: Map<string, McpServerState>;
+  listResources: Mock;
+  listResourceTemplates: Mock;
 }
 
 function createStubManager(): StubManager {
@@ -73,6 +80,8 @@ function createStubManager(): StubManager {
   }));
   const logout = vi.fn(async () => {});
   const submitCallback = vi.fn(async () => {});
+  const listResources = vi.fn(async () => ({ resources: [] }));
+  const listResourceTemplates = vi.fn(async () => ({ resourceTemplates: [] }));
 
   const manager: McpManager = {
     ready: async () => {},
@@ -88,9 +97,26 @@ function createStubManager(): StubManager {
     logout,
     submitCallback,
     onToolsChanged: () => () => {},
+    resources: {
+      listResources,
+      listResourceTemplates,
+      readResource: async () => ({ contents: [] }),
+      serversWithResources: () => [],
+    },
   };
 
-  return { manager, reload, reconnect, login, logout, submitCallback, tools, states };
+  return {
+    manager,
+    reload,
+    reconnect,
+    login,
+    logout,
+    submitCallback,
+    tools,
+    states,
+    listResources,
+    listResourceTemplates,
+  };
 }
 
 describe('MCP API routes', () => {
@@ -198,7 +224,18 @@ describe('MCP API routes', () => {
       SERVER_URL,
     );
     stub.tools.set('filesystem', [makeTool('read_file'), makeTool('write_file')]);
-    stub.states.set('filesystem', makeState('filesystem', { state: 'connected', connectedAt: 42 }));
+    stub.states.set(
+      'filesystem',
+      makeState('filesystem', {
+        state: 'connected',
+        connectedAt: 42,
+        protocolVersion: '2025-06-18',
+        serverName: 'filesystem-server',
+        serverVersion: '1.2.3',
+        instructionsSummary: 'Read and write files.',
+        lastError: { message: 'earlier spawn ENOENT', at: 1_700_000_000_001 },
+      }),
+    );
     stub.states.set('docs', makeState('docs', { state: 'auth_required', authRequired: true }));
 
     const res = await inject({ method: 'GET', url: '/api/mcp/servers' });
@@ -216,8 +253,17 @@ describe('MCP API routes', () => {
       state: 'connected',
       connectedAt: 42,
       toolCount: 2,
-      oauth: false,
+      hasCredentials: false,
       authRequired: false,
+      installed: true,
+      source: 'config.yaml',
+      serverInfo: {
+        protocolVersion: '2025-06-18',
+        name: 'filesystem-server',
+        version: '1.2.3',
+      },
+      instructionsSummary: 'Read and write files.',
+      lastError: { message: 'earlier spawn ENOENT', at: 1_700_000_000_001 },
       command: 'npx',
       args: ['-y', 'server-filesystem', '/tmp'],
       envKeys: ['GITHUB_TOKEN', 'LOG_LEVEL'],
@@ -227,10 +273,13 @@ describe('MCP API routes', () => {
       transport: 'http',
       state: 'auth_required',
       authRequired: true,
-      oauth: true,
+      hasCredentials: true,
       url: SERVER_URL,
       headerKeys: ['Authorization'],
     });
+    // Absent live identity is absent from the view, not an empty object.
+    expect(body[1]).not.toHaveProperty('serverInfo');
+    expect(body[1]).not.toHaveProperty('lastError');
     // A disabled server is never reported as connected, whatever the manager says.
     expect(body[2]).toMatchObject({ name: 'paused', enabled: false, state: 'disabled' });
     expect(body[2].command).toBe('uvx');
@@ -274,10 +323,12 @@ describe('MCP API routes', () => {
       command: 'npx',
       exposure: 'deferred',
       tool_exposure: { 'write_*': 'hidden' },
+      tool_enabled: { audit_log: false },
     });
     stub.tools.set('filesystem', [
       makeTool('read_file', { annotations: { readOnlyHint: true } }),
       makeTool('write_file', { title: 'Write', annotations: { destructiveHint: true } }),
+      makeTool('audit_log'),
     ]);
 
     const res = await inject({ method: 'GET', url: '/api/mcp/servers/filesystem/tools' });
@@ -286,10 +337,13 @@ describe('MCP API routes', () => {
     expect(res.json()).toEqual([
       {
         name: 'mcp__filesystem__read_file',
-        rawName: 'read_file',
+        serverToolName: 'read_file',
         title: undefined,
         description: 'read_file description',
         exposure: 'deferred',
+        enabled: true,
+        approvalRisk: 'medium',
+        annotations: { readOnlyHint: true },
         readOnly: true,
         destructive: false,
         idempotent: false,
@@ -297,22 +351,84 @@ describe('MCP API routes', () => {
       },
       {
         name: 'mcp__filesystem__write_file',
-        rawName: 'write_file',
+        serverToolName: 'write_file',
         title: 'Write',
         description: 'write_file description',
         exposure: 'hidden',
+        enabled: true,
+        approvalRisk: 'medium',
+        annotations: { destructiveHint: true },
         readOnly: false,
         destructive: true,
+        idempotent: false,
+        openWorld: false,
+      },
+      // Switched off in `tool_enabled` — still listed, so the UI can switch it
+      // back on, but `enabled: false`.
+      {
+        name: 'mcp__filesystem__audit_log',
+        serverToolName: 'audit_log',
+        title: undefined,
+        description: 'audit_log description',
+        exposure: 'deferred',
+        enabled: false,
+        approvalRisk: 'medium',
+        readOnly: false,
+        destructive: false,
         idempotent: false,
         openWorld: false,
       },
     ]);
   });
 
+  it('derives a tool approvalRisk from its registered capability', async () => {
+    writeServerEntry('filesystem', { command: 'npx' });
+    stub.tools.set('filesystem', [makeTool('read_file'), makeTool('rm_rf')]);
+    // The manager registers this descriptor on connect (`capabilityFromAnnotations`,
+    // §8.2). `approvalRiskForTool()` reads it back by the registered name.
+    registerToolCapability('mcp__filesystem__read_file', {
+      category: 'mcp',
+      readOnly: true,
+      readsFiles: false,
+      writesFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'none',
+    });
+    registerToolCapability('mcp__filesystem__rm_rf', {
+      category: 'mcp',
+      readOnly: false,
+      readsFiles: false,
+      writesFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'high_risk',
+    });
+
+    try {
+      const res = await inject({ method: 'GET', url: '/api/mcp/servers/filesystem/tools' });
+      expect(res.statusCode).toBe(200);
+      const tools = res.json() as Array<{ serverToolName: string; approvalRisk: string }>;
+      expect(tools.map((tool) => [tool.serverToolName, tool.approvalRisk])).toEqual([
+        ['read_file', 'low'],
+        ['rm_rf', 'high'],
+      ]);
+    } finally {
+      unregisterToolCapability('mcp__filesystem__read_file');
+      unregisterToolCapability('mcp__filesystem__rm_rf');
+    }
+  });
+
   it('answers 404 for an unknown server on every :name route', async () => {
     const urls = [
       { method: 'GET' as const, url: '/api/mcp/servers/ghost/tools' },
       { method: 'GET' as const, url: '/api/mcp/servers/ghost/logs' },
+      { method: 'GET' as const, url: '/api/mcp/servers/ghost/resources' },
+      { method: 'GET' as const, url: '/api/mcp/servers/ghost/raw' },
       { method: 'POST' as const, url: '/api/mcp/servers/ghost/reconnect' },
       { method: 'POST' as const, url: '/api/mcp/servers/ghost/login' },
       { method: 'POST' as const, url: '/api/mcp/servers/ghost/logout' },
@@ -330,6 +446,27 @@ describe('MCP API routes', () => {
       expect(res.statusCode, `${url.method} ${url.url}`).toBe(404);
       expect(res.json()).toMatchObject({ error: 'mcp.error.serverNotFound' });
     }
+  });
+
+  it('does not treat prototype names as existing servers', async () => {
+    writeServerEntry('filesystem', { command: 'npx' });
+
+    // `servers['__proto__']` resolves through the prototype chain, so plain
+    // property access used to answer 200 for these on DELETE/PATCH.
+    for (const name of ['__proto__', 'toString', 'constructor']) {
+      const del = await inject({ method: 'DELETE', url: `/api/mcp/servers/${name}` });
+      expect(del.statusCode, `DELETE ${name}`).toBe(404);
+
+      const patch = await inject({
+        method: 'PATCH',
+        url: `/api/mcp/servers/${name}`,
+        payload: { enabled: false },
+      });
+      expect(patch.statusCode, `PATCH ${name}`).toBe(404);
+    }
+
+    // …and the real entry is untouched.
+    expect(rawServer('filesystem')).toMatchObject({ command: 'npx' });
   });
 
   it('GET /api/mcp/logs falls back to the manager stderr tail without a log file', async () => {
@@ -354,6 +491,32 @@ describe('MCP API routes', () => {
     expect(res.json()).toEqual({ lines: ['c', 'd'] });
   });
 
+  it('GET /api/mcp/servers/:name/logs honours ?lines on the in-memory fallback', async () => {
+    writeServerEntry('filesystem', { command: 'npx' });
+    stub.states.set('filesystem', makeState('filesystem', { stderrTail: 'one\ntwo\nthree\n' }));
+
+    const res = await inject({ method: 'GET', url: '/api/mcp/servers/filesystem/logs?lines=1' });
+
+    expect(res.statusCode).toBe(200);
+    // Before the fix the fallback returned every line and ignored `lines`.
+    expect(res.json()).toEqual({ lines: ['three'] });
+  });
+
+  it('GET /api/mcp/servers/:name/logs ignores a non-numeric or negative ?lines', async () => {
+    writeServerEntry('filesystem', { command: 'npx' });
+    stub.states.set('filesystem', makeState('filesystem', { stderrTail: 'one\ntwo\nthree\n' }));
+
+    for (const query of ['lines=-1', 'lines=0', 'lines=1.5', 'lines=abc']) {
+      const res = await inject({
+        method: 'GET',
+        url: `/api/mcp/servers/filesystem/logs?${query}`,
+      });
+      expect(res.statusCode).toBe(200);
+      // A bad value falls back to the default, never to a negative slice.
+      expect(res.json()).toEqual({ lines: ['one', 'two', 'three'] });
+    }
+  });
+
   it('GET /api/mcp/presets returns the static catalogue', async () => {
     const res = await inject({ method: 'GET', url: '/api/mcp/presets' });
 
@@ -364,6 +527,175 @@ describe('MCP API routes', () => {
       expect(typeof preset.id).toBe('string');
       expect(['stdio', 'http']).toContain(preset.transport);
       expect(Array.isArray(preset.env)).toBe(true);
+    }
+  });
+
+  // ─── resources (§13.6) ───
+
+  it('GET /api/mcp/servers/:name/resources distinguishes unsupported, offline and live', async () => {
+    writeServerEntry('docs', { url: SERVER_URL });
+
+    // Does not declare the capability — a normal state, not an error.
+    stub.states.set('docs', makeState('docs', { supportsResources: false }));
+    const unsupported = await inject({ method: 'GET', url: '/api/mcp/servers/docs/resources' });
+    expect(unsupported.statusCode).toBe(200);
+    expect(unsupported.json()).toEqual({ supported: false, connected: true, resources: [] });
+    expect(stub.listResources).not.toHaveBeenCalled();
+
+    // Declares it, nothing is up to answer right now.
+    stub.states.set('docs', makeState('docs', { state: 'disconnected', supportsResources: true }));
+    const offline = await inject({ method: 'GET', url: '/api/mcp/servers/docs/resources' });
+    expect(offline.statusCode).toBe(200);
+    expect(offline.json()).toEqual({ supported: true, connected: false, resources: [] });
+
+    // Connected: concrete resources and templates share one array.
+    stub.states.set('docs', makeState('docs', { supportsResources: true }));
+    stub.listResources.mockResolvedValue({
+      resources: [
+        { uri: 'file:///readme.md', name: 'readme', mimeType: 'text/markdown' },
+        { uri: 'file:///empty.txt', name: 'empty' },
+      ],
+    });
+    stub.listResourceTemplates.mockResolvedValue({
+      resourceTemplates: [{ uriTemplate: 'file:///{path}', name: 'any-file' }],
+    });
+
+    const live = await inject({ method: 'GET', url: '/api/mcp/servers/docs/resources' });
+    expect(live.statusCode).toBe(200);
+    expect(live.json()).toEqual({
+      supported: true,
+      connected: true,
+      resources: [
+        {
+          server: 'docs',
+          template: false,
+          uri: 'file:///readme.md',
+          name: 'readme',
+          mimeType: 'text/markdown',
+        },
+        { server: 'docs', template: false, uri: 'file:///empty.txt', name: 'empty' },
+        { server: 'docs', template: true, uriTemplate: 'file:///{path}', name: 'any-file' },
+      ],
+    });
+  });
+
+  it('GET /api/mcp/servers/:name/resources reports a failed listing as 502', async () => {
+    writeServerEntry('docs', { url: SERVER_URL });
+    stub.states.set('docs', makeState('docs', { supportsResources: true }));
+    stub.listResources.mockRejectedValue(new Error('transport closed'));
+
+    const res = await inject({ method: 'GET', url: '/api/mcp/servers/docs/resources' });
+
+    expect(res.statusCode).toBe(502);
+    expect(res.json()).toMatchObject({ error: 'mcp.error.resourceListFailed' });
+    expect(res.json().message).toContain('transport closed');
+  });
+
+  // ─── raw config fragment (§13.6) ───
+
+  it('GET /api/mcp/servers/:name/raw returns the masked config.yaml fragment', async () => {
+    process.env.TEAM_ID = 'acme';
+    try {
+      writeServerEntry('docs', {
+        url: SERVER_URL,
+        headers: {
+          Authorization: 'Bearer real-token',
+          'X-Team': '${TEAM_ID}',
+          'X-Env': 'prod',
+        },
+        oauth: { client_id: 'cid', client_secret: '${OAUTH_SECRET}' },
+      });
+
+      const res = await inject({ method: 'GET', url: '/api/mcp/servers/docs/raw' });
+
+      expect(res.statusCode).toBe(200);
+      const yaml = (res.json() as { yaml: string }).yaml;
+      expect(yaml).toContain('docs:');
+      // i18n/ENV: the raw file, not the loaded config — no expansion, no defaults.
+      expect(yaml).toContain('X-Team: ${TEAM_ID}');
+      expect(yaml).not.toContain('acme');
+      expect(yaml).not.toContain('enabled:');
+      expect(yaml).not.toContain('exposure:');
+      // Named secrets are masked…
+      expect(yaml).toContain(`Authorization: ${MASKED_SECRET}`);
+      expect(res.body).not.toContain('real-token');
+      // …but a pure placeholder is a reference, not a secret, and survives.
+      expect(yaml).toContain('client_secret: ${OAUTH_SECRET}');
+      expect(yaml).toContain('X-Env: prod');
+    } finally {
+      delete process.env.TEAM_ID;
+    }
+  });
+
+  it('GET /api/mcp/servers/:name/raw reports a name with no raw mapping as a state', async () => {
+    // An own key whose value is not a mapping: the name exists, the fragment does not.
+    writeConfig('mcp:\n  servers:\n    docs:\n');
+
+    const res = await inject({ method: 'GET', url: '/api/mcp/servers/docs/raw' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ yaml: null, reason: 'notPresentInRawConfig' });
+  });
+
+  // ─── GET /api/config (E3: the source the edit form loads) ───
+
+  it('GET /api/config serves the masked RAW mcp entry so a save cannot bake in ${ENV}', async () => {
+    process.env.TEAM_ID = 'acme';
+    const configApp = Fastify({ logger: false });
+    registerConfigRoutes(configApp, { getConfig, configPath });
+    await configApp.ready();
+    try {
+      writeServerEntries({
+        docs: {
+          url: SERVER_URL,
+          headers: { Authorization: '${DOCS_TOKEN}', 'X-Team': '${TEAM_ID}' },
+          oauth: { client_id: 'cid', client_secret: 'shh' },
+        },
+        filesystem: { command: 'npx', env: { GITHUB_TOKEN: 'ghp_real_token' } },
+      });
+
+      const res = await configApp.inject({ method: 'GET', url: '/api/config' });
+      expect(res.statusCode).toBe(200);
+
+      const servers = (res.json() as { mcp: { servers: Record<string, Record<string, unknown>> } })
+        .mcp.servers;
+
+      // Raw shape: snake_case, no normalisation, no defaults. The `${DOCS_TOKEN}`
+      // placeholder is a reference, not a secret, so it survives verbatim.
+      expect(servers.docs).toEqual({
+        url: SERVER_URL,
+        headers: { Authorization: '${DOCS_TOKEN}', 'X-Team': '${TEAM_ID}' },
+        oauth: { client_id: 'cid', client_secret: MASKED_SECRET },
+      });
+      expect(servers.filesystem).toEqual({
+        command: 'npx',
+        env: { GITHUB_TOKEN: MASKED_SECRET },
+      });
+
+      // The bug this replaces: the normalised view expanded `${TEAM_ID}` to
+      // `acme` and filled in `enabled: true` / `exposure: deferred`, so the next
+      // save rewrote config.yaml with the expansion and the placeholder was gone.
+      expect(res.body).not.toContain('acme');
+      expect(res.body).not.toContain('ghp_real_token');
+      expect(res.body).not.toContain('Bearer');
+    } finally {
+      await configApp.close();
+      delete process.env.TEAM_ID;
+    }
+  });
+
+  it('serves the raw entry to the edit form even when that entry is skipped by the loader', async () => {
+    const configApp = Fastify({ logger: false });
+    registerConfigRoutes(configApp, { getConfig, configPath });
+    await configApp.ready();
+    try {
+      // `command` together with `url` — `normaliseMcpSection()` skips it.
+      writeServerEntries({ broken: { command: 'npx', url: SERVER_URL } });
+
+      const res = await configApp.inject({ method: 'GET', url: '/api/config' });
+      const servers = (res.json() as { mcp: { servers: Record<string, unknown> } }).mcp.servers;
+      expect(servers.broken).toEqual({ command: 'npx', url: SERVER_URL });
+    } finally {
+      await configApp.close();
     }
   });
 
@@ -475,6 +807,35 @@ describe('MCP API routes', () => {
     });
   });
 
+  it('PUT keeps the stored OAuth secret when the raw view echoed the mask back', async () => {
+    // The round trip the edit form performs: load the raw entry (masked), save it.
+    writeServerEntry('docs', {
+      url: SERVER_URL,
+      headers: { Authorization: 'Bearer real-token' },
+      oauth: { client_id: 'cid', client_secret: 'shh', scope: 'read' },
+    });
+
+    const res = await inject({
+      method: 'PUT',
+      url: '/api/mcp/servers/docs',
+      payload: {
+        name: 'docs',
+        url: SERVER_URL,
+        headers: { Authorization: MASKED_SECRET },
+        oauth: { clientId: 'cid', clientSecret: MASKED_SECRET, scope: 'read' },
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(rawServer('docs')).toEqual({
+      enabled: true,
+      exposure: 'deferred',
+      url: SERVER_URL,
+      headers: { Authorization: 'Bearer real-token' },
+      oauth: { client_id: 'cid', client_secret: 'shh', scope: 'read' },
+    });
+  });
+
   it('POST /api/mcp/servers rejects a duplicate name after -/_ normalisation', async () => {
     writeServerEntry('my-server', { command: 'x' });
 
@@ -488,6 +849,65 @@ describe('MCP API routes', () => {
     expect(res.json()).toMatchObject({ error: 'mcp.error.nameTaken' });
     expect(res.json().message).toContain('my-server');
     expect(rawServer('my_server')).toBeUndefined();
+  });
+
+  it('blocks a duplicate of an entry the loader skipped instead of creating a config that will not boot', async () => {
+    // `command` + `url` fails the raw schema, so the loader drops this entry:
+    // only the raw map knows it exists.
+    writeServerEntries({
+      'my-server': { command: 'npx', url: SERVER_URL },
+      keep: { command: 'npx' },
+    });
+    expect(getConfig().mcp?.servers['my-server']).toBeUndefined();
+
+    const res = await inject({
+      method: 'POST',
+      url: '/api/mcp/servers',
+      payload: { name: 'my_server', command: 'npx' },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: 'mcp.error.nameTaken' });
+    expect(res.json().message).toContain('my-server');
+    // Nothing was written: the canonical duplicate check on the next load would
+    // have thrown, and the gateway would not have started.
+    expect(readRawConfig()).toMatchObject({
+      mcp: { servers: { 'my-server': { command: 'npx' } } },
+    });
+  });
+
+  it('makes an entry the loader skipped visible, editable and deletable', async () => {
+    writeServerEntries({ broken: { command: 'npx', url: SERVER_URL } });
+
+    // Visible: the raw fragment is served…
+    const raw = await inject({ method: 'GET', url: '/api/mcp/servers/broken/raw' });
+    expect(raw.statusCode).toBe(200);
+    expect(raw.json().yaml).toContain('broken:');
+
+    // …and the tool list is an honest empty one rather than a 404.
+    const tools = await inject({ method: 'GET', url: '/api/mcp/servers/broken/tools' });
+    expect(tools.statusCode).toBe(200);
+    expect(tools.json()).toEqual([]);
+
+    // Editable: a patch edits the raw entry in place.
+    const patched = await inject({
+      method: 'PATCH',
+      url: '/api/mcp/servers/broken',
+      payload: { description: 'still broken' },
+    });
+    expect(patched.statusCode).toBe(200);
+    expect(patched.json()).toEqual({ ok: true });
+    expect(rawServer('broken')).toEqual({
+      command: 'npx',
+      url: SERVER_URL,
+      description: 'still broken',
+    });
+
+    // Deletable: the whole point — a skipped entry used to 404 forever.
+    const removed = await inject({ method: 'DELETE', url: '/api/mcp/servers/broken' });
+    expect(removed.statusCode).toBe(200);
+    expect(removed.json()).toEqual({ ok: true, removedTools: 0 });
+    expect(rawServer('broken')).toBeUndefined();
   });
 
   it('PUT /api/mcp/servers/:name rejects a rename', async () => {
@@ -608,6 +1028,54 @@ describe('MCP API routes', () => {
     expect(stub.reload).toHaveBeenCalledTimes(2);
   });
 
+  it('PATCH merges tool_enabled per key and persists it under the server', async () => {
+    writeServerEntry('filesystem', {
+      command: 'npx',
+      tool_enabled: { audit_log: false, write_file: true },
+    });
+
+    const disabled = await inject({
+      method: 'PATCH',
+      url: '/api/mcp/servers/filesystem',
+      payload: { tool_enabled: { read_file: false } },
+    });
+    expect(disabled.statusCode).toBe(200);
+    // Merge, not replace: the other overrides survive.
+    expect(rawServer('filesystem')?.tool_enabled).toEqual({
+      audit_log: false,
+      write_file: true,
+      read_file: false,
+    });
+
+    const cleared = await inject({
+      method: 'PATCH',
+      url: '/api/mcp/servers/filesystem',
+      payload: { tool_enabled: { audit_log: null, write_file: null, read_file: null } },
+    });
+    expect(cleared.statusCode).toBe(200);
+    // Every override cleared — the key goes away rather than holding nulls.
+    expect(rawServer('filesystem')).not.toHaveProperty('tool_enabled');
+    expect(stub.reload).toHaveBeenCalledTimes(2);
+  });
+
+  it('carries toolEnabled through POST and PUT as well', async () => {
+    const installed = await inject({
+      method: 'POST',
+      url: '/api/mcp/servers',
+      payload: { name: 'filesystem', command: 'npx', toolEnabled: { audit_log: false } },
+    });
+    expect(installed.statusCode).toBe(200);
+    expect(rawServer('filesystem')?.tool_enabled).toEqual({ audit_log: false });
+
+    const updated = await inject({
+      method: 'PUT',
+      url: '/api/mcp/servers/filesystem',
+      payload: { name: 'filesystem', command: 'npx', toolEnabled: { audit_log: true } },
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(rawServer('filesystem')?.tool_enabled).toEqual({ audit_log: true });
+  });
+
   it('reports a just-enabled server as connecting until the manager catches up', async () => {
     writeServerEntry('filesystem', { command: 'npx', enabled: false });
     stub.states.set('filesystem', makeState('filesystem', { state: 'disabled' }));
@@ -703,7 +1171,10 @@ describe('MCP API routes', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ ok: true, state: 'connected' });
     expect(res.json().tools).toEqual([
-      expect.objectContaining({ name: 'mcp__filesystem__read_file', rawName: 'read_file' }),
+      expect.objectContaining({
+        name: 'mcp__filesystem__read_file',
+        serverToolName: 'read_file',
+      }),
     ]);
     expect(stub.reconnect).toHaveBeenCalledWith('filesystem');
   });
@@ -818,6 +1289,53 @@ describe('MCP API routes', () => {
     expect(res.json()).toEqual({ ok: false, error: 'spawn npx ENOENT', stderrTail: 'boom' });
   });
 
+  it('POST /api/mcp/test resolves masked values against the stored entry before probing', async () => {
+    writeServerEntry('docs', {
+      url: SERVER_URL,
+      headers: { Authorization: 'Bearer real-token', 'X-Team': '${TEAM_ID}' },
+      oauth: { client_id: 'cid', client_secret: 'shh' },
+    });
+    process.env.TEAM_ID = 'acme';
+    try {
+      const res = await inject({
+        method: 'POST',
+        url: '/api/mcp/test',
+        payload: {
+          name: 'docs',
+          url: SERVER_URL,
+          // Exactly what the edit form submits after loading `GET /api/config`: a
+          // mark for the secret it did not touch, and the raw placeholder.
+          headers: { Authorization: MASKED_SECRET, 'X-Team': '${TEAM_ID}' },
+          oauth: { clientId: 'cid', clientSecret: MASKED_SECRET },
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(probe).toHaveBeenCalledWith(
+        expect.objectContaining({
+          transport: 'http',
+          // The mask never reaches the probe, and the `${ENV}` placeholder is
+          // resolved the way the loader would — a working config must not be
+          // reported as broken.
+          headers: { Authorization: 'Bearer real-token', 'X-Team': 'acme' },
+        }),
+      );
+    } finally {
+      delete process.env.TEAM_ID;
+    }
+  });
+
+  it('POST /api/mcp/test drops a mask that has nothing behind it', async () => {
+    const res = await inject({
+      method: 'POST',
+      url: '/api/mcp/test',
+      payload: { name: 'docs', command: 'npx', env: { GITHUB_TOKEN: MASKED_SECRET, A: '1' } },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(probe).toHaveBeenCalledWith(expect.objectContaining({ env: { A: '1' } }));
+  });
+
   it('POST /api/mcp/test validates the body before connecting', async () => {
     const res = await inject({ method: 'POST', url: '/api/mcp/test', payload: { name: 'x' } });
 
@@ -852,6 +1370,52 @@ describe('MCP API routes', () => {
     });
     expect(reconnect.statusCode).toBe(503);
     expect(reconnect.json()).toMatchObject({ error: 'mcp.error.managerUnavailable' });
+
+    // Nothing is up to answer, so resources report their zero state instead of a 5xx.
+    const resources = await inject({ method: 'GET', url: '/api/mcp/servers/filesystem/resources' });
+    expect(resources.statusCode).toBe(200);
+    expect(resources.json()).toEqual({ supported: false, connected: false, resources: [] });
+  });
+
+  it('does not leak config.yaml source lines when the file is not valid YAML', async () => {
+    // The `yaml` package appends the offending line and a caret to the error
+    // message; returning it verbatim echoed the secret to the client.
+    writeConfig('mcp:\n  client_secret: hunter2: x\n');
+
+    // `deps.getConfig()` is the cached config in production; a stub keeps this
+    // test about the write path rather than about the harness re-parsing YAML.
+    const brokenApp = Fastify({ logger: false });
+    registerMcpRoutes(brokenApp, {
+      db,
+      getConfig: () => ({}) as AppConfig,
+      getManager: () => undefined,
+      probe: probe as unknown as McpProbe,
+    });
+    registerConfigRoutes(brokenApp, { getConfig: () => ({}) as AppConfig, configPath });
+    await brokenApp.ready();
+    try {
+      const install = await brokenApp.inject({
+        method: 'POST',
+        url: '/api/mcp/servers',
+        payload: { name: 'filesystem', command: 'npx' },
+      });
+      expect(install.statusCode).toBe(500);
+      expect(install.json()).toMatchObject({ error: 'mcp.error.configWriteFailed' });
+      expect(install.body).not.toContain('hunter2');
+      expect(install.json().message).toContain('not valid YAML');
+
+      // Same scrubbed reason through the generic settings save (PUT /api/config).
+      const save = await brokenApp.inject({
+        method: 'PUT',
+        url: '/api/config',
+        payload: { log_level: 'debug' },
+      });
+      expect(save.statusCode).toBe(500);
+      expect(save.body).not.toContain('hunter2');
+      expect(save.json().message).toContain('not valid YAML');
+    } finally {
+      await brokenApp.close();
+    }
   });
 
   it('leaves non-MCP config untouched when no server is configured', async () => {

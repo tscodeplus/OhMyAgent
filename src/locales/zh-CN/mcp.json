@@ -14,6 +14,7 @@
     "alreadyRunning": "MCP 服务器 {{name}} 正在连接中",
     "connectFailed": "连接 MCP 服务器失败：{{message}}",
     "loginFailed": "OAuth 登录失败：{{message}}",
+    "resourceListFailed": "无法列出服务器的资源：{{message}}",
     "actionFailed": "操作失败：{{message}}"
   }
 }

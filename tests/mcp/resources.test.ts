@@ -90,6 +90,7 @@ describe('resource tool definitions', () => {
       manager: stubManager(servers),
       resources: access,
       offload: { writeSpill: () => ({ refPath: 'spill/x.md', absPath: '/tmp/x.md' }) },
+      maxBytes: () => 20_480,
     });
 
     expect(definitions.map((definition) => definition.name)).toEqual([
@@ -141,13 +142,21 @@ describe('resource tool definitions', () => {
     }
   });
 
-  it('registers only while a connected server declares the resources capability', () => {
+  it('registers only while a non-disabled server declares the resources capability', () => {
     expect(shouldRegisterResourceTools(stubManager([serverState('filesystem')]))).toBe(true);
+    // A transient drop keeps the tools (D7): deleting them would leave transcript
+    // `toolsAdded` records pointing at tools that no longer exist.
     expect(
       shouldRegisterResourceTools(stubManager([serverState('fs2', { state: 'disconnected' })])),
+    ).toBe(true);
+    expect(shouldRegisterResourceTools(stubManager([serverState('fs3', { state: 'error' })]))).toBe(
+      true,
+    );
+    expect(
+      shouldRegisterResourceTools(stubManager([serverState('fs4', { state: 'disabled' })])),
     ).toBe(false);
     expect(
-      shouldRegisterResourceTools(stubManager([serverState('fs3', { supportsResources: false })])),
+      shouldRegisterResourceTools(stubManager([serverState('fs5', { supportsResources: false })])),
     ).toBe(false);
     expect(shouldRegisterResourceTools(stubManager([]))).toBe(false);
   });
@@ -166,8 +175,18 @@ describe('resource tools', () => {
     rmSync(baseDir, { recursive: true, force: true });
   });
 
-  function build(manager: McpManager, resources: McpResourceAccess, context = ctx()) {
-    const definitions = createResourceToolDefinitions({ manager, resources, offload });
+  function build(
+    manager: McpManager,
+    resources: McpResourceAccess,
+    context = ctx(),
+    maxBytes = 20_480,
+  ) {
+    const definitions = createResourceToolDefinitions({
+      manager,
+      resources,
+      offload,
+      maxBytes: () => maxBytes,
+    });
     const byName = new Map(definitions.map((definition) => [definition.name, definition]));
     return {
       list: (args: any) => byName.get(MCP_RESOURCES_LIST_TOOL_NAME)!.execute(args, context),
@@ -403,5 +422,56 @@ describe('resource tools', () => {
     expect((await tools.read({ server: '', uri: 'file:///a' })).isError).toBe(true);
     expect((await tools.read({ server: 'filesystem', uri: '' })).isError).toBe(true);
     expect(access.readResource).not.toHaveBeenCalled();
+  });
+
+  it('caps and spills oversized text resource contents like tool output (R6)', async () => {
+    const big = 'y'.repeat(50_000);
+    const readResource = vi.fn(async () => ({
+      contents: [{ uri: 'file:///big.txt', mimeType: 'text/plain', text: big }],
+    }));
+    const tools = build(
+      stubManager([serverState('filesystem')]),
+      stubAccess({ readResource }),
+      ctx(),
+      256,
+    );
+
+    const result = await tools.read({ server: 'filesystem', uri: 'file:///big.txt' });
+    const text = textOf(result);
+
+    // Before the fix the 50KB text was pushed into the context verbatim.
+    expect(result.isError).toBeFalsy();
+    expect(text).toContain('Output truncated');
+    expect(text).toContain('use file_read to read it');
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThan(big.length / 10);
+
+    const spillPath = result.metadata?.fullOutputPath as string;
+    expect(spillPath).toBeTruthy();
+    expect(readFileSync(spillPath, 'utf-8')).toContain(big);
+  });
+
+  it('reads the resource output limit at call time, not at construction (R5/R6)', async () => {
+    const big = 'y'.repeat(5_000);
+    const readResource = vi.fn(async () => ({
+      contents: [{ uri: 'file:///big.txt', mimeType: 'text/plain', text: big }],
+    }));
+    let maxBytes = 128;
+    const definitions = createResourceToolDefinitions({
+      manager: stubManager([serverState('filesystem')]),
+      resources: stubAccess({ readResource }),
+      offload,
+      maxBytes: () => maxBytes,
+    });
+    const read = (args: { server: string; uri: string }) => definitions[2].execute(args, ctx());
+
+    expect(
+      (await read({ server: 'filesystem', uri: 'file:///big.txt' })).metadata?.fullOutputPath,
+    ).toBeTruthy();
+
+    maxBytes = 100_000;
+
+    const second = await read({ server: 'filesystem', uri: 'file:///big.txt' });
+    expect(second.metadata?.fullOutputPath).toBeUndefined();
+    expect(textOf(second)).toContain(big);
   });
 });

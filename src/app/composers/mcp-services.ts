@@ -36,7 +36,7 @@ import {
   mcpResourceToolCapability,
   shouldRegisterResourceTools,
 } from '../../mcp/resources.js';
-import type { McpManager } from '../../mcp/types.js';
+import type { McpManager, McpSectionConfig } from '../../mcp/types.js';
 import {
   registerToolCapability,
   unregisterToolCapability,
@@ -69,6 +69,12 @@ export function createMcpServices(deps: McpServicesDeps): McpServices {
     deps.config.memory.offloading?.refDir || path.dirname(deps.config.database.path);
   const offloadStore = new OffloadStore(offloadBaseDir);
 
+  // The manager owns the section it is actually running with; this mirror keeps
+  // the resource tools' output limit in step with it. It follows the same
+  // fallback as the manager (`?? deps.config`), so a section that vanishes on
+  // reload cannot leave the two disagreeing.
+  let liveSection: McpSectionConfig = section;
+
   const mcpManager = createMcpManager({
     config: section,
     logger: deps.logger,
@@ -80,7 +86,9 @@ export function createMcpServices(deps: McpServicesDeps): McpServices {
     // than tearing the running servers down.
     resolveConfig: () => {
       try {
-        return loadConfig().mcp;
+        const next = loadConfig().mcp;
+        liveSection = next ?? deps.config.mcp ?? liveSection;
+        return next;
       } catch (err) {
         deps.logger.warn({ err }, 'MCP reload: config.yaml could not be re-read — keeping it');
         return undefined;
@@ -88,7 +96,7 @@ export function createMcpServices(deps: McpServicesDeps): McpServices {
     },
   });
 
-  registerResourceTools(deps, mcpManager, offloadStore);
+  registerResourceTools(deps, mcpManager, offloadStore, () => liveSection.maxOutputBytes);
 
   // Fire-and-forget by design: a slow `npx` must not delay the HTTP listen.
   mcpManager.ready().catch((err: unknown) => {
@@ -134,11 +142,17 @@ function registerResourceTools(
   deps: McpServicesDeps,
   manager: McpManager,
   offloadStore: OffloadStore,
+  maxOutputBytes: () => number,
 ): void {
   const resources = manager.resources;
   if (!resources) return;
 
-  const definitions = createResourceToolDefinitions({ manager, resources, offload: offloadStore });
+  const definitions = createResourceToolDefinitions({
+    manager,
+    resources,
+    offload: offloadStore,
+    maxBytes: maxOutputBytes,
+  });
   let registered = false;
 
   const reconcile = (): void => {

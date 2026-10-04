@@ -54,6 +54,17 @@ interface McpServerConfigBase {
    * `*` wildcard (`write_*: hidden`) via `matchesToolPattern()`.
    */
   toolExposure: Record<string, McpExposure>;
+  /**
+   * Per-tool on/off, keyed by raw server tool name. Absent means enabled.
+   * A tool switched off is not registered at all, so the model cannot see or
+   * call it, but it still appears in `listTools()` so the UI can re-enable it.
+   */
+  toolEnabled: Record<string, boolean>;
+  /**
+   * Capability override for servers whose tools carry no annotations (§8.1).
+   * Absent means the default ladder (`medium` risk).
+   */
+  trust?: McpTrustLevel;
   /** Per-server request timeout override, in seconds. */
   timeoutSec?: number;
   description: string;
@@ -115,24 +126,94 @@ export interface McpServerState {
   protocolVersion?: string;
   serverName?: string;
   serverVersion?: string;
+  /** Server `instructions` from the `initialize` result, already truncated. */
+  instructionsSummary?: string;
   /** Tail of the child process stderr (stdio only), for the WebUI log pane. */
   stderrTail?: string;
+  /** Last connection error text, kept alongside `error` for the §13.7 shape. */
+  lastError?: McpServerLastError;
 }
+
+/** Server identity from the `initialize` result (§13.7). */
+export interface McpServerInfo {
+  protocolVersion?: string;
+  name?: string;
+  version?: string;
+}
+
+/** Last observed connection error and when it happened (§13.7). */
+export interface McpServerLastError {
+  message: string;
+  /** Epoch ms. */
+  at: number;
+}
+
+/**
+ * Approval-risk bucket derived from a tool's annotations (§8.2).
+ *
+ * `low` = `readOnlyHint`, `high` = `destructiveHint`, `medium` = everything
+ * else, including an unannotated tool. Mirrors `approvalRiskForTool()`.
+ */
+export type McpApprovalRisk = 'low' | 'medium' | 'high';
+
+/**
+ * Server-level capability override for servers that declare no annotations (§8.1).
+ *
+ * Applied only when a tool carries NO annotations at all: `read_only` treats it
+ * as read-only (risk `low`), `high_risk` as destructive (risk `high`), and
+ * `normal` keeps the default `medium`. A server that DOES annotate a tool is
+ * never overridden — the annotations win.
+ */
+export type McpTrustLevel = 'read_only' | 'normal' | 'high_risk';
+
+/**
+ * Where a server's definition came from (§13.7).
+ *
+ * Decision D2 makes `config.yaml` the single source of truth, and both the
+ * WebUI and `pnpm mcp:import` write it, so this is always `'config.yaml'`
+ * today. The field exists so the API matches §13.7, and so a future second
+ * source can be reported without another contract change.
+ */
+export type McpServerSource = 'config.yaml';
 
 /** API response shape for one tool (`GET /api/mcp/servers/:name/tools`). */
 export interface McpToolView {
   /** Registered tool name, including the `mcp__<server>__` prefix. */
   name: string;
   /** Raw tool name as declared by the server. */
-  rawName: string;
+  serverToolName: string;
   title?: string;
   description?: string;
   /** Effective exposure after `tool_exposure` overrides. */
   exposure: McpExposure;
+  /**
+   * False when `tool_enabled` switched this tool off. A disabled tool is still
+   * listed (so the UI can switch it back on) but is not registered, so the
+   * model never sees it.
+   */
+  enabled: boolean;
+  approvalRisk: McpApprovalRisk;
+  annotations?: ToolAnnotations;
   readOnly: boolean;
   destructive: boolean;
   idempotent: boolean;
   openWorld: boolean;
+}
+
+/** API response shape for one resource or template (§13.6 / §13.7). */
+export interface McpResourceView {
+  /** Owning server name. */
+  server: string;
+  /** Concrete resources only. */
+  uri?: string;
+  /** Templates only. */
+  uriTemplate?: string;
+  name?: string;
+  title?: string;
+  description?: string;
+  mimeType?: string;
+  /** True for entries that came from `listResourceTemplates`. */
+  template: boolean;
 }
 
 /** API response shape for one server (`GET /api/mcp/servers`). */
@@ -148,8 +229,15 @@ export interface McpServerView {
   connectedAt?: number;
   toolCount: number;
   /** Credentials are masked; never the raw secret. */
-  oauth: boolean;
+  hasCredentials: boolean;
   authRequired: boolean;
+  /** Always true: a server in this list is configured by definition (§13.7). */
+  installed: true;
+  /** Identity reported by the server's `initialize` result. */
+  serverInfo?: McpServerInfo;
+  instructionsSummary?: string;
+  lastError?: McpServerLastError;
+  source: McpServerSource;
   /** stdio only. */
   command?: string;
   args?: string[];
@@ -169,6 +257,8 @@ export interface McpServerInput {
   exposure?: McpExposure;
   description?: string;
   toolExposure?: Record<string, McpExposure>;
+  /** Per-tool on/off, keyed by raw server tool name (§13.6). */
+  toolEnabled?: Record<string, boolean>;
   timeoutSec?: number;
   command?: string;
   args?: string[];

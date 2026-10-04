@@ -42,7 +42,11 @@ import { createBeforeToolCall, type BeforeToolCallDeps } from './before-tool-cal
 import type { PolicyCenter } from '../policy/policy-center.js';
 import type { AgentPolicyScope } from '../policy/types.js';
 import { PROFILE_TOOLS, STRICT_FORCED_CORE_TOOLS } from '../policy/tool-visibility.js';
-import { isMcpToolVisible, toMcpVisibilityScope } from '../policy/mcp-visibility.js';
+import {
+  isMcpToolVisible,
+  toMcpVisibilityScope,
+  MCP_TOOL_PREFIX,
+} from '../policy/mcp-visibility.js';
 import type { McpVisibilityConfig } from '../policy/mcp-visibility.js';
 import { matchesAnyToolPattern } from '../policy/tool-pattern.js';
 import type { Orchestrator } from '../orchestrator/orchestrator.js';
@@ -464,6 +468,12 @@ export function createAgentFactory(
       const mcpSection = configRef.current.mcp;
       const mcpVisibility: McpVisibilityConfig | undefined =
         mcpSection && mcpSection.enabled !== false ? mcpSection : undefined;
+      // `exposure: 'direct'` MCP tools must be declared up front (§7); the MCP
+      // manager owns which registered names those are. No manager (MCP off)
+      // leaves tool_search's `forceVisible` semantics untouched. Resolved once
+      // here because BOTH the catalog mirror (deferral annotation) and Stage 8
+      // of the tool pipeline need the same list.
+      const mcpAlwaysVisibleTools = getServices?.()?.mcpManager?.alwaysVisibleTools();
       let tools = options?.tools ?? toolRegistry.listAsAgentTools();
 
       if (agentConfig && !options?.tools) {
@@ -587,21 +597,25 @@ export function createAgentFactory(
           // P1: strict mode narrows the catalog to the skill-allowed surface;
           // otherwise the profile baseline applies.
           let catalogCandidates: any[];
+          const catalogMcpScope = mcpVisibility
+            ? toMcpVisibilityScope(effectiveProfile, mcpVisibility)
+            : undefined;
+          const catalogMcpAllows = (name: string): boolean =>
+            catalogMcpScope === undefined || isMcpToolVisible(name, catalogMcpScope) !== false;
           if (skillToolsStrict) {
-            // Pattern semantics, mirroring Stage 3 of the tool pipeline.
+            // Pattern semantics, mirroring Stage 3 of the tool pipeline —
+            // including the MCP deny, which a skill allow-list cannot override.
             const allowedPatterns = skillAllowedTools ?? [];
             const deniedPatterns = skillDeniedTools ?? [];
             catalogCandidates = tools.filter(
               (t: any) =>
                 STRICT_FORCED_CORE_TOOLS.has(t.name) ||
                 (matchesAnyToolPattern(allowedPatterns, t.name) &&
-                  !matchesAnyToolPattern(deniedPatterns, t.name)),
+                  !matchesAnyToolPattern(deniedPatterns, t.name) &&
+                  catalogMcpAllows(t.name)),
             );
           } else {
             const allowedCatalogTools = PROFILE_TOOLS[effectiveProfile] || PROFILE_TOOLS.standard;
-            const catalogMcpScope = mcpVisibility
-              ? toMcpVisibilityScope(effectiveProfile, mcpVisibility)
-              : undefined;
             catalogCandidates =
               allowedCatalogTools[0] === '*' || effectiveProfile === 'full'
                 ? tools
@@ -618,10 +632,14 @@ export function createAgentFactory(
           // annotated with their true callability. Without this the catalog
           // reads "available in this session" for deferred tools too, and the
           // model hallucinates direct calls that fail as unknown tools.
+          // `forceVisible` is extraTools UNION the manager's `direct` MCP tools
+          // — omitting the latter told the model to search for a tool that was
+          // already in its tool array.
           const tsConfig = loadToolSearchConfig(configRef.current);
-          const forceVisibleNames = new Set(
-            (options?.extraTools ?? []).map((t: any) => String(t.name)),
-          );
+          const forceVisibleNames = new Set([
+            ...(options?.extraTools ?? []).map((t: any) => String(t.name)),
+            ...(mcpAlwaysVisibleTools ?? []),
+          ]);
           // Stage 3.5 spawn gate: when this agent has spawn disabled, the
           // pipeline removes spawn tools entirely — the catalog must not list
           // them either, or the model searches for tools that cannot exist.
@@ -657,13 +675,28 @@ export function createAgentFactory(
         // connect, so live connection state must not leak into the prompt.
         // `hidden` servers are excluded: their tools are never registered, so
         // advertising them would point the model at tools it cannot call.
+        // The shared visibility predicate decides next (§12.3): under a deny
+        // (or a non-matching `allow_servers`) every tool of a server is filtered
+        // out of the tool array, so listing the server would burn turns on
+        // guaranteed failures. The predicate is server-scoped, so probing it
+        // with a synthesized name is exact, and the reserved `resources`
+        // pseudo-server keeps its `allow_servers` exemption for free.
         const mcpPromptSection = configRef.current.mcp;
+        const mcpPromptScope =
+          mcpVisibility !== undefined
+            ? toMcpVisibilityScope(effectiveProfile, mcpVisibility)
+            : undefined;
+        const mcpServerVisible = (name: string): boolean =>
+          mcpPromptScope === undefined ||
+          isMcpToolVisible(`${MCP_TOOL_PREFIX}${name}__probe`, mcpPromptScope) === true;
         const mcpPromptServers =
           mcpPromptSection &&
           mcpPromptSection.enabled !== false &&
           mcpPromptSection.injectSystemPrompt
             ? Object.values(mcpPromptSection.servers ?? {})
-                .filter((s) => s.enabled !== false && s.exposure !== 'hidden')
+                .filter(
+                  (s) => s.enabled !== false && s.exposure !== 'hidden' && mcpServerVisible(s.name),
+                )
                 .map((s) => ({
                   name: s.name,
                   exposure: s.exposure,
@@ -774,10 +807,6 @@ export function createAgentFactory(
       // bridgeRegistry is resolved here because the desktop bridge reminder
       // (in transformContext) also needs it.
       const bridgeRegistry = getServices?.()?.desktopBridgeRegistry;
-      // `exposure: 'direct'` MCP tools must be declared up front (§7); the MCP
-      // manager owns which registered names those are. No manager (MCP off)
-      // leaves tool_search's forceVisible semantics untouched.
-      const mcpAlwaysVisibleTools = getServices?.()?.mcpManager?.alwaysVisibleTools();
 
       const toolPipelineResult = assembleAgentTools({
         explicitTools: options?.tools,

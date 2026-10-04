@@ -123,12 +123,29 @@ export async function createTestMcpServer(
     if (!('id' in message) || !('method' in message)) return;
     const request = message as JsonRpcRequest;
 
+    /**
+     * Deliver a response, ignoring a transport that has already closed.
+     *
+     * The manager legitimately tears the transport down mid-request — that is
+     * exactly what the cancellation tests exercise — so a response racing the
+     * close is a normal outcome, not a failure. Without this, the late send
+     * escapes as an unhandled rejection and vitest reports an error that
+     * masks the real assertions.
+     */
+    const sendSafe = async (payload: JsonRpcMessage): Promise<void> => {
+      try {
+        await pair.server.send(payload);
+      } catch {
+        // Transport closed before the response was delivered; nothing to do.
+      }
+    };
+
     // Handlers may be async; the transport is synchronous, so settle on a
     // microtask. Errors are converted to JSON-RPC error responses.
     queueMicrotask(() => {
       const handler = handlers.get(request.method);
       if (!handler) {
-        void pair.server.send({
+        void sendSafe({
           jsonrpc: '2.0',
           id: request.id,
           error: { code: -32601, message: `Method not found: ${request.method}` },
@@ -138,10 +155,10 @@ export async function createTestMcpServer(
       void (async () => {
         try {
           const result = await handler(request);
-          await pair.server.send({ jsonrpc: '2.0', id: request.id, result });
+          await sendSafe({ jsonrpc: '2.0', id: request.id, result });
         } catch (error) {
           const mcpError = error instanceof McpError ? error : new McpError(-32603, String(error));
-          await pair.server.send({
+          await sendSafe({
             jsonrpc: '2.0',
             id: request.id,
             error: { code: mcpError.code, message: mcpError.message, data: mcpError.data },

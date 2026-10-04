@@ -16,16 +16,17 @@ import {
   stat,
   rename as fsRename,
 } from 'node:fs/promises';
-import { existsSync, readFileSync, writeFileSync, statSync, createReadStream } from 'node:fs';
+import { existsSync, readFileSync, statSync, createReadStream } from 'node:fs';
 import { resolve, join, normalize, sep, extname, basename } from 'node:path';
 import { platform } from 'node:os';
 import crypto from 'node:crypto';
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
+import { parse as parseYaml } from 'yaml';
 import type { AppConfig } from '../types.js';
 import { safeEqual } from '../../shared/safe-equal.js';
 import { isWithinRoot } from '../../shared/path-utils.js';
 import { dataPath, resolveAgentPath } from '../../shared/agent-home.js';
 import { toolAllowedRoots } from '../../tools/platform/serve-roots.js';
+import { applyConfigObject, mutateConfigYaml, readConfigObject } from './yaml-mutation.js';
 import * as archiverModule from 'archiver';
 const archiver = archiverModule.default;
 
@@ -267,21 +268,30 @@ export function computeServeAllowedRoots(appConfig: AppConfig, fileRoot: string)
   return roots;
 }
 
-function writeFileRoot(configPath: string, root: string): void {
-  let yaml: Record<string, unknown> = {};
-  try {
-    const raw = readFileSync(configPath, 'utf-8');
-    const parsed = parseYaml(raw);
-    if (typeof parsed === 'object' && parsed !== null) {
-      yaml = parsed as Record<string, unknown>;
-    }
-  } catch {
-    // File doesn't exist or is empty — start fresh
-  }
+/** True for a plain object (a YAML mapping), not an array or a scalar. */
+function isMapping(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
-  yaml.webui = { ...((yaml.webui as Record<string, unknown>) ?? {}), file_root: root };
-
-  writeFileSync(configPath, stringifyYaml(yaml), 'utf-8');
+/**
+ * Persist `webui.file_root`.
+ *
+ * Goes through the shared serialised writer (`yaml-mutation.ts`): the previous
+ * unguarded read-modify-write raced the settings form, agent CRUD and the MCP
+ * routes, so any of them could lose this key — or lose its own fields to this
+ * one. Comments and formatting of the untouched sections now survive as well.
+ *
+ * @param configPath File to write; the route resolves it, the queue serialises it.
+ * @param root Absolute directory the file browser is confined to.
+ */
+async function writeFileRoot(configPath: string, root: string): Promise<void> {
+  await mutateConfigYaml((doc) => {
+    const next = readConfigObject(doc);
+    const webui = isMapping(next.webui) ? next.webui : {};
+    webui.file_root = root;
+    next.webui = webui;
+    applyConfigObject(doc, next);
+  }, configPath);
 }
 
 // ---------------------------------------------------------------------------
@@ -498,7 +508,14 @@ export function registerFilesRoutes(app: FastifyInstance, cfg: FilesRouteConfig)
       return reply.status(400).send({ error: `Not a directory: ${resolved}` });
     }
 
-    writeFileRoot(cfg.configPath, resolved);
+    // Writing the preference must not fail silently: a config.yaml that cannot
+    // be written (read-only, malformed) is exactly what the user needs to know.
+    try {
+      await writeFileRoot(cfg.configPath, resolved);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: `Could not save webui.file_root: ${message}` });
+    }
     cfg.onConfigChanged();
 
     return reply.send({ ok: true, root: resolved });

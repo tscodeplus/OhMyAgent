@@ -39,6 +39,18 @@ import type {
   McpTransport,
 } from './McpServerCard';
 
+/** One editable env/header row. Preset rows also carry their hint and secret flag. */
+export interface McpKeyValueRow {
+  key: string;
+  value: string;
+  /** Preset helper text rendered under the row (env only). */
+  hint?: string;
+  /** Preset: the server refuses to start without it. */
+  required?: boolean;
+  /** Preset: render as a password input and never echo the value back. */
+  secret?: boolean;
+}
+
 /** Editable form state. `McpServerInput` has no transport, the draft does. */
 export interface McpServerDraft {
   transport: McpTransport;
@@ -50,11 +62,11 @@ export interface McpServerDraft {
   /** stdio */
   command: string;
   args: string[];
-  env: Array<{ key: string; value: string }>;
+  env: McpKeyValueRow[];
   cwd: string;
   /** http */
   url: string;
-  headers: Array<{ key: string; value: string }>;
+  headers: McpKeyValueRow[];
   oauth?: Partial<McpOAuthConfig>;
   /** Preset metadata: env vars the user still has to provide (§13.3a). */
   requiredEnv?: McpPresetEnvVar[];
@@ -88,7 +100,13 @@ export function mcpDraftFromPreset(preset: McpPreset): McpServerDraft {
     command: preset.command ?? '',
     args: preset.args ?? [],
     url: preset.url ?? '',
-    env: preset.env.map((e) => ({ key: e.key, value: '' })),
+    env: preset.env.map((e) => ({
+      key: e.key,
+      value: '',
+      hint: e.hint,
+      required: e.required,
+      secret: e.secret,
+    })),
     requiredEnv: preset.env,
   };
 }
@@ -730,16 +748,16 @@ function KeyValueEditor({
   removeLabel,
 }: {
   label: string;
-  rows: Array<{ key: string; value: string }>;
+  rows: McpKeyValueRow[];
   hint?: string;
   error?: string;
-  onChange: (next: Array<{ key: string; value: string }>) => void;
+  onChange: (next: McpKeyValueRow[]) => void;
   addLabel: string;
   removeLabel: string;
 }) {
   const rowIds = useRowIds(rows.length);
 
-  const patch = (i: number, patchRow: Partial<{ key: string; value: string }>) => {
+  const patch = (i: number, patchRow: Partial<McpKeyValueRow>) => {
     onChange(rows.map((row, j) => (j === i ? { ...row, ...patchRow } : row)));
   };
 
@@ -750,23 +768,32 @@ function KeyValueEditor({
       </span>
       <div className="space-y-1.5">
         {rows.map((row, i) => (
-          <div key={rowIds[i]} className="flex items-center gap-2">
-            <input
-              value={row.key}
-              placeholder="KEY"
-              onChange={(e) => patch(i, { key: e.target.value })}
-              className="w-2/5 min-w-0 rounded-lg border border-neutral-300 bg-white px-3 py-2 font-mono text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-100"
-            />
-            <input
-              value={row.value}
-              placeholder="value"
-              onChange={(e) => patch(i, { value: e.target.value })}
-              className="min-w-0 flex-1 rounded-lg border border-neutral-300 bg-white px-3 py-2 font-mono text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-100"
-            />
-            <RowRemoveButton
-              label={removeLabel}
-              onClick={() => onChange(rows.filter((_, j) => j !== i))}
-            />
+          <div key={rowIds[i]} className="space-y-0.5">
+            <div className="flex items-center gap-2">
+              <input
+                value={row.key}
+                placeholder="KEY"
+                onChange={(e) => patch(i, { key: e.target.value })}
+                className="w-2/5 min-w-0 rounded-lg border border-neutral-300 bg-white px-3 py-2 font-mono text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-100"
+              />
+              <input
+                value={row.value}
+                // Preset secrets are typed in cleartext by default; `secret`
+                // forces a password field so a GitHub PAT is not shoulder-surfed.
+                type={row.secret ? 'password' : 'text'}
+                autoComplete="off"
+                placeholder="value"
+                onChange={(e) => patch(i, { value: e.target.value })}
+                className="min-w-0 flex-1 rounded-lg border border-neutral-300 bg-white px-3 py-2 font-mono text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-100"
+              />
+              <RowRemoveButton
+                label={removeLabel}
+                onClick={() => onChange(rows.filter((_, j) => j !== i))}
+              />
+            </div>
+            {row.hint && (
+              <p className="pl-1 text-[11px] text-neutral-500 dark:text-neutral-400">{row.hint}</p>
+            )}
           </div>
         ))}
       </div>

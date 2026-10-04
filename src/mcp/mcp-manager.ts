@@ -22,6 +22,9 @@
 // `createInMemoryTransportPair()` without spawning a child process or reaching
 // for globals.
 
+import { appendFile, mkdir, rename, rm, stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
 import {
   McpAuthRequiredError,
   McpClient,
@@ -54,6 +57,8 @@ import type { OffloadStore } from '../runtime-artifacts/offload-store.js';
 import type { ToolCapabilityDescriptor } from '../tools/platform/tool-capabilities.js';
 import type { ToolDefinition } from '../tools/platform/tool-definition.js';
 import { capabilityFromAnnotations } from './capability.js';
+import { takeTailBytes } from './offload.js';
+import { MCP_RESOURCE_TOOL_NAMES } from './resources.js';
 import { createMcpToolName, resolveMcpExposure, toMcpToolDefinition } from './tool-adapter.js';
 import type {
   McpCallOptions,
@@ -76,6 +81,60 @@ const MCP_CLIENT_NAME = 'OhMyAgent';
 
 /** Cap on the captured stdio stderr tail (upstream caps its own buffer at 64KB). */
 export const MCP_STDERR_TAIL_BYTES = 64 * 1024;
+
+/**
+ * Size at which a server's log file is rotated to `<file>.1` (§13.12).
+ *
+ * A single generation is kept — the newer `.1` overwrites the older one — so the
+ * sink never grows into an unbounded numbered series.
+ */
+export const MCP_LOG_MAX_BYTES = 5 * 1024 * 1024;
+
+/** Cap on the `initialize.instructions` summary kept in the server state (§13.7). */
+export const MCP_INSTRUCTIONS_SUMMARY_MAX_CHARS = 500;
+
+/**
+ * Framing headroom added on top of `mcp.max_output_bytes` when deriving a
+ * transport's frame limit (A4).
+ *
+ * A JSON-RPC reply is larger than the text it carries (envelope, escaping,
+ * pagination), so a limit equal to `max_output_bytes` would drop replies that the
+ * output limiter was about to truncate anyway.
+ */
+const TRANSPORT_FRAME_HEADROOM_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Floor for the derived frame limit: upstream's own `DEFAULT_MAX_MESSAGE_BYTES`,
+ * repeated here because pi-mcp does not re-export it. A section that lowers
+ * `max_output_bytes` must not shrink the transport below what upstream already
+ * considers normal.
+ */
+const TRANSPORT_MIN_MESSAGE_BYTES = 16 * 1024 * 1024;
+
+/** Mirrors upstream's `MAX_LIST_PAGES`, so a cursor loop cannot spin forever. */
+const MAX_TOOL_LIST_PAGES = 1_000;
+
+/**
+ * Upstream's transports report an over-limit frame as `… exceeds <n> bytes` and
+ * expose no error class for it, so the message is the only signal available
+ * (A4). Both `StdioTransport` and `StreamableHttpTransport` use that wording.
+ */
+const TRANSPORT_OVERSIZE_PATTERN = /exceeds \d+ bytes/;
+
+/**
+ * Frame limit handed to a server's transport.
+ *
+ * Derived from `mcp.max_output_bytes` plus framing headroom, with upstream's
+ * 16MB as a floor: without it the transport silently dropped every reply larger
+ * than 16MB, which both desynchronised framing and made a larger
+ * `mcp.max_output_bytes` unreachable (A4).
+ */
+export function mcpTransportMaxMessageBytes(section: McpSectionConfig): number {
+  return Math.max(
+    section.maxOutputBytes + TRANSPORT_FRAME_HEADROOM_BYTES,
+    TRANSPORT_MIN_MESSAGE_BYTES,
+  );
+}
 
 /** Lazy-reconnect backoff: 1s → 2s → 4s …, capped (design §9.2). */
 const RECONNECT_BACKOFF_BASE_MS = 1_000;
@@ -124,7 +183,12 @@ export interface McpManagerDeps {
    */
   createTransport?: (
     server: McpServerConfig,
-    hooks: { onStderr: (chunk: string) => void; authProvider?: AuthProvider },
+    hooks: {
+      onStderr: (chunk: string) => void;
+      authProvider?: AuthProvider;
+      /** Frame limit for one transport message, see {@link mcpTransportMaxMessageBytes}. */
+      maxMessageBytes: number;
+    },
   ) => McpTransport;
   /** Re-reads the section for `reload()`; defaults to the injected config. */
   resolveConfig?: () => McpSectionConfig | undefined;
@@ -181,13 +245,45 @@ interface ServerRuntime {
   /** Fingerprint of name+exposure — a change means the visible tool set moved. */
   signature: string;
   connectPromise: Promise<void> | undefined;
+  /**
+   * Attempt counter, bumped by `cancelConnectAttempt()`. An in-flight
+   * `doConnect()` compares it to the value it captured, so a superseded attempt
+   * can tell that the world moved on and must publish nothing (A1/R1).
+   */
+  generation: number;
+  /**
+   * Transport of the current attempt, kept on the runtime so a cancel can close
+   * it even while `connect()` is still in flight (A1/R1).
+   */
+  transport: McpTransport | undefined;
+  /** Set when a transport dropped an over-limit frame, see {@link OversizeFrame}. */
+  oversize: OversizeFrame | undefined;
   retryCount: number;
   nextRetryAt: number;
   stderrTail: string;
+  /** Per-server log file sink, created on first output (§13.12). */
+  logSink: McpServerLogSink | undefined;
   /** True while this manager is intentionally closing the client. */
   closing: boolean;
   /** OAuth provider + token provider, created on first use (§10). */
   oauth: OAuthRuntime | undefined;
+}
+
+/**
+ * A frame a transport refused to deliver because it exceeded its limit (A4).
+ *
+ * Upstream drops the frame and reports it on the error channel only, which
+ * leaves the pending request hanging until its timeout on a now-desynchronised
+ * connection. The close is started immediately so the request fails now, and
+ * awaited before the caller is told why.
+ */
+interface OversizeFrame {
+  /** Ready-to-throw message naming the limit and the remedy. */
+  message: string;
+  /** Epoch ms the transport reported it. */
+  at: number;
+  /** Close of the desynchronised connection. */
+  closing: Promise<void>;
 }
 
 /** One server's OAuth provider and the transport adapter built from it. */
@@ -240,6 +336,12 @@ class McpManagerImpl implements McpManager {
   private section: McpSectionConfig;
   private readyPromise: Promise<void> | undefined;
   private stopped = false;
+  /**
+   * Serialises `reload()`. One WebUI write issues it twice, and two overlapping
+   * passes apply a stale snapshot last — the proven symptom was a stale pass
+   * disabling a server a newer pass had just enabled (R3).
+   */
+  private reloadQueue: Promise<void> = Promise.resolve();
 
   /**
    * Resource access surface (§11). Optional on the interface, but always
@@ -291,6 +393,10 @@ class McpManagerImpl implements McpManager {
     const runtimes = [...this.servers.values()];
     await Promise.all(
       runtimes.map(async (rt) => {
+        // `stopped` already invalidates every attempt; closing the transport is
+        // what actually stops a half-open handshake — for a stdio server that
+        // means the child process is killed rather than left running (A1/R1).
+        await this.cancelConnectAttempt(rt);
         await this.cancelPendingFlow(rt.config.name);
         await this.closeClient(rt);
         this.unregisterServerTools(rt);
@@ -300,7 +406,18 @@ class McpManagerImpl implements McpManager {
     this.listeners.clear();
   }
 
-  async reload(): Promise<void> {
+  reload(): Promise<void> {
+    const pass = this.reloadQueue.then(() => this.reloadOnce());
+    // The stored chain must never reject, or one failed pass would poison every
+    // later one. `pass` still carries the rejection to this caller.
+    this.reloadQueue = pass.then(
+      () => undefined,
+      () => undefined,
+    );
+    return pass;
+  }
+
+  private async reloadOnce(): Promise<void> {
     if (this.stopped) return;
 
     const previousEnabled = this.section.enabled;
@@ -317,7 +434,7 @@ class McpManagerImpl implements McpManager {
       const enabled = this.isEnabled(server);
       let rt = this.servers.get(server.name);
       // A runtime created in this pass has never held a client, so it must
-      // connect even though `enabled` and `configChanged` both look like steady
+      // connect even though `enabled` and `connectionChanged` both look like steady
       // state. Without this, installing or enabling a server would only take
       // effect after a restart — `createServerRuntime` seeds `enabled: true`
       // and `rt.config` is already the new config, so both guards pass.
@@ -328,6 +445,9 @@ class McpManagerImpl implements McpManager {
       }
 
       const configChanged = JSON.stringify(rt.config) !== JSON.stringify(server);
+      // Only an edit that changes how the connection is built needs a fresh
+      // attempt: a description edit must not tear a healthy connection down (C5).
+      const connectionChanged = connectionFingerprint(rt.config) !== connectionFingerprint(server);
       rt.config = server;
       if (configChanged) {
         // The provider is bound to one exact server URL, and a half-finished
@@ -341,15 +461,35 @@ class McpManagerImpl implements McpManager {
         continue;
       }
 
-      const wasServing = !isNew && rt.enabled && !configChanged && previousEnabled;
+      const wasServing = !isNew && rt.enabled && !connectionChanged && previousEnabled;
       rt.enabled = true;
-      // A config change (command/url/env/exposure) needs a fresh connection so
-      // the new transport and the new tool set are actually used.
-      if (!wasServing) {
-        await this.closeClient(rt);
-        await this.connectQuietly(rt, 'reload');
+      if (wasServing) {
+        // Nothing about the connection moved, but exposure and per-tool switches
+        // may have: re-register from the cached list instead of reconnecting.
+        if (configChanged) this.refreshRegistrations(rt);
+        continue;
       }
+
+      // A connection-affecting change needs a *fresh* attempt: an in-flight one
+      // built its transport from the old config, and `connectServer()` would
+      // otherwise hand it straight back, so the edit never applied (R2).
+      await this.cancelConnectAttempt(rt);
+      await this.closeClient(rt);
+      await this.connectQuietly(rt, 'reload');
     }
+  }
+
+  /**
+   * Re-apply exposure and per-tool switches to the cached tool list (C5).
+   *
+   * Notified even when the name/exposure signature is unchanged: a description
+   * edit reaches the model through the system prompt, and the listener rebuilds
+   * it (`bootstrap.ts` maps `onToolsChanged` → `invalidateRuntimes()`).
+   */
+  private refreshRegistrations(rt: ServerRuntime): void {
+    if (rt.state.state !== 'connected' || !rt.client) return;
+    this.registerTools(rt, rt.state.tools);
+    this.notifyToolsChanged();
   }
 
   // ── Introspection ───────────────────────────────────────────────────────
@@ -397,12 +537,15 @@ class McpManagerImpl implements McpManager {
     if (!client) throw new Error(`MCP server "${serverName}" is not connected`);
 
     const timeoutMs = opts.timeoutMs ?? this.serverRequestTimeoutMs(rt);
+    const startedAt = Date.now();
     try {
       return await client.callTool(toolName, args, {
         ...(opts.signal ? { signal: opts.signal } : {}),
         timeoutMs,
       });
     } catch (err) {
+      const oversize = await this.takeOversizeFailure(rt, startedAt);
+      if (oversize) throw new Error(oversize);
       // A rejection while the client still reports `connected` is a server-side
       // error response (an unknown tool name, say), not a dropped connection.
       // Only an actually-dead connection is recorded as one; the registration
@@ -414,6 +557,9 @@ class McpManagerImpl implements McpManager {
 
   async reconnect(serverName: string): Promise<McpServerState> {
     const rt = this.requireServer(serverName);
+    // Must work mid-connect too: without the cancel, `connectServer()` hands the
+    // in-flight attempt straight back and the reconnect is a no-op (R2).
+    await this.cancelConnectAttempt(rt);
     await this.closeClient(rt);
     rt.retryCount = 0;
     rt.nextRetryAt = 0;
@@ -776,12 +922,17 @@ class McpManagerImpl implements McpManager {
 
   private async doConnect(rt: ServerRuntime, reason: string): Promise<void> {
     const name = rt.config.name;
+    // Captured before the first await: a cancel bumps the runtime's counter, and
+    // this attempt is only allowed to publish while the two still match (A1/R1).
+    const generation = rt.generation;
     this.setState(rt, 'connecting');
+    rt.oversize = undefined;
 
     const client = new McpClient({ name: MCP_CLIENT_NAME, version: getAppVersion() ?? '0.0.0' });
     const disposers: Array<() => void> = [
       client.onError((err) => {
         this.deps.logger.warn({ server: name, err: err.message }, 'MCP client error');
+        this.noteTransportError(rt, err);
       }),
       client.onClose(() => {
         this.handleClientClosed(rt, client);
@@ -794,17 +945,26 @@ class McpManagerImpl implements McpManager {
           );
         });
       }),
+      client.onNotification('notifications/message', (params) => {
+        this.handleLogMessage(rt, params);
+      }),
     ];
 
+    let transport: McpTransport | undefined;
     try {
       // Only an explicitly OAuth-configured HTTP server gets a token provider;
       // everything else keeps the pre-§10 behaviour where a 401 surfaces as
       // `McpAuthRequiredError`.
       const authProvider = this.authProviderFor(rt);
-      const transport = this.createTransport(rt.config, {
+      transport = this.createTransport(rt.config, {
         onStderr: (chunk) => this.appendStderr(rt, chunk),
+        maxMessageBytes: mcpTransportMaxMessageBytes(this.section),
         ...(authProvider ? { authProvider } : {}),
       });
+      // Stored before the handshake so `cancelConnectAttempt()` can close it
+      // while `connect()` is still parked (A1/R1).
+      rt.transport = transport;
+
       const connectTimeoutMs = this.section.connectTimeoutSec * 1000;
       await withTimeout(
         client.connect(transport),
@@ -812,10 +972,23 @@ class McpManagerImpl implements McpManager {
         `MCP server "${name}" connect timed out after ${connectTimeoutMs}ms`,
       );
 
+      // Cancelled mid-handshake: a stop, a disable or a newer attempt owns this
+      // runtime now, so this one publishes nothing (A1/R1).
+      if (!this.isAttemptCurrent(rt, generation)) {
+        await this.discardAttempt(rt, client, disposers, transport);
+        throw new ConnectCancelledError(name);
+      }
+
+      const tools = await this.requestTools(rt, client);
+
+      if (!this.isAttemptCurrent(rt, generation)) {
+        await this.discardAttempt(rt, client, disposers, transport);
+        throw new ConnectCancelledError(name);
+      }
+
       rt.client = client;
       rt.disposers = disposers;
 
-      const tools = await this.requestTools(rt, client);
       const capabilities = client.serverCapabilities ?? {};
       rt.retryCount = 0;
       rt.nextRetryAt = 0;
@@ -830,6 +1003,8 @@ class McpManagerImpl implements McpManager {
         authRequired: false,
         supportsResources: capabilities.resources !== undefined,
         supportsPrompts: capabilities.prompts !== undefined,
+        instructionsSummary: summariseInstructions(client.instructions),
+        lastError: undefined,
         ...(client.protocolVersion ? { protocolVersion: client.protocolVersion } : {}),
         ...(client.serverInfo?.name ? { serverName: client.serverInfo.name } : {}),
         ...(client.serverInfo?.version ? { serverVersion: client.serverInfo.version } : {}),
@@ -844,10 +1019,18 @@ class McpManagerImpl implements McpManager {
       this.notifyToolsChanged();
     } catch (err) {
       for (const dispose of disposers) dispose();
+      if (transport && rt.transport === transport) rt.transport = undefined;
       try {
         await client.close();
       } catch {
         // Best effort — the connect failure below is the one worth reporting.
+      }
+
+      // A superseded attempt must not touch the state either: the attempt that
+      // replaced it owns the runtime now (A1/R1).
+      if (!this.isAttemptCurrent(rt, generation)) {
+        this.deps.logger.debug({ server: name, reason }, 'MCP connect attempt was cancelled');
+        throw new ConnectCancelledError(name);
       }
 
       // A 401 with no usable credentials is not an error: the server needs the
@@ -859,6 +1042,10 @@ class McpManagerImpl implements McpManager {
       rt.nextRetryAt = Date.now() + reconnectBackoffMs(rt.retryCount);
       rt.state.errorCount += 1;
       rt.state.authRequired = authRequired;
+      // §13.7 keeps the failure text and its timestamp next to the state, so the
+      // WebUI can show *when* a server last broke instead of only that it is not
+      // connected right now.
+      rt.state.lastError = { message: errorMessage(err), at: Date.now() };
       this.setState(rt, authRequired ? 'auth_required' : 'error', errorMessage(err));
 
       this.deps.logger.warn(
@@ -869,11 +1056,78 @@ class McpManagerImpl implements McpManager {
     }
   }
 
+  /** True while the attempt that captured `generation` may still publish. */
+  private isAttemptCurrent(rt: ServerRuntime, generation: number): boolean {
+    return rt.enabled && !this.stopped && rt.generation === generation;
+  }
+
+  /**
+   * Invalidate and abort an in-flight connect attempt (A1/R1).
+   *
+   * Upstream's `McpClient.connect()` takes no `AbortSignal` and may not be
+   * patched, so the transport is closed instead: that unblocks the pending
+   * `initialize` and, for a stdio server, kills the child process. The attempt
+   * itself notices the bumped generation and discards its result.
+   */
+  private async cancelConnectAttempt(rt: ServerRuntime): Promise<void> {
+    rt.generation += 1;
+    const pending = rt.connectPromise;
+    if (!pending) return;
+
+    const transport = rt.transport;
+    if (transport) {
+      try {
+        await transport.close();
+      } catch (err) {
+        this.deps.logger.warn(
+          { server: rt.config.name, err: errorMessage(err) },
+          'MCP transport close during connect cancel failed',
+        );
+      }
+    }
+
+    // Awaited, so a caller that just disabled or stopped the server returns with
+    // the handshake finished rather than racing it.
+    try {
+      await pending;
+    } catch {
+      // The cancelled attempt reports its own failure; nothing to add here.
+    }
+    if (rt.connectPromise === pending) rt.connectPromise = undefined;
+  }
+
+  /** Drop a superseded attempt's client and listeners without publishing it. */
+  private async discardAttempt(
+    rt: ServerRuntime,
+    client: McpClient,
+    disposers: Array<() => void>,
+    transport: McpTransport,
+  ): Promise<void> {
+    for (const dispose of disposers) dispose();
+    if (rt.transport === transport) rt.transport = undefined;
+    try {
+      await client.close();
+    } catch (err) {
+      this.deps.logger.debug(
+        { server: rt.config.name, err: errorMessage(err) },
+        'MCP cancelled connect attempt did not close cleanly',
+      );
+    }
+  }
+
   private async closeClient(rt: ServerRuntime): Promise<void> {
     const client = rt.client;
     rt.client = undefined;
     for (const dispose of rt.disposers) dispose();
     rt.disposers = [];
+    // The client owns the transport once it is connected, so the runtime stops
+    // tracking it here; only a *pending* attempt keeps one (A1/R1).
+    rt.transport = undefined;
+    // Flush and drop the log file sink so a stopped or disabled server leaves
+    // nothing holding its log file (§13.12).
+    const sink = rt.logSink;
+    rt.logSink = undefined;
+    await sink?.close();
     if (!client) return;
 
     rt.closing = true;
@@ -936,6 +1190,10 @@ class McpManagerImpl implements McpManager {
   /** Close the connection and unregister everything the server contributed (D12). */
   private async disableServer(rt: ServerRuntime): Promise<void> {
     rt.enabled = false;
+    // An in-flight connect is cancelled *and awaited* before the tools go: it
+    // would otherwise finish later, register its tools and flip the state back
+    // to `connected` after the user disabled the server (A1/R1).
+    await this.cancelConnectAttempt(rt);
     await this.cancelPendingFlow(rt.config.name);
     await this.closeClient(rt);
     this.unregisterServerTools(rt);
@@ -974,9 +1232,10 @@ class McpManagerImpl implements McpManager {
 
     for (const tool of tools) {
       const exposure = resolveMcpExposure(rt.config, tool.name);
-      // `hidden` means "do not register at all" — the tool stays in
-      // `rt.state.tools` so the WebUI can still list and re-expose it (§7.1).
-      if (exposure === 'hidden') continue;
+      // `hidden` — and a tool switched off through `tool_enabled` — means "do not
+      // register at all". Both stay in `rt.state.tools` so the WebUI can still
+      // list them and switch them back on (§7.1, §13.7).
+      if (exposure === 'hidden' || !isToolEnabled(rt.config, tool.name)) continue;
 
       const name = rt.toolNames.get(tool.name) ?? this.allocateToolName(rt, tool.name, reserved);
       if (name === undefined) continue;
@@ -1002,7 +1261,7 @@ class McpManagerImpl implements McpManager {
           exposure: entry.exposure,
           callTool: (rawToolName, args, opts) =>
             this.callTool(rt.config.name, rawToolName, args, opts),
-          offload: this.offload(),
+          offload: { store: this.deps.offloadStore, maxBytes: () => this.section.maxOutputBytes },
         }),
       );
       this.registerCapability(name, capabilityFromAnnotations(entry.tool.annotations, rt.config));
@@ -1036,9 +1295,13 @@ class McpManagerImpl implements McpManager {
    * Reserve the registered name for one server tool.
    *
    * Returns `undefined` — and registers nothing — when the (hash-suffixed) name
-   * collides with an existing non-MCP tool: masking a built-in behind an alias
-   * would silently replace it, so the design calls for refusal + warning
-   * (§6.1 layer 2, §17).
+   * collides with a tool the gateway already owns: masking a built-in (or one of
+   * the three `mcp__resources__*` tools) behind an alias would silently replace
+   * it, so the design calls for refusal + warning (§6.1 layer 2, §17).
+   *
+   * `createMcpToolName()` only hashes around an *MCP-internal* collision, so the
+   * check has to come after it: a server literally named `resources` must be
+   * refused, not renamed (S2/A2).
    */
   private allocateToolName(
     rt: ServerRuntime,
@@ -1049,7 +1312,7 @@ class McpManagerImpl implements McpManager {
       reserved.has(candidate),
     );
 
-    if (reserved.has(name) || this.deps.toolRegistry.has(name)) {
+    if (reserved.has(name) || this.isGatewayOwnedToolName(name)) {
       this.deps.logger.warn(
         { server: rt.config.name, tool: rawToolName, name },
         'MCP tool name collides with an existing tool — refusing to register it',
@@ -1059,6 +1322,17 @@ class McpManagerImpl implements McpManager {
 
     rt.toolNames.set(rawToolName, name);
     return name;
+  }
+
+  /**
+   * True for names the gateway owns rather than any server: the three resource
+   * tools (§11) plus everything already in the v4 registry.
+   */
+  private isGatewayOwnedToolName(name: string): boolean {
+    return (
+      (MCP_RESOURCE_TOOL_NAMES as readonly string[]).includes(name) ||
+      this.deps.toolRegistry.has(name)
+    );
   }
 
   private unregisterServerTools(rt: ServerRuntime): void {
@@ -1073,17 +1347,140 @@ class McpManagerImpl implements McpManager {
     this.registeredTools.delete(name);
   }
 
-  private offload(): { store: OffloadStore; maxBytes: number } {
-    return { store: this.deps.offloadStore, maxBytes: this.section.maxOutputBytes };
+  /**
+   * Fetch a server's tool list, validating each entry leniently (A3).
+   *
+   * Upstream `McpClient.listTools()` validates a whole page with
+   * `validateListPage()`, which throws on the *first* malformed entry — so one
+   * sloppy tool (a missing `inputSchema`, say) took the entire server offline
+   * and lost the valid tools with it. pi-mcp is vendored and off-limits, so the
+   * page is requested directly and validated here instead: unusable entries are
+   * dropped with a warning and the rest are registered.
+   */
+  private async requestTools(rt: ServerRuntime, client: McpClient): Promise<Tool[]> {
+    const timeoutMs = (rt.config.timeoutSec ?? this.section.requestTimeoutSec) * 1000;
+    const startedAt = Date.now();
+    try {
+      return await withTimeout(
+        this.listToolsLeniently(rt, client, timeoutMs),
+        timeoutMs,
+        `MCP server "${rt.config.name}" tools/list timed out after ${timeoutMs}ms`,
+      );
+    } catch (err) {
+      const oversize = await this.takeOversizeFailure(rt, startedAt);
+      if (oversize) throw new Error(oversize);
+      throw err;
+    }
   }
 
-  private requestTools(rt: ServerRuntime, client: McpClient): Promise<Tool[]> {
-    const timeoutMs = (rt.config.timeoutSec ?? this.section.requestTimeoutSec) * 1000;
-    return withTimeout(
-      client.listTools(),
-      timeoutMs,
-      `MCP server "${rt.config.name}" tools/list timed out after ${timeoutMs}ms`,
+  /** Page through `tools/list`, keeping the entries upstream would have thrown on. */
+  private async listToolsLeniently(
+    rt: ServerRuntime,
+    client: McpClient,
+    timeoutMs: number,
+  ): Promise<Tool[]> {
+    const tools: Tool[] = [];
+    const skipped: string[] = [];
+    const cursors = new Set<string>();
+    let cursor: string | undefined;
+
+    for (let page = 0; page < MAX_TOOL_LIST_PAGES; page++) {
+      const raw = await client.request<unknown>(
+        'tools/list',
+        cursor === undefined ? undefined : { cursor },
+        { timeoutMs },
+      );
+      const parsed = parseToolListPage(raw, skipped);
+      tools.push(...parsed.tools);
+
+      if (parsed.nextCursor === undefined) {
+        if (skipped.length > 0) {
+          this.deps.logger.warn(
+            { server: rt.config.name, skipped, kept: tools.length },
+            'MCP server returned invalid tools/list entries — skipping them',
+          );
+        }
+        if (parsed.badCursor) {
+          this.deps.logger.warn(
+            { server: rt.config.name, kept: tools.length },
+            'MCP server returned an unusable tools/list cursor — stopping pagination',
+          );
+        }
+        return tools;
+      }
+
+      if (cursors.has(parsed.nextCursor)) {
+        throw new Error(
+          `MCP server "${rt.config.name}" tools/list returned duplicate cursor: ${parsed.nextCursor}`,
+        );
+      }
+      cursors.add(parsed.nextCursor);
+      cursor = parsed.nextCursor;
+    }
+
+    throw new Error(
+      `MCP server "${rt.config.name}" tools/list exceeded ${MAX_TOOL_LIST_PAGES} pages`,
     );
+  }
+
+  /**
+   * Turn an over-limit transport frame into an explicit error (A4).
+   *
+   * The frame is dropped and the pending request would otherwise hang until its
+   * timeout; the connection is desynchronised by then, so it has already been
+   * closed and the caller gets a message naming the limit instead.
+   */
+  private async takeOversizeFailure(rt: ServerRuntime, since: number): Promise<string | undefined> {
+    const oversize = rt.oversize;
+    if (!oversize || oversize.at < since) return undefined;
+
+    rt.oversize = undefined;
+    await oversize.closing;
+    this.setState(rt, 'disconnected', oversize.message);
+    this.notifyToolsChanged();
+    return oversize.message;
+  }
+
+  /** Record — and act on — a frame the transport refused to deliver (A4). */
+  private noteTransportError(rt: ServerRuntime, err: Error): void {
+    if (!TRANSPORT_OVERSIZE_PATTERN.test(err.message)) return;
+
+    const limit = mcpTransportMaxMessageBytes(this.section);
+    const message =
+      `MCP server "${rt.config.name}" sent a response larger than the transport limit ` +
+      `(${limit} bytes) and the connection was dropped; raise mcp.max_output_bytes ` +
+      `to allow bigger responses. Transport said: ${err.message}`;
+    this.deps.logger.error(
+      { server: rt.config.name, limit, err: err.message },
+      'MCP response exceeded the transport message limit — dropping the connection',
+    );
+    // Framing is desynchronised after a dropped frame, so the connection goes:
+    // the pending request fails now instead of hanging to its timeout.
+    rt.oversize = { message, at: Date.now(), closing: this.closeClient(rt) };
+  }
+
+  /**
+   * Resolve a connected client for one resource request. Resources are read the
+   * same way tool calls run: lazily reconnect a dropped server (§6.7) and bound
+   * the request with the server's timeout.
+   */
+  private async withResourceClient<T>(
+    serverName: string,
+    work: (client: McpClient, timeoutMs: number) => Promise<T>,
+  ): Promise<T> {
+    const rt = this.requireServer(serverName);
+    await this.ensureConnected(rt);
+    const client = rt.client;
+    if (!client) throw new Error(`MCP server "${serverName}" is not connected`);
+
+    const startedAt = Date.now();
+    try {
+      return await work(client, this.serverRequestTimeoutMs(rt));
+    } catch (err) {
+      const oversize = await this.takeOversizeFailure(rt, startedAt);
+      if (oversize) throw new Error(oversize);
+      throw err;
+    }
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────
@@ -1098,9 +1495,13 @@ class McpManagerImpl implements McpManager {
       registered: new Set(),
       signature: '',
       connectPromise: undefined,
+      generation: 0,
+      transport: undefined,
+      oversize: undefined,
       retryCount: 0,
       nextRetryAt: 0,
       stderrTail: '',
+      logSink: undefined,
       closing: false,
       oauth: undefined,
       state: {
@@ -1131,36 +1532,61 @@ class McpManagerImpl implements McpManager {
     return (rt.config.timeoutSec ?? this.section.requestTimeoutSec) * 1000;
   }
 
-  /**
-   * Resolve a connected client for one resource request. Resources are read the
-   * same way tool calls run: lazily reconnect a dropped server (§6.7) and bound
-   * the request with the server's timeout.
-   */
-  private async withResourceClient<T>(
-    serverName: string,
-    work: (client: McpClient, timeoutMs: number) => Promise<T>,
-  ): Promise<T> {
-    const rt = this.requireServer(serverName);
-    await this.ensureConnected(rt);
-    const client = rt.client;
-    if (!client) throw new Error(`MCP server "${serverName}" is not connected`);
-    return work(client, this.serverRequestTimeoutMs(rt));
-  }
-
   private setState(rt: ServerRuntime, state: McpConnectionState, error?: string): void {
     rt.state.state = state;
     rt.state.error = error;
     rt.state.updatedAt = Date.now();
   }
 
-  /** Bounded stderr tail for the WebUI log pane (§9.3 / §13.3). */
+  /**
+   * Bounded stderr tail for the WebUI log pane (§9.3 / §13.3).
+   *
+   * The tail is capped by *bytes*: counting characters let non-ASCII stderr hold
+   * roughly twice the intended budget (R7). Each chunk is also appended to the
+   * server's log file (§13.12).
+   */
   private appendStderr(rt: ServerRuntime, chunk: string): void {
-    const combined = rt.stderrTail + chunk;
-    rt.stderrTail =
-      combined.length > MCP_STDERR_TAIL_BYTES
-        ? combined.slice(combined.length - MCP_STDERR_TAIL_BYTES)
-        : combined;
+    if (this.stopped) return;
+    rt.stderrTail = takeTailBytes(`${rt.stderrTail}${chunk}`, MCP_STDERR_TAIL_BYTES);
     rt.state.stderrTail = rt.stderrTail;
+    this.logSinkFor(rt).append(chunk);
+  }
+
+  /**
+   * The server's file sink, created on first output (§13.12).
+   *
+   * Every server gets one, not just stdio ones: an HTTP server has no stderr but
+   * still reports through `notifications/message`.
+   */
+  private logSinkFor(rt: ServerRuntime): McpServerLogSink {
+    rt.logSink ??= new McpServerLogSink(
+      mcpLogFilePath(rt.config.name),
+      rt.config.name,
+      this.deps.logger,
+    );
+    return rt.logSink;
+  }
+
+  /**
+   * Forward one `notifications/message` entry (§13.12) to the main logger at the
+   * level it declares, and to the server's log file.
+   *
+   * An unknown level degrades to `info` instead of throwing: a misbehaving server
+   * must not take the gateway down.
+   */
+  private handleLogMessage(rt: ServerRuntime, params: unknown): void {
+    if (this.stopped) return;
+    const entry = isPlainObject(params) ? params : {};
+    const level = mapMcpLogLevel(entry['level']);
+    const fields = { server: rt.config.name };
+    const text = formatLogMessageData(entry['data']);
+
+    if (level === 'debug') this.deps.logger.debug(fields, text);
+    else if (level === 'warn') this.deps.logger.warn(fields, text);
+    else if (level === 'error') this.deps.logger.error(fields, text);
+    else this.deps.logger.info(fields, text);
+
+    this.logSinkFor(rt).append(text === '' ? level : `${level} ${text}`);
   }
 
   private snapshot(rt: ServerRuntime): McpServerState {
@@ -1184,9 +1610,131 @@ function reconnectBackoffMs(failureCount: number): number {
   return Math.min(RECONNECT_BACKOFF_BASE_MS * 2 ** exponent, RECONNECT_BACKOFF_MAX_MS);
 }
 
+/**
+ * Raised when a connect attempt was superseded by `stop()`, a disable or a newer
+ * attempt (A1/R1).
+ *
+ * It exists so a caller never mistakes a cancelled attempt for a successful one:
+ * `connectQuietly()` and `cancelConnectAttempt()` swallow it, everything else
+ * sees a rejection rather than a half-connected runtime.
+ */
+class ConnectCancelledError extends Error {
+  constructor(serverName: string) {
+    super(`MCP connection attempt for "${serverName}" was cancelled`);
+    this.name = 'ConnectCancelledError';
+  }
+}
+
+/**
+ * The parts of a server config that decide *how* the connection is built (C5).
+ *
+ * `description` is deliberately absent: it reaches the model through the system
+ * prompt, so a description edit must not tear a healthy connection down.
+ */
+function connectionFingerprint(server: McpServerConfig): string {
+  const shared = {
+    transport: server.transport,
+    timeoutSec: server.timeoutSec,
+    exposure: server.exposure,
+    toolEnabled: server.toolEnabled,
+  };
+
+  return JSON.stringify(
+    server.transport === 'stdio'
+      ? { ...shared, command: server.command, args: server.args, env: server.env, cwd: server.cwd }
+      : { ...shared, url: server.url, headers: server.headers, oauth: server.oauth },
+  );
+}
+
+/**
+ * Whether `tool_enabled` lets one tool be registered.
+ *
+ * A switched-off tool is still cached (so the UI can switch it back on) but is
+ * never registered, so the model can neither see nor call it (§13.6).
+ */
+function isToolEnabled(server: McpServerConfig, rawToolName: string): boolean {
+  return (server.toolEnabled ?? {})[rawToolName] !== false;
+}
+
+/** `initialize.instructions`, cut to a size the WebUI can render (§13.7). */
+function summariseInstructions(instructions: string | undefined): string | undefined {
+  const text = instructions?.trim();
+  if (!text) return undefined;
+  return text.length > MCP_INSTRUCTIONS_SUMMARY_MAX_CHARS
+    ? `${text.slice(0, MCP_INSTRUCTIONS_SUMMARY_MAX_CHARS)}…`
+    : text;
+}
+
+/** One validated `tools/list` page: usable tools, the cursor, what was dropped. */
+interface ParsedToolListPage {
+  tools: Tool[];
+  nextCursor?: string;
+  /** True when a cursor was present but unusable, so pagination stops there. */
+  badCursor: boolean;
+}
+
+/**
+ * Validate one `tools/list` result leniently (A3).
+ *
+ * A broken *envelope* still throws — that is a protocol failure, not a sloppy
+ * tool — while individual entries are filtered down to what upstream's `isTool()`
+ * requires (`name` plus an object `inputSchema`). Anything else is collected in
+ * `skipped` so the caller can name it in a warning.
+ */
+function parseToolListPage(value: unknown, skipped: string[]): ParsedToolListPage {
+  if (!isPlainObject(value) || !Array.isArray(value['tools'])) {
+    throw new Error('Invalid MCP tools/list result');
+  }
+
+  const tools: Tool[] = [];
+  for (const [index, entry] of value['tools'].entries()) {
+    if (!isToolEntry(entry)) {
+      skipped.push(describeSkippedEntry(entry, index));
+      continue;
+    }
+    tools.push(entry);
+  }
+
+  return { tools, ...parseListCursor(value['nextCursor']) };
+}
+
+function isToolEntry(entry: unknown): entry is Tool {
+  return (
+    isPlainObject(entry) &&
+    typeof entry['name'] === 'string' &&
+    entry['name'].trim() !== '' &&
+    isPlainObject(entry['inputSchema'])
+  );
+}
+
+/** Names a dropped entry as precisely as its own payload allows. */
+function describeSkippedEntry(entry: unknown, index: number): string {
+  if (isPlainObject(entry) && typeof entry['name'] === 'string') return entry['name'];
+  return `entry #${index}`;
+}
+
+/**
+ * `nextCursor` may be absent, `null` or `''` — all three end pagination, exactly
+ * as upstream treats them. Anything else is unusable, so pagination stops rather
+ * than throwing away the tools already collected.
+ */
+function parseListCursor(raw: unknown): { nextCursor?: string; badCursor: boolean } {
+  if (raw === undefined || raw === null || raw === '') return { badCursor: false };
+  if (typeof raw === 'string') return { nextCursor: raw, badCursor: false };
+  return { badCursor: true };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 function defaultTransportFactory(
   server: McpServerConfig,
-  hooks: { onStderr: (chunk: string) => void; authProvider?: AuthProvider },
+  hooks: {
+    onStderr: (chunk: string) => void;
+    authProvider?: AuthProvider;
+    maxMessageBytes: number;
+  },
 ): McpTransport {
   if (server.transport === 'stdio') {
     return new StdioTransport({
@@ -1195,11 +1743,16 @@ function defaultTransportFactory(
       ...(server.cwd ? { cwd: resolveAgentPath(server.cwd) } : {}),
       env: server.env,
       onStderr: hooks.onStderr,
+      // Without this the transport kept its own 16MB default and silently dropped
+      // every larger reply, which made a bigger `mcp.max_output_bytes`
+      // unreachable and desynchronised framing (A4).
+      maxMessageBytes: hooks.maxMessageBytes,
     });
   }
   return new StreamableHttpTransport({
     url: server.url,
     headers: server.headers,
+    maxMessageBytes: hooks.maxMessageBytes,
     ...(hooks.authProvider ? { authProvider: hooks.authProvider } : {}),
   });
 }
@@ -1291,4 +1844,147 @@ function isAuthRequiredError(err: unknown): boolean {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Directory the per-server MCP log files live in (§13.12).
+ *
+ * Mirrors `resolveLogDir()` in `src/app/logger.ts`, the location the logs route
+ * already reads from: `OHMYAGENT_LOG_DIR` wins, then `<OHMYAGENT_HOME>/logs`,
+ * then `~/.ohmyagent/logs`. Both the sink and the route go through
+ * {@link mcpLogFilePath}, so the writer and the reader cannot disagree.
+ */
+function resolveMcpLogDir(): string {
+  if (process.env.OHMYAGENT_LOG_DIR) return process.env.OHMYAGENT_LOG_DIR;
+  if (process.env.OHMYAGENT_HOME) return join(process.env.OHMYAGENT_HOME, 'logs');
+  return join(homedir(), '.ohmyagent', 'logs');
+}
+
+/** Absolute path of one server's log file — the sink and the route share it. */
+export function mcpLogFilePath(serverName: string): string {
+  return join(resolveMcpLogDir(), `mcp-${serverName}.log`);
+}
+
+/** pino level methods the manager's minimal logger interface offers. */
+type McpLogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+/** MCP `notifications/message` levels → pino levels. */
+const MCP_LOG_LEVEL_MAP: Record<string, McpLogLevel> = {
+  debug: 'debug',
+  info: 'info',
+  notice: 'info',
+  warning: 'warn',
+  error: 'error',
+  critical: 'error',
+  alert: 'error',
+  emergency: 'error',
+};
+
+/** MCP notification level → pino level; anything unrecognised becomes `info`. */
+function mapMcpLogLevel(level: unknown): McpLogLevel {
+  return typeof level === 'string' ? (MCP_LOG_LEVEL_MAP[level] ?? 'info') : 'info';
+}
+
+/** Render a `notifications/message` `data` payload as one log line. */
+function formatLogMessageData(data: unknown): string {
+  if (typeof data === 'string') return data;
+  if (data === undefined) return '';
+  try {
+    return JSON.stringify(data) ?? String(data);
+  } catch {
+    return String(data);
+  }
+}
+
+/**
+ * Stamp every line of `text` with one ISO timestamp and a trailing newline.
+ *
+ * Splitting on lines is what lets a rotated file be read on its own: every line
+ * carries the time it was written, not just the chunk that carried it. An empty
+ * chunk yields an empty string so nothing is appended for it.
+ */
+function stampLogLines(text: string): string {
+  if (text === '') return '';
+  const stamp = new Date().toISOString();
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  if (lines[lines.length - 1] === '') lines.pop();
+  return lines.map((line) => `${stamp} ${line}\n`).join('');
+}
+
+/**
+ * Append-only, single-generation-rotating log file for one MCP server (§13.12).
+ *
+ * Writes are serialised through a promise chain, so the hot stderr path never
+ * blocks the event loop and two appends never interleave: {@link append} queues
+ * the chunk and returns. Every line is prefixed with an ISO timestamp.
+ */
+class McpServerLogSink {
+  private queue: Promise<void> = Promise.resolve();
+  private dirReady: Promise<void> | undefined;
+  private closed = false;
+
+  constructor(
+    private readonly filePath: string,
+    private readonly server: string,
+    private readonly logger: McpManagerLogger,
+  ) {}
+
+  /** Queue `text` and return; a failed write is logged, never thrown. */
+  append(text: string): void {
+    if (this.closed) return;
+    const stamped = stampLogLines(text);
+    if (stamped === '') return;
+    this.queue = this.queue
+      .then(() => this.write(stamped))
+      .catch((err: unknown) => {
+        this.logger.warn(
+          { server: this.server, err: errorMessage(err) },
+          'MCP server log write failed',
+        );
+      });
+  }
+
+  /** Stop accepting writes and wait for whatever is still queued to land. */
+  async close(): Promise<void> {
+    this.closed = true;
+    await this.queue;
+  }
+
+  private async write(stamped: string): Promise<void> {
+    await this.ensureDir();
+    await this.rotateIfNeeded(Buffer.byteLength(stamped, 'utf8'));
+    await appendFile(this.filePath, stamped, 'utf8');
+  }
+
+  /** Create the log directory once; a failure is retried by the next append. */
+  private ensureDir(): Promise<void> {
+    this.dirReady ??= mkdir(dirname(this.filePath), { recursive: true }).then(
+      () => undefined,
+      (err: unknown) => {
+        this.dirReady = undefined;
+        throw err;
+      },
+    );
+    return this.dirReady;
+  }
+
+  /**
+   * Rotate to `<file>.1` when the next append would cross {@link MCP_LOG_MAX_BYTES}.
+   *
+   * The size check runs before the append and counts the incoming chunk, so a
+   * chunk larger than the whole limit still lands in a fresh file instead of
+   * being dropped. One generation is kept: the previous `.1` is overwritten.
+   */
+  private async rotateIfNeeded(incomingBytes: number): Promise<void> {
+    let size: number;
+    try {
+      size = (await stat(this.filePath)).size;
+    } catch {
+      return; // Nothing written yet — there is no file to rotate.
+    }
+    if (size + incomingBytes <= MCP_LOG_MAX_BYTES) return;
+
+    await rm(`${this.filePath}.1`, { force: true });
+    await rename(this.filePath, `${this.filePath}.1`);
+  }
 }

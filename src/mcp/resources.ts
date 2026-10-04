@@ -25,15 +25,16 @@
 // MCP Apps (`ui://` resources, `text/html;profile=mcp-app`) are out of scope:
 // they are filtered out of listings and refused on read.
 
-import { McpHttpError } from '@earendil-works/pi-mcp';
+import { McpHttpError, type LlmContent } from '@earendil-works/pi-mcp';
 import { Type } from 'typebox';
 import { MCP_RESERVED_SERVER, MCP_TOOL_PREFIX } from '../policy/mcp-visibility.js';
 import type { OffloadStore } from '../runtime-artifacts/offload-store.js';
 import type { ToolCapabilityDescriptor } from '../tools/platform/tool-capabilities.js';
 import type { ToolExecutionContext } from '../tools/platform/tool-context.js';
 import type { ToolDefinition } from '../tools/platform/tool-definition.js';
-import type { ToolExecutionResult, ToolResultContent } from '../tools/platform/tool-result.js';
+import type { ToolExecutionResult } from '../tools/platform/tool-result.js';
 import { errorResult, textResult } from '../tools/platform/tool-result.js';
+import { limitMcpOutput } from './offload.js';
 import type {
   ListResourceTemplatesResult,
   ListResourcesResult,
@@ -94,10 +95,15 @@ export interface McpResourceToolDeps {
    */
   resources: McpResourceAccess;
   /**
-   * Spill store for binary payloads (§19-14). The manager owns its own
-   * `OffloadStore` instance, independent of `memory.offloading.enabled`.
+   * Spill store for binary payloads and oversized text (§19-14). The manager owns
+   * its own `OffloadStore` instance, independent of `memory.offloading.enabled`.
    */
   offload: Pick<OffloadStore, 'writeSpill'>;
+  /**
+   * Live `mcp.max_output_bytes`. A function, not a number: the limit is read per
+   * call so an edit applies to an already-built tool (R5).
+   */
+  maxBytes: () => number;
 }
 
 /** One server's failure inside an aggregate listing. */
@@ -170,14 +176,17 @@ interface ResourceReadArgs {
 }
 
 /**
- * True when the resource tools should exist at all: at least one *connected*
- * server declares the `resources` capability. The wiring layer calls this on
- * every tool-set reconciliation and registers or unregisters accordingly.
+ * True when the resource tools should exist at all: at least one server declares
+ * the `resources` capability and has not been explicitly disabled.
+ *
+ * A *disconnected* server still counts (D7): its registrations survive a
+ * transient drop, and deleting the tools the moment a server blips would leave
+ * transcript `toolsAdded` records pointing at tools that no longer exist.
  */
 export function shouldRegisterResourceTools(manager: McpManager): boolean {
   return manager
     .listServers()
-    .some((server) => server.supportsResources && server.state === 'connected');
+    .some((server) => server.supportsResources && server.state !== 'disabled');
 }
 
 /**
@@ -355,9 +364,7 @@ async function readResource(
     );
   }
 
-  const content: ToolResultContent[] = [
-    { type: 'text', text: `Resource "${uri}" from "${serverName}":` },
-  ];
+  const content: LlmContent[] = [{ type: 'text', text: `Resource "${uri}" from "${serverName}":` }];
   let skippedApps = 0;
   let spilled = 0;
 
@@ -396,13 +403,23 @@ async function readResource(
     return textResult(`Resource "${uri}" from "${serverName}" returned no content.`);
   }
 
+  // Same limiter as tool output: a 5MB text resource must not flood the context
+  // just because it arrived through `resources/read` instead of `tools/call` (R6).
+  const limited = limitMcpOutput(content, {
+    store: deps.offload,
+    maxBytes: deps.maxBytes(),
+    sessionKey: sessionKey(ctx),
+    toolName: MCP_RESOURCES_READ_TOOL_NAME,
+  });
+
   return {
-    content,
+    content: limited.content,
     metadata: {
       server: serverName,
       uri,
       spilledContents: spilled,
       contents: result.contents.length,
+      ...(limited.fullOutputPath ? { fullOutputPath: limited.fullOutputPath } : {}),
     },
   };
 }

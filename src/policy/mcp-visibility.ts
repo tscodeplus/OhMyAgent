@@ -26,8 +26,25 @@ export const MCP_TOOL_PREFIX = 'mcp__';
  * the `allow_servers` allow-list — otherwise `allow_servers: [filesystem]`
  * would silently switch resource reading off — but can still be blocked by
  * `deny_servers: ['resources']`.
+ *
+ * A real server may not be named this: `normaliseMcpSection()` rejects it, so
+ * the pseudo-server is the only owner of the `mcp__resources__` segment.
  */
 export const MCP_RESERVED_SERVER = 'resources';
+
+/**
+ * Canonical form of a server name.
+ *
+ * `my-server` and `my_server` are the same server (§5.2), and registered tool
+ * names are sanitised the same way (`createMcpToolName()` replaces every
+ * character outside `[A-Za-z0-9_]`), so `mcp__my_server__read` is what
+ * `my-server` produces. Every place that *compares* a configured name with the
+ * server segment of a tool name must canonicalise both sides, or the
+ * `allow_servers` / `deny_servers` switch matches nothing.
+ */
+export function canonicalMcpServerName(name: string): string {
+  return name.replace(/-/g, '_');
+}
 
 export interface McpVisibilityScope {
   toolsProfile: ToolProfileId;
@@ -61,28 +78,41 @@ export function serverNameOfMcpTool(toolName: string): string | null {
   return server;
 }
 
-/** Normalise raw config into a visibility scope. */
+/**
+ * Normalise raw config into a visibility scope.
+ *
+ * Both lists are canonicalised here — the single point every consumer goes
+ * through — so a config spelling of `my-server` matches the `my_server`
+ * segment `createMcpToolName()` puts into the tool name.
+ */
 export function toMcpVisibilityScope(
   toolsProfile: ToolProfileId,
   mcp: McpVisibilityConfig | undefined | null,
 ): McpVisibilityScope {
   return {
     toolsProfile,
-    allowServers: mcp?.allowServers ?? [],
-    denyServers: mcp?.denyServers ?? [],
+    allowServers: (mcp?.allowServers ?? []).map(canonicalMcpServerName),
+    denyServers: (mcp?.denyServers ?? []).map(canonicalMcpServerName),
   };
 }
 
 /**
  * Decide whether an MCP tool is visible under the current profile.
  *
- * Returns `undefined` when the name is not an MCP tool, which tells the caller
- * to fall back to its own profile logic. Returning a boolean here instead would
- * make every consumer re-check the prefix.
+ * Returns `undefined` only when the name is not an MCP tool at all, which tells
+ * the caller to fall back to its own profile logic. Returning a boolean here
+ * instead would make every consumer re-check the prefix.
+ *
+ * A name under the MCP prefix that does not parse — `mcp__x`, `mcp__x__` —
+ * returns `false` rather than `undefined` (§12.3): it *is* an MCP tool, and
+ * letting it fall through would make the `full` profile visible to a server the
+ * user tried to block with `deny_servers`.
  */
 export function isMcpToolVisible(toolName: string, scope: McpVisibilityScope): boolean | undefined {
-  const server = serverNameOfMcpTool(toolName);
-  if (server === null) return undefined;
+  if (!isMcpToolName(toolName)) return undefined;
+  const rawServer = serverNameOfMcpTool(toolName);
+  if (rawServer === null) return false;
+  const server = canonicalMcpServerName(rawServer);
 
   // `restricted` is a structural read-only boundary — tool absence beats policy
   // patches, so MCP tools never appear there regardless of allow_servers.

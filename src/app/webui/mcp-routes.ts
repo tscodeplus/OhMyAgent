@@ -1,8 +1,17 @@
 /**
- * MCP API routes — the 14 endpoints of MyDocs/MCP_INTEGRATION_DESIGN.md §13.7.
+ * MCP API routes — the 16 endpoints of MyDocs/MCP_INTEGRATION_DESIGN.md §13.7
+ * (the 14 of the design plus `GET /api/mcp/servers/:name/resources` and
+ * `GET /api/mcp/servers/:name/raw`; `PATCH /api/mcp/servers/:name` also gained
+ * the `tool_enabled` field).
  *
  * See also §13.1 (the four orthogonal states), §13.4 (uninstall order),
- * §13.5 (enable/disable), §13.8 (persistence) and §13.11 (server strings).
+ * §13.5 (enable/disable), §13.6 (the detail drawer's resources / raw-config
+ * panes), §13.8 (persistence) and §13.11 (server strings).
+ *
+ * Deviation from §13.7 worth stating once, because the table is not explicit:
+ * a duplicate server name is **400** with `mcp.error.nameTaken` — never 409.
+ * "Already exists" is a request-level conflict here, not a resource state the
+ * client could resolve, and the WebUI branches on the machine-readable code.
  *
  * Auth: these routes are protected by exactly the same `webuiAuthHook` as every
  * other `/api/*` route. `bootstrap.ts` registers that hook on the root Fastify
@@ -15,15 +24,20 @@
  *   1. `config.yaml` is the single source of truth (decision 19-2) and every
  *      write goes through `mutateConfigYaml()` (decision 19-11) — the shared
  *      process-wide FIFO queue that also serialises the settings form
- *      (`config-routes.ts`) and agent CRUD (`config-persist.ts`). Reads come
- *      from `AppConfig.mcp`, i.e. the *normalised* section, so this module never
- *      re-implements `${ENV}` interpolation or the `codemode` → `deferred`
- *      aliasing that `src/mcp/config.ts` owns.
+ *      (`config-routes.ts`) and agent CRUD (`config-persist.ts`). *Reads that
+ *      have to keep `${ENV}` placeholders intact* come from the raw file
+ *      (`readRawConfigFile()`), because `AppConfig.mcp` is already
+ *      interpolated, camelCase and default-filled: serving that back to the
+ *      edit form turns a placeholder into its expansion the moment the user
+ *      saves (§13.7 security rules). *State* reads come from `AppConfig.mcp`.
  *
  *   2. Secrets never travel back. `env` / `headers` values are not part of
- *      `McpServerView` at all (only `envKeys` / `headerKeys`, §13.7), and a
- *      value the client echoes back that `isMaskedValue()` recognises is read
- *      as "leave the stored secret alone" — never written as the literal mask.
+ *      `McpServerView` at all (only `envKeys` / `headerKeys`, §13.7); the raw
+ *      config fragment (`GET /api/mcp/servers/:name/raw`) masks every
+ *      `isSecretKey()` name except a *pure* `${VAR}` placeholder, which is not
+ *      a secret and is preserved verbatim. A value the client echoes back that
+ *      `isMaskedValue()` recognises is read as "leave the stored secret alone"
+ *      — never written as the literal mask.
  *
  * Every response shape is taken from `src/mcp/types.ts`, the contract the
  * already-built WebUI (`ui/src/components/settings/mcp/`) consumes field by
@@ -33,15 +47,16 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type Database from 'better-sqlite3';
 import { closeSync, openSync, readSync, statSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { stringify as stringifyYaml } from 'yaml';
 import { z } from 'zod';
 
 import { DEFAULT_MCP_SECTION, MCP_SERVER_NAME_PATTERN } from '../../mcp/config.js';
 import { mcpAnnotationFlags } from '../../mcp/capability.js';
-import { isMaskedValue, maskRecord } from '../../mcp/masking.js';
+import { isMaskedValue, isSecretKey, maskRecord, MASKED_SECRET } from '../../mcp/masking.js';
 import {
   createMcpManager,
+  mcpLogFilePath,
   type McpManagerLogger,
   type McpToolRegistryLike,
 } from '../../mcp/mcp-manager.js';
@@ -49,20 +64,32 @@ import { deleteMcpOAuthCredentials, hasMcpOAuthCredentials } from '../../mcp/oau
 import { listMcpPresets } from '../../mcp/presets.js';
 import { createMcpToolName, resolveMcpExposure } from '../../mcp/tool-adapter.js';
 import type {
+  ListResourceTemplatesResult,
+  ListResourcesResult,
   McpConnectionState,
   McpExposure,
   McpManager,
   McpOAuthConfig,
+  McpResourceView,
   McpServerConfig,
+  McpServerInfo,
   McpServerInput,
+  McpServerState,
   McpServerView,
   McpToolView,
 } from '../../mcp/types.js';
+import { approvalRiskForTool } from '../../policy/tool-capability-registry.js';
 import { OffloadStore } from '../../runtime-artifacts/offload-store.js';
 import { i18n } from '../../i18n/index.js';
 import { loadConfig } from '../config.js';
+import { interpolateEnv } from '../config-loader.js';
 import type { AppConfig } from '../types.js';
-import { applyConfigObject, mutateConfigYaml, readConfigObject } from './yaml-mutation.js';
+import {
+  applyConfigObject,
+  mutateConfigYaml,
+  readConfigObject,
+  readRawConfigFile,
+} from './yaml-mutation.js';
 
 /** Result of `POST /api/mcp/test` — mirrors the WebUI's `McpTestResult`. */
 export interface McpProbeResult {
@@ -73,6 +100,30 @@ export interface McpProbeResult {
   /** Tail of the child process stderr (stdio only), §13.3. */
   stderrTail?: string;
 }
+
+/**
+ * `GET /api/mcp/servers/:name/resources` — the §13.6/§13.7 envelope.
+ *
+ * Not a bare array: "the server declares no resources" and "it is declared but
+ * not connected right now" are normal states, not client errors, and the WebUI
+ * has to tell them apart without guessing. Concrete resources and templates
+ * share `resources`, with `template: true` on the template entries.
+ */
+export interface McpResourcesView {
+  /** The server declared the `resources` capability in its `initialize` result. */
+  supported: boolean;
+  /** Its transport is up right now, i.e. a listing was actually possible. */
+  connected: boolean;
+  resources: McpResourceView[];
+}
+
+/**
+ * `GET /api/mcp/servers/:name/raw` — the server's `config.yaml` block (§13.6).
+ *
+ * `yaml: null` means the name is configured but has nothing to show as a
+ * fragment (its raw value is not a mapping) — reported as a state, not as a 404.
+ */
+export type McpRawConfigView = { yaml: string } | { yaml: null; reason: 'notPresentInRawConfig' };
 
 /**
  * Dry connect used by `POST /api/mcp/test` (§13.3): connects a throwaway
@@ -133,6 +184,7 @@ const serverInputSchema = z
     exposure: exposureSchema.optional(),
     description: z.string().optional(),
     toolExposure: z.record(z.string(), exposureSchema).optional(),
+    toolEnabled: z.record(z.string(), z.boolean()).optional(),
     timeoutSec: z.number().int().positive().optional(),
     command: z.string().optional(),
     args: z.array(z.string()).optional(),
@@ -146,9 +198,14 @@ const serverInputSchema = z
 
 /**
  * `PATCH /api/mcp/servers/:name` — the design's §13.7 field names, which are
- * snake_case here (`tool_exposure`) unlike `McpServerInput`'s `toolExposure`.
- * The already-built WebUI sends exactly these (`McpSettings.tsx`), so the
- * spelling is part of the contract, not a style choice.
+ * snake_case here (`tool_exposure`, `tool_enabled`) unlike `McpServerInput`'s
+ * camelCase. The already-built WebUI sends exactly these (`McpSettings.tsx`), so
+ * the spelling is part of the contract, not a style choice.
+ *
+ * `tool_enabled` merges per key and is keyed by the *raw* server tool name —
+ * the same key as `tool_exposure` and `McpToolView.serverToolName`. `false`
+ * switches a tool off, `true` switches it on, `null` drops the override (back
+ * to the default: enabled).
  */
 const patchInputSchema = z
   .object({
@@ -156,6 +213,7 @@ const patchInputSchema = z
     exposure: exposureSchema.optional(),
     description: z.string().optional(),
     tool_exposure: z.record(z.string(), exposureSchema).optional(),
+    tool_enabled: z.record(z.string(), z.boolean().nullable()).optional(),
   })
   .strict();
 
@@ -223,6 +281,77 @@ function stringRecord(value: unknown): Record<string, string> | undefined {
   const out: Record<string, string> = {};
   for (const [key, entry] of Object.entries(value)) out[key] = String(entry);
   return out;
+}
+
+// ─── Raw `config.yaml` access (§13.6) ───
+//
+// The `:name` routes validate against the RAW `mcp.servers` map, not against
+// `AppConfig.mcp`: the loader *skips* an entry it cannot normalise (unknown key,
+// `command` together with `url`, bad exposure), and an invisible entry cannot be
+// inspected, edited or deleted. Worse, an invisible entry does not block a new
+// server differing only by `-`/`_`, which leaves a `config.yaml` the next boot
+// refuses to load.
+
+/**
+ * Raw `mcp.servers` map of `config.yaml`, or `undefined` when the file cannot be
+ * read. `{}` and `undefined` are deliberately different answers: "no servers
+ * configured" versus "cannot tell".
+ *
+ * @throws Whatever `readRawConfigFile()` throws (a scrubbed parse error).
+ */
+export function readRawMcpServers(): Record<string, unknown> | undefined {
+  const root = readRawConfigFile();
+  const mcp = root.mcp;
+  if (!isRecord(mcp)) return {};
+  return isRecord(mcp.servers) ? mcp.servers : {};
+}
+
+/** A pure `${VAR}` / `${VAR:-default}` placeholder — a reference, never a secret. */
+const ENV_PLACEHOLDER = /^\$\{[^{}]*\}$/;
+
+/** Mask one scalar by its key name, leaving pure `${ENV}` placeholders intact. */
+function maskRawValue(key: string, value: unknown): unknown {
+  if (isRecord(value)) {
+    const nested: Record<string, unknown> = {};
+    for (const [nestedKey, nestedValue] of Object.entries(value)) {
+      nested[nestedKey] = maskRawValue(nestedKey, nestedValue);
+    }
+    return nested;
+  }
+  if (typeof value === 'string' && !ENV_PLACEHOLDER.test(value)) {
+    return isSecretKey(key) ? MASKED_SECRET : value;
+  }
+  return value;
+}
+
+/**
+ * Mask the secret values of one raw `config.yaml` server entry (§13.6).
+ *
+ * The fragment is the caller's own file, so a value that is a *pure* `${VAR}`
+ * placeholder is emitted verbatim even under a secret-named key: it is a
+ * reference, not a secret, and echoing it back is exactly what keeps a save from
+ * baking an expanded value into `config.yaml`. Every other `isSecretKey()` name
+ * is replaced by the mask. Values are never interpolated — the input is the raw
+ * file, so no effective value can leak through this path.
+ *
+ * @param entry Raw `mcp.servers.<name>` entry.
+ */
+export function maskRawServerEntry(entry: Record<string, unknown>): Record<string, unknown> {
+  const masked: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(entry)) masked[key] = maskRawValue(key, value);
+  return masked;
+}
+
+/**
+ * Serialise one masked server entry as the `config.yaml` fragment it came from:
+ * the name at column 0 with its body indented two spaces, exactly as the file
+ * holds it.
+ *
+ * @param name Server name (the YAML key of `mcp.servers`).
+ * @param entry Masked raw entry.
+ */
+export function serialiseServerFragment(name: string, entry: Record<string, unknown>): string {
+  return stringifyYaml({ [name]: entry }, { indent: 2, lineWidth: 120 });
 }
 
 // ─── Masking-aware write mapping ───
@@ -309,6 +438,9 @@ function toRawServerYaml(input: McpServerInput, stored: RawServerYaml | undefine
   if (input.toolExposure && Object.keys(input.toolExposure).length > 0) {
     raw.tool_exposure = input.toolExposure;
   }
+  if (input.toolEnabled && Object.keys(input.toolEnabled).length > 0) {
+    raw.tool_enabled = input.toolEnabled;
+  }
   if (input.timeoutSec !== undefined) raw.timeout_sec = input.timeoutSec;
 
   if (isStdio(input)) {
@@ -342,27 +474,65 @@ function endpointIssue(input: McpServerInput): string | undefined {
   return undefined;
 }
 
-/** Normalised config for the dry connect — the same translation the loader does. */
+/**
+ * Normalised config for the dry connect — the same translation the loader does.
+ *
+ * That includes `${ENV}` interpolation: the edit form hands back the raw values
+ * it loaded (§13.6), so a placeholder such as `Authorization: ${API_TOKEN}`
+ * must be resolved here exactly as the running gateway would resolve it —
+ * otherwise the probe sends the literal `${API_TOKEN}` and reports a working
+ * config as broken.
+ */
 function toProbeConfig(input: McpServerInput): McpServerConfig {
   const base = {
     name: input.name,
     enabled: true,
     exposure: input.exposure ?? ('deferred' as McpExposure),
     toolExposure: input.toolExposure ?? {},
+    toolEnabled: input.toolEnabled ?? {},
     description: input.description ?? '',
     ...(input.timeoutSec !== undefined ? { timeoutSec: input.timeoutSec } : {}),
   };
+  const config: McpServerConfig = isStdio(input)
+    ? {
+        ...base,
+        transport: 'stdio',
+        command: input.command,
+        args: input.args ?? [],
+        env: input.env ?? {},
+        cwd: input.cwd ?? '',
+      }
+    : { ...base, transport: 'http', url: input.url ?? '', headers: input.headers ?? {} };
+  return interpolateEnv(config) as McpServerConfig;
+}
+
+/**
+ * Replace the mask with the value it stands for before probing (§13.3).
+ *
+ * The edit form submits what it loaded, so an untouched secret-named field
+ * arrives as `••••••`; probing with that literal fails and tells the user a
+ * working config is broken. Masked values are therefore resolved against the
+ * entry stored in `config.yaml` — the same rule the write path applies — and a
+ * mask with nothing behind it is dropped rather than probed as a literal.
+ *
+ * Only `env` / `headers` are resolved: the throwaway probe manager is built
+ * without OAuth dependencies, so an inline `oauth:` block is inert there (it
+ * never reaches `authProviderFor()`), and the tokens the real gateway uses live
+ * in the OAuth store, not in the request body.
+ */
+function resolveMaskedInput(
+  input: McpServerInput,
+  stored: RawServerYaml | undefined,
+): McpServerInput {
+  const resolved: McpServerInput = { ...input };
   if (isStdio(input)) {
-    return {
-      ...base,
-      transport: 'stdio',
-      command: input.command,
-      args: input.args ?? [],
-      env: input.env ?? {},
-      cwd: input.cwd ?? '',
-    };
+    const env = mergeSecretRecord(input.env, stringRecord(stored?.env));
+    if (env) resolved.env = env;
+  } else {
+    const headers = mergeSecretRecord(input.headers, stringRecord(stored?.headers));
+    if (headers) resolved.headers = headers;
   }
-  return { ...base, transport: 'http', url: input.url ?? '', headers: input.headers ?? {} };
+  return resolved;
 }
 
 // ─── Dry connect (§13.3, decision 19-9) ───
@@ -426,16 +596,6 @@ async function probeServer(
 // ─── Log tail (§13.6 "logs", §13.12) ───
 
 /**
- * Mirror of `resolveLogDir()` in `src/app/logger.ts`, which keeps it private
- * and is outside this change's file list. Keep the two in step.
- */
-function resolveLogDir(): string {
-  if (process.env.OHMYAGENT_LOG_DIR) return process.env.OHMYAGENT_LOG_DIR;
-  if (process.env.OHMYAGENT_HOME) return join(process.env.OHMYAGENT_HOME, 'logs');
-  return join(homedir(), '.ohmyagent', 'logs');
-}
-
-/**
  * Last `lines` non-empty lines of `filePath`, or `undefined` when it does not
  * exist yet. Reads a bounded chunk from the end rather than the whole file
  * (§13.12); the first returned line may be the truncated tail of a longer one.
@@ -482,17 +642,68 @@ function parseLines(query: unknown): number {
 export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): void {
   const manager = (): McpManager | undefined => deps.getManager();
   const installed = (): McpServerConfig[] => Object.values(deps.getConfig().mcp?.servers ?? {});
-  const findServer = (name: string): McpServerConfig | undefined =>
-    deps.getConfig().mcp?.servers[name];
+
+  /**
+   * Raw `mcp.servers` entries, or `undefined` when config.yaml cannot be parsed.
+   *
+   * A broken file already fails every write, so degrading the checks to the
+   * loaded config is better than turning every read into a 500 — but the reason
+   * is logged, never swallowed.
+   */
+  const rawServers = (): Record<string, unknown> | undefined => {
+    try {
+      return readRawMcpServers();
+    } catch (err) {
+      app.log.warn({ err }, '[mcp] config.yaml is unreadable; using the loaded server list');
+      return undefined;
+    }
+  };
+
+  /**
+   * True when `name` is configured — including an entry the loader *skipped*.
+   *
+   * `hasOwnProperty` rather than truthiness: plain property access lets
+   * `__proto__` and `toString` resolve through the prototype chain, which made
+   * DELETE/PATCH answer 200 for a server that does not exist.
+   */
+  const serverExists = (name: string): boolean => {
+    const raw = rawServers();
+    if (raw) return Object.prototype.hasOwnProperty.call(raw, name);
+    return Object.prototype.hasOwnProperty.call(deps.getConfig().mcp?.servers ?? {}, name);
+  };
+
+  /** The raw entry of one server, or `undefined` when it has none. */
+  const rawEntry = (name: string): RawServerYaml | undefined => {
+    const raw = rawServers();
+    if (!raw || !Object.prototype.hasOwnProperty.call(raw, name)) return undefined;
+    const entry = raw[name];
+    return isRecord(entry) ? entry : undefined;
+  };
+
+  /** Loaded (interpolated, normalised) config of one server, if it loads at all. */
+  const findServer = (name: string): McpServerConfig | undefined => {
+    const servers = deps.getConfig().mcp?.servers;
+    if (!servers || !Object.prototype.hasOwnProperty.call(servers, name)) return undefined;
+    return servers[name];
+  };
 
   /** `my-server` and `my_server` are the same server (§5.2). */
   const canonical = (name: string): string => name.replace(/-/g, '_');
 
-  /** The conflicting stored name, if any — checked with the same normalisation as the loader. */
-  const findNameConflict = (name: string): string | undefined =>
-    installed()
-      .map((server) => server.name)
-      .find((other) => canonical(other) === canonical(name));
+  /**
+   * The conflicting stored name, if any — checked with the same normalisation as
+   * the loader.
+   *
+   * Read from the raw map so a *skipped* entry still blocks a duplicate:
+   * installing `my_server` next to an unloadable `my-server` would leave a
+   * `config.yaml` the next boot refuses to load (the canonical duplicate check
+   * throws there).
+   */
+  const findNameConflict = (name: string): string | undefined => {
+    const raw = rawServers();
+    const names = raw ? Object.keys(raw) : Object.keys(deps.getConfig().mcp?.servers ?? {});
+    return names.find((other) => canonical(other) === canonical(name));
+  };
 
   const toServerView = (server: McpServerConfig): McpServerView => {
     const live = manager();
@@ -509,13 +720,20 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
       description: server.description,
       state: resolveConnectionState(server, state?.state, live !== undefined),
       toolCount: live?.listTools(server.name).length ?? 0,
-      oauth: hasMcpOAuthCredentials(deps.db, server.name),
+      hasCredentials: hasMcpOAuthCredentials(deps.db, server.name),
       authRequired: state?.authRequired === true,
+      // Every server in this list comes from config.yaml (decision D2).
+      installed: true,
+      source: 'config.yaml',
       toolExposure: { ...server.toolExposure },
       errorCount: state?.errorCount ?? 0,
     };
     if (state?.error) view.error = state.error;
     if (state?.connectedAt !== undefined) view.connectedAt = state.connectedAt;
+    const serverInfo = toServerInfo(state);
+    if (serverInfo) view.serverInfo = serverInfo;
+    if (state?.instructionsSummary) view.instructionsSummary = state.instructionsSummary;
+    if (state?.lastError) view.lastError = state.lastError;
     if (server.transport === 'stdio') {
       view.command = server.command;
       view.args = [...server.args];
@@ -563,7 +781,12 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
       const root = readConfigObject(doc);
       const mcpSection = isRecord(root.mcp) ? root.mcp : {};
       const servers = isRecord(mcpSection.servers) ? mcpSection.servers : {};
-      const stored = isRecord(servers[name]) ? (servers[name] as RawServerYaml) : undefined;
+      // Own keys only: `servers['toString']` would otherwise resolve through the
+      // prototype chain and let a mutation read someone else's entry.
+      const stored =
+        Object.prototype.hasOwnProperty.call(servers, name) && isRecord(servers[name])
+          ? (servers[name] as RawServerYaml)
+          : undefined;
 
       const next = build(stored);
       if (next === undefined) delete servers[name];
@@ -643,8 +866,9 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
     if (!parsed.success) return badBody(reply, parsed.error);
     const input: McpServerInput = parsed.data;
 
-    const server = findServer(name);
-    if (!server) return fail(reply, 404, 'error.serverNotFound', { name });
+    // Existence is a raw-config question: an entry the loader skipped must still
+    // be updatable, otherwise it can never be fixed from the WebUI.
+    if (!serverExists(name)) return fail(reply, 404, 'error.serverNotFound', { name });
 
     if (input.name !== name) {
       return fail(reply, 400, 'error.renameUnsupported', { name });
@@ -661,9 +885,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
     }
 
     afterConfigWrite();
-    const updated = findServer(name);
-    if (!updated) return fail(reply, 500, 'error.configWriteFailed', { message: 'entry missing' });
-    return reply.send({ ok: true, server: toServerView(updated) });
+    return reply.send(renderWriteResult(name));
   });
 
   /** PATCH /api/mcp/servers/:name — enable/disable, exposure, description (§13.5). */
@@ -673,8 +895,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
     if (!parsed.success) return badBody(reply, parsed.error);
     const patch = parsed.data;
 
-    const server = findServer(name);
-    if (!server) return fail(reply, 404, 'error.serverNotFound', { name });
+    if (!serverExists(name)) return fail(reply, 404, 'error.serverNotFound', { name });
 
     try {
       // Existing fields (env, headers, args, oauth) must survive a patch, so the
@@ -686,6 +907,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
         if (patch.exposure !== undefined) next.exposure = patch.exposure;
         if (patch.description !== undefined) next.description = patch.description;
         if (patch.tool_exposure !== undefined) next.tool_exposure = patch.tool_exposure;
+        if (patch.tool_enabled !== undefined) applyToolEnabledPatch(next, patch.tool_enabled);
         return next;
       });
     } catch (err) {
@@ -694,9 +916,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
     }
 
     afterConfigWrite();
-    const updated = findServer(name);
-    if (!updated) return fail(reply, 404, 'error.serverNotFound', { name });
-    return reply.send({ ok: true, server: toServerView(updated) });
+    return reply.send(renderWriteResult(name));
   });
 
   /** DELETE /api/mcp/servers/:name?purge_credentials=true|false — uninstall (§13.4). */
@@ -708,8 +928,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
       return badBody(reply, purge.error);
     }
 
-    const server = findServer(name);
-    if (!server) return fail(reply, 404, 'error.serverNotFound', { name });
+    if (!serverExists(name)) return fail(reply, 404, 'error.serverNotFound', { name });
 
     // Count before the removal: the card's toast reports how many tools went away.
     const removedTools = manager()?.listTools(name).length ?? 0;
@@ -733,7 +952,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
   /** POST /api/mcp/servers/:name/reconnect — force a reconnect now (§9.2). */
   app.post('/api/mcp/servers/:name/reconnect', async (request, reply) => {
     const { name } = request.params as { name: string };
-    if (!findServer(name)) return fail(reply, 404, 'error.serverNotFound', { name });
+    if (!serverExists(name)) return fail(reply, 404, 'error.serverNotFound', { name });
     const live = manager();
     if (!live) {
       return fail(reply, 503, 'error.managerUnavailable');
@@ -753,7 +972,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
   /** POST /api/mcp/servers/:name/login — begin the OAuth flow (§10.1). */
   app.post('/api/mcp/servers/:name/login', async (request, reply) => {
     const { name } = request.params as { name: string };
-    if (!findServer(name)) return fail(reply, 404, 'error.serverNotFound', { name });
+    if (!serverExists(name)) return fail(reply, 404, 'error.serverNotFound', { name });
     const live = manager();
     if (!live) {
       return fail(reply, 503, 'error.managerUnavailable');
@@ -777,7 +996,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
     const { name } = request.params as { name: string };
     const parsed = loginCallbackSchema.safeParse(request.body);
     if (!parsed.success) return badBody(reply, parsed.error);
-    if (!findServer(name)) return fail(reply, 404, 'error.serverNotFound', { name });
+    if (!serverExists(name)) return fail(reply, 404, 'error.serverNotFound', { name });
     const live = manager();
     if (!live) {
       return fail(reply, 503, 'error.managerUnavailable');
@@ -795,7 +1014,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
   /** POST /api/mcp/servers/:name/logout — drop stored credentials (§10.3). */
   app.post('/api/mcp/servers/:name/logout', async (request, reply) => {
     const { name } = request.params as { name: string };
-    if (!findServer(name)) return fail(reply, 404, 'error.serverNotFound', { name });
+    if (!serverExists(name)) return fail(reply, 404, 'error.serverNotFound', { name });
     const live = manager();
     if (!live) {
       return fail(reply, 503, 'error.managerUnavailable');
@@ -813,24 +1032,100 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
   /** GET /api/mcp/servers/:name/tools — the manager's cached list (§13.7). */
   app.get('/api/mcp/servers/:name/tools', async (request, reply) => {
     const { name } = request.params as { name: string };
-    if (!findServer(name)) return fail(reply, 404, 'error.serverNotFound', { name });
+    if (!serverExists(name)) return fail(reply, 404, 'error.serverNotFound', { name });
     return reply.send(listToolsFor(name));
+  });
+
+  /**
+   * GET /api/mcp/servers/:name/resources — resources and templates (§13.6).
+   *
+   * "Declares no resources" and "declared but not connected" are normal states,
+   * reported as such with an empty list rather than as an error: the drawer has
+   * to render a reason, and a 404/500 would leave it guessing. Only a failed
+   * list against a *connected* server is an error (502).
+   */
+  app.get('/api/mcp/servers/:name/resources', async (request, reply) => {
+    const { name } = request.params as { name: string };
+    if (!serverExists(name)) return fail(reply, 404, 'error.serverNotFound', { name });
+
+    const state = manager()?.getServerState(name);
+    const connected = state?.state === 'connected';
+    if (state?.supportsResources !== true) {
+      return reply.send({ supported: false, connected, resources: [] } satisfies McpResourcesView);
+    }
+    const access = manager()?.resources;
+    if (!connected || !access) {
+      // No resource surface wired, or nothing is up to answer: the capability is
+      // real but there is nothing to list yet.
+      return reply.send({
+        supported: true,
+        connected: false,
+        resources: [],
+      } satisfies McpResourcesView);
+    }
+
+    try {
+      // One page each: the WebUI lists what the server offers now, and a cursor
+      // is a tool-level concern (`mcp__resources__list`).
+      const [list, templates] = await Promise.all([
+        access.listResources(name),
+        access.listResourceTemplates(name),
+      ]);
+      const resources = [
+        ...list.resources.map((resource) => toResourceView(name, resource)),
+        ...templates.resourceTemplates.map((template) => toResourceTemplateView(name, template)),
+      ];
+      return reply.send({ supported: true, connected: true, resources } satisfies McpResourcesView);
+    } catch (err) {
+      app.log.warn({ err, server: name }, '[mcp] resource listing failed');
+      return fail(reply, 502, 'error.resourceListFailed', { message: errText(err) });
+    }
+  });
+
+  /**
+   * GET /api/mcp/servers/:name/raw — the server's `config.yaml` block (§13.6).
+   *
+   * A fragment of the *file*, not a JSON view of the loaded config: that is what
+   * §13.6 promises the drawer, and a JSON object would force the WebUI to
+   * re-implement YAML formatting while rendering camelCase defaults that are not
+   * in the file. `GET /api/config` serves the same raw-masked entries to the edit
+   * form, so both consumers share one source.
+   */
+  app.get('/api/mcp/servers/:name/raw', async (request, reply) => {
+    const { name } = request.params as { name: string };
+    if (!serverExists(name)) return fail(reply, 404, 'error.serverNotFound', { name });
+
+    const entry = rawEntry(name);
+    if (!entry) {
+      // The name is configured but has no raw counterpart (empty value, or a
+      // config.yaml that cannot be read right now).
+      return reply.send({ yaml: null, reason: 'notPresentInRawConfig' } satisfies McpRawConfigView);
+    }
+    return reply.send({
+      yaml: serialiseServerFragment(name, maskRawServerEntry(entry)),
+    } satisfies McpRawConfigView);
   });
 
   /** GET /api/mcp/servers/:name/logs?lines=200 — tail of the server's log (§13.12). */
   app.get('/api/mcp/servers/:name/logs', async (request, reply) => {
     const { name } = request.params as { name: string };
-    if (!findServer(name)) return fail(reply, 404, 'error.serverNotFound', { name });
+    if (!serverExists(name)) return fail(reply, 404, 'error.serverNotFound', { name });
 
-    const lines = readLogTail(join(resolveLogDir(), `mcp-${name}.log`), parseLines(request.query));
-    if (lines) return reply.send({ lines });
+    const lines = parseLines(request.query);
+    const fileTail = readLogTail(mcpLogFilePath(name), lines);
+    if (fileTail) return reply.send({ lines: fileTail });
 
-    // No log file yet (the manager keeps its stderr tail in memory until the
-    // dedicated file sink lands) — show what is actually available rather than
-    // an empty pane.
+    // No log file yet (the server has not produced any output) — show what is
+    // actually available rather than an empty pane. `?lines` applies here too,
+    // exactly as it does on the file path above.
     const stderrTail = manager()?.getServerState(name)?.stderrTail;
     return reply.send({
-      lines: stderrTail ? stderrTail.split('\n').filter((line) => line.trim().length > 0) : [],
+      lines: stderrTail
+        ? stderrTail
+            .split('\n')
+            .filter((line) => line.trim().length > 0)
+            .slice(-lines)
+        : [],
     });
   });
 
@@ -843,9 +1138,12 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
     const issue = endpointIssue(input);
     if (issue) return fail(reply, 400, issue);
 
+    // The edit form submits the values it loaded, so an untouched secret arrives
+    // as the mask; probing with that literal would fail a working config (§13.3).
+    const probeInput = resolveMaskedInput(input, rawEntry(input.name));
     const probe = deps.probe ?? ((server: McpServerConfig) => probeServer(server, app.log));
     try {
-      return reply.send(await probe(toProbeConfig(input)));
+      return reply.send(await probe(toProbeConfig(probeInput)));
     } catch (err) {
       app.log.warn({ err, server: input.name }, '[mcp] dry connect failed unexpectedly');
       return reply.send({
@@ -856,6 +1154,24 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
   });
 
   /**
+   * Body of a successful write on one server.
+   *
+   * The entry is written either way, but it only renders as a view when the
+   * loader accepts it: a name that exists only in the raw map (an entry the
+   * loader skips) is still a successful write. Reporting `entry missing` there
+   * would be a lie, and reporting a fabricated view would be worse.
+   */
+  function renderWriteResult(name: string): { ok: true; server?: McpServerView } {
+    const updated = findServer(name);
+    if (updated) return { ok: true, server: toServerView(updated) };
+    app.log.warn(
+      { server: name },
+      '[mcp] entry written but not loadable; the config loader skips it',
+    );
+    return { ok: true };
+  }
+
+  /**
    * Tool view for one server, read from `manager.listTools()`.
    *
    * The manager cache — never the tool registry: `hidden` exposure tools are
@@ -864,22 +1180,102 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
    *
    * The registered name is recomputed with `createMcpToolName()`; the only case
    * where that can differ from the live registration is a collision between two
-   * MCP tools, which `rawName` (the field every action is keyed on) does not
-   * depend on.
+   * MCP tools, which `serverToolName` (the field every action is keyed on) does
+   * not depend on.
    */
   function listToolsFor(name: string): McpToolView[] {
     const server = findServer(name);
     if (!server) return [];
     const tools = manager()?.listTools(name) ?? [];
-    return tools.map((tool) => ({
-      name: createMcpToolName(name, tool.name),
-      rawName: tool.name,
-      title: tool.title,
-      description: tool.description,
-      exposure: resolveMcpExposure(server, tool.name),
-      ...mcpAnnotationFlags(tool.annotations),
-    }));
+    return tools.map((tool) => {
+      const registeredName = createMcpToolName(name, tool.name);
+      return {
+        name: registeredName,
+        serverToolName: tool.name,
+        title: tool.title,
+        description: tool.description,
+        exposure: resolveMcpExposure(server, tool.name),
+        // Absent means enabled: only an explicit `false` switches a tool off
+        // (§13.6). A switched-off tool stays listed — the UI has to be able to
+        // switch it back on — but the manager never registers it.
+        enabled: server.toolEnabled?.[tool.name] !== false,
+        // Derived from the capability registered for the *registered* name: the
+        // manager keys its annotation-derived descriptor by exactly this name
+        // (`capabilityFromAnnotations`, §8.2). A tool that is not registered
+        // (server down) falls back to the fail-closed `medium`.
+        approvalRisk: approvalRiskForTool(registeredName, undefined),
+        ...(tool.annotations ? { annotations: tool.annotations } : {}),
+        ...mcpAnnotationFlags(tool.annotations),
+      };
+    });
   }
+}
+
+/**
+ * `initialize` identity for the §13.7 `serverInfo` field, or `undefined` when
+ * nothing was reported (never a partially-filled object the UI would render as
+ * empty strings).
+ */
+function toServerInfo(state: McpServerState | undefined): McpServerInfo | undefined {
+  if (!state) return undefined;
+  const info: McpServerInfo = {};
+  if (state.protocolVersion) info.protocolVersion = state.protocolVersion;
+  if (state.serverName) info.name = state.serverName;
+  if (state.serverVersion) info.version = state.serverVersion;
+  return Object.keys(info).length > 0 ? info : undefined;
+}
+
+/** One concrete resource as a §13.7 view. */
+function toResourceView(
+  server: string,
+  resource: ListResourcesResult['resources'][number],
+): McpResourceView {
+  const view: McpResourceView = { server, template: false, uri: resource.uri };
+  if (resource.name) view.name = resource.name;
+  if (resource.title) view.title = resource.title;
+  if (resource.description) view.description = resource.description;
+  if (resource.mimeType) view.mimeType = resource.mimeType;
+  return view;
+}
+
+/** One URI template as a §13.7 view — `uriTemplate` instead of `uri`, `template: true`. */
+function toResourceTemplateView(
+  server: string,
+  template: ListResourceTemplatesResult['resourceTemplates'][number],
+): McpResourceView {
+  const view: McpResourceView = { server, template: true, uriTemplate: template.uriTemplate };
+  if (template.name) view.name = template.name;
+  if (template.title) view.title = template.title;
+  if (template.description) view.description = template.description;
+  if (template.mimeType) view.mimeType = template.mimeType;
+  return view;
+}
+
+/**
+ * Merge a `tool_enabled` patch into a raw server entry.
+ *
+ * Per key, never a replacement: the WebUI toggles one tool at a time and a full
+ * replacement would drop the other overrides. `null` drops the key, i.e. back to
+ * the default (enabled); an empty map leaves the entry's map alone, so sending
+ * no key at all and sending `{}` mean the same thing.
+ *
+ * @param entry Raw `mcp.servers.<name>` entry, mutated in place.
+ * @param patch Validated `tool_enabled` map; keys are raw server tool names.
+ */
+function applyToolEnabledPatch(entry: RawServerYaml, patch: Record<string, boolean | null>): void {
+  const current: Record<string, boolean> = {};
+  const stored = entry.tool_enabled;
+  if (isRecord(stored)) {
+    for (const [tool, value] of Object.entries(stored)) {
+      if (typeof value === 'boolean') current[tool] = value;
+    }
+  }
+  for (const [tool, value] of Object.entries(patch)) {
+    if (value === null) delete current[tool];
+    else current[tool] = value;
+  }
+  if (Object.keys(current).length > 0) entry.tool_enabled = current;
+  else delete entry.tool_enabled;
 }
 
 /**

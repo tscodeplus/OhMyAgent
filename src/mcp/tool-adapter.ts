@@ -89,8 +89,12 @@ export interface McpToolDefinitionDeps {
     args: Record<string, unknown>,
     opts?: McpCallOptions,
   ): Promise<CallToolResult>;
-  /** Spill target for oversized output (§6.6). */
-  offload: { store: OffloadStore; maxBytes: number };
+  /**
+   * Spill target for oversized output (§6.6). `maxBytes` is read on every call
+   * rather than captured at registration time, so a `mcp.max_output_bytes` edit
+   * applies to tools that are already registered (R5).
+   */
+  offload: { store: OffloadStore; maxBytes: () => number };
 }
 
 /**
@@ -128,7 +132,7 @@ export function toMcpToolDefinition(deps: McpToolDefinitionDeps): ToolDefinition
 
       const limited = limitMcpOutput(toLlmContent(result), {
         store: deps.offload.store,
-        maxBytes: deps.offload.maxBytes,
+        maxBytes: deps.offload.maxBytes(),
         sessionKey: ctx.sessionId ?? 'default',
         toolName: deps.name,
       });

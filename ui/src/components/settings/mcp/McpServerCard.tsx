@@ -54,6 +54,36 @@ export interface McpOAuthConfig {
   authServerMetadataUrl: string;
 }
 
+/** Server identity reported by the `initialize` result (§13.7). */
+export interface McpServerInfo {
+  protocolVersion?: string;
+  name?: string;
+  version?: string;
+}
+
+/** Last observed connection error and when it happened; `at` is epoch ms. */
+export interface McpServerLastError {
+  message: string;
+  at: number;
+}
+
+/**
+ * Approval-risk bucket derived from a tool's annotations (§8.2).
+ * `low` = `readOnlyHint`, `high` = `destructiveHint`, else `medium`.
+ */
+export type McpApprovalRisk = 'low' | 'medium' | 'high';
+
+/** Where a server's definition came from (§13.7). Always `config.yaml` today. */
+export type McpServerSource = 'config.yaml';
+
+/** MCP tool annotation hints, mirrored from `ToolAnnotations` (§13.7). */
+export interface McpToolAnnotations {
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
+}
+
 /** `GET /api/mcp/servers` — one installed server. */
 export interface McpServerView {
   name: string;
@@ -67,8 +97,16 @@ export interface McpServerView {
   connectedAt?: number;
   toolCount: number;
   /** True when OAuth credentials are stored (never the token itself). */
-  oauth: boolean;
+  hasCredentials: boolean;
   authRequired: boolean;
+  /** Always true: a server in this list is configured by definition (§13.7). */
+  installed: true;
+  /** Identity reported by the server's `initialize` result. */
+  serverInfo?: McpServerInfo;
+  /** Server `instructions` from `initialize`, already truncated. */
+  instructionsSummary?: string;
+  lastError?: McpServerLastError;
+  source: McpServerSource;
   /** stdio only. */
   command?: string;
   args?: string[];
@@ -85,16 +123,45 @@ export interface McpServerView {
 export interface McpToolView {
   /** Registered tool name, `mcp__<server>__<tool>`. */
   name: string;
-  /** Raw tool name as declared by the server. */
-  rawName: string;
+  /** Raw tool name as declared by the server; the `tool_enabled` / `tool_exposure` key. */
+  serverToolName: string;
   title?: string;
   description?: string;
   /** Effective exposure after the `tool_exposure` overrides. */
   exposure: McpExposure;
+  /** False when `tool_enabled` switched this tool off; it stays listed but unregistered. */
+  enabled: boolean;
+  approvalRisk: McpApprovalRisk;
+  annotations?: McpToolAnnotations;
   readOnly: boolean;
   destructive: boolean;
   idempotent: boolean;
   openWorld: boolean;
+}
+
+/** `GET /api/mcp/servers/:name/resources` — one resource or template (§13.6). */
+export interface McpResourceView {
+  /** Owning server name. */
+  server: string;
+  /** Concrete resources only. */
+  uri?: string;
+  /** Templates only. */
+  uriTemplate?: string;
+  name?: string;
+  title?: string;
+  description?: string;
+  mimeType?: string;
+  /** True for entries that came from `listResourceTemplates`. */
+  template: boolean;
+}
+
+/** Envelope returned by `GET /api/mcp/servers/:name/resources` (lane 3). */
+export interface McpResourcesResponse {
+  /** False when the server does not declare the `resources` capability. */
+  supported: boolean;
+  /** False when the server is declared but not currently connected. */
+  connected: boolean;
+  resources: McpResourceView[];
 }
 
 /** `POST` / `PUT /api/mcp/servers` body. */
@@ -104,6 +171,8 @@ export interface McpServerInput {
   exposure?: McpExposure;
   description?: string;
   toolExposure?: Record<string, McpExposure>;
+  /** Per-tool on/off, keyed by raw server tool name (§13.6). */
+  toolEnabled?: Record<string, boolean>;
   timeoutSec?: number;
   command?: string;
   args?: string[];
@@ -168,7 +237,7 @@ export interface McpTestResult {
 }
 
 /** Sections of the detail drawer (§13.6), used for deep links from the menu. */
-export type McpDetailSection = 'connection' | 'tools' | 'auth' | 'logs' | 'rawConfig';
+export type McpDetailSection = 'connection' | 'tools' | 'resources' | 'auth' | 'logs' | 'rawConfig';
 
 /** i18n key of the human-readable label for a connection state. */
 export function mcpStateKey(state: McpConnectionState): string {
@@ -217,9 +286,16 @@ export interface McpToolTableProps {
   /** Name of the tool whose exposure patch is in flight. */
   pendingTool?: string | null;
   onSetExposure?: (tool: McpToolView, exposure: McpExposure) => void;
+  /** Toggle one tool on/off (§13.6); absent when the table is read-only. */
+  onSetToolEnabled?: (tool: McpToolView, enabled: boolean) => void;
 }
 
-export function McpToolTable({ tools, pendingTool = null, onSetExposure }: McpToolTableProps) {
+export function McpToolTable({
+  tools,
+  pendingTool = null,
+  onSetExposure,
+  onSetToolEnabled,
+}: McpToolTableProps) {
   const { t } = useTranslation('common');
 
   if (!tools) {
@@ -239,35 +315,43 @@ export function McpToolTable({ tools, pendingTool = null, onSetExposure }: McpTo
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[520px] text-left">
+      <table className="w-full min-w-[620px] text-left">
         <thead>
           <tr className="text-[11px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
             <th className="py-1.5 pr-3 font-medium">{t('settings.mcp.form.name')}</th>
             <th className="py-1.5 pr-3 font-medium">{t('settings.mcp.form.description')}</th>
             <th className="py-1.5 pr-3 font-medium">{t('settings.mcp.annotations.title')}</th>
-            <th className="py-1.5 font-medium">{t('settings.mcp.form.exposure')}</th>
+            <th className="py-1.5 pr-3 font-medium">{t('settings.mcp.form.exposure')}</th>
+            <th className="py-1.5 font-medium">{t('settings.mcp.enable')}</th>
           </tr>
         </thead>
         <tbody>
           {tools.map((tool) => (
             <tr
               key={tool.name}
-              className="border-t border-neutral-100 dark:border-neutral-800 align-top"
+              className={`border-t border-neutral-100 align-top dark:border-neutral-800 ${
+                tool.enabled ? '' : 'opacity-50'
+              }`}
             >
               <td className="py-2 pr-3">
                 <span
                   className="block max-w-[220px] truncate font-mono text-xs text-neutral-800 dark:text-neutral-200"
-                  title={`${tool.name} · ${tool.rawName}`}
+                  title={`${tool.name} · ${tool.serverToolName}`}
                 >
                   {tool.name}
                 </span>
                 <span className="block truncate text-[11px] text-neutral-400 dark:text-neutral-500">
-                  {tool.title || tool.rawName}
+                  {tool.title || tool.serverToolName}
                 </span>
+                {!tool.enabled && (
+                  <span className="mt-0.5 inline-block rounded border border-neutral-200 px-1.5 py-0.5 text-[10px] leading-none text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
+                    {t('settings.mcp.state.disabled')}
+                  </span>
+                )}
               </td>
               <td className="py-2 pr-3">
                 <span
-                  className="block max-w-[260px] truncate text-xs text-neutral-500 dark:text-neutral-400"
+                  className="block max-w-[240px] truncate text-xs text-neutral-500 dark:text-neutral-400"
                   title={tool.description || ''}
                 >
                   {tool.description || '—'}
@@ -275,6 +359,7 @@ export function McpToolTable({ tools, pendingTool = null, onSetExposure }: McpTo
               </td>
               <td className="py-2 pr-3">
                 <div className="flex flex-wrap gap-1">
+                  <RiskBadge risk={tool.approvalRisk} />
                   {tool.readOnly && (
                     <AnnotationBadge label={t('settings.mcp.annotations.readOnly')} />
                   )}
@@ -292,13 +377,21 @@ export function McpToolTable({ tools, pendingTool = null, onSetExposure }: McpTo
                   )}
                 </div>
               </td>
-              <td className="py-2">
+              <td className="py-2 pr-3">
                 <Select
                   compact
                   options={EXPOSURE_OPTIONS}
                   value={tool.exposure}
                   disabled={!onSetExposure || pendingTool === tool.name}
                   onChange={(e) => onSetExposure?.(tool, e.target.value as McpExposure)}
+                />
+              </td>
+              <td className="py-2">
+                <Toggle
+                  checked={tool.enabled}
+                  disabled={!onSetToolEnabled || pendingTool === tool.name}
+                  ariaLabel={tool.enabled ? t('settings.mcp.disable') : t('settings.mcp.enable')}
+                  onChange={(next) => onSetToolEnabled?.(tool, next)}
                 />
               </td>
             </tr>
@@ -336,6 +429,23 @@ function AnnotationBadge({
   );
 }
 
+/** Approval-risk badge (`approvalRisk`) — colour plus the bucket name, never colour alone. */
+function RiskBadge({ risk }: { risk: McpApprovalRisk }) {
+  const { t } = useTranslation('common');
+  const cls: Record<McpApprovalRisk, string> = {
+    low: 'border-emerald-200 text-emerald-600 dark:border-emerald-900 dark:text-emerald-400',
+    medium: 'border-amber-200 text-amber-600 dark:border-amber-900 dark:text-amber-400',
+    high: 'border-red-200 text-red-600 dark:border-red-900 dark:text-red-400',
+  };
+  return (
+    <span
+      className={`rounded border px-1.5 py-0.5 text-[10px] leading-none whitespace-nowrap ${cls[risk]}`}
+    >
+      {t(`settings.mcp.approvalRisk.${risk}`)}
+    </span>
+  );
+}
+
 // ─── Card ───
 
 interface MenuItem {
@@ -361,6 +471,7 @@ export interface McpServerCardProps {
   onLogout: (server: McpServerView) => void;
   onUninstall: (server: McpServerView) => void;
   onSetToolExposure: (server: McpServerView, tool: McpToolView, exposure: McpExposure) => void;
+  onSetToolEnabled: (server: McpServerView, tool: McpToolView, enabled: boolean) => void;
 }
 
 export default function McpServerCard({
@@ -376,6 +487,7 @@ export default function McpServerCard({
   onLogout,
   onUninstall,
   onSetToolExposure,
+  onSetToolEnabled,
 }: McpServerCardProps) {
   const { t } = useTranslation('common');
   const [expanded, setExpanded] = useState(false);
@@ -410,7 +522,7 @@ export default function McpServerCard({
         icon: LogIn,
         onClick: () => onLogin(server),
       });
-      if (server.oauth) {
+      if (server.hasCredentials) {
         menuItems.push({
           key: 'logout',
           label: t('settings.mcp.action.logout'),
@@ -517,6 +629,7 @@ export default function McpServerCard({
             tools={tools}
             pendingTool={pendingTool}
             onSetExposure={(tool, exposure) => onSetToolExposure(server, tool, exposure)}
+            onSetToolEnabled={(tool, enabled) => onSetToolEnabled(server, tool, enabled)}
           />
         </div>
       )}

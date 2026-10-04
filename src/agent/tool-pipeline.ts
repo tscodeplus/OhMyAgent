@@ -192,6 +192,15 @@ export function assembleAgentTools(opts: ToolPipelineOptions): ToolPipelineResul
   // ── Stage 3: Profile-based filtering ──
   // P1: skill strict mode REPLACES the profile baseline — the surface narrows
   // to (allowedTools − deniedTools) ∪ STRICT_FORCED_CORE_TOOLS.
+  // `mcp.allow_servers` / `mcp.deny_servers` are evaluated in BOTH branches:
+  // a skill's `allowed-tools: ['mcp__<server>__*']` may grant a tool the profile
+  // hides, but it may never re-open a server the operator denied.
+  const mcpScope = opts.mcpVisibility
+    ? toMcpVisibilityScope(opts.effectiveProfile, opts.mcpVisibility)
+    : undefined;
+  const mcpAllows = (name: string): boolean =>
+    mcpScope === undefined || isMcpToolVisible(name, mcpScope) !== false;
+
   if (opts.skillToolsStrict) {
     // Patterns, not a Set: a trailing `*` is a prefix match (§12.2). Deny-first
     // still wins, and non-wildcard patterns match exactly as they did before.
@@ -201,16 +210,14 @@ export function assembleAgentTools(opts: ToolPipelineOptions): ToolPipelineResul
       (t: any) =>
         STRICT_FORCED_CORE_TOOLS.has(t.name) ||
         (matchesAnyToolPattern(allowedPatterns, t.name) &&
-          !matchesAnyToolPattern(deniedPatterns, t.name)),
+          !matchesAnyToolPattern(deniedPatterns, t.name) &&
+          mcpAllows(t.name)),
     );
   } else {
     // 'full' is an empty allowlist (= everything visible) — skip filtering,
     // same as AgentManager.filterByProfile.
     const profileAllowedTools = PROFILE_TOOLS[opts.effectiveProfile] ?? PROFILE_TOOLS.standard;
     if (opts.effectiveProfile !== 'full' && profileAllowedTools[0] !== '*' && !opts.explicitTools) {
-      const mcpScope = opts.mcpVisibility
-        ? toMcpVisibilityScope(opts.effectiveProfile, opts.mcpVisibility)
-        : undefined;
       tools = tools.filter(
         (t: any) =>
           profileAllowedTools.includes(t.name) ||

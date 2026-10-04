@@ -1,9 +1,12 @@
 /**
  * Serialised read-modify-write helper for `config.yaml`.
  *
- * Every writer that edits `config.yaml` from the WebUI — the settings form
- * (`config-routes.ts`), agent CRUD (`config-persist.ts`) and the MCP
- * install/enable/disable routes — must go through `mutateConfigYaml()`:
+ * Every writer of `config.yaml` goes through `mutateConfigYaml()` — the settings
+ * form (`config-routes.ts`), agent CRUD (`config-persist.ts`), the MCP
+ * install/enable/disable routes (`mcp-routes.ts`), the file browser's root
+ * switch (`files-routes.ts`) and the `/permission` slash command
+ * (`src/commands/command-handler.ts`). There is no unguarded read-modify-write
+ * left:
  *
  * - **No lost updates**: the whole read → mutate → write cycle runs one
  *   operation at a time behind an in-process FIFO queue, so a concurrent saver
@@ -24,8 +27,33 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
-import { isMap, parseDocument, type Document } from 'yaml';
+import { isMap, parseDocument, type Document, type YAMLParseError } from 'yaml';
 import { resetConfig } from '../config.js';
+
+/**
+ * `config.yaml` path — the resolution every writer and reader here shares
+ * (`CONFIG_FILE` env override, else the process working directory).
+ */
+export function configFilePath(): string {
+  return process.env.CONFIG_FILE || './config.yaml';
+}
+
+/**
+ * Client-safe description of a YAML syntax error.
+ *
+ * The `yaml` package appends the offending source line plus a caret to
+ * `error.message` (prettyErrors is on by default), so returning that message
+ * over the API echoes a line such as `client_secret: hunter2` straight back to
+ * the caller. Only the error code and the position of the fault survive.
+ *
+ * @param error One entry of `Document.errors`.
+ * @param configPath Path to name in the message — never a secret.
+ */
+export function describeYamlParseError(error: YAMLParseError, configPath: string): string {
+  const at = error.linePos?.[0];
+  const position = at ? ` at line ${at.line}, column ${at.col}` : '';
+  return `Failed to parse config file ${configPath}: not valid YAML${position} (${error.code})`;
+}
 
 /**
  * Marks the async context of an in-flight mutation. Used to detect a mutator
@@ -57,8 +85,15 @@ let tempFileCounter = 0;
  *
  * @param mutator Applied to the document while it is the only operation in
  *   flight. Its edits are what gets written.
+ * @param configPath File to write, when the caller resolves the path itself
+ *   (the WebUI file-browser route, whose harness may point elsewhere). Defaults
+ *   to `configFilePath()`. The queue stays process-wide either way — the
+ *   parameter only selects the file, it never bypasses the serialisation.
  */
-export function mutateConfigYaml(mutator: (doc: Document) => void | Promise<void>): Promise<void> {
+export function mutateConfigYaml(
+  mutator: (doc: Document) => void | Promise<void>,
+  configPath?: string,
+): Promise<void> {
   if (mutationContext.getStore()) {
     return Promise.reject(
       new Error(
@@ -69,7 +104,7 @@ export function mutateConfigYaml(mutator: (doc: Document) => void | Promise<void
     );
   }
 
-  const run = queueTail.then(() => runMutation(mutator));
+  const run = queueTail.then(() => runMutation(mutator, configPath));
   // The queue itself must survive a failed operation; the caller still sees the
   // rejection through `run`.
   queueTail = run.then(
@@ -90,6 +125,26 @@ export function mutateConfigYaml(mutator: (doc: Document) => void | Promise<void
  */
 export function readConfigObject(doc: Document): Record<string, unknown> {
   return (doc.toJS() ?? {}) as Record<string, unknown>;
+}
+
+/**
+ * `config.yaml` exactly as it is on disk: no `${ENV}` interpolation, no
+ * normalisation and no defaults applied. A missing file reads as `{}`.
+ *
+ * Throws (with a scrubbed message) when the file exists but is not valid YAML.
+ * Callers use this when they must not round-trip an *effective* value — an
+ * `${ENV}` placeholder has to survive a read, because writing its expansion
+ * back replaces the placeholder permanently. Not part of the write queue: this
+ * is a plain read.
+ */
+export function readRawConfigFile(): Record<string, unknown> {
+  const filePath = configFilePath();
+  if (!existsSync(filePath)) return {};
+  const doc = parseDocument(readFileSync(filePath, 'utf-8'));
+  if (doc.errors.length > 0) {
+    throw new Error(describeYamlParseError(doc.errors[0], filePath));
+  }
+  return readConfigObject(doc);
 }
 
 /**
@@ -126,16 +181,19 @@ export function applyConfigObject(doc: Document, next: Record<string, unknown>):
 }
 
 /** One queued read → mutate → atomic write cycle. */
-async function runMutation(mutator: (doc: Document) => void | Promise<void>): Promise<void> {
-  const configPath = process.env.CONFIG_FILE || './config.yaml';
+async function runMutation(
+  mutator: (doc: Document) => void | Promise<void>,
+  configPathOverride?: string,
+): Promise<void> {
+  const configPath = configPathOverride ?? configFilePath();
   const raw = existsSync(configPath) ? readFileSync(configPath, 'utf-8') : '';
   const doc = parseDocument(raw);
 
   // Unlike js-yaml's `load`, `parseDocument` collects syntax errors instead of
   // throwing; without this check a malformed file would be silently rewritten
-  // as empty.
+  // as empty. The message is scrubbed: it is returned to API clients verbatim.
   if (doc.errors.length > 0) {
-    throw new Error(`Failed to parse config file ${configPath}: ${doc.errors[0].message}`);
+    throw new Error(describeYamlParseError(doc.errors[0], configPath));
   }
   if (doc.contents && !isMap(doc.contents)) {
     throw new Error(`Cannot update config file ${configPath}: root must be a YAML mapping`);

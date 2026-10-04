@@ -12,6 +12,7 @@ import {
   maskRecord,
   maskSecretValue,
   maskServerConfig,
+  maskUrl,
 } from '../../src/mcp/masking.js';
 import type {
   McpHttpServerConfig,
@@ -25,6 +26,7 @@ function stdioServer(overrides: Partial<McpStdioServerConfig> = {}): McpStdioSer
     enabled: true,
     exposure: 'deferred',
     toolExposure: {},
+    toolEnabled: {},
     description: 'local fs',
     transport: 'stdio',
     command: 'npx',
@@ -41,6 +43,7 @@ function httpServer(overrides: Partial<McpHttpServerConfig> = {}): McpHttpServer
     enabled: true,
     exposure: 'deferred',
     toolExposure: {},
+    toolEnabled: {},
     description: 'docs',
     transport: 'http',
     url: 'https://example.com/mcp',
@@ -64,6 +67,20 @@ describe('isSecretKey', () => {
     expect(isSecretKey('apiKey')).toBe(true);
     expect(isSecretKey('accessToken')).toBe(true);
     expect(isSecretKey('clientSecret')).toBe(true);
+  });
+
+  it('matches separator-less all-caps concatenations but not MONKEY', () => {
+    // Neither rule above sees these: no separator, and no lower-to-upper
+    // boundary. The qualifier guard is what keeps `MONKEY` out.
+    expect(isSecretKey('APIKEY')).toBe(true);
+    expect(isSecretKey('AUTHTOKEN')).toBe(true);
+    expect(isSecretKey('CLIENTSECRET')).toBe(true);
+    expect(isSecretKey('MONKEY')).toBe(false);
+    // Same spellings lowercased (`?apikey=` in a URL, §13.7).
+    expect(isSecretKey('apikey')).toBe(true);
+    expect(isSecretKey('authtoken')).toBe(true);
+    expect(isSecretKey('clientsecret')).toBe(true);
+    expect(isSecretKey('donkey')).toBe(false);
   });
 
   it('does not mask ordinary keys', () => {
@@ -103,6 +120,37 @@ describe('maskRecord', () => {
   });
 });
 
+describe('maskUrl', () => {
+  it('masks userinfo and secret-ish query params', () => {
+    expect(maskUrl('https://svc:ghp_token@host/mcp?access_token=abc&safe=1')).toBe(
+      `https://${MASKED_SECRET}@host/mcp?access_token=${MASKED_SECRET}&safe=1`,
+    );
+  });
+
+  it('masks every documented query-param spelling', () => {
+    const masked = maskUrl(
+      'https://host/mcp?token=a&key=b&api_key=c&apikey=d&password=e&access_token=f&page=2',
+    );
+    expect(masked).toBe(
+      `https://host/mcp?token=${MASKED_SECRET}&key=${MASKED_SECRET}&api_key=${MASKED_SECRET}` +
+        `&apikey=${MASKED_SECRET}&password=${MASKED_SECRET}&access_token=${MASKED_SECRET}&page=2`,
+    );
+  });
+
+  it('returns a credential-free URL byte-identically', () => {
+    expect(maskUrl('https://example.com/mcp')).toBe('https://example.com/mcp');
+    expect(maskUrl('https://example.com')).toBe('https://example.com');
+  });
+
+  it('falls back to a textual userinfo strip when the URL does not parse', () => {
+    expect(maskUrl('http://user:pw@')).toBe(`http://${MASKED_SECRET}@`);
+  });
+
+  it('leaves a URL it cannot recognise alone', () => {
+    expect(maskUrl('/relative/mcp')).toBe('/relative/mcp');
+  });
+});
+
 describe('maskServerConfig', () => {
   it('masks stdio env secrets but keeps non-secrets', () => {
     const masked = maskServerConfig(
@@ -120,6 +168,15 @@ describe('maskServerConfig', () => {
     expect(masked.transport).toBe('http');
     if (masked.transport !== 'http') throw new Error('unreachable');
     expect(masked.headers).toEqual({ Authorization: MASKED_SECRET, Accept: 'application/json' });
+  });
+
+  it('masks URL-embedded credentials', () => {
+    const masked = maskServerConfig(
+      httpServer({ url: 'https://svc:ghp_x@host/mcp?access_token=abc' }),
+    );
+    expect(masked.transport).toBe('http');
+    if (masked.transport !== 'http') throw new Error('unreachable');
+    expect(masked.url).toBe(`https://${MASKED_SECRET}@host/mcp?access_token=${MASKED_SECRET}`);
   });
 
   it('masks the OAuth client secret but keeps the client id', () => {

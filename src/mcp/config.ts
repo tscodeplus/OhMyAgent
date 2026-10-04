@@ -23,7 +23,11 @@
 import { z } from 'zod';
 import { ConfigError } from '../shared/errors.js';
 import type { McpExposure, McpOAuthConfig, McpSectionConfig, McpServerConfig } from './types.js';
-import type { McpVisibilityConfig } from '../policy/mcp-visibility.js';
+import {
+  canonicalMcpServerName,
+  MCP_RESERVED_SERVER,
+  type McpVisibilityConfig,
+} from '../policy/mcp-visibility.js';
 
 /** Exposure keywords accepted in `config.yaml`, including the upstream alias. */
 export const MCP_EXPOSURE_VALUES = ['direct', 'deferred', 'codemode', 'hidden'] as const;
@@ -33,6 +37,17 @@ export type McpRawExposure = (typeof MCP_EXPOSURE_VALUES)[number];
 
 /** Server names double as the tool-name segment `mcp__<server>__<tool>` (§6.1). */
 export const MCP_SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * Names that must never be used as a `mcp.servers` key.
+ *
+ * `__proto__` is not merely confusing: assigning it as a key of a plain object
+ * literal sets the *prototype* instead of adding an entry, so the server would
+ * disappear and every key of its config would become readable as a key of the
+ * server map. `constructor` / `prototype` are the same class of footgun for
+ * anything that later looks a name up on a prototype chain.
+ */
+const UNSAFE_SERVER_NAMES = new Set(['__proto__', 'constructor', 'prototype']);
 
 /**
  * Defaults for a `mcp:` section that exists but omits keys, and the template
@@ -97,11 +112,28 @@ const yamlNumber = z.union([z.number(), z.string()]).transform((v, ctx) => {
 // would silently swallow the unsupported legacy `sse` field and let a server
 // that upstream pi-mcp cannot talk to look valid.
 
+/**
+ * Range guard for `callback_port`.
+ *
+ * Reported through the per-server path, not the section-level one: an
+ * out-of-range port is one server's mistake (§5.2), and the normalised shape is
+ * asserted again by `mcpSectionSchema`, so without this refine a negative port
+ * would escalate to a startup-fatal `Invalid config.yaml`.
+ */
+const yamlCallbackPort = yamlNumber.refine((v) => Number.isInteger(v) && v >= 0 && v <= 65535, {
+  message: 'must be an integer between 0 and 65535',
+});
+
+/** Same idea for `timeout_sec`: `0` would disable the request timeout entirely. */
+const yamlPositiveTimeoutSec = yamlNumber.refine((v) => Number.isFinite(v) && v > 0, {
+  message: 'must be greater than 0',
+});
+
 const rawMcpOAuthSchema = z
   .object({
     client_id: yamlString.optional(),
     client_secret: yamlString.optional(),
-    callback_port: yamlNumber.optional(),
+    callback_port: yamlCallbackPort.optional(),
     callback_url: yamlString.optional(),
     scope: yamlString.optional(),
     client_name: yamlString.optional(),
@@ -122,9 +154,17 @@ export const rawMcpServerSchema = z
     type: z.enum(['stdio', 'http', 'streamable-http']).optional(),
     exposure: z.enum(MCP_EXPOSURE_VALUES).default('deferred'),
     tool_exposure: z.record(z.enum(MCP_EXPOSURE_VALUES)).default({}),
-    timeout_sec: yamlNumber.optional(),
+    /** Per-tool on/off, keyed by the raw tool name; absent means enabled (§13.6). */
+    tool_enabled: z.record(z.boolean()).default({}),
+    timeout_sec: yamlPositiveTimeoutSec.optional(),
     enabled: z.boolean().default(true),
     description: yamlString.default(''),
+    /**
+     * Server-level trust override (§8.1), applied to tools that declare no
+     * annotations of their own. Accepted here so that following the design doc
+     * cannot silently drop the whole server via `.strict()`.
+     */
+    trust: z.enum(['read_only', 'normal', 'high_risk']).optional(),
     oauth: rawMcpOAuthSchema.optional(),
   })
   .strict()
@@ -216,8 +256,10 @@ function toServerConfig(name: string, raw: RawMcpServerConfig): McpServerConfig 
     enabled: raw.enabled,
     exposure: normaliseExposure(raw.exposure),
     toolExposure,
+    toolEnabled: { ...raw.tool_enabled },
     description: raw.description,
     ...(raw.oauth ? { oauth: toOAuthConfig(raw.oauth) } : {}),
+    ...(raw.trust !== undefined ? { trust: raw.trust } : {}),
     ...(raw.timeout_sec !== undefined ? { timeoutSec: raw.timeout_sec } : {}),
   };
 
@@ -238,11 +280,6 @@ function toServerConfig(name: string, raw: RawMcpServerConfig): McpServerConfig 
     url: raw.url!,
     headers: raw.headers,
   };
-}
-
-/** `my-server` and `my_server` are the same server (§5.2). */
-function canonicalServerName(name: string): string {
-  return name.replace(/-/g, '_');
 }
 
 function formatZodIssues(error: z.ZodError): string {
@@ -342,7 +379,13 @@ export function normaliseMcpSection(
   const section = raw as Record<string, unknown>;
   const reader = createScalarReader(section, reportScalar);
 
-  const servers: Record<string, McpServerConfig> = {};
+  // Null-prototype: the map is keyed by user-controlled `config.yaml` names, so
+  // a `__proto__` key must be an ordinary entry (and is rejected below) rather
+  // than a prototype assignment.
+  const servers: Record<string, McpServerConfig> = Object.create(null) as Record<
+    string,
+    McpServerConfig
+  >;
   const canonicalNames = new Map<string, string>();
   const rawServers = section.servers;
 
@@ -351,7 +394,7 @@ export function normaliseMcpSection(
       reportScalar('mcp.servers', 'a mapping', rawServers);
     } else {
       for (const [name, value] of Object.entries(rawServers as Record<string, unknown>)) {
-        const canonical = canonicalServerName(name);
+        const canonical = canonicalMcpServerName(name);
         const previous = canonicalNames.get(canonical);
         if (previous !== undefined) {
           throw new ConfigError(
@@ -361,8 +404,27 @@ export function normaliseMcpSection(
         }
         canonicalNames.set(canonical, name);
 
+        if (UNSAFE_SERVER_NAMES.has(name)) {
+          reportServer(
+            name,
+            `server name "${name}" is not allowed — it collides with a built-in object key`,
+          );
+          continue;
+        }
+
         if (!MCP_SERVER_NAME_PATTERN.test(name)) {
           reportServer(name, 'server name may only contain [A-Za-z0-9_-]');
+          continue;
+        }
+
+        // `mcp__resources__*` is owned by the three built-in resource tools
+        // (§11); a real server named `resources` would collide with them and
+        // would be exempt from `allow_servers`.
+        if (canonical === MCP_RESERVED_SERVER) {
+          reportServer(
+            name,
+            `server name "${MCP_RESERVED_SERVER}" is reserved for the built-in resource tools`,
+          );
           continue;
         }
 

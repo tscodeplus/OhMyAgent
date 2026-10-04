@@ -467,7 +467,8 @@ channels:
 #   direct   — always in the tool list (costs context on every turn)
 #   deferred — hidden until `tool_search` finds it (default; recommended)
 #   codemode — alias of deferred, accepted for upstream compatibility
-#   hidden   — registered but never exposed (callable only from code)
+#   hidden   — not registered at all: completely unreachable, including from skills
+#              (use `deferred` for a tool your skills should still be able to call)
 #
 # mcp:
 #   enabled: true                  # false keeps the config but connects nothing
@@ -475,7 +476,8 @@ channels:
 #   request_timeout_sec: 60        # Default per-call timeout (server `timeout_sec` overrides)
 #   max_output_bytes: 20480        # Larger tool results are spilled to data/offload/
 #   max_concurrent_connects: 4     # Parallel connects during startup
-#   inject_system_prompt: true     # List connected servers in the system prompt
+#   inject_system_prompt: true     # List the configured servers in the system prompt (static config
+#                                  # only — the section does not track runtime connection state)
 #   allow_servers: []              # Profile visibility allow list (empty = all visible)
 #   deny_servers: []               # Profile visibility deny list (wins over allow_servers)
 #   servers:

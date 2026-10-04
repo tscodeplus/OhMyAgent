@@ -29,10 +29,11 @@ attempted, no MCP tool exists. Upgrading an installation that never configures M
 
 ### From a preset
 
-Open the preset list to see the built-in catalogue (filesystem, Git, fetch, memory, SQLite and
-others). Picking one prefills the install form; you only fill in what the server needs — usually
-nothing, sometimes an API key. Presets marked with a required environment variable show a hint
-next to each field.
+Open the preset list to see the built-in catalogue (filesystem, Git, fetch, GitHub, memory,
+Sequential Thinking and time). Picking one prefills the install form; you only fill in what the
+server needs — usually nothing, sometimes an API key. Presets marked with a required environment
+variable show a hint next to each field, and the GitHub preset requires a personal access token
+(`GITHUB_PERSONAL_ACCESS_TOKEN`) before it will start.
 
 ### Manually
 
@@ -68,7 +69,7 @@ and degrades tool selection, so each server (or each individual tool) chooses ho
 |---|---|---|
 | `deferred` | Registered but hidden. The model discovers the tool with `tool_search` and can then call it. **Default.** | Almost always. |
 | `direct` | In the model's tool list on every turn. | A tool the agent needs constantly, usually for a server with only a couple of tools. |
-| `hidden` | Registered, never exposed to the model. | A tool only your skills/internals should call, or a noisy tool you want registered but never chosen automatically. |
+| `hidden` | **Not registered at all** — completely unreachable, including from skills. | A tool you want to keep out of the gateway entirely while leaving it in the config. To keep a tool callable from a skill but out of the model's list, use `deferred`. |
 | `codemode` | Accepted for compatibility with upstream configs; treated exactly as `deferred`. | You copied a config that used it. |
 
 Per-tool overrides live in `tool_exposure`, keyed by tool name, with a trailing `*` wildcard:
@@ -178,11 +179,17 @@ package globally and point `command` at the binary.
 
 **The server never connects**
 Open the server's card: the state badge shows `connecting`, `error` or `connected`, and the detail
-drawer has a log pane showing the **last 200 lines of the server's stderr**, which is where most
-startup failures explain themselves (missing credentials, an npm error, a bad `cwd`). The same log
-is available as `GET /api/mcp/servers/<name>/logs?lines=200`. Note that a failing server never
-blocks the gateway: it stays in `error` and is retried with exponential backoff on the next call,
-so a misconfigured server shows up as "the tool is missing", not as a failed startup.
+drawer has a log pane with the tail of the server's log — the child process's stderr plus the
+server's own `notifications/message` entries — which is where most startup failures explain
+themselves (missing credentials, an npm error, a bad `cwd`). The same tail is available as
+`GET /api/mcp/servers/<name>/logs?lines=200` (default 200 lines, capped at 2000); before the log
+file exists the endpoint falls back to the in-memory stderr tail, which is capped at 64 KiB, and
+`?lines` applies on that path too. The file lives at `<logDir>/mcp-<server>.log`, where `logDir` is
+`$OHMYAGENT_LOG_DIR`, else `$OHMYAGENT_HOME/logs`, else `~/.ohmyagent/logs`, and it rotates at
+5 MB to a single `mcp-<server>.log.1` generation — `tail -f` it if you prefer a terminal.
+Note that a failing server never blocks the gateway: it stays in
+`error` and is retried with exponential backoff on the next call, so a misconfigured server shows
+up as "the tool is missing", not as a failed startup.
 
 **A 401 / `auth_required`**
 The server wants OAuth — see the OAuth section above. If you configured static credentials instead,

@@ -1139,4 +1139,64 @@ describe('AgentService', () => {
       expect(result).toEqual([newMsg]);
     });
   });
+
+  // ------------------------------------------- invalidateRuntimes (MCP tool-set refresh)
+
+  describe('invalidateRuntimes (§13.9)', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('coalesces repeated requests into a single sweep', async () => {
+      vi.useFakeTimers();
+      await service.execute('hello', { sessionId: 's1' });
+      expect(factory.create).toHaveBeenCalledTimes(1);
+
+      service.invalidateRuntimes();
+      await vi.advanceTimersByTimeAsync(300);
+      // A second request inside the window restarts the debounce, so the sweep
+      // must not have run yet — the cached runtime is still reusable.
+      service.invalidateRuntimes();
+      await vi.advanceTimersByTimeAsync(300);
+      await service.execute('again', { sessionId: 's1' });
+      expect(factory.create).toHaveBeenCalledTimes(1);
+
+      // 500ms after the LAST request the sweep fires exactly once.
+      await vi.advanceTimersByTimeAsync(300);
+      await service.execute('third', { sessionId: 's1' });
+      expect(factory.create).toHaveBeenCalledTimes(2);
+    });
+
+    it('defers a mid-turn skip and lands on the next turn (R4)', async () => {
+      vi.useFakeTimers();
+      let releaseTurn: () => void = () => {};
+      const turnGate = new Promise<void>((resolve) => {
+        releaseTurn = resolve;
+      });
+      const agent = factory.agent as any;
+      agent.prompt.mockImplementation(async () => {
+        agent._setStreaming(true);
+        await turnGate;
+        agent._setStreaming(false);
+      });
+
+      const turn = service.execute('slow', { sessionId: 's1' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(service.isRunning('s1')).toBe(true);
+
+      service.invalidateRuntimes();
+      await vi.advanceTimersByTimeAsync(600);
+      // The busy runtime is skipped, not torn down mid-turn.
+      expect(service.isRunning('s1')).toBe(true);
+
+      releaseTurn();
+      await turn;
+      await vi.advanceTimersByTimeAsync(600);
+
+      // Before the fix nothing re-armed the debounce after the skip, so the
+      // runtime stayed cached forever and the next turn reused the tool array
+      // frozen before the MCP tool set changed.
+      expect(service.destroyRuntime('s1')).toBe(false);
+    });
+  });
 });
