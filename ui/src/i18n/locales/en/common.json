@@ -617,6 +617,11 @@
       "title": "MCP Servers",
       "subtitle": "Connect external Model Context Protocol servers and expose their tools to the agent",
       "statusBar": "Installed {{installed}} · Enabled {{enabled}} · Connected {{connected}} · Needs login {{authRequired}}",
+      "connectTimeout": {
+        "label": "Connect timeout (seconds)",
+        "hint": "How long to wait when establishing a server connection (including a cold npx download); written to mcp.connect_timeout_sec.",
+        "invalid": "Connect timeout must be a positive integer (seconds)"
+      },
       "searchPlaceholder": "Search servers or tools…",
       "addServer": "Add server",
       "installFromPreset": "Install from preset",
@@ -674,7 +679,7 @@
         "headers": "Headers",
         "oauth": "OAuth authorization",
         "oauthHint": "Only needed when the server uses OAuth 2.1; leave empty to connect without authentication.",
-        "timeout": "Timeout (seconds)",
+        "timeout": "Tool call timeout (seconds)",
         "exposure": "Exposure",
         "description": "Description",
         "transport": "Transport",

@@ -22,7 +22,7 @@ import {
 } from '../../src/app/webui/mcp-routes.js';
 import { registerConfigRoutes } from '../../src/app/webui/config-routes.js';
 import type { AppConfig } from '../../src/app/types.js';
-import { normaliseMcpSection } from '../../src/mcp/config.js';
+import { DEFAULT_MCP_SECTION, normaliseMcpSection } from '../../src/mcp/config.js';
 import { MASKED_SECRET } from '../../src/mcp/masking.js';
 import {
   registerToolCapability,
@@ -527,6 +527,43 @@ describe('MCP API routes', () => {
       expect(typeof preset.id).toBe('string');
       expect(['stdio', 'http']).toContain(preset.transport);
       expect(Array.isArray(preset.env)).toBe(true);
+    }
+  });
+
+  // ─── section settings (§13.3 connect timeout) ───
+
+  it('GET /api/mcp/settings answers the effective connect timeout', async () => {
+    const absent = await inject({ method: 'GET', url: '/api/mcp/settings' });
+    expect(absent.statusCode).toBe(200);
+    expect(absent.json()).toEqual({ connectTimeoutSec: DEFAULT_MCP_SECTION.connectTimeoutSec });
+
+    writeConfig(stringifyYaml({ mcp: { connect_timeout_sec: 90 } }, { indent: 2 }));
+    const configured = await inject({ method: 'GET', url: '/api/mcp/settings' });
+    expect(configured.json()).toEqual({ connectTimeoutSec: 90 });
+  });
+
+  it('PATCH /api/mcp/settings writes connect_timeout_sec and hot-reloads', async () => {
+    const res = await inject({
+      method: 'PATCH',
+      url: '/api/mcp/settings',
+      payload: { connectTimeoutSec: 90 },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true, connectTimeoutSec: 90 });
+    expect(readRawConfig().mcp).toMatchObject({ connect_timeout_sec: 90 });
+    expect(stub.reload).toHaveBeenCalledTimes(1);
+    expect(onConfigSaved).toHaveBeenCalled();
+  });
+
+  it('PATCH /api/mcp/settings rejects invalid values with 400', async () => {
+    for (const connectTimeoutSec of [0, -1, 1.5, '60']) {
+      const res = await inject({
+        method: 'PATCH',
+        url: '/api/mcp/settings',
+        payload: { connectTimeoutSec },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({ error: 'mcp.error.invalidBody' });
     }
   });
 

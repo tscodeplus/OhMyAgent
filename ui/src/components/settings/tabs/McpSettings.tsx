@@ -19,6 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useTranslation } from 'react-i18next';
 import { Plug, Plus, Search } from 'lucide-react';
 import Button from '../../ui/Button';
+import Input from '../../ui/Input';
 import Modal from '../../ui/Modal';
 import Spinner from '../../ui/Spinner';
 import { apiRequest } from '../../../utils/api';
@@ -83,6 +84,12 @@ export default function McpSettings() {
   const [callbackUrl, setCallbackUrl] = useState('');
   const [loginBusy, setLoginBusy] = useState(false);
 
+  // Section-level tunable (`mcp.connect_timeout_sec`): loaded with the rest,
+  // edited inline and PATCHed immediately (this tab has no Save-bar).
+  const [connectTimeoutSec, setConnectTimeoutSec] = useState('');
+  const [connectTimeoutError, setConnectTimeoutError] = useState<string | undefined>(undefined);
+  const [savingConnectTimeout, setSavingConnectTimeout] = useState(false);
+
   const timersRef = useRef<number[]>([]);
   useEffect(
     () => () => {
@@ -108,10 +115,13 @@ export default function McpSettings() {
       Promise.all([
         apiRequest<McpServerView[]>('/api/mcp/servers'),
         apiRequest<McpStatusView>('/api/mcp/status'),
+        apiRequest<{ connectTimeoutSec: number }>('/api/mcp/settings'),
       ])
-        .then(([serverList, statusView]) => {
+        .then(([serverList, statusView, settings]) => {
           setServers(serverList);
           setStatus(statusView);
+          setConnectTimeoutSec(String(settings.connectTimeoutSec));
+          setConnectTimeoutError(undefined);
           setLoadError(false);
           // Tool lists are fetched per server so that NOT-registered (`hidden`)
           // tools stay visible and changeable — the route serves the manager
@@ -134,6 +144,29 @@ export default function McpSettings() {
     const id = window.setTimeout(() => refresh(false), RECONNECT_SETTLE_MS);
     timersRef.current.push(id);
   }, [refresh]);
+
+  /** Write `mcp.connect_timeout_sec`; the gateway hot-reloads it server-side. */
+  const saveConnectTimeout = useCallback(async () => {
+    const raw = connectTimeoutSec.trim();
+    if (!/^[1-9]\d*$/.test(raw)) {
+      setConnectTimeoutError(t('settings.mcp.connectTimeout.invalid'));
+      return;
+    }
+    setConnectTimeoutError(undefined);
+    setSavingConnectTimeout(true);
+    try {
+      await apiRequest<{ ok: boolean }>('/api/mcp/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ connectTimeoutSec: Number(raw) }),
+      });
+      showToast(t('settings.saved'), 'success');
+      refresh(false);
+    } catch (err) {
+      showToast(errorText(err) || t('settings.saveError'), 'error', 6000);
+    } finally {
+      setSavingConnectTimeout(false);
+    }
+  }, [connectTimeoutSec, refresh, showToast, t]);
 
   // ── Skill / config impact scan (§13.4) ──
 
@@ -489,6 +522,35 @@ export default function McpSettings() {
 
   const detailServer = detail ? (servers?.find((s) => s.name === detail.name) ?? null) : null;
 
+  const connectTimeoutBox = (
+    <section className="rounded-lg border border-neutral-200 px-3 py-2.5 dark:border-neutral-800">
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="max-w-52 min-w-40">
+          <Input
+            label={t('settings.mcp.connectTimeout.label')}
+            value={connectTimeoutSec}
+            error={connectTimeoutError}
+            placeholder="60"
+            inputMode="numeric"
+            disabled={loading}
+            onChange={(e) => setConnectTimeoutSec(e.target.value)}
+          />
+        </div>
+        <Button
+          size="sm"
+          onClick={saveConnectTimeout}
+          loading={savingConnectTimeout}
+          disabled={loading}
+        >
+          {t('common.save')}
+        </Button>
+      </div>
+      <p className="mt-1 text-[11px] text-neutral-500 dark:text-neutral-400">
+        {t('settings.mcp.connectTimeout.hint')}
+      </p>
+    </section>
+  );
+
   const openDetail = useCallback((server: McpServerView, section: McpDetailSection) => {
     setDetail({ name: server.name, section });
   }, []);
@@ -620,6 +682,7 @@ export default function McpSettings() {
   return (
     <div className="space-y-4">
       {header}
+      {connectTimeoutBox}
       {body}
 
       {detail && detailServer && (

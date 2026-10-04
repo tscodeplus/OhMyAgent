@@ -225,6 +225,13 @@ const patchInputSchema = z
 
 const loginCallbackSchema = z.object({ callbackUrl: z.string().min(1) }).strict();
 
+/** `PATCH /api/mcp/settings` — section-level tunables (currently one key). */
+const sectionSettingsSchema = z
+  .object({
+    connectTimeoutSec: z.number().int().positive(),
+  })
+  .strict();
+
 const purgeQuerySchema = z.enum(['true', 'false']);
 
 /** Raw per-server entry exactly as it is written to `config.yaml` (snake_case). */
@@ -957,6 +964,62 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
   /** GET /api/mcp/presets — the static catalogue of §13.3(a). */
   app.get('/api/mcp/presets', async (_request, reply) => {
     return reply.send(listMcpPresets());
+  });
+
+  /**
+   * GET /api/mcp/settings — the section-level tunables the WebUI edits.
+   *
+   * Only `connectTimeoutSec` today: per-server request timeouts live on the
+   * server form, and the remaining section keys are rarely touched by hand.
+   * The value is the *effective* one — the loader fills defaults, so an absent
+   * `connect_timeout_sec` still answers with the configured default.
+   */
+  app.get('/api/mcp/settings', async (_request, reply) => {
+    const configured = deps.getConfig().mcp;
+    return reply.send({
+      connectTimeoutSec: configured?.connectTimeoutSec ?? DEFAULT_MCP_SECTION.connectTimeoutSec,
+    });
+  });
+
+  /**
+   * PATCH /api/mcp/settings — write `mcp.connect_timeout_sec` (§13.3).
+   *
+   * Node-level edit: only the one scalar key is replaced, so sibling comments
+   * and formatting inside `mcp:` survive (decision 19-11). A missing or
+   * non-mapping `mcp:` parent is created as a fresh mapping holding just the
+   * setting — installing a server later only appends `servers:` to it.
+   */
+  app.patch('/api/mcp/settings', async (request, reply) => {
+    const parsed = sectionSettingsSchema.safeParse(request.body);
+    if (!parsed.success) return badBody(reply, parsed.error);
+
+    try {
+      await mutateConfigYaml((doc) => {
+        const value = parsed.data.connectTimeoutSec;
+        const rootNode = doc.contents as YAMLMap;
+        let mcpNode: unknown = rootNode.has('mcp') ? rootNode.get('mcp', true) : undefined;
+        if (!mcpNode || !isMap(mcpNode)) {
+          // `mcp:` absent or not a mapping — replacing it is the only way
+          // forward (and matches what a whole-section rebuild would do).
+          rootNode.set('mcp', doc.createNode({ connect_timeout_sec: value }));
+          mcpNode = rootNode.get('mcp', true);
+        }
+        if (!isMap(mcpNode)) {
+          throw new Error('Cannot update MCP settings: mcp is not a YAML mapping');
+        }
+        mcpNode.set('connect_timeout_sec', doc.createNode(value));
+      });
+    } catch (err) {
+      app.log.warn({ err }, '[mcp] settings write could not update config.yaml');
+      return fail(reply, 500, 'error.configWriteFailed', { message: errText(err) });
+    }
+
+    afterConfigWrite();
+    return reply.send({
+      ok: true,
+      connectTimeoutSec:
+        deps.getConfig().mcp?.connectTimeoutSec ?? DEFAULT_MCP_SECTION.connectTimeoutSec,
+    });
   });
 
   /** POST /api/mcp/servers — install (§13.3 pipeline). */

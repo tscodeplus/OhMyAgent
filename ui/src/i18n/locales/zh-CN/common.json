@@ -617,6 +617,11 @@
       "title": "MCP 服务器",
       "subtitle": "接入外部 MCP（Model Context Protocol）服务器，把它的工具交给智能体使用",
       "statusBar": "已安装 {{installed}} · 已启用 {{enabled}} · 已连接 {{connected}} · 需要登录 {{authRequired}}",
+      "connectTimeout": {
+        "label": "连接超时（秒）",
+        "hint": "建立 MCP 服务器连接（含冷启动 npx 下载依赖）的最长等待时间，写入 mcp.connect_timeout_sec。",
+        "invalid": "连接超时必须是正整数（秒）"
+      },
       "searchPlaceholder": "搜索服务器或工具…",
       "addServer": "添加服务器",
       "installFromPreset": "从预设安装",
@@ -674,7 +679,7 @@
         "headers": "请求头",
         "oauth": "OAuth 授权",
         "oauthHint": "仅当服务器使用 OAuth 2.1 授权时填写，留空表示无认证连接。",
-        "timeout": "超时（秒）",
+        "timeout": "工具调用超时（秒）",
         "exposure": "暴露方式",
         "description": "描述",
         "transport": "传输方式",
