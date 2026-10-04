@@ -628,7 +628,7 @@
       "settingsNote": "Per-server values such as the tool call timeout live in each server card's edit form.",
       "connectTimeout": {
         "label": "Connect timeout (seconds)",
-        "hint": "How long to wait when establishing a server connection (including a cold npx download). Leave empty to use the default of 60 seconds.",
+        "hint": "How long to wait when establishing a server connection (including a cold npx download). Leave empty to use the default of 300 seconds.",
         "invalid": "Connect timeout must be a positive integer (seconds)"
       },
       "searchPlaceholder": "Search servers or tools…",

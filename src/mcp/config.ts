@@ -67,7 +67,7 @@ const UNSAFE_SERVER_NAMES = new Set(['__proto__', 'constructor', 'prototype']);
  */
 export const DEFAULT_MCP_SECTION: McpSectionConfig = {
   enabled: true,
-  connectTimeoutSec: 60,
+  connectTimeoutSec: 300,
   requestTimeoutSec: 60,
   maxOutputBytes: 20480,
   maxConcurrentConnects: 4,

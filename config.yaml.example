@@ -472,7 +472,7 @@ channels:
 #
 # mcp:
 #   enabled: true                  # false keeps the config but connects nothing
-#   connect_timeout_sec: 60        # Connection timeout for every server
+#   connect_timeout_sec: 300       # Connection timeout for every server
 #   request_timeout_sec: 60        # Default per-call timeout (server `timeout_sec` overrides)
 #   max_output_bytes: 20480        # Larger tool results are spilled to data/offload/
 #   max_concurrent_connects: 4     # Parallel connects during startup

@@ -543,7 +543,7 @@ export default function McpSettings() {
           label={t('settings.mcp.connectTimeout.label')}
           value={connectTimeoutSec}
           error={connectTimeoutError}
-          placeholder="60"
+          placeholder="300"
           inputMode="numeric"
           disabled={loading}
           onChange={(e) => {
