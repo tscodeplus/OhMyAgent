@@ -1,6 +1,6 @@
 {
   "name": "oh-my-agent",
-  "version": "4.1.3",
+  "version": "4.2.0-beta1",
   "type": "module",
   "bin": {
     "ohmyagent": "./bin/cli.js"

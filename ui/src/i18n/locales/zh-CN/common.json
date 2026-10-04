@@ -195,7 +195,7 @@
       "toolsPolicy": "工具和审批策略",
       "channels": "渠道管理",
       "websearch": "网络搜索",
-      "computer": "电脑使用",
+      "computer": "Computer Use",
       "mcp": "MCP 服务器",
       "vision": "视觉桥接",
       "multimodal": "多模态",
@@ -601,7 +601,7 @@
       "opt_allow": "允许"
     },
     "computer": {
-      "title": "电脑使用",
+      "title": "Computer Use",
       "enabled": "启用",
       "provider": "Provider",
       "ssh": "SSH 配置",
