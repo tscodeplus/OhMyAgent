@@ -618,7 +618,7 @@
       "subtitle": "接入外部 MCP（Model Context Protocol）服务器，把它的工具交给智能体使用",
       "subTabs": {
         "servers": "服务器",
-        "settings": "设置"
+        "settings": "全局设置"
       },
       "chips": {
         "installed": "已安装 {{count}}",
@@ -629,7 +629,7 @@
       "settingsNote": "每个服务器自己的“工具调用超时”等参数，在各服务器卡片的编辑表单里修改。",
       "connectTimeout": {
         "label": "连接超时（秒）",
-        "hint": "建立 MCP 服务器连接（含冷启动 npx 下载依赖）的最长等待时间，写入 mcp.connect_timeout_sec。",
+        "hint": "建立 MCP 服务器连接（含冷启动 npx 下载依赖）的最长等待时间。",
         "invalid": "连接超时必须是正整数（秒）"
       },
       "searchPlaceholder": "搜索服务器或工具…",

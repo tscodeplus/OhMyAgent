@@ -45,10 +45,10 @@ import McpPresetList from '../mcp/McpPresetList';
 /** Delay before re-reading state after an action that (re)connects a server. */
 const RECONNECT_SETTLE_MS = 1500;
 
-/** Internal sub-tabs: the server list is the default view; global tunables live in "settings". */
+/** Internal sub-tabs: global tunables first; the server list is the main working view. */
 const MCP_SUB_TABS = [
-  { id: 'servers' as const, icon: Server, labelKey: 'settings.mcp.subTabs.servers' },
   { id: 'settings' as const, icon: Settings2, labelKey: 'settings.mcp.subTabs.settings' },
+  { id: 'servers' as const, icon: Server, labelKey: 'settings.mcp.subTabs.servers' },
 ];
 type McpSubTab = (typeof MCP_SUB_TABS)[number]['id'];
 
@@ -91,7 +91,7 @@ export default function McpSettings() {
   const [callbackUrl, setCallbackUrl] = useState('');
   const [loginBusy, setLoginBusy] = useState(false);
 
-  const [activeSubTab, setActiveSubTab] = useState<McpSubTab>('servers');
+  const [activeSubTab, setActiveSubTab] = useState<McpSubTab>('settings');
 
   // Section-level tunable (`mcp.connect_timeout_sec`): loaded with the rest,
   // edited inline and PATCHed immediately (this tab has no Save-bar).
@@ -554,20 +554,15 @@ export default function McpSettings() {
           {t('common.save')}
         </Button>
       </div>
-      <p className="mt-2 text-[11px] text-neutral-500 dark:text-neutral-400">
-        {t('settings.mcp.connectTimeout.hint')}
+      <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+        <span>{t('settings.mcp.connectTimeout.hint')}</span>
+        <span className="text-neutral-300 dark:text-neutral-600">·</span>
+        <span>{t('settings.mcp.settingsNote')}</span>
       </p>
     </section>
   );
 
-  const settingsTab = (
-    <div className="space-y-3">
-      {connectTimeoutBox}
-      <p className="px-1 text-[11px] text-neutral-500 dark:text-neutral-400">
-        {t('settings.mcp.settingsNote')}
-      </p>
-    </div>
-  );
+  const settingsTab = <div className="space-y-3">{connectTimeoutBox}</div>;
 
   const openDetail = useCallback((server: McpServerView, section: McpDetailSection) => {
     setDetail({ name: server.name, section });

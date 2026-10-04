@@ -618,7 +618,7 @@
       "subtitle": "Connect external Model Context Protocol servers and expose their tools to the agent",
       "subTabs": {
         "servers": "Servers",
-        "settings": "Settings"
+        "settings": "Global settings"
       },
       "chips": {
         "installed": "Installed {{count}}",
@@ -629,7 +629,7 @@
       "settingsNote": "Per-server values such as the tool call timeout live in each server card's edit form.",
       "connectTimeout": {
         "label": "Connect timeout (seconds)",
-        "hint": "How long to wait when establishing a server connection (including a cold npx download); written to mcp.connect_timeout_sec.",
+        "hint": "How long to wait when establishing a server connection (including a cold npx download).",
         "invalid": "Connect timeout must be a positive integer (seconds)"
       },
       "searchPlaceholder": "Search servers or tools…",
