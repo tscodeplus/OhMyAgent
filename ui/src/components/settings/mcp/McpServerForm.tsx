@@ -19,7 +19,13 @@
 // tells the route to keep the stored secret — so unchanged rows are submitted
 // as-is and only an actually edited row carries a new value.
 
-import { useMemo, useRef, useState } from 'react';
+import {
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent as ReactClipboardEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, Trash2 } from 'lucide-react';
 import Modal from '../../ui/Modal';
@@ -246,16 +252,12 @@ export default function McpServerForm({
     return undefined;
   }, [name, normalizedExisting, t]);
 
-  const commandFilled = command.trim().length > 0;
   const urlFilled = url.trim().length > 0;
+  // stdio tolerates a blank command: it defaults to `npx` (most MCP servers are
+  // npm packages). The default is applied in `buildInput`, so the payload the
+  // backend validates always carries a command.
   const endpointError =
-    transport === 'stdio'
-      ? commandFilled
-        ? undefined
-        : t('settings.mcp.form.errors.commandRequired')
-      : urlFilled
-        ? undefined
-        : t('settings.mcp.form.errors.urlRequired');
+    transport === 'http' && !urlFilled ? t('settings.mcp.form.errors.urlRequired') : undefined;
 
   // Upstream has no HTTP+SSE transport; the legacy `/sse` endpoint is rejected
   // here instead of silently connecting as streamable HTTP (§5.2, §19 limits).
@@ -300,7 +302,7 @@ export default function McpServerForm({
     const timeout = timeoutSec.trim();
     if (timeout) input.timeoutSec = Number(timeout);
     if (transport === 'stdio') {
-      input.command = command.trim();
+      input.command = command.trim() || 'npx';
       const cleanedArgs = args.filter((a) => a.length > 0);
       if (cleanedArgs.length > 0) input.args = cleanedArgs;
       const envRecord = rowsToRecord(env);
@@ -415,17 +417,19 @@ export default function McpServerForm({
           <>
             <Input
               label={t('settings.mcp.form.command')}
-              required
               value={command}
-              error={show(endpointError)}
               placeholder="npx"
               className="font-mono"
               onChange={(e) => setCommand(e.target.value)}
             />
+            <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+              {t('settings.mcp.form.commandHint')}
+            </p>
             <StringListEditor
               label={t('settings.mcp.form.args')}
               values={args}
               placeholder="-y"
+              hint={t('settings.mcp.form.argsHint')}
               onChange={setArgs}
               addLabel={t('settings.mcp.form.addRow')}
               removeLabel={t('settings.mcp.form.removeRow')}
@@ -681,11 +685,21 @@ function TestResultPanel({ result }: { result: McpTestResult }) {
   );
 }
 
-/** Ordered argument list (`args: string[]`). */
+/**
+ * Ordered argument list (`args: string[]`).
+ *
+ * Always renders at least one input row: a fresh install starts with `args: []`,
+ * and a label over an empty region (only a small add button below) reads as a
+ * field you cannot type into. Blank rows are dropped when the payload is built
+ * (`buildInput` filters empty strings), so the guaranteed row is harmless.
+ * Enter inserts the next row and focuses it; pasting multi-line text splits
+ * into one argument per line.
+ */
 function StringListEditor({
   label,
   values,
   placeholder,
+  hint,
   onChange,
   addLabel,
   removeLabel,
@@ -693,12 +707,62 @@ function StringListEditor({
   label: string;
   values: string[];
   placeholder?: string;
+  hint?: string;
   onChange: (next: string[]) => void;
   addLabel: string;
   removeLabel: string;
 }) {
   // Row identity is independent of the value so editing does not remount inputs.
-  const rowIds = useRowIds(values.length);
+  const rowIds = useRowIds(Math.max(values.length, 1));
+  const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
+
+  const rows = values.length === 0 ? [''] : values;
+
+  const setRow = (i: number, value: string) => {
+    const next = [...rows];
+    next[i] = value;
+    onChange(next);
+  };
+
+  const addRowAfter = (i: number) => {
+    const next = [...rows];
+    next.splice(i + 1, 0, '');
+    onChange(next);
+    // The row does not exist until the parent re-renders.
+    requestAnimationFrame(() => inputRefs.current[i + 1]?.focus());
+  };
+
+  const handleKeyDown = (i: number, e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const nextRow = rows[i + 1];
+    if (nextRow !== undefined && nextRow.length === 0) inputRefs.current[i + 1]?.focus();
+    else addRowAfter(i);
+  };
+
+  const handlePaste = (i: number, e: ReactClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData.getData('text');
+    if (!text || !/\r?\n/.test(text)) return;
+    e.preventDefault();
+    const lines = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    if (lines.length === 0) return;
+    const next = [...rows];
+    next[i] = lines[0];
+    if (lines.length > 1) next.splice(i + 1, 0, ...lines.slice(1));
+    onChange(next);
+    requestAnimationFrame(() => inputRefs.current[i + 1]?.focus());
+  };
+
+  const removeRow = (i: number) => {
+    if (rows.length <= 1) {
+      onChange([]); // the guaranteed empty row comes back on the next render
+      return;
+    }
+    onChange(rows.filter((_, j) => j !== i));
+  };
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -706,33 +770,36 @@ function StringListEditor({
         {label}
       </span>
       <div className="space-y-1.5">
-        {values.map((value, i) => (
+        {rows.map((value, i) => (
           <div key={rowIds[i]} className="flex items-center gap-2">
             <input
+              ref={(el) => {
+                inputRefs.current[i] = el;
+              }}
               value={value}
               placeholder={placeholder}
-              onChange={(e) => {
-                const next = [...values];
-                next[i] = e.target.value;
-                onChange(next);
-              }}
+              onKeyDown={(e) => handleKeyDown(i, e)}
+              onPaste={(e) => handlePaste(i, e)}
+              onChange={(e) => setRow(i, e.target.value)}
               className="min-w-0 flex-1 rounded-lg border border-neutral-300 bg-white px-3 py-2 font-mono text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-100"
             />
             <RowRemoveButton
               label={removeLabel}
-              onClick={() => onChange(values.filter((_, j) => j !== i))}
+              onClick={() => removeRow(i)}
+              disabled={rows.length <= 1 && value.length === 0}
             />
           </div>
         ))}
       </div>
       <button
         type="button"
-        onClick={() => onChange([...values, ''])}
+        onClick={() => addRowAfter(rows.length - 1)}
         className="inline-flex w-fit items-center gap-1 rounded-md border border-neutral-300 px-2 py-1 text-xs text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
       >
         <Plus size={12} />
         {addLabel}
       </button>
+      {hint && <p className="text-[11px] text-neutral-500 dark:text-neutral-400">{hint}</p>}
     </div>
   );
 }
@@ -822,12 +889,21 @@ function useRowIds(count: number): number[] {
   return idsRef.current;
 }
 
-function RowRemoveButton({ label, onClick }: { label: string; onClick: () => void }) {
+function RowRemoveButton({
+  label,
+  onClick,
+  disabled,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
   return (
     <button
       type="button"
       aria-label={label}
       onClick={onClick}
+      disabled={disabled}
       className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-neutral-400 hover:bg-neutral-100 hover:text-red-600 dark:hover:bg-neutral-800"
     >
       <Trash2 size={14} strokeWidth={1.75} />

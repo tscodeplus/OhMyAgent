@@ -665,7 +665,9 @@
       "form": {
         "name": "名称",
         "command": "命令",
+        "commandHint": "一个可执行文件；留空默认使用 npx",
         "args": "参数",
+        "argsHint": "一行一个参数：按 Enter 换行，也可以直接粘贴多行文本自动拆分",
         "env": "环境变量",
         "cwd": "工作目录",
         "url": "URL",
@@ -695,7 +697,6 @@
           "nameRequired": "请填写名称",
           "nameInvalid": "名称只能包含字母、数字、连字符和下划线",
           "nameTaken": "该名称已被占用（- 与 _ 视为相同）",
-          "commandRequired": "stdio 模式必须填写命令",
           "urlRequired": "HTTP 模式必须填写 URL",
           "sseUnsupported": "不支持旧版 HTTP+SSE 传输，请改用 streamable HTTP 端点",
           "timeoutInvalid": "超时必须是正整数（秒）",

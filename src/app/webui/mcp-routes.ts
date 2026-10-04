@@ -83,6 +83,7 @@ import type {
   McpServerConfig,
   McpServerInfo,
   McpServerInput,
+  McpSectionConfig,
   McpServerState,
   McpServerView,
   McpToolView,
@@ -605,13 +606,25 @@ const NOOP_TOOL_REGISTRY: McpToolRegistryLike = {
  * first `npx -y` pull (decision 19-9). It runs a throwaway `McpManager` over
  * the real transports — reusing the manager is what makes the probe honest —
  * with a no-op registry, so nothing is registered or persisted.
+ *
+ * `tunables` inherits the running gateway's connection tunables (currently
+ * `connectTimeoutSec`): a probe of a slow-starting server (a cold `npx` pull,
+ * a large self-contained binary) must honour the operator's configured
+ * connect timeout instead of silently falling back to the default 15 s —
+ * otherwise raising `mcp.connect_timeout_sec` has no effect on "Test
+ * Connection" and the probe fails precisely when it is needed.
  */
 async function probeServer(
   server: McpServerConfig,
   logger: McpManagerLogger,
+  tunables?: Pick<McpSectionConfig, 'connectTimeoutSec'>,
 ): Promise<McpProbeResult> {
   const manager = createMcpManager({
-    config: { ...DEFAULT_MCP_SECTION, servers: { [server.name]: server } },
+    config: {
+      ...DEFAULT_MCP_SECTION,
+      ...(tunables ? { connectTimeoutSec: tunables.connectTimeoutSec } : {}),
+      servers: { [server.name]: server },
+    },
     logger,
     toolRegistry: NOOP_TOOL_REGISTRY,
     // Never written to: the probe only connects and lists tools.
@@ -1289,7 +1302,13 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
     // The edit form submits the values it loaded, so an untouched secret arrives
     // as the mask; probing with that literal would fail a working config (§13.3).
     const probeInput = resolveMaskedInput(input, rawEntry(input.name));
-    const probe = deps.probe ?? ((server: McpServerConfig) => probeServer(server, app.log));
+    const probe =
+      deps.probe ??
+      ((server: McpServerConfig) =>
+        probeServer(server, app.log, {
+          connectTimeoutSec:
+            deps.getConfig().mcp?.connectTimeoutSec ?? DEFAULT_MCP_SECTION.connectTimeoutSec,
+        }));
     try {
       return reply.send(await probe(toProbeConfig(probeInput)));
     } catch (err) {

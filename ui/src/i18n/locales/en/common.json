@@ -665,7 +665,9 @@
       "form": {
         "name": "Name",
         "command": "Command",
+        "commandHint": "A single executable; leave blank to use npx",
         "args": "Arguments",
+        "argsHint": "One argument per row: press Enter for a new row, or paste multi-line text and it is split automatically",
         "env": "Environment variables",
         "cwd": "Working directory",
         "url": "URL",
@@ -695,7 +697,6 @@
           "nameRequired": "Name is required",
           "nameInvalid": "Only letters, digits, hyphens and underscores are allowed",
           "nameTaken": "This name is already taken (- and _ are treated as equal)",
-          "commandRequired": "A command is required for stdio",
           "urlRequired": "A URL is required for HTTP",
           "sseUnsupported": "The legacy HTTP+SSE transport is not supported — use a streamable HTTP endpoint",
           "timeoutInvalid": "Timeout must be a positive integer (seconds)",

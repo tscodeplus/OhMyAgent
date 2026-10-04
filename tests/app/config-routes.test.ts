@@ -283,6 +283,9 @@ describe('PUT /api/config', () => {
 
 describe('GET /api/config — mcp credential masking', () => {
   let app: ReturnType<typeof Fastify>;
+  let dir: string;
+  let configPath: string;
+  let previousConfigFile: string | undefined;
 
   const liveConfig = {
     piAi: { provider: 'openai', model: 'gpt-4' },
@@ -324,16 +327,33 @@ describe('GET /api/config — mcp credential masking', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+
+    // `rawMaskedServers()` reads the raw `config.yaml` the process resolves
+    // (`CONFIG_FILE`, else CWD) — without an override a developer machine that
+    // has a real `mcp:` section would leak its servers into the masked payload
+    // and clobber the fixture below. Point it at an empty temp file.
+    dir = mkdtempSync(join(tmpdir(), 'oma-config-masking-'));
+    configPath = join(dir, 'config.yaml');
+    writeFileSync(configPath, '', 'utf-8');
+    previousConfigFile = process.env.CONFIG_FILE;
+    process.env.CONFIG_FILE = configPath;
+
     app = Fastify({ logger: false });
     registerConfigRoutes(app, {
       getConfig: () => liveConfig as any,
-      configPath: '/tmp/test-config.yaml',
+      configPath,
     });
     await app.ready();
   });
 
   afterEach(async () => {
     await app.close();
+    if (previousConfigFile === undefined) {
+      delete process.env.CONFIG_FILE;
+    } else {
+      process.env.CONFIG_FILE = previousConfigFile;
+    }
+    rmSync(dir, { recursive: true, force: true });
   });
 
   it('masks mcp secrets, so /api/config cannot defeat /api/mcp masking', async () => {
