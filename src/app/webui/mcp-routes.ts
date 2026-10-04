@@ -48,12 +48,21 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import type Database from 'better-sqlite3';
 import { closeSync, openSync, readSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { stringify as stringifyYaml } from 'yaml';
+import { isMap, stringify as stringifyYaml, type YAMLMap } from 'yaml';
 import { z } from 'zod';
 
 import { DEFAULT_MCP_SECTION, MCP_SERVER_NAME_PATTERN } from '../../mcp/config.js';
 import { mcpAnnotationFlags } from '../../mcp/capability.js';
-import { isMaskedValue, isSecretKey, maskRecord, MASKED_SECRET } from '../../mcp/masking.js';
+import {
+  containsMaskedSecret,
+  isMaskedValue,
+  isSecretKey,
+  maskRecord,
+  MASKED_SECRET,
+  maskUrl,
+  maskUrlInText,
+  resolveMaskedUrl,
+} from '../../mcp/masking.js';
 import {
   createMcpManager,
   mcpLogFilePath,
@@ -79,17 +88,13 @@ import type {
   McpToolView,
 } from '../../mcp/types.js';
 import { approvalRiskForTool } from '../../policy/tool-capability-registry.js';
+import { canonicalMcpServerName } from '../../policy/mcp-visibility.js';
 import { OffloadStore } from '../../runtime-artifacts/offload-store.js';
 import { i18n } from '../../i18n/index.js';
 import { loadConfig } from '../config.js';
 import { interpolateEnv } from '../config-loader.js';
 import type { AppConfig } from '../types.js';
-import {
-  applyConfigObject,
-  mutateConfigYaml,
-  readConfigObject,
-  readRawConfigFile,
-} from './yaml-mutation.js';
+import { mutateConfigYaml, readRawConfigFile, readConfigObject } from './yaml-mutation.js';
 
 /** Result of `POST /api/mcp/test` — mirrors the WebUI's `McpTestResult`. */
 export interface McpProbeResult {
@@ -224,6 +229,22 @@ const purgeQuerySchema = z.enum(['true', 'false']);
 /** Raw per-server entry exactly as it is written to `config.yaml` (snake_case). */
 type RawServerYaml = Record<string, unknown>;
 
+/**
+ * Authoritative canonical-duplicate failure, thrown from inside the write queue.
+ *
+ * `config.yaml` cannot boot with two `mcp.servers` entries of the same name
+ * modulo `-`/`_`, so the check has to run in the serialised mutator — outside
+ * it, two concurrent installs can both pass and both write, leaving a file the
+ * next start refuses to load (§5.2). Callers map it to a 400
+ * `mcp.error.nameTaken`.
+ */
+class McpNameConflictError extends Error {
+  constructor(readonly conflictingName: string) {
+    super(`canonical duplicate server name: ${conflictingName}`);
+    this.name = 'McpNameConflictError';
+  }
+}
+
 // ─── Response helpers ───
 
 /** i18next namespace of the API strings — one file per namespace in `src/locales`. */
@@ -319,6 +340,12 @@ function maskRawValue(key: string, value: unknown): unknown {
     return nested;
   }
   if (typeof value === 'string' && !ENV_PLACEHOLDER.test(value)) {
+    // A URL can carry credentials the key-based rule never sees (userinfo or a
+    // secret query parameter), and the raw fragment is served as-is — so every
+    // `url:` value goes through maskUrl() like the loaded views do. A pure
+    // `${VAR}` placeholder was already left verbatim above: a reference, not a
+    // secret.
+    if (key === 'url') return maskUrl(value);
     return isSecretKey(key) ? MASKED_SECRET : value;
   }
   return value;
@@ -331,8 +358,13 @@ function maskRawValue(key: string, value: unknown): unknown {
  * placeholder is emitted verbatim even under a secret-named key: it is a
  * reference, not a secret, and echoing it back is exactly what keeps a save from
  * baking an expanded value into `config.yaml`. Every other `isSecretKey()` name
- * is replaced by the mask. Values are never interpolated — the input is the raw
+ * is replaced by the mask, and each `url:` value has its embedded credentials
+ * masked (see `maskUrl()`). Values are never interpolated — the input is the raw
  * file, so no effective value can leak through this path.
+ *
+ * The echoed fragment is what the edit form submits back on save, so the write
+ * side recognises a masked URL and resolves it to the stored one
+ * (`resolveMaskedUrl()`); writing the literal mask would brick the entry.
  *
  * @param entry Raw `mcp.servers.<name>` entry.
  */
@@ -450,7 +482,16 @@ function toRawServerYaml(input: McpServerInput, stored: RawServerYaml | undefine
     if (env) raw.env = env;
     if (input.cwd) raw.cwd = input.cwd;
   } else {
-    raw.url = input.url;
+    // An echoed masked URL stands for the stored URL verbatim (any `${VAR}`
+    // placeholder inside it is preserved) — writing the literal mask would
+    // brick the entry. A mask with nothing behind it has already been rejected
+    // by the route handler, so it never reaches this mapping.
+    const storedUrl = stored?.url;
+    const url =
+      input.url === undefined
+        ? undefined
+        : resolveMaskedUrl(input.url, typeof storedUrl === 'string' ? storedUrl : undefined);
+    if (url !== undefined) raw.url = url;
     const headers = mergeSecretRecord(input.headers, stringRecord(stored?.headers));
     if (headers) raw.headers = headers;
   }
@@ -515,6 +556,8 @@ function toProbeConfig(input: McpServerInput): McpServerConfig {
  * entry stored in `config.yaml` — the same rule the write path applies — and a
  * mask with nothing behind it is dropped rather than probed as a literal.
  *
+ * An echoed masked `url` resolves the same way when the raw entry stores one.
+ *
  * Only `env` / `headers` are resolved: the throwaway probe manager is built
  * without OAuth dependencies, so an inline `oauth:` block is inert there (it
  * never reaches `authProviderFor()`), and the tokens the real gateway uses live
@@ -531,6 +574,17 @@ function resolveMaskedInput(
   } else {
     const headers = mergeSecretRecord(input.headers, stringRecord(stored?.headers));
     if (headers) resolved.headers = headers;
+    // The stored URL is likewise echoed masked (`maskUrl()` on the way out);
+    // probing the literal mask would fail a working config, so it resolves
+    // exactly like the masked secret fields above.
+    const storedUrl = stored?.url;
+    if (
+      input.url !== undefined &&
+      typeof storedUrl === 'string' &&
+      containsMaskedSecret(input.url)
+    ) {
+      resolved.url = storedUrl;
+    }
   }
   return resolved;
 }
@@ -571,8 +625,9 @@ async function probeServer(
     if (state?.state !== 'connected') {
       return {
         ok: false,
-        error:
+        error: maskUrlInText(
           state?.error ?? message('error.connectFailed', { message: state?.state ?? 'unknown' }),
+        ),
         ...(stderrTail ? { stderrTail } : {}),
       };
     }
@@ -687,12 +742,12 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
     return servers[name];
   };
 
-  /** `my-server` and `my_server` are the same server (§5.2). */
-  const canonical = (name: string): string => name.replace(/-/g, '_');
-
   /**
-   * The conflicting stored name, if any — checked with the same normalisation as
-   * the loader.
+   * The conflicting stored name, if any — checked with the same normalisation
+   * as the loader (`canonicalMcpServerName`, shared with the loader itself).
+   *
+   * This is only a fast path; the authoritative check runs inside the write
+   * queue's mutator (`writeServer`), where two concurrent installs construct.
    *
    * Read from the raw map so a *skipped* entry still blocks a duplicate:
    * installing `my_server` next to an unloadable `my-server` would leave a
@@ -702,7 +757,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
   const findNameConflict = (name: string): string | undefined => {
     const raw = rawServers();
     const names = raw ? Object.keys(raw) : Object.keys(deps.getConfig().mcp?.servers ?? {});
-    return names.find((other) => canonical(other) === canonical(name));
+    return names.find((other) => canonicalMcpServerName(other) === canonicalMcpServerName(name));
   };
 
   const toServerView = (server: McpServerConfig): McpServerView => {
@@ -728,19 +783,23 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
       toolExposure: { ...server.toolExposure },
       errorCount: state?.errorCount ?? 0,
     };
-    if (state?.error) view.error = state.error;
+    if (state?.error) view.error = maskUrlInText(state.error);
     if (state?.connectedAt !== undefined) view.connectedAt = state.connectedAt;
     const serverInfo = toServerInfo(state);
     if (serverInfo) view.serverInfo = serverInfo;
     if (state?.instructionsSummary) view.instructionsSummary = state.instructionsSummary;
-    if (state?.lastError) view.lastError = state.lastError;
+    if (state?.lastError)
+      view.lastError = { ...state.lastError, message: maskUrlInText(state.lastError.message) };
     if (server.transport === 'stdio') {
       view.command = server.command;
       view.args = [...server.args];
       if (server.cwd) view.cwd = server.cwd;
       view.envKeys = Object.keys(maskRecord(server.env) ?? {});
     } else {
-      view.url = server.url;
+      // The URL can carry credentials the header list never shows (userinfo or
+      // a secret query parameter) — the view is display-only, so it is masked
+      // exactly like the raw fragment and `GET /api/config`.
+      view.url = maskUrl(server.url);
       view.headerKeys = Object.keys(maskRecord(server.headers) ?? {});
     }
     if (server.timeoutSec !== undefined) view.timeoutSec = server.timeoutSec;
@@ -772,15 +831,44 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
     });
   };
 
-  /** Serialised write of one `mcp.servers.<name>` entry (decision 19-11). */
+  /**
+   * Serialised write of one `mcp.servers.<name>` entry (decision 19-11).
+   *
+   * The edit is made with Document node operations so only the target key is
+   * replaced: rebuilding the whole `mcp:` subtree used to destroy every sibling
+   * entry's comments and quoting (values survived, comments did not). Missing
+   * `mcp:` / `servers:` parents are created as fresh nodes.
+   *
+   * @param name Server name (the YAML key of `mcp.servers`).
+   * @param build Produces the next raw entry, or `undefined` to remove it.
+   * @param creating True for an install (`POST`): the canonical-duplicate check
+   *   then rejects any stored name that matches modulo `-`/`_`, including the
+   *   exact name itself. Updates are exempt — they can only "conflict" with
+   *   their own key.
+   * @throws `McpNameConflictError` when `creating` and a duplicate exists — the
+   *   authoritative check, run inside the write queue so two concurrent
+   *   installs cannot both pass the outside fast path and both write a
+   *   `config.yaml` the loader refuses to boot. Callers map it to a 400
+   *   `error.nameTaken`.
+   */
   const writeServer = async (
     name: string,
     build: (stored: RawServerYaml | undefined) => RawServerYaml | undefined,
+    creating = false,
   ): Promise<void> => {
     await mutateConfigYaml((doc) => {
       const root = readConfigObject(doc);
       const mcpSection = isRecord(root.mcp) ? root.mcp : {};
       const servers = isRecord(mcpSection.servers) ? mcpSection.servers : {};
+
+      if (creating) {
+        for (const other of Object.keys(servers)) {
+          if (canonicalMcpServerName(other) === canonicalMcpServerName(name)) {
+            throw new McpNameConflictError(other);
+          }
+        }
+      }
+
       // Own keys only: `servers['toString']` would otherwise resolve through the
       // prototype chain and let a mutation read someone else's entry.
       const stored =
@@ -789,12 +877,36 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
           : undefined;
 
       const next = build(stored);
-      if (next === undefined) delete servers[name];
-      else servers[name] = next;
 
-      mcpSection.servers = servers;
-      root.mcp = mcpSection;
-      applyConfigObject(doc, root);
+      // ── Node-level edit: replace only the target key ──
+      // Values are converted through `doc.createNode()` before they are stored:
+      // `YAMLMap.set()` wraps a plain object in a Pair verbatim, so the freshly
+      // created parents would come back as plain objects with no node methods.
+      // The `yaml` typings type `get(key, true)` as `Scalar` even when the value
+      // is a collection node, so the node values are narrowed through
+      // `isMap()` instead of direct casts.
+      const rootNode = doc.contents as YAMLMap;
+      if (!rootNode.has('mcp')) rootNode.set('mcp', doc.createNode({ servers: {} }));
+      let mcpNode: unknown = rootNode.get('mcp', true);
+      if (!isMap(mcpNode)) {
+        // `mcp:` is not a mapping — replacing it is the only way forward (and
+        // matches what the previous whole-section rebuild did).
+        rootNode.set('mcp', doc.createNode({ servers: {} }));
+        mcpNode = rootNode.get('mcp', true);
+      }
+      if (!isMap(mcpNode)) throw new Error('Cannot update MCP servers: mcp is not a YAML mapping');
+      if (!mcpNode.has('servers')) mcpNode.set('servers', doc.createNode({}));
+      let serversNode: unknown = mcpNode.get('servers', true);
+      if (!isMap(serversNode)) {
+        mcpNode.set('servers', doc.createNode({}));
+        serversNode = mcpNode.get('servers', true);
+      }
+      if (!isMap(serversNode))
+        throw new Error('Cannot update MCP servers: mcp.servers is not a YAML mapping');
+      if (next === undefined) serversNode.delete(name);
+      // The fresh node touches only this key; sibling entries keep their
+      // original nodes — comments and quoting alike.
+      else serversNode.set(name, doc.createNode(next));
     });
   };
 
@@ -840,6 +952,20 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
     if (!parsed.success) return badBody(reply, parsed.error);
     const input: McpServerInput = parsed.data;
 
+    // A masked URL echoed with no stored value behind it has nothing to resolve
+    // to — a 400 beats writing the literal mask into `config.yaml`. The
+    // authoritative resolution against the stored value happens inside the
+    // write queue (§13.7).
+    const maskedUrlIssue =
+      input.url !== undefined &&
+      containsMaskedSecret(input.url) &&
+      typeof rawEntry(input.name)?.url !== 'string';
+    if (maskedUrlIssue) {
+      return fail(reply, 400, 'error.invalidBody', {
+        detail: 'url: masked URL has no stored value to resolve to',
+      });
+    }
+
     const conflict = findNameConflict(input.name);
     if (conflict) return fail(reply, 400, 'error.nameTaken', { name: conflict });
 
@@ -847,8 +973,11 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
     if (issue) return fail(reply, 400, issue);
 
     try {
-      await writeServer(input.name, () => toRawServerYaml(input, undefined));
+      await writeServer(input.name, () => toRawServerYaml(input, undefined), true);
     } catch (err) {
+      if (err instanceof McpNameConflictError) {
+        return fail(reply, 400, 'error.nameTaken', { name: err.conflictingName });
+      }
       app.log.warn({ err, server: input.name }, '[mcp] install could not write config.yaml');
       return fail(reply, 500, 'error.configWriteFailed', { message: errText(err) });
     }
@@ -874,12 +1003,27 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
       return fail(reply, 400, 'error.renameUnsupported', { name });
     }
 
+    // Same guard as the install route: an echoed masked URL with nothing
+    // stored behind it is rejected rather than written as the literal mask.
+    const maskedUrlIssue =
+      input.url !== undefined &&
+      containsMaskedSecret(input.url) &&
+      typeof rawEntry(name)?.url !== 'string';
+    if (maskedUrlIssue) {
+      return fail(reply, 400, 'error.invalidBody', {
+        detail: 'url: masked URL has no stored value to resolve to',
+      });
+    }
+
     const issue = endpointIssue(input);
     if (issue) return fail(reply, 400, issue);
 
     try {
       await writeServer(name, (stored) => toRawServerYaml(input, stored));
     } catch (err) {
+      if (err instanceof McpNameConflictError) {
+        return fail(reply, 400, 'error.nameTaken', { name: err.conflictingName });
+      }
       app.log.warn({ err, server: name }, '[mcp] update could not write config.yaml');
       return fail(reply, 500, 'error.configWriteFailed', { message: errText(err) });
     }
@@ -962,8 +1106,10 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
     // failed reconnect must reach the WebUI as an error, not as a silent 200.
     const state = await live.reconnect(name);
     if (state.state !== 'connected') {
+      // Transport errors can embed the failed URL — credentials and all — so
+      // every error string is masked before it reaches a response body.
       return fail(reply, 502, 'error.connectFailed', {
-        message: state.error ?? state.state,
+        message: maskUrlInText(state.error ?? state.state),
       });
     }
     return reply.send({ ok: true, state: state.state, tools: listToolsFor(name) });
@@ -987,7 +1133,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
       });
     } catch (err) {
       app.log.warn({ err, server: name }, '[mcp] login failed');
-      return fail(reply, 502, 'error.loginFailed', { message: errText(err) });
+      return fail(reply, 502, 'error.loginFailed', { message: maskUrlInText(errText(err)) });
     }
   });
 
@@ -1007,7 +1153,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
       return reply.send({ ok: true });
     } catch (err) {
       app.log.warn({ err, server: name }, '[mcp] OAuth callback failed');
-      return fail(reply, 502, 'error.loginFailed', { message: errText(err) });
+      return fail(reply, 502, 'error.loginFailed', { message: maskUrlInText(errText(err)) });
     }
   });
 
@@ -1025,7 +1171,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
       return reply.send({ ok: true });
     } catch (err) {
       app.log.warn({ err, server: name }, '[mcp] logout failed');
-      return fail(reply, 502, 'error.actionFailed', { message: errText(err) });
+      return fail(reply, 502, 'error.actionFailed', { message: maskUrlInText(errText(err)) });
     }
   });
 
@@ -1078,7 +1224,9 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
       return reply.send({ supported: true, connected: true, resources } satisfies McpResourcesView);
     } catch (err) {
       app.log.warn({ err, server: name }, '[mcp] resource listing failed');
-      return fail(reply, 502, 'error.resourceListFailed', { message: errText(err) });
+      return fail(reply, 502, 'error.resourceListFailed', {
+        message: maskUrlInText(errText(err)),
+      });
     }
   });
 
@@ -1148,7 +1296,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
       app.log.warn({ err, server: input.name }, '[mcp] dry connect failed unexpectedly');
       return reply.send({
         ok: false,
-        error: message('error.connectFailed', { message: errText(err) }),
+        error: message('error.connectFailed', { message: maskUrlInText(errText(err)) }),
       });
     }
   });

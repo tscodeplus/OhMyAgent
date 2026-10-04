@@ -37,6 +37,15 @@ describe('serverNameOfMcpTool', () => {
     expect(serverNameOfMcpTool('mcp__x__')).toBeNull();
   });
 
+  it('splits a double-underscore name at the first separator', () => {
+    // Configured server names can no longer contain `__`: MCP_SERVER_NAME_PATTERN
+    // (src/mcp/config.ts) forbids it because `__` is the reserved segment
+    // separator. If a name like this ever reached a tool name (older config, or
+    // a raw upstream registration), the FIRST `__` wins — so the server segment
+    // is 'my', which is exactly the ambiguity that made `__` reserved.
+    expect(serverNameOfMcpTool('mcp__my__server__t')).toBe('my');
+  });
+
   it('agrees with the prefix predicate', () => {
     expect(isMcpToolName('mcp__a__b')).toBe(true);
     expect(isMcpToolName('read_file')).toBe(false);

@@ -256,6 +256,13 @@ interface ServerRuntime {
    * it even while `connect()` is still in flight (A1/R1).
    */
   transport: McpTransport | undefined;
+  /**
+   * Frame limit the transport of this attempt was actually built with (A4/R5).
+   * Reload re-derives it from the section and treats a difference on a connected
+   * runtime as a connection change, so a section-level `max_output_bytes` edit
+   * reaches the transport instead of only the output limiter.
+   */
+  frameLimit: number | undefined;
   /** Set when a transport dropped an over-limit frame, see {@link OversizeFrame}. */
   oversize: OversizeFrame | undefined;
   retryCount: number;
@@ -421,7 +428,13 @@ class McpManagerImpl implements McpManager {
     if (this.stopped) return;
 
     const previousEnabled = this.section.enabled;
-    this.section = this.deps.resolveConfig?.() ?? this.deps.config;
+    // An undefined return means the config could not be loaded (composer side:
+    // `loadConfig()` threw) — keep the last good section so servers installed
+    // after startup survive a broken edit instead of being torn down (M1). A
+    // *removed* section comes back as a real disabled section, which is what
+    // tears the servers down.
+    const nextSection = this.deps.resolveConfig?.();
+    if (nextSection !== undefined) this.section = nextSection;
 
     // Servers removed from the section: drop the tools, then the connection.
     for (const [name, rt] of [...this.servers]) {
@@ -429,6 +442,11 @@ class McpManagerImpl implements McpManager {
       await this.disableServer(rt);
       this.servers.delete(name);
     }
+
+    // Fresh derivation of the section-level transport frame limit: a connected
+    // runtime built its transport once, with the limit captured at connect, so
+    // a difference means the transport must be rebuilt (A4/R5).
+    const frameLimit = mcpTransportMaxMessageBytes(this.section);
 
     for (const server of Object.values(this.section.servers)) {
       const enabled = this.isEnabled(server);
@@ -446,8 +464,12 @@ class McpManagerImpl implements McpManager {
 
       const configChanged = JSON.stringify(rt.config) !== JSON.stringify(server);
       // Only an edit that changes how the connection is built needs a fresh
-      // attempt: a description edit must not tear a healthy connection down (C5).
-      const connectionChanged = connectionFingerprint(rt.config) !== connectionFingerprint(server);
+      // attempt: a description, exposure or `tool_enabled` edit must not tear a
+      // healthy connection down — those reapply through `configChanged` below
+      // (C5). A section-level frame-limit edit does; see `connectionFingerprint`.
+      const connectionChanged =
+        connectionFingerprint(rt.config) !== connectionFingerprint(server) ||
+        rt.frameLimit !== frameLimit;
       rt.config = server;
       if (configChanged) {
         // The provider is bound to one exact server URL, and a half-finished
@@ -464,8 +486,9 @@ class McpManagerImpl implements McpManager {
       const wasServing = !isNew && rt.enabled && !connectionChanged && previousEnabled;
       rt.enabled = true;
       if (wasServing) {
-        // Nothing about the connection moved, but exposure and per-tool switches
-        // may have: re-register from the cached list instead of reconnecting.
+        // Nothing about the connection moved, but exposure / `tool_enabled`
+        // switches may have: re-register from the cached list instead of
+        // reconnecting. `rt.frameLimit === frameLimit` here by construction.
         if (configChanged) this.refreshRegistrations(rt);
         continue;
       }
@@ -651,9 +674,17 @@ class McpManagerImpl implements McpManager {
     }
 
     // Anti-CSRF (RFC 6749 §10.12). Read straight from the store so a login that
-    // started before a restart is still verifiable.
+    // started before a restart is still verifiable. A callback with no stored
+    // state means no pending authorization: accepting it would let a hand-crafted
+    // link exchange an attacker's code against a server nobody logged into.
     const expectedState = (await oauthRt.store.load())?.oauthState;
-    if (expectedState && parsed.searchParams.get('state') !== expectedState) {
+    if (!expectedState) {
+      throw new Error(
+        `MCP OAuth callback URL for "${serverName}" has no pending authorization — ` +
+          'start a login from the server page first',
+      );
+    }
+    if (parsed.searchParams.get('state') !== expectedState) {
       throw new Error(
         `MCP OAuth callback URL for "${serverName}" carries a stale or foreign state`,
       );
@@ -956,9 +987,14 @@ class McpManagerImpl implements McpManager {
       // everything else keeps the pre-§10 behaviour where a 401 surfaces as
       // `McpAuthRequiredError`.
       const authProvider = this.authProviderFor(rt);
+      // Stored on the runtime as well: reload compares its fresh derivation
+      // against this value to decide whether the connection must be rebuilt
+      // (A4/R5), and over-limit errors report the limit actually enforced.
+      const maxMessageBytes = mcpTransportMaxMessageBytes(this.section);
+      rt.frameLimit = maxMessageBytes;
       transport = this.createTransport(rt.config, {
         onStderr: (chunk) => this.appendStderr(rt, chunk),
-        maxMessageBytes: mcpTransportMaxMessageBytes(this.section),
+        maxMessageBytes,
         ...(authProvider ? { authProvider } : {}),
       });
       // Stored before the handshake so `cancelConnectAttempt()` can close it
@@ -1229,8 +1265,22 @@ class McpManagerImpl implements McpManager {
     // registration happens, so two tools that sanitise to the same name would
     // otherwise both receive it and the second would replace the first.
     const reserved = new Set<string>(this.registeredTools.keys());
+    // First occurrence of a raw tool name wins deterministically: servers
+    // sometimes emit the same name twice on one page, and letting the diff's
+    // last-write-wins decide meant two different tools fighting over one
+    // registration while `rt.state.tools` grew two rows (m5).
+    const seenRawNames = new Set<string>();
 
     for (const tool of tools) {
+      if (seenRawNames.has(tool.name)) {
+        this.deps.logger.warn(
+          { server: rt.config.name, tool: tool.name },
+          'MCP server returned a duplicate tool name — keeping the first occurrence only',
+        );
+        continue;
+      }
+      seenRawNames.add(tool.name);
+
       const exposure = resolveMcpExposure(rt.config, tool.name);
       // `hidden` — and a tool switched off through `tool_enabled` — means "do not
       // register at all". Both stay in `rt.state.tools` so the WebUI can still
@@ -1282,12 +1332,23 @@ class McpManagerImpl implements McpManager {
       });
     }
 
+    // Mirror the first-occurrence rule onto the cached list, so the WebUI shows
+    // one row per raw name even when the server listed it twice.
+    const dedupedTools: Tool[] = [];
+    const cachedRawNames = new Set<string>();
+    for (const tool of tools) {
+      if (cachedRawNames.has(tool.name)) continue;
+      cachedRawNames.add(tool.name);
+      dedupedTools.push(tool);
+    }
+
     const signature = [...desired.entries()]
       .map(([name, entry]) => `${name}:${entry.exposure}`)
       .sort()
       .join(',');
     const changed = signature !== rt.signature;
     rt.signature = signature;
+    rt.state.tools = dedupedTools;
     return changed;
   }
 
@@ -1445,7 +1506,11 @@ class McpManagerImpl implements McpManager {
   private noteTransportError(rt: ServerRuntime, err: Error): void {
     if (!TRANSPORT_OVERSIZE_PATTERN.test(err.message)) return;
 
-    const limit = mcpTransportMaxMessageBytes(this.section);
+    // The limit the transport of this runtime was actually built with, not the
+    // current section value: a section edit only re-derives the limit on the
+    // next connect, and reporting a number the transport never enforced is
+    // exactly how the remedy message misleads (A4/R5).
+    const limit = rt.frameLimit ?? mcpTransportMaxMessageBytes(this.section);
     const message =
       `MCP server "${rt.config.name}" sent a response larger than the transport limit ` +
       `(${limit} bytes) and the connection was dropped; raise mcp.max_output_bytes ` +
@@ -1497,6 +1562,7 @@ class McpManagerImpl implements McpManager {
       connectPromise: undefined,
       generation: 0,
       transport: undefined,
+      frameLimit: undefined,
       oversize: undefined,
       retryCount: 0,
       nextRetryAt: 0,
@@ -1630,13 +1696,15 @@ class ConnectCancelledError extends Error {
  *
  * `description` is deliberately absent: it reaches the model through the system
  * prompt, so a description edit must not tear a healthy connection down.
+ * `exposure` and `toolEnabled` are absent too: both are consulted only at
+ * registration time, so an edit re-registers through the `configChanged` /
+ * `registerTools` diff path rather than forcing a full reconnect (which would
+ * respawn the stdio child process for nothing).
  */
 function connectionFingerprint(server: McpServerConfig): string {
   const shared = {
     transport: server.transport,
     timeoutSec: server.timeoutSec,
-    exposure: server.exposure,
-    toolEnabled: server.toolEnabled,
   };
 
   return JSON.stringify(
@@ -1974,6 +2042,11 @@ class McpServerLogSink {
    * The size check runs before the append and counts the incoming chunk, so a
    * chunk larger than the whole limit still lands in a fresh file instead of
    * being dropped. One generation is kept: the previous `.1` is overwritten.
+   *
+   * Rotation failure (a Windows `EPERM` when the log route holds `<file>.1` open
+   * for a read is the proven case) must not drop the chunk or permanently kill
+   * the server's logging: the chunk stays in the current file — accepting
+   * temporary over-limit growth — and the next append retries the rotation (m6).
    */
   private async rotateIfNeeded(incomingBytes: number): Promise<void> {
     let size: number;
@@ -1984,7 +2057,14 @@ class McpServerLogSink {
     }
     if (size + incomingBytes <= MCP_LOG_MAX_BYTES) return;
 
-    await rm(`${this.filePath}.1`, { force: true });
-    await rename(this.filePath, `${this.filePath}.1`);
+    try {
+      await rm(`${this.filePath}.1`, { force: true });
+      await rename(this.filePath, `${this.filePath}.1`);
+    } catch (err) {
+      this.logger.warn(
+        { server: this.server, err: errorMessage(err) },
+        'MCP server log rotation failed — appending to the current file; the next append retries',
+      );
+    }
   }
 }

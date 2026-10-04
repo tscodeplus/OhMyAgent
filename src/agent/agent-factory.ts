@@ -616,16 +616,25 @@ export function createAgentFactory(
             );
           } else {
             const allowedCatalogTools = PROFILE_TOOLS[effectiveProfile] || PROFILE_TOOLS.standard;
-            catalogCandidates =
-              allowedCatalogTools[0] === '*' || effectiveProfile === 'full'
-                ? tools
-                : tools.filter(
-                    (t: any) =>
-                      allowedCatalogTools.includes(t.name) ||
-                      t.name === 'computer_use' ||
-                      (catalogMcpScope !== undefined &&
-                        isMcpToolVisible(t.name, catalogMcpScope) === true),
-                  );
+            if (allowedCatalogTools[0] === '*' || effectiveProfile === 'full') {
+              // 'full' is an empty allowlist (= everything visible). But `full`
+              // may never re-open a server the operator denied via
+              // `mcp.deny_servers`: keep the everything-visible semantics while
+              // subtracting MCP denials with the same deny-only predicate every
+              // other consumer uses (§12.3).
+              catalogCandidates =
+                catalogMcpScope === undefined
+                  ? tools
+                  : tools.filter((t: any) => isMcpToolVisible(t.name, catalogMcpScope) !== false);
+            } else {
+              catalogCandidates = tools.filter(
+                (t: any) =>
+                  allowedCatalogTools.includes(t.name) ||
+                  t.name === 'computer_use' ||
+                  (catalogMcpScope !== undefined &&
+                    isMcpToolVisible(t.name, catalogMcpScope) === true),
+              );
+            }
           }
 
           // Mirror Stage 8's deferral predicate so catalog entries can be

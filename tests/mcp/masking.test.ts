@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   MASKED_SECRET,
+  containsMaskedSecret,
   isMaskedValue,
   isSecretKey,
   maskMcpSection,
@@ -13,6 +14,8 @@ import {
   maskSecretValue,
   maskServerConfig,
   maskUrl,
+  maskUrlInText,
+  resolveMaskedUrl,
 } from '../../src/mcp/masking.js';
 import type {
   McpHttpServerConfig,
@@ -238,5 +241,59 @@ describe('maskMcpSection', () => {
 
   it('is undefined-safe', () => {
     expect(maskMcpSection(undefined)).toBeUndefined();
+  });
+});
+
+describe('containsMaskedSecret / resolveMaskedUrl', () => {
+  const storedUrl = 'https://svc:ghp_token@host/mcp';
+
+  it('recognises the placeholder in both its spellings', () => {
+    expect(containsMaskedSecret(`https://${MASKED_SECRET}@host/mcp`)).toBe(true);
+    // The percent-encoded bullet survives a URL round trip inside a query value.
+    expect(
+      containsMaskedSecret(`https://host/mcp?token=${encodeURIComponent(MASKED_SECRET)}`),
+    ).toBe(true);
+    expect(containsMaskedSecret('https://user:real@host/mcp')).toBe(false);
+    expect(containsMaskedSecret(undefined)).toBe(false);
+    expect(containsMaskedSecret('')).toBe(false);
+  });
+
+  it('resolves an echoed masked URL to the stored value verbatim', () => {
+    expect(resolveMaskedUrl(`https://${MASKED_SECRET}@host/mcp`, storedUrl)).toBe(storedUrl);
+    expect(resolveMaskedUrl('https://new.example.com/mcp', storedUrl)).toBe(
+      'https://new.example.com/mcp',
+    );
+  });
+
+  it('returns undefined when the mask has nothing stored behind it', () => {
+    // The caller must reject this instead of writing the literal mask.
+    expect(resolveMaskedUrl(`https://${MASKED_SECRET}@host/mcp`, undefined)).toBeUndefined();
+  });
+
+  it('keeps a stored ${VAR} reference when resolving an echo', () => {
+    expect(resolveMaskedUrl(`https://${MASKED_SECRET}@host/mcp`, '${MCP_URL}/mcp')).toBe(
+      '${MCP_URL}/mcp',
+    );
+  });
+});
+
+describe('maskUrlInText', () => {
+  it('masks a credential-bearing URL embedded in an error message', () => {
+    const masked = maskUrlInText('fetch failed for https://svc:ghp_token@host/mcp (timeout)');
+    expect(masked).not.toContain('ghp_token');
+    expect(masked).toContain(`https://${MASKED_SECRET}@host/mcp (timeout)`);
+  });
+
+  it('masks secret query parameters embedded in text', () => {
+    const masked = maskUrlInText('error at https://host/mcp?access_token=abc while polling');
+    expect(masked).not.toContain('abc');
+    expect(masked).toContain(`https://host/mcp?access_token=${MASKED_SECRET}`);
+  });
+
+  it('leaves text without URLs — and credential-free URLs — unchanged', () => {
+    expect(maskUrlInText('spawn npx ENOENT')).toBe('spawn npx ENOENT');
+    expect(maskUrlInText('https://example.com/mcp refused')).toBe(
+      'https://example.com/mcp refused',
+    );
   });
 });

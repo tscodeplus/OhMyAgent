@@ -1427,4 +1427,235 @@ describe('MCP API routes', () => {
     expect(res.json()).toEqual([]);
     expect(readRawConfig()).toEqual({ log_level: 'debug' });
   });
+
+  // ─── URL credentials never travel back (maskUrl on every surface) ───
+
+  const CREDENTIALED_URL = 'https://svc:omh-real-secret@host/mcp';
+
+  it('GET /api/mcp/servers masks a credentialed URL in the server view and error fields', async () => {
+    writeServerEntry('docs', { url: CREDENTIALED_URL });
+    const error = `connect failed for ${CREDENTIALED_URL}: fetch failed`;
+    stub.states.set(
+      'docs',
+      makeState('docs', { state: 'error', error, lastError: { message: error, at: 1 } }),
+    );
+
+    const res = await inject({ method: 'GET', url: '/api/mcp/servers' });
+
+    expect(res.statusCode).toBe(200);
+    const views = res.json() as unknown as Array<{ url: string; error: string }>;
+    // view.url (R1) as well as view.error and view.lastError.message (r6) are
+    // all masked before they reach the client.
+    expect(views[0].url).toBe(`https://${MASKED_SECRET}@host/mcp`);
+    expect(res.body).toContain(`https://${MASKED_SECRET}@host/mcp: fetch failed`);
+    expect(res.body).not.toContain('omh-real-secret');
+  });
+
+  it('GET /api/mcp/servers/:name/raw masks credentials embedded in the raw url', async () => {
+    writeServerEntry('docs', { url: CREDENTIALED_URL });
+
+    const res = await inject({ method: 'GET', url: '/api/mcp/servers/docs/raw' });
+
+    expect(res.statusCode).toBe(200);
+    const yaml = (res.json() as { yaml: string }).yaml;
+    expect(yaml).toContain(`url: https://${MASKED_SECRET}@host/mcp`);
+    expect(yaml).not.toContain('omh-real-secret');
+  });
+
+  it('GET /api/config masks credentials embedded in the raw served url too', async () => {
+    const configApp = Fastify({ logger: false });
+    registerConfigRoutes(configApp, { getConfig, configPath });
+    await configApp.ready();
+    try {
+      writeServerEntry('docs', { url: CREDENTIALED_URL });
+
+      const res = await configApp.inject({ method: 'GET', url: '/api/config' });
+
+      expect(res.statusCode).toBe(200);
+      const servers = (res.json() as { mcp: { servers: Record<string, { url: string }> } }).mcp
+        .servers;
+      expect(servers.docs.url).toBe(`https://${MASKED_SECRET}@host/mcp`);
+      expect(res.body).not.toContain('omh-real-secret');
+    } finally {
+      await configApp.close();
+    }
+  });
+
+  it('PUT keeps the stored URL when the raw view echoed the masked URL back', async () => {
+    writeServerEntry('docs', { url: CREDENTIALED_URL, exposure: 'deferred' });
+
+    const res = await inject({
+      method: 'PUT',
+      url: '/api/mcp/servers/docs',
+      payload: {
+        name: 'docs',
+        // The fragment the edit form submits: the credentials are masked, and
+        // the bullet may arrive in either spelling a URL round trip produces.
+        url: `https://${MASKED_SECRET}@host/mcp`,
+        headers: { Accept: 'application/json' },
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    // config.yaml keeps the original URL verbatim, not the literal mask.
+    expect(rawServer('docs')?.url).toBe(CREDENTIALED_URL);
+    expect(readFileSync(configPath, 'utf-8')).not.toContain(MASKED_SECRET);
+  });
+
+  it('PUT resolves a percent-encoding-echoed masked URL to the stored value too', async () => {
+    writeServerEntry('docs', {
+      url: 'https://host/mcp?access_token=real-query-secret',
+      exposure: 'deferred',
+    });
+
+    // The masked query value travels percent-encoded inside the URL string in
+    // some round trips — echo that exact form.
+    const maskedEcho = `https://host/mcp?access_token=${encodeURIComponent(MASKED_SECRET)}`;
+    const res = await inject({
+      method: 'PUT',
+      url: '/api/mcp/servers/docs',
+      payload: { name: 'docs', url: maskedEcho },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(rawServer('docs')?.url).toBe('https://host/mcp?access_token=real-query-secret');
+  });
+
+  it('rejects a masked URL with no stored value behind it with 400', async () => {
+    // POST: nothing is stored under the name at all.
+    const post = await inject({
+      method: 'POST',
+      url: '/api/mcp/servers',
+      payload: { name: 'new-docs', url: `https://${MASKED_SECRET}@host/mcp` },
+    });
+    expect(post.statusCode).toBe(400);
+    expect(post.json().message).toContain('masked URL');
+    expect(rawServer('new-docs')).toBeUndefined();
+
+    // PUT: the entry exists but stores no url (stdio), so the mask is empty.
+    writeServerEntry('filesystem', { command: 'npx' });
+    const put = await inject({
+      method: 'PUT',
+      url: '/api/mcp/servers/filesystem',
+      payload: { name: 'filesystem', url: `https://${MASKED_SECRET}@host/mcp` },
+    });
+    expect(put.statusCode).toBe(400);
+    expect(put.json().message).toContain('masked URL');
+    expect(rawServer('filesystem')?.command).toBe('npx');
+    expect(readFileSync(configPath, 'utf-8')).not.toContain(MASKED_SECRET);
+  });
+
+  it('POST probes resolve a masked URL against the stored entry before connecting', async () => {
+    writeServerEntry('docs', { url: CREDENTIALED_URL });
+
+    const res = await inject({
+      method: 'POST',
+      url: '/api/mcp/test',
+      payload: { name: 'docs', url: `https://${MASKED_SECRET}@host/mcp` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(probe).toHaveBeenCalledWith(expect.objectContaining({ url: CREDENTIALED_URL }));
+    expect(JSON.stringify(probe.mock.calls)).not.toContain(MASKED_SECRET);
+  });
+
+  // ─── node-level write: sibling entries keep their comment/formatting ───
+
+  it('PATCH edits one entry and leaves sibling comments and quoting intact', async () => {
+    // The comment sits directly above the *sibling* entry, and the sibling
+    // holds a scalar whose plain form needs quoting — exactly what a whole-
+    // subtree rebuild used to destroy.
+    writeConfig(
+      [
+        'log_level: info',
+        'mcp:',
+        '  servers:',
+        '    filesystem:',
+        '      command: npx',
+        '    # my server comment',
+        '    other:',
+        '      command: "yes"',
+        '',
+      ].join('\n'),
+    );
+
+    const res = await inject({
+      method: 'PATCH',
+      url: '/api/mcp/servers/filesystem',
+      payload: { description: 'local files' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const text = readFileSync(configPath, 'utf-8');
+    // The sibling entry's comment and quoted scalar survive the write…
+    expect(text).toContain('# my server comment');
+    expect(text).toContain('"yes"');
+    expect(text).toContain('log_level: info');
+    // …and the target entry gained the description in place.
+    expect(readRawConfig()).toMatchObject({
+      mcp: { servers: { filesystem: { description: 'local files' } } },
+    });
+  });
+
+  it('install and uninstall create and remove mcp/servers parents on demand', async () => {
+    const install = await inject({
+      method: 'POST',
+      url: '/api/mcp/servers',
+      payload: { name: 'filesystem', command: 'npx' },
+    });
+    expect(install.statusCode).toBe(200);
+    expect(readRawConfig()).toMatchObject({ mcp: { servers: { filesystem: { command: 'npx' } } } });
+
+    const remove = await inject({ method: 'DELETE', url: '/api/mcp/servers/filesystem' });
+    expect(remove.statusCode).toBe(200);
+    expect(readRawConfig().mcp).toBeDefined();
+  });
+
+  // ─── the canonical-duplicate check runs inside the write queue ───
+
+  it('concurrent installs of a-b and a_b write exactly one server, one 400 nameTaken', async () => {
+    writeConfig('log_level: info\n');
+
+    const [first, second] = await Promise.all([
+      inject({ method: 'POST', url: '/api/mcp/servers', payload: { name: 'a-b', command: 'a' } }),
+      inject({ method: 'POST', url: '/api/mcp/servers', payload: { name: 'a_b', command: 'b' } }),
+    ]);
+
+    const statuses = [first.statusCode, second.statusCode].sort((a, b) => a - b);
+    expect(statuses[0]).toBe(200); // exactly one 200
+    expect(statuses[1]).toBe(400); // exactly one 400 nameTaken
+    const taker = [first, second].find((r) => r.statusCode === 400);
+    expect(taker && (taker.json() as { error: string }).error).toBe('mcp.error.nameTaken');
+
+    const servers = readRawConfig().mcp.servers as Record<string, unknown>;
+    expect(Object.keys(servers).length).toBe(1); // the file stays bootable
+    expect(Object.keys(servers)[0]).toMatch(/^(a-b|a_b)$/);
+  });
+
+  // ─── error strings reaching a response body are URL-masked (r6) ───
+
+  it('POST reconnect 502 masks a credentialed URL embedded in the error', async () => {
+    writeServerEntry('docs', { url: CREDENTIALED_URL });
+    stub.states.set('docs', makeState('docs', { state: 'error' }));
+    stub.reconnect.mockResolvedValue(
+      makeState('docs', { state: 'error', error: `fetch failed: ${CREDENTIALED_URL}` }),
+    );
+
+    const res = await inject({ method: 'POST', url: '/api/mcp/servers/docs/reconnect' });
+
+    expect(res.statusCode).toBe(502);
+    expect(res.json().message).toContain(`https://${MASKED_SECRET}@host/mcp`);
+    expect(res.body).not.toContain('omh-real-secret');
+  });
+
+  it('POST login 502 masks a credentialed URL embedded in the thrown error', async () => {
+    writeServerEntry('docs', { url: CREDENTIALED_URL });
+    stub.login.mockRejectedValue(new Error(`authorization request failed: ${CREDENTIALED_URL}`));
+
+    const res = await inject({ method: 'POST', url: '/api/mcp/servers/docs/login' });
+
+    expect(res.statusCode).toBe(502);
+    expect(res.json().message).toContain(`https://${MASKED_SECRET}@host/mcp`);
+    expect(res.body).not.toContain('omh-real-secret');
+  });
 });

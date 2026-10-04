@@ -388,6 +388,102 @@ describe('MCP visibility — the four consumers agree (§12.3)', () => {
   });
 });
 
+describe('full profile still subtracts MCP denials (M5)', () => {
+  const tools = [...MCP_TOOLS.map(makeTool), makeTool('file_read')];
+
+  it('rejects a denied-server tool in every consumer under toolsProfileOverride full', () => {
+    const config = makeConfig(makeMcpSection({ denyServers: ['blocked'] }));
+
+    const verdicts = collectVerdicts({ config, tools, toolsProfileOverride: 'full' });
+
+    // Before the fix the `full` shortcuts in agent-manager (Stage 1), the
+    // pipeline (Stage 3) and the agent-factory catalog all returned the tool
+    // array unfiltered, so `mcp.deny_servers` names leaked into the Layer-1.55
+    // catalog and the tool_search deferral pool while the mcp_servers prompt
+    // section (which always consults the predicate) correctly omitted them.
+    expect(verdicts.agentManager).toEqual({
+      mcp__filesystem__read: true,
+      mcp__blocked__read: false,
+    });
+    expect(verdicts.toolPipeline).toEqual(verdicts.agentManager);
+    expect(verdicts.catalog).toEqual(verdicts.agentManager);
+    expect(verdicts.policy).toEqual(verdicts.agentManager);
+    // The prompt section lists only the callable server under `full` too.
+    expect(verdicts.promptServers).toEqual(['filesystem']);
+  });
+
+  it('keeps allow_servers restrictive under the full profile as well', () => {
+    const config = makeConfig(makeMcpSection({ allowServers: ['filesystem'] }));
+
+    const verdicts = collectVerdicts({ config, tools, toolsProfileOverride: 'full' });
+
+    // isMcpToolVisible handles profile + allow + deny in one predicate, so the
+    // same deny-only subtraction filter also keeps a non-empty allow_servers
+    // from widening under `full`.
+    expect(verdicts.agentManager).toEqual({
+      mcp__filesystem__read: true,
+      mcp__blocked__read: false,
+    });
+    expect(verdicts.toolPipeline).toEqual(verdicts.agentManager);
+    expect(verdicts.catalog).toEqual(verdicts.agentManager);
+    expect(verdicts.policy).toEqual(verdicts.agentManager);
+  });
+
+  it('does not advertise a denied server through the tool_search deferral pool under full', () => {
+    const config = makeConfig(makeMcpSection({ denyServers: ['blocked'] }));
+    config.toolSearch = { enabled: 'on' as const };
+
+    const pipeline = assembleAgentTools({
+      toolRegistry: makeRegistry(tools),
+      config,
+      effectiveProfile: 'full',
+      effectiveShellMode: 'full',
+      runtimePolicyScope: makePolicyScope(config.mcp as McpVisibilityConfig, 'full'),
+      mcpVisibility: config.mcp as McpVisibilityConfig,
+    });
+
+    // Stage 3 removed the denied tool before Stage 8 ever built the deferral
+    // pool, so the deferred catalog — what the tool_search bridge advertises —
+    // cannot list it, while the allowed server's tools still defer normally.
+    expect(pipeline.tools.map((t: any) => t.name)).not.toContain('mcp__blocked__read');
+    const assembly = pipeline.toolSearchAssembly;
+    expect(assembly?.activated).toBe(true);
+    expect([...(assembly?.deferredCatalog.keys() ?? [])]).not.toContain('mcp__blocked__read');
+    expect(assembly?.deferredCatalog.has('mcp__filesystem__read')).toBe(true);
+  });
+
+  it('keeps a direct-exposure MCP tool force-visible while deferring the rest (Stage 8 wiring)', () => {
+    // t2(o): every earlier pipeline test ran with tool_search off, so the
+    // `alwaysVisibleTools → forceVisible` wiring in Stage 8 was never driven.
+    const config = makeConfig(makeMcpSection());
+    config.toolSearch = { enabled: 'on' as const };
+
+    const pipeline = assembleAgentTools({
+      toolRegistry: makeRegistry(tools),
+      config,
+      effectiveProfile: 'standard',
+      effectiveShellMode: 'full',
+      runtimePolicyScope: makePolicyScope(config.mcp as McpVisibilityConfig, 'standard'),
+      mcpVisibility: config.mcp as McpVisibilityConfig,
+      // Production wires `exposure: 'direct'` MCP tools here via the manager.
+      alwaysVisibleTools: ['mcp__filesystem__read'],
+    });
+
+    const assembly = pipeline.toolSearchAssembly;
+    expect(assembly?.activated).toBe(true);
+    // Force-visible: stays in the model-facing array un-flagged and out of the
+    // deferred catalog the bridge searches.
+    const direct = pipeline.tools.find((t: any) => t.name === 'mcp__filesystem__read');
+    expect(direct).toBeDefined();
+    expect(direct?.deferred).toBeUndefined();
+    expect(assembly?.deferredCatalog.has('mcp__filesystem__read')).toBe(false);
+    // The non-forced deferrable tool still defers.
+    const deferred = pipeline.tools.find((t: any) => t.name === 'mcp__blocked__read');
+    expect(deferred?.deferred).toBe(true);
+    expect(assembly?.deferredCatalog.has('mcp__blocked__read')).toBe(true);
+  });
+});
+
 describe('MCP deny is authoritative over a skill allow-list (S6)', () => {
   const tools = [...MCP_TOOLS.map(makeTool), makeTool('file_read')];
   const skillAllowed = ['mcp__*', 'file_read'];

@@ -29,6 +29,7 @@
 import path from 'node:path';
 import type Database from 'better-sqlite3';
 import type { Logger } from 'pino';
+import { DEFAULT_MCP_SECTION } from '../../mcp/config.js';
 import { createMcpManager, type McpOAuthDeps } from '../../mcp/mcp-manager.js';
 import { deleteMcpOAuthCredentials, SqliteMcpOAuthStateStore } from '../../mcp/oauth-store.js';
 import {
@@ -70,9 +71,9 @@ export function createMcpServices(deps: McpServicesDeps): McpServices {
   const offloadStore = new OffloadStore(offloadBaseDir);
 
   // The manager owns the section it is actually running with; this mirror keeps
-  // the resource tools' output limit in step with it. It follows the same
-  // fallback as the manager (`?? deps.config`), so a section that vanishes on
-  // reload cannot leave the two disagreeing.
+  // the resource tools' output limit in step with it. It follows the same rule
+  // as the manager's reload: a section that vanishes on reload becomes a real
+  // disabled section, so the servers are torn down rather than left running.
   let liveSection: McpSectionConfig = section;
 
   const mcpManager = createMcpManager({
@@ -81,13 +82,26 @@ export function createMcpServices(deps: McpServicesDeps): McpServices {
     toolRegistry: deps.toolPlatformRegistry,
     offloadStore,
     oauth: createOAuthDeps(deps.db),
-    // Hot reload hands the manager a freshly loaded section; a config file that
-    // currently fails validation leaves the last good section in place rather
-    // than tearing the running servers down.
+    // Hot reload hands the manager a freshly loaded section. The two undefined
+    // cases must not be confused (M1):
+    //
+    //   * `loadConfig()` throws → return `undefined`. The manager keeps its last
+    //     good section, so a broken edit never tears the running servers down.
+    //   * the config loads fine *without* an `mcp:` section → return a real
+    //     disabled section. The user removed the section, which is an explicit
+    //     teardown; returning `undefined` here would leave the servers running
+    //     forever.
     resolveConfig: () => {
       try {
         const next = loadConfig().mcp;
-        liveSection = next ?? deps.config.mcp ?? liveSection;
+        if (next === undefined) {
+          liveSection = { ...DEFAULT_MCP_SECTION, enabled: false, servers: {} };
+          deps.logger.info(
+            'MCP reload: config.yaml no longer has an mcp section — disabling the MCP runtime',
+          );
+          return liveSection;
+        }
+        liveSection = next;
         return next;
       } catch (err) {
         deps.logger.warn({ err }, 'MCP reload: config.yaml could not be re-read — keeping it');

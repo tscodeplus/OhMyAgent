@@ -140,6 +140,35 @@ function maskOAuth(oauth: McpOAuthConfig | undefined): McpOAuthConfig | undefine
  */
 const ENCODED_MASKED_SECRET = encodeURIComponent(MASKED_SECRET);
 
+/**
+ * True when a value (typically an echoed URL) carries the mask placeholder.
+ *
+ * Both spellings count: the plain bullet, and its percent-encoded form, which a
+ * client can produce by round-tripping the value through anything that encodes
+ * URLs. Writing either one back into `config.yaml` would store the mask as a
+ * literal, so callers must treat both as "use the stored value instead".
+ */
+export function containsMaskedSecret(value: string | undefined): boolean {
+  if (!value) return false;
+  return value.includes(MASKED_SECRET) || value.includes(ENCODED_MASKED_SECRET);
+}
+
+/**
+ * Resolve an echoed masked URL against the stored one.
+ *
+ * A client only ever *sees* a URL with its credentials masked, so echoing one
+ * back means "unchanged" and must resolve to the stored URL verbatim — including
+ * any `${VAR}` placeholder inside it. A mask with nothing stored behind it has
+ * nothing to resolve to, so `undefined` is returned and the caller must reject
+ * the request rather than write the literal mask into `config.yaml`.
+ *
+ * @param incoming URL as submitted by the client.
+ * @param stored Raw `url:` value currently in `config.yaml`, if any.
+ */
+export function resolveMaskedUrl(incoming: string, stored: string | undefined): string | undefined {
+  return containsMaskedSecret(incoming) ? stored : incoming;
+}
+
 function decodeMaskPlaceholder(value: string): string {
   return value.split(ENCODED_MASKED_SECRET).join(MASKED_SECRET);
 }
@@ -196,6 +225,30 @@ export function maskServerConfig(server: McpServerConfig): McpServerConfig {
     headers: maskRecord(server.headers) ?? {},
     oauth: maskOAuth(server.oauth),
   };
+}
+
+/**
+ * URL-looking substring inside free text (error messages, log tails).
+ *
+ * Keeps to characters that can appear inside a URL and stops at the whitespace
+ * and quotes error interpolations are embedded in; trailing punctuation is left
+ * where `maskUrl()` puts it — masking only ever replaces credentials, and
+ * `maskUrl()` returns an unrecognised or credential-free URL exactly as given.
+ */
+const TEXTUAL_URL_PATTERN = /https?:\/\/[^\s"'<>]+/g;
+
+/**
+ * Mask every credential-bearing URL inside a free-text string.
+ *
+ * Error messages travel verbatim to API clients (`view.error`,
+ * `view.lastError.message`, the 502 reconnect / login bodies), and transport
+ * errors from undici or the SDK include the *failed URL*, which carries the
+ * very credentials this module strips everywhere else. Any `http(s)` URL inside
+ * the text is therefore routed through {@link maskUrl}; text without URLs is
+ * returned unchanged.
+ */
+export function maskUrlInText(text: string): string {
+  return text.replace(TEXTUAL_URL_PATTERN, (url) => maskUrl(url));
 }
 
 /**

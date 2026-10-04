@@ -35,8 +35,17 @@ export const MCP_EXPOSURE_VALUES = ['direct', 'deferred', 'codemode', 'hidden'] 
 /** Exposure keyword as written by the user, before `codemode` is aliased away. */
 export type McpRawExposure = (typeof MCP_EXPOSURE_VALUES)[number];
 
-/** Server names double as the tool-name segment `mcp__<server>__<tool>` (§6.1). */
-export const MCP_SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]+$/;
+/**
+ * Server names double as the tool-name segment `mcp__<server>__<tool>` (§6.1).
+ *
+ * A double underscore is reserved as the segment separator in that tool name,
+ * so a configured name containing `__` would make `serverNameOfMcpTool()`
+ * parsing ambiguous (the first `__` wins) and silently mismatch every
+ * `allow_servers` / `deny_servers` entry against the tool names the server
+ * actually produces. `[A-Za-z0-9_-]` on its own would allow `__` anywhere,
+ * hence the negative lookahead.
+ */
+export const MCP_SERVER_NAME_PATTERN = /^(?!.*__)[A-Za-z0-9_-]+$/;
 
 /**
  * Names that must never be used as a `mcp.servers` key.
@@ -413,7 +422,10 @@ export function normaliseMcpSection(
         }
 
         if (!MCP_SERVER_NAME_PATTERN.test(name)) {
-          reportServer(name, 'server name may only contain [A-Za-z0-9_-]');
+          reportServer(
+            name,
+            'server name may only contain [A-Za-z0-9_-] and no double underscore ("__" is reserved as the tool-name segment separator)',
+          );
           continue;
         }
 

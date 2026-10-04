@@ -214,10 +214,18 @@ export function assembleAgentTools(opts: ToolPipelineOptions): ToolPipelineResul
           mcpAllows(t.name)),
     );
   } else {
-    // 'full' is an empty allowlist (= everything visible) — skip filtering,
-    // same as AgentManager.filterByProfile.
     const profileAllowedTools = PROFILE_TOOLS[opts.effectiveProfile] ?? PROFILE_TOOLS.standard;
-    if (opts.effectiveProfile !== 'full' && profileAllowedTools[0] !== '*' && !opts.explicitTools) {
+    if (opts.effectiveProfile === 'full' || profileAllowedTools[0] === '*') {
+      // 'full' is an empty allowlist (= everything visible) — skip the profile
+      // allow-list, same as AgentManager.filterByProfile. But `full` may never
+      // re-open a server the operator denied via `mcp.deny_servers`: keep the
+      // everything-visible semantics while subtracting MCP denials with the
+      // same deny-only predicate every other consumer uses (§12.3). Applied
+      // also to explicitTools — the strict branch's mcpAllows() does the same.
+      if (mcpScope !== undefined) {
+        tools = tools.filter((t: any) => isMcpToolVisible(t.name, mcpScope) !== false);
+      }
+    } else if (!opts.explicitTools) {
       tools = tools.filter(
         (t: any) =>
           profileAllowedTools.includes(t.name) ||

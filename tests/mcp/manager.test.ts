@@ -7,6 +7,7 @@
  */
 
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import * as fsPromises from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -18,6 +19,7 @@ import type {
   McpTransportErrorListener,
   McpTransportMessageListener,
 } from '@earendil-works/pi-mcp';
+import type { McpOAuthState, McpOAuthStateStore } from '@earendil-works/pi-mcp/oauth';
 import { DEFAULT_MCP_SECTION } from '../../src/mcp/config.js';
 import {
   createMcpManager,
@@ -27,9 +29,11 @@ import {
   mcpLogFilePath,
   mcpTransportMaxMessageBytes,
   type McpManagerDeps,
+  type McpOAuthDeps,
   type McpToolRegistryLike,
 } from '../../src/mcp/mcp-manager.js';
 import type {
+  McpHttpServerConfig,
   McpManager,
   McpSectionConfig,
   McpServerConfig,
@@ -40,6 +44,18 @@ import { createToolContext } from '../../src/tools/platform/tool-context.js';
 import type { ToolDefinition } from '../../src/tools/platform/tool-definition.js';
 import type { AppServices } from '../../src/app/types.js';
 import { createTestMcpServer, makeTool } from './helpers.js';
+
+// The log-sink rotation test (m6) needs `rename` to reject without breaking the
+// real writes around it: every fs/promises function is a spy that delegates to
+// the actual implementation unless the test overrides it.
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    rm: vi.fn(actual.rm),
+    rename: vi.fn(actual.rename),
+  };
+});
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -108,6 +124,50 @@ function stdioServer(overrides: Partial<McpStdioServerConfig> = {}): McpStdioSer
     env: {},
     cwd: '',
     ...overrides,
+  };
+}
+
+/** Minimal HTTP server config for OAuth entry points (no connection needed). */
+function httpServer(overrides: Partial<McpHttpServerConfig> = {}): McpHttpServerConfig {
+  return {
+    name: 'notion',
+    enabled: true,
+    exposure: 'deferred',
+    toolExposure: {},
+    toolEnabled: {},
+    description: 'remote',
+    transport: 'http',
+    url: 'https://mcp.example/api',
+    headers: {},
+    oauth: {
+      clientId: '',
+      clientSecret: '',
+      callbackPort: 8765,
+      callbackUrl: '',
+      scope: '',
+      clientName: '',
+      authServerMetadataUrl: '',
+    },
+    ...overrides,
+  };
+}
+
+/** An in-memory `McpOAuthStateStore`; starts empty (no pending authorization). */
+function memoryOAuthStore(): McpOAuthStateStore {
+  let state: McpOAuthState | undefined;
+  return {
+    load: () => state,
+    save: (next) => {
+      state = next;
+    },
+  };
+}
+
+/** OAuth plumbing wired to one store instance, for manager-level OAuth tests. */
+function oauthDeps(store: McpOAuthStateStore): McpOAuthDeps {
+  return {
+    store: () => store,
+    deleteCredentials: () => {},
   };
 }
 
@@ -223,6 +283,8 @@ function createHarness(options: {
   resolveConfig?: () => McpSectionConfig | undefined;
   /** Overrides the per-name lookup, e.g. to hand out a fresh transport per attempt. */
   nextTransport?: (server: McpServerConfig, attempt: number) => McpTransport;
+  /** OAuth plumbing; absent keeps the manager's OAuth surface failing loudly. */
+  oauth?: McpOAuthDeps;
 }): Harness {
   const registry = options.registry ?? createFakeRegistry();
   const warnings: Array<Record<string, unknown>> = [];
@@ -265,6 +327,7 @@ function createHarness(options: {
       return transport;
     },
     resolveConfig: options.resolveConfig,
+    oauth: options.oauth,
   });
 
   return {
@@ -1027,6 +1090,60 @@ describe('McpManager.reload', () => {
     expect(harness.manager.getServerState('filesystem')).toBeUndefined();
     expect(harness.registry.names()).not.toContain('mcp__filesystem__read_file');
   });
+
+  it('keeps the last good section when resolveConfig fails after an install (M1)', async () => {
+    const server = await createTestMcpServer();
+    server.setTools([makeTool('read_file')]);
+
+    const startup = sectionWith([]);
+    const withServer = sectionWith([stdioServer()]);
+    let current: McpSectionConfig | undefined = withServer;
+    const harness = createHarness({
+      config: startup,
+      transports: { filesystem: server.clientTransport },
+      resolveConfig: () => current,
+    });
+
+    await harness.manager.ready();
+
+    // A server installed after startup connects through a reload.
+    await harness.manager.reload();
+    expect(harness.manager.getServerState('filesystem')?.state).toBe('connected');
+    expect(harness.registry.names()).toContain('mcp__filesystem__read_file');
+
+    // Now config.yaml breaks: `resolveConfig` returns undefined. Reverting to
+    // the startup snapshot (the pre-fix behaviour) would tear the just-installed
+    // server down; the last good section must keep it serving.
+    current = undefined;
+    await harness.manager.reload();
+
+    expect(harness.manager.getServerState('filesystem')?.state).toBe('connected');
+    expect(harness.registry.names()).toContain('mcp__filesystem__read_file');
+    expect(harness.transportRequests).toHaveLength(1);
+  });
+
+  it('tears servers down when resolveConfig hands back a removed (disabled) section (M1)', async () => {
+    const server = await createTestMcpServer();
+    server.setTools([makeTool('read_file')]);
+
+    let current = sectionWith([stdioServer()]);
+    const harness = createHarness({
+      config: current,
+      transports: { filesystem: server.clientTransport },
+      resolveConfig: () => current,
+    });
+    await harness.manager.ready();
+    expect(harness.manager.getServerState('filesystem')?.state).toBe('connected');
+
+    // Removing the whole `mcp:` section is an explicit teardown, not a broken
+    // load: the composer hands back a real disabled section, which must disable
+    // the servers and unregister their tools.
+    current = sectionWith([], { enabled: false });
+    await harness.manager.reload();
+
+    expect(harness.manager.getServerState('filesystem')).toBeUndefined();
+    expect(harness.registry.names()).not.toContain('mcp__filesystem__read_file');
+  });
 });
 
 // ── tools/list resilience (A3) ──────────────────────────────────────────────
@@ -1036,9 +1153,11 @@ describe('McpManager tools/list resilience', () => {
     const server = await createTestMcpServer();
     // Upstream's page validation throws on the first bad entry, so this used to
     // take the whole server to `error` state and lose the good tool with it.
+    // A blank name is unusable too: registration keys off the raw name.
     server.setTools([
       makeTool('good_tool'),
       { name: 'sloppy_tool', description: 'no inputSchema' } as never,
+      { name: '  ', inputSchema: {} } as never,
     ]);
 
     const harness = createHarness({
@@ -1055,7 +1174,31 @@ describe('McpManager tools/list resilience', () => {
     // usable tools rather than a list of claims.
     expect(harness.manager.listTools('filesystem').map((tool) => tool.name)).toEqual(['good_tool']);
     expect(harness.warnings).toContainEqual(
-      expect.objectContaining({ server: 'filesystem', skipped: ['sloppy_tool'], kept: 1 }),
+      expect.objectContaining({ server: 'filesystem', skipped: ['sloppy_tool', '  '], kept: 1 }),
+    );
+
+    await server.close();
+    await harness.manager.stop();
+  });
+
+  it('keeps only the first occurrence when a server lists the same tool name twice (m5)', async () => {
+    const server = await createTestMcpServer();
+    const duplicate = makeTool('dup');
+    server.setTools([duplicate, duplicate]);
+
+    const harness = createHarness({
+      config: sectionWith([stdioServer()]),
+      transports: { filesystem: server.clientTransport },
+    });
+    await harness.manager.ready();
+
+    // One registration (first raw-name occurrence wins), not two rows fighting
+    // over the same registered name.
+    expect(harness.registry.names()).toEqual(['mcp__filesystem__dup']);
+    // The cached list is deduped the same way, so the WebUI shows one row.
+    expect(harness.manager.listTools('filesystem').map((tool) => tool.name)).toEqual(['dup']);
+    expect(harness.warnings).toContainEqual(
+      expect.objectContaining({ server: 'filesystem', tool: 'dup' }),
     );
 
     await server.close();
@@ -1363,6 +1506,93 @@ describe('McpManager log sink', () => {
     await new Promise((resolve) => setImmediate(resolve));
     expect(readFileSync(logFile, 'utf-8')).not.toMatch(/after stop/);
   });
+
+  it('closes the sink when a server is disabled by reload, not only on stop (t2-l)', async () => {
+    const server = await createTestMcpServer();
+    const harness = createHarness({
+      config: sectionWith([stdioServer()]),
+      transports: { filesystem: server.clientTransport },
+      // A section without the server is what drives disableServer(); after M1,
+      // `undefined` keeps the last good section, so this must be a real section.
+      resolveConfig: () => sectionWith([]),
+    });
+    await harness.manager.ready();
+
+    harness.lastHooks?.onStderr('before disable\n');
+    await server.close();
+    await harness.manager.reload();
+
+    // The disable path flushes the queue through closeClient, so the chunk is
+    // on disk — and a chunk arriving afterwards is dropped, exactly like stop().
+    const logFile = mcpLogFilePath('filesystem');
+    expect(readFileSync(logFile, 'utf-8')).toMatch(/before disable\n$/);
+
+    harness.lastHooks?.onStderr('after disable\n');
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(readFileSync(logFile, 'utf-8')).not.toMatch(/after disable/);
+  });
+
+  it('keeps the chunk when rotation fails and lets a later append retry it (m6)', async () => {
+    const server = await createTestMcpServer();
+    const harness = createHarness({
+      config: sectionWith([stdioServer()]),
+      transports: { filesystem: server.clientTransport },
+    });
+    await harness.manager.ready();
+
+    const logFile = mcpLogFilePath('filesystem');
+    // File already at the limit, so the next append must rotate.
+    writeFileSync(logFile, 'x'.repeat(MCP_LOG_MAX_BYTES));
+
+    // Windows EPERM: the log route holds the file open for a read while the
+    // rename runs. The rotation fails, the chunk must still land.
+    vi.mocked(fsPromises.rename).mockRejectedValueOnce(
+      new Error('EPERM: rename is blocked by an open handle'),
+    );
+
+    harness.lastHooks?.onStderr('first chunk after failed rotation\n');
+    await vi.waitFor(() => {
+      expect(readFileSync(logFile, 'utf-8')).toMatch(/first chunk after failed rotation\n$/);
+    });
+    expect(harness.warnings).toContainEqual(
+      expect.objectContaining({
+        server: 'filesystem',
+        err: expect.stringContaining('EPERM'),
+      }),
+    );
+    expect(existsSync(`${logFile}.1`)).toBe(false);
+
+    // A later append retries the rotation and succeeds.
+    harness.lastHooks?.onStderr('second chunk after successful rotation\n');
+    await harness.manager.stop();
+
+    expect(existsSync(`${logFile}.1`)).toBe(true);
+    expect(readFileSync(`${logFile}.1`, 'utf-8')).toMatch(/first chunk after failed rotation\n$/);
+    expect(readFileSync(logFile, 'utf-8')).toMatch(/second chunk after successful rotation\n$/);
+  });
+});
+
+// ── OAuth callback CSRF (m7) ────────────────────────────────────────────────
+
+describe('McpManager.submitCallback CSRF', () => {
+  it('rejects a callback submitted before any login (m7)', async () => {
+    // No store entry: no authorization flow was ever started for this server.
+    const harness = createHarness({
+      config: sectionWith([httpServer()]),
+      transports: {},
+      oauth: oauthDeps(memoryOAuthStore()),
+    });
+
+    // Pre-fix the missing state short-circuited the check, so a hand-crafted
+    // `code`+`state` URL exchanged an attacker's code against a server nobody
+    // logged into. It must be rejected outright.
+    await expect(
+      harness.manager.submitCallback(
+        'notion',
+        'http://127.0.0.1:8765/callback?code=attacker-code&state=state-1',
+      ),
+    ).rejects.toThrow(/no pending authorization/);
+  });
 });
 
 // ── config reconciliation (C5 / R5) ─────────────────────────────────────────
@@ -1403,6 +1633,42 @@ describe('McpManager config reconciliation', () => {
     await harness.manager.stop();
   });
 
+  it('applies an exposure-only edit without reconnecting (m2)', async () => {
+    const server = await createTestMcpServer();
+    server.setTools([makeTool('read_file')]);
+
+    let current = sectionWith([stdioServer({ exposure: 'deferred' })]);
+    const harness = createHarness({
+      config: current,
+      transports: { filesystem: server.clientTransport },
+      resolveConfig: () => current,
+    });
+    await harness.manager.ready();
+    expect(harness.manager.alwaysVisibleTools()).toEqual([]);
+
+    // Exposure is consulted only at registration time: flipping it to `direct`
+    // must refresh the visible set without rebuilding the connection.
+    current = sectionWith([stdioServer({ exposure: 'direct' })]);
+    await harness.manager.reload();
+
+    expect(harness.transportRequests).toHaveLength(1);
+    expect(harness.manager.alwaysVisibleTools()).toEqual(['mcp__filesystem__read_file']);
+    expect(harness.def('mcp__filesystem__read_file').deferrable).toBe(false);
+
+    // And flipping to `hidden` must unregister the newly-hidden tool — still
+    // without a reconnect (pre-fix, `exposure` was in the fingerprint).
+    current = sectionWith([stdioServer({ exposure: 'hidden' })]);
+    await harness.manager.reload();
+
+    expect(harness.transportRequests).toHaveLength(1);
+    expect(harness.registry.names()).toEqual([]);
+    expect(harness.manager.alwaysVisibleTools()).toEqual([]);
+    expect(harness.manager.getServerState('filesystem')?.state).toBe('connected');
+
+    await server.close();
+    await harness.manager.stop();
+  });
+
   it('reads mcp.max_output_bytes at call time, so a section-only edit applies (R5)', async () => {
     const server = await createTestMcpServer();
     server.setTools([makeTool('read_file')]);
@@ -1421,9 +1687,11 @@ describe('McpManager config reconciliation', () => {
     const first = await harness.def('mcp__filesystem__read_file').execute({}, context);
     expect(first.metadata?.fullOutputPath).toBeTruthy();
 
-    // Section-only edit: the server config is untouched, so nothing reconnects
-    // and the already-registered definition must pick the new limit up anyway.
-    current = sectionWith([stdioServer()], { maxOutputBytes: 100_000 });
+    // Section-only edit that stays under the 16MB frame-limit floor (here:
+    // 20KB → 1MB, both deriving a 16MB transport limit): the server config is
+    // untouched, so nothing reconnects and the already-registered definition
+    // must pick the new limit up anyway.
+    current = sectionWith([stdioServer()], { maxOutputBytes: 1_048_576 });
     await harness.manager.reload();
     expect(harness.transportRequests).toHaveLength(1);
 
@@ -1433,6 +1701,36 @@ describe('McpManager config reconciliation', () => {
 
     await server.close();
     await harness.manager.stop();
+  });
+
+  it('reconnects when a frame-limit rise crosses the 16MB floor (A4/R5/m3)', async () => {
+    const first = await createTestMcpServer();
+    const second = await createTestMcpServer();
+    first.setTools([makeTool('read_file')]);
+    second.setTools([makeTool('read_file')]);
+
+    let current = sectionWith([stdioServer()], { maxOutputBytes: 12 * 1024 * 1024 });
+    const harness = createHarness({
+      config: current,
+      transports: {},
+      resolveConfig: () => current,
+      nextTransport: (_server, attempt) =>
+        attempt === 0 ? first.clientTransport : second.clientTransport,
+    });
+    await harness.manager.ready();
+    expect(harness.manager.getServerState('filesystem')?.state).toBe('connected');
+    // 12MB + 4MB headroom clamps to the 16MB floor.
+    expect(harness.lastHooks?.maxMessageBytes).toBe(16 * 1024 * 1024);
+
+    // Raising the section past the floor re-derives the limit; the connected
+    // runtime's transport still enforces the old one, so a reconnect is forced.
+    current = sectionWith([stdioServer()], { maxOutputBytes: 20 * 1024 * 1024 });
+    await harness.manager.reload();
+
+    expect(harness.transportRequests).toHaveLength(2);
+    expect(harness.lastHooks?.maxMessageBytes).toBe(24 * 1024 * 1024);
+    expect(harness.manager.getServerState('filesystem')?.state).toBe('connected');
+    expect(harness.registry.names()).toContain('mcp__filesystem__read_file');
   });
 });
 

@@ -258,6 +258,23 @@ describe('normaliseMcpSection', () => {
     expect(onServerError.mock.calls[0][1]).toContain('[A-Za-z0-9_-]');
   });
 
+  it('skips a server name containing a double underscore and keeps good servers', () => {
+    // `__` is the reserved segment separator of `mcp__<server>__<tool>`
+    // (MCP_SERVER_NAME_PATTERN), so a configured name containing it would make
+    // `serverNameOfMcpTool()` parsing ambiguous and silently mismatch the
+    // allow_servers / deny_servers lists.
+    const onServerError = vi.fn();
+    const section = normaliseMcpSection(
+      { servers: { my__server: { command: 'npx' }, good: { command: 'npx' } } },
+      { onServerError },
+    );
+
+    expect(Object.keys(section.servers)).toEqual(['good']);
+    expect(onServerError).toHaveBeenCalledTimes(1);
+    expect(onServerError.mock.calls[0][0]).toBe('my__server');
+    expect(onServerError.mock.calls[0][1]).toContain('double underscore');
+  });
+
   it('rejects the reserved pseudo-server name `resources`', () => {
     const onServerError = vi.fn();
     const section = normaliseMcpSection(
@@ -470,6 +487,28 @@ describe('config.yaml → AppConfig.mcp', () => {
     expect(section?.connectTimeoutSec).toBe(20);
     expect(Object.keys(section?.servers ?? {})).toEqual(['filesystem']);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('[mcp] skipping server "broken"'));
+  });
+
+  it('skips a server whose name contains a double underscore, keeping good servers', () => {
+    // `__` is reserved in the tool-name segment `mcp__<server>__<tool>`
+    // (MCP_SERVER_NAME_PATTERN); the loader reports and drops such a server at
+    // startup instead of letting allow/deny_servers silently mismatch.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const raw = yamlToAppConfigRaw({
+      mcp: {
+        servers: {
+          my__server: { command: 'npx' },
+          good: { command: 'npx', args: ['-y', 'server-filesystem'] },
+        },
+      },
+    });
+
+    const section = raw.mcp as McpSectionConfig | undefined;
+    expect(Object.keys(section?.servers ?? {})).toEqual(['good']);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('[mcp] skipping server "my__server"'),
+    );
+    expect(warn.mock.calls.some((c) => String(c[0]).includes('double underscore'))).toBe(true);
   });
 
   it('fails fast on a type-invalid scalar inside the section', () => {

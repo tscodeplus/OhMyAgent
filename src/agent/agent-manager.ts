@@ -94,7 +94,15 @@ export class AgentManager {
     mcpVisibility?: McpVisibilityConfig,
   ): any[] {
     const allowed = PROFILE_TOOLS[profile] || PROFILE_TOOLS.standard;
-    if (profile === 'full' || allowed[0] === '*') return tools;
+    if (profile === 'full' || allowed[0] === '*') {
+      // 'full' is an empty allowlist (= everything visible). But `full` may
+      // never re-open a server the operator denied via `mcp.deny_servers`:
+      // keep the everything-visible semantics while subtracting MCP denials
+      // with the same deny-only predicate every other consumer uses (§12.3).
+      const mcpScope = mcpVisibility ? toMcpVisibilityScope(profile, mcpVisibility) : undefined;
+      if (mcpScope === undefined) return tools;
+      return tools.filter((t: any) => isMcpToolVisible(t.name, mcpScope) !== false);
+    }
     // MCP tool names are dynamic, so the static allow-list cannot enumerate
     // them — the shared predicate decides instead. Skipped entirely when no
     // MCP config is present.
