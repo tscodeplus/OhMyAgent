@@ -533,18 +533,23 @@ export default function McpSettings() {
 
   const connectTimeoutBox = (
     <section className="rounded-lg border border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="max-w-52 min-w-40">
-          <Input
-            label={t('settings.mcp.connectTimeout.label')}
-            value={connectTimeoutSec}
-            error={connectTimeoutError}
-            placeholder="60"
-            inputMode="numeric"
-            disabled={loading}
-            onChange={(e) => setConnectTimeoutSec(e.target.value)}
-          />
-        </div>
+      <div className="max-w-64">
+        <Input
+          label={t('settings.mcp.connectTimeout.label')}
+          value={connectTimeoutSec}
+          error={connectTimeoutError}
+          placeholder="60"
+          inputMode="numeric"
+          disabled={loading}
+          onChange={(e) => setConnectTimeoutSec(e.target.value)}
+        />
+      </div>
+      <p className="mt-2 text-[11px] leading-relaxed text-neutral-500 dark:text-neutral-400">
+        {t('settings.mcp.connectTimeout.hint')}
+        <span className="mx-1.5 text-neutral-300 dark:text-neutral-600">·</span>
+        {t('settings.mcp.settingsNote')}
+      </p>
+      <div className="mt-3 flex justify-end">
         <Button
           size="sm"
           onClick={saveConnectTimeout}
@@ -554,11 +559,6 @@ export default function McpSettings() {
           {t('common.save')}
         </Button>
       </div>
-      <p className="mt-2 text-[11px] leading-relaxed text-neutral-500 dark:text-neutral-400">
-        {t('settings.mcp.connectTimeout.hint')}
-        <span className="mx-1.5 text-neutral-300 dark:text-neutral-600">·</span>
-        {t('settings.mcp.settingsNote')}
-      </p>
     </section>
   );
 
