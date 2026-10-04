@@ -8,6 +8,7 @@
     "endpointRequired": "Either command (stdio) or url (HTTP) is required",
     "endpointBoth": "command (stdio) and url (HTTP) are mutually exclusive",
     "sseUnsupported": "The legacy HTTP+SSE transport is not supported; use a streamable HTTP endpoint",
+    "cwdNotFound": "Working directory does not exist: {{path}}",
     "configWriteFailed": "Could not write config.yaml: {{message}}",
     "managerUnavailable": "The MCP runtime is not running (no enabled mcp section in config.yaml); restart the gateway and try again",
     "notInstalled": "MCP server {{name}} is not installed",

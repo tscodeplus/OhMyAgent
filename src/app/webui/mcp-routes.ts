@@ -46,7 +46,7 @@
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type Database from 'better-sqlite3';
-import { closeSync, openSync, readSync, statSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isMap, stringify as stringifyYaml, type YAMLMap } from 'yaml';
 import { z } from 'zod';
@@ -90,6 +90,7 @@ import type {
 } from '../../mcp/types.js';
 import { approvalRiskForTool } from '../../policy/tool-capability-registry.js';
 import { canonicalMcpServerName } from '../../policy/mcp-visibility.js';
+import { resolveAgentPath } from '../../shared/agent-home.js';
 import { OffloadStore } from '../../runtime-artifacts/offload-store.js';
 import { i18n } from '../../i18n/index.js';
 import { loadConfig } from '../config.js';
@@ -527,6 +528,32 @@ function endpointIssue(input: McpServerInput): string | undefined {
   if (!hasCommand && !hasUrl) return 'error.endpointRequired';
   if (hasUrl && /\/sse\/?$/i.test(input.url ?? '')) return 'error.sseUnsupported';
   return undefined;
+}
+
+/**
+ * Working-directory validation shared by `POST`, `PUT` and the dry connect:
+ * a stdio server's `cwd` must resolve to an existing directory — resolved
+ * exactly the way `StdioTransport` resolves it at spawn time (`${ENV}`
+ * interpolation, then anchored to the agent home when relative). A missing
+ * directory fails `CreateProcess` with the misleading `spawn cmd.exe ENOENT`
+ * (Node names the command path, not the broken cwd), so it is rejected at
+ * save time with a real message instead of at connect time.
+ *
+ * Returns the resolved bad path for the error message, or `undefined` when
+ * there is no `cwd` (or it is fine).
+ */
+function invalidCwd(input: McpServerInput): string | undefined {
+  if (!isStdio(input)) return undefined;
+  const cwd = input.cwd?.trim();
+  if (!cwd) return undefined;
+  const resolved = resolveAgentPath(interpolateEnv(cwd) as string);
+  let ok = false;
+  try {
+    ok = existsSync(resolved) && statSync(resolved).isDirectory();
+  } catch {
+    ok = false;
+  }
+  return ok ? undefined : resolved;
 }
 
 /**
@@ -1063,6 +1090,9 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
     const issue = endpointIssue(input);
     if (issue) return fail(reply, 400, issue);
 
+    const badCwd = invalidCwd(input);
+    if (badCwd) return fail(reply, 400, 'error.cwdNotFound', { path: badCwd });
+
     try {
       await writeServer(input.name, () => toRawServerYaml(input, undefined), true);
     } catch (err) {
@@ -1108,6 +1138,9 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
 
     const issue = endpointIssue(input);
     if (issue) return fail(reply, 400, issue);
+
+    const badCwd = invalidCwd(input);
+    if (badCwd) return fail(reply, 400, 'error.cwdNotFound', { path: badCwd });
 
     try {
       await writeServer(name, (stored) => toRawServerYaml(input, stored));
@@ -1376,6 +1409,16 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
 
     const issue = endpointIssue(input);
     if (issue) return fail(reply, 400, issue);
+
+    // A broken cwd fails `CreateProcess` with a misleading ENOENT message;
+    // rejecting it here keeps "Test Connection" honest about the real cause.
+    const badCwd = invalidCwd(input);
+    if (badCwd) {
+      return reply.send({
+        ok: false,
+        error: message('error.cwdNotFound', { path: badCwd }),
+      });
+    }
 
     // The edit form submits the values it loaded, so an untouched secret arrives
     // as the mask; probing with that literal would fail a working config (§13.3).

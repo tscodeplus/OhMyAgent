@@ -24,6 +24,7 @@ import { registerConfigRoutes } from '../../src/app/webui/config-routes.js';
 import type { AppConfig } from '../../src/app/types.js';
 import { DEFAULT_MCP_SECTION, normaliseMcpSection } from '../../src/mcp/config.js';
 import { MASKED_SECRET } from '../../src/mcp/masking.js';
+import { resetAgentHomeCache } from '../../src/shared/agent-home.js';
 import {
   registerToolCapability,
   unregisterToolCapability,
@@ -758,6 +759,8 @@ describe('MCP API routes', () => {
   // ─── install / update ───
 
   it('POST /api/mcp/servers writes a snake_case entry, reconciles and hot-reloads', async () => {
+    const cwdDir = join(scratch, 'server-cwd');
+    mkdirSync(cwdDir);
     const res = await inject({
       method: 'POST',
       url: '/api/mcp/servers',
@@ -766,7 +769,7 @@ describe('MCP API routes', () => {
         command: 'npx',
         args: ['-y', 'server-filesystem', '/tmp'],
         env: { GITHUB_TOKEN: 'ghp_real_token', LOG_LEVEL: 'debug' },
-        cwd: '/tmp',
+        cwd: cwdDir,
         description: 'local files',
         exposure: 'direct',
         timeoutSec: 30,
@@ -795,10 +798,78 @@ describe('MCP API routes', () => {
       command: 'npx',
       args: ['-y', 'server-filesystem', '/tmp'],
       env: { GITHUB_TOKEN: 'ghp_real_token', LOG_LEVEL: 'debug' },
-      cwd: '/tmp',
+      cwd: cwdDir,
     });
     expect(stub.reload).toHaveBeenCalledTimes(1);
     expect(onConfigSaved).toHaveBeenCalledTimes(1);
+  });
+
+  it('POST /api/mcp/servers rejects a cwd that does not exist', async () => {
+    const missing = join(scratch, 'nowhere');
+    const res = await inject({
+      method: 'POST',
+      url: '/api/mcp/servers',
+      payload: { name: 'filesystem', command: 'npx', cwd: missing },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: 'mcp.error.cwdNotFound' });
+    expect(res.json().message).toContain(missing);
+    // The broken entry is never written and nothing is hot-reloaded.
+    expect(readRawConfig().mcp).toBeUndefined();
+    expect(stub.reload).not.toHaveBeenCalled();
+    expect(onConfigSaved).not.toHaveBeenCalled();
+  });
+
+  it('POST /api/mcp/servers rejects a cwd that points at a file', async () => {
+    const filePath = join(scratch, 'not-a-dir.yaml');
+    writeFileSync(filePath, 'x: 1\n', 'utf-8');
+    const res = await inject({
+      method: 'POST',
+      url: '/api/mcp/servers',
+      payload: { name: 'filesystem', command: 'npx', cwd: filePath },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: 'mcp.error.cwdNotFound' });
+    expect(readRawConfig().mcp).toBeUndefined();
+  });
+
+  it('PUT /api/mcp/servers/:name rejects a cwd that does not exist', async () => {
+    writeServerEntry('filesystem', { command: 'npx' });
+    const missing = join(scratch, 'nowhere');
+    const res = await inject({
+      method: 'PUT',
+      url: '/api/mcp/servers/filesystem',
+      payload: { name: 'filesystem', command: 'npx', cwd: missing },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: 'mcp.error.cwdNotFound' });
+    // The stored entry is untouched.
+    expect(rawServer('filesystem')).toEqual({ command: 'npx' });
+  });
+
+  it('anchors a relative cwd to the agent home instead of the launch cwd', async () => {
+    const previousHome = process.env.OHMYAGENT_HOME;
+    process.env.OHMYAGENT_HOME = scratch;
+    resetAgentHomeCache();
+    try {
+      mkdirSync(join(scratch, 'data', 'excel-mcp'), { recursive: true });
+      const res = await inject({
+        method: 'POST',
+        url: '/api/mcp/servers',
+        payload: { name: 'excel', command: 'npx', cwd: './data/excel-mcp' },
+      });
+
+      expect(res.statusCode).toBe(200);
+      // Stored raw and relative; the transport resolves it at spawn time.
+      expect(rawServer('excel')).toMatchObject({ cwd: './data/excel-mcp' });
+    } finally {
+      if (previousHome === undefined) delete process.env.OHMYAGENT_HOME;
+      else process.env.OHMYAGENT_HOME = previousHome;
+      resetAgentHomeCache();
+    }
   });
 
   it('POST /api/mcp/servers writes an HTTP entry with masked-only headers on the way out', async () => {
@@ -1309,6 +1380,21 @@ describe('MCP API routes', () => {
   });
 
   // ─── dry connect ───
+
+  it('POST /api/mcp/test rejects a missing cwd before probing', async () => {
+    const missing = join(scratch, 'nowhere');
+    const res = await inject({
+      method: 'POST',
+      url: '/api/mcp/test',
+      payload: { name: 'filesystem', command: 'npx', cwd: missing },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ ok: false });
+    expect(res.json().error).toContain(missing);
+    // The stub probe never runs — the request fails validation first.
+    expect(probe).not.toHaveBeenCalled();
+  });
 
   it('POST /api/mcp/test probes without persisting, and normalises the input', async () => {
     const res = await inject({
