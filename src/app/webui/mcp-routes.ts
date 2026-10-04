@@ -226,11 +226,17 @@ const patchInputSchema = z
 const loginCallbackSchema = z.object({ callbackUrl: z.string().min(1) }).strict();
 
 /** `PATCH /api/mcp/settings` — section-level tunables (currently one key). */
+/**
+ * `PATCH /api/mcp/settings` — section-level tunables.
+ *
+ * `connectTimeoutSec` absent = clear the key and fall back to the default
+ * (the WebUI sends an empty body when the field is cleared); present = set it.
+ */
 const sectionSettingsSchema = z
   .object({
-    connectTimeoutSec: z.number().int().positive(),
+    connectTimeoutSec: z.number().int().positive().optional(),
   })
-  .strict();
+  .refine((value) => Object.keys(value).length <= 1, { message: 'only one key' });
 
 const purgeQuerySchema = z.enum(['true', 'false']);
 
@@ -999,15 +1005,24 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps): voi
         const rootNode = doc.contents as YAMLMap;
         let mcpNode: unknown = rootNode.has('mcp') ? rootNode.get('mcp', true) : undefined;
         if (!mcpNode || !isMap(mcpNode)) {
-          // `mcp:` absent or not a mapping — replacing it is the only way
-          // forward (and matches what a whole-section rebuild would do).
+          // `mcp:` absent or not a mapping. Nothing to remove; when a value is
+          // being set, replacing the parent is the only way forward (and
+          // matches what a whole-section rebuild would do).
+          if (value === undefined) return;
           rootNode.set('mcp', doc.createNode({ connect_timeout_sec: value }));
           mcpNode = rootNode.get('mcp', true);
         }
         if (!isMap(mcpNode)) {
           throw new Error('Cannot update MCP settings: mcp is not a YAML mapping');
         }
-        mcpNode.set('connect_timeout_sec', doc.createNode(value));
+        // Absent key = fall back to the default (the WebUI sends an empty body
+        // when the field is cleared); a present key is only ever replaced, so
+        // sibling comments and formatting survive (decision 19-11).
+        if (value === undefined) {
+          mcpNode.delete('connect_timeout_sec');
+        } else {
+          mcpNode.set('connect_timeout_sec', doc.createNode(value));
+        }
       });
     } catch (err) {
       app.log.warn({ err }, '[mcp] settings write could not update config.yaml');

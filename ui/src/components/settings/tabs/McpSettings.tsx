@@ -154,10 +154,15 @@ export default function McpSettings() {
     timersRef.current.push(id);
   }, [refresh]);
 
-  /** Write `mcp.connect_timeout_sec`; the gateway hot-reloads it server-side. */
+  /**
+   * Write `mcp.connect_timeout_sec`; the gateway hot-reloads it server-side.
+   * An emptied field PATCHes no key at all — the server then deletes the YAML
+   * entry and the loader falls back to the default (restoring it, §13.3).
+   */
   const saveConnectTimeout = useCallback(async () => {
     const raw = connectTimeoutSec.trim();
-    if (!/^[1-9]\d*$/.test(raw)) {
+    const cleared = raw === '';
+    if (!cleared && !/^[1-9]\d*$/.test(raw)) {
       setConnectTimeoutError(t('settings.mcp.connectTimeout.invalid'));
       return;
     }
@@ -166,7 +171,7 @@ export default function McpSettings() {
     try {
       await apiRequest<{ ok: boolean }>('/api/mcp/settings', {
         method: 'PATCH',
-        body: JSON.stringify({ connectTimeoutSec: Number(raw) }),
+        body: JSON.stringify(cleared ? {} : { connectTimeoutSec: Number(raw) }),
       });
       showToast(t('settings.saved'), 'success');
       refresh(false);
@@ -541,7 +546,10 @@ export default function McpSettings() {
           placeholder="60"
           inputMode="numeric"
           disabled={loading}
-          onChange={(e) => setConnectTimeoutSec(e.target.value)}
+          onChange={(e) => {
+            setConnectTimeoutSec(e.target.value);
+            setConnectTimeoutError(undefined);
+          }}
         />
       </div>
       <p className="mt-2 text-[11px] leading-relaxed text-neutral-500 dark:text-neutral-400">

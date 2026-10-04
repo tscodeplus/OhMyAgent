@@ -567,6 +567,25 @@ describe('MCP API routes', () => {
     }
   });
 
+  it('PATCH /api/mcp/settings with an empty body clears the key back to the default', async () => {
+    // The WebUI sends `{}` when the field is cleared — the loader then fills
+    // the default and the WebUI shows it again on the next refresh.
+    writeConfig(stringifyYaml({ mcp: { connect_timeout_sec: 90 } }, { indent: 2 }));
+
+    const res = await inject({ method: 'PATCH', url: '/api/mcp/settings', payload: {} });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      ok: true,
+      connectTimeoutSec: DEFAULT_MCP_SECTION.connectTimeoutSec,
+    });
+    expect(readRawConfig().mcp).not.toHaveProperty('connect_timeout_sec');
+    expect(stub.reload).toHaveBeenCalledTimes(1);
+    expect(onConfigSaved).toHaveBeenCalled();
+
+    const absent = await inject({ method: 'GET', url: '/api/mcp/settings' });
+    expect(absent.json()).toEqual({ connectTimeoutSec: DEFAULT_MCP_SECTION.connectTimeoutSec });
+  });
+
   // ─── resources (§13.6) ───
 
   it('GET /api/mcp/servers/:name/resources distinguishes unsupported, offline and live', async () => {
