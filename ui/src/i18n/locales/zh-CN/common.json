@@ -614,7 +614,6 @@
       "url": "URL"
     },
     "mcp": {
-      "title": "MCP 服务器",
       "subtitle": "接入外部 MCP（Model Context Protocol）服务器，把它的工具交给智能体使用",
       "subTabs": {
         "servers": "服务器",

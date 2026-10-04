@@ -614,7 +614,6 @@
       "url": "URL"
     },
     "mcp": {
-      "title": "MCP Servers",
       "subtitle": "Connect external Model Context Protocol servers and expose their tools to the agent",
       "subTabs": {
         "servers": "Servers",

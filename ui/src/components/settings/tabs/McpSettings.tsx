@@ -554,10 +554,10 @@ export default function McpSettings() {
           {t('common.save')}
         </Button>
       </div>
-      <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-neutral-500 dark:text-neutral-400">
-        <span>{t('settings.mcp.connectTimeout.hint')}</span>
-        <span className="text-neutral-300 dark:text-neutral-600">·</span>
-        <span>{t('settings.mcp.settingsNote')}</span>
+      <p className="mt-2 text-[11px] leading-relaxed text-neutral-500 dark:text-neutral-400">
+        {t('settings.mcp.connectTimeout.hint')}
+        <span className="mx-1.5 text-neutral-300 dark:text-neutral-600">·</span>
+        {t('settings.mcp.settingsNote')}
       </p>
     </section>
   );
@@ -572,15 +572,10 @@ export default function McpSettings() {
 
   const header = (
     <section className="space-y-3">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-            {t('settings.mcp.title')}
-          </h3>
-          <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
-            {t('settings.mcp.subtitle')}
-          </p>
-        </div>
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        <p className="text-center text-xs text-neutral-500 dark:text-neutral-400">
+          {t('settings.mcp.subtitle')}
+        </p>
         <div className="flex shrink-0 items-center gap-2">
           <Button variant="secondary" size="sm" onClick={() => setPresetsOpen(true)}>
             {t('settings.mcp.installFromPreset')}
@@ -592,7 +587,7 @@ export default function McpSettings() {
         </div>
       </div>
       {status && status.installed > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center justify-center gap-1.5">
           <StatusChip label={t('settings.mcp.chips.installed', { count: status.installed })} />
           <StatusChip
             label={t('settings.mcp.chips.connected', { count: status.connected })}
