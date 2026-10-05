@@ -13,6 +13,7 @@
 //   - Skipped entirely when a skill strict surface or explicitTools is active.
 
 import { STRICT_FORCED_CORE_TOOLS } from '../policy/tool-visibility.js';
+import { MCP_TOOL_PREFIX } from '../policy/mcp-visibility.js';
 
 export type IntentDomain =
   'code' | 'web' | 'multimedia' | 'memory' | 'project-management' | 'bare-chat';
@@ -110,6 +111,14 @@ export function detectIntentDomain(message: string): IntentMatch | undefined {
  */
 export function isToolVisibleForIntent(toolName: string, domain: IntentDomain): boolean {
   if (NARROWING_FORCED.has(toolName)) return true;
+
+  // MCP tools are exempt from narrowing (live verification: a turn whose message
+  // matched the `web` intent pattern dropped every `mcp__*` tool from the
+  // model-facing array — tool_search then returned an MCP-less catalog and the
+  // server seemed "not enabled"). Dynamic MCP names can never appear in the
+  // DOMAIN_TOOL_PATTERNS allow-lists, and deferring already keeps them out of
+  // the prompt, so narrowing gains no context by dropping them.
+  if (toolName.startsWith(MCP_TOOL_PREFIX)) return true;
 
   if (domain === 'bare-chat') {
     return /^(?:memory|session_summarize|summarize-session|brief)/.test(toolName);

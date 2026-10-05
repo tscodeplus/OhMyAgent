@@ -89,6 +89,23 @@ describe('isToolVisibleForIntent', () => {
     expect(isToolVisibleForIntent('shell', 'web')).toBe(false);
   });
 
+  it('MCP tools are exempt from narrowing in every domain (live excel-mcp regression)', () => {
+    // The turn that exposed this: "搜索 worksheet 然后 mcp__excel_mcp__worksheet …"
+    // matched the `web` intent and dropped every mcp__* tool from the surface,
+    // which made tool_search return an MCP-less catalog (server may never match).
+    for (const domain of [
+      'bare-chat',
+      'code',
+      'web',
+      'multimedia',
+      'memory',
+      'project-management',
+    ] as IntentDomain[]) {
+      expect(isToolVisibleForIntent('mcp__excel_mcp__worksheet', domain)).toBe(true);
+      expect(isToolVisibleForIntent('mcp__filesystem__read_text_file', domain)).toBe(true);
+    }
+  });
+
   it('multimedia domain keeps media generation and channel senders', () => {
     expect(isToolVisibleForIntent('image_generation', 'multimedia')).toBe(true);
     expect(isToolVisibleForIntent('image-generation', 'multimedia')).toBe(true);
