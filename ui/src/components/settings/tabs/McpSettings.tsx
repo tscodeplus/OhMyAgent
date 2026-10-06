@@ -91,7 +91,7 @@ export default function McpSettings() {
   const [callbackUrl, setCallbackUrl] = useState('');
   const [loginBusy, setLoginBusy] = useState(false);
 
-  const [activeSubTab, setActiveSubTab] = useState<McpSubTab>('settings');
+  const [activeSubTab, setActiveSubTab] = useState<McpSubTab>('servers');
 
   // Section-level tunable (`mcp.connect_timeout_sec`): loaded with the rest,
   // edited inline and PATCHed immediately (this tab has no Save-bar).
