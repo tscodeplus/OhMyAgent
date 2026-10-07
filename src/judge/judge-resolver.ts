@@ -23,15 +23,13 @@
  * `accountId`) or `CLOUDFLARE_ACCOUNT_ID`: the key alone cannot build the
  * endpoint URL.
  *
- * Custom relay judges (plan §8.1 `judge.judges`, milestone M5): every entry
- * (record order) that is NEVER referenced in the chain syntax is auto-prepended
- * ABOVE the built-in chain — including above any `routes[pointId]` override.
- * Entries referenced anywhere in the chain (routes / main / fallbackTiers via
- * the `judges.<name>` ref) are placed exactly where the chain puts them and are
- * NOT auto-prepended. judgeId = entry name either way; the wire model id comes
- * from the entry's `model` (default CUSTOM_JUDGE_DEFAULT_MODEL). Keys are read
- * only from the entry's `apiKeyEnv` env var name — config.yaml stays the single
- * source of truth, no provider/env probing.
+ * Custom relay judges (plan §8.1 `judge.judges`, milestone M5): entries are
+ * FIRST-CLASS CHAIN PEERS — they run only where a `judges.<name>` ref places
+ * them (main ref, fallbackTiers, or a `routes[pointId]` override). judgeId =
+ * entry name; the wire model id comes from the entry's `model` (default
+ * CUSTOM_JUDGE_DEFAULT_MODEL). Keys are read only from the entry's `apiKeyEnv`
+ * env var name — config.yaml stays the single source of truth, no provider/env
+ * probing. An entry never referenced by any chain simply does not run.
  */
 
 import {
@@ -160,18 +158,25 @@ export class JudgeResolver {
     const config = this.opts.config;
     const routeRefs = config.routes?.[pointId]?.map((r) => r.trim()).filter(Boolean) ?? [];
     if (routeRefs.length > 0) return routeRefs;
-    const main = config.provider && config.modelRef ? `${config.provider}/${config.modelRef}` : '';
+    // A judges entry as the primary judge (WebUI chain write-back sets
+    // provider='judges', modelRef=<entry name>) normalizes to the
+    // `judges.<name>` ref syntax the chain resolver understands.
+    const main =
+      config.provider === 'judges' && config.modelRef
+        ? `judges.${config.modelRef.trim()}`
+        : config.provider && config.modelRef
+          ? `${config.provider}/${config.modelRef}`
+          : '';
     const fallback = (config.fallbackTiers ?? []).map((r) => r.trim()).filter(Boolean);
     return [...(main ? [main] : []), ...fallback];
   }
 
   /**
    * Resolve the chain for one decision point. Never throws: unresolvable refs
-   * land in `unresolvableRefs`. Custom relay judges (`judge.judges`) resolve in
-   * two places: entries referenced via a `judges.<name>` ref appear exactly at
-   * that chain position (judgeId = entry name); every entry never referenced in
-   * any chain (routes / main / fallbackTiers) is auto-prepended ABOVE the
-   * built-in chain in config record order, including above any routes override.
+   * land in `unresolvableRefs`. Custom relay judges (`judge.judges`) are
+   * first-class chain peers: a `judges.<name>` ref places that entry exactly at
+   * that chain position (judgeId = entry name). An entry never referenced by
+   * any chain simply does not run (no implicit auto-prepend).
    */
   resolveChain(pointId: string): {
     tiers: JudgeTier[];
@@ -183,13 +188,6 @@ export class JudgeResolver {
     const unresolvableRefs: string[] = [];
     const buckets = { tiers, noKeyRefs, unresolvableRefs };
     const judges = this.opts.config.judges ?? {};
-    // Referenced entries are placed by the chain itself; only the rest auto-prepend.
-    const referenced = this.referencedJudgeNames();
-    for (const [name, entry] of Object.entries(judges)) {
-      if (referenced.has(name)) continue;
-      const ref = `judges.${name}`;
-      this.resolveCustomJudgeEntry(name, entry, ref, buckets);
-    }
     for (const ref of this.refsForPoint(pointId)) {
       // judges.<name> refs resolve through the judges record (first-class peers).
       if (ref.startsWith('judges.')) {
@@ -253,24 +251,6 @@ export class JudgeResolver {
       }
     }
     return { tiers, noKeyRefs, unresolvableRefs };
-  }
-
-  /**
-   * Names referenced anywhere in the chain syntax: routes refs of ALL points,
-   * the main ref, and fallbackTiers. Referenced entries are placed explicitly
-   * by the chain and are therefore NOT auto-prepended.
-   */
-  private referencedJudgeNames(): Set<string> {
-    const config = this.opts.config;
-    const refs: string[] = [];
-    for (const routeRefs of Object.values(config.routes ?? {})) refs.push(...routeRefs);
-    if (config.provider && config.modelRef) refs.push(`${config.provider}/${config.modelRef}`);
-    refs.push(...(config.fallbackTiers ?? []));
-    const names = new Set<string>();
-    for (const ref of refs) {
-      if (ref.startsWith('judges.')) names.add(ref.slice('judges.'.length));
-    }
-    return names;
   }
 
   /**

@@ -292,7 +292,7 @@ describe('JudgeResolver — judges.<name> refs (custom relay judges as chain pee
     ]);
   });
 
-  it('unreferenced entries keep the auto-prepend semantics', () => {
+  it('unreferenced entries do not run (no implicit auto-prepend)', () => {
     const resolver = new JudgeResolver({
       config: baseConfig({
         judges: {
@@ -306,16 +306,15 @@ describe('JudgeResolver — judges.<name> refs (custom relay judges as chain pee
       logger,
       env: { RELAY_KEY: 'k' },
     });
-    // Only `placed` is referenced → `loose` auto-prepends above the builtin chain;
-    // `placed` stays exactly where fallbackTiers puts it.
+    // Only `placed` is referenced → `loose` is never asked (chain peers, no
+    // implicit auto-prepend); `placed` stays exactly where fallbackTiers puts it.
     expect(resolver.resolveChain('tool.admission').tiers.map((t) => t.judgeId)).toEqual([
-      'loose',
       'opencode/jev-1.13-free',
       'placed',
     ]);
   });
 
-  it("an entry referenced in one point's routes is NOT auto-prepended for another point", () => {
+  it("an entry referenced in one point's routes does not appear for other points", () => {
     const resolver = new JudgeResolver({
       config: withJudges({
         provider: 'opencode',
@@ -344,8 +343,8 @@ describe('JudgeResolver — judges.<name> refs (custom relay judges as chain pee
     });
     const chain = resolver.resolveChain('tool.admission');
     // `ghost` does not exist → unresolvable; the untouched `relay` entry is not
-    // referenced anywhere, so it keeps its auto-prepend slot.
-    expect(chain.tiers.map((t) => t.judgeId)).toEqual(['relay', 'opencode/jev-1.13-free']);
+    // referenced anywhere, so it does not run at all (explicit-only placement).
+    expect(chain.tiers.map((t) => t.judgeId)).toEqual(['opencode/jev-1.13-free']);
     expect(chain.unresolvableRefs).toEqual(['judges.ghost']);
   });
 

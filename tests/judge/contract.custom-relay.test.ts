@@ -2,10 +2,10 @@
  * Custom relay judge contract test — deterministic (mock HTTP, no live relay).
  *
  * Pins the M5 wiring (plan §8.1 `judge.judges` + supervisor decision):
- *  - `judges.<name>` refs are first-class chain members; every `judge.judges`
- *    entry NOT referenced in any chain (routes / main / fallbackTiers) is
- *    auto-prepended ABOVE the built-in chain (config record order), including
- *    above any routes[pointId] override;
+ *  - `judges.<name>` refs are first-class chain members placed exactly where
+ *    the chain puts them (main ref / fallbackTiers / routes[pointId]); an
+ *    entry never referenced in any chain simply does not run (no implicit
+ *    auto-prepend);
  *  - judgeId = entry name; wire model id = entry `model` (default 'jev-latest');
  *  - `typesafe` entries speak the typesafe-system-one envelope
  *    (POST `<baseUrl>/systemone` with `{ model, state, questions }`);
@@ -116,35 +116,46 @@ function relayEngine(config: JudgeSectionConfig, env: Record<string, string | un
 }
 
 describe('contract: custom relay judges (deterministic mock HTTP)', () => {
-  it('custom tiers sit ABOVE the built-in chain, including above routes overrides', () => {
+  it('judges.<name> refs run where the chain places them (explicit placement only)', () => {
     // Built-in fall-through tier uses the keyless free Jev so no key is needed.
     const config = baseConfig({
+      judges: {
+        relay: { type: 'typesafe', baseUrl: `${baseUrl}/v1`, apiKeyEnv: 'RELAY_KEY' },
+        wire: { type: 'http', baseUrl: `${baseUrl}/wire`, apiKeyEnv: 'RELAY_KEY' },
+      },
+      provider: 'opencode',
+      modelRef: 'jev-1.13-free',
+      fallbackTiers: ['judges.wire', 'judges.relay'],
+      routes: { 'tool.risk': ['judges.relay', 'opencode/jev-1.13-free'] },
+    });
+    const { resolver } = relayEngine(config, { RELAY_KEY: 'k' });
+    // Explicit fallbackTiers order defines run order (not judges record order).
+    expect(resolver.resolveChain('test').tiers.map((t) => t.judgeId)).toEqual([
+      'opencode/jev-1.13-free',
+      'wire',
+      'relay',
+    ]);
+    // routes[pointId] replaces the whole chain, judges refs included.
+    expect(resolver.resolveChain('tool.risk').tiers.map((t) => t.judgeId)).toEqual([
+      'relay',
+      'opencode/jev-1.13-free',
+    ]);
+  });
+
+  it('a judges entry as the primary judge normalizes judges/<name> → judges.<name>', () => {
+    // WebUI chain write-back stores the primary as provider='judges',
+    // modelRef=<name>; refsForPoint must normalize it to the ref syntax.
+    const config = baseConfig({
       judges: { relay: { type: 'typesafe', baseUrl: `${baseUrl}/v1`, apiKeyEnv: 'RELAY_KEY' } },
+      provider: 'judges',
+      modelRef: 'relay',
       fallbackTiers: ['opencode/jev-1.13-free'],
-      routes: { 'tool.risk': ['opencode/jev-1.13-free'] },
     });
     const { resolver } = relayEngine(config, { RELAY_KEY: 'k' });
     expect(resolver.resolveChain('test').tiers.map((t) => t.judgeId)).toEqual([
       'relay',
       'opencode/jev-1.13-free',
     ]);
-    // routes[pointId] replaces the BUILT-IN chain; the custom tier stays on top.
-    expect(resolver.resolveChain('tool.risk').tiers.map((t) => t.judgeId)).toEqual([
-      'relay',
-      'opencode/jev-1.13-free',
-    ]);
-    // Multiple entries keep config record order.
-    const two = new JudgeResolver({
-      config: baseConfig({
-        judges: {
-          a: { type: 'typesafe', baseUrl: `${baseUrl}/a`, apiKeyEnv: 'RELAY_KEY' },
-          b: { type: 'http', baseUrl: `${baseUrl}/b`, apiKeyEnv: 'RELAY_KEY' },
-        },
-      }),
-      logger,
-      env: { RELAY_KEY: 'k' },
-    });
-    expect(two.resolveChain('test').tiers.map((t) => t.judgeId)).toEqual(['a', 'b']);
   });
 
   it('no apiKeyEnv value → entry dropped with judges.<name> noKeyRef, warned once per startup', () => {
@@ -152,7 +163,7 @@ describe('contract: custom relay judges (deterministic mock HTTP)', () => {
       judges: {
         relay: { type: 'typesafe', baseUrl: `${baseUrl}/v1`, apiKeyEnv: 'MISSING_RELAY_KEY' },
       },
-      fallbackTiers: ['opencode/jev-1.13-free'],
+      fallbackTiers: ['judges.relay', 'opencode/jev-1.13-free'],
     });
     const { resolver } = relayEngine(config, {});
     const chain = resolver.resolveChain('test');
@@ -166,7 +177,10 @@ describe('contract: custom relay judges (deterministic mock HTTP)', () => {
   });
 
   it('entry without baseUrl is unresolvable and never reaches the wire', () => {
-    const config = baseConfig({ judges: { broken: { type: 'http', apiKeyEnv: 'RELAY_KEY' } } });
+    const config = baseConfig({
+      judges: { broken: { type: 'http', apiKeyEnv: 'RELAY_KEY' } },
+      fallbackTiers: ['judges.broken'],
+    });
     const { resolver } = relayEngine(config, { RELAY_KEY: 'k' });
     const chain = resolver.resolveChain('test');
     expect(chain.tiers).toHaveLength(0);
@@ -177,6 +191,7 @@ describe('contract: custom relay judges (deterministic mock HTTP)', () => {
   it('typesafe entry: envelope at <baseUrl>/systemone, payload model defaults to jev-latest', async () => {
     const config = baseConfig({
       judges: { relay: { type: 'typesafe', baseUrl: `${baseUrl}/v1`, apiKeyEnv: 'RELAY_KEY' } },
+      fallbackTiers: ['judges.relay'],
     });
     const { engine } = relayEngine(config, { RELAY_KEY: 'k' });
     const verdict = await engine.decide(goldenSampleSpec(), {
@@ -210,6 +225,7 @@ describe('contract: custom relay judges (deterministic mock HTTP)', () => {
           model: 'my-jev',
         },
       },
+      fallbackTiers: ['judges.relay'],
     });
     const { engine } = relayEngine(config, { RELAY_KEY: 'k' });
     const verdict = await engine.decide(goldenSampleSpec(), { state: GOLDEN_SAMPLE_STATE });
@@ -222,6 +238,7 @@ describe('contract: custom relay judges (deterministic mock HTTP)', () => {
       judges: {
         wire: { type: 'http', baseUrl: `${baseUrl}/systemone-wire`, apiKeyEnv: 'RELAY_KEY' },
       },
+      fallbackTiers: ['judges.wire'],
     });
     const { engine } = relayEngine(config, { RELAY_KEY: 'k' });
     const verdict = await engine.decide(goldenSampleSpec(), { state: GOLDEN_SAMPLE_STATE });
@@ -236,7 +253,7 @@ describe('contract: custom relay judges (deterministic mock HTTP)', () => {
     expect(requests[0].body.model).toBeUndefined(); // plain wire carries no model envelope
   });
 
-  it('judges.<name> refs are chain-resolvable: explicit placement, no auto-prepend', () => {
+  it('judges.<name> refs are chain-resolvable: explicit placement only', () => {
     const config = baseConfig({
       judges: { relay: { type: 'typesafe', baseUrl: `${baseUrl}/v1`, apiKeyEnv: 'RELAY_KEY' } },
       provider: 'opencode',
@@ -259,6 +276,7 @@ describe('contract: custom relay judges (deterministic mock HTTP)', () => {
         junky: { type: 'typesafe', baseUrl: `${baseUrl}/junk`, apiKeyEnv: 'RELAY_KEY' },
         good: { type: 'typesafe', baseUrl: `${baseUrl}/good`, apiKeyEnv: 'RELAY_KEY' },
       },
+      fallbackTiers: ['judges.junky', 'judges.good'],
     });
     const { engine } = relayEngine(config, { RELAY_KEY: 'k' });
     respond = (url) =>

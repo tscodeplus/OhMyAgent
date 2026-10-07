@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, GripVertical, Plus, X } from 'lucide-react';
 import {
   DndContext,
+  DragOverlay,
   closestCenter,
   KeyboardSensor,
   PointerSensor,
@@ -399,7 +400,9 @@ function deriveChainRows(draft: JudgeDraft): { rows: ChainSortableRow[]; opaque:
 
   const judgesRow = (entryIndex: number, entry: CustomJudgeEntry): ChainJudgesRow => ({
     kind: 'judges',
-    id: entry.name.trim() !== '' ? `judges:${entry.name.trim()}` : `judges:#${entryIndex}`,
+    // Index-keyed id: name-based ids would remount the row (and drop input
+    // focus) on every keystroke while typing the entry name.
+    id: `judges:#${entryIndex}`,
     entry,
     entryIndex,
   });
@@ -429,6 +432,9 @@ function deriveChainRows(draft: JudgeDraft): { rows: ChainSortableRow[]; opaque:
         rows.push(judgesRow(idx, draft.judges[idx]));
         continue;
       }
+      // Ref to a removed/renamed entry: drop it (keeping the orphan ref would
+      // leave an unresolvable tier in the saved chain).
+      continue;
     }
     // 'provider/model' → a builtin provider row at this chain position.
     const slashIdx = ref.indexOf('/');
@@ -450,18 +456,19 @@ function deriveChainRows(draft: JudgeDraft): { rows: ChainSortableRow[]; opaque:
     if (!isPrimaryRef || !opaque.includes(ref)) opaque.push(ref);
   }
 
-  // Hand-edited judges entries never placed by any ref load at the TOP of the
-  // chain list (the server auto-prepends them above the whole chain).
-  const prepended: ChainSortableRow[] = [];
+  // Judges entries never placed by any ref (hand-edited or newly added) sit
+  // at the END of the list, after the builtin providers: the chain write-back
+  // then references them at exactly the position the user sees, so display
+  // order = execution order. Drag any of them anywhere (position 1 = primary).
   for (let i = 0; i < draft.judges.length; i++) {
     const entry = draft.judges[i];
-    if (entry && !placedJudges.has(i)) prepended.push(judgesRow(i, entry));
+    if (entry && !placedJudges.has(i)) rows.push(judgesRow(i, entry));
   }
   // Builtin providers without a ref keep their row (empty model → not in chain).
   for (const provider of JUDGE_PROVIDER_IDS)
     if (!placedProviders.has(provider))
       rows.push({ kind: 'provider', id: provider, provider, model: '' });
-  return { rows: [...prepended, ...rows], opaque };
+  return { rows, opaque };
 }
 
 /**
@@ -669,7 +676,8 @@ function JudgeChainRow({
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.5 : 1,
+    // Ghost while dragging: the DragOverlay clone is what the user sees.
+    opacity: isDragging ? 0.3 : 1,
   };
 
   return (
@@ -725,6 +733,11 @@ function JudgeChainRow({
           >
             {t(`settings.judge.providers.${providerId}`)}
           </span>
+          {primary && (
+            <span className="shrink-0 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+              {t('settings.judge.primaryJudge')}
+            </span>
+          )}
           {model ? (
             <span className="ml-auto min-w-0 truncate font-mono text-[10px] text-neutral-500 dark:text-neutral-400">
               {model}
@@ -840,8 +853,12 @@ function JudgeChainRow({
             </div>
           )}
 
-          {/* Model catalog of this provider (empty choice removes it from the chain) */}
-          {modelOptions.length > 0 ? (
+          {/* Model catalog of this provider (empty choice removes it from the chain).
+              Input-vs-Select is decided by the RAW catalog only — merging the
+              current value into a NON-empty catalog is fine, but pushing it into
+              an empty one must not flip the free-text Input to a Select
+              mid-keystroke (that steals focus after the first character). */}
+          {models.length > 0 ? (
             <Select
               label={modelLabel}
               value={model}
@@ -923,7 +940,8 @@ function JudgeChainJudgesRow({
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.5 : 1,
+    // Ghost while dragging: the DragOverlay clone is what the user sees.
+    opacity: isDragging ? 0.3 : 1,
   };
 
   return (
@@ -985,6 +1003,11 @@ function JudgeChainJudgesRow({
               </span>
             )}
           </span>
+          {primary && (
+            <span className="shrink-0 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+              {t('settings.judge.primaryJudge')}
+            </span>
+          )}
           {!usable && (
             <span className="shrink-0 rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500">
               {t('settings.judge.notInChain')}
@@ -1203,6 +1226,9 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
 
   /* ── Expanded chain row (provider or judges entry; default collapsed) ── */
   const [openRow, setOpenRow] = useState<string | null>(null);
+  /* ── Drag preview: a static DragOverlay clone (prevents mid-drag layout/
+     transform artifacts on the original row) ── */
+  const [dragActiveId, setDragActiveId] = useState<string | null>(null);
 
   /* ── Judge chain (derived from the draft on every render) ── */
 
@@ -1222,6 +1248,7 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
   /** Drag reorder across provider and judges rows; opaque refs stay pinned last. */
   const handleChainDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
+    setDragActiveId(null);
     if (!over || active.id === over.id) return;
     setDraft((prev) => {
       if (!prev) return prev;
@@ -1275,15 +1302,25 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
   const keyStatus = useMemo(() => extractKeyStatus(payload ?? {}), [payload]);
 
   const setJudgeEntry = useCallback((index: number, next: CustomJudgeEntry) => {
-    setDraft((prev) =>
-      prev ? { ...prev, judges: prev.judges.map((j, i) => (i === index ? next : j)) } : prev,
-    );
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const judges = prev.judges.map((j, i) => (i === index ? next : j));
+      // Re-write the chain refs too: an entry that just became usable (name +
+      // Base URL filled) joins the chain at its list position — display order
+      // always equals execution order.
+      const { rows, opaque } = deriveChainRows({ ...prev, judges });
+      return { ...prev, judges, ...chainWriteBack(rows, opaque, prev) };
+    });
   }, []);
 
   const removeJudgeEntry = useCallback((index: number) => {
-    setDraft((prev) =>
-      prev ? { ...prev, judges: prev.judges.filter((_, i) => i !== index) } : prev,
-    );
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const judges = prev.judges.filter((_, i) => i !== index);
+      // Re-derive so the removed entry's chain ref is dropped with it.
+      const { rows, opaque } = deriveChainRows({ ...prev, judges });
+      return { ...prev, judges, ...chainWriteBack(rows, opaque, prev) };
+    });
   }, []);
 
   const addJudgeEntry = useCallback(() => {
@@ -1376,6 +1413,8 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
               <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}
+                onDragStart={(e) => setDragActiveId(String(e.active.id))}
+                onDragCancel={() => setDragActiveId(null)}
                 onDragEnd={handleChainDragEnd}
               >
                 <SortableContext
@@ -1416,6 +1455,38 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
                     ),
                   )}
                 </SortableContext>
+                {/* Static drag preview: a fixed-size header snapshot of the dragged
+                    row — the original row ghosts (opacity 0.3) underneath. */}
+                <DragOverlay>
+                  {dragActiveId &&
+                    (() => {
+                      const row = chainRows.find((r) => r.id === dragActiveId);
+                      if (!row) return null;
+                      const name =
+                        row.kind === 'provider'
+                          ? t(`settings.judge.providers.${row.provider}`)
+                          : row.entry.name.trim() !== ''
+                            ? row.entry.name
+                            : t('settings.judge.customJudgeUnnamed');
+                      const chip =
+                        row.kind === 'provider'
+                          ? row.model || t('settings.judge.notInChain')
+                          : judgesEntryUsable(row.entry)
+                            ? row.entry.model.trim() || 'jev-latest'
+                            : t('settings.judge.notInChain');
+                      return (
+                        <div className="flex w-[440px] max-w-[85vw] items-center gap-2 rounded-lg border border-blue-500 bg-white px-2.5 py-2 shadow-lg dark:border-blue-500 dark:bg-neutral-900">
+                          <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" />
+                          <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-neutral-800 dark:text-neutral-100">
+                            {name}
+                          </span>
+                          <span className="shrink-0 truncate font-mono text-[10px] text-neutral-500 dark:text-neutral-400">
+                            {chip}
+                          </span>
+                        </div>
+                      );
+                    })()}
+                </DragOverlay>
               </DndContext>
               {chainOpaque.map((ref, i) => (
                 <OpaqueJudgeRow key={ref} refText={ref} index={chainRows.length + i} />
