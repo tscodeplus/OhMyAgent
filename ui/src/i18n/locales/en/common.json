@@ -263,7 +263,8 @@
         "subscription": "Subscription Logins",
         "providers": "Providers",
         "router": "Model Routing",
-        "auxiliary": "Auxiliary Models"
+        "auxiliary": "Auxiliary Models",
+        "judge": "Judge"
       },
       "reasoning": "Reasoning",
       "searchModels": "Search models…",
@@ -907,6 +908,113 @@
       "required": "Required",
       "missingFields": "Missing required fields — please fill them in before saving: {{fields}}",
       "stagedMissing": "Reminder: this page has empty required fields (changes are staged and not lost): {{fields}}"
+    },
+    "judge": {
+      "title": "Judge Kernel",
+      "enabledLabel": "Enable judge kernel",
+      "inactiveTitle": "Judge kernel is not active",
+      "inactiveDesc": "Turn on the switch to have decision points evaluated by the judge model; while off, every behavior is identical to running without a judge.",
+      "providerAndModel": "Judge provider & model",
+      "providers": {
+        "opencode": "OpenCode",
+        "typesafe": "Typesafe",
+        "vercel-ai-gateway": "Vercel AI Gateway",
+        "openrouter": "OpenRouter",
+        "cloudflare-workers-ai": "Cloudflare Workers AI",
+        "custom": "Custom judge"
+      },
+      "keyConfigured": "Key configured",
+      "goConfigureKey": "Configure key",
+      "modelLabel": "Judge model",
+      "freeBadge": "Free tier",
+      "freeNote": "Requests are sent to OpenCode, which does not train on them",
+      "testSection": "Judge test",
+      "testDesc": "Sends one golden sample (a choice, a probability and a score question) and shows latency with the verdicts.",
+      "testButton": "Test",
+      "testing": "Testing…",
+      "testLatency": "Latency",
+      "testFailed": "Test failed: {{error}}",
+      "testDirtyHint": "Tests use the saved configuration; unsaved edits do not take effect.",
+      "answerChoice": "Choice",
+      "answerNoul": "Probability",
+      "answerScore": "Score",
+      "answerConfidence": "Confidence",
+      "answerProbability": "Probability",
+      "answerScoreValue": "Score value",
+      "fallbackSection": "Fallback chain",
+      "fallbackHint": "Tried in order when a verdict is uncertain or the judge fails; leave empty to fall straight through to each decision point's built-in fallback.",
+      "advancedSection": "Advanced",
+      "modesSection": "Decision point modes",
+      "modesHint": "shadow = keep asking and record to the ledger only, no behavior change; active = verdicts apply; off = the judge is never asked.",
+      "defaultMode": "Default mode",
+      "defaultModeDesc": "Applied to every decision point not overridden below.",
+      "modeOff": "Off",
+      "modeShadow": "Shadow",
+      "modeActive": "Active",
+      "unavailableTitle": "Judge service unavailable",
+      "unavailableDesc": "The judge API is not available yet (an older server or the service being off); update the server before configuring.",
+      "points": {
+        "tool-admission": {
+          "label": "Tool result admission",
+          "desc": "Chunks long tool outputs and judges whether each chunk is still needed by the current task; useless chunks never enter the context."
+        },
+        "testlog-fold": {
+          "label": "Test log folding",
+          "desc": "Folds byte-identical repeat blocks in failed test output, keeping the first copy plus a pointer (pure rules, no judge call)."
+        },
+        "intent-classify": {
+          "label": "Intent classification",
+          "desc": "Upgrades message domain and thinking tier to judge-based classification; the regex result remains the fallback."
+        },
+        "skills-disclosure": {
+          "label": "Skill disclosure",
+          "desc": "When trigger-word hits are ambiguous or weak, the judge re-checks whether each candidate skill is relevant."
+        },
+        "memory-capture": {
+          "label": "Memory capture",
+          "desc": "Judges whether a user message corrects the agent or sets a rule worth feeding into the memory pipeline."
+        },
+        "memory-worth": {
+          "label": "Memory worth",
+          "desc": "Labels candidate lessons as useful-again / one-off / already-known; only useful-again ones are stored."
+        },
+        "memory-merge": {
+          "label": "Memory merge",
+          "desc": "Compares a new lesson against similar old memories to decide duplicate / more-precise / contradicts / unrelated, then merges accordingly."
+        },
+        "context-forget": {
+          "label": "Context forgetting",
+          "desc": "When the context watermark is reached, nominates old tool results and decides which can be replaced by a one-line tombstone."
+        },
+        "context-compact": {
+          "label": "Judged compaction",
+          "desc": "Judges which history segments can be dropped before compaction; if the watermark falls, the LLM summary is skipped."
+        },
+        "turn-drift": {
+          "label": "Drift detection",
+          "desc": "Periodically checks whether recent work still serves the current turn goal; on drift, injects a steering hint."
+        },
+        "turn-completion": {
+          "label": "Completion check",
+          "desc": "At turn end, checks whether the closing statement cites any verification result and nudges once when it does not."
+        },
+        "tool-risk": {
+          "label": "Risky command review",
+          "desc": "After a risky command hits approval, judges whether the user explicitly asked for it; can only spare a few prompts and never weakens approval."
+        },
+        "injection-screen": {
+          "label": "Injection screening",
+          "desc": "Screens web / MCP results paragraph by paragraph for instructions aimed at the AI; flagged paragraphs are replaced by a one-line note."
+        },
+        "channel-triage": {
+          "label": "Channel triage",
+          "desc": "Decides respond / ignore / defer for group messages, keeping group noise out of the agent."
+        },
+        "notify-routing": {
+          "label": "Notification routing",
+          "desc": "Decides now / later / never for internal events such as budget or watermark notices."
+        }
+      }
     }
   },
   "auth": {

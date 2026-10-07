@@ -37,6 +37,10 @@ export interface SkillActivationDeps {
   skillRegistry?: SkillRegistry;
   approvalGate?: ApprovalGate | null;
   logger?: Logger;
+  /** Jev kernel (phase-1 `skills.disclosure`): judged allow-set of candidate
+   *  skill ids, produced by judgeSkillsDisclosure (active + judged only).
+   *  undefined = no judged filter — pure current behavior. */
+  prejudgedAllowIds?: string[];
   /** Returns the AppServices container (lazy — may not exist at construction time). */
   getServices?: () =>
     | {
@@ -110,7 +114,7 @@ export function activateSkill(
   sessionId: string,
   deps: SkillActivationDeps,
 ): SkillActivationResult {
-  const { skillRegistry, approvalGate, logger, getServices } = deps;
+  const { skillRegistry, approvalGate, logger, getServices, prejudgedAllowIds } = deps;
 
   const fallback: SkillActivationResult = {
     compiled: undefined,
@@ -121,7 +125,12 @@ export function activateSkill(
   // Don't resolve when there's no message (no skill can match an empty input).
   if (!skillRegistry || !message) return fallback;
 
-  const resolved = skillRegistry.resolve(message);
+  let resolved = skillRegistry.resolve(message);
+  // Jev kernel (phase-1 `skills.disclosure`): apply the judged allow-set when
+  // the turn-start hook produced one; identical sets are a no-op.
+  if (prejudgedAllowIds) {
+    resolved = resolved.filter((r) => prejudgedAllowIds.includes(r.skill.manifest.id));
+  }
   logger?.info(
     { message, count: resolved.length, skills: resolved.map((r) => r.skill.manifest.id) },
     '[skill-activator] resolution result',

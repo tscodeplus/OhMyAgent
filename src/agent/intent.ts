@@ -18,6 +18,14 @@ import { MCP_TOOL_PREFIX } from '../policy/mcp-visibility.js';
 export type IntentDomain =
   'code' | 'web' | 'multimedia' | 'memory' | 'project-management' | 'bare-chat';
 
+/**
+ * Judged intent override carried on the turn context (Jev kernel,
+ * intent.classify, phase-1): a real domain narrows, 'none' means the judge
+ * confidently found no domain (narrowing off), undefined = no override and the
+ * regex floor applies exactly as before.
+ */
+export type JudgedIntentDomain = IntentDomain | 'none';
+
 export interface IntentMatch {
   domain: IntentDomain;
 }

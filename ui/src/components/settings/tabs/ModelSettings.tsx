@@ -10,6 +10,7 @@ import {
   Plug,
   Route,
   BrainCircuit,
+  Gavel,
   Copy,
   type LucideIcon,
 } from 'lucide-react';
@@ -24,6 +25,7 @@ import Spinner from '../../ui/Spinner';
 import Modal from '../../ui/Modal';
 import Button from '../../ui/Button';
 import SubscriptionsSettings from './SubscriptionsSettings';
+import JudgeSettings, { type JudgeSettingsActions } from '../JudgeSettings';
 import ModelPicker from '../ModelPicker';
 import ModelIdCombobox from '../ModelIdCombobox';
 import ModelRefInput from '../ModelRefInput';
@@ -32,13 +34,14 @@ import { SettingsSection, SettingsCard } from '../SettingsSection';
 
 /* ───────── Sub-tabs for the Models tab ───────── */
 
-type ModelSubTab = 'subscription' | 'providers' | 'router' | 'auxiliary';
+type ModelSubTab = 'subscription' | 'providers' | 'router' | 'auxiliary' | 'judge';
 
 const MODEL_SUB_TABS: Array<{ id: ModelSubTab; labelKey: string; icon: LucideIcon }> = [
   { id: 'subscription', labelKey: 'settings.models.subtabs.subscription', icon: CreditCard },
   { id: 'providers', labelKey: 'settings.models.subtabs.providers', icon: Plug },
   { id: 'router', labelKey: 'settings.models.subtabs.router', icon: Route },
   { id: 'auxiliary', labelKey: 'settings.models.subtabs.auxiliary', icon: BrainCircuit },
+  { id: 'judge', labelKey: 'settings.models.subtabs.judge', icon: Gavel },
 ];
 
 interface ProviderModel {
@@ -138,6 +141,15 @@ export default function ModelSettings({
   const [providerKeysDirty, setProviderKeysDirty] = useState(false);
   const [customProvidersDirty, setCustomProvidersDirty] = useState(false);
   const [customProvidersNeedsRestart, setCustomProvidersNeedsRestart] = useState(false);
+
+  /* ─── Judge kernel sub-tab (JudgeSettings owns its own save; hot-reload section). ─── */
+  const [judgeDirty, setJudgeDirty] = useState(false);
+  const judgeActionsRef = useRef<JudgeSettingsActions | null>(null);
+  const registerJudgeActions = useCallback((actions: JudgeSettingsActions | null) => {
+    judgeActionsRef.current = actions;
+  }, []);
+  const notifyJudgeDirty = useCallback((dirty: boolean) => setJudgeDirty(dirty), []);
+  const jumpToProvidersSubTab = useCallback(() => setActiveSubTab('providers'), []);
 
   // Embedding fields become required as a set once any of them is filled
   // (partial embedding config silently disables vector memory server-side).
@@ -344,6 +356,9 @@ export default function ModelSettings({
   const handleSave = useCallback(
     async (opts?: { silent?: boolean }) => {
       try {
+        if (judgeDirty) {
+          await judgeActionsRef.current?.save({ silent: true });
+        }
         if (providerKeysDirty) {
           await apiRequest('/api/config', {
             method: 'PUT',
@@ -367,6 +382,7 @@ export default function ModelSettings({
     },
     [
       saveSimple,
+      judgeDirty,
       providerKeysDirty,
       customProvidersDirty,
       providerKeys,
@@ -378,6 +394,7 @@ export default function ModelSettings({
 
   const handleCancel = useCallback(() => {
     cancelSimple();
+    judgeActionsRef.current?.cancel();
     setProviderKeysDirty(false);
     setCustomProvidersDirty(false);
     setCustomProvidersNeedsRestart(false);
@@ -394,12 +411,15 @@ export default function ModelSettings({
   customProvidersDirtyRef.current = customProvidersDirty;
   const customProvidersNeedsRestartRef = useRef(customProvidersNeedsRestart);
   customProvidersNeedsRestartRef.current = customProvidersNeedsRestart;
+  const judgeDirtyRef = useRef(judgeDirty);
+  judgeDirtyRef.current = judgeDirty;
 
   useEffect(() => {
     const handle: SettingsTabHandle = {
       save: (opts) => handleSaveRef.current(opts),
       cancel: () => handleCancelRef.current(),
-      isDirty: () => dirtyCount > 0 || providerKeysDirty || customProvidersDirty,
+      isDirty: () =>
+        dirtyCount > 0 || providerKeysDirty || customProvidersDirty || judgeDirtyRef.current,
       needsRestart: () => customProvidersNeedsRestartRef.current,
     };
     registerHandle?.(tabId, handle);
@@ -416,8 +436,11 @@ export default function ModelSettings({
   /* ─── Report dirty state to parent ─── */
 
   useEffect(() => {
-    onDirtyChange?.(tabId, dirtyCount > 0 || providerKeysDirty || customProvidersDirty);
-  }, [tabId, dirtyCount, providerKeysDirty, customProvidersDirty, onDirtyChange]);
+    onDirtyChange?.(
+      tabId,
+      dirtyCount > 0 || providerKeysDirty || customProvidersDirty || judgeDirtyRef.current,
+    );
+  }, [tabId, dirtyCount, providerKeysDirty, customProvidersDirty, judgeDirty, onDirtyChange]);
 
   /* ─── Render ─── */
 
@@ -496,6 +519,7 @@ export default function ModelSettings({
     auxiliary: dirtyPaths.some(
       (p) => p.startsWith('memoryAuxModels.') || p.startsWith('embedding.'),
     ),
+    judge: judgeDirty,
   };
 
   return (
@@ -1173,6 +1197,15 @@ export default function ModelSettings({
             />
           </SettingsCard>
         </SettingsSection>
+      </div>
+
+      {/* ── Sub-tab: Judge kernel (jev judgment engine, M0.5) ── */}
+      <div style={{ display: activeSubTab === 'judge' ? undefined : 'none' }} className="space-y-3">
+        <JudgeSettings
+          registerActions={registerJudgeActions}
+          onDirtyChange={notifyJudgeDirty}
+          onJumpToProviders={jumpToProvidersSubTab}
+        />
       </div>
 
       {/* ── Add Builtin Provider Modal ── */}

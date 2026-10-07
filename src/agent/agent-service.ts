@@ -11,7 +11,13 @@ import type { AgentTurnContext } from './agent-factory.js';
 import { i18n } from '../i18n/i18n-service.js';
 import type { Agent } from '../pi-mono/agent/agent.js';
 import type { AgentEvent, AgentMessage } from '../pi-mono/agent/types.js';
-import { setSessionAgent, clearSessionAgent } from './agent-context.js';
+import { setSessionAgent, clearSessionAgent, setTurnTaskHint } from './agent-context.js';
+import {
+  judgeIntentAtTurnStart,
+  judgeSkillsDisclosure,
+  SKILLS_DISCLOSURE_POINT_ID,
+} from '../judge/index.js';
+import type { JudgedIntentDomain } from './intent.js';
 import type { ReplyDispatcher, FooterConfig, AppServices } from '../app/types.js';
 import type { SessionRepository } from '../memory/repositories/session-repository.js';
 import type { MessageRepository } from '../memory/repositories/message-repository.js';
@@ -338,6 +344,52 @@ export class AgentService {
     // frozen (bounded — see MCP_READY_TIMEOUT_MS).
     await this.waitForMcpReady();
 
+    // ── Jev judgment kernel (phase-1 M1): turn-start judged decisions ──
+    // Awaited INSIDE this async turn-assembly flow so the synchronous tool
+    // pipeline (`isToolVisibleForIntent`) never becomes async. Strict no-op
+    // when the engine is absent (bootstrap guarantees judge === undefined);
+    // shadow mode records ledger lines but returns no overrides.
+    let judgedIntentOverride: JudgedIntentDomain | undefined;
+    let judgedSkillIds: string[] | undefined;
+    const judgeEngine = this.getServices?.()?.judge;
+    if (judgeEngine) {
+      try {
+        setTurnTaskHint(sessionId, input.slice(0, 200));
+        const intent = await judgeIntentAtTurnStart({
+          engine: judgeEngine,
+          message: input,
+          sessionId,
+        });
+        judgedIntentOverride = intent.override;
+        const skillRegistryForJudge = this.getServices?.()?.skillRegistry;
+        const resolvedCandidates =
+          skillRegistryForJudge && judgeEngine.modeFor(SKILLS_DISCLOSURE_POINT_ID) !== 'off'
+            ? skillRegistryForJudge.resolve(input)
+            : [];
+        const disclosure = await judgeSkillsDisclosure({
+          engine: judgeEngine,
+          message: input,
+          resolved: resolvedCandidates,
+          explicitToolsActive: Array.isArray(options?.tools) && options.tools.length > 0,
+          sessionId,
+        });
+        judgedSkillIds = disclosure.allowIds;
+      } catch (err) {
+        this.persistence?.logger?.debug(
+          { err, sessionId },
+          'Judge turn-start hooks failed — current behavior stands',
+        );
+      }
+    }
+
+    // Re-check the session-busy backstop: the awaited judge precompute above
+    // (like waitForMcpReady before it) widens the window in which a second
+    // execute() could pass the initial check at line ~305 and overwrite the
+    // bridge/dispatcher the streaming turn is still using.
+    if (runtime?.turnActive) {
+      throw new SessionBusyError(sessionId);
+    }
+
     if (!runtime) {
       if (agentIdFromSession) {
         setSessionAgent(sessionId, agentIdFromSession);
@@ -388,7 +440,10 @@ export class AgentService {
         }
       }
 
-      const turnContext: AgentTurnContext = {};
+      const turnContext: AgentTurnContext = {
+        judgedIntentDomain: judgedIntentOverride,
+        judgedSkillIds,
+      };
       runtime = {
         agent: this.factory.create({
           ...options,
@@ -415,6 +470,10 @@ export class AgentService {
       this.runtimes.set(sessionId, runtime);
       this.enforceRuntimeBudget(sessionId);
     } else if (options?.channel) {
+      // Jev kernel overrides for the rebuilt agent (runtime reuses the context);
+      // overwrite each turn — undefined clears the previous turn's judgment.
+      runtime.turnContext.judgedIntentDomain = judgedIntentOverride;
+      runtime.turnContext.judgedSkillIds = judgedSkillIds;
       const previousAgent = runtime.agent;
       const preservedMessages = previousAgent.state.messages;
       runtime.auditUnsubscribe?.();

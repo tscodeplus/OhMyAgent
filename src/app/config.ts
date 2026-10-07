@@ -150,7 +150,64 @@ export const mcpSectionSchema = z.object({
   servers: z.record(z.string().regex(MCP_SERVER_NAME_PATTERN), mcpServerConfigSchema),
 });
 
+// ---------------------------------------------------------------------------
+// judge: section (Jev judgment kernel — MyDocs/JEV_JUDGE_KERNEL_PLAN.md §8.1)
+// ---------------------------------------------------------------------------
+
+/** Custom judge entry — only an env-var NAME may reference a key, never the key itself. */
+const judgeEntrySchema = z
+  .object({
+    type: z.enum(['typesafe', 'http']),
+    baseUrl: z.string().optional(),
+    apiKeyEnv: z
+      .string()
+      .regex(/^[A-Za-z_][A-Za-z0-9_]*$/)
+      .optional(),
+  })
+  .strict()
+  .refine(
+    (entry) =>
+      !Object.keys(entry).some((key) =>
+        /^(apiKey|api_key|key|token|secret|authorization|password)$/i.test(key),
+      ),
+    {
+      message: 'inline API keys are not allowed in judge.judges — set apiKeyEnv to an env var name',
+    },
+  );
+
+/**
+ * The `judge:` section. Defaults exist so `judge: {}` is a valid no-op
+ * (kernel disabled, shadow mode). Numeric strings stay accepted
+ * (`z.coerce`) so `${ENV}` interpolation works.
+ */
+export const judgeSectionSchema = z.object({
+  enabled: z.boolean().default(false),
+  /** Explicit primary judge — no env-detection chain. */
+  provider: z.string().optional(),
+  modelRef: z.string().optional(),
+  fallbackTiers: z.array(z.string()).optional(),
+  routes: z.record(z.string(), z.array(z.string())).optional(),
+  modes: z.record(z.string(), z.enum(['active', 'shadow', 'off'])).default({ default: 'shadow' }),
+  judges: z.record(z.string(), judgeEntrySchema).optional(),
+  features: z
+    .object({
+      testLogFold: z.enum(['off', 'rules', 'jev']).default('off'),
+      admission: z
+        .object({
+          chunkSizeChars: z.coerce.number().int().positive().default(2000),
+          keepThreshold: z.coerce.number().min(0).max(1).default(0.75),
+        })
+        .default({}),
+    })
+    .default({}),
+  timeoutMs: z.coerce.number().int().positive().default(4000),
+  recordState: z.boolean().default(false),
+});
+
 const configSchema = z.object({
+  // NOTE: judgeSectionSchema has all-section defaults; `.optional()` keeps a
+  // config.yaml without `judge:` fully inert.
+  judge: judgeSectionSchema.optional(),
   logging: z
     .object({
       level: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
@@ -1188,6 +1245,15 @@ function applyEnvOverrides(
     if (env.EMBEDDING_DIMENSION !== undefined) yamlEmb.dimension = envEmb.dimension;
     if (env.EMBEDDING_MAX_INPUT_CHARS !== undefined) yamlEmb.maxInputChars = envEmb.maxInputChars;
     raw.embedding = yamlEmb;
+  }
+
+  // Judge kernel: JUDGE_MODE overrides modes.default (one-shot experiment knob).
+  if (env.JUDGE_MODE !== undefined) {
+    const yj = { ...((raw.judge as Record<string, unknown>) ?? {}) };
+    const modes = { ...((yj.modes as Record<string, unknown>) ?? {}) };
+    modes.default = env.JUDGE_MODE;
+    yj.modes = modes;
+    raw.judge = yj;
   }
 
   // Database

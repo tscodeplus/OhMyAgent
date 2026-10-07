@@ -63,6 +63,11 @@ import { createSchedulers } from './composers/scheduler-services.js';
 import { createComputerUseServices } from './composers/computer-use-services.js';
 import { createAgentServices } from './composers/agent-services.js';
 import { createMcpServices } from './composers/mcp-services.js';
+import { JudgeEngine } from '../judge/engine.js';
+import { JudgeLedger } from '../judge/ledger.js';
+import { JudgeCircuitBreaker } from '../judge/circuit-breaker.js';
+import { JudgeResolver } from '../judge/judge-resolver.js';
+import { FreeJevMonitor } from '../judge/free-jev.js';
 import { createFeishuServices } from './composers/feishu-services.js';
 import { SubscriptionService } from './subscription/subscription-service.js';
 import { configEventBus } from './config-event-bus.js';
@@ -628,6 +633,62 @@ async function runBootstrap(): Promise<BootstrapResult> {
   // debounced, so registering N tools costs one rebuild, not N.
   mcpManager?.onToolsChanged(() => agentService.invalidateRuntimes());
 
+  // ── Jev judgment kernel (MyDocs/JEV_JUDGE_KERNEL_PLAN.md M0) ──
+  // Present only when `judge.enabled` resolves to a classifier model; every
+  // failure here only logs — the judge must never crash bootstrap.
+  const judgeLedger = new JudgeLedger({ logger });
+  const judgeBreaker = new JudgeCircuitBreaker();
+  const judgeFreeJev = new FreeJevMonitor({
+    onNotice: () => {
+      // Host-injected notice channel — the Feishu/SystemOne wiring lands with
+      // the phase-1 hook points (impl doc §3.3); log for now.
+      logger.info('Judge: free Jev tier is answering today — judged content is sent to OpenCode');
+    },
+  });
+  const buildJudgeEngine = (cfg: AppConfig): JudgeEngine | undefined => {
+    try {
+      const jc = cfg.judge;
+      if (!jc?.enabled || !jc.provider || !jc.modelRef) return undefined;
+      const resolver = new JudgeResolver({
+        config: jc,
+        logger,
+        providerKeys: cfg.providerKeys,
+        customProviders: cfg.customProviders,
+        piAiProvider: cfg.piAi?.provider,
+        piAiApiKey: cfg.piAi?.apiKey,
+      });
+      // Enabled + provider/modelRef must resolve to a classifier model; the
+      // probe resolves the main chain (__probe__ never matches routes).
+      const probe = resolver.resolveChain('__probe__');
+      if (probe.tiers.length === 0) {
+        logger.warn(
+          { noKeyRefs: probe.noKeyRefs, unresolvableRefs: probe.unresolvableRefs },
+          'Judge engine stays inactive: no usable judge in the main chain (decision points behave as off)',
+        );
+        return undefined;
+      }
+      logger.info(
+        {
+          judgeId: probe.tiers.map((t) => t.judgeId),
+          fallbackTiers: jc.fallbackTiers?.length ?? 0,
+        },
+        'Judge engine enabled',
+      );
+      return new JudgeEngine({
+        config: jc,
+        resolver: (pointId) => resolver.resolveChain(pointId),
+        ledger: judgeLedger,
+        breaker: judgeBreaker,
+        freeJev: judgeFreeJev,
+        logger,
+      });
+    } catch (err) {
+      logger.warn({ err }, 'Judge engine init failed (judge stays disabled this run)');
+      return undefined;
+    }
+  };
+  const judge = buildJudgeEngine(config);
+
   // ─── Register skill management tools (deferrable via tool_search) ────
 
   const skillToolsDeps = {
@@ -677,6 +738,8 @@ async function runBootstrap(): Promise<BootstrapResult> {
     orchestrator,
     // MCP (undefined unless `config.yaml` has an enabled `mcp:` section)
     mcpManager,
+    // Judge kernel (undefined unless `judge.enabled` resolves to a classifier model)
+    judge,
     // Subscription
     subscriptionService,
     // User question
@@ -783,6 +846,24 @@ async function runBootstrap(): Promise<BootstrapResult> {
     // Replace the closure-level config reference so all downstream callbacks
     // (ReplyDispatcher, cron delivery, etc.) pick up the new values.
     config = newConfig;
+
+    // ── Judge kernel: rebuild the engine when the judge section changed ──
+    // (ledger + breaker state are shared across rebuilds). Failures only log.
+    // The resolver also reads provider_keys / customProviders / piAi at build
+    // time, so key changes must rebuild too — otherwise adding a key after the
+    // judge section was saved would never activate the engine.
+    const judgeRelevantConfig = (c: AppConfig): unknown =>
+      JSON.stringify([
+        c.judge ?? null,
+        c.providerKeys ?? null,
+        c.customProviders ?? null,
+        c.piAi ?? null,
+      ]);
+    if (judgeRelevantConfig(oldConfig) !== judgeRelevantConfig(newConfig)) {
+      const rebuilt = buildJudgeEngine(newConfig);
+      services.judge = rebuilt;
+      if (servicesRef.current) servicesRef.current.judge = rebuilt;
+    }
 
     // Update servicesRef so tools reading ctx.services.config see new values
     if (servicesRef.current) {

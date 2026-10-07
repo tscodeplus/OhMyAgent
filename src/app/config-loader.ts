@@ -125,6 +125,7 @@ const nodeVarToYamlKey: Record<string, string> = {
   memAuxCfg: 'memory_aux_models',
   cuCfg: 'computer_use',
   mcpCfg: 'mcp',
+  jgCfg: 'judge',
 };
 
 function yamlKeyFromLabel(label: string): string {
@@ -432,6 +433,125 @@ function buildMcpSection(mcpCfg: YamlNode): McpSectionConfig | undefined {
       console.warn(`[mcp] skipping server "${serverName}": ${message}`);
     },
   });
+}
+
+/**
+ * Map the `judge:` YAML section (MyDocs/JEV_JUDGE_KERNEL_PLAN.md §8.1) into
+ * the camelCase shape the `judgeSectionSchema` expects. Values accepted in
+ * both snake_case (hand-edited YAML) and camelCase (WebUI saves); defaults
+ * are filled by the Zod schema. Absent section stays absent.
+ */
+function buildJudgeSection(jgCfg: YamlNode): Record<string, unknown> | undefined {
+  if (!jgCfg) return undefined;
+  const judgesNode = jgCfg.judges as YamlNode;
+  const judges: Record<string, { type: string; baseUrl?: string; apiKeyEnv?: string }> | undefined =
+    judgesNode
+      ? Object.fromEntries(
+          Object.entries(judgesNode as unknown as Record<string, YamlNode>).map(([name, entry]) => [
+            name,
+            {
+              type: str(entry?.type, 'typesafe', `jgCfg?.judges?.${name}?.type`),
+              ...(entry?.baseUrl || entry?.base_url
+                ? {
+                    baseUrl: str(
+                      entry?.baseUrl ?? entry?.base_url,
+                      '',
+                      `jgCfg?.judges?.${name}?.baseUrl`,
+                    ),
+                  }
+                : {}),
+              ...(entry?.apiKeyEnv || entry?.api_key_env
+                ? {
+                    apiKeyEnv: str(
+                      entry?.apiKeyEnv ?? entry?.api_key_env,
+                      '',
+                      `jgCfg?.judges?.${name}?.apiKeyEnv`,
+                    ),
+                  }
+                : {}),
+            },
+          ]),
+        )
+      : undefined;
+
+  const featuresNode = jgCfg.features as YamlNode;
+  const admissionNode = featuresNode?.admission as YamlNode;
+
+  const modes: Record<string, string> = {};
+  const modesNode = jgCfg.modes as YamlNode | undefined;
+  if (modesNode) {
+    for (const [key, value] of Object.entries(modesNode as Record<string, unknown>)) {
+      if (value === 'active' || value === 'shadow' || value === 'off') {
+        modes[key] = value;
+      } else {
+        // Wrong STRING values pass str()'s typeof check silently; judge modes
+        // must fail fast naming the key (plan §8.1), like type errors do.
+        recordIssue(`jgCfg?.modes?.${key}`, "'active' | 'shadow' | 'off'", value);
+      }
+    }
+  }
+
+  const routesNode = jgCfg.routes as YamlNode | undefined;
+  const routes: Record<string, string[]> | undefined = routesNode
+    ? Object.fromEntries(
+        Object.entries(routesNode as Record<string, unknown>).map(([key, value]) => [
+          key,
+          strList(value, '', `jgCfg?.routes?.${key}`),
+        ]),
+      )
+    : undefined;
+
+  const fallbackTiersNode = jgCfg.fallback_tiers ?? jgCfg.fallbackTiers;
+
+  return {
+    enabled: yamlBool(jgCfg.enabled, false, 'jgCfg?.enabled'),
+    ...(jgCfg.provider ? { provider: str(jgCfg.provider, '', 'jgCfg?.provider') } : {}),
+    ...(jgCfg.model_ref || jgCfg.modelRef
+      ? {
+          modelRef: str(jgCfg.model_ref ?? jgCfg.modelRef, '', 'jgCfg?.model_ref??jgCfg?.modelRef'),
+        }
+      : {}),
+    ...(fallbackTiersNode
+      ? { fallbackTiers: strList(fallbackTiersNode, '', 'jgCfg?.fallback_tiers') }
+      : {}),
+    ...(routesNode ? { routes } : {}),
+    ...(jgCfg.modes ? { modes } : {}),
+    ...(judgesNode ? { judges } : {}),
+    ...(featuresNode
+      ? {
+          features: {
+            testLogFold: str(
+              featuresNode?.testLogFold ?? featuresNode?.test_log_fold,
+              'off',
+              'jgCfg?.features?.testLogFold',
+            ),
+            admission: admissionNode
+              ? {
+                  chunkSizeChars: num(
+                    admissionNode?.chunkSizeChars ?? admissionNode?.chunk_size_chars,
+                    2000,
+                    'jgCfg?.features?.admission?.chunkSizeChars',
+                  ),
+                  keepThreshold: num(
+                    admissionNode?.keepThreshold ?? admissionNode?.keep_threshold,
+                    0.75,
+                    'jgCfg?.features?.admission?.keepThreshold',
+                  ),
+                }
+              : {},
+          },
+        }
+      : {}),
+    ...(jgCfg.timeout_ms || jgCfg.timeoutMs
+      ? { timeoutMs: num(jgCfg.timeout_ms ?? jgCfg.timeoutMs, 4000, 'jgCfg?.timeout_ms') }
+      : {}),
+    ...(jgCfg.record_state
+      ? { recordState: yamlBool(jgCfg.record_state, false, 'jgCfg?.record_state') }
+      : {}),
+    ...(jgCfg.recordState
+      ? { recordState: yamlBool(jgCfg.recordState, false, 'jgCfg?.recordState') }
+      : {}),
+  };
 }
 
 /**
@@ -791,6 +911,8 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
     },
 
     mcp: buildMcpSection(mcpCfg),
+
+    judge: buildJudgeSection(root.judge),
 
     agents: mapAgents(root.agents),
 
@@ -1398,6 +1520,36 @@ export function jsConfigToYaml(
       // config PUT must leave the existing section untouched.
       case 'mcp':
         break;
+
+      // ────── judge (camelCase JS → snake_case YAML) ───────
+      case 'judge': {
+        const j = value as Record<string, unknown>;
+        const yj = { ...((existingYaml.judge as Record<string, unknown>) || {}) };
+        if (j.enabled !== undefined) yj.enabled = j.enabled;
+        if (j.provider !== undefined) yj.provider = j.provider;
+        if (j.modelRef !== undefined) yj.model_ref = j.modelRef;
+        if (j.fallbackTiers !== undefined) yj.fallback_tiers = j.fallbackTiers;
+        if (j.routes !== undefined) yj.routes = j.routes;
+        if (j.modes !== undefined) yj.modes = j.modes;
+        if (j.judges !== undefined) yj.judges = j.judges;
+        if (j.timeoutMs !== undefined) yj.timeout_ms = j.timeoutMs;
+        if (j.recordState !== undefined) yj.record_state = j.recordState;
+        if (j.features !== undefined) {
+          const f = j.features as Record<string, unknown>;
+          const yf = { ...((yj.features as Record<string, unknown>) || {}) };
+          if (f.testLogFold !== undefined) yf.test_log_fold = f.testLogFold;
+          if (f.admission !== undefined) {
+            const fu = f.admission as Record<string, unknown>;
+            const ya = { ...((yf.admission as Record<string, unknown>) || {}) };
+            if (fu.chunkSizeChars !== undefined) ya.chunk_size_chars = fu.chunkSizeChars;
+            if (fu.keepThreshold !== undefined) ya.keep_threshold = fu.keepThreshold;
+            yf.admission = ya;
+          }
+          yj.features = yf;
+        }
+        yaml.judge = yj;
+        break;
+      }
 
       // ─── multimodal (already snake_case) ───
       case 'multimodal':

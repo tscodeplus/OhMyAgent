@@ -263,7 +263,8 @@
         "subscription": "订阅登录",
         "providers": "供应商",
         "router": "模型路由",
-        "auxiliary": "辅助模型"
+        "auxiliary": "辅助模型",
+        "judge": "判断内核"
       },
       "reasoning": "推理",
       "searchModels": "搜索模型…",
@@ -907,6 +908,113 @@
       "required": "必填",
       "missingFields": "以下必填项未填写，请补全后保存：{{fields}}",
       "stagedMissing": "提醒：本页还有未填写的必填项（修改已暂存，不会丢失）：{{fields}}"
+    },
+    "judge": {
+      "title": "判断内核",
+      "enabledLabel": "启用判断内核",
+      "inactiveTitle": "判断内核未激活",
+      "inactiveDesc": "打开开关后，各决策点才会由裁判模型评估；关闭时所有行为与没有裁判时完全一致。",
+      "providerAndModel": "裁判供应商与模型",
+      "providers": {
+        "opencode": "OpenCode",
+        "typesafe": "Typesafe",
+        "vercel-ai-gateway": "Vercel AI Gateway",
+        "openrouter": "OpenRouter",
+        "cloudflare-workers-ai": "Cloudflare Workers AI",
+        "custom": "自定义裁判"
+      },
+      "keyConfigured": "Key 已配置",
+      "goConfigureKey": "去配置 Key",
+      "modelLabel": "裁判模型",
+      "freeBadge": "免费档",
+      "freeNote": "数据将发送至 OpenCode（承诺不用于训练）",
+      "testSection": "裁判测试",
+      "testDesc": "发送一次金样例（选择题 / 二态概率 / 评分各一），显示延迟与判定结果。",
+      "testButton": "测试",
+      "testing": "测试中…",
+      "testLatency": "延迟",
+      "testFailed": "测试失败：{{error}}",
+      "testDirtyHint": "测试使用已保存的配置，未保存的修改不会生效。",
+      "answerChoice": "选择题",
+      "answerNoul": "二态概率",
+      "answerScore": "评分",
+      "answerConfidence": "置信度",
+      "answerProbability": "概率",
+      "answerScoreValue": "分值",
+      "fallbackSection": "级叠链",
+      "fallbackHint": "判决灰区或裁判失败时依次尝试这些裁判；留空表示直接使用各决策点的兜底行为。",
+      "advancedSection": "高级设置",
+      "modesSection": "决策点模式",
+      "modesHint": "shadow（影子）＝照常决策但只记录账本，不改变行为；active＝判决生效；off＝不问裁判。",
+      "defaultMode": "默认模式",
+      "defaultModeDesc": "未单独设置的决策点沿用此模式。",
+      "modeOff": "关闭",
+      "modeShadow": "影子",
+      "modeActive": "生效",
+      "unavailableTitle": "判断内核服务不可用",
+      "unavailableDesc": "判断内核相关 API 尚未就绪（可能是服务端版本较旧或服务未开启）；更新服务端后即可配置。",
+      "points": {
+        "tool-admission": {
+          "label": "工具输出准入",
+          "desc": "长工具输出分块后逐块判断是否仍被当前任务需要，无用块不进入上下文。"
+        },
+        "testlog-fold": {
+          "label": "测试日志折叠",
+          "desc": "折叠测试失败输出中逐字节重复的块，保留首份并加指针（纯规则，不调用裁判）。"
+        },
+        "intent-classify": {
+          "label": "意图分类",
+          "desc": "把消息意图域与思考档位升级为裁判判定；正则结果仍是兜底。"
+        },
+        "skills-disclosure": {
+          "label": "技能披露",
+          "desc": "触发词命中过多或弱命中时，用裁判复核每个候选技能是否与消息相关。"
+        },
+        "memory-capture": {
+          "label": "记忆捕获",
+          "desc": "判断用户消息是否在纠正 agent 或设立规则，值得进入记忆写入管线。"
+        },
+        "memory-worth": {
+          "label": "记忆价值",
+          "desc": "对候选经验判定“值得再次使用 / 一次性 / 已知”，仅第一种才入库。"
+        },
+        "memory-merge": {
+          "label": "记忆合并",
+          "desc": "新经验与相似旧记忆对照，判定重复 / 更精确 / 冲突 / 无关并据此合并。"
+        },
+        "context-forget": {
+          "label": "上下文遗忘",
+          "desc": "到达容量水位后提名旧工具结果，判断哪些可替换为一行墓碑以腾出空间。"
+        },
+        "context-compact": {
+          "label": "判剪前置压缩",
+          "desc": "压缩前先判剪历史段落；水位随之下降则跳过 LLM 摘要。"
+        },
+        "turn-drift": {
+          "label": "偏航检测",
+          "desc": "定期检查最近的工作是否仍服务本回合目标，漂移时注入转向提示。"
+        },
+        "turn-completion": {
+          "label": "收尾验证",
+          "desc": "回合结束时检查收尾陈述是否引用了验证结果，没有则提示一次。"
+        },
+        "tool-risk": {
+          "label": "风险命令复核",
+          "desc": "风险命令命中审批后判断用户是否明确要求过该操作；只能少量放行，绝不能降低审批要求。"
+        },
+        "injection-screen": {
+          "label": "注入筛查",
+          "desc": "网页 / MCP 结果逐段筛查是否携带针对 AI 的指令，命中段落替换为一行说明。"
+        },
+        "channel-triage": {
+          "label": "群聊分诊",
+          "desc": "群聊消息判定回应 / 忽略 / 稍后，减少群噪音进入 agent。"
+        },
+        "notify-routing": {
+          "label": "通知路由",
+          "desc": "预算 / 上限水位等内部事件判定立即 / 稍后 / 不发通知。"
+        }
+      }
     }
   },
   "auth": {

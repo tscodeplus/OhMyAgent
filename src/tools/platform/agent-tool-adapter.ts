@@ -9,6 +9,7 @@ import type { ToolExecutionResult } from './tool-result.js';
 import type { PolicyCenter } from '../../policy/policy-center.js';
 import { DEFAULT_POLICY_SCOPE } from '../../policy/types.js';
 import type { AppServices } from '../../app/types.js';
+import { admitToolResult } from '../../judge/admission/admission-hook.js';
 
 /**
  * Runtime hooks executed around every tool invocation.
@@ -90,6 +91,22 @@ export class AgentToolAdapterImpl implements AgentToolAdapter {
           } catch {
             /* swallow */
           }
+        }
+
+        // 4.5 — Jev judgment kernel (phase-1 M1): tool.admission + testlog.fold.
+        // AFTER result production, BEFORE transcript entry. Strict no-op when
+        // the engine is absent; the hook itself never throws and enforces the
+        // point modes (engine.modeFor). Awaited here, inside the async
+        // execution flow — no floating promises.
+        const judgeServices = this.deps.getServices?.();
+        if (judgeServices?.judge) {
+          result = await admitToolResult({
+            toolName: def.name,
+            sessionId: ctx.sessionId,
+            result,
+            engine: judgeServices.judge,
+            logger: judgeServices.logger,
+          });
         }
 
         // 5. Convert ToolExecutionResult → AgentToolResult

@@ -64,7 +64,7 @@ import path from 'node:path';
 import { SkillComplianceTracker } from '../skills/skill-compliance.js';
 import { resolveModel } from './model-resolver.js';
 import { assembleAgentTools, shellModeForProfile } from './tool-pipeline.js';
-import { detectIntentDomain } from './intent.js';
+import { detectIntentDomain, type IntentDomain, type JudgedIntentDomain } from './intent.js';
 import { recordToolSurfaceTurn } from './tool-surface-stats.js';
 import type { CreateChildAgent } from './tool-pipeline.js';
 
@@ -255,6 +255,13 @@ export interface AgentTurnContext {
   /** Skill id (manifest id) activated for this turn — the stable identifier
    *  used for metrics and harness failure context. */
   activatedSkillId?: string;
+  // ── Jev judgment kernel (phase-1 M1) turn-start overrides ──
+  /** Judged intent override (intent.classify, active+judged only): a domain
+   *  narrows, 'none' disables narrowing, undefined = regex floor applies. */
+  judgedIntentDomain?: JudgedIntentDomain;
+  /** Judged skills.disclosure allow-set: surviving candidate manifest ids.
+   *  Applied by activateSkill only when present (active+judged). */
+  judgedSkillIds?: string[];
 }
 
 /** Options for the approval integration. */
@@ -513,6 +520,9 @@ export function createAgentFactory(
         skillRegistry,
         approvalGate,
         logger,
+        // Jev kernel (phase-1): judged skills.disclosure allow-set — present
+        // only in active+judged mode, undefined otherwise (current behavior).
+        prejudgedAllowIds: options?.turnContext?.judgedSkillIds,
         getServices: getServices
           ? () =>
               getServices()
@@ -551,9 +561,18 @@ export function createAgentFactory(
       // (strict mode replaces it entirely; skill-activated turns are already
       // domain-scoped by the skill itself).
       const intentNarrowingEnabled = (configRef.current.tools.intentNarrowing ?? 'auto') !== 'off';
-      const intentDomain =
+      // P4 regex floor + phase-1 judged override: when the turn-start judged
+      // intent produced an override (judgedIntentDomain, set in AgentService
+      // execute's async flow), it replaces the regex scan; undefined keeps the
+      // pre-judge behavior byte-equal.
+      const judgedIntentDomain = options?.turnContext?.judgedIntentDomain;
+      const intentDomain: IntentDomain | undefined =
         !compiled && intentNarrowingEnabled
-          ? detectIntentDomain(options?.message ?? '')?.domain
+          ? judgedIntentDomain !== undefined
+            ? judgedIntentDomain === 'none'
+              ? undefined
+              : judgedIntentDomain
+            : detectIntentDomain(options?.message ?? '')?.domain
           : undefined;
 
       let promptAssembly: ReturnType<PromptManager['assemble']> | undefined;

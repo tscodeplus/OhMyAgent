@@ -347,6 +347,13 @@ export interface AppConfig {
    * has no `mcp:` section, which leaves MCP entirely inert.
    */
   mcp?: McpSectionConfig;
+  /**
+   * Jev judgment kernel section (MyDocs/JEV_JUDGE_KERNEL_PLAN.md §8.1). The
+   * zod schema lives in src/app/config.ts (`judgeSectionSchema`); the shape
+   * is mirrored in src/judge/types.ts (`JudgeSectionConfig`). Absent when
+   * `config.yaml` has no `judge:` section.
+   */
+  judge?: import('../judge/types.js').JudgeSectionConfig;
   /** Footer display options. Applies to all channels. */
   footer: FooterConfig;
 
@@ -941,6 +948,12 @@ export interface AppServices {
    * `mcp:` section; consumers must treat a missing manager as "MCP is off".
    */
   mcpManager?: import('../mcp/types.js').McpManager;
+  /**
+   * Jev judgment kernel. Present only when `judge.enabled` resolves to a
+   * classifier model with a usable provider key; hook points must treat a
+   * missing engine as "judge is off".
+   */
+  judge?: import('../judge/engine.js').JudgeEngine;
 
   // ── Policy / Approval ──
   approvalGate: ApprovalGate;
