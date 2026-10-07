@@ -1546,8 +1546,17 @@ export class AgentService {
         { sessionKey, totalMessages, existingEpisodes, expectedSummaries },
         'Triggering session summarization',
       );
-      const channel = this.runtimes.get(sessionKey)?.channel;
-      await memorySummarizer.summarizeSession(sessionKey, { channel });
+      const runtime = this.runtimes.get(sessionKey);
+      const channel = runtime?.channel;
+      // Attribute the summary to the same agent the recall side used for this
+      // session (TDAM v1.0.2 lesson: resolve per-write at the source rather
+      // than mutating shared writer state). Mirrors the metadata-persistence
+      // fallback chain used elsewhere in this file:
+      // live runtime agent → session-pinned selection → 'default'.
+      const runtimeAgentId = (runtime?.agent as unknown as { state?: { agentId?: string } })?.state
+        ?.agentId;
+      const agentId = runtimeAgentId || this.sessionAgentMap.get(sessionKey) || 'default';
+      await memorySummarizer.summarizeSession(sessionKey, { channel, agentId });
     }
   }
 

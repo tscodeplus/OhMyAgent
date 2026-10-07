@@ -961,6 +961,8 @@
     "systemScope": "系统级",
     "channel": "渠道",
     "noChannel": "无渠道",
+    "agent": "Agent",
+    "noAgent": "无归属（全局）",
     "kindLabels": {
       "preference": "偏好",
       "fact": "事实",

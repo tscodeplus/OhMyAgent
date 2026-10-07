@@ -355,10 +355,66 @@ describe('Strategy 2: LLM-driven summarize-session tool', () => {
       'Resumen corto',
       undefined,
       null,
+      undefined,
     );
     expect(mockMemoryWriter.writePreference).toHaveBeenCalledWith(
       sessionId,
       'Al usuario le gusta la soda de fruta del dragón',
+      undefined,
+      null,
+    );
+  });
+
+  it('attributes the summary to opts.agentId but keeps preferences unattributed', async () => {
+    const sessionId = 'test-session-attrib';
+    sessionRepo.create({ id: sessionId, chat_id: sessionId, user_id: 'u1' });
+
+    messageRepo.create({
+      id: 'msg-1',
+      session_id: sessionId,
+      role: 'user',
+      content: 'I prefer concise answers.',
+    });
+    messageRepo.create({
+      id: 'msg-2',
+      session_id: sessionId,
+      role: 'assistant',
+      content: 'Okay, I will keep it brief.',
+    });
+
+    // episode repo must report no prior episode so everything counts as new
+    const mockLogger = { info: vi.fn(), debug: vi.fn(), warn: vi.fn() } as any;
+    const mockMemoryWriter = {
+      writeSummary: vi.fn().mockResolvedValue({ id: 'mem-summary', isDuplicate: false }),
+      writePreference: vi.fn().mockResolvedValue({ id: 'mem-pref', isDuplicate: false }),
+    } as any;
+    const summarizer = new MemorySummarizer(
+      messageRepo,
+      episodeRepo,
+      memoryRepo,
+      mockMemoryWriter,
+      mockLogger,
+      { modelRef: 'test/model' },
+    ) as any;
+
+    summarizer.callLLM = vi.fn(async () =>
+      ['SUMMARY: User wants concise answers.', 'PREF: User prefers concise answers'].join('\n'),
+    );
+
+    await summarizer.summarizeSession(sessionId, { maxMessages: 10, agentId: 'agent-a' });
+
+    // Summary is attributed to the producing agent (current pool at recall).
+    expect(mockMemoryWriter.writeSummary).toHaveBeenCalledWith(
+      sessionId,
+      'User wants concise answers.',
+      undefined,
+      null,
+      'agent-a',
+    );
+    // Preferences deliberately stay unattributed (user-level → shared pool).
+    expect(mockMemoryWriter.writePreference).toHaveBeenCalledWith(
+      sessionId,
+      'User prefers concise answers',
       undefined,
       null,
     );

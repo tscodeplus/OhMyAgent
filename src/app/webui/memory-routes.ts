@@ -242,7 +242,14 @@ export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfi
           kind: string;
         }>
       ).map((r) => r.kind);
-      return reply.send({ channels, kinds });
+      const agents = (
+        cfg.db
+          .prepare(
+            'SELECT DISTINCT agent_id FROM memories WHERE agent_id IS NOT NULL ORDER BY agent_id',
+          )
+          .all() as Array<{ agent_id: string }>
+      ).map((r) => r.agent_id);
+      return reply.send({ channels, kinds, agents });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: message });

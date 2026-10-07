@@ -603,12 +603,19 @@ export class MemoryWriter {
 
   /**
    * Write a session summary memory.
+   *
+   * agentId (optional): attributing the summary to the agent that produced it
+   * enables the recall side's 3-pool weighting — same agent recalls these from
+   * the weighted-up 'current' pool, other agents still see them (visibility
+   * stays 'shared') via the lower-weighted 'other' pool. Omit to keep the
+   * legacy behavior (agent_id NULL → unattributed 'shared' pool for everyone).
    */
   async writeSummary(
     scopeKey: string,
     content: string,
     metadata?: Record<string, unknown>,
     sourceChannel?: string | null,
+    agentId?: string | null,
   ): Promise<WriteResult> {
     return this.write({
       content,
@@ -616,6 +623,7 @@ export class MemoryWriter {
       scopeKey,
       kind: 'summary',
       sourceChannel,
+      agentId: agentId ?? undefined,
     });
   }
 

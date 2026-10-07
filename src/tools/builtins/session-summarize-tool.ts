@@ -6,6 +6,7 @@ import type { MessageRepository } from '../../memory/repositories/message-reposi
 import type { EpisodeRepository } from '../../memory/repositories/episode-repository.js';
 import type { AgentTool } from '../../pi-mono/agent/types.js';
 import { i18n } from '../../i18n/index.js';
+import { getSessionAgent, defaultAgentId } from '../../agent/agent-context.js';
 
 /** @deprecated Use `createSessionSummarizeToolDefinition` from `./session/definition.js` instead. */
 export function createSessionSummarizeTool(options: {
@@ -68,8 +69,14 @@ export function createSessionSummarizeTool(options: {
             continue;
           }
 
-          // Trigger summarization
-          await options.memorySummarizer.summarizeSession(session.id, { maxMessages: 50 });
+          // Trigger summarization. Attribute the summary to the agent that
+          // owns this session when known (same fallback the memory_store tool
+          // uses); unknown → unattributed 'shared' legacy behavior.
+          const agentId = getSessionAgent(session.id) ?? defaultAgentId;
+          await options.memorySummarizer.summarizeSession(session.id, {
+            maxMessages: 50,
+            agentId,
+          });
           results.push(
             i18n.t('tools-session:summaryCreated', {
               id: session.id.slice(0, 12),

@@ -303,6 +303,30 @@ export async function createMemoryServices(
     memoryTermRepo,
   });
 
+  // Legacy summary reattribution (TDAM v1.0.2 «L3 画像 agentId 硬编码» lesson —
+  // summaries written before per-write attribution carry agent_id NULL).
+  // Provenance-safe only when the deployment defines exactly ONE agent: NULL
+  // rows could only have been produced by it. Multi-agent deployments keep the
+  // legacy NULL→'shared' recall semantics because the producing agent is
+  // unknowable from the data. Idempotent: only NULL rows on each boot.
+  const singleAgentId = config.agents?.length === 1 ? config.agents[0]?.id : undefined;
+  if (singleAgentId) {
+    const backlog = (
+      db
+        .prepare("SELECT COUNT(*) AS n FROM memories WHERE kind = 'summary' AND agent_id IS NULL")
+        .get() as { n: number }
+    ).n;
+    if (backlog > 0) {
+      db.prepare(
+        "UPDATE memories SET agent_id = ? WHERE kind = 'summary' AND agent_id IS NULL",
+      ).run(singleAgentId);
+      logger.info(
+        { count: backlog, agentId: singleAgentId },
+        'Backfilled legacy summary memories with agent attribution',
+      );
+    }
+  }
+
   const sceneClusterer = config.memory.sceneClustering?.enabled
     ? new SceneClusterer(
         memoryRepository,

@@ -68,9 +68,11 @@ export default function MemoryView() {
   const [projectFilter, setProjectFilter] = useState('all');
   const [kindFilter, setKindFilter] = useState('all');
   const [channelFilter, setChannelFilter] = useState('all');
+  const [agentFilter, setAgentFilter] = useState('all');
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [channelOptions, setChannelOptions] = useState<string[]>([]);
   const [kindOptions, setKindOptions] = useState<string[]>([]);
+  const [agentOptions, setAgentOptions] = useState<string[]>([]);
   const [selectedMemory, setSelectedMemory] = useState<MemoryItem | null>(null);
   const [editingContent, setEditingContent] = useState('');
   const [isEditing, setIsEditing] = useState(false);
@@ -203,6 +205,7 @@ export default function MemoryView() {
       if (projectFilter !== 'all') params.set('project_id', projectFilter);
       if (kindFilter !== 'all') params.set('kind', kindFilter);
       if (channelFilter !== 'all') params.set('channel', channelFilter);
+      if (agentFilter !== 'all') params.set('agent_id', agentFilter);
       params.set('offset', String(page * 20));
       params.set('limit', '20');
 
@@ -214,7 +217,7 @@ export default function MemoryView() {
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, scopeFilter, projectFilter, kindFilter, channelFilter, page]);
+  }, [searchQuery, scopeFilter, projectFilter, kindFilter, channelFilter, agentFilter, page]);
 
   useEffect(() => {
     fetchMemories();
@@ -224,10 +227,11 @@ export default function MemoryView() {
     apiRequest<{ id: string; name: string }[]>('/api/projects')
       .then(setProjects)
       .catch(() => {});
-    apiRequest<{ channels: string[]; kinds: string[] }>('/api/memory/filters')
-      .then(({ channels, kinds }) => {
+    apiRequest<{ channels: string[]; kinds: string[]; agents?: string[] }>('/api/memory/filters')
+      .then(({ channels, kinds, agents }) => {
         setChannelOptions(channels);
         setKindOptions(kinds);
+        setAgentOptions(agents ?? []);
       })
       .catch(() => {});
   }, []);
@@ -692,6 +696,22 @@ export default function MemoryView() {
             compact
             className="w-full sm:w-[140px]"
           />
+          {agentOptions.length > 0 && (
+            <Select
+              value={agentFilter}
+              onChange={(e) => {
+                setAgentFilter(e.target.value);
+                setPage(0);
+              }}
+              options={[
+                { value: 'all', label: t('memory.agent') + ': ' + t('memory.all') },
+                ...agentOptions.map((a) => ({ value: a, label: a })),
+                { value: 'none', label: t('memory.noAgent') },
+              ]}
+              compact
+              className="w-full sm:w-[150px]"
+            />
+          )}
         </div>
       </div>
 
@@ -769,6 +789,14 @@ export default function MemoryView() {
                           className={`text-xs px-2 py-0.5 rounded-full ${visibilityColors[mem.visibility] || 'bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300'}`}
                         >
                           {t(`memory.visibility_${mem.visibility}`, mem.visibility)}
+                        </span>
+                      )}
+                      {mem.agent_id && (
+                        <span
+                          className="text-xs px-2 py-0.5 rounded-full bg-teal-50 text-teal-600 dark:bg-teal-950/40 dark:text-teal-300 font-mono"
+                          title={t('memory.agent')}
+                        >
+                          @{mem.agent_id}
                         </span>
                       )}
                       {mem.confidence < 1 && (

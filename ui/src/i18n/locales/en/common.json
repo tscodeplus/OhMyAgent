@@ -961,6 +961,8 @@
     "systemScope": "System",
     "channel": "Channel",
     "noChannel": "No channel",
+    "agent": "Agent",
+    "noAgent": "Unattributed (global)",
     "kindLabels": {
       "preference": "Preference",
       "fact": "Fact",

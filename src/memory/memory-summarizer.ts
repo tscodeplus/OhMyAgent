@@ -70,6 +70,14 @@ export interface SummarizeOptions {
   maxMessages?: number;
   /** Channel identifier for source tracking (e.g. 'qq', 'feishu', 'wechat'). */
   channel?: string;
+  /**
+   * Agent id to attribute the extracted session summary to. Callers resolve
+   * this per-write at the source (TDAM v1.0.2 lesson: shared mutable writer
+   * state / hardcoded ids misform recall attribution). Only summary memories
+   * are attributed — preference/fact extraction deliberately stays shared so
+   * user-level facts remain reusable across agents at full recall weight.
+   */
+  agentId?: string | null;
 }
 
 export class MemorySummarizer {
@@ -121,9 +129,9 @@ export class MemorySummarizer {
     }
 
     if (this.llmConfig?.modelRef || this.llmConfig?.fallbackRefs?.length) {
-      await this.llmSummarize(sessionKey, newMessages, channel);
+      await this.llmSummarize(sessionKey, newMessages, channel, opts?.agentId);
     } else {
-      await this.ruleBasedSummarize(sessionKey, newMessages, channel);
+      await this.ruleBasedSummarize(sessionKey, newMessages, channel, opts?.agentId);
     }
 
     // P2: Fire-and-forget persona distillation
@@ -147,6 +155,7 @@ export class MemorySummarizer {
     sessionKey: string,
     messages: Array<{ role: string; content: string; created_at: string }>,
     channel: string | null,
+    agentId?: string | null,
   ): Promise<void> {
     const transcript = messages.map((m) => `[${m.role}]: ${cleanContent(m.content)}`).join('\n');
 
@@ -190,8 +199,10 @@ Output ONLY valid JSON with this shape:
         key_points: JSON.stringify(supportedPreferences),
       });
 
-      // Store summary as session-level memory
-      await this.memoryWriter.writeSummary(sessionKey, summary, undefined, channel);
+      // Store summary as session-level memory.
+      // Preferences below are intentionally NOT attributed: user-level facts
+      // stay in the shared pool so every agent recalls them at full weight.
+      await this.memoryWriter.writeSummary(sessionKey, summary, undefined, channel, agentId);
 
       // Auto-capture preferences
       for (const pref of supportedPreferences) {
@@ -287,6 +298,7 @@ Output ONLY valid JSON with this shape:
     sessionKey: string,
     messages: Array<{ role: string; content: string; created_at: string }>,
     channel: string | null,
+    agentId?: string | null,
   ): Promise<void> {
     const userMessages = messages.filter((m) => m.role === 'user');
     const assistantMessages = messages.filter((m) => m.role === 'assistant');
@@ -329,6 +341,7 @@ Output ONLY valid JSON with this shape:
       scopeKey: sessionKey,
       kind: 'summary',
       sourceChannel: channel,
+      agentId: agentId ?? undefined,
     });
 
     this.logger.info(
