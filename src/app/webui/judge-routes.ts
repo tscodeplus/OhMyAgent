@@ -11,6 +11,11 @@
  * POST /api/judge/test   — one golden sample (choice/noul/score) through the
  *                          live engine; judge-side problems never become 500s.
  * POST /api/judge/config — persist the judge section of config.yaml.
+ * POST /api/judge/key   — store one provider's API key (and/or Cloudflare
+ *              account id) into config.yaml `provider_keys` (snake_case:
+ *              api_key/account_id), merge semantics per provider; an emptied
+ *              entry is deleted. Empty-string field values are the clear
+ *              sentinel (env vars still count afterwards).
  */
 
 import type { FastifyInstance } from 'fastify';
@@ -48,15 +53,25 @@ function isNonEmptyEnv(name: string): boolean {
 }
 
 /** Per-provider key status for the judge tab (GET config + POST key reuse). */
-function buildKeyStatus(
-  appConfig: AppConfig,
-): Record<
+function buildKeyStatus(appConfig: AppConfig): Record<
   string,
-  { envVars: string[]; present: boolean; fromConfig: boolean; envPresent: boolean }
+  {
+    envVars: string[];
+    present: boolean;
+    fromConfig: boolean;
+    envPresent: boolean;
+    accountId?: { fromConfig: boolean; envPresent: boolean; present: boolean };
+  }
 > {
   const keyStatus: Record<
     string,
-    { envVars: string[]; present: boolean; fromConfig: boolean; envPresent: boolean }
+    {
+      envVars: string[];
+      present: boolean;
+      fromConfig: boolean;
+      envPresent: boolean;
+      accountId?: { fromConfig: boolean; envPresent: boolean; present: boolean };
+    }
   > = {};
   for (const [provider, envVars] of Object.entries(JUDGE_PROVIDER_ENV_KEYS)) {
     const fromConfig = Boolean(appConfig.providerKeys?.[provider]?.apiKey);
@@ -69,12 +84,30 @@ function buildKeyStatus(
     } else {
       envPresent = envVars.some((name) => isNonEmptyEnv(name));
     }
-    keyStatus[provider] = {
+    const status: {
+      envVars: string[];
+      present: boolean;
+      fromConfig: boolean;
+      envPresent: boolean;
+      accountId?: { fromConfig: boolean; envPresent: boolean; present: boolean };
+    } = {
       envVars: [...envVars],
       fromConfig,
       envPresent,
       present: fromConfig || envPresent || provider === 'opencode',
     };
+    // Cloudflare needs an account id on top of the API key to build the
+    // endpoint URL — report where each side comes from, never the value.
+    if (provider === 'cloudflare-workers-ai') {
+      const accountFromConfig = Boolean(appConfig.providerKeys?.[provider]?.accountId);
+      const accountEnvPresent = isNonEmptyEnv('CLOUDFLARE_ACCOUNT_ID');
+      status.accountId = {
+        fromConfig: accountFromConfig,
+        envPresent: accountEnvPresent,
+        present: accountFromConfig || accountEnvPresent,
+      };
+    }
+    keyStatus[provider] = status;
   }
   return keyStatus;
 }
@@ -268,32 +301,63 @@ export function registerJudgeRoutes(app: FastifyInstance, cfg: JudgeRouteConfig)
     return reply.send({ ok: true, config: merged.data });
   });
 
-  // Store ONE judge provider's API key into config.yaml `provider_keys`.
+  // Store ONE judge provider's credentials into config.yaml `provider_keys`.
   // Merge semantics (unlike PUT /api/config, which replaces the whole
   // provider_keys section) so the judge tab never drops other providers' keys.
-  // Empty apiKey clears the stored key (env vars still count afterwards).
+  // YAML keys are snake_case (api_key/base_url/account_id, config.yaml
+  // convention) — and the YAML-mapped shape is what other readers consume.
+  // Per-field: non-empty string sets, '' clears, omitted leaves untouched.
+  // An emptied provider entry (no api_key/base_url/account_id left) is deleted.
   app.post('/api/judge/key', async (request, reply) => {
-    const body = request.body as { provider?: unknown; apiKey?: unknown } | undefined;
+    const body = request.body as
+      { provider?: unknown; apiKey?: unknown; accountId?: unknown } | undefined;
     if (
       !body ||
       typeof body !== 'object' ||
       typeof body.provider !== 'string' ||
       body.provider.length === 0 ||
-      typeof body.apiKey !== 'string'
+      (!('apiKey' in body && typeof body.apiKey === 'string') &&
+        !('accountId' in body && typeof body.accountId === 'string'))
     ) {
-      return reply
-        .status(400)
-        .send({ error: 'Bad Request', message: 'Expected { provider: string, apiKey: string }' });
+      return reply.status(400).send({
+        error: 'Bad Request',
+        message: 'Expected { provider: string, apiKey?: string, accountId?: string }',
+      });
     }
-    const { provider, apiKey } = body as { provider: string; apiKey: string };
+    const { provider } = body as { provider: string };
+    const hasApiKey = 'apiKey' in body && typeof body.apiKey === 'string';
+    const hasAccountId = 'accountId' in body && typeof body.accountId === 'string';
     try {
       await mutateConfigYaml((doc) => {
         const existing = readConfigObject(doc);
-        const pk = { ...((existing.provider_keys ?? {}) as Record<string, { apiKey?: string }>) };
-        if (apiKey === '') {
+        const pk = {
+          ...((existing.provider_keys ?? {}) as Record<string, Record<string, unknown>>),
+        };
+        // Normalize legacy camelCase spellings (old writers) to snake_case.
+        const prior = (pk[provider] ?? {}) as Record<string, unknown>;
+        const entry: Record<string, unknown> = {
+          api_key: prior.api_key ?? prior.apiKey,
+          base_url: prior.base_url ?? prior.baseUrl,
+          account_id: prior.account_id ?? prior.accountId,
+        };
+        if (hasApiKey) {
+          if (body.apiKey === '') delete entry.api_key;
+          else entry.api_key = body.apiKey as string;
+        }
+        if (hasAccountId) {
+          if (body.accountId === '') delete entry.account_id;
+          else entry.account_id = body.accountId as string;
+        }
+        // '' is the clear sentinel: a field that is absent or empty counts as
+        // gone. All three fields gone → the provider entry itself is deleted.
+        const emptied = Object.values(entry).every((v) => v === undefined || v === '');
+        if (emptied) {
           delete pk[provider];
         } else {
-          pk[provider] = { ...(pk[provider] ?? {}), apiKey };
+          for (const k of Object.keys(entry)) {
+            if (entry[k] === undefined || entry[k] === '') delete entry[k];
+          }
+          pk[provider] = entry;
         }
         existing.provider_keys = pk;
         applyConfigObject(doc, existing);

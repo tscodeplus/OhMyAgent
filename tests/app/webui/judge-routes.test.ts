@@ -204,20 +204,23 @@ describe('judge routes', () => {
   });
 
   describe('POST /api/judge/key', () => {
-    it('merges a single provider key without dropping other providers', async () => {
+    it('merges a single provider key without dropping other providers (snake_case YAML)', async () => {
       // Pre-seed an unrelated provider key via a rich config the route reads:
       // the merge path runs on the raw yaml document, so simulate by writing
       // the file first.
-      writeFileSync(configPath, 'provider_keys:\n  openai:\n    apiKey: sk-test\n');
+      writeFileSync(configPath, 'provider_keys:\n  openai:\n    api_key: sk-test\n');
       const res = await app.inject({
         method: 'POST',
         url: '/api/judge/key',
         payload: { provider: 'opencode', apiKey: 'oc-key-123' },
       });
       expect(res.statusCode).toBe(200);
-      const pk = (savedYaml().provider_keys ?? {}) as Record<string, { apiKey?: string }>;
-      expect(pk.openai?.apiKey).toBe('sk-test');
-      expect(pk.opencode?.apiKey).toBe('oc-key-123');
+      const pk = (savedYaml().provider_keys ?? {}) as Record<string, { api_key?: string }>;
+      // Stored keys are snake_case in config.yaml — camelCase apiKey would be
+      // silently dropped by the config loader's yaml→JS mapping.
+      expect(pk.openai?.api_key).toBe('sk-test');
+      expect(pk.opencode?.api_key).toBe('oc-key-123');
+      expect(Object.keys(pk.opencode ?? {})).toContain('api_key');
       const body = JSON.parse(res.body);
       expect(body.ok).toBe(true);
       // keyStatus echoes the harness's getConfig() (yaml writes are verified above);
@@ -228,7 +231,7 @@ describe('judge routes', () => {
     it('empty apiKey clears the stored key (other keys survive)', async () => {
       writeFileSync(
         configPath,
-        'provider_keys:\n  openai:\n    apiKey: sk-test\n  opencode:\n    apiKey: oc-key-123\n',
+        'provider_keys:\n  openai:\n    api_key: sk-test\n  opencode:\n    api_key: oc-key-123\n',
       );
       const res = await app.inject({
         method: 'POST',
@@ -236,9 +239,81 @@ describe('judge routes', () => {
         payload: { provider: 'opencode', apiKey: '' },
       });
       expect(res.statusCode).toBe(200);
-      const pk = (savedYaml().provider_keys ?? {}) as Record<string, { apiKey?: string }>;
-      expect(pk.openai?.apiKey).toBe('sk-test');
+      const pk = (savedYaml().provider_keys ?? {}) as Record<string, { api_key?: string }>;
+      expect(pk.openai?.api_key).toBe('sk-test');
       expect(pk.opencode).toBeUndefined();
+    });
+
+    it('cloudflare key + accountId saves BOTH snake_case fields', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/judge/key',
+        payload: { provider: 'cloudflare-workers-ai', apiKey: 'cf-key', accountId: 'cf-acct' },
+      });
+      expect(res.statusCode).toBe(200);
+      const pk = (savedYaml().provider_keys ?? {}) as Record<
+        string,
+        { api_key?: string; account_id?: string }
+      >;
+      expect(pk['cloudflare-workers-ai']?.api_key).toBe('cf-key');
+      expect(pk['cloudflare-workers-ai']?.account_id).toBe('cf-acct');
+    });
+
+    it('accountId-only update leaves the stored api_key untouched', async () => {
+      writeFileSync(configPath, 'provider_keys:\n  cloudflare-workers-ai:\n    api_key: cf-key\n');
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/judge/key',
+        payload: { provider: 'cloudflare-workers-ai', accountId: 'cf-acct' },
+      });
+      expect(res.statusCode).toBe(200);
+      const pk = (savedYaml().provider_keys ?? {}) as Record<
+        string,
+        { api_key?: string; account_id?: string }
+      >;
+      expect(pk['cloudflare-workers-ai']?.api_key).toBe('cf-key');
+      expect(pk['cloudflare-workers-ai']?.account_id).toBe('cf-acct');
+    });
+
+    it('empty accountId clears account_id but keeps the stored api_key', async () => {
+      writeFileSync(
+        configPath,
+        'provider_keys:\n  cloudflare-workers-ai:\n    api_key: cf-key\n    account_id: cf-acct\n',
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/judge/key',
+        payload: { provider: 'cloudflare-workers-ai', accountId: '' },
+      });
+      expect(res.statusCode).toBe(200);
+      const pk = (savedYaml().provider_keys ?? {}) as Record<
+        string,
+        { api_key?: string; account_id?: string }
+      >;
+      expect(pk['cloudflare-workers-ai']?.api_key).toBe('cf-key');
+      expect(pk['cloudflare-workers-ai']?.account_id).toBeUndefined();
+    });
+
+    it('deletes the provider entry when all fields are empty (base_url survives alone)', async () => {
+      writeFileSync(
+        configPath,
+        'provider_keys:\n  cloudflare-workers-ai:\n    api_key: cf-key\n    account_id: cf-acct\n  opencode:\n    base_url: https://api.opencode.example\n',
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/judge/key',
+        payload: { provider: 'cloudflare-workers-ai', apiKey: '', accountId: '' },
+      });
+      expect(res.statusCode).toBe(200);
+      const pk = (savedYaml().provider_keys ?? {}) as Record<
+        string,
+        { api_key?: string; account_id?: string; base_url?: string }
+      >;
+      // Fully emptied entry is gone…
+      expect(pk['cloudflare-workers-ai']).toBeUndefined();
+      // …while a different-provider entry with a base_url keeps its entry AND
+      // an emptied single-field clear must not remove a surviving base_url.
+      expect(pk.opencode?.base_url).toBe('https://api.opencode.example');
     });
 
     it('rejects a missing provider with 400', async () => {
@@ -246,6 +321,15 @@ describe('judge routes', () => {
         method: 'POST',
         url: '/api/judge/key',
         payload: { apiKey: 'x' },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('rejects a payload with neither apiKey nor accountId being a string with 400', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/judge/key',
+        payload: { provider: 'opencode' },
       });
       expect(res.statusCode).toBe(400);
     });

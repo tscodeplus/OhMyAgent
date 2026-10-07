@@ -10,6 +10,7 @@
  *   classifier:<provider>/<model>   canonical (any pi-mono classifier model)
  *   <provider>/<model>              shorthand, same as above
  *   jev-free                        = opencode/jev-1.13-free
+ *   judges.<name>                   custom relay judge (judge.judges entry name)
  *   llm:<provider>/<model>          phase-3 placeholder → JudgeError('unsupported')
  *
  * Key presence follows how OhMyAgent resolves provider keys today:
@@ -17,11 +18,17 @@
  * mapping (OPENCODE_API_KEY, TYPESAFE_API_KEY, AI_GATEWAY_API_KEY,
  * OPENROUTER_API_KEY, CLOUDFLARE_API_KEY + CLOUDFLARE_ACCOUNT_ID). A chain
  * member without its key is dropped and warn-reported once per startup, not
- * per call; the engine records fallbackReason `'no-key'`.
+ * per call; the engine records fallbackReason `'no-key'`. Cloudflare needs an
+ * account id on top of the key — `provider_keys` `account_id` (mapped to
+ * `accountId`) or `CLOUDFLARE_ACCOUNT_ID`: the key alone cannot build the
+ * endpoint URL.
  *
  * Custom relay judges (plan §8.1 `judge.judges`, milestone M5): every entry
- * (record order) is auto-prepended ABOVE the built-in chain — including above
- * any `routes[pointId]` override. judgeId = entry name; the wire model id comes
+ * (record order) that is NEVER referenced in the chain syntax is auto-prepended
+ * ABOVE the built-in chain — including above any `routes[pointId]` override.
+ * Entries referenced anywhere in the chain (routes / main / fallbackTiers via
+ * the `judges.<name>` ref) are placed exactly where the chain puts them and are
+ * NOT auto-prepended. judgeId = entry name either way; the wire model id comes
  * from the entry's `model` (default CUSTOM_JUDGE_DEFAULT_MODEL). Keys are read
  * only from the entry's `apiKeyEnv` env var name — config.yaml stays the single
  * source of truth, no provider/env probing.
@@ -108,7 +115,7 @@ export interface JudgeResolverOptions {
   config: import('./types.js').JudgeSectionConfig;
   logger: Logger;
   /** `provider_keys` config section (WebUI-managed provider keys). */
-  providerKeys?: Record<string, { apiKey?: string; baseUrl?: string }>;
+  providerKeys?: Record<string, { apiKey?: string; baseUrl?: string; accountId?: string }>;
   customProviders?: CustomProviderConfig[];
   /** Primary (`piAi`) provider credentials — count as a key source for that provider. */
   piAiProvider?: string;
@@ -160,9 +167,11 @@ export class JudgeResolver {
 
   /**
    * Resolve the chain for one decision point. Never throws: unresolvable refs
-   * land in `unresolvableRefs`. Custom relay judges (config record order) are
-   * auto-prepended ABOVE the built-in chain, including above any routes
-   * override; they report by entry name as `judges.<name>`.
+   * land in `unresolvableRefs`. Custom relay judges (`judge.judges`) resolve in
+   * two places: entries referenced via a `judges.<name>` ref appear exactly at
+   * that chain position (judgeId = entry name); every entry never referenced in
+   * any chain (routes / main / fallbackTiers) is auto-prepended ABOVE the
+   * built-in chain in config record order, including above any routes override.
    */
   resolveChain(pointId: string): {
     tiers: JudgeTier[];
@@ -172,34 +181,31 @@ export class JudgeResolver {
     const tiers: JudgeTier[] = [];
     const noKeyRefs: string[] = [];
     const unresolvableRefs: string[] = [];
-    for (const [name, entry] of Object.entries(this.opts.config.judges ?? {})) {
+    const buckets = { tiers, noKeyRefs, unresolvableRefs };
+    const judges = this.opts.config.judges ?? {};
+    // Referenced entries are placed by the chain itself; only the rest auto-prepend.
+    const referenced = this.referencedJudgeNames();
+    for (const [name, entry] of Object.entries(judges)) {
+      if (referenced.has(name)) continue;
       const ref = `judges.${name}`;
-      try {
-        this.validateCustomJudgeEntry(name, entry);
-        const apiKey = entry.apiKeyEnv ? this.envValue(entry.apiKeyEnv) : undefined;
-        if (!apiKey) {
-          noKeyRefs.push(ref);
-          this.warnNoKeyOnce(ref, name, entry.apiKeyEnv ? [entry.apiKeyEnv] : []);
-          continue;
-        }
-        tiers.push({
-          judgeId: name,
-          classify: (context, call) =>
-            classifyCustomJudge(entry, context, {
-              apiKey,
-              ...(call.signal ? { signal: call.signal } : {}),
-              ...(call.timeoutMs !== undefined ? { timeoutMs: call.timeoutMs } : {}),
-            }),
-        });
-      } catch (err) {
-        unresolvableRefs.push(ref);
-        this.opts.logger.warn(
-          { err, ref },
-          'Judge ref could not be resolved (dropped from the chain)',
-        );
-      }
+      this.resolveCustomJudgeEntry(name, entry, ref, buckets);
     }
     for (const ref of this.refsForPoint(pointId)) {
+      // judges.<name> refs resolve through the judges record (first-class peers).
+      if (ref.startsWith('judges.')) {
+        const name = ref.slice('judges.'.length);
+        const entry = judges[name];
+        if (!entry) {
+          unresolvableRefs.push(ref);
+          this.opts.logger.warn(
+            { ref },
+            'Judge ref could not be resolved (dropped from the chain)',
+          );
+          continue;
+        }
+        this.resolveCustomJudgeEntry(name, entry, ref, buckets);
+        continue;
+      }
       try {
         const parsed = parseJudgeRef(ref);
         const keyless = isKeylessRef(parsed.provider, parsed.modelId);
@@ -212,7 +218,14 @@ export class JudgeResolver {
         // Free tier without an OpenCode key still goes out (the endpoint is
         // unauthenticated); system-one transport needs a non-empty Bearer, so
         // a placeholder is sent and a 401s surface as a regular service error.
+        // Cloudflare additionally needs the account id — a cloudflare ref with
+        // a key but no resolvable account id stays in the no-key bucket.
         const effectiveApiKey = apiKey ?? (keyless ? 'no-opencode-key' : undefined);
+        if (parsed.provider === 'cloudflare-workers-ai' && !this.resolveCloudflareAccountId()) {
+          noKeyRefs.push(ref);
+          this.warnNoKeyOnce(ref, parsed.provider);
+          continue;
+        }
         if (!keyless && !apiKey) {
           noKeyRefs.push(ref);
           this.warnNoKeyOnce(ref, parsed.provider);
@@ -240,6 +253,61 @@ export class JudgeResolver {
       }
     }
     return { tiers, noKeyRefs, unresolvableRefs };
+  }
+
+  /**
+   * Names referenced anywhere in the chain syntax: routes refs of ALL points,
+   * the main ref, and fallbackTiers. Referenced entries are placed explicitly
+   * by the chain and are therefore NOT auto-prepended.
+   */
+  private referencedJudgeNames(): Set<string> {
+    const config = this.opts.config;
+    const refs: string[] = [];
+    for (const routeRefs of Object.values(config.routes ?? {})) refs.push(...routeRefs);
+    if (config.provider && config.modelRef) refs.push(`${config.provider}/${config.modelRef}`);
+    refs.push(...(config.fallbackTiers ?? []));
+    const names = new Set<string>();
+    for (const ref of refs) {
+      if (ref.startsWith('judges.')) names.add(ref.slice('judges.'.length));
+    }
+    return names;
+  }
+
+  /**
+   * Resolve one custom judges entry into a tier: validate, resolve the
+   * apiKeyEnv key, build classify. Missing key → noKeyRef + once-per-startup
+   * warn; invalid entry → unresolvableRef + warn. Never throws.
+   */
+  private resolveCustomJudgeEntry(
+    name: string,
+    entry: JudgeEntryConfig,
+    ref: string,
+    buckets: { tiers: JudgeTier[]; noKeyRefs: string[]; unresolvableRefs: string[] },
+  ): void {
+    try {
+      this.validateCustomJudgeEntry(name, entry);
+      const apiKey = entry.apiKeyEnv ? this.envValue(entry.apiKeyEnv) : undefined;
+      if (!apiKey) {
+        buckets.noKeyRefs.push(ref);
+        this.warnNoKeyOnce(ref, name, entry.apiKeyEnv ? [entry.apiKeyEnv] : []);
+        return;
+      }
+      buckets.tiers.push({
+        judgeId: name,
+        classify: (context, call) =>
+          classifyCustomJudge(entry, context, {
+            apiKey,
+            ...(call.signal ? { signal: call.signal } : {}),
+            ...(call.timeoutMs !== undefined ? { timeoutMs: call.timeoutMs } : {}),
+          }),
+      });
+    } catch (err) {
+      buckets.unresolvableRefs.push(ref);
+      this.opts.logger.warn(
+        { err, ref },
+        'Judge ref could not be resolved (dropped from the chain)',
+      );
+    }
   }
 
   /** A custom judge entry must carry an absolute http(s) baseUrl and a known wire type. */
@@ -326,14 +394,13 @@ export class JudgeResolver {
   /**
    * Key for a provider: `provider_keys` config > custom providers > primary
    * (`piAi`) > the provider's env var (pi-mono mapping). Cloudflare
-   * additionally requires CLOUDFLARE_ACCOUNT_ID — the key alone cannot build
-   * the endpoint URL.
+   * additionally requires an account id (resolveCloudflareAccountId) — the
+   * key alone cannot build the endpoint URL.
    */
   private resolveApiKey(provider: string): string | undefined {
     if (provider === 'cloudflare-workers-ai') {
-      const key = this.envValue('CLOUDFLARE_API_KEY');
-      if (!key) return undefined;
-      return this.envValue('CLOUDFLARE_ACCOUNT_ID') ? key : undefined;
+      const cf = this.opts.providerKeys?.['cloudflare-workers-ai'];
+      return cf?.apiKey || this.envValue('CLOUDFLARE_API_KEY') || undefined;
     }
     const configKey = this.opts.providerKeys?.[provider]?.apiKey;
     if (configKey) return configKey;
@@ -357,8 +424,18 @@ export class JudgeResolver {
     return typeof direct === 'string' && direct.length > 0 ? direct : undefined;
   }
 
+  /**
+   * Cloudflare account id: `provider_keys` config (mapped `accountId`) > the
+   * `CLOUDFLARE_ACCOUNT_ID` env var. The classify call needs it even when the
+   * key came from config.
+   */
+  private resolveCloudflareAccountId(): string | undefined {
+    const cf = this.opts.providerKeys?.['cloudflare-workers-ai'];
+    return cf?.accountId || this.envValue('CLOUDFLARE_ACCOUNT_ID') || undefined;
+  }
+
   private cloudflareEnv(): Record<string, string> | undefined {
-    const accountId = this.envValue('CLOUDFLARE_ACCOUNT_ID');
+    const accountId = this.resolveCloudflareAccountId();
     return accountId ? { CLOUDFLARE_ACCOUNT_ID: accountId } : undefined;
   }
 

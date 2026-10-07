@@ -571,6 +571,7 @@ const configSchema = z.object({
       z.object({
         apiKey: z.string().optional(),
         baseUrl: z.string().optional(),
+        accountId: z.string().optional(),
       }),
     )
     .default({}),
@@ -943,7 +944,7 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
         'opencode',
         'huggingface',
       ];
-      const keys: Record<string, { apiKey?: string; baseUrl?: string }> = {};
+      const keys: Record<string, { apiKey?: string; baseUrl?: string; accountId?: string }> = {};
       for (const p of knownProviders) {
         const envKey = p.toUpperCase().replace(/-/g, '_');
         const pk = env[`${envKey}_API_KEY`];

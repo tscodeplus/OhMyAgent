@@ -2,8 +2,10 @@
  * Custom relay judge contract test — deterministic (mock HTTP, no live relay).
  *
  * Pins the M5 wiring (plan §8.1 `judge.judges` + supervisor decision):
- *  - every `judge.judges` entry (config record order) is auto-prepended ABOVE
- *    the built-in chain, including above any routes[pointId] override;
+ *  - `judges.<name>` refs are first-class chain members; every `judge.judges`
+ *    entry NOT referenced in any chain (routes / main / fallbackTiers) is
+ *    auto-prepended ABOVE the built-in chain (config record order), including
+ *    above any routes[pointId] override;
  *  - judgeId = entry name; wire model id = entry `model` (default 'jev-latest');
  *  - `typesafe` entries speak the typesafe-system-one envelope
  *    (POST `<baseUrl>/systemone` with `{ model, state, questions }`);
@@ -232,6 +234,23 @@ describe('contract: custom relay judges (deterministic mock HTTP)', () => {
       questions: expect.any(Object),
     });
     expect(requests[0].body.model).toBeUndefined(); // plain wire carries no model envelope
+  });
+
+  it('judges.<name> refs are chain-resolvable: explicit placement, no auto-prepend', () => {
+    const config = baseConfig({
+      judges: { relay: { type: 'typesafe', baseUrl: `${baseUrl}/v1`, apiKeyEnv: 'RELAY_KEY' } },
+      provider: 'opencode',
+      modelRef: 'jev-1.13-free',
+      fallbackTiers: ['judges.relay'],
+    });
+    const { resolver } = relayEngine(config, { RELAY_KEY: 'k' });
+    // The entry sits at its fallbackTiers position (position 2), NOT prepended.
+    expect(resolver.resolveChain('test').tiers.map((t) => t.judgeId)).toEqual([
+      'opencode/jev-1.13-free',
+      'relay',
+    ]);
+    expect(resolver.resolveChain('test').noKeyRefs).toEqual([]);
+    expect(resolver.resolveChain('test').unresolvableRefs).toEqual([]);
   });
 
   it('fail-closed: a relay answering junk cascades to the next custom tier', async () => {

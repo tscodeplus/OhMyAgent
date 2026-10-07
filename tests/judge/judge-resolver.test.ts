@@ -163,7 +163,7 @@ describe('JudgeResolver — chain resolution', () => {
     expect(chain.noKeyRefs).toEqual([]);
   });
 
-  it('cloudflare requires BOTH CLOUDFLARE_API_KEY and CLOUDFLARE_ACCOUNT_ID', () => {
+  it('cloudflare requires BOTH the key and an account id (config OR env on either side)', () => {
     const withKeyOnly = new JudgeResolver({
       config: baseConfig({ provider: 'cloudflare-workers-ai', modelRef: 'typesafe/jev' }),
       logger: { ...logger },
@@ -177,6 +177,30 @@ describe('JudgeResolver — chain resolution', () => {
       env: { CLOUDFLARE_API_KEY: 'k' },
     });
     expect(missingAccount.resolveChain('p').noKeyRefs).toHaveLength(1);
+  });
+
+  it('cloudflare resolves from provider_keys ALONE ({ apiKey, accountId }, env empty)', () => {
+    const resolver = new JudgeResolver({
+      config: baseConfig({ provider: 'cloudflare-workers-ai', modelRef: 'typesafe/jev' }),
+      logger: { ...logger },
+      providerKeys: { 'cloudflare-workers-ai': { apiKey: 'k', accountId: 'acct' } },
+      env: {},
+    });
+    const chain = resolver.resolveChain('p');
+    expect(chain.tiers.map((t) => t.judgeId)).toEqual(['cloudflare-workers-ai/typesafe/jev']);
+    expect(chain.noKeyRefs).toEqual([]);
+  });
+
+  it('cloudflare provider_keys apiKey WITHOUT accountId still drops (no-key)', () => {
+    const resolver = new JudgeResolver({
+      config: baseConfig({ provider: 'cloudflare-workers-ai', modelRef: 'typesafe/jev' }),
+      logger: { ...logger },
+      providerKeys: { 'cloudflare-workers-ai': { apiKey: 'k' } },
+      env: {},
+    });
+    const chain = resolver.resolveChain('p');
+    expect(chain.tiers).toHaveLength(0);
+    expect(chain.noKeyRefs).toEqual(['cloudflare-workers-ai/typesafe/jev']);
   });
 
   it('openrouter hidden slug ~typesafe/jev-latest resolves (registered when catalog lacks it)', () => {
@@ -223,6 +247,121 @@ describe('JudgeResolver — chain resolution', () => {
     });
     expect(resolver.resolveChain('p.x').tiers).toHaveLength(1);
     expect(resolver.resolveChain('p.y').tiers).toHaveLength(0);
+  });
+});
+
+describe('JudgeResolver — judges.<name> refs (custom relay judges as chain peers)', () => {
+  function withJudges(overrides: Partial<JudgeSectionConfig> = {}): JudgeSectionConfig {
+    return baseConfig({
+      judges: {
+        relay: { type: 'typesafe', baseUrl: 'https://relay.example/v1', apiKeyEnv: 'RELAY_KEY' },
+      },
+      ...overrides,
+    });
+  }
+
+  it('explicit judges.<name> as the only chain ref: no auto-prepend duplicate', () => {
+    const resolver = new JudgeResolver({
+      config: withJudges({
+        provider: undefined,
+        modelRef: undefined,
+        routes: { 'p.x': ['judges.relay'] },
+      }),
+      logger,
+      env: { RELAY_KEY: 'k' },
+    });
+    const chain = resolver.resolveChain('p.x');
+    expect(chain.tiers.map((t) => t.judgeId)).toEqual(['relay']);
+    expect(chain.noKeyRefs).toEqual([]);
+    expect(chain.unresolvableRefs).toEqual([]);
+  });
+
+  it('explicit ref inside fallbackTiers at position 2: chain order [builtin, judges]', () => {
+    const resolver = new JudgeResolver({
+      config: withJudges({
+        provider: 'opencode',
+        modelRef: 'jev-1.13-free',
+        fallbackTiers: ['judges.relay'],
+      }),
+      logger,
+      env: { RELAY_KEY: 'k' },
+    });
+    expect(resolver.resolveChain('tool.admission').tiers.map((t) => t.judgeId)).toEqual([
+      'opencode/jev-1.13-free',
+      'relay',
+    ]);
+  });
+
+  it('unreferenced entries keep the auto-prepend semantics', () => {
+    const resolver = new JudgeResolver({
+      config: baseConfig({
+        judges: {
+          placed: { type: 'typesafe', baseUrl: 'https://relay.example/v1', apiKeyEnv: 'RELAY_KEY' },
+          loose: { type: 'typesafe', baseUrl: 'https://relay.example/v2', apiKeyEnv: 'RELAY_KEY' },
+        },
+        provider: 'opencode',
+        modelRef: 'jev-1.13-free',
+        fallbackTiers: ['judges.placed'],
+      }),
+      logger,
+      env: { RELAY_KEY: 'k' },
+    });
+    // Only `placed` is referenced → `loose` auto-prepends above the builtin chain;
+    // `placed` stays exactly where fallbackTiers puts it.
+    expect(resolver.resolveChain('tool.admission').tiers.map((t) => t.judgeId)).toEqual([
+      'loose',
+      'opencode/jev-1.13-free',
+      'placed',
+    ]);
+  });
+
+  it("an entry referenced in one point's routes is NOT auto-prepended for another point", () => {
+    const resolver = new JudgeResolver({
+      config: withJudges({
+        provider: 'opencode',
+        modelRef: 'jev-1.13-free',
+        routes: { 'tool.risk': ['judges.relay'] },
+      }),
+      logger,
+      env: { RELAY_KEY: 'k' },
+    });
+    expect(resolver.resolveChain('tool.risk').tiers.map((t) => t.judgeId)).toEqual(['relay']);
+    // Other points do not see the entry at all (explicit placement is global).
+    expect(resolver.resolveChain('tool.admission').tiers.map((t) => t.judgeId)).toEqual([
+      'opencode/jev-1.13-free',
+    ]);
+  });
+
+  it('explicit ref to an unknown judges name → unresolvableRefs, other tiers still resolve', () => {
+    const resolver = new JudgeResolver({
+      config: withJudges({
+        provider: 'opencode',
+        modelRef: 'jev-1.13-free',
+        fallbackTiers: ['judges.ghost'],
+      }),
+      logger,
+      env: { RELAY_KEY: 'k' },
+    });
+    const chain = resolver.resolveChain('tool.admission');
+    // `ghost` does not exist → unresolvable; the untouched `relay` entry is not
+    // referenced anywhere, so it keeps its auto-prepend slot.
+    expect(chain.tiers.map((t) => t.judgeId)).toEqual(['relay', 'opencode/jev-1.13-free']);
+    expect(chain.unresolvableRefs).toEqual(['judges.ghost']);
+  });
+
+  it('explicit ref with a missing apiKeyEnv value → judges.<name> noKeyRef, no auto-prepend', () => {
+    const resolver = new JudgeResolver({
+      config: withJudges({
+        provider: 'opencode',
+        modelRef: 'jev-1.13-free',
+        fallbackTiers: ['judges.relay'],
+      }),
+      logger,
+      env: {},
+    });
+    const chain = resolver.resolveChain('tool.admission');
+    expect(chain.tiers.map((t) => t.judgeId)).toEqual(['opencode/jev-1.13-free']);
+    expect(chain.noKeyRefs).toEqual(['judges.relay']);
   });
 });
 

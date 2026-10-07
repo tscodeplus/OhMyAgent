@@ -9,13 +9,33 @@
  * API contract (implemented server-side in parallel; absence tolerated):
  * - GET  /api/judge/config → effective judge config + key status + classifier
  *   model enumeration. Missing endpoint / `available: false` → unavailable card.
- * - POST /api/judge/config → persists the judge: section (yaml hot-reloaded).
+ * - POST /api/judge/config → persists the judge: section (yaml hot-reloaded),
+ *   body = { enabled, provider, modelRef, fallbackTiers, modes, judges }.
+ * - POST /api/judge/key    → { provider, apiKey?, accountId? } per-field writes;
+ *   '' clears the field, omission leaves it untouched, values never returned.
  * - POST /api/judge/test   → golden sample (choice / noul / score), latency +
  *   the three answer shapes are shown tolerantly (missing fields → '—').
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, GripVertical, Plus, X } from 'lucide-react';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { apiRequest } from '../../utils/api';
 import { useToast } from '../ui/Toast';
 import Toggle from '../ui/Toggle';
@@ -23,7 +43,6 @@ import Select from '../ui/Select';
 import Input from '../ui/Input';
 import PasswordInput from '../ui/PasswordInput';
 import Spinner from '../ui/Spinner';
-import FallbackModelsEditor from './FallbackModelsEditor';
 import { SettingsSection, SettingsCard } from './SettingsSection';
 
 /* ───────── Domain types ───────── */
@@ -52,26 +71,32 @@ const JUDGE_POINT_IDS = [
   'notify.routing',
 ] as const;
 
-/** 5 builtin judge providers + 'custom' (judges: section of config.yaml). */
+/** The 5 builtin judge provider rows of the drag-sortable chain. */
 const JUDGE_PROVIDER_IDS = [
   'opencode',
   'typesafe',
   'vercel-ai-gateway',
   'openrouter',
   'cloudflare-workers-ai',
-  'custom',
 ] as const;
-type JudgeProviderId = (typeof JUDGE_PROVIDER_IDS)[number];
-const providerLabelKey = (id: string) =>
-  `settings.judge.providers.${(JUDGE_PROVIDER_IDS as readonly string[]).includes(id) ? id : 'custom'}`;
+const isBuiltinProvider = (id: string): id is (typeof JUDGE_PROVIDER_IDS)[number] =>
+  (JUDGE_PROVIDER_IDS as readonly string[]).includes(id);
 
-/* Editable subset of the judge: config section. */
+/* Editable subset of the judge: config section (plus custom relay judges). */
+interface CustomJudgeEntry {
+  name: string;
+  type: 'typesafe' | 'http';
+  baseUrl: string;
+  apiKeyEnv: string;
+  model: string;
+}
 interface JudgeDraft {
   enabled: boolean;
   provider: string;
   modelRef: string;
   fallbackTiers: string[];
   modes: Record<string, JudgeMode>;
+  judges: CustomJudgeEntry[];
 }
 
 /* Shapes tolerated from GET /api/judge/config. */
@@ -88,13 +113,15 @@ interface JudgeConfigPayload {
   modelRef?: string;
   fallbackTiers?: string[];
   modes?: Record<string, unknown>;
+  /** judge.judges: custom relay judges keyed by entry name. */
+  judges?: Record<string, unknown>;
   /** Server envelope: GET /api/judge/config returns { config, models, keyStatus }. */
   config?: Partial<JudgeConfigPayload>;
   /** Either an array of { id, keyConfigured } or a map providerId → configured. */
   providers?: Array<{ id: string; keyConfigured?: boolean }> | Record<string, unknown>;
   keyConfigured?: Record<string, unknown>;
-  /** Server shape: Record<provider, { envVars, fromConfig, envPresent, present }>. */
-  keyStatus?: Record<string, { present?: boolean } | boolean>;
+  /** Server shape: Record<provider, { envVars, present, accountId? }> or boolean map. */
+  keyStatus?: Record<string, unknown>;
   modelsByProvider?: Record<string, JudgeModelOption[]>;
   /** Server shape: Record<provider, string[]> of classifier ids; UI also tolerates option objects. */
   models?: Record<string, string[]> | JudgeModelOption[];
@@ -141,20 +168,42 @@ interface JudgeSettingsProps {
 
 /* ───────── Config payload parsing ───────── */
 
-function extractKeyStatus(payload: JudgeConfigPayload): Record<string, boolean> {
-  const map: Record<string, boolean> = {};
+interface JudgeKeyStatusEntry {
+  envVars: string[];
+  present: boolean;
+  /** Only meaningful for cloudflare-workers-ai (POST /api/judge/key contract). */
+  accountId?: { present?: boolean };
+}
+
+function extractKeyStatus(payload: JudgeConfigPayload): Record<string, JudgeKeyStatusEntry> {
+  const map: Record<string, JudgeKeyStatusEntry> = {};
+  const entry = (envVars: unknown, present: unknown, accountId: unknown): JudgeKeyStatusEntry => ({
+    envVars: Array.isArray(envVars)
+      ? envVars.filter((s): s is string => typeof s === 'string')
+      : [],
+    present: !!present,
+    accountId:
+      accountId && typeof accountId === 'object'
+        ? { present: !!(accountId as { present?: unknown }).present }
+        : undefined,
+  });
   if (Array.isArray(payload.providers)) {
-    for (const entry of payload.providers) {
-      if (entry && typeof entry.id === 'string') map[entry.id] = !!entry.keyConfigured;
+    for (const e of payload.providers) {
+      if (e && typeof e.id === 'string') map[e.id] = entry(undefined, e.keyConfigured, undefined);
     }
   } else if (payload.providers && typeof payload.providers === 'object') {
-    for (const [k, v] of Object.entries(payload.providers)) map[k] = !!v;
+    for (const [k, v] of Object.entries(payload.providers)) map[k] = entry(undefined, v, undefined);
   } else if (payload.keyConfigured && typeof payload.keyConfigured === 'object') {
-    for (const [k, v] of Object.entries(payload.keyConfigured)) map[k] = !!v;
-  } else if (payload.keyStatus && typeof payload.keyStatus === 'object') {
-    // Server envelope: Record<provider, { present }> or Record<provider, boolean>.
+    for (const [k, v] of Object.entries(payload.keyConfigured))
+      map[k] = entry(undefined, v, undefined);
+  }
+  if (payload.keyStatus && typeof payload.keyStatus === 'object') {
     for (const [k, v] of Object.entries(payload.keyStatus)) {
-      map[k] = typeof v === 'boolean' ? v : !!v?.present;
+      if (typeof v === 'boolean') map[k] = entry(undefined, v, undefined);
+      else if (v && typeof v === 'object') {
+        const o = v as { envVars?: unknown; present?: unknown; accountId?: unknown };
+        map[k] = entry(o.envVars, o.present, o.accountId);
+      }
     }
   }
   return map;
@@ -187,6 +236,21 @@ function extractModelOptions(
   return [];
 }
 
+/** judge.judges entries (custom relay judges) — defaults per the API contract. */
+function parseCustomJudges(raw: unknown): CustomJudgeEntry[] {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
+  return Object.entries(raw).map(([name, v]) => {
+    const o = v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
+    return {
+      name,
+      type: o.type === 'http' ? ('http' as const) : ('typesafe' as const),
+      baseUrl: typeof o.baseUrl === 'string' ? o.baseUrl : '',
+      apiKeyEnv: typeof o.apiKeyEnv === 'string' ? o.apiKeyEnv : '',
+      model: typeof o.model === 'string' ? o.model : 'jev-latest',
+    };
+  });
+}
+
 function draftFromPayload(payload: JudgeConfigPayload): JudgeDraft {
   const modes = payload.modes && typeof payload.modes === 'object' ? payload.modes : {};
   const defaultMode = isJudgeMode(modes.default) ? modes.default : 'shadow';
@@ -201,6 +265,7 @@ function draftFromPayload(payload: JudgeConfigPayload): JudgeDraft {
       ? payload.fallbackTiers.filter((s): s is string => typeof s === 'string')
       : [],
     modes: judgeModes,
+    judges: parseCustomJudges(payload.judges),
   };
 }
 
@@ -288,6 +353,173 @@ function errorToMessage(e: unknown): string {
   return String(e);
 }
 
+/* ───────── Judge chain derivation (pure functions of the draft) ───────── */
+
+/**
+ * The chain = [primary provider/modelRef, ...fallbackTiers refs]. Builtin
+ * providers are provider rows; refs of the form 'judges.<name>' place that
+ * judge.judges entry's row at that chain position. Entries never referenced
+ * by any ref load as rows at the TOP of the list — that mirrors the server's
+ * auto-prepend priority for unreferenced entries, and after the next save
+ * they become explicitly placed (same effective order). Rows are re-derived
+ * from the draft on every render (no parallel state), so the shared save/
+ * cancel flow can't desync.
+ */
+interface ChainProviderRow {
+  kind: 'provider';
+  id: string;
+  provider: (typeof JUDGE_PROVIDER_IDS)[number];
+  model: string;
+}
+/**
+ * A judge.judges entry as a chain row; draft.judges stays the source of
+ * truth for entry DATA — the chain order is encoded purely through refs.
+ */
+interface ChainJudgesRow {
+  kind: 'judges';
+  /** Sortable id 'judges:<name>' — renaming an entry just re-keys the row.
+   * Blank names get a positional id so two untitled entries never collide. */
+  id: string;
+  entry: CustomJudgeEntry;
+  /** Position inside draft.judges, for edit/remove handlers. */
+  entryIndex: number;
+}
+type ChainSortableRow = ChainProviderRow | ChainJudgesRow;
+
+/** A judges entry can judge only when it has both a name and a Base URL. */
+function judgesEntryUsable(entry: CustomJudgeEntry): boolean {
+  return entry.name.trim() !== '' && entry.baseUrl.trim() !== '';
+}
+
+function deriveChainRows(draft: JudgeDraft): { rows: ChainSortableRow[]; opaque: string[] } {
+  const rows: ChainSortableRow[] = [];
+  const opaque: string[] = [];
+  const placedProviders = new Set<string>();
+  const placedJudges = new Set<number>();
+
+  const judgesRow = (entryIndex: number, entry: CustomJudgeEntry): ChainJudgesRow => ({
+    kind: 'judges',
+    id: entry.name.trim() !== '' ? `judges:${entry.name.trim()}` : `judges:#${entryIndex}`,
+    entry,
+    entryIndex,
+  });
+
+  // Ordered refs: primary judge first, then the fallback tiers.
+  const refs: { ref: string; isPrimaryRef: boolean }[] = [];
+  if (draft.provider && draft.modelRef) {
+    refs.push({
+      ref:
+        draft.provider === 'judges'
+          ? `judges.${draft.modelRef}`
+          : `${draft.provider}/${draft.modelRef}`,
+      isPrimaryRef: true,
+    });
+  }
+  for (const ref of draft.fallbackTiers) refs.push({ ref, isPrimaryRef: false });
+
+  for (const { ref, isPrimaryRef } of refs) {
+    // 'judges.<name>' → that entry's row at this chain position.
+    if (ref.startsWith('judges.')) {
+      const wanted = ref.slice('judges.'.length).trim();
+      const idx = draft.judges.findIndex(
+        (j, i) => !placedJudges.has(i) && j.name.trim() !== '' && j.name.trim() === wanted,
+      );
+      if (idx >= 0 && draft.judges[idx]) {
+        placedJudges.add(idx);
+        rows.push(judgesRow(idx, draft.judges[idx]));
+        continue;
+      }
+    }
+    // 'provider/model' → a builtin provider row at this chain position.
+    const slashIdx = ref.indexOf('/');
+    const provider = slashIdx > 0 ? ref.slice(0, slashIdx) : '';
+    if (slashIdx > 0 && isBuiltinProvider(provider)) {
+      if (!placedProviders.has(provider)) {
+        placedProviders.add(provider);
+        rows.push({
+          kind: 'provider',
+          id: provider,
+          provider,
+          model: ref.slice(slashIdx + 1),
+        });
+        continue;
+      }
+    }
+    // Unresolved or malformed ref (incl. duplicate refs and legacy
+    // non-builtin primaries): pinned opaque row, preserved verbatim.
+    if (!isPrimaryRef || !opaque.includes(ref)) opaque.push(ref);
+  }
+
+  // Hand-edited judges entries never placed by any ref load at the TOP of the
+  // chain list (the server auto-prepends them above the whole chain).
+  const prepended: ChainSortableRow[] = [];
+  for (let i = 0; i < draft.judges.length; i++) {
+    const entry = draft.judges[i];
+    if (entry && !placedJudges.has(i)) prepended.push(judgesRow(i, entry));
+  }
+  // Builtin providers without a ref keep their row (empty model → not in chain).
+  for (const provider of JUDGE_PROVIDER_IDS)
+    if (!placedProviders.has(provider))
+      rows.push({ kind: 'provider', id: provider, provider, model: '' });
+  return { rows: [...prepended, ...rows], opaque };
+}
+
+/**
+ * Pure write-back from the ordered row list: the first USABLE row becomes the
+ * primary — a provider row holding a model → draft.provider + draft.modelRef,
+ * a judges row with name + baseUrl → provider='judges', modelRef=<entry name>;
+ * every LATER usable row appends a fallback ref ('provider/model' resp.
+ * 'judges.<name>'). Provider rows without a model and judges rows without
+ * name||baseUrl are skipped — their editor data still lives in draft.judges /
+ * stays for future edits. Opaque refs are appended verbatim at the end.
+ */
+function chainWriteBack(
+  rows: ChainSortableRow[],
+  opaque: string[],
+  prev: JudgeDraft,
+): Pick<JudgeDraft, 'provider' | 'modelRef' | 'fallbackTiers'> {
+  let provider = '';
+  let modelRef = '';
+  let primarySet = false;
+  const fallbackTiers: string[] = [];
+  for (const row of rows) {
+    if (row.kind === 'provider') {
+      if (!row.model) continue;
+      if (!primarySet) {
+        provider = row.provider;
+        modelRef = row.model;
+        primarySet = true;
+      } else {
+        fallbackTiers.push(`${row.provider}/${row.model}`);
+      }
+    } else {
+      if (!judgesEntryUsable(row.entry)) continue;
+      const name = row.entry.name.trim();
+      if (!primarySet) {
+        provider = 'judges';
+        modelRef = name;
+        primarySet = true;
+      } else {
+        fallbackTiers.push(`judges.${name}`);
+      }
+    }
+  }
+  fallbackTiers.push(...opaque);
+  // No row is usable: keep a legacy non-builtin (non-judges) primary untouched
+  // instead of clearing it (opaque rows above already preserve the ref).
+  if (
+    !primarySet &&
+    prev.provider &&
+    prev.modelRef &&
+    !isBuiltinProvider(prev.provider) &&
+    prev.provider !== 'judges'
+  ) {
+    provider = prev.provider;
+    modelRef = prev.modelRef;
+  }
+  return { provider, modelRef, fallbackTiers };
+}
+
 /* ───────── Presentational helpers ───────── */
 
 function ModeSegment({
@@ -334,18 +566,20 @@ function ModeSegment({
   );
 }
 
-function extractModelOptions_placeholder() {} // removed below
 /**
- * One judge provider group: header (status dot + label + current model) that is
- * collapsed by default; the body holds the API key editor and the provider's
- * model catalog. Selecting a model in a group makes it the judge provider.
+ * One draggable builtin judge provider row of the chain: grip handle +
+ * position number + key status dot + provider name + model chip (or a dimmed
+ * "not in chain" tag). Clicking the row body (not the grip) toggles the
+ * expandable group holding the key editor (and Account ID for Cloudflare)
+ * plus the provider's model Select. Selecting a model puts the provider into
+ * the chain; the empty placeholder removes it again.
  */
-function JudgeProviderGroup({
+function JudgeChainRow({
   providerId,
-  selected,
-  currentModel,
-  keyOk,
-  envVars,
+  index,
+  model,
+  primary,
+  keyStatus,
   modelLabel,
   freeBadge,
   models,
@@ -354,11 +588,11 @@ function JudgeProviderGroup({
   onSelectModel,
   onKeySaved,
 }: {
-  providerId: string;
-  selected: boolean;
-  currentModel: string;
-  keyOk: boolean;
-  envVars: string[];
+  providerId: (typeof JUDGE_PROVIDER_IDS)[number];
+  index: number;
+  model: string;
+  primary: boolean;
+  keyStatus: JudgeKeyStatusEntry | undefined;
   modelLabel: string;
   freeBadge: string;
   models: JudgeModelOption[];
@@ -368,10 +602,28 @@ function JudgeProviderGroup({
   onKeySaved: () => void;
 }) {
   const { t } = useTranslation('common');
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: providerId,
+  });
   const [keyDraft, setKeyDraft] = useState('');
   const [keySaving, setKeySaving] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
   const [keyJustSaved, setKeyJustSaved] = useState(false);
+  const [acctDraft, setAcctDraft] = useState('');
+  const [acctSaving, setAcctSaving] = useState(false);
+  const [acctError, setAcctError] = useState<string | null>(null);
+  const [acctJustSaved, setAcctJustSaved] = useState(false);
+
+  const keyOk = keyStatus?.present ?? false;
+  const envVars = keyStatus?.envVars ?? [];
+  const accountId = providerId === 'cloudflare-workers-ai' ? keyStatus?.accountId : undefined;
+
+  /** Provider catalog plus the row's current model id (hand-edited values stay selectable). */
+  const modelOptions = useMemo(() => {
+    const list = [...models];
+    if (model && !list.some((m) => m.id === model)) list.push({ id: model });
+    return list;
+  }, [models, model]);
 
   const saveKey = useCallback(async () => {
     setKeySaving(true);
@@ -393,47 +645,102 @@ function JudgeProviderGroup({
     }
   }, [keyDraft, providerId, onKeySaved]);
 
+  const saveAccountId = useCallback(async () => {
+    setAcctSaving(true);
+    setAcctError(null);
+    setAcctJustSaved(false);
+    try {
+      // Never send apiKey and accountId in one call: omission leaves untouched.
+      await apiRequest('/api/judge/key', {
+        method: 'POST',
+        body: JSON.stringify({ provider: providerId, accountId: acctDraft.trim() }),
+      });
+      setAcctDraft('');
+      setAcctJustSaved(true);
+      window.setTimeout(() => setAcctJustSaved(false), 2000);
+      onKeySaved();
+    } catch (e) {
+      setAcctError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAcctSaving(false);
+    }
+  }, [acctDraft, providerId, onKeySaved]);
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
   return (
     <div
+      ref={setNodeRef}
+      style={style}
       className={`rounded-lg border transition-colors ${
-        selected
+        primary
           ? 'border-blue-500 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-950/25'
-          : 'border-neutral-200 dark:border-neutral-800'
+          : 'border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900'
       }`}
     >
-      {/* Header — always visible, row click toggles the group */}
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors"
-      >
-        <ChevronRight
-          size={14}
-          className={`shrink-0 text-neutral-400 transition-transform ${expanded ? 'rotate-90' : ''}`}
-        />
+      {/* Header — grip drags, row body click toggles the group */}
+      <div className="flex items-center gap-1.5 px-2.5 py-2">
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          className="shrink-0 cursor-grab touch-none text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+          title={t('settings.websearch.dragToReorder')}
+        >
+          <GripVertical size={16} />
+        </button>
         <span
-          className={`h-2 w-2 shrink-0 rounded-full ${
-            keyOk ? 'bg-green-500' : 'bg-neutral-300 dark:bg-neutral-600'
-          }`}
-        />
-        <span
-          className={`flex-1 truncate text-[13px] font-medium ${
-            selected ? 'text-blue-700 dark:text-blue-300' : 'text-neutral-700 dark:text-neutral-200'
+          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+            primary
+              ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+              : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400'
           }`}
         >
-          {t(providerLabelKey(providerId))}
+          {index + 1}
         </span>
-        {selected && currentModel && (
-          <span className="shrink-0 font-mono text-[10px] text-neutral-500 dark:text-neutral-400">
-            {currentModel}
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex min-w-0 flex-1 items-center gap-2.5 py-1 text-left transition-colors"
+        >
+          <ChevronRight
+            size={14}
+            className={`shrink-0 text-neutral-400 transition-transform ${expanded ? 'rotate-90' : ''}`}
+          />
+          <span
+            className={`h-2 w-2 shrink-0 rounded-full ${
+              keyOk ? 'bg-green-500' : 'bg-neutral-300 dark:bg-neutral-600'
+            }`}
+          />
+          <span
+            className={`truncate text-[13px] font-medium ${
+              primary
+                ? 'text-blue-700 dark:text-blue-300'
+                : 'text-neutral-700 dark:text-neutral-200'
+            }`}
+          >
+            {t(`settings.judge.providers.${providerId}`)}
           </span>
-        )}
-        {keyOk && (
-          <span className="shrink-0 text-[10px] text-green-600 dark:text-green-400">
-            {t('settings.judge.keyConfigured')}
-          </span>
-        )}
-      </button>
+          {model ? (
+            <span className="ml-auto min-w-0 truncate font-mono text-[10px] text-neutral-500 dark:text-neutral-400">
+              {model}
+            </span>
+          ) : (
+            <span className="ml-auto shrink-0 rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500">
+              {t('settings.judge.notInChain')}
+            </span>
+          )}
+          {keyOk && (
+            <span className="shrink-0 text-[10px] text-green-600 dark:text-green-400">
+              {t('settings.judge.keyConfigured')}
+            </span>
+          )}
+        </button>
+      </div>
 
       {expanded && (
         <div className="space-y-3 border-t border-neutral-100 px-3 py-3 dark:border-neutral-800">
@@ -485,15 +792,63 @@ function JudgeProviderGroup({
             )}
           </div>
 
-          {/* Model catalog of this provider (selecting one makes it the judge) */}
-          {models.length > 0 ? (
+          {/* Cloudflare Workers AI also needs an Account ID (own save button). */}
+          {providerId === 'cloudflare-workers-ai' && (
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-neutral-600 dark:text-neutral-300">
+                {t('settings.judge.accountIdLabel')}
+              </label>
+              <div className="flex gap-2">
+                <div className="min-w-0 flex-1">
+                  <Input
+                    value={acctDraft}
+                    onChange={(e) => setAcctDraft(e.target.value)}
+                    placeholder={
+                      accountId?.present ? t('settings.judge.accountIdConfigured') : undefined
+                    }
+                    className="h-8 text-xs"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void saveAccountId()}
+                  disabled={acctSaving}
+                  className="shrink-0 rounded-md bg-blue-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {acctSaving
+                    ? t('settings.judge.keySaving')
+                    : acctDraft.trim() === ''
+                      ? t('settings.judge.keyClear')
+                      : t('settings.judge.keySave')}
+                </button>
+              </div>
+              {acctJustSaved && (
+                <p className="mt-1 text-[11px] text-green-600 dark:text-green-400">
+                  {t('settings.judge.keySaved')}
+                </p>
+              )}
+              {acctError && (
+                <p className="mt-1 text-[11px] text-red-600 dark:text-red-400">
+                  {t('settings.judge.keySaveFailed', { error: acctError })}
+                </p>
+              )}
+              {envVars.length > 0 && (
+                <p className="mt-1 text-[11px] text-neutral-500 dark:text-neutral-400">
+                  {t('settings.judge.keyEnvHint', { vars: envVars.join(', ') })}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Model catalog of this provider (empty choice removes it from the chain) */}
+          {modelOptions.length > 0 ? (
             <Select
               label={modelLabel}
-              value={selected ? currentModel : ''}
+              value={model}
               onChange={(e) => onSelectModel(e.target.value)}
               options={[
                 { value: '', label: `— ${modelLabel} —` },
-                ...models.map((m) => ({
+                ...modelOptions.map((m) => ({
                   value: m.id,
                   label: `${m.id}${m.free ? ` · ${freeBadge}` : ''}`,
                 })),
@@ -502,11 +857,197 @@ function JudgeProviderGroup({
           ) : (
             <Input
               label={modelLabel}
-              value={selected ? currentModel : ''}
+              value={model}
               onChange={(e) => onSelectModel(e.target.value)}
               placeholder="e.g. jev-1.13"
             />
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Preserved hand-edited tier ref that maps to none of the 5 builtin providers. */
+function OpaqueJudgeRow({ refText, index }: { refText: string; index: number }) {
+  const { t } = useTranslation('common');
+  return (
+    <div className="flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-2.5 py-2 dark:border-neutral-800 dark:bg-neutral-900">
+      <span className="w-4 shrink-0" />
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-[10px] font-bold text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+        {index + 1}
+      </span>
+      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-neutral-600 dark:text-neutral-300">
+        {refText}
+      </span>
+      <span className="shrink-0 rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500">
+        {t('settings.judge.preserved')}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * One custom relay judge (judge.judges entry) as a draggable chain row: grip
+ * handle + position number + readiness dot (green when the entry has name +
+ * baseUrl) + entry name (dimmed "unnamed" while blank) + model chip
+ * (entry.model || 'jev-latest'). A row missing name or baseUrl shows the
+ * notInChain tag — it cannot judge. The expandable body holds the entry
+ * editor fields (same set as the former separate section) plus the remove
+ * button.
+ */
+function JudgeChainJudgesRow({
+  id,
+  entry,
+  index,
+  primary,
+  expanded,
+  onToggle,
+  onChange,
+  onRemove,
+}: {
+  id: string;
+  entry: CustomJudgeEntry;
+  index: number;
+  primary: boolean;
+  expanded: boolean;
+  onToggle: () => void;
+  onChange: (next: CustomJudgeEntry) => void;
+  onRemove: () => void;
+}) {
+  const { t } = useTranslation('common');
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id,
+  });
+  const usable = judgesEntryUsable(entry);
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`rounded-lg border transition-colors ${
+        primary
+          ? 'border-blue-500 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-950/25'
+          : 'border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900'
+      }`}
+    >
+      {/* Header — grip drags, row body click toggles the group */}
+      <div className="flex items-center gap-1.5 px-2.5 py-2">
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          className="shrink-0 cursor-grab touch-none text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+          title={t('settings.websearch.dragToReorder')}
+        >
+          <GripVertical size={16} />
+        </button>
+        <span
+          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+            primary
+              ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+              : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400'
+          }`}
+        >
+          {index + 1}
+        </span>
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex min-w-0 flex-1 items-center gap-2.5 py-1 text-left transition-colors"
+        >
+          <ChevronRight
+            size={14}
+            className={`shrink-0 text-neutral-400 transition-transform ${expanded ? 'rotate-90' : ''}`}
+          />
+          <span
+            className={`h-2 w-2 shrink-0 rounded-full ${
+              usable ? 'bg-green-500' : 'bg-neutral-300 dark:bg-neutral-600'
+            }`}
+          />
+          <span
+            className={`truncate text-[13px] font-medium ${
+              primary
+                ? 'text-blue-700 dark:text-blue-300'
+                : 'text-neutral-700 dark:text-neutral-200'
+            }`}
+          >
+            {entry.name.trim() !== '' ? (
+              entry.name
+            ) : (
+              <span className="text-neutral-400 dark:text-neutral-500">
+                {t('settings.judge.customJudgeUnnamed')}
+              </span>
+            )}
+          </span>
+          {!usable && (
+            <span className="shrink-0 rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500">
+              {t('settings.judge.notInChain')}
+            </span>
+          )}
+          <span className="ml-auto shrink-0 font-mono text-[10px] text-neutral-500 dark:text-neutral-400">
+            {entry.model.trim() || 'jev-latest'}
+          </span>
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="space-y-3 border-t border-neutral-100 px-3 py-3 dark:border-neutral-800">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Input
+              label={t('settings.judge.customJudgeNameLabel')}
+              value={entry.name}
+              onChange={(e) => onChange({ ...entry, name: e.target.value })}
+              className="text-xs"
+            />
+            <Select
+              label={t('settings.judge.customJudgeTypeLabel')}
+              value={entry.type}
+              onChange={(e) =>
+                onChange({ ...entry, type: e.target.value === 'http' ? 'http' : 'typesafe' })
+              }
+              options={[
+                { value: 'typesafe', label: 'Typesafe' },
+                { value: 'http', label: 'HTTP(S) relay' },
+              ]}
+            />
+            <Input
+              label={t('settings.judge.customJudgeBaseUrlLabel')}
+              value={entry.baseUrl}
+              onChange={(e) => onChange({ ...entry, baseUrl: e.target.value })}
+              placeholder="https://relay.example.com"
+              className="text-xs"
+            />
+            <Input
+              label={t('settings.judge.customJudgeApiKeyEnvLabel')}
+              value={entry.apiKeyEnv}
+              onChange={(e) => onChange({ ...entry, apiKeyEnv: e.target.value })}
+              placeholder="e.g. MY_RELAY_API_KEY"
+              className="text-xs"
+            />
+            <Input
+              label={t('settings.judge.customJudgeModelLabel')}
+              value={entry.model}
+              onChange={(e) => onChange({ ...entry, model: e.target.value })}
+              placeholder="jev-latest"
+              className="text-xs"
+            />
+            <div className="flex items-end justify-end">
+              <button
+                type="button"
+                onClick={onRemove}
+                className="flex shrink-0 items-center justify-center rounded-md p-1.5 text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40"
+                title={t('settings.judge.customJudgeRemove')}
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -589,6 +1130,24 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
     async (opts?: { silent?: boolean }) => {
       const cur = draftRef.current;
       if (!cur || !dirtyRef.current) return;
+      /* Custom relay judges: blank-name entries are dropped silently; a named
+         entry without a Base URL blocks the save with an error toast. */
+      const named = cur.judges.filter((j) => j.name.trim() !== '');
+      const missingBaseUrl = named.find((j) => j.baseUrl.trim() === '');
+      if (missingBaseUrl) {
+        showToast(
+          t('settings.judge.customJudgeNeedsBaseUrl', { name: missingBaseUrl.name.trim() }),
+          'error',
+        );
+        return;
+      }
+      const judges: Record<string, Record<string, string>> = {};
+      for (const j of named) {
+        const out: Record<string, string> = { type: j.type, baseUrl: j.baseUrl.trim() };
+        if (j.apiKeyEnv.trim() !== '') out.apiKeyEnv = j.apiKeyEnv.trim();
+        if (j.model.trim() !== '') out.model = j.model.trim();
+        judges[j.name.trim()] = out;
+      }
       try {
         await apiRequest('/api/judge/config', {
           method: 'POST',
@@ -598,6 +1157,7 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
             modelRef: cur.modelRef,
             fallbackTiers: cur.fallbackTiers,
             modes: cur.modes,
+            judges,
           }),
         });
         // Re-read the persisted config so key status / model enums stay fresh;
@@ -641,6 +1201,53 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
     setDraft((prev) => (prev ? { ...prev, modes: { ...prev.modes, [key]: mode } } : prev));
   }, []);
 
+  /* ── Expanded chain row (provider or judges entry; default collapsed) ── */
+  const [openRow, setOpenRow] = useState<string | null>(null);
+
+  /* ── Judge chain (derived from the draft on every render) ── */
+
+  const chain = useMemo(() => (draft ? deriveChainRows(draft) : null), [draft]);
+  const chainRows = chain?.rows ?? [];
+  const chainOpaque = chain?.opaque ?? [];
+  /** First usable row (provider with a model, or judges entry with name + baseUrl). */
+  const primaryId =
+    chainRows.find((r) => (r.kind === 'provider' ? r.model !== '' : judgesEntryUsable(r.entry)))
+      ?.id ?? null;
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  /** Drag reorder across provider and judges rows; opaque refs stay pinned last. */
+  const handleChainDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const { rows, opaque } = deriveChainRows(prev);
+      const oldIndex = rows.findIndex((r) => r.id === active.id);
+      const newIndex = rows.findIndex((r) => r.id === over.id);
+      if (oldIndex < 0 || newIndex < 0) return prev;
+      return {
+        ...prev,
+        ...chainWriteBack(arrayMove(rows, oldIndex, newIndex), opaque, prev),
+      };
+    });
+  }, []);
+
+  /** Select / clear a provider's model ('' → provider leaves the chain). */
+  const setChainModel = useCallback((providerId: string, model: string) => {
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const { rows, opaque } = deriveChainRows(prev);
+      const nextRows = rows.map((r) =>
+        r.kind === 'provider' && r.provider === providerId ? { ...r, model } : r,
+      );
+      return { ...prev, ...chainWriteBack(nextRows, opaque, prev) };
+    });
+  }, []);
+
   /* ── Test ── */
 
   const runTest = useCallback(async () => {
@@ -663,33 +1270,41 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
     }
   }, []);
 
-  /* ── Provider groups (default collapsed) ── */
-
-  const [openProvider, setOpenProvider] = useState<string | null>(null);
-
-  /** Env var names per provider from the server keyStatus envelope ([] fallback). */
-  const providerEnvVars = useCallback(
-    (id: string): string[] => {
-      const raw = (payload?.keyStatus ?? {}) as Record<string, { envVars?: unknown }>;
-      const v = raw[id];
-      return Array.isArray(v?.envVars) ? (v.envVars as string[]) : [];
-    },
-    [payload],
-  );
-
   /* ── Derived render data ── */
 
   const keyStatus = useMemo(() => extractKeyStatus(payload ?? {}), [payload]);
-  const modelOptions = useMemo(
-    () => (draft ? extractModelOptions(payload, draft.provider) : []),
-    [payload, draft],
-  );
-  const selectedModel = modelOptions.find((m) => m.id === draft?.modelRef);
-  // Free tier: flagged by the config endpoint, or id suffix if the enum is absent.
-  const isFreeModel =
-    draft?.modelRef != null &&
-    draft.modelRef !== '' &&
-    (selectedModel?.free === true || draft.modelRef.endsWith('-free'));
+
+  const setJudgeEntry = useCallback((index: number, next: CustomJudgeEntry) => {
+    setDraft((prev) =>
+      prev ? { ...prev, judges: prev.judges.map((j, i) => (i === index ? next : j)) } : prev,
+    );
+  }, []);
+
+  const removeJudgeEntry = useCallback((index: number) => {
+    setDraft((prev) =>
+      prev ? { ...prev, judges: prev.judges.filter((_, i) => i !== index) } : prev,
+    );
+  }, []);
+
+  const addJudgeEntry = useCallback(() => {
+    setDraft((prev) =>
+      prev
+        ? {
+            ...prev,
+            judges: [
+              ...prev.judges,
+              {
+                name: '',
+                type: 'typesafe' as const,
+                baseUrl: '',
+                apiKeyEnv: '',
+                model: 'jev-latest',
+              },
+            ],
+          }
+        : prev,
+    );
+  }, []);
 
   /* ── Render ── */
 
@@ -702,18 +1317,16 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
 
   if (unavailable) {
     return (
-      <SettingsSection title={t('settings.judge.title')}>
-        <SettingsCard>
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-900/20">
-            <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-              {t('settings.judge.unavailableTitle')}
-            </p>
-            <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-              {t('settings.judge.unavailableDesc')}
-            </p>
-          </div>
-        </SettingsCard>
-      </SettingsSection>
+      <SettingsCard>
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-900/20">
+          <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+            {t('settings.judge.unavailableTitle')}
+          </p>
+          <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+            {t('settings.judge.unavailableDesc')}
+          </p>
+        </div>
+      </SettingsCard>
     );
   }
   if (!draft) {
@@ -725,62 +1338,97 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
   return (
     <div className="space-y-6">
       {/* ── Enable switch ── */}
-      <SettingsSection title={t('settings.judge.title')}>
-        <SettingsCard>
-          <div className="flex items-center justify-between gap-4">
-            <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
-              {t('settings.judge.enabledLabel')}
+      <SettingsCard>
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
+            {t('settings.judge.enabledLabel')}
+          </p>
+          <Toggle
+            checked={draft.enabled}
+            onChange={(v) => updateDraft({ enabled: v })}
+            ariaLabel={t('settings.judge.enabledLabel')}
+          />
+        </div>
+        {!draft.enabled && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-900/20">
+            <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+              {t('settings.judge.inactiveTitle')}
             </p>
-            <Toggle
-              checked={draft.enabled}
-              onChange={(v) => updateDraft({ enabled: v })}
-              ariaLabel={t('settings.judge.enabledLabel')}
-            />
+            <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+              {t('settings.judge.inactiveDesc')}
+            </p>
           </div>
-          {!draft.enabled && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-900/20">
-              <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                {t('settings.judge.inactiveTitle')}
-              </p>
-              <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-                {t('settings.judge.inactiveDesc')}
-              </p>
-            </div>
-          )}
-        </SettingsCard>
-      </SettingsSection>
+        )}
+      </SettingsCard>
 
       {/* Everything below is inert while the kernel is disabled (config still editable for save). */}
       <div className={`space-y-6 ${disabledRest ? 'pointer-events-none opacity-50' : ''}`}>
-        {/* ── Provider selector with per-provider key status ── */}
+        {/* ── Drag-sortable judge chain (providers + custom relay judges as peers) ── */}
         <SettingsSection title={t('settings.judge.providerAndModel')}>
           <SettingsCard>
-            <div className="space-y-1.5">
-              {JUDGE_PROVIDER_IDS.map((id) => (
-                <JudgeProviderGroup
-                  key={id}
-                  providerId={id}
-                  selected={draft.provider === id}
-                  currentModel={draft.provider === id ? draft.modelRef : ''}
-                  keyOk={keyStatus[id] === true}
-                  envVars={providerEnvVars(id)}
-                  modelLabel={t('settings.judge.modelLabel')}
-                  freeBadge={t('settings.judge.freeBadge')}
-                  models={extractModelOptions(payload, id)}
-                  expanded={openProvider === id}
-                  onToggle={() => setOpenProvider((prev) => (prev === id ? null : id))}
-                  onSelectModel={(model) => updateDraft({ provider: id, modelRef: model })}
-                  onKeySaved={() => {
-                    void fetchJudgeConfig({ silent: true });
-                  }}
-                />
+            <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+              {t('settings.judge.chainHint')}
+            </p>
+            <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+              {t('settings.judge.customJudgesHint')}
+            </p>
+            <div className="space-y-2">
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleChainDragEnd}
+              >
+                <SortableContext
+                  items={chainRows.map((r) => r.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {chainRows.map((row, idx) =>
+                    row.kind === 'provider' ? (
+                      <JudgeChainRow
+                        key={row.id}
+                        providerId={row.provider}
+                        index={idx}
+                        model={row.model}
+                        primary={primaryId === row.id}
+                        keyStatus={keyStatus[row.provider]}
+                        modelLabel={t('settings.judge.modelLabel')}
+                        freeBadge={t('settings.judge.freeBadge')}
+                        models={extractModelOptions(payload, row.provider)}
+                        expanded={openRow === row.id}
+                        onToggle={() => setOpenRow((prev) => (prev === row.id ? null : row.id))}
+                        onSelectModel={(model) => setChainModel(row.provider, model)}
+                        onKeySaved={() => {
+                          void fetchJudgeConfig({ silent: true });
+                        }}
+                      />
+                    ) : (
+                      <JudgeChainJudgesRow
+                        key={row.id}
+                        id={row.id}
+                        entry={row.entry}
+                        index={idx}
+                        primary={primaryId === row.id}
+                        expanded={openRow === row.id}
+                        onToggle={() => setOpenRow((prev) => (prev === row.id ? null : row.id))}
+                        onChange={(next) => setJudgeEntry(row.entryIndex, next)}
+                        onRemove={() => removeJudgeEntry(row.entryIndex)}
+                      />
+                    ),
+                  )}
+                </SortableContext>
+              </DndContext>
+              {chainOpaque.map((ref, i) => (
+                <OpaqueJudgeRow key={ref} refText={ref} index={chainRows.length + i} />
               ))}
+              <button
+                type="button"
+                onClick={addJudgeEntry}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-neutral-300 bg-transparent px-4 py-2.5 text-sm text-neutral-600 hover:border-neutral-400 hover:text-neutral-900 dark:border-neutral-700 dark:text-neutral-400 dark:hover:border-neutral-600 dark:hover:text-neutral-200"
+              >
+                <Plus size={16} />
+                {t('settings.judge.customJudgeAdd')}
+              </button>
             </div>
-            {isFreeModel && (
-              <p className="mt-3 text-[11px] text-amber-600 dark:text-amber-400">
-                {t('settings.judge.freeNote')}
-              </p>
-            )}
           </SettingsCard>
         </SettingsSection>
 
@@ -852,19 +1500,6 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
                 ))}
               </div>
             )}
-          </SettingsCard>
-        </SettingsSection>
-
-        {/* ── Fallback judge chain (judge.fallbackTiers) ── */}
-        <SettingsSection title={t('settings.judge.fallbackSection')}>
-          <SettingsCard>
-            <FallbackModelsEditor
-              value={draft.fallbackTiers}
-              onChange={(v) => updateDraft({ fallbackTiers: v })}
-            />
-            <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
-              {t('settings.judge.fallbackHint')}
-            </p>
           </SettingsCard>
         </SettingsSection>
 

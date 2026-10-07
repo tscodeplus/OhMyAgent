@@ -129,8 +129,8 @@ export interface AppConfig {
   };
   /** Custom provider definitions from custom_providers.yaml. */
   customProviders?: CustomProviderConfig[];
-  /** Per-provider API keys and base URLs. Keyed by provider name (e.g. "deepseek", "xiaomi"). */
-  providerKeys: Record<string, { apiKey?: string; baseUrl?: string }>;
+  /** Per-provider API keys, base URLs and (Cloudflare) account ids keyed by provider name (e.g. "deepseek", "xiaomi"). */
+  providerKeys: Record<string, { apiKey?: string; baseUrl?: string; accountId?: string }>;
   /** Fallback models tried in order when the primary model fails. Format: "provider/model-id" */
   fallbackModels: string[];
   /** Default reasoning level applied when not specified per-model. Any string accepted. */

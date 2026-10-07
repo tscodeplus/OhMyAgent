@@ -1130,14 +1130,20 @@ function mapCustomProviders(yamlVal: unknown): CustomProviderConfig[] | undefine
   return providers.length > 0 ? providers : undefined;
 }
 
-function mapProviderKeys(yamlVal: unknown): Record<string, { apiKey?: string; baseUrl?: string }> {
-  const result: Record<string, { apiKey?: string; baseUrl?: string }> = {};
+function mapProviderKeys(
+  yamlVal: unknown,
+): Record<string, { apiKey?: string; baseUrl?: string; accountId?: string }> {
+  const result: Record<string, { apiKey?: string; baseUrl?: string; accountId?: string }> = {};
   if (!yamlVal || typeof yamlVal !== 'object') return result;
   for (const [name, cfg] of Object.entries(yamlVal as Record<string, any>)) {
     const c = cfg as Record<string, any>;
     result[name] = {
       apiKey: c.api_key ? str(c.api_key, '', 'c.api_key') : undefined,
       baseUrl: c.base_url ? str(c.base_url, '', 'c.base_url') : undefined,
+      accountId:
+        c.account_id || c.accountId
+          ? str(c.account_id ?? c.accountId, '', 'c.account_id')
+          : undefined,
     };
   }
   return result;
@@ -1329,6 +1335,7 @@ export function jsConfigToYaml(
           pks[name] = {
             api_key: e.apiKey || e.api_key || undefined,
             base_url: e.baseUrl || e.base_url || undefined,
+            account_id: e.accountId || e.account_id || undefined,
           };
         }
         yaml.provider_keys = pks;
