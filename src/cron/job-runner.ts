@@ -4,6 +4,7 @@ import type { CronDeliveryRegistry } from './delivery-registry.js';
 import type { FooterConfig } from '../app/types.js';
 import { withTimeout } from '../shared/with-timeout.js';
 import { ToolTimeoutError } from '../shared/errors.js';
+import { judgeProactiveNotifyRoute, NOTIFY_LATER_DELAY_MS } from '../judge/hooks/notify-routing.js';
 
 // ── Exponential backoff schedule ──
 
@@ -72,8 +73,14 @@ export class JobRunner {
       const finalText = (text || '(no output)').trim();
       let deliveredToChat = false;
       try {
-        await this.deliver(job.channel, job.chatId, finalText, modelLabel, job.agentName);
-        deliveredToChat = true;
+        deliveredToChat = await this.deliver(
+          job.channel,
+          job.chatId,
+          finalText,
+          modelLabel,
+          job.agentName,
+          sessionId,
+        );
       } catch (e) {
         this.options.logger.warn(
           { jobId: job.id, channel: job.channel, err: e },
@@ -138,13 +145,65 @@ export class JobRunner {
     return result;
   }
 
+  /**
+   * Deliver one proactive notification (cron result / task completion text).
+   * Kernel M4 `notify.routing` consult (impl doc §4.10): in active mode the
+   * judged route may defer or withhold the delivery; shadow/off/fallback
+   * routes collapse to 'now' (the current immediate routing).
+   *
+   * Returns whether the notification was (immediately) delivered — 'later'
+   * returns false and schedules a single deferred attempt.
+   */
   private async deliver(
     channel: string,
     chatId: string,
     text: string,
     modelLabel: string,
     agentName?: string,
-  ): Promise<void> {
+    sessionId?: string,
+  ): Promise<boolean> {
+    const route = await judgeProactiveNotifyRoute({
+      sessionId,
+      kind: 'cron-result',
+      channel,
+      chatId,
+      textPreview: text.slice(0, 300),
+      logger: this.options.logger,
+    });
+    if (route === 'never') {
+      this.options.logger.info(
+        { channel, chatId, sessionId },
+        '[job-runner] notify.routing judged never — withholding proactive delivery',
+      );
+      return false;
+    }
+    if (route === 'later') {
+      // One best-effort deferred attempt (deliverNow already logs failures).
+      // No judge consult on the deferred pass — the route decision is applied
+      // exactly once per notification.
+      const timer = setTimeout(() => {
+        this.deliverNow(channel, chatId, text, modelLabel, agentName).catch((err) =>
+          this.options.logger.warn(
+            { err, channel, chatId, sessionId },
+            '[job-runner] deferred (notify.routing later) delivery failed',
+          ),
+        );
+      }, NOTIFY_LATER_DELAY_MS);
+      // The job run must not keep the process alive just for the deferral.
+      timer.unref?.();
+      return false;
+    }
+    return await this.deliverNow(channel, chatId, text, modelLabel, agentName);
+  }
+
+  /** Route initialization for tests / direct callers: no judge consult. */
+  private async deliverNow(
+    channel: string,
+    chatId: string,
+    text: string,
+    modelLabel: string,
+    agentName?: string,
+  ): Promise<boolean> {
     this.options.logger.info(
       { channel, chatId, textLen: text.length },
       '[job-runner] attempting delivery',
@@ -155,7 +214,7 @@ export class JobRunner {
         { channel, chatId, availableChannels: this.deliveryRegistry.listChannels() },
         '[job-runner] No delivery client registered for channel, skipping cron result delivery',
       );
-      return;
+      return false;
     }
     this.options.logger.info(
       { channel, chatId },
@@ -163,6 +222,7 @@ export class JobRunner {
     );
     await client.deliver({ chatId, text, modelLabel, agentName, footer: this.options.footer });
     this.options.logger.info({ channel, chatId }, '[job-runner] delivery complete');
+    return true;
   }
 
   /**

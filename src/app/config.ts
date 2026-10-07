@@ -163,6 +163,8 @@ const judgeEntrySchema = z
       .string()
       .regex(/^[A-Za-z_][A-Za-z0-9_]*$/)
       .optional(),
+    /** System One model id the relay serves. Default: 'jev-latest' (resolver). */
+    model: z.string().optional(),
   })
   .strict()
   .refine(
@@ -198,6 +200,8 @@ export const judgeSectionSchema = z.object({
           keepThreshold: z.coerce.number().min(0).max(1).default(0.75),
         })
         .default({}),
+      /** context.compact: 'judged' enables pre-compaction pruning (kernel M2); 'llm' is the current behavior. */
+      compact: z.enum(['llm', 'judged']).default('llm'),
     })
     .default({}),
   timeoutMs: z.coerce.number().int().positive().default(4000),

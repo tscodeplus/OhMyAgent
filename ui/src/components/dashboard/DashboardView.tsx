@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { BarChart3, MessageSquare, Activity } from 'lucide-react';
 import { apiRequest } from '../../utils/api';
 import ChannelStatus from './ChannelStatus';
+import JudgeLedger from './JudgeLedger';
 import Spinner from '../ui/Spinner';
 
 interface DashboardStats {
@@ -105,6 +106,14 @@ export default function DashboardView() {
           {t('dashboard.channelStatus')}
         </h2>
         <ChannelStatus />
+      </div>
+
+      {/* Judge ledger (M4): read-only recent verdicts panel */}
+      <div className="mt-8">
+        <h2 className="mb-4 text-[13px] font-semibold text-neutral-700 dark:text-neutral-300">
+          {t('dashboard.judgeLedger.title')}
+        </h2>
+        <JudgeLedger />
       </div>
     </div>
   );

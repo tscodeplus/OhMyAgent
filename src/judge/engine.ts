@@ -269,7 +269,7 @@ export class JudgeEngine {
       }
 
       // ── Judged ──
-      if (this.freeJev) this.freeJev.maybeNotice(tier.judgeId);
+      if (this.freeJev) this.freeJev.maybeNotice(tier.judgeId, call.sessionId);
       this.breaker.recordSuccess(spec.id);
       const verdict = this.finish(spec, call, started, mode, {
         source: 'judge',

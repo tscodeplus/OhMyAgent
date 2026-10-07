@@ -228,3 +228,109 @@ describe('compressContext', () => {
     expect(text).toContain('Truncated');
   });
 });
+
+// ---------------------------------------------------------------------------
+// kernel M2 `context.compact`: judged pre-compaction prune
+// ---------------------------------------------------------------------------
+
+describe('compressContext judgedPrune (context.compact)', () => {
+  beforeEach(() => {
+    mockAuxLLMCall.mockReset();
+  });
+
+  // Ten ~130-char messages: ~325 transcript tokens, above the 200-token
+  // threshold (contextWindow 300 - reserve 100); keepRecentTokens 50 puts the
+  // cut point at index 8, so the compressible region is messages 0..7.
+  function makeTriggeringMessages(count = 10): any[] {
+    return Array.from({ length: count }, (_, i) =>
+      makeUserMessage(
+        `message number ${i} with enough text to consume tokens and trigger compression here plus some extra padding`,
+      ),
+    );
+  }
+
+  const triggeringInput = {
+    ...baseInput,
+    contextWindow: 300,
+    settings: { reserveTokens: 100, keepRecentTokens: 50 },
+  };
+
+  it('skips the LLM summarization entirely when the prune clears the watermark', async () => {
+    const msgs = makeTriggeringMessages();
+    // Keep 2 of the 8 compressible messages → ~66 pruned + ~66 recent tokens,
+    // below the 200-token watermark.
+    mockAuxLLMCall.mockResolvedValue('## Goals\nshould never be reached');
+    const judgedPrune = async (oldMessages: any[]) => ({
+      keptMessages: oldMessages.slice(0, 2),
+    });
+
+    const result = await compressContext({ ...triggeringInput, messages: msgs, judgedPrune });
+
+    expect(mockAuxLLMCall).not.toHaveBeenCalled(); // summary-free claim
+    expect(result.pruned).toBe(true);
+    expect(result.summaryMessage).toBeNull();
+    expect(result.summary).toBe('');
+    // kept old messages + the untouched recent tail
+    expect(result.prunedMessages).toHaveLength(4);
+    expect(result.prunedMessages![0]).toBe(msgs[0]);
+    expect(result.prunedMessages![3]).toBe(msgs[9]);
+  });
+
+  it('runs the LLM summary over the PRUNED set when the prune alone is not enough', async () => {
+    const msgs = makeTriggeringMessages();
+    // Keep 7 of 8 → still above the watermark → LLM summarization continues.
+    mockAuxLLMCall.mockResolvedValue('## Goals\n condensed');
+    const judgedPrune = async (oldMessages: any[]) => ({
+      keptMessages: oldMessages.filter((m: any) => !m.content[0].text.includes('number 7 ')),
+    });
+
+    const result = await compressContext({ ...triggeringInput, messages: msgs, judgedPrune });
+
+    expect(mockAuxLLMCall).toHaveBeenCalledTimes(1);
+    expect(result.summary).toBe('## Goals\n condensed');
+    expect(result.compressedIndex).toBe(8); // split index unchanged by the prune
+    const call = mockAuxLLMCall.mock.calls[0]![1] as { userPrompt: string };
+    expect(call.userPrompt).toContain('number 0 ');
+    expect(call.userPrompt).not.toContain('number 7 '); // dropped segment not summarized
+  });
+
+  it('keeps the current LLM path byte-identical when judgedPrune prunes nothing', async () => {
+    const msgs = makeTriggeringMessages();
+    mockAuxLLMCall.mockResolvedValue('## Goals\n full judge summary');
+    const judgedPrune = async (_oldMessages: any[]) => ({
+      keptMessages: _oldMessages, // keep-all — nothing dropped
+    });
+
+    const result = await compressContext({ ...triggeringInput, messages: msgs, judgedPrune });
+
+    expect(mockAuxLLMCall).toHaveBeenCalledTimes(1);
+    expect(result.pruned).toBeUndefined();
+    expect(result.prunedMessages).toBeUndefined();
+    expect(result.summary).toBe('## Goals\n full judge summary');
+  });
+
+  it('degrades to the untouched LLM path when judgedPrune returns undefined', async () => {
+    const msgs = makeTriggeringMessages();
+    mockAuxLLMCall.mockResolvedValue('## Goals\n plain path');
+    const judgedPrune = async (_oldMessages: any[]) => undefined; // shadow / gray / fallback
+
+    const result = await compressContext({ ...triggeringInput, messages: msgs, judgedPrune });
+
+    expect(mockAuxLLMCall).toHaveBeenCalledTimes(1);
+    expect(result.pruned).toBeUndefined();
+    expect(result.summary).toBe('## Goals\n plain path');
+  });
+
+  it('degrades to the untouched LLM path when judgedPrune throws', async () => {
+    const msgs = makeTriggeringMessages();
+    mockAuxLLMCall.mockResolvedValue('## Goals\n after prune failure');
+    const judgedPrune = async (_oldMessages: any[]) => {
+      throw new Error('prune hook exploded');
+    };
+
+    const result = await compressContext({ ...triggeringInput, messages: msgs, judgedPrune });
+
+    expect(mockAuxLLMCall).toHaveBeenCalledTimes(1);
+    expect(result.summary).toBe('## Goals\n after prune failure');
+  });
+});

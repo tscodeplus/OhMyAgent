@@ -12,6 +12,13 @@ import { i18n } from '../i18n/i18n-service.js';
 import type { Agent } from '../pi-mono/agent/agent.js';
 import type { AgentEvent, AgentMessage } from '../pi-mono/agent/types.js';
 import { setSessionAgent, clearSessionAgent, setTurnTaskHint } from './agent-context.js';
+import { resetTurnDrift } from '../judge/decisions/turn-drift.js';
+import {
+  TURN_COMPLETION_POINT_ID,
+  judgeTurnCompletion,
+  lastAssistantTextOf,
+} from '../judge/decisions/turn-completion.js';
+import { turnDriftToolCalls } from '../judge/decisions/turn-drift.js';
 import {
   judgeIntentAtTurnStart,
   judgeSkillsDisclosure,
@@ -355,6 +362,9 @@ export class AgentService {
     if (judgeEngine) {
       try {
         setTurnTaskHint(sessionId, input.slice(0, 200));
+        // Kernel M3: reset the per-turn drift counters (state for the
+        // prepareNextTurnWithContext drift check in agent-factory).
+        resetTurnDrift(sessionId);
         const intent = await judgeIntentAtTurnStart({
           engine: judgeEngine,
           message: input,
@@ -715,6 +725,33 @@ export class AgentService {
         this.detectAndOptimize(runtime, sessionId, null).catch((err) => {
           this.persistence?.logger.warn({ err }, 'Harness optimization failed');
         });
+      }
+
+      // ── Jev kernel (M3): turn.completion — one verification nudge at most ──
+      // Judged only in active mode; runs on tool-bearing turns whose closing
+      // statement cites no verification. One followUp continuation card.
+      try {
+        const judgeEngine = this.getServices?.()?.judge;
+        if (judgeEngine && judgeEngine.modeFor(TURN_COMPLETION_POINT_ID) !== 'off') {
+          const hadToolCalls =
+            turnDriftToolCalls(sessionId) > 0 ||
+            this.extractToolCalls(this.currentTurnMessages(runtime)).toolCalls.length > 0;
+          const judgedCompletion = await judgeTurnCompletion({
+            engine: judgeEngine,
+            sessionId,
+            lastAssistantText: lastAssistantTextOf(agent.state.messages),
+            hadToolCalls,
+          });
+          if (judgedCompletion.nudgedMessage && runtime.turnContext.chatId) {
+            await this.followUp(sessionId, judgedCompletion.nudgedMessage);
+            this.persistence?.logger?.info(
+              { sessionId },
+              'turn.completion judged — one verification nudge queued',
+            );
+          }
+        }
+      } catch (err) {
+        this.persistence?.logger?.debug({ err, sessionId }, 'turn.completion judged check skipped');
       }
 
       return agent;

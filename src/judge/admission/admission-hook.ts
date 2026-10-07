@@ -38,6 +38,7 @@ import {
 import { foldTestLogBlocks } from './testlog-fold-rules.js';
 import { activeSkillForSession } from '../../agent/skill-activator.js';
 import { getTurnTaskHint } from '../../agent/agent-context.js';
+import { screenExternalToolResult } from '../hooks/safety-injection-screen.js';
 
 /** Jev-1.13 contextWindow is ~32K tokens — a state over ~24K chars is split into sequential batches. */
 const STATE_CHAR_CAP = 24_000;
@@ -164,6 +165,18 @@ export async function admitToolResult(input: AdmitToolResultInput): Promise<Tool
   if (mergedText.length === 0) return result;
 
   let working = mergedText;
+
+  // ── kernel M3 `injection.screen`: per-paragraph screening of external results ──
+  // web_fetch / mcp__* results only; runs BEFORE admission so judged-AI-directed
+  // instruction segments are replaced (one-line note) before chunk admission.
+  // Gated + fail-closed inside the hook module (src/judge/hooks/safety-injection-screen.ts).
+  working = await screenExternalToolResult({
+    engine,
+    toolName: input.toolName,
+    sessionId: input.sessionId,
+    text: working,
+    logger: input.logger,
+  });
 
   // ── test-log folding: pure rules, plus the judged pass in 'jev' mode ──
   const foldMode = features?.testLogFold ?? 'off';

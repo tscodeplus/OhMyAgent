@@ -68,6 +68,8 @@ import { JudgeLedger } from '../judge/ledger.js';
 import { JudgeCircuitBreaker } from '../judge/circuit-breaker.js';
 import { JudgeResolver } from '../judge/judge-resolver.js';
 import { FreeJevMonitor } from '../judge/free-jev.js';
+import { setJudgeEngineResolver } from '../judge/engine-lookup.js';
+import { createFreeJevNoticeSender } from '../judge/hooks/free-jev-notice.js';
 import { createFeishuServices } from './composers/feishu-services.js';
 import { SubscriptionService } from './subscription/subscription-service.js';
 import { configEventBus } from './config-event-bus.js';
@@ -636,14 +638,24 @@ async function runBootstrap(): Promise<BootstrapResult> {
   // ── Jev judgment kernel (MyDocs/JEV_JUDGE_KERNEL_PLAN.md M0) ──
   // Present only when `judge.enabled` resolves to a classifier model; every
   // failure here only logs — the judge must never crash bootstrap.
+  const sendFreeJevNotice = createFreeJevNoticeSender({
+    registry: cronDeliveryRegistry,
+    logger,
+  });
   const judgeLedger = new JudgeLedger({ logger });
   const judgeBreaker = new JudgeCircuitBreaker();
+  // Free-Jev daily privacy notice (impl doc §3.3 + §9 row 7): once per user
+  // per day while jev-1.13-free actually answers, via the channel delivery
+  // clients (CronDeliveryRegistry). Noticed-on state persists as
+  // ledger-adjacent metadata next to the JSONL files so a restart does not
+  // repeat the notice.
   const judgeFreeJev = new FreeJevMonitor({
-    onNotice: () => {
-      // Host-injected notice channel — the Feishu/SystemOne wiring lands with
-      // the phase-1 hook points (impl doc §3.3); log for now.
-      logger.info('Judge: free Jev tier is answering today — judged content is sent to OpenCode');
-    },
+    onNotice: sendFreeJevNotice,
+    stateFile: path.join(
+      path.dirname(config.database.path),
+      'judge-ledger',
+      'free-jev-notice.json',
+    ),
   });
   const buildJudgeEngine = (cfg: AppConfig): JudgeEngine | undefined => {
     try {
@@ -688,6 +700,12 @@ async function runBootstrap(): Promise<BootstrapResult> {
     }
   };
   const judge = buildJudgeEngine(config);
+
+  // Kernel hooks (memory services / context transform / approval path) read
+  // the engine through a module-level resolver; hot-reload rebuilds swap the
+  // same ref so every hook sees the fresh engine without re-composition.
+  const judgeRef: { engine: JudgeEngine | undefined } = { engine: judge };
+  setJudgeEngineResolver(() => judgeRef.engine);
 
   // ─── Register skill management tools (deferrable via tool_search) ────
 
@@ -797,6 +815,14 @@ async function runBootstrap(): Promise<BootstrapResult> {
       wsManager.broadcast(msg);
       logger.info({ chatId }, '[cron-delivery:webui] broadcast done');
     },
+    // Plain-text one-liner without the reminder card chrome (system notice).
+    async deliverNotice({ chatId, text }) {
+      logger.info(
+        { chatId, textLen: text.length, connectedClients: wsManager.connectedCount },
+        '[cron-delivery:webui] broadcasting notice',
+      );
+      wsManager.broadcast({ type: 'system_notice', chatId, text });
+    },
   });
 
   // ─── WebUI serving (single port — same as API server) ───
@@ -863,6 +889,7 @@ async function runBootstrap(): Promise<BootstrapResult> {
       const rebuilt = buildJudgeEngine(newConfig);
       services.judge = rebuilt;
       if (servicesRef.current) servicesRef.current.judge = rebuilt;
+      judgeRef.engine = rebuilt;
     }
 
     // Update servicesRef so tools reading ctx.services.config see new values

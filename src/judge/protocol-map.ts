@@ -5,8 +5,103 @@
  * behavior (plan §7.5 — never silently normalize into "plausible" answers).
  */
 
-import type { ClassifierAnswer, ClassifierQuestion } from '@earendil-works/pi-ai';
-import type { ChoiceQ, JudgeAnswer, JudgeQuestion, NoulQ, ScoreQ } from './types.js';
+import type {
+  ClassifierAnswer,
+  ClassifierApi,
+  ClassifierContext,
+  ClassifierModel,
+  ClassifierOptions,
+  ClassifierQuestion,
+  ClassifierResult,
+} from '@earendil-works/pi-ai';
+import {
+  classifySystemOne,
+  isRecord,
+  type SystemOneTransport,
+} from '../pi-mono/ai/api/system-one-shared.js';
+import type {
+  ChoiceQ,
+  JudgeAnswer,
+  JudgeEntryConfig,
+  JudgeQuestion,
+  NoulQ,
+  ScoreQ,
+} from './types.js';
+
+// ─── Custom relay judges (plan §8.1 `judge.judges`, milestone M5) ──────────
+
+/** Default System One model id a relay judge is assumed to serve (entry `model` overrides). */
+export const CUSTOM_JUDGE_DEFAULT_MODEL = 'jev-latest';
+
+/** Classifier api id tagged onto custom `http`-type judge results (open ClassifierApi union). */
+export const SYSTEM_ONE_HTTP_API = 'system-one-http';
+
+/**
+ * Wire transports for the two custom-judge protocols (plan §8.1 `judges` entries):
+ * - `typesafe`: the typesafe-system-one envelope — POST `<baseUrl>/systemone` with
+ *   `{ model, state, questions }` (the exact wire OpenCode/OpenRouter serve);
+ * - `http`: the plain System One wire — POST `baseUrl` verbatim with
+ *   `{ state, questions }`, expecting `{ answers, usage }` back.
+ * Both share classifySystemOne's fail-closed answer parsing and never reject.
+ */
+export function customJudgeTransport(type: JudgeEntryConfig['type']): SystemOneTransport {
+  if (type === 'typesafe') {
+    return {
+      api: 'typesafe-system-one',
+      label: 'Custom typesafe relay',
+      url: (model) => new URL('systemone', `${model.baseUrl.replace(/\/+$/u, '')}/`),
+      payload: (model, request) => ({ model: model.id, ...request }),
+      output: (body) => {
+        if (!isRecord(body))
+          throw new Error('Custom typesafe relay returned an unexpected response');
+        return body;
+      },
+    };
+  }
+  return {
+    api: SYSTEM_ONE_HTTP_API,
+    label: 'System One HTTP relay',
+    url: (model) => new URL(model.baseUrl),
+    payload: (_model, request) => request,
+    output: (body) => {
+      if (!isRecord(body)) throw new Error('System One HTTP relay returned an unexpected response');
+      return body;
+    },
+  };
+}
+
+/** The synthetic classifier model entry a custom judge tier classifies against. */
+export function customJudgeModel(entry: JudgeEntryConfig): ClassifierModel<ClassifierApi> {
+  return {
+    type: 'classifier',
+    id: entry.model || CUSTOM_JUDGE_DEFAULT_MODEL,
+    name: `Custom judge (${entry.type})`,
+    api: customJudgeTransport(entry.type).api,
+    provider: 'custom-judge',
+    baseUrl: entry.baseUrl ?? '',
+    input: ['text'],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 32000,
+  };
+}
+
+/**
+ * Classify through a custom relay judge entry (JudgeResolver builds the tier).
+ * `options.apiKey` must already be resolved from the entry's `apiKeyEnv`;
+ * classifySystemOne turns a missing key into a `stopReason: "error"` result.
+ */
+export function classifyCustomJudge(
+  entry: JudgeEntryConfig,
+  context: ClassifierContext,
+  options: ClassifierOptions | undefined,
+): Promise<ClassifierResult> {
+  return classifySystemOne(
+    customJudgeTransport(entry.type),
+    customJudgeModel(entry),
+    context,
+    options,
+  );
+}
 
 /**
  * OhMyAgent question → pi-mono ClassifierQuestion.

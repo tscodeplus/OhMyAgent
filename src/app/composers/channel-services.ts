@@ -71,6 +71,15 @@ function createFeishuCronDelivery(
       const cardId = await feishuClient.createCard(cardData);
       await feishuClient.sendCardByCardId(chatId, cardId);
     },
+    // Plain-text one-liner without the cron card/footer chrome (system notice).
+    async deliverNotice({ chatId, text }) {
+      await feishuClient.sendMessage({
+        receive_id_type: 'chat_id',
+        receive_id: chatId,
+        msg_type: 'text',
+        content: JSON.stringify({ text }),
+      });
+    },
   };
 }
 

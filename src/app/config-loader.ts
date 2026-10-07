@@ -469,6 +469,9 @@ function buildJudgeSection(jgCfg: YamlNode): Record<string, unknown> | undefined
                     ),
                   }
                 : {}),
+              ...(entry?.model
+                ? { model: str(entry.model, '', `jgCfg?.judges?.${name}?.model`) }
+                : {}),
             },
           ]),
         )

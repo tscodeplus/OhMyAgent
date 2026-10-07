@@ -29,6 +29,7 @@ import { writeFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { i18n } from '../../src/i18n/index.js';
+import { triageGroupGateway } from '../../src/judge/hooks/channel-triage.js';
 import { ChatQueue } from '../channel-feishu/chat-queue.js';
 
 export function setupMessageHandlers(
@@ -71,16 +72,23 @@ export function setupMessageHandlers(
     if (!channelCtx) return;
 
     if (!isAllowed(channelCtx, config)) return;
-    if (
-      isGroup(channelCtx) &&
-      !isMentioningBot(ctx, botUsername) &&
-      !isReplyToBot(ctx as any, botUsername)
-    )
-      return;
 
     const text = channelCtx.message.text;
     const sessionKey = `telegram:${(ctx as any).chat.id}`;
     const chatId = String((ctx as any).chat.id);
+
+    // Group gate (@mention baseline overridable by judged channel.triage)
+    if (isGroup(channelCtx)) {
+      const mentioned = isMentioningBot(ctx, botUsername) || isReplyToBot(ctx as any, botUsername);
+      const gate = await triageGroupGateway({
+        sessionId: sessionKey,
+        text,
+        mentionedBot: mentioned,
+        logger,
+      });
+      if (gate === 'silent') return;
+      if (!mentioned && gate !== 'respond') return;
+    }
 
     // ── /start — Telegram-specific welcome ──
     if (text === '/start' || text === '/start@' + botUsername) {
@@ -213,12 +221,20 @@ export function setupMessageHandlers(
       if (!channelCtx) return;
 
       if (!isAllowed(channelCtx, config)) return;
-      if (
-        isGroup(channelCtx) &&
-        !isMentioningBot(ctx, botUsername) &&
-        !isReplyToBot(ctx as any, botUsername)
-      )
-        return;
+
+      // Group gate (@mention baseline overridable by judged channel.triage)
+      if (isGroup(channelCtx)) {
+        const mentioned =
+          isMentioningBot(ctx, botUsername) || isReplyToBot(ctx as any, botUsername);
+        const gate = await triageGroupGateway({
+          sessionId: `telegram:${(ctx as any).chat?.id ?? ''}`,
+          text: channelCtx.message.text,
+          mentionedBot: mentioned,
+          logger,
+        });
+        if (gate === 'silent') return;
+        if (!mentioned && gate !== 'respond') return;
+      }
 
       const chatIdNum = (ctx as any).chat?.id;
       if (!chatIdNum) return;

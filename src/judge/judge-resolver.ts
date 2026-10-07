@@ -18,6 +18,13 @@
  * OPENROUTER_API_KEY, CLOUDFLARE_API_KEY + CLOUDFLARE_ACCOUNT_ID). A chain
  * member without its key is dropped and warn-reported once per startup, not
  * per call; the engine records fallbackReason `'no-key'`.
+ *
+ * Custom relay judges (plan §8.1 `judge.judges`, milestone M5): every entry
+ * (record order) is auto-prepended ABOVE the built-in chain — including above
+ * any `routes[pointId]` override. judgeId = entry name; the wire model id comes
+ * from the entry's `model` (default CUSTOM_JUDGE_DEFAULT_MODEL). Keys are read
+ * only from the entry's `apiKeyEnv` env var name — config.yaml stays the single
+ * source of truth, no provider/env probing.
  */
 
 import {
@@ -35,7 +42,8 @@ import { builtinModels, getBuiltinClassifierModel } from '../pi-mono/ai/provider
 import type { CustomProviderConfig } from '../app/types.js';
 import type { Logger } from 'pino';
 import { FREE_JEV_MODEL_ID } from './free-jev.js';
-import { JudgeError, type JudgeTier } from './types.js';
+import { classifyCustomJudge } from './protocol-map.js';
+import { JudgeError, type JudgeEntryConfig, type JudgeTier } from './types.js';
 
 /** Env-var names each judge provider reads — mirrors pi-mono env-api-keys + the Cloudflare account id. */
 export const JUDGE_PROVIDER_ENV_KEYS: Record<string, readonly string[]> = {
@@ -152,7 +160,9 @@ export class JudgeResolver {
 
   /**
    * Resolve the chain for one decision point. Never throws: unresolvable refs
-   * land in `unresolvableRefs`.
+   * land in `unresolvableRefs`. Custom relay judges (config record order) are
+   * auto-prepended ABOVE the built-in chain, including above any routes
+   * override; they report by entry name as `judges.<name>`.
    */
   resolveChain(pointId: string): {
     tiers: JudgeTier[];
@@ -162,6 +172,33 @@ export class JudgeResolver {
     const tiers: JudgeTier[] = [];
     const noKeyRefs: string[] = [];
     const unresolvableRefs: string[] = [];
+    for (const [name, entry] of Object.entries(this.opts.config.judges ?? {})) {
+      const ref = `judges.${name}`;
+      try {
+        this.validateCustomJudgeEntry(name, entry);
+        const apiKey = entry.apiKeyEnv ? this.envValue(entry.apiKeyEnv) : undefined;
+        if (!apiKey) {
+          noKeyRefs.push(ref);
+          this.warnNoKeyOnce(ref, name, entry.apiKeyEnv ? [entry.apiKeyEnv] : []);
+          continue;
+        }
+        tiers.push({
+          judgeId: name,
+          classify: (context, call) =>
+            classifyCustomJudge(entry, context, {
+              apiKey,
+              ...(call.signal ? { signal: call.signal } : {}),
+              ...(call.timeoutMs !== undefined ? { timeoutMs: call.timeoutMs } : {}),
+            }),
+        });
+      } catch (err) {
+        unresolvableRefs.push(ref);
+        this.opts.logger.warn(
+          { err, ref },
+          'Judge ref could not be resolved (dropped from the chain)',
+        );
+      }
+    }
     for (const ref of this.refsForPoint(pointId)) {
       try {
         const parsed = parseJudgeRef(ref);
@@ -198,6 +235,31 @@ export class JudgeResolver {
       }
     }
     return { tiers, noKeyRefs, unresolvableRefs };
+  }
+
+  /** A custom judge entry must carry an absolute http(s) baseUrl and a known wire type. */
+  private validateCustomJudgeEntry(name: string, entry: JudgeEntryConfig): void {
+    if (entry.type !== 'typesafe' && entry.type !== 'http') {
+      throw new JudgeError(
+        'invalid-ref',
+        `Custom judge "${name}": unknown type "${String(entry.type)}"`,
+      );
+    }
+    if (!entry.baseUrl) {
+      throw new JudgeError('invalid-ref', `Custom judge "${name}": baseUrl is required`);
+    }
+    if (!URL.canParse(entry.baseUrl)) {
+      throw new JudgeError(
+        'invalid-ref',
+        `Custom judge "${name}": baseUrl must be an absolute URL`,
+      );
+    }
+    if (entry.model !== undefined && entry.model.trim().length === 0) {
+      throw new JudgeError(
+        'invalid-ref',
+        `Custom judge "${name}": model must be a non-empty string`,
+      );
+    }
   }
 
   /**
@@ -295,15 +357,15 @@ export class JudgeResolver {
     return accountId ? { CLOUDFLARE_ACCOUNT_ID: accountId } : undefined;
   }
 
-  private warnNoKeyOnce(ref: string, provider: string): void {
+  private warnNoKeyOnce(ref: string, provider: string, envNames?: readonly string[]): void {
     if (this.noKeyWarned.has(ref)) return;
     this.noKeyWarned.add(ref);
-    const envNames = JUDGE_PROVIDER_ENV_KEYS[provider];
+    const envVarNames = envNames ?? JUDGE_PROVIDER_ENV_KEYS[provider];
     this.opts.logger.warn(
       {
         ref,
         provider,
-        envVar: envNames?.join(', '),
+        envVar: envVarNames?.join(', '),
         hint: 'Set the provider key in config.yaml provider_keys or the env var above',
       },
       'Judge ref dropped from the chain: no provider key (fallbackReason=no-key)',

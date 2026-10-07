@@ -40,7 +40,7 @@ import type { EmbeddingClient } from '../provider/embedding-client.js';
 import type { MemoryHygiene } from './memory-hygiene.js';
 import type { SceneClusterer } from './scene-cluster.js';
 import type { MaintenanceRunRepository } from './maintenance/maintenance-run-repository.js';
-import { mergeMemory } from './memory-merge.js';
+import { mergeMemory, appendMemoryDispute } from './memory-merge.js';
 import type { MergeConfig } from './memory-merge.js';
 import { extractEntities } from './entity-extractor.js';
 import { generateId } from '../shared/ids.js';
@@ -415,7 +415,22 @@ export class DreamCycle {
 
         const result = await mergeMemory(existing, newContent, neighbor.score, this.mergeConfig);
 
-        if (result && result.mergedContent !== existing.content) {
+        if (result && 'judgedRelation' in result && result.judgedRelation === 'contradicts') {
+          // Judged conflict (kernel M2 `memory.merge`): keep BOTH rows — mark
+          // the older record with the dispute marker, same semantics as the
+          // MemoryWriter contradicts path. No soft-delete of the newer row.
+          this.memoryRepo.update(existing.id, {
+            metadata: appendMemoryDispute(existing.metadata),
+          });
+          mergedCount++;
+          this.logger.debug(
+            { existingId: existing.id, otherId: isNewer ? anchorMem.id : neighborMem.id },
+            'DreamCycle synthesize: judged conflict — dispute marker set, both kept',
+          );
+          continue;
+        }
+
+        if (result && 'mergedContent' in result && result.mergedContent !== existing.content) {
           // Update the existing memory with merged content
           this.memoryRepo.update(existing.id, {
             content: result.mergedContent,

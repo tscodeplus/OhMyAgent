@@ -99,6 +99,18 @@ export default function (api: ExtensionAPI): void {
           warn: (msg, err) => logger.warn({ err, chatId }, msg),
         });
       },
+      // Plain-text one-liner without the result/footer chrome (system notice).
+      async deliverNotice({ chatId, text }) {
+        const target: { openid?: string; groupOpenid?: string } = {};
+        if (chatId.startsWith('g:')) {
+          target.groupOpenid = chatId.slice(2);
+        } else {
+          target.openid = chatId.startsWith('u:') ? chatId.slice(2) : chatId;
+        }
+        await sendChunkedText(gateway, text, target, qqConfig.textLimit, {
+          warn: (msg, err) => logger.warn({ err, chatId }, msg),
+        });
+      },
     });
     logger.info('QQ cron delivery client registered');
   }

@@ -110,4 +110,96 @@ describe('JudgeLedger — failures', () => {
     // Ring buffer still received the record for the status API.
     expect(dir.recent(1)).toHaveLength(1);
   });
+
+  it('a corrupt ledger line is skipped by query()', () => {
+    const dir = new JudgeLedger({ dir: tmpDir });
+    dir.record(record({ sessionId: 's1', ts: '2026-01-15T10:00:00.000Z' }));
+    const [month] = readdirSync(tmpDir);
+    const file = join(tmpDir, month, 's1.jsonl');
+    const current = readFileSync(file, 'utf8');
+    writeFileSync(file, `${current}not-json\n`, 'utf8');
+    const result = dir.query({});
+    expect(result.total).toBe(1);
+    expect(result.entries[0]?.pointId).toBe('tool.admission');
+  });
+});
+
+describe('JudgeLedger — query (GET /api/judge/ledger contract)', () => {
+  const TS_A = '2026-01-15T10:00:00.000Z';
+  const TS_B = '2026-01-15T12:00:00.000Z';
+  const TS_C = '2026-01-16T12:00:00.000Z';
+
+  function store(): JudgeLedger {
+    const dir = new JudgeLedger({ dir: tmpDir });
+    dir.record(record({ ts: TS_C, sessionId: 'sess-2', mode: 'active' }));
+    dir.record(record({ ts: TS_B, sessionId: 'sess-2', mode: 'shadow' }));
+    dir.record(
+      record({ ts: TS_A, sessionId: 'sess-1', source: 'fallback', fallbackReason: 'no-key' }),
+    );
+    return dir;
+  }
+
+  it('absolute contract: all records, newest first, 1-based paging', () => {
+    const result = store().query({});
+    expect(result.total).toBe(3);
+    expect(result.page).toBe(1);
+    expect(result.pageSize).toBe(20);
+    expect(result.entries.map((e) => e.ts)).toEqual([TS_C, TS_B, TS_A]);
+  });
+
+  it('paging windows the newest first', () => {
+    const dir = store();
+    const p1 = dir.query({ page: 1, pageSize: 2 });
+    expect(p1.total).toBe(3);
+    expect(p1.entries.map((e) => e.ts)).toEqual([TS_C, TS_B]);
+    const p2 = dir.query({ page: 2, pageSize: 2 });
+    expect(p2.entries.map((e) => e.ts)).toEqual([TS_A]);
+  });
+
+  it('pointId / mode / outcome filters', () => {
+    const dir = store();
+    expect(dir.query({ pointId: 'tool.admission' }).total).toBe(3);
+    expect(dir.query({ pointId: 'memory.worth' }).total).toBe(0);
+    expect(dir.query({ mode: 'shadow' }).total).toBe(2);
+    expect(dir.query({ mode: 'active' }).total).toBe(1);
+    expect(dir.query({ outcome: 'judge' }).total).toBe(2);
+    // 'judged' is an accepted alias for 'judge'.
+    expect(dir.query({ outcome: 'judged' }).total).toBe(2);
+    expect(dir.query({ outcome: 'fallback' }).total).toBe(1);
+    // Unknown outcome values answer empty — never everything.
+    expect(dir.query({ outcome: 'weird' }).total).toBe(0);
+  });
+
+  it('from/to accept ISO strings AND epoch-millis digit strings', () => {
+    const dir = store();
+    expect(dir.query({ from: TS_B }).total).toBe(2);
+    expect(dir.query({ from: '2026-01-15' }).total).toBe(3);
+    expect(dir.query({ from: '2026-01-16' }).total).toBe(1);
+    // Bare digit form (the parseEpochMs path).
+    expect(dir.query({ from: String(Date.parse(TS_B)) }).total).toBe(2);
+    expect(dir.query({ to: String(Date.parse(TS_A)) }).total).toBe(1);
+  });
+
+  it('session filter reads only that session file across months', () => {
+    const dir = store();
+    expect(dir.query({ session: 'sess-1' }).total).toBe(1);
+    expect(dir.query({ session: 'sess-2' }).total).toBe(2);
+    // Session files are sanitized — hostile names still hit.
+    expect(store().query({ session: 'a/b:c\\d e' }).total).toBe(0);
+  });
+
+  it('query finds records in earlier months (month dirs sorted desc)', () => {
+    const ledger = new JudgeLedger({
+      dir: tmpDir,
+      now: () => new Date('2025-12-05T10:00:00Z').getTime(),
+    });
+    ledger.record(record({ ts: '2025-12-05T10:00:00.000Z', sessionId: 'old-1' }));
+    const current = store();
+    expect(current.query({ session: 'old-1' }).total).toBe(1);
+  });
+
+  it('missing directory answers empty', () => {
+    const dir = new JudgeLedger({ dir: join(tmpDir, 'definitely-missing') });
+    expect(dir.query({})).toEqual({ entries: [], total: 0, page: 1, pageSize: 20 });
+  });
 });

@@ -33,6 +33,12 @@ import type { PromptManager } from '../prompt/prompt-manager.js';
 import type { PromptAssemblyOptions } from '../prompt/types.js';
 import { teamModeStore } from './team-mode-store.js';
 import { turnCounter, planOnlyReflection, hasSpawnCapability } from './turn-counter.js';
+import {
+  TURN_DRIFT_POINT_ID,
+  judgeTurnDrift,
+  noteToolCallForDrift,
+} from '../judge/decisions/turn-drift.js';
+import { getTurnTaskHint } from './agent-context.js';
 import { isDeferrable } from '../tools/tool-search/classifier.js';
 import { estimateTokens, shouldActivate } from '../tools/tool-search/threshold.js';
 import { loadConfig as loadToolSearchConfig } from '../tools/tool-search/index.js';
@@ -1013,6 +1019,8 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
           onCompressed: (compressed) => {
             agent.state.messages = compressed;
           },
+          // Kernel M2/M3 (context.forget / context.compact): live-engine getter.
+          judgeGet: () => getServices?.()?.judge,
           logger,
         }),
         sessionId,
@@ -1253,13 +1261,69 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
               channelApprovalSender: options?.channelApprovalSender,
               channel: options?.channel as BeforeToolCallDeps['channel'],
               senderId: options?.senderId,
+              // Kernel M3 `tool.risk` — tighten-only approval judgment.
+              judgeGet: () => getServices?.()?.judge,
               logger,
             })
           : undefined,
 
         // ── P3: prepareNextTurnWithContext hook (turn counter + reflection injection) ──
+        // Kernel M3 `turn.drift`: piggybacks on the same hook — this is the
+        // per-tool-cycle boundary inside the FIRST-PARTY turn lifecycle, so the
+        // judged drift check runs without touching pi-mono agent-loop.ts.
         prepareNextTurnWithContext: async (ctx, _signal) => {
           if (!sessionId) return undefined;
+
+          // ── turn.drift: periodic goal re-check with one steering injection ──
+          // A failing tool call grows the failure streak (impl doc §4.7
+          // trigger); a judged drift verdict injects at most ONE steering
+          // prompt per turn. Shadow/gray/fallback → undefined (no change).
+          const judgeEngineForDrift = getServices?.()?.judge;
+          if (judgeEngineForDrift && judgeEngineForDrift.modeFor(TURN_DRIFT_POINT_ID) !== 'off') {
+            try {
+              let driftDue: ReturnType<typeof noteToolCallForDrift> = {
+                due: false,
+                reason: 'interval',
+              };
+              for (const toolResult of ctx.toolResults ?? []) {
+                const request = noteToolCallForDrift(sessionId, {
+                  tool: toolResult.toolName ?? 'tool',
+                  isFailure: toolResult.isError === true,
+                  digest: firstToolResultDigest(toolResult),
+                });
+                if (request.due) driftDue = request;
+              }
+              if (driftDue.due) {
+                const judgedDrift = await judgeTurnDrift({
+                  engine: judgeEngineForDrift,
+                  sessionId,
+                  taskHint: getTurnTaskHint(sessionId),
+                });
+                if (judgedDrift.steerMessage) {
+                  logger?.info(
+                    { sessionId, reason: driftDue.reason },
+                    'turn.drift judged — injecting steering prompt',
+                  );
+                  return {
+                    context: {
+                      ...ctx.context,
+                      messages: [
+                        ...ctx.context.messages,
+                        {
+                          role: 'user',
+                          content: [{ type: 'text', text: judgedDrift.steerMessage }],
+                          timestamp: Date.now(),
+                        } as any,
+                      ],
+                    },
+                  };
+                }
+              }
+            } catch (err) {
+              // Judgment must never break the turn lifecycle (fail-closed).
+              logger?.debug({ err, sessionId }, 'turn.drift check failed — skipping');
+            }
+          }
 
           try {
             // Count tool calls and spawn activity from this turn
@@ -1434,4 +1498,21 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
   };
 
   return factory;
+}
+
+/**
+ * One-line digest of a completed tool result for the turn.drift recent-steps window.
+ */
+function firstToolResultDigest(toolResult: { content?: unknown }): string {
+  const content = toolResult.content;
+  let text = '';
+  if (typeof content === 'string') text = content;
+  else if (Array.isArray(content)) {
+    text = (content as { type?: string; text?: string }[])
+      .filter((b) => b?.type === 'text' && typeof b.text === 'string')
+      .map((b) => b.text!)
+      .join(' ');
+  }
+  text = text.trim().split('\n')[0] ?? '';
+  return text.length > 120 ? `${text.slice(0, 120)}…` : text;
 }

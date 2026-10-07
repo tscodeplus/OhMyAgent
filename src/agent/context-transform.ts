@@ -28,6 +28,9 @@ import { truncate } from '../shared/truncation.js';
 import { neutralizePromptTags } from '../shared/prompt-boundary.js';
 import { LRUCache } from 'lru-cache';
 import type { Logger } from 'pino';
+import { judgeContextForget } from '../judge/hooks/context-forget.js';
+import { judgeContextCompactPrune } from '../judge/hooks/context-compact.js';
+import { getTurnTaskHint } from './agent-context.js';
 
 function formatCurrentDatePrefix(
   lang?: string,
@@ -303,6 +306,12 @@ export interface TransformOptions {
    * future turns start from the summary instead of the full history.
    */
   onCompressed?: (messages: any[]) => void;
+  /**
+   * Kernel M2/M3 judged decisions (`context.forget` / `context.compact`):
+   * live-engine getter — the context events are judged only when this
+   * resolves to a JudgeEngine and the respective point mode is not 'off'.
+   */
+  judgeGet?: () => import('../judge/engine.js').JudgeEngine | undefined;
 }
 
 /**
@@ -695,71 +704,162 @@ export function createTransformContext(options?: TransformOptions) {
         cacheProfile === 'deepseek' ? Math.min(defaultThreshold, 12000) : defaultThreshold;
 
       if (estimatedTokens > triggerThreshold) {
-        try {
-          const previousSummary = lastCompressionSummaryBySession.get(nsSessionKey);
-          const compressResult = await compressContext({
-            messages: result as any,
-            contextWindow: messageWindow,
-            settings: {
-              reserveTokens: compressCfg.config.reserveTokens,
-              keepRecentTokens:
-                cacheProfile === 'deepseek'
-                  ? Math.min(compressCfg.config.keepRecentTokens, 4000)
-                  : compressCfg.config.keepRecentTokens,
-            },
-            sessionKey,
-            mainModelRef: compressCfg.mainModelRef,
-            globalFallbackRefs: compressCfg.globalFallbackRefs,
-            compressModelRef: compressCfg.compressModelRef,
-            compressFallbackRefs: compressCfg.compressFallbackRefs,
-            apiKeys: compressCfg.apiKeys,
-            baseUrls: compressCfg.baseUrls,
-            baseUrl: compressCfg.baseUrl,
-            previousSummary,
-            logger: options?.logger,
-          });
-
-          if (compressResult.summaryMessage && compressResult.compressedIndex > 0) {
-            const recentMessages = result.slice(compressResult.compressedIndex);
-            const originalCount = result.length;
-            const tokensBefore = estimateTokensCached(result);
-            result.length = 0;
-            result.push(compressResult.summaryMessage, ...recentMessages);
-            // Compact the caller's transcript in place (uses the pre-injection
-            // messages so injected context blocks — date, memories, canvas —
-            // never leak into the transcript) and notify the owner via
-            // onCompressed so agent state is updated too. Otherwise every LLM
-            // call in this turn re-compresses the same old messages and
-            // persistence keeps the full history.
-            const transcriptRecent = messages.slice(compressResult.compressedIndex);
-            messages.length = 0;
-            messages.push(compressResult.summaryMessage, ...transcriptRecent);
-            options?.onCompressed?.(messages);
-            lastCompressedIndexBySession.set(nsSessionKey, result.length);
-            if (compressResult.summary) {
-              lastCompressionSummaryBySession.set(nsSessionKey, compressResult.summary);
+        // ── Kernel M2 `context.forget`: judged eviction of stale tool results ──
+        // Runs at the SAME watermark as compression; evicted results are
+        // replaced by a one-line tombstone in the OUTBOUND copy only (`result`
+        // — the live transcript/session storage keeps the full text). If the
+        // eviction alone brings the request below the trigger, the whole LLM
+        // compression attempt is skipped.
+        let forgetCompleted = false;
+        if (options.judgeGet?.()) {
+          try {
+            const lastIndex = (() => {
+              for (let i = result.length - 1; i >= 0; i--) {
+                if ((result[i] as any)?.role === 'user') return i;
+              }
+              return result.length;
+            })();
+            const forgetResult = await judgeContextForget({
+              messages: result as any,
+              lastUserIndex: lastIndex,
+              sessionKey,
+              taskHint: getTurnTaskHint(sessionKey),
+            });
+            if (forgetResult.entries && forgetResult.entries.length > 0) {
+              for (const entry of forgetResult.entries) {
+                const message = result[entry.index] as any;
+                if (message?.role === 'toolResult') {
+                  result[entry.index] = {
+                    ...message,
+                    content: [{ type: 'text', text: entry.tombstone }],
+                  };
+                }
+              }
+              forgetCompleted = true;
+              options?.logger?.info(
+                { sessionKey, evicted: forgetResult.entries.length },
+                'Context forget evicted stale tool results',
+              );
             }
-            options?.logger?.info(
-              {
-                sessionKey,
-                originalCount,
-                newCount: result.length,
-                compressedIndex: compressResult.compressedIndex,
-                tokensBefore,
-                tokensAfter: estimateTokensCached(result),
-              },
-              'Context compressed',
+          } catch (err) {
+            options?.logger?.warn(
+              { sessionKey, err: err instanceof Error ? err.message : String(err) },
+              'Context forget failed — keeping all tool results',
             );
           }
-        } catch (err) {
-          options?.logger?.warn(
-            {
-              sessionKey,
-              err: err instanceof Error ? err.message : String(err),
-            },
-            'Context compression failed, falling back to hard truncation',
-          );
         }
+
+        const tokensAfterForget = estimateTokensCached(result) + prefixTokens;
+        if (forgetCompleted && tokensAfterForget <= triggerThreshold) {
+          // Judged eviction alone cleared the watermark — skip the LLM summary.
+          options?.logger?.info(
+            { sessionKey, tokensBefore: estimatedTokens, tokensAfter: tokensAfterForget },
+            'Context forget cleared the watermark — compression skipped',
+          );
+        } else {
+          try {
+            const previousSummary = lastCompressionSummaryBySession.get(nsSessionKey);
+            const compressResult = await compressContext({
+              messages: result as any,
+              contextWindow: messageWindow,
+              settings: {
+                reserveTokens: compressCfg.config.reserveTokens,
+                keepRecentTokens:
+                  cacheProfile === 'deepseek'
+                    ? Math.min(compressCfg.config.keepRecentTokens, 4000)
+                    : compressCfg.config.keepRecentTokens,
+              },
+              sessionKey,
+              mainModelRef: compressCfg.mainModelRef,
+              globalFallbackRefs: compressCfg.globalFallbackRefs,
+              compressModelRef: compressCfg.compressModelRef,
+              compressFallbackRefs: compressCfg.compressFallbackRefs,
+              apiKeys: compressCfg.apiKeys,
+              baseUrls: compressCfg.baseUrls,
+              baseUrl: compressCfg.baseUrl,
+              previousSummary,
+              // Kernel M2 `context.compact`: judged pre-compaction prune — only
+              // with `features.compact: 'judged'` (the point mode is gated inside
+              // the hook; default 'llm' passes undefined → current behavior).
+              judgedPrune:
+                options.judgeGet?.()?.section.features.compact === 'judged'
+                  ? (oldMessages: any[]) =>
+                      judgeContextCompactPrune({
+                        oldMessages,
+                        messageCount: result.length,
+                        taskHint: getTurnTaskHint(sessionKey),
+                        sessionId: sessionKey,
+                      }).then((r) =>
+                        r.keptMessages ? { keptMessages: r.keptMessages } : undefined,
+                      )
+                  : undefined,
+              logger: options?.logger,
+            });
+
+            if (compressResult.pruned && compressResult.prunedMessages) {
+              // Judged prune alone cleared the watermark — splice the PRUNED
+              // messages in (no summary message exists for this pass). Identity
+              // filtering against the transcript keeps the same message objects.
+              const pruned = compressResult.prunedMessages;
+              const tokensBefore = estimateTokensCached(result);
+              result.length = 0;
+              result.push(...pruned);
+              const transcriptKept = messages.filter((m: any) => pruned.indexOf(m) !== -1);
+              messages.length = 0;
+              messages.push(...transcriptKept);
+              options?.onCompressed?.(messages);
+              lastCompressedIndexBySession.set(nsSessionKey, result.length);
+              options?.logger?.info(
+                {
+                  sessionKey,
+                  newCount: result.length,
+                  tokensBefore,
+                  tokensAfter: estimateTokensCached(result),
+                },
+                'Context compacted by judged prune (no summary)',
+              );
+            } else if (compressResult.summaryMessage && compressResult.compressedIndex > 0) {
+              const recentMessages = result.slice(compressResult.compressedIndex);
+              const originalCount = result.length;
+              const tokensBefore = estimateTokensCached(result);
+              result.length = 0;
+              result.push(compressResult.summaryMessage, ...recentMessages);
+              // Compact the caller's transcript in place (uses the pre-injection
+              // messages so injected context blocks — date, memories, canvas —
+              // never leak into the transcript) and notify the owner via
+              // onCompressed so agent state is updated too. Otherwise every LLM
+              // call in this turn re-compresses the same old messages and
+              // persistence keeps the full history.
+              const transcriptRecent = messages.slice(compressResult.compressedIndex);
+              messages.length = 0;
+              messages.push(compressResult.summaryMessage, ...transcriptRecent);
+              options?.onCompressed?.(messages);
+              lastCompressedIndexBySession.set(nsSessionKey, result.length);
+              if (compressResult.summary) {
+                lastCompressionSummaryBySession.set(nsSessionKey, compressResult.summary);
+              }
+              options?.logger?.info(
+                {
+                  sessionKey,
+                  originalCount,
+                  newCount: result.length,
+                  compressedIndex: compressResult.compressedIndex,
+                  tokensBefore,
+                  tokensAfter: estimateTokensCached(result),
+                },
+                'Context compressed',
+              );
+            }
+          } catch (err) {
+            options?.logger?.warn(
+              {
+                sessionKey,
+                err: err instanceof Error ? err.message : String(err),
+              },
+              'Context compression failed, falling back to hard truncation',
+            );
+          }
+        } // end else (judged forget did not clear the watermark)
       }
     }
 

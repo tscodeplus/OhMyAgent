@@ -94,6 +94,33 @@ export default function (api: ExtensionAPI) {
           throw new Error('WeChat cron delivery: all chunks failed to send');
         }
       },
+      // Plain-text one-liner without the result/footer chrome (system notice).
+      async deliverNotice({ chatId, text }) {
+        if (!wechatConfig.botToken) {
+          logger.warn('Cannot deliver notice - WeChat bot token not available');
+          return;
+        }
+        const tokenEntry = getTokenForCron(chatId);
+        if (!tokenEntry) {
+          logger.warn(
+            { chatId },
+            'Cannot deliver notice - no valid WeChat context token (expired or never received)',
+          );
+          return;
+        }
+        const sent = await sendChunkedText(
+          wechatConfig.apiBase,
+          wechatConfig.botToken,
+          tokenEntry.toUserId,
+          tokenEntry.token,
+          text,
+          wechatConfig.textLimit,
+          logger,
+        );
+        if (sent.length === 0) {
+          throw new Error('WeChat notice delivery: all chunks failed to send');
+        }
+      },
     });
     logger.info('WeChat cron delivery client registered');
   }

@@ -157,6 +157,8 @@ export type DecisionOutcome =
   | { action: 'none' }
   | { action: 'proceed' }
   | { action: 'ask' }
+  /** Steering prompt for an ongoing turn (turn.drift) or an end-of-turn nudge (turn.completion). */
+  | { action: 'steer'; message: string }
   | { action: 'route'; choice: string };
 
 /**
@@ -219,6 +221,8 @@ export interface JudgeEntryConfig {
   baseUrl?: string;
   /** Environment variable NAME that holds the key; inline keys are rejected at load. */
   apiKeyEnv?: string;
+  /** System One model id the relay serves. Default: CUSTOM_JUDGE_DEFAULT_MODEL ('jev-latest'). */
+  model?: string;
 }
 
 /** The `judge:` section of config.yaml — the only source of truth (plan §8.1). */
@@ -242,6 +246,12 @@ export interface JudgeSectionConfig {
       chunkSizeChars: number;
       keepThreshold: number;
     };
+    /**
+     * context.compact mode (impl doc §4.6): default 'llm' keeps the current
+     * LLM-summary compression byte-identical; 'judged' enables the judged
+     * pre-compaction prune (the point mode gates whether the judge is asked).
+     */
+    compact?: 'llm' | 'judged';
   };
   timeoutMs: number;
   /** Persist the judged state into ledger lines (contains user content — default off). */

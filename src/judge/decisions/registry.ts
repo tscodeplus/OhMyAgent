@@ -2,10 +2,10 @@
  * Decision-point registry (MyDocs plan §6 — the full 15-point catalog).
  *
  * `DECISION_POINTS` declares every planned point so the mode matrix and hook
- * points can agree on ids before their specs exist. `DECISION_SPECS` registers
- * the DecisionSpecs that phase-1 (M1) implemented so far — the other 11 are
- * declared but have no spec yet; `engine.modeFor()` still governs their matrix
- * entries and hook surfaces.
+ * points can agree on ids. `DECISION_SPECS` registers the implemented
+ * DecisionSpecs — M1 (tool token economy), M2/M3 (memory, context stock and
+ * safety) and M4 (the two phase-4 channel points `channel.triage` and
+ * `notify.routing`).
  *
  * Note on variable-arity specs (`tool.admission`, `skills.disclosure` and the
  * judged `testlog.fold` pass): their question sets depend on the caller's data
@@ -19,6 +19,17 @@ import { toolAdmissionSpec } from './tool-admission.js';
 import { testLogFoldSpec } from '../testlog-fold.js';
 import { intentClassifySpec } from './intent-classify.js';
 import { skillsDisclosureSpec } from './skills-disclosure.js';
+import { memoryCaptureSpec } from './memory-capture.js';
+import { memoryWorthSpec } from './memory-worth.js';
+import { memoryMergeSpec } from './memory-merge.js';
+import { contextForgetSpec } from './context-forget.js';
+import { contextCompactSpec } from './context-compact.js';
+import { turnDriftSpec } from './turn-drift.js';
+import { turnCompletionSpec } from './turn-completion.js';
+import { toolRiskSpec } from './tool-risk.js';
+import { injectionScreenSpec } from './injection-screen.js';
+import { channelTriageSpec } from './channel-triage.js';
+import { notifyRoutingSpec } from './notify-routing.js';
 
 export interface DecisionPointInfo {
   id: string;
@@ -67,94 +78,111 @@ export const DECISION_POINTS: readonly DecisionPointInfo[] = [
     id: 'memory.capture',
     kind: 'noul',
     label: 'Memory capture worthiness',
-    description: 'Is this message correcting the agent or setting a rule? Phase 2.',
-    implemented: false,
+    description:
+      'Is this message correcting the agent or setting a rule? Gating judged capture candidates (M2, src/memory).',
+    implemented: true,
   },
   {
     id: 'memory.worth',
     kind: 'choice',
     label: 'Memory lesson worth',
-    description: 'useful-again / one-off / already-known for distilled lessons. Phase 2.',
-    implemented: false,
+    description:
+      'useful-again / one-off / already-known for judged capture candidates — only useful-again persists (M2).',
+    implemented: true,
   },
   {
     id: 'memory.merge',
     kind: 'choice',
     label: 'Memory merge relation',
     description:
-      'duplicate / more-precise / contradicts / unrelated over top-k similar memories. Phase 2.',
-    implemented: false,
+      'duplicate / more-precise / contradicts / unrelated against the similar existing memory (M2, replaces the aux-LLM merge question).',
+    implemented: true,
   },
   {
     id: 'context.forget',
     kind: 'noul',
     label: 'Stale tool result eviction',
     description:
-      'Outbound-context pruning of stale large tool results at the compaction watermark. Phase 2.',
-    implemented: false,
+      'Outbound-context pruning of stale large tool results at the compaction watermark (M2, src/agent/context-transform.ts).',
+    implemented: true,
   },
   {
     id: 'context.compact',
     kind: 'noul',
     label: 'Pre-compaction pruning',
-    description: 'Judged pruning before the LLM summary compression path. Phase 2.',
-    implemented: false,
+    description:
+      'Judged pruning before the LLM summary compression path; may skip the LLM summary entirely (M2, features.compact: judged).',
+    implemented: true,
   },
   {
     id: 'turn.drift',
     kind: 'noul',
     label: 'Turn drift detection',
     description:
-      'Is the work still serving the original goal? failure-streak area of the agent loop. Phase 3.',
-    implemented: false,
+      'Is the work still serving the original goal? Injected via the first-party prepareNextTurn hook (M3).',
+    implemented: true,
   },
   {
     id: 'turn.completion',
     kind: 'noul',
     label: 'Turn completion verification',
-    description: 'Did the completion statement cite any verification? Phase 3.',
-    implemented: false,
+    description:
+      'Did the completion statement cite any verification? One follow-up nudge at most per turn (M3).',
+    implemented: true,
   },
   {
     id: 'tool.risk',
     kind: 'noul',
     label: 'Command explicitly requested',
     description:
-      'Did the user explicitly ask for this command? Can only tighten the approval flow. Phase 3.',
-    implemented: false,
+      'Did the user explicitly ask for this command? Tighten-only: may force an approval card, never auto-approve (M3).',
+    implemented: true,
   },
   {
     id: 'injection.screen',
     kind: 'noul',
     label: 'Prompt-injection screening',
     description:
-      'Per-paragraph screening of web/MCP results for AI-directed instructions. Phase 3.',
-    implemented: false,
+      'Per-paragraph screening of web/MCP results for AI-directed instructions (M3, tool-result ingestion).',
+    implemented: true,
   },
   {
     id: 'channel.triage',
     kind: 'choice',
     label: 'Group message triage',
-    description: 'respond / ignore / defer for group-chat channel messages. Phase 4.',
-    implemented: false,
+    description:
+      'respond / ignore / defer at the group-chat entrance, gated on an addressed noul; hook: channel extension group gates, budget-capped at 1s (M4).',
+    implemented: true,
   },
   {
     id: 'notify.routing',
     kind: 'choice',
     label: 'Notification routing',
-    description: 'now / later / never routing for budget and status events. Phase 4.',
-    implemented: false,
+    description:
+      'now / later / never routing of proactive notifications before CronDeliveryRegistry delivery; fallback = immediate delivery (M4).',
+    implemented: true,
   },
 ];
 
 export const DECISION_POINT_IDS: readonly string[] = DECISION_POINTS.map((p) => p.id);
 
-/** Phase-1 registered specs (canonical templates for variable-arity points). */
+/** Registered specs (canonical templates for variable-arity points). */
 export const DECISION_SPECS: Readonly<Record<string, DecisionSpec>> = {
   'tool.admission': toolAdmissionSpec,
   'testlog.fold': testLogFoldSpec,
   'intent.classify': intentClassifySpec,
   'skills.disclosure': skillsDisclosureSpec,
+  'memory.capture': memoryCaptureSpec,
+  'memory.worth': memoryWorthSpec,
+  'memory.merge': memoryMergeSpec,
+  'context.forget': contextForgetSpec,
+  'context.compact': contextCompactSpec,
+  'turn.drift': turnDriftSpec,
+  'turn.completion': turnCompletionSpec,
+  'tool.risk': toolRiskSpec,
+  'injection.screen': injectionScreenSpec,
+  'channel.triage': channelTriageSpec,
+  'notify.routing': notifyRoutingSpec,
 };
 
 /** Spec for one point, when one is registered. */

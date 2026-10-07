@@ -140,6 +140,7 @@ describe('judge routes', () => {
                 type: 'typesafe',
                 baseUrl: 'https://relay.example/v1/systemone',
                 apiKeyEnv: 'RELAY_KEY',
+                model: 'jev-1.13',
               },
             },
           },
@@ -167,6 +168,10 @@ describe('judge routes', () => {
       expect(body.config.timeoutMs).toBe(8000);
       expect(body.config.recordState).toBe(true);
       expect(body.config.judges.relay.apiKeyEnv).toBe('RELAY_KEY');
+      // Optional relay `model` (M5) must survive save/echo (round-trip).
+      expect(body.config.judges.relay.model).toBe('jev-1.13');
+      const judgeYaml = (savedYaml().judge ?? {}) as Record<string, any>;
+      expect(judgeYaml.judges?.relay?.model).toBe('jev-1.13');
     });
 
     it('treats empty-string provider/modelRef as "clear the field"', async () => {
@@ -243,6 +248,54 @@ describe('judge routes', () => {
         payload: { apiKey: 'x' },
       });
       expect(res.statusCode).toBe(400);
+    });
+  });
+
+  describe('GET /api/judge/ledger', () => {
+    it('returns the exact { entries, total, page, pageSize } contract through ledger.query', async () => {
+      const querySpy = vi.fn(() => ({
+        entries: [{ ts: '2026-01-15T10:00:00.000Z', pointId: 'tool.admission' }],
+        total: 42,
+        page: 2,
+        pageSize: 20,
+      }));
+      const app2 = Fastify({ logger: false });
+      registerJudgeRoutes(app2, {
+        getConfig: baseConfig,
+        getJudge: () => ({ ledger: { query: querySpy } }) as never,
+        onConfigSaved: vi.fn(),
+      });
+      await app2.ready();
+      const res = await app2.inject({
+        method: 'GET',
+        url: '/api/judge/ledger?page=2&pageSize=30&pointId=tool.admission&mode=shadow&outcome=judged&from=2026-01-15&to=2026-01-16&session=sess-1',
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        entries: [{ ts: '2026-01-15T10:00:00.000Z', pointId: 'tool.admission' }],
+        total: 42,
+        page: 2,
+        pageSize: 20,
+      });
+      expect(querySpy).toHaveBeenCalledWith({
+        page: 2,
+        pageSize: 30,
+        pointId: 'tool.admission',
+        mode: 'shadow',
+        outcome: 'judged',
+        from: '2026-01-15',
+        to: '2026-01-16',
+        session: 'sess-1',
+      });
+    });
+
+    it('judge disabled → empty ledger, envelope shape intact', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/judge/ledger',
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ entries: [], total: 0, page: 1, pageSize: 20 });
     });
   });
 });

@@ -32,6 +32,7 @@ import { extractPathArg } from '../shared/path-utils.js';
 import { i18n } from '../i18n/index.js';
 import { computerUseApprovalSubject } from '../computer-use/app-approval-subject.js';
 import { assessCommandRisk } from '../tools/shell-command-policy.js';
+import { maybeTightenShellApproval } from '../judge/hooks/safety-tool-risk.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -90,6 +91,8 @@ export interface BeforeToolCallDeps {
    *  Stored as the approval request's requester so approval callbacks can
    *  verify the clicker is the requester. */
   senderId?: string;
+  /** Kernel M3 `tool.risk` — tighten-only approval judgment (live engine getter). */
+  judgeGet?: () => import('../judge/engine.js').JudgeEngine | undefined;
   /** Diagnostic logger (pino-compatible). */
   logger?: {
     warn: (...args: any[]) => void;
@@ -300,9 +303,14 @@ async function handleShellApproval(
     } satisfies BeforeToolCallResult;
   }
 
-  if (evaluation === 'requires_approval') {
+  // Present the approval card and await the human decision. Extracted so the
+  // kernel M3 `tool.risk` tighten-only judgment can force the same flow when
+  // judge says the user most likely never asked for a risky-but-allowed
+  // command (see below).
+  const runShellApprovalCard = async (
+    reason: string | undefined,
+  ): Promise<BeforeToolCallResult | undefined> => {
     const requestId = generateId();
-    const rejectReason = approvalGate?.lastRejectReason;
     const session = resolveApprovalSession(deps, activeChatId, activeDispatcher);
 
     // Fail closed: without an interactive channel nobody can answer, so
@@ -323,7 +331,7 @@ async function handleShellApproval(
       requestId,
       command,
       risk,
-      reason: rejectReason,
+      reason,
       chatId: activeChatId,
       sessionId: sessionId ?? '',
     });
@@ -340,7 +348,7 @@ async function handleShellApproval(
         threadId: activeMessageId,
         cardMessageId,
         targetKind: 'shell',
-        reason: rejectReason,
+        reason,
         requesterId: deps.senderId,
       },
     );
@@ -363,6 +371,35 @@ async function handleShellApproval(
         reason: 'Command rejected by user',
       } satisfies BeforeToolCallResult;
     }
+  };
+
+  if (evaluation === 'requires_approval') {
+    return await runShellApprovalCard(approvalGate?.lastRejectReason);
+  }
+
+  // ── Kernel M3 `tool.risk`: tighten-only judgment on risky-but-allowed flows ──
+  // Policy ALLOWED this command (remembered approval / allow policy / allowlist);
+  // if the risk rating is medium/high, ONE noul asks whether the user explicitly
+  // asked. Judged "almost certainly not asked" → the approval requirement is
+  // TIGHTENED (the card is shown after all). Every other verdict — gray,
+  // fallback, P(asked) high — keeps the current allow flow: the judgment can
+  // only add approval cards, never remove or weaken them.
+  // Kernel M3 `tool.risk`: tighten-only judged check (gated + fail-safe inside
+  // src/judge/hooks/safety-tool-risk.ts). Tighten → the approval card the
+  // policy-allowed command would have skipped is shown after all.
+  if (
+    await maybeTightenShellApproval({
+      engine: deps.judgeGet,
+      sessionId: deps.sessionId,
+      toolName: 'shell',
+      command,
+      source: 'before-tool-call.shell-gate',
+      logger: deps.logger,
+    })
+  ) {
+    return await runShellApprovalCard(
+      'Judged: the user most likely never asked for this command — approval required',
+    );
   }
 
   return undefined;
@@ -641,6 +678,31 @@ async function handleViaPolicyCenter(
 
   if (decision.allowed) {
     cuLog('handleViaPolicyCenter: allowed, approving app from policy');
+    // Kernel M3 `tool.risk`: same tighten-only judgment as the legacy shell
+    // gate — risky-but-allowed shell commands can be forced into the approval
+    // card flow when the judge says the user most likely never asked.
+    // Tighten → generic card: ALWAYS presents (never consults the legacy allow
+    // policies the judgment just overturned).
+    if (
+      await maybeTightenShellApproval({
+        engine: deps.judgeGet,
+        sessionId: deps.sessionId,
+        toolName: context.toolCall.name,
+        command: (context.args as { command?: string })?.command,
+        source: 'before-tool-call.policy-center',
+        logger: deps.logger,
+      })
+    ) {
+      return handleGenericToolApproval(
+        deps,
+        'shell',
+        context.args,
+        'Judged: the user most likely never asked for this command — approval required',
+        deps.turnContext?.chatId ?? deps.chatId ?? '',
+        deps.turnContext?.messageId ?? deps.messageId,
+        deps.turnContext?.replyDispatcher,
+      );
+    }
     approveComputerUseAppFromPolicy(deps, context.args);
     return undefined; // allow
   }

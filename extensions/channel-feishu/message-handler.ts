@@ -35,6 +35,7 @@ import { isSenderAllowed } from '../../src/shared/access-control.js';
 import type { CommandDeps } from '../../src/commands/command-handler.js';
 import { createFeishuMediaTool, createFeishuDownloadTool } from './feishu-media-tool.js';
 import { i18n } from '../../src/i18n/index.js';
+import { triageGroupGateway } from '../../src/judge/hooks/channel-triage.js';
 import { imageBufferToImageContent } from './feishu-media.js';
 import { unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -132,18 +133,13 @@ export class MessageHandler {
   /**
    * Access control (aligned with Telegram/WeChat/QQ):
    *  - allowedUsers (open_ids) restricts who may interact at all; empty = allow all.
-   *  - Group chats are only answered when the bot is @-mentioned.
+   *  Group chats additionally go through the @-mention gate below (overridable
+   *  by the judged `channel.triage` point in active mode).
    */
-  private isAllowed(context: FeishuMessageContext): boolean {
+  private isAllowedUser(context: FeishuMessageContext): boolean {
     if (!isSenderAllowed(this.options.allowedUsers, context.senderId)) {
       this.options.logger?.warn(
         `Feishu user ${context.senderId} not in allowedUsers, skipping message ${context.messageId}`,
-      );
-      return false;
-    }
-    if (context.chatType === 'group' && !this.isMentioningBot(context)) {
-      this.options.logger?.warn(
-        `Feishu group message without @bot mention, skipping message ${context.messageId}`,
       );
       return false;
     }
@@ -181,10 +177,27 @@ export class MessageHandler {
    * 3. Otherwise → pass extracted text to agent
    */
   async handle(context: FeishuMessageContext): Promise<boolean> {
-    // ── Access control: allowedUsers whitelist + @bot mention in groups ──
-    if (!this.isAllowed(context)) return false;
+    // ── Access control: allowedUsers whitelist ──
+    if (!this.isAllowedUser(context)) return false;
 
     const text = context.text.trim();
+
+    // ── Group gate (@bot mention baseline overridable by channel.triage) ──
+    if (context.chatType === 'group') {
+      const mentioned = this.isMentioningBot(context);
+      const gate = await triageGroupGateway({
+        sessionId: context.sessionKey,
+        text,
+        mentionedBot: mentioned,
+      });
+      if (gate === 'silent') return false;
+      if (!mentioned && gate !== 'respond') {
+        this.options.logger?.warn(
+          `Feishu group message without @bot mention, skipping message ${context.messageId}`,
+        );
+        return false;
+      }
+    }
 
     // ── Slash command routing ──
     if (text.startsWith('/')) {

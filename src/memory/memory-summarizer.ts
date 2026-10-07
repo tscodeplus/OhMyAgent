@@ -20,6 +20,8 @@ import { openCodeClientOptions } from '../utils/opencode-session.js';
 import type { PersonaDistiller } from './persona-distiller.js';
 import { detectTopic } from './write/preference-conflict-resolver.js';
 import { hashForObservation, memoryObservability } from './observability.js';
+import { judgeExperiences } from './judge-experience-gate.js';
+import type { JudgeEngine } from '../judge/engine.js';
 
 export interface SummaryLLMConfig {
   /** Primary model in "provider/model-id" format. */
@@ -91,6 +93,8 @@ export class MemorySummarizer {
     private readonly logger: Logger,
     private readonly llmConfig?: SummaryLLMConfig,
     private readonly personaDistiller?: PersonaDistiller,
+    /** Kernel M2 judged experience gate — reads the live engine via lookup. */
+    private readonly judgeGet?: () => JudgeEngine | undefined,
   ) {}
 
   /**
@@ -198,6 +202,22 @@ Output ONLY valid JSON with this shape:
         summary,
         key_points: JSON.stringify(supportedPreferences),
       });
+
+      // Kernel M2 (`memory.capture`/`memory.worth`): judged experience gate —
+      // additive judged capture candidates from rule-setting user messages.
+      // No-op in every mode/absence combination; failures are contained.
+      try {
+        await judgeExperiences({
+          judgeGet: this.judgeGet,
+          sessionKey,
+          messages: messages.map((m) => ({ role: m.role, content: cleanContent(m.content) })),
+          writer: this.memoryWriter,
+          channel,
+          logger: this.logger,
+        });
+      } catch (err) {
+        this.logger.debug({ err, sessionKey }, 'Judged experience gate skipped');
+      }
 
       // Store summary as session-level memory.
       // Preferences below are intentionally NOT attributed: user-level facts
@@ -343,6 +363,21 @@ Output ONLY valid JSON with this shape:
       sourceChannel: channel,
       agentId: agentId ?? undefined,
     });
+
+    // Kernel M2: judged experience gate — same additive judged capture the
+    // LLM path gets (no-op unless both judged points are active).
+    try {
+      await judgeExperiences({
+        judgeGet: this.judgeGet,
+        sessionKey,
+        messages: messages.map((m) => ({ role: m.role, content: cleanContent(m.content) })),
+        writer: this.memoryWriter,
+        channel,
+        logger: this.logger,
+      });
+    } catch (err) {
+      this.logger.debug({ err, sessionKey }, 'Judged experience gate skipped');
+    }
 
     this.logger.info(
       { sessionKey, episodeId, messageCount: messages.length, topicCount: userTopics.length },

@@ -37,6 +37,7 @@ import { rebuildJiebaFts } from '../../memory/fts.js';
 import { PersonaDistillationLog } from '../../memory/persona/persona-distillation-log.js';
 import { PersonaAuditService } from '../../memory/persona/persona-audit-service.js';
 import type { openDatabase } from '../../memory/db.js';
+import { currentJudgeEngine } from '../../judge/engine-lookup.js';
 
 export interface MemoryServices {
   embeddingClient: ReturnType<typeof createEmbeddingClient>;
@@ -246,6 +247,10 @@ export async function createMemoryServices(
     mergeThreshold: 0.85,
     outputLanguage: config.memory.outputLanguage,
     logger,
+    // Kernel M2 `memory.merge`: the judged relation choice replaces the aux
+    // chat-LLM merge call when the point mode is active (engine read live so
+    // hot-reload rebuilds take effect without re-composing services).
+    judgeGet: () => currentJudgeEngine(),
   };
 
   const extractionConfig: LLMExtractionConfig = {
@@ -465,6 +470,8 @@ export async function createMemoryServices(
     logger,
     summaryConfig,
     personaDistiller,
+    // Kernel M2 judged experience gate — engine read live via the lookup.
+    () => currentJudgeEngine(),
   );
 
   const offloadBaseDir = config.memory.offloading?.refDir || path.dirname(config.database.path);

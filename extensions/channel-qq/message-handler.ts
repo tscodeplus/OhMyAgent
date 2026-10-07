@@ -28,6 +28,7 @@ import { createQQApprovalSender } from './send-message.js';
 import { handleApprovalInteraction } from './qq-approval-handler.js';
 import { parseQuestionCallback } from './qq-keyboard.js';
 import { i18n } from '../../src/i18n/index.js';
+import { triageGroupGateway } from '../../src/judge/hooks/channel-triage.js';
 import { isSenderAllowed } from '../../src/shared/access-control.js';
 import { writeFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -109,6 +110,12 @@ export function setupMessageHandlers(
         return;
       }
 
+      // ── Stage 5: Build session context (needed by the Stage-4 triage gate) ──
+      const text = channelCtx.message.text;
+      const sessionKey = isGroupMessage(payload)
+        ? `qq:group:${event.d.group_openid ?? event.d.group_id}`
+        : `qq:c2c:${event.d.author.user_openid}`;
+
       // ── Stage 4: Group message gating ──
       if (isGroupMessage(payload)) {
         if (!isAllowedGroup(event, config.allowedGroups)) {
@@ -119,14 +126,16 @@ export function setupMessageHandlers(
           return;
         }
         // QQ Bot API v2 only delivers GROUP_AT_MESSAGE_CREATE when the bot
-        // is @-mentioned, so no explicit mention check is required.
+        // is @-mentioned — consult judged channel.triage (active mode may
+        // mute the message; shadow/off/fallback keeps delivery).
+        const gate = await triageGroupGateway({
+          sessionId: sessionKey,
+          text,
+          mentionedBot: true,
+          logger,
+        });
+        if (gate === 'silent') return;
       }
-
-      // ── Stage 5: Build session context ──
-      const text = channelCtx.message.text;
-      const sessionKey = isGroupMessage(payload)
-        ? `qq:group:${event.d.group_openid ?? event.d.group_id}`
-        : `qq:c2c:${event.d.author.user_openid}`;
       // Prefixed chatId so cron delivery knows whether to use user or group endpoint
       const chatId = isGroupMessage(payload)
         ? `g:${channelCtx.channelId}`

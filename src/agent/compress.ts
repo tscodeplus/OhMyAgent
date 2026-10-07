@@ -224,6 +224,22 @@ export const DEFAULT_SETTINGS: CompressSettings = {
   keepRecentTokens: 20000,
 };
 
+/**
+ * Judged pre-compaction prune callback (kernel M2 `context.compact`, wired
+ * from the context transform). Returns a NEW agent-message array with the
+ * judged-dropped segments removed, or undefined when nothing was pruned
+ * (shadow / gray / fallback). Pruning happens request-time only — the caller
+ * owns deciding what to keep.
+ */
+export interface JudgedPrune {
+  keptMessages: AgentMessage[];
+}
+
+export type JudgedPruneFn = (
+  oldMessages: AgentMessage[],
+  signal?: AbortSignal,
+) => Promise<JudgedPrune | undefined>;
+
 export interface CompressContextInput {
   messages: AgentMessage[];
   contextWindow: number;
@@ -239,6 +255,8 @@ export interface CompressContextInput {
   compressFallbackRefs?: string[];
   /** Previous compaction summary for incremental update. */
   previousSummary?: string;
+  /** Kernel M2 `context.compact`: judged pre-compaction prune (features.compact === 'judged'). */
+  judgedPrune?: JudgedPruneFn;
   logger?: Pick<Logger, 'debug' | 'warn' | 'info'>;
 }
 
@@ -246,6 +264,10 @@ export interface CompressContextOutput {
   summaryMessage: AgentMessage | null;
   compressedIndex: number;
   summary: string;
+  /** True when the judged prune alone brought the watermark below the trigger — the caller must splice `prunedMessages` (no summary message exists). */
+  pruned?: boolean;
+  /** The full post-prune message array when `pruned` is true. */
+  prunedMessages?: AgentMessage[];
 }
 
 /**
@@ -295,9 +317,49 @@ export async function compressContext(input: CompressContextInput): Promise<Comp
   if (cutPoint <= 0) return empty;
 
   const oldMessages = messages.slice(0, cutPoint);
-  const compressibleMessages = oldMessages.filter((m) => formatMessage(m, 0).length > 0);
+  let compressibleMessages = oldMessages.filter((m) => formatMessage(m, 0).length > 0);
   if (compressibleMessages.length < 4) return empty;
 
+  // ── Kernel M2 `context.compact`: judged pre-compaction prune ──
+  // Runs BEFORE the LLM summary; if pruning alone brings the watermark below
+  // the trigger, the LLM summarization call is skipped entirely (mu's
+  // summary-free claim). Otherwise the LLM compresses the PRUNED transcript
+  // (fewer tokens to summarize; the existing fallback path is never skipped).
+  if (input.judgedPrune) {
+    try {
+      const judged = await input.judgedPrune(compressibleMessages, undefined);
+      if (judged && judged.keptMessages.length < compressibleMessages.length) {
+        const prunedMessages = [...judged.keptMessages, ...messages.slice(cutPoint)];
+        const prunedTokens = estimateTokens(prunedMessages);
+        if (prunedTokens <= contextWindow - settings.reserveTokens) {
+          logger?.info(
+            {
+              sessionKey,
+              droppedCount: compressibleMessages.length - judged.keptMessages.length,
+              tokensBefore: estimatedTokens,
+              tokensAfter: prunedTokens,
+            },
+            'Judged compact prune skipped the LLM summary',
+          );
+          return {
+            summaryMessage: null,
+            compressedIndex: 0,
+            summary: '',
+            pruned: true,
+            prunedMessages,
+          } satisfies CompressContextOutput;
+        }
+        // Still above the watermark → the LLM summary runs over the pruned set.
+        logger?.info(
+          { sessionKey, droppedCount: compressibleMessages.length - judged.keptMessages.length },
+          'Judged compact prune below trigger — LLM summary continues on the pruned set',
+        );
+        compressibleMessages = judged.keptMessages;
+      }
+    } catch (err) {
+      logger?.warn({ err, sessionKey }, 'Judged compact prune failed — LLM summary continues');
+    }
+  }
   // Model selection mirrors buildSummaryLLMConfig (memory_aux_models):
   //   configured → use it + its fallback chain
   //   not configured → use primary model + global fallback chain

@@ -80,6 +80,22 @@ export default function (api: ExtensionAPI) {
           throw err;
         }
       },
+      // Plain-text one-liner without the result/footer chrome (system notice).
+      async deliverNotice({ chatId, text }) {
+        const chatIdNum = Number(chatId);
+        if (isNaN(chatIdNum)) {
+          logger.warn({ chatId }, 'Cannot deliver notice - invalid Telegram chat ID');
+          return;
+        }
+        try {
+          await bot.api.sendMessage(chatIdNum, text, {
+            link_preview_options: { is_disabled: true },
+          });
+        } catch (err) {
+          logger.warn({ err, chatId }, 'Telegram notice delivery failed');
+          throw err;
+        }
+      },
     });
     logger.info('Telegram cron delivery client registered');
   }

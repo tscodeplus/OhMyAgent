@@ -1143,7 +1143,22 @@
     "monthlyTokens": "本月 Token",
     "channelStatus": "渠道状态",
     "running": "运行中",
-    "stopped": "已停止"
+    "stopped": "已停止",
+    "judgeLedger": {
+      "title": "判决账本",
+      "pointLabel": "决策点",
+      "modeLabel": "模式",
+      "outcomeLabel": "结果",
+      "judgeLabel": "裁判",
+      "fromLabel": "开始时间",
+      "toLabel": "结束时间",
+      "all": "全部",
+      "fallbackLabel": "兜底原因",
+      "empty": "暂无判决记录",
+      "unavailable": "判决账本不可用——裁判内核未启用或未运行",
+      "refresh": "刷新",
+      "pageInfo": "第 {{page}} / {{pages}} 页"
+    }
   },
   "cron": {
     "title": "定时任务",

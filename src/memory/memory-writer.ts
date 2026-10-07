@@ -8,7 +8,7 @@ import type { MemoryLinkRepository } from './repositories/memory-link-repository
 import { extractMemoryTerms, MemoryTermRepository } from './repositories/memory-term-repository.js';
 import { extractEntities, extractEntitiesLLM } from './entity-extractor.js';
 import type { LLMExtractionConfig } from './entity-extractor.js';
-import { mergeMemory, appendTimeline } from './memory-merge.js';
+import { mergeMemory, appendTimeline, appendMemoryDispute } from './memory-merge.js';
 import type { MergeConfig } from './memory-merge.js';
 import { matchesMemoryAccess } from './memory-access-policy.js';
 import type { MemoryAccessPolicy } from './memory-access-policy.js';
@@ -132,6 +132,9 @@ export class MemoryWriter {
     const warnings: string[] = [];
     let finalAction: WriteAction = 'created';
     let supersededBy: string | undefined;
+    // Kernel M2 judged merge (`memory.merge` contradicts/unrelated): the new
+    // row is created with the judged dispute marker.
+    let metadataDispute = false;
 
     // 1. Exact-match dedup: if same scopeKey+kind+content exists, update it
     const existing = this.memoryRepository.findExactMatch(
@@ -177,6 +180,7 @@ export class MemoryWriter {
             }
           } else {
             // Try compiled-truth merge if configured
+            let judgedKeepBoth = false;
             if (this.mergeConfig) {
               try {
                 const existing = this.memoryRepository.findById(similar.id);
@@ -188,27 +192,48 @@ export class MemoryWriter {
                     this.mergeConfig,
                   );
                   if (result) {
-                    // Merge succeeded — update existing memory
-                    const newMeta = appendTimeline(existing.metadata, result.timelineEntry);
-                    this.memoryRepository.update(existing.id, {
-                      content: result.mergedContent,
-                      metadata: newMeta,
-                    });
-                    // Content changed → terms + embedding must be recomputed,
-                    // otherwise retrieval scores the row against its old text.
-                    await this.refreshDerivedData(existing.id, result.mergedContent);
-                    this.notifyMemoryChanged(result.mergedContent, kind, options.scope, scopeKey);
-                    this.mergeConfig?.logger.info(
-                      { memoryId: existing.id, similarity: similar.score },
-                      'Memory merged via compiled truth',
-                    );
-                    return {
-                      id: existing.id,
-                      action: 'merged',
-                      isDuplicate: true,
-                      duplicateOf: existing.id,
-                      mergedInto: existing.id,
-                    };
+                    if ('judgedRelation' in result && result.judgedRelation === 'contradicts') {
+                      // Judged conflict: keep both records — mark the old one's
+                      // metadata (its content stays authoritative historically),
+                      // then continue to create the new record as-is.
+                      const newMeta = appendTimeline(existing.metadata, result.timelineEntry);
+                      this.memoryRepository.update(existing.id, {
+                        metadata: appendMemoryDispute(newMeta),
+                      });
+                      this.notifyMemoryChanged(existing.content, kind, options.scope, scopeKey);
+                      this.mergeConfig?.logger.info(
+                        { memoryId: existing.id, similarity: similar.score },
+                        'Judged merge: contradicts — dispute marker set, both records kept',
+                      );
+                      judgedKeepBoth = true;
+                    } else if (
+                      'judgedRelation' in result &&
+                      result.judgedRelation === 'unrelated'
+                    ) {
+                      judgedKeepBoth = true;
+                    } else {
+                      // Merge succeeded — update existing memory
+                      const newMeta = appendTimeline(existing.metadata, result.timelineEntry);
+                      this.memoryRepository.update(existing.id, {
+                        content: result.mergedContent,
+                        metadata: newMeta,
+                      });
+                      // Content changed → terms + embedding must be recomputed,
+                      // otherwise retrieval scores the row against its old text.
+                      await this.refreshDerivedData(existing.id, result.mergedContent);
+                      this.notifyMemoryChanged(result.mergedContent, kind, options.scope, scopeKey);
+                      this.mergeConfig?.logger.info(
+                        { memoryId: existing.id, similarity: similar.score },
+                        'Memory merged via compiled truth',
+                      );
+                      return {
+                        id: existing.id,
+                        action: 'merged',
+                        isDuplicate: true,
+                        duplicateOf: existing.id,
+                        mergedInto: existing.id,
+                      };
+                    }
                   }
                 }
               } catch (err) {
@@ -223,12 +248,18 @@ export class MemoryWriter {
                 // Merge failed — fall through to normal dedup
               }
             }
-            return {
-              id: similar.id,
-              action: 'semantic_duplicate',
-              isDuplicate: true,
-              duplicateOf: similar.id,
-            };
+            if (judgedKeepBoth) {
+              // Judged contradicts/unrelated: FALL THROUGH to record creation
+              // (step 3), tagging the new row with the judgedDispute metadata.
+              metadataDispute = true;
+            } else {
+              return {
+                id: similar.id,
+                action: 'semantic_duplicate',
+                isDuplicate: true,
+                duplicateOf: similar.id,
+              };
+            }
           }
         }
       }
@@ -252,7 +283,7 @@ export class MemoryWriter {
       scope: options.scope,
       scope_key: scopeKey,
       kind,
-      metadata,
+      metadata: metadataDispute ? appendMemoryDispute(metadata) : metadata,
       agent_id: agentId,
       visibility,
       source_channel: options.sourceChannel ?? null,

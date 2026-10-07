@@ -18,6 +18,12 @@ export interface CronDeliveryClient {
     /** Footer display config. */
     footer: FooterConfig;
   }): Promise<void>;
+  /**
+   * Optional plain-text notice path for short system one-liners (judge free-Jev
+   * daily privacy notice) — no model label / timestamp footer chrome. When a
+   * client omits it, callers fall back to `deliver`.
+   */
+  deliverNotice?(params: { chatId: string; text: string }): Promise<void>;
 }
 
 export class CronDeliveryRegistry {

@@ -5,6 +5,9 @@
  *                          + classifier model catalog grouped by provider.
  * GET  /api/judge/status — enabled flag, decision-point mode table, recent
  *                          ledger entries, circuit-breaker states.
+ * GET  /api/judge/ledger — paged ledger query (query params page, pageSize,
+ *                          pointId, mode, outcome, from, to, session) →
+ *                          { entries, total, page, pageSize }.
  * POST /api/judge/test   — one golden sample (choice/noul/score) through the
  *                          live engine; judge-side problems never become 500s.
  * POST /api/judge/config — persist the judge section of config.yaml.
@@ -117,6 +120,45 @@ export function registerJudgeRoutes(app: FastifyInstance, cfg: JudgeRouteConfig)
       recordState: config.recordState,
       timeoutMs: config.timeoutMs,
     });
+  });
+
+  // Paged ledger query (MyDocs/JEV_JUDGE_KERNEL_IMPLEMENTATION.md §5 item 4).
+  // Contract is exact — the WebUI ledger panel consumes {entries,total,page,
+  // pageSize} with entries = one page of LedgerRecord, newest first.
+  app.get('/api/judge/ledger', async (request, reply) => {
+    const query = request.query as Record<string, string | undefined> | undefined;
+    const numberParam = (name: string): number | undefined => {
+      const raw = query?.[name];
+      if (raw === undefined || raw === '') return undefined;
+      const n = Number(raw);
+      return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
+    };
+    const stringParam = (name: string): string | undefined => {
+      const raw = query?.[name];
+      return typeof raw === 'string' && raw.length > 0 ? raw : undefined;
+    };
+    const judge = cfg.getJudge();
+    // Engine absent (judge disabled) → every hook point is a no-op, so the
+    // ledger by definition has nothing to answer with.
+    if (!judge) {
+      return reply.send({
+        entries: [],
+        total: 0,
+        page: numberParam('page') ?? 1,
+        pageSize: numberParam('pageSize') ?? 20,
+      });
+    }
+    const result = judge.ledger.query({
+      page: numberParam('page'),
+      pageSize: numberParam('pageSize'),
+      pointId: stringParam('pointId'),
+      mode: stringParam('mode'),
+      outcome: stringParam('outcome'),
+      from: stringParam('from'),
+      to: stringParam('to'),
+      session: stringParam('session'),
+    });
+    return reply.send(result);
   });
 
   // One golden sample through the live engine. Judge-side problems are
@@ -290,6 +332,7 @@ function judgeConfigToYaml(j: NonNullable<AppConfig['judge']>): Record<string, u
                 type: entry.type,
                 ...(entry.baseUrl !== undefined ? { base_url: entry.baseUrl } : {}),
                 ...(entry.apiKeyEnv !== undefined ? { api_key_env: entry.apiKeyEnv } : {}),
+                ...(entry.model !== undefined ? { model: entry.model } : {}),
               },
             ]),
           ),

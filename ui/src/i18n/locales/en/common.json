@@ -1143,7 +1143,22 @@
     "monthlyTokens": "Monthly Tokens",
     "channelStatus": "Channel Status",
     "running": "Running",
-    "stopped": "Stopped"
+    "stopped": "Stopped",
+    "judgeLedger": {
+      "title": "Judge Ledger",
+      "pointLabel": "Decision point",
+      "modeLabel": "Mode",
+      "outcomeLabel": "Outcome",
+      "judgeLabel": "Judge",
+      "fromLabel": "From",
+      "toLabel": "To",
+      "all": "All",
+      "fallbackLabel": "Fallback",
+      "empty": "No verdicts recorded yet",
+      "unavailable": "Judge ledger unavailable — the judge kernel is not enabled or not running",
+      "refresh": "Refresh",
+      "pageInfo": "Page {{page}} of {{pages}}"
+    }
   },
   "cron": {
     "title": "Cron Jobs",
