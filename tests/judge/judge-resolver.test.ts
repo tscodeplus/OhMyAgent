@@ -148,6 +148,21 @@ describe('JudgeResolver — chain resolution', () => {
     expect(chain.noKeyRefs).toEqual([]);
   });
 
+  it('jev-free prefers the configured provider key (placeholder Bearer is rejected with 401 upstream)', () => {
+    // The tier must still resolve when ONLY a provider_keys entry exists (no env):
+    // resolveApiKey() is consulted for keyless tiers too, and the key is what
+    // OpenCode's endpoint actually requires (verified 200 with key / 401 without).
+    const resolver = new JudgeResolver({
+      config: baseConfig({ provider: 'opencode', modelRef: 'jev-1.13-free' }),
+      logger,
+      env: {},
+      providerKeys: { opencode: { apiKey: 'real-key' } },
+    });
+    const chain = resolver.resolveChain('tool.admission');
+    expect(chain.tiers.map((t) => t.judgeId)).toEqual(['opencode/jev-1.13-free']);
+    expect(chain.noKeyRefs).toEqual([]);
+  });
+
   it('cloudflare requires BOTH CLOUDFLARE_API_KEY and CLOUDFLARE_ACCOUNT_ID', () => {
     const withKeyOnly = new JudgeResolver({
       config: baseConfig({ provider: 'cloudflare-workers-ai', modelRef: 'typesafe/jev' }),

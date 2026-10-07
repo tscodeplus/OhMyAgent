@@ -10,7 +10,9 @@ import { choice, noul, score, defineDecision, type DecisionSpec } from './types.
 export const GOLDEN_POINT_ID = 'test';
 
 export const GOLDEN_SAMPLE_STATE: Record<string, unknown> = {
-  task: 'golden sample of the judge kernel: question shapes probe',
+  task: 'Fix the failing unit test: calculateDiscount(100) returned 0, expected 15, in the payments module (write or debug code).',
+  standingRule:
+    'The user set a rule worth remembering: all commit messages must be written in English.',
 };
 
 export function goldenSampleSpec(): DecisionSpec<{
@@ -27,15 +29,18 @@ export function goldenSampleSpec(): DecisionSpec<{
         web: 'web content or search',
         other: 'anything else',
       }),
-      q2_keep: noul('Is the described state worth keeping for later?', {
-        true: 'contains facts or decisions worth remembering',
-        false: 'transient noise',
-      }),
-      q3_difficulty: score('How hard is the described task for a large model?', [
-        'trivial',
-        'normal',
-        'hard',
-      ]),
+      // The probe is a SHAPE check, not a subjective assessment: each question
+      // is deterministically answerable from its own part of the state, so a
+      // healthy judge passes with high confidence (gray-zone here would mean
+      // the wire/parse path is broken, not that the task is ambiguous).
+      q2_keep: noul(
+        'Does the described state contain an explicit standing rule the user asked to follow?',
+        {
+          true: 'a rule is explicitly stated',
+          false: 'no rule present',
+        },
+      ),
+      q3_difficulty: score('On this scale, how cold is ice water?', ['cold', 'mild', 'hot']),
     },
     fallback: { action: 'none' },
   });

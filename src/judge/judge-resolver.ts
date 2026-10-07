@@ -203,7 +203,12 @@ export class JudgeResolver {
       try {
         const parsed = parseJudgeRef(ref);
         const keyless = isKeylessRef(parsed.provider, parsed.modelId);
-        const apiKey = keyless ? undefined : this.resolveApiKey(parsed.provider);
+        // Prefer the REAL provider key even for keyless (free/local) tiers:
+        // OpenCode's System One endpoint currently rejects placeholder Bearer
+        // values with 401 even on jev-1.13-free (the key just marks the
+        // account; the free tier still costs nothing). The placeholder is a
+        // last resort for genuinely keyless endpoints (local llama.cpp).
+        const apiKey = this.resolveApiKey(parsed.provider);
         // Free tier without an OpenCode key still goes out (the endpoint is
         // unauthenticated); system-one transport needs a non-empty Bearer, so
         // a placeholder is sent and a 401s surface as a regular service error.
