@@ -385,6 +385,7 @@ function judgeConfigToYaml(j: NonNullable<AppConfig['judge']>): Record<string, u
     ...(j.provider !== undefined ? { provider: j.provider } : {}),
     ...(j.modelRef !== undefined ? { model_ref: j.modelRef } : {}),
     ...(j.fallbackTiers !== undefined ? { fallback_tiers: j.fallbackTiers } : {}),
+    ...(j.chain !== undefined ? { chain: j.chain } : {}),
     ...(j.routes !== undefined ? { routes: j.routes } : {}),
     ...(j.modes !== undefined ? { modes: j.modes } : {}),
     ...(j.judges !== undefined

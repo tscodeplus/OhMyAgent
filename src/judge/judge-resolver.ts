@@ -153,11 +153,23 @@ export class JudgeResolver {
     this.opts = options;
   }
 
-  /** Refs the point resolves to: routes replace the whole chain; else [main, ...fallbackTiers]. */
+  /** Refs the point resolves to: routes replace the whole chain; else the
+   *  WebUI-written ordered `chain` when present; else the legacy [main,
+   *  ...fallbackTiers] derivation. Bare provider ids (added-but-model-less
+   *  chain groups) are skipped silently — they cannot judge yet. */
   private refsForPoint(pointId: string): string[] {
     const config = this.opts.config;
     const routeRefs = config.routes?.[pointId]?.map((r) => r.trim()).filter(Boolean) ?? [];
     if (routeRefs.length > 0) return routeRefs;
+    const chain = (config.chain ?? []).map((r) => r.trim()).filter(Boolean);
+    if (chain.length > 0) {
+      return chain.filter((ref) => {
+        // A bare builtin provider id is an added-but-unconfigured group marker.
+        if (ref.includes('/') || ref.startsWith('judges.')) return true;
+        if (JUDGE_PROVIDER_ENV_KEYS[ref] !== undefined) return false;
+        return true;
+      });
+    }
     // A judges entry as the primary judge (WebUI chain write-back sets
     // provider='judges', modelRef=<entry name>) normalizes to the
     // `judges.<name>` ref syntax the chain resolver understands.

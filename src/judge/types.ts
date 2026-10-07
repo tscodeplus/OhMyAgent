@@ -234,6 +234,13 @@ export interface JudgeSectionConfig {
   modelRef?: string;
   /** Explicit cascade chain members, ref-syntax strings. Empty/absent = no cascade. */
   fallbackTiers?: string[];
+  /**
+   * Full ordered chain as the WebUI writes it (bare provider ids = added but
+   * model-less groups; `judges.<name>` refs; `provider/model` refs). Present
+   * and non-empty → replaces the [provider/modelRef, ...fallbackTiers] legacy
+   * derivation; routes[pointId] still overrides everything.
+   */
+  chain?: string[];
   /** Per-point override: replaces the whole chain for that point. */
   routes?: Record<string, string[]>;
   /** modes[pointId] ?? modes.default; unset → DEFAULT_JUDGE_MODE (shadow). */

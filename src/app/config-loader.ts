@@ -505,6 +505,7 @@ function buildJudgeSection(jgCfg: YamlNode): Record<string, unknown> | undefined
     : undefined;
 
   const fallbackTiersNode = jgCfg.fallback_tiers ?? jgCfg.fallbackTiers;
+  const chainNode = jgCfg.chain;
 
   return {
     enabled: yamlBool(jgCfg.enabled, false, 'jgCfg?.enabled'),
@@ -517,6 +518,7 @@ function buildJudgeSection(jgCfg: YamlNode): Record<string, unknown> | undefined
     ...(fallbackTiersNode
       ? { fallbackTiers: strList(fallbackTiersNode, '', 'jgCfg?.fallback_tiers') }
       : {}),
+    ...(chainNode ? { chain: strList(chainNode, '', 'jgCfg?.chain') } : {}),
     ...(routesNode ? { routes } : {}),
     ...(jgCfg.modes ? { modes } : {}),
     ...(judgesNode ? { judges } : {}),
@@ -1539,6 +1541,7 @@ export function jsConfigToYaml(
         if (j.provider !== undefined) yj.provider = j.provider;
         if (j.modelRef !== undefined) yj.model_ref = j.modelRef;
         if (j.fallbackTiers !== undefined) yj.fallback_tiers = j.fallbackTiers;
+        if (j.chain !== undefined) yj.chain = j.chain;
         if (j.routes !== undefined) yj.routes = j.routes;
         if (j.modes !== undefined) yj.modes = j.modes;
         if (j.judges !== undefined) yj.judges = j.judges;

@@ -96,6 +96,8 @@ interface JudgeDraft {
   provider: string;
   modelRef: string;
   fallbackTiers: string[];
+  /** Full ordered chain (refs incl. bare provider ids = model-less groups). */
+  chain: string[];
   modes: Record<string, JudgeMode>;
   judges: CustomJudgeEntry[];
 }
@@ -113,6 +115,7 @@ interface JudgeConfigPayload {
   provider?: string;
   modelRef?: string;
   fallbackTiers?: string[];
+  chain?: unknown[];
   modes?: Record<string, unknown>;
   /** judge.judges: custom relay judges keyed by entry name. */
   judges?: Record<string, unknown>;
@@ -258,13 +261,33 @@ function draftFromPayload(payload: JudgeConfigPayload): JudgeDraft {
   const judgeModes: Record<string, JudgeMode> = { default: defaultMode };
   for (const id of JUDGE_POINT_IDS)
     judgeModes[id] = isJudgeMode(modes[id]) ? modes[id]! : defaultMode;
+  const fallbackTiers = Array.isArray(payload.fallbackTiers)
+    ? payload.fallbackTiers.filter((s): s is string => typeof s === 'string')
+    : [];
+  const rawChain = Array.isArray(payload.chain)
+    ? payload.chain.filter((s): s is string => typeof s === 'string')
+    : [];
+  // Legacy configs without the WebUI-written `chain`: derive it from
+  // [primary, ...fallbackTiers]; the chain is the single display source.
+  const chain =
+    rawChain.length > 0
+      ? rawChain
+      : [
+          ...(payload.provider && payload.modelRef
+            ? [
+                payload.provider === 'judges'
+                  ? `judges.${payload.modelRef}`
+                  : `${payload.provider}/${payload.modelRef}`,
+              ]
+            : []),
+          ...fallbackTiers,
+        ];
   return {
     enabled: !!payload.enabled,
     provider: typeof payload.provider === 'string' ? payload.provider : '',
     modelRef: typeof payload.modelRef === 'string' ? payload.modelRef : '',
-    fallbackTiers: Array.isArray(payload.fallbackTiers)
-      ? payload.fallbackTiers.filter((s): s is string => typeof s === 'string')
-      : [],
+    fallbackTiers,
+    chain,
     modes: judgeModes,
     judges: parseCustomJudges(payload.judges),
   };
@@ -407,20 +430,8 @@ function deriveChainRows(draft: JudgeDraft): { rows: ChainSortableRow[]; opaque:
     entryIndex,
   });
 
-  // Ordered refs: primary judge first, then the fallback tiers.
-  const refs: { ref: string; isPrimaryRef: boolean }[] = [];
-  if (draft.provider && draft.modelRef) {
-    refs.push({
-      ref:
-        draft.provider === 'judges'
-          ? `judges.${draft.modelRef}`
-          : `${draft.provider}/${draft.modelRef}`,
-      isPrimaryRef: true,
-    });
-  }
-  for (const ref of draft.fallbackTiers) refs.push({ ref, isPrimaryRef: false });
-
-  for (const { ref, isPrimaryRef } of refs) {
+  // The draft chain is the single ordered source: only ADDED groups appear.
+  for (const ref of draft.chain) {
     // 'judges.<name>' → that entry's row at this chain position.
     if (ref.startsWith('judges.')) {
       const wanted = ref.slice('judges.'.length).trim();
@@ -430,44 +441,37 @@ function deriveChainRows(draft: JudgeDraft): { rows: ChainSortableRow[]; opaque:
       if (idx >= 0 && draft.judges[idx]) {
         placedJudges.add(idx);
         rows.push(judgesRow(idx, draft.judges[idx]));
-        continue;
       }
       // Ref to a removed/renamed entry: drop it (keeping the orphan ref would
       // leave an unresolvable tier in the saved chain).
       continue;
     }
-    // 'provider/model' → a builtin provider row at this chain position.
+    // 'provider/model' or bare 'provider' → a builtin provider group; a bare
+    // id is an added-but-not-yet-configured group (drag-order still persists).
     const slashIdx = ref.indexOf('/');
     const provider = slashIdx > 0 ? ref.slice(0, slashIdx) : '';
-    if (slashIdx > 0 && isBuiltinProvider(provider)) {
-      if (!placedProviders.has(provider)) {
-        placedProviders.add(provider);
-        rows.push({
-          kind: 'provider',
-          id: provider,
-          provider,
-          model: ref.slice(slashIdx + 1),
-        });
-        continue;
-      }
+    if (isBuiltinProvider(provider) && !placedProviders.has(provider)) {
+      placedProviders.add(provider);
+      rows.push({
+        kind: 'provider',
+        id: provider,
+        provider,
+        model: slashIdx > 0 ? ref.slice(slashIdx + 1) : '',
+      });
+      continue;
     }
-    // Unresolved or malformed ref (incl. duplicate refs and legacy
+    // Unresolved or malformed ref (incl. duplicate providers and legacy
     // non-builtin primaries): pinned opaque row, preserved verbatim.
-    if (!isPrimaryRef || !opaque.includes(ref)) opaque.push(ref);
+    if (!opaque.includes(ref)) opaque.push(ref);
   }
 
-  // Judges entries never placed by any ref (hand-edited or newly added) sit
-  // at the END of the list, after the builtin providers: the chain write-back
-  // then references them at exactly the position the user sees, so display
-  // order = execution order. Drag any of them anywhere (position 1 = primary).
+  // Newly added / no-longer-referenced judges entries render at the END of
+  // the list; the chain write-back references them at exactly the position
+  // the user sees, so display order = execution order.
   for (let i = 0; i < draft.judges.length; i++) {
     const entry = draft.judges[i];
     if (entry && !placedJudges.has(i)) rows.push(judgesRow(i, entry));
   }
-  // Builtin providers without a ref keep their row (empty model → not in chain).
-  for (const provider of JUDGE_PROVIDER_IDS)
-    if (!placedProviders.has(provider))
-      rows.push({ kind: 'provider', id: provider, provider, model: '' });
   return { rows, opaque };
 }
 
@@ -484,13 +488,17 @@ function chainWriteBack(
   rows: ChainSortableRow[],
   opaque: string[],
   prev: JudgeDraft,
-): Pick<JudgeDraft, 'provider' | 'modelRef' | 'fallbackTiers'> {
+): Pick<JudgeDraft, 'provider' | 'modelRef' | 'fallbackTiers' | 'chain'> {
   let provider = '';
   let modelRef = '';
   let primarySet = false;
+  const chain: string[] = [];
   const fallbackTiers: string[] = [];
   for (const row of rows) {
     if (row.kind === 'provider') {
+      // Every added group persists in the chain — a bare provider id marks an
+      // added-but-not-yet-configured group (drag order survives, no model yet).
+      chain.push(row.model ? `${row.provider}/${row.model}` : row.provider);
       if (!row.model) continue;
       if (!primarySet) {
         provider = row.provider;
@@ -500,8 +508,10 @@ function chainWriteBack(
         fallbackTiers.push(`${row.provider}/${row.model}`);
       }
     } else {
-      if (!judgesEntryUsable(row.entry)) continue;
       const name = row.entry.name.trim();
+      if (!name) continue; // unnamed entries are not persistable (dropped on save)
+      chain.push(`judges.${name}`);
+      if (!judgesEntryUsable(row.entry)) continue;
       if (!primarySet) {
         provider = 'judges';
         modelRef = name;
@@ -511,6 +521,7 @@ function chainWriteBack(
       }
     }
   }
+  chain.push(...opaque);
   fallbackTiers.push(...opaque);
   // No row is usable: keep a legacy non-builtin (non-judges) primary untouched
   // instead of clearing it (opaque rows above already preserve the ref).
@@ -524,7 +535,7 @@ function chainWriteBack(
     provider = prev.provider;
     modelRef = prev.modelRef;
   }
-  return { provider, modelRef, fallbackTiers };
+  return { provider, modelRef, fallbackTiers, chain };
 }
 
 /* ───────── Presentational helpers ───────── */
@@ -590,10 +601,12 @@ function JudgeChainRow({
   modelLabel,
   freeBadge,
   models,
+  showMissing,
   expanded,
   onToggle,
   onSelectModel,
   onKeySaved,
+  onRemove,
 }: {
   providerId: (typeof JUDGE_PROVIDER_IDS)[number];
   index: number;
@@ -603,10 +616,12 @@ function JudgeChainRow({
   modelLabel: string;
   freeBadge: string;
   models: JudgeModelOption[];
+  showMissing: boolean;
   expanded: boolean;
   onToggle: () => void;
   onSelectModel: (model: string) => void;
   onKeySaved: () => void;
+  onRemove: () => void;
 }) {
   const { t } = useTranslation('common');
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -753,6 +768,15 @@ function JudgeChainRow({
             </span>
           )}
         </button>
+        {/* Remove this provider group from the chain (re-addable via menu) */}
+        <button
+          type="button"
+          onClick={onRemove}
+          className="shrink-0 rounded p-1 text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40"
+          title={t('settings.judge.removeGroup')}
+        >
+          <X size={14} />
+        </button>
       </div>
 
       {expanded && (
@@ -761,10 +785,15 @@ function JudgeChainRow({
           <div>
             <label className="mb-1 block text-[11px] font-medium text-neutral-600 dark:text-neutral-300">
               {t('settings.judge.apiKeyLabel')}
+              <span className="ml-0.5 text-red-500" aria-hidden>
+                *
+              </span>
             </label>
             <div className="flex gap-2">
               <div className="min-w-0 flex-1">
                 <PasswordInput
+                  label=""
+                  error={showMissing && !keyOk ? t('settings.validation.required') : undefined}
                   value={keyDraft}
                   onChange={(e) => setKeyDraft(e.target.value)}
                   placeholder={
@@ -810,12 +839,20 @@ function JudgeChainRow({
             <div>
               <label className="mb-1 block text-[11px] font-medium text-neutral-600 dark:text-neutral-300">
                 {t('settings.judge.accountIdLabel')}
+                <span className="ml-0.5 text-red-500" aria-hidden>
+                  *
+                </span>
               </label>
               <div className="flex gap-2">
                 <div className="min-w-0 flex-1">
                   <Input
                     value={acctDraft}
                     onChange={(e) => setAcctDraft(e.target.value)}
+                    error={
+                      showMissing && !accountId?.present
+                        ? t('settings.validation.required')
+                        : undefined
+                    }
                     placeholder={
                       accountId?.present ? t('settings.judge.accountIdConfigured') : undefined
                     }
@@ -861,6 +898,10 @@ function JudgeChainRow({
           {models.length > 0 ? (
             <Select
               label={modelLabel}
+              required
+              error={
+                showMissing && model.trim() === '' ? t('settings.validation.required') : undefined
+              }
               value={model}
               onChange={(e) => onSelectModel(e.target.value)}
               options={[
@@ -874,6 +915,10 @@ function JudgeChainRow({
           ) : (
             <Input
               label={modelLabel}
+              required
+              error={
+                showMissing && model.trim() === '' ? t('settings.validation.required') : undefined
+              }
               value={model}
               onChange={(e) => onSelectModel(e.target.value)}
               placeholder="e.g. jev-1.13"
@@ -918,6 +963,7 @@ function JudgeChainJudgesRow({
   entry,
   index,
   primary,
+  showMissing,
   expanded,
   onToggle,
   onChange,
@@ -927,6 +973,7 @@ function JudgeChainJudgesRow({
   entry: CustomJudgeEntry;
   index: number;
   primary: boolean;
+  showMissing: boolean;
   expanded: boolean;
   onToggle: () => void;
   onChange: (next: CustomJudgeEntry) => void;
@@ -1017,6 +1064,15 @@ function JudgeChainJudgesRow({
             {entry.model.trim() || 'jev-latest'}
           </span>
         </button>
+        {/* Remove this judges entry (and its chain ref) */}
+        <button
+          type="button"
+          onClick={onRemove}
+          className="shrink-0 rounded p-1 text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40"
+          title={t('settings.judge.customJudgeRemove')}
+        >
+          <X size={14} />
+        </button>
       </div>
 
       {expanded && (
@@ -1024,6 +1080,12 @@ function JudgeChainJudgesRow({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Input
               label={t('settings.judge.customJudgeNameLabel')}
+              required
+              error={
+                showMissing && entry.name.trim() === ''
+                  ? t('settings.validation.required')
+                  : undefined
+              }
               value={entry.name}
               onChange={(e) => onChange({ ...entry, name: e.target.value })}
               className="text-xs"
@@ -1041,6 +1103,12 @@ function JudgeChainJudgesRow({
             />
             <Input
               label={t('settings.judge.customJudgeBaseUrlLabel')}
+              required
+              error={
+                showMissing && entry.baseUrl.trim() === ''
+                  ? t('settings.validation.required')
+                  : undefined
+              }
               value={entry.baseUrl}
               onChange={(e) => onChange({ ...entry, baseUrl: e.target.value })}
               placeholder="https://relay.example.com"
@@ -1060,16 +1128,6 @@ function JudgeChainJudgesRow({
               placeholder="jev-latest"
               className="text-xs"
             />
-            <div className="flex items-end justify-end">
-              <button
-                type="button"
-                onClick={onRemove}
-                className="flex shrink-0 items-center justify-center rounded-md p-1.5 text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40"
-                title={t('settings.judge.customJudgeRemove')}
-              >
-                <X size={16} />
-              </button>
-            </div>
           </div>
         </div>
       )}
@@ -1089,7 +1147,7 @@ function ModeRow({ label, desc }: { label: string; desc: string }) {
 /* ───────── Main component ───────── */
 
 export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeSettingsProps) {
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
   const { showToast } = useToast();
 
   /* ── Server state ── */
@@ -1141,6 +1199,10 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
   dirtyRef.current = dirty;
   const draftRef = useRef(draft);
   draftRef.current = draft;
+  const payloadRef = useRef<JudgeConfigPayload | null>(payload);
+  payloadRef.current = payload;
+  /** True after a save attempt was blocked by missing required fields. */
+  const [showMissing, setShowMissing] = useState(false);
 
   /* Report dirty state upward so the shared Save button enables. */
   useEffect(() => {
@@ -1153,17 +1215,45 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
     async (opts?: { silent?: boolean }) => {
       const cur = draftRef.current;
       if (!cur || !dirtyRef.current) return;
-      /* Custom relay judges: blank-name entries are dropped silently; a named
-         entry without a Base URL blocks the save with an error toast. */
-      const named = cur.judges.filter((j) => j.name.trim() !== '');
-      const missingBaseUrl = named.find((j) => j.baseUrl.trim() === '');
-      if (missingBaseUrl) {
+      /* Required-field validation (same UX as the other tabs: red asterisks
+         on labels + a missingFields toast, and the save is blocked). Every
+         chain group must be complete: provider groups need a model (+ key,
+         + account id for Cloudflare); custom judges need name + Base URL. */
+      const listSeparator = i18n.language?.startsWith('zh') ? '、' : ', ';
+      const missing: string[] = [];
+      const ks = extractKeyStatus(payloadRef.current ?? {});
+      for (const row of deriveChainRows(cur).rows) {
+        if (row.kind === 'provider') {
+          const label = t(`settings.judge.providers.${row.provider}`);
+          if (row.model.trim() === '') missing.push(`${label} · ${t('settings.judge.modelLabel')}`);
+          if (ks[row.provider]?.present !== true)
+            missing.push(`${label} · ${t('settings.judge.apiKeyLabel')}`);
+          if (
+            row.provider === 'cloudflare-workers-ai' &&
+            ks[row.provider]?.accountId?.present !== true
+          )
+            missing.push(`${label} · ${t('settings.judge.accountIdLabel')}`);
+        } else {
+          const label =
+            row.entry.name.trim() !== ''
+              ? `${t('settings.judge.customJudges')}「${row.entry.name.trim()}」`
+              : `${t('settings.judge.customJudges')}（${t('settings.judge.customJudgeUnnamed')}）`;
+          if (row.entry.name.trim() === '')
+            missing.push(`${label} · ${t('settings.judge.customJudgeNameLabel')}`);
+          if (row.entry.baseUrl.trim() === '')
+            missing.push(`${label} · ${t('settings.judge.customJudgeBaseUrlLabel')}`);
+        }
+      }
+      if (missing.length > 0) {
+        setShowMissing(true);
         showToast(
-          t('settings.judge.customJudgeNeedsBaseUrl', { name: missingBaseUrl.name.trim() }),
+          t('settings.validation.missingFields', { fields: missing.join(listSeparator) }),
           'error',
+          6000,
         );
         return;
       }
+      const named = cur.judges.filter((j) => j.name.trim() !== '');
       const judges: Record<string, Record<string, string>> = {};
       for (const j of named) {
         const out: Record<string, string> = { type: j.type, baseUrl: j.baseUrl.trim() };
@@ -1179,6 +1269,7 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
             provider: cur.provider,
             modelRef: cur.modelRef,
             fallbackTiers: cur.fallbackTiers,
+            chain: cur.chain,
             modes: cur.modes,
             judges,
           }),
@@ -1186,18 +1277,20 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
         // Re-read the persisted config so key status / model enums stay fresh;
         // also resets the draft to synced (same pattern as useConfigDirty).
         await fetchJudgeConfig({ silent: true });
+        setShowMissing(false);
         if (!opts?.silent) showToast(t('settings.saved'), 'success');
       } catch (e) {
         if (!opts?.silent) showToast(t('settings.saveError'), 'error');
         throw e instanceof Error ? e : new Error(errorToMessage(e));
       }
     },
-    [fetchJudgeConfig, showToast, t],
+    [fetchJudgeConfig, showToast, t, i18n],
   );
 
   const performCancel = useCallback(() => {
     setTestError(null);
     setTestResult(null);
+    setShowMissing(false);
     if (synced) setDraft(synced);
   }, [synced]);
 
@@ -1323,7 +1416,39 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
     });
   }, []);
 
+  /** Remove one builtin provider group from the chain (re-addable via menu). */
+  const removeProviderRow = useCallback((providerId: string) => {
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const { rows, opaque } = deriveChainRows(prev);
+      const nextRows = rows.filter((r) => !(r.kind === 'provider' && r.provider === providerId));
+      return { ...prev, ...chainWriteBack(nextRows, opaque, prev) };
+    });
+  }, []);
+
+  /** Append a builtin provider group (bare ref = added, no model yet). */
+  const addProviderRow = useCallback((providerId: (typeof JUDGE_PROVIDER_IDS)[number]) => {
+    setAddMenuOpen(false);
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const { rows, opaque } = deriveChainRows(prev);
+      if (rows.some((r) => r.kind === 'provider' && r.provider === providerId)) return prev;
+      const nextRows: ChainSortableRow[] = [
+        ...rows,
+        {
+          kind: 'provider' as const,
+          id: providerId,
+          provider: providerId,
+          model: '',
+        },
+      ];
+      return { ...prev, ...chainWriteBack(nextRows, opaque, prev) };
+    });
+  }, []);
+
+  /** Append a blank custom-judges entry (renders at the end of the chain). */
   const addJudgeEntry = useCallback(() => {
+    setAddMenuOpen(false);
     setDraft((prev) =>
       prev
         ? {
@@ -1342,6 +1467,9 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
         : prev,
     );
   }, []);
+
+  /* ── Add-group dropdown (section header, right side) ── */
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
 
   /* ── Render ── */
 
@@ -1400,8 +1528,50 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
 
       {/* Everything below is inert while the kernel is disabled (config still editable for save). */}
       <div className={`space-y-6 ${disabledRest ? 'pointer-events-none opacity-50' : ''}`}>
-        {/* ── Drag-sortable judge chain (providers + custom relay judges as peers) ── */}
-        <SettingsSection title={t('settings.judge.providerAndModel')}>
+        {/* ── Drag-sortable judge chain (added groups only; add via header menu) ── */}
+        <section>
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+              {t('settings.judge.providerAndModel')}
+            </h3>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setAddMenuOpen((v) => !v)}
+                className="flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs text-white transition-colors hover:bg-blue-700"
+              >
+                <Plus size={14} />
+                {t('settings.judge.addGroup')}
+              </button>
+              {addMenuOpen && (
+                <>
+                  {/* Click-away backdrop */}
+                  <div className="fixed inset-0 z-10" onClick={() => setAddMenuOpen(false)} />
+                  <div className="absolute right-0 z-20 mt-1 w-56 overflow-hidden rounded-lg border border-neutral-200 bg-white py-1 shadow-lg dark:border-neutral-700 dark:bg-neutral-800">
+                    {JUDGE_PROVIDER_IDS.filter(
+                      (p) => !chainRows.some((r) => r.kind === 'provider' && r.provider === p),
+                    ).map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => addProviderRow(p)}
+                        className="block w-full px-3 py-1.5 text-left text-[13px] text-neutral-700 transition-colors hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-700"
+                      >
+                        {t(`settings.judge.providers.${p}`)}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={addJudgeEntry}
+                      className="block w-full px-3 py-1.5 text-left text-[13px] text-neutral-700 transition-colors hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-700"
+                    >
+                      {t('settings.judge.customJudges')}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
           <SettingsCard>
             <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
               {t('settings.judge.chainHint')}
@@ -1433,12 +1603,14 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
                         modelLabel={t('settings.judge.modelLabel')}
                         freeBadge={t('settings.judge.freeBadge')}
                         models={extractModelOptions(payload, row.provider)}
+                        showMissing={showMissing}
                         expanded={openRow === row.id}
                         onToggle={() => setOpenRow((prev) => (prev === row.id ? null : row.id))}
                         onSelectModel={(model) => setChainModel(row.provider, model)}
                         onKeySaved={() => {
                           void fetchJudgeConfig({ silent: true });
                         }}
+                        onRemove={() => removeProviderRow(row.provider)}
                       />
                     ) : (
                       <JudgeChainJudgesRow
@@ -1447,6 +1619,7 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
                         entry={row.entry}
                         index={idx}
                         primary={primaryId === row.id}
+                        showMissing={showMissing}
                         expanded={openRow === row.id}
                         onToggle={() => setOpenRow((prev) => (prev === row.id ? null : row.id))}
                         onChange={(next) => setJudgeEntry(row.entryIndex, next)}
@@ -1491,17 +1664,9 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
               {chainOpaque.map((ref, i) => (
                 <OpaqueJudgeRow key={ref} refText={ref} index={chainRows.length + i} />
               ))}
-              <button
-                type="button"
-                onClick={addJudgeEntry}
-                className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-neutral-300 bg-transparent px-4 py-2.5 text-sm text-neutral-600 hover:border-neutral-400 hover:text-neutral-900 dark:border-neutral-700 dark:text-neutral-400 dark:hover:border-neutral-600 dark:hover:text-neutral-200"
-              >
-                <Plus size={16} />
-                {t('settings.judge.customJudgeAdd')}
-              </button>
             </div>
           </SettingsCard>
-        </SettingsSection>
+        </section>
 
         {/* ── Golden-sample test ── */}
         <SettingsSection title={t('settings.judge.testSection')}>

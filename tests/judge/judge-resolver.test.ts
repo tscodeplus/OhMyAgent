@@ -108,6 +108,46 @@ describe('JudgeResolver — chain resolution', () => {
     ]);
   });
 
+  it('config.chain replaces the legacy [main, ...fallbackTiers] derivation, in order', () => {
+    const resolver = new JudgeResolver({
+      config: baseConfig({
+        provider: 'typesafe',
+        modelRef: 'jev-latest',
+        fallbackTiers: ['typesafe/jev-latest'],
+        chain: ['opencode/jev-1.13-free', 'typesafe/jev-latest'],
+      }),
+      logger,
+      env: { OPENCODE_API_KEY: 'k', TYPESAFE_API_KEY: 't' },
+    });
+    expect(resolver.resolveChain('tool.admission').tiers.map((t) => t.judgeId)).toEqual([
+      'opencode/jev-1.13-free',
+      'typesafe/jev-latest',
+    ]);
+  });
+
+  it('bare provider ids in chain are unconfigured group markers: skipped silently', () => {
+    const resolver = new JudgeResolver({
+      config: baseConfig({
+        chain: ['typesafe', 'opencode/jev-1.13-free', 'llama-cpp'],
+      }),
+      logger,
+      env: { OPENCODE_API_KEY: 'k' },
+    });
+    const chain = resolver.resolveChain('tool.admission');
+    expect(chain.tiers.map((t) => t.judgeId)).toEqual(['opencode/jev-1.13-free']);
+    expect(chain.unresolvableRefs).toEqual([]);
+    expect(chain.noKeyRefs).toEqual([]);
+  });
+
+  it('unknown bare ids in chain still land in unresolvableRefs (typo protection)', () => {
+    const resolver = new JudgeResolver({
+      config: baseConfig({ chain: ['nonsense-provider'] }),
+      logger,
+      env: {},
+    });
+    expect(resolver.resolveChain('tool.admission').unresolvableRefs).toEqual(['nonsense-provider']);
+  });
+
   it('key falls back to provider_keys config before env', () => {
     const resolver = new JudgeResolver({
       config: baseConfig(),
@@ -119,9 +159,11 @@ describe('JudgeResolver — chain resolution', () => {
   });
 
   it('no key on a chain member: ref dropped, reported ONCE across calls, not silently skipped', () => {
+    // Local logger mock: the module-level one accumulates warns across tests.
+    const localLogger = { ...logger, warn: vi.fn() };
     const resolver = new JudgeResolver({
       config: baseConfig(),
-      logger,
+      logger: localLogger,
       env: {}, // no OPENCODE_API_KEY anywhere
     });
     const first = resolver.resolveChain('tool.admission');
@@ -131,8 +173,8 @@ describe('JudgeResolver — chain resolution', () => {
     resolver.resolveChain('tool.admission');
     resolver.resolveChain('memory.worth');
     // Startup warn at most once per ref.
-    expect(logger.warn).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(logger.warn).mock.calls[0][0]).toMatchObject({
+    expect(localLogger.warn).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(localLogger.warn).mock.calls[0][0]).toMatchObject({
       ref: 'opencode/jev-1.13',
     });
   });

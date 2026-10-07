@@ -188,6 +188,8 @@ export const judgeSectionSchema = z.object({
   provider: z.string().optional(),
   modelRef: z.string().optional(),
   fallbackTiers: z.array(z.string()).optional(),
+  /** Full ordered chain the WebUI writes (may contain bare provider ids = model-less groups). */
+  chain: z.array(z.string()).optional(),
   routes: z.record(z.string(), z.array(z.string())).optional(),
   modes: z.record(z.string(), z.enum(['active', 'shadow', 'off'])).default({ default: 'shadow' }),
   judges: z.record(z.string(), judgeEntrySchema).optional(),
