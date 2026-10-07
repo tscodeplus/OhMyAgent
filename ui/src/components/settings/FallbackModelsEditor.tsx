@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import Select from '../ui/Select';
 import {
   DndContext,
   closestCenter,
@@ -32,6 +33,10 @@ interface FallbackModelsEditorProps {
   onChange: (value: string[]) => void;
   configuredProviders?: string[];
   extraProviders?: ProviderOption[];
+  /** Locked mode: every tier uses this provider; hide the provider picker. */
+  lockedProvider?: string;
+  /** Locked mode: the only selectable models (the locked provider's catalog). */
+  lockedModels?: Array<{ id: string; free?: boolean }>;
 }
 
 function SortableItem({
@@ -41,6 +46,8 @@ function SortableItem({
   onRemove,
   configuredProviders,
   extraProviders,
+  lockedProvider,
+  lockedModels,
 }: {
   item: FallbackModel;
   index: number;
@@ -48,6 +55,8 @@ function SortableItem({
   onRemove: (id: string) => void;
   configuredProviders?: string[];
   extraProviders?: ProviderOption[];
+  lockedProvider?: string;
+  lockedModels?: Array<{ id: string; free?: boolean }>;
 }) {
   const { t } = useTranslation('common');
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -59,6 +68,17 @@ function SortableItem({
     transition,
     opacity: isDragging ? 0.5 : 1,
   };
+
+  const removeButton = (
+    <button
+      type="button"
+      onClick={() => onRemove(item.id)}
+      className="hidden sm:flex items-center justify-center rounded-md p-1.5 text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40"
+      title={t('chat.input.remove')}
+    >
+      <X size={16} />
+    </button>
+  );
 
   return (
     <div
@@ -93,33 +113,69 @@ function SortableItem({
         </button>
       </div>
       <div className="min-w-0 flex-1">
-        <ModelPicker
-          provider={item.provider}
-          model={item.model}
-          onChangeProvider={(provider) => onUpdate(item.id, { ...item, provider })}
-          onChangeModel={(model) => onUpdate(item.id, { ...item, model })}
-          providerLabel={t('settings.models.provider')}
-          modelLabel={t('settings.models.fallbackModel')}
-          showMetaBadges={false}
-          showTestButton={false}
-          dense
-          configuredProviders={configuredProviders}
-          extraProviders={extraProviders}
-          className="space-y-2"
-          providerRowTrailing={
-            <button
-              type="button"
-              onClick={() => onRemove(item.id)}
-              className="hidden sm:flex items-center justify-center rounded-md p-1.5 text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40"
-              title={t('chat.input.remove')}
-            >
-              <X size={16} />
-            </button>
-          }
-        />
+        {lockedProvider ? (
+          /* Locked mode: single provider (e.g. the judge tab) — fixed provider
+             badge + a model Select limited to that provider's catalog. */
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2">
+            <span className="shrink-0 rounded-md bg-neutral-100 px-2 py-1.5 font-mono text-[11px] text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+              {lockedProvider}
+            </span>
+            <div className="min-w-0 flex-1">
+              <Select
+                value={item.model}
+                onChange={(e) =>
+                  onUpdate(item.id, { ...item, provider: lockedProvider, model: e.target.value })
+                }
+                options={[
+                  { value: '', label: t('settings.models.fallbackModel') },
+                  ...mergeMissingModel(lockedModels, item.model).map((m) => ({
+                    value: m.id,
+                    label: m.free ? `${m.id} · ${t('settings.judge.freeBadge')}` : m.id,
+                  })),
+                ]}
+              />
+            </div>
+            <div className="sm:hidden">{removeButton}</div>
+          </div>
+        ) : (
+          <ModelPicker
+            provider={item.provider}
+            model={item.model}
+            onChangeProvider={(provider) => onUpdate(item.id, { ...item, provider })}
+            onChangeModel={(model) => onUpdate(item.id, { ...item, model })}
+            providerLabel={t('settings.models.provider')}
+            modelLabel={t('settings.models.fallbackModel')}
+            showMetaBadges={false}
+            showTestButton={false}
+            dense
+            configuredProviders={configuredProviders}
+            extraProviders={extraProviders}
+            className="space-y-2"
+            providerRowTrailing={
+              <button
+                type="button"
+                onClick={() => onRemove(item.id)}
+                className="hidden sm:flex items-center justify-center rounded-md p-1.5 text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40"
+                title={t('chat.input.remove')}
+              >
+                <X size={16} />
+              </button>
+            }
+          />
+        )}
       </div>
     </div>
   );
+}
+
+/** Locked-mode options: the provider catalog plus any already-set model id. */
+function mergeMissingModel(
+  lockedModels: Array<{ id: string; free?: boolean }> | undefined,
+  model: string,
+): Array<{ id: string; free?: boolean }> {
+  const list = [...(lockedModels ?? [])];
+  if (model && !list.some((m) => m.id === model)) list.push({ id: model });
+  return list;
 }
 
 let nextId = 0;
@@ -142,6 +198,8 @@ export default function FallbackModelsEditor({
   onChange,
   configuredProviders,
   extraProviders,
+  lockedProvider,
+  lockedModels,
 }: FallbackModelsEditorProps) {
   const { t } = useTranslation('common');
   const [items, setItems] = useState<FallbackModel[]>(() => parseValue(value));
@@ -235,6 +293,8 @@ export default function FallbackModelsEditor({
               onRemove={handleRemove}
               configuredProviders={configuredProviders}
               extraProviders={extraProviders}
+              lockedProvider={lockedProvider}
+              lockedModels={lockedModels}
             />
           ))}
         </SortableContext>

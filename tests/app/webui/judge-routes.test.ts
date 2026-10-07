@@ -197,4 +197,52 @@ describe('judge routes', () => {
       expect(res.statusCode).toBe(400);
     });
   });
+
+  describe('POST /api/judge/key', () => {
+    it('merges a single provider key without dropping other providers', async () => {
+      // Pre-seed an unrelated provider key via a rich config the route reads:
+      // the merge path runs on the raw yaml document, so simulate by writing
+      // the file first.
+      writeFileSync(configPath, 'provider_keys:\n  openai:\n    apiKey: sk-test\n');
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/judge/key',
+        payload: { provider: 'opencode', apiKey: 'oc-key-123' },
+      });
+      expect(res.statusCode).toBe(200);
+      const pk = (savedYaml().provider_keys ?? {}) as Record<string, { apiKey?: string }>;
+      expect(pk.openai?.apiKey).toBe('sk-test');
+      expect(pk.opencode?.apiKey).toBe('oc-key-123');
+      const body = JSON.parse(res.body);
+      expect(body.ok).toBe(true);
+      // keyStatus echoes the harness's getConfig() (yaml writes are verified above);
+      // here only the shape is meaningful in this harness.
+      expect(Array.isArray(body.keyStatus.opencode.envVars)).toBe(true);
+    });
+
+    it('empty apiKey clears the stored key (other keys survive)', async () => {
+      writeFileSync(
+        configPath,
+        'provider_keys:\n  openai:\n    apiKey: sk-test\n  opencode:\n    apiKey: oc-key-123\n',
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/judge/key',
+        payload: { provider: 'opencode', apiKey: '' },
+      });
+      expect(res.statusCode).toBe(200);
+      const pk = (savedYaml().provider_keys ?? {}) as Record<string, { apiKey?: string }>;
+      expect(pk.openai?.apiKey).toBe('sk-test');
+      expect(pk.opencode).toBeUndefined();
+    });
+
+    it('rejects a missing provider with 400', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/judge/key',
+        payload: { apiKey: 'x' },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+  });
 });

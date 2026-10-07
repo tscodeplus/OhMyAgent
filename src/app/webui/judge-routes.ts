@@ -44,34 +44,43 @@ function isNonEmptyEnv(name: string): boolean {
   return typeof v === 'string' && v.length > 0;
 }
 
+/** Per-provider key status for the judge tab (GET config + POST key reuse). */
+function buildKeyStatus(
+  appConfig: AppConfig,
+): Record<
+  string,
+  { envVars: string[]; present: boolean; fromConfig: boolean; envPresent: boolean }
+> {
+  const keyStatus: Record<
+    string,
+    { envVars: string[]; present: boolean; fromConfig: boolean; envPresent: boolean }
+  > = {};
+  for (const [provider, envVars] of Object.entries(JUDGE_PROVIDER_ENV_KEYS)) {
+    const fromConfig = Boolean(appConfig.providerKeys?.[provider]?.apiKey);
+    let envPresent = false;
+    if (provider === 'cloudflare-workers-ai') {
+      envPresent = isNonEmptyEnv('CLOUDFLARE_API_KEY') && isNonEmptyEnv('CLOUDFLARE_ACCOUNT_ID');
+    } else if (provider === 'opencode') {
+      // jev-1.13-free needs no key; any presence is reported for the paid tier.
+      envPresent = isNonEmptyEnv('OPENCODE_API_KEY');
+    } else {
+      envPresent = envVars.some((name) => isNonEmptyEnv(name));
+    }
+    keyStatus[provider] = {
+      envVars: [...envVars],
+      fromConfig,
+      envPresent,
+      present: fromConfig || envPresent || provider === 'opencode',
+    };
+  }
+  return keyStatus;
+}
+
 export function registerJudgeRoutes(app: FastifyInstance, cfg: JudgeRouteConfig): void {
   // Effective judge section + provider key status + classifier model catalog.
   app.get('/api/judge/config', async (_request, reply) => {
     const config = judgeSectionSchema.parse(cfg.getConfig().judge ?? {});
-    const appConfig = cfg.getConfig();
-
-    const keyStatus: Record<
-      string,
-      { envVars: string[]; present: boolean; fromConfig: boolean; envPresent: boolean }
-    > = {};
-    for (const [provider, envVars] of Object.entries(JUDGE_PROVIDER_ENV_KEYS)) {
-      const fromConfig = Boolean(appConfig.providerKeys?.[provider]?.apiKey);
-      let envPresent = false;
-      if (provider === 'cloudflare-workers-ai') {
-        envPresent = isNonEmptyEnv('CLOUDFLARE_API_KEY') && isNonEmptyEnv('CLOUDFLARE_ACCOUNT_ID');
-      } else if (provider === 'opencode') {
-        // jev-1.13-free needs no key; any presence is reported for the paid tier.
-        envPresent = isNonEmptyEnv('OPENCODE_API_KEY');
-      } else {
-        envPresent = envVars.some((name) => isNonEmptyEnv(name));
-      }
-      keyStatus[provider] = {
-        envVars: [...envVars],
-        fromConfig,
-        envPresent,
-        present: fromConfig || envPresent || provider === 'opencode',
-      };
-    }
+    const keyStatus = buildKeyStatus(cfg.getConfig());
 
     const models: Record<string, string[]> = {};
     for (const provider of JUDGE_CONFIG_PROVIDERS) {
@@ -215,6 +224,51 @@ export function registerJudgeRoutes(app: FastifyInstance, cfg: JudgeRouteConfig)
       }
     }
     return reply.send({ ok: true, config: merged.data });
+  });
+
+  // Store ONE judge provider's API key into config.yaml `provider_keys`.
+  // Merge semantics (unlike PUT /api/config, which replaces the whole
+  // provider_keys section) so the judge tab never drops other providers' keys.
+  // Empty apiKey clears the stored key (env vars still count afterwards).
+  app.post('/api/judge/key', async (request, reply) => {
+    const body = request.body as { provider?: unknown; apiKey?: unknown } | undefined;
+    if (
+      !body ||
+      typeof body !== 'object' ||
+      typeof body.provider !== 'string' ||
+      body.provider.length === 0 ||
+      typeof body.apiKey !== 'string'
+    ) {
+      return reply
+        .status(400)
+        .send({ error: 'Bad Request', message: 'Expected { provider: string, apiKey: string }' });
+    }
+    const { provider, apiKey } = body as { provider: string; apiKey: string };
+    try {
+      await mutateConfigYaml((doc) => {
+        const existing = readConfigObject(doc);
+        const pk = { ...((existing.provider_keys ?? {}) as Record<string, { apiKey?: string }>) };
+        if (apiKey === '') {
+          delete pk[provider];
+        } else {
+          pk[provider] = { ...(pk[provider] ?? {}), apiKey };
+        }
+        existing.provider_keys = pk;
+        applyConfigObject(doc, existing);
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: 'Internal Server Error', message });
+    }
+
+    if (cfg.onConfigSaved) {
+      try {
+        cfg.onConfigSaved(loadConfig());
+      } catch (err) {
+        app.log.warn({ err }, 'judge key saved but hot-reload failed');
+      }
+    }
+    return reply.send({ ok: true, keyStatus: buildKeyStatus(cfg.getConfig()) });
   });
 }
 

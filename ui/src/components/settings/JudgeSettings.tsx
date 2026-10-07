@@ -21,6 +21,7 @@ import { useToast } from '../ui/Toast';
 import Toggle from '../ui/Toggle';
 import Select from '../ui/Select';
 import Input from '../ui/Input';
+import PasswordInput from '../ui/PasswordInput';
 import Spinner from '../ui/Spinner';
 import FallbackModelsEditor from './FallbackModelsEditor';
 import { SettingsSection, SettingsCard } from './SettingsSection';
@@ -333,6 +334,185 @@ function ModeSegment({
   );
 }
 
+function extractModelOptions_placeholder() {} // removed below
+/**
+ * One judge provider group: header (status dot + label + current model) that is
+ * collapsed by default; the body holds the API key editor and the provider's
+ * model catalog. Selecting a model in a group makes it the judge provider.
+ */
+function JudgeProviderGroup({
+  providerId,
+  selected,
+  currentModel,
+  keyOk,
+  envVars,
+  modelLabel,
+  freeBadge,
+  models,
+  expanded,
+  onToggle,
+  onSelectModel,
+  onKeySaved,
+}: {
+  providerId: string;
+  selected: boolean;
+  currentModel: string;
+  keyOk: boolean;
+  envVars: string[];
+  modelLabel: string;
+  freeBadge: string;
+  models: JudgeModelOption[];
+  expanded: boolean;
+  onToggle: () => void;
+  onSelectModel: (model: string) => void;
+  onKeySaved: () => void;
+}) {
+  const { t } = useTranslation('common');
+  const [keyDraft, setKeyDraft] = useState('');
+  const [keySaving, setKeySaving] = useState(false);
+  const [keyError, setKeyError] = useState<string | null>(null);
+  const [keyJustSaved, setKeyJustSaved] = useState(false);
+
+  const saveKey = useCallback(async () => {
+    setKeySaving(true);
+    setKeyError(null);
+    setKeyJustSaved(false);
+    try {
+      await apiRequest('/api/judge/key', {
+        method: 'POST',
+        body: JSON.stringify({ provider: providerId, apiKey: keyDraft.trim() }),
+      });
+      setKeyDraft('');
+      setKeyJustSaved(true);
+      window.setTimeout(() => setKeyJustSaved(false), 2000);
+      onKeySaved();
+    } catch (e) {
+      setKeyError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setKeySaving(false);
+    }
+  }, [keyDraft, providerId, onKeySaved]);
+
+  return (
+    <div
+      className={`rounded-lg border transition-colors ${
+        selected
+          ? 'border-blue-500 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-950/25'
+          : 'border-neutral-200 dark:border-neutral-800'
+      }`}
+    >
+      {/* Header — always visible, row click toggles the group */}
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors"
+      >
+        <ChevronRight
+          size={14}
+          className={`shrink-0 text-neutral-400 transition-transform ${expanded ? 'rotate-90' : ''}`}
+        />
+        <span
+          className={`h-2 w-2 shrink-0 rounded-full ${
+            keyOk ? 'bg-green-500' : 'bg-neutral-300 dark:bg-neutral-600'
+          }`}
+        />
+        <span
+          className={`flex-1 truncate text-[13px] font-medium ${
+            selected ? 'text-blue-700 dark:text-blue-300' : 'text-neutral-700 dark:text-neutral-200'
+          }`}
+        >
+          {t(providerLabelKey(providerId))}
+        </span>
+        {selected && currentModel && (
+          <span className="shrink-0 font-mono text-[10px] text-neutral-500 dark:text-neutral-400">
+            {currentModel}
+          </span>
+        )}
+        {keyOk && (
+          <span className="shrink-0 text-[10px] text-green-600 dark:text-green-400">
+            {t('settings.judge.keyConfigured')}
+          </span>
+        )}
+      </button>
+
+      {expanded && (
+        <div className="space-y-3 border-t border-neutral-100 px-3 py-3 dark:border-neutral-800">
+          {/* API key (saved independently from the form draft) */}
+          <div>
+            <label className="mb-1 block text-[11px] font-medium text-neutral-600 dark:text-neutral-300">
+              {t('settings.judge.apiKeyLabel')}
+            </label>
+            <div className="flex gap-2">
+              <div className="min-w-0 flex-1">
+                <PasswordInput
+                  value={keyDraft}
+                  onChange={(e) => setKeyDraft(e.target.value)}
+                  placeholder={
+                    keyOk
+                      ? t('settings.judge.keyReplacePlaceholder')
+                      : t('settings.judge.keyPlaceholder')
+                  }
+                  className="h-8 text-xs"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => void saveKey()}
+                disabled={keySaving}
+                className="shrink-0 rounded-md bg-blue-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {keySaving
+                  ? t('settings.judge.keySaving')
+                  : keyDraft.trim() === ''
+                    ? t('settings.judge.keyClear')
+                    : t('settings.judge.keySave')}
+              </button>
+            </div>
+            {keyJustSaved && (
+              <p className="mt-1 text-[11px] text-green-600 dark:text-green-400">
+                {t('settings.judge.keySaved')}
+              </p>
+            )}
+            {keyError && (
+              <p className="mt-1 text-[11px] text-red-600 dark:text-red-400">
+                {t('settings.judge.keySaveFailed', { error: keyError })}
+              </p>
+            )}
+            {envVars.length > 0 && (
+              <p className="mt-1 text-[11px] text-neutral-500 dark:text-neutral-400">
+                {t('settings.judge.keyEnvHint', { vars: envVars.join(', ') })}
+              </p>
+            )}
+          </div>
+
+          {/* Model catalog of this provider (selecting one makes it the judge) */}
+          {models.length > 0 ? (
+            <Select
+              label={modelLabel}
+              value={selected ? currentModel : ''}
+              onChange={(e) => onSelectModel(e.target.value)}
+              options={[
+                { value: '', label: `— ${modelLabel} —` },
+                ...models.map((m) => ({
+                  value: m.id,
+                  label: `${m.id}${m.free ? ` · ${freeBadge}` : ''}`,
+                })),
+              ]}
+            />
+          ) : (
+            <Input
+              label={modelLabel}
+              value={selected ? currentModel : ''}
+              onChange={(e) => onSelectModel(e.target.value)}
+              placeholder="e.g. jev-1.13"
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ModeRow({ label, desc }: { label: string; desc: string }) {
   return (
     <div className="min-w-0">
@@ -344,11 +524,7 @@ function ModeRow({ label, desc }: { label: string; desc: string }) {
 
 /* ───────── Main component ───────── */
 
-export default function JudgeSettings({
-  registerActions,
-  onDirtyChange,
-  onJumpToProviders,
-}: JudgeSettingsProps) {
+export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeSettingsProps) {
   const { t } = useTranslation('common');
   const { showToast } = useToast();
 
@@ -487,6 +663,20 @@ export default function JudgeSettings({
     }
   }, []);
 
+  /* ── Provider groups (default collapsed) ── */
+
+  const [openProvider, setOpenProvider] = useState<string | null>(null);
+
+  /** Env var names per provider from the server keyStatus envelope ([] fallback). */
+  const providerEnvVars = useCallback(
+    (id: string): string[] => {
+      const raw = (payload?.keyStatus ?? {}) as Record<string, { envVars?: unknown }>;
+      const v = raw[id];
+      return Array.isArray(v?.envVars) ? (v.envVars as string[]) : [];
+    },
+    [payload],
+  );
+
   /* ── Derived render data ── */
 
   const keyStatus = useMemo(() => extractKeyStatus(payload ?? {}), [payload]);
@@ -566,92 +756,31 @@ export default function JudgeSettings({
         <SettingsSection title={t('settings.judge.providerAndModel')}>
           <SettingsCard>
             <div className="space-y-1.5">
-              {JUDGE_PROVIDER_IDS.map((id) => {
-                const selected = draft.provider === id;
-                const keyOk = keyStatus[id];
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => updateDraft({ provider: id, modelRef: '' })}
-                    className={`flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors ${
-                      selected
-                        ? 'border-blue-500 bg-blue-50/60 dark:border-blue-500 dark:bg-blue-950/30'
-                        : 'border-neutral-200 hover:border-neutral-300 dark:border-neutral-800 dark:hover:border-neutral-700'
-                    }`}
-                  >
-                    <span
-                      className={`h-2 w-2 shrink-0 rounded-full ${
-                        keyOk ? 'bg-green-500' : 'bg-neutral-300 dark:bg-neutral-600'
-                      }`}
-                    />
-                    <span className="flex-1 truncate text-[13px] font-medium text-neutral-700 dark:text-neutral-200">
-                      {t(providerLabelKey(id))}
-                    </span>
-                    {keyOk ? (
-                      <span className="shrink-0 text-[10px] text-green-600 dark:text-green-400">
-                        {t('settings.judge.keyConfigured')}
-                      </span>
-                    ) : (
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onJumpToProviders?.();
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            onJumpToProviders?.();
-                          }
-                        }}
-                        className="shrink-0 cursor-pointer text-[11px] text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
-                      >
-                        {t('settings.judge.goConfigureKey')}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* ── Model selector, filtered by provider ── */}
-            <div className="pt-1">
-              {modelOptions.length > 0 ? (
-                <Select
-                  label={t('settings.judge.modelLabel')}
-                  value={draft.modelRef}
-                  onChange={(e) => updateDraft({ modelRef: e.target.value })}
-                  options={[
-                    { value: '', label: `— ${t('settings.judge.modelLabel')} —` },
-                    ...modelOptions.map((m) => ({
-                      value: m.id,
-                      label: `${m.name ? `${m.name} (${m.id})` : m.id}${
-                        m.free ? ` · ${t('settings.judge.freeBadge')}` : ''
-                      }`,
-                    })),
-                    // Keep a manually-entered ref visible even if not in the enum.
-                    ...(draft.modelRef && !modelOptions.some((m) => m.id === draft.modelRef)
-                      ? [{ value: draft.modelRef, label: draft.modelRef }]
-                      : []),
-                  ]}
+              {JUDGE_PROVIDER_IDS.map((id) => (
+                <JudgeProviderGroup
+                  key={id}
+                  providerId={id}
+                  selected={draft.provider === id}
+                  currentModel={draft.provider === id ? draft.modelRef : ''}
+                  keyOk={keyStatus[id] === true}
+                  envVars={providerEnvVars(id)}
+                  modelLabel={t('settings.judge.modelLabel')}
+                  freeBadge={t('settings.judge.freeBadge')}
+                  models={extractModelOptions(payload, id)}
+                  expanded={openProvider === id}
+                  onToggle={() => setOpenProvider((prev) => (prev === id ? null : id))}
+                  onSelectModel={(model) => updateDraft({ provider: id, modelRef: model })}
+                  onKeySaved={() => {
+                    void fetchJudgeConfig({ silent: true });
+                  }}
                 />
-              ) : (
-                <Input
-                  label={t('settings.judge.modelLabel')}
-                  value={draft.modelRef}
-                  onChange={(e) => updateDraft({ modelRef: e.target.value })}
-                  placeholder="e.g. jev-1.13"
-                />
-              )}
-              {isFreeModel && (
-                <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-400">
-                  {t('settings.judge.freeNote')}
-                </p>
-              )}
+              ))}
             </div>
+            {isFreeModel && (
+              <p className="mt-3 text-[11px] text-amber-600 dark:text-amber-400">
+                {t('settings.judge.freeNote')}
+              </p>
+            )}
           </SettingsCard>
         </SettingsSection>
 
