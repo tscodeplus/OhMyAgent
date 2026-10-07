@@ -449,7 +449,7 @@ function deriveChainRows(draft: JudgeDraft): { rows: ChainSortableRow[]; opaque:
     // 'provider/model' or bare 'provider' → a builtin provider group; a bare
     // id is an added-but-not-yet-configured group (drag-order still persists).
     const slashIdx = ref.indexOf('/');
-    const provider = slashIdx > 0 ? ref.slice(0, slashIdx) : '';
+    const provider = slashIdx > 0 ? ref.slice(0, slashIdx) : ref;
     if (isBuiltinProvider(provider) && !placedProviders.has(provider)) {
       placedProviders.add(provider);
       rows.push({
