@@ -107,7 +107,10 @@ export default function ModelSettings({
     dirtyCount,
     dirtyPaths,
     requiredError,
+    validateRequired: validateRequiredSimple,
   } = useConfigDirty(tabId, undefined, undefined, undefined, EMBEDDING_REQUIRED_RULES);
+  const validateRequiredSimpleRef = useRef(validateRequiredSimple);
+  validateRequiredSimpleRef.current = validateRequiredSimple;
 
   /* ─── Sub-tab state ─── */
   const [activeSubTab, setActiveSubTab] = useState<ModelSubTab>(
@@ -420,6 +423,12 @@ export default function ModelSettings({
       cancel: () => handleCancelRef.current(),
       isDirty: () =>
         dirtyCount > 0 || providerKeysDirty || customProvidersDirty || judgeDirtyRef.current,
+      // Merge the judge sub-tab's chain validation with this tab's own rules
+      // (embedding) so the shared Save button gates on ONE combined list.
+      validateRequired: (opts) => [
+        ...validateRequiredSimpleRef.current(opts),
+        ...(judgeActionsRef.current?.validateRequired?.(opts) ?? []),
+      ],
       needsRestart: () => customProvidersNeedsRestartRef.current,
     };
     registerHandle?.(tabId, handle);

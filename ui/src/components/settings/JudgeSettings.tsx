@@ -18,6 +18,7 @@
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { MissingRequiredField } from './requiredFields';
 import { ChevronDown, ChevronRight, GripVertical, Plus, X } from 'lucide-react';
 import {
   DndContext,
@@ -161,6 +162,11 @@ function normalizeJudgeConfigPayload(data: JudgeConfigPayload): JudgeConfigPaylo
 export interface JudgeSettingsActions {
   save: (opts?: { silent?: boolean }) => Promise<void>;
   cancel: () => void;
+  /** Required-field gate consumed by the settings modal's shared Save flow:
+   * returns the missing fields (labels localized); with { mark: true } also
+   * flags them red. The modal blocks the save when this is non-empty, so the
+   * "required fields" toast and the "saved" toast never both appear. */
+  validateRequired?: (opts?: { mark?: boolean }) => MissingRequiredField[];
 }
 
 interface JudgeSettingsProps {
@@ -808,7 +814,7 @@ function JudgeChainRow({
                 type="button"
                 onClick={() => void saveKey()}
                 disabled={keySaving}
-                className="shrink-0 rounded-md bg-blue-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className="h-8 shrink-0 self-start rounded-md bg-blue-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {keySaving
                   ? t('settings.judge.keySaving')
@@ -863,7 +869,7 @@ function JudgeChainRow({
                   type="button"
                   onClick={() => void saveAccountId()}
                   disabled={acctSaving}
-                  className="shrink-0 rounded-md bg-blue-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="h-8 shrink-0 self-start rounded-md bg-blue-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {acctSaving
                     ? t('settings.judge.keySaving')
@@ -1167,7 +1173,7 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
 
   const unavailable = loadFailed || (payload !== null && payload.available === false);
 
-  const fetchJudgeConfig = useCallback(async (opts?: { silent?: boolean }) => {
+  const fetchJudgeConfig = useCallback(async (opts?: { silent?: boolean; keepDraft?: boolean }) => {
     if (!opts?.silent) setLoading(true);
     try {
       const data = await apiRequest<JudgeConfigPayload>('/api/judge/config');
@@ -1175,13 +1181,21 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
       const next = draftFromPayload(cfg);
       setPayload(cfg);
       setLoadFailed(false);
-      setDraft(next);
-      setSynced(next);
+      // keepDraft: credential-only refresh after the key/account endpoints —
+      // the server-side judge section is unchanged there, so resetting the
+      // draft would silently discard the user's UNSAVED edits (model picks,
+      // newly added groups, drag order).
+      if (!opts?.keepDraft) {
+        setDraft(next);
+        setSynced(next);
+      }
     } catch {
       setPayload(null);
       setLoadFailed(true);
-      setDraft(null);
-      setSynced(null);
+      if (!opts?.keepDraft) {
+        setDraft(null);
+        setSynced(null);
+      }
     } finally {
       if (!opts?.silent) setLoading(false);
     }
@@ -1211,43 +1225,85 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
 
   /* ── Save / cancel (registered with ModelSettings via refs) ── */
 
-  const performSave = useCallback(
-    async (opts?: { silent?: boolean }) => {
-      const cur = draftRef.current;
-      if (!cur || !dirtyRef.current) return;
-      /* Required-field validation (same UX as the other tabs: red asterisks
-         on labels + a missingFields toast, and the save is blocked). Every
-         chain group must be complete: provider groups need a model (+ key,
-         + account id for Cloudflare); custom judges need name + Base URL. */
-      const listSeparator = i18n.language?.startsWith('zh') ? '、' : ', ';
-      const missing: string[] = [];
+  /** Required-field rules for the current draft (same UX as the other tabs:
+     red asterisks on labels + a missingFields toast, and the save is
+     blocked). Every chain group must be complete: provider groups need a
+     model (+ key, + account id for Cloudflare); custom judges need name +
+     Base URL. */
+  const collectMissingFields = useCallback(
+    (cur: JudgeDraft): MissingRequiredField[] => {
       const ks = extractKeyStatus(payloadRef.current ?? {});
+      const missing: MissingRequiredField[] = [];
       for (const row of deriveChainRows(cur).rows) {
         if (row.kind === 'provider') {
           const label = t(`settings.judge.providers.${row.provider}`);
-          if (row.model.trim() === '') missing.push(`${label} · ${t('settings.judge.modelLabel')}`);
+          if (row.model.trim() === '')
+            missing.push({
+              path: `${row.provider}.model`,
+              label: `${label} · ${t('settings.judge.modelLabel')}`,
+            });
           if (ks[row.provider]?.present !== true)
-            missing.push(`${label} · ${t('settings.judge.apiKeyLabel')}`);
+            missing.push({
+              path: `${row.provider}.apiKey`,
+              label: `${label} · ${t('settings.judge.apiKeyLabel')}`,
+            });
           if (
             row.provider === 'cloudflare-workers-ai' &&
             ks[row.provider]?.accountId?.present !== true
           )
-            missing.push(`${label} · ${t('settings.judge.accountIdLabel')}`);
+            missing.push({
+              path: `${row.provider}.accountId`,
+              label: `${label} · ${t('settings.judge.accountIdLabel')}`,
+            });
         } else {
           const label =
             row.entry.name.trim() !== ''
               ? `${t('settings.judge.customJudges')}「${row.entry.name.trim()}」`
               : `${t('settings.judge.customJudges')}（${t('settings.judge.customJudgeUnnamed')}）`;
           if (row.entry.name.trim() === '')
-            missing.push(`${label} · ${t('settings.judge.customJudgeNameLabel')}`);
+            missing.push({
+              path: `judges:${row.entryIndex}.name`,
+              label: `${label} · ${t('settings.judge.customJudgeNameLabel')}`,
+            });
           if (row.entry.baseUrl.trim() === '')
-            missing.push(`${label} · ${t('settings.judge.customJudgeBaseUrlLabel')}`);
+            missing.push({
+              path: `judges:${row.entryIndex}.baseUrl`,
+              label: `${label} · ${t('settings.judge.customJudgeBaseUrlLabel')}`,
+            });
         }
       }
+      return missing;
+    },
+    [t],
+  );
+
+  /** Modal-level gate (SettingsTabHandle.validateRequired contract): returns
+     the missing labels and optionally flags them red so the shared Save
+     button blocks with ONE toast instead of save-then-warn. */
+  const performValidateRequired = useCallback(
+    (opts?: { mark?: boolean }): MissingRequiredField[] => {
+      const cur = draftRef.current;
+      if (!cur || !dirtyRef.current) return [];
+      const missing = collectMissingFields(cur);
+      if (missing.length > 0 && opts?.mark) setShowMissing(true);
+      return missing;
+    },
+    [collectMissingFields],
+  );
+
+  const performSave = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const cur = draftRef.current;
+      if (!cur || !dirtyRef.current) return;
+      const missing = collectMissingFields(cur);
       if (missing.length > 0) {
+        // Direct-save safety net (the modal gates on validateRequired first).
         setShowMissing(true);
+        const listSeparator = i18n.language?.startsWith('zh') ? '、' : ', ';
         showToast(
-          t('settings.validation.missingFields', { fields: missing.join(listSeparator) }),
+          t('settings.validation.missingFields', {
+            fields: missing.map((m) => m.label).join(listSeparator),
+          }),
           'error',
           6000,
         );
@@ -1298,11 +1354,14 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
   saveRef.current = performSave;
   const cancelRef = useRef(performCancel);
   cancelRef.current = performCancel;
+  const validateRef = useRef(performValidateRequired);
+  validateRef.current = performValidateRequired;
 
   useEffect(() => {
     registerActions?.({
       save: (opts) => saveRef.current(opts),
       cancel: () => cancelRef.current(),
+      validateRequired: (opts) => validateRef.current(opts),
     });
     return () => registerActions?.(null);
   }, [registerActions]);
@@ -1608,7 +1667,9 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
                         onToggle={() => setOpenRow((prev) => (prev === row.id ? null : row.id))}
                         onSelectModel={(model) => setChainModel(row.provider, model)}
                         onKeySaved={() => {
-                          void fetchJudgeConfig({ silent: true });
+                          // Credential-only refresh: never reset the draft,
+                          // unsaved chain edits would be discarded.
+                          void fetchJudgeConfig({ silent: true, keepDraft: true });
                         }}
                         onRemove={() => removeProviderRow(row.provider)}
                       />
@@ -1679,7 +1740,7 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
                 type="button"
                 onClick={runTest}
                 disabled={testing}
-                className="shrink-0 rounded-md bg-blue-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className="h-8 shrink-0 self-start rounded-md bg-blue-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {testing ? t('settings.judge.testing') : t('settings.judge.testButton')}
               </button>

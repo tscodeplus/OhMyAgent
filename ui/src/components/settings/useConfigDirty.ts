@@ -40,6 +40,9 @@ export interface UseConfigDirtyResult {
   setField: (path: string, value: unknown) => void;
   save: (opts?: { silent?: boolean }) => Promise<void>;
   cancel: () => void;
+  /** Required-field rules for this tab; tabs composed of several sections
+   * (e.g. models) merge this with their sub-sections' own validators. */
+  validateRequired: (opts?: { mark?: boolean }) => MissingRequiredField[];
 }
 
 export function useConfigDirty(
@@ -265,5 +268,6 @@ export function useConfigDirty(
     cancel,
     requiredError,
     clearRequiredMarks,
+    validateRequired: (opts) => validateRequiredRef.current(opts),
   };
 }
