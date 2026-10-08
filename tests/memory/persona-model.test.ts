@@ -98,6 +98,9 @@ describe('personaJsonSchema', () => {
         known: ['Android', 'Kotlin', 'Python'],
         learning: ['Rust', 'Kubernetes'],
       },
+      workHabits: { hours: '', taskStyle: '', qualityPreferences: [] },
+      knowledgeDomains: { expert: [], proficient: [], interested: [] },
+      projectPreferences: { techStacks: [], projectTypes: [], deploymentTargets: [] },
       context: {
         device: 'OnePlus 13, Termux',
         environment: 'Node.js 20, pnpm',

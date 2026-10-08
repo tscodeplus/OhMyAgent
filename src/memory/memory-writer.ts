@@ -64,7 +64,7 @@ export interface MemoryWriterOptions {
   /** Core dependencies (required). */
   memoryRepository: MemoryRepository;
   embeddingRepository: EmbeddingRepository;
-  embeddingClient: EmbeddingClient;
+  embeddingClient: Pick<EmbeddingClient, 'model' | 'isConfigured' | 'embedOne' | 'embedBatch'>;
   embeddingCacheRepo: EmbeddingCacheRepo;
 
   /** Memory merge strategy config. */
@@ -85,7 +85,10 @@ export class MemoryWriter {
   private _agentId: string | undefined;
   private readonly memoryRepository: MemoryRepository;
   private readonly embeddingRepository: EmbeddingRepository;
-  private readonly embeddingClient: EmbeddingClient;
+  private readonly embeddingClient: Pick<
+    EmbeddingClient,
+    'model' | 'isConfigured' | 'embedOne' | 'embedBatch'
+  >;
   private readonly embeddingCacheRepo: EmbeddingCacheRepo;
   private readonly mergeConfig: MergeConfig | undefined;
   private readonly extractionConfig: LLMExtractionConfig | undefined;

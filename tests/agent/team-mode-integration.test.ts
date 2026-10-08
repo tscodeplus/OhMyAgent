@@ -6,6 +6,8 @@ import type { SmartAgentTeamConfig } from '../../src/app/types.js';
 const defaultConfig: SmartAgentTeamConfig = {
   enabled: true,
   max_children: 4,
+  child_timeout_sec: 300,
+  child_settle_timeout_ms: 5000,
 };
 
 function makePromptManager() {
@@ -49,7 +51,14 @@ describe('Agent Team mode integration', () => {
     const result = pm.assemble({
       agentId: 'test',
       isTeamMode: true,
-      skillIds: ['researcher'],
+      availableSkills: [
+        {
+          id: 'researcher',
+          name: 'Researcher',
+          description: 'Research tasks',
+          path: 'skills/researcher/SKILL.md',
+        },
+      ],
     });
 
     const layerNames = result.layers.map((l) => l.name);

@@ -96,7 +96,7 @@ function makeMockConfig(): AppConfig {
       webhookMaxRequests: 100,
       webhookWindowMs: 60000,
     },
-  };
+  } as unknown as AppConfig;
 }
 
 function makeMockToolRegistry(tools: any[] = []) {
@@ -139,7 +139,9 @@ function makeMockApprovalGate(decisions: Record<string, ApprovalDecision> = {}):
 }
 
 function makeMockFeishuClient() {
-  const sendApprovalCard = vi.fn(async () => 'approval-msg-1');
+  const sendApprovalCard = vi.fn(
+    async (_chatId: string, _card: Record<string, unknown>) => 'approval-msg-1',
+  );
   const feishuClient = {
     sendApprovalCard,
     updateMessage: vi.fn(async () => {}),
@@ -196,7 +198,6 @@ describe('Approval Integration in AgentFactory', () => {
       } as any,
       args: { query: 'test' },
       context: {
-        systemPrompt: '',
         messages: [],
         tools: [],
       },
@@ -230,7 +231,6 @@ describe('Approval Integration in AgentFactory', () => {
       } as any,
       args: { command: 'ls -la' },
       context: {
-        systemPrompt: '',
         messages: [],
         tools: [],
       },
@@ -263,7 +263,6 @@ describe('Approval Integration in AgentFactory', () => {
       } as any,
       args: { command: 'rm -rf /' },
       context: {
-        systemPrompt: '',
         messages: [],
         tools: [],
       },
@@ -308,7 +307,6 @@ describe('Approval Integration in AgentFactory', () => {
       } as any,
       args: { command: 'adb install app.apk' },
       context: {
-        systemPrompt: '',
         messages: [],
         tools: [],
       },
@@ -324,7 +322,7 @@ describe('Approval Integration in AgentFactory', () => {
     // predict the exact ID. Instead, we hook into the pending store via the factory.
     // Since we can't access the private store, we use a different approach:
     // resolveApproval returns false for unknown IDs, so let's test that.
-    const unknownResult = factory.resolveApproval('nonexistent', 'approved');
+    const unknownResult = factory.resolveApproval('nonexistent', 'approve_once');
     expect(unknownResult).toBe(false);
 
     // We need to resolve the actual pending ID. Let's intercept it by monitoring
@@ -340,7 +338,7 @@ describe('Approval Integration in AgentFactory', () => {
     expect(requestId).toBeDefined();
 
     // Now resolve the approval
-    const resolved = factory.resolveApproval(requestId, 'approved');
+    const resolved = factory.resolveApproval(requestId, 'approve_once');
     expect(resolved).toBe(true);
 
     // The hook should complete without blocking
@@ -380,7 +378,6 @@ describe('Approval Integration in AgentFactory', () => {
       } as any,
       args: { command: 'adb install app.apk' },
       context: {
-        systemPrompt: '',
         messages: [],
         tools: [],
       },
@@ -397,7 +394,7 @@ describe('Approval Integration in AgentFactory', () => {
     const requestId = approveButton?.value?.requestId;
 
     // Reject the approval
-    factory.resolveApproval(requestId, 'rejected');
+    factory.resolveApproval(requestId, 'reject_once');
 
     const result = await hookPromise;
     expect(result).toEqual({
@@ -438,7 +435,6 @@ describe('Approval Integration in AgentFactory', () => {
       } as any,
       args: { command: 'adb install app.apk' },
       context: {
-        systemPrompt: '',
         messages: [],
         tools: [],
       },
@@ -462,12 +458,12 @@ describe('Approval Integration in AgentFactory', () => {
     const registry = makeMockToolRegistry([makeMockTool('shell')]);
     const gate = makeMockApprovalGate();
     const factory = createAgentFactory({ config, toolRegistry: registry }, { approvalGate: gate });
-    expect(factory.resolveApproval('nonexistent-id', 'approved')).toBe(false);
+    expect(factory.resolveApproval('nonexistent-id', 'approve_once')).toBe(false);
   });
 
   it('shell command with args normalization', async () => {
     const registry = makeMockToolRegistry([makeMockTool('shell')]);
-    const evaluateSpy = vi.fn(async () => 'approved' as ApprovalDecision);
+    const evaluateSpy = vi.fn(async (_request: ApprovalRequest) => 'approved' as ApprovalDecision);
     const gate = { ...makeMockApprovalGate(), evaluate: evaluateSpy };
     const factory = createAgentFactory({ config, toolRegistry: registry }, { approvalGate: gate });
     const agent = factory.create({ sessionId: 'sess-test' });
@@ -487,7 +483,6 @@ describe('Approval Integration in AgentFactory', () => {
       } as any,
       args: { command: '  adb   devices  ' },
       context: {
-        systemPrompt: '',
         messages: [],
         tools: [],
       },
@@ -507,7 +502,7 @@ describe('Approval Integration in AgentFactory', () => {
     const gate = makeMockApprovalGate({ 'tee output.txt': 'approved' });
     const factory = createAgentFactory(
       { config, toolRegistry: registry },
-      { approvalGate: gate, shellEnabled: false, defaultToolsProfile: 'standard' },
+      { approvalGate: gate, shellEnabled: false },
     );
     const agent = factory.create();
 
@@ -520,7 +515,7 @@ describe('Approval Integration in AgentFactory', () => {
         args: { command: 'tee output.txt' },
       } as any,
       args: { command: 'tee output.txt' },
-      context: { systemPrompt: '', messages: [], tools: [] },
+      context: { messages: [], tools: [] },
     });
 
     expect(result).toEqual({
@@ -535,7 +530,7 @@ describe('Approval Integration in AgentFactory', () => {
     const gate = makeMockApprovalGate({ 'find . -delete': 'approved' });
     const factory = createAgentFactory(
       { config, toolRegistry: registry },
-      { approvalGate: gate, shellEnabled: false, defaultToolsProfile: 'standard' },
+      { approvalGate: gate, shellEnabled: false },
     );
     const agent = factory.create();
 
@@ -548,7 +543,7 @@ describe('Approval Integration in AgentFactory', () => {
         args: { command: 'find . -delete' },
       } as any,
       args: { command: 'find . -delete' },
-      context: { systemPrompt: '', messages: [], tools: [] },
+      context: { messages: [], tools: [] },
     });
 
     expect(result).toEqual({
@@ -563,7 +558,7 @@ describe('Approval Integration in AgentFactory', () => {
     const gate = makeMockApprovalGate({ 'echo hello | tee output.txt': 'approved' });
     const factory = createAgentFactory(
       { config, toolRegistry: registry },
-      { approvalGate: gate, shellEnabled: false, defaultToolsProfile: 'standard' },
+      { approvalGate: gate, shellEnabled: false },
     );
     const agent = factory.create();
 
@@ -576,7 +571,7 @@ describe('Approval Integration in AgentFactory', () => {
         args: { command: 'echo hello | tee output.txt' },
       } as any,
       args: { command: 'echo hello | tee output.txt' },
-      context: { systemPrompt: '', messages: [], tools: [] },
+      context: { messages: [], tools: [] },
     });
 
     expect(result).toEqual({

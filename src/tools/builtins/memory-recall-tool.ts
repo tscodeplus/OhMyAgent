@@ -9,8 +9,11 @@ import { truncate } from '../../shared/truncation.js';
 import type { Logger } from 'pino';
 
 /** @deprecated Use `createMemoryRecallToolDefinition` from `./memory/recall-definition.js` instead. */
+type MemoryRecallProvider = Pick<MemoryRetriever, 'retrieve'> &
+  Partial<Pick<MemoryRetriever, 'retrieveGrouped'>>;
+
 export function createMemoryRecallTool(options: {
-  memoryRetriever: MemoryRetriever;
+  memoryRetriever: MemoryRecallProvider;
   topK?: number;
   agentId?: string;
   getAgentId?: () => string | undefined;
@@ -32,14 +35,10 @@ export function createMemoryRecallTool(options: {
 
         const effectiveAgentId = options.agentId || options.getAgentId?.() || defaultAgentId;
 
-        const canUseGrouped =
-          effectiveAgentId &&
-          typeof (options.memoryRetriever as any).retrieveGrouped === 'function';
-
-        if (canUseGrouped) {
-          results = await (options.memoryRetriever as any).retrieveGrouped({
+        if (effectiveAgentId && options.memoryRetriever.retrieveGrouped) {
+          results = await options.memoryRetriever.retrieveGrouped({
             query: args.query,
-            agentId: effectiveAgentId!,
+            agentId: effectiveAgentId,
             topK: options.topK ?? 3,
           });
         } else {

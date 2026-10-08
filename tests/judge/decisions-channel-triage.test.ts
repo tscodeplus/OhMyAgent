@@ -57,7 +57,7 @@ describe('channel.triage — judgeChannelGroupTriage (engine-injected)', () => {
   it('active + addressed ≤ 0.3 → choice verdict rules (respond/ignore/defer)', async () => {
     const base = {
       'triage.addressed': { type: 'noul', probability: 0.1 },
-    };
+    } as const;
     const runWith = async (choice: 'respond' | 'ignore' | 'defer', mentioned: boolean) => {
       const { engine } = makeEngine('active', {
         judgeId: 'mock/jev',

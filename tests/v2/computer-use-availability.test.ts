@@ -20,6 +20,7 @@ describe('computer_use channel availability', () => {
       appApprovals: [],
       readOnly: false,
       computerUseEnabled: true,
+      policyMode: 'balanced',
     };
   }
 

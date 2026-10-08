@@ -14,7 +14,7 @@ describe('FileReadTool path security', () => {
 
     const tool = createFileReadTool({ allowedRoots: [dir] });
     const result = await tool.execute('call-1', { path: filePath });
-    expect(result.content[0].text).toBe('safe content');
+    expect(extractToolText(result)).toBe('safe content');
 
     await rm(dir, { recursive: true });
   });

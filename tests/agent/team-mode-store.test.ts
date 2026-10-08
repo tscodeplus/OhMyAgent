@@ -5,6 +5,8 @@ import type { SmartAgentTeamConfig } from '../../src/app/types.js';
 const defaultConfig: SmartAgentTeamConfig = {
   enabled: true,
   max_children: 4,
+  child_timeout_sec: 300,
+  child_settle_timeout_ms: 5000,
 };
 
 describe('TeamModeStore', () => {
@@ -76,7 +78,12 @@ describe('TeamModeStore', () => {
   });
 
   it('init() sets default config used by subsequent enable()', () => {
-    const customConfig: SmartAgentTeamConfig = { enabled: true, max_children: 8 };
+    const customConfig: SmartAgentTeamConfig = {
+      enabled: true,
+      max_children: 8,
+      child_timeout_sec: 300,
+      child_settle_timeout_ms: 5000,
+    };
     teamModeStore.init(customConfig);
     teamModeStore.enable('session-2');
     const state = teamModeStore.get('session-2')!;

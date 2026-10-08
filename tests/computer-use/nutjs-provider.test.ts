@@ -195,7 +195,6 @@ vi.mock('sharp', () => {
   const toBufferFn = vi.fn().mockResolvedValue(Buffer.from('fake-png-bytes'));
   const pngFn = vi.fn(() => ({ toBuffer: toBufferFn }));
   const sharpMock = vi.fn(() => ({ png: pngFn }));
-  sharpMock.default = sharpMock;
   return { default: sharpMock };
 });
 

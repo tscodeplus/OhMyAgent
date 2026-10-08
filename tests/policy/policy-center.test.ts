@@ -46,7 +46,11 @@ function makePolicyCenter(
       getEffectiveRoots: vi.fn(() => ({ readRoots: [], writeRoots: [] })),
     },
     shellExecution: {
-      evaluate: vi.fn(async () => ({ allowed: true, requiresApproval: false, risk: 'low' })),
+      evaluate: vi.fn(async () => ({
+        allowed: true,
+        requiresApproval: false,
+        risk: 'low' as const,
+      })),
     },
     approvalResolution: {
       checkReuse,

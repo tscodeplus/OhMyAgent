@@ -32,6 +32,7 @@ function makeCtx(cwd: string): ToolExecutionContext {
       appApprovals: [],
       readOnly: false,
       computerUseEnabled: false,
+      policyMode: 'balanced',
     },
   };
 }

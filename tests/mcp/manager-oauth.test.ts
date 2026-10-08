@@ -99,6 +99,7 @@ function httpServer(oauth: Partial<McpOAuthConfig> = {}): McpHttpServerConfig {
     enabled: true,
     exposure: 'deferred',
     toolExposure: {},
+    toolEnabled: {},
     description: '',
     transport: 'http',
     url: SERVER_URL,
@@ -137,7 +138,7 @@ interface Harness {
 }
 
 interface HarnessOptions {
-  server?: McpHttpServerConfig;
+  server?: McpServerConfig;
   /** Absent → simulate a manager built without §10 wiring. */
   withOAuth?: boolean;
   fetch?: McpFetch;
@@ -488,6 +489,7 @@ function stdioServer(): McpServerConfig {
     enabled: true,
     exposure: 'deferred',
     toolExposure: {},
+    toolEnabled: {},
     description: '',
     transport: 'stdio',
     command: 'unused',

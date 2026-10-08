@@ -26,16 +26,15 @@ describe('question builders → ClassifierQuestion', () => {
   });
 
   it('noul WITHOUT criteria sends NO criteria key (never an empty object)', () => {
-    const q = toClassifierQuestion(noul('Is it fine?')) as Record<string, unknown>;
+    const q = toClassifierQuestion(noul('Is it fine?')) as unknown as Record<string, unknown>;
     expect(q.type).toBe('bool');
     expect(Object.hasOwn(q as object, 'criteria')).toBe(false);
   });
 
   it('choice: null criteria descriptions map to empty strings', () => {
-    const q = toClassifierQuestion(choice('Which?', { code: 'code things', web: null })) as Record<
-      string,
-      unknown
-    >;
+    const q = toClassifierQuestion(
+      choice('Which?', { code: 'code things', web: null }),
+    ) as unknown as Record<string, unknown>;
     expect(q.type).toBe('choice');
     expect(q.criteria).toEqual({ code: 'code things', web: '' });
   });

@@ -67,7 +67,7 @@ function makeToolResult(
     content: [{ type: 'text', text }],
     isError: opts.isError ?? false,
     timestamp: Date.now(),
-  } as AgentMessage;
+  } as unknown as AgentMessage;
 }
 
 function makeUser(text: string): AgentMessage {
@@ -85,7 +85,7 @@ function makeTranscript(results: AgentMessage[]): AgentMessage[] {
       role: 'assistant',
       content: 'doing it',
       timestamp: Date.now(),
-    } as AgentMessage);
+    } as unknown as AgentMessage);
     messages.push(result);
     messages.push(makeUser('next step please'));
   }

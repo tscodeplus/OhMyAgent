@@ -7,6 +7,8 @@ import { i18n } from '../../src/i18n/index.js';
 const defaultConfig: SmartAgentTeamConfig = {
   enabled: true,
   max_children: 4,
+  child_timeout_sec: 300,
+  child_settle_timeout_ms: 5000,
 };
 
 function makeDeps(overrides: Partial<CommandDeps> = {}): CommandDeps {
@@ -21,6 +23,12 @@ function makeDeps(overrides: Partial<CommandDeps> = {}): CommandDeps {
       followUp: vi.fn(async () => false),
       swapCard: vi.fn(async () => false),
       onNextAgentEnd: vi.fn(),
+      resolveFirstPendingApproval: vi.fn(() => false),
+      resolveAllPendingApprovals: vi.fn(() => 0),
+      rejectPendingQuestions: vi.fn(() => 0),
+      resolveUserQuestion: vi.fn(() => false),
+      resolveFirstPendingQuestion: vi.fn(() => false),
+      setSessionAgentId: vi.fn(),
     },
     ...overrides,
   };

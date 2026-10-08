@@ -11,6 +11,12 @@ describe('MessageHandler', () => {
     reset: ReturnType<typeof vi.fn>;
     destroyRuntime: ReturnType<typeof vi.fn>;
     rejectPendingApprovals: ReturnType<typeof vi.fn>;
+    resolveFirstPendingApproval: ReturnType<typeof vi.fn>;
+    resolveAllPendingApprovals: ReturnType<typeof vi.fn>;
+    rejectPendingQuestions: ReturnType<typeof vi.fn>;
+    resolveUserQuestion: ReturnType<typeof vi.fn>;
+    resolveFirstPendingQuestion: ReturnType<typeof vi.fn>;
+    setSessionAgentId: ReturnType<typeof vi.fn>;
     steer: ReturnType<typeof vi.fn>;
     followUp: ReturnType<typeof vi.fn>;
     swapCard: ReturnType<typeof vi.fn>;
@@ -53,6 +59,12 @@ describe('MessageHandler', () => {
       reset: vi.fn(() => true),
       destroyRuntime: vi.fn(() => true),
       rejectPendingApprovals: vi.fn(() => 0),
+      resolveFirstPendingApproval: vi.fn(() => false),
+      resolveAllPendingApprovals: vi.fn(() => 0),
+      rejectPendingQuestions: vi.fn(() => 0),
+      resolveUserQuestion: vi.fn(() => false),
+      resolveFirstPendingQuestion: vi.fn(() => false),
+      setSessionAgentId: vi.fn(),
       steer: vi.fn(() => true),
       followUp: vi.fn(async () => true),
       swapCard: vi.fn(async () => true),

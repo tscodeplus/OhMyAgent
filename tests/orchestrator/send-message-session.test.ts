@@ -9,7 +9,10 @@ function makeOrchestrator(agentRunStore = new InMemoryAgentRunStore()) {
     agentRunStore,
     taskRunStore: new InMemoryTaskRunStore(),
     permissionInheritance: { deriveChildScope: vi.fn(() => DEFAULT_POLICY_SCOPE) },
-    approvalStateSync: { routeApproval: vi.fn(async () => undefined) },
+    approvalStateSync: {
+      checkParentApprovalReuse: vi.fn(async () => false),
+      routeApproval: vi.fn(async () => undefined),
+    },
     policyCenter: {} as any,
     agentFactory: {} as any,
     agentManager: {} as any,

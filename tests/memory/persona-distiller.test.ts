@@ -26,6 +26,12 @@ function makePref(content: string, created_at: string, updated_at = created_at):
     metadata: null,
     agent_id: null,
     visibility: 'shared',
+    status: 'active',
+    supersedes_id: null,
+    source_channel: null,
+    source_message_id: null,
+    confidence: 1,
+    invalidated_at: null,
     created_at,
     updated_at,
   };

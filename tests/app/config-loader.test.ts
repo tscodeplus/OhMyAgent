@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { loadYamlFile, yamlToAppConfigRaw } from '../../src/app/config-loader';
+import {
+  loadYamlFile,
+  yamlToAppConfigRaw as convertYamlToAppConfigRaw,
+} from '../../src/app/config-loader';
+
+const yamlToAppConfigRaw = (
+  input: Parameters<typeof convertYamlToAppConfigRaw>[0],
+): Record<string, any> => convertYamlToAppConfigRaw(input) as Record<string, any>;
 
 describe('yamlToAppConfigRaw', () => {
   const minimalYaml = {

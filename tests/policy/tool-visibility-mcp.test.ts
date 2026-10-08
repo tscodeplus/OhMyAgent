@@ -119,7 +119,12 @@ function makeConfig(mcp?: McpSectionConfig): AppConfig {
     },
     fallbackModels: [],
     rateLimit: { webhookMaxRequests: 100, webhookWindowMs: 60000 },
-    toolSearch: { enabled: 'off' as const },
+    toolSearch: {
+      enabled: 'off' as const,
+      thresholdPct: 80,
+      searchDefaultLimit: 10,
+      maxSearchLimit: 100,
+    },
     smart_agent_team: { enabled: false, max_children: 4 },
     mcp,
   } as unknown as AppConfig;
@@ -431,7 +436,12 @@ describe('full profile still subtracts MCP denials (M5)', () => {
 
   it('does not advertise a denied server through the tool_search deferral pool under full', () => {
     const config = makeConfig(makeMcpSection({ denyServers: ['blocked'] }));
-    config.toolSearch = { enabled: 'on' as const };
+    config.toolSearch = {
+      enabled: 'on',
+      thresholdPct: 80,
+      searchDefaultLimit: 10,
+      maxSearchLimit: 100,
+    };
 
     const pipeline = assembleAgentTools({
       toolRegistry: makeRegistry(tools),
@@ -456,7 +466,12 @@ describe('full profile still subtracts MCP denials (M5)', () => {
     // t2(o): every earlier pipeline test ran with tool_search off, so the
     // `alwaysVisibleTools → forceVisible` wiring in Stage 8 was never driven.
     const config = makeConfig(makeMcpSection());
-    config.toolSearch = { enabled: 'on' as const };
+    config.toolSearch = {
+      enabled: 'on',
+      thresholdPct: 80,
+      searchDefaultLimit: 10,
+      maxSearchLimit: 100,
+    };
 
     const pipeline = assembleAgentTools({
       toolRegistry: makeRegistry(tools),
@@ -622,7 +637,12 @@ describe('catalog deferral annotation mirrors Stage 8 (§7 / E9)', () => {
     const config = makeConfig(
       makeMcpSection({ servers: { filesystem: stdioServer('filesystem', 'direct') } }),
     );
-    config.toolSearch = { enabled: toolSearchEnabled };
+    config.toolSearch = {
+      enabled: toolSearchEnabled,
+      thresholdPct: 80,
+      searchDefaultLimit: 10,
+      maxSearchLimit: 100,
+    };
     const registry = makeRegistry([directTool, makeTool('web_search')]);
     const { promptManager, captured } = makePromptManagerProbe();
     const factory = createAgentFactory(

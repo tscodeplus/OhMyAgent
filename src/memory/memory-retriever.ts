@@ -5,7 +5,8 @@ import type { EmbeddingRepository } from './repositories/embedding-repository.js
 import type { EmbeddingClient } from '../provider/embedding-client.js';
 import { CircuitBreaker } from './circuit-breaker.js';
 import { QueryResultCache } from './query-result-cache.js';
-import { EmbeddingCacheRepo, hashContent, bufferToFloat32Array } from './repositories/index.js';
+import { hashContent, bufferToFloat32Array } from './repositories/index.js';
+import type { EmbeddingCacheRepository } from './repositories/embedding-cache-repository.js';
 import { expandQuery } from './query-expansion.js';
 import type { ExpandedQuery } from './query-expansion.js';
 import { withTimeout } from '../shared/with-timeout.js';
@@ -180,8 +181,8 @@ export interface MemoryRetrieverOptions {
   /** Core dependencies (required). */
   memoryRepository: MemoryRepository;
   embeddingRepository: EmbeddingRepository;
-  embeddingClient: EmbeddingClient;
-  embeddingCacheRepo: EmbeddingCacheRepo;
+  embeddingClient: Pick<EmbeddingClient, 'model' | 'isConfigured' | 'embedOne'>;
+  embeddingCacheRepo: EmbeddingCacheRepository;
   db: Database.Database;
 
   /** LLM query expansion config (default undefined — disabled). */
@@ -209,8 +210,8 @@ export interface MemoryRetrieverOptions {
 export class MemoryRetriever {
   private readonly memoryRepository: MemoryRepository;
   private readonly embeddingRepository: EmbeddingRepository;
-  private readonly embeddingClient: EmbeddingClient;
-  private readonly embeddingCacheRepo: EmbeddingCacheRepo;
+  private readonly embeddingClient: Pick<EmbeddingClient, 'model' | 'isConfigured' | 'embedOne'>;
+  private readonly embeddingCacheRepo: EmbeddingCacheRepository;
   private readonly db: Database.Database;
   private readonly expansionConfig: LLMExpansionConfig | undefined;
   private readonly embeddingBreaker: CircuitBreaker | undefined;

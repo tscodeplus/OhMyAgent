@@ -6,6 +6,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Api, Model } from '@earendil-works/pi-ai';
 
 // ─── Mocks ───
 
@@ -23,14 +24,20 @@ vi.mock('../../src/provider/pi-ai-setup.js', () => ({
 
 // ─── Helpers ───
 
-function makeModel(overrides: Record<string, unknown> = {}) {
+function makeModel(overrides: Record<string, unknown> = {}): Model<Api> {
   return {
     provider: 'openai',
     id: 'gpt-4',
+    name: 'GPT-4',
+    api: 'openai-completions',
     baseUrl: 'https://api.openai.com/v1',
+    input: ['text'],
+    cost: { input: 0, output: 0 },
+    reasoning: false,
     contextWindow: 128000,
+    maxTokens: 4096,
     ...overrides,
-  };
+  } as unknown as Model<Api>;
 }
 
 // ─── Imports (after mocks) ───

@@ -72,6 +72,7 @@ export interface ToolPolicyInput {
   agentId?: string;
   skillId?: string;
   channel?: string;
+  skillToolOverrides?: { allowedTools?: string[]; deniedTools?: string[]; strict?: boolean };
   policyScope: AgentPolicyScope;
 }
 

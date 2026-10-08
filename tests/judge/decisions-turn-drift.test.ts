@@ -19,8 +19,9 @@ import {
 } from '../../src/judge/decisions/turn-drift.js';
 import { DECISION_SPECS } from '../../src/judge/decisions/registry.js';
 import { makeEngine } from './decisions-helpers.js';
+import type { JudgeAnswer } from '../../src/judge/types.js';
 
-function noulAnswer(probability: number): Record<string, unknown> {
+function noulAnswer(probability: number): Record<string, JudgeAnswer> {
   return { 'drift.recent': { type: 'noul', probability } };
 }
 

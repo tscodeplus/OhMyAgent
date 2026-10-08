@@ -3,7 +3,6 @@ import { Agent } from '@earendil-works/pi-agent-core';
 import { createAgentFactory, resolveProviderApiKey } from '../../src/agent/agent-factory';
 import { PromptManager } from '../../src/prompt/prompt-manager';
 import type { AppConfig } from '../../src/app/types';
-import type { AppConfig } from '../../src/app/types';
 
 // Mock getDefaultModel to avoid real provider lookups
 vi.mock('../../src/provider/pi-ai-setup.js', () => ({
@@ -71,7 +70,7 @@ function makeMockConfig(): AppConfig {
       webhookWindowMs: 60000,
     },
     toolSearch: { enabled: 'off' as const },
-  };
+  } as unknown as AppConfig;
 }
 
 function makeMockToolRegistry(tools: any[] = []) {
@@ -150,7 +149,12 @@ describe('AgentFactory', () => {
   it('tools catalog annotates deferred tools when tool search is active', () => {
     const onConfig: AppConfig = {
       ...makeMockConfig(),
-      toolSearch: { enabled: 'on' as const },
+      toolSearch: {
+        enabled: 'on' as const,
+        thresholdPct: 80,
+        searchDefaultLimit: 10,
+        maxSearchLimit: 100,
+      },
       smart_agent_team: {
         enabled: false,
         max_children: 4,
@@ -243,7 +247,6 @@ describe('AgentFactory', () => {
       {
         policyCenter: policyCenter as any,
         getServices: () => ({ toolPlatformRegistry }) as any,
-        defaultToolsProfile: 'standard',
       },
     );
 
@@ -255,7 +258,10 @@ describe('AgentFactory', () => {
     const tool = agent.state.tools.find((t: any) => t.name === 'task_get')!;
     const result = await tool.execute('call-1', {});
 
-    expect(result.content[0].text).toBe('session=feishu:chat-1;agent=agent-1;profile=standard');
+    expect(result.content[0]).toMatchObject({
+      type: 'text',
+      text: 'session=feishu:chat-1;agent=agent-1;profile=standard',
+    });
     expect(capturedPolicyInput).toMatchObject({
       toolName: 'task_get',
       sessionId: 'feishu:chat-1',
@@ -736,7 +742,7 @@ describe('AgentFactory getAutoCompressConfig', () => {
         },
       },
       fallbackModels: ['claude-3-haiku'],
-    };
+    } as unknown as AppConfig;
     const registry = makeMockToolRegistry();
     const factory = createAgentFactory({ config, toolRegistry: registry });
     const result = factory.getAutoCompressConfig();
@@ -763,7 +769,7 @@ describe('AgentFactory getAutoCompressConfig', () => {
           minCompressionRatio: 0.3,
         },
       },
-    };
+    } as unknown as AppConfig;
     const registry = makeMockToolRegistry();
     const factory = createAgentFactory({ config, toolRegistry: registry });
     const result = factory.getAutoCompressConfig();
@@ -781,7 +787,7 @@ describe('AgentFactory getAutoCompressConfig', () => {
         ...makeMockConfig().memory,
         autoCompress: { enabled: true, maxTokensRatio: 0.7, minCompressionRatio: 0.3 },
       },
-    };
+    } as unknown as AppConfig;
     const registry = makeMockToolRegistry();
     const factory = createAgentFactory({ config, toolRegistry: registry });
     const result = factory.getAutoCompressConfig();

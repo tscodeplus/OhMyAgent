@@ -86,8 +86,6 @@ function createMockRegistry(defs: ToolDefinition[]): ToolPlatformRegistry {
     has: () => false,
     unregister: () => undefined,
     names: () => [],
-    listVisible: () => defs,
-    listVisibleNames: () => [],
   };
 }
 

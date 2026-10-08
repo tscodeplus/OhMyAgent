@@ -17,6 +17,8 @@ const BASE_SETTINGS: ComputerUseSettings = {
     port: 22,
     jumpHost: '',
     display: ':0',
+    hostKeyChecking: 'accept-new',
+    knownHostsPath: '',
   },
   node: { url: '' },
   allowedApps: [],
@@ -196,7 +198,7 @@ describe('SSHComputerUseProvider', () => {
 
     // The leased window's metadata must be read *by id* — never via
     // xdotool windowactivate (focus stealing) nor getactivewindow.
-    const allCmds = mockPool.exec.mock.calls.map((call: [string]) => call[0]).join('\n');
+    const allCmds = mockPool.exec.mock.calls.map((call) => call[0]).join('\n');
     expect(allCmds).not.toContain('windowactivate');
     expect(allCmds).not.toContain('getactivewindow');
     expect(allCmds).toContain('xdotool getwindowname 0x12345678');

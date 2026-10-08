@@ -150,7 +150,7 @@ describe('<think> tag parsing', () => {
     const elements = body.elements as Array<Record<string, unknown>>;
 
     // Find answer element (uses streaming_content element_id in the completed card)
-    const answerEl = elements.find((el) => el.element_id === 'streaming_content');
+    const answerEl = elements.find((el) => el.element_id === 'streaming_content')!;
     expect(answerEl).toBeDefined();
     expect(answerEl.content).toBe('The answer is 42.');
   });
@@ -178,7 +178,7 @@ describe('<think> tag parsing', () => {
     const elements = body.elements as Array<Record<string, unknown>>;
 
     // Answer should have thinking stripped
-    const answerEl = elements.find((el) => el.element_id === 'streaming_content');
+    const answerEl = elements.find((el) => el.element_id === 'streaming_content')!;
     expect(answerEl).toBeDefined();
     const answerText = answerEl.content as string;
     expect(answerText).toContain('Hello ');
@@ -206,7 +206,7 @@ describe('<think> tag parsing', () => {
     const body = card.body as Record<string, unknown>;
     const elements = body.elements as Array<Record<string, unknown>>;
 
-    const answerEl = elements.find((el) => el.element_id === 'streaming_content');
+    const answerEl = elements.find((el) => el.element_id === 'streaming_content')!;
     expect(answerEl).toBeDefined();
     expect(answerEl.content).not.toContain('<think>');
   });
@@ -229,7 +229,7 @@ describe('<think> tag parsing', () => {
     const body = card.body as Record<string, unknown>;
     const elements = body.elements as Array<Record<string, unknown>>;
 
-    const answerEl = elements.find((el) => el.element_id === 'streaming_content');
+    const answerEl = elements.find((el) => el.element_id === 'streaming_content')!;
     expect(answerEl).toBeDefined();
     const answerText = answerEl.content as string;
     // The text outside tags should remain
@@ -496,7 +496,7 @@ describe('fail and abort', () => {
     const body = card.body as Record<string, unknown>;
     const elements = body.elements as Array<Record<string, unknown>>;
 
-    const answerEl = elements.find((el) => el.element_id === 'streaming_content');
+    const answerEl = elements.find((el) => el.element_id === 'streaming_content')!;
     expect(answerEl).toBeDefined();
     const answerText = answerEl.content as string;
     expect(answerText).toContain('Error');
@@ -531,7 +531,7 @@ describe('fail and abort', () => {
     const body = card.body as Record<string, unknown>;
     const elements = body.elements as Array<Record<string, unknown>>;
 
-    const answerEl = elements.find((el) => el.element_id === 'streaming_content');
+    const answerEl = elements.find((el) => el.element_id === 'streaming_content')!;
     expect(answerEl).toBeDefined();
     expect(answerEl.content).toBe(i18n.t('feishu-cards:stream.stopped'));
   });

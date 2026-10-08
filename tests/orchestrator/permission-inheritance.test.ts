@@ -23,6 +23,7 @@ function makeParentScope(overrides: Partial<AgentPolicyScope> = {}): AgentPolicy
     appApprovals: ['app:deploy'],
     readOnly: false,
     computerUseEnabled: true,
+    policyMode: 'balanced',
     ...overrides,
   };
 }

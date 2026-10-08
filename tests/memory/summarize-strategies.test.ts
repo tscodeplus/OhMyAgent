@@ -18,6 +18,7 @@ import { MessageRepository } from '../../src/memory/repositories/message-reposit
 import { EpisodeRepository } from '../../src/memory/repositories/episode-repository.js';
 import { MemoryRepository } from '../../src/memory/repositories/memory-repository.js';
 import { createSessionSummarizeTool } from '../../src/tools/builtins/session-summarize-tool.js';
+import { extractToolText } from '../helpers/tool-result.js';
 import {
   MemorySummarizer,
   parseSummaryLLMResponse,
@@ -176,7 +177,7 @@ describe('Strategy 2: LLM-driven summarize-session tool', () => {
     expect(mockMemoryWriter.write).toHaveBeenCalled();
 
     // Result text should mention success
-    const text = Array.isArray(result.content) ? result.content[0].text : result.content;
+    const text = extractToolText(result);
     expect(text).toContain(
       i18n.t('tools-session:summaryCreated', {
         id: 'test-session',
@@ -212,7 +213,7 @@ describe('Strategy 2: LLM-driven summarize-session tool', () => {
     });
 
     const result = await tool.execute('call-1', {});
-    const text = Array.isArray(result.content) ? result.content[0].text : result.content;
+    const text = extractToolText(result);
     expect(text).toContain(
       i18n.t('tools-session:tooFewMessages', { id: 'test-session', count: 3 }),
     );
@@ -254,7 +255,7 @@ describe('Strategy 2: LLM-driven summarize-session tool', () => {
     });
 
     const result = await tool.execute('call-1', {});
-    const text = Array.isArray(result.content) ? result.content[0].text : result.content;
+    const text = extractToolText(result);
     expect(text).toContain(
       i18n.t('tools-session:thresholdNotReached', {
         id: 'test-session',

@@ -131,7 +131,7 @@ describe('injection.screen spec policy', () => {
         text: ['y'.repeat(SCREEN_PARAGRAPH_MAX + 50)][i]!,
       })),
     );
-    const paragraphs = built?.paragraphs ?? [];
+    const paragraphs = (built as { paragraphs?: ScreenParagraph[] } | undefined)?.paragraphs ?? [];
     expect(paragraphs[0]!.text.length).toBe(SCREEN_PARAGRAPH_MAX);
   });
 });
@@ -355,7 +355,7 @@ describe('screenExternalToolResult hook (admission-pipeline entry)', () => {
 
 describe('admitToolResult integration (adapter pipeline)', () => {
   function result(text: string): ToolExecutionResult {
-    return { content: [{ type: 'text', text }], details: {} as never };
+    return { content: [{ type: 'text', text }] };
   }
 
   it('active: screened segments become one-line notes BEFORE chunk admission', async () => {

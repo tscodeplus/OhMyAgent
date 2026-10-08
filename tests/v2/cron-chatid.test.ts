@@ -2,6 +2,7 @@
  * Verify chatId propagates correctly from AgentFactory.create() to cronjob tool.
  */
 import { describe, it, expect } from 'vitest';
+import { Type } from 'typebox';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -26,8 +27,11 @@ describe('cronjob chatId propagation', () => {
       name: 'dummy',
       label: 'Dummy',
       description: '',
-      parameters: { type: 'object' as const, properties: {} },
-      execute: async () => ({ content: [] }),
+      parameters: Type.Object({}),
+      execute: async (_toolCallId: string, _params: unknown) => ({
+        content: [{ type: 'text' as const, text: '' }],
+        details: null,
+      }),
     });
 
     let capturedChatId: string | undefined;

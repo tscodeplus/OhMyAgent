@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { makeEngine } from './decisions-helpers.js';
+import type { JudgeAnswer } from '../../src/judge/types.js';
 import {
   MEMORY_CAPTURE_POINT_ID,
   MEMORY_CAPTURE_THRESHOLD,
@@ -52,7 +53,7 @@ describe('memory.capture spec', () => {
     const spec = createMemoryCaptureSpec(stateFor([MESSAGE_A, MESSAGE_B]).messages);
     expect(MEMORY_CAPTURE_THRESHOLD).toBe(0.7);
     // Simulated judged answers: u1 clearly a rule (0.95), u2 clearly not (0.1).
-    const answers = {
+    const answers: Record<string, JudgeAnswer> = {
       m1: { type: 'noul', probability: 0.95 },
       m2: { type: 'noul', probability: 0.1 },
     };
@@ -83,7 +84,6 @@ describe('judgeExperiences hook (with mock judge)', () => {
       },
     });
     const result = await judgeExperiences({
-      engine,
       judgeGet: () => engine,
       sessionKey: 's1',
       messages: [
@@ -106,7 +106,6 @@ describe('judgeExperiences hook (with mock judge)', () => {
       answers: { m1: { type: 'noul', probability: 0.99 } },
     });
     const result = await judgeExperiences({
-      engine,
       judgeGet: () => engine,
       sessionKey: 's1',
       messages: [{ role: 'user', content: MESSAGE_A }],
@@ -127,7 +126,6 @@ describe('judgeExperiences hook (with mock judge)', () => {
       },
     });
     const result = await judgeExperiences({
-      engine,
       judgeGet: () => engine,
       sessionKey: 's1',
       messages: [{ role: 'user', content: MESSAGE_A }],

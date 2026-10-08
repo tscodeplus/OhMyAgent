@@ -67,7 +67,8 @@ function makeProposal(overrides?: Partial<ImprovementProposal>): ImprovementProp
     },
     impact: overrides?.impact ?? {
       scope: '仅测试',
-      riskLevel: overrides?.regressionRisk ?? 'low',
+      riskLevel:
+        overrides?.impact?.riskLevel ?? (overrides?.regressionRisk === 'medium' ? 'medium' : 'low'),
       expectedEffect: 'Test effect',
     },
     expectedEffect: overrides?.expectedEffect ?? 'Test effect',

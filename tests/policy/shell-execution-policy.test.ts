@@ -14,6 +14,7 @@ function readOnlyScope(): AgentPolicyScope {
     appApprovals: [],
     readOnly: true,
     computerUseEnabled: false,
+    policyMode: 'safe',
   };
 }
 

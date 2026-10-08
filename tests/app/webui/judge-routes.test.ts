@@ -29,7 +29,7 @@ vi.mock('../../../src/pi-mono/ai/compat.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/pi-mono/ai/compat.js')>();
   return {
     ...actual,
-    getModels: (...args: any[]) => mockGetModels(...args),
+    getModels: (provider: string) => mockGetModels(provider),
   };
 });
 

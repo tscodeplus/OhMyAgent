@@ -22,7 +22,8 @@ const EMPTY_USAGE = {
   output: 0,
   cacheRead: 0,
   cacheWrite: 0,
-  total: 0,
+  totalTokens: 0,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 };
 
 function makeModel(): any {
@@ -50,8 +51,8 @@ function makeTool(
     description: `Tool: ${name}`,
     parameters: Type.Object({}),
     deferred: opts.deferred,
-    execute: vi.fn(async () => ({
-      content: [{ type: 'text', text: `${name} ran` }],
+    execute: vi.fn(async (_toolCallId: string, _params: unknown) => ({
+      content: [{ type: 'text' as const, text: `${name} ran` }],
       details: {},
       ...(opts.addedToolNames ? { addedToolNames: opts.addedToolNames } : {}),
     })),

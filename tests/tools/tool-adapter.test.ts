@@ -1,6 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
-import { zodToTypeBox } from '../../src/tools/tool-adapter';
+import { zodToTypeBox as convertZodToTypeBox } from '../../src/tools/tool-adapter';
+
+type SchemaView = {
+  type?: string;
+  properties?: Record<string, SchemaView>;
+  required?: string[];
+  enum?: unknown[];
+  anyOf?: unknown[];
+};
+
+const zodToTypeBox = (schema: Parameters<typeof convertZodToTypeBox>[0]): SchemaView =>
+  convertZodToTypeBox(schema) as SchemaView;
 
 describe('zodToTypeBox', () => {
   it('converts string schema', () => {
@@ -30,8 +41,8 @@ describe('zodToTypeBox', () => {
     const tbSchema = zodToTypeBox(zodSchema);
     expect(tbSchema.type).toBe('object');
     expect(tbSchema.properties).toBeDefined();
-    expect(tbSchema.properties.name).toBeDefined();
-    expect(tbSchema.properties.age).toBeDefined();
+    expect(tbSchema.properties!.name).toBeDefined();
+    expect(tbSchema.properties!.age).toBeDefined();
   });
 
   it('converts array schema', () => {
@@ -57,8 +68,8 @@ describe('zodToTypeBox', () => {
       }),
     });
     const tbSchema = zodToTypeBox(zodSchema);
-    expect(tbSchema.properties.user).toBeDefined();
-    expect(tbSchema.properties.user.type).toBe('object');
+    expect(tbSchema.properties!.user).toBeDefined();
+    expect(tbSchema.properties!.user!.type).toBe('object');
   });
 
   it('converts enum', () => {

@@ -1,4 +1,4 @@
-import i18next from 'i18next';
+import i18next, { type Resource } from 'i18next';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,7 +8,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const localesPath = resolve(__dirname, '..', 'src', 'locales');
 
 // Pre-load all locale JSON files and pass as i18next resources (same approach as production).
-const resources: Record<string, Record<string, unknown>> = {};
+const resources: Resource = {};
 
 for (const lang of readdirSync(localesPath, { withFileTypes: true })
   .filter((d) => d.isDirectory())

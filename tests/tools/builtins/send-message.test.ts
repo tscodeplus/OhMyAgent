@@ -64,6 +64,8 @@ function createMockOrchestrator(): {
     getMessages: vi.fn(),
     routeApprovalToParent: vi.fn(),
     finishAgent: vi.fn(),
+    registerRuntime: vi.fn(),
+    unregisterRuntime: vi.fn(),
   };
   return { orchestrator, sentMessages };
 }

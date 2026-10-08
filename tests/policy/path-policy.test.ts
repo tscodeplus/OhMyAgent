@@ -17,6 +17,7 @@ function scope(overrides: Partial<AgentPolicyScope> = {}): AgentPolicyScope {
     appApprovals: [],
     readOnly: false,
     computerUseEnabled: false,
+    policyMode: 'balanced',
     ...overrides,
   };
 }

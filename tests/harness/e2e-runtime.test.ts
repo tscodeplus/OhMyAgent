@@ -265,7 +265,7 @@ describe('Self-Harness Runtime E2E', () => {
         id: 'prop-unknown',
         skillId: null,
         agentId: null,
-        type: 'unknown_type',
+        type: 'unknown_type' as unknown as ImprovementProposal['type'],
         title: 'Test',
         summary: 'Test',
         diff: { surface: '/tmp/test', before: 'x', after: 'y' },

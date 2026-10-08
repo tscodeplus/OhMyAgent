@@ -104,6 +104,7 @@ describe('recomputeNextRun', () => {
       scheduleText: '30m',
       prompt: 'test',
       chatId: '',
+      channel: 'feishu',
       enabled: true,
       state: 'idle',
       nextRunAt: 123_456,
@@ -124,6 +125,7 @@ describe('recomputeNextRun', () => {
       scheduleText: 'every 1m',
       prompt: 'test',
       chatId: '',
+      channel: 'feishu',
       enabled: true,
       state: 'idle',
       nextRunAt: null,
@@ -146,6 +148,7 @@ describe('recomputeNextRun', () => {
       scheduleText: '0 8 * * *',
       prompt: 'test',
       chatId: '',
+      channel: 'feishu',
       enabled: true,
       state: 'idle',
       nextRunAt: null,
@@ -245,6 +248,7 @@ describe('CronStore', () => {
       scheduleText: '1m',
       prompt: 'hello',
       chatId: 'chat1',
+      channel: 'feishu',
       enabled: true,
       state: 'idle',
       nextRunAt: Date.now() + 60000,
@@ -268,6 +272,7 @@ describe('CronStore', () => {
       scheduleText: 'past',
       prompt: '',
       chatId: '',
+      channel: 'feishu',
       enabled: true,
       state: 'idle',
       nextRunAt: Date.now() - 1000,
@@ -284,6 +289,7 @@ describe('CronStore', () => {
       scheduleText: 'future',
       prompt: '',
       chatId: '',
+      channel: 'feishu',
       enabled: true,
       state: 'idle',
       nextRunAt: Date.now() + 3600000,
@@ -300,6 +306,7 @@ describe('CronStore', () => {
       scheduleText: 'past',
       prompt: '',
       chatId: '',
+      channel: 'feishu',
       enabled: false,
       state: 'idle',
       nextRunAt: Date.now() - 1000,
@@ -327,6 +334,7 @@ describe('CronStore', () => {
       scheduleText: '',
       prompt: '',
       chatId: '',
+      channel: 'feishu',
       enabled: true,
       state: 'idle',
       nextRunAt: 0,
@@ -350,6 +358,7 @@ describe('CronStore', () => {
       scheduleText: '',
       prompt: '',
       chatId: '',
+      channel: 'feishu',
       enabled: true,
       state: 'idle',
       nextRunAt: 0,
@@ -379,6 +388,7 @@ describe('CronStore', () => {
       scheduleText: '',
       prompt: '',
       chatId: '',
+      channel: 'feishu',
       enabled: true,
       state: 'idle',
       nextRunAt: 0,
@@ -461,6 +471,7 @@ describe('CronService', () => {
       schedule: '0 8 * * *',
       prompt: 'Send morning news',
       chatId: 'chat123',
+      channel: 'feishu',
     });
     expect(job.id).toHaveLength(8);
     expect(job.schedule.type).toBe('cron');
@@ -475,12 +486,14 @@ describe('CronService', () => {
       schedule: '30m',
       prompt: 'p1',
       chatId: 'c1',
+      channel: 'feishu',
     });
     service.add({
       name: 'J2',
       schedule: '1h',
       prompt: 'p2',
       chatId: 'c2',
+      channel: 'feishu',
     });
     expect(service.list()).toHaveLength(2);
     expect(service.get(service.list()[0]!.id)?.name).toBe('J1');
@@ -492,6 +505,7 @@ describe('CronService', () => {
       schedule: '1h',
       prompt: 'p',
       chatId: 'c',
+      channel: 'feishu',
     });
     expect(service.pause(job.id)).toBe(true);
     expect(service.get(job.id)?.enabled).toBe(false);
@@ -508,6 +522,7 @@ describe('CronService', () => {
       schedule: '1h',
       prompt: 'p',
       chatId: 'c',
+      channel: 'feishu',
     });
     expect(service.remove(job.id)).toBe(true);
     expect(service.list()).toHaveLength(0);
@@ -519,6 +534,7 @@ describe('CronService', () => {
       schedule: '1h',
       prompt: 'hello',
       chatId: 'c',
+      channel: 'feishu',
     });
     const result = await service.runOnce(job.id);
     expect(result.status).toBe('success');

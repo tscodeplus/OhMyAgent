@@ -291,7 +291,7 @@ describe('performWin32Action (UIA stateless)', () => {
     expect(written).toContain("elementId='win-12345:1:5'"); // located by DFS index
     expect(written).toContain('ElByIdx');
     // The executed command lines (writes + run) never mention input injection.
-    const raw = execMock.mock.calls.map((call: [string]) => call[0] as string).join('\n');
+    const raw = execMock.mock.calls.map((call) => call[0] as string).join('\n');
     expect(raw).not.toContain('SetCursorPos');
     expect(raw).not.toContain('mouse_event');
     expect(raw).not.toContain('Clipboard');

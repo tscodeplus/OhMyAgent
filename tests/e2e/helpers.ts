@@ -9,6 +9,8 @@ import { vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { applySchema } from '../../src/memory/schema.js';
 import type { AppConfig, ReplyDispatcher } from '../../src/app/types.js';
+import { Type } from 'typebox';
+import type { AgentTool } from '../../src/pi-mono/agent/types.js';
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -43,8 +45,6 @@ export function makeTestConfig(overrides?: Partial<AppConfig>): AppConfig {
       fileRead: {
         allowedRoots: [],
         deniedPatterns: [],
-        allowPathTraversal: false,
-        allowHomeReference: false,
       },
     },
     memory: {
@@ -62,7 +62,7 @@ export function makeTestConfig(overrides?: Partial<AppConfig>): AppConfig {
       webhookWindowMs: 60000,
     },
     ...overrides,
-  };
+  } as unknown as AppConfig;
 }
 
 // ─── Database ────────────────────────────────────────────────────────────────
@@ -105,20 +105,21 @@ export function createMockEmbeddingClient() {
       }
       return stored.get(text)!;
     }),
+    embedBatch: vi.fn(async (texts: string[]) => texts.map(textToVector)),
     stored,
   };
 }
 
 // ─── Mock Tool ───────────────────────────────────────────────────────────────
 
-export function makeMockTool(name: string, output?: string) {
+export function makeMockTool(name: string, output?: string): AgentTool {
   return {
     name,
     label: name,
     description: `Tool: ${name}`,
-    parameters: {},
-    execute: vi.fn(async () => ({
-      content: [{ type: 'text', text: output ?? `${name} executed` }],
+    parameters: Type.Object({}),
+    execute: vi.fn(async (_toolCallId: string, _params: unknown) => ({
+      content: [{ type: 'text' as const, text: output ?? `${name} executed` }],
       details: null,
     })),
   };
@@ -151,6 +152,9 @@ export function createMockDispatcher(): ReplyDispatcher & {
       calls.push(`setApprovalStatus:${status ?? 'null'}`);
     }),
     setModel: vi.fn((_model: string) => {}),
+    setAgentName: vi.fn((_name: string) => {}),
+    setApprovalRecords: vi.fn(() => {}),
+    getReplyMessageId: vi.fn(() => undefined),
     onComplete: vi.fn(() => {
       calls.push('onComplete');
     }),
@@ -168,7 +172,9 @@ export function createMockDispatcher(): ReplyDispatcher & {
 
 export function createMockFeishuClient() {
   return {
-    sendApprovalCard: vi.fn(async () => 'approval-msg-1'),
+    sendApprovalCard: vi.fn(
+      async (_chatId: string, _card: Record<string, unknown>) => 'approval-msg-1',
+    ),
     updateMessage: vi.fn(async () => {}),
   };
 }

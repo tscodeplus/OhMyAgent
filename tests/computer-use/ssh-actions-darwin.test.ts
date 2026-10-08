@@ -18,6 +18,8 @@ const BASE_SETTINGS: ComputerUseSettings = {
     port: 22,
     jumpHost: '',
     display: ':0',
+    hostKeyChecking: 'accept-new',
+    knownHostsPath: '',
   },
   node: { url: '' },
   allowedApps: [],
@@ -89,9 +91,7 @@ describe('SSHComputerUseProvider macOS support', () => {
       },
     });
     await provider.listApps(DEFAULT_CTX);
-    const osascriptCalls = mockPool.exec.mock.calls.filter((call: [string]) =>
-      call[0].includes('osascript'),
-    );
+    const osascriptCalls = mockPool.exec.mock.calls.filter((call) => call[0].includes('osascript'));
     expect(osascriptCalls.length).toBeGreaterThan(0);
   });
 
@@ -102,9 +102,7 @@ describe('SSHComputerUseProvider macOS support', () => {
       },
     });
     await provider.listApps(DEFAULT_CTX);
-    const osascriptCalls = mockPool.exec.mock.calls.filter((call: [string]) =>
-      call[0].includes('osascript'),
-    );
+    const osascriptCalls = mockPool.exec.mock.calls.filter((call) => call[0].includes('osascript'));
     expect(osascriptCalls).toHaveLength(0);
   });
 
@@ -112,9 +110,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     const { provider, mockPool } = createProvider();
     mockPool.exec.mockRejectedValueOnce(new Error('SSH connection failed'));
     await provider.listApps(DEFAULT_CTX);
-    const osascriptCalls = mockPool.exec.mock.calls.filter((call: [string]) =>
-      call[0].includes('osascript'),
-    );
+    const osascriptCalls = mockPool.exec.mock.calls.filter((call) => call[0].includes('osascript'));
     expect(osascriptCalls).toHaveLength(0);
   });
 
@@ -183,7 +179,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     });
     const lease = makeLease({ leaseId: 'test-lease-1' });
     await provider.getAppState(DEFAULT_CTX, lease);
-    const screencaptureCall = mockPool.exec.mock.calls.find((call: [string]) =>
+    const screencaptureCall = mockPool.exec.mock.calls.find((call) =>
       call[0].includes('screencapture'),
     );
     expect(screencaptureCall).toBeDefined();
@@ -203,7 +199,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     });
     const lease = makeLease({ leaseId: 'test-lease-1' });
     const state = await provider.getAppState(DEFAULT_CTX, lease);
-    const winCapture = mockPool.exec.mock.calls.find((call: [string]) =>
+    const winCapture = mockPool.exec.mock.calls.find((call) =>
       call[0].includes('screencapture -x -l'),
     );
     expect(winCapture).toBeDefined();
@@ -239,9 +235,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     await provider.getAppState(DEFAULT_CTX, lease);
     // The screenshot read-back uses `base64 -i` — the Swift tool's own
     // `base64 -d` writes must not be matched here.
-    const base64Call = mockPool.exec.mock.calls.find((call: [string]) =>
-      call[0].includes('base64 -i'),
-    );
+    const base64Call = mockPool.exec.mock.calls.find((call) => call[0].includes('base64 -i'));
     expect(base64Call).toBeDefined();
     expect(base64Call![0]).toContain('base64 -i');
   });
@@ -855,9 +849,7 @@ describe('SSHComputerUseProvider macOS support', () => {
     await provider.listApps(DEFAULT_CTX);
     // Second call should use cached value
     await provider.listApps(DEFAULT_CTX);
-    const unameCalls = mockPool.exec.mock.calls.filter((call: [string]) =>
-      call[0].includes('uname -s'),
-    );
+    const unameCalls = mockPool.exec.mock.calls.filter((call) => call[0].includes('uname -s'));
     expect(unameCalls).toHaveLength(1);
   });
 });
@@ -1215,7 +1207,7 @@ describe('SSHComputerUseProvider macOS AX (Swift tool, accessibility-first)', ()
       display: ':0',
     });
     // macOS must not run Linux-only window tooling.
-    const allCmds = mockPool.exec.mock.calls.map((call: [string]) => call[0]).join('\n');
+    const allCmds = mockPool.exec.mock.calls.map((call) => call[0]).join('\n');
     expect(allCmds).not.toContain('wmctrl');
     expect(allCmds).not.toContain('xdotool');
     expect(allCmds).toContain('pgrep -f -i');

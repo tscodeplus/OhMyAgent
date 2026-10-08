@@ -14,11 +14,12 @@ import {
   memoryWorthSpec,
 } from '../../src/judge/decisions/memory-worth.js';
 import { DECISION_SPECS } from '../../src/judge/decisions/registry.js';
+import type { JudgeAnswer } from '../../src/judge/types.js';
 
 const CANDIDATE_A = { id: 'u1', key: 'w1', text: '以后 commit 用英文' };
 
-function answersFor(first: string, second?: string): Record<string, unknown> {
-  const answers: Record<string, unknown> = {
+function answersFor(first: string, second?: string): Record<string, JudgeAnswer> {
+  const answers: Record<string, JudgeAnswer> = {
     w1: {
       type: 'choice',
       choice: first,

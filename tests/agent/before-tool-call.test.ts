@@ -24,7 +24,7 @@ describe('createBeforeToolCall computer_use approval', () => {
       approveApp: vi.fn(),
     };
 
-    const sendApprovalCard = vi.fn(async () => 'msg-approval');
+    const sendApprovalCard = vi.fn(async (_chatId: string, _request: unknown) => 'msg-approval');
     const beforeToolCall = createBeforeToolCall({
       approvalGate: {
         evaluate: vi.fn(),
@@ -64,6 +64,7 @@ describe('createBeforeToolCall computer_use approval', () => {
         appApprovals: [],
         readOnly: false,
         computerUseEnabled: true,
+        policyMode: 'balanced',
       },
     });
 
@@ -103,7 +104,7 @@ describe('createBeforeToolCall computer_use approval', () => {
 
     const pendingApprovals = new PendingApprovalStore();
     const createApproval = vi.spyOn(pendingApprovals, 'create').mockResolvedValue('approve_once');
-    const sendApprovalCard = vi.fn(async () => 'msg-approval');
+    const sendApprovalCard = vi.fn(async (_chatId: string, _request: unknown) => 'msg-approval');
 
     // Even when an app was already approved, non-app actions (type_text,
     // click_point, …) are mutating/high-risk and must NOT be silently
@@ -151,6 +152,7 @@ describe('createBeforeToolCall computer_use approval', () => {
         appApprovals: [],
         readOnly: false,
         computerUseEnabled: true,
+        policyMode: 'balanced',
       },
     });
 
@@ -186,7 +188,6 @@ describe('createBeforeToolCall computer_use approval', () => {
         recordDecision: vi.fn(),
         getPolicy: vi.fn(),
       } as unknown as ApprovalGate,
-      approvalPort: { getSession: () => undefined },
       approvalTimeoutMs: 30_000,
       computerUseHost: { isAppApproved: vi.fn(() => false), approveApp: vi.fn() } as any,
       pendingApprovals,
@@ -208,6 +209,7 @@ describe('createBeforeToolCall computer_use approval', () => {
         appApprovals: [],
         readOnly: false,
         computerUseEnabled: true,
+        policyMode: 'balanced',
       },
     });
 

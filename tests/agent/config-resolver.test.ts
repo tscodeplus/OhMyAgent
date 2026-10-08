@@ -3,7 +3,11 @@ import { resolveAgentConfig, resolveAllAgents } from '../../src/agent/config-res
 import type { AgentConfig } from '../../src/agent/config-types.js';
 import type { AppConfig } from '../../src/app/types.js';
 
-function makeBaseConfig(overrides?: Partial<AppConfig>): AppConfig {
+type BaseConfigOverrides = Omit<Partial<AppConfig>, 'smart_agent_team'> & {
+  smart_agent_team?: Partial<AppConfig['smart_agent_team']>;
+};
+
+function makeBaseConfig(overrides?: BaseConfigOverrides): AppConfig {
   return {
     feishu: {
       appId: 'app-id',
@@ -34,8 +38,6 @@ function makeBaseConfig(overrides?: Partial<AppConfig>): AppConfig {
       fileRead: {
         allowedRoots: [],
         deniedPatterns: [],
-        allowPathTraversal: false,
-        allowHomeReference: false,
       },
     },
     memory: {
@@ -53,12 +55,15 @@ function makeBaseConfig(overrides?: Partial<AppConfig>): AppConfig {
       webhookWindowMs: 60000,
     },
     toolSearch: { enabled: 'off' as const },
+    ...overrides,
     smart_agent_team: {
       enabled: false,
       max_children: 4,
+      child_timeout_sec: 300,
+      child_settle_timeout_ms: 5000,
+      ...overrides?.smart_agent_team,
     },
-    ...overrides,
-  };
+  } as unknown as AppConfig;
 }
 
 function makeAgentConfig(overrides?: Partial<AgentConfig>): AgentConfig {
@@ -137,7 +142,6 @@ describe('P0: resolveSpawn — max_parallel unification', () => {
 
   it('falls back to default 4 when neither agent nor global specifies', () => {
     const global = makeBaseConfig();
-    // @ts-expect-error: deliberately remove smart_agent_team entirely
     delete (global as any).smart_agent_team;
     const agent = makeAgentConfig({ spawn: { enabled: true } });
     const resolved = resolveAgentConfig(global, agent);
@@ -146,7 +150,6 @@ describe('P0: resolveSpawn — max_parallel unification', () => {
 
   it('uses agent max_parallel even when smart_agent_team is absent', () => {
     const global = makeBaseConfig();
-    // @ts-expect-error: deliberately remove smart_agent_team entirely
     delete (global as any).smart_agent_team;
     const agent = makeAgentConfig({ spawn: { enabled: true, max_parallel: 3 } });
     const resolved = resolveAgentConfig(global, agent);

@@ -1769,7 +1769,7 @@ describe('MCP API routes', () => {
     const taker = [first, second].find((r) => r.statusCode === 400);
     expect(taker && (taker.json() as { error: string }).error).toBe('mcp.error.nameTaken');
 
-    const servers = readRawConfig().mcp.servers as Record<string, unknown>;
+    const servers = (readRawConfig().mcp as { servers: Record<string, unknown> }).servers;
     expect(Object.keys(servers).length).toBe(1); // the file stays bootable
     expect(Object.keys(servers)[0]).toMatch(/^(a-b|a_b)$/);
   });

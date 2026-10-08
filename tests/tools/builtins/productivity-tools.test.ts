@@ -278,7 +278,7 @@ describe('config', () => {
     },
     extensions: { directory: '/tmp/ext' },
     footer: { showAgentName: true, showModel: true, showCompleted: true, showElapsed: true },
-  };
+  } as unknown as AppConfig;
 
   const configCtx: ToolExecutionContext = {
     cwd: '/tmp',

@@ -72,7 +72,7 @@ function makeRegistry(skill: LoadedSkill): SkillRegistry {
       { skill, matchType: 'trigger', matchedTrigger: skill.manifest.id } as ResolvedSkill,
     ],
     // Real compiler — the test must cover the actual compiled context shape.
-    compile: (resolved) => compileSkillContext(resolved),
+    compile: (resolved: ResolvedSkill[]) => compileSkillContext(resolved),
     getSkills: () => [skill],
     getSkillById: (id: string) => (id === skill.manifest.id ? skill : undefined),
   } as unknown as SkillRegistry;

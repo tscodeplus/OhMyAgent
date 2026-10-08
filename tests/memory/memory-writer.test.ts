@@ -53,6 +53,7 @@ function createMockEmbeddingClient() {
       }
       return stored.get(text)!;
     }),
+    embedBatch: vi.fn(async (texts: string[]) => texts.map(textToVector)),
     stored,
   };
 }

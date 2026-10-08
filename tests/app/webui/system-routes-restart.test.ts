@@ -13,6 +13,12 @@ import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+interface FakeSpawnOptions {
+  detached?: boolean;
+  windowsHide?: boolean;
+  stdio?: string | readonly string[];
+}
+
 interface FakeChild {
   unref: () => void;
   kill: () => void;
@@ -23,7 +29,7 @@ interface FakeChild {
 // runs; anything left over defaults to exit code 0 (hand-off succeeded).
 const { mockSpawn, mockExitCodes } = vi.hoisted(() => {
   const exitCodes: number[] = [];
-  const spawn = vi.fn(() => {
+  const spawn = vi.fn((_command: string, _args: string[], _options: FakeSpawnOptions) => {
     const listeners: Record<string, Array<(...args: unknown[]) => void>> = {};
     const child: FakeChild = {
       unref: () => {},
@@ -45,7 +51,8 @@ vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
   return {
     ...actual,
-    spawn: (...args: unknown[]) => mockSpawn(...(args as [])),
+    spawn: (command: string, args: string[], options: FakeSpawnOptions) =>
+      mockSpawn(command, args, options),
   };
 });
 
@@ -123,7 +130,7 @@ describe('POST /api/system/restart', () => {
     expect(res.json()).toEqual({ ok: true });
     expect(mockSpawn).toHaveBeenCalledTimes(1);
 
-    const [cmd, args, opts] = mockSpawn.mock.calls[0] as [string, string[], { detached: boolean }];
+    const [cmd, args, opts] = mockSpawn.mock.calls[0]!;
     expect(cmd).toBe('bash');
     expect(opts.detached).toBe(true);
     expect(args[0]).toMatch(/\.restart-script\.sh$/);
@@ -149,7 +156,7 @@ describe('POST /api/system/restart', () => {
     // 'linux' on Windows makes execSync look for /bin/sh.
     Object.defineProperty(process, 'platform', { value: prevPlatform, configurable: true });
 
-    const [, args] = mockSpawn.mock.calls[0] as [string, string[]];
+    const [, args] = mockSpawn.mock.calls[0]!;
     const script = fs.readFileSync(args[0], 'utf-8');
     // Throws on syntax errors — guards the template's escaping (bash ${VAR}
     // vs JS ${interp}) against regressions.
@@ -166,11 +173,7 @@ describe('POST /api/system/restart', () => {
     expect(res.statusCode).toBe(200);
     expect(mockSpawn).toHaveBeenCalledTimes(1);
 
-    const [cmd, args, opts] = mockSpawn.mock.calls[0] as [
-      string,
-      string[],
-      { detached?: boolean; windowsHide?: boolean; stdio: string },
-    ];
+    const [cmd, args, opts] = mockSpawn.mock.calls[0]!;
     expect(cmd).toBe('powershell.exe');
     expect(args).toContain('-NoProfile');
     // Regression: `detached: true` makes Node spawn the child with
@@ -219,11 +222,7 @@ describe('POST /api/system/restart', () => {
     expect(res.statusCode).toBe(200);
     expect(mockSpawn).toHaveBeenCalledTimes(2);
 
-    const [, fallbackArgs, fallbackOpts] = mockSpawn.mock.calls[1] as [
-      string,
-      string[],
-      { detached?: boolean },
-    ];
+    const [, fallbackArgs, fallbackOpts] = mockSpawn.mock.calls[1]!;
     expect(fallbackArgs).toContain('-File');
     expect(fallbackArgs.some((a) => a.endsWith('.restart-script.ps1'))).toBe(true);
     expect(fallbackOpts.detached).toBeUndefined();
@@ -271,8 +270,8 @@ describe('POST /api/system/perform-update (Windows)', () => {
 
     const call = mockSpawn.mock.calls[0];
     expect(call).toBeDefined();
-    const args = call![1] as string[];
-    const opts = call![2] as { detached?: boolean; windowsHide?: boolean };
+    const args = call![1];
+    const opts = call![2];
     expect(opts.detached).toBeUndefined();
     expect(opts.windowsHide).toBe(true);
     // Launched through WMI so the minutes-long update survives the teardown of

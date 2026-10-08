@@ -212,7 +212,7 @@ describe('E2E: Approval Flow', () => {
       toolCall: { name: 'file_read', id: 'tc-1', type: 'toolCall' } as any,
       args: { path: '/tmp/test.txt' },
       assistantMessage: { role: 'assistant', content: [] } as any,
-      context: { systemPrompt: '', messages: [], tools: [] },
+      context: { messages: [], tools: [] },
     });
     expect(result).toBeUndefined();
     expect(feishuClient.sendApprovalCard).not.toHaveBeenCalled();
@@ -244,7 +244,7 @@ describe('E2E: Approval Flow', () => {
       toolCall: { name: 'shell', id: 'tc-1', type: 'toolCall' } as any,
       args: { command: 'adb devices' },
       assistantMessage: { role: 'assistant', content: [] } as any,
-      context: { systemPrompt: '', messages: [], tools: [] },
+      context: { messages: [], tools: [] },
     });
     expect(result).toBeUndefined();
     expect(feishuClient.sendApprovalCard).not.toHaveBeenCalled();
@@ -276,7 +276,7 @@ describe('E2E: Approval Flow', () => {
       toolCall: { name: 'shell', id: 'tc-1', type: 'toolCall' } as any,
       args: { command: 'adb shell rm -rf /data' },
       assistantMessage: { role: 'assistant', content: [] } as any,
-      context: { systemPrompt: '', messages: [], tools: [] },
+      context: { messages: [], tools: [] },
     });
     // Should block execution
     expect(result).toBeDefined();
@@ -293,7 +293,7 @@ describe('E2E: Approval Flow', () => {
       { config: makeTestConfig(), toolRegistry: registry },
       { approvalGate, feishuClient },
     );
-    expect(factory.resolveApproval('nonexistent', 'approved')).toBe(false);
+    expect(factory.resolveApproval('nonexistent', 'approve_once')).toBe(false);
   });
 
   // ─── Full agent flow: approved command executes ──────────────────────────
@@ -355,7 +355,7 @@ describe('E2E: Approval Flow', () => {
     expect(requestId).toBeDefined();
 
     // Approve the command
-    factory.resolveApproval(requestId, 'approved');
+    factory.resolveApproval(requestId, 'approve_once');
 
     await promptPromise;
     bridge.stop();
@@ -420,7 +420,7 @@ describe('E2E: Approval Flow', () => {
     const requestId = approveButton?.value?.requestId;
 
     // Reject the command
-    factory.resolveApproval(requestId, 'rejected');
+    factory.resolveApproval(requestId, 'reject_once');
 
     await promptPromise;
     bridge.stop();

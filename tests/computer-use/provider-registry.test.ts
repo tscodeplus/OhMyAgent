@@ -15,7 +15,16 @@ function makeSettings(overrides?: Partial<ComputerUseSettings>): ComputerUseSett
   return {
     enabled: true,
     provider: 'auto',
-    ssh: { host: '', user: '', keyPath: '', port: 22, jumpHost: '', display: ':0' },
+    ssh: {
+      host: '',
+      user: '',
+      keyPath: '',
+      port: 22,
+      jumpHost: '',
+      display: ':0',
+      hostKeyChecking: 'accept-new',
+      knownHostsPath: '',
+    },
     node: { url: '' },
     allowedApps: [],
     allowedAgents: [],

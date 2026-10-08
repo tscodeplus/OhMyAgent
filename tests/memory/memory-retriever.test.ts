@@ -85,6 +85,8 @@ function createMockEmbeddingCacheRepo() {
   return {
     get: vi.fn(() => undefined),
     set: vi.fn(),
+    count: vi.fn(() => 0),
+    trim: vi.fn(() => 0),
   };
 }
 
@@ -487,7 +489,7 @@ describe('MemoryRetriever', () => {
         embeddingClient: embeddingClient as any,
         embeddingCacheRepo: mockCacheRepo,
         db: mockDb,
-        embeddingBreaker: { halfLifeDays: 7 },
+        decayConfig: { halfLifeDays: 7 },
       });
 
       const results = await retriever.retrieve({ query: 'test' });

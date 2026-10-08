@@ -24,7 +24,9 @@ import { makeEngine } from './decisions-helpers.js';
 const RISKY = 'rm -rf /tmp/build-cache'; // assessCommandRisk → high
 const LOW_RISK = 'ls -la';
 
-function policyAnswer(probability: number): Parameters<typeof toolRiskSpec.policy>[0] {
+type ToolRiskPolicy = NonNullable<typeof toolRiskSpec.policy>;
+
+function policyAnswer(probability: number): Parameters<ToolRiskPolicy>[0] {
   return { 'risk.asked': { type: 'noul', probability } } as never;
 }
 

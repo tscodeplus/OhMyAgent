@@ -18,6 +18,7 @@ import { applySchema } from '../../src/memory/schema';
 import { ApprovalPolicyRepository } from '../../src/memory/repositories/approval-policy-repository';
 import { SQLiteApprovalGate } from '../../src/tools/approval-gate';
 import { PathAccessPolicyImpl } from '../../src/policy/path-policy';
+import type { ApprovalPresentation } from '../../src/agent/approval-ui-port.js';
 import { ShellExecutionPolicyImpl } from '../../src/policy/shell/evaluator';
 import { ToolVisibilityPolicyImpl } from '../../src/policy/tool-visibility';
 import { ApprovalResolutionPolicyImpl } from '../../src/policy/approval/resolution';
@@ -85,7 +86,7 @@ describe('generic tool approval binds to the approved arguments', () => {
     const pendingApprovals = new PendingApprovalStore();
     vi.spyOn(pendingApprovals, 'create').mockResolvedValue('approve_session');
 
-    const present = vi.fn(async () => 'msg-approval');
+    const present = vi.fn(async (_request: ApprovalPresentation) => 'msg-approval');
     const resolve = vi.fn(async () => undefined);
     const beforeToolCall = createBeforeToolCall({
       approvalGate: makeLegacyGate(),

@@ -96,6 +96,8 @@ class MockOrchestrator implements Orchestrator {
   getMessages(_agentId?: string): any[] {
     return [];
   }
+  registerRuntime(): void {}
+  unregisterRuntime(): void {}
 
   /** Expose internal state for test inspection. */
   _getTasks(): Map<string, TaskRun> {

@@ -325,7 +325,6 @@ describe('ADB_TEMPLATES', () => {
 // ─── File Path Extraction & Root Checking ───
 
 import path from 'path';
-import os from 'os';
 
 describe('extractFilePaths', () => {
   it('extracts file paths from cat command', () => {

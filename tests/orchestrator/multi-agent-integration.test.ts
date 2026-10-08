@@ -45,7 +45,10 @@ function makeMinimalPermissionInheritance() {
 }
 
 function makeMinimalApprovalStateSync() {
-  return { routeApproval: vi.fn(async () => undefined) };
+  return {
+    checkParentApprovalReuse: vi.fn(async () => false),
+    routeApproval: vi.fn(async () => undefined),
+  };
 }
 
 function makeOrchestrator(

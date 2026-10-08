@@ -131,7 +131,7 @@ describe('JudgeEngine — decideMany vs decide subset', () => {
     });
     const verdict = await engine.decideMany(makeSpec(), { state: { shared: true } });
     expect(calls).toHaveLength(1);
-    expect(Object.keys(calls[0].context.questions)).toEqual(
+    expect(Object.keys(calls[0].context.questions as object)).toEqual(
       expect.arrayContaining(['q_keep', 'q_domain', 'q_hard']),
     );
     expect(verdict.source).toBe('judge');
@@ -151,7 +151,7 @@ describe('JudgeEngine — decideMany vs decide subset', () => {
     });
     const verdict = await engine.decide(makeSpec(), { state: 'shared', questionIds: ['q_keep'] });
     expect(calls).toHaveLength(1);
-    expect(Object.keys(calls[0].context.questions)).toEqual(['q_keep']);
+    expect(Object.keys(calls[0].context.questions as object)).toEqual(['q_keep']);
     expect(verdict.answers).toEqual({ q_keep: { type: 'noul', probability: 0.9 } });
   });
 
@@ -161,7 +161,7 @@ describe('JudgeEngine — decideMany vs decide subset', () => {
       resolver: createMockResolver({ judgeId: 'mock/j1', answers: CLEAR(0.9) }),
       ledger: makeLedger(),
     });
-    const verdict = await engine.decide(makeSpec(), { questionIds: ['nope'] });
+    const verdict = await engine.decide(makeSpec(), { state: {}, questionIds: ['nope'] });
     expect(verdict.source).toBe('fallback');
     expect(verdict.fallbackReason).toBe('parse-rejected');
   });
@@ -405,7 +405,7 @@ describe('JudgeEngine — timeout + resolver failures', () => {
       ledger: makeLedger(),
     });
     controller.abort();
-    const verdict = await engine.decide(makeSpec(), {}, controller.signal);
+    const verdict = await engine.decide(makeSpec(), { state: {} }, controller.signal);
     expect(verdict.fallbackReason).toBe('aborted');
   });
 });

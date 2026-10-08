@@ -25,6 +25,9 @@ function makeFullPersona(): UserPersona {
       known: ['Android', 'Python', 'Docker'],
       learning: ['Rust', 'Kubernetes'],
     },
+    workHabits: { hours: '', taskStyle: '', qualityPreferences: [] },
+    knowledgeDomains: { expert: [], proficient: [], interested: [] },
+    projectPreferences: { techStacks: [], projectTypes: [], deploymentTargets: [] },
     context: {
       device: 'OnePlus 13 / Termux / WSL2',
       environment: 'Node.js 20, pnpm',

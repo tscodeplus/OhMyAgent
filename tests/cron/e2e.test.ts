@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import { CronStore } from '../../src/cron/store.js';
+import { CronDeliveryRegistry } from '../../src/cron/delivery-registry.js';
 import { CronService, parseSchedule } from '../../src/cron/service.js';
 import { CronScheduler } from '../../src/cron/scheduler.js';
 import { JobRunner } from '../../src/cron/job-runner.js';
@@ -21,9 +22,10 @@ const logger = {
   child: () => logger,
 } as any;
 
-const stubFeishuClient = {
-  sendMessage: async () => ({ code: 0, data: { message_id: 'msg_test' } }),
-};
+const deliveryRegistry = new CronDeliveryRegistry();
+deliveryRegistry.register('feishu', {
+  deliver: async () => {},
+});
 
 const stubAgentRunner: AgentRunner = {
   async run(
@@ -45,8 +47,9 @@ describe('Cron E2E', () => {
   beforeEach(() => {
     tmpDir = mkdtempSync(path.join(tmpdir(), 'cron-e2e-'));
     store = new CronStore(tmpDir);
-    const runner = new JobRunner(stubFeishuClient, stubAgentRunner, {
+    const runner = new JobRunner(deliveryRegistry, stubAgentRunner, {
       executionTimeoutMs: 600_000,
+      footer: { showAgentName: true, showModel: true, showCompleted: true, showElapsed: true },
       logger,
     });
     const scheduler = new CronScheduler(store, runner, { tickIntervalMs: 30_000, logger });
@@ -92,13 +95,21 @@ describe('Cron E2E', () => {
         schedule: '0 8 * * *',
         prompt: 'p1',
         chatId: 'c1',
+        channel: 'feishu',
       });
-      const j2 = service.add({ name: 'Oneshot', schedule: '30m', prompt: 'p2', chatId: 'c2' });
+      const j2 = service.add({
+        name: 'Oneshot',
+        schedule: '30m',
+        prompt: 'p2',
+        channel: 'feishu',
+        chatId: 'c2',
+      });
       const j3 = service.add({
         name: 'Interval',
         schedule: 'every 1h',
         prompt: 'p3',
         chatId: 'c3',
+        channel: 'feishu',
       });
 
       expect(j1.schedule.type).toBe('cron');
@@ -108,7 +119,13 @@ describe('Cron E2E', () => {
     });
 
     it('lists jobs with correct fields', () => {
-      service.add({ name: 'Test', schedule: '1h', prompt: 'hello', chatId: 'chat' });
+      service.add({
+        name: 'Test',
+        schedule: '1h',
+        prompt: 'hello',
+        channel: 'feishu',
+        chatId: 'chat',
+      });
       const jobs = service.list();
       expect(jobs).toHaveLength(1);
       expect(jobs[0]!.name).toBe('Test');
@@ -121,7 +138,13 @@ describe('Cron E2E', () => {
     });
 
     it('removes a job', () => {
-      const j = service.add({ name: 'Del', schedule: '1h', prompt: 'p', chatId: 'c' });
+      const j = service.add({
+        name: 'Del',
+        schedule: '1h',
+        prompt: 'p',
+        channel: 'feishu',
+        chatId: 'c',
+      });
       expect(service.remove(j.id)).toBe(true);
       expect(service.list()).toHaveLength(0);
     });
@@ -130,7 +153,13 @@ describe('Cron E2E', () => {
   // ── Pause / Resume ──
   describe('pause / resume', () => {
     it('pauses and resumes a job', () => {
-      const j = service.add({ name: 'P', schedule: '1h', prompt: 'p', chatId: 'c' });
+      const j = service.add({
+        name: 'P',
+        schedule: '1h',
+        prompt: 'p',
+        channel: 'feishu',
+        chatId: 'c',
+      });
       expect(service.pause(j.id)).toBe(true);
       expect(service.get(j.id)?.enabled).toBe(false);
       expect(service.get(j.id)?.state).toBe('paused');
@@ -149,7 +178,13 @@ describe('Cron E2E', () => {
   // ── Run job immediately ──
   describe('runOnce', () => {
     it('runs a job successfully', async () => {
-      const j = service.add({ name: 'R', schedule: '1h', prompt: 'test prompt', chatId: 'c' });
+      const j = service.add({
+        name: 'R',
+        schedule: '1h',
+        prompt: 'test prompt',
+        channel: 'feishu',
+        chatId: 'c',
+      });
       const result = await service.runOnce(j.id);
       expect(result.status).toBe('success');
       expect(result.jobId).toBe(j.id);
@@ -164,7 +199,13 @@ describe('Cron E2E', () => {
   // ── Scheduler tick ──
   describe('scheduler tick', () => {
     it('advances nextRunAt on tick', async () => {
-      const j = service.add({ name: 'T', schedule: '0 8 * * *', prompt: 'p', chatId: 'c' });
+      const j = service.add({
+        name: 'T',
+        schedule: '0 8 * * *',
+        prompt: 'p',
+        channel: 'feishu',
+        chatId: 'c',
+      });
       const originalNext = j.nextRunAt;
       // Simulate a due job
       store.update(j.id, { nextRunAt: Date.now() - 1000 });
@@ -181,7 +222,13 @@ describe('Cron E2E', () => {
     });
 
     it('completes oneshot after execution', async () => {
-      const j = service.add({ name: 'OS', schedule: '1m', prompt: 'p', chatId: 'c' });
+      const j = service.add({
+        name: 'OS',
+        schedule: '1m',
+        prompt: 'p',
+        channel: 'feishu',
+        chatId: 'c',
+      });
       store.update(j.id, { nextRunAt: Date.now() - 1000 });
       await service.tick();
       const updated = service.get(j.id);
@@ -193,7 +240,13 @@ describe('Cron E2E', () => {
   // ── Persistence ──
   describe('persistence', () => {
     it('survives store reload', async () => {
-      const j = service.add({ name: 'Persist', schedule: '0 8 * * *', prompt: 'p', chatId: 'c' });
+      const j = service.add({
+        name: 'Persist',
+        schedule: '0 8 * * *',
+        prompt: 'p',
+        channel: 'feishu',
+        chatId: 'c',
+      });
       await store.flush();
 
       const store2 = new CronStore(tmpDir);
@@ -251,6 +304,7 @@ describe('Cron E2E', () => {
         scheduleText: '',
         prompt: '',
         chatId: '',
+        channel: 'feishu',
         enabled: true,
         state: 'idle',
         nextRunAt: now - 1000,
@@ -267,6 +321,7 @@ describe('Cron E2E', () => {
         scheduleText: '',
         prompt: '',
         chatId: '',
+        channel: 'feishu',
         enabled: true,
         state: 'idle',
         nextRunAt: now + 999999,
@@ -283,6 +338,7 @@ describe('Cron E2E', () => {
         scheduleText: '',
         prompt: '',
         chatId: '',
+        channel: 'feishu',
         enabled: true,
         state: 'running',
         nextRunAt: now - 1000,

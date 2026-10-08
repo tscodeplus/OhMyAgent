@@ -73,7 +73,7 @@ function makeMockConfig(): AppConfig {
       webhookWindowMs: 60000,
     },
     toolSearch: { enabled: 'off' as const },
-  };
+  } as unknown as AppConfig;
 }
 
 function makeMockToolRegistry(tools: any[] = []) {
@@ -117,6 +117,8 @@ function makeMockSkillRegistry(overrides?: {
         promptLayers: [],
         memoryScopes: [],
         approvalOverrides: {},
+        toolsSurfaceStrict: false,
+        conflicts: [],
       })),
     getSkills: () => skills,
     getSkillById: (id: string) => skills.find((s) => s.manifest.id === id),
@@ -204,8 +206,11 @@ describe('Skill Integration in AgentFactory', () => {
         allowedTools: ['shell'],
         deniedTools: [],
         promptContent: '',
+        promptLayers: [],
         memoryScopes: [],
         approvalOverrides: {},
+        toolsSurfaceStrict: false,
+        conflicts: [],
       }));
       const skillRegistry = makeMockSkillRegistry({
         resolve: resolveMock,
@@ -238,8 +243,11 @@ describe('Skill Integration in AgentFactory', () => {
         allowedTools: ['shell'],
         deniedTools: [],
         promptContent: 'You are an Android operator. Use adb commands.',
+        promptLayers: [],
         memoryScopes: [],
         approvalOverrides: {},
+        toolsSurfaceStrict: false,
+        conflicts: [],
       }));
       const skillRegistry = makeMockSkillRegistry({
         resolve: resolveMock,
@@ -263,8 +271,11 @@ describe('Skill Integration in AgentFactory', () => {
         allowedTools: ['shell'],
         deniedTools: [],
         promptContent: 'Skill prompt here.',
+        promptLayers: [],
         memoryScopes: [],
         approvalOverrides: {},
+        toolsSurfaceStrict: false,
+        conflicts: [],
       }));
       const skillRegistry = makeMockSkillRegistry({
         resolve: resolveMock,
@@ -290,8 +301,11 @@ describe('Skill Integration in AgentFactory', () => {
         allowedTools: ['shell'],
         deniedTools: [],
         promptContent: '',
+        promptLayers: [],
         memoryScopes: [],
         approvalOverrides: {},
+        toolsSurfaceStrict: false,
+        conflicts: [],
       }));
       const skillRegistry = makeMockSkillRegistry({
         resolve: resolveMock,
@@ -328,8 +342,11 @@ describe('Skill Integration in AgentFactory', () => {
         allowedTools: ['shell', 'web_search'],
         deniedTools: [],
         promptContent: 'Combined skill prompt.',
+        promptLayers: [],
         memoryScopes: [],
         approvalOverrides: {},
+        toolsSurfaceStrict: false,
+        conflicts: [],
       }));
       const skillRegistry = makeMockSkillRegistry({
         resolve: resolveMock,
@@ -360,8 +377,11 @@ describe('Skill Integration in AgentFactory', () => {
         allowedTools: ['shell'],
         deniedTools: [],
         promptContent: 'First skill.\n---\nSecond skill.',
+        promptLayers: [],
         memoryScopes: [],
         approvalOverrides: {},
+        toolsSurfaceStrict: false,
+        conflicts: [],
       }));
       const skillRegistry = makeMockSkillRegistry({
         resolve: resolveMock,
@@ -387,8 +407,11 @@ describe('Skill Integration in AgentFactory', () => {
         allowedTools: [],
         deniedTools: [],
         promptContent: 'Some prompt.',
+        promptLayers: [],
         memoryScopes: [],
         approvalOverrides: {},
+        toolsSurfaceStrict: false,
+        conflicts: [],
       }));
       const skillRegistry = makeMockSkillRegistry({
         resolve: resolveMock,
@@ -413,8 +436,11 @@ describe('Skill Integration in AgentFactory', () => {
         allowedTools: ['custom_tool'],
         deniedTools: [],
         promptContent: 'Use the custom tool.',
+        promptLayers: [],
         memoryScopes: [],
         approvalOverrides: {},
+        toolsSurfaceStrict: false,
+        conflicts: [],
       }));
       const skillRegistry = makeMockSkillRegistry({
         resolve: resolveMock,

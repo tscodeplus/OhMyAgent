@@ -39,11 +39,11 @@ describe('memory aux model config hot reload', () => {
 
     // Reload with an explicit memory_aux_models primary → same object, new chain
     const reloaded = baseConfig();
-    (reloaded as Record<string, unknown>).memoryAuxModels = {
+    reloaded.memoryAuxModels = {
       primary: 'deepseek/deepseek-chat',
       fallback_models: ['opencode/nemotron-3.5-lightning-free'],
     };
-    (reloaded as Record<string, unknown>).providerKeys = {
+    reloaded.providerKeys = {
       deepseek: { apiKey: 'sk-deepseek', baseUrl: 'https://api.deepseek.com' },
       opencode: { apiKey: 'sk-opencode', baseUrl: 'https://opencode.ai/zen' },
     };
@@ -75,8 +75,8 @@ describe('memory aux model config hot reload', () => {
     expect(memory.mergeConfig.outputLanguage).toBe('English');
 
     const reloaded = baseConfig();
-    (reloaded as Record<string, unknown>).memory = {
-      ...((reloaded as Record<string, unknown>).memory as Record<string, unknown>),
+    reloaded.memory = {
+      ...reloaded.memory,
       outputLanguage: 'Simplified Chinese',
     };
 

@@ -17,7 +17,7 @@ function uniqueId(prefix: string): string {
 
 function makeShellRequest(
   command: NormalizedShellCommand,
-  scope = 'global',
+  scope: ApprovalRequest['scope'] = 'global',
   scopeKey = '',
 ): ApprovalRequest {
   return {
@@ -29,7 +29,11 @@ function makeShellRequest(
   };
 }
 
-function makeToolRequest(toolName: string, scope = 'global', scopeKey = ''): ApprovalRequest {
+function makeToolRequest(
+  toolName: string,
+  scope: ApprovalRequest['scope'] = 'global',
+  scopeKey = '',
+): ApprovalRequest {
   return {
     kind: 'tool',
     toolName,

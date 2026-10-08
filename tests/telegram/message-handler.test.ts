@@ -13,6 +13,7 @@ vi.mock('undici', () => ({
 }));
 
 const baseConfig: TelegramConfig = {
+  botName: 'Test Bot',
   botToken: 'token',
   mode: 'polling',
   webhookPort: 8443,

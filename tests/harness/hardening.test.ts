@@ -25,7 +25,12 @@ import type { FailureContext, ToolCallRecord } from '../../src/harness/types.js'
 // Mock all git subprocess calls in this file (monitor rollback + editor apply).
 vi.mock('node:child_process', () => ({ execFile: vi.fn() }));
 
-const execFileMock = vi.mocked(execFile);
+const execFileMock = vi.mocked(execFile) as unknown as ReturnType<typeof vi.fn>;
+
+function respondToExecFile(callback: unknown, error: Error | null, stdout: string): void {
+  if (typeof callback !== 'function') throw new Error('Expected an execFile callback');
+  (callback as (error: Error | null, stdout: string) => void)(error, stdout);
+}
 
 function makeToolCall(name: string, isError: boolean, timestamp: number): ToolCallRecord {
   return {
@@ -106,7 +111,7 @@ describe('AutoApplyMonitor rollback failure handling', () => {
   it('keeps the monitor when the git revert fails and retries on next evaluation', async () => {
     // Every git call fails — the revert can never succeed.
     execFileMock.mockImplementation((_cmd, _args, _opts, cb) => {
-      cb(new Error('revert conflict') as never, '' as never);
+      respondToExecFile(cb, new Error('revert conflict'), '');
     });
 
     const monitor = new AutoApplyMonitor(
@@ -176,7 +181,7 @@ describe('AutoApplyMonitor rollback failure handling', () => {
 
   it('does not keep hammering git after the monitor is marked rollbackFailed', async () => {
     execFileMock.mockImplementation((_cmd, _args, _opts, cb) => {
-      cb(new Error('revert conflict') as never, '' as never);
+      respondToExecFile(cb, new Error('revert conflict'), '');
     });
 
     const monitor = new AutoApplyMonitor(
@@ -227,7 +232,7 @@ describe('AutoApplyMonitor rollback failure handling', () => {
 
   it('removes the monitor only after a successful revert', async () => {
     execFileMock.mockImplementation((_cmd, _args, _opts, cb) => {
-      cb(null as never, '' as never);
+      respondToExecFile(cb, null, '');
     });
 
     const monitor = new AutoApplyMonitor(
@@ -272,10 +277,10 @@ describe('SkillEditor multi-occurrence diff.before', () => {
     execFileMock.mockReset();
     // git add / commit / rev-parse all succeed; rev-parse yields a hash.
     execFileMock.mockImplementation((cmd, args, _opts, cb) => {
-      if (cmd === 'git' && args[0] === 'rev-parse') {
-        cb(null as never, 'deadbeef1234\n' as never);
+      if (cmd === 'git' && args?.[0] === 'rev-parse') {
+        respondToExecFile(cb, null, 'deadbeef1234\n');
       } else {
-        cb(null as never, '' as never);
+        respondToExecFile(cb, null, '');
       }
     });
     dir = await mkdtemp(join(tmpdir(), 'harness-editor-'));

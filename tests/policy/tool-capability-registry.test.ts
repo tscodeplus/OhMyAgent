@@ -52,17 +52,17 @@ describe('getCapabilityForTool', () => {
 describe('approvalRiskForTool', () => {
   it('high_risk approvalDefault and computer-use tools map to high', () => {
     expect(approvalRiskForTool('send_message', { route: 'external' })).toBe('high');
-    expect(approvalRiskForTool('computer_use')).toBe('high');
+    expect(approvalRiskForTool('computer_use', undefined)).toBe('high');
   });
 
   it('mutating or non-read-only tools map to medium', () => {
-    expect(approvalRiskForTool('shell')).toBe('medium');
-    expect(approvalRiskForTool('file_edit')).toBe('medium');
+    expect(approvalRiskForTool('shell', undefined)).toBe('medium');
+    expect(approvalRiskForTool('file_edit', undefined)).toBe('medium');
     // unknown tool → fail-closed descriptor is non-read-only → medium
-    expect(approvalRiskForTool('brand_new_tool_nobody_registered')).toBe('medium');
+    expect(approvalRiskForTool('brand_new_tool_nobody_registered', undefined)).toBe('medium');
   });
 
   it('read-only tools map to low', () => {
-    expect(approvalRiskForTool('web_fetch')).toBe('low');
+    expect(approvalRiskForTool('web_fetch', undefined)).toBe('low');
   });
 });

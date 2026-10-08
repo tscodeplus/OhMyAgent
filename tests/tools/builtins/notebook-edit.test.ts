@@ -84,7 +84,7 @@ function createMockConfig(): AppConfig {
     extensions: { directory: 'extensions' },
     fallbackModels: [],
     footer: { showAgentName: true, showModel: true, showCompleted: true, showElapsed: true },
-  };
+  } as unknown as AppConfig;
 }
 
 function createMockCtx(config: AppConfig, cwd?: string): ToolExecutionContext {

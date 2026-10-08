@@ -1,13 +1,15 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { Type } from 'typebox';
+import type { AgentTool } from '../../src/pi-mono/agent/types.js';
 import { ToolRegistryImpl } from '../../src/tools/registry';
 
-function makeTool(name: string) {
+function makeTool(name: string): AgentTool {
   return {
     name,
     label: name,
     description: `Tool ${name}`,
-    parameters: {},
-    execute: async () => ({ content: 'ok' }),
+    parameters: Type.Object({}),
+    execute: async () => ({ content: [{ type: 'text', text: 'ok' }], details: undefined }),
   };
 }
 

@@ -171,7 +171,14 @@ describe('ReplyDispatcher', () => {
     });
 
     it('should call controller.complete even with usage data', async () => {
-      await dispatcher.onComplete({ input: 100, output: 50 });
+      await dispatcher.onComplete({
+        input: 100,
+        output: 50,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 150,
+        cost: 0.003,
+      });
       expect(mockController.complete).toHaveBeenCalledOnce();
     });
   });

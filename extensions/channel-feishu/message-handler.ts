@@ -55,7 +55,7 @@ export interface MessageHandlerOptions {
       },
     ): Promise<any>;
   };
-  chatQueue: ChatQueue;
+  chatQueue: Pick<ChatQueue, 'enqueue'>;
   /** Feishu client for media upload/send (used to create feishu_send_media tool). */
   feishuClient?: FeishuClient;
   /** Allowed directory roots for media tool file reading. */

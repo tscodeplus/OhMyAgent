@@ -35,8 +35,8 @@ export interface ToolCallRecord {
   name: string;
   /** Arguments passed to the tool. */
   args: Record<string, unknown>;
-  /** The result returned by the tool (or the error payload). */
-  result: unknown;
+  /** The result returned by the tool (or the error payload), when captured. */
+  result?: unknown;
   /** Whether the tool call ended in an error. */
   isError: boolean;
   /** Human-readable error message, present when isError is true. */

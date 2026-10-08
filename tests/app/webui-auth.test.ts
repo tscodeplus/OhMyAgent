@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { FastifyReply } from 'fastify';
 import { resetWebUIToken, webuiAuthHook } from '../../src/app/webui-auth';
 
 /**
@@ -40,7 +41,7 @@ function makeReply() {
     reply.body = body;
     return boxed;
   };
-  return reply;
+  return reply as unknown as FastifyReply & typeof reply;
 }
 
 const TEST_TOKEN = 'test-webui-token';

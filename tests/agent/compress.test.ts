@@ -3,6 +3,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
+import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import {
   estimateTokens,
   estimateStaticContextTokens,
@@ -27,20 +28,36 @@ vi.mock('../../src/memory/aux-llm-client.js', async () => {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeUserMessage(content: string) {
-  return { role: 'user' as const, content: [{ type: 'text' as const, text: content }] };
+function makeUserMessage(content: string): AgentMessage {
+  return { role: 'user', content: [{ type: 'text', text: content }], timestamp: Date.now() };
 }
 
-function makeAssistantMessage(text: string) {
-  return { role: 'assistant' as const, content: [{ type: 'text' as const, text }] };
-}
-
-function makeToolResult(name: string, text: string) {
+function makeAssistantMessage(text: string): AgentMessage {
   return {
-    role: 'toolResult' as const,
+    role: 'assistant',
+    content: [{ type: 'text', text }],
+    api: 'openai-completions',
+    provider: 'test',
+    model: 'test-model',
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: 'stop',
+    timestamp: Date.now(),
+  };
+}
+
+function makeToolResult(name: string, text: string): AgentMessage {
+  return {
+    role: 'toolResult',
     toolCallId: 'call_1',
     toolName: name,
-    content: [{ type: 'text' as const, text }],
+    content: [{ type: 'text', text }],
     isError: false,
     timestamp: Date.now(),
   };
@@ -67,7 +84,7 @@ describe('estimateTokens', () => {
   });
 
   it('uses chars/4 heuristic', () => {
-    const msg = { role: 'user' as const, content: 'hello world' }; // 11 chars
+    const msg: AgentMessage = { role: 'user', content: 'hello world', timestamp: Date.now() }; // 11 chars
     expect(estimateTokens([msg])).toBe(Math.ceil(11 / 4)); // 3
   });
 
@@ -84,24 +101,41 @@ describe('estimateTokens', () => {
   });
 
   it('estimates images at 4800 chars', () => {
-    const msg = { role: 'user' as const, content: [{ type: 'image' as const, source: '...' }] };
+    const msg = {
+      role: 'user',
+      content: [{ type: 'image', data: '...', mimeType: 'image/png' }],
+      timestamp: Date.now(),
+    } satisfies AgentMessage;
     expect(estimateTokens([msg])).toBe(Math.ceil(4800 / 4)); // 1200
   });
 
   it('counts tool calls', () => {
     const msg = {
-      role: 'assistant' as const,
-      content: [{ type: 'toolCall' as const, name: 'shell', arguments: { command: 'ls' } }],
-    };
+      role: 'assistant',
+      content: [{ type: 'toolCall', id: 'call_1', name: 'shell', arguments: { command: 'ls' } }],
+      api: 'openai-completions',
+      provider: 'test',
+      model: 'test-model',
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      stopReason: 'toolUse',
+      timestamp: Date.now(),
+    } satisfies AgentMessage;
     const tokens = estimateTokens([msg]);
     expect(tokens).toBeGreaterThan(0);
   });
 
   it('does not crash when a toolCall block has no name (M9)', () => {
     const msg = {
-      role: 'assistant' as const,
-      content: [{ type: 'toolCall' as const, arguments: { command: 'ls' } }],
-    };
+      role: 'assistant',
+      content: [{ type: 'toolCall', id: 'call_1', arguments: { command: 'ls' } }],
+    } as unknown as AgentMessage;
     expect(() => estimateTokens([msg])).not.toThrow();
     expect(estimateTokens([msg])).toBeGreaterThan(0);
   });
@@ -109,15 +143,15 @@ describe('estimateTokens', () => {
   it('returns 0 for malformed content instead of crashing (M9)', () => {
     // BigInt makes JSON.stringify throw — estimation must degrade gracefully
     const msg = {
-      role: 'assistant' as const,
-      content: [{ type: 'toolCall' as const, arguments: { big: 1n } }],
-    };
+      role: 'assistant',
+      content: [{ type: 'toolCall', id: 'call_1', arguments: { big: 1n } }],
+    } as unknown as AgentMessage;
     expect(() => estimateTokens([msg])).not.toThrow();
     expect(estimateTokens([msg])).toBe(0);
   });
 
   it('handles null content without crashing (M9)', () => {
-    const msg = { role: 'user' as const, content: null as any };
+    const msg = { role: 'user', content: null } as unknown as AgentMessage;
     expect(() => estimateTokens([msg])).not.toThrow();
     expect(estimateTokens([msg])).toBe(0);
   });
@@ -190,14 +224,14 @@ describe('findCutPoint', () => {
 describe('compressContext', () => {
   it('returns null when token usage is below threshold', async () => {
     const msgs = [makeUserMessage('hi'), makeAssistantMessage('hello')];
-    const result = await compressContext({ ...baseInput, messages: msgs as any });
+    const result = await compressContext({ ...baseInput, messages: msgs });
     expect(result.summaryMessage).toBeNull();
   });
 
   it('returns null with few compressible messages', async () => {
     const msgs = Array.from({ length: 3 }, (_, i) => makeUserMessage(`msg ${i}`));
     // Token count is tiny → won't trigger
-    const result = await compressContext({ ...baseInput, messages: msgs as any });
+    const result = await compressContext({ ...baseInput, messages: msgs });
     expect(result.summaryMessage).toBeNull();
   });
 
@@ -213,7 +247,7 @@ describe('compressContext', () => {
     );
     const result = await compressContext({
       ...baseInput,
-      messages: msgs as any,
+      messages: msgs,
       contextWindow: 300,
       settings: { reserveTokens: 100, keepRecentTokens: 50 },
     });

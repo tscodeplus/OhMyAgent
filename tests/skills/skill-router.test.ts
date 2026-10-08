@@ -4,7 +4,12 @@ import type { LoadedSkill } from '../../src/skills/skill-loader.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function makeSkill(overrides: Partial<LoadedSkill> & { id: string }): LoadedSkill {
+type SkillOverrides = Omit<Partial<LoadedSkill>, 'manifest'> & {
+  id: string;
+  manifest?: Partial<LoadedSkill['manifest']>;
+};
+
+function makeSkill(overrides: SkillOverrides): LoadedSkill {
   return {
     manifest: {
       id: overrides.id,

@@ -49,12 +49,10 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      # tests/ is compiled by tsconfig.test.json only, and never was before it
-      # existed, so the backlog is real (~485 errors). Inventory, not gate:
-      # flip `continue-on-error` off once it is cleared to make this blocking.
-      - name: Typecheck tests (inventory)
+      # Tests are compiled separately because tsconfig.json excludes tests.
+      # Keep this blocking so new test typing regressions fail CI.
+      - name: Typecheck tests
         run: pnpm typecheck:tests
-        continue-on-error: true
 
       - name: Test with coverage
         run: pnpm test:coverage

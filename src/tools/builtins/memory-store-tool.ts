@@ -15,7 +15,7 @@ export interface MemoryFilter {
 
 /** @deprecated Use `createMemoryStoreToolDefinition` from `./memory/store-definition.js` instead. */
 export function createMemoryStoreTool(options: {
-  memoryWriter: MemoryWriter;
+  memoryWriter: Pick<MemoryWriter, 'write'>;
   memoryFilter?: MemoryFilter;
   getAgentId?: () => string | undefined;
   getChannel?: () => string | undefined;

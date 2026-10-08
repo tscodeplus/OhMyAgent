@@ -185,6 +185,7 @@ describe('QueryResultCache', () => {
       scopeKey: 'u1',
       kind: 'fact',
       score: 0.95,
+      createdAt: Date.now(),
     },
     {
       id: `${prefix}-2`,
@@ -193,6 +194,7 @@ describe('QueryResultCache', () => {
       scopeKey: 'u1',
       kind: 'fact',
       score: 0.85,
+      createdAt: Date.now(),
     },
   ];
 

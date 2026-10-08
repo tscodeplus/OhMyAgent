@@ -3,6 +3,7 @@ import { setupWebhook, startBot } from '../../extensions/channel-telegram/telegr
 import type { TelegramConfig } from '../../extensions/channel-telegram/telegram-types.js';
 
 const baseConfig: TelegramConfig = {
+  botName: 'Test Bot',
   botToken: 'token',
   mode: 'webhook',
   webhookUrl: 'https://example.com/webhook/telegram',

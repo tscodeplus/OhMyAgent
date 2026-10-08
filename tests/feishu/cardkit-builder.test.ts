@@ -48,7 +48,12 @@ describe('buildCompletedCard', () => {
   it('includes answer and footer elements', () => {
     const card = buildCompletedCard({
       answer: 'Hello world',
-      footerConfig: { showCompleted: true },
+      footerConfig: {
+        showAgentName: true,
+        showModel: true,
+        showCompleted: true,
+        showElapsed: true,
+      },
     }) as Record<string, unknown>;
     const body = card.body as Record<string, unknown>;
     const elements = body.elements as Array<Record<string, unknown>>;
@@ -71,7 +76,12 @@ describe('buildCompletedCard', () => {
     const card = buildCompletedCard({
       thinking: 'Let me think...',
       answer: 'The answer is 42.',
-      footerConfig: { showCompleted: true },
+      footerConfig: {
+        showAgentName: true,
+        showModel: true,
+        showCompleted: true,
+        showElapsed: true,
+      },
     }) as Record<string, unknown>;
     const body = card.body as Record<string, unknown>;
     const elements = body.elements as Array<Record<string, unknown>>;
@@ -103,7 +113,12 @@ describe('buildCompletedCard', () => {
   it('shows footer when completed display is enabled', () => {
     const card = buildCompletedCard({
       answer: 'Done',
-      footerConfig: { showCompleted: true },
+      footerConfig: {
+        showAgentName: true,
+        showModel: true,
+        showCompleted: true,
+        showElapsed: true,
+      },
     }) as Record<string, unknown>;
     const body = card.body as Record<string, unknown>;
     const elements = body.elements as Array<Record<string, unknown>>;

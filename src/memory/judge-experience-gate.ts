@@ -51,7 +51,7 @@ export interface JudgeExperienceGateInput {
   messages: Array<{ role: string; content: string }>;
   writer: MemoryWriter;
   channel: string | null;
-  logger: Logger;
+  logger: Pick<Logger, 'debug' | 'info' | 'warn'>;
   agentId?: string | null;
 }
 

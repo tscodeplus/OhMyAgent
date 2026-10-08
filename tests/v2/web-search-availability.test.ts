@@ -10,6 +10,7 @@ import { ToolRegistryImpl } from '../../src/tools/registry.js';
 import { AgentManager } from '../../src/agent/agent-manager.js';
 import { createAgentFactory } from '../../src/agent/agent-factory.js';
 import type { AgentConfig } from '../../src/agent/config-types.js';
+import type { AgentTool } from '../../src/pi-mono/agent/types.js';
 
 const DEFAULT_AGENT: AgentConfig = {
   id: 'default',
@@ -42,7 +43,7 @@ describe('web_search extension availability', () => {
         baiduApiKey: config.webSearch.baiduApiKey,
         timeoutMs: config.webSearch.searchTimeoutMs,
         defaultMaxResults: config.webSearch.maxResults,
-      }),
+      }) as unknown as AgentTool,
     );
   });
 

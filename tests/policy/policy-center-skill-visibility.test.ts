@@ -57,9 +57,16 @@ function makeCenter(visibility = new ToolVisibilityPolicyImpl()) {
   const center = new PolicyCenterImpl({
     mode: 'balanced',
     toolVisibility: visibility,
-    pathAccess: { check: vi.fn(() => ({ allowed: true })) },
+    pathAccess: {
+      check: vi.fn(() => ({ allowed: true })),
+      getEffectiveRoots: vi.fn(() => ({ readRoots: [], writeRoots: [] })),
+    },
     shellExecution: {
-      evaluate: vi.fn(async () => ({ allowed: true, requiresApproval: false, risk: 'low' })),
+      evaluate: vi.fn(async () => ({
+        allowed: true,
+        requiresApproval: false,
+        risk: 'low' as const,
+      })),
     },
     approvalResolution: {
       checkReuse: vi.fn(async () => ({ canReuse: false })),

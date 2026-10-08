@@ -46,7 +46,9 @@ async function run() {
     const startedAt = Date.now();
     const result = await tool.execute({ query, maxResults: 3 }, ctx);
     const elapsed = Date.now() - startedAt;
-    const text = result.content?.[0]?.text ?? JSON.stringify(result);
+    const text =
+      result.content.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('\n') ||
+      JSON.stringify(result);
     console.log(text.slice(0, 800));
     console.log(`[耗时 ${elapsed}ms, isError: ${result.isError}]`);
     console.log('');

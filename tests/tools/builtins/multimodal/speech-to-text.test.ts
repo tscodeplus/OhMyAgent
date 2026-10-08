@@ -69,7 +69,7 @@ function createMockConfig(overrides?: Partial<AppConfig>): AppConfig {
     fallbackModels: [],
     footer: { showAgentName: true, showModel: true, showCompleted: true, showElapsed: true },
     ...overrides,
-  };
+  } as unknown as AppConfig;
 }
 
 function createMockCtx(config: AppConfig, cwd?: string): ToolExecutionContext {

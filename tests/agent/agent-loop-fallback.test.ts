@@ -1,9 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import {
-  AssistantMessageEventStream,
-  type AssistantMessage,
-  type AssistantMessageEvent,
-} from '@earendil-works/pi-ai';
+import type { AssistantMessage, AssistantMessageEvent } from '@earendil-works/pi-ai';
+import { AssistantMessageEventStream } from '../../src/pi-mono/ai/utils/event-stream.js';
 import { agentLoop } from '../../src/pi-mono/agent/agent-loop.js';
 import type { AgentEvent, AgentLoopConfig } from '../../src/pi-mono/agent/types.js';
 import { createRetryingStreamFn } from '../../src/agent/retrying-stream.js';
@@ -37,8 +34,11 @@ function makeMessage(overrides: Partial<AssistantMessage> = {}): AssistantMessag
 function makeStream(events: AssistantMessageEvent[]): AssistantMessageEventStream {
   const stream = new AssistantMessageEventStream();
   for (const event of events) stream.push(event);
-  const last = events[events.length - 1]!;
-  stream.end(last.type === 'done' ? last.message : last.error);
+  const terminal = [...events]
+    .reverse()
+    .find((event) => event.type === 'done' || event.type === 'error');
+  if (!terminal) throw new Error('Expected a terminal stream event');
+  stream.end(terminal.type === 'done' ? terminal.message : terminal.error);
   return stream;
 }
 
