@@ -963,7 +963,7 @@
       "customJudgeApiKeyEnvLabel": "Key 环境变量名",
       "customJudgeModelLabel": "模型（可选，默认 jev-latest）",
       "removeGroup": "移除该裁判",
-      "advancedSection": "高级设置",
+      "autopilotSection": "自动晋升",
       "autopilotStatus": "自动晋升状态",
       "autopilotHint": "裁判决策点由统计闸门自动管理：shadow 观察攒样本，指标达标（样本≥30、一致率≥90%、灰区律<20%）自动转 active，质量退化自动退回，无需人工确认。手动在 config.yaml 固定的点不会被自动管理。",
       "autopilotRefresh": "刷新统计",

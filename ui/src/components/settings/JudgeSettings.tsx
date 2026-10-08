@@ -1767,7 +1767,7 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
             manual mode matrix here would fight it, so modes are not editable
             in the UI; hand YAML edits remain an escape hatch (pinned points
             are never auto-demoted). This panel shows where each point stands. */}
-        <SettingsSection title={t('settings.judge.advancedSection')}>
+        <SettingsSection title={t('settings.judge.autopilotSection')}>
           <SettingsCard>
             <button
               type="button"

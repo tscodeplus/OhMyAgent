@@ -963,7 +963,7 @@
       "customJudgeApiKeyEnvLabel": "Key env var name",
       "customJudgeModelLabel": "Model (optional, default jev-latest)",
       "removeGroup": "Remove this judge",
-      "advancedSection": "Advanced",
+      "autopilotSection": "Autopilot promotion",
       "autopilotStatus": "Autopilot status",
       "autopilotHint": "Decision points are managed by statistical gates: shadow observes and accumulates samples; when metrics hit the bar (samples ≥30, agreement ≥90%, gray rate <20%) the point auto-promotes to active, and auto-demotes if it degrades — no human confirmation anywhere. Points pinned via config.yaml are never auto-managed.",
       "autopilotRefresh": "Refresh stats",
