@@ -14,11 +14,8 @@ import type {
   ClassifierQuestion,
   ClassifierResult,
 } from '@earendil-works/pi-ai';
-import {
-  classifySystemOne,
-  isRecord,
-  type SystemOneTransport,
-} from '../pi-mono/ai/api/system-one-shared.js';
+import { classifySystemOne, type SystemOneTransport } from '../pi-mono/ai/api/system-one-shared.js';
+import { isRecord } from '../pi-mono/ai/api/classifier-shared.js';
 import type {
   ChoiceQ,
   JudgeAnswer,

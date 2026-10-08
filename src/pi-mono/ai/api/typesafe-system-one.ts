@@ -1,5 +1,6 @@
 import type { ClassifierFunction, ClassifierOptions } from "../types.js";
-import { classifySystemOne, isRecord, type SystemOneTransport } from "./system-one-shared.js";
+import { isRecord } from "./classifier-shared.js";
+import { classifySystemOne, type SystemOneTransport } from "./system-one-shared.js";
 
 /**
  * TypeSafe's native System One protocol. OpenRouter serves the same protocol,

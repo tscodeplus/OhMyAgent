@@ -468,6 +468,8 @@ export interface AgentToolCallOutcome {
 	toolCall: AgentToolCall;
 	result: AgentToolResult<any>;
 	isError: boolean;
+	/** Milliseconds `execute()` took, measured with a monotonic clock; absent when the tool did not run. */
+	durationMs?: number;
 }
 
 /**
@@ -546,7 +548,15 @@ export type AgentEvent =
 	// Tool execution lifecycle
 	| { type: "tool_execution_start"; toolCallId: string; toolName: string; args: any }
 	| { type: "tool_execution_update"; toolCallId: string; toolName: string; args: any; partialResult: any }
-	| { type: "tool_execution_end"; toolCallId: string; toolName: string; result: any; isError: boolean }
+	| {
+			type: "tool_execution_end";
+			toolCallId: string;
+			toolName: string;
+			result: any;
+			isError: boolean;
+			/** Milliseconds `execute()` took, measured with a monotonic clock; absent when the tool did not run. */
+			durationMs?: number;
+		}
 	// Stream retry/fallback progress (OhMyAgent extension). Emitted when a model
 	// attempt fails and the loop is about to retry the same model (scope=retry,
 	// via the retrying stream wrapper) or move to the next fallback model
@@ -567,4 +577,4 @@ export type AgentEvent =
 			/** Backoff delay in ms before the next attempt starts (0 = immediate). */
 			delayMs: number;
 			errorMessage?: string;
-	  };
+		};
