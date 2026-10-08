@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { parse } from 'yaml';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AppConfig } from '../../src/app/types.js';
 import { auditOnce } from '../../src/app/judge-autopilot.js';
 import { emptyStats } from '../../src/judge/autopilot.js';
 
@@ -62,7 +63,7 @@ afterEach(() => cleanup?.());
 const appConfig = () =>
   ({
     judge: parse(readFileSync(configPath, 'utf8')).judge,
-  }) as never;
+  }) as unknown as AppConfig;
 
 function seedLedger(entries: Array<Record<string, unknown>>): void {
   const month = '2026-02';

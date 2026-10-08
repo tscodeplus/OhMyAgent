@@ -141,13 +141,13 @@ describe('demotion gate + windowed stats', () => {
       ...Array.from({ length: 20 }, () => ({
         pointId: 'p',
         sessionId: REAL,
-        source: 'judge',
+        source: 'judge' as const,
         agree: true,
       })),
       ...Array.from({ length: 10 }, () => ({
         pointId: 'p',
         sessionId: REAL,
-        source: 'fallback',
+        source: 'fallback' as const,
         fallbackReason: 'gray-zone',
       })),
     ];
@@ -166,7 +166,7 @@ describe('demotion gate + windowed stats', () => {
     const entries = Array.from({ length: 12 }, () => ({
       pointId: 'p',
       sessionId: REAL,
-      source: 'judge',
+      source: 'judge' as const,
       agree: true,
     }));
     const w = windowStats(entries, 'p', 20);
