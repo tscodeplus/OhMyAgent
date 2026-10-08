@@ -165,23 +165,23 @@ export function setupMessageHandlers(
             const fwdAgentText = fwdText
               ? `${cmdResult.forwardText}\n${fwdText}`
               : cmdResult.forwardText;
-            // P1 M6: bounded queue — reject with a busy reply at capacity
-            if (
-              !chatQueue.enqueue(sessionKey, () =>
-                executeAgent(
-                  fwdAgentText,
-                  sessionKey,
-                  senderId,
-                  tokenEntry,
-                  sender,
-                  config,
-                  agentService,
-                  logger,
-                  fwdImages,
-                  api,
-                ).catch((err) => logger.error({ err, sessionKey }, 'WeChat queued agent failed')),
-              )
-            ) {
+            // Await completion so the poller does not commit this message's
+            // batch cursor before the agent turn has succeeded.
+            const accepted = await chatQueue.enqueueAndWait(sessionKey, () =>
+              executeAgent(
+                fwdAgentText,
+                sessionKey,
+                senderId,
+                tokenEntry,
+                sender,
+                config,
+                agentService,
+                logger,
+                fwdImages,
+                api,
+              ),
+            );
+            if (!accepted) {
               await sendChunkedText(
                 sender.apiBase,
                 sender.botToken,
@@ -274,23 +274,23 @@ export function setupMessageHandlers(
         return;
       }
 
-      // P1 M6: bounded queue — reject with a busy reply at capacity
-      if (
-        !chatQueue.enqueue(sessionKey, () =>
-          executeAgent(
-            agentText,
-            sessionKey,
-            senderId,
-            tokenEntry,
-            sender,
-            config,
-            agentService,
-            logger,
-            images,
-            api,
-          ).catch((err) => logger.error({ err, sessionKey }, 'WeChat queued agent failed')),
-        )
-      ) {
+      // Await completion so agent failures propagate to the poller and leave
+      // the upstream batch cursor uncommitted for retry.
+      const accepted = await chatQueue.enqueueAndWait(sessionKey, () =>
+        executeAgent(
+          agentText,
+          sessionKey,
+          senderId,
+          tokenEntry,
+          sender,
+          config,
+          agentService,
+          logger,
+          images,
+          api,
+        ),
+      );
+      if (!accepted) {
         await sendChunkedText(
           sender.apiBase,
           sender.botToken,
@@ -516,8 +516,10 @@ async function executeAgent(
         logger,
       );
     } catch {
-      // Ignore error sending error message
+      // Ignore error sending error message; the original error still needs to
+      // propagate so WechatPoller retains the batch cursor and retries it.
     }
+    throw error;
   } finally {
     // Clean up per-session UserQuestionSender
     senderRegistry?.delete(questionSenderKey);

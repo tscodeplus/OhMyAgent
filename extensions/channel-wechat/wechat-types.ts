@@ -70,7 +70,7 @@ export interface ILGetUpdatesResponse {
   get_updates_buf?: string;
   msgs?: ILMessage[];
   ret?: number;
-  errcode?: string;
+  errcode?: string | number;
   errmsg?: string;
 }
 

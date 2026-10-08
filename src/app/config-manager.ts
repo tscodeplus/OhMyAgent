@@ -64,6 +64,7 @@ export interface ReloadResult {
 export class ConfigManager {
   private services: RegisteredService[] = [];
   private logger?: { error: (...args: any[]) => void };
+  private reloadQueue: Promise<void> = Promise.resolve();
 
   setLogger(logger: { error: (...args: any[]) => void }): void {
     this.logger = logger;
@@ -108,7 +109,22 @@ export class ConfigManager {
    * backward compatibility with services still using the old onReload
    * pattern.
    */
-  async reload(newConfig: AppConfig): Promise<ReloadResult> {
+  reload(newConfig: AppConfig): Promise<ReloadResult> {
+    // Watchers, WebUI saves, and env reloads can arrive while async apply hooks
+    // are still running. Serialize snapshots so an older apply can never finish
+    // after and overwrite a newer config.
+    const run = this.reloadQueue.then(
+      () => this.reloadOnce(newConfig),
+      () => this.reloadOnce(newConfig),
+    );
+    this.reloadQueue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private async reloadOnce(newConfig: AppConfig): Promise<ReloadResult> {
     const errors: string[] = [];
     const applied: string[] = [];
     const failed: string[] = [];

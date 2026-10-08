@@ -99,7 +99,7 @@ describe('ChatQueue', () => {
     });
 
     it('should continue processing remaining tasks after an error', async () => {
-      const order: number[] = [];
+      const order: string[] = [];
 
       const failingTask = vi.fn().mockRejectedValue(new Error('fail'));
       const successTask = vi.fn().mockImplementation(async () => {
@@ -195,6 +195,40 @@ describe('ChatQueue', () => {
       expect(queue.enqueue('session-2', vi.fn().mockResolvedValue(undefined))).toBe(true);
       barrier.resolve!();
       await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+  });
+
+  describe('enqueueAndWait', () => {
+    it('resolves only after the queued task completes', async () => {
+      const order: string[] = [];
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const completion = queue.enqueueAndWait('session-1', async () => {
+        order.push('start');
+        await gate;
+        order.push('end');
+      });
+
+      await Promise.resolve();
+      expect(order).toEqual(['start']);
+      release();
+      await expect(completion).resolves.toBe(true);
+      expect(order).toEqual(['start', 'end']);
+    });
+
+    it('propagates task failures and reports queue-cap rejection', async () => {
+      await expect(
+        queue.enqueueAndWait('session-1', async () => {
+          throw new Error('task failed');
+        }),
+      ).rejects.toThrow('task failed');
+
+      const fullQueue = new ChatQueue({ maxPending: 0 });
+      await expect(fullQueue.enqueueAndWait('session-1', async () => undefined)).resolves.toBe(
+        false,
+      );
     });
   });
 

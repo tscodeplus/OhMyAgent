@@ -68,6 +68,32 @@ export class ChatQueue {
   }
 
   /**
+   * Enqueue a task and wait for its outcome. The returned boolean is false if
+   * the bounded queue rejected the task; task failures reject the promise but
+   * do not stop later work in the same session queue.
+   */
+  enqueueAndWait(sessionKey: string, task: TaskFn): Promise<boolean> {
+    let resolveCompletion!: () => void;
+    let rejectCompletion!: (reason: unknown) => void;
+    const completion = new Promise<void>((resolve, reject) => {
+      resolveCompletion = resolve;
+      rejectCompletion = reject;
+    });
+
+    const accepted = this.enqueue(sessionKey, async () => {
+      try {
+        await task();
+        resolveCompletion();
+      } catch (err) {
+        rejectCompletion(err);
+        throw err;
+      }
+    });
+
+    return accepted ? completion.then(() => true) : Promise.resolve(false);
+  }
+
+  /**
    * Process the next task in the session queue.
    * After each task completes (success or error), process the next one.
    */

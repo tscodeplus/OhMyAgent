@@ -16,7 +16,7 @@ import type { ExtensionAPI } from '../../src/extensions/types.js';
 import type { CommandDeps } from '../../src/commands/command-handler.js';
 import type { ChannelAdapter, ChannelContext, ReplyContent } from '../../src/channel/types.js';
 import type { AgentService } from '../../src/agent/agent-service.js';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { Logger } from 'pino';
 import type { CronDeliveryRegistry } from '../../src/cron/delivery-registry.js';
 import { resolveWechatConfig } from './wechat-config.js';
@@ -246,6 +246,16 @@ export default function (api: ExtensionAPI) {
 // QR login routes
 // ---------------------------------------------------------------------------
 
+function watchClientDisconnect(reply: FastifyReply, controller: AbortController): () => void {
+  const response = reply.raw;
+  const onClose = (): void => {
+    if (!response.writableEnded) controller.abort();
+  };
+  if (response.destroyed && !response.writableEnded) controller.abort();
+  response.once('close', onClose);
+  return () => response.off('close', onClose);
+}
+
 function registerQrRoutes(
   server: FastifyInstance,
   wechatConfig: WechatConfig,
@@ -264,6 +274,21 @@ function registerQrRoutes(
    * over the same cursor file.
    */
   let activationChain: Promise<void> = Promise.resolve();
+  const activeQrPollsByIp = new Map<string, number>();
+  const maxConcurrentQrPolls = 64;
+  const maxQrPollsPerIp = 4;
+
+  function acquireQrPoll(ip: string): (() => void) | undefined {
+    const total = Array.from(activeQrPollsByIp.values()).reduce((sum, count) => sum + count, 0);
+    const activeForIp = activeQrPollsByIp.get(ip) ?? 0;
+    if (total >= maxConcurrentQrPolls || activeForIp >= maxQrPollsPerIp) return undefined;
+    activeQrPollsByIp.set(ip, activeForIp + 1);
+    return () => {
+      const remaining = (activeQrPollsByIp.get(ip) ?? 1) - 1;
+      if (remaining <= 0) activeQrPollsByIp.delete(ip);
+      else activeQrPollsByIp.set(ip, remaining);
+    };
+  }
 
   function activateBot(botToken: string, source: string): Promise<void> {
     const run = activationChain.then(
@@ -398,22 +423,33 @@ setTimeout(poll, 1000);
         return reply.status(400).send({ ok: false, error: 'qrcodeId required' });
       }
 
+      const releasePoll = acquireQrPoll(req.ip || 'unknown');
+      if (!releasePoll) {
+        return reply.status(429).send({ ok: false, error: 'Too many QR status polls' });
+      }
       logger.info({ qrcodeId: body.qrcodeId }, 'QR poll: starting');
 
-      // Abort polling when the HTTP request is aborted (client disconnect)
+      // IncomingMessage.close also fires when the POST body is consumed; watch
+      // the response instead and abort only if the client disconnects early.
       const controller = new AbortController();
-      req.raw.on('close', () => controller.abort());
-
-      const result = await pollQrcodeStatus(wechatConfig.apiBase, body.qrcodeId, controller.signal);
-      logger.info({ status: result.status }, 'QR poll: result');
-      if (result.status === 'confirmed' && result.botToken) {
-        // Activate the bot server-side — the botToken must NOT be returned to
-        // (potentially unauthenticated) poll callers, and the scan-page flow
-        // no longer needs a separate authenticated /login/start round-trip.
-        await activateBot(result.botToken, 'QR login confirmed');
-        return reply.send({ ok: true, status: 'confirmed' });
+      const removeDisconnectListener = watchClientDisconnect(reply, controller);
+      try {
+        const result = await pollQrcodeStatus(
+          wechatConfig.apiBase,
+          body.qrcodeId,
+          controller.signal,
+        );
+        logger.info({ status: result.status }, 'QR poll: result');
+        if (result.status === 'confirmed' && result.botToken) {
+          // Activate server-side; never return the bot token to poll callers.
+          await activateBot(result.botToken, 'QR login confirmed');
+          return reply.send({ ok: true, status: 'confirmed' });
+        }
+        return reply.send(result);
+      } finally {
+        removeDisconnectListener();
+        releasePoll();
       }
-      return reply.send(result);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       logger.error({ err }, 'Failed to poll WeChat QR status');
@@ -464,14 +500,23 @@ setTimeout(poll, 1000);
       if (!body.sessionId) {
         return reply.status(400).send({ ok: false, error: 'sessionId required' });
       }
+      const releasePoll = acquireQrPoll(req.ip || 'unknown');
+      if (!releasePoll) {
+        return reply.status(429).send({ ok: false, error: 'Too many QR status polls' });
+      }
       const controller = new AbortController();
-      req.raw.on('close', () => controller.abort());
-      const result = await pollQrcodeStatus(
-        wechatConfig.apiBase,
-        body.sessionId,
-        controller.signal,
-      );
-      return reply.send(result);
+      const removeDisconnectListener = watchClientDisconnect(reply, controller);
+      try {
+        const result = await pollQrcodeStatus(
+          wechatConfig.apiBase,
+          body.sessionId,
+          controller.signal,
+        );
+        return reply.send(result);
+      } finally {
+        removeDisconnectListener();
+        releasePoll();
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       logger.error({ err }, 'Failed to poll WeChat QR status via API');

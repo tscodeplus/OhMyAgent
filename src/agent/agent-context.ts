@@ -4,8 +4,17 @@
  * to tag operations (memory writes, etc.) with the current agent.
  */
 const sessionAgentMap = new Map<string, string>();
+const MAX_SESSION_AGENT_ENTRIES = 500;
 
 export function setSessionAgent(sessionId: string, agentId: string): void {
+  // Refresh insertion order and evict the oldest inactive mapping so this
+  // module-level lookup cannot outlive AgentService's bounded session cache.
+  sessionAgentMap.delete(sessionId);
+  while (sessionAgentMap.size >= MAX_SESSION_AGENT_ENTRIES) {
+    const oldest = sessionAgentMap.keys().next().value;
+    if (oldest === undefined) break;
+    sessionAgentMap.delete(oldest);
+  }
   sessionAgentMap.set(sessionId, agentId);
 }
 

@@ -107,6 +107,9 @@ function createMockDispatcher(): ReplyDispatcher & {
     onToolStart: vi.fn(),
     onToolEnd: vi.fn(),
     setApprovalStatus: vi.fn(),
+    setApprovalRecords: vi.fn(),
+    getReplyMessageId: vi.fn().mockReturnValue(undefined),
+    setAgentName: vi.fn(),
     setModel: vi.fn(),
     onComplete: vi.fn(),
     onError: vi.fn(),
@@ -132,6 +135,24 @@ describe('AgentService', () => {
   afterEach(() => {
     // The activator feedback map is module-level — clean up between tests
     activeSkillFeedbackIds.clear();
+  });
+
+  // ------------------------------------------------------------------ session override memory bounds
+
+  it('bounds sticky agent/model/reasoning selectors across high session churn', () => {
+    for (let i = 0; i <= 500; i++) {
+      const sessionId = `selector-${i}`;
+      service.setSessionAgentId(sessionId, `agent-${i}`);
+      service.setSessionModel(sessionId, `provider/model-${i}`);
+      service.setSessionReasoningLevel(sessionId, `level-${i}`);
+    }
+
+    expect(service.getSessionAgentId('selector-0')).toBeUndefined();
+    expect(service.getSessionModel('selector-0')).toBeUndefined();
+    expect(service.getSessionReasoningLevel('selector-0')).toBeUndefined();
+    expect(service.getSessionAgentId('selector-500')).toBe('agent-500');
+    expect(service.getSessionModel('selector-500')).toBe('provider/model-500');
+    expect(service.getSessionReasoningLevel('selector-500')).toBe('level-500');
   });
 
   // ------------------------------------------------------------------ execute: basic flow

@@ -34,6 +34,10 @@ export class WechatPoller {
   private abortController: AbortController;
   private running = false;
   private cursorFile: string;
+  private processedMessageFile: string;
+  /** Successfully handled messages in the current uncommitted cursor batch. */
+  private processedMessageIds = new Set<string>();
+  private receiptWriteQueue: Promise<void> = Promise.resolve();
   private contextTokens = new Map<string, string>();
   private contextTokensFile: string;
 
@@ -57,16 +61,18 @@ export class WechatPoller {
     private onSessionExpired?: (info: { errcode: number; errmsg?: string }) => void,
   ) {
     this.abortController = new AbortController();
-    this.cursorFile = getCursorPath(cursorDir, botToken);
+    const cursorHash = crypto.createHash('sha256').update(botToken).digest('hex').slice(0, 8);
+    this.cursorFile = path.join(cursorDir, `sync-${cursorHash}.json`);
+    this.processedMessageFile = path.join(cursorDir, `processed-${cursorHash}.json`);
     this.contextTokensFile = path.join(cursorDir, 'context-tokens.json');
   }
 
   /**
    * Start the polling loop.
    *
-   * @param onMessage  Callback invoked for each received ILMessage.
-   *                   The callback should handle errors internally; an
-   *                   unhandled rejection will crash the poller.
+   * @param onMessage  Callback invoked for each received ILMessage. A rejected
+   *                   callback keeps the upstream batch cursor uncommitted and
+   *                   causes the poller to retry with exponential backoff.
    */
   async start(onMessage: (msg: ILMessage) => Promise<void>): Promise<void> {
     if (this.running) {
@@ -80,6 +86,7 @@ export class WechatPoller {
 
     // Load persisted cursor and context tokens
     let cursor = await this.loadCursor();
+    await this.loadProcessedMessageIds(cursor);
     await this.loadContextTokens();
     this.logger.debug({ hasCursor: !!cursor }, 'Starting WeChat poller');
 
@@ -98,63 +105,92 @@ export class WechatPoller {
         );
 
         // Check for session expiry in successful response (errcode -14)
-        if ((resp as any).errcode === -14 || (resp as any).errcode === '-14') {
+        if (resp.errcode === -14 || resp.errcode === '-14') {
           this.logger.error(
-            { errcode: (resp as any).errcode, errmsg: (resp as any).errmsg },
+            { errcode: resp.errcode, errmsg: resp.errmsg },
             'WeChat session expired — stopping poller',
           );
           this.onSessionExpired?.({
             errcode: -14,
-            errmsg: String((resp as any).errmsg ?? ''),
+            errmsg: String(resp.errmsg ?? ''),
           });
           this.running = false;
           return;
         }
 
-        // Success — reset failure counter
-        consecutiveFailures = 0;
+        // Process messages before committing the batch cursor. Successful
+        // message ids are durably checkpointed so a later failure can retry
+        // the same upstream batch without re-running already completed turns.
+        const messages = resp.msgs ?? [];
+        if (messages.length > 0) {
+          this.logger.debug({ msgCount: messages.length }, 'WeChat poller received messages');
 
-        // Process messages FIRST, then save the cursor. The server advances
-        // its cursor for us on the next poll only via get_updates_buf — saving
-        // it before processing meant a crash mid-batch permanently lost the
-        // whole batch (the cursor was already committed, no redelivery).
-        if (resp.msgs && resp.msgs.length > 0) {
-          this.logger.debug({ msgCount: resp.msgs.length }, 'WeChat poller received messages');
-          for (const msg of resp.msgs) {
-            this.logger.debug(
-              { from: msg.from_user_id, items: msg.item_list?.length },
-              'Processing WeChat message',
-            );
-            // Persist context_token per sender
+          // Persist the freshest reply token before parallel message execution.
+          // Doing this sequentially avoids concurrent writes clobbering tokens
+          // for other users in the shared context-token file.
+          for (const msg of messages) {
             if (msg.context_token && msg.from_user_id) {
               this.contextTokens.set(msg.from_user_id, msg.context_token);
-              await this.saveContextTokens();
             }
+          }
+          if (messages.some((msg) => msg.context_token && msg.from_user_id)) {
+            await this.saveContextTokens();
+          }
 
-            // Filter out bot's own messages
-            if (msg.from_user_id?.endsWith('@im.bot')) {
-              this.logger.info('Filtering out own message');
-              continue;
-            }
-            try {
-              await onMessage(msg);
-            } catch (err: unknown) {
-              // Handler errors are logged and swallowed — the message is
-              // considered delivered; only a process crash before the cursor
-              // save below triggers redelivery.
-              this.logger.error(
-                { err, fromUserId: msg.from_user_id },
-                'WeChat message handler error',
+          const batchMessageIds = new Set<string>();
+          const outcomes = await Promise.allSettled(
+            messages.map(async (msg) => {
+              if (msg.from_user_id?.endsWith('@im.bot')) {
+                this.logger.info('Filtering out own message');
+                return;
+              }
+
+              const messageId = getStableMessageId(msg);
+              if (batchMessageIds.has(messageId)) return;
+              batchMessageIds.add(messageId);
+              if (this.processedMessageIds.has(messageId)) {
+                this.logger.debug({ messageId }, 'Skipping previously completed WeChat message');
+                return;
+              }
+
+              this.logger.debug(
+                { from: msg.from_user_id, items: msg.item_list?.length, messageId },
+                'Processing WeChat message',
               );
-            }
+              await onMessage(msg);
+              this.processedMessageIds.add(messageId);
+              await this.saveProcessedMessageIds(cursor);
+            }),
+          );
+          const failed = outcomes.find((outcome) => outcome.status === 'rejected');
+          if (failed?.status === 'rejected') {
+            this.logger.error(
+              { err: failed.reason },
+              'WeChat message batch failed; cursor retained',
+            );
+            throw failed.reason;
           }
         }
 
-        // Save new cursor only after the batch has been processed
+        // Persist the checkpoint before discarding per-message receipts. If the
+        // process crashes after the cursor write, the receipt file's older
+        // cursor will be ignored on restart.
         if (resp.get_updates_buf !== undefined) {
-          cursor = resp.get_updates_buf;
-          await this.saveCursor(cursor);
+          const nextCursor = resp.get_updates_buf;
+          await this.saveCursor(nextCursor);
+          cursor = nextCursor;
+          this.processedMessageIds.clear();
+          try {
+            await this.saveProcessedMessageIds(cursor);
+          } catch (err) {
+            // The cursor is already committed. A stale receipt file is safe:
+            // loadProcessedMessageIds rejects it when its cursor does not match.
+            this.logger.warn({ err }, 'Failed to clear committed WeChat message receipts');
+          }
         }
+
+        // Success — reset failure counter only after processing/checkpointing.
+        consecutiveFailures = 0;
       } catch (err: unknown) {
         // Check for session expiry (errcode -14) — fatal
         if (isSessionExpiredError(err)) {
@@ -223,10 +259,47 @@ export class WechatPoller {
 
   private async saveCursor(cursor: string): Promise<void> {
     try {
-      await fs.mkdir(path.dirname(this.cursorFile), { recursive: true });
-      await fs.writeFile(this.cursorFile, JSON.stringify({ get_updates_buf: cursor }), 'utf-8');
+      await this.writeJsonAtomically(this.cursorFile, { get_updates_buf: cursor });
     } catch (err: unknown) {
       this.logger.error({ err }, 'Failed to save WeChat poll cursor');
+      throw err;
+    }
+  }
+
+  private async loadProcessedMessageIds(cursor: string): Promise<void> {
+    this.processedMessageIds.clear();
+    try {
+      const raw = await fs.readFile(this.processedMessageFile, 'utf-8');
+      const parsed = JSON.parse(raw) as { cursor?: unknown; messageIds?: unknown };
+      if (parsed.cursor !== cursor || !Array.isArray(parsed.messageIds)) return;
+      for (const id of parsed.messageIds) {
+        if (typeof id === 'string') this.processedMessageIds.add(id);
+      }
+    } catch {
+      // No receipts exist until the first successful message in a batch.
+    }
+  }
+
+  private saveProcessedMessageIds(cursor: string): Promise<void> {
+    const write = this.receiptWriteQueue.then(() =>
+      this.writeJsonAtomically(this.processedMessageFile, {
+        cursor,
+        messageIds: [...this.processedMessageIds],
+      }),
+    );
+    this.receiptWriteQueue = write.catch(() => undefined);
+    return write;
+  }
+
+  private async writeJsonAtomically(filePath: string, value: unknown): Promise<void> {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    const tempPath = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
+    try {
+      await fs.writeFile(tempPath, JSON.stringify(value), { encoding: 'utf-8', mode: 0o600 });
+      await fs.rename(tempPath, filePath);
+    } catch (err) {
+      await fs.rm(tempPath, { force: true }).catch(() => undefined);
+      throw err;
     }
   }
 
@@ -272,12 +345,10 @@ export class WechatPoller {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Build the cursor file path: {cursorDir}/sync-{sha256(token)[:8]}.json
- */
-function getCursorPath(cursorDir: string, botToken: string): string {
-  const hash = crypto.createHash('sha256').update(botToken).digest('hex').slice(0, 8);
-  return path.join(cursorDir, `sync-${hash}.json`);
+/** Stable id used to avoid repeating already completed work after batch retry. */
+function getStableMessageId(msg: ILMessage): string {
+  if (msg.client_id) return `${msg.from_user_id}:${msg.client_id}`;
+  return `${msg.from_user_id}:${crypto.createHash('sha256').update(JSON.stringify(msg)).digest('hex')}`;
 }
 
 /**

@@ -1053,7 +1053,9 @@ export class AgentService {
   }
 
   setSessionAgentId(sessionId: string, agentId: string): void {
+    this.sessionAgentMap.delete(sessionId);
     this.sessionAgentMap.set(sessionId, agentId);
+    this.boundSessionEntries();
     setSessionAgent(sessionId, agentId);
   }
 
@@ -1071,7 +1073,9 @@ export class AgentService {
   // session falls back to the configured chain (model cfg > global default).
 
   setSessionModel(sessionId: string, modelRef: string): void {
+    this.sessionModelMap.delete(sessionId);
     this.sessionModelMap.set(sessionId, modelRef);
+    this.boundSessionEntries();
   }
 
   clearSessionModel(sessionId: string): void {
@@ -1083,7 +1087,9 @@ export class AgentService {
   }
 
   setSessionReasoningLevel(sessionId: string, level: string): void {
+    this.sessionReasoningLevelMap.delete(sessionId);
     this.sessionReasoningLevelMap.set(sessionId, level);
+    this.boundSessionEntries();
   }
 
   clearSessionReasoningLevel(sessionId: string): void {
@@ -1477,6 +1483,9 @@ export class AgentService {
     for (const map of [
       this.pendingSatisfaction as Map<string, unknown>,
       this.sessionSatisfaction as Map<string, unknown>,
+      this.sessionAgentMap as Map<string, unknown>,
+      this.sessionModelMap as Map<string, unknown>,
+      this.sessionReasoningLevelMap as Map<string, unknown>,
     ]) {
       if (map.size <= MAX_SESSION_ENTRIES) continue;
       for (const key of [...map.keys()]) {

@@ -79,10 +79,13 @@ export async function pollQrcodeStatus(
 }> {
   const url = `${apiBase}/ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrcodeId)}`;
 
+  const timeoutSignal = AbortSignal.timeout(QR_POLL_TIMEOUT_MS);
+  const requestSignal = AbortSignal.any([signal, timeoutSignal]);
+
   try {
     const res = await fetch(url, {
       headers: loginHeaders(),
-      signal: AbortSignal.timeout(QR_POLL_TIMEOUT_MS),
+      signal: requestSignal,
     });
 
     if (!res.ok) {
@@ -92,7 +95,7 @@ export async function pollQrcodeStatus(
     }
 
     const raw = await res.text();
-    logger.error({ response: raw.slice(0, 300) }, 'QR poll raw response');
+    logger.debug({ response: raw.slice(0, 300) }, 'QR poll raw response');
     let data: ILQrcodeStatusResponse;
     try {
       data = JSON.parse(raw) as ILQrcodeStatusResponse;
@@ -124,13 +127,16 @@ export async function pollQrcodeStatus(
         return { status: 'waiting' };
     }
   } catch (err: unknown) {
-    logger.error({ err }, 'QR poll exception');
-    if (err instanceof Error && err.name === 'AbortError') {
-      if (signal.aborted) {
-        return { status: 'error' };
-      }
+    if (signal.aborted) {
+      return { status: 'error' };
+    }
+    if (
+      timeoutSignal.aborted ||
+      (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError'))
+    ) {
       return { status: 'waiting' };
     }
+    logger.error({ err }, 'QR poll exception');
     throw err;
   }
 }
@@ -138,38 +144,6 @@ export async function pollQrcodeStatus(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Combine two AbortSignals into one — aborted when either is aborted.
- */
-function combineAbortSignals(...signals: AbortSignal[]): AbortSignal {
-  if (signals.length === 0) return new AbortController().signal;
-  if (signals.length === 1) return signals[0];
-
-  const controller = new AbortController();
-  const abort = (): void => controller.abort();
-
-  for (const sig of signals) {
-    if (sig.aborted) {
-      controller.abort();
-      return controller.signal;
-    }
-    sig.addEventListener('abort', abort, { once: true });
-  }
-
-  // Clean up listeners after the combined signal fires
-  controller.signal.addEventListener(
-    'abort',
-    () => {
-      for (const sig of signals) {
-        sig.removeEventListener('abort', abort);
-      }
-    },
-    { once: true },
-  );
-
-  return controller.signal;
-}
 
 /**
  * Generate a random X-WECHAT-UIN header value.

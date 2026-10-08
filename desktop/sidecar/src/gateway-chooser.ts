@@ -64,25 +64,29 @@ const EN: GatewayStrings = {
   gatewayUnreachable: 'Cannot connect to gateway',
 };
 
-export function renderChooser(
-  cfg: DesktopConfig,
-  opts: ChooserOptions = {},
-): string {
+export function renderChooser(cfg: DesktopConfig, opts: ChooserOptions = {}): string {
   const lang = cfg.language ?? 'zh-CN';
   const t = lang === 'zh-CN' ? ZH : EN;
   const initialMode = cfg.gateway.mode ?? 'local';
-  const initialUrl = opts.initialUrl ?? cfg.gateway.remoteUrl;
-  const initialToken = opts.initialToken ?? cfg.gateway.remoteToken;
+  const initialUrl = opts.initialUrl ?? cfg.gateway.remoteUrl ?? '';
+  const initialToken = opts.initialToken ?? cfg.gateway.remoteToken ?? '';
   // opts.error is either a known i18n key (from the shell's remote
   // pre-flight) or a free-form, already-translated message (from the WebUI
   // error page) — resolve keys against the local dictionary, pass others
   // through.
   const rawError = opts.error ?? '';
-  const errorMessage =
-    rawError in t ? t[rawError as keyof GatewayStrings] : rawError;
-
-  // eslint-disable-next-line no-useless-escape
-  const js = (s: string): string => s.replace(/'/g, "\\'");
+  const errorMessage = rawError in t ? t[rawError as keyof GatewayStrings] : rawError;
+  const inlineState = JSON.stringify({
+    mode: initialMode,
+    url: initialUrl,
+    token: initialToken,
+    error: errorMessage,
+  })
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
 
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
@@ -137,7 +141,7 @@ export function renderChooser(
   .test-result{font-size:13px;margin-top:6px}
   .test-result.ok{color:#34d399}
   .test-result.err{color:#f87171}
-  .error-banner{display:none;padding:10px 14px;border-radius:8px;margin-bottom:16px;font-size:13px;line-height:1.5}
+  .error-banner{display:none;padding:10px 14px;border-radius:8px;margin-bottom:16px;font-size:13px;line-height:1.5;white-space:pre-wrap}
   .error-banner.show{display:block}
   .error-banner.warn{background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.3);color:#fbbf24}
   .error-banner.err{background:rgba(248,113,113,.15);border:1px solid rgba(248,113,113,.3);color:#f87171}
@@ -183,7 +187,8 @@ export function renderChooser(
   </div>
 </div>
 <script>
-  let mode = '${js(initialMode)}';
+  const initialState = ${inlineState};
+  let mode = initialState.mode;
   (function() {
     if (mode === 'remote') {
       document.getElementById('opt-local').classList.remove('active');
@@ -191,14 +196,13 @@ export function renderChooser(
       document.getElementById('remote-config').classList.add('show');
     }
     var urlEl = document.getElementById('remote-url');
-    if ('${js(initialUrl)}') urlEl.value = '${js(initialUrl)}';
+    urlEl.value = initialState.url;
     var tokenEl = document.getElementById('remote-token');
-    if ('${js(initialToken)}') tokenEl.value = '${js(initialToken)}';
-    // Show error banner if there's an error message
+    tokenEl.value = initialState.token;
+    // Error text is data, never markup: keep it out of the HTML parser.
     var errBanner = document.getElementById('error-banner');
-    var errMsg = '${js(errorMessage).replace(/\\n/g, '<br>')}';
-    if (errMsg) {
-      errBanner.innerHTML = errMsg;
+    if (initialState.error) {
+      errBanner.textContent = initialState.error;
       errBanner.classList.add('show');
     }
   })();

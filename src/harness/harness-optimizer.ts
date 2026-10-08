@@ -88,7 +88,7 @@ export class HarnessOptimizer {
     }
   }
 
-  /** Persist the dedup memory (fire-and-forget; failures are logged only). */
+  /** Persist the dedup memory; failures are logged and do not block proposals. */
   private async persistMemory(): Promise<void> {
     try {
       await mkdir(dirname(this.memoryPath), { recursive: true });
@@ -178,7 +178,7 @@ export class HarnessOptimizer {
       return null;
     }
     this.remembered.add(key);
-    void this.persistMemory();
+    await this.persistMemory();
 
     return proposal;
   }

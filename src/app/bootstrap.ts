@@ -844,6 +844,7 @@ async function runBootstrap(): Promise<BootstrapResult> {
 
   // ─── Hot reload: watch config.yaml and .env for changes ───
   const yamlPath = process.env.CONFIG_FILE || './config.yaml';
+  let mcpReloadQueue: Promise<void> = Promise.resolve();
 
   const onConfigReload = (newConfig: AppConfig) => {
     // ── Detect which sections changed (before overwriting old config) ──
@@ -913,11 +914,17 @@ async function runBootstrap(): Promise<BootstrapResult> {
     // hook, so a hand-edit caught by the file watcher and a WebUI save both
     // take the same path. Without this branch the manager would never learn
     // about an externally edited section (design §5.4).
-    // Deliberately not awaited: a cold `npx -y` can outlast this callback, and
-    // each server's outcome is already reported through its own state.
-    mcpManager?.reload().catch((err: unknown) => {
-      logger.warn({ err }, 'MCP reload failed');
-    });
+    // Do not block config watchers on a cold `npx -y`, but serialize MCP
+    // reconciliation so overlapping reload events cannot race tool registration.
+    if (mcpManager) {
+      const queuedReload = mcpReloadQueue.then(() => mcpManager!.reload());
+      mcpReloadQueue = queuedReload.then(
+        () => undefined,
+        (err: unknown) => {
+          logger.warn({ err }, 'MCP reload failed');
+        },
+      );
+    }
 
     // Rate limiter: dynamic method on Fastify server (typed via FastifyWithRateLimit)
     if (hasRateLimitPlugin(server)) {
