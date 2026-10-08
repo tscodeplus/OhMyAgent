@@ -12,7 +12,13 @@
 import { appendFileSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Logger } from 'pino';
-import type { FallbackReason, JudgmentSource, JudgeAnswerMap, JudgeMode } from './types.js';
+import type {
+  DecisionOutcome,
+  FallbackReason,
+  JudgmentSource,
+  JudgeAnswerMap,
+  JudgeMode,
+} from './types.js';
 import { parseEpochMs } from '../shared/timestamp.js';
 
 /** One ledger line (impl doc §5 item 4). */
@@ -26,6 +32,12 @@ export interface LedgerRecord {
   source: JudgmentSource;
   fallbackReason?: FallbackReason;
   answers: JudgeAnswerMap;
+  /** Judged entries only: what active mode would decide (`spec.policy`). */
+  outcome?: DecisionOutcome;
+  /** Judged entries only: the pre-judge rule floor (`spec.fallback`). */
+  floor?: DecisionOutcome;
+  /** Judged entries only: outcome === floor (autopilot agreement signal). */
+  agree?: boolean;
   latencyMs: number;
   usage?: { input: number; output: number };
   /** Judged state — persisted only when `judge.recordState` is on. */

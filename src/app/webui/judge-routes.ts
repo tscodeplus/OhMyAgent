@@ -25,6 +25,7 @@ import { judgeSectionSchema, loadConfig } from '../config.js';
 import type { AppConfig, AppServices } from '../types.js';
 import { DECISION_POINT_IDS } from '../../judge/decisions/registry.js';
 import { goldenSampleSpec, GOLDEN_SAMPLE_STATE } from '../../judge/golden-sample.js';
+import { auditOnce } from '../judge-autopilot.js';
 import { JUDGE_PROVIDER_ENV_KEYS } from '../../judge/judge-resolver.js';
 import { mutateConfigYaml, readConfigObject, applyConfigObject } from './yaml-mutation.js';
 
@@ -196,6 +197,45 @@ export function registerJudgeRoutes(app: FastifyInstance, cfg: JudgeRouteConfig)
 
   // One golden sample through the live engine. Judge-side problems are
   // returned in-band, never as a 500.
+  // Read-only autopilot telemetry for the WebUI judges tab (dry run: reports
+  // per-point stats and pending gate decisions, config untouched).
+  app.get('/api/judge/autopilot', async (_request, reply) => {
+    try {
+      const report = await auditOnce(
+        {
+          ledgerDir: './data/judge-ledger',
+          judge: cfg.getConfig().judge,
+          getConfig: cfg.getConfig,
+          onConfigSaved: (newConfig) => cfg.onConfigSaved?.(newConfig),
+          logger: app.log,
+        },
+        { apply: false },
+      );
+      return reply.send({ ok: true, ...report });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ ok: false, error: 'Internal Server Error', message });
+    }
+  });
+
+  // Manual autopilot audit trigger — same statistical gates the interval uses.
+  // Idempotent and non-destructive: points failing the gate simply hold.
+  app.post('/api/judge/autopilot', async (_request, reply) => {
+    try {
+      const report = await auditOnce({
+        ledgerDir: './data/judge-ledger',
+        judge: cfg.getConfig().judge,
+        getConfig: cfg.getConfig,
+        onConfigSaved: (newConfig) => cfg.onConfigSaved?.(newConfig),
+        logger: app.log,
+      });
+      return reply.send({ ok: true, ...report });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ ok: false, error: 'Internal Server Error', message });
+    }
+  });
+
   app.post('/api/judge/test', async (_request, reply) => {
     const judge = cfg.getJudge();
     const started = Date.now();

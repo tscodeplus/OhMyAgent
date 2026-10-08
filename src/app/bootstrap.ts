@@ -63,6 +63,7 @@ import { createSchedulers } from './composers/scheduler-services.js';
 import { createComputerUseServices } from './composers/computer-use-services.js';
 import { createAgentServices } from './composers/agent-services.js';
 import { createMcpServices } from './composers/mcp-services.js';
+import { startJudgeAutopilot } from './judge-autopilot.js';
 import { JudgeEngine } from '../judge/engine.js';
 import { JudgeLedger } from '../judge/ledger.js';
 import { JudgeCircuitBreaker } from '../judge/circuit-breaker.js';
@@ -891,6 +892,15 @@ async function runBootstrap(): Promise<BootstrapResult> {
       services.judge = rebuilt;
       if (servicesRef.current) servicesRef.current.judge = rebuilt;
       judgeRef.engine = rebuilt;
+      // Keep the autopilot lifecycle in sync with enable/disable flips.
+      stopJudgeAutopilot();
+      stopJudgeAutopilot = startJudgeAutopilot({
+        ledgerDir: './data/judge-ledger',
+        judge: newConfig.judge,
+        getConfig: () => loadConfig(),
+        onConfigSaved: (newerConfig) => onConfigSavedRef.current?.(newerConfig),
+        logger,
+      });
     }
 
     // Update servicesRef so tools reading ctx.services.config see new values
@@ -984,6 +994,17 @@ async function runBootstrap(): Promise<BootstrapResult> {
 
   // Wire up the onConfigReload callback so PUT /api/config can trigger hot-reload
   onConfigSavedRef.current = onConfigReload;
+
+  // Judge autopilot: statistical-gate promotion/demotion, no human confirmation
+  // (impl doc §7 automation). Inert when the kernel is disabled; restarted on
+  // judge-relevant hot reload so enable/disable flips stay in sync.
+  let stopJudgeAutopilot = startJudgeAutopilot({
+    ledgerDir: './data/judge-ledger',
+    judge: config.judge,
+    getConfig: () => loadConfig(),
+    onConfigSaved: (newConfig) => onConfigSavedRef.current?.(newConfig),
+    logger,
+  });
 
   setWatcherLogger(logger);
   startConfigWatcher(yamlPath, onConfigReload);

@@ -158,6 +158,24 @@ function normalizeJudgeConfigPayload(data: JudgeConfigPayload): JudgeConfigPaylo
   return normalized;
 }
 
+interface AutopilotPointReport {
+  pointId: string;
+  mode: 'active' | 'shadow' | 'off';
+  stats: { total: number; judged: number; gray: number; comparable: number; agreed: number };
+  decision: 'promote' | 'demote' | 'hold';
+  reasons: string[];
+}
+
+/** GET /api/judge/autopilot — read-only telemetry behind the judges tab's
+ * advanced collapse (statistically managed; never editable from the UI). */
+interface AutopilotTelemetry {
+  ranAt: string;
+  promote: string[];
+  demote: string[];
+  managed: Record<string, { promotedAt: string; demotedAt?: string }>;
+  report: AutopilotPointReport[];
+}
+
 /** Actions handle handed back to ModelSettings for the shared save/cancel bar. */
 export interface JudgeSettingsActions {
   save: (opts?: { silent?: boolean }) => Promise<void>;
@@ -546,58 +564,6 @@ function chainWriteBack(
 
 /* ───────── Presentational helpers ───────── */
 
-function ModeSegment({
-  value,
-  disabled,
-  onChange,
-}: {
-  value: JudgeMode;
-  disabled?: boolean;
-  onChange?: (mode: JudgeMode) => void;
-}) {
-  const { t } = useTranslation('common');
-  const label: Record<JudgeMode, string> = {
-    off: t('settings.judge.modeOff'),
-    shadow: t('settings.judge.modeShadow'),
-    active: t('settings.judge.modeActive'),
-  };
-  const activeCls: Record<JudgeMode, string> = {
-    off: 'bg-neutral-500 border-neutral-500 text-white',
-    shadow: 'bg-amber-500 border-amber-500 text-white',
-    active: 'bg-green-600 border-green-600 text-white',
-  };
-  return (
-    <div
-      role="group"
-      className="inline-flex shrink-0 overflow-hidden rounded-md border border-neutral-200 dark:border-neutral-700"
-    >
-      {JUDGE_MODES.map((mode) => (
-        <button
-          key={mode}
-          type="button"
-          disabled={disabled}
-          onClick={() => onChange?.(mode)}
-          className={`px-2.5 py-1 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-            value === mode
-              ? activeCls[mode]
-              : 'text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800'
-          }`}
-        >
-          {label[mode]}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/**
- * One draggable builtin judge provider row of the chain: grip handle +
- * position number + key status dot + provider name + model chip (or a dimmed
- * "not in chain" tag). Clicking the row body (not the grip) toggles the
- * expandable group holding the key editor (and Account ID for Cloudflare)
- * plus the provider's model Select. Selecting a model puts the provider into
- * the chain; the empty placeholder removes it again.
- */
 function JudgeChainRow({
   providerId,
   index,
@@ -1141,15 +1107,6 @@ function JudgeChainJudgesRow({
   );
 }
 
-function ModeRow({ label, desc }: { label: string; desc: string }) {
-  return (
-    <div className="min-w-0">
-      <p className="text-[13px] font-medium text-neutral-700 dark:text-neutral-200">{label}</p>
-      <p className="mt-0.5 text-[11px] text-neutral-500 dark:text-neutral-400">{desc}</p>
-    </div>
-  );
-}
-
 /* ───────── Main component ───────── */
 
 export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeSettingsProps) {
@@ -1372,12 +1329,16 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
     setDraft((prev) => (prev ? { ...prev, ...patch } : prev));
   }, []);
 
-  const setMode = useCallback((key: string, mode: JudgeMode) => {
-    setDraft((prev) => (prev ? { ...prev, modes: { ...prev.modes, [key]: mode } } : prev));
-  }, []);
-
   /* ── Expanded chain row (provider or judges entry; default collapsed) ── */
   const [openRow, setOpenRow] = useState<string | null>(null);
+
+  /* ── Autopilot telemetry (read-only; the promotion gates live server-side) ── */
+  const fetchAutopilotReport = useCallback(
+    () => apiRequest<AutopilotTelemetry>('/api/judge/autopilot'),
+    [],
+  );
+  const [autopilotReport, setAutopilotReport] = useState<AutopilotTelemetry | null>(null);
+  const [autopilotLoading, setAutopilotLoading] = useState(false);
   /* ── Drag preview: a static DragOverlay clone (prevents mid-drag layout/
      transform artifacts on the original row) ── */
   const [dragActiveId, setDragActiveId] = useState<string | null>(null);
@@ -1800,7 +1761,12 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
           </SettingsCard>
         </SettingsSection>
 
-        {/* ── Decision-point mode matrix (advanced, collapsible) ── */}
+        {/* ── Autopilot telemetry (advanced, collapsible; READ-ONLY) ──
+            The autopilot promotes/demotes decision points purely on the
+            shadow-agreement statistical gates in src/judge/autopilot.ts — a
+            manual mode matrix here would fight it, so modes are not editable
+            in the UI; hand YAML edits remain an escape hatch (pinned points
+            are never auto-demoted). This panel shows where each point stands. */}
         <SettingsSection title={t('settings.judge.advancedSection')}>
           <SettingsCard>
             <button
@@ -1809,38 +1775,87 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
               className="flex items-center gap-1.5 text-sm font-medium text-neutral-700 transition-colors hover:text-neutral-900 dark:text-neutral-200 dark:hover:text-neutral-100"
             >
               {advancedOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-              {t('settings.judge.modesSection')}
+              {t('settings.judge.autopilotStatus')}
             </button>
             {advancedOpen && (
               <div className="space-y-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
                 <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
-                  {t('settings.judge.modesHint')}
+                  {t('settings.judge.autopilotHint')}
                 </p>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <ModeRow
-                    label={t('settings.judge.defaultMode')}
-                    desc={t('settings.judge.defaultModeDesc')}
-                  />
-                  <ModeSegment
-                    value={draft.modes['default'] ?? 'shadow'}
-                    onChange={(m) => setMode('default', m)}
-                  />
-                </div>
-                {JUDGE_POINT_IDS.map((id) => (
-                  <div
-                    key={id}
-                    className="flex flex-col gap-2 border-t border-neutral-100 pt-2 dark:border-neutral-800 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <ModeRow
-                      label={t(`settings.judge.points.${id.replace('.', '-')}.label`)}
-                      desc={t(`settings.judge.points.${id.replace('.', '-')}.desc`)}
-                    />
-                    <ModeSegment
-                      value={draft.modes[id] ?? 'shadow'}
-                      onChange={(m) => setMode(id, m)}
-                    />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAutopilotLoading(true);
+                    void fetchAutopilotReport()
+                      .then((data) => setAutopilotReport(data))
+                      .catch(() => setAutopilotReport(null))
+                      .finally(() => setAutopilotLoading(false));
+                  }}
+                  disabled={autopilotLoading}
+                  className="rounded-md bg-neutral-100 px-2.5 py-1 text-[11px] text-neutral-600 transition-colors hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
+                >
+                  {t('settings.judge.autopilotRefresh')}
+                </button>
+                {autopilotReport === null ? (
+                  <p className="text-[13px] text-neutral-500 dark:text-neutral-400">
+                    {t('settings.judge.autopilotNoData')}
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {JUDGE_POINT_IDS.map((id) => {
+                      const point = autopilotReport.report.find((r) => r.pointId === id);
+                      const stats = point?.stats;
+                      return (
+                        <div
+                          key={id}
+                          className="flex flex-col gap-1.5 border-t border-neutral-100 pt-2 dark:border-neutral-800 sm:flex-row sm:items-center sm:justify-between"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-[13px] font-medium text-neutral-700 dark:text-neutral-200">
+                              {t(`settings.judge.points.${id.replace('.', '-')}.label`)}
+                            </p>
+                            <p className="mt-0.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+                              {t(`settings.judge.points.${id.replace('.', '-')}.desc`)}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            {stats && (
+                              <span className="font-mono text-[11px] text-neutral-500 dark:text-neutral-400">
+                                {stats.comparable > 0
+                                  ? t('settings.judge.autopilotAgreement', {
+                                      agreement: Math.round(
+                                        (stats.agreed / stats.comparable) * 100,
+                                      ),
+                                      samples: stats.total,
+                                    })
+                                  : t('settings.judge.autopilotSamples', {
+                                      samples: stats.total,
+                                    })}
+                              </span>
+                            )}
+                            <span
+                              className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                                point?.mode === 'active'
+                                  ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
+                                  : point?.mode === 'off'
+                                    ? 'bg-neutral-200 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300'
+                                    : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                              }`}
+                            >
+                              {point?.mode === 'active'
+                                ? autopilotReport.managed[id]
+                                  ? t('settings.judge.autopilotManagedActive')
+                                  : t('settings.judge.autopilotPinnedActive')
+                                : point?.mode === 'off'
+                                  ? t('settings.judge.modeOff')
+                                  : t('settings.judge.modeShadow')}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                ))}
+                )}
               </div>
             )}
           </SettingsCard>

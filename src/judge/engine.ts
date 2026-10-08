@@ -24,10 +24,12 @@ import { JudgeCircuitBreaker } from './circuit-breaker.js';
 import type { FreeJevMonitor } from './free-jev.js';
 import { isFreeJevJudgeId } from './free-jev.js';
 import { JudgeLedger } from './ledger.js';
+import { outcomeEquals } from './outcome.js';
 import { toClassifierQuestions, validateAnswers } from './protocol-map.js';
 import {
   DEFAULT_JUDGE_MODE,
   type DecisionInput,
+  type DecisionOutcome,
   type DecisionSpec,
   type FallbackReason,
   type JudgeAnswerMap,
@@ -324,11 +326,13 @@ export class JudgeEngine {
     const judged = judgment.source === 'judge';
     const answers = judged ? (judgment.answers ?? {}) : {};
     let outcome = spec.fallback;
-    if (judged && mode === 'active') {
+    /** What a hypothetical ACTIVE mode would decide (autopilot telemetry). */
+    let judgedOutcome: DecisionOutcome | undefined;
+    if (judged && mode !== 'off') {
       try {
-        outcome = spec.policy
+        judgedOutcome = spec.policy
           ? spec.policy(answers, {
-              mode,
+              mode: 'active',
               input: { state: call.state, questionIds: call.questionIds },
             })
           : spec.fallback;
@@ -338,8 +342,9 @@ export class JudgeEngine {
           { err, pointId: spec.id },
           'Judge spec.policy threw — using spec.fallback',
         );
-        outcome = spec.fallback;
+        judgedOutcome = spec.fallback;
       }
+      if (mode === 'active') outcome = judgedOutcome;
     }
 
     const verdict: Verdict = {
@@ -356,6 +361,11 @@ export class JudgeEngine {
     };
 
     if (this.ledger && mode !== 'off') {
+      // Shadow-flight telemetry (judged entries only): what active would have
+      // decided vs the pre-judge floor. The autopilot's promotion gates are
+      // computed from this agreement — no human labeling anywhere.
+      const agree =
+        judged && judgedOutcome ? outcomeEquals(judgedOutcome, spec.fallback) : undefined;
       this.ledger.record({
         ts: new Date(this.now()).toISOString(),
         sessionId: call.sessionId ?? 'unknown',
@@ -366,6 +376,7 @@ export class JudgeEngine {
         source: verdict.source,
         fallbackReason: verdict.fallbackReason,
         answers: verdict.answers,
+        ...(agree !== undefined ? { agree, outcome: judgedOutcome, floor: spec.fallback } : {}),
         latencyMs: verdict.latencyMs,
         usage: verdict.usage,
         ...(this.config.recordState && call.state != null

@@ -72,7 +72,7 @@ describe('JudgeEngine — mode matrix', () => {
     expect(verdict.fallbackReason).toBeUndefined();
   });
 
-  it('shadow: judged answers recorded, but outcome = spec.fallback and policy NOT applied', async () => {
+  it('shadow: judged answers recorded, behavior applies spec.fallback, but the policy is evaluated once for agreement telemetry', async () => {
     const policyCalls: unknown[] = [];
     const resolver = createMockResolver({ judgeId: 'mock/j1', answers: CLEAR(0.9) });
     const engine = new JudgeEngine({
@@ -85,12 +85,21 @@ describe('JudgeEngine — mode matrix', () => {
       { state: { chunks: 1 } },
     );
     expect(verdict.source).toBe('judge');
-    expect(policyCalls).toHaveLength(0);
+    // The hypothetical outcome value is computed (pure function, no behavior
+    // side effects) so the autopilot can compare it against spec.fallback.
+    expect(policyCalls).toHaveLength(1);
+    // Behavior remains exactly the pre-judge fallback in shadow.
     expect(verdict.outcome).toEqual({ action: 'keep-all' });
-    // shadow still records the judged call
     const recent = engine.ledger.recent(1);
     expect(recent).toHaveLength(1);
     expect(recent[0]).toMatchObject({ mode: 'shadow', judgeId: 'mock/j1', source: 'judge' });
+    // Shadow-flight telemetry: hypothetical vs floor, seemingly disagreeing
+    // (policy returns keep[“x”] vs keep-all floor) — disagreement is the test.
+    expect(recent[0]).toMatchObject({
+      agree: false,
+      outcome: { action: 'keep', ids: ['x'] },
+      floor: { action: 'keep-all' },
+    });
   });
 
   it('off: not asked, no ledger line, fallback verdict with mode-off', async () => {
