@@ -71,12 +71,25 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
       }>;
     };
     const messages = agentState.messages ?? [];
+    // The "already persisted" counter indexes the user/assistant sequence, NOT
+    // the raw transcript. The agent loop injects non-persistable system messages
+    // into state.messages (e.g. the tool-declaration message placed AHEAD of the
+    // first user message of a fresh session) and toolResult messages interleave
+    // between assistant messages. Slicing the raw array with the persistable-row
+    // counter shifted the window and re-persisted the turn's user message as a
+    // duplicate row (two identical user bubbles after every refetch — see the
+    // "first message duplicated" bug). Filter first, then apply the counter.
+    const persistable = messages.filter((msg) => msg.role === 'user' || msg.role === 'assistant');
     const startIndex =
-      runtime.persistedMessageCount > messages.length ? 0 : runtime.persistedMessageCount;
-    const batchMessages = messages.slice(startIndex);
-    const newMessages = batchMessages.filter(
-      (msg) => msg.role === 'user' || msg.role === 'assistant',
-    );
+      runtime.persistedMessageCount > persistable.length ? 0 : runtime.persistedMessageCount;
+    const batchMessages = persistable.slice(startIndex);
+    const newMessages = batchMessages;
+    // Raw transcript slice covering this batch, used for the toolResult
+    // pre-scan below (toolResults are not persistable, so they never appear in
+    // batchMessages itself). All toolResults of the current batch sit at or
+    // after the raw index of the batch's first message.
+    const batchRawStart = batchMessages.length > 0 ? messages.indexOf(batchMessages[0]) : -1;
+    const batchRawMessages = batchRawStart >= 0 ? messages.slice(batchRawStart) : [];
 
     // Whether the turn's FINAL assistant message delivered text. A turn that
     // only emitted tool calls but never a final answer did NOT recover, so its
@@ -96,7 +109,7 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
     const batchFiles: Array<{ name: string; path: string }> = [];
     const seenUrls = new Set<string>();
     let toolResultCount = 0;
-    for (const m of batchMessages) {
+    for (const m of batchRawMessages) {
       if (m.role !== 'toolResult' || !Array.isArray(m.content)) continue;
       // Only media-emitting tools may surface images in chat. Search/web tools
       // return untrusted snippets full of image links — extracting them would
@@ -452,7 +465,7 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
       pendingAssistant = null;
     }
 
-    runtime.persistedMessageCount = messages.length;
+    runtime.persistedMessageCount = persistable.length;
 
     logger.info({ sessionKey, messageCount: newMessages.length }, 'Messages persisted');
   } catch (err) {
