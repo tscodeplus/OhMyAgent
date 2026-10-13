@@ -4,7 +4,7 @@ import { loadXaiOAuth } from "../auth/oauth/load.js";
 import { createProvider, type Provider } from "../models.js";
 import { XAI_MODELS } from "./xai.models.js";
 
-export function xaiProvider(): Provider<"openai-completions" | "openai-responses"> {
+export function xaiProvider(): Provider<"openai-responses"> {
 	return createProvider({
 		id: "xai",
 		name: "xAI",
