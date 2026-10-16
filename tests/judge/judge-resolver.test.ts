@@ -7,7 +7,12 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { JudgeResolver, judgeIdOf, parseJudgeRef } from '../../src/judge/judge-resolver.js';
+import {
+  JudgeResolver,
+  judgeIdOf,
+  parseJudgeRef,
+  withOpencodeSystemOneEndpoint,
+} from '../../src/judge/judge-resolver.js';
 import { JudgeError, type JudgeSectionConfig } from '../../src/judge/types.js';
 
 const logger = {
@@ -403,6 +408,49 @@ describe('JudgeResolver — judges.<name> refs (custom relay judges as chain pee
     const chain = resolver.resolveChain('tool.admission');
     expect(chain.tiers.map((t) => t.judgeId)).toEqual(['opencode/jev-1.13-free']);
     expect(chain.noKeyRefs).toEqual(['judges.relay']);
+  });
+});
+
+describe('withOpencodeSystemOneEndpoint — endpoint pinning', () => {
+  const documented = 'https://opencode.ai/inference/systemone/v1';
+
+  it('pins both OpenCode Jev tiers to the documented endpoint', () => {
+    for (const modelId of ['jev-1.13', 'jev-1.13-free']) {
+      const model = {
+        type: 'classifier',
+        id: modelId,
+        name: modelId,
+        api: 'typesafe-system-one',
+        provider: 'opencode',
+        baseUrl: 'https://opencode.ai/inference/v1',
+        input: ['text'],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 32000,
+      };
+      const pinned = withOpencodeSystemOneEndpoint('opencode', modelId, model);
+      expect(pinned.baseUrl).toBe(documented);
+      // shallow copy — the registry model must stay untouched
+      expect(model.baseUrl).toBe('https://opencode.ai/inference/v1');
+      // the typesafe transport appends systemone → documented URL
+      expect(new URL('systemone', `${pinned.baseUrl}/`).href).toBe(
+        'https://opencode.ai/inference/systemone/v1/systemone',
+      );
+    }
+  });
+
+  it('passes non-Jev entries through untouched', () => {
+    const model = {
+      type: 'classifier',
+      id: 'some-other-classifier',
+      name: 'other',
+      api: 'typesafe-system-one',
+      provider: 'openrouter',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      input: ['text'],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 32000,
+    };
+    expect(withOpencodeSystemOneEndpoint('openrouter', 'some-other-classifier', model)).toBe(model);
   });
 });
 

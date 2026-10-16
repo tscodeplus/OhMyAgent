@@ -138,6 +138,30 @@ export function resetJudgeModels(): void {
   judgeModelsInstance = undefined;
 }
 
+/**
+ * OpenCode System One endpoint (console docs https://opencode.ai/v2/docs/console/models/#jev).
+ * The pi-mono provider data lags the console API layout, so the resolver pins
+ * both Jev tiers to the documented endpoint — the typesafe transport appends
+ * `systemone`, yielding `https://opencode.ai/inference/systemone/v1/systemone`.
+ */
+const OPENCODE_SYSTEMONE_BASE_URL = 'https://opencode.ai/inference/systemone/v1';
+const OPENCODE_SYSTEMONE_MODEL_IDS = new Set(['jev-1.13', 'jev-1.13-free']);
+
+/**
+ * Pin OpenCode Jev classifier entries to the documented System One endpoint.
+ * Pure: returns a shallow copy (never mutates the shared registry model).
+ */
+export function withOpencodeSystemOneEndpoint(
+  provider: string,
+  modelId: string,
+  model: AnyClassifierModel,
+): AnyClassifierModel {
+  if (provider === 'opencode' && OPENCODE_SYSTEMONE_MODEL_IDS.has(modelId)) {
+    return { ...model, baseUrl: OPENCODE_SYSTEMONE_BASE_URL };
+  }
+  return model;
+}
+
 /** pi-mono compat registry (registerModel) is process-global: register once. */
 const registeredHiddenSlugs = new Set<string>();
 
@@ -335,6 +359,14 @@ export class JudgeResolver {
    * previous call synthesized it).
    */
   private resolveModelEntry(provider: string, modelId: string): AnyClassifierModel {
+    return withOpencodeSystemOneEndpoint(
+      provider,
+      modelId,
+      this.resolveModelEntryFromCatalog(provider, modelId),
+    );
+  }
+
+  private resolveModelEntryFromCatalog(provider: string, modelId: string): AnyClassifierModel {
     const builtin = getBuiltinClassifierModel(provider as never, modelId as never) as
       AnyClassifierModel | undefined;
     if (builtin && getModelType(builtin) === 'classifier') return builtin;
