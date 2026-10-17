@@ -94,6 +94,11 @@ export class JudgeCircuitBreaker {
     };
   }
 
+  /** Cooldown window in ms (for callers that want to surface resume time). */
+  get cooldown(): number {
+    return this.cooldownMs;
+  }
+
   /** Snapshot for the status API. */
   states(): JudgeBreakerState[] {
     return [...this.points.keys()].map((pointId) => this.state(pointId));

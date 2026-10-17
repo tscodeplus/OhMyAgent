@@ -115,6 +115,12 @@ export class JudgeEngine {
     try {
       const mode = this.modeFor(spec.id);
       if (this.breaker.isOpen(spec.id)) {
+        const st = this.breaker.state(spec.id);
+        const resumeAt = st.openedAt ? st.openedAt + this.breaker.cooldown : 0;
+        this.logger?.warn(
+          { pointId: spec.id, consecutiveFailures: st.consecutiveFailures, resumeAt },
+          'Judge circuit open — short-circuiting without a provider call',
+        );
         return this.finish(spec, call, started, mode, {
           source: 'fallback',
           fallbackReason: 'circuit-open',
@@ -135,7 +141,15 @@ export class JudgeEngine {
 
       if (run.serviceFailure) {
         // Consecutive-service-failure accounting for the circuit breaker.
+        const before = this.breaker.state(spec.id);
         this.breaker.recordFailure(spec.id);
+        const after = this.breaker.state(spec.id);
+        if (before.state !== 'open' && after.state === 'open') {
+          this.logger?.warn(
+            { pointId: spec.id, consecutiveFailures: after.consecutiveFailures },
+            'Judge circuit opened — blocking calls for the cooldown',
+          );
+        }
       }
       const reason: FallbackReason = run.aborted
         ? 'aborted'
