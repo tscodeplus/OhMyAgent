@@ -911,6 +911,8 @@
     },
     "judge": {
       "enabledLabel": "Enable judge kernel",
+      "timeoutLabel": "Call timeout (ms)",
+      "timeoutInvalid": "Call timeout must be a positive integer (ms)",
       "inactiveTitle": "Judge kernel is not active",
       "inactiveDesc": "Turn on the switch to have decision points evaluated by the judge model; while off, every behavior is identical to running without a judge.",
       "providerAndModel": "Judge provider & model",

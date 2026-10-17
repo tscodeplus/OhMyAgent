@@ -347,7 +347,7 @@ export class JudgeEngine {
     callerSignal?: AbortSignal,
   ): Promise<ClassifierResult> {
     const controller = new AbortController();
-    const timeoutMs = this.config.timeoutMs > 0 ? this.config.timeoutMs : 4000;
+    const timeoutMs = this.config.timeoutMs > 0 ? this.config.timeoutMs : 5000;
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const forward = (): void => controller.abort();
     callerSignal?.addEventListener('abort', forward, { once: true });

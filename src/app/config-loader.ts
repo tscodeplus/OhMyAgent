@@ -460,6 +460,15 @@ function buildJudgeSection(jgCfg: YamlNode): Record<string, unknown> | undefined
                     ),
                   }
                 : {}),
+              ...(entry?.apiKey || entry?.api_key
+                ? {
+                    apiKey: str(
+                      entry?.apiKey ?? entry?.api_key,
+                      '',
+                      `jgCfg?.judges?.${name}?.apiKey`,
+                    ),
+                  }
+                : {}),
               ...(entry?.apiKeyEnv || entry?.api_key_env
                 ? {
                     apiKeyEnv: str(
@@ -548,7 +557,7 @@ function buildJudgeSection(jgCfg: YamlNode): Record<string, unknown> | undefined
         }
       : {}),
     ...(jgCfg.timeout_ms || jgCfg.timeoutMs
-      ? { timeoutMs: num(jgCfg.timeout_ms ?? jgCfg.timeoutMs, 4000, 'jgCfg?.timeout_ms') }
+      ? { timeoutMs: num(jgCfg.timeout_ms ?? jgCfg.timeoutMs, 5000, 'jgCfg?.timeout_ms') }
       : {}),
     ...(jgCfg.record_state
       ? { recordState: yamlBool(jgCfg.record_state, false, 'jgCfg?.record_state') }

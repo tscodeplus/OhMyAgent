@@ -101,6 +101,8 @@ interface JudgeDraft {
   chain: string[];
   modes: Record<string, JudgeMode>;
   judges: CustomJudgeEntry[];
+  /** Per-tier classify timeout in ms (string while editing; validated on save). */
+  timeoutMs: string;
 }
 
 /* Shapes tolerated from GET /api/judge/config. */
@@ -118,6 +120,7 @@ interface JudgeConfigPayload {
   fallbackTiers?: string[];
   chain?: unknown[];
   modes?: Record<string, unknown>;
+  timeoutMs?: unknown;
   /** judge.judges: custom relay judges keyed by entry name. */
   judges?: Record<string, unknown>;
   /** Server envelope: GET /api/judge/config returns { config, models, keyStatus }. */
@@ -314,6 +317,10 @@ function draftFromPayload(payload: JudgeConfigPayload): JudgeDraft {
     chain,
     modes: judgeModes,
     judges: parseCustomJudges(payload.judges),
+    timeoutMs:
+      typeof payload.timeoutMs === 'number' && Number.isFinite(payload.timeoutMs)
+        ? String(payload.timeoutMs)
+        : '5000',
   };
 }
 
@@ -1553,9 +1560,9 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
 
   return (
     <div className="space-y-6">
-      {/* ── Enable switch ── */}
+      {/* ── Enable switch + per-tier classify timeout ── */}
       <SettingsCard>
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-5">
           <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
             {t('settings.judge.enabledLabel')}
           </p>
@@ -1564,6 +1571,24 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
             onChange={(v) => updateDraft({ enabled: v })}
             ariaLabel={t('settings.judge.enabledLabel')}
           />
+          <div className="ml-auto flex items-center gap-2">
+            <label
+              htmlFor="judge-timeout-ms"
+              className="whitespace-nowrap text-[13px] text-neutral-700 dark:text-neutral-300"
+            >
+              {t('settings.judge.timeoutLabel')}
+            </label>
+            <input
+              id="judge-timeout-ms"
+              type="number"
+              min={1}
+              step={1}
+              value={draft.timeoutMs}
+              onChange={(e) => updateDraft({ timeoutMs: e.target.value })}
+              className="w-24 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-100"
+            />
+            <span className="text-xs text-neutral-500 dark:text-neutral-400">ms</span>
+          </div>
         </div>
         {!draft.enabled && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-900/20">

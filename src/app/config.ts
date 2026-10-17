@@ -159,6 +159,8 @@ const judgeEntrySchema = z
   .object({
     type: z.enum(['typesafe', 'http']),
     baseUrl: z.string().optional(),
+    /** Inline key (config.yaml `provider_keys` precedent) — hot-reload pick-up. */
+    apiKey: z.string().min(1).optional(),
     apiKeyEnv: z
       .string()
       .regex(/^[A-Za-z_][A-Za-z0-9_]*$/)
@@ -169,11 +171,14 @@ const judgeEntrySchema = z
   .strict()
   .refine(
     (entry) =>
-      !Object.keys(entry).some((key) =>
-        /^(apiKey|api_key|key|token|secret|authorization|password)$/i.test(key),
+      !Object.keys(entry).some(
+        (key) =>
+          key !== 'apiKey' &&
+          /^(apiKey|api_key|key|token|secret|authorization|password)$/i.test(key),
       ),
     {
-      message: 'inline API keys are not allowed in judge.judges — set apiKeyEnv to an env var name',
+      message:
+        'inline API keys are not allowed in judge.judges — use `apiKey` or set apiKeyEnv to an env var name',
     },
   );
 
@@ -206,7 +211,7 @@ export const judgeSectionSchema = z.object({
       compact: z.enum(['llm', 'judged']).default('llm'),
     })
     .default({}),
-  timeoutMs: z.coerce.number().int().positive().default(4000),
+  timeoutMs: z.coerce.number().int().positive().default(5000),
   recordState: z.boolean().default(false),
 });
 

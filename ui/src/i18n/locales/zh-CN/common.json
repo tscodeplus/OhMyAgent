@@ -911,6 +911,8 @@
     },
     "judge": {
       "enabledLabel": "启用判断内核",
+      "timeoutLabel": "调用超时（毫秒）",
+      "timeoutInvalid": "调用超时必须为正整数（毫秒）",
       "inactiveTitle": "判断内核未激活",
       "inactiveDesc": "打开开关后，各决策点才会由裁判模型评估；关闭时所有行为与没有裁判时完全一致。",
       "providerAndModel": "裁判供应商与模型",
