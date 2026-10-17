@@ -42,7 +42,7 @@ import {
 } from '@earendil-works/pi-ai';
 
 /** Catalog entries are unconstrained across APIs — every ClassifierApi counts. */
-type AnyClassifierModel = ClassifierModel<ClassifierApi>;
+export type AnyClassifierModel = ClassifierModel<ClassifierApi>;
 import { builtinModels, getBuiltinClassifierModel } from '../pi-mono/ai/providers/all.js';
 import type { CustomProviderConfig } from '../app/types.js';
 import type { Logger } from 'pino';

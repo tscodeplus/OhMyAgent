@@ -12,6 +12,7 @@ import {
   judgeIdOf,
   parseJudgeRef,
   withOpencodeSystemOneEndpoint,
+  type AnyClassifierModel,
 } from '../../src/judge/judge-resolver.js';
 import { JudgeError, type JudgeSectionConfig } from '../../src/judge/types.js';
 
@@ -426,7 +427,7 @@ describe('withOpencodeSystemOneEndpoint — endpoint pinning', () => {
         input: ['text'],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: 32000,
-      };
+      } satisfies AnyClassifierModel;
       const pinned = withOpencodeSystemOneEndpoint('opencode', modelId, model);
       expect(pinned.baseUrl).toBe(documented);
       // shallow copy — the registry model must stay untouched
@@ -449,7 +450,7 @@ describe('withOpencodeSystemOneEndpoint — endpoint pinning', () => {
       input: ['text'],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: 32000,
-    };
+    } satisfies AnyClassifierModel;
     expect(withOpencodeSystemOneEndpoint('openrouter', 'some-other-classifier', model)).toBe(model);
   });
 });
