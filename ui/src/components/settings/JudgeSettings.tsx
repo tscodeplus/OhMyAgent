@@ -329,6 +329,12 @@ interface TestAnswer {
 interface TestDisplay {
   latencyMs: number;
   answers: TestAnswer[];
+  /** Server verdict: `false` = golden sample fell back (answers will be empty). */
+  ok: boolean;
+  /** Server-provided failure reason (e.g. "judge fallback (unavailable)"). */
+  errorMessage: string | null;
+  /** Per-tier provider failure details from the engine (FreeTierError, 401, …). */
+  tierErrors: Array<{ judgeId: string; error: string }>;
 }
 
 function number(v: unknown): number | undefined {
@@ -386,7 +392,32 @@ function normalizeTest(data: unknown, startedAt: number): TestDisplay {
       }
     }
   }
-  return { latencyMs, answers };
+  const d = data;
+  const ok =
+    d && typeof d === 'object' && typeof (d as Record<string, unknown>).ok === 'boolean'
+      ? (d as { ok: boolean }).ok
+      : answers.length > 0;
+  const errorMessage =
+    d && typeof d === 'object' && typeof (d as Record<string, unknown>).errorMessage === 'string'
+      ? (d as { errorMessage: string }).errorMessage
+      : null;
+  const tierErrors: TestDisplay['tierErrors'] = [];
+  if (d && typeof d === 'object' && Array.isArray((d as Record<string, unknown>).tierErrors)) {
+    for (const t of (d as { tierErrors: unknown }).tierErrors as unknown[]) {
+      if (
+        t &&
+        typeof t === 'object' &&
+        typeof (t as Record<string, unknown>).judgeId === 'string'
+      ) {
+        const err = (t as Record<string, unknown>).error;
+        tierErrors.push({
+          judgeId: (t as { judgeId: string }).judgeId,
+          error: typeof err === 'string' ? err : '',
+        });
+      }
+    }
+  }
+  return { latencyMs, answers, ok, errorMessage, tierErrors };
 }
 
 function errorToMessage(e: unknown): string {
@@ -1715,6 +1746,23 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
               <p className="text-xs text-red-600 dark:text-red-400">
                 {t('settings.judge.testFailed', { error: testError })}
               </p>
+            )}
+            {testResult && !testResult.ok && (
+              <div className="space-y-1">
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  {t('settings.judge.testFailed', {
+                    error: testResult.errorMessage ?? t('settings.judge.noResults'),
+                  })}
+                </p>
+                {testResult.tierErrors.map((tier) => (
+                  <p
+                    key={tier.judgeId}
+                    className="break-all font-mono text-[11px] text-neutral-600 dark:text-neutral-300"
+                  >
+                    {tier.judgeId}: {tier.error}
+                  </p>
+                ))}
+              </div>
             )}
             {testResult && (
               <div className="space-y-1.5 rounded-lg border border-neutral-100 dark:border-neutral-800 p-3">

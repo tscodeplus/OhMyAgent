@@ -262,6 +262,9 @@ export function registerJudgeRoutes(app: FastifyInstance, cfg: JudgeRouteConfig)
           verdict.source === 'judge'
             ? undefined
             : `judge fallback (${verdict.fallbackReason ?? 'unknown'})`,
+        // Per-tier provider failure details (e.g. HTTP 403 FreeTierError) so the
+        // WebUI can show WHY the call fell back instead of just the latency.
+        tierErrors: verdict.tierErrors,
       });
     } catch (err) {
       // JudgeEngine.decide() never rejects — this is a pure safety net.

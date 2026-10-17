@@ -41,6 +41,7 @@ import {
   type JudgeTier,
   type ResolvedJudgeChain,
   type Verdict,
+  type VerdictTierFailure,
 } from './types.js';
 
 export interface JudgeEngineOptions {
@@ -145,10 +146,12 @@ export class JudgeEngine {
             : run.suspensionSkipped
               ? 'unavailable' // only free-Jev sunset suspension remained
               : 'gray-zone';
-      return this.finish(spec, call, started, mode, {
+      const verdict = this.finish(spec, call, started, mode, {
         source: 'fallback',
         fallbackReason: reason,
       });
+      if (run.tierFailures.length > 0) verdict.tierErrors = run.tierFailures;
+      return verdict;
     } catch (err) {
       this.logger?.warn(
         { err, pointId: spec.id },
@@ -196,6 +199,7 @@ export class JudgeEngine {
     gray: boolean;
     suspensionSkipped: boolean;
     aborted: boolean;
+    tierFailures: VerdictTierFailure[];
   }> {
     const questionIds = (call.questionIds ?? Object.keys(spec.questions)).filter(
       (id): id is string => Boolean(id) && id in spec.questions,
@@ -208,6 +212,7 @@ export class JudgeEngine {
         gray: false,
         suspensionSkipped: false,
         aborted: false,
+        tierFailures: [],
       };
     }
     const questions: Record<string, JudgeQuestion> = {};
@@ -221,6 +226,8 @@ export class JudgeEngine {
     let parseRejected = false;
     let gray = false;
     let suspensionSkipped = false;
+    /** Per-tier failure details, surfaced on the verdict for the caller (WebUI test). */
+    const tierFailures: VerdictTierFailure[] = [];
 
     for (const tier of chain.tiers) {
       if (this.freeJev && isFreeJevJudgeId(tier.judgeId) && this.freeJev.isSuspendedToday()) {
@@ -233,6 +240,10 @@ export class JudgeEngine {
         result = await this.classifyWithTimeout(tier, classifierQuestions, state, callerSignal);
       } catch (err) {
         this.logger?.warn({ err, judgeId: tier.judgeId, pointId: spec.id }, 'Judge classify threw');
+        tierFailures.push({
+          judgeId: tier.judgeId,
+          error: (err instanceof Error ? err.message : String(err)).slice(0, 300),
+        });
         serviceFailure = true;
         continue;
       }
@@ -243,12 +254,31 @@ export class JudgeEngine {
           gray,
           suspensionSkipped,
           aborted: true,
+          tierFailures,
         };
       }
       if (this.freeJev) this.freeJev.recordOutcome(tier.judgeId, result);
 
       if (!result || result.stopReason === 'error' || result.stopReason === 'aborted') {
+        // classify() swallows provider failures into result.errorMessage — without
+        // this line the real cause (FreeTierError / 401 / timeout) is invisible
+        // everywhere: engine only logs thrown errors, ledger keeps the verdict.
+        this.logger?.warn(
+          {
+            judgeId: tier.judgeId,
+            pointId: spec.id,
+            stopReason: result?.stopReason ?? 'no-result',
+            error: result?.errorMessage,
+          },
+          'Judge classify returned an error result',
+        );
         serviceFailure = true;
+        tierFailures.push({
+          judgeId: tier.judgeId,
+          error: (
+            result?.errorMessage ?? `no result (stopReason: ${result?.stopReason ?? 'none'})`
+          ).slice(0, 300),
+        });
         continue;
       }
 
@@ -281,9 +311,18 @@ export class JudgeEngine {
           ? { input: result.usage.input, output: result.usage.output }
           : undefined,
       });
-      return { verdict, serviceFailure, parseRejected, gray, suspensionSkipped, aborted: false };
+      if (tierFailures.length > 0) verdict.tierErrors = tierFailures;
+      return {
+        verdict,
+        serviceFailure,
+        parseRejected,
+        gray,
+        suspensionSkipped,
+        aborted: false,
+        tierFailures,
+      };
     }
-    return { serviceFailure, parseRejected, gray, suspensionSkipped, aborted: false };
+    return { serviceFailure, parseRejected, gray, suspensionSkipped, aborted: false, tierFailures };
   }
 
   /** classify() never rejects, but the injected tier / transport can — belt and braces. */

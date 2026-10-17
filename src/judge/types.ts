@@ -109,6 +109,13 @@ export type JudgeAnswer =
 export type JudgeAnswerMap = Record<string, JudgeAnswer>;
 
 /** One judged decision for `pointId`. Returned by `JudgeEngine.decide/decideMany` — these never reject. */
+/** One tier's failure detail carried on a fallback Verdict (diagnostics only). */
+export interface VerdictTierFailure {
+  judgeId: string;
+  /** Bounded provider error detail (e.g. "System One API error (403): ...FreeTierError..."). */
+  error: string;
+}
+
 export interface Verdict {
   pointId: string;
   /** spec.id + version (e.g. "tool.admission@v1") so ledger stats can track wording evolution. */
@@ -119,6 +126,8 @@ export interface Verdict {
   judgeId: string;
   source: JudgmentSource;
   fallbackReason?: FallbackReason;
+  /** Per-tier failure details for the tiers tried before falling back (may be unset). */
+  tierErrors?: VerdictTierFailure[];
   latencyMs: number;
   usage?: { input: number; output: number };
   /** Effective mode — hook points read this, not their own config. */

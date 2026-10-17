@@ -46,6 +46,7 @@ export type AnyClassifierModel = ClassifierModel<ClassifierApi>;
 import { builtinModels, getBuiltinClassifierModel } from '../pi-mono/ai/providers/all.js';
 import type { CustomProviderConfig } from '../app/types.js';
 import type { Logger } from 'pino';
+import { openCodeSessionHeaders, isOpenCodeEndpoint } from '../utils/opencode-session.js';
 import { FREE_JEV_MODEL_ID } from './free-jev.js';
 import { classifyCustomJudge } from './protocol-map.js';
 import { JudgeError, type JudgeEntryConfig, type JudgeTier } from './types.js';
@@ -266,12 +267,22 @@ export class JudgeResolver {
           continue;
         }
         const model = this.resolveModelEntry(parsed.provider, parsed.modelId);
+        // Mirror the LLM path's OpenCode client simulation: OpenCode gateways
+        // validate client identity per request (x-opencode-session /
+        // x-opencode-client); the SystemOne transport (classifySystemOne →
+        // postClassifierRequest) never goes through the provider-level
+        // withOpenCodeSessionHeader wrapper, so the judge chain must attach
+        // the same headers here or risk 401/403 identity rejections.
+        const ocHeaders = isOpenCodeEndpoint(parsed.provider, model.baseUrl)
+          ? openCodeSessionHeaders()
+          : undefined;
         tiers.push({
           judgeId: judgeIdOf(parsed),
           classify: (context, call) => {
             const models = getJudgeModels();
             return models.classify(model, context, {
               ...(effectiveApiKey !== undefined ? { apiKey: effectiveApiKey } : {}),
+              ...(ocHeaders ? { headers: ocHeaders } : {}),
               ...(parsed.provider === 'cloudflare-workers-ai' ? { env: this.cloudflareEnv() } : {}),
               ...(call.signal ? { signal: call.signal } : {}),
               ...(call.timeoutMs !== undefined ? { timeoutMs: call.timeoutMs } : {}),
@@ -308,11 +319,15 @@ export class JudgeResolver {
         this.warnNoKeyOnce(ref, name, entry.apiKeyEnv ? [entry.apiKeyEnv] : []);
         return;
       }
+      const ocHeaders = isOpenCodeEndpoint(undefined, entry.baseUrl)
+        ? openCodeSessionHeaders()
+        : undefined;
       buckets.tiers.push({
         judgeId: name,
         classify: (context, call) =>
           classifyCustomJudge(entry, context, {
             apiKey,
+            ...(ocHeaders ? { headers: ocHeaders } : {}),
             ...(call.signal ? { signal: call.signal } : {}),
             ...(call.timeoutMs !== undefined ? { timeoutMs: call.timeoutMs } : {}),
           }),
