@@ -310,6 +310,11 @@ export class JudgeEngine {
       }
       if (validate.anyGray) {
         // Calibrated gray zone → escalate the whole call to the next tier.
+        // Gray escalation is invisible in tierErrors, so log it here.
+        this.logger?.warn(
+          { judgeId: tier.judgeId, pointId: spec.id, answers: predicted },
+          'Judge answers in calibrated gray zone — escalating to the next tier',
+        );
         gray = true;
         continue;
       }

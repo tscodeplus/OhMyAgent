@@ -41,6 +41,31 @@ export const SYSTEM_ONE_HTTP_API = 'system-one-http';
  *   `{ state, questions }`, expecting `{ answers, usage }` back.
  * Both share classifySystemOne's fail-closed answer parsing and never reject.
  */
+/**
+ * Relays that emit a different meaning for the answer `confidence` field
+ * (Laya: normalized entropy, where <0.5 means nothing about calibration) break
+ * the engine's gray-zone rules, which were calibrated on Jev's semantics:
+ * such relay answers get escalated regardless of their actual backing.
+ * Rewire `confidence` to the answer-backing probability mass when the relay
+ * supplies one (`answer_confidence`, then `x_jev_confidence`); only
+ * choice/score answers — noul carries no confidence on the Jev wire. The
+ * relay's raw fields stay on the answer for any caller that wants them.
+ */
+function normalizeJevConfidence(body: Record<string, unknown>): Record<string, unknown> {
+  const answers = body.answers;
+  if (!isRecord(answers)) return body;
+  for (const answer of Object.values(answers)) {
+    if (!isRecord(answer)) continue;
+    if (answer.type !== 'choice' && answer.type !== 'score') continue;
+    const candidates = [answer.answer_confidence, answer.x_jev_confidence];
+    const jev = candidates.find(
+      (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1,
+    );
+    if (jev !== undefined) answer.confidence = jev;
+  }
+  return body;
+}
+
 export function customJudgeTransport(type: JudgeEntryConfig['type']): SystemOneTransport {
   if (type === 'typesafe') {
     return {
@@ -51,7 +76,7 @@ export function customJudgeTransport(type: JudgeEntryConfig['type']): SystemOneT
       output: (body) => {
         if (!isRecord(body))
           throw new Error('Custom typesafe relay returned an unexpected response');
-        return body;
+        return normalizeJevConfidence(body);
       },
     };
   }

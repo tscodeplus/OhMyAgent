@@ -228,7 +228,10 @@ export type JudgeModelResolver = (pointId: string) => ResolvedJudgeChain;
 export interface JudgeEntryConfig {
   type: 'typesafe' | 'http';
   baseUrl?: string;
-  /** Environment variable NAME that holds the key; inline keys are rejected at load. */
+  /** Inline API key. Simplest option; read at hot-reload time, no restart needed.
+   *  For cloud relays prefer apiKeyEnv so the key never lives in a synced file. */
+  apiKey?: string;
+  /** Environment variable NAME that holds the key (alternative to inline apiKey). */
   apiKeyEnv?: string;
   /** System One model id the relay serves. Default: CUSTOM_JUDGE_DEFAULT_MODEL ('jev-latest'). */
   model?: string;
@@ -254,7 +257,7 @@ export interface JudgeSectionConfig {
   routes?: Record<string, string[]>;
   /** modes[pointId] ?? modes.default; unset → DEFAULT_JUDGE_MODE (shadow). */
   modes: Record<string, JudgeMode>;
-  /** Custom judges (phase-M5); keys stay out of the config file via apiKeyEnv. */
+  /** Custom judges (phase-M5); keys may be inline (apiKey) or via apiKeyEnv. */
   judges?: Record<string, JudgeEntryConfig>;
   features: {
     testLogFold: 'off' | 'rules' | 'jev';

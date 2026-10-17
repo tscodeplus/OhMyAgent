@@ -27,8 +27,9 @@
  * FIRST-CLASS CHAIN PEERS — they run only where a `judges.<name>` ref places
  * them (main ref, fallbackTiers, or a `routes[pointId]` override). judgeId =
  * entry name; the wire model id comes from the entry's `model` (default
- * CUSTOM_JUDGE_DEFAULT_MODEL). Keys are read only from the entry's `apiKeyEnv`
- * env var name — config.yaml stays the single source of truth, no provider/env
+ * CUSTOM_JUDGE_DEFAULT_MODEL). Keys come from the entry's inline `apiKey`
+ * (config.yaml `provider_keys` precedent, hot-reload pick-up) or its
+ * `apiKeyEnv` env var name — inline wins when both are set; no provider/env
  * probing. An entry never referenced by any chain simply does not run.
  */
 
@@ -302,8 +303,9 @@ export class JudgeResolver {
 
   /**
    * Resolve one custom judges entry into a tier: validate, resolve the
-   * apiKeyEnv key, build classify. Missing key → noKeyRef + once-per-startup
-   * warn; invalid entry → unresolvableRef + warn. Never throws.
+   * inline key or apiKeyEnv key, build classify. Inline `apiKey` wins over
+   * `apiKeyEnv`; missing key → noKeyRef + once-per-startup warn; invalid
+   * entry → unresolvableRef + warn. Never throws.
    */
   private resolveCustomJudgeEntry(
     name: string,
@@ -313,7 +315,7 @@ export class JudgeResolver {
   ): void {
     try {
       this.validateCustomJudgeEntry(name, entry);
-      const apiKey = entry.apiKeyEnv ? this.envValue(entry.apiKeyEnv) : undefined;
+      const apiKey = entry.apiKey ?? (entry.apiKeyEnv ? this.envValue(entry.apiKeyEnv) : undefined);
       if (!apiKey) {
         buckets.noKeyRefs.push(ref);
         this.warnNoKeyOnce(ref, name, entry.apiKeyEnv ? [entry.apiKeyEnv] : []);

@@ -439,6 +439,7 @@ function judgeConfigToYaml(j: NonNullable<AppConfig['judge']>): Record<string, u
               {
                 type: entry.type,
                 ...(entry.baseUrl !== undefined ? { base_url: entry.baseUrl } : {}),
+                ...(entry.apiKey !== undefined ? { api_key: entry.apiKey } : {}),
                 ...(entry.apiKeyEnv !== undefined ? { api_key_env: entry.apiKeyEnv } : {}),
                 ...(entry.model !== undefined ? { model: entry.model } : {}),
               },
