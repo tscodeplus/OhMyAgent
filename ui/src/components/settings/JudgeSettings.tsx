@@ -1562,8 +1562,10 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
     <div className="space-y-6">
       {/* ── Enable switch + per-tier classify timeout ── */}
       <SettingsCard>
-        <div className="flex items-center gap-5">
-          <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
+        {/* flex-wrap: on narrow screens the timeout group drops to its own
+            line instead of squeezing the label into a vertical text column */}
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+          <p className="whitespace-nowrap text-sm font-medium text-neutral-800 dark:text-neutral-200">
             {t('settings.judge.enabledLabel')}
           </p>
           <Toggle
@@ -1571,7 +1573,7 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
             onChange={(v) => updateDraft({ enabled: v })}
             ariaLabel={t('settings.judge.enabledLabel')}
           />
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex items-center gap-2 sm:ml-auto">
             <label
               htmlFor="judge-timeout-ms"
               className="whitespace-nowrap text-[13px] text-neutral-700 dark:text-neutral-300"
