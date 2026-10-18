@@ -1312,6 +1312,11 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
         if (j.model.trim() !== '') out.model = j.model.trim();
         judges[j.name.trim()] = out;
       }
+      const timeoutMs = Number(cur.timeoutMs);
+      if (!Number.isFinite(timeoutMs) || !Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+        showToast(t('settings.judge.timeoutInvalid'), 'error');
+        return;
+      }
       try {
         await apiRequest('/api/judge/config', {
           method: 'POST',
@@ -1323,6 +1328,7 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
             chain: cur.chain,
             modes: cur.modes,
             judges,
+            timeoutMs,
           }),
         });
         // Re-read the persisted config so key status / model enums stay fresh;
