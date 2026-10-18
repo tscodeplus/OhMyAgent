@@ -266,6 +266,11 @@
         "auxiliary": "Auxiliary Models",
         "judge": "Judge"
       },
+      "judgeTitle": "Judge Kernel",
+      "judgeHealthOff": "Judge kernel is not enabled (judge.enabled is false)",
+      "judgeHealthError": "Judge kernel is enabled but the chain has no usable judge: missing API key or no model selected",
+      "judgeHealthWarn": "{{usable}}/{{total}} judges usable; the rest are missing keys and get skipped",
+      "judgeHealthOk": "{{total}} judges ready",
       "reasoning": "Reasoning",
       "searchModels": "Search models…",
       "noModelsFound": "No matching models found",

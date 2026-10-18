@@ -31,6 +31,13 @@ import ModelIdCombobox from '../ModelIdCombobox';
 import ModelRefInput from '../ModelRefInput';
 import FallbackModelsEditor from '../FallbackModelsEditor';
 import { SettingsSection, SettingsCard } from '../SettingsSection';
+import {
+  deriveJudgeHealth,
+  type JudgeConfigResponse,
+  type JudgeHealth,
+  type JudgeHealthTone,
+} from '../judgeHealth';
+import type { TFunction } from 'i18next';
 
 /* ───────── Sub-tabs for the Models tab ───────── */
 
@@ -76,15 +83,37 @@ interface ModelSettingsProps {
   initialSubTab?: string;
 }
 
-function HealthItem({ label, ok, warn }: { label: string; ok: boolean; warn?: boolean }) {
+/** Four states: the judge dot needs a neutral "layer switched off" beyond red. */
+type HealthTone = JudgeHealthTone;
+
+const HEALTH_DOT: Record<HealthTone, string> = {
+  ok: 'bg-green-500',
+  warn: 'bg-amber-500',
+  error: 'bg-red-500',
+  off: 'bg-neutral-300 dark:bg-neutral-600',
+};
+
+function HealthItem({ label, tone, title }: { label: string; tone: HealthTone; title?: string }) {
   return (
-    <div className="flex items-center gap-1.5">
-      <span
-        className={`h-2 w-2 rounded-full ${ok ? 'bg-green-500' : warn ? 'bg-amber-500' : 'bg-red-500'}`}
-      />
+    <div className="flex items-center gap-1.5" title={title}>
+      <span className={`h-2 w-2 rounded-full ${HEALTH_DOT[tone]}`} />
       <span className="text-xs text-neutral-600 dark:text-neutral-400">{label}</span>
     </div>
   );
+}
+
+/** The judge dot's red/amber states are ambiguous without a reason on hover. */
+function judgeHealthTitle(health: JudgeHealth, t: TFunction): string {
+  switch (health.tone) {
+    case 'off':
+      return t('settings.models.judgeHealthOff');
+    case 'error':
+      return t('settings.models.judgeHealthError');
+    case 'warn':
+      return t('settings.models.judgeHealthWarn', { usable: health.usable, total: health.total });
+    case 'ok':
+      return t('settings.models.judgeHealthOk', { total: health.total });
+  }
 }
 
 export default function ModelSettings({
@@ -153,6 +182,26 @@ export default function ModelSettings({
   }, []);
   const notifyJudgeDirty = useCallback((dirty: boolean) => setJudgeDirty(dirty), []);
   const jumpToProvidersSubTab = useCallback(() => setActiveSubTab('providers'), []);
+
+  /* ─── Judge-kernel health dot ───
+     Derived from GET /api/judge/config (the only source that resolves keys
+     including env vars). Refetched per sub-tab switch so keys saved inside the
+     judge sub-tab — its own POST /api/judge/key — land on the dot too. */
+  const [judgeHealth, setJudgeHealth] = useState<JudgeHealth>(() => deriveJudgeHealth(null));
+  const refreshJudgeHealth = useCallback(async () => {
+    try {
+      const data = await apiRequest<JudgeConfigResponse>('/api/judge/config');
+      setJudgeHealth(deriveJudgeHealth(data));
+    } catch {
+      // Older server without the judge routes → the layer is inert, not broken.
+      setJudgeHealth(deriveJudgeHealth(null));
+    }
+  }, []);
+
+  // Never rejects (both branches are handled above), so `void` is not hiding one.
+  useEffect(() => {
+    void refreshJudgeHealth();
+  }, [refreshJudgeHealth, activeSubTab]);
 
   // Embedding fields become required as a set once any of them is filled
   // (partial embedding config silently disables vector memory server-side).
@@ -378,6 +427,8 @@ export default function ModelSettings({
         setProviderKeysDirty(false);
         setCustomProvidersDirty(false);
         setCustomProvidersNeedsRestart(false);
+        // The judge dot reads the persisted section, not the draft.
+        await refreshJudgeHealth();
       } catch (e) {
         showToast(t('settings.saveError'), 'error');
         throw e;
@@ -390,6 +441,7 @@ export default function ModelSettings({
       customProvidersDirty,
       providerKeys,
       customProviders,
+      refreshJudgeHealth,
       showToast,
       t,
     ],
@@ -537,13 +589,18 @@ export default function ModelSettings({
       <div className="flex items-center gap-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50 px-3 py-2">
         <HealthItem
           label={t('settings.models.title')}
-          ok={!!(piAi.provider && (piAi.apiKey || hasProviderKey))}
+          tone={piAi.provider && (piAi.apiKey || hasProviderKey) ? 'ok' : 'error'}
         />
         <span className="h-4 w-px bg-neutral-200 dark:bg-neutral-700" />
         <HealthItem
           label={t('settings.models.embeddingTitle')}
-          ok={!!(embedding.model && embedding.apiKey)}
-          warn={!embedding.model}
+          tone={embedding.model && embedding.apiKey ? 'ok' : embedding.model ? 'error' : 'warn'}
+        />
+        <span className="h-4 w-px bg-neutral-200 dark:bg-neutral-700" />
+        <HealthItem
+          label={t('settings.models.judgeTitle')}
+          tone={judgeHealth.tone}
+          title={judgeHealthTitle(judgeHealth, t)}
         />
       </div>
 

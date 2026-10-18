@@ -266,6 +266,11 @@
         "auxiliary": "辅助模型",
         "judge": "判断内核"
       },
+      "judgeTitle": "判断内核",
+      "judgeHealthOff": "判断内核未启用（judge.enabled 为 false）",
+      "judgeHealthError": "判断内核已启用，但链上没有可用的判断模型：缺少 API Key 或未选择模型",
+      "judgeHealthWarn": "{{usable}}/{{total}} 个判断模型可用，其余缺少 Key 会被跳过",
+      "judgeHealthOk": "{{total}} 个判断模型已就绪",
       "reasoning": "推理",
       "searchModels": "搜索模型…",
       "noModelsFound": "未找到匹配的模型",
