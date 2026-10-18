@@ -206,6 +206,9 @@ if [ -n "$(find node_modules -name better_sqlite3.node -path '*/better-sqlite3/*
 
 # Step 6: Compile TypeScript + copy locales + copy extension resources
 echo "[5/7] Compiling TypeScript..."
+# tsc on this codebase needs >1GB old-space; Node's default heap on the device
+# (~1GB) now causes "Ineffective mark-compacts near heap limit" OOM (exit 134).
+export NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=4096"
 pnpm build
 
 # Verify build output exists before proceeding
@@ -232,7 +235,7 @@ if [ -f ui/package.json ]; then
     fi
   fi
   rm -f "$INSTALL_LOG"
-  pnpm build 2>&1
+  NODE_OPTIONS="--max-old-space-size=4096" pnpm build 2>&1
   cd ..
   echo "  WebUI built to ui/dist/"
 else
