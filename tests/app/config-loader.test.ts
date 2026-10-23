@@ -70,6 +70,34 @@ describe('yamlToAppConfigRaw', () => {
     expect(raw.feishu.wsEnabled).toBe(false);
   });
 
+  it('maps judge.judges keys in both snake_case (api_key) and camelCase (apiKey)', () => {
+    const raw = yamlToAppConfigRaw({
+      ...minimalYaml,
+      judge: {
+        enabled: true,
+        judges: {
+          relays_snake: {
+            type: 'typesafe',
+            base_url: 'https://relay.example/v1',
+            api_key: 'sk-inline-snake',
+          },
+          relays_camel: { apiKey: 'sk-inline-camel' },
+          relays_env: { api_key_env: 'RELAY_KEY' },
+        },
+      },
+    });
+    expect(raw.judge.judges).toEqual({
+      relays_snake: {
+        type: 'typesafe',
+        baseUrl: 'https://relay.example/v1',
+        apiKey: 'sk-inline-snake',
+      },
+      // loader defaults a missing type to 'typesafe'
+      relays_camel: { type: 'typesafe', apiKey: 'sk-inline-camel' },
+      relays_env: { type: 'typesafe', apiKeyEnv: 'RELAY_KEY' },
+    });
+  });
+
   it('maps fallback_models to fallbackModels array', () => {
     const raw = yamlToAppConfigRaw({
       ...minimalYaml,

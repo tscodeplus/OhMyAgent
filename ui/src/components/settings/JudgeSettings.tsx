@@ -89,6 +89,7 @@ interface CustomJudgeEntry {
   name: string;
   type: 'typesafe' | 'http';
   baseUrl: string;
+  apiKey: string;
   apiKeyEnv: string;
   model: string;
 }
@@ -276,6 +277,7 @@ function parseCustomJudges(raw: unknown): CustomJudgeEntry[] {
       name,
       type: o.type === 'http' ? ('http' as const) : ('typesafe' as const),
       baseUrl: typeof o.baseUrl === 'string' ? o.baseUrl : '',
+      apiKey: typeof o.apiKey === 'string' ? o.apiKey : '',
       apiKeyEnv: typeof o.apiKeyEnv === 'string' ? o.apiKeyEnv : '',
       model: typeof o.model === 'string' ? o.model : 'jev-latest',
     };
@@ -1125,6 +1127,13 @@ function JudgeChainJudgesRow({
               className="text-xs"
             />
             <Input
+              label={t('settings.judge.customJudgeApiKeyLabel')}
+              value={entry.apiKey}
+              onChange={(e) => onChange({ ...entry, apiKey: e.target.value })}
+              placeholder="sk-…"
+              className="text-xs"
+            />
+            <Input
               label={t('settings.judge.customJudgeApiKeyEnvLabel')}
               value={entry.apiKeyEnv}
               onChange={(e) => onChange({ ...entry, apiKeyEnv: e.target.value })}
@@ -1308,6 +1317,7 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
       const judges: Record<string, Record<string, string>> = {};
       for (const j of named) {
         const out: Record<string, string> = { type: j.type, baseUrl: j.baseUrl.trim() };
+        if (j.apiKey.trim() !== '') out.apiKey = j.apiKey.trim();
         if (j.apiKeyEnv.trim() !== '') out.apiKeyEnv = j.apiKeyEnv.trim();
         if (j.model.trim() !== '') out.model = j.model.trim();
         judges[j.name.trim()] = out;
@@ -1523,6 +1533,7 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
                 name: '',
                 type: 'typesafe' as const,
                 baseUrl: '',
+                apiKey: '',
                 apiKeyEnv: '',
                 model: 'jev-latest',
               },

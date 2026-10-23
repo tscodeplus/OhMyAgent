@@ -396,6 +396,48 @@ describe('JudgeResolver — judges.<name> refs (custom relay judges as chain pee
     expect(chain.unresolvableRefs).toEqual(['judges.ghost']);
   });
 
+  it('entry with an inline apiKey resolves with no env at all (key never needs ENV)', () => {
+    const resolver = new JudgeResolver({
+      config: baseConfig({
+        judges: {
+          relay: { type: 'typesafe', baseUrl: 'https://relay.example/v1', apiKey: 'sk-inline' },
+        },
+        provider: 'opencode',
+        modelRef: 'jev-1.13-free',
+        fallbackTiers: ['judges.relay'],
+      }),
+      logger,
+      env: {},
+    });
+    const chain = resolver.resolveChain('tool.admission');
+    expect(chain.tiers.map((t) => t.judgeId)).toEqual(['opencode/jev-1.13-free', 'relay']);
+    expect(chain.noKeyRefs).toEqual([]);
+    expect(chain.unresolvableRefs).toEqual([]);
+  });
+
+  it('inline apiKey wins over apiKeyEnv: resolves from the inline key even when the env var is unset', () => {
+    const resolver = new JudgeResolver({
+      config: baseConfig({
+        judges: {
+          relay: {
+            type: 'typesafe',
+            baseUrl: 'https://relay.example/v1',
+            apiKey: 'sk-inline',
+            apiKeyEnv: 'RELAY_KEY',
+          },
+        },
+        provider: 'opencode',
+        modelRef: 'jev-1.13-free',
+        fallbackTiers: ['judges.relay'],
+      }),
+      logger,
+      env: {},
+    });
+    const chain = resolver.resolveChain('tool.admission');
+    expect(chain.tiers.map((t) => t.judgeId)).toEqual(['opencode/jev-1.13-free', 'relay']);
+    expect(chain.noKeyRefs).toEqual([]);
+  });
+
   it('explicit ref with a missing apiKeyEnv value → judges.<name> noKeyRef, no auto-prepend', () => {
     const resolver = new JudgeResolver({
       config: withJudges({

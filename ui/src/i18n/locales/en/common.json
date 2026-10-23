@@ -967,6 +967,7 @@
       "customJudgeNameLabel": "Name",
       "customJudgeTypeLabel": "Type",
       "customJudgeBaseUrlLabel": "Base URL",
+      "customJudgeApiKeyLabel": "Key (saved inline, picked up on reload)",
       "customJudgeApiKeyEnvLabel": "Key env var name",
       "customJudgeModelLabel": "Model (optional, default jev-latest)",
       "removeGroup": "Remove this judge",

@@ -967,6 +967,7 @@
       "customJudgeNameLabel": "名称",
       "customJudgeTypeLabel": "类型",
       "customJudgeBaseUrlLabel": "Base URL",
+      "customJudgeApiKeyLabel": "Key(直接保存,重载生效)",
       "customJudgeApiKeyEnvLabel": "Key 环境变量名",
       "customJudgeModelLabel": "模型（可选，默认 jev-latest）",
       "removeGroup": "移除该裁判",
