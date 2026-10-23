@@ -1,6 +1,7 @@
 import { calculateCost } from "../models.js";
 import type { ClassifierApi, ClassifierModel, ClassifierOptions, ProviderHeaders, Usage } from "../types.js";
 import { headersToRecord, providerHeadersToRecord } from "../utils/headers.js";
+import { type ClientIdentity, getIdentityHeaders } from "../utils/identity.js";
 import { retryProviderRequest } from "../utils/provider-retry.js";
 
 /** An HTTP failure in the shape `retryProviderRequest` and `normalizeProviderError` understand. */
@@ -42,9 +43,11 @@ function requestHeaders(
 	model: ClassifierModel<ClassifierApi>,
 	apiKey: string,
 	optionsHeaders?: ProviderHeaders,
+	identity?: ClientIdentity,
 ): Record<string, string> {
 	return (
 		providerHeadersToRecord(
+			getIdentityHeaders(model, identity),
 			{ authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
 			model.headers,
 			optionsHeaders,
@@ -81,7 +84,7 @@ export async function postClassifierRequest(
 			try {
 				const next = await requestFetch(url, {
 					method: "POST",
-					headers: requestHeaders(model, apiKey, options.headers),
+					headers: requestHeaders(model, apiKey, options.headers, options.identity),
 					body: JSON.stringify(payload),
 					signal,
 				});

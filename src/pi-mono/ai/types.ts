@@ -1,4 +1,4 @@
-import type { TelemetryContext } from "@earendil-works/pi-telemetry";
+import type { TelemetrySpan } from "@earendil-works/pi-telemetry";
 import type { AnthropicOptions } from "./api/anthropic-messages.js";
 import type { AzureOpenAIResponsesOptions } from "./api/azure-openai-responses.js";
 import type { BedrockOptions } from "./api/bedrock-converse-stream.js";
@@ -15,6 +15,7 @@ import type {
 	MistralConversationsCompat,
 	OpenAICompletionsCompat,
 	OpenAIResponsesCompat,
+	SystemOneCompat,
 } from "./providers/compat-schema.js";
 import type {
 	CacheRetention,
@@ -28,6 +29,7 @@ import type {
 } from "./providers/model-schema.js";
 import type { AssistantMessageDiagnostic } from "./utils/diagnostics.js";
 import type { AssistantMessageEventStream } from "./utils/event-stream.js";
+import type { ClientIdentity } from "./utils/identity.js";
 
 export type {
 	AnthropicAllowedFallbackModel,
@@ -39,6 +41,7 @@ export type {
 	OpenAIResponsesCompat,
 	OpenRouterRouting,
 	SessionAffinityFormat,
+	SystemOneCompat,
 	ThinkingTokenBudgetField,
 	VercelGatewayRouting,
 } from "./providers/compat-schema.js";
@@ -156,8 +159,8 @@ export interface ProviderResponse {
 /** Authentication, HTTP transport, and lifecycle callbacks shared by provider requests. */
 export interface ProviderRequestOptions<TModel = Model<Api>> {
 	signal?: AbortSignal;
-	/** Explicit parent context for telemetry produced by this logical request. */
-	telemetryContext?: TelemetryContext;
+	/** Explicit parent span for telemetry produced by this logical request. */
+	telemetry?: TelemetrySpan;
 	apiKey?: string;
 	/**
 	 * Optional fetch implementation for provider HTTP requests.
@@ -189,6 +192,11 @@ export interface ProviderRequestOptions<TModel = Model<Api>> {
 	 * A null value suppresses a provider/API default header with the same name.
 	 */
 	headers?: ProviderHeaders;
+	/**
+	 * How the request identifies the calling app: `User-Agent` and provider attribution headers.
+	 * Absent fields use pi-ai's defaults: a detailed `User-Agent` and no attribution.
+	 */
+	identity?: ClientIdentity;
 	/**
 	 * HTTP request timeout in milliseconds for providers/SDKs that support it.
 	 * For example, OpenAI and Anthropic SDK clients default to 10 minutes.
@@ -905,6 +913,8 @@ export interface ImageModel<TApi extends ImageApi> extends BaseModel<TApi> {
 export interface ClassifierModel<TApi extends ClassifierApi> extends BaseModel<TApi> {
 	type: "classifier";
 	contextWindow: number;
+	/** Compatibility overrides for System One APIs. If not set, auto-detected from provider, baseUrl, and id. */
+	compat?: TApi extends "typesafe-system-one" | "cloudflare-workers-ai-system-one" ? SystemOneCompat : never;
 }
 
 /** Model shape for each model type. */

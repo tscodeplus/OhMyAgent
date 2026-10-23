@@ -39,8 +39,8 @@ import { formatProviderError, normalizeProviderError } from "../utils/error-body
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { shortHash } from "../utils/hash.js";
 import { headersToRecord } from "../utils/headers.js";
+import { type ClientIdentity, getIdentityHeaders } from "../utils/identity.js";
 import { parseStreamingJson, parseToolCallArguments } from "../utils/json-parse.js";
-import { getPiUserAgent } from "../utils/pi-user-agent.js";
 import { getProviderEnvValue } from "../utils/provider-env.js";
 import { retryProviderRequest } from "../utils/provider-retry.js";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
@@ -351,6 +351,7 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 				normalizedContext,
 				apiKey,
 				options?.headers,
+				options?.identity,
 				options?.fetch,
 				cacheSessionId,
 				compat,
@@ -761,11 +762,12 @@ function createClient(
 	context: TranscriptContext,
 	apiKey: string,
 	optionsHeaders?: ProviderHeaders,
+	identity?: ClientIdentity,
 	fetch?: typeof globalThis.fetch,
 	sessionId?: string,
 	compat: ResolvedOpenAICompletionsCompat = getCompat(model),
 ) {
-	const headers: ProviderHeaders = { "User-Agent": getPiUserAgent(), ...model.headers };
+	const headers: ProviderHeaders = { ...getIdentityHeaders(model, identity), ...model.headers };
 	if (model.provider === "github-copilot") {
 		const hasImages = hasCopilotVisionInput(context.messages);
 		const copilotHeaders = buildCopilotDynamicHeaders({
@@ -814,7 +816,9 @@ function buildParams(
 ) {
 	const transcriptTools = resolveTranscriptTools(
 		context.messages,
-		compat.supportsMidConvoSystemMessages === true && compat.supportsMidConvoToolAdditions === true,
+		compat.supportsMidConvoSystemMessages === true && compat.supportsMidConvoToolAdditions === true
+			? "additions"
+			: "none",
 	);
 	const messages = convertMessages(model, context, compat, {
 		grammarToolInputProperties,
@@ -1230,11 +1234,14 @@ export function convertMessages(
 	const transformedMessages = transformMessages(normalizedContext.messages, model, (id) => normalizeToolCallId(id));
 	const transcriptTools = resolveTranscriptTools(
 		normalizedContext.messages,
-		compat.supportsMidConvoSystemMessages === true && compat.supportsMidConvoToolAdditions === true,
+		compat.supportsMidConvoSystemMessages === true && compat.supportsMidConvoToolAdditions === true
+			? "additions"
+			: "none",
 	);
 	const instructionRole = model.reasoning && compat.supportsDeveloperRole ? "developer" : "system";
 
 	let lastRole: string | null = null;
+	let systemIndex = 0;
 
 	for (let i = 0; i < transformedMessages.length; i++) {
 		const msg = transformedMessages[i];
@@ -1248,7 +1255,8 @@ export function convertMessages(
 		}
 
 		if (msg.role === "system") {
-			const addedTools = i > 0 && transcriptTools.anchorsAdditions ? (msg.toolsAdded ?? []) : [];
+			// transformMessages keeps system messages in order, so their position matches the transcript.
+			const addedTools = systemIndex++ >= transcriptTools.foldedSystemMessages ? (msg.toolsAdded ?? []) : [];
 			if (addedTools.length > 0) {
 				const kimiToolMessage: KimiToolSystemMessageParam = {
 					role: "system",
@@ -1420,7 +1428,7 @@ export function convertMessages(
 				const hasImages = toolMsg.content.some((c) => c.type === "image");
 
 				// Always send tool result with text (or placeholder if only images)
-				const hasText = textResult.length > 0;
+				const hasText = textResult.trim().length > 0;
 				const toolResultText = hasText ? textResult : hasImages ? "(see attached image)" : "(no tool output)";
 				// Some providers require the 'name' field in tool results
 				const toolResultMsg: ChatCompletionToolMessageParam = {

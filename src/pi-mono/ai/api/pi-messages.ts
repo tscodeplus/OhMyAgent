@@ -27,6 +27,7 @@ import type {
 import { appendAssistantMessageDiagnostic, createAssistantMessageDiagnostic } from "../utils/diagnostics.js";
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { headersToRecord, providerHeadersToRecord } from "../utils/headers.js";
+import { getIdentityHeaders } from "../utils/identity.js";
 import { parseStreamingJson } from "../utils/json-parse.js";
 import { getProviderEnvValue } from "../utils/provider-env.js";
 
@@ -391,12 +392,15 @@ export const stream: StreamFunction<"pi-messages", PiMessagesOptions> = (
 
 			const response = await (options?.fetch ?? globalThis.fetch)(url, {
 				method: "POST",
-				headers: {
-					authorization: `Bearer ${apiKey}`,
-					accept: "text/event-stream",
-					"content-type": "application/json",
-					...providerHeadersToRecord(options?.headers),
-				},
+				headers: providerHeadersToRecord(
+					getIdentityHeaders(model, options?.identity),
+					{
+						authorization: `Bearer ${apiKey}`,
+						accept: "text/event-stream",
+						"content-type": "application/json",
+					},
+					options?.headers,
+				),
 				body: JSON.stringify(payload),
 				signal: options?.signal,
 			});

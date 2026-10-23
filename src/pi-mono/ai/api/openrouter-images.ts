@@ -19,6 +19,7 @@ import type {
 } from "../types.js";
 import { formatProviderError, normalizeProviderError } from "../utils/error-body.js";
 import { headersToRecord, providerHeadersToRecord } from "../utils/headers.js";
+import { type ClientIdentity, getIdentityHeaders } from "../utils/identity.js";
 import { retryProviderRequest } from "../utils/provider-retry.js";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
 
@@ -58,7 +59,7 @@ export const generateImages: ImagesFunction<ImagesOptions> = async (
 		if (!apiKey) {
 			throw new Error(`No API key for provider: ${model.provider}`);
 		}
-		const client = createClient(model, apiKey, options?.headers, options?.fetch);
+		const client = createClient(model, apiKey, options?.headers, options?.fetch, options?.identity);
 		let params = buildParams(model, context);
 		const nextParams = await options?.onPayload?.(params, model);
 		if (nextParams !== undefined) {
@@ -121,13 +122,14 @@ function createClient(
 	apiKey: string,
 	optionsHeaders?: ProviderHeaders,
 	fetch?: typeof globalThis.fetch,
+	identity?: ClientIdentity,
 ): OpenAI {
 	return new OpenAI({
 		apiKey,
 		baseURL: model.baseUrl,
 		dangerouslyAllowBrowser: true,
 		fetch,
-		defaultHeaders: providerHeadersToRecord({ ...model.headers, ...optionsHeaders }),
+		defaultHeaders: providerHeadersToRecord(getIdentityHeaders(model, identity), model.headers, optionsHeaders),
 	});
 }
 

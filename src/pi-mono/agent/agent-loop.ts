@@ -5,10 +5,13 @@
 
 import {
 	type AssistantMessage,
+	type ClientIdentity,
 	EventStream,
 	getCurrentTools,
 	getToolStateChanges,
+	mergeClientIdentity,
 	normalizeContext,
+	PI_ATTRIBUTION,
 	type SystemMessage,
 	type Tool,
 	type ToolResultMessage,
@@ -31,6 +34,12 @@ import type {
 } from "./types.js";
 
 export type AgentEventSink = (event: AgentEvent) => Promise<void> | void;
+
+/**
+ * Request identity of agent loops: pi-ai's defaults with provider attribution to pi. `AgentLoopConfig.identity`
+ * overrides it field by field.
+ */
+export const DEFAULT_AGENT_IDENTITY: ClientIdentity = { attribution: PI_ATTRIBUTION };
 
 /**
  * Start an agent loop with a new prompt message.
@@ -545,6 +554,7 @@ async function streamAssistantResponse(
 			(config.getApiKey ? await config.getApiKey(model.provider) : undefined) || config.apiKey;
 
 		const response: import("../ai/utils/event-stream.js").AssistantMessageEventStream = await streamFunction(model, llmContext, {
+			identity: mergeClientIdentity(DEFAULT_AGENT_IDENTITY, config.identity),
 			...config,
 			apiKey: resolvedApiKey,
 			signal,

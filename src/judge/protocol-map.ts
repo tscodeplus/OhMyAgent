@@ -14,7 +14,11 @@ import type {
   ClassifierQuestion,
   ClassifierResult,
 } from '@earendil-works/pi-ai';
-import { classifySystemOne, type SystemOneTransport } from '../pi-mono/ai/api/system-one-shared.js';
+import {
+  classifySystemOne,
+  type ResolvedSystemOneCompat,
+  type SystemOneTransport,
+} from '../pi-mono/ai/api/system-one-shared.js';
 import { isRecord } from '../pi-mono/ai/api/classifier-shared.js';
 import type {
   ChoiceQ,
@@ -29,6 +33,17 @@ import type {
 
 /** Default System One model id a relay judge is assumed to serve (entry `model` overrides). */
 export const CUSTOM_JUDGE_DEFAULT_MODEL = 'jev-latest';
+
+/**
+ * v1.4.0 System One transports auto-detect image-input compat. Relay judges hide
+ * behind custom baseUrls, so detect off the host the same way upstream's
+ * typesafe transport does: OpenRouter hosts take image_url state parts (no
+ * opt-in header); anything else follows TypeSafe (assets + opt-in header).
+ */
+const detectRelayCompat = (model: ClassifierModel<ClassifierApi>): ResolvedSystemOneCompat =>
+  model.provider === 'openrouter' || model.baseUrl.includes('openrouter.ai')
+    ? { imageInput: 'state-image-urls', sendImageOptInHeader: false }
+    : { imageInput: 'assets', sendImageOptInHeader: true };
 
 /** Classifier api id tagged onto custom `http`-type judge results (open ClassifierApi union). */
 export const SYSTEM_ONE_HTTP_API = 'system-one-http';
@@ -71,6 +86,7 @@ export function customJudgeTransport(type: JudgeEntryConfig['type']): SystemOneT
     return {
       api: 'typesafe-system-one',
       label: 'Custom typesafe relay',
+      detectCompat: detectRelayCompat,
       url: (model) => new URL('systemone', `${model.baseUrl.replace(/\/+$/u, '')}/`),
       payload: (model, request) => ({ model: model.id, ...request }),
       output: (body) => {
@@ -83,6 +99,7 @@ export function customJudgeTransport(type: JudgeEntryConfig['type']): SystemOneT
   return {
     api: SYSTEM_ONE_HTTP_API,
     label: 'System One HTTP relay',
+    detectCompat: detectRelayCompat,
     url: (model) => new URL(model.baseUrl),
     payload: (_model, request) => request,
     output: (body) => {

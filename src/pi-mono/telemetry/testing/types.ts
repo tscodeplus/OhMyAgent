@@ -1,9 +1,12 @@
-import type { TelemetryContext } from "../index.js";
-import type { RecordedTelemetrySpan } from "../memory.js";
+import type { TelemetryContext, TelemetryMetrics, TelemetryPropagation } from "../index.js";
+import type { RecordedTelemetryMeasurement, RecordedTelemetrySpan } from "../memory.js";
 
 /** A fresh adapter instance and normalized snapshot reader owned by one conformance case. */
 export interface TelemetryAdapterFixture extends AsyncDisposable {
 	readonly context: TelemetryContext;
+	readonly propagation?: TelemetryPropagation;
+	readonly metrics?: TelemetryMetrics;
+	getMetrics?(): Promise<readonly RecordedTelemetryMeasurement[]>;
 	getSpans(): Promise<readonly RecordedTelemetrySpan[]>;
 }
 

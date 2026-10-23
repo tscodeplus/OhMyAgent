@@ -17,8 +17,8 @@ import { combineAbortSignals } from "../utils/abort-signals.js";
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { shortHash } from "../utils/hash.js";
 import { headersToRecord } from "../utils/headers.js";
+import { getIdentityHeaders } from "../utils/identity.js";
 import { parseStreamingJson, parseToolCallArguments } from "../utils/json-parse.js";
-import { getPiUserAgent } from "../utils/pi-user-agent.js";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
 import { getSystemMessageText, renderSystemMessageUpdate } from "../utils/text.js";
 import { getCurrentTools, resolveTranscript } from "../utils/transcript.js";
@@ -354,7 +354,7 @@ class MistralHttpError extends Error {
 
 function buildMistralHeaders(model: Model<"mistral-conversations">, apiKey: string, options?: MistralOptions): Headers {
 	const headers = new Headers({
-		"User-Agent": getPiUserAgent(),
+		...getIdentityHeaders(model, options?.identity),
 		accept: "text/event-stream",
 		authorization: `Bearer ${apiKey}`,
 		"content-type": "application/json",
