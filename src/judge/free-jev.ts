@@ -167,7 +167,13 @@ export class FreeJevMonitor {
       return;
     }
     const message = outcome.errorMessage ?? '';
-    const isSunsetKind = /\b(402|404|410)\b|payment required|not found|gone/i.test(message);
+    // 451 is how the OpenCode Console gateway surfaces "Upstream request failed:
+    // Endpoint is unavailable" — the free model's upstream is gone (observed
+    // server-side outage, 2026-10); treat it like the other sunset kinds.
+    const isSunsetKind =
+      /\b(402|404|410|451)\b|payment required|not found|gone|endpoint is unavailable/i.test(
+        message,
+      );
     if (!isSunsetKind) return;
     this.sunsetFailures += 1;
     if (this.sunsetFailures >= 5) {
