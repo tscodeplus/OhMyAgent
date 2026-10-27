@@ -8,9 +8,32 @@ import Spinner from '../ui/Spinner';
 import { CHAT_MEDIA_TOOL_NAMES, isChatMediaUrl } from '../../utils/chatMedia';
 import { devLog } from '../../utils/logger';
 
+/** One page of a session transcript: newest page first, older pages via `before`. */
+export interface MessagePage {
+  messages: Message[];
+  hasMore: boolean;
+}
+
+/**
+ * Alternative history source for `MessageList`. When provided, paging reads
+ * from it instead of the project-session detail endpoint — that is how the
+ * read-only IM inbox transcript reuses this renderer.
+ */
+export type MessagePageFetcher = (query: {
+  limit: number;
+  before?: number | string;
+}) => Promise<MessagePage>;
+
 interface MessageListProps {
   projectId?: string;
   sessionId?: string;
+  /** Overrides the project-session endpoint as the paging source. */
+  loadPage?: MessagePageFetcher;
+  /** Hides the interactive cards (approvals, questions, harness proposals)
+   *  that would write back to a session — used by the IM inbox transcript. */
+  readOnly?: boolean;
+  /** Text shown when the session has no messages (defaults to the chat hint). */
+  emptyStateText?: string;
   streamingMessages?: Message[];
   /** True while an SSE stream is active. */
   isStreaming?: boolean;
@@ -41,6 +64,9 @@ const SNAP_GRACE_MS = 120;
 export default function MessageList({
   projectId: _projectId,
   sessionId,
+  loadPage,
+  readOnly,
+  emptyStateText,
   streamingMessages: externalMessages,
   isStreaming,
   isThinking,
@@ -140,13 +166,15 @@ export default function MessageList({
   // response resolving late must never overwrite fresher data.
   const fetchSeqRef = useRef(0);
   const fetchLatest = useCallback(async () => {
-    if (!_projectId || !sessionId) return;
+    if (!loadPage && (!_projectId || !sessionId)) return;
     const seq = ++fetchSeqRef.current;
     setLoading(true);
     try {
-      const data = await apiRequest<{ messages: Message[]; hasMore: boolean }>(
-        `/api/projects/${_projectId}/sessions/${sessionId}?limit=${PAGE_SIZE}`,
-      );
+      const data = loadPage
+        ? await loadPage({ limit: PAGE_SIZE })
+        : await apiRequest<MessagePage>(
+            `/api/projects/${_projectId}/sessions/${sessionId}?limit=${PAGE_SIZE}`,
+          );
       if (seq !== fetchSeqRef.current) return; // superseded by a newer request
       formatResponse(data);
       devLog('[MessageList] API fetch OK (latest)', {
@@ -167,11 +195,12 @@ export default function MessageList({
     } finally {
       if (seq === fetchSeqRef.current) setLoading(false);
     }
-  }, [_projectId, sessionId, refetchKey, onRefetched, formatResponse]);
+  }, [_projectId, sessionId, loadPage, refetchKey, onRefetched, formatResponse]);
 
   // Load older messages (prepends to existing list, preserves scroll position)
   const loadMore = useCallback(async () => {
-    if (!_projectId || !sessionId || !hasMore || loadingMore || !oldestCreatedAt) return;
+    if ((!loadPage && (!_projectId || !sessionId)) || !hasMore || loadingMore || !oldestCreatedAt)
+      return;
     devLog('[MessageList] loadMore triggered', { oldestCreatedAt });
     setLoadingMore(true);
     isLoadingMoreRef.current = true;
@@ -180,9 +209,11 @@ export default function MessageList({
       prevScrollHeightRef.current = scrollContainerRef.current.scrollHeight;
     }
     try {
-      const data = await apiRequest<{ messages: Message[]; hasMore: boolean }>(
-        `/api/projects/${_projectId}/sessions/${sessionId}?before=${encodeURIComponent(oldestCreatedAt)}&limit=${PAGE_SIZE}`,
-      );
+      const data = loadPage
+        ? await loadPage({ before: oldestCreatedAt, limit: PAGE_SIZE })
+        : await apiRequest<MessagePage>(
+            `/api/projects/${_projectId}/sessions/${sessionId}?before=${encodeURIComponent(oldestCreatedAt)}&limit=${PAGE_SIZE}`,
+          );
       formatResponse(data);
       devLog('[MessageList] loadMore OK', { count: data.messages?.length, hasMore: data.hasMore });
       const older = data.messages || [];
@@ -197,7 +228,7 @@ export default function MessageList({
       setLoadingMore(false);
       isLoadingMoreRef.current = false;
     }
-  }, [_projectId, sessionId, hasMore, loadingMore, oldestCreatedAt, formatResponse]);
+  }, [_projectId, sessionId, loadPage, hasMore, loadingMore, oldestCreatedAt, formatResponse]);
 
   // Store loadMore in a ref so IntersectionObserver can always call the latest version
   const loadMoreRef = useRef(loadMore);
@@ -432,13 +463,13 @@ export default function MessageList({
         {/* Empty state */}
         {!loading && displayMessages.length === 0 && !isThinking && !hideEmptyState && (
           <div className="flex items-center justify-center h-full text-neutral-500 dark:text-neutral-400 text-sm">
-            {t('chat.sendMessage')}
+            {emptyStateText ?? t('chat.sendMessage')}
           </div>
         )}
 
         <div className="max-w-3xl mx-auto space-y-4">
           {displayMessages.map((msg) => (
-            <MessageBubble key={msg.id} message={msg} />
+            <MessageBubble key={msg.id} message={msg} readOnly={readOnly} />
           ))}
           {/* Stream retry/fallback status — a model attempt failed and the
             gateway is retrying or switching to the next fallback model.
