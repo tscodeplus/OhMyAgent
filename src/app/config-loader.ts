@@ -209,6 +209,7 @@ function buildMemorySection(memCfg: YamlNode): Record<string, unknown> {
   const mermaidCfg = memCfg?.mermaid_canvas as YamlNode;
   const personaCfg = memCfg?.persona as YamlNode;
   const sceneCfg = memCfg?.scene_clustering as YamlNode;
+  const graphCfg = memCfg?.graph as YamlNode;
   const compressCfg = memCfg?.auto_compress as YamlNode;
   const compressModelCfg = compressCfg?.model as YamlNode;
 
@@ -337,6 +338,16 @@ function buildMemorySection(memCfg: YamlNode): Record<string, unknown> {
       enabled: yamlBool(sceneCfg?.enabled, false, 'sceneCfg?.enabled'),
       windowDays: num(sceneCfg?.window_days, 7, 'sceneCfg?.window_days'),
       minMemories: num(sceneCfg?.min_memories, 5, 'sceneCfg?.min_memories'),
+    },
+    // Knowledge-graph projection (src/graph/graph-sync.ts). Keys stay
+    // snake_case here on purpose: unlike the rest of this section, this block
+    // is read back as snake_case by src/graph/graph-config.ts and declared
+    // snake_case in the config schema, so camelCasing it in the loader would
+    // silently fall back to the defaults.
+    graph: {
+      enabled: yamlBool(graphCfg?.enabled, true, 'graphCfg?.enabled'),
+      min_confidence: num(graphCfg?.min_confidence, 0.3, 'graphCfg?.min_confidence'),
+      max_links_per_run: num(graphCfg?.max_links_per_run, 500, 'graphCfg?.max_links_per_run'),
     },
     autoCompress: {
       enabled: yamlBool(compressCfg?.enabled, true, 'compressCfg?.enabled'),
