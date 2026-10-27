@@ -75,6 +75,14 @@ const DEFAULT_MIN_SCORE = 0.01;
 /** How many entity-graph candidates to prefetch per addition the expansion may emit. */
 const ENTITY_LINK_CANDIDATE_LOOKAHEAD = 8;
 
+/**
+ * How many memory→entity→memory hops the entity-graph expansion walks.
+ * Two reaches a memory that shares an entity with a memory that shares an
+ * entity with a real hit; each further hop costs another pair of queries and
+ * buys diminishing relevance.
+ */
+const ENTITY_LINK_MAX_HOPS = 2;
+
 // ── Concurrency limiter ──
 
 /**
@@ -653,6 +661,13 @@ export class MemoryRetriever {
    * Expand results via entity graph traversal.
    * Follows memory → entity → memory links to discover related memories
    * that keyword/vector search might have missed.
+   *
+   * Two hops by default: the first reaches memories that share an entity with
+   * a real hit, the second reaches memories that share an entity with *those*
+   * — the "Alice → OhMyAgent → Bob" bridge a single hop cannot cross. Memories
+   * and entities already walked are kept in visited sets, and the additions
+   * stay capped, so a hub entity or a cycle costs one visit each instead of
+   * unbounded growth.
    */
   private expandByEntityLinks(
     merged: MergedResult[],
@@ -662,36 +677,15 @@ export class MemoryRetriever {
     if (!this.memoryLinkRepo || merged.length === 0) return merged;
 
     try {
-      const memoryIds = merged.map((r) => r.id);
-      const entities = this.memoryLinkRepo.findEntitiesByMemoryIds(memoryIds);
-
-      if (entities.length === 0) return merged;
-
-      const linksByEntity = this.memoryLinkRepo.findByEntities([
-        ...new Set(entities.filter((e) => e.confidence >= 0.5).map((e) => e.target_entity)),
-      ]);
-
-      const relatedIds = new Set<string>(memoryIds);
-      const additions: MergedResult[] = [];
       const maxAdditions = 3;
       const decayFactor = 0.8;
       // A hub entity can hold thousands of links, so only the rows the
       // traversal can actually reach are fetched — in traversal order.
       const candidateLimit = maxAdditions * ENTITY_LINK_CANDIDATE_LOOKAHEAD;
 
-      const candidateIds: string[] = [];
-      const fetched = new Set<string>();
-      outer: for (const { target_entity, confidence } of entities) {
-        if (confidence < 0.5) continue;
-        for (const link of linksByEntity.get(target_entity) ?? []) {
-          if (link.confidence < 0.5) continue;
-          if (relatedIds.has(link.source_memory_id) || fetched.has(link.source_memory_id)) continue;
-          fetched.add(link.source_memory_id);
-          candidateIds.push(link.source_memory_id);
-          if (candidateIds.length >= candidateLimit) break outer;
-        }
-      }
-      const memories = this.loadMemoriesById(candidateIds);
+      const visitedMemories = new Set<string>(merged.map((r) => r.id));
+      const visitedEntities = new Set<string>();
+      const additions: MergedResult[] = [];
 
       // Derived neighbours decay off the best real hit. The old 0.1 floor was
       // above the top score whenever rerank skipped normalization — it returns
@@ -699,30 +693,69 @@ export class MemoryRetriever {
       // let a graph neighbour outrank the memory that actually matched.
       const topScore = Math.max(...merged.map((r) => r.score));
 
-      for (const { target_entity, confidence } of entities) {
-        if (confidence < 0.5) continue;
-        const related = linksByEntity.get(target_entity) ?? [];
-        for (const link of related) {
-          if (relatedIds.has(link.source_memory_id)) continue;
-          if (link.confidence < 0.5) continue;
-          const linkedMemory = memories.get(link.source_memory_id);
-          if (!linkedMemory || !matchesMemoryAccess(linkedMemory, policy)) continue;
-          if (additions.length >= maxAdditions) break;
+      let frontierMemoryIds = [...visitedMemories];
 
-          relatedIds.add(link.source_memory_id);
-          additions.push({
-            id: link.source_memory_id,
-            content: '', // filled by enrichResults
-            score: topScore * decayFactor * link.confidence,
-            source: 'entity_graph',
-            scope: '',
-            scopeKey: '',
-            kind: '',
-            createdAt: 0,
-            sourcePool,
-          });
+      for (let hop = 1; hop <= ENTITY_LINK_MAX_HOPS && additions.length < maxAdditions; hop++) {
+        const entities = this.memoryLinkRepo
+          .findEntitiesByMemoryIds(frontierMemoryIds)
+          .filter(
+            (entity) => entity.confidence >= 0.5 && !visitedEntities.has(entity.target_entity),
+          );
+        if (entities.length === 0) break;
+        for (const entity of entities) visitedEntities.add(entity.target_entity);
+
+        const linksByEntity = this.memoryLinkRepo.findByEntities([
+          ...new Set(entities.map((entity) => entity.target_entity)),
+        ]);
+
+        const candidateIds: string[] = [];
+        const fetched = new Set<string>();
+        outer: for (const { target_entity, confidence } of entities) {
+          if (confidence < 0.5) continue;
+          for (const link of linksByEntity.get(target_entity) ?? []) {
+            if (link.confidence < 0.5) continue;
+            if (visitedMemories.has(link.source_memory_id) || fetched.has(link.source_memory_id)) {
+              continue;
+            }
+            fetched.add(link.source_memory_id);
+            candidateIds.push(link.source_memory_id);
+            if (candidateIds.length >= candidateLimit) break outer;
+          }
         }
-        if (additions.length >= maxAdditions) break;
+        if (candidateIds.length === 0) break;
+
+        const memories = this.loadMemoriesById(candidateIds);
+
+        const nextFrontier: string[] = [];
+        for (const { target_entity, confidence } of entities) {
+          if (confidence < 0.5) continue;
+          for (const link of linksByEntity.get(target_entity) ?? []) {
+            if (link.confidence < 0.5) continue;
+            const linkedMemory = memories.get(link.source_memory_id);
+            if (!linkedMemory || visitedMemories.has(linkedMemory.id)) continue;
+            visitedMemories.add(linkedMemory.id);
+            // An inaccessible memory is not walked through either — its edges
+            // must not become a route to records the policy hides.
+            if (!matchesMemoryAccess(linkedMemory, policy)) continue;
+            nextFrontier.push(linkedMemory.id);
+            if (additions.length >= maxAdditions) break;
+            additions.push({
+              id: linkedMemory.id,
+              content: '', // filled by enrichResults
+              score: topScore * decayFactor ** hop * link.confidence,
+              source: 'entity_graph',
+              scope: '',
+              scopeKey: '',
+              kind: '',
+              createdAt: 0,
+              sourcePool,
+            });
+          }
+          if (additions.length >= maxAdditions) break;
+        }
+
+        if (nextFrontier.length === 0) break;
+        frontierMemoryIds = nextFrontier;
       }
 
       return [...merged, ...additions];
