@@ -1,0 +1,35 @@
+{
+  "id": "/webui/",
+  "name": "OhMyAgent",
+  "short_name": "OhMyAgent",
+  "description": "自托管 AI Agent 网关 — 记忆、技能、审批、多渠道",
+  "lang": "zh-CN",
+  "dir": "ltr",
+  "start_url": "/webui/",
+  "scope": "/webui/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/webui/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/webui/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/webui/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

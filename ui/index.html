@@ -6,6 +6,20 @@
     <meta name="description" content="OhMyAgent - AI Agent Management Console" />
     <title>OhMyAgent</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- Installable-app metadata. `status-bar-style: default` keeps the status
+         bar opaque, which means iOS reports `env(safe-area-inset-top)` as 0 and
+         the AppShell's `pt-safe` / `h-11` top bar stay correct. Switching to
+         `black-translucent` would halve the top bar's usable height. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="OhMyAgent" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- Matches the WebUI canvas per theme (neutral-950 in dark mode). -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0d1117" />
     <script>
       // Apply dark mode before page render to prevent flash
       // Follows system by default; user can override in settings
