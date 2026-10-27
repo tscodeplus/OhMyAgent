@@ -30,7 +30,7 @@ import {
 function createTestDb() {
   const db = new Database(':memory:');
   db.exec(`
-    CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, chat_id TEXT, thread_id TEXT, user_id TEXT, created_at TEXT DEFAULT (cast(strftime('%s','now') as integer) * 1000), updated_at TEXT DEFAULT (cast(strftime('%s','now') as integer) * 1000), metadata TEXT);
+    CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, chat_id TEXT, thread_id TEXT, user_id TEXT, channel TEXT, external_chat_id TEXT, title TEXT, created_at TEXT DEFAULT (cast(strftime('%s','now') as integer) * 1000), updated_at TEXT DEFAULT (cast(strftime('%s','now') as integer) * 1000), metadata TEXT);
     CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, session_id TEXT, role TEXT, content TEXT, tool_call_id TEXT, created_at TEXT DEFAULT (cast(strftime('%s','now') as integer) * 1000), metadata TEXT);
     CREATE TABLE IF NOT EXISTS episodes (id TEXT PRIMARY KEY, session_id TEXT, summary TEXT, key_points TEXT, created_at TEXT DEFAULT (cast(strftime('%s','now') as integer) * 1000));
     CREATE TABLE IF NOT EXISTS memories (id TEXT PRIMARY KEY, scope TEXT, scope_key TEXT, kind TEXT, content TEXT, metadata TEXT, agent_id TEXT, visibility TEXT DEFAULT 'shared', created_at TEXT DEFAULT (cast(strftime('%s','now') as integer) * 1000), updated_at TEXT DEFAULT (cast(strftime('%s','now') as integer) * 1000));

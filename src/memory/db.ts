@@ -8,6 +8,7 @@ import { migrateV6 } from './migration-v6.js';
 import { migrateV7 } from './migration-v7.js';
 import { migrateV8 } from './migration-v8.js';
 import { migrateV9 } from './migration-v9.js';
+import { migrateV10 } from './migration-v10.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -142,6 +143,14 @@ export function openDatabase(dbPath: string): Database.Database {
   // V8 migration: create mcp_oauth_credentials for MCP OAuth state (idempotent;
   // nothing writes to it unless the user configures a server with `oauth:`).
   migrateV8(db);
+
+  // V10 migration: knowledge-graph tables (entities / entity_aliases /
+  // entity_edges, with valid_from/valid_to so a retracted fact is closed
+  // rather than deleted) plus the messages_fts_jieba index. Runs AFTER
+  // applySchema because its FTS backfill reads `messages`, which applySchema
+  // creates on a fresh database. Nothing reads these tables unless the graph
+  // layer is used, so an install that ignores it pays only the DDL.
+  migrateV10(db);
 
   // Backfill FTS index for memories that are missing from it (first-time
   // migration for existing databases, plus partial corruption self-heal:
