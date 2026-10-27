@@ -425,6 +425,17 @@ const configSchema = z.object({
         minMemories: z.coerce.number().int().positive().default(5),
       })
       .default({}),
+    // Knowledge-graph projection of `memory_links` into `entities`/
+    // `entity_edges` (src/graph/graph-sync.ts). Every key is optional so an
+    // existing config.yaml keeps validating; a wrong type still fails the
+    // boot like every other key.
+    graph: z
+      .object({
+        enabled: z.boolean().default(true),
+        min_confidence: z.coerce.number().min(0).max(1).default(0.3),
+        max_links_per_run: z.coerce.number().int().positive().default(500),
+      })
+      .default({}),
     maintenance: z
       .object({
         enabled: z.boolean().default(true),
@@ -1076,6 +1087,11 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
         windowDays: env.SCENE_CLUSTERING_WINDOW_DAYS,
         minMemories: env.SCENE_CLUSTERING_MIN_MEMORIES,
       },
+      graph: {
+        enabled: envBool(env.MEMORY_GRAPH_ENABLED, true),
+        min_confidence: env.MEMORY_GRAPH_MIN_CONFIDENCE,
+        max_links_per_run: env.MEMORY_GRAPH_MAX_LINKS_PER_RUN,
+      },
     },
     cron: {
       enabled: envBool(env.CRON_ENABLED, true),
@@ -1360,6 +1376,11 @@ function applyEnvOverrides(
     env.SCENE_CLUSTERING_WINDOW_DAYS !== undefined ||
     env.SCENE_CLUSTERING_MIN_MEMORIES !== undefined
       ? [{ env: '1', field: 'sceneClustering' }]
+      : []),
+    ...(env.MEMORY_GRAPH_ENABLED !== undefined ||
+    env.MEMORY_GRAPH_MIN_CONFIDENCE !== undefined ||
+    env.MEMORY_GRAPH_MAX_LINKS_PER_RUN !== undefined
+      ? [{ env: '1', field: 'graph' }]
       : []),
   ]);
 

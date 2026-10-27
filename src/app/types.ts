@@ -255,6 +255,14 @@ export interface AppConfig {
       windowDays: number;
       minMemories: number;
     };
+    /** Knowledge-graph projection of `memory_links` (src/graph/graph-sync.ts). */
+    graph?: {
+      enabled: boolean;
+      /** Links below this confidence are not projected. */
+      min_confidence: number;
+      /** Upper bound on links projected by one run. */
+      max_links_per_run: number;
+    };
     maintenance?: {
       enabled: boolean;
       intervalMs: number;

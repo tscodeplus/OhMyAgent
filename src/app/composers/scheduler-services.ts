@@ -11,6 +11,8 @@ import { createOffloadHygieneJob } from '../../memory/maintenance/jobs/offload-h
 import { createPersonaConsistencyJob } from '../../memory/maintenance/jobs/persona-consistency-job.js';
 // scene_cluster and memory_hygiene are now handled by DreamCycle (nightly)
 import { createMemoryDoctorJob } from '../../memory/maintenance/jobs/memory-doctor-job.js';
+import { createGraphSyncJob } from '../../graph/graph-sync.js';
+import { resolveGraphSyncConfig } from '../../graph/graph-config.js';
 import { DreamCycle } from '../../memory/dream-cycle.js';
 import type { MergeConfig } from '../../memory/memory-merge.js';
 import { CronDeliveryRegistry } from '../../cron/delivery-registry.js';
@@ -146,6 +148,15 @@ export function createSchedulers(input: {
   if (jobConfigs.memory_doctor !== false) {
     maintenanceScheduler.register(createMemoryDoctorJob(memory.memoryDoctor));
   }
+  // Knowledge-graph projection of `memory_links` into `entities`/`entity_edges`.
+  // It runs here — not on the turn path and not inside DreamCycle — because the
+  // scheduler already owns the two things the projector needs: an interval gate
+  // (a dream cycle is nightly, but links appear whenever the extractor runs)
+  // and one `maintenance_runs` row per run. Registered disabled when
+  // memory.graph.enabled is false, so it never even ticks.
+  maintenanceScheduler.register(
+    createGraphSyncJob(db, resolveGraphSyncConfig(config.memory?.graph), logger),
+  );
   logger.info(
     { jobCount: maintenanceScheduler.listJobs().length },
     'MaintenanceScheduler initialized',
