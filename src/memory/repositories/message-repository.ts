@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { deleteMessageFts, deleteSessionMessageFts, syncMessageJiebaFts } from '../fts.js';
 
 export interface Message {
   id: string;
@@ -49,7 +50,12 @@ export class MessageRepository {
       metadata: input.metadata ?? null,
       created_at: input.created_at ?? Date.now(),
     });
-    return this.findById(input.id)!;
+    const created = this.findById(input.id)!;
+    // Keep messages_fts_jieba in step with the row: unified search and the
+    // knowledge graph read it, and the index used to be written only once
+    // (migration-v10 backfill), so every later message was invisible to search.
+    syncMessageJiebaFts(this.db, 'insert', created);
+    return created;
   }
 
   findById(id: string): Message | undefined {
@@ -99,18 +105,24 @@ export class MessageRepository {
 
     const sql = `UPDATE messages SET ${fields.join(', ')} WHERE id = @id`;
     this.db.prepare(sql).run(values);
-    return this.findById(id);
+    const updated = this.findById(id);
+    if (updated && (input.content !== undefined || input.role !== undefined)) {
+      syncMessageJiebaFts(this.db, 'update', updated);
+    }
+    return updated;
   }
 
   delete(id: string): boolean {
     const stmt = this.db.prepare('DELETE FROM messages WHERE id = ?');
     const result = stmt.run(id);
+    if (result.changes > 0) deleteMessageFts(this.db, id);
     return result.changes > 0;
   }
 
   deleteBySessionId(sessionId: string): number {
     const stmt = this.db.prepare('DELETE FROM messages WHERE session_id = ?');
     const result = stmt.run(sessionId);
+    if (result.changes > 0) deleteSessionMessageFts(this.db, sessionId);
     return result.changes;
   }
 

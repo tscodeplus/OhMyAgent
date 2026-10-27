@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { buildFtsQuery, tokenizeForIndex, isJiebaAvailable } from './fts-tokenizer.js';
 import { memoryObservability } from './observability.js';
+import { parseEpochMs } from '../shared/timestamp.js';
 
 export interface FtsSearchResult {
   memoryId: string;
@@ -290,5 +291,116 @@ export function rebuildJiebaFts(db: Database.Database): number {
       error: err instanceof Error ? err.message : String(err),
     });
     return 0;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// messages_fts_jieba (knowledge-graph / unified search)
+// ---------------------------------------------------------------------------
+
+/**
+ * Databases whose `messages_fts_jieba` table is missing.
+ *
+ * The table is created by migration-v10, which has not run for every caller:
+ * unit-test fixtures build their own schema, and a read-only handle cannot
+ * migrate. Without this memoisation every single message write would pay a
+ * failing `prepare()` plus an observation event, which is exactly the kind of
+ * noise that hides real FTS failures.
+ */
+const messageFtsUnavailable = new WeakSet<Database.Database>();
+
+/**
+ * Sync one message to the jieba FTS5 index.
+ *
+ * `memories_fts_jieba` is kept current by `syncJiebaFts` from the memory
+ * repository; `messages_fts_jieba` used to be backfilled once (when empty) by
+ * migration-v10 and never written again, so unified search silently stopped
+ * matching any message sent after the first boot. Call this from every
+ * messages write path, exactly like the memory repository does.
+ *
+ * Non-fatal by design: the message row is already committed, and a search index
+ * that lags must never fail a chat turn. Failures are recorded so the drift is
+ * observable instead of silent.
+ */
+export function syncMessageJiebaFts(
+  db: Database.Database,
+  action: 'insert' | 'update' | 'delete',
+  message: {
+    id: string;
+    session_id: string;
+    role: string;
+    content: string;
+    created_at?: number | string | null;
+  },
+): void {
+  if (messageFtsUnavailable.has(db)) return;
+
+  try {
+    db.prepare('DELETE FROM messages_fts_jieba WHERE message_id = ?').run(message.id);
+    if (action === 'delete') return;
+
+    db.prepare(
+      `INSERT INTO messages_fts_jieba
+         (content, content_original, message_id, session_id, role, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(
+      // Falls back to the raw text when jieba is unavailable, matching what the
+      // migration's backfill does — a degraded index still beats a stale one.
+      tokenizeForIndex(message.content),
+      message.content,
+      message.id,
+      message.session_id,
+      message.role,
+      String(parseEpochMs(message.created_at)),
+    );
+  } catch (err) {
+    const text = err instanceof Error ? err.message : String(err);
+    if (/no such table/i.test(text)) {
+      messageFtsUnavailable.add(db);
+      return;
+    }
+    memoryObservability.record('memory.fts.failed', {
+      operation: 'syncMessageJiebaFts',
+      messageId: message.id,
+      error: text,
+    });
+  }
+}
+
+/** Drop one indexed message (message deletion). */
+export function deleteMessageFts(db: Database.Database, messageId: string): void {
+  if (messageFtsUnavailable.has(db)) return;
+  try {
+    db.prepare('DELETE FROM messages_fts_jieba WHERE message_id = ?').run(messageId);
+  } catch (err) {
+    const text = err instanceof Error ? err.message : String(err);
+    if (/no such table/i.test(text)) {
+      messageFtsUnavailable.add(db);
+      return;
+    }
+    memoryObservability.record('memory.fts.failed', {
+      operation: 'deleteMessageFts',
+      messageId,
+      error: text,
+    });
+  }
+}
+
+/** Drop every indexed message of a session (session deletion). */
+export function deleteSessionMessageFts(db: Database.Database, sessionId: string): void {
+  if (messageFtsUnavailable.has(db)) return;
+  try {
+    db.prepare('DELETE FROM messages_fts_jieba WHERE session_id = ?').run(sessionId);
+  } catch (err) {
+    const text = err instanceof Error ? err.message : String(err);
+    if (/no such table/i.test(text)) {
+      messageFtsUnavailable.add(db);
+      return;
+    }
+    memoryObservability.record('memory.fts.failed', {
+      operation: 'deleteSessionMessageFts',
+      sessionId,
+      error: text,
+    });
   }
 }
