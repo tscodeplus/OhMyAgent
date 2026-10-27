@@ -20,6 +20,7 @@ import { apiRequest } from '../../utils/api';
 import { useDesktopPlatform } from '../../utils/desktop';
 import { useToast } from '../ui/Toast';
 import ProjectList from './ProjectList';
+import InboxSidebar from '../inbox/InboxSidebar';
 import SettingsModal from '../settings/SettingsModal';
 import SetupWizard from '../setup-wizard/SetupWizard';
 import CreateProjectModal from '../project-wizard/CreateProjectModal';
@@ -351,9 +352,11 @@ export default function AppShell() {
           ? t('nav.memory')
           : location.pathname.startsWith('/cron')
             ? t('nav.cron')
-            : isChatArea
-              ? t('tabs.chat')
-              : 'OhMyAgent';
+            : location.pathname.startsWith('/inbox')
+              ? t('inbox.title')
+              : isChatArea
+                ? t('tabs.chat')
+                : 'OhMyAgent';
   // In the chat area the caption shows the current session's full title
   // (the opaque project id is useless there); other pages keep id / page.
   const captionText = isChatArea
@@ -405,6 +408,8 @@ export default function AppShell() {
             onRefresh={() => setRefreshKey((k) => k + 1)}
             onCreateProject={() => setShowCreateProject(true)}
           />
+          {/* IM channels inbox — same scrolling column, below the chats. */}
+          <InboxSidebar refreshKey={refreshKey} />
         </div>
 
         {/* Panels drawer — labelled expand/collapse row (the visible label

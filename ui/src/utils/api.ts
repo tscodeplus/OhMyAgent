@@ -1,3 +1,5 @@
+import type { InboxMessagesQuery, InboxPage, InboxQuery, InboxSessionDetail } from '../types/inbox';
+
 const TOKEN_KEY = 'ohmyagent_token';
 
 /** Default request timeout (10s) to prevent hanging when remote gateway is unreachable. */
@@ -73,4 +75,35 @@ export function createSWRFetcher<T>() {
   return async (url: string): Promise<T> => {
     return apiRequest<T>(url);
   };
+}
+
+/** Build a `?a=1&b=2` suffix, skipping params the caller left undefined or empty. */
+function queryString(params: Record<string, string | number | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === '') continue;
+    search.set(key, String(value));
+  }
+  const qs = search.toString();
+  return qs ? `?${qs}` : '';
+}
+
+/**
+ * IM inbox listing. Errors surface as `ApiError` like every other endpoint, so
+ * callers use the same try/catch-and-toast style as the rest of the app.
+ */
+export function fetchInbox(params: InboxQuery = {}): Promise<InboxPage> {
+  return apiRequest<InboxPage>(
+    `/api/inbox${queryString({ channel: params.channel, limit: params.limit, before: params.before })}`,
+  );
+}
+
+/** One page of an IM session's transcript (404 when the id is not an IM session). */
+export function fetchInboxSession(
+  id: string,
+  params: InboxMessagesQuery = {},
+): Promise<InboxSessionDetail> {
+  return apiRequest<InboxSessionDetail>(
+    `/api/inbox/${encodeURIComponent(id)}/messages${queryString({ limit: params.limit, before: params.before })}`,
+  );
 }

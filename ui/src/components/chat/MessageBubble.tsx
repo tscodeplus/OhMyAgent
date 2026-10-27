@@ -16,6 +16,9 @@ import { isChatMediaUrl } from '../../utils/chatMedia';
 
 interface MessageBubbleProps {
   message: Message;
+  /** Read-only transcript (IM inbox): the approval / question / harness cards
+   *  are write affordances and are not rendered. */
+  readOnly?: boolean;
 }
 
 /**
@@ -161,7 +164,7 @@ function buildSegmentGroups(segments: MessageSegment[]): SegmentRenderGroup[] {
   return groups;
 }
 
-function MessageBubble({ message }: MessageBubbleProps) {
+function MessageBubble({ message, readOnly }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isAssistant = message.role === 'assistant';
   const footer = message.footer;
@@ -632,7 +635,7 @@ function MessageBubble({ message }: MessageBubbleProps) {
           </div>
         )}
 
-        {message.approval && (
+        {message.approval && !readOnly && (
           <div className="mt-2 w-full">
             <ApprovalCard
               approvalId={message.approval.approvalId}
@@ -660,7 +663,7 @@ function MessageBubble({ message }: MessageBubbleProps) {
           </div>
         )}
 
-        {message.userQuestion && (
+        {message.userQuestion && !readOnly && (
           <div className="mt-2 w-full">
             <UserQuestionCard
               data={{
@@ -677,7 +680,7 @@ function MessageBubble({ message }: MessageBubbleProps) {
           </div>
         )}
 
-        {message.harnessImprovement && (
+        {message.harnessImprovement && !readOnly && (
           <div className="mt-2 w-full">
             <HarnessImprovementCard
               proposal={message.harnessImprovement}

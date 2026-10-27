@@ -11,6 +11,7 @@ import FilesView from './components/files/FilesView';
 import DashboardView from './components/dashboard/DashboardView';
 import MemoryView from './components/memory/MemoryView';
 import CronView from './components/cron/CronView';
+import InboxView from './components/inbox/InboxView';
 import { apiRequest } from './utils/api';
 import { syncLanguageToServer } from './utils/syncLanguage';
 import type { Session } from './types/session';
@@ -130,6 +131,7 @@ export default function App() {
         <Route path="/dashboard" element={<DashboardView />} />
         <Route path="/memory" element={<MemoryView />} />
         <Route path="/cron" element={<CronView />} />
+        <Route path="/inbox/:sessionId" element={<InboxView />} />
       </Route>
     </Routes>
   );

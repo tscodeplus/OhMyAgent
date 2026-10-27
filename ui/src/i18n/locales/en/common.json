@@ -1443,5 +1443,25 @@
     "saveError": "Failed to save",
     "save": "Save",
     "cancel": "Cancel"
+  },
+  "inbox": {
+    "title": "Inbox",
+    "empty": "No IM conversations yet",
+    "loadError": "Failed to load the inbox",
+    "loadMore": "Load more",
+    "messageCount": "{{count}} message(s)",
+    "readOnly": "Read-only",
+    "readOnlyNotice": "This conversation came from an IM channel and is view-only here — reply from the chat app itself.",
+    "emptyMessages": "This conversation has no messages yet",
+    "notImSession": "This conversation is not an IM channel session",
+    "channels": {
+      "feishu": "Feishu",
+      "telegram": "Telegram",
+      "wechat": "WeChat",
+      "qq": "QQ",
+      "webui": "Web UI",
+      "cron": "Scheduled",
+      "unknown": "Other"
+    }
   }
 }

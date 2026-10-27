@@ -1443,5 +1443,25 @@
     "maximize": "最大化",
     "restore": "还原",
     "close": "关闭"
+  },
+  "inbox": {
+    "title": "收件箱",
+    "empty": "还没有来自 IM 渠道的会话",
+    "loadError": "收件箱加载失败",
+    "loadMore": "加载更多",
+    "messageCount": "{{count}} 条消息",
+    "readOnly": "只读",
+    "readOnlyNotice": "该会话来自 IM 渠道，这里只能查看，无法在此回复。",
+    "emptyMessages": "该会话还没有消息",
+    "notImSession": "该会话不是 IM 渠道会话",
+    "channels": {
+      "feishu": "飞书",
+      "telegram": "Telegram",
+      "wechat": "微信",
+      "qq": "QQ",
+      "webui": "网页",
+      "cron": "定时任务",
+      "unknown": "其他"
+    }
   }
 }
