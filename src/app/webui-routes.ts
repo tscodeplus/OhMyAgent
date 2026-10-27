@@ -15,6 +15,7 @@ import { ProjectStore } from './webui/project-store.js';
 import { registerProjectRoutes } from './webui/project-routes.js';
 import { registerAgentRoutes } from './webui/agent-routes.js';
 import { registerSessionRoutes } from './webui/session-routes.js';
+import { registerInboxRoutes } from './webui/inbox-routes.js';
 import { registerChatRoutes, type ChatRouteConfig } from './webui/chat-routes.js';
 import { registerConfigRoutes } from './webui/config-routes.js';
 import { registerJudgeRoutes } from './webui/judge-routes.js';
@@ -92,6 +93,9 @@ export async function registerWebUIRoutes(
   });
 
   registerSessionRoutes(app, cfg.db, () => cfg.getConfig().footer);
+  // Read-only IM inbox (sessions with project_id IS NULL). Same auth: the
+  // webuiAuthHook is a root-level onRequest hook registered in bootstrap.ts.
+  registerInboxRoutes(app, cfg.db, () => cfg.getConfig().footer);
 
   const chatConfig: ChatRouteConfig = {
     agentService: cfg.services.agentService,

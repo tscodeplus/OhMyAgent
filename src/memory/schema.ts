@@ -7,6 +7,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   thread_id TEXT,
   user_id TEXT NOT NULL,
   project_id TEXT,
+  channel TEXT,
+  external_chat_id TEXT,
+  title TEXT,
   created_at TEXT NOT NULL DEFAULT (cast(strftime('%s','now') as integer) * 1000),
   updated_at TEXT NOT NULL DEFAULT (cast(strftime('%s','now') as integer) * 1000),
   metadata TEXT
@@ -309,6 +312,8 @@ const INDEXES = [
   'CREATE INDEX IF NOT EXISTS idx_memory_terms_term ON memory_terms(term, term_type)',
   'CREATE INDEX IF NOT EXISTS idx_memory_terms_memory ON memory_terms(memory_id)',
   'CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id)',
+  // IM inbox: WHERE project_id IS NULL [AND channel = ?] ORDER BY updated_at DESC
+  'CREATE INDEX IF NOT EXISTS idx_sessions_channel_updated ON sessions(channel, updated_at DESC)',
   // memory_embeddings.memory_id is a FK but SQLite does NOT auto-index FKs.
   // findByMemoryId / deleteByMemoryId / cosineSearch's JOIN all filter on it.
   'CREATE INDEX IF NOT EXISTS idx_memory_embeddings_memory ON memory_embeddings(memory_id)',

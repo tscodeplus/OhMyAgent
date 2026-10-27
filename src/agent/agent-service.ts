@@ -38,6 +38,7 @@ import { EventBridge } from './event-bridge.js';
 import type { ImageContent } from '../pi-mono/ai/types.js';
 import type { VisionBridgeService } from '../vision-bridge/vision-bridge-service.js';
 import { persistMessages } from './message-persister.js';
+import { inferChannel } from '../memory/session-channel.js';
 import { buildFriendlyErrorMessage } from './provider-error.js';
 import { recoverFromOverflow } from './overflow-recovery.js';
 import { waitForIdleWithTimeout } from '../shared/with-timeout.js';
@@ -576,7 +577,9 @@ export class AgentService {
       runtime.lastTouchedAt = turnStart;
 
       if (this.persistence && sessionId) {
-        this.ensureSession(sessionId);
+        // Hand the turn's channel and transport chat handle to the session row
+        // so IM sessions are groupable in the inbox (see memory/session-channel).
+        this.ensureSession(sessionId, { channel: options?.channel, chatId: options?.chatId });
         // Auto-title the conversation from its first user message. Fire-and-forget:
         // never blocks or breaks the turn, and only writes when the current title
         // is still a placeholder (user renames always win).
@@ -1518,6 +1521,12 @@ export class AgentService {
       turnElapsed?: number;
       footerConfig?: FooterConfig;
       agentName?: string;
+      /** Channel + transport chat handle captured when the turn started. The
+       *  persistence fallback below can create the session row before the
+       *  turn-start ensureSession did (e.g. after a runtime eviction), so it
+       *  needs the same identity to stamp the channel columns. */
+      channel?: string;
+      turnContext: { chatId?: string };
     },
   ): Promise<void> {
     const { messageRepository, logger } = this.persistence!;
@@ -1527,7 +1536,11 @@ export class AgentService {
       runtime,
       messageRepository,
       logger,
-      ensureSession: (key) => this.ensureSession(key),
+      ensureSession: (key) =>
+        this.ensureSession(key, {
+          channel: runtime.channel,
+          chatId: runtime.turnContext.chatId,
+        }),
     });
   }
 
@@ -1624,6 +1637,10 @@ export class AgentService {
         sessionRepository.update(sessionKey, {
           metadata: JSON.stringify({ ...currentMeta, title }),
         });
+        // Mirror the title into its own column (v9) — the inbox lists sessions
+        // without parsing metadata per row. metadata.title stays authoritative
+        // for rows written by older releases.
+        sessionRepository.setTitle(sessionKey, title);
         logger.info({ sessionKey, title }, 'Session title auto-generated');
       } catch (err) {
         logger.debug({ err, sessionKey }, 'Session title generation skipped');
@@ -1690,17 +1707,33 @@ export class AgentService {
     });
   }
 
-  private ensureSession(sessionKey: string): void {
+  /**
+   * Create the session row on first use, then keep its activity timestamp fresh.
+   *
+   * `chat_id` keeps recording the session key on purpose — approvals and card
+   * routing read it as the conversation handle. The channel and the real
+   * transport handle live in their own columns (v9) so the IM inbox can group
+   * and filter sessions without reinterpreting chat_id.
+   */
+  private ensureSession(sessionKey: string, options?: { channel?: string; chatId?: string }): void {
     const { sessionRepository } = this.persistence!;
+    const channel = options?.channel ?? inferChannel(sessionKey, options?.chatId);
     const existingSession = sessionRepository.findById(sessionKey);
     if (!existingSession) {
       sessionRepository.create({
         id: sessionKey,
         chat_id: sessionKey,
         user_id: 'unknown',
+        channel,
+        external_chat_id: options?.chatId ?? null,
       });
     } else {
       sessionRepository.touch(sessionKey);
+      // One-time backfill for rows created before v9 (or before the channel
+      // was known). Skipped once the column is set, so it never rewrites.
+      if (!existingSession.channel) {
+        sessionRepository.setChannelIfMissing(sessionKey, channel, options?.chatId ?? null);
+      }
     }
   }
 

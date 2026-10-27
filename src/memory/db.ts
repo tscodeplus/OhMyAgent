@@ -7,6 +7,7 @@ import { migrateV5 } from './migration-v5.js';
 import { migrateV6 } from './migration-v6.js';
 import { migrateV7 } from './migration-v7.js';
 import { migrateV8 } from './migration-v8.js';
+import { migrateV9 } from './migration-v9.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -84,6 +85,18 @@ export function openDatabase(dbPath: string): Database.Database {
   // V4 migration: add project_id to sessions (must run BEFORE applySchema
   // so that the idx_sessions_project index creation succeeds on existing DBs)
   migrateV4(db);
+
+  // V9 migration: add channel / external_chat_id / title to sessions and
+  // backfill them. Same ordering constraint as V4 — applySchema's
+  // idx_sessions_channel_updated DDL references `channel`, which only the
+  // migration can add to a table that already exists.
+  const v9Result = migrateV9(db);
+  if (v9Result.added.length > 0) {
+    logger.info(`[V9] Session migration: added columns: ${v9Result.added.join(', ')}`);
+  }
+  if (v9Result.backfilled > 0) {
+    logger.info(`[V9] Session migration: backfilled ${v9Result.backfilled} column values`);
+  }
 
   // V2 + V3 migrations: the same ordering constraint as V4, for `memories`.
   // applySchema's index DDL covers agent_id / visibility / status, but
