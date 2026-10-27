@@ -27,6 +27,7 @@ import { registerTemplateRoutes } from './webui/templates-routes.js';
 import { registerFilesRoutes } from './webui/files-routes.js';
 import { registerPublicDownloadRoutes } from './webui/public-download-routes.js';
 import { registerMemoryRoutes } from './webui/memory-routes.js';
+import { registerGraphRoutes } from './webui/graph-routes.js';
 import { registerCronRoutes } from './webui/cron-routes.js';
 import { registerApprovalRoutes } from './webui/approval-routes.js';
 import { registerSubscriptionRoutes } from './subscription/subscription-routes.js';
@@ -184,6 +185,10 @@ export async function registerWebUIRoutes(
     // Scene digest files live under the same base dir SceneClusterer writes to
     sceneBaseDir: cfg.getConfig().memory.offloading?.refDir || './data',
   });
+
+  // Read-only knowledge-graph API + unified search. Reuses the memory
+  // retriever so /api/search ranks memories like chat recall does.
+  registerGraphRoutes(app, { db: cfg.db, memoryRetriever: cfg.services.memoryRetriever });
 
   registerCronRoutes(app, cfg.services.cronService);
 
