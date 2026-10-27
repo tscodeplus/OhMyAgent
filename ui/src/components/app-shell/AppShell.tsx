@@ -10,6 +10,7 @@ import {
   Folder,
   BarChart3,
   Database,
+  Network,
   Clock,
   ChevronDown,
 } from 'lucide-react';
@@ -48,6 +49,7 @@ const TOOL_TABS: Tab[] = [
   { id: 'skills', path: '/skills', labelKey: 'tabs.skills', icon: Sparkles },
   { id: 'files', path: '/files', labelKey: 'tabs.files', icon: Folder },
   { id: 'memory', path: '/memory', labelKey: 'tabs.memory', icon: Database },
+  { id: 'graph', path: '/graph', labelKey: 'tabs.graph', icon: Network },
   { id: 'cron', path: '/cron', labelKey: 'tabs.cron', icon: Clock },
   { id: 'dashboard', path: '/dashboard', labelKey: 'tabs.dashboard', icon: BarChart3 },
 ];
@@ -350,13 +352,15 @@ export default function AppShell() {
         ? t('nav.dashboard')
         : location.pathname.startsWith('/memory')
           ? t('nav.memory')
-          : location.pathname.startsWith('/cron')
-            ? t('nav.cron')
-            : location.pathname.startsWith('/inbox')
-              ? t('inbox.title')
-              : isChatArea
-                ? t('tabs.chat')
-                : 'OhMyAgent';
+          : location.pathname.startsWith('/graph')
+            ? t('nav.graph')
+            : location.pathname.startsWith('/cron')
+              ? t('nav.cron')
+              : location.pathname.startsWith('/inbox')
+                ? t('inbox.title')
+                : isChatArea
+                  ? t('tabs.chat')
+                  : 'OhMyAgent';
   // In the chat area the caption shows the current session's full title
   // (the opaque project id is useless there); other pages keep id / page.
   const captionText = isChatArea

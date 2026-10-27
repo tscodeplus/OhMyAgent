@@ -8,7 +8,8 @@
     "marketplace": "技能市场",
     "files": "文件",
     "panels": "功能面板",
-    "main": "主导航"
+    "main": "主导航",
+    "graph": "知识图谱"
   },
   "tabs": {
     "chat": "对话",
@@ -17,7 +18,8 @@
     "cron": "定时任务",
     "skills": "技能",
     "marketplace": "技能市场",
-    "files": "文件"
+    "files": "文件",
+    "graph": "知识图谱"
   },
   "sidebar": {
     "projects": "对话",
@@ -1463,5 +1465,42 @@
       "cron": "定时任务",
       "unknown": "其他"
     }
+  },
+  "graph": {
+    "title": "知识图谱",
+    "subtitle": "实体、关系与记忆的统一检索",
+    "searchPlaceholder": "搜索实体、记忆或对话…",
+    "searchNoResults": "没有找到相关内容",
+    "searchError": "搜索失败，请稍后重试",
+    "kinds": {
+      "entity": "实体",
+      "memory": "记忆",
+      "message": "对话"
+    },
+    "depth": "深度",
+    "overview": "总览",
+    "backToOverview": "返回总览",
+    "depthOption": "{{count}} 跳",
+    "counts": "{{nodes}} 个实体 · {{edges}} 条关系",
+    "emptyTitle": "还没有知识图谱数据",
+    "emptyHint": "随着你和 Agent 的对话，实体与关系会自动积累到这里。",
+    "loadError": "知识图谱加载失败",
+    "retry": "重试",
+    "loading": "加载中…",
+    "showingFirst": "显示前 {{count}} 个",
+    "truncated": "节点过多，已按上限截断",
+    "clickHint": "点击节点可切换到该实体",
+    "canvasLabel": "实体关系图",
+    "nodeAria": "实体 {{name}}",
+    "aliases": "别名",
+    "noAliases": "暂无别名",
+    "outgoing": "发出的关系",
+    "incoming": "指向它的关系",
+    "noRelations": "暂无关系",
+    "unknownEntity": "未知实体",
+    "confidence": "置信度 {{value}}%",
+    "retracted": "已失效",
+    "validFrom": "自 {{date}} 起",
+    "validUntil": "{{date}} 失效"
   }
 }

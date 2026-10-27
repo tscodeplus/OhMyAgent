@@ -8,7 +8,8 @@
     "marketplace": "Marketplace",
     "files": "Files",
     "panels": "Panels",
-    "main": "Navigation"
+    "main": "Navigation",
+    "graph": "Knowledge Graph"
   },
   "tabs": {
     "chat": "Chat",
@@ -17,7 +18,8 @@
     "cron": "Cron Jobs",
     "skills": "Skills",
     "marketplace": "Marketplace",
-    "files": "Files"
+    "files": "Files",
+    "graph": "Knowledge Graph"
   },
   "sidebar": {
     "projects": "Chat",
@@ -1463,5 +1465,42 @@
       "cron": "Scheduled",
       "unknown": "Other"
     }
+  },
+  "graph": {
+    "title": "Knowledge Graph",
+    "subtitle": "Search entities, relations and memories in one place",
+    "searchPlaceholder": "Search entities, memories or messages…",
+    "searchNoResults": "No matching results",
+    "searchError": "Search failed. Please try again.",
+    "kinds": {
+      "entity": "Entities",
+      "memory": "Memories",
+      "message": "Messages"
+    },
+    "depth": "Depth",
+    "overview": "Overview",
+    "backToOverview": "Back to overview",
+    "depthOption": "{{count}} hop(s)",
+    "counts": "{{nodes}} entities · {{edges}} relations",
+    "emptyTitle": "No knowledge graph data yet",
+    "emptyHint": "Entities and relations build up here automatically as you chat with the agent.",
+    "loadError": "Failed to load the knowledge graph",
+    "retry": "Retry",
+    "loading": "Loading…",
+    "showingFirst": "Showing the first {{count}}",
+    "truncated": "Too many nodes — the view is capped",
+    "clickHint": "Click a node to centre it",
+    "canvasLabel": "Entity relation graph",
+    "nodeAria": "Entity {{name}}",
+    "aliases": "Aliases",
+    "noAliases": "No aliases",
+    "outgoing": "Outgoing relations",
+    "incoming": "Incoming relations",
+    "noRelations": "No relations",
+    "unknownEntity": "Unknown entity",
+    "confidence": "Confidence {{value}}%",
+    "retracted": "Retracted",
+    "validFrom": "Since {{date}}",
+    "validUntil": "Retracted {{date}}"
   }
 }
