@@ -77,12 +77,21 @@ textarea:focus {
 }
 
 /* Use dynamic viewport height on mobile to account for Safari's
-   collapsing address bar. Falls back to 100vh on unsupported browsers. */
+   collapsing address bar. Falls back to 100vh on unsupported browsers.
+
+   `#root` deliberately does NOT repeat 100dvh: `body` carries the safe-area
+   `padding` (see the rule below), and body uses border-box sizing, so a
+   second 100dvh child overflows the body's *content* box by exactly
+   (padding-top + padding-bottom) — 68px of dead scroll on a notched iPhone
+   in standalone/PWA mode. `height: 100%` resolves against the body's content
+   box instead, which is the full viewport minus the insets. */
 @supports (height: 100dvh) {
   html,
-  body,
-  #root {
+  body {
     height: 100dvh;
+  }
+  #root {
+    height: 100%;
   }
 }
 
@@ -341,4 +350,37 @@ html.dark .markdown-content td {
   100% {
     opacity: 0;
   }
+}
+
+/* ─── iOS focus-zoom fix ────────────────────────────────────────────────────
+   WebKit zooms the whole page when a form control whose computed font-size is
+   below 16px receives focus, and does NOT zoom back out on blur — leaving the
+   layout stuck at a scale > 1 with the right edge clipped. This is a WebKit
+   hard-coded heuristic, not a Safari-tab behaviour: the iOS PWA (standalone)
+   hits it identically, so installing the WebUI as an app does not help.
+
+   The only fix that keeps pinch-zoom (accessibility) intact is to raise the
+   control font-size to 16px on phones. The alternative — `user-scalable=no` —
+   is ignored in Safari tabs and would disable pinch-zoom where honoured.
+
+   `-webkit-touch-callout` is only understood by WebKit on iOS, so the rule
+   stays iOS-only and leaves Android Chrome / desktop untouched.
+
+   These rules are intentionally unlayered: Tailwind v4 utilities live in
+   `@layer utilities`, and unlayered declarations win over any layer, so this
+   overrides `text-sm` (14px) without `!important`.                        */
+@supports (-webkit-touch-callout: none) {
+  @media (max-width: 768px) {
+    input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+    textarea,
+    select {
+      font-size: 16px;
+    }
+  }
+}
+
+/* Safari also shrinks/enlarges text when rotating between portrait and
+   landscape unless text scaling is pinned. */
+html {
+  -webkit-text-size-adjust: 100%;
 }

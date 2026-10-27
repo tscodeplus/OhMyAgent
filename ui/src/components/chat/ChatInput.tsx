@@ -19,6 +19,7 @@ import Toggle from '../ui/Toggle';
 import { useSettings } from '../../contexts/SettingsContext';
 import { devLog } from '../../utils/logger';
 import { CHAT_MEDIA_TOOL_NAMES, isChatMediaUrl } from '../../utils/chatMedia';
+import { useMediaQuery } from '../../utils/useMediaQuery';
 import type {
   Message,
   MessageApproval,
@@ -138,6 +139,13 @@ export default function ChatInput({
   const { openSettings } = useSettings();
   const location = useLocation();
   const [input, setInput] = useState('');
+
+  // Phones have no Shift key, and `enterKeyHint="send"` already labels the
+  // on-screen return key "发送" — so the desktop hint is both misleading and
+  // too wide for a phone-width composer once the iOS focus-zoom fix raised the
+  // control font-size to 16px. Below md — the same breakpoint the font-size
+  // rule uses — show a short one.
+  const isCompactViewport = useMediaQuery('(max-width: 768px)');
   const [sending, setSending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const autoSentRef = useRef(false);
@@ -1779,9 +1787,15 @@ export default function ChatInput({
       className={`chat-input-theme relative bg-white dark:bg-neutral-950 ${
         centered
           ? 'flex min-h-0 flex-1 flex-col justify-center px-3 pb-[14vh] sm:px-4'
-          : /* Bottom padding keeps the input lifted off the page edge (the old
-             pb-safe left 0px there); safe-area inset is honored on top of it. */
-            'shrink-0 px-3 pt-0 pb-[calc(env(safe-area-inset-bottom,0px)+8px)] sm:px-4 sm:pb-[calc(env(safe-area-inset-bottom,0px)+12px)]'
+          : /* Bottom padding = safe-area inset + 4px (6px from sm). The inset
+               MUST be re-added here despite `body` carrying the same padding
+               in index.css: the AppShell root is `fixed inset-0`, and a fixed
+               element is positioned against the viewport — it ignores the
+               body's padding entirely. The body rule only affects non-fixed
+               content; `.pt-safe` / `.pb-safe` exist for exactly this reason.
+               Dropping the inset here put the composer 4px from the physical
+               screen edge, underneath the home indicator on notched iPhones. */
+            'shrink-0 px-3 pt-0 pb-[calc(env(safe-area-inset-bottom,0px)+4px)] sm:px-4 sm:pb-[calc(env(safe-area-inset-bottom,0px)+6px)]'
       } ${isDragOver ? 'ring-2 ring-blue-400 dark:ring-blue-500' : ''}`}
       onDragOver={(e) => {
         e.preventDefault();
@@ -1906,7 +1920,17 @@ export default function ChatInput({
 
         {/* Anchor wrapper — the palette and the corner buttons are positioned
             relative to the textarea itself, not the outer column, so the
-            palette's bottom edge always hugs the input. */}
+            palette's bottom edge always hugs the input.
+
+            The textarea reserves a bottom band (pb-[40px]) instead of side
+            paddings: the corner controls (slash button + agent/model pills on
+            the left, attach + send on the right) sit *inside* that band, so
+            text uses the full width of the box. Reserving width on the right
+            instead (the previous `pr-[88px]`) pushed every line's wrap point
+            88px short of the right edge, which is visible with long text — and
+            on the left it never reserved anything at all, so the last line
+            already ran under the pills. The band is sized to the taller of the
+            two control rows (h-7 = 28px at `bottom-1.5` → 34px) plus slack. */}
         <div className="relative">
           <textarea
             ref={textareaRef}
@@ -1921,7 +1945,9 @@ export default function ChatInput({
               setSlashOpen(false);
               setSlashHidden(true);
             }}
-            placeholder={t('chat.input.placeholder')}
+            placeholder={
+              isCompactViewport ? t('chat.input.placeholderMobile') : t('chat.input.placeholder')
+            }
             rows={4}
             disabled={!projectId || (!sessionId && !onQuickStart)}
             enterKeyHint="send"
@@ -1929,7 +1955,7 @@ export default function ChatInput({
             autoCorrect="off"
             autoCapitalize="off"
             spellCheck={false}
-            className="block w-full resize-none rounded-xl border border-neutral-300 bg-white py-2.5 pl-3 pr-[88px] text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none disabled:opacity-50 sm:py-3 sm:pl-4 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-600"
+            className="block w-full resize-none rounded-xl border border-neutral-300 bg-white px-3 pt-2.5 pb-[40px] text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none disabled:opacity-50 sm:px-4 sm:pt-3 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-600"
           />
 
           {/* Slash command palette — opens toward whichever side of the textarea
