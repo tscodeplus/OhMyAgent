@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { parseEpochMs } from '../../shared/timestamp.js';
 
 export interface Session {
   id: string;
@@ -43,8 +44,10 @@ export interface InboxSessionSummary {
   channel: string | null;
   external_chat_id: string | null;
   title: string | null;
-  updated_at: string;
-  created_at: string;
+  /** Epoch milliseconds, NOT the raw TEXT column value — the WebUI sorts and
+   *  formats these directly and `new Date('1791372138000')` is Invalid Date. */
+  updated_at: number;
+  created_at: number;
   message_count: number;
   /** Newest message content, truncated by the caller-facing projection. */
   preview: string;
@@ -223,10 +226,22 @@ export class SessionRepository {
           ORDER BY s.updated_at DESC
           LIMIT @limit`,
       )
-      .all(params) as Array<Omit<InboxSessionSummary, 'preview'> & { preview: string | null }>;
+      .all(params) as Array<
+      Omit<InboxSessionSummary, 'preview' | 'updated_at' | 'created_at'> & {
+        preview: string | null;
+        updated_at: string | number;
+        created_at: string | number;
+      }
+    >;
 
     return rows.map((row) => ({
       ...row,
+      // The columns are TEXT holding epoch-ms digit strings (see the cursor
+      // comment above); the projection above is what the WebUI consumes, so
+      // normalise to numbers here rather than shipping a string that
+      // `new Date(...)` cannot parse.
+      updated_at: parseEpochMs(row.updated_at),
+      created_at: parseEpochMs(row.created_at),
       preview: row.preview === null ? '' : String(row.preview).slice(0, PREVIEW_MAX_CHARS),
     }));
   }

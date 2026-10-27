@@ -109,7 +109,7 @@ describe('IM inbox routes', () => {
       channel: 'feishu',
       external_chat_id: 'oc_1',
       title: 'Feishu chat',
-      updated_at: '3000',
+      updated_at: 3000,
       message_count: 0,
       preview: '',
     });
