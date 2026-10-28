@@ -229,7 +229,8 @@ export function attestsRelation(
   if (normalized === MENTION_RELATION_TYPE) return true;
   const pattern = RELATION_EVIDENCE[normalized];
   if (!pattern) return true;
-  if (!text) return false;
+  // No text (an edge whose source memory is gone): unverifiable, not disproven.
+  if (!text) return true;
 
   const subjectSpan = spanOf(text, subject);
   const targetSpan = spanOf(text, target);

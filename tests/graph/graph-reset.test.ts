@@ -140,6 +140,7 @@ describe('graph-reset: cleaning up the pre-K3 projection', () => {
       mentionEdges: 1,
       orphanEndpointEdges: 0,
       orphanMemoryEdges: 1,
+      unattestedEdges: 0,
     });
     // Real entities survive; only the two memory: nodes are gone.
     expect(entityNames()).toEqual(['Acme Corp', 'Alice Smith', '程语']);
@@ -179,6 +180,7 @@ describe('graph-reset: cleaning up the pre-K3 projection', () => {
       mentionEdges: 0,
       orphanEndpointEdges: 0,
       orphanMemoryEdges: 0,
+      unattestedEdges: 0,
     });
   });
 

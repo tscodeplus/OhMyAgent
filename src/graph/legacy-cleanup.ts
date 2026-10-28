@@ -55,6 +55,9 @@ import type Database from 'better-sqlite3';
 import type { Logger } from 'pino';
 import { EntityRepository } from '../memory/repositories/entity-repository.js';
 import {
+  attestsRelation,
+  isTokenAlignedMention,
+  isVouchableEntityName,
   mineMemoryLinkSubjects,
   MENTION_RELATION_TYPE,
   type MemoryLinkMiningSummary,
@@ -89,6 +92,8 @@ export interface LegacyCleanupSummary {
   orphanEndpointEdges: number;
   /** Edges deleted because their `source_memory_id` no longer exists. */
   orphanMemoryEdges: number;
+  /** Typed edges deleted because no memory attests the statement or its names. */
+  unattestedEdges: number;
 }
 
 export interface LegacyGraphCounts {
@@ -168,6 +173,7 @@ export function emptyLegacyCleanupSummary(): LegacyCleanupSummary {
     mentionEdges: 0,
     orphanEndpointEdges: 0,
     orphanMemoryEdges: 0,
+    unattestedEdges: 0,
   };
 }
 
@@ -298,8 +304,58 @@ function orphanMemoryPlan(db: Database.Database): DeletePlan {
 }
 
 /**
+ * Edges whose statement the current code no longer attests.
+ *
+ * The projector only adds, so an edge it created before the endpoint and
+ * relation checks existed stays forever. On the real device corpus that left
+ * `穿衣建议 —ADVISES→ 周五` (the keyword was inside the entity's own name) and
+ * `LTS —ADVISES→ 常规` (220 characters away, another clause) as false
+ * statements with a provenance stamp. This step removes them, using the same
+ * three predicates the projector now applies: both endpoints vouchable and
+ * token-aligned, and the relation attested by the memory text.
+ *
+ * Runs as part of `cleanupLegacyGraph`, i.e. the CLI and the migration share it.
+ */
+function unattestedEdgePlan(db: Database.Database): DeletePlan {
+  const deleteEdge = db.prepare('DELETE FROM entity_edges WHERE id = ?');
+  const rows = db.prepare(
+    `SELECT e.id AS id, e.relation_type AS relation,
+            s.name AS subject, t.name AS target,
+            m.content AS content
+       FROM entity_edges e
+       JOIN entities s ON s.id = e.source_entity_id
+       JOIN entities t ON t.id = e.target_entity_id
+       LEFT JOIN memories m ON m.id = e.source_memory_id
+      ORDER BY e.created_at, e.id`,
+  );
+  return {
+    key: 'unattestedEdges',
+    selectIds: () =>
+      (
+        rows.all() as Array<{
+          id: string;
+          relation: string;
+          subject: string;
+          target: string;
+          content: string | null;
+        }>
+      )
+        .filter((row) => {
+          const text = row.content ?? '';
+          if (!isVouchableEntityName(row.subject)) return true;
+          if (!isVouchableEntityName(row.target)) return true;
+          if (!isTokenAlignedMention(text, row.subject)) return true;
+          if (!isTokenAlignedMention(text, row.target)) return true;
+          return !attestsRelation(text, row.relation, row.subject, row.target);
+        })
+        .map((row) => row.id),
+    deleteBatch: (ids) => ids.reduce((sum, id) => sum + deleteEdge.run(id).changes, 0),
+  };
+}
+
+/**
  * Delete the legacy placeholder nodes, the `MENTIONED` edges and the orphan
- * edges, in that order (a placeholder's edges go with it).
+ * edges, plus any edge the current projector would not create.
  *
  * Idempotent: a second call finds nothing and reports zeros. Memories, knowledge
  * pages and real entities are never touched.
@@ -332,6 +388,7 @@ export function cleanupLegacyGraph(
     runStep(mentionEdgePlan(db));
     runStep(orphanEndpointPlan(db));
     runStep(orphanMemoryPlan(db));
+    runStep(unattestedEdgePlan(db));
   };
 
   if (!dryRun) {

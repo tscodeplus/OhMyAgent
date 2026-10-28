@@ -250,6 +250,7 @@ describe('migration-v17: repairing the pre-K3 graph', () => {
       mentionEdges: 1,
       orphanEndpointEdges: 1,
       orphanMemoryEdges: 1,
+      unattestedEdges: 0,
     });
 
     // 2. Subject backfill: the three legacy rows gained a subject. The
@@ -337,6 +338,7 @@ describe('migration-v17: repairing the pre-K3 graph', () => {
       mentionEdges: 0,
       orphanEndpointEdges: 0,
       orphanMemoryEdges: 0,
+      unattestedEdges: 0,
     });
     expect(second.mined.linksCreated).toBe(0);
     expect(second.mined.linksAnnotated).toBe(0);
@@ -483,6 +485,7 @@ describe('migration-v17: repairing the pre-K3 graph', () => {
       mentionEdges: 0,
       orphanEndpointEdges: 0,
       orphanMemoryEdges: 0,
+      unattestedEdges: 0,
     });
     expect(result.mined).toEqual({
       memoriesMined: 0,
@@ -644,6 +647,7 @@ describe('migration-v17: repairing the pre-K3 graph', () => {
         mentionEdges: 0,
         orphanEndpointEdges: 0,
         orphanMemoryEdges: 0,
+        unattestedEdges: 0,
       });
       expect(replay.mined.memoriesMined).toBe(0);
       expect(replay.projected.edgesCreated).toBe(0);
