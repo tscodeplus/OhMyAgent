@@ -27,14 +27,17 @@ import {
   SessionRepository,
   autoArchiveCutoff,
 } from '../../memory/repositories/session-repository.js';
+import {
+  archiveInactiveSessions,
+  INTERACTIVE_MAX_ROWS,
+  INTERACTIVE_TIME_BUDGET_MS,
+} from '../../memory/maintenance/jobs/session-auto-archive-job.js';
 import { resolveBotNames, type BotNameResolver } from './bot-names.js';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 /** Upper bound on a single batch write — the sidebar selects at most a page. */
 const MAX_BATCH_IDS = 500;
-/** Mirrors the maintenance job's batch cap, so "run now" leaves the same backlog. */
-const AUTO_ARCHIVE_BATCH_LIMIT = 500;
 
 /** Clamp `limit` to 1..MAX_LIMIT, falling back to the default when unparsable. */
 function parseLimit(raw: string | undefined): number {
@@ -110,10 +113,14 @@ export function registerArchiveRoutes(
   /**
    * Run the sweep immediately instead of waiting for the hourly tick.
    *
-   * Refused while the feature is disabled: the button only makes sense for an
-   * enabled setting, and silently archiving a backlog for a feature the operator
-   * has not turned on (because they left the form unsaved) is the one surprise
-   * this endpoint must not produce.
+   * Unlike the job — which drains a bounded slice per tick so it cannot starve the
+   * other jobs sharing that tick — this drains the whole backlog, because the
+   * operator is waiting for exactly that and asked for one click. The ceiling only
+   * keeps a pathological install from holding the request open indefinitely.
+   *
+   * Refused while the feature is disabled: silently archiving a backlog for a
+   * setting the operator has not turned on (because they left the form unsaved)
+   * is the one surprise this endpoint must not produce.
    */
   app.post('/api/archive/auto/run', async (request, reply) => {
     const configured = autoHooks?.getAutoConfig?.();
@@ -124,18 +131,23 @@ export function registerArchiveRoutes(
       });
     }
 
-    const ids = sessionRepository
-      .listAutoArchiveCandidates(configured.days, AUTO_ARCHIVE_BATCH_LIMIT)
-      .filter((id) => !autoHooks?.isRunning?.(id));
-    const archived = ids.length > 0 ? sessionRepository.setArchived(ids, true) : 0;
+    const sweep = archiveInactiveSessions(
+      sessionRepository,
+      configured,
+      autoHooks?.isRunning ?? (() => false),
+      { maxRows: INTERACTIVE_MAX_ROWS, timeBudgetMs: INTERACTIVE_TIME_BUDGET_MS },
+    );
 
     return reply.send({
       ok: true,
-      archived,
+      archived: sweep.archived,
+      batches: sweep.batches,
       days: configured.days,
       cutoff: autoArchiveCutoff(configured.days),
-      remaining: sessionRepository.countAutoArchiveCandidates(configured.days),
-      hitCap: ids.length === AUTO_ARCHIVE_BATCH_LIMIT,
+      remaining: sweep.remaining,
+      skippedRunning: sweep.skippedRunning,
+      // True only when a ceiling stopped the sweep; `remaining` says what is left.
+      truncated: sweep.truncated,
     });
   });
 

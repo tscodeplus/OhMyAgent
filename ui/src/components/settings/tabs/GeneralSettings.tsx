@@ -292,11 +292,28 @@ function AutoArchiveCard({
   const runNow = async () => {
     setRunning(true);
     try {
-      const res = await apiRequest<{ archived: number; remaining: number }>(
-        '/api/archive/auto/run',
-        { method: 'POST', body: JSON.stringify({}) },
-      );
+      // Drains the whole backlog, so it can outlive the client's default 10s
+      // request timeout — give it room instead of aborting a sweep that will
+      // keep going on the server anyway.
+      const res = await apiRequest<{
+        archived: number;
+        remaining: number;
+        truncated: boolean;
+      }>('/api/archive/auto/run', {
+        method: 'POST',
+        body: JSON.stringify({}),
+        timeoutMs: 120_000,
+      });
       showToast(t('settings.general.autoArchiveRan', { count: res.archived }), 'success');
+      // Only a ceiling stops a run with work left; say so instead of implying the
+      // queue is empty and leaving the count to speak for itself.
+      if (res.remaining > 0 && res.truncated) {
+        showToast(
+          t('settings.general.autoArchiveTruncated', { count: res.remaining }),
+          'warning',
+          4000,
+        );
+      }
       setPreview(res.remaining);
     } catch (err) {
       showToast(err instanceof Error ? err.message : t('common.error'), 'error');

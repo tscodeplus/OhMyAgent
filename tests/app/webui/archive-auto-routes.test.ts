@@ -111,6 +111,29 @@ describe('archive auto routes', () => {
     expect(archivedIds()).toEqual([]);
   });
 
+  it('clears a backlog larger than one batch in a single call', async () => {
+    // 620 > the 500-row batch: one click must finish the queue, not move a page
+    // and leave the operator clicking again.
+    for (let i = 0; i < 620; i += 1) seedSession(`old-${i}`, 45);
+    autoConfig = { enabled: true, days: 30 };
+
+    const body = (await app.inject({ method: 'POST', url: '/api/archive/auto/run' })).json();
+    expect(body).toMatchObject({ archived: 620, remaining: 0, truncated: false });
+    expect(body.batches).toBe(2);
+  });
+
+  it('returns instead of spinning when every candidate is mid-reply', async () => {
+    seedSession('busy-1', 45);
+    seedSession('busy-2', 45);
+    running.add('busy-1');
+    running.add('busy-2');
+    autoConfig = { enabled: true, days: 30 };
+
+    const body = (await app.inject({ method: 'POST', url: '/api/archive/auto/run' })).json();
+    expect(body).toMatchObject({ archived: 0, remaining: 2, skippedRunning: 2, truncated: false });
+    expect(archivedIds()).toEqual([]);
+  });
+
   it('archives the eligible rows and reports what is left', async () => {
     seedSession('old', 45);
     seedSession('inbox-old', 60, null);
@@ -118,7 +141,7 @@ describe('archive auto routes', () => {
     autoConfig = { enabled: true, days: 30 };
 
     const body = (await app.inject({ method: 'POST', url: '/api/archive/auto/run' })).json();
-    expect(body).toMatchObject({ ok: true, archived: 2, days: 30, remaining: 0, hitCap: false });
+    expect(body).toMatchObject({ ok: true, archived: 2, days: 30, remaining: 0, truncated: false });
     expect(archivedIds()).toEqual(['inbox-old', 'old']);
   });
 

@@ -105,6 +105,18 @@ describe('session auto-archive job', () => {
     expect(archivedIds()).toEqual([]);
   });
 
+  it('drains the whole queue in one run instead of stopping at one batch', async () => {
+    // More than one UPDATE batch worth: a single-click sweep must not stop at 500.
+    for (let i = 0; i < 620; i += 1) seedSession(`old-${i}`, 40);
+    const job = createSessionAutoArchiveJob(db, () => ({ enabled: true, days: 30 }));
+
+    const result = await job.run({ dryRun: false });
+    expect(result.affectedRows).toBe(620);
+    expect((result.details as { batches: number }).batches).toBe(2);
+    expect((result.details as { remaining: number }).remaining).toBe(0);
+    expect((result.details as { truncated: boolean }).truncated).toBe(false);
+  });
+
   it('skips a conversation with a turn in flight', async () => {
     seedSession('busy', 90);
     seedSession('idle', 90);
@@ -117,7 +129,7 @@ describe('session auto-archive job', () => {
     const result = await job.run({ dryRun: false });
     expect(result.affectedRows).toBe(1);
     expect(archivedIds()).toEqual(['idle']);
-    expect(result.details).toMatchObject({ skippedRunning: 1 });
+    expect(result.details).toMatchObject({ skippedRunning: 1, remaining: 1 });
   });
 
   it('reports the count without writing on a dry run', async () => {

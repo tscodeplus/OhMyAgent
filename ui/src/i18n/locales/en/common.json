@@ -269,7 +269,8 @@
       "autoArchivePreviewLoading": "Counting archived-eligible conversations…",
       "autoArchivePreviewFailed": "Could not count eligible conversations",
       "autoArchiveRunNow": "Run now",
-      "autoArchiveRan": "Archived {{count}} conversation(s)"
+      "autoArchiveRan": "Archived {{count}} conversation(s)",
+      "autoArchiveTruncated": "Hit the per-run limit — {{count}} conversation(s) still waiting; run it again"
     },
     "models": {
       "subtabs": {

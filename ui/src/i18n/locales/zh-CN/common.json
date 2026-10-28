@@ -269,7 +269,8 @@
       "autoArchivePreviewLoading": "正在统计可归档会话…",
       "autoArchivePreviewFailed": "无法获取可归档会话数",
       "autoArchiveRunNow": "立即执行一次",
-      "autoArchiveRan": "已归档 {{count}} 个会话"
+      "autoArchiveRan": "已归档 {{count}} 个会话",
+      "autoArchiveTruncated": "本次已达上限，仅剩 {{count}} 个待归档，可再执行一次"
     },
     "models": {
       "subtabs": {
