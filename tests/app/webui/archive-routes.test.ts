@@ -2,8 +2,8 @@
  * Archive API (archive-routes.ts).
  *
  * The contract the WebUI depends on:
- *   GET  /api/archive      — both trees, ordered by archive time, grouped by the
- *                            owner each row had BEFORE archiving
+ *   GET  /api/archive      — both trees, ordered by last activity, grouped by
+ *                            the owner each row had BEFORE archiving
  *   POST /api/archive      — batch archive / restore of ids from either tree
  *   GET  /api/inbox        — archived conversations are gone from it
  *   GET  /api/projects/:p/sessions — same, for project chats
@@ -185,17 +185,20 @@ describe('archive routes', () => {
     expect((await archive(['missing-id'])).json()).toEqual({ ok: true, updated: 0 });
   });
 
-  it('orders by archive time and pages on an exclusive cursor', async () => {
+  it('orders by last activity and pages on an exclusive cursor', async () => {
     seedSession({ id: 'a', project_id: 'proj-1', updated_at: 1000 });
     seedSession({ id: 'b', project_id: 'proj-1', updated_at: 2000 });
     seedSession({ id: 'c', project_id: 'proj-1', updated_at: 3000 });
     await archive(['a', 'b', 'c']);
-    db.prepare("UPDATE sessions SET archived_at = '100' WHERE id = 'a'").run();
+    // Archive instants deliberately the *opposite* of activity order, so an
+    // ordering by archive time could not produce the expected page.
+    db.prepare("UPDATE sessions SET archived_at = '300' WHERE id = 'a'").run();
     db.prepare("UPDATE sessions SET archived_at = '200' WHERE id = 'b'").run();
-    db.prepare("UPDATE sessions SET archived_at = '300' WHERE id = 'c'").run();
+    db.prepare("UPDATE sessions SET archived_at = '100' WHERE id = 'c'").run();
 
     const first = (await app.inject({ method: 'GET', url: '/api/archive?limit=2' })).json();
     expect(first.items.map((i: { id: string }) => i.id)).toEqual(['c', 'b']);
+    expect(first.items.map((i: { updated_at: number }) => i.updated_at)).toEqual([3000, 2000]);
     expect(first.hasMore).toBe(true);
     // `owners` counts the whole archive, not the page.
     expect(first.owners).toEqual([
@@ -205,7 +208,7 @@ describe('archive routes', () => {
     const next = (
       await app.inject({
         method: 'GET',
-        url: `/api/archive?limit=2&before=${first.items[1].archived_at}`,
+        url: `/api/archive?limit=2&before=${first.items[1].updated_at}`,
       })
     ).json();
     expect(next.items.map((i: { id: string }) => i.id)).toEqual(['a']);

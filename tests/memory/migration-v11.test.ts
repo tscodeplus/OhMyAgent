@@ -152,12 +152,13 @@ describe('SessionRepository archive queries', () => {
     db.close();
   });
 
-  it('lists archived rows by archive time, carrying the pre-archive owner', () => {
+  it('lists archived rows by last activity, carrying the pre-archive owner', () => {
     const { db, repo } = openSeeded();
     repo.setArchived(['p1', 'oc_1'], true);
-    // Distinct archive instants, so ordering is observable.
-    db.prepare("UPDATE sessions SET archived_at = '5000' WHERE id = 'p1'").run();
-    db.prepare("UPDATE sessions SET archived_at = '6000' WHERE id = 'oc_1'").run();
+    // Archive instants contradict activity order (p1 was archived later but was
+    // last active earlier), so this only passes if the sort is by `updated_at`.
+    db.prepare("UPDATE sessions SET archived_at = '6000' WHERE id = 'p1'").run();
+    db.prepare("UPDATE sessions SET archived_at = '5000' WHERE id = 'oc_1'").run();
 
     const rows = repo.listArchived({ limit: 10 });
     expect(rows.map((row) => row.id)).toEqual(['oc_1', 'p1']);
@@ -165,7 +166,7 @@ describe('SessionRepository archive queries', () => {
       kind: 'inbox',
       project_id: null,
       channel: 'feishu',
-      archived_at: 6000,
+      archived_at: 5000,
       updated_at: 3000,
     });
     expect(rows[1]).toMatchObject({
@@ -173,10 +174,12 @@ describe('SessionRepository archive queries', () => {
       project_id: 'proj-1',
       project_name: 'OMA 开发',
       channel: null,
+      archived_at: 6000,
+      updated_at: 1000,
     });
 
-    // The cursor is exclusive on archived_at.
-    expect(repo.listArchived({ limit: 10, before: 6000 }).map((row) => row.id)).toEqual(['p1']);
+    // The cursor is exclusive on `updated_at`, the field the list is ordered by.
+    expect(repo.listArchived({ limit: 10, before: 3000 }).map((row) => row.id)).toEqual(['p1']);
     db.close();
   });
 

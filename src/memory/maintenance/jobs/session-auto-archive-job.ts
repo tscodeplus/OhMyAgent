@@ -10,7 +10,7 @@
  * Why a maintenance job and not a query-time filter on the list endpoints: an
  * archive is a *durable* fact with a timestamp. Computing it at read time would
  * silently un-archive a conversation the moment anything touches `updated_at`,
- * and would leave the archive's owner counts, its `archived_at` ordering and
+ * and would leave the archive's owner counts, its archive ordering and
  * multi-select semantics with nothing to order by.
  *
  * Two settings are read live on every run rather than captured at bootstrap:

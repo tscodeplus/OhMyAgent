@@ -26,9 +26,9 @@ export interface ArchivedSessionSummary {
   channel: string | null;
   external_chat_id: string | null;
   title: string | null;
-  /** Epoch ms; the conversation's own last-activity time. */
+  /** Epoch ms; the conversation's own last-activity time — what the row shows. */
   updated_at: number;
-  /** Epoch ms; the list is ordered by this, newest archive first. */
+  /** Epoch ms; when it was archived. Not what the list orders by. */
   archived_at: number;
   message_count: number;
   preview: string | null;
@@ -54,7 +54,7 @@ export interface ArchivePage {
   owners: ArchiveOwnerCount[];
 }
 
-/** Query for `GET /api/archive`. `before` is an epoch-ms `archived_at` cursor. */
+/** Query for `GET /api/archive`. `before` is an epoch-ms `updated_at` cursor. */
 export interface ArchiveQuery {
   kind?: ArchiveKind;
   /** 1..200 */

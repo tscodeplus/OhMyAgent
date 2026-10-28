@@ -14,8 +14,12 @@
  *   - The archive list is grouped by the owner the row had *before* archiving
  *     (project name, or channel + bot name), which is what the sidebar renders:
  *     finding an archived conversation still follows the old mental map.
- *   - Ordering is by `archived_at` DESC — newest archive first — because within
- *     an owner bucket "what did I just put away" is the useful order.
+ *   - Ordering is by `updated_at` DESC — last activity first — because that is
+ *     the timestamp each row shows; ordering by `archived_at` would put a row's
+ *     visible time out of order inside its own group. `archived_at` still has
+ *     its own meaning (what is archived, and when), it just does not sort.
+ *   - Paging cursor is an exclusive `updated_at` (same field as the ordering, or
+ *     "load more" would interleave).
  *   - Auto-restore lives elsewhere: when an archived conversation receives a new
  *     turn, `SessionRepository.clearArchive()` drops the flag (see
  *     AgentService). There is no "silently swallow new messages" mode.

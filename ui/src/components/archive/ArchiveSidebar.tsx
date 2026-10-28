@@ -80,11 +80,14 @@ export default function ArchiveSidebar({ refreshKey, onChanged }: ArchiveSidebar
 
   const selection = useRowSelection();
 
+  // The section defaults to collapsed: the archive is a shelf you visit on
+  // purpose, not a list to scroll past on the way to a live conversation. An
+  // explicit toggle (stored as 'true'/'false') wins over the default.
   const [sectionOpen, setSectionOpen] = useState(() => {
     try {
-      return localStorage.getItem('oma-sidebar-archive-open') !== 'false';
+      return localStorage.getItem('oma-sidebar-archive-open') === 'true';
     } catch {
-      return true;
+      return false;
     }
   });
   const [collapsedKinds, setCollapsedKinds] = useState<Set<'project' | 'inbox'>>(() => new Set());
@@ -153,7 +156,8 @@ export default function ArchiveSidebar({ refreshKey, onChanged }: ArchiveSidebar
   }, [fetchFirstPage]);
 
   const loadMore = useCallback(async () => {
-    const oldest = items[items.length - 1]?.archived_at;
+    // Cursor is `updated_at`, the same field the list is ordered by.
+    const oldest = items[items.length - 1]?.updated_at;
     if (oldest === undefined || loadingMore) return;
     setLoadingMore(true);
     try {
@@ -568,7 +572,11 @@ function ArchiveRow({
           {label}
         </span>
         <span className="shrink-0 text-[10.5px] text-neutral-400 dark:text-neutral-500">
-          {formatRelativeTime(item.archived_at)}
+          {/* Last activity, not `archived_at`: the row's time should answer
+              "when was this conversation alive", which is the same question the
+              project and inbox rows answer. Archive order is still by
+              `archived_at` (the paging cursor). */}
+          {formatRelativeTime(item.updated_at)}
         </span>
       </span>
       <span className="truncate text-[11px] text-neutral-500 dark:text-neutral-400">

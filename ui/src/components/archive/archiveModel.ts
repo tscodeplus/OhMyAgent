@@ -140,7 +140,10 @@ export function groupArchivedItems(
   }
 
   for (const group of buckets.values()) {
-    group.items.sort((a, b) => b.archived_at - a.archived_at);
+    // Last activity, newest first — the same field the row displays, so a group
+    // never reads as if its own times were out of order. `id` breaks ties so a
+    // refresh cannot reshuffle equal timestamps.
+    group.items.sort((a, b) => b.updated_at - a.updated_at || b.id.localeCompare(a.id));
   }
 
   const projectOrder = [...counts.values()]

@@ -79,7 +79,7 @@ export interface ArchivedSessionRow {
   title: string | null;
   /** Epoch ms (see `parseEpochMs`); the row's own last-activity time. */
   updated_at: number;
-  /** Epoch ms; the archive list is ordered by this, newest first. */
+  /** Epoch ms; when the conversation was archived (not what the list orders by). */
   archived_at: number;
   message_count: number;
   preview: string;
@@ -87,7 +87,7 @@ export interface ArchivedSessionRow {
 
 export interface ListArchivedOptions {
   limit: number;
-  /** Exclusive `archived_at` cursor. */
+  /** Exclusive `updated_at` cursor — only conversations last active before this. */
   before?: number;
   kind?: 'project' | 'inbox';
 }
@@ -384,13 +384,19 @@ export class SessionRepository {
   }
 
   /**
-   * Archive listing: every session with `archived_at` set, newest archive
-   * first, carrying the owner (project name or channel) the sidebar groups by.
+   * Archive listing: every session with `archived_at` set, carrying the owner
+   * (project name or channel) the sidebar groups by.
    *
-   * `archived_at` is a TEXT column of epoch-ms digit strings, so the cursor is
-   * bound as text — comparing the column against a bound INTEGER would mix
-   * storage classes and let the cursor row through again (same trap as the
-   * inbox cursor).
+   * Ordered by `updated_at` DESC — last activity first — not by `archived_at`.
+   * The archive sidebar shows that same timestamp per row ("when was this
+   * conversation alive"), and a list whose visible time runs out of order inside
+   * its own group reads like a sorting bug. It also makes an archived row keep
+   * the position it would have had in the live list.
+   *
+   * Both cursor and ordering column are TEXT holding epoch-ms digit strings
+   * (13 chars, so lexicographic == numeric), and the cursor is bound as text:
+   * comparing the column against a bound INTEGER would mix storage classes and
+   * let the cursor row through again (same trap as the inbox cursor).
    */
   listArchived(options: ListArchivedOptions): ArchivedSessionRow[] {
     const where: string[] = ['s.archived_at IS NOT NULL'];
@@ -402,7 +408,7 @@ export class SessionRepository {
       where.push('s.project_id IS NULL');
     }
     if (options.before !== undefined) {
-      where.push('s.archived_at < @before');
+      where.push('s.updated_at < @before');
       params.before = String(options.before);
     }
 
@@ -423,7 +429,7 @@ export class SessionRepository {
            FROM sessions s
            LEFT JOIN projects p ON p.id = s.project_id
           WHERE ${where.join(' AND ')}
-          ORDER BY s.archived_at DESC, s.id DESC
+          ORDER BY s.updated_at DESC, s.id DESC
           LIMIT @limit`,
       )
       .all(params) as Array<

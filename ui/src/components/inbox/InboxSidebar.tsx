@@ -40,13 +40,16 @@ export default function InboxSidebar({ refreshKey, onChanged }: InboxSidebarProp
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [failed, setFailed] = useState(false);
-  // The section and its channel groups default to expanded; we persist the
-  // collapsed sets instead so channels that appear later open by themselves.
+  // The section defaults to collapsed: IM transcripts are a destination, not a
+  // list you scan on the way to a project chat, so it stays out of the way until
+  // asked for. An explicit toggle (stored as 'true'/'false') wins over the
+  // default. Channel groups inside it still default to expanded, and we persist
+  // the collapsed set instead, so channels that appear later open by themselves.
   const [sectionOpen, setSectionOpen] = useState(() => {
     try {
-      return localStorage.getItem('oma-sidebar-inbox-open') !== 'false';
+      return localStorage.getItem('oma-sidebar-inbox-open') === 'true';
     } catch {
-      return true;
+      return false;
     }
   });
   const [collapsedChannels, setCollapsedChannels] = useState<Set<InboxChannel>>(() => new Set());
