@@ -199,6 +199,7 @@
       "harness": "Auto Evolution",
       "models": "AI Models",
       "memory": "Memory",
+      "knowledge": "Knowledge",
       "toolsPolicy": "Tools & Policy",
       "channels": "Channels",
       "websearch": "Web Search",
@@ -516,6 +517,58 @@
       "dreamCycle.windowGraceMinutes": "Grace Window (min)",
       "dreamCycle.phaseTimeoutMs": "Phase Timeout (ms)",
       "dreamCycle.synthesizeBatchSize": "Merge Batch Size"
+    },
+    "knowledge": {
+      "pagesTitle": "Knowledge pages",
+      "enabledLabel": "Enable the knowledge layer",
+      "enabledDesc": "Master switch for the whole layer: the knowledge tools, curation, and the page titles injected each turn. A config.yaml with no `knowledge:` section at all is off too — a new subsystem never switches itself on during an upgrade.",
+      "inactiveTitle": "Knowledge layer is off",
+      "inactiveDesc": "Nothing is written, injected or searched. Existing pages and their sources stay in the database — turning the switch back on restores them.",
+      "read": {
+        "title": "Read & write tools",
+        "enabled": "knowledge_search / knowledge_get / knowledge_write",
+        "enabledDesc": "All three tools are gated together on purpose: a page nobody can read back is a one-way door. Off = all three disappear, and an injected page title has no body to read."
+      },
+      "curate": {
+        "title": "Curation",
+        "mode": "Curation frequency",
+        "mode_off": "Off",
+        "mode_off_desc": "Curation is frozen: no nightly batch, and /knowledge curate reports skip. Pages stay readable and writable.",
+        "mode_manual": "Manual only",
+        "mode_manual_desc": "Only the two user-triggered paths write pages: /knowledge curate and an explicit request to the agent. The nightly batch reports skip.",
+        "mode_nightly": "Nightly",
+        "mode_nightly_desc": "The two manual paths plus the nightly DreamCycle batch, up to the page limit below.",
+        "shadow": "Review new pages before they go live",
+        "shadowDesc": "New pages land as pending and stay invisible to search, injection and the agent until you approve them in Knowledge Pages → review queue.",
+        "maxPagesPerRun": "Pages per run",
+        "maxPagesPerRunHint": "Shared upper bound for the nightly batch and /knowledge curate. 0 writes nothing (same effect as Off) — the knob to use when battery matters more than coverage.",
+        "requireSources": "Required sources",
+        "requireSourcesHint": "How many independent sources a page needs before it may exist. 1 lets single-source pages through, which is where the noise starts.",
+        "minMemoryConfidence": "Minimum memory confidence",
+        "minMemoryConfidenceHint": "Memories below this confidence never seed a page. 0 lets every memory in, including the low-quality ones.",
+        "modelRef": "Curation model",
+        "modelRefPlaceholder": "provider/model — empty reuses the memory aux models",
+        "modelRefHint": "Empty reuses the auxiliary models from Models → Auxiliary. A value here changes the model only; provider key, base URL and fallback chain stay the auxiliary ones."
+      },
+      "inject": {
+        "title": "Per-turn injection",
+        "enabled": "Inject page titles each turn",
+        "enabledDesc": "Offers a couple of page slugs and titles (≤150 tokens), never a body — the model reads through knowledge_get. Off = the model has to remember the tool exists.",
+        "maxPages": "Titles per turn",
+        "maxPagesHint": "The injection budget caps this at 2 entries anyway, so raising it past 2 changes nothing."
+      },
+      "log": {
+        "title": "Change log",
+        "retentionDays": "Retention (days)",
+        "retentionDaysHint": "How long knowledge_log entries are kept. 0 keeps them forever — the log grows with writes rather than pages, so it ends up outgrowing the page count."
+      },
+      "conversation": {
+        "title": "Past conversation search",
+        "enabled": "Enable session_search",
+        "enabledDesc": "Episodic recall over past messages — \"when did we say that\". Off removes the tool together with the automatic excerpt block.",
+        "autoInjectMaxItems": "Excerpts per turn",
+        "autoInjectMaxItemsHint": "Items injected automatically each turn (the tool's own limit counts neighbourhood expansion too). 0 disables the automatic block and keeps the tool usable."
+      }
     },
     "tools": {
       "shell": "Shell Tool",

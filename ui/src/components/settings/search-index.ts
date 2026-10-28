@@ -117,6 +117,18 @@ export const SEARCH_INDEX: SearchEntry[] = [
   // Memory
   { tabId: 'memory', labelKey: 'settings.memory.title' },
 
+  // Knowledge
+  { tabId: 'knowledge', labelKey: 'settings.groups.knowledge' },
+  { tabId: 'knowledge', labelKey: 'settings.knowledge.enabledLabel' },
+  { tabId: 'knowledge', labelKey: 'settings.knowledge.read.title' },
+  { tabId: 'knowledge', labelKey: 'settings.knowledge.curate.title' },
+  { tabId: 'knowledge', labelKey: 'settings.knowledge.curate.mode' },
+  { tabId: 'knowledge', labelKey: 'settings.knowledge.curate.shadow' },
+  { tabId: 'knowledge', labelKey: 'settings.knowledge.inject.title' },
+  { tabId: 'knowledge', labelKey: 'settings.knowledge.log.title' },
+  { tabId: 'knowledge', labelKey: 'settings.knowledge.conversation.title' },
+  { tabId: 'knowledge', labelKey: 'settings.knowledge.conversation.autoInjectMaxItems' },
+
   // Multimodal
   { tabId: 'multimodal', labelKey: 'settings.multimodal.title' },
   { tabId: 'multimodal', labelKey: 'settings.multimodal.image' },

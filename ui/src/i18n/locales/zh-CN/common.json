@@ -199,6 +199,7 @@
       "harness": "自动进化",
       "models": "模型和路由",
       "memory": "记忆系统",
+      "knowledge": "知识",
       "toolsPolicy": "工具和审批策略",
       "channels": "渠道管理",
       "websearch": "网络搜索",
@@ -516,6 +517,58 @@
       "dreamCycle.windowGraceMinutes": "宽限期 (分钟)",
       "dreamCycle.phaseTimeoutMs": "阶段超时 (毫秒)",
       "dreamCycle.synthesizeBatchSize": "合并批次数"
+    },
+    "knowledge": {
+      "pagesTitle": "知识页",
+      "enabledLabel": "启用知识层",
+      "enabledDesc": "整层的总开关：知识工具、策展、每轮注入的页标题都归它管。config.yaml 里整段 `knowledge:` 缺失也等于关闭——新子系统不会在升级时自己打开。",
+      "inactiveTitle": "知识层已关闭",
+      "inactiveDesc": "不写入、不注入、不参与检索。已有的知识页与来源仍保存在数据库里，重新打开开关即可恢复。",
+      "read": {
+        "title": "读写工具",
+        "enabled": "knowledge_search / knowledge_get / knowledge_write",
+        "enabledDesc": "三个工具一起开一起关：读不回来的页是单向门。关掉 = 三个一起消失，注入的页标题也就取不到正文。"
+      },
+      "curate": {
+        "title": "策展",
+        "mode": "策展频率",
+        "mode_off": "关闭",
+        "mode_off_desc": "策展冻结：不跑夜间批处理，/knowledge curate 直接报 skip。已有页仍可读、可写。",
+        "mode_manual": "仅手动",
+        "mode_manual_desc": "只有两处用户触发的入口写页：/knowledge curate 与用户显式要求。夜间批处理报 skip。",
+        "mode_nightly": "每夜",
+        "mode_nightly_desc": "两处手动入口，加上每夜的 DreamCycle 批处理，每次最多写入下面配置的页数。",
+        "shadow": "新页先审后生效",
+        "shadowDesc": "新页以「待审」状态写入，在你于「知识页 → 待审队列」批准之前，对搜索、注入和 agent 都不可见。",
+        "maxPagesPerRun": "每次写页上限",
+        "maxPagesPerRunHint": "夜间批处理与 /knowledge curate 共用这个上限。0 = 一页都不写（等同于「关闭」）；续航比覆盖率更重要时就调低。",
+        "requireSources": "来源数量门槛",
+        "requireSourcesHint": "一页至少需要几条独立来源。设为 1 表示单条来源即可成页，噪声会明显上升。",
+        "minMemoryConfidence": "记忆最低置信度",
+        "minMemoryConfidenceHint": "低于此置信度的记忆不参与策展。0 = 全部参与，包括低质量记忆。",
+        "modelRef": "策展模型",
+        "modelRefPlaceholder": "provider/model —— 留空则复用记忆辅助模型",
+        "modelRefHint": "留空复用「模型 → 辅助模型」里的那套。非空只换模型，provider key、Base URL 与 fallback 链仍走辅助模型那套。"
+      },
+      "inject": {
+        "title": "每轮注入",
+        "enabled": "每轮注入页标题",
+        "enabledDesc": "只给 slug + 标题（≤150 token），从不给正文——正文由模型用 knowledge_get 取。关掉后只能靠模型自己想起有这个工具。",
+        "maxPages": "每轮标题条数",
+        "maxPagesHint": "注入预算还有一道 2 条上限，调到 2 以上实际无效。"
+      },
+      "log": {
+        "title": "变更日志",
+        "retentionDays": "保留天数",
+        "retentionDaysHint": "knowledge_log 的保留天数。0 = 永久保留——日志随写入增长而非页数，长期会超过页数本身。"
+      },
+      "conversation": {
+        "title": "过往会话检索",
+        "enabled": "启用 session_search",
+        "enabledDesc": "在历史消息上做情景回忆——「我们哪天说过这个」。关掉后工具与自动摘录块一起消失。",
+        "autoInjectMaxItems": "每轮摘录条数",
+        "autoInjectMaxItemsHint": "每轮自动注入的条数上限（工具自身的 limit 还包含邻域扩展）。0 = 不自动注入，工具仍可用。"
+      }
     },
     "tools": {
       "shell": "Shell 工具",
