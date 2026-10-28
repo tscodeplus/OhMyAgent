@@ -57,6 +57,51 @@ interface MessageListProps {
   focusMessageId?: string;
 }
 
+/** Tolerance (px) within which the focused row counts as centred. */
+const FOCUS_CENTRE_TOLERANCE = 12;
+
+/**
+ * Put `target` in the middle of its nearest scrolling ancestor.
+ *
+ * Not `scrollIntoView`: inside a fixed-position drawer Chrome treats that call
+ * as a no-op (verified in the graph search panel — the row stayed off-centre
+ * with `scrollTop` untouched), and the scrolling ancestor is not always this
+ * component's own container, so the offset is computed against whichever
+ * ancestor actually overflows.
+ *
+ * @returns true when the row can be considered positioned, so a caller retrying
+ * after layout settles knows to stop. False means geometry may still move —
+ * tool-call blocks and images above the row change height after paint.
+ */
+function centreRowInScroller(target: HTMLElement): boolean {
+  let node = target.parentElement;
+  while (node) {
+    if (node.scrollHeight > node.clientHeight + 1) {
+      const box = node.getBoundingClientRect();
+      const row = target.getBoundingClientRect();
+      const max = node.scrollHeight - node.clientHeight;
+      // A row taller than the viewport (a long assistant answer with tool
+      // blocks) is anchored to the top instead of centred: centring shows its
+      // middle, which means neither its highlight edge nor its opening line is
+      // on screen. Short rows are centred, which is where the question was.
+      const oversize = row.height > node.clientHeight - 24;
+      const desired = oversize
+        ? node.scrollTop + (row.top - box.top) - 8
+        : node.scrollTop + (row.top - box.top) - (node.clientHeight - row.height) / 2;
+      const next = Math.max(0, Math.min(desired, max));
+      const moved = Math.abs(next - node.scrollTop) >= 1;
+      if (moved) node.scrollTop = next;
+      // At either extreme the row cannot be centred (it is the first or the last
+      // one), so being pinned to that edge is the final state.
+      const pinned = next === 0 || next === max;
+      const centred = Math.abs(row.top + row.height / 2 - (box.top + node.clientHeight / 2));
+      return pinned || (!moved && centred <= FOCUS_CENTRE_TOLERANCE);
+    }
+    node = node.parentElement;
+  }
+  return true;
+}
+
 const PAGE_SIZE = 50;
 /** Viewport is considered "at the bottom" (auto-follow resumes) within this distance. */
 const NEAR_BOTTOM_PX = 40;
@@ -403,6 +448,30 @@ export default function MessageList({
       scrollToBottom();
     }
   }, [messages, externalMessages, isThinking, retryStatus, setFollowing, scrollToBottom]);
+
+  // A caller that asked for a specific message (search hit, deep link) wants
+  // that message on screen, not the bottom of the conversation — the auto
+  // follow above would otherwise drag the view back down and the highlight
+  // would open off-screen. Declared after it so it runs later in the same
+  // commit and wins; following is switched off so streaming cannot undo it.
+  useEffect(() => {
+    if (!focusMessageId) return;
+    setFollowing(false);
+    autoFollowRef.current = false;
+
+    // Retried rather than done once: the row exists a frame before the blocks
+    // above it finish laying out, and a single pass measured too early left the
+    // hit scrolled out of view on a real conversation.
+    let attempts = 0;
+    let timer = 0;
+    const place = () => {
+      const target = scrollContainerRef.current?.querySelector('[data-focus-hit="true"]');
+      const done = target instanceof HTMLElement ? centreRowInScroller(target) : false;
+      if (!done && attempts++ < 8) timer = window.setTimeout(place, 120);
+    };
+    place();
+    return () => window.clearTimeout(timer);
+  }, [focusMessageId, messages, externalMessages, setFollowing]);
 
   // Merge API history with live streaming messages, deduplicating by ID.
   const displayMessages = useMemo(() => {

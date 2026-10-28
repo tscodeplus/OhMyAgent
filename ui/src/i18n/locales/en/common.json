@@ -1508,6 +1508,9 @@
     "confidence": "Confidence {{value}}%",
     "retracted": "Retracted",
     "validFrom": "Since {{date}}",
-    "validUntil": "Retracted {{date}}"
+    "validUntil": "Retracted {{date}}",
+    "filterLabel": "Filter result types",
+    "filterNone": "No result type selected — pick at least one",
+    "contextHitIn": "search hit"
   }
 }

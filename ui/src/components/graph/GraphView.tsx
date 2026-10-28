@@ -26,6 +26,8 @@ export default function GraphView() {
   const { t } = useTranslation('common');
 
   const [query, setQuery] = useState('');
+  /** Which result kinds the search may return; all of them until narrowed. */
+  const [kinds, setKinds] = useState<SearchResultKind[]>(RESULT_KINDS);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -89,7 +91,10 @@ export default function GraphView() {
     };
   }, [selectedId]);
 
-  // Debounced so typing does not fire one request per keystroke.
+  // Debounced so typing does not fire one request per keystroke. The kind
+  // filter goes to the server rather than being applied to the response: each
+  // leg there is capped at `limit`, so client-side hiding would silently return
+  // a shorter page than the cap allows.
   useEffect(() => {
     const term = query.trim();
     if (!term) {
@@ -98,12 +103,21 @@ export default function GraphView() {
       setSearching(false);
       return;
     }
+    if (kinds.length === 0) {
+      // Nothing is being asked for, so nothing is fetched — but keep whatever
+      // is on screen out of the way of the hint.
+      setResults([]);
+      setSearchError(null);
+      setSearching(false);
+      return;
+    }
     let cancelled = false;
     setSearching(true);
     setSearchError(null);
+    const requestedKinds = RESULT_KINDS.filter((kind) => kinds.includes(kind)).join(',');
     const timer = setTimeout(() => {
       apiRequest<SearchPayload>(
-        `/api/search?q=${encodeURIComponent(term)}&limit=${SEARCH_RESULT_LIMIT}`,
+        `/api/search?q=${encodeURIComponent(term)}&limit=${SEARCH_RESULT_LIMIT}&kinds=${requestedKinds}`,
       )
         .then((payload) => {
           if (!cancelled) setResults(payload.results);
@@ -122,7 +136,7 @@ export default function GraphView() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [query, t]);
+  }, [query, kinds, t]);
 
   const nodesById = useMemo(
     () => new Map((graph?.nodes ?? []).map((node) => [node.id, node])),
@@ -136,6 +150,12 @@ export default function GraphView() {
       items: results.filter((result) => result.kind === kind),
     })).filter((group) => group.items.length > 0);
   }, [results]);
+
+  const toggleKind = (kind: SearchResultKind) => {
+    setKinds((current) =>
+      current.includes(kind) ? current.filter((value) => value !== kind) : [...current, kind],
+    );
+  };
 
   const hasQuery = query.trim().length > 0;
 
@@ -168,6 +188,36 @@ export default function GraphView() {
           />
         </div>
 
+        {/* Multi-select: a search for "Excel" is often narrowed to one kind
+            after the fact ("which conversations mentioned it"), so the filters
+            are toggles rather than a single-choice picker. All on by default —
+            the unified result list is the point of this page. */}
+        <div
+          className="mt-2 flex flex-wrap items-center gap-1.5"
+          role="group"
+          aria-label={t('graph.filterLabel')}
+        >
+          {RESULT_KINDS.map((kind) => {
+            const active = kinds.includes(kind);
+            return (
+              <button
+                key={kind}
+                type="button"
+                aria-pressed={active}
+                onClick={() => toggleKind(kind)}
+                className={cn(
+                  'rounded-full border px-2.5 py-1 text-[11px] transition-colors',
+                  active
+                    ? 'border-primary/40 bg-primary/10 text-primary'
+                    : 'border-neutral-300 text-neutral-500 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800',
+                )}
+              >
+                {t(`graph.kinds.${kind}`)}
+              </button>
+            );
+          })}
+        </div>
+
         {hasQuery && (
           <div className="mt-2 rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
             {searching ? (
@@ -176,6 +226,10 @@ export default function GraphView() {
               </div>
             ) : searchError ? (
               <p className="px-2 py-3 text-xs text-red-600 dark:text-red-400">{searchError}</p>
+            ) : kinds.length === 0 ? (
+              <p className="px-2 py-3 text-xs text-neutral-500 dark:text-neutral-400">
+                {t('graph.filterNone')}
+              </p>
             ) : groupedResults.length === 0 ? (
               <p className="px-2 py-3 text-xs text-neutral-500 dark:text-neutral-400">
                 {t('graph.searchNoResults')}
@@ -252,10 +306,9 @@ export default function GraphView() {
         <div
           className={cn(
             'mt-4 grid gap-4',
-            // Two panels can be open at once (an entity selection plus a search
-            // hit); below lg they stack instead of squeezing the graph.
-            contextHit && 'lg:grid-cols-[minmax(0,1fr)_22rem]',
-            !contextHit && selectedId && 'lg:grid-cols-[minmax(0,1fr)_18rem]',
+            // Only the entity detail shares the row now; the search-hit drawer
+            // is fixed to the bottom edge and depends on no grid column.
+            selectedId && 'lg:grid-cols-[minmax(0,1fr)_18rem]',
           )}
         >
           <section className="rounded-xl border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
@@ -332,10 +385,6 @@ export default function GraphView() {
             )}
           </section>
 
-          {contextHit && (
-            <SearchContextPanel hit={contextHit} onClose={() => setContextHit(null)} />
-          )}
-
           {selectedNode && (
             <aside className="rounded-xl border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
               <EntityDetail
@@ -350,6 +399,8 @@ export default function GraphView() {
           )}
         </div>
       </div>
+
+      {contextHit && <SearchContextPanel hit={contextHit} onClose={() => setContextHit(null)} />}
     </div>
   );
 }

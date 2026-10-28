@@ -13,7 +13,7 @@
  * state — never a 500.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Fastify from 'fastify';
 import type Database from 'better-sqlite3';
 import { openDatabase } from '../../../src/memory/db';
@@ -29,6 +29,8 @@ describe('knowledge-graph routes', () => {
   let db: Database.Database;
   let app: ReturnType<typeof Fastify>;
   let repo: EntityRepository;
+  /** Held so a test can prove a filtered leg is not called at all. */
+  let retriever: MemoryRetriever;
 
   const ids = {
     alice: 'ent-alice',
@@ -45,7 +47,8 @@ describe('knowledge-graph routes', () => {
     repo = new EntityRepository(db);
     seedGraph();
     app = Fastify({ logger: false });
-    registerGraphRoutes(app, { db, memoryRetriever: createRetriever(db) });
+    retriever = createRetriever(db);
+    registerGraphRoutes(app, { db, memoryRetriever: retriever });
     await app.ready();
   });
 
@@ -322,6 +325,56 @@ describe('knowledge-graph routes', () => {
       expect((await app.inject({ method: 'GET', url: '/api/search?q=%20%20' })).statusCode).toBe(
         400,
       );
+    });
+
+    it('limits the response to the kinds asked for', async () => {
+      new MemoryRepository(db).create({
+        id: 'mem-alice',
+        scope: 'user',
+        scope_key: 'user-1',
+        kind: 'preference',
+        content: 'Alice prefers dark mode',
+      });
+      seedMessage('msg-alice', 'sess-alice', 'Alice and Bob met in Berlin');
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/search?q=Alice&kinds=entity,message',
+      });
+      expect(response.statusCode).toBe(200);
+      const kinds = response.json().results.map((result: { kind: string }) => result.kind);
+      expect(kinds).toContain('entity');
+      expect(kinds).toContain('message');
+      // Filtering server-side matters because each leg is capped at `limit`:
+      // hiding a kind in the UI after the fact would return a short page.
+      expect(kinds).not.toContain('memory');
+    });
+
+    it('skips the memory leg entirely when it is filtered out', async () => {
+      new MemoryRepository(db).create({
+        id: 'mem-alice',
+        scope: 'user',
+        scope_key: 'user-1',
+        kind: 'preference',
+        content: 'Alice prefers dark mode',
+      });
+      const spy = vi.spyOn(retriever, 'retrieve');
+      await app.inject({ method: 'GET', url: '/api/search?q=Alice&kinds=entity' });
+      // The only leg that can reach the provider must not be touched.
+      expect(spy).not.toHaveBeenCalled();
+      spy.mockRestore();
+    });
+
+    it('rejects an unknown or empty kind list', async () => {
+      const unknown = await app.inject({
+        method: 'GET',
+        url: '/api/search?q=Alice&kinds=entity,file',
+      });
+      expect(unknown.statusCode).toBe(400);
+      expect(unknown.json().error).toContain('file');
+
+      const empty = await app.inject({ method: 'GET', url: '/api/search?q=Alice&kinds=,' });
+      expect(empty.statusCode).toBe(400);
     });
 
     it('finds entities, memories and messages in one response', async () => {

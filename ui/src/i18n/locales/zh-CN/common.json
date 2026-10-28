@@ -1508,6 +1508,9 @@
     "confidence": "置信度 {{value}}%",
     "retracted": "已失效",
     "validFrom": "自 {{date}} 起",
-    "validUntil": "{{date}} 失效"
+    "validUntil": "{{date}} 失效",
+    "filterLabel": "筛选结果类型",
+    "filterNone": "未选择任何类型，至少选择一项",
+    "contextHitIn": "搜索命中"
   }
 }

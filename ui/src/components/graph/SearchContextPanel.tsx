@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ArrowUpRight, Loader2, X } from 'lucide-react';
@@ -19,23 +19,26 @@ interface SearchContextPanelProps {
 }
 
 /**
- * Side panel that shows a search hit in its conversation.
+ * Drawer that shows a search hit in its conversation.
  *
  * A snippet answers "does this mention the term" but not "what was going on",
  * and jumping straight to the session loses the search the user just ran. The
- * panel keeps the result list on screen while the surrounding turns load, and
+ * drawer keeps the result list on screen while the surrounding turns load, and
  * offers the full session as a deliberate second step.
  *
- * Rendered as a right-hand column on desktop and a bottom sheet on phones —
- * on a phone a right column would be a sliver, and a full-page navigation would
- * throw away the query.
+ * A bottom sheet on every viewport, not a side column: as a column it competed
+ * with the graph for the same horizontal band, sat below the query box, and was
+ * easy to miss entirely on a wide screen — a conversation transcript is the
+ * wrong shape for a 26rem stripe. Full width along the bottom makes its
+ * appearance unmissable and gives the transcript the line length it wants;
+ * on large screens it is centred and capped so it still reads as a sheet
+ * rather than as a new page.
  */
 export default function SearchContextPanel({ hit, onClose }: SearchContextPanelProps) {
   const { t } = useTranslation('common');
   const navigate = useNavigate();
   const [context, setContext] = useState<SearchContextResponse | null>(null);
   const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle');
-  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!hit || hit.kind !== 'message' || !hit.session_id) {
@@ -63,19 +66,6 @@ export default function SearchContextPanel({ hit, onClose }: SearchContextPanelP
       cancelled = true;
     };
   }, [hit]);
-
-  // The panel opens on the hit, not the top of the window: the question was
-  // "what is this message about", and the hit sits in the middle by design.
-  useEffect(() => {
-    if (!context) return;
-    // MessageList renders asynchronously after its own fetch; wait a frame so the
-    // focused row exists before scrolling to it.
-    const id = window.setTimeout(() => {
-      const target = scrollRef.current?.querySelector('[data-focus-hit="true"]');
-      target?.scrollIntoView({ block: 'center' });
-    }, 60);
-    return () => window.clearTimeout(id);
-  }, [context]);
 
   // MessageList owns rendering and scrolling, so the window is handed to it as
   // a one-shot "page": the panel asks for no more history, the footer offers the
@@ -109,36 +99,42 @@ export default function SearchContextPanel({ hit, onClose }: SearchContextPanelP
 
   return (
     <>
-      {/* Phone: dimmed backdrop, tap to dismiss. Desktop keeps the list usable. */}
+      {/* Backdrop on every viewport: the dimming is what makes the drawer
+          unmistakable, and tapping outside is the fastest way out. */}
       <button
         type="button"
         aria-label={t('graph.contextClose')}
         onClick={onClose}
-        className="fixed inset-0 z-30 bg-black/30 lg:hidden"
+        className="fixed inset-0 z-30 bg-black/40"
       />
       <aside
         role="dialog"
+        aria-modal="true"
         aria-label={t('graph.contextTitle')}
         className={cn(
-          // Phone: bottom sheet, capped so the result list stays reachable.
-          'fixed inset-x-0 bottom-0 z-40 flex max-h-[75vh] flex-col rounded-t-2xl border-t border-neutral-200 bg-white shadow-xl',
-          // Desktop: a sticky column that scrolls internally. Without the cap a
-          // long conversation stretches the whole page and the graph is pushed
-          // off-screen instead of staying next to it.
-          'lg:sticky lg:top-4 lg:z-auto lg:max-h-[calc(100vh-8rem)] lg:w-[26rem] lg:shrink-0 lg:self-start lg:rounded-xl lg:border lg:shadow-none',
-          'dark:border-neutral-800 dark:bg-neutral-900',
+          'fixed inset-x-0 bottom-0 z-40 flex flex-col border-t bg-white shadow-2xl dark:bg-neutral-900',
+          'max-h-[78vh] rounded-t-2xl border-neutral-200 sm:max-h-[72vh] dark:border-neutral-800',
+          // On a wide screen the sheet stops growing horizontally; a 1400px
+          // transcript line is unreadable, and the cap is what keeps it looking
+          // like a drawer pulled over the page rather than a second page.
+          'sm:mx-auto sm:max-w-3xl sm:rounded-2xl sm:border sm:border-b-0',
         )}
       >
+        {/* Grab handle: the standard cue that this surface was pulled up from
+            the bottom edge and can be dismissed. */}
+        <div className="flex shrink-0 justify-center pt-2">
+          <span className="h-1 w-10 rounded-full bg-neutral-300 dark:bg-neutral-700" />
+        </div>
         <header className="flex shrink-0 items-start gap-2 border-b border-neutral-200 px-3 py-2 dark:border-neutral-800">
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-sm font-medium text-neutral-800 dark:text-neutral-200">
               {hit.kind === 'message' ? (hit.session_title ?? t('graph.contextTitle')) : hit.title}
             </h2>
-            {hit.kind === 'message' && hit.channel && (
-              <p className="truncate text-[11px] text-neutral-500 dark:text-neutral-400">
-                {hit.channel}
-              </p>
-            )}
+            <p className="truncate text-[11px] text-neutral-500 dark:text-neutral-400">
+              {hit.kind === 'message'
+                ? [hit.channel, t('graph.contextHitIn')].filter(Boolean).join(' · ')
+                : t(`graph.kinds.${hit.kind}`)}
+            </p>
           </div>
           <button
             type="button"
@@ -150,7 +146,7 @@ export default function SearchContextPanel({ hit, onClose }: SearchContextPanelP
           </button>
         </header>
 
-        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-1 py-1">
+        <div className="min-h-0 flex-1 overflow-y-auto px-1 py-1">
           {hit.kind === 'message' ? (
             status === 'loading' ? (
               <div className="flex justify-center py-8">
@@ -192,7 +188,7 @@ export default function SearchContextPanel({ hit, onClose }: SearchContextPanelP
         </div>
 
         {hit.kind === 'message' && context && (
-          <footer className="shrink-0 border-t border-neutral-200 p-2 dark:border-neutral-800">
+          <footer className="shrink-0 border-t border-neutral-200 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] dark:border-neutral-800">
             <button
               type="button"
               onClick={openFullSession}

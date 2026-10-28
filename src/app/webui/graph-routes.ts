@@ -36,6 +36,8 @@ const DEFAULT_SEARCH_LIMIT = 20;
 const MAX_SEARCH_LIMIT = 50;
 /** Mirrors the WebUI's depth selector; deeper walks read the whole graph. */
 const MAX_GRAPH_DEPTH = 3;
+/** The three legs `/api/search` unions; `kinds` selects a subset of them. */
+const SEARCH_KINDS: SearchResultKind[] = ['entity', 'memory', 'message'];
 /** Search rows are rendered as one-line list entries — long text is noise. */
 const TITLE_MAX_CHARS = 80;
 const SNIPPET_MAX_CHARS = 200;
@@ -488,16 +490,43 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
    * response holds at most 3 × limit rows — the UI groups them by kind anyway.
    */
   app.get('/api/search', async (request, reply) => {
-    const { q, limit: limitParam } = request.query as { q?: string; limit?: string };
+    const {
+      q,
+      limit: limitParam,
+      kinds: kindsParam,
+    } = request.query as { q?: string; limit?: string; kinds?: string };
     const term = (q ?? '').trim();
     if (!term) return reply.status(400).send({ error: 'q is required' });
 
     const limit = clampInt(limitParam, DEFAULT_SEARCH_LIMIT, 1, MAX_SEARCH_LIMIT);
 
+    // Filtering server-side, not in the UI: each leg is capped at `limit`, so a
+    // client that hid a kind after the fact would show fewer rows than the cap
+    // allows. Unknown names are a 400 rather than silently ignored — a typo in a
+    // filter should be visible, not quietly produce a short page.
+    let kinds = SEARCH_KINDS;
+    if (kindsParam !== undefined) {
+      const requested = kindsParam
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const unknown = requested.filter(
+        (value) => !SEARCH_KINDS.includes(value as SearchResultKind),
+      );
+      if (unknown.length > 0) {
+        return reply.status(400).send({ error: `unknown kind: ${unknown.join(', ')}` });
+      }
+      if (requested.length === 0) {
+        return reply.status(400).send({ error: 'kinds is empty' });
+      }
+      kinds = SEARCH_KINDS.filter((kind) => requested.includes(kind));
+    }
+    const wants = (kind: SearchResultKind): boolean => kinds.includes(kind);
+
     try {
       const results: SearchResult[] = [];
 
-      if (tableExists(cfg.db, 'entities')) {
+      if (wants('entity') && tableExists(cfg.db, 'entities')) {
         const entities = repo.searchEntities(term, limit);
         entities.forEach((entity, index) => {
           results.push({
@@ -516,7 +545,9 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
         });
       }
 
-      if (cfg.memoryRetriever) {
+      // The memory leg is the only one that can touch the provider, so skipping
+      // it when the user filtered it out is a real latency win.
+      if (wants('memory') && cfg.memoryRetriever) {
         // Reuses the chat-recalled ranking path; textOnly skips the embedding
         // call so a search box keystroke never waits on the provider.
         const memories = await cfg.memoryRetriever.retrieve({
@@ -540,7 +571,7 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
         }
       }
 
-      const messageHits = searchMessages(cfg.db, term, limit);
+      const messageHits = wants('message') ? searchMessages(cfg.db, term, limit) : [];
       // Session titles/channels for the whole page in one query — the row label
       // needs them and N round-trips for N hits would be a latency trap.
       const sessionMeta = lookupSessionMeta(
