@@ -170,6 +170,142 @@ describe('IM inbox routes', () => {
     expect(body.messages.map((m: { content: string }) => m.content)).toEqual(['hello']);
   });
 
+  // ── Retitle / delete (housekeeping, not message injection) ──
+
+  it('renames a conversation through the title endpoint', async () => {
+    seedSession({ id: 'oc_1~2', chat_id: 'oc_1', channel: 'feishu', title: null });
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/inbox/oc_1~2/title',
+      payload: { title: '  公众号\n文案  ' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true, title: '公众号 文案' });
+    expect(db.prepare('SELECT title FROM sessions WHERE id = ?').get('oc_1~2')).toEqual({
+      title: '公众号 文案',
+    });
+  });
+
+  it('rejects an empty title and unknown ids', async () => {
+    seedSession({ id: 'oc_1', channel: 'feishu' });
+
+    const empty = await app.inject({
+      method: 'PUT',
+      url: '/api/inbox/oc_1/title',
+      payload: { title: '   ' },
+    });
+    expect(empty.statusCode).toBe(400);
+
+    const missing = await app.inject({
+      method: 'PUT',
+      url: '/api/inbox/oc_nope/title',
+      payload: { title: 'x' },
+    });
+    expect(missing.statusCode).toBe(404);
+  });
+
+  it('refuses to touch a project session through the inbox', async () => {
+    seedSession({
+      id: 'proj-session',
+      chat_id: 'webui:proj-1',
+      channel: 'webui',
+      project_id: 'proj-1',
+    });
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/inbox/proj-session/title',
+      payload: { title: 'x' },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('deletes a conversation with its messages, tool runs and session memories', async () => {
+    seedSession({ id: 'oc_1', channel: 'feishu', updated_at: 1000 });
+    seedSession({ id: 'oc_1~2', chat_id: 'oc_1', channel: 'feishu', updated_at: 2000 });
+    seedMessage('m1', 'oc_1', 'user', 'old', 1000);
+    seedMessage('m2', 'oc_1~2', 'user', 'new', 2000);
+    db.prepare(
+      "INSERT INTO tool_runs (id, session_id, tool_name, input, status) VALUES ('t1', 'oc_1~2', 'shell', '{}', 'success')",
+    ).run();
+    db.prepare(
+      "INSERT INTO memories (id, scope, scope_key, kind, content, status) VALUES ('mem1', 'session', 'oc_1~2', 'fact', 'x', 'active')",
+    ).run();
+
+    const res = await app.inject({ method: 'DELETE', url: '/api/inbox/oc_1~2' });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toMatchObject({ ok: true, messages: 1 });
+    // The chat is still active: its next conversation id is handed back so the UI
+    // can navigate somewhere meaningful instead of a removed transcript.
+    expect(body.replacement_id).toBe('oc_1~3');
+    expect(
+      db.prepare("SELECT COUNT(*) AS n FROM messages WHERE session_id = 'oc_1~2'").get(),
+    ).toEqual({ n: 0 });
+    expect(
+      db.prepare("SELECT COUNT(*) AS n FROM tool_runs WHERE session_id = 'oc_1~2'").get(),
+    ).toEqual({ n: 0 });
+    expect(
+      db.prepare("SELECT COUNT(*) AS n FROM memories WHERE scope_key = 'oc_1~2'").get(),
+    ).toEqual({ n: 0 });
+    // The older conversation is untouched.
+    expect(
+      db.prepare("SELECT COUNT(*) AS n FROM messages WHERE session_id = 'oc_1'").get(),
+    ).toEqual({
+      n: 1,
+    });
+  });
+
+  it('does not revive an older conversation when the current one is deleted', async () => {
+    seedSession({ id: 'oc_9', channel: 'feishu', updated_at: 1000 });
+    seedSession({ id: 'oc_9~2', chat_id: 'oc_9', channel: 'feishu', updated_at: 2000 });
+
+    await app.inject({ method: 'DELETE', url: '/api/inbox/oc_9~2' });
+
+    // A replacement transcript exists, so nothing resolves back to oc_9.
+    const rows = db
+      .prepare("SELECT id FROM sessions WHERE chat_id = 'oc_9' ORDER BY id")
+      .all() as Array<{ id: string }>;
+    expect(rows.map((r) => r.id)).toEqual(['oc_9', 'oc_9~3']);
+  });
+
+  it('refuses to delete while the conversation has a turn in flight', async () => {
+    seedSession({ id: 'oc_busy', channel: 'feishu' });
+    const busy = Fastify({ logger: false });
+    registerInboxRoutes(busy, db, undefined, undefined, {
+      isRunning: () => true,
+      destroyRuntime: () => {},
+    });
+    await busy.ready();
+
+    const res = await busy.inject({ method: 'DELETE', url: '/api/inbox/oc_busy' });
+
+    expect(res.statusCode).toBe(409);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE id = ?').get('oc_busy')).toEqual({
+      n: 1,
+    });
+    await busy.close();
+  });
+
+  it('drops the in-memory conversation when its transcript is deleted', async () => {
+    seedSession({ id: 'oc_rt', channel: 'feishu' });
+    const destroyed: string[] = [];
+    const withHooks = Fastify({ logger: false });
+    registerInboxRoutes(withHooks, db, undefined, undefined, {
+      isRunning: () => false,
+      destroyRuntime: (sid) => destroyed.push(sid),
+    });
+    await withHooks.ready();
+
+    await withHooks.inject({ method: 'DELETE', url: '/api/inbox/oc_rt' });
+
+    expect(destroyed).toEqual(['oc_rt']);
+    await withHooks.close();
+  });
+
   it('filters by channel', async () => {
     seedSession({ id: 'oc_1', channel: 'feishu' });
     seedSession({ id: 'telegram:1', channel: 'telegram' });

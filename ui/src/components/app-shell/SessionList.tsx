@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { cn, formatRelativeTime } from '../../lib/utils';
 import { apiRequest } from '../../utils/api';
 import { useLongPress } from '../../utils/useLongPress';
@@ -10,6 +10,7 @@ import { useProject } from '../../contexts/ProjectContext';
 import ConfirmDialog from '../ui/ConfirmDialog';
 import type { Session } from '../../types/session';
 import Spinner from '../ui/Spinner';
+import SessionContextMenu from './SessionContextMenu';
 
 interface SessionListProps {
   projectId: string;
@@ -152,12 +153,10 @@ export default function SessionList({ projectId, onSessionSelect }: SessionListP
     return t('chat.newSession');
   };
 
+  // Placement (and its viewport clamp) lives in the menu component so the IM
+  // inbox gets identical behaviour without copying the arithmetic.
   const openContextMenu = useCallback((s: Session, cx: number, cy: number) => {
-    setContextMenu({
-      session: s,
-      x: Math.min(cx, window.innerWidth - 180),
-      y: Math.min(cy, window.innerHeight - 90),
-    });
+    setContextMenu({ session: s, x: cx, y: cy });
   }, []);
 
   return (
@@ -224,38 +223,16 @@ export default function SessionList({ projectId, onSessionSelect }: SessionListP
       )}
 
       {contextMenu && (
-        <div
-          role="menu"
-          onClick={(e) => e.stopPropagation()}
-          className="fixed z-50 w-44 rounded-lg border border-neutral-200 bg-white p-1 shadow-lg dark:border-neutral-800 dark:bg-neutral-900"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-        >
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setRenamingId(contextMenu.session.id);
-              setRenameDraft(sessionTitle(contextMenu.session));
-              setContextMenu(null);
-            }}
-            className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] text-neutral-800 hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-neutral-800"
-          >
-            <Pencil
-              className="h-3.5 w-3.5 shrink-0 text-neutral-500 dark:text-neutral-400"
-              strokeWidth={1.75}
-            />
-            <span>{t('sidebar.rename')}</span>
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => handleDelete(contextMenu.session.id)}
-            className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
-          >
-            <Trash2 className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
-            <span>{t('sidebar.delete')}</span>
-          </button>
-        </div>
+        <SessionContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onRename={() => {
+            setRenamingId(contextMenu.session.id);
+            setRenameDraft(sessionTitle(contextMenu.session));
+            setContextMenu(null);
+          }}
+          onDelete={() => handleDelete(contextMenu.session.id)}
+        />
       )}
 
       {/* Full-title tooltip — one line at the title's level, theme-aware.
@@ -331,7 +308,9 @@ function SessionRow({
       }}
       onMouseLeave={onTipLeave}
       className={cn(
-        'group/session relative w-full rounded-md transition-colors',
+        // sidebar-row opts out of the iOS/Android callout menu that appears on
+        // long press — it would sit on top of the menu this press opens.
+        'sidebar-row group/session relative w-full rounded-md transition-colors',
         isActive
           ? 'bg-neutral-200/70 dark:bg-neutral-800'
           : 'hover:bg-neutral-100 dark:hover:bg-neutral-800',

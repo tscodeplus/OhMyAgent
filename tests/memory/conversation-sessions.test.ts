@@ -29,7 +29,44 @@ function makeDb(): Database.Database {
       created_at TEXT NOT NULL DEFAULT (cast(strftime('%s','now') as integer) * 1000),
       updated_at TEXT NOT NULL DEFAULT (cast(strftime('%s','now') as integer) * 1000),
       metadata TEXT
-    )
+    );
+    -- Tables deleteSessionCascade touches. Declared here rather than mocked so a
+    -- new/renamed column in the cascade fails this test instead of silently
+    -- deleting nothing.
+    CREATE TABLE messages (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES sessions(id),
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT
+    );
+    CREATE TABLE episodes (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES sessions(id),
+      summary TEXT NOT NULL
+    );
+    CREATE TABLE tool_runs (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      tool_name TEXT NOT NULL,
+      status TEXT
+    );
+    CREATE TABLE memories (
+      id TEXT PRIMARY KEY,
+      scope TEXT NOT NULL,
+      scope_key TEXT,
+      kind TEXT,
+      content TEXT,
+      status TEXT
+    );
+    CREATE TABLE approval_requests (
+      id TEXT PRIMARY KEY,
+      session_key TEXT
+    );
+    CREATE TABLE approval_decisions (
+      id TEXT PRIMARY KEY,
+      request_id TEXT
+    );
   `);
   return db;
 }
@@ -155,6 +192,40 @@ describe('ConversationSessions', () => {
       .prepare('SELECT user_id, external_chat_id, channel FROM sessions WHERE id = ?')
       .get(next!.id);
     expect(row).toEqual({ user_id: 'unknown', external_chat_id: '42', channel: 'telegram' });
+  });
+
+  it('forget() deletes a transcript and never reuses its id', () => {
+    conversations.start('oc_d');
+    const second = conversations.start('oc_d');
+    expect(second?.id).toBe('oc_d~2');
+
+    const result = conversations.forget('oc_d~2');
+
+    expect(result).toMatchObject({ deleted: true, messages: 0 });
+    // A replacement above the deleted generation: the removed id stays removed.
+    expect(result.replacementId).toBe('oc_d~3');
+    expect(conversations.resolve('oc_d')).toBe('oc_d~3');
+    expect(db.prepare("SELECT COUNT(*) AS n FROM sessions WHERE id = 'oc_d~2'").get()).toEqual({
+      n: 0,
+    });
+  });
+
+  it('forget() of an older transcript leaves the current one alone', () => {
+    conversations.start('oc_e');
+    conversations.start('oc_e');
+
+    const result = conversations.forget('oc_e');
+
+    expect(result).toMatchObject({ deleted: true, replacementId: null });
+    expect(conversations.resolve('oc_e')).toBe('oc_e~2');
+  });
+
+  it('forget() reports unknown ids instead of throwing', () => {
+    expect(conversations.forget('oc_missing')).toEqual({
+      deleted: false,
+      replacementId: null,
+      messages: 0,
+    });
   });
 
   it('renames the current transcript and rejects empty titles', () => {

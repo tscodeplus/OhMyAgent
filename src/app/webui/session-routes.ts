@@ -9,6 +9,7 @@ import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import type { FooterConfig } from '../types.js';
 import { loadSessionMessages, refreshPersistedDownloadUrls } from './session-message-view.js';
+import { deleteSessionCascade } from '../../memory/session-delete.js';
 
 // Re-exported after the implementation moved into session-message-view.ts so
 // the two entry points share one projection; kept here for existing importers.
@@ -172,37 +173,11 @@ export function registerSessionRoutes(
         return reply.status(404).send({ error: 'Not Found', message: 'Session not found' });
       }
 
-      // FK chain: approval_decisions → approval_requests → (session_key)
-      //           messages / episodes / tool_runs → sessions(id)
-      // Delete leaf tables first, then parents, so the cascade works even
-      // with FK checks enabled.
-      db.exec('PRAGMA foreign_keys = OFF');
-      const cascadeDelete = db.transaction(() => {
-        // 1. approval_decisions depends on approval_requests — delete first
-        db.prepare(
-          'DELETE FROM approval_decisions WHERE request_id IN (SELECT id FROM approval_requests WHERE session_key = ?)',
-        ).run(sid);
-        // 2. approval_requests — now safe (children removed)
-        db.prepare('DELETE FROM approval_requests WHERE session_key = ?').run(sid);
-        // 3. Leaf tables referencing sessions(id) directly
-        db.prepare('DELETE FROM messages WHERE session_id = ?').run(sid);
-        db.prepare('DELETE FROM episodes WHERE session_id = ?').run(sid);
-        db.prepare('DELETE FROM tool_runs WHERE session_id = ?').run(sid);
-        db.prepare("DELETE FROM memories WHERE scope = 'session' AND scope_key = ?").run(sid);
-        // 4. Finally delete the session itself
-        db.prepare('DELETE FROM sessions WHERE id = ?').run(sid);
-      });
-      cascadeDelete();
-      db.exec('PRAGMA foreign_keys = ON');
+      // Shared with the IM inbox delete so both entry points cascade identically.
+      deleteSessionCascade(db, sid);
 
       return reply.send({ ok: true });
     } catch (err) {
-      // Ensure FK checks are re-enabled even on error
-      try {
-        db.exec('PRAGMA foreign_keys = ON');
-      } catch {
-        /* ignore */
-      }
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: 'Delete failed', message });
     }

@@ -1466,7 +1466,13 @@
       "unknown": "未识别来源",
       "unknownHint": "该会话无法判断来自哪个渠道：可能创建于渠道识别上线之前，或由脚本/测试创建。"
     },
-    "emptySession": "新会话"
+    "emptySession": "新会话",
+    "renamed": "已重命名",
+    "renameError": "重命名失败",
+    "renamePlaceholder": "会话标题",
+    "deleted": "已删除会话",
+    "deleteError": "删除失败",
+    "confirmDelete": "确定要删除「{{name}}」吗？该会话的消息记录会一起删除，且无法恢复。"
   },
   "graph": {
     "title": "知识图谱",

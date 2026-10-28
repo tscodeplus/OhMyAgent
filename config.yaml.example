@@ -147,6 +147,7 @@ channels:
   #   enabled: true
   #   app_id: xxx
   #   client_secret: xxx
+  #   # bot_name: 小Q   # labels the QQ group in the IM inbox
   #   # sandbox: false
   #   # text_limit: 1500
   #   # allowed_users: []

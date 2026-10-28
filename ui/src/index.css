@@ -384,3 +384,22 @@ html.dark .markdown-content td {
 html {
   -webkit-text-size-adjust: 100%;
 }
+
+/**
+ * Sidebar conversation rows: long press opens our own rename/delete menu, so the
+ * platform's own long-press callout (iOS "拷贝 / 查询 / 翻译", Android's context
+ * menu) must not appear on top of it. `-webkit-touch-callout` is the only switch
+ * Safari honours; `user-select` covers the desktop text-selection bubble that a
+ * slow click otherwise starts. Variants with an editable field opt back in via
+ * `.sidebar-row input`.
+ */
+.sidebar-row {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.sidebar-row input {
+  -webkit-user-select: text;
+  user-select: text;
+}

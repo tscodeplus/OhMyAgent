@@ -1466,7 +1466,13 @@
       "unknown": "Unknown source",
       "unknownHint": "This session's channel could not be determined: it predates channel tracking, or was created by a script or test."
     },
-    "emptySession": "New conversation"
+    "emptySession": "New conversation",
+    "renamed": "Renamed",
+    "renameError": "Rename failed",
+    "renamePlaceholder": "Conversation title",
+    "deleted": "Conversation deleted",
+    "deleteError": "Delete failed",
+    "confirmDelete": "Delete \"{{name}}\"? Its messages are deleted with it and cannot be recovered."
   },
   "graph": {
     "title": "Knowledge Graph",

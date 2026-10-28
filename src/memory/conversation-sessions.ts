@@ -24,6 +24,7 @@
 import type Database from 'better-sqlite3';
 import { inferChannel, type SessionChannel } from './session-channel.js';
 import { SessionRepository, type Session } from './repositories/session-repository.js';
+import { deleteSessionCascade } from './session-delete.js';
 
 /**
  * Separator between slot and generation.
@@ -159,26 +160,86 @@ export class ConversationSessions {
     const previous = this.newestRow(slot);
     const channel = inferChannel(slot, previous?.external_chat_id ?? slot);
 
+    return this.openGeneration(slot, {
+      title,
+      externalChatId: options.externalChatId ?? previous?.external_chat_id ?? null,
+      userId: previous?.user_id ?? 'unknown',
+      channel,
+      minimumGeneration: 1,
+    });
+  }
+
+  /**
+   * Insert the next transcript of a slot.
+   *
+   * `minimumGeneration` exists for deletes: an id that was just removed must not
+   * be handed out again, or rows still keyed by it elsewhere (skill feedback,
+   * processed-message audit) would reappear attached to what looks like a new
+   * conversation.
+   */
+  private openGeneration(
+    slot: string,
+    options: {
+      title: string | null;
+      externalChatId: string | null;
+      userId: string;
+      channel: SessionChannel;
+      minimumGeneration: number;
+    },
+  ): StartedConversation {
     const insert = this.db.transaction((): StartedConversation => {
-      const generation = this.rowsForSlot(slot).reduce(
+      const maxExisting = this.rowsForSlot(slot).reduce(
         (max, row) => Math.max(max, conversationGeneration(row.id)),
         0,
       );
-      // Generation 1 is the slot itself (and cannot happen via /new unless the
-      // chat never wrote a message), so the suffix starts at 2.
-      const id = generation === 0 ? slot : `${slot}${CONVERSATION_SEPARATOR}${generation + 1}`;
+      const generation = Math.max(maxExisting + 1, options.minimumGeneration);
+      // Generation 1 is the slot itself — the id every pre-existing row already
+      // has — so the suffix starts at 2.
+      const id = generation === 1 ? slot : `${slot}${CONVERSATION_SEPARATOR}${generation}`;
       this.sessions.create({
         id,
         chat_id: slot,
-        user_id: previous?.user_id ?? 'unknown',
-        channel,
-        external_chat_id: options.externalChatId ?? previous?.external_chat_id ?? null,
-        title,
+        user_id: options.userId,
+        channel: options.channel,
+        external_chat_id: options.externalChatId,
+        title: options.title,
       });
-      return { id, slot, generation: generation === 0 ? 1 : generation + 1, title };
+      return { id, slot, generation, title: options.title };
     });
 
     return insert();
+  }
+
+  /**
+   * Delete a transcript and make sure the slot does not fall back to an older one.
+   *
+   * Deleting the *current* conversation leaves the previous generation as the
+   * newest row, so the next message would silently resume a conversation the user
+   * just removed. A replacement transcript is therefore opened immediately, which
+   * keeps "current" moving forward: the visible result is always one conversation
+   * gone, and in-flight/queued messages cannot reopen the deleted one.
+   */
+  forget(sessionId: string): { deleted: boolean; replacementId: string | null; messages: number } {
+    const row = this.sessions.findById(sessionId);
+    if (!row) return { deleted: false, replacementId: null, messages: 0 };
+
+    const slot = conversationSlot(sessionId);
+    const wasCurrent = isConversationChannel(slot) && this.resolve(slot) === sessionId;
+    const { messages } = deleteSessionCascade(this.db, sessionId);
+
+    // Strictly above the deleted generation, so the removed id is never reused.
+    const replacement = wasCurrent
+      ? this.openGeneration(slot, {
+          title: null,
+          externalChatId: row.external_chat_id,
+          userId: row.user_id,
+          channel: inferChannel(slot, row.external_chat_id ?? slot),
+          minimumGeneration: conversationGeneration(sessionId) + 1,
+        })
+      : null;
+    const replacementId = replacement?.id ?? null;
+
+    return { deleted: true, replacementId, messages };
   }
 
   /** Retitle the transcript a slot currently writes to. False when there is none. */

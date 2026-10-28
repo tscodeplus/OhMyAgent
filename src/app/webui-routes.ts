@@ -101,13 +101,23 @@ export async function registerWebUIRoutes(
     cfg.db,
     () => cfg.getConfig().footer,
     (channel) => {
-      // The bot's own display name ("小书"), configured per channel. Only Feishu and
-      // Telegram carry one today; the others return undefined and the UI falls back
-      // to the plain channel label.
+      // The bot's own display name ("小书"), configured per channel. Feishu,
+      // Telegram and QQ carry one today; the others return undefined and the UI
+      // falls back to the plain channel label.
       const config = cfg.getConfig();
       if (channel === 'feishu') return config.feishu.botName || undefined;
       if (channel === 'telegram') return config.telegram?.botName || undefined;
+      if (channel === 'qq') return config.qq?.botName || undefined;
       return undefined;
+    },
+    {
+      // A turn in flight would keep writing into the row being deleted.
+      isRunning: (sessionId) => cfg.services.agentService.isRunning(sessionId),
+      // The agent holds the conversation in memory; deleting the transcript has
+      // to drop it too or the next reply answers from deleted history.
+      destroyRuntime: (sessionId) => {
+        cfg.services.agentService.destroyRuntime(sessionId);
+      },
     },
   );
 

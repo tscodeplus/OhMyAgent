@@ -343,6 +343,8 @@ export interface AppConfig {
     enabled: boolean;
     appId: string;
     clientSecret: string;
+    /** Bot display name, used to label its inbox group ("小Q · QQ"). */
+    botName: string;
     sandbox: boolean;
     allowedUsers: string[];
     allowedGroups: string[];
