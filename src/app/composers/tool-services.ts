@@ -27,6 +27,10 @@ import { createPersonaRebuildToolDefinition } from '../../tools/builtins/memory/
 import { createMemoryDoctorToolDefinition } from '../../tools/builtins/memory/doctor-definition.js';
 import { createMemoryCompactToolDefinition } from '../../tools/builtins/memory/compact-definition.js';
 import { createSessionSummarizeToolDefinition } from '../../tools/builtins/session/definition.js';
+import { createSessionSearchToolDefinition } from '../../tools/builtins/session/session-search-definition.js';
+import { createKnowledgeSearchToolDefinition } from '../../tools/builtins/knowledge/search-definition.js';
+import { createKnowledgeGetToolDefinition } from '../../tools/builtins/knowledge/get-definition.js';
+import { createKnowledgeWriteToolDefinition } from '../../tools/builtins/knowledge/write-definition.js';
 import { createComputerUseToolDefinition } from '../../tools/builtins/computer-use/definition.js';
 import { createSpawnAgentToolDefinition } from '../../tools/builtins/agents/spawn-definition.js';
 import { createPlanAndSpawnToolDefinition } from '../../tools/builtins/agents/plan-spawn-definition.js';
@@ -246,6 +250,33 @@ export function registerV4ToolDefinitions(input: {
       episodeRepository: memory.episodeRepository,
     }),
   );
+
+  // Conversation transcripts (plan §6 K1-3). Gated on
+  // `conversation_search.enabled`: with the section off, raw messages are not a
+  // retrieval surface and the tool would be a schema the model pays for and
+  // cannot use. It reads the shared db handle rather than opening a connection.
+  if (config.conversationSearch?.enabled) {
+    toolPlatformRegistry.registerDefinition(
+      createSessionSearchToolDefinition({ db: memory.database, logger }),
+    );
+  }
+
+  // Knowledge pages (plan §6 K2-3). The service only exists while
+  // `knowledge.enabled` is true (built in createMemoryServices), so its absence
+  // *is* the off switch — no separate flag read here. `curate.mode` is not part
+  // of this gate: freezing curation keeps the pages readable and writable.
+  // `read.enabled: false` removes all three, including the write: a page nobody
+  // can read back is a trap, and the tool surface must not offer a one-way door.
+  if (memory.knowledgeService && config.knowledge?.read.enabled) {
+    const knowledgeService = memory.knowledgeService;
+    toolPlatformRegistry.registerDefinition(
+      createKnowledgeSearchToolDefinition({ knowledgeService }),
+    );
+    toolPlatformRegistry.registerDefinition(createKnowledgeGetToolDefinition({ knowledgeService }));
+    toolPlatformRegistry.registerDefinition(
+      createKnowledgeWriteToolDefinition({ knowledgeService }),
+    );
+  }
 
   if (computerUseHost) {
     toolPlatformRegistry.registerDefinition(
