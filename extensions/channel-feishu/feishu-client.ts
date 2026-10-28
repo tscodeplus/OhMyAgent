@@ -349,6 +349,17 @@ export class FeishuClient {
     return response.json();
   }
 
+  /**
+   * The app's display name from the Feishu developer console (`bot.v3.info`).
+   * Used to label the bot's inbox group — the name can be changed in the console
+   * at any time, so config cannot be the source of truth.
+   */
+  async getBotName(): Promise<string | null> {
+    const data = await this.fetchApi('GET', '/bot/v3/info');
+    const name = data?.bot?.app_name;
+    return typeof name === 'string' && name.trim() ? name.trim() : null;
+  }
+
   // ─── Messages (raw fetch) ───
 
   /**

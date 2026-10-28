@@ -73,6 +73,49 @@ describe('QQAuth — access token caching & refresh', () => {
   });
 });
 
+describe('QQAuth — bot identity', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('reads the bot name from GET /users/@me', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'tok-1', expires_in: 7200 }))
+      .mockResolvedValueOnce(jsonResponse({ id: '4266592316016549443', username: 'OMA' }));
+    const auth = new QQAuth('app', 'secret', false, fakeLogger());
+
+    expect((await auth.getBotIdentity()).username).toBe('OMA');
+
+    const [url, init] = fetchSpy.mock.calls[1]!;
+    expect(url).toBe('https://api.sgroup.qq.com/users/@me');
+    expect((init as RequestInit).headers).toMatchObject({ Authorization: 'QQBot tok-1' });
+  });
+
+  it('returns the raw profile when the platform omits the username', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'tok-1', expires_in: 7200 }))
+      .mockResolvedValueOnce(jsonResponse({ id: '4266592316016549443' }));
+    const auth = new QQAuth('app', 'secret', false, fakeLogger());
+
+    // Empty username is a platform quirk, not an error — the caller decides what
+    // to do, and the inbox falls back to a configured label or the bare channel.
+    expect((await auth.getBotIdentity()).username).toBeUndefined();
+  });
+
+  it('surfaces a platform error instead of a fake name', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'tok-1', expires_in: 7200 }))
+      .mockResolvedValueOnce(jsonResponse({ code: 11244, message: 'forbidden' }, false, 403));
+    const auth = new QQAuth('app', 'secret', false, fakeLogger());
+
+    await expect(auth.getBotIdentity()).rejects.toThrow(/403/);
+  });
+});
+
 describe('QQAuth — environment routing', () => {
   it('uses the sandbox API base when sandbox=true', () => {
     const auth = new QQAuth('app', 'secret', true, fakeLogger());

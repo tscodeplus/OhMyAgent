@@ -322,12 +322,6 @@ export default function ChannelsSettings({
                 getField('qq.clientSecret', String(qq.clientSecret || '')) ? undefined : ''
               }
             />
-            <Input
-              label={t('settings.channels.botName')}
-              value={getField('qq.botName', String(qq.botName || ''))}
-              onChange={(e) => setField('qq.botName', e.target.value)}
-              placeholder={t('settings.channels.botNamePlaceholder')}
-            />
           </>
         ) : null}
       </ChannelCard>

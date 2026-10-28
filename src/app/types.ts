@@ -343,8 +343,6 @@ export interface AppConfig {
     enabled: boolean;
     appId: string;
     clientSecret: string;
-    /** Bot display name, used to label its inbox group ("小Q · QQ"). */
-    botName: string;
     sandbox: boolean;
     allowedUsers: string[];
     allowedGroups: string[];
@@ -1018,6 +1016,8 @@ export interface AppServices {
     chatId: string,
     sessionId?: string,
   ) => import('../agent/user-question-port.js').UserQuestionSender | undefined;
+  /** Bot display names resolved from each channel's own platform (inbox labels). */
+  botIdentity?: import('../channel/bot-identity.js').BotIdentityRegistry;
   /** Registry for channel UserQuestionSender instances (add/remove senders). */
   userQuestionSenderRegistry?: Map<
     string,

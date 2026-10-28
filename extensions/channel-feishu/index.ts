@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from '../../src/extensions/types.js';
 import type { ChannelAdapter } from '../../src/channel/types.js';
+import type { BotIdentityRegistry } from '../../src/channel/bot-identity.js';
 import type { FeishuClient } from './feishu-client.js';
 import type { FastifyInstance } from 'fastify';
 import { registerFeishuQrRoutes } from './feishu-qr.js';
@@ -32,6 +33,11 @@ export default function (api: ExtensionAPI) {
     logger.error('FeishuClient not found in services — channel-feishu requires it from bootstrap');
     return;
   }
+
+  // Inbox label ("小书 · 飞书"), read from the platform rather than config.yaml.
+  api.getService<BotIdentityRegistry>('botIdentity')?.register('feishu', async () => {
+    return feishuClient.getBotName();
+  });
 
   const adapter: ChannelAdapter = {
     id: 'feishu',

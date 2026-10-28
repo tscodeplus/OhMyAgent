@@ -922,7 +922,6 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
               '',
               'qq?.clientSecret??qq?.client_secret',
             ),
-            botName: str(qq?.botName ?? qq?.bot_name, '', 'qq?.botName??qq?.bot_name'),
             sandbox: yamlBool(qq?.sandbox, false, 'qq?.sandbox'),
             allowedUsers: strList(
               qq?.allowedUsers ?? qq?.allowed_users,

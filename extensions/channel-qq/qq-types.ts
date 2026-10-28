@@ -41,6 +41,17 @@ export interface QQGatewayUrlResponse {
   url: string;
 }
 
+/**
+ * `GET /users/@me` — the bot's own profile. `username` is the display name from
+ * the QQ 机器人平台; it is empty for some bot types, so treat it as optional.
+ */
+export interface QQBotSelfResponse {
+  id?: string;
+  username?: string;
+  avatar?: string;
+  share_url?: string;
+}
+
 // ---------------------------------------------------------------------------
 // WebSocket Gateway Protocol
 // ---------------------------------------------------------------------------

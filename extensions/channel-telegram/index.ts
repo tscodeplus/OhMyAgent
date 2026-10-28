@@ -11,6 +11,7 @@ import type { CommandDeps } from '../../src/commands/command-handler.js';
 import type { CronDeliveryRegistry } from '../../src/cron/delivery-registry.js';
 import type { FastifyInstance } from 'fastify';
 import { resolveTelegramConfig } from './telegram-config.js';
+import type { BotIdentityRegistry } from '../../src/channel/bot-identity.js';
 import { createTelegramBot, setupWebhook, stopBot } from './telegram-bot.js';
 import { setupMessageHandlers } from './message-handler.js';
 import { sendReply } from './send-message.js';
@@ -55,6 +56,13 @@ export default function (api: ExtensionAPI) {
 
   // Create the grammY Bot instance
   const bot = createTelegramBot(tgConfig, logger);
+
+  // Inbox label ("my_bot · Telegram"). getMe is the authoritative name — it is
+  // what every Telegram client shows, and BotFather can change it behind our back.
+  api.getService<BotIdentityRegistry>('botIdentity')?.register('telegram', async () => {
+    const me = await bot.api.getMe();
+    return me.first_name || me.username || null;
+  });
 
   // Register Telegram cron delivery client
   const cronRegistry = api.getService<CronDeliveryRegistry>('cronDeliveryRegistry');

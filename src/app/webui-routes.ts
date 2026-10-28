@@ -100,14 +100,18 @@ export async function registerWebUIRoutes(
     app,
     cfg.db,
     () => cfg.getConfig().footer,
-    (channel) => {
-      // The bot's own display name ("小书"), configured per channel. Feishu,
-      // Telegram and QQ carry one today; the others return undefined and the UI
-      // falls back to the plain channel label.
+    async (channel) => {
+      // Ask the platform first: the bot's name lives in its owner's console and
+      // is edited there, so a config copy is stale the moment someone renames it.
+      const discovered = await cfg.services.botIdentity?.resolve(channel);
+      if (discovered) return discovered;
+
+      // Fallback for a channel that cannot answer (platform unreachable, or a
+      // bridge with no bot identity at all) — better a configured label than a
+      // bare "QQ"/"飞书" in the sidebar.
       const config = cfg.getConfig();
       if (channel === 'feishu') return config.feishu.botName || undefined;
       if (channel === 'telegram') return config.telegram?.botName || undefined;
-      if (channel === 'qq') return config.qq?.botName || undefined;
       return undefined;
     },
     {

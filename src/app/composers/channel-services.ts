@@ -12,6 +12,7 @@ import { AgentManager } from '../../agent/agent-manager.js';
 import { setDefaultAgentId } from '../../agent/agent-context.js';
 import { configEventBus } from '../config-event-bus.js';
 import { ConversationSessions } from '../../memory/conversation-sessions.js';
+import { BotIdentityRegistry } from '../../channel/bot-identity.js';
 import type { MemoryServices } from './memory-services.js';
 import type { ToolServices } from './tool-services.js';
 
@@ -33,6 +34,7 @@ export interface ChannelServices {
   };
   cronDeliveryRegistry: CronDeliveryRegistry;
   agentManager: AgentManager;
+  botIdentity: BotIdentityRegistry;
 }
 
 function buildCronFooter(
@@ -126,6 +128,12 @@ export function createChannelServices(input: {
   const conversations = new ConversationSessions(db);
   servicesMap.set('conversations', conversations);
 
+  // Bot display names for the inbox labels. Channel extensions register their
+  // own resolver here (each asks its platform with credentials it already has),
+  // so a bot renamed in the platform console is reflected without a config edit.
+  const botIdentity = new BotIdentityRegistry(logger);
+  servicesMap.set('botIdentity', botIdentity);
+
   const cronDeliveryRegistry = new CronDeliveryRegistry();
   servicesMap.set('cronDeliveryRegistry', cronDeliveryRegistry);
   if (feishuEnabled) {
@@ -168,6 +176,7 @@ export function createChannelServices(input: {
     channelManager,
     extensionManager,
     servicesMap,
+    botIdentity,
     apiDeps,
     cronDeliveryRegistry,
     agentManager,

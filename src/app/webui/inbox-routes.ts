@@ -38,6 +38,25 @@ function parseLimit(raw: string | undefined): number {
   return Math.min(Math.max(1, parsed), MAX_LIMIT);
 }
 
+/**
+ * Bot name per channel for a batch of channels. Resolving once per channel keeps
+ * a platform lookup (or its 3 s timeout) from repeating for every row, and one
+ * channel that fails cannot take the others' labels down with it.
+ */
+async function resolveBotNames(
+  getBotName: ((channel: string) => string | undefined | Promise<string | undefined>) | undefined,
+  channels: string[],
+): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  await Promise.all(
+    [...new Set(channels)].map(async (channel) => {
+      const name = await getBotName?.(channel);
+      if (name) names.set(channel, name);
+    }),
+  );
+  return names;
+}
+
 /** `before` is an exclusive epoch-ms cursor; anything unparsable means "no cursor". */
 function parseBefore(raw: string | undefined): number | undefined {
   if (raw === undefined || raw === '') return undefined;
@@ -67,10 +86,11 @@ export function registerInboxRoutes(
   /**
    * Bot display name for a channel ("小书" for Feishu). Lets a sidebar group read
    * "小书 · 飞书" instead of a bare channel name, which matters as soon as more
-   * than one bot posts into the same inbox. Optional: unconfigured channels and
+   * than one bot posts into the same inbox. May be async — the name is normally
+   * asked of the platform itself. Optional: unconfigured channels and
    * every non-bot channel degrade to the plain label.
    */
-  getBotName?: (channel: string) => string | undefined,
+  getBotName?: (channel: string) => string | undefined | Promise<string | undefined>,
   hooks?: InboxWriteHooks,
 ): void {
   const sessionRepository = new SessionRepository(db);
@@ -104,6 +124,14 @@ export function registerInboxRoutes(
     const hasMore = rows.length > limit;
     const items = hasMore ? rows.slice(0, limit) : rows;
 
+    const channelCounts = sessionRepository.countByChannel();
+    // Resolve per distinct channel, not per row: name lookups can hit the
+    // platform, and every group normally holds several sessions.
+    const botNames = await resolveBotNames(
+      getBotName,
+      channelCounts.map((entry) => entry.channel),
+    );
+
     return reply.send({
       items: items.map((row) => ({
         id: row.id,
@@ -117,8 +145,8 @@ export function registerInboxRoutes(
       hasMore,
       // Each channel count carries the bot that owns it, so the UI can label the
       // group without asking for config separately.
-      channels: sessionRepository.countByChannel().map((entry) => {
-        const botName = getBotName?.(entry.channel);
+      channels: channelCounts.map((entry) => {
+        const botName = botNames.get(entry.channel);
         return botName ? { ...entry, bot_name: botName } : entry;
       }),
     });
@@ -165,10 +193,11 @@ export function registerInboxRoutes(
     });
 
     const channel = session.channel ?? inferChannel(session.id, session.chat_id);
+    const botName = await getBotName?.(channel);
     return reply.send({
       id: session.id,
       channel,
-      ...(getBotName?.(channel) ? { bot_name: getBotName?.(channel) } : {}),
+      ...(botName ? { bot_name: botName } : {}),
       external_chat_id: session.external_chat_id,
       title: session.title ?? titleFromMetadata(session.metadata),
       created_at: parseInt(String(session.created_at), 10),

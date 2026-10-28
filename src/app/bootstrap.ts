@@ -411,6 +411,7 @@ async function runBootstrap(): Promise<BootstrapResult> {
     channelManager,
     extensionManager,
     servicesMap,
+    botIdentity,
     apiDeps,
     cronDeliveryRegistry,
     agentManager,
@@ -765,6 +766,8 @@ async function runBootstrap(): Promise<BootstrapResult> {
     userQuestionStore,
     getUserQuestionSender,
     userQuestionSenderRegistry,
+    // Channel bot display names (inbox group labels)
+    botIdentity,
     // Harness
     harness: harnessServices,
     harnessApprovalRegistry,

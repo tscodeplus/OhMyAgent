@@ -27,6 +27,7 @@ import type { AgentService } from '../../src/agent/agent-service.js';
 import type { CronDeliveryRegistry } from '../../src/cron/delivery-registry.js';
 import type { FastifyInstance } from 'fastify';
 import type { QrSessionStore } from '../../src/channel/qr-session-store.js';
+import type { BotIdentityRegistry } from '../../src/channel/bot-identity.js';
 import { resolveQQConfig } from './qq-config.js';
 import { QQAuth } from './qq-auth.js';
 import { QQGateway } from './qq-gateway.js';
@@ -76,6 +77,13 @@ export default function (api: ExtensionAPI): void {
   // -----------------------------------------------------------------------
 
   const auth = new QQAuth(qqConfig.appId, qqConfig.clientSecret, qqConfig.sandbox, logger);
+
+  // Inbox label ("OMA · QQ") follows the platform, not config: the bot is
+  // renamed on the QQ 机器人平台, which no config file tracks.
+  api.getService<BotIdentityRegistry>('botIdentity')?.register('qq', async () => {
+    const self = await auth.getBotIdentity();
+    return self?.username || null;
+  });
   const gateway = new QQGateway(auth, logger);
 
   // Register QQ cron delivery client

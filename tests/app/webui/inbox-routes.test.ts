@@ -514,9 +514,10 @@ describe('IM inbox routes', () => {
 /**
  * Channel groups are labelled with the bot that owns them ("小书 · 飞书").
  *
- * The name is per-channel config, so the API has to surface it — the WebUI has no
- * other way to know it, and hard-coding a name in the UI would be wrong for every
- * other user's bot.
+ * The name comes from the bot's own platform (see channel/bot-identity.ts), so the
+ * API has to surface it — the WebUI has no other way to know it, and hard-coding a
+ * name in the UI would be wrong for every other user's bot. The resolver may be
+ * async because resolving a name is normally a platform request.
  */
 describe('IM inbox bot names', () => {
   let db: Database.Database;
@@ -561,6 +562,35 @@ describe('IM inbox bot names', () => {
 
     const telegram = (await app.inject({ method: 'GET', url: '/api/inbox/tg_1/messages' })).json();
     expect(telegram).not.toHaveProperty('bot_name');
+  });
+
+  it('awaits an async resolver, asking once per distinct channel', async () => {
+    const calls: string[] = [];
+    const asyncApp = Fastify({ logger: false });
+    registerInboxRoutes(asyncApp, db, undefined, async (channel) => {
+      calls.push(channel);
+      return channel === 'telegram' ? 'my_bot' : undefined;
+    });
+    await asyncApp.ready();
+
+    const insert = db.prepare(
+      `INSERT INTO sessions (id, chat_id, user_id, channel, title, created_at, updated_at)
+       VALUES (?, ?, 'unknown', ?, ?, ?, ?)`,
+    );
+    insert.run('tg_2', 'tg_2', 'telegram', '第二条 TG 会话', 1, 0);
+
+    const body = (await asyncApp.inject({ method: 'GET', url: '/api/inbox' })).json();
+    const telegram = body.channels.find((e: { channel: string }) => e.channel === 'telegram');
+    expect(telegram).toMatchObject({ bot_name: 'my_bot' });
+    // Two Telegram sessions, two Feishu — one lookup each, not one per row.
+    expect(calls.sort()).toEqual(['feishu', 'telegram']);
+
+    const header = (
+      await asyncApp.inject({ method: 'GET', url: '/api/inbox/tg_2/messages' })
+    ).json();
+    expect(header.bot_name).toBe('my_bot');
+
+    await asyncApp.close();
   });
 
   it('omits every bot name when no resolver is configured', async () => {

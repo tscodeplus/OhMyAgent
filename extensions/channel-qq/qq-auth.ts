@@ -10,7 +10,7 @@
 // ---------------------------------------------------------------------------
 
 import type { Logger } from 'pino';
-import type { QQAccessTokenResponse, QQGatewayUrlResponse } from './qq-types.js';
+import type { QQAccessTokenResponse, QQBotSelfResponse, QQGatewayUrlResponse } from './qq-types.js';
 
 // ── Rate-limit retry config ─────────────────────────────────────────────
 
@@ -167,6 +167,21 @@ export class QQAuth {
 
     this.logger.debug({ gatewayUrl: this.gatewayUrl }, 'QQ gateway URL acquired');
     return this.gatewayUrl;
+  }
+
+  /**
+   * The bot's own profile. `username` is the display name from the QQ 机器人
+   * 平台 (机器人资料), which the operator can change there at any time — so the
+   * inbox labels the QQ group from this rather than from config.yaml.
+   */
+  async getBotIdentity(): Promise<QQBotSelfResponse> {
+    const token = await this.getAccessToken();
+    const response = await fetchWithRetry(
+      `${this.getApiBase()}/users/@me`,
+      { headers: { Authorization: `QQBot ${token}` } },
+      this.logger,
+    );
+    return (await response.json()) as QQBotSelfResponse;
   }
 
   /** Invalidate all cached data (token + gateway URL). */
