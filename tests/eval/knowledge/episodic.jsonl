@@ -1,0 +1,13 @@
+// Session-recall questions (G3). golden = expectedMessageIds[] — every id is a
+// real row in data/app.db, quoted from the live database, never invented.
+// `"unlabelled": true` means no honest golden could be derived; the note says why.
+{"id":"ep-01","query":"上次问池州天气的时候，我一开始把地名打错成了什么？","expectedMessageIds":["2e777c14-7ebd-46d3-afde-173da7feec50"],"note":"WebUI session 4db76d65: user asked 石池州 then corrected to 池州."}
+{"id":"ep-02","query":"我们往哪个工作簿里写过 EXCEL3_OK？","expectedMessageIds":["jEuXfJVk-k0xjyiyG6NP7"],"note":"session 59334d59, oma-verify3.xlsx."}
+{"id":"ep-03","query":"创建 file_info.xlsx 那次我提的完整要求是什么？","expectedMessageIds":["d6847e02-738c-46e5-a8b8-16069d6acd2c"],"note":"session f57fdb36: new file under D:\\tmp\\excel-mcp, Power Query over E:\\Excel."}
+{"id":"ep-04","query":"我要求不要用 Python 之后，改用的是什么？","expectedMessageIds":["tzNizC0cXf6F5wbAe_d4X","MGg_ldhkeW-6Vx8_z3ij6"],"note":"session f57fdb36: user forbade Python, assistant switched to excel-mcp."}
+{"id":"ep-05","query":"我问过现在是白天还是晚上，当时是怎么回答的？","expectedMessageIds":["35535dbc-a672-4131-8d5a-bfd50a43daa7","fNQFKchs2VaY0rZOOv4aU"],"note":"session f57fdb36; the assistant answered that it cannot get the time."}
+{"id":"ep-06","query":"石景山周末适不适合室外打乒乓球？","expectedMessageIds":["05b500d8-8d4c-42b7-aef6-3149b1ab54ee","WRgDcx_JfFRVKrPrtAkm0"],"note":"Asked twice, in WebUI session c13fec64 and Feishu session oc_29e6…; both are valid answers."}
+{"id":"ep-07","query":"生椰拿铁和乒乓球那张图，我是怎么描述的？","expectedMessageIds":["356b2c08-4da0-496e-8abb-eac30097a104"],"note":"session 63ae7076."}
+{"id":"ep-08","query":"我问过的最新的 Ubuntu 版本是多少？","expectedMessageIds":["gfD47jbTHlI39-FjB8zFf","cltIhJwpVZ8m-h4lnSrEo"],"note":"Feishu session oc_29e6…, answered 26.04 LTS."}
+{"id":"ep-09","query":"雨天的橘猫咖啡馆那张图，最后是怎么发给我的？","expectedMessageIds":["L76l9fk1PiIHOBvEQ2I6K","nHyKmjIWg5fa9jh_qLtTE"],"note":"session e597714d: generated, then sent as a file."}
+{"id":"ep-10","query":"上次那个方案叫什么名字来着？","expectedMessageIds":[],"unlabelled":true,"note":"The only plausible referent (the SQLite vector-search research) lives in shadow-seed-1007, the synthetic seed session that K1 excludes from channel handling; inventing a golden from it would measure the seed data, not real history."}

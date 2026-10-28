@@ -1,0 +1,19 @@
+// Knowledge questions (G2). golden = expectedMemoryIds[] (real memories.id) +
+// expectedKeywords[] (all must appear in the top-5 injected text after
+// lower-case/full-width normalisation). K2 will add expectedKnowledgeSlugs[];
+// until then keywordRecall@5 is the only metric comparable across that switch.
+{"id":"sem-01","query":"Excel 相关操作用哪个工具？我说过不要用什么？","expectedMemoryIds":["fop-dP01hXKQ-qgHAE3dA"],"expectedKeywords":["excel-mcp","Python"],"note":"Two active memories exist (excel-mcp over Python); the other is a summary, not the decision."}
+{"id":"sem-02","query":"我要求用什么方式获取 Excel 文件信息？","expectedMemoryIds":["p7ilSif14sh3Shayz_3Lr"],"expectedKeywords":["Power Query"],"note":""}
+{"id":"sem-03","query":"输出 Excel 文件信息时，需要包含哪些字段？","expectedMemoryIds":["pM94o6-By0CNjciThvdvc","aIPAHFdCHt69RQrECEoDb"],"expectedKeywords":["文件名","Sheet"],"note":"Both the preference row and the session summary carry the requirement."}
+{"id":"sem-04","query":"我的 Excel 工作目录和源目录分别是什么？","expectedMemoryIds":["9_YfNGqybg0M4JS6ch9Ce"],"expectedKeywords":["D:\\tmp\\excel-mcp","E:\\Excel"],"note":"Also exercises full-width/whitespace normalisation of Windows paths."}
+{"id":"sem-05","query":"本项目的文档标题有什么语言要求？","expectedMemoryIds":["ho2HnLY_Njub3Jbf_nTia"],"expectedKeywords":["文档标题","中文"],"note":"Project-scoped preference memory."}
+{"id":"sem-06","query":"我最喜欢的编程语言是什么？","expectedMemoryIds":["6jH8A5W1PQmDZrd2G7Wrr","BpeyAHX8bgou1r8HeQhts"],"expectedKeywords":["TypeScript"],"note":"One preference row plus one fact row say the same thing; both are valid."}
+{"id":"sem-07","query":"E:\\Excel 目录下现在有几个 Excel 文件？","expectedMemoryIds":["6svvELY3KpGi3R0d8pDoG"],"expectedKeywords":["4"],"note":"Snapshot fact; it will age, which is exactly what a stale-preference check should surface."}
+{"id":"sem-08","query":"文件列表的结果里必须包含什么信息？","expectedMemoryIds":["4x5bIccHX9zIpmyttQEr8"],"expectedKeywords":["修改时间"],"note":""}
+{"id":"sem-09","query":"SQLite 向量检索我调研过哪些方案？","expectedMemoryIds":["JlwtIrKKEStLtid3Lhu39","dIpK-yIItN1IhWWcG3dOB"],"expectedKeywords":["sqlite-vec"],"note":"The four-way comparison (sqlite-vec / VSS / LanceDB / ChromaDB) only survives in a session summary."}
+{"id":"sem-10","query":"当前项目根目录里有哪些目录？","expectedMemoryIds":["PmFb_1CWkM4gTaXGrK6po","JlwtIrKKEStLtid3Lhu39"],"expectedKeywords":["src","skills"],"note":""}
+{"id":"sem-11","query":"知识库迁移最新到了哪个版本号？","expectedMemoryIds":[],"expectedKeywords":[],"unlabelled":true,"note":"No memory, message or knowledge page mentions a migration version; the only source is the code tree. Left unlabelled rather than pointing at a random summary."}
+{"id":"sem-12","query":"写 Excel 单元格用的是哪个 MCP 工具名？","expectedMemoryIds":[],"expectedKeywords":[],"unlabelled":true,"note":"The tool name (mcp__excel_mcp__worksheet) appears only in raw messages, never in a memory — an episodic question wearing a knowledge question's clothes, so it cannot have a memory golden at K0."}
+{"id":"sem-13","query":"我们用哪个 embedding 模型，维度是多少？","expectedMemoryIds":[],"expectedKeywords":[],"unlabelled":true,"note":"Lives in config.yaml / embedding_meta, not in memories. No honest memory golden exists."}
+{"id":"sem-14","query":"persona 蒸馏的触发阈值是多少条偏好？","expectedMemoryIds":[],"expectedKeywords":[],"unlabelled":true,"note":"config.yaml only (memory.persona.distill_threshold); nothing in the database states it."}
+{"id":"sem-15","query":"知识图谱里的边为什么大多是 MENTIONED？","expectedMemoryIds":[],"expectedKeywords":[],"unlabelled":true,"note":"That is an analysis of the implementation, recorded in the plan document — not a stored fact. Answering it needs K3 work, not retrieval."}

@@ -11,6 +11,10 @@ import { migrateV9 } from './migration-v9.js';
 import { migrateV10 } from './migration-v10.js';
 import { migrateV11 } from './migration-v11.js';
 import { migrateV12 } from './migration-v12.js';
+import { migrateV13 } from './migration-v13.js';
+import { migrateV14 } from './migration-v14.js';
+import { migrateV15 } from './migration-v15.js';
+import { migrateV16 } from './migration-v16.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -136,6 +140,35 @@ export function openDatabase(dbPath: string): Database.Database {
     logger.info(`[V3] Memory migration: added columns: ${v3Result.added.join(', ')}`);
   }
 
+  // V13 migration: create memory_sources (memory -> message provenance) and add
+  // memories.embedding_status. BEFORE applySchema for the same reason as v11/v12:
+  // schema.ts declares `embedding_status` on `memories`, and
+  // `CREATE TABLE IF NOT EXISTS` cannot add a column to a table that already
+  // exists. The memory_sources table it also creates tolerates a not-yet-created
+  // `memories` — SQLite resolves the REFERENCES target lazily.
+  const v13Result = migrateV13(db);
+  if (v13Result.created.length > 0) {
+    logger.info(`[V13] Memory migration: created: ${v13Result.created.join(', ')}`);
+  }
+  if (v13Result.added.length > 0) {
+    logger.info(`[V13] Memory migration: added columns: ${v13Result.added.join(', ')}`);
+  }
+
+  // V15 migration: memory_links.subject_entity / subject_entity_type /
+  // target_entity_type. BEFORE applySchema: the columns are declared in
+  // schema.ts, which cannot add them to an existing table.
+  const v15Result = migrateV15(db);
+  if (v15Result.added.length > 0) {
+    logger.info(`[V15] Graph migration: added columns: ${v15Result.added.join(', ')}`);
+  }
+
+  // V16 migration: persona_distillation_runs.input_memory_ids / output_diff.
+  // BEFORE applySchema, same constraint as v15.
+  const v16Result = migrateV16(db);
+  if (v16Result.added.length > 0) {
+    logger.info(`[V16] Persona migration: added columns: ${v16Result.added.join(', ')}`);
+  }
+
   // Apply schema (creates tables + indexes, idempotent for existing tables).
   const { failedIndexes } = applySchema(db);
   for (const failed of failedIndexes) {
@@ -171,6 +204,16 @@ export function openDatabase(dbPath: string): Database.Database {
   // creates on a fresh database. Nothing reads these tables unless the graph
   // layer is used, so an install that ignores it pays only the DDL.
   migrateV10(db);
+
+  // V14 migration: the knowledge layer (knowledge_pages / knowledge_sources /
+  // knowledge_links / knowledge_log / knowledge_fts_jieba). Runs AFTER
+  // applySchema because it is all new tables — nothing schema.ts references — so
+  // there is no column for an upgraded database to be missing. The whole layer is
+  // inert until the knowledge tools write to it.
+  const v14Result = migrateV14(db);
+  if (v14Result.created.length > 0) {
+    logger.info(`[V14] Knowledge migration: created: ${v14Result.created.join(', ')}`);
+  }
 
   // Backfill FTS index for memories that are missing from it (first-time
   // migration for existing databases, plus partial corruption self-heal:

@@ -1,0 +1,25 @@
+// Preference quizzes (G1). golden = mustContain[] (the current value must be in
+// the injected text) + mustNotContain[] (the superseded value must NOT be).
+// The last 5 entries are the changed-preference cases that G1's
+// stalePreferenceRate ≤ 10% is judged on; 4 are measurable, 1 is unlabelled and
+// says why.
+{"id":"pref-01","query":"我偏好什么样的回答风格？","mustContain":["用户偏好简短回答"],"mustNotContain":[],"note":"active 4x0JCX2qJY05aNJDfUJGx."}
+{"id":"pref-02","query":"我最喜欢的编程语言是哪个？","mustContain":["最喜欢的编程语言是 TypeScript"],"mustNotContain":[],"note":"active 6jH8A5W1PQmDZrd2G7Wrr (+ fact BpeyAHX8bgou1r8HeQhts)."}
+{"id":"pref-03","query":"我的 Excel 工作目录是哪个？","mustContain":["D:\\tmp\\excel-mcp"],"mustNotContain":[],"note":"active 9_YfNGqybg0M4JS6ch9Ce."}
+{"id":"pref-04","query":"我的 Excel 源目录在哪？","mustContain":["E:\\Excel"],"mustNotContain":[],"note":"active 9_YfNGqybg0M4JS6ch9Ce."}
+{"id":"pref-05","query":"输出 Excel 信息时要带上哪些字段？","mustContain":["Sheet"],"mustNotContain":[],"note":"active pM94o6-By0CNjciThvdvc."}
+{"id":"pref-06","query":"获取 Excel 文件信息我要用什么方式？","mustContain":["Power Query"],"mustNotContain":[],"note":"active p7ilSif14sh3Shayz_3Lr."}
+{"id":"pref-07","query":"Excel 相关操作我优先用哪个工具？","mustContain":["excel-mcp"],"mustNotContain":[],"note":"active fop-dP01hXKQ-qgHAE3dA."}
+{"id":"pref-08","query":"我要求回复控制在多长？","mustContain":["under 20 words"],"mustNotContain":[],"note":"active x4yRDdHuelYqexPyNuMNg."}
+{"id":"pref-09","query":"我让你专门记录过哪类奇怪的问题？","mustContain":["现在是白天还是晚上"],"mustNotContain":[],"note":"active gGHn8D3cKrXgQOuxLDL9f (+ fact pwOa1Z92AzOQuRbmJoNPC)."}
+{"id":"pref-10","query":"本项目的文档标题有什么语言规则？","mustContain":["文档标题一律用中文"],"mustNotContain":[],"note":"active ho2HnLY_Njub3Jbf_nTia."}
+{"id":"pref-11","query":"我做过什么样的探针测试？","mustContain":["shadow"],"mustNotContain":[],"note":"active 9dMljyCGumHRZHx9qkdXR."}
+{"id":"pref-12","query":"我的项目根目录包含哪些目录？","mustContain":["src、bin、skills、ui"],"mustNotContain":[],"note":"active PmFb_1CWkM4gTaXGrK6po."}
+{"id":"pref-13","query":"文件列表结果里必须带什么？","mustContain":["修改时间"],"mustNotContain":[],"note":"active 4x5bIccHX9zIpmyttQEr8."}
+{"id":"pref-14","query":"我关注哪个技术方向的调研选型？","mustContain":["SQLite 向量检索"],"mustNotContain":[],"note":"active dIpK-yIItN1IhWWcG3dOB."}
+{"id":"pref-15","query":"中间文件你建在哪个目录下？","mustContain":["D:\\tmp\\excel-mcp"],"mustNotContain":[],"note":"Second phrasing of the same active memory as pref-03 — a repeat question, not a repeat golden."}
+{"id":"pref-16","query":"我对回答长度的要求，现在生效的是哪一条？","mustContain":["under 20 words"],"mustNotContain":["用户要求回复控制在20词以内"],"note":"CHANGED: LMok2vt4-8eGSDijNGJfl is superseded (invalidated_at 1791368047000) and replaced by active x4yRDdHuelYqexPyNuMNg. The value did not move, the record was rewritten in English — the superseded Chinese wording must not come back."}
+{"id":"pref-17","query":"回复简洁程度这条偏好，最新的说法是什么？","mustContain":["用户偏好简短回答"],"mustNotContain":["用户偏好简洁短回复"],"note":"CHANGED: rWqtT5zTH68NdtJadc_B- superseded, active 4x0JCX2qJY05aNJDfUJGx. Caveat: the superseded 8YJsQSUXzr_zq6IBwz3bC (\"用户偏好简短回答\", no full stop) is a prefix of the active text, so mustContain cannot distinguish it — see pref-20."}
+{"id":"pref-18","query":"回答要先给结论这条规则，现在是怎么记的？","mustContain":["每次回答需先用一句话总结结论"],"mustNotContain":["用户要求以后所有的回答都要先用一句话总结结论"],"note":"CHANGED: Ehnnt3nDwthprCXGpAnCS superseded; the surviving statement is only in the persona block, which K0 does not include in the measured union. mustContain is therefore expected to miss — recording that miss is the point, it is the G1 evidence gap."}
+{"id":"pref-19","query":"回答先结论再展开，旧的那条记录还在吗？","mustContain":["每次回答需先用一句话总结结论"],"mustNotContain":["用户规则：以后所有回答必须先一句话总结结论，再展开。"],"note":"CHANGED: DWoRUrLVgkojrpHeMJSkn superseded; same persona-only survivor as pref-18."}
+{"id":"pref-20","query":"简短回答这条偏好，新旧记录有区别吗？","mustContain":[],"mustNotContain":[],"unlabelled":true,"note":"8YJsQSUXzr_zq6IBwz3bC (superseded) and 4x0JCX2qJY05aNJDfUJGx (active) differ only by a trailing full stop. Substring matching cannot tell the old row from the new one, so any golden here would either always leak or never leak — a measurement artifact, not a finding. Left unlabelled instead of fabricating one."}

@@ -64,6 +64,8 @@ CREATE TABLE IF NOT EXISTS memories (
   source_message_id TEXT,
   confidence REAL NOT NULL DEFAULT 1.0,
   invalidated_at TEXT,
+  -- 'ok' | 'skipped' | 'failed'; NULL = unknown (rows written before v13)
+  embedding_status TEXT,
   created_at TEXT NOT NULL DEFAULT (cast(strftime('%s','now') as integer) * 1000),
   updated_at TEXT NOT NULL DEFAULT (cast(strftime('%s','now') as integer) * 1000)
 )`;
@@ -205,6 +207,11 @@ CREATE TABLE IF NOT EXISTS memory_links (
   target_entity TEXT NOT NULL,
   relation_type TEXT NOT NULL,
   confidence REAL NOT NULL DEFAULT 1.0,
+  -- Subject of the relationship, asserted by the producer (v15). NULL = unknown;
+  -- the graph projection must skip such rows, never guess a subject.
+  subject_entity TEXT,
+  subject_entity_type TEXT,
+  target_entity_type TEXT,
   created_at TEXT NOT NULL DEFAULT (cast(strftime('%s','now') as integer) * 1000)
 )`;
 
@@ -214,6 +221,10 @@ CREATE TABLE IF NOT EXISTS persona_distillation_runs (
   mode TEXT NOT NULL,
   status TEXT NOT NULL,
   active_preference_count INTEGER NOT NULL,
+  -- JSON: memory ids this run distilled from (v16)
+  input_memory_ids TEXT,
+  -- JSON: field-level persona changes this run wrote (v16)
+  output_diff TEXT,
   started_at TEXT NOT NULL DEFAULT (cast(strftime('%s','now') as integer) * 1000),
   finished_at TEXT,
   error TEXT
