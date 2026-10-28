@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { AppConfig, AppServices, FooterConfig } from '../types.js';
 import type { openDatabase } from '../../memory/db.js';
 import { i18n } from '../../i18n/index.js';
@@ -131,7 +132,11 @@ export function createChannelServices(input: {
   // Bot display names for the inbox labels. Channel extensions register their
   // own resolver here (each asks its platform with credentials it already has),
   // so a bot renamed in the platform console is reflected without a config edit.
-  const botIdentity = new BotIdentityRegistry(logger);
+  const botIdentity = new BotIdentityRegistry(logger, {
+    // Next to the database: the point of persisting is that an offline restart
+    // still knows what the bots are called, which an in-memory cache cannot do.
+    storePath: path.join(path.dirname(config.database.path), 'bot-identity.json'),
+  });
   servicesMap.set('botIdentity', botIdentity);
 
   const cronDeliveryRegistry = new CronDeliveryRegistry();

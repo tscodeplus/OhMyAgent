@@ -1101,6 +1101,9 @@ async function runBootstrap(): Promise<BootstrapResult> {
         // Stop the QR session prune timer (otherwise it outlives shutdown)
         qrSessionStore.destroy();
 
+        // Drop bot-name retry/refresh timers
+        botIdentity.dispose();
+
         // Stop maintenance scheduler and DreamCycle
         maintenanceScheduler.stop();
         await dreamCycle.stop();
