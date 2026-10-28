@@ -9,7 +9,8 @@
     "noSession": "当前没有活跃的对话会话"
   },
   "new": {
-    "created": "已创建新会话"
+    "created": "已创建新会话",
+    "createdWithTitle": "已创建新会话「{{title}}」"
   },
   "extension": {
     "notEnabled": "扩展系统未启用",
@@ -104,5 +105,10 @@
     "noConfigPath": "配置文件路径未设置，无法修改权限模式",
     "writeFailed": "写入配置失败：{{error}}",
     "notAuthorized": "⛔ 无权限：仅管理员可修改权限模式。"
+  },
+  "rename": {
+    "renamed": "会话已重命名为「{{title}}」",
+    "usage": "用法：/rename 新标题",
+    "unavailable": "当前渠道不支持重命名会话"
   }
 }

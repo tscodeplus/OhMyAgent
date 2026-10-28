@@ -67,6 +67,9 @@ describe('telegram message handler', () => {
         footer: {},
         tools: { fileRead: { allowedRoots: [], deniedPatterns: [] } },
       }),
+      // No conversation store in this stub: the handler falls back to the raw
+      // chat slot, which is what the pre-/new behaviour did.
+      getService: vi.fn(() => undefined),
     };
     const sttTranscriber = vi.fn(async () => 'transcribed voice');
 

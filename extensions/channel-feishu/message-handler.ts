@@ -76,6 +76,13 @@ export interface MessageHandlerOptions {
 
   // ── Command routing (self-contained, like Telegram/QQ/WeChat) ──
   commandDeps: CommandDeps;
+  /**
+   * Resolves the chat slot to the transcript currently being written to, so
+   * `/new` can start a fresh session row without changing the chat handle that
+   * approvals, cards and the chat queue are keyed by. Absent → the slot is used
+   * as the id, which is the pre-split behaviour.
+   */
+  conversations?: { resolve(slotOrSessionId: string): string };
   sendTextReply: (chatId: string, text: string) => Promise<void>;
   addReaction?: (messageId: string, type: string) => Promise<string | null>;
   removeReaction?: (messageId: string, reactionId: string) => Promise<void>;
@@ -181,6 +188,14 @@ export class MessageHandler {
     if (!this.isAllowedUser(context)) return false;
 
     const text = context.text.trim();
+
+    // ── Which transcript is this chat writing to? ──
+    // `/new` rotates the session id for this chat, so the derived slot has to be
+    // resolved once here: every branch below (commands, triage, queue, prompt)
+    // must see the same id, or a message would land in the previous transcript.
+    if (this.options.conversations) {
+      context.sessionKey = this.options.conversations.resolve(context.sessionKey);
+    }
 
     // ── Group gate (@bot mention baseline overridable by channel.triage) ──
     if (context.chatType === 'group') {

@@ -45,6 +45,17 @@ export function setupMessageHandlers(
   const chatQueue = new ChatQueue();
   chatQueue.setLogger(logger);
 
+  /**
+   * `/new` rotates this chat's transcript id (ConversationSessions), so the
+   * chat-handle slot is resolved here and reused by every branch below — the
+   * command handler, the triage gate, the queue and the agent call must all see
+   * the same id, otherwise a message lands in the transcript that was closed.
+   */
+  const conversations = api.getService<{ resolve(slotOrSessionId: string): string }>(
+    'conversations',
+  );
+  const resolveSessionKey = (slot: string): string => conversations?.resolve(slot) ?? slot;
+
   // Log every non-message update to catch callback_query
   bot.use(async (ctx, next) => {
     const keys = Object.keys(ctx.update).filter((k) => k !== 'update_id');
@@ -74,7 +85,7 @@ export function setupMessageHandlers(
     if (!isAllowed(channelCtx, config)) return;
 
     const text = channelCtx.message.text;
-    const sessionKey = `telegram:${(ctx as any).chat.id}`;
+    const sessionKey = resolveSessionKey(`telegram:${(ctx as any).chat.id}`);
     const chatId = String((ctx as any).chat.id);
 
     // Group gate (@mention baseline overridable by judged channel.triage)
@@ -227,7 +238,7 @@ export function setupMessageHandlers(
         const mentioned =
           isMentioningBot(ctx, botUsername) || isReplyToBot(ctx as any, botUsername);
         const gate = await triageGroupGateway({
-          sessionId: `telegram:${(ctx as any).chat?.id ?? ''}`,
+          sessionId: resolveSessionKey(`telegram:${(ctx as any).chat?.id ?? ''}`),
           text: channelCtx.message.text,
           mentionedBot: mentioned,
           logger,
@@ -283,7 +294,7 @@ export function setupMessageHandlers(
       }
 
       const live = api.getConfig();
-      const mediaSessionKey = `telegram:${chatIdNum}`;
+      const mediaSessionKey = resolveSessionKey(`telegram:${chatIdNum}`);
       const mediaChatId = String(chatIdNum);
       // P1 M6: bounded queue — reject with a busy reply at capacity
       if (

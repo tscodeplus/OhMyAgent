@@ -80,8 +80,16 @@ export function groupInboxItems(items: InboxSessionSummary[]): InboxGroup[] {
 }
 
 /** Row label: title, falling back to the last message preview, then the chat id. */
-export function inboxItemLabel(item: InboxSessionSummary): string {
-  return item.title || item.preview || item.external_chat_id || item.id;
+export function inboxItemLabel(item: InboxSessionSummary, emptyLabel?: string): string {
+  // A conversation opened with /new but not written to yet has neither title nor
+  // preview; falling through to the transport handle would show a raw `oc_…` id.
+  return (
+    item.title ||
+    item.preview ||
+    (item.message_count === 0 ? emptyLabel : undefined) ||
+    item.external_chat_id ||
+    item.id
+  );
 }
 
 /**

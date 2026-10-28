@@ -115,7 +115,11 @@ export function setupMessageHandlers(
       }
 
       const text = channelCtx.message.text;
-      const sessionKey = `wechat:${senderId}`;
+      // Resolved, not raw: /new opened a new transcript for this sender.
+      const sessionKey =
+        api
+          .getService<{ resolve(slot: string): string }>('conversations')
+          ?.resolve(`wechat:${senderId}`) ?? `wechat:${senderId}`;
       const messageId = channelCtx.message.id;
 
       // ── Slash commands (local handler, unrecognized fall through) ──

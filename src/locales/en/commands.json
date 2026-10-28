@@ -9,7 +9,8 @@
     "noSession": "There is no active conversation session"
   },
   "new": {
-    "created": "Created a new session"
+    "created": "Started a new session",
+    "createdWithTitle": "Started a new session \"{{title}}\""
   },
   "extension": {
     "notEnabled": "Extension system is not enabled",
@@ -104,5 +105,10 @@
     "noConfigPath": "Configuration file path not set, cannot change permission mode",
     "writeFailed": "Failed to write config: {{error}}",
     "notAuthorized": "⛔ Not authorized: only admins can change the permission mode."
+  },
+  "rename": {
+    "renamed": "Session renamed to \"{{title}}\"",
+    "usage": "Usage: /rename <new title>",
+    "unavailable": "This channel does not support renaming sessions"
   }
 }

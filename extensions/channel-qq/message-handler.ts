@@ -112,9 +112,14 @@ export function setupMessageHandlers(
 
       // ── Stage 5: Build session context (needed by the Stage-4 triage gate) ──
       const text = channelCtx.message.text;
-      const sessionKey = isGroupMessage(payload)
+      const slot = isGroupMessage(payload)
         ? `qq:group:${event.d.group_openid ?? event.d.group_id}`
         : `qq:c2c:${event.d.author.user_openid}`;
+      // Resolved, not raw: /new opened a new transcript for this conversation.
+      const sessionKey =
+        api
+          .getService<{ resolve(slotOrSessionId: string): string }>('conversations')
+          ?.resolve(slot) ?? slot;
 
       // ── Stage 4: Group message gating ──
       if (isGroupMessage(payload)) {

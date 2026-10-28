@@ -11,6 +11,7 @@ import { CronDeliveryRegistry, type CronDeliveryClient } from '../../cron/delive
 import { AgentManager } from '../../agent/agent-manager.js';
 import { setDefaultAgentId } from '../../agent/agent-context.js';
 import { configEventBus } from '../config-event-bus.js';
+import { ConversationSessions } from '../../memory/conversation-sessions.js';
 import type { MemoryServices } from './memory-services.js';
 import type { ToolServices } from './tool-services.js';
 
@@ -121,6 +122,9 @@ export function createChannelServices(input: {
     servicesMap.set('feishuClient', feishuClient);
   }
   servicesMap.set('processedMessageRepository', memory.processedMessageRepository);
+  // Channels resolve "/new rotated this chat's transcript id" through this map.
+  const conversations = new ConversationSessions(db);
+  servicesMap.set('conversations', conversations);
 
   const cronDeliveryRegistry = new CronDeliveryRegistry();
   servicesMap.set('cronDeliveryRegistry', cronDeliveryRegistry);

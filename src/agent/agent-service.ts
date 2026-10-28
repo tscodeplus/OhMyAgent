@@ -39,6 +39,7 @@ import type { ImageContent } from '../pi-mono/ai/types.js';
 import type { VisionBridgeService } from '../vision-bridge/vision-bridge-service.js';
 import { persistMessages } from './message-persister.js';
 import { inferChannel } from '../memory/session-channel.js';
+import { conversationSlot } from '../memory/conversation-sessions.js';
 import { buildFriendlyErrorMessage } from './provider-error.js';
 import { recoverFromOverflow } from './overflow-recovery.js';
 import { waitForIdleWithTimeout } from '../shared/with-timeout.js';
@@ -1722,7 +1723,10 @@ export class AgentService {
     if (!existingSession) {
       sessionRepository.create({
         id: sessionKey,
-        chat_id: sessionKey,
+        // The slot, not the id: since /new rotates the transcript id
+        // (`oc_x~2`, see ConversationSessions), chat_id has to stay the chat
+        // handle so the next message can find which transcript is current.
+        chat_id: conversationSlot(sessionKey),
         user_id: 'unknown',
         channel,
         external_chat_id: options?.chatId ?? null,

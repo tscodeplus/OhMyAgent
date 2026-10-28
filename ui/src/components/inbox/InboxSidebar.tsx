@@ -200,7 +200,7 @@ export default function InboxSidebar({ refreshKey }: InboxSidebarProps) {
 
                     {!collapsed &&
                       group.items.map((item) => {
-                        const label = inboxItemLabel(item);
+                        const label = inboxItemLabel(item, t('inbox.emptySession'));
                         return (
                           <button
                             key={item.id}

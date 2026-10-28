@@ -1465,7 +1465,8 @@
       "cron": "Scheduled",
       "unknown": "Unknown source",
       "unknownHint": "This session's channel could not be determined: it predates channel tracking, or was created by a script or test."
-    }
+    },
+    "emptySession": "New conversation"
   },
   "graph": {
     "title": "Knowledge Graph",

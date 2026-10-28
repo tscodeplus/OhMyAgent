@@ -314,6 +314,9 @@ const INDEXES = [
   'CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id)',
   // IM inbox: WHERE project_id IS NULL [AND channel = ?] ORDER BY updated_at DESC
   'CREATE INDEX IF NOT EXISTS idx_sessions_channel_updated ON sessions(channel, updated_at DESC)',
+  // ConversationSessions looks up "the current transcript of this chat" by
+  // chat_id (which records the chat slot) once per incoming IM message.
+  'CREATE INDEX IF NOT EXISTS idx_sessions_chat_id ON sessions(chat_id)',
   // memory_embeddings.memory_id is a FK but SQLite does NOT auto-index FKs.
   // findByMemoryId / deleteByMemoryId / cosineSearch's JOIN all filter on it.
   'CREATE INDEX IF NOT EXISTS idx_memory_embeddings_memory ON memory_embeddings(memory_id)',

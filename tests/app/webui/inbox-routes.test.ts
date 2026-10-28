@@ -115,6 +115,61 @@ describe('IM inbox routes', () => {
     });
   });
 
+  it('lists every conversation opened by /new as its own row', async () => {
+    // Two transcripts of the same Feishu chat: the slot keeps chat_id, the ids
+    // differ (see ConversationSessions). The inbox lists rows, so both show up.
+    seedSession({ id: 'oc_1', chat_id: 'oc_1', channel: 'feishu', updated_at: 1000 });
+    seedSession({
+      id: 'oc_1~2',
+      chat_id: 'oc_1',
+      channel: 'feishu',
+      title: '公众号文案',
+      updated_at: 2000,
+    });
+    seedMessage('m1', 'oc_1', 'user', 'first conversation', 1000);
+    seedMessage('m2', 'oc_1~2', 'user', 'second conversation', 2000);
+
+    const res = await app.inject({ method: 'GET', url: '/api/inbox' });
+
+    const body = res.json();
+    expect(body.items.map((i: { id: string }) => i.id)).toEqual(['oc_1~2', 'oc_1']);
+    expect(body.items[0]).toMatchObject({ title: '公众号文案', message_count: 1 });
+    // The chat handle is still visible, so the header can show it.
+    expect(body.items[0].external_chat_id).toBe('oc_1');
+    // One chat, two rows, still one group.
+    expect(body.channels).toEqual([{ channel: 'feishu', count: 2 }]);
+  });
+
+  it('exposes an untouched /new conversation as an empty, untitled row', async () => {
+    // The sidebar labels such a row with its own placeholder ("新会话"): the row
+    // has neither a title nor a preview, so the transport handle must not leak
+    // into the label, and the server has to be honest about the emptiness.
+    seedSession({ id: 'oc_2~2', chat_id: 'oc_2', channel: 'feishu', updated_at: 2000 });
+
+    const body = (await app.inject({ method: 'GET', url: '/api/inbox' })).json();
+
+    expect(body.items[0]).toMatchObject({
+      id: 'oc_2~2',
+      title: null,
+      preview: '',
+      message_count: 0,
+      external_chat_id: 'oc_2',
+    });
+  });
+
+  it('serves a suffixed transcript id over the plain route', async () => {
+    seedSession({ id: 'oc_1~2', chat_id: 'oc_1', channel: 'feishu', title: '第二期' });
+    seedMessage('m1', 'oc_1~2', 'user', 'hello', 1000);
+
+    const res = await app.inject({ method: 'GET', url: '/api/inbox/oc_1~2/messages' });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    // The transcript payload carries the header fields inline (no wrapper).
+    expect(body).toMatchObject({ id: 'oc_1~2', title: '第二期', channel: 'feishu' });
+    expect(body.messages.map((m: { content: string }) => m.content)).toEqual(['hello']);
+  });
+
   it('filters by channel', async () => {
     seedSession({ id: 'oc_1', channel: 'feishu' });
     seedSession({ id: 'telegram:1', channel: 'telegram' });

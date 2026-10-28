@@ -7,6 +7,7 @@
  */
 
 import { i18n } from '../i18n/index.js';
+import type { ConversationSessions } from '../memory/conversation-sessions.js';
 import { teamModeStore } from '../agent/team-mode-store.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { load as parseYaml } from 'js-yaml';
@@ -42,6 +43,12 @@ export interface CommandDeps {
     onNextAgentEnd(sessionId: string, callback: () => void): void;
     setSessionAgentId(sessionId: string, agentId: string): void;
   };
+  /**
+   * Chat-slot → transcript bookkeeping for `/new` and `/rename`. Optional: a
+   * channel that does not wire it keeps the pre-split behaviour (`/new` clears
+   * the runtime and stays in the same session row).
+   */
+  conversations?: Pick<ConversationSessions, 'start' | 'rename'>;
   skillRegistry?: {
     getSkills(): Array<{ manifest: { id: string; name: string; description: string } }>;
     reload(): Promise<number>;
@@ -142,7 +149,9 @@ export async function handleCommand(
     case '/clear':
       return await handleClear(sessionKey, deps);
     case '/new':
-      return await handleNew(sessionKey, deps);
+      return await handleNew(args, sessionKey, deps, chatId);
+    case '/rename':
+      return await handleRename(args, sessionKey, deps);
     case '/skill':
     case '/skills':
       return await handleSkill(args, deps);
@@ -204,14 +213,54 @@ async function handleClear(sessionKey: string, deps: CommandDeps): Promise<Comma
   return { reply: ok ? i18n.t('commands:clear.cleared') : i18n.t('commands:clear.noSession') };
 }
 
-async function handleNew(sessionKey: string, deps: CommandDeps): Promise<CommandResult> {
+async function handleNew(
+  args: string,
+  sessionKey: string,
+  deps: CommandDeps,
+  chatId?: string,
+): Promise<CommandResult> {
   deps.agentService.rejectPendingApprovals(sessionKey);
   deps.agentService.rejectPendingQuestions(sessionKey);
   if (deps.agentService.isRunning(sessionKey)) {
     await deps.agentService.abort(sessionKey);
   }
   deps.agentService.destroyRuntime(sessionKey);
-  return { reply: i18n.t('commands:new.created') };
+
+  // The rejected approvals belong to the conversation being closed, so the slot
+  // is read before the rotation: `start` opens the next transcript for it.
+  const started = deps.conversations?.start(sessionKey, {
+    title: args,
+    externalChatId: chatId ?? null,
+  });
+  if (!started) {
+    return { reply: i18n.t('commands:new.created') };
+  }
+  return {
+    reply: started.title
+      ? i18n.t('commands:new.createdWithTitle', { title: started.title })
+      : i18n.t('commands:new.created'),
+  };
+}
+
+/**
+ * Retitle the conversation that is currently being written to.
+ *
+ * Exists because `/new` titles are typed under time pressure: retitling after
+ * the fact must not require abandoning the context that was already built up.
+ */
+async function handleRename(
+  args: string,
+  sessionKey: string,
+  deps: CommandDeps,
+): Promise<CommandResult> {
+  if (!deps.conversations) {
+    return { reply: i18n.t('commands:rename.unavailable') };
+  }
+  const title = deps.conversations.rename(sessionKey, args);
+  if (!title) {
+    return { reply: i18n.t('commands:rename.usage') };
+  }
+  return { reply: i18n.t('commands:rename.renamed', { title }) };
 }
 
 async function handleSkill(args: string, deps: CommandDeps): Promise<CommandResult> {

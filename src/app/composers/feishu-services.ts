@@ -21,6 +21,7 @@ import type { FeishuClient } from '../../../extensions/channel-feishu/feishu-cli
 import type { AgentManager } from '../../agent/agent-manager.js';
 import type { ExtensionManager } from '../../extensions/extension-manager.js';
 import type { ChatQueue } from '../../../extensions/channel-feishu/chat-queue.js';
+import type { ConversationSessions } from '../../memory/conversation-sessions.js';
 import type { Logger } from 'pino';
 
 export interface FeishuServicesResult {
@@ -121,9 +122,13 @@ export function createFeishuServices(options: {
   // Config path for slash commands that modify config (e.g. /permission)
   const configPath = process.env.CONFIG_FILE || './config.yaml';
 
+  // Chat-slot → transcript bookkeeping, registered by createChannelServices.
+  const conversations = servicesMap.get('conversations') as ConversationSessions | undefined;
+
   // Shared CommandDeps for slash commands
   const commandDeps: CommandDeps = {
     agentService,
+    conversations,
     skillRegistry: {
       getSkills: () => skillRegistry.getSkills(),
       reload: async () => {
@@ -159,6 +164,7 @@ export function createFeishuServices(options: {
 
   const messageHandler = new MessageHandler({
     agentService,
+    conversations,
     chatQueue,
     mediaDownloader: feishuClient,
     feishuClient,

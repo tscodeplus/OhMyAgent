@@ -144,6 +144,61 @@ describe('handleCommand (shared)', () => {
     expect(deps.agentService.destroyRuntime).toHaveBeenCalledWith('s1');
   });
 
+  // ── /new <title> and /rename (conversation rotation) ──
+
+  it('/new forwards the title to the conversation store and names it in the reply', async () => {
+    const conversations = {
+      start: vi.fn(() => ({ id: 's1~2', slot: 's1', generation: 2, title: '公众号文案' })),
+      rename: vi.fn(() => null),
+    };
+    const result = await handleCommand(
+      '/new 公众号文案',
+      's1',
+      { ...deps, conversations },
+      undefined,
+      'oc_chat',
+    );
+    // The chat handle travels with the call: the new transcript records it so the
+    // inbox header can show the transport id instead of the session id.
+    expect(conversations.start).toHaveBeenCalledWith('s1', {
+      title: '公众号文案',
+      externalChatId: 'oc_chat',
+    });
+    expect(result!.reply).toBe(i18n.t('commands:new.createdWithTitle', { title: '公众号文案' }));
+  });
+
+  it('/new without a title falls back to the plain reply', async () => {
+    const conversations = {
+      start: vi.fn(() => ({ id: 's1~2', slot: 's1', generation: 2, title: null })),
+      rename: vi.fn(() => null),
+    };
+    const result = await handleCommand('/new', 's1', { ...deps, conversations });
+    expect(result!.reply).toBe(i18n.t('commands:new.created'));
+  });
+
+  it('/new keeps the pre-split behaviour when no conversation store is wired', async () => {
+    const result = await handleCommand('/new', 's1', deps);
+    // Non-IM channels (WebUI) must not invent a session id nobody can open.
+    expect(result!.reply).toBe(i18n.t('commands:new.created'));
+    expect(deps.agentService.destroyRuntime).toHaveBeenCalledWith('s1');
+  });
+
+  it('/rename retitles the current conversation', async () => {
+    const conversations = {
+      start: vi.fn(),
+      rename: vi.fn(() => '新标题'),
+    };
+    const result = await handleCommand('/rename 新标题', 's1', { ...deps, conversations });
+    expect(conversations.rename).toHaveBeenCalledWith('s1', '新标题');
+    expect(result!.reply).toBe(i18n.t('commands:rename.renamed', { title: '新标题' }));
+  });
+
+  it('/rename without a usable title prints the usage hint', async () => {
+    const conversations = { start: vi.fn(), rename: vi.fn(() => null) };
+    const result = await handleCommand('/rename', 's1', { ...deps, conversations });
+    expect(result!.reply).toBe(i18n.t('commands:rename.usage'));
+  });
+
   // ── /skill ──
 
   it('/skill without args lists available skills', async () => {
