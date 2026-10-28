@@ -22,6 +22,23 @@ export const INBOX_CHANNEL_LABEL_KEY: Record<InboxChannel, string> = {
   unknown: 'inbox.channels.unknown',
 };
 
+/**
+ * Label for a channel group or badge.
+ *
+ * "小书 · 飞书" once the channel has a configured bot name, the plain channel
+ * name otherwise. Separator is the middle dot, not a hyphen: the sidebar already
+ * uses "-" for "agent - message" labels, and two different separators in one
+ * list read as the same thing.
+ */
+export function channelLabel(
+  t: (key: string) => string,
+  channel: InboxChannel,
+  botName?: string,
+): string {
+  const plain = t(INBOX_CHANNEL_LABEL_KEY[channel]);
+  return botName ? `${botName} · ${plain}` : plain;
+}
+
 /** Badge palette for the read-only transcript header. */
 export const INBOX_CHANNEL_BADGE_CLASS: Record<InboxChannel, string> = {
   feishu: 'bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300',

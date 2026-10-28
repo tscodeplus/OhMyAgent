@@ -11,7 +11,7 @@ import type { InboxSessionDetail } from '../../types/inbox';
 import type { Message } from '../../types/session';
 import {
   INBOX_CHANNEL_BADGE_CLASS,
-  INBOX_CHANNEL_LABEL_KEY,
+  channelLabel,
   normalizeInboxChannel,
   toInboxCursor,
 } from './inboxModel';
@@ -105,7 +105,7 @@ export default function InboxView() {
             INBOX_CHANNEL_BADGE_CLASS[channel],
           )}
         >
-          {t(INBOX_CHANNEL_LABEL_KEY[channel])}
+          {channelLabel(t, channel, header?.bot_name)}
         </span>
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-neutral-800 dark:text-neutral-200">
           {title}

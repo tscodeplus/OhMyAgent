@@ -90,7 +90,22 @@ export function loadSessionMessages(
     hasMore = countRow.cnt > 0;
   }
 
-  const formattedMessages = messages.map((m) => {
+  const formattedMessages = formatMessageRows(messages, getFooterConfig);
+
+  return { messages: formattedMessages, hasMore };
+}
+
+/**
+ * Format raw `messages` rows into the API/UI shape: stripped time prefixes,
+ * media collected from the three sources, segments rebuilt from block order and
+ * a footer taken from the snapshot stored with the message.
+ *
+ * Exported because the search-context route needs the exact same projection for
+ * a *window* of messages around a hit — a second implementation would drift on
+ * the first media or footer tweak.
+ */
+export function formatMessageRows(rows: any[], getFooterConfig?: () => FooterConfig): any[] {
+  return rows.map((m) => {
     let meta: Record<string, unknown> | null = null;
     try {
       meta = m.metadata ? JSON.parse(String(m.metadata)) : null;
@@ -292,6 +307,118 @@ export function loadSessionMessages(
 
     return result;
   });
+}
 
-  return { messages: formattedMessages, hasMore };
+/** Messages returned on each side of a search hit by {@link loadMessageContext}. */
+const DEFAULT_CONTEXT_RADIUS = 6;
+
+/**
+ * A window of a session's messages centred on one hit.
+ *
+ * Search results are snippets: a matching sentence with no conversation around
+ * it is often unreadable ("Excel" matched in a tool output says nothing about
+ * what was asked). Rather than making the caller page the whole transcript, this
+ * returns the hit plus `radius` messages on each side, already formatted exactly
+ * like a normal transcript so the UI renders it with the same message component.
+ *
+ * `truncatedStart`/`truncatedEnd` tell the UI whether "open full session" is the
+ * only way to see more — they are computed with COUNT queries so the answer
+ * stays correct when the hit is the first or last message.
+ */
+export function loadMessageContext(
+  db: Database.Database,
+  sessionId: string,
+  messageId: string,
+  options: { radius?: number; getFooterConfig?: () => FooterConfig } = {},
+): {
+  messages: any[];
+  focusId: string | null;
+  truncatedStart: boolean;
+  truncatedEnd: boolean;
+} {
+  const radius = Math.min(Math.max(1, options.radius ?? DEFAULT_CONTEXT_RADIUS), 50);
+
+  // SELECT *: the anchor row is part of the returned window, so it must carry
+  // every column the formatter reads (content, role, metadata) — a projection
+  // here would silently return a hole in the middle of the conversation.
+  const anchor = db
+    .prepare('SELECT * FROM messages WHERE id = ? AND session_id = ?')
+    .get(messageId, sessionId) as any | undefined;
+
+  // A stale index row (message deleted, or the id belongs to another session)
+  // must not fail the search UI: fall back to the newest page of the session.
+  if (!anchor) {
+    const rows = db
+      .prepare(
+        `SELECT * FROM (
+           SELECT * FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT ?
+         ) ORDER BY created_at ASC`,
+      )
+      .all(sessionId, radius * 2 + 1) as any[];
+    return {
+      messages: formatMessageRows(rows, options.getFooterConfig),
+      focusId: null,
+      truncatedStart: hasMessagesBefore(db, sessionId, rows[0]?.created_at),
+      truncatedEnd: false,
+    };
+  }
+
+  const before = db
+    .prepare(
+      `SELECT * FROM messages WHERE session_id = ? AND created_at < ?
+       ORDER BY created_at DESC LIMIT ?`,
+    )
+    .all(sessionId, anchor.created_at, radius) as any[];
+  const after = db
+    .prepare(
+      `SELECT * FROM messages WHERE session_id = ? AND created_at > ?
+       ORDER BY created_at ASC LIMIT ?`,
+    )
+    .all(sessionId, anchor.created_at, radius) as any[];
+
+  // ASC order including the anchor, matching a transcript's reading direction.
+  const rows = [...before.reverse(), anchor, ...after] as any[];
+
+  return {
+    messages: formatMessageRows(rows, options.getFooterConfig),
+    focusId: anchor.id,
+    truncatedStart:
+      before.length === radius && hasMessagesBefore(db, sessionId, before[0]?.created_at),
+    truncatedEnd:
+      after.length === radius &&
+      (
+        db
+          .prepare('SELECT COUNT(*) AS cnt FROM messages WHERE session_id = ? AND created_at > ?')
+          .get(sessionId, after[after.length - 1]?.created_at) as { cnt: number }
+      ).cnt > 0,
+  };
+}
+
+/** Whether any message of the session predates `createdAt`. */
+function hasMessagesBefore(db: Database.Database, sessionId: string, createdAt: unknown): boolean {
+  if (createdAt === undefined) return false;
+  return (
+    (
+      db
+        .prepare('SELECT COUNT(*) AS cnt FROM messages WHERE session_id = ? AND created_at < ?')
+        .get(sessionId, createdAt) as { cnt: number }
+    ).cnt > 0
+  );
+}
+
+/**
+ * Session title for rows written before v9, where the only copy lived in the
+ * `metadata` JSON blob (the `title` column is the current home).
+ *
+ * Shared by the inbox and the search results: both label sessions the same way,
+ * and two copies of this parse would eventually disagree on a malformed blob.
+ */
+export function titleFromMetadata(metadata: string | null): string | undefined {
+  if (!metadata) return undefined;
+  try {
+    const parsed = JSON.parse(String(metadata)) as { title?: unknown };
+    return typeof parsed?.title === 'string' ? parsed.title : undefined;
+  } catch {
+    return undefined;
+  }
 }

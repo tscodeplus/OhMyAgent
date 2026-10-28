@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Network, Search } from 'lucide-react';
 import { apiRequest } from '../../utils/api';
+import { cn } from '../../lib/utils';
 import Button from '../ui/Button';
 import Select from '../ui/Select';
 import Spinner from '../ui/Spinner';
 import NeighbourhoodGraph from './NeighbourhoodGraph';
 import EntityDetail from './EntityDetail';
+import SearchContextPanel from './SearchContextPanel';
 import type {
   EntityDetailPayload,
   GraphPayload,
@@ -37,6 +39,8 @@ export default function GraphView() {
 
   const [aliases, setAliases] = useState<string[]>([]);
   const [aliasesLoading, setAliasesLoading] = useState(false);
+  /** Search hit opened in the context panel; null = closed. */
+  const [contextHit, setContextHit] = useState<SearchResult | null>(null);
 
   const loadGraph = useCallback(async () => {
     setGraphLoading(true);
@@ -167,49 +171,78 @@ export default function GraphView() {
         {hasQuery && (
           <div className="mt-2 rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
             {searching ? (
-              <div className="flex justify-center py-4">
+              <div className="flex justify-center py-6">
                 <Spinner size="sm" />
               </div>
             ) : searchError ? (
-              <p className="text-xs text-red-600 dark:text-red-400">{searchError}</p>
+              <p className="px-2 py-3 text-xs text-red-600 dark:text-red-400">{searchError}</p>
             ) : groupedResults.length === 0 ? (
-              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              <p className="px-2 py-3 text-xs text-neutral-500 dark:text-neutral-400">
                 {t('graph.searchNoResults')}
               </p>
             ) : (
-              <div className="space-y-3">
+              // Groups are stacked with one divider each and every row is a
+              // single card of identical height rhythm: title clamped to one
+              // line, snippet pinned to two. Mixed one/two-line snippets with
+              // ad-hoc margins is what made the spacing look random on a phone.
+              <div className="divide-y divide-neutral-200 dark:divide-neutral-800">
                 {groupedResults.map((group) => (
-                  <div key={group.kind}>
-                    <h2 className="mb-1 text-[11px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+                  <section key={group.kind} className="py-1 first:pt-0 last:pb-0">
+                    <h2 className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
                       {t(`graph.kinds.${group.kind}`)}
                     </h2>
-                    <ul className="space-y-1">
-                      {group.items.map((result) => (
-                        <li key={`${result.kind}-${result.id}`}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (result.kind === 'entity') setSelectedId(result.id);
-                            }}
-                            className={`w-full rounded-md px-2 py-1.5 text-left transition-colors ${
-                              result.kind === 'entity'
-                                ? 'hover:bg-neutral-100 dark:hover:bg-neutral-800'
-                                : 'cursor-default'
-                            }`}
-                          >
-                            <p className="truncate text-xs font-medium text-neutral-800 dark:text-neutral-200">
-                              {result.title}
-                            </p>
-                            {result.snippet && (
-                              <p className="mt-0.5 line-clamp-2 text-[11px] text-neutral-500 dark:text-neutral-400">
-                                {result.snippet}
-                              </p>
-                            )}
-                          </button>
-                        </li>
-                      ))}
+                    <ul className="space-y-0.5">
+                      {group.items.map((result) => {
+                        const isEntity = result.kind === 'entity';
+                        const isActive =
+                          (isEntity && result.id === selectedId) ||
+                          (contextHit?.kind === result.kind && contextHit?.id === result.id);
+                        return (
+                          <li key={`${result.kind}-${result.id}`}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (isEntity) {
+                                  setSelectedId(result.id);
+                                  setContextHit(null);
+                                } else {
+                                  setContextHit(result);
+                                }
+                              }}
+                              className={cn(
+                                'flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors',
+                                isActive
+                                  ? 'bg-neutral-100 dark:bg-neutral-800'
+                                  : 'hover:bg-neutral-100 dark:hover:bg-neutral-800',
+                              )}
+                            >
+                              {/* Exactly two text lines in every row — title, then a
+                                  two-line snippet — so a page of mixed kinds keeps one
+                                  rhythm. Provenance rides on the title line instead of
+                                  adding a third line to message hits only, which is what
+                                  made their spacing look different from memory hits. */}
+                              <span className="flex w-full items-baseline gap-2">
+                                <span className="min-w-0 flex-1 truncate text-xs font-medium text-neutral-800 dark:text-neutral-200">
+                                  {result.title}
+                                </span>
+                                {result.kind === 'message' && result.session_title && (
+                                  <span
+                                    className="max-w-[45%] shrink-0 truncate text-[10px] font-normal text-neutral-400 dark:text-neutral-500"
+                                    title={result.session_title}
+                                  >
+                                    {result.session_title}
+                                  </span>
+                                )}
+                              </span>
+                              <span className="line-clamp-2 min-h-[2.8em] w-full text-[11px] leading-[1.4] text-neutral-500 dark:text-neutral-400">
+                                {result.snippet || ' '}
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
                     </ul>
-                  </div>
+                  </section>
                 ))}
               </div>
             )}
@@ -217,7 +250,13 @@ export default function GraphView() {
         )}
 
         <div
-          className={`mt-4 grid gap-4 ${selectedId ? 'lg:grid-cols-[minmax(0,1fr)_18rem]' : ''}`}
+          className={cn(
+            'mt-4 grid gap-4',
+            // Two panels can be open at once (an entity selection plus a search
+            // hit); below lg they stack instead of squeezing the graph.
+            contextHit && 'lg:grid-cols-[minmax(0,1fr)_22rem]',
+            !contextHit && selectedId && 'lg:grid-cols-[minmax(0,1fr)_18rem]',
+          )}
         >
           <section className="rounded-xl border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -292,6 +331,10 @@ export default function GraphView() {
               </>
             )}
           </section>
+
+          {contextHit && (
+            <SearchContextPanel hit={contextHit} onClose={() => setContextHit(null)} />
+          )}
 
           {selectedNode && (
             <aside className="rounded-xl border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">

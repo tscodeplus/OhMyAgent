@@ -26,6 +26,9 @@ import {
 } from '../../memory/repositories/entity-repository.js';
 import type { MemoryRetriever } from '../../memory/memory-retriever.js';
 import { buildFtsQuery } from '../../memory/fts-tokenizer.js';
+import { inferChannel } from '../../memory/session-channel.js';
+import { loadMessageContext, titleFromMetadata } from './session-message-view.js';
+import type { FooterConfig } from '../types.js';
 
 const DEFAULT_GRAPH_LIMIT = 50;
 const MAX_GRAPH_LIMIT = 200;
@@ -79,6 +82,14 @@ export interface SearchResult {
   score: number;
   session_id?: string;
   created_at?: number;
+  /**
+   * Owning session's title and channel, so a result row can say where it came
+   * from ("飞书 · 目录检查") and the UI can decide whether "open session" means
+   * the IM inbox or a project chat. Resolved in one IN-query per page, never
+   * per row.
+   */
+  session_title?: string;
+  channel?: string;
 }
 
 export interface GraphRouteConfig {
@@ -91,6 +102,38 @@ export interface GraphRouteConfig {
    * not wired up.
    */
   memoryRetriever?: Pick<MemoryRetriever, 'retrieve'>;
+  /** Footer defaults for messages saved before the footer snapshot existed. */
+  getFooterConfig?: () => FooterConfig;
+}
+
+/**
+ * Second line of a search row: the part of the text that answers the query.
+ *
+ * Two failure modes this avoids, both visible in a list where every row should
+ * read as one continuous thought:
+ *   - repeating the title (`title` is the head of the same string), and
+ *   - showing the head when the match sits past it — for a long CJK message the
+ *     first 200 characters often contain no match at all, so the snippet looked
+ *     unrelated to what the user searched.
+ *
+ * When the match is inside the title the snippet simply continues the text;
+ * otherwise it is a window centred on the match.
+ */
+function buildSnippet(text: string, term: string, titleLength: number): string {
+  const plain = plainText(text, text.length);
+  const matchIndex = plain.toLowerCase().indexOf(term.toLowerCase());
+
+  if (matchIndex < 0 || matchIndex < titleLength) {
+    const rest = plain.slice(titleLength).trim();
+    return rest.length > SNIPPET_MAX_CHARS ? `${rest.slice(0, SNIPPET_MAX_CHARS)}…` : rest;
+  }
+
+  // Centre the window on the match, clamped to the text bounds so a match near
+  // either end still yields a full-width snippet.
+  const half = Math.floor(SNIPPET_MAX_CHARS / 2);
+  const start = Math.max(0, Math.min(matchIndex - half, plain.length - SNIPPET_MAX_CHARS));
+  const slice = plain.slice(start, start + SNIPPET_MAX_CHARS).trim();
+  return `${start > 0 ? '…' : ''}${slice}${start + SNIPPET_MAX_CHARS < plain.length ? '…' : ''}`;
 }
 
 /** Clamp a query-string integer to [min, max], falling back on garbage. */
@@ -482,27 +525,41 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
           textOnly: true,
         });
         for (const memory of memories) {
+          // title + snippet must read as ONE continuous text, not the same
+          // sentence twice: the head goes in the title, the snippet is the part
+          // that answers the query (see buildSnippet).
+          const title = plainText(memory.content, TITLE_MAX_CHARS);
           results.push({
             kind: 'memory',
             id: memory.id,
-            title: plainText(memory.content, TITLE_MAX_CHARS),
-            snippet: plainText(memory.content, SNIPPET_MAX_CHARS),
+            title,
+            snippet: buildSnippet(memory.content, term, title.length),
             score: memory.score,
             ...(memory.createdAt ? { created_at: memory.createdAt } : {}),
           });
         }
       }
 
-      for (const hit of searchMessages(cfg.db, term, limit)) {
+      const messageHits = searchMessages(cfg.db, term, limit);
+      // Session titles/channels for the whole page in one query — the row label
+      // needs them and N round-trips for N hits would be a latency trap.
+      const sessionMeta = lookupSessionMeta(
+        cfg.db,
+        messageHits.map((hit) => hit.session_id).filter((id): id is string => Boolean(id)),
+      );
+      for (const hit of messageHits) {
         const createdAt = toEpochMs(hit.created_at);
+        const meta = hit.session_id ? sessionMeta.get(hit.session_id) : undefined;
         results.push({
           kind: 'message',
           id: hit.message_id,
           title: plainText(hit.content_original, TITLE_MAX_CHARS),
-          snippet: plainText(hit.content_original, SNIPPET_MAX_CHARS),
+          snippet: buildSnippet(hit.content_original, term, TITLE_MAX_CHARS),
           score: normalizeBm25(hit.rank),
           ...(hit.session_id ? { session_id: hit.session_id } : {}),
           ...(createdAt !== undefined ? { created_at: createdAt } : {}),
+          ...(meta?.title ? { session_title: meta.title } : {}),
+          ...(meta?.channel ? { channel: meta.channel } : {}),
         });
       }
 
@@ -515,4 +572,102 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
       return reply.status(500).send({ error: message });
     }
   });
+
+  // Conversation context for one search hit. The search list shows a snippet;
+  // a snippet alone rarely explains what was asked, so the WebUI opens this
+  // window beside it instead of making the user leave the page to find out.
+  app.get('/api/search/context', async (request, reply) => {
+    const {
+      session_id: sessionId,
+      message_id: messageId,
+      radius: radiusParam,
+    } = request.query as {
+      session_id?: string;
+      message_id?: string;
+      radius?: string;
+    };
+    if (!sessionId) {
+      return reply.status(400).send({ error: 'Bad Request', message: 'session_id is required' });
+    }
+
+    try {
+      const session = cfg.db
+        .prepare('SELECT id, project_id, channel, title, metadata FROM sessions WHERE id = ?')
+        .get(sessionId) as
+        | {
+            id: string;
+            project_id: string | null;
+            channel: string | null;
+            title: string | null;
+            metadata: string | null;
+          }
+        | undefined;
+      if (!session) {
+        return reply.status(404).send({ error: 'Not Found', message: 'Session not found' });
+      }
+
+      const { messages, focusId, truncatedStart, truncatedEnd } = loadMessageContext(
+        cfg.db,
+        sessionId,
+        messageId ?? '',
+        {
+          radius: radiusParam === undefined ? undefined : clampInt(radiusParam, 6, 1, 50),
+          getFooterConfig: cfg.getFooterConfig,
+        },
+      );
+
+      return reply.send({
+        session: {
+          id: session.id,
+          // IM sessions have no project, which is exactly what the UI needs to
+          // route "open full session" to /inbox/:id instead of /p/:project/s/:id.
+          is_im: session.project_id === null,
+          project_id: session.project_id,
+          channel: session.channel ?? inferChannel(session.id, session.id),
+          title: session.title ?? titleFromMetadata(session.metadata),
+        },
+        messages,
+        focus_id: focusId,
+        truncated_start: truncatedStart,
+        truncated_end: truncatedEnd,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  });
+}
+
+/**
+ * Title/channel for a handful of sessions, keyed by id.
+ *
+ * Title falls back to the same metadata mirror the inbox uses, so a session
+ * created before v9 (no `title` column value) still labels its search hits.
+ */
+function lookupSessionMeta(
+  db: Database.Database,
+  ids: string[],
+): Map<string, { title?: string; channel?: string }> {
+  const out = new Map<string, { title?: string; channel?: string }>();
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return out;
+
+  const placeholders = unique.map(() => '?').join(', ');
+  const rows = db
+    .prepare(`SELECT id, channel, title, metadata FROM sessions WHERE id IN (${placeholders})`)
+    .all(...unique) as Array<{
+    id: string;
+    channel: string | null;
+    title: string | null;
+    metadata: string | null;
+  }>;
+
+  for (const row of rows) {
+    const title = row.title ?? titleFromMetadata(row.metadata);
+    out.set(row.id, {
+      ...(title ? { title } : {}),
+      ...(row.channel ? { channel: row.channel } : {}),
+    });
+  }
+  return out;
 }

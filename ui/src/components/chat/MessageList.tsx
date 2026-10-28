@@ -52,6 +52,9 @@ interface MessageListProps {
   /** Reports the loaded history message count per session (after fetch).
    *  Used by ChatView to detect brand-new (empty) sessions. */
   onHistoryCount?: (sessionId: string, count: number) => void;
+  /** Marks one message as the focal hit (search context panel). The row gets a
+   *  ring and a data attribute the caller can scroll to; nothing is reordered. */
+  focusMessageId?: string;
 }
 
 const PAGE_SIZE = 50;
@@ -75,6 +78,7 @@ export default function MessageList({
   onRefetched,
   hideEmptyState,
   onHistoryCount,
+  focusMessageId,
 }: MessageListProps) {
   const { t } = useTranslation('common');
   const [messages, setMessages] = useState<Message[]>([]);
@@ -468,9 +472,25 @@ export default function MessageList({
         )}
 
         <div className="max-w-3xl mx-auto space-y-4">
-          {displayMessages.map((msg) => (
-            <MessageBubble key={msg.id} message={msg} readOnly={readOnly} />
-          ))}
+          {displayMessages.map((msg) => {
+            const isFocus = focusMessageId !== undefined && msg.id === focusMessageId;
+            return (
+              <div
+                key={msg.id}
+                data-message-id={msg.id}
+                {...(isFocus ? { 'data-focus-hit': 'true' } : {})}
+                className={
+                  // Ring, not background: a filled row would look like a
+                  // selection inside a read-only panel.
+                  isFocus
+                    ? 'rounded-xl ring-2 ring-primary/40 ring-offset-2 ring-offset-white dark:ring-offset-neutral-900'
+                    : undefined
+                }
+              >
+                <MessageBubble message={msg} readOnly={readOnly} />
+              </div>
+            );
+          })}
           {/* Stream retry/fallback status — a model attempt failed and the
             gateway is retrying or switching to the next fallback model.
             Inline row: icon pinned to the first text line ((20px line-height

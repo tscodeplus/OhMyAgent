@@ -1463,7 +1463,8 @@
       "qq": "QQ",
       "webui": "网页",
       "cron": "定时任务",
-      "unknown": "其他"
+      "unknown": "未识别来源",
+      "unknownHint": "该会话无法判断来自哪个渠道：可能创建于渠道识别上线之前，或由脚本/测试创建。"
     }
   },
   "graph": {
@@ -1487,6 +1488,12 @@
     "loadError": "知识图谱加载失败",
     "retry": "重试",
     "loading": "加载中…",
+    "contextTitle": "对话上下文",
+    "contextClose": "关闭",
+    "contextError": "上下文加载失败",
+    "contextOpenSession": "打开完整会话",
+    "contextOlderHidden": "更早的消息已省略",
+    "contextNewerHidden": "更新的消息已省略",
     "showingFirst": "显示前 {{count}} 个",
     "truncated": "节点过多，已按上限截断",
     "clickHint": "点击节点可切换到该实体",

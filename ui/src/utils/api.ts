@@ -1,4 +1,5 @@
 import type { InboxMessagesQuery, InboxPage, InboxQuery, InboxSessionDetail } from '../types/inbox';
+import type { SearchContextResponse } from '../types/graph';
 
 const TOKEN_KEY = 'ohmyagent_token';
 
@@ -92,6 +93,21 @@ function queryString(params: Record<string, string | number | undefined>): strin
  * IM inbox listing. Errors surface as `ApiError` like every other endpoint, so
  * callers use the same try/catch-and-toast style as the rest of the app.
  */
+/** Conversation window around one search hit (see GET /api/search/context). */
+export function fetchSearchContext(params: {
+  session_id: string;
+  message_id?: string;
+  radius?: number;
+}): Promise<SearchContextResponse> {
+  return apiRequest<SearchContextResponse>(
+    `/api/search/context${queryString({
+      session_id: params.session_id,
+      message_id: params.message_id,
+      radius: params.radius,
+    })}`,
+  );
+}
+
 export function fetchInbox(params: InboxQuery = {}): Promise<InboxPage> {
   return apiRequest<InboxPage>(
     `/api/inbox${queryString({ channel: params.channel, limit: params.limit, before: params.before })}`,

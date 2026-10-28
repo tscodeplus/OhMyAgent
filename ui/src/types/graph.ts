@@ -1,3 +1,5 @@
+import type { Message } from './session';
+
 /**
  * Payloads of the read-only knowledge-graph API (src/app/webui/graph-routes.ts).
  *
@@ -58,6 +60,31 @@ export interface SearchResult {
   score: number;
   session_id?: string;
   created_at?: number;
+  /** Owning session's title, when the hit belongs to one. */
+  session_title?: string;
+  /** Owning session's channel ('feishu', 'webui', …) — decides where "open" goes. */
+  channel?: string;
+}
+
+/**
+ * `GET /api/search/context` — the conversation window around one message hit.
+ * `messages` uses the transcript shape, so the panel renders it with the normal
+ * message component instead of a second, search-specific renderer.
+ */
+export interface SearchContextResponse {
+  session: {
+    id: string;
+    /** IM sessions have no project and route to /inbox/:id. */
+    is_im: boolean;
+    project_id: string | null;
+    channel: string;
+    title: string | null;
+  };
+  messages: Message[];
+  /** The hit itself, or null when it no longer exists. */
+  focus_id: string | null;
+  truncated_start: boolean;
+  truncated_end: boolean;
 }
 
 export interface SearchPayload {

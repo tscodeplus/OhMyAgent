@@ -24,6 +24,12 @@ export interface InboxSessionSummary {
 export interface InboxChannelCount {
   channel: string;
   count: number;
+  /**
+   * The channel bot's own display name ("小书" for Feishu), when that channel has
+   * one configured. Groups read "小书 · 飞书" so multiple bots in one inbox stay
+   * distinguishable.
+   */
+  bot_name?: string;
 }
 
 export interface InboxPage {
@@ -40,6 +46,8 @@ export interface InboxPage {
 export interface InboxSessionDetail {
   id: string;
   channel: string;
+  /** Bot display name for this channel, when configured. */
+  bot_name?: string;
   external_chat_id: string | null;
   title: string | null;
   created_at: number;

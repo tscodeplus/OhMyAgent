@@ -18,6 +18,7 @@ import { createRequire } from 'node:module';
 // ── Lazy jieba singleton ──
 
 interface JiebaInstance {
+  cut(text: string, hmm: boolean): string[];
   cutForSearch(text: string, hmm: boolean): string[];
 }
 
@@ -39,7 +40,7 @@ function getJieba(): JiebaInstance | null {
 
 // ── Chinese stop-words ──
 
-const ZH_STOP_WORDS = new Set([
+export const ZH_STOP_WORDS = new Set([
   '的',
   '了',
   '在',
@@ -102,6 +103,23 @@ export function tokenizeForIndex(text: string): string {
 
   const tokens = jieba.cutForSearch(text, true).filter((t) => t.trim()); // drop whitespace-only tokens jieba emits for Latin scripts
   return tokens.join(' ');
+}
+
+/**
+ * Ordered jieba tokens of `text`, unfiltered.
+ *
+ * `segmentCJK` is the recall-side helper and deliberately drops single chars and
+ * stop words, which loses the neighbour relation entity mining needs: 知识图谱
+ * arrives as the adjacent pair 知识|图谱, and only the adjacency tells it apart
+ * from two unrelated words. Returns [] when jieba is unavailable.
+ */
+export function cutCJK(text: string): string[] {
+  const jieba = getJieba();
+  if (!jieba) return [];
+  return jieba
+    .cut(text, true)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
 }
 
 /**

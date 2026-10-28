@@ -434,6 +434,10 @@ const configSchema = z.object({
         enabled: z.boolean().default(true),
         min_confidence: z.coerce.number().min(0).max(1).default(0.3),
         max_links_per_run: z.coerce.number().int().positive().default(500),
+        // Deterministic mention mining of memories that never produced a link
+        // (src/graph/entity-mining.ts). No model call, so it is on by default.
+        mine_mentions: z.boolean().default(true),
+        max_mentions_per_memory: z.coerce.number().int().positive().default(8),
       })
       .default({}),
     maintenance: z
@@ -1091,6 +1095,8 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
         enabled: envBool(env.MEMORY_GRAPH_ENABLED, true),
         min_confidence: env.MEMORY_GRAPH_MIN_CONFIDENCE,
         max_links_per_run: env.MEMORY_GRAPH_MAX_LINKS_PER_RUN,
+        mine_mentions: envBool(env.MEMORY_GRAPH_MINE_MENTIONS, true),
+        max_mentions_per_memory: env.MEMORY_GRAPH_MAX_MENTIONS_PER_MEMORY,
       },
     },
     cron: {
@@ -1379,7 +1385,9 @@ function applyEnvOverrides(
       : []),
     ...(env.MEMORY_GRAPH_ENABLED !== undefined ||
     env.MEMORY_GRAPH_MIN_CONFIDENCE !== undefined ||
-    env.MEMORY_GRAPH_MAX_LINKS_PER_RUN !== undefined
+    env.MEMORY_GRAPH_MAX_LINKS_PER_RUN !== undefined ||
+    env.MEMORY_GRAPH_MINE_MENTIONS !== undefined ||
+    env.MEMORY_GRAPH_MAX_MENTIONS_PER_MEMORY !== undefined
       ? [{ env: '1', field: 'graph' }]
       : []),
   ]);

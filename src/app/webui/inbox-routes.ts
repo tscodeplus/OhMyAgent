@@ -18,7 +18,7 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import type { FooterConfig } from '../types.js';
-import { loadSessionMessages } from './session-message-view.js';
+import { loadSessionMessages, titleFromMetadata } from './session-message-view.js';
 import { inferChannel, isInboxChannel } from '../../memory/session-channel.js';
 import { SessionRepository } from '../../memory/repositories/session-repository.js';
 
@@ -43,6 +43,13 @@ export function registerInboxRoutes(
   app: FastifyInstance,
   db: Database.Database,
   getFooterConfig?: () => FooterConfig,
+  /**
+   * Bot display name for a channel ("小书" for Feishu). Lets a sidebar group read
+   * "小书 · 飞书" instead of a bare channel name, which matters as soon as more
+   * than one bot posts into the same inbox. Optional: unconfigured channels and
+   * every non-bot channel degrade to the plain label.
+   */
+  getBotName?: (channel: string) => string | undefined,
 ): void {
   const sessionRepository = new SessionRepository(db);
 
@@ -85,7 +92,12 @@ export function registerInboxRoutes(
         preview: row.preview,
       })),
       hasMore,
-      channels: sessionRepository.countByChannel(),
+      // Each channel count carries the bot that owns it, so the UI can label the
+      // group without asking for config separately.
+      channels: sessionRepository.countByChannel().map((entry) => {
+        const botName = getBotName?.(entry.channel);
+        return botName ? { ...entry, bot_name: botName } : entry;
+      }),
     });
   });
 
@@ -129,9 +141,11 @@ export function registerInboxRoutes(
       getFooterConfig,
     });
 
+    const channel = session.channel ?? inferChannel(session.id, session.chat_id);
     return reply.send({
       id: session.id,
-      channel: session.channel ?? inferChannel(session.id, session.chat_id),
+      channel,
+      ...(getBotName?.(channel) ? { bot_name: getBotName?.(channel) } : {}),
       external_chat_id: session.external_chat_id,
       title: session.title ?? titleFromMetadata(session.metadata),
       created_at: parseInt(String(session.created_at), 10),
@@ -140,15 +154,4 @@ export function registerInboxRoutes(
       hasMore,
     });
   });
-}
-
-/** Rows written before v9 only have `metadata.title`. */
-function titleFromMetadata(metadata: string | null): string | undefined {
-  if (!metadata) return undefined;
-  try {
-    const parsed = JSON.parse(String(metadata)) as { title?: unknown };
-    return typeof parsed?.title === 'string' ? parsed.title : undefined;
-  } catch {
-    return undefined;
-  }
 }

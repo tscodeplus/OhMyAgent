@@ -372,8 +372,11 @@ describe('knowledge-graph routes', () => {
       ).json();
       const hit = payload.results.find((result: { id: string }) => result.id === 'msg-html');
       expect(hit).toBeDefined();
+      // The row is title + snippet read as one string: the head goes in the
+      // title, so the match is asserted against the pair, not the snippet alone.
+      expect(hit.title).not.toContain('<');
       expect(hit.snippet).not.toContain('<');
-      expect(hit.snippet).toContain('Berlin');
+      expect(`${hit.title} ${hit.snippet}`).toContain('Berlin');
     });
 
     it('truncates long titles and snippets', async () => {

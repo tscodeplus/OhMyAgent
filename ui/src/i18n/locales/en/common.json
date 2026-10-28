@@ -1463,7 +1463,8 @@
       "qq": "QQ",
       "webui": "Web UI",
       "cron": "Scheduled",
-      "unknown": "Other"
+      "unknown": "Unknown source",
+      "unknownHint": "This session's channel could not be determined: it predates channel tracking, or was created by a script or test."
     }
   },
   "graph": {
@@ -1487,6 +1488,12 @@
     "loadError": "Failed to load the knowledge graph",
     "retry": "Retry",
     "loading": "Loading…",
+    "contextTitle": "Conversation context",
+    "contextClose": "Close",
+    "contextError": "Failed to load context",
+    "contextOpenSession": "Open full session",
+    "contextOlderHidden": "Earlier messages omitted",
+    "contextNewerHidden": "Newer messages omitted",
     "showingFirst": "Showing the first {{count}}",
     "truncated": "Too many nodes — the view is capped",
     "clickHint": "Click a node to centre it",

@@ -247,6 +247,8 @@ describe('graph-sync: config gate', () => {
       enabled: true,
       minConfidence: 0.3,
       maxLinksPerRun: 500,
+      mineMentions: true,
+      maxMentionsPerMemory: 8,
     });
   });
 
@@ -254,6 +256,19 @@ describe('graph-sync: config gate', () => {
     expect(() => resolveGraphSyncConfig({ enabled: 'yes' })).toThrow(/enabled/);
     expect(() => resolveGraphSyncConfig({ min_confidence: 2 })).toThrow(/min_confidence/);
     expect(() => resolveGraphSyncConfig({ max_links_per_run: 0 })).toThrow(/max_links_per_run/);
+    expect(() => resolveGraphSyncConfig({ mine_mentions: 'yes' })).toThrow(/mine_mentions/);
+    expect(() => resolveGraphSyncConfig({ max_mentions_per_memory: 0 })).toThrow(
+      /max_mentions_per_memory/,
+    );
+  });
+
+  it('accepts numeric strings for counts, like every other interpolation-friendly key', () => {
+    const config = resolveGraphSyncConfig({
+      max_links_per_run: '250',
+      max_mentions_per_memory: '3',
+    });
+    expect(config.maxLinksPerRun).toBe(250);
+    expect(config.maxMentionsPerMemory).toBe(3);
   });
 
   it('does not run when the gate is off', async () => {

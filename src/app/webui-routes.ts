@@ -96,7 +96,20 @@ export async function registerWebUIRoutes(
   registerSessionRoutes(app, cfg.db, () => cfg.getConfig().footer);
   // Read-only IM inbox (sessions with project_id IS NULL). Same auth: the
   // webuiAuthHook is a root-level onRequest hook registered in bootstrap.ts.
-  registerInboxRoutes(app, cfg.db, () => cfg.getConfig().footer);
+  registerInboxRoutes(
+    app,
+    cfg.db,
+    () => cfg.getConfig().footer,
+    (channel) => {
+      // The bot's own display name ("小书"), configured per channel. Only Feishu and
+      // Telegram carry one today; the others return undefined and the UI falls back
+      // to the plain channel label.
+      const config = cfg.getConfig();
+      if (channel === 'feishu') return config.feishu.botName || undefined;
+      if (channel === 'telegram') return config.telegram?.botName || undefined;
+      return undefined;
+    },
+  );
 
   const chatConfig: ChatRouteConfig = {
     agentService: cfg.services.agentService,
@@ -188,7 +201,11 @@ export async function registerWebUIRoutes(
 
   // Read-only knowledge-graph API + unified search. Reuses the memory
   // retriever so /api/search ranks memories like chat recall does.
-  registerGraphRoutes(app, { db: cfg.db, memoryRetriever: cfg.services.memoryRetriever });
+  registerGraphRoutes(app, {
+    db: cfg.db,
+    memoryRetriever: cfg.services.memoryRetriever,
+    getFooterConfig: () => cfg.getConfig().footer,
+  });
 
   registerCronRoutes(app, cfg.services.cronService);
 

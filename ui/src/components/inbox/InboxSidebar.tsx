@@ -6,12 +6,7 @@ import { cn, formatRelativeTime } from '../../lib/utils';
 import { fetchInbox } from '../../utils/api';
 import Spinner from '../ui/Spinner';
 import type { InboxChannel, InboxChannelCount, InboxSessionSummary } from '../../types/inbox';
-import {
-  INBOX_CHANNEL_LABEL_KEY,
-  groupInboxItems,
-  inboxItemLabel,
-  normalizeInboxChannel,
-} from './inboxModel';
+import { channelLabel, groupInboxItems, inboxItemLabel, normalizeInboxChannel } from './inboxModel';
 
 /** Rows per inbox page (the endpoint accepts 1..200). */
 const PAGE_SIZE = 50;
@@ -118,6 +113,15 @@ export default function InboxSidebar({ refreshKey }: InboxSidebarProps) {
 
   const groups = useMemo(() => groupInboxItems(items), [items]);
 
+  // channel -> bot display name, straight from the API's per-channel counts.
+  const botNames = useMemo(() => {
+    const map = new Map<InboxChannel, string>();
+    for (const entry of channels) {
+      if (entry.bot_name) map.set(normalizeInboxChannel(entry.channel), entry.bot_name);
+    }
+    return map;
+  }, [channels]);
+
   // Total comes from the server-side counts so a paged list still shows the
   // real number of IM conversations.
   const total = useMemo(() => {
@@ -172,12 +176,15 @@ export default function InboxSidebar({ refreshKey }: InboxSidebarProps) {
             <div className="space-y-0.5">
               {groups.map((group) => {
                 const collapsed = collapsedChannels.has(group.channel);
+                const botName = botNames.get(group.channel);
+                const label = channelLabel(t, group.channel, botName);
                 return (
                   <div key={group.channel}>
                     <button
                       type="button"
                       onClick={() => toggleChannel(group.channel)}
                       aria-expanded={!collapsed}
+                      title={group.channel === 'unknown' ? t('inbox.channels.unknownHint') : label}
                       className="flex h-6 w-full items-center gap-1 rounded-md px-2 text-[11px] font-medium text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
                     >
                       <ChevronDown
@@ -187,9 +194,7 @@ export default function InboxSidebar({ refreshKey }: InboxSidebarProps) {
                         )}
                         strokeWidth={1.75}
                       />
-                      <span className="truncate">
-                        {t(INBOX_CHANNEL_LABEL_KEY[normalizeInboxChannel(group.channel)])}
-                      </span>
+                      <span className="truncate">{label}</span>
                       <span className="ml-auto shrink-0 tabular-nums">{group.items.length}</span>
                     </button>
 

@@ -1,5 +1,6 @@
 /**
- * GraphSync — materialises `entities`/`entity_edges` from `memory_links`.
+ * GraphSync — materialises `entities`/`entity_edges` from `memory_links` and
+ * from the memory text the links never covered.
  *
  * The memory entity extractor already pays for one LLM call per finished turn
  * and stores what it found as `memory_links(source_memory_id, target_entity,
@@ -10,6 +11,13 @@
  * nothing that could disagree with the extraction that produced the links.
  * (The SPO triplet extractor in `src/graph/entity-extractor.ts` stays available
  * as optional enrichment; it is deliberately not called from here.)
+ *
+ * The projection alone leaves most conversation history out of the graph: the
+ * extractor links a handful of entities per turn, so a memory that talks about
+ * Excel contributes nothing unless one link happens to name it. `mineGraphFromMemories`
+ * closes that gap with deterministic mention mining (`entity-mining.ts`, still
+ * no model call), and the same `graph_sync` job runs it right after the
+ * projection — see "Mention mining" at the bottom of this file.
  *
  * ## Mapping
  * `memory_links` has no subject column. One extraction pass stores a turn's
@@ -70,6 +78,7 @@ import {
   EntityRepository,
 } from '../memory/repositories/entity-repository.js';
 import { parseEpochMs } from '../shared/timestamp.js';
+import { mineMentionedEntities, type MinedMention } from './entity-mining.js';
 import { DEFAULT_GRAPH_SYNC_CONFIG, type GraphSyncConfig } from './graph-config.js';
 
 /** `maintenance_runs.job_name` of the scheduled projector. */
@@ -84,6 +93,15 @@ export const GRAPH_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 /** `entity_type` of the per-memory placeholder node. */
 export const MEMORY_ENTITY_TYPE = 'memory';
+
+/**
+ * Relation of a mined mention edge: "this memory's subject mentioned X".
+ *
+ * A mined mention carries no verb (deterministic extraction cannot tell
+ * WORKS_AT from LIKES), so inventing one would put a claim in the graph that
+ * nothing supports. MENTIONED is the one relation the text itself proves.
+ */
+export const MENTION_RELATION_TYPE = 'MENTIONED';
 
 export interface GraphSyncOptions {
   /** Max links projected by this call. Default 500. */
@@ -378,12 +396,276 @@ export function syncGraphFromMemoryLinks(
 }
 
 /**
+ * Mention mining — the second pass of `graph_sync`.
+ *
+ * Everything below this point reads `memories` instead of `memory_links`:
+ * `mineGraphFromMemories` extracts names from text no link named and writes
+ * them with the same `EntityRepository` the projection uses, so the graph gains
+ * a deterministic, model-free floor underneath the LLM-derived relations. The
+ * two passes are independent on purpose — the projection keeps its cursor
+ * (`source_memory_id` on links) and the mining pass keeps its own (an edge of
+ * relation `MENTIONED`), so one can be disabled or re-tuned without corrupting
+ * the other's progress.
+ */
+export interface GraphMiningOptions {
+  /** Max memories mined by this call. Default `maxLinksPerRun` (500). */
+  limit?: number;
+  /** Max mentions taken from one memory. Default 8. */
+  maxMentionsPerMemory?: number;
+  /**
+   * A mined name must appear in at least this many memories to become an entity,
+   * unless the graph already knows it or it came from the curated vocabulary.
+   * Default 2 — see buildMentionFilter for why one occurrence is not enough.
+   */
+  minDocumentFrequency?: number;
+  /** Run the whole pass, then roll it back — nothing is written. */
+  dryRun?: boolean;
+  /** Cooperative cancellation between memories (scheduler timeout). */
+  signal?: AbortSignal;
+  /** Optional sink for per-row diagnostics; silent when absent. */
+  logger?: Logger;
+}
+
+export interface GraphMiningSummary {
+  /** Memories that contributed at least one mention. */
+  memoriesMined: number;
+  /** Mentions accepted (the subject included) — every mention past the subject became an edge. */
+  mentionsMined: number;
+  entitiesCreated: number;
+  entitiesMatched: number;
+  edgesCreated: number;
+  edgesRefreshed: number;
+  /** Memories with nothing minable (blank/emoji/number-only content). */
+  skipped: number;
+}
+
+interface MineableMemoryRow {
+  memory_id: string;
+  content: string;
+  memory_kind: string | null;
+  memory_scope: string | null;
+  memory_created_at: string | null;
+}
+
+/**
+ * Memories nothing has mined yet, oldest first.
+ *
+ * The marker is the same one the link projection uses — an edge carrying the
+ * memory's id as `source_memory_id` — narrowed to `MENTIONED` edges so a memory
+ * whose links produced only, say, a `WORKS_AT` edge is still mined for the
+ * names in its text. Mined edges always carry `source_memory_id`, and a memory
+ * with at least one mention always produces at least one edge, so a mined
+ * memory drops out of this batch permanently; only memories with nothing to
+ * mine (blank, emoji, numbers) are re-scanned, bounded by `limit`.
+ */
+const MINEABLE_MEMORY_SQL = `
+SELECT m.id AS memory_id,
+       m.content AS content,
+       m.kind AS memory_kind,
+       m.scope AS memory_scope,
+       m.created_at AS memory_created_at
+FROM memories m
+WHERE m.status = 'active'
+  AND trim(m.content) <> ''
+  -- Two kinds are stored for bookkeeping, not as conversation content, and both
+  -- mine as pure noise: the persona row is a distilled JSON profile (its keys and
+  -- values read like entity names), and scene rows hold a path pointer
+  -- ("scenes/<session>_<date>.md") whose fragments — the directory name, a uuid,
+  -- two dates — are the worst offenders in the whole corpus.
+  AND m.kind NOT IN ('persona', 'scene')
+  AND NOT EXISTS (
+    SELECT 1
+    FROM entity_edges e
+    WHERE e.source_memory_id = m.id
+      AND e.relation_type = @mentionRelation
+  )
+ORDER BY m.created_at, m.id
+LIMIT @memoryLimit
+`;
+
+function readMineableMemories(db: Database.Database, limit: number): MineableMemoryRow[] {
+  return db.prepare(MINEABLE_MEMORY_SQL).all({
+    memoryLimit: limit,
+    mentionRelation: MENTION_RELATION_TYPE,
+  }) as MineableMemoryRow[];
+}
+
+/**
+ * Mine the memories no edge covers yet and write them into the graph.
+ *
+ * This is the second half of `graph_sync`: `syncGraphFromMemoryLinks` projects
+ * what the extractor already found, this pass covers the (usually much larger)
+ * remainder with heuristics from `entity-mining.ts` — no prompt, no network.
+ *
+ * Shape follows the link projection so one memory means one subject: the most
+ * confident mention becomes the subject and every other mention becomes a
+ * `MENTIONED` edge to it, which is what connects the mined nodes to each other
+ * instead of parking each behind its own placeholder. A memory with a single
+ * mention has no stated subject, so it uses the `memory:<id>` placeholder for
+ * the same reason the link projection does.
+ *
+ * Safe to call repeatedly: mined edges are only created for memories that have
+ * no `MENTIONED` edge yet, and `EntityRepository` upserts entities by canonical
+ * name. Throws only when the database itself is unusable.
+ */
+export function mineGraphFromMemories(
+  db: Database.Database,
+  repo: EntityRepository,
+  options: GraphMiningOptions = {},
+): GraphMiningSummary {
+  const limit = Math.max(1, Math.floor(options.limit ?? DEFAULT_GRAPH_SYNC_CONFIG.maxLinksPerRun));
+  const maxMentionsPerMemory = Math.max(
+    1,
+    Math.floor(options.maxMentionsPerMemory ?? DEFAULT_GRAPH_SYNC_CONFIG.maxMentionsPerMemory),
+  );
+  const dryRun = options.dryRun === true;
+  const { logger, signal } = options;
+
+  const summary: GraphMiningSummary = {
+    memoriesMined: 0,
+    mentionsMined: 0,
+    entitiesCreated: 0,
+    entitiesMatched: 0,
+    edgesCreated: 0,
+    edgesRefreshed: 0,
+    skipped: 0,
+  };
+
+  let upsertCalls = 0;
+  let linkCalls = 0;
+
+  const mine = db.transaction(() => {
+    const batch = readMineableMemories(db, limit);
+    if (batch.length === 0) return;
+
+    const entitiesBefore = countRows(db, 'SELECT COUNT(*) AS cnt FROM entities');
+    const edgesBefore = countRows(db, 'SELECT COUNT(*) AS cnt FROM entity_edges');
+
+    // Two passes over the batch instead of one: extraction per memory, then a
+    // corpus-level filter before anything is written.
+    //
+    // Per-memory extraction alone cannot tell a topic from a sentence fragment —
+    // "Excel" and "问过" look equally plausible in isolation, and jieba happily
+    // emits verbs. Across the batch the difference is stark: a real topic recurs
+    // ("Excel" in 5 memories), a fragment is a one-off. So a name mentioned in a
+    // single memory is dropped unless the graph already knows it (an existing
+    // entity or alias) or it was found in the curated vocabulary.
+    //
+    // Cheap, deterministic and explainable — no model call and no per-name
+    // judgement to disagree with later.
+    const extracted = batch.map((memory) => ({
+      memory,
+      mentions: mineMentionedEntities(
+        {
+          id: memory.memory_id,
+          content: memory.content,
+          kind: memory.memory_kind ?? undefined,
+          scope: memory.memory_scope ?? undefined,
+          created_at: memory.memory_created_at,
+        },
+        { maxMentions: maxMentionsPerMemory },
+      ),
+    }));
+    // A document-frequency cutoff needs a corpus to measure. With a handful of
+    // memories every name occurs once, so applying the cutoff would throw away
+    // every non-vocabulary entity and leave a single subject per memory — the
+    // graph would look better populated on a large corpus and half-empty on a
+    // fresh install, for no reason the user could see. So the cutoff only
+    // engages once the batch is at least twice the threshold in size.
+    const requestedMinDf = optionMinDocumentFrequency(options);
+    const effectiveMinDf = batch.length >= requestedMinDf * 2 ? requestedMinDf : 1;
+    const mentionFilter = buildMentionFilter(db, extracted, effectiveMinDf);
+
+    for (const { memory, mentions: rawMentions } of extracted) {
+      if (signal?.aborted) break;
+
+      const mentions = rawMentions.filter((mention) => mentionFilter(mention));
+      if (mentions.length === 0) {
+        summary.skipped++;
+        logger?.debug(
+          { memoryId: memory.memory_id },
+          '[graph-mine] memory skipped (no minable mention)',
+        );
+        continue;
+      }
+
+      const subjectMention = mentions[0]!;
+      const hasSubject = mentions.length > 1;
+      const subjectName = hasSubject ? subjectMention.name : `memory:${memory.memory_id}`;
+      const subjectType = hasSubject ? inferEntityType(subjectName) : MEMORY_ENTITY_TYPE;
+      const validFromMs = parseEpochMs(memory.memory_created_at);
+      const validFrom = validFromMs > 0 ? validFromMs : Date.now();
+
+      try {
+        const subject = repo.upsertEntity({ name: subjectName, entityType: subjectType });
+        upsertCalls++;
+
+        for (const mention of mentions) {
+          if (hasSubject && mention === subjectMention) continue;
+
+          const target = repo.upsertEntity({
+            name: mention.name,
+            entityType: inferEntityType(mention.name),
+          });
+          upsertCalls++;
+
+          repo.linkEntities({
+            sourceId: subject.id,
+            targetId: target.id,
+            relationType: MENTION_RELATION_TYPE,
+            // The edge claims the subject mentions the target, so it is only as
+            // trustworthy as the weaker of the two extractions.
+            confidence: Math.min(subjectMention.confidence, mention.confidence),
+            sourceMemoryId: memory.memory_id,
+            validFrom,
+          });
+          linkCalls++;
+        }
+
+        summary.memoriesMined++;
+        summary.mentionsMined += mentions.length;
+      } catch (err) {
+        // One malformed memory must not abort the run; it stays unmined and the
+        // next pass retries it.
+        summary.skipped++;
+        logger?.warn(
+          { memoryId: memory.memory_id, err: err instanceof Error ? err.message : String(err) },
+          '[graph-mine] memory skipped',
+        );
+      }
+    }
+
+    summary.entitiesCreated =
+      countRows(db, 'SELECT COUNT(*) AS cnt FROM entities') - entitiesBefore;
+    summary.entitiesMatched = Math.max(0, upsertCalls - summary.entitiesCreated);
+    summary.edgesCreated = countRows(db, 'SELECT COUNT(*) AS cnt FROM entity_edges') - edgesBefore;
+    summary.edgesRefreshed = Math.max(0, linkCalls - summary.edgesCreated);
+
+    if (dryRun) throw DRY_RUN_ROLLBACK;
+  });
+
+  try {
+    mine();
+  } catch (err) {
+    if (err !== DRY_RUN_ROLLBACK) throw err;
+  }
+
+  return summary;
+}
+
+/**
  * The `graph_sync` maintenance job.
  *
  * Registered on the existing `MaintenanceScheduler`, which already owns the
  * `maintenance_runs` bookkeeping (one row per run), the interval gate and the
  * per-job error isolation — so the graph can neither run on the turn path nor
  * take the memory pipeline down with it.
+ *
+ * One job, two passes, in this order: the link projection first (it carries the
+ * extractor's LLM-derived relations, which are better than any heuristic), then
+ * the mention mining over the memories it did not cover. They share one
+ * `maintenance_runs` row and one `limit` per run — each pass applies it to its
+ * own unit (links, memories) — so enabling mining does not double the run cost.
  */
 export function createGraphSyncJob(
   db: Database.Database,
@@ -391,6 +673,15 @@ export function createGraphSyncJob(
   logger: Logger = createLogger(),
 ): MaintenanceJob {
   const repo = new EntityRepository(db);
+  const emptyMining: GraphMiningSummary = {
+    memoriesMined: 0,
+    mentionsMined: 0,
+    entitiesCreated: 0,
+    entitiesMatched: 0,
+    edgesCreated: 0,
+    edgesRefreshed: 0,
+    skipped: 0,
+  };
   return {
     name: GRAPH_SYNC_JOB_NAME,
     enabled: config.enabled,
@@ -405,24 +696,44 @@ export function createGraphSyncJob(
           signal,
           logger,
         });
-        // Nothing extracted yet: report it instead of pretending a run happened.
-        if (summary.memoriesProcessed === 0 && summary.linksProcessed === 0) {
+        const mined = config.mineMentions
+          ? mineGraphFromMemories(db, repo, {
+              limit: config.maxLinksPerRun,
+              maxMentionsPerMemory: config.maxMentionsPerMemory,
+              dryRun,
+              signal,
+              logger,
+            })
+          : emptyMining;
+        const affectedRows =
+          summary.edgesCreated + summary.edgesRefreshed + mined.edgesCreated + mined.edgesRefreshed;
+        // Nothing extracted, nothing minable: report it instead of pretending a
+        // run happened.
+        if (
+          summary.memoriesProcessed === 0 &&
+          summary.linksProcessed === 0 &&
+          mined.memoriesMined === 0
+        ) {
           return {
             name: GRAPH_SYNC_JOB_NAME,
             status: 'skipped',
             dryRun,
             affectedRows: 0,
             durationMs: Date.now() - start,
-            details: { reason: 'no_projectable_links', skipped: summary.skipped },
+            details: {
+              reason: 'no_projectable_links',
+              skipped: summary.skipped,
+              mined,
+            },
           };
         }
         return {
           name: GRAPH_SYNC_JOB_NAME,
           status: 'success',
           dryRun,
-          affectedRows: summary.edgesCreated + summary.edgesRefreshed,
+          affectedRows,
           durationMs: Date.now() - start,
-          details: { ...summary },
+          details: { ...summary, mined },
         };
       } catch (err) {
         // Non-fatal by contract: a graph sync failure must never fail the
@@ -437,5 +748,70 @@ export function createGraphSyncJob(
         };
       }
     },
+  };
+}
+
+/** Mention must occur in at least this many of the batch's memories. */
+const DEFAULT_MIN_DOCUMENT_FREQUENCY = 2;
+
+function optionMinDocumentFrequency(options: GraphMiningOptions): number {
+  const value = Number(options.minDocumentFrequency ?? DEFAULT_MIN_DOCUMENT_FREQUENCY);
+  return Number.isFinite(value) && value >= 1 ? Math.floor(value) : DEFAULT_MIN_DOCUMENT_FREQUENCY;
+}
+
+/**
+ * Predicate that decides whether a mined mention survives the corpus filter.
+ *
+ * Kept as a closure over the counts so the write loop stays a plain loop, and
+ * so the reason a mention was dropped is visible in one place:
+ *   - seen in >= minDocumentFrequency memories of this batch, or
+ *   - already an entity/alias (the graph learned it earlier — dropping it now
+ *     would make the graph oscillate between runs), or
+ *   - identified by the curated vocabulary rather than position heuristics.
+ */
+function buildMentionFilter(
+  db: Database.Database,
+  extracted: Array<{ memory: { memory_id: string }; mentions: MinedMention[] }>,
+  minDocumentFrequency: number,
+): (mention: MinedMention) => boolean {
+  const counts = new Map<string, number>();
+  for (const { mentions } of extracted) {
+    const seenHere = new Set<string>();
+    for (const mention of mentions) {
+      const key = canonicalizeEntityName(mention.name);
+      if (!key || seenHere.has(key)) continue;
+      seenHere.add(key);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+
+  const known = new Set<string>();
+  for (const row of db.prepare('SELECT canonical_name FROM entities').all() as Array<{
+    canonical_name: string;
+  }>) {
+    known.add(row.canonical_name);
+  }
+  const aliasColumn = db
+    .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'entity_aliases'")
+    .get()
+    ? (db.prepare('PRAGMA table_info(entity_aliases)').all() as Array<{ name: string }>).some(
+        (column) => column.name === 'alias',
+      )
+    : false;
+  if (aliasColumn) {
+    for (const row of db.prepare('SELECT alias FROM entity_aliases').all() as Array<{
+      alias: string;
+    }>) {
+      const key = canonicalizeEntityName(row.alias);
+      if (key) known.add(key);
+    }
+  }
+
+  return (mention: MinedMention): boolean => {
+    const key = canonicalizeEntityName(mention.name);
+    if (!key) return false;
+    if (known.has(key)) return true;
+    if (mention.source === 'vocabulary') return true;
+    return (counts.get(key) ?? 0) >= minDocumentFrequency;
   };
 }

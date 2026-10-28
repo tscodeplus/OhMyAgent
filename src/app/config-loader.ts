@@ -348,6 +348,12 @@ function buildMemorySection(memCfg: YamlNode): Record<string, unknown> {
       enabled: yamlBool(graphCfg?.enabled, true, 'graphCfg?.enabled'),
       min_confidence: num(graphCfg?.min_confidence, 0.3, 'graphCfg?.min_confidence'),
       max_links_per_run: num(graphCfg?.max_links_per_run, 500, 'graphCfg?.max_links_per_run'),
+      mine_mentions: yamlBool(graphCfg?.mine_mentions, true, 'graphCfg?.mine_mentions'),
+      max_mentions_per_memory: num(
+        graphCfg?.max_mentions_per_memory,
+        8,
+        'graphCfg?.max_mentions_per_memory',
+      ),
     },
     autoCompress: {
       enabled: yamlBool(compressCfg?.enabled, true, 'compressCfg?.enabled'),

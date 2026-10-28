@@ -262,6 +262,10 @@ export interface AppConfig {
       min_confidence: number;
       /** Upper bound on links projected by one run. */
       max_links_per_run: number;
+      /** Mine entities from memory text that has no link (no model call). */
+      mine_mentions: boolean;
+      /** Upper bound on entities mined from one memory. */
+      max_mentions_per_memory: number;
     };
     maintenance?: {
       enabled: boolean;

@@ -319,3 +319,67 @@ describe('IM inbox routes', () => {
     }
   });
 });
+
+/**
+ * Channel groups are labelled with the bot that owns them ("小书 · 飞书").
+ *
+ * The name is per-channel config, so the API has to surface it — the WebUI has no
+ * other way to know it, and hard-coding a name in the UI would be wrong for every
+ * other user's bot.
+ */
+describe('IM inbox bot names', () => {
+  let db: Database.Database;
+  let app: ReturnType<typeof Fastify>;
+
+  beforeEach(async () => {
+    db = openDatabase(':memory:');
+    app = Fastify({ logger: false });
+    registerInboxRoutes(app, db, undefined, (channel) =>
+      channel === 'feishu' ? '小书' : undefined,
+    );
+    await app.ready();
+
+    const insert = db.prepare(
+      `INSERT INTO sessions (id, chat_id, user_id, channel, title, created_at, updated_at)
+       VALUES (?, ?, 'unknown', ?, ?, ?, ?)`,
+    );
+    insert.run('oc_1', 'oc_1', 'feishu', '飞书会话', 1, 2);
+    insert.run('tg_1', 'tg_1', 'telegram', 'TG 会话', 1, 1);
+  });
+
+  afterEach(async () => {
+    await app.close();
+    db.close();
+  });
+
+  it('annotates each channel count with its bot name, and only where one exists', async () => {
+    const body = (await app.inject({ method: 'GET', url: '/api/inbox' })).json();
+    const byChannel = new Map(
+      body.channels.map((entry: { channel: string; bot_name?: string }) => [entry.channel, entry]),
+    );
+
+    expect(byChannel.get('feishu')).toMatchObject({ bot_name: '小书' });
+    // No bot name configured: the field is absent rather than empty, so the UI
+    // can fall back with a simple falsy check.
+    expect(byChannel.get('telegram')).not.toHaveProperty('bot_name');
+  });
+
+  it('carries the bot name on the transcript header too', async () => {
+    const feishu = (await app.inject({ method: 'GET', url: '/api/inbox/oc_1/messages' })).json();
+    expect(feishu.bot_name).toBe('小书');
+
+    const telegram = (await app.inject({ method: 'GET', url: '/api/inbox/tg_1/messages' })).json();
+    expect(telegram).not.toHaveProperty('bot_name');
+  });
+
+  it('omits every bot name when no resolver is configured', async () => {
+    const bare = Fastify({ logger: false });
+    registerInboxRoutes(bare, db);
+    await bare.ready();
+
+    const body = (await bare.inject({ method: 'GET', url: '/api/inbox' })).json();
+    for (const entry of body.channels) expect(entry).not.toHaveProperty('bot_name');
+
+    await bare.close();
+  });
+});

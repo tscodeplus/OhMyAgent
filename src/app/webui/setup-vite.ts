@@ -156,7 +156,14 @@ export async function setupWebUIMiddleware(options: {
     await server.register(fastifyStatic, {
       root: uiDist,
       prefix: '/webui/',
-      wildcard: false,
+      // Wildcard, NOT a boot-time file index: with `wildcard: false` the plugin
+      // snapshots the directory at registration and only routes those files, so
+      // after `pnpm build:ui` the *new* hashed bundle 404s while the freshly
+      // served index.html points at it — a blank page that looks like a crash
+      // until the process is restarted. Vite content-hashes every asset, so a
+      // wildcard route costs nothing in correctness, and it still calls
+      // `callNotFound()` for a real miss, which keeps the SPA fallback below.
+      wildcard: true,
       // Entry HTML must always revalidate (Safari aggressively caches it);
       // Vite-emitted assets have content hashes, so they can be immutable.
       setHeaders: (res, pathString) => {
