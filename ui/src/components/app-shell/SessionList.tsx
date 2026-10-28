@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Archive, Trash2 } from 'lucide-react';
 import { cn, formatRelativeTime } from '../../lib/utils';
-import { apiRequest, deleteSessions, setArchived } from '../../utils/api';
+import { apiRequest, deleteSessions, fetchProjectSessions, setArchived } from '../../utils/api';
 import { describeSkippedDeletes } from '../../utils/deleteFeedback';
 import { useLongPress } from '../../utils/useLongPress';
 import { useRowSelection } from '../../utils/useRowSelection';
@@ -31,6 +31,8 @@ export default function SessionList({ projectId, onSessionSelect, onChanged }: S
   const { sessionsRefreshKey } = useProject();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
   const [contextMenu, setContextMenu] = useState<{ session: Session; x: number; y: number } | null>(
@@ -51,8 +53,21 @@ export default function SessionList({ projectId, onSessionSelect, onChanged }: S
       if (!projectId) return;
       try {
         if (showSpinner) setLoading(true);
-        const d = await apiRequest<Session[]>(`/api/projects/${projectId}/sessions`);
-        setSessions(d);
+        const page = await fetchProjectSessions(projectId);
+        const fresh = page.items ?? [];
+        setSessions((prev) => {
+          // Keep rows pulled in with 加载更多 while the first page is unchanged —
+          // the poll must not silently undo the operator's paging every 30 s. The
+          // moment page one differs (new chat, rename, archived elsewhere) the
+          // whole list is replaced, so a row that left the project cannot linger
+          // just because it was once loaded past the boundary.
+          const unchangedHead =
+            prev.length >= fresh.length && fresh.every((row, i) => prev[i]?.id === row.id);
+          return unchangedHead && prev.length > fresh.length
+            ? [...fresh, ...prev.slice(fresh.length)]
+            : fresh;
+        });
+        setHasMore(page.hasMore ?? false);
       } catch {
         /* silent */
       } finally {
@@ -61,6 +76,29 @@ export default function SessionList({ projectId, onSessionSelect, onChanged }: S
     },
     [projectId],
   );
+
+  /** Next page, continuing after the last row the operator can see. */
+  const loadMore = useCallback(async () => {
+    const last = sessions[sessions.length - 1];
+    if (!last || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      // The cursor is the pair `(updated_at, id)` — see `sessionCursorWhere`.
+      const page = await fetchProjectSessions(projectId, {
+        before: last.updated_at as number,
+        beforeId: last.id,
+      });
+      setSessions((prev) => {
+        const seen = new Set(prev.map((s) => s.id));
+        return [...prev, ...(page.items ?? []).filter((s) => !seen.has(s.id))];
+      });
+      setHasMore(page.hasMore ?? false);
+    } catch {
+      /* keep the rows we already have */
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [projectId, sessions, loadingMore]);
 
   useEffect(() => {
     fetchSessions(true);
@@ -322,6 +360,17 @@ export default function SessionList({ projectId, onSessionSelect, onChanged }: S
             />
           );
         })
+      )}
+
+      {hasMore && sessions.length > 0 && (
+        <button
+          type="button"
+          onClick={() => void loadMore()}
+          disabled={loadingMore}
+          className="flex h-6 w-full items-center justify-center rounded-md px-2 text-[11px] text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-50 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+        >
+          {loadingMore ? t('common.loading') : t('sidebar.loadMore')}
+        </button>
       )}
 
       {contextMenu && (

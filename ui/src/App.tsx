@@ -14,7 +14,7 @@ import GraphView from './components/graph/GraphView';
 import KnowledgeView from './components/knowledge/KnowledgeView';
 import CronView from './components/cron/CronView';
 import InboxView from './components/inbox/InboxView';
-import { apiRequest } from './utils/api';
+import { apiRequest, fetchProjectSessions } from './utils/api';
 import { syncLanguageToServer } from './utils/syncLanguage';
 import type { Session } from './types/session';
 
@@ -36,11 +36,10 @@ function HomePage() {
     (async () => {
       // Try to find the most recently active session
       try {
-        const sessions = await apiRequest<Session[]>(`/api/projects/${pid}/sessions`);
-        if (sessions.length > 0) {
-          const latest = sessions.reduce((a, b) =>
-            new Date(a.updated_at).getTime() > new Date(b.updated_at).getTime() ? a : b,
-          );
+        // One row is enough: the list is ordered by last activity, newest first.
+        const page = await fetchProjectSessions(pid, { limit: 1 });
+        const latest = page.items[0];
+        if (latest) {
           setSelectedSessionId(latest.id);
           navigate(`/p/${pid}/s/${latest.id}`, { replace: true });
           return;

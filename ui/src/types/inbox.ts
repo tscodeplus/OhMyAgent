@@ -70,4 +70,6 @@ export interface InboxQuery {
 export interface InboxMessagesQuery {
   limit?: number;
   before?: number;
+  /** Id of the `before` message — completes the cursor into `(created_at, id)`. */
+  beforeId?: string;
 }

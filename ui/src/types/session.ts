@@ -12,6 +12,18 @@ export interface Session {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * One page of a project's own chats (`GET /api/projects/:id/sessions`).
+ *
+ * Ordered by last activity, newest first, and paged with the same
+ * `(updated_at, id)` cursor the inbox and archive use — see
+ * `sessionCursorWhere()` on the server.
+ */
+export interface SessionListPage {
+  items: Session[];
+  hasMore: boolean;
+}
+
 export interface MessageImage {
   url: string;
   alt?: string;

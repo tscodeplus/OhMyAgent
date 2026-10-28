@@ -39,7 +39,8 @@
     "delete": "Delete",
     "confirmDelete": "Confirm Delete",
     "noSessions": "No sessions yet",
-    "archive": "Archive"
+    "archive": "Archive",
+    "loadMore": "Load more"
   },
   "chat": {
     "input": {

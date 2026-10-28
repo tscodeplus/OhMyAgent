@@ -105,6 +105,24 @@ export interface ListArchivedOptions {
   kind?: 'project' | 'inbox';
 }
 
+/** One page of a project's own chats (对话 list). */
+export interface ListProjectSessionsOptions {
+  projectId: string;
+  /** Page size; the caller passes `limit + 1` to detect `hasMore` in one query. */
+  limit: number;
+  /** Exclusive `updated_at` cursor — only conversations last active before this. */
+  before?: number;
+  /** Tie-breaker for `before` (see `ListInboxOptions.beforeId`). */
+  beforeId?: string;
+  /**
+   * Include archived conversations. Default false — same rule as the inbox:
+   * archived rows belong to `listArchived` / `GET /api/archive`.
+   */
+  includeArchived?: boolean;
+  /** Narrow the page to one known session (used to resolve an open chat's title). */
+  id?: string;
+}
+
 /** Owner bucket for the archive sidebar's group headers. */
 export interface ArchivedOwnerCount {
   kind: 'project' | 'inbox';
@@ -292,6 +310,40 @@ export class SessionRepository {
   }
 
   /**
+   * A project's own chats (the 对话 list in the sidebar), newest activity first.
+   *
+   * Paged with the same `(updated_at, id)` cursor as the inbox and archive:
+   * three lists sorted by "last activity" with three different paging schemes
+   * would drift, and this one is the one nobody thinks to re-check.
+   */
+  listByProject(options: ListProjectSessionsOptions): Session[] {
+    const where: string[] = ['s.project_id = @projectId'];
+    const params: Record<string, unknown> = { projectId: options.projectId, limit: options.limit };
+
+    if (!options.includeArchived) {
+      where.push('s.archived_at IS NULL');
+    }
+    if (options.id !== undefined) {
+      // A lookup for one known session ignores the cursor on purpose: the caller
+      // asked for a row by id, not for a window of a list.
+      where.push('s.id = @id');
+      params.id = options.id;
+    } else {
+      const cursor = sessionCursorWhere(options, params);
+      if (cursor) where.push(cursor);
+    }
+
+    return this.db
+      .prepare(
+        `SELECT s.* FROM sessions s
+          WHERE ${where.join(' AND ')}
+          ORDER BY s.updated_at DESC, s.id DESC
+          LIMIT @limit`,
+      )
+      .all(params) as Session[];
+  }
+
+  /**
    * IM inbox listing: sessions without a project (project chats are listed by
    * project-scoped routes), newest activity first. `message_count` and
    * `preview` are correlated subqueries so one page costs two scans of
@@ -348,8 +400,9 @@ export class SessionRepository {
     }));
   }
 
-  /** Per-channel session counts for the inbox tab badges. */
-  countByChannel(options: { includeArchived?: boolean } = {}): Array<{
+  /** Per-channel session counts for the inbox tab badges. */ countByChannel(
+    options: { includeArchived?: boolean } = {},
+  ): Array<{
     channel: string;
     count: number;
   }> {

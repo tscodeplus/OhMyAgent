@@ -18,7 +18,7 @@ import {
 import { useProject } from '../../contexts/ProjectContext';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useWebSocket } from '../../contexts/WebSocketContext';
-import { apiRequest } from '../../utils/api';
+import { apiRequest, fetchProjectSession } from '../../utils/api';
 import { useDesktopPlatform } from '../../utils/desktop';
 import { useToast } from '../ui/Toast';
 import ProjectList from './ProjectList';
@@ -29,7 +29,6 @@ import SetupWizard from '../setup-wizard/SetupWizard';
 import CreateProjectModal from '../project-wizard/CreateProjectModal';
 import DesktopCaption from './DesktopCaption';
 import type { Project } from '../../types/project';
-import type { Session } from '../../types/session';
 
 const SIDEBAR_MIN = 200;
 const SIDEBAR_MAX = 480;
@@ -266,15 +265,12 @@ export default function AppShell() {
     let cancelled = false;
     const load = async () => {
       try {
-        // includeArchived: this lookup only resolves the title of the session
-        // that is already open. An archived conversation is still readable, and
-        // its position in the caption must not collapse to "对话" just because
-        // it left the sidebar list.
-        const sessions = await apiRequest<Session[]>(
-          `/api/projects/${projectId}/sessions?includeArchived=1`,
-        );
+        // By-id lookup, archived included: this only resolves the title of the
+        // session that is already open. A page of the list cannot be counted on
+        // to contain it, and an archived conversation is still readable — its
+        // caption must not collapse to "对话" just because it left the sidebar.
+        const s = await fetchProjectSession(projectId, sessionId);
         if (cancelled) return;
-        const s = sessions.find((x) => x.id === sessionId);
         setCurrentSessionTitle(
           s ? s.title || (s.metadata && (s.metadata as any).title) || t('chat.newSession') : null,
         );

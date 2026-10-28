@@ -486,7 +486,7 @@ describe('IM inbox routes', () => {
     const oldest = firstBody.messages[0].created_at;
     const second = await app.inject({
       method: 'GET',
-      url: `/api/inbox/oc_1/messages?limit=2&before=${oldest}`,
+      url: `/api/inbox/oc_1/messages?limit=2&before=${oldest}&beforeId=${firstBody.messages[0].id}`,
     });
     const secondBody = second.json();
     expect(secondBody.messages).toHaveLength(1);

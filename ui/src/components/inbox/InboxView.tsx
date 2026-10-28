@@ -62,11 +62,12 @@ export default function InboxView() {
   // Paging source for MessageList: the inbox endpoint returns the same message
   // shape as the project-session endpoint, so the renderer needs nothing else.
   const loadPage = useCallback<MessagePageFetcher>(
-    async ({ limit, before }) => {
+    async ({ limit, before, beforeId }) => {
       if (!sessionId) return { messages: [] as Message[], hasMore: false };
       const data = await fetchInboxSession(sessionId, {
         limit,
         before: before === undefined ? undefined : toInboxCursor(before),
+        beforeId,
       });
       return { messages: data.messages ?? [], hasMore: data.hasMore ?? false };
     },

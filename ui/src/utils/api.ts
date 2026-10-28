@@ -1,6 +1,7 @@
 import type { InboxMessagesQuery, InboxPage, InboxQuery, InboxSessionDetail } from '../types/inbox';
 import type { ArchivePage, ArchiveQuery, DeleteSessionsResult } from '../types/archive';
 import type { SearchContextResponse } from '../types/graph';
+import type { Session, SessionListPage } from '../types/session';
 
 const TOKEN_KEY = 'ohmyagent_token';
 
@@ -126,7 +127,11 @@ export function fetchInboxSession(
   params: InboxMessagesQuery = {},
 ): Promise<InboxSessionDetail> {
   return apiRequest<InboxSessionDetail>(
-    `/api/inbox/${encodeURIComponent(id)}/messages${queryString({ limit: params.limit, before: params.before })}`,
+    `/api/inbox/${encodeURIComponent(id)}/messages${queryString({
+      limit: params.limit,
+      before: params.before,
+      beforeId: params.beforeId,
+    })}`,
   );
 }
 
@@ -140,6 +145,50 @@ export function fetchArchive(params: ArchiveQuery = {}): Promise<ArchivePage> {
       beforeId: params.beforeId,
     })}`,
   );
+}
+
+/** Query for `GET /api/projects/:id/sessions`. `before`/`beforeId` are the cursor. */
+export interface SessionListQuery {
+  /** 1..200 */
+  limit?: number;
+  before?: number;
+  /** Id of the `before` row — completes the cursor into `(updated_at, id)`. */
+  beforeId?: string;
+  /** Include archived conversations (default false). */
+  includeArchived?: boolean;
+  /** Narrow to one known session — the desktop caption's title lookup. */
+  id?: string;
+}
+
+/**
+ * A project's own chats (the 对话 list), newest activity first, paged.
+ *
+ * Every caller goes through this rather than touching `apiRequest` directly:
+ * the cursor is the pair `(updated_at, id)`, and one caller that forgets the id
+ * silently loses rows at a page boundary.
+ */
+export function fetchProjectSessions(
+  projectId: string,
+  query: SessionListQuery = {},
+): Promise<SessionListPage> {
+  return apiRequest<SessionListPage>(
+    `/api/projects/${encodeURIComponent(projectId)}/sessions${queryString({
+      limit: query.limit,
+      before: query.before,
+      beforeId: query.beforeId,
+      includeArchived: query.includeArchived ? 1 : undefined,
+      id: query.id,
+    })}`,
+  );
+}
+
+/** Resolve one session of a project by id (archived ones included). */
+export async function fetchProjectSession(
+  projectId: string,
+  sessionId: string,
+): Promise<Session | null> {
+  const page = await fetchProjectSessions(projectId, { id: sessionId, includeArchived: true });
+  return page.items[0] ?? null;
 }
 
 /**

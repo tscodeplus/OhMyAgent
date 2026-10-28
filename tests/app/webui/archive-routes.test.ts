@@ -153,7 +153,7 @@ describe('archive routes', () => {
     const sessions = (
       await app.inject({ method: 'GET', url: '/api/projects/proj-1/sessions' })
     ).json();
-    expect(sessions.map((s: { id: string }) => s.id)).toEqual(['p2']);
+    expect(sessions.items.map((s: { id: string }) => s.id)).toEqual(['p2']);
 
     // The transcript itself stays readable: archiving is not deletion.
     const detail = await app.inject({ method: 'GET', url: '/api/projects/proj-1/sessions/p1' });
@@ -172,7 +172,7 @@ describe('archive routes', () => {
 
     expect((await app.inject({ method: 'GET', url: '/api/archive' })).json().items).toEqual([]);
     expect(
-      (await app.inject({ method: 'GET', url: '/api/projects/proj-1/sessions' })).json(),
+      (await app.inject({ method: 'GET', url: '/api/projects/proj-1/sessions' })).json().items,
     ).toHaveLength(1);
     expect((await app.inject({ method: 'GET', url: '/api/inbox' })).json().items).toHaveLength(1);
   });
@@ -302,12 +302,12 @@ describe('archive routes', () => {
     await archive(['p1']);
 
     expect(
-      (await app.inject({ method: 'GET', url: '/api/projects/proj-1/sessions' })).json(),
+      (await app.inject({ method: 'GET', url: '/api/projects/proj-1/sessions' })).json().items,
     ).toEqual([]);
     const withArchived = (
       await app.inject({ method: 'GET', url: '/api/projects/proj-1/sessions?includeArchived=1' })
     ).json();
-    expect(withArchived.map((s: { id: string; title: string }) => [s.id, s.title])).toEqual([
+    expect(withArchived.items.map((s: { id: string; title: string }) => [s.id, s.title])).toEqual([
       ['p1', '上下文压缩'],
     ]);
   });
@@ -321,7 +321,7 @@ describe('archive routes', () => {
     expect(
       (await app.inject({ method: 'GET', url: '/api/projects/proj-1/sessions' }))
         .json()
-        .map((s: { id: string; updated_at: number }) => [s.id, s.updated_at]),
+        .items.map((s: { id: string; updated_at: number }) => [s.id, s.updated_at]),
     ).toEqual([['p2', 2000]]);
   });
 });

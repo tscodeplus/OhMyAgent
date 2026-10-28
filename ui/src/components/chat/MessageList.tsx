@@ -22,6 +22,8 @@ export interface MessagePage {
 export type MessagePageFetcher = (query: {
   limit: number;
   before?: number | string;
+  /** Id of the `before` message — completes the cursor into `(created_at, id)`. */
+  beforeId?: string;
 }) => Promise<MessagePage>;
 
 interface MessageListProps {
@@ -131,6 +133,8 @@ export default function MessageList({
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [oldestCreatedAt, setOldestCreatedAt] = useState<number | string | undefined>(undefined);
+  /** Id of the oldest loaded message — the cursor's tie-breaker (see loadMore). */
+  const [oldestMessageId, setOldestMessageId] = useState<string | undefined>(undefined);
   // True while the viewport is unpinned from the bottom — shows the
   // jump-to-bottom button.
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
@@ -235,8 +239,10 @@ export default function MessageList({
       setHasMore(data.hasMore ?? false);
       if (data.messages && data.messages.length > 0) {
         setOldestCreatedAt(data.messages[0].created_at);
+        setOldestMessageId(data.messages[0].id);
       } else {
         setOldestCreatedAt(undefined);
+        setOldestMessageId(undefined);
       }
       onRefetched?.(data.messages || []);
     } catch (e) {
@@ -259,9 +265,11 @@ export default function MessageList({
     }
     try {
       const data = loadPage
-        ? await loadPage({ before: oldestCreatedAt, limit: PAGE_SIZE })
+        ? await loadPage({ before: oldestCreatedAt, beforeId: oldestMessageId, limit: PAGE_SIZE })
         : await apiRequest<MessagePage>(
-            `/api/projects/${_projectId}/sessions/${sessionId}?before=${encodeURIComponent(oldestCreatedAt)}&limit=${PAGE_SIZE}`,
+            `/api/projects/${_projectId}/sessions/${sessionId}?before=${encodeURIComponent(oldestCreatedAt)}` +
+              (oldestMessageId ? `&beforeId=${encodeURIComponent(oldestMessageId)}` : '') +
+              `&limit=${PAGE_SIZE}`,
           );
       formatResponse(data);
       devLog('[MessageList] loadMore OK', { count: data.messages?.length, hasMore: data.hasMore });
@@ -270,6 +278,7 @@ export default function MessageList({
       setHasMore(data.hasMore ?? false);
       if (older.length > 0) {
         setOldestCreatedAt(older[0].created_at);
+        setOldestMessageId(older[0].id);
       }
     } catch (e) {
       devLog('[MessageList] loadMore FAILED', e);
@@ -277,7 +286,16 @@ export default function MessageList({
       setLoadingMore(false);
       isLoadingMoreRef.current = false;
     }
-  }, [_projectId, sessionId, loadPage, hasMore, loadingMore, oldestCreatedAt, formatResponse]);
+  }, [
+    _projectId,
+    sessionId,
+    loadPage,
+    hasMore,
+    loadingMore,
+    oldestCreatedAt,
+    oldestMessageId,
+    formatResponse,
+  ]);
 
   // Store loadMore in a ref so IntersectionObserver can always call the latest version
   const loadMoreRef = useRef(loadMore);

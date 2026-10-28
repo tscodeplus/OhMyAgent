@@ -154,10 +154,11 @@ export function registerInboxRoutes(
   // /api/projects/:projectId/sessions/:sid and must not be readable here.
   app.get('/api/inbox/:sid/messages', async (request, reply) => {
     const { sid } = request.params as { sid: string };
-    const { limit: limitParam, before: beforeParam } = request.query as {
-      limit?: string;
-      before?: string;
-    };
+    const {
+      limit: limitParam,
+      before: beforeParam,
+      beforeId: beforeIdParam,
+    } = request.query as { limit?: string; before?: string; beforeId?: string };
 
     const session = db
       .prepare(
@@ -187,6 +188,7 @@ export function registerInboxRoutes(
     const { messages, hasMore } = loadSessionMessages(db, sid, {
       limit,
       before,
+      beforeId: parseBeforeId(beforeIdParam),
       getFooterConfig,
     });
 

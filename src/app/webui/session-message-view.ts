@@ -38,7 +38,39 @@ export interface LoadSessionMessagesOptions {
   limit: number;
   /** Exclusive ms timestamp cursor — only messages strictly older than this. */
   before?: number;
+  /**
+   * Tie-breaker for `before`: the id of the cursor message.
+   *
+   * `created_at` is not unique — a turn can persist several rows (assistant +
+   * tool results) inside one millisecond — so a cursor that compares the
+   * timestamp alone loses every sibling once the page boundary falls inside such
+   * a group. `(created_at, id)` is unique. Omitted means the old single-field
+   * comparison, kept for callers that do not track ids.
+   */
+  beforeId?: string;
   getFooterConfig?: () => FooterConfig;
+}
+
+/**
+ * "Older than the cursor" under `ORDER BY created_at DESC, id DESC`.
+ *
+ * Binds both values as TEXT: `created_at` is a TEXT column of epoch-ms digit
+ * strings (equal length, so lexicographic == numeric), and the id is text by
+ * definition. Returns the predicate plus the parameters it needs, so the page
+ * query and the `hasMore` probe cannot disagree about what "older" means.
+ */
+function messageCursor(
+  stamp: string | undefined,
+  beforeId: string | undefined,
+): { where: string; params: string[] } {
+  if (stamp === undefined || stamp === '') return { where: '', params: [] };
+  if (beforeId === undefined || beforeId === '') {
+    return { where: 'created_at < ?', params: [stamp] };
+  }
+  return {
+    where: '(created_at < ? OR (created_at = ? AND id < ?))',
+    params: [stamp, stamp, beforeId],
+  };
 }
 
 /**
@@ -50,44 +82,39 @@ export function loadSessionMessages(
   sessionId: string,
   options: LoadSessionMessagesOptions,
 ): { messages: any[]; hasMore: boolean } {
-  const { limit, before, getFooterConfig } = options;
+  const { limit, before, beforeId, getFooterConfig } = options;
   // Fetch the latest (or cursor-bounded) N messages, returned in ASC order
   // (oldest first) so the frontend renders oldest at top, newest at bottom.
-  // created_at is INTEGER ms — deterministic ordering, no rowid tiebreaker needed.
-  let messages: any[];
-  if (before !== undefined && !isNaN(before)) {
-    messages = db
-      .prepare(
-        `
-        SELECT * FROM (
-          SELECT * FROM messages WHERE session_id = ? AND created_at < ?
-          ORDER BY created_at DESC LIMIT ?
-        ) ORDER BY created_at ASC
-      `,
-      )
-      .all(sessionId, before, limit) as any[];
-  } else {
-    messages = db
-      .prepare(
-        `
-        SELECT * FROM (
-          SELECT * FROM messages WHERE session_id = ?
-          ORDER BY created_at DESC LIMIT ?
-        ) ORDER BY created_at ASC
-      `,
-      )
-      .all(sessionId, limit) as any[];
-  }
+  // Both orderings carry the id so a group of same-millisecond messages is
+  // walked deterministically instead of in whatever order the index yields.
+  const cursor = messageCursor(
+    before !== undefined && Number.isFinite(before) ? String(before) : undefined,
+    beforeId,
+  );
+  const where = cursor.where === '' ? '' : ` AND ${cursor.where}`;
+  const messages = db
+    .prepare(
+      `
+      SELECT * FROM (
+        SELECT * FROM messages WHERE session_id = ?${where}
+        ORDER BY created_at DESC, id DESC LIMIT ?
+      ) ORDER BY created_at ASC, id ASC
+    `,
+    )
+    .all(sessionId, ...cursor.params, limit) as any[];
 
   // Determine if there are more messages beyond the oldest one we returned.
-  // created_at is INTEGER ms — simple comparison works for hasMore check.
+  // Same predicate as the page itself, anchored on the oldest returned row: a
+  // `created_at <` comparison here would report "no more" while a same-ms
+  // sibling is still waiting on the next page.
   let hasMore = false;
   if (messages.length === limit && messages.length > 0) {
-    const oldest = messages[0];
-    const countRow = db
-      .prepare('SELECT COUNT(*) as cnt FROM messages WHERE session_id = ? AND created_at < ?')
-      .get(sessionId, oldest.created_at) as { cnt: number };
-    hasMore = countRow.cnt > 0;
+    const oldest = messages[0] as { created_at: string | number; id: string };
+    const next = messageCursor(String(oldest.created_at), oldest.id);
+    const row = db
+      .prepare(`SELECT 1 AS one FROM messages WHERE session_id = ? AND ${next.where} LIMIT 1`)
+      .get(sessionId, ...next.params);
+    hasMore = row !== undefined;
   }
 
   const formattedMessages = formatMessageRows(messages, getFooterConfig);
