@@ -10,6 +10,14 @@ export interface HygieneConfig {
   checkIntervalMs: number;
   /** Memory key used to store the last check timestamp. */
   lastCheckKey: string;
+  /**
+   * Retention days for `knowledge_log` rows (`knowledge.log_retention_days`).
+   * `0` = keep forever. Default 90, the knowledge layer's own default — this
+   * pass is the only thing that prunes that table, by design (no extra
+   * scheduler, no extra CLI: the plan gives the retention to the existing
+   * hygiene pass).
+   */
+  knowledgeLogRetentionDays: number;
 }
 
 export interface HygieneReport {
@@ -43,6 +51,7 @@ export class MemoryHygiene {
       tempRetentionDays: this.config.tempRetentionDays ?? 90,
       checkIntervalMs: this.config.checkIntervalMs ?? 12 * 60 * 60 * 1000,
       lastCheckKey: this.config.lastCheckKey ?? '__hygiene_last_check__',
+      knowledgeLogRetentionDays: this.config.knowledgeLogRetentionDays ?? 90,
     };
   }
 
@@ -69,6 +78,10 @@ export class MemoryHygiene {
    *
    * Preserves: kind='preference', kind='summary'
    * Cleans:    kind='fact', kind='task', kind='device_state' older than tempRetentionDays
+   *            plus `knowledge_log` rows older than knowledgeLogRetentionDays
+   *
+   * A pass refused by the 80% safety threshold touches nothing at all — not the
+   * memories and not the log — so a refused pass cannot look like a partial one.
    */
   clean(): HygieneReport {
     const startMs = Date.now();
@@ -129,6 +142,14 @@ export class MemoryHygiene {
         this.onMemoryChanged?.();
       }
 
+      // `knowledge_log` grows with write count rather than page count (a nightly
+      // batch of 5 pages is ~1800 rows a year), so it needs a horizon — and this
+      // pass already runs on a timer, which is why it prunes here.
+      const prunedLogRows = this.pruneKnowledgeLog(config.knowledgeLogRetentionDays);
+      if (prunedLogRows > 0) {
+        cleanedKinds['knowledge_log'] = prunedLogRows;
+      }
+
       // Update last-check timestamp
       this.memoryRepository.upsert({
         id: config.lastCheckKey,
@@ -151,7 +172,7 @@ export class MemoryHygiene {
       }
 
       return {
-        cleanedCount: rows.length,
+        cleanedCount: rows.length + prunedLogRows,
         cleanedKinds,
         durationMs: Date.now() - startMs,
       };
@@ -163,5 +184,31 @@ export class MemoryHygiene {
         error: String(e),
       };
     }
+  }
+
+  /**
+   * Delete `knowledge_log` rows past the retention horizon; returns how many.
+   *
+   * `knowledge_log.created_at` is INTEGER epoch-ms (migration-v14), unlike the
+   * legacy TEXT digit-string columns — so the cutoff is a number, not a string.
+   * `retentionDays <= 0` means keep forever.
+   *
+   * Returns 0 rather than throwing when the table does not exist: a database
+   * that has not run migration-v14 yet (or a build without the knowledge layer)
+   * must still get its memory hygiene.
+   */
+  private pruneKnowledgeLog(retentionDays: number): number {
+    if (!Number.isFinite(retentionDays) || retentionDays <= 0) return 0;
+
+    const table = this.db
+      .prepare(
+        "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_log'",
+      )
+      .get() as { present: number } | undefined;
+    if (!table) return 0;
+
+    const cutoffMs = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+    const result = this.db.prepare('DELETE FROM knowledge_log WHERE created_at < ?').run(cutoffMs);
+    return result.changes;
   }
 }

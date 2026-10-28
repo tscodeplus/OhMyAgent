@@ -1,3 +1,4 @@
+import type Database from 'better-sqlite3';
 import { generateId } from '../shared/ids.js';
 import type { Memory, MemoryRepository } from './repositories/memory-repository.js';
 import type { EmbeddingRepository } from './repositories/embedding-repository.js';
@@ -28,6 +29,13 @@ export interface WriteOptions {
   agentId?: string | null;
   sourceChannel?: string | null;
   sourceMessageId?: string | null;
+  /**
+   * Every message this memory was derived from, in `memory_sources` terms.
+   * One summary is compressed out of N messages, which a single
+   * `sourceMessageId` cannot express; that column is still filled with the
+   * first entry as the "primary source" convenience column.
+   */
+  sourceMessageIds?: string[];
   confidence?: number;
   /** Original creation time in epoch ms. Omit → now. Import/backfill paths MUST
    * pass the source message's own timestamp so memory timelines stay truthful
@@ -52,6 +60,15 @@ export interface SimilarMemoryMatch {
   id: string;
 }
 
+/**
+ * Vector-leg coverage of one memory row.
+ *   `ok`      — a vector is stored for the current content
+ *   `skipped` — no embedding provider is configured (NOT a failure)
+ *   `failed`  — a provider is configured but the call failed / returned nothing
+ * NULL (rows written before v13) means unknown and is never counted as a miss.
+ */
+export type EmbeddingStatus = 'ok' | 'skipped' | 'failed';
+
 export interface MemoryChangeEvent {
   content: string;
   kind: string;
@@ -61,6 +78,15 @@ export interface MemoryChangeEvent {
 }
 
 export interface MemoryWriterOptions {
+  /**
+   * Shared connection, for the two derived writes that have no repository of
+   * their own: `memory_sources` (which must commit with the memory insert) and
+   * `memories.embedding_status`. Optional so a writer built without it still
+   * stores memories — provenance is then only backfillable via
+   * `pnpm memory:relink`.
+   */
+  db?: Database.Database;
+
   /** Core dependencies (required). */
   memoryRepository: MemoryRepository;
   embeddingRepository: EmbeddingRepository;
@@ -95,6 +121,10 @@ export class MemoryWriter {
   private readonly memoryLinkRepo: MemoryLinkRepository | undefined;
   private readonly onMemoryChanged: ((event?: MemoryChangeEvent) => void) | undefined;
   private readonly memoryTermRepo: MemoryTermRepository | undefined;
+  private readonly db: Database.Database | undefined;
+  /** `undefined` = not probed yet; the schema is asked once per writer. */
+  private memorySourcesAvailable: boolean | undefined;
+  private memoryColumns: Set<string> | undefined;
   private conflictResolver: PreferenceConflictResolver;
 
   constructor(options: MemoryWriterOptions) {
@@ -108,6 +138,7 @@ export class MemoryWriter {
     this.memoryLinkRepo = options.memoryLinkRepo;
     this.onMemoryChanged = options.onMemoryChanged;
     this.memoryTermRepo = options.memoryTermRepo;
+    this.db = options.db;
     this.conflictResolver = new PreferenceConflictResolver(this.memoryRepository);
   }
 
@@ -290,7 +321,8 @@ export class MemoryWriter {
       agent_id: agentId,
       visibility,
       source_channel: options.sourceChannel ?? null,
-      source_message_id: options.sourceMessageId ?? null,
+      // Primary-source convenience column, written alongside `memory_sources`.
+      source_message_id: options.sourceMessageId ?? options.sourceMessageIds?.[0] ?? null,
       confidence: options.confidence ?? 1.0,
       created_at:
         options.createdAt !== undefined && options.createdAt !== null
@@ -301,8 +333,10 @@ export class MemoryWriter {
     // transactions are synchronous and cannot span the async embed() call.
     // (Step 2 already computed it for the dedup probe in the common case.)
     let embeddingToStore: Float32Array | undefined;
+    let embeddingStatus: EmbeddingStatus = 'skipped';
     if (options.generateEmbedding !== false) {
       embeddingToStore = embedding ?? (await this.getOrCreateEmbedding(options.content));
+      embeddingStatus = this.embeddingStatusFor(embeddingToStore);
       if (!embeddingToStore) {
         warnings.push('embedding_unavailable');
         memoryObservability.record('memory.write.degraded', {
@@ -339,6 +373,11 @@ export class MemoryWriter {
         created.id,
         extractMemoryTerms(created.content, metadataObject),
       );
+      // Provenance and coverage share the insert's transaction: a memory that
+      // exists without either is the state K1 set out to remove, and a
+      // half-written one is worse than an absent one.
+      this.writeMemorySources(created.id, options.sourceMessageIds ?? []);
+      this.recordEmbeddingStatus(created.id, embeddingStatus);
       if (embeddingToStore) {
         this.embeddingRepository.create({
           id: generateId(),
@@ -466,6 +505,90 @@ export class MemoryWriter {
     action: MemoryChangeEvent['action'] = 'write',
   ): void {
     this.onMemoryChanged?.({ content, kind, scope, scopeKey, action });
+  }
+
+  /**
+   * `ok` / `skipped` / `failed` for a resolved embedding.
+   *
+   * The two failure modes used to be one silent `return`: "no provider
+   * configured" and "the provider call failed" were indistinguishable from the
+   * outside, so vector-leg coverage was neither visible nor fixable. `skipped`
+   * means nothing was asked for; it is not an error.
+   */
+  private embeddingStatusFor(embedding: Float32Array | undefined): EmbeddingStatus {
+    if (embedding) return 'ok';
+    return this.embeddingClient.isConfigured() ? 'failed' : 'skipped';
+  }
+
+  /**
+   * Store `memories.embedding_status`. Best-effort: the row's content is what
+   * the caller asked for, and a missing column (pre-v13 database) must not turn
+   * a write into an error.
+   */
+  private recordEmbeddingStatus(memoryId: string, status: EmbeddingStatus): void {
+    const db = this.db;
+    if (!db || !this.memoryColumnSet(db).has('embedding_status')) return;
+    try {
+      db.prepare('UPDATE memories SET embedding_status = ? WHERE id = ?').run(status, memoryId);
+    } catch (err) {
+      memoryObservability.record('memory.write.degraded', {
+        stage: 'embedding_status',
+        memoryId,
+        error: errorForObservation(err),
+      });
+    }
+  }
+
+  /**
+   * Write one `memory_sources` row per source message, inside the caller's
+   * transaction.
+   *
+   * `session_id` and `role` are read from `messages` instead of trusted from the
+   * caller: the message ids are the fact, the rest is derivable from them, and a
+   * message that no longer exists is skipped rather than guessed at.
+   */
+  private writeMemorySources(memoryId: string, messageIds: string[]): void {
+    const db = this.db;
+    if (!db || messageIds.length === 0) return;
+    if (!this.memorySourcesReady(db)) return;
+    try {
+      const select = db.prepare('SELECT session_id, role FROM messages WHERE id = ?');
+      const insert = db.prepare(
+        `INSERT OR IGNORE INTO memory_sources (memory_id, message_id, session_id, role, source, created_at)
+         VALUES (?, ?, ?, ?, 'pipeline', ?)`,
+      );
+      const now = Date.now();
+      for (const messageId of messageIds) {
+        const row = select.get(messageId) as { session_id: string; role: string } | undefined;
+        if (!row) continue;
+        insert.run(memoryId, messageId, row.session_id, row.role, now);
+      }
+    } catch (err) {
+      // Provenance is derived data; losing it must not roll back the memory.
+      memoryObservability.record('memory.write.degraded', {
+        stage: 'memory_sources',
+        memoryId,
+        error: errorForObservation(err),
+      });
+    }
+  }
+
+  private memorySourcesReady(db: Database.Database): boolean {
+    if (this.memorySourcesAvailable === undefined) {
+      this.memorySourcesAvailable =
+        db
+          .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'memory_sources'")
+          .get() !== undefined;
+    }
+    return this.memorySourcesAvailable;
+  }
+
+  private memoryColumnSet(db: Database.Database): Set<string> {
+    if (!this.memoryColumns) {
+      const columns = db.pragma('table_info(memories)') as Array<{ name: string }>;
+      this.memoryColumns = new Set(columns.map((column) => column.name));
+    }
+    return this.memoryColumns;
   }
 
   /**

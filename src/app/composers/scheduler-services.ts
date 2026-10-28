@@ -18,6 +18,9 @@ import { loadConfig } from '../config.js';
 import { resolveGraphSyncConfig } from '../../graph/graph-config.js';
 import { DreamCycle } from '../../memory/dream-cycle.js';
 import type { MergeConfig } from '../../memory/memory-merge.js';
+import { KnowledgeCurator } from '../../memory/knowledge/curate.js';
+import type { KnowledgeCurateConfig } from '../../memory/knowledge/curate.js';
+import type { AuxModelConfig } from '../../memory/aux-llm-client.js';
 import { CronDeliveryRegistry } from '../../cron/delivery-registry.js';
 import { CronStore } from '../../cron/store.js';
 import { JobRunner, type AgentRunner } from '../../cron/job-runner.js';
@@ -25,6 +28,7 @@ import { CronScheduler } from '../../cron/scheduler.js';
 import { CronService } from '../../cron/service.js';
 import { CollectingReplyDispatcher } from '../../cron/collecting-dispatcher.js';
 import { configEventBus } from '../config-event-bus.js';
+import { setKnowledgeCuratorResolver } from '../../commands/command-handler.js';
 import type { MemoryServices } from './memory-services.js';
 
 export interface SchedulerServices {
@@ -75,6 +79,37 @@ function createCronAgentRunner(agentService: AgentService, modelName: string): A
     },
     cleanup(sessionId: string) {
       agentService.destroyRuntime(sessionId);
+    },
+  };
+}
+
+/**
+ * `knowledge.curate` → the shape the curator takes.
+ *
+ * `auxConfig` is a getter rather than a copy: `createMemoryServices` mutates the
+ * shared `AuxModelConfig` in place on hot-reload (new model chain, new keys), so
+ * a snapshot taken here would pin curation to the model that was configured at
+ * startup. An empty `curate.model_ref` means "reuse `memory_aux_models`"; a
+ * non-empty one overrides only the model, because the per-provider keys,
+ * baseUrls and the fallback chain stay whatever `memory_aux_models` resolved to
+ * — a curation model that fails falls back down the same chain as every other
+ * aux call, which is where `auxLLMCall` already looks.
+ */
+function knowledgeCurateConfig(
+  config: AppConfig,
+  auxModelConfig: AuxModelConfig,
+): KnowledgeCurateConfig {
+  const curate = config.knowledge.curate;
+  return {
+    enabled: config.knowledge.enabled,
+    mode: curate.mode,
+    shadow: curate.shadow,
+    maxPagesPerRun: curate.maxPagesPerRun,
+    requireSources: curate.requireSources,
+    minMemoryConfidence: curate.minMemoryConfidence,
+    get auxConfig(): AuxModelConfig {
+      const modelRef = curate.modelRef.trim();
+      return modelRef ? { ...auxModelConfig, modelRef } : auxModelConfig;
     },
   };
 }
@@ -202,6 +237,25 @@ export function createSchedulers(input: {
     logger,
   };
 
+  // ── Knowledge curation (plan §6 K2-5, entry point 1) ──────────────────
+  // DreamCycle's `knowledge_curate` phase is a no-op without a curator, so this
+  // is the only line that makes `curate.mode: nightly` do anything. The instance
+  // is built from the one `knowledgeService` the tools and the WebUI routes read,
+  // so a curation write goes through the same service over the same connection.
+  // `knowledge.enabled: false` (or a failed service build) leaves no service,
+  // hence no curator, hence no writes — the phase stays inert, not half-wired.
+  const knowledgeCurator = memory.knowledgeService
+    ? new KnowledgeCurator({
+        db,
+        knowledgeService: memory.knowledgeService,
+        logger,
+        config: knowledgeCurateConfig(config, memory.auxModelConfig),
+      })
+    : undefined;
+  // `/knowledge curate` runs this same object with the `manual` trigger; it is
+  // composed before the command deps exist, hence the resolver (§6 K2-5 entry 2).
+  setKnowledgeCuratorResolver(() => knowledgeCurator);
+
   const dreamCycle = new DreamCycle(
     dreamCycleConfig,
     db,
@@ -214,6 +268,7 @@ export function createSchedulers(input: {
     memory.sceneClusterer,
     mergeConfig,
     logger,
+    knowledgeCurator,
   );
 
   const cronStore = new CronStore(config.cron.dataDir);

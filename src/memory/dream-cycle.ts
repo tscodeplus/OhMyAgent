@@ -6,19 +6,22 @@
  * day (default 2:00 AM in the system local timezone).
  *
  * Phases (sequential, failure in one does not block the next):
- *   1. synthesize   — batch-merge highly similar memory pairs via vector KNN + LLM
- *   2. backlinks    — rebuild missing memory_links
- *   3. extract      — re-extract entities for memories without links
- *   4. sceneCluster — scene clustering (delegates to SceneClusterer)
- *   5. hygiene      — expire old memories (delegates to MemoryHygiene)
- *   6. embed        — fill missing embeddings
- *   7. purge        — evict stale embedding cache entries
+ *   1. synthesize     — batch-merge highly similar memory pairs via vector KNN + LLM
+ *   2. backlinks      — rebuild missing memory_links
+ *   3. extract        — re-extract entities for memories without links
+ *   4. sceneCluster   — scene clustering (delegates to SceneClusterer)
+ *   5. hygiene        — expire old memories (delegates to MemoryHygiene)
+ *   6. knowledge_curate — memories → knowledge pages (delegates to KnowledgeCurator)
+ *   7. embed          — fill missing embeddings
+ *   8. purge          — evict stale embedding cache entries
  *
  * ## Grace window
  * If DreamCycle fires more than `windowGraceMinutes` past the scheduled
  * time (e.g. the process was down overnight), heavy phases (synthesize,
- * sceneCluster, embed) are skipped to avoid a resource spike during
- * user-active hours.
+ * sceneCluster, knowledge_curate, embed) are skipped to avoid a resource
+ * spike during user-active hours. `knowledge_curate` is heavy because it calls
+ * the aux LLM once per candidate page — on a phone in active use that is
+ * battery and network, not just CPU.
  *
  * ## Scheduling
  * Uses an inline ManagedTimer pattern: `scheduleAt(epochMs)` computes
@@ -40,6 +43,7 @@ import type { EmbeddingClient } from '../provider/embedding-client.js';
 import type { MemoryHygiene } from './memory-hygiene.js';
 import type { SceneClusterer } from './scene-cluster.js';
 import type { MaintenanceRunRepository } from './maintenance/maintenance-run-repository.js';
+import type { KnowledgeCurator } from './knowledge/curate.js';
 import { mergeMemory, appendMemoryDispute } from './memory-merge.js';
 import type { MergeConfig } from './memory-merge.js';
 import { extractEntities } from './entity-extractor.js';
@@ -97,6 +101,8 @@ export class DreamCycle {
     private sceneClusterer: SceneClusterer | undefined,
     private mergeConfig: MergeConfig,
     private logger: Logger,
+    /** Unset = the knowledge layer is not wired, and the phase is a no-op. */
+    private knowledgeCurator?: KnowledgeCurator,
   ) {}
 
   // ── Lifecycle ────────────────────────────────────────────────────────
@@ -267,6 +273,9 @@ export class DreamCycle {
         { name: 'extract', heavy: false, fn: async (s) => this.extract(s) },
         { name: 'sceneCluster', heavy: true, fn: (s) => this.sceneCluster(s) },
         { name: 'hygiene', heavy: false, fn: async (s) => this.hygiene(s) },
+        // Heavy: one aux-LLM call per candidate page. Non-heavy phases run
+        // outside the grace window, which would put those calls in active use.
+        { name: 'knowledge_curate', heavy: true, fn: (s) => this.knowledgeCurate(s) },
         { name: 'embed', heavy: true, fn: (s) => this.embed(s) },
         { name: 'purge', heavy: false, fn: async (s) => this.purge(s) },
       ];
@@ -591,7 +600,40 @@ export class DreamCycle {
     return report.cleanedCount;
   }
 
-  // ── Phase 6: Embed ───────────────────────────────────────────────────
+  // ── Phase 6: Knowledge curation ──────────────────────────────────────
+
+  /**
+   * Memories → knowledge pages. Inert in three cases: no curator wired (the
+   * knowledge layer is off), the curator's own config gate (`enabled` /
+   * `curate.mode` / `max_pages_per_run`), or nothing worth curating.
+   *
+   * The curator reports a skipped run instead of throwing; a genuinely failed
+   * run throws, so the per-phase bookkeeping above records it as `failed` and
+   * the remaining phases still run.
+   */
+  private async knowledgeCurate(signal: AbortSignal): Promise<number> {
+    if (!this.knowledgeCurator) return 0;
+
+    const report = await this.knowledgeCurator.run({ trigger: 'nightly', signal });
+    if (report.skipped) {
+      this.logger.debug({ reason: report.skipped }, 'DreamCycle knowledge_curate skipped');
+      return 0;
+    }
+    if (report.aborted) {
+      // A phase timeout stops the run at a page boundary. Surface it so the run
+      // is recorded as failed rather than as a success that wrote fewer pages.
+      throw new Error(`knowledge_curate aborted after ${report.created + report.updated} page(s)`);
+    }
+    if (report.failed > 0) {
+      this.logger.warn(
+        { failed: report.failed, rejected: report.rejected },
+        'DreamCycle knowledge_curate: some groups failed, pages written so far are kept',
+      );
+    }
+    return report.created + report.updated;
+  }
+
+  // ── Phase 7: Embed ───────────────────────────────────────────────────
 
   private async embed(signal: AbortSignal): Promise<number> {
     const rows = this.db
@@ -626,7 +668,7 @@ export class DreamCycle {
     return count;
   }
 
-  // ── Phase 7: Purge ───────────────────────────────────────────────────
+  // ── Phase 8: Purge ───────────────────────────────────────────────────
 
   private purge(_signal: AbortSignal): number {
     const maxEntries = 10000;
