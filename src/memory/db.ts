@@ -10,6 +10,7 @@ import { migrateV8 } from './migration-v8.js';
 import { migrateV9 } from './migration-v9.js';
 import { migrateV10 } from './migration-v10.js';
 import { migrateV11 } from './migration-v11.js';
+import { migrateV12 } from './migration-v12.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -108,6 +109,14 @@ export function openDatabase(dbPath: string): Database.Database {
   const v11Result = migrateV11(db);
   if (v11Result.added.length > 0) {
     logger.info(`[V11] Session migration: added columns: ${v11Result.added.join(', ')}`);
+  }
+
+  // V12 migration: add sessions.archive_exempt_until, the "do not auto-archive me
+  // yet" marker a manual 取消归档 writes. Same ordering constraint as V11: the
+  // column is declared in schema.ts, which cannot add it to an existing table.
+  const v12Result = migrateV12(db);
+  if (v12Result.added.length > 0) {
+    logger.info(`[V12] Session migration: added columns: ${v12Result.added.join(', ')}`);
   }
 
   // V2 + V3 migrations: the same ordering constraint as V4, for `memories`.

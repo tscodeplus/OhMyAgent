@@ -10,6 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrateV11 } from '../../src/memory/migration-v11';
+import { migrateV12 } from '../../src/memory/migration-v12';
 import { applySchema } from '../../src/memory/schema';
 import { SessionRepository } from '../../src/memory/repositories/session-repository';
 
@@ -75,6 +76,9 @@ describe('migration-v11: sessions.archived_at', () => {
     const migratedDb = new Database(':memory:');
     migratedDb.exec(V10_SESSIONS_DDL);
     migrateV11(migratedDb);
+    // The later sessions migration, so the comparison is against the full chain
+    // and not against a schema this version no longer produces.
+    migrateV12(migratedDb);
 
     const freshDb = new Database(':memory:');
     applySchema(freshDb);

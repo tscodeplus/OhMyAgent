@@ -112,6 +112,16 @@ export function autoArchiveCutoff(days: number, now: number = Date.now()): numbe
   return now - days * 86_400_000;
 }
 
+/**
+ * Exemption clause for both auto-archive queries. The bound parameter is the same
+ * cutoff used for `updated_at`: an exemption lives for one more inactivity window
+ * (see `setArchived`'s `exemptUntil`), so "exempt until X" and "active after X"
+ * are the same instant and a restored conversation ages into eligibility exactly
+ * like any other.
+ */
+const AUTO_ARCHIVE_EXEMPT_FILTER =
+  '(archive_exempt_until IS NULL OR CAST(archive_exempt_until AS INTEGER) < ?)';
+
 export class SessionRepository {
   private readonly db: Database.Database;
 
@@ -321,23 +331,38 @@ export class SessionRepository {
    *
    * `updated_at` is deliberately left alone: archiving is a housekeeping fact,
    * not activity, and bumping the timestamp would reorder the very list the row
-   * is leaving. Rows already in the requested state are not counted, so the
-   * number returned is "rows this call actually changed".
+   * is leaving.
+   *
+   * Unarchiving takes `exemptUntil` (epoch ms, optional): the auto-archive sweep
+   * skips the row until then. Without it, a hand-restored conversation would be
+   * swept straight back into 归档 by the next run — it is old by definition, which
+   * is why it was archived — and restoring it would achieve nothing.
+   *
+   * Rows already in the requested state are not counted, so the number returned
+   * is "rows this call actually changed".
    */
-  setArchived(ids: string[], archived: boolean): number {
+  setArchived(ids: string[], archived: boolean, exemptUntil?: number): number {
     if (ids.length === 0) return 0;
     // The two statements bind a different number of parameters, so the binding
     // tuple is built alongside rather than assuming one shape.
     const stmt = this.db.prepare(
       archived
         ? 'UPDATE sessions SET archived_at = ? WHERE id = ? AND archived_at IS NULL'
-        : 'UPDATE sessions SET archived_at = NULL WHERE id = ? AND archived_at IS NOT NULL',
+        : exemptUntil === undefined
+          ? 'UPDATE sessions SET archived_at = NULL WHERE id = ? AND archived_at IS NOT NULL'
+          : 'UPDATE sessions SET archived_at = NULL, archive_exempt_until = ? WHERE id = ? AND archived_at IS NOT NULL',
     );
     const archivedAt = String(Date.now());
+    const exemptAt = exemptUntil === undefined ? undefined : String(exemptUntil);
     const run = this.db.transaction((list: string[]) => {
       let changed = 0;
       for (const id of list) {
-        changed += (archived ? stmt.run(archivedAt, id) : stmt.run(id)).changes;
+        const params: unknown[] = archived
+          ? [archivedAt, id]
+          : exemptAt === undefined
+            ? [id]
+            : [exemptAt, id];
+        changed += stmt.run(...(params as [string])).changes;
       }
       return changed;
     });
@@ -428,6 +453,9 @@ export class SessionRepository {
    * `updated_at` is TEXT holding epoch-ms digit strings, so it is cast before
    * the comparison — a lexical `<` over mixed-length digit strings would silently
    * compare the wrong way round once a row predates the 13-digit format.
+   *
+   * Conversations a manual restore exempted (`archive_exempt_until`) are excluded
+   * until that instant passes, otherwise the next sweep would undo the restore.
    */
   countAutoArchiveCandidates(days: number): number {
     const row = this.db
@@ -435,9 +463,10 @@ export class SessionRepository {
         `SELECT COUNT(*) AS count
            FROM sessions
           WHERE archived_at IS NULL
-            AND CAST(updated_at AS INTEGER) < ?`,
+            AND CAST(updated_at AS INTEGER) < ?
+            AND ${AUTO_ARCHIVE_EXEMPT_FILTER}`,
       )
-      .get(autoArchiveCutoff(days)) as { count: number } | undefined;
+      .get(autoArchiveCutoff(days), autoArchiveCutoff(days)) as { count: number } | undefined;
     return row?.count ?? 0;
   }
 
@@ -446,17 +475,29 @@ export class SessionRepository {
    * capped batch takes the least recently touched conversations.
    */
   listAutoArchiveCandidates(days: number, limit: number): string[] {
+    const cutoff = autoArchiveCutoff(days);
     const rows = this.db
       .prepare(
         `SELECT id
            FROM sessions
           WHERE archived_at IS NULL
             AND CAST(updated_at AS INTEGER) < ?
+            AND ${AUTO_ARCHIVE_EXEMPT_FILTER}
           ORDER BY CAST(updated_at AS INTEGER) ASC
           LIMIT ?`,
       )
-      .all(autoArchiveCutoff(days), limit) as Array<{ id: string }>;
+      .all(cutoff, cutoff, limit) as Array<{ id: string }>;
     return rows.map((row) => row.id);
+  }
+
+  /**
+   * Record that a conversation was just restored by hand, so auto-archive leaves
+   * it alone until `until` (epoch ms). Null clears the exemption.
+   */
+  setArchiveExemption(id: string, until: number | null): void {
+    this.db
+      .prepare('UPDATE sessions SET archive_exempt_until = ? WHERE id = ?')
+      .run(until === null ? null : String(until), id);
   }
 
   /**

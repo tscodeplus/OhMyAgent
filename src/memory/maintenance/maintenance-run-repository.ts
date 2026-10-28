@@ -66,7 +66,7 @@ export class MaintenanceRunRepository {
 
   /**
    * Delete run history older than `olderThanMs` (epoch ms) and report how many
-   * rows went.
+   * rows went — always sparing the newest row of every job.
    *
    * Nothing reads old runs — `getLastRun` wants the newest row per job and the
    * pipeline status wants the newest per dreamcycle phase — so this table only
@@ -76,11 +76,30 @@ export class MaintenanceRunRepository {
    * each job's cadence. A time window answers that question the same way for all
    * of them.
    *
+   * The newest row per job survives regardless of age: a job that has not run in a
+   * year is exactly the case where "when did this last run, and did it fail?" is
+   * worth answering, and dropping it would leave the status view blank rather than
+   * saying "last ran 400 days ago".
+   *
    * `started_at` is TEXT holding epoch-ms digit strings, hence the CAST.
    */
   pruneOlderThan(olderThanMs: number): number {
     const result = this.db
-      .prepare('DELETE FROM maintenance_runs WHERE CAST(started_at AS INTEGER) < ?')
+      .prepare(
+        `DELETE FROM maintenance_runs
+          WHERE CAST(started_at AS INTEGER) < ?
+            AND id NOT IN (
+              SELECT id FROM (
+                SELECT id,
+                       ROW_NUMBER() OVER (
+                         PARTITION BY job_name
+                         ORDER BY CAST(started_at AS INTEGER) DESC, rowid DESC
+                       ) AS rn
+                  FROM maintenance_runs
+              )
+               WHERE rn = 1
+            )`,
+      )
       .run(olderThanMs);
     return result.changes;
   }

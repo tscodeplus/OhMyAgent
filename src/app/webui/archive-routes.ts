@@ -226,7 +226,16 @@ export function registerArchiveRoutes(
       validIds.push(id);
     }
 
-    const updated = sessionRepository.setArchived(validIds, archived);
+    // A manual restore buys one more inactivity window: without it the next
+    // auto-archive sweep would put the row straight back (it is old by
+    // definition — that is why it was in the archive), making 取消归档 pointless.
+    // The window is the same `days` the sweep uses, so the restored conversation
+    // ages into eligibility like any other rather than being pinned forever.
+    const exemptUntil = archived
+      ? undefined
+      : Date.now() + (autoHooks?.getAutoConfig?.()?.days ?? 30) * 86_400_000;
+
+    const updated = sessionRepository.setArchived(validIds, archived, exemptUntil);
     // `updated` counts rows that actually changed: re-archiving an archived
     // conversation (or restoring an active one) is a no-op, not an error, so the
     // UI can send a selection that a concurrent device already moved.

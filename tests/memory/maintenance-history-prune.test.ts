@@ -53,8 +53,8 @@ describe('maintenance history prune', () => {
   });
 
   it('deletes only rows past the retention window', async () => {
-    seedRun('old_job', 120);
-    seedRun('old_job', 95);
+    seedRun('old_job', 120); // past the window, and not its newest row
+    seedRun('old_job', 95); // past the window, but the newest of its job
     seedRun('recent_job', 89);
     seedRun('recent_job', 1);
 
@@ -62,18 +62,19 @@ describe('maintenance history prune', () => {
     const result = await job.run({ dryRun: false });
 
     expect(result.status).toBe('success');
-    expect(result.affectedRows).toBe(2);
-    expect(countAll()).toBe(2);
+    expect(result.affectedRows).toBe(1);
+    expect(countAll()).toBe(3);
     expect(
       (
-        db.prepare('SELECT job_name FROM maintenance_runs ORDER BY started_at').all() as Array<{
-          job_name: string;
-        }>
+        db
+          .prepare('SELECT job_name FROM maintenance_runs ORDER BY CAST(started_at AS INTEGER)')
+          .all() as Array<{ job_name: string }>
       ).map((row) => row.job_name),
-    ).toEqual(['recent_job', 'recent_job']);
+    ).toEqual(['old_job', 'recent_job', 'recent_job']);
   });
 
-  it('keeps recent rows per job and drops a job that has been dormant past the window', async () => {
+  it('keeps the newest row of a job that has been dormant past the window', async () => {
+    seedRun('dormant_job', 400);
     seedRun('dormant_job', 200);
     seedRun('mixed_job', 120);
     seedRun('mixed_job', 1);
@@ -81,11 +82,29 @@ describe('maintenance history prune', () => {
     const job = createMaintenanceHistoryPruneJob(runRepo, DAY, 90);
     await job.run({ dryRun: false });
 
-    // Time window, not "newest per job": a job that has not run in 90 days loses
-    // its history entirely. Harmless — `getLastRun` returning undefined only makes
-    // the scheduler treat it as due, and the dreamcycle phases run nightly.
-    expect(runRepo.getLastRun('dormant_job')).toBeUndefined();
-    expect(runRepo.getLastRun('mixed_job')).toBeDefined();
+    // Time window, but never at the cost of a job's last known run: dropping it
+    // would leave the status view blank instead of "last ran 200 days ago".
+    const dormant = runRepo.getLastRun('dormant_job');
+    expect(dormant).toBeDefined();
+    expect(Math.round((Date.now() - Number(dormant!.started_at)) / DAY)).toBe(200);
+    expect(
+      (
+        db
+          .prepare("SELECT COUNT(*) AS n FROM maintenance_runs WHERE job_name = 'dormant_job'")
+          .get() as {
+          n: number;
+        }
+      ).n,
+    ).toBe(1);
+    expect(
+      (
+        db
+          .prepare("SELECT COUNT(*) AS n FROM maintenance_runs WHERE job_name = 'mixed_job'")
+          .get() as {
+          n: number;
+        }
+      ).n,
+    ).toBe(1);
   });
 
   it('writes nothing on a dry run but reports what it would delete', async () => {

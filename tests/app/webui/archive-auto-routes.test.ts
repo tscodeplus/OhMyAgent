@@ -156,6 +156,56 @@ describe('archive auto routes', () => {
     expect(archivedIds()).toEqual(['idle']);
   });
 
+  it('does not sweep a conversation the operator just restored by hand', async () => {
+    // Old enough to be auto-archived, then archived and restored by hand: the next
+    // sweep must leave it alone instead of bouncing it back into 归档.
+    seedSession('old', 200);
+    autoConfig = { enabled: true, days: 30 };
+    await app.inject({
+      method: 'POST',
+      url: '/api/archive',
+      payload: { ids: ['old'], archived: true },
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/api/archive',
+      payload: { ids: ['old'], archived: false },
+    });
+
+    const preview = (await app.inject({ method: 'GET', url: '/api/archive/auto/preview' })).json();
+    expect(preview.count).toBe(0);
+
+    const run = (await app.inject({ method: 'POST', url: '/api/archive/auto/run' })).json();
+    expect(run.archived).toBe(0);
+    expect(archivedIds()).toEqual([]);
+  });
+
+  it('lets a restored conversation age back into eligibility', async () => {
+    seedSession('old', 200);
+    autoConfig = { enabled: true, days: 30 };
+    await app.inject({
+      method: 'POST',
+      url: '/api/archive',
+      payload: { ids: ['old'], archived: true },
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/api/archive',
+      payload: { ids: ['old'], archived: false },
+    });
+
+    // Exemption is one inactivity window, not a permanent shield: push it into the
+    // past and the conversation is eligible again.
+    db.prepare('UPDATE sessions SET archive_exempt_until = ? WHERE id = ?').run(
+      String(Date.now() - 31 * DAY),
+      'old',
+    );
+
+    const run = (await app.inject({ method: 'POST', url: '/api/archive/auto/run' })).json();
+    expect(run.archived).toBe(1);
+    expect(archivedIds()).toEqual(['old']);
+  });
+
   it('leaves the count at zero once the backlog is archived', async () => {
     seedSession('old', 45);
     autoConfig = { enabled: true, days: 30 };

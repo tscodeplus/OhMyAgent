@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   external_chat_id TEXT,
   title TEXT,
   archived_at TEXT,
+  archive_exempt_until TEXT,
   created_at TEXT NOT NULL DEFAULT (cast(strftime('%s','now') as integer) * 1000),
   updated_at TEXT NOT NULL DEFAULT (cast(strftime('%s','now') as integer) * 1000),
   metadata TEXT

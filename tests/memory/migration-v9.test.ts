@@ -17,6 +17,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { migrateV9 } from '../../src/memory/migration-v9';
 import { migrateV11 } from '../../src/memory/migration-v11';
+import { migrateV12 } from '../../src/memory/migration-v12';
 import { applySchema } from '../../src/memory/schema';
 import { openDatabase } from '../../src/memory/db';
 import { SessionRepository } from '../../src/memory/repositories/session-repository';
@@ -87,6 +88,9 @@ describe('migration-v9: schema', () => {
     // `archived_at`, which the fresh schema (compared below) also declares.
     migrateV9(migrated);
     migrateV11(migrated);
+    // Later sessions migrations run too, so this compares against the schema the
+    // current version actually produces on a fresh install.
+    migrateV12(migrated);
 
     fresh = new Database(':memory:');
     applySchema(fresh);
