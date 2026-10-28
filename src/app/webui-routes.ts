@@ -139,7 +139,11 @@ export async function registerWebUIRoutes(
 
   // Archive of both trees (project chats + IM inbox) and the batch flag write.
   // Auto-restore on new messages happens in the agent turn path, not here.
-  registerArchiveRoutes(app, cfg.db, resolveBotName);
+  registerArchiveRoutes(app, cfg.db, resolveBotName, {
+    // Live read: the settings row lives in config.yaml and is hot-reloaded.
+    getAutoConfig: () => loadConfig().archive?.auto,
+    isRunning: (sessionId) => cfg.services.agentService.isRunning(sessionId),
+  });
 
   const chatConfig: ChatRouteConfig = {
     agentService: cfg.services.agentService,

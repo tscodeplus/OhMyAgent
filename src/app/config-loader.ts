@@ -453,6 +453,27 @@ function buildMcpSection(mcpCfg: YamlNode): McpSectionConfig | undefined {
 }
 
 /**
+ * Map the `archive:` YAML section. Both spellings of the day threshold are
+ * accepted (`days` in hand-written YAML and in WebUI saves; `auto_archive_days`
+ * is the snake_case form a hand editor is likely to reach for).
+ */
+function buildArchiveSection(archiveCfg: YamlNode): Record<string, unknown> | undefined {
+  if (!archiveCfg) return undefined;
+  const autoNode = archiveCfg.auto as YamlNode;
+  if (!autoNode) return {};
+  return {
+    auto: {
+      enabled: yamlBool(autoNode.enabled, false, 'archive?.auto?.enabled'),
+      days: num(
+        autoNode.days ?? autoNode.auto_archive_days,
+        30,
+        'archive?.auto?.days??archive?.auto?.auto_archive_days',
+      ),
+    },
+  };
+}
+
+/**
  * Map the `judge:` YAML section (MyDocs/JEV_JUDGE_KERNEL_PLAN.md §8.1) into
  * the camelCase shape the `judgeSectionSchema` expects. Values accepted in
  * both snake_case (hand-edited YAML) and camelCase (WebUI saves); defaults
@@ -944,6 +965,8 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
     mcp: buildMcpSection(mcpCfg),
 
     judge: buildJudgeSection(root.judge),
+
+    archive: buildArchiveSection(root.archive),
 
     agents: mapAgents(root.agents),
 
@@ -1587,6 +1610,23 @@ export function jsConfigToYaml(
           yj.features = yf;
         }
         yaml.judge = yj;
+        break;
+      }
+
+      // ────── archive (camelCase JS → YAML) ───────
+      // Merged into the existing section rather than replacing it, so a future
+      // key added to `archive:` by hand survives a WebUI save.
+      case 'archive': {
+        const a = value as Record<string, unknown>;
+        const ya = { ...((existingYaml.archive as Record<string, unknown>) || {}) };
+        if (a.auto !== undefined) {
+          const au = a.auto as Record<string, unknown>;
+          const yau = { ...((ya.auto as Record<string, unknown>) || {}) };
+          if (au.enabled !== undefined) yau.enabled = au.enabled;
+          if (au.days !== undefined) yau.days = au.days;
+          ya.auto = yau;
+        }
+        yaml.archive = ya;
         break;
       }
 

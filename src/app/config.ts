@@ -183,6 +183,28 @@ const judgeEntrySchema = z
   );
 
 /**
+ * The `archive:` section — housekeeping for the WebUI 归档 shelf.
+ *
+ * `auto` is the only knob today: a maintenance job flags conversations whose
+ * last activity is older than `days` as archived. Archiving is list-visibility
+ * only (memory, search, the graph and IM delivery ignore `archived_at`), so the
+ * worst case of a too-aggressive threshold is tidier sidebars, not lost context.
+ *
+ * Default OFF: turning it on mass-moves the existing backlog on the first tick,
+ * which is a decision the operator has to make deliberately (the settings card
+ * shows the count first). `days` is a NUMBER OF DAYS SINCE LAST ACTIVITY, not
+ * since creation — a conversation that is still in use never qualifies.
+ */
+export const archiveSectionSchema = z.object({
+  auto: z
+    .object({
+      enabled: z.boolean().default(false),
+      days: z.coerce.number().int().positive().max(3650).default(30),
+    })
+    .default({}),
+});
+
+/**
  * The `judge:` section. Defaults exist so `judge: {}` is a valid no-op
  * (kernel disabled, shadow mode). Numeric strings stay accepted
  * (`z.coerce`) so `${ENV}` interpolation works.
@@ -218,6 +240,9 @@ export const judgeSectionSchema = z.object({
 const configSchema = z.object({
   // NOTE: judgeSectionSchema has all-section defaults; `.optional()` keeps a
   // config.yaml without `judge:` fully inert.
+  // Same reasoning as `judge` above: the section has defaults, `.optional()`
+  // keeps a config.yaml without `archive:` fully inert.
+  archive: archiveSectionSchema.optional(),
   judge: judgeSectionSchema.optional(),
   logging: z
     .object({

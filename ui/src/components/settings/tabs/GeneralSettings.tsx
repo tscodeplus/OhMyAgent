@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import i18n from '../../../i18n/config';
 import { useTheme } from '../../../contexts/ThemeContext';
@@ -8,7 +8,10 @@ import { syncLanguageToServer } from '../../../utils/syncLanguage';
 import Input from '../../ui/Input';
 import Select from '../../ui/Select';
 import Toggle from '../../ui/Toggle';
+import Button from '../../ui/Button';
 import Spinner from '../../ui/Spinner';
+import { useToast } from '../../ui/Toast';
+import { apiRequest } from '../../../utils/api';
 import { getElectronAPI } from '../../../utils/env';
 
 interface GeneralSettingsProps {
@@ -57,6 +60,15 @@ export default function GeneralSettings({
   const dbPath = database.path || '';
   const rateLimitMaxStr = String(rateLimit.webhookMaxRequests || 100);
   const rateLimitWindowStr = String(rateLimit.webhookWindowMs || 60000);
+
+  // ── Auto-archive ──
+  const autoArchive = (config.archive as Record<string, unknown> | undefined)?.auto as
+    Record<string, unknown> | undefined;
+  const autoArchiveEnabled = getField(
+    'archive.auto.enabled',
+    (autoArchive?.enabled as boolean) ?? false,
+  ) as boolean;
+  const autoArchiveDays = String(getField('archive.auto.days', autoArchive?.days ?? 30));
 
   const themeDesc =
     themeMode === 'system'
@@ -159,6 +171,18 @@ export default function GeneralSettings({
         </div>
       </SettingsCard>
 
+      {/* ── Auto-archive ── */}
+      <SettingsSection title={t('settings.general.autoArchiveTitle')}>
+        <SettingsCard>
+          <AutoArchiveCard
+            enabled={autoArchiveEnabled}
+            days={autoArchiveDays}
+            onToggle={(v) => setField('archive.auto.enabled', v)}
+            onDaysChange={(v) => setField('archive.auto.days', v)}
+          />
+        </SettingsCard>
+      </SettingsSection>
+
       {/* ── Footer ── */}
       <SettingsSection title={t('settings.footer.title')}>
         <SettingsCard>
@@ -207,5 +231,133 @@ export default function GeneralSettings({
         </SettingsCard>
       </SettingsSection>
     </div>
+  );
+}
+
+/**
+ * 自动归档 row: switch + threshold + a preview of the blast radius.
+ *
+ * Split into its own component so the preview's fetch/debounce state lives below
+ * the tab's early returns (`loading` / `config === null`), which would otherwise
+ * make the hook order conditional.
+ *
+ * The preview is the point of this card. Turning auto-archive on moves the whole
+ * existing backlog on the first tick, so the count is shown *before* saving —
+ * from `GET /api/archive/auto/preview`, which runs the same predicate the
+ * maintenance job runs, so the number cannot drift from what will happen.
+ */
+function AutoArchiveCard({
+  enabled,
+  days,
+  onToggle,
+  onDaysChange,
+}: {
+  enabled: boolean;
+  days: string;
+  onToggle: (value: boolean) => void;
+  onDaysChange: (value: string) => void;
+}) {
+  const { t } = useTranslation('common');
+  const { showToast } = useToast();
+  const [preview, setPreview] = useState<number | null>(null);
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const [running, setRunning] = useState(false);
+  const requestId = useRef(0);
+
+  const daysNumber = Number.parseInt(days, 10);
+  const effectiveDays = Number.isFinite(daysNumber) && daysNumber > 0 ? daysNumber : 30;
+
+  useEffect(() => {
+    // Debounced: the threshold field is a free-text number input, so every
+    // keystroke would otherwise be a COUNT over the sessions table.
+    const id = ++requestId.current;
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const res = await apiRequest<{ count: number }>(
+            `/api/archive/auto/preview?days=${effectiveDays}`,
+          );
+          if (id !== requestId.current) return;
+          setPreview(res.count);
+          setPreviewFailed(false);
+        } catch {
+          if (id !== requestId.current) return;
+          setPreviewFailed(true);
+        }
+      })();
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [effectiveDays]);
+
+  const runNow = async () => {
+    setRunning(true);
+    try {
+      const res = await apiRequest<{ archived: number; remaining: number }>(
+        '/api/archive/auto/run',
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+      showToast(t('settings.general.autoArchiveRan', { count: res.archived }), 'success');
+      setPreview(res.remaining);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : t('common.error'), 'error');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="flex items-center justify-between">
+        <div>
+          <label className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+            {t('settings.general.autoArchive')}
+          </label>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">
+            {t('settings.general.autoArchiveDesc')}
+          </p>
+        </div>
+        <Toggle
+          checked={enabled}
+          onChange={onToggle}
+          ariaLabel={t('settings.general.autoArchive')}
+        />
+      </div>
+
+      {/* The field keeps the default Input box (same height as every other numeric
+          field in this tab); the button is matched to it by copying that box
+          (border + py-2.5 + text-sm) instead of picking a Button size, whose
+          paddings are smaller than an Input's. */}
+      <div className="mt-3 flex items-end gap-2">
+        <div className="w-32 min-w-0 shrink-0">
+          <Input
+            label={t('settings.general.autoArchiveDays')}
+            type="number"
+            min={1}
+            max={3650}
+            value={days}
+            disabled={!enabled}
+            onChange={(e) => onDaysChange(e.target.value)}
+          />
+        </div>
+        <Button
+          variant="secondary"
+          size="md"
+          className="shrink-0 py-2.5!"
+          onClick={() => void runNow()}
+          disabled={!enabled || running || preview === 0}
+          loading={running}
+        >
+          {t('settings.general.autoArchiveRunNow')}
+        </Button>
+      </div>
+
+      <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
+        {previewFailed
+          ? t('settings.general.autoArchivePreviewFailed')
+          : preview === null
+            ? t('settings.general.autoArchivePreviewLoading')
+            : t('settings.general.autoArchivePreview', { count: preview, days: effectiveDays })}
+      </p>
+    </>
   );
 }

@@ -366,6 +366,12 @@ export interface AppConfig {
    * `config.yaml` has no `judge:` section.
    */
   judge?: import('../judge/types.js').JudgeSectionConfig;
+  /**
+   * 归档 housekeeping. Absent when `config.yaml` has no `archive:` section, which
+   * leaves auto-archive off. The zod schema lives in src/app/config.ts
+   * (`archiveSectionSchema`).
+   */
+  archive?: ArchiveSectionConfig;
   /** Footer display options. Applies to all channels. */
   footer: FooterConfig;
 
@@ -562,6 +568,23 @@ export interface ComputerUseConfig {
     };
   };
   perPlatformProvider?: Record<string, string>;
+}
+
+// ---------------------------------------------------------------------------
+// 归档 housekeeping configuration
+// ---------------------------------------------------------------------------
+
+/**
+ * Auto-archive: a maintenance job flags conversations whose last activity is
+ * older than `days`. Archiving is list-visibility only, so this can never make
+ * the agent forget a conversation — it only moves it to the 归档 shelf.
+ */
+export interface ArchiveSectionConfig {
+  auto: {
+    enabled: boolean;
+    /** Days since last activity (not since creation). */
+    days: number;
+  };
 }
 
 // ---------------------------------------------------------------------------

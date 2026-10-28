@@ -23,13 +23,18 @@
 
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
-import { SessionRepository } from '../../memory/repositories/session-repository.js';
+import {
+  SessionRepository,
+  autoArchiveCutoff,
+} from '../../memory/repositories/session-repository.js';
 import { resolveBotNames, type BotNameResolver } from './bot-names.js';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 /** Upper bound on a single batch write — the sidebar selects at most a page. */
 const MAX_BATCH_IDS = 500;
+/** Mirrors the maintenance job's batch cap, so "run now" leaves the same backlog. */
+const AUTO_ARCHIVE_BATCH_LIMIT = 500;
 
 /** Clamp `limit` to 1..MAX_LIMIT, falling back to the default when unparsable. */
 function parseLimit(raw: string | undefined): number {
@@ -52,13 +57,87 @@ function parseKind(raw: string | undefined): 'project' | 'inbox' | undefined | n
   return null;
 }
 
+export interface ArchiveAutoSettings {
+  enabled: boolean;
+  days: number;
+}
+
+/** What the auto-archive endpoints need from the rest of the app. */
+export interface ArchiveAutoHooks {
+  /** Live config read — the settings row is saved to config.yaml, not the DB. */
+  getAutoConfig?: () => ArchiveAutoSettings | undefined;
+  /** A conversation with a turn in flight is never archived by the sweep. */
+  isRunning?: (sessionId: string) => boolean;
+}
+
+/** Clamp `days` for the preview: same range the config schema accepts (1..3650). */
+function parseDays(raw: string | undefined, fallback: number): number {
+  const parsed = parseInt(raw ?? '', 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(1, parsed), 3650);
+}
+
 export function registerArchiveRoutes(
   app: FastifyInstance,
   db: Database.Database,
   /** Same resolver the inbox uses, so both trees label a channel identically. */
   getBotName?: BotNameResolver,
+  autoHooks?: ArchiveAutoHooks,
 ): void {
   const sessionRepository = new SessionRepository(db);
+
+  /**
+   * How many conversations the auto-archive sweep would flag right now.
+   *
+   * Exists so the settings card can say "turning this on archives N conversations"
+   * before the operator flips the switch: enabling the feature on a long-lived
+   * install mass-moves the backlog on the first tick, and a batch that size
+   * deserves to be visible first. `days` may be passed unsaved (the field is
+   * being edited), which is why it overrides the stored value.
+   */
+  app.get('/api/archive/auto/preview', async (request, reply) => {
+    const { days: daysParam } = request.query as { days?: string };
+    const configured = autoHooks?.getAutoConfig?.();
+    const days = parseDays(daysParam, configured?.days ?? 30);
+    return reply.send({
+      days,
+      enabled: configured?.enabled === true,
+      count: sessionRepository.countAutoArchiveCandidates(days),
+      cutoff: autoArchiveCutoff(days),
+    });
+  });
+
+  /**
+   * Run the sweep immediately instead of waiting for the hourly tick.
+   *
+   * Refused while the feature is disabled: the button only makes sense for an
+   * enabled setting, and silently archiving a backlog for a feature the operator
+   * has not turned on (because they left the form unsaved) is the one surprise
+   * this endpoint must not produce.
+   */
+  app.post('/api/archive/auto/run', async (request, reply) => {
+    const configured = autoHooks?.getAutoConfig?.();
+    if (!configured?.enabled) {
+      return reply.status(409).send({
+        error: 'Conflict',
+        message: '自动归档未开启（请先保存设置）',
+      });
+    }
+
+    const ids = sessionRepository
+      .listAutoArchiveCandidates(configured.days, AUTO_ARCHIVE_BATCH_LIMIT)
+      .filter((id) => !autoHooks?.isRunning?.(id));
+    const archived = ids.length > 0 ? sessionRepository.setArchived(ids, true) : 0;
+
+    return reply.send({
+      ok: true,
+      archived,
+      days: configured.days,
+      cutoff: autoArchiveCutoff(configured.days),
+      remaining: sessionRepository.countAutoArchiveCandidates(configured.days),
+      hitCap: ids.length === AUTO_ARCHIVE_BATCH_LIMIT,
+    });
+  });
 
   // Archived conversations, paged. Both trees in one list; `kind` narrows it.
   app.get('/api/archive', async (request, reply) => {

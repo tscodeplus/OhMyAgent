@@ -260,7 +260,16 @@
       "rateLimit": "Rate Limit (max concurrent)",
       "rateLimitWindow": "Rate Limit (window ms)",
       "advanced": "Advanced",
-      "loggingAndDisplay": "Logging & Display"
+      "loggingAndDisplay": "Logging & Display",
+      "autoArchiveTitle": "Auto-archive",
+      "autoArchive": "Archive inactive conversations",
+      "autoArchiveDesc": "Conversations untouched for the given number of days are moved to Archive (list visibility only — memory and search are unaffected)",
+      "autoArchiveDays": "Days of inactivity",
+      "autoArchivePreview": "This would archive {{count}} conversation(s) inactive for more than {{days}} day(s)",
+      "autoArchivePreviewLoading": "Counting archived-eligible conversations…",
+      "autoArchivePreviewFailed": "Could not count eligible conversations",
+      "autoArchiveRunNow": "Run now",
+      "autoArchiveRan": "Archived {{count}} conversation(s)"
     },
     "models": {
       "subtabs": {

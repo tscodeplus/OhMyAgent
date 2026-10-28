@@ -260,7 +260,16 @@
       "rateLimit": "速率限制 (最大并发)",
       "rateLimitWindow": "速率限制 (时间窗口 ms)",
       "advanced": "高级设置",
-      "loggingAndDisplay": "日志与显示"
+      "loggingAndDisplay": "日志与显示",
+      "autoArchiveTitle": "自动归档",
+      "autoArchive": "开启自动归档",
+      "autoArchiveDesc": "超过指定天数未活动的会话会被移入「归档」（只影响列表，记忆与搜索不受影响）",
+      "autoArchiveDays": "未活动天数",
+      "autoArchivePreview": "当前会归档 {{count}} 个超过 {{days}} 天未活动的会话",
+      "autoArchivePreviewLoading": "正在统计可归档会话…",
+      "autoArchivePreviewFailed": "无法获取可归档会话数",
+      "autoArchiveRunNow": "立即执行一次",
+      "autoArchiveRan": "已归档 {{count}} 个会话"
     },
     "models": {
       "subtabs": {

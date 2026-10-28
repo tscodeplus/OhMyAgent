@@ -104,6 +104,14 @@ export interface ArchivedOwnerCount {
 /** Longest preview the inbox list renders (truncated in TS, not in SQL). */
 const PREVIEW_MAX_CHARS = 120;
 
+/**
+ * Activity cutoff for auto-archive: sessions untouched before this are eligible.
+ * Exported so the job, the preview route and their tests compute it one way.
+ */
+export function autoArchiveCutoff(days: number, now: number = Date.now()): number {
+  return now - days * 86_400_000;
+}
+
 export class SessionRepository {
   private readonly db: Database.Database;
 
@@ -408,6 +416,47 @@ export class SessionRepository {
       archived_at: parseEpochMs(row.archived_at),
       preview: row.preview === null ? '' : String(row.preview).slice(0, PREVIEW_MAX_CHARS),
     }));
+  }
+
+  /**
+   * Conversations the auto-archive job would flag right now.
+   *
+   * Same predicate as `listAutoArchiveCandidates` on purpose: the settings card
+   * shows this count before the operator flips the switch, and a preview that
+   * can disagree with what the job actually does is worse than no preview.
+   *
+   * `updated_at` is TEXT holding epoch-ms digit strings, so it is cast before
+   * the comparison — a lexical `<` over mixed-length digit strings would silently
+   * compare the wrong way round once a row predates the 13-digit format.
+   */
+  countAutoArchiveCandidates(days: number): number {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS count
+           FROM sessions
+          WHERE archived_at IS NULL
+            AND CAST(updated_at AS INTEGER) < ?`,
+      )
+      .get(autoArchiveCutoff(days)) as { count: number } | undefined;
+    return row?.count ?? 0;
+  }
+
+  /**
+   * The ids that `countAutoArchiveCandidates` counts, oldest activity first so a
+   * capped batch takes the least recently touched conversations.
+   */
+  listAutoArchiveCandidates(days: number, limit: number): string[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id
+           FROM sessions
+          WHERE archived_at IS NULL
+            AND CAST(updated_at AS INTEGER) < ?
+          ORDER BY CAST(updated_at AS INTEGER) ASC
+          LIMIT ?`,
+      )
+      .all(autoArchiveCutoff(days), limit) as Array<{ id: string }>;
+    return rows.map((row) => row.id);
   }
 
   /**

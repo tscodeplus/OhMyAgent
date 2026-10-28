@@ -70,6 +70,20 @@ describe('yamlToAppConfigRaw', () => {
     expect(raw.feishu.wsEnabled).toBe(false);
   });
 
+  it('maps the archive.auto section and defaults a missing threshold to 30 days', () => {
+    expect(yamlToAppConfigRaw(minimalYaml).archive).toBeUndefined();
+    expect(
+      yamlToAppConfigRaw({ ...minimalYaml, archive: { auto: { enabled: true } } }).archive,
+    ).toEqual({ auto: { enabled: true, days: 30 } });
+    // A hand-edited snake_case threshold reads the same as the WebUI's `days`.
+    expect(
+      yamlToAppConfigRaw({
+        ...minimalYaml,
+        archive: { auto: { enabled: true, auto_archive_days: 7 } },
+      }).archive,
+    ).toEqual({ auto: { enabled: true, days: 7 } });
+  });
+
   it('maps judge.judges keys in both snake_case (api_key) and camelCase (apiKey)', () => {
     const raw = yamlToAppConfigRaw({
       ...minimalYaml,

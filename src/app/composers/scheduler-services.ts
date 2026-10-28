@@ -12,6 +12,8 @@ import { createPersonaConsistencyJob } from '../../memory/maintenance/jobs/perso
 // scene_cluster and memory_hygiene are now handled by DreamCycle (nightly)
 import { createMemoryDoctorJob } from '../../memory/maintenance/jobs/memory-doctor-job.js';
 import { createGraphSyncJob } from '../../graph/graph-sync.js';
+import { createSessionAutoArchiveJob } from '../../memory/maintenance/jobs/session-auto-archive-job.js';
+import { loadConfig } from '../config.js';
 import { resolveGraphSyncConfig } from '../../graph/graph-config.js';
 import { DreamCycle } from '../../memory/dream-cycle.js';
 import type { MergeConfig } from '../../memory/memory-merge.js';
@@ -156,6 +158,18 @@ export function createSchedulers(input: {
   // memory.graph.enabled is false, so it never even ticks.
   maintenanceScheduler.register(
     createGraphSyncJob(db, resolveGraphSyncConfig(config.memory?.graph), logger),
+  );
+  // Auto-archive (archive.auto). Registered unconditionally and disabled by its
+  // own config: the getter reads the live config on every tick, because the
+  // scheduler is built once and a snapshot would make the settings switch need a
+  // restart. A disabled run reports `skipped`, so the run history still shows the
+  // job is alive.
+  maintenanceScheduler.register(
+    createSessionAutoArchiveJob(
+      db,
+      () => loadConfig().archive?.auto,
+      (sessionId) => agentService.isRunning(sessionId),
+    ),
   );
   logger.info(
     { jobCount: maintenanceScheduler.listJobs().length },
