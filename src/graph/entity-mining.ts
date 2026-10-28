@@ -188,6 +188,104 @@ export function isVouchableEntityName(name: string | null | undefined): boolean 
 }
 
 /**
+ * Does the memory text actually support this relation?
+ *
+ * Endpoint validation only proves the two names are real; it says nothing about
+ * the predicate. The measured survivors after that fix were
+ * `穿衣建议 —ADVISES→ 周五` (the keyword 建议 sits *inside* the subject — the
+ * entity's own name contained the verb) and `LTS —ADVISES→ 常规` (建议 appeared
+ * 220 characters away, about a different clause). Both claimed a relation no
+ * sentence states.
+ *
+ * So a typed relation needs its keyword to occur in the memory text, outside both
+ * endpoint spans, and within {@link RELATION_EVIDENCE_WINDOW} characters of each
+ * endpoint. `MENTIONED` is always true — it asserts nothing, and the projector
+ * filters it anyway.
+ *
+ * Unknown relation types return true: this table is the set of relations the
+ * deterministic era could produce and get wrong, not a closed vocabulary for
+ * models. A relation with no evidence rule here is unverifiable rather than
+ * disproven, and rejecting it would forbid an LLM from ever using its own
+ * vocabulary (and would silently drop `LIKES`, which the projector's own
+ * contradiction tests rely on).
+ */
+export const RELATION_EVIDENCE_WINDOW = 60;
+
+const RELATION_EVIDENCE: Record<string, RegExp> = {
+  FOUNDED: /创立|创建|创办|成立|开了|建立了|founded|created|established|started/i,
+  INVESTED: /投资|入股|投了|融资|参股|invested|funded|backed|financed/i,
+  ADVISES: /顾问|指导|咨询|建议|advises|consults|mentors|guides/i,
+  WORKS_AT: /在.{1,10}(工作|上班|任职|就职|担任|做)|works at|employed by|works for/i,
+  ATTENDED: /参加|参与|出席|去了|在场|attended|participated|went to/i,
+};
+
+export function attestsRelation(
+  text: string,
+  relation: string,
+  subject: string | null | undefined,
+  target: string | null | undefined,
+): boolean {
+  const normalized = relation.trim().toUpperCase();
+  if (normalized === MENTION_RELATION_TYPE) return true;
+  const pattern = RELATION_EVIDENCE[normalized];
+  if (!pattern) return true;
+  if (!text) return false;
+
+  const subjectSpan = spanOf(text, subject);
+  const targetSpan = spanOf(text, target);
+  // Neither endpoint located in the text: the relation is unverifiable rather
+  // than disproven, and this function fails open here for the same reason
+  // `isTokenAlignedMention` does — an extractor may legitimately canonicalise a
+  // name (`PQ` → `Power Query`), and rejecting every such row would empty the
+  // graph for installs that configured a model. Attestation only judges the case
+  // it can actually measure: both names present, predicate demonstrably elsewhere.
+  if (!subjectSpan || !targetSpan) return true;
+
+  const global = new RegExp(
+    pattern.source,
+    pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`,
+  );
+  for (const match of text.matchAll(global)) {
+    const start = match.index ?? -1;
+    if (start < 0) continue;
+    const end = start + match[0].length;
+    // A keyword inside an endpoint's own characters is not evidence about the
+    // relation between the two: `穿衣建议` contains 建议.
+    if (overlaps(start, end, subjectSpan) || overlaps(start, end, targetSpan)) continue;
+    if (
+      distance(start, subjectSpan) <= RELATION_EVIDENCE_WINDOW &&
+      distance(start, targetSpan) <= RELATION_EVIDENCE_WINDOW
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+interface Span {
+  start: number;
+  end: number;
+}
+
+function spanOf(text: string, name: string | null | undefined): Span | null {
+  const trimmed = (name ?? '').trim();
+  if (trimmed === '') return null;
+  const start = text.indexOf(trimmed);
+  if (start < 0) return null;
+  return { start, end: start + trimmed.length };
+}
+
+function overlaps(start: number, end: number, span: Span): boolean {
+  return start < span.end && end > span.start;
+}
+
+function distance(position: number, span: Span): number {
+  if (position < span.start) return span.start - position;
+  if (position > span.end) return position - span.end;
+  return 0;
+}
+
+/**
  * Does `name` sit on token boundaries of `text`?
  *
  * This is the discriminator the graph needed. The measured garbage was not

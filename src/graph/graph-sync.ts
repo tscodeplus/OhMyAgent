@@ -68,6 +68,7 @@ import {
   inferEntityType,
   mineMemoryLinkSubjects,
   MENTION_RELATION_TYPE,
+  attestsRelation,
   isTokenAlignedMention,
   isVouchableEntityName,
   type MemoryLinkMiningSummary,
@@ -269,6 +270,13 @@ function isUsableLink(link: LinkRow, minConfidence: number): boolean {
   const content = link.memory_content ?? '';
   if (!isTokenAlignedMention(content, link.subject_entity ?? '')) return false;
   if (!isTokenAlignedMention(content, link.target_entity)) return false;
+  // ...and the predicate itself has to be attested by the same text. A real
+  // endpoint pair with a relation the sentence never states is still a false
+  // statement: 穿衣建议 —ADVISES→ 周五 survived endpoint validation precisely
+  // because the verb was part of the entity's own name.
+  if (!attestsRelation(content, link.relation_type, link.subject_entity, link.target_entity)) {
+    return false;
+  }
   const confidence = Number(link.confidence);
   return Number.isFinite(confidence) && confidence >= minConfidence;
 }

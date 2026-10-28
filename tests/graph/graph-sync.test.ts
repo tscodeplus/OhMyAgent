@@ -441,11 +441,11 @@ describe('graph-sync: config gate', () => {
     // the projection reads would be a guess — this pins the pass order.
     db.prepare(
       `INSERT INTO memories (id, scope, scope_key, kind, content, created_at, updated_at)
-       VALUES ('m1', 'user', 'k', 'fact', '用户希望把知识图谱接入飞书', ?, ?)`,
+       VALUES ('m1', 'user', 'k', 'fact', '知识图谱向飞书建议了新的接入方式', ?, ?)`,
     ).run(String(MEMORY_CREATED_AT), String(MEMORY_CREATED_AT));
     db.prepare(
       `INSERT INTO memory_links (id, source_memory_id, target_entity, relation_type, confidence)
-       VALUES ('l1', 'm1', '飞书', 'WORKS_AT', 0.9)`,
+       VALUES ('l1', 'm1', '飞书', 'ADVISES', 0.9)`,
     ).run();
 
     const result = await createGraphSyncJob(db, resolveGraphSyncConfig(undefined), logger).run({
