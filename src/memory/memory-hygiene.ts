@@ -37,6 +37,17 @@ function toEpochMsString(date: Date): string {
   return String(date.getTime());
 }
 
+/**
+ * Retention for `memory.injection` observation rows (plan §6 K0 item 3).
+ *
+ * 30 days, not the 90 the other horizons use: this table grows with prompt
+ * builds rather than with content, so it is the one whose row count is a
+ * function of usage time. Only the per-prompt rows are pruned — fault events
+ * and the `memory.injection.referenced` rows are rare, and each one is evidence
+ * (of a defect, or of an offer that was actually used).
+ */
+const INJECTION_OBSERVATION_RETENTION_DAYS = 30;
+
 export class MemoryHygiene {
   constructor(
     private memoryRepository: MemoryRepository,
@@ -79,7 +90,7 @@ export class MemoryHygiene {
    * Preserves: kind='preference', kind='summary'
    * Cleans:    kind='fact', kind='task', kind='device_state' older than tempRetentionDays
    *            plus `knowledge_log` rows older than knowledgeLogRetentionDays
-   *
+   *            plus `memory.injection` observation rows older than 30 days   *
    * A pass refused by the 80% safety threshold touches nothing at all — not the
    * memories and not the log — so a refused pass cannot look like a partial one.
    */
@@ -150,6 +161,15 @@ export class MemoryHygiene {
         cleanedKinds['knowledge_log'] = prunedLogRows;
       }
 
+      // The per-turn injection rows are the same kind of append-only growth —
+      // one row per prompt build — so they take the same ride on this pass.
+      const prunedInjectionRows = this.pruneInjectionObservations(
+        INJECTION_OBSERVATION_RETENTION_DAYS,
+      );
+      if (prunedInjectionRows > 0) {
+        cleanedKinds['memory.injection'] = prunedInjectionRows;
+      }
+
       // Update last-check timestamp
       this.memoryRepository.upsert({
         id: config.lastCheckKey,
@@ -172,7 +192,7 @@ export class MemoryHygiene {
       }
 
       return {
-        cleanedCount: rows.length + prunedLogRows,
+        cleanedCount: rows.length + prunedLogRows + prunedInjectionRows,
         cleanedKinds,
         durationMs: Date.now() - startMs,
       };
@@ -209,6 +229,35 @@ export class MemoryHygiene {
 
     const cutoffMs = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
     const result = this.db.prepare('DELETE FROM knowledge_log WHERE created_at < ?').run(cutoffMs);
+    return result.changes;
+  }
+
+  /**
+   * Delete per-turn `memory.injection` observation rows past the horizon;
+   * returns how many.
+   *
+   * `created_at` is a TEXT column whose DEFAULT writes epoch-ms as a digit
+   * string, so the comparison casts — the same shape `memory-routes.ts` reads
+   * it with. The match is the exact event name on purpose: every other row in
+   * that table is a fault, or a `memory.injection.referenced` correlation, and
+   * both are rare enough that losing them would lose the evidence.
+   */
+  private pruneInjectionObservations(retentionDays: number): number {
+    if (!Number.isFinite(retentionDays) || retentionDays <= 0) return 0;
+
+    const table = this.db
+      .prepare(
+        "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'memory_observation_events'",
+      )
+      .get() as { present: number } | undefined;
+    if (!table) return 0;
+
+    const cutoffMs = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+    const result = this.db
+      .prepare(
+        "DELETE FROM memory_observation_events WHERE event = 'memory.injection' AND CAST(created_at AS INTEGER) < ?",
+      )
+      .run(cutoffMs);
     return result.changes;
   }
 }

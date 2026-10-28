@@ -18,8 +18,10 @@ import type {
 } from '../app/types.js';
 import type { SkillRegistry } from '../skills/skill-registry.js';
 import { getDefaultModel } from '../provider/pi-ai-setup.js';
-import { createTransformContext } from './context-transform.js';
+import { createTransformContext, recordInjectionReference } from './context-transform.js';
+import type { EpisodicContextItem } from './context-transform.js';
 import { searchMessages } from '../memory/conversation-search.js';
+import type Database from 'better-sqlite3';
 import { estimateStaticContextTokens } from './compress.js';
 import { convertToLlm } from './convert-to-llm.js';
 import type { ApprovalDecisionType } from '../app/types.js';
@@ -262,6 +264,17 @@ export interface AgentTurnContext {
   /** Skill id (manifest id) activated for this turn — the stable identifier
    *  used for metrics and harness failure context. */
   activatedSkillId?: string;
+  /**
+   * Epoch ms at which the current turn began, stamped by AgentService at the
+   * top of every turn (execute and the followUp idle-card path).
+   *
+   * It is the turn's own lower bound for "past" content: anything created at
+   * or after this instant is *this* turn, not history. The transform's providers
+   * are built once per runtime and read this lazily at call time, so a value set
+   * mid-life is seen by the next retrieval — a snapshot captured at agent
+   * construction would stay frozen at the first turn's value forever.
+   */
+  turnStartedAt?: number;
   // ── Jev judgment kernel (phase-1 M1) turn-start overrides ──
   /** Judged intent override (intent.classify, active+judged only): a domain
    *  narrows, 'none' disables narrowing, undefined = regex floor applies. */
@@ -393,6 +406,75 @@ Results are automatically delivered to this chat — you do NOT need to provide 
 }
 
 // ─── Tool Search helper (resolveModelContextLength moved to model-resolver.ts) ───
+
+// ─── Episodic injection retrieval ───
+
+export interface EpisodicSearchParams {
+  db: Database.Database;
+  /** The turn's user text — the same query the tool would get. */
+  query: string;
+  /** TOTAL entries to return, neighbourhood expansion included. */
+  limit: number;
+  /** Only an explicitly selected project narrows the search. */
+  projectId?: string;
+  /**
+   * Epoch ms at which the current turn began. Everything created at or after it
+   * is this turn's own writing, so the search stops one millisecond before it.
+   *
+   * Why this has to be a bound and not a relevance question: on the WebUI path
+   * the user message is persisted at turn start, *before* the transform runs, so
+   * an unbounded search matches the query against itself — the turn's own
+   * sentence comes back as the top "recent conversation" excerpt and takes one
+   * of the two injection slots. Undefined means "no turn context" (a child agent
+   * built outside AgentService): fall back to "everything up to now", which is
+   * the pre-guard behaviour.
+   */
+  turnStart?: number;
+}
+
+/**
+ * The episodic provider's retrieval: raw conversation excerpts for the
+ * `<recent_conversation>` block, best first.
+ *
+ * Exported because the self-echo guard above is a property of this function,
+ * not of the wiring: a test that drives the transform with a stub provider
+ * cannot see whether the real one excludes the current turn.
+ */
+export function searchEpisodicContext(params: EpisodicSearchParams): EpisodicContextItem[] {
+  const { db, query, limit, projectId, turnStart } = params;
+  // `until` is inclusive, so the last instant that may be injected is one
+  // millisecond before the turn began.
+  const lastPastInstant =
+    typeof turnStart === 'number' && turnStart > 0 ? turnStart - 1 : undefined;
+  const hits = searchMessages({
+    db,
+    query,
+    limit,
+    until: lastPastInstant ?? Date.now(),
+    // Same derivation as the tool: only an explicitly selected project narrows
+    // the search; an IM turn keeps every session visible.
+    policy: projectId ? { projectId } : {},
+  });
+  const items = hits.map((hit) => ({
+    createdAt: hit.created_at,
+    channel: hit.channel,
+    sessionTitle: hit.session_title,
+    role: hit.role,
+    excerpt: hit.snippet,
+    // Carried for the per-turn injection event (plan §6 K0 item 3): the block
+    // renders only text, but the row that records the injection names the
+    // messages, so a later `session_search` hit can be traced back to it.
+    messageId: hit.message_id,
+  }));
+  // `until` bounds FTS hits only. The ±1 neighbourhood expansion that turns a hit
+  // into the exchange around it is rebuilt from the session timeline and ignores
+  // the window, so this turn's own user message still arrives as the neighbour of
+  // the last pre-turn message. Drop anything at or after the turn start here —
+  // and anything whose timestamp cannot be proven older, which is the same
+  // mistake wearing a different hat.
+  if (lastPastInstant === undefined) return items;
+  return items.filter((item) => item.createdAt > 0 && item.createdAt <= lastPastInstant);
+}
 
 // ─── Factory ───
 
@@ -980,33 +1062,24 @@ export function createAgentFactory(
           // runtime rebuild. `autoInjectMaxItems` doubles as the hard cap the
           // transform applies, so asking for more would only burn token budget.
           //
-          // `until: Date.now()` scopes the search to messages that already
-          // exist: the current turn's reply is not written yet. On the WebUI
-          // path the user message is persisted at turn start, so it can match
-          // its own query — the 2-item cap keeps that from crowding out the
-          // second, genuinely earlier hit.
+          // The per-turn bound is read through `turnContext` (a getter, not a
+          // snapshot): this provider is built once per runtime while the turn
+          // boundary moves every turn, and the WebUI path persists the user
+          // message before the transform runs — an unbounded search would inject
+          // the turn's own sentence back as "recent conversation".
           episodicContextProvider: (query: string) => {
             const conversationSearch = configRef.current.conversationSearch;
             const db = getServices?.()?.db;
             if (!conversationSearch.enabled || conversationSearch.autoInjectMaxItems <= 0 || !db) {
               return undefined;
             }
-            const hits = searchMessages({
+            return searchEpisodicContext({
               db,
               query,
               limit: conversationSearch.autoInjectMaxItems,
-              until: Date.now(),
-              // Same derivation as the tool: only an explicitly selected project
-              // narrows the search; an IM turn keeps every session visible.
-              policy: options?.projectId ? { projectId: options.projectId } : {},
+              projectId: options?.projectId,
+              turnStart: options?.turnContext?.turnStartedAt,
             });
-            return hits.map((hit) => ({
-              createdAt: hit.created_at,
-              channel: hit.channel,
-              sessionTitle: hit.session_title,
-              role: hit.role,
-              excerpt: hit.snippet,
-            }));
           },
           // K2-6: offer the titles of the pages worth reading this turn. The
           // body stays behind `knowledge_get`; `titlesForInjection` already
@@ -1074,6 +1147,24 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
         fallbackModels: fallbackModels.length > 0 ? fallbackModels : undefined,
         afterToolCall: async (context) => {
           const result = context.result;
+
+          // Plan §6 K0 item 3, ②「是否被引用」: was a page the transform offered
+          // in the last prompt build actually read? `knowledge_get` is the only
+          // tool that reads an injected offer back, and the transform owns the
+          // offer list — it matches the reference, consumes it and records
+          // `memory.injection.referenced`. Nothing happens when the slug was
+          // not offered, so this is a hit test, not per-tool-call telemetry.
+          if (context.toolCall.name === 'knowledge_get') {
+            const ref = (context.args as Record<string, unknown> | undefined)?.ref;
+            if (typeof ref === 'string') {
+              recordInjectionReference({
+                agentId: runtimeAgentId,
+                sessionKey: sessionId,
+                toolName: context.toolCall.name,
+                refs: [ref],
+              });
+            }
+          }
 
           // Auto-reload skill registry when a SKILL.md is written via file_write.
           // Agents may use file_write instead of skill_create, so we detect writes

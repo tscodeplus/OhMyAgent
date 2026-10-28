@@ -16,6 +16,7 @@
  */
 
 import type Database from 'better-sqlite3';
+import { DEGRADATION_EVENT_SQL } from '../observability.js';
 
 export interface PipelineMetrics {
   /** Layer record counts (same L0–L3 mapping as MemoryPipeline). */
@@ -72,7 +73,9 @@ export function computePipelineMetrics(db: Database.Database): PipelineMetrics {
   const observationEvents: Record<string, number> = {};
   try {
     const rows = db
-      .prepare('SELECT event, COUNT(*) AS n FROM memory_observation_events GROUP BY event')
+      .prepare(
+        `SELECT event, COUNT(*) AS n FROM memory_observation_events WHERE ${DEGRADATION_EVENT_SQL} GROUP BY event`,
+      )
       .all() as Array<{ event: string; n: number | string }>;
     for (const row of rows) observationEvents[row.event] = Number(row.n);
   } catch {

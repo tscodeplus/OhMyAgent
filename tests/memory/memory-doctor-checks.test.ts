@@ -102,4 +102,26 @@ describe('MemoryDoctor: orphan terms / terms coverage / 24h observability', () =
       (obs.details as { counts: Record<string, number> }).counts['memory.embedding.failed'],
     ).toBeUndefined();
   });
+  it('does not treat per-turn injection telemetry as a degradation signal', async () => {
+    // One `memory.injection` row per prompt build is normal operation. Counting
+    // it here would warn on every healthy device forever, which is how an
+    // operator learns to ignore the doctor.
+    const now = String(Date.now() - 60 * 60 * 1000);
+    db.prepare('INSERT INTO memory_observation_events (event, created_at) VALUES (?, ?)').run(
+      'memory.injection',
+      now,
+    );
+    db.prepare('INSERT INTO memory_observation_events (event, created_at) VALUES (?, ?)').run(
+      'memory.injection.referenced',
+      now,
+    );
+
+    const doctor = new (await import('../../src/memory/maintenance/memory-doctor.js')).MemoryDoctor(
+      db,
+      repo,
+    );
+    const obs = (await doctor.diagnose()).checks.find((c) => c.name === 'memory_observability')!;
+    expect(obs.status).toBe('ok');
+    expect((obs.details as { total?: number }).total ?? 0).toBe(0);
+  });
 });

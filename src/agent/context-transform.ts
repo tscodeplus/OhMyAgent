@@ -34,6 +34,7 @@
  */
 
 import type { MemoryRetriever, RetrievedMemory } from '../memory/memory-retriever.js';
+import { memoryObservability } from '../memory/observability.js';
 import type { MermaidCanvas } from '../runtime-artifacts/mermaid-canvas.js';
 import type { AutoCompressConfig } from '../app/types.js';
 import { compressContext, estimateTokensCached } from './compress.js';
@@ -167,6 +168,19 @@ const deepseekCanvasSignatureBySession = new LRUCache<string, string>({
 
 /** Sessions that already had classic auto-recall triggered ('first' mode). */
 const autoRecalledSessions = new LRUCache<string, true>({ max: 2000 });
+/**
+ * Knowledge slugs offered to this session's last prompt build, for the
+ * reference check (plan §6 K0 item 3, ②「是否被引用」).
+ *
+ * The transform's per-invocation state dies before the model's tool calls run,
+ * so the offer has to be published somewhere the tool hook can read it. Short
+ * TTL and consume-on-hit: a slug is credited to the prompt build that offered
+ * it, once, and a stale offer is dropped rather than handed to a later turn.
+ */
+const injectedKnowledgeBySession = new LRUCache<string, string[]>({
+  max: 2000,
+  ttl: 15 * 60_000,
+});
 /** Snapshot-mode memory retrieval results, keyed by agentId:session. */
 const snapshotMemoryCache = new LRUCache<string, RetrievedMemory[]>({
   max: 500,
@@ -181,6 +195,15 @@ const lastCompressionSummaryBySession = new LRUCache<string, string>({ max: 500 
 
 function isMemoryRelevantRequest(text: string): boolean {
   return MEMORY_RELEVANT_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+/**
+ * The per-session cache namespace, used by the module-level caches above and by
+ * `recordInjectionReference` — both sides of the reference check must derive the
+ * same key or the offer is never matched.
+ */
+function injectionScopeKey(agentId: string | undefined, sessionKey: string | undefined): string {
+  return `${agentId ?? '*'}:${sessionKey || 'default'}`;
 }
 
 function isCanvasRelevantRequest(text: string): boolean {
@@ -222,7 +245,14 @@ function containsPreferredNameExpression(content: string): boolean {
   return extractPreferredName(content) !== null;
 }
 
-function buildMemoryLines(memories: RetrievedMemory[], query: string): string[] {
+/**
+ * The memories that actually reach the block, best-first.
+ *
+ * Split from the formatting because the per-turn injection event records which
+ * memories were injected (plan §6 K0 item 3), and an id is not recoverable from
+ * a formatted line.
+ */
+function selectMemoryEntries(memories: RetrievedMemory[], query: string): RetrievedMemory[] {
   const allowStaleTime = allowsHistoricalTimeMemory(query);
   return (
     memories
@@ -233,9 +263,12 @@ function buildMemoryLines(memories: RetrievedMemory[], query: string): string[] 
       // predate the write-side filter or have bypassed it via non-tool writes
       // (summarizer, offload, dream cycle). Never let it override instructions.
       .filter((m) => !isPromptInjection(m.content))
-      .map((m) => neutralizePromptTags(`- ${m.content}`))
       .slice(0, 5)
   );
+}
+
+function buildMemoryLines(memories: RetrievedMemory[]): string[] {
+  return memories.map((m) => neutralizePromptTags(`- ${m.content}`));
 }
 
 /**
@@ -255,6 +288,14 @@ export interface EpisodicContextItem {
   role: string;
   /** Already windowed around the match by the caller (`conversation-search`). */
   excerpt: string;
+  /**
+   * `messages.id` of the hit this excerpt came from, when the caller knows it.
+   *
+   * Optional and only ever recorded — no caller renders it, but without it the
+   * per-turn injection event can say "two excerpts" and not which two, which is
+   * exactly the comparison the injection telemetry exists for.
+   */
+  messageId?: string;
 }
 
 /** One curated page offered as a title, per plan §6 K2-6. */
@@ -467,17 +508,171 @@ function formatEpisodicEntry(item: EpisodicContextItem): string {
  * that cannot fit even one entry is omitted entirely (an empty tag would be
  * pure cost). Uses the same CJK-aware estimator as context compression, so
  * "150 tokens" means the same thing here as it does to the overflow guard.
+ *
+ * Returns how many leading entries fit so the caller can report the ids it
+ * actually injected instead of the ids it offered.
  */
 function buildBudgetedBlock(
   tag: 'recent_conversation' | 'knowledge_available',
   entries: string[],
   tokenBudget: number,
-): string | null {
+): { block: string; kept: number } | null {
   for (let count = entries.length; count > 0; count--) {
     const block = `\n\n<${tag}>\n${entries.slice(0, count).join('\n')}\n</${tag}>`;
-    if (estimateTokensForText(block) <= tokenBudget) return block;
+    if (estimateTokensForText(block) <= tokenBudget) return { block, kept: count };
   }
   return null;
+}
+
+// ── Per-turn injection telemetry (plan §6 K0 item 3) ────────────────────────
+// The transform is the only place that knows what automatic injection cost a
+// turn, and it is the only place that can record it: the ids are chosen here
+// and discarded here. One `memory.injection` row is written per prompt build
+// (a tool-using turn builds several prompts, each a distinct injection), and
+// only when a block was actually appended — a turn with nothing to inject
+// stays silent, because one row per empty turn is noise on a phone.
+
+/** The three lanes whose blocks are counted; persona/date/canvas are not. */
+type InjectionLane = 'memories' | 'messages' | 'knowledge';
+
+interface TurnInjection {
+  /** Ids this prompt build injected, per lane. Ids only — never text. */
+  ids: Record<InjectionLane, string[]>;
+  /** Items rendered into the block; `ids` is shorter when an item carries none. */
+  itemCounts: Record<InjectionLane, number>;
+  /** Estimated tokens per lane, measured on the block as built. */
+  tokens: Record<InjectionLane, number>;
+  /** Provider + block-build time per lane, in milliseconds. */
+  latencyMs: Record<InjectionLane, number>;
+  /** Blocks actually appended; 0 means the turn injected nothing. */
+  blocks: number;
+  /** A lane's provider threw and its block was skipped. */
+  degraded: boolean;
+}
+
+function newTurnInjection(): TurnInjection {
+  return {
+    ids: { memories: [], messages: [], knowledge: [] },
+    itemCounts: { memories: 0, messages: 0, knowledge: 0 },
+    tokens: { memories: 0, messages: 0, knowledge: 0 },
+    latencyMs: { memories: 0, messages: 0, knowledge: 0 },
+    blocks: 0,
+    degraded: false,
+  };
+}
+
+function recordInjectedLane(
+  injection: TurnInjection,
+  lane: InjectionLane,
+  injected: { ids: string[]; itemCount: number; block: string; startedMs: number },
+): void {
+  injection.ids[lane] = injected.ids;
+  injection.itemCounts[lane] = injected.itemCount;
+  injection.tokens[lane] = Math.ceil(estimateTokensForText(injected.block));
+  injection.latencyMs[lane] = Math.round(performance.now() - injected.startedMs);
+  injection.blocks += 1;
+}
+
+/**
+ * Write the turn's injection facts as one `memory.injection` observation row.
+ *
+ * `status: 'degraded'` means a lane's provider threw and its block was skipped
+ * — the turn completed, but an incomplete injection is invisible to the offline
+ * eval and is the one thing only this row can report.
+ *
+ * Also republishes the knowledge offer for `recordInjectionReference`, and
+ * clears it when nothing was offered: a tool call must never be credited to an
+ * older prompt build's offer.
+ */
+function reportTurnInjection(injection: TurnInjection, scopeKey: string): void {
+  if (injection.ids.knowledge.length > 0) {
+    injectedKnowledgeBySession.set(scopeKey, [...injection.ids.knowledge]);
+  } else {
+    injectedKnowledgeBySession.delete(scopeKey);
+  }
+  if (injection.blocks === 0) return;
+  const totalTokens =
+    injection.tokens.memories + injection.tokens.messages + injection.tokens.knowledge;
+  memoryObservability.record('memory.injection', {
+    memoryIds: injection.ids.memories,
+    knowledgeSlugs: injection.ids.knowledge,
+    messageIds: injection.ids.messages,
+    itemCounts: {
+      memories: injection.itemCounts.memories,
+      messages: injection.itemCounts.messages,
+      knowledge: injection.itemCounts.knowledge,
+    },
+    estimatedTokens: {
+      memories: injection.tokens.memories,
+      messages: injection.tokens.messages,
+      knowledge: injection.tokens.knowledge,
+      total: totalTokens,
+    },
+    latencyMs: {
+      memories: injection.latencyMs.memories,
+      messages: injection.latencyMs.messages,
+      knowledge: injection.latencyMs.knowledge,
+    },
+    status: injection.degraded ? 'degraded' : 'ok',
+  });
+}
+
+/**
+ * Do two page references name the same page?
+ *
+ * A slug may be offered bare (`excel-etl`) and read with its type prefix
+ * (`knowledge_get(ref: 'topic/excel-etl')`), or the other way round, so one is
+ * the other with a page-type segment in front. That is the only equivalence:
+ * `topic/x` and `entity/x` are different pages.
+ */
+function isSameKnowledgeSlug(offered: string, ref: string): boolean {
+  if (offered === ref) return true;
+  return offered.endsWith(`/${ref}`) || ref.endsWith(`/${offered}`);
+}
+
+/**
+ * Record that a tool call acted on a page this session's last prompt build
+ * offered (plan §6 K0 item 3, ②「是否被引用」).
+ *
+ * Only the knowledge lane can be checked this way: the model reads a page with
+ * `knowledge_get`, while memories and excerpts have no tool that reads them
+ * back, so their "was it used?" question still needs a turn-end reader that no
+ * file owns. Calling this with a slug that was not offered — or offering the
+ * same page twice in one build — records nothing.
+ *
+ * `refs` are the candidate references from the tool call, unparsed: matching
+ * (and the page-type prefix equivalence) belongs here, next to the offer list.
+ */
+export function recordInjectionReference(params: {
+  agentId?: string;
+  sessionKey?: string;
+  toolName: string;
+  refs: string[];
+}): void {
+  const scopeKey = injectionScopeKey(params.agentId, params.sessionKey);
+  const offered = injectedKnowledgeBySession.get(scopeKey);
+  if (!offered || offered.length === 0) return;
+
+  const referenced = new Set<string>();
+  for (const ref of params.refs) {
+    const trimmed = ref.trim();
+    if (trimmed === '') continue;
+    for (const slug of offered) {
+      if (isSameKnowledgeSlug(slug, trimmed)) referenced.add(slug);
+    }
+  }
+  if (referenced.size === 0) return;
+
+  // Consume: one reference per offer, so reading the same page twice in a turn
+  // is one reference, and a page offered again next build can be credited again.
+  injectedKnowledgeBySession.set(
+    scopeKey,
+    offered.filter((slug) => !referenced.has(slug)),
+  );
+  memoryObservability.record('memory.injection.referenced', {
+    knowledgeSlugs: Array.from(referenced),
+    toolName: params.toolName,
+  });
 }
 
 /**
@@ -530,7 +725,7 @@ export function createTransformContext(options?: TransformOptions) {
   // sessionKey (mid-chat agent switch) never read each other's injected
   // state — persona text, recall flags, canvas signatures, compression
   // progress.
-  const nsSessionKey = `${agentId ?? '*'}:${sessionKey || 'default'}`;
+  const nsSessionKey = injectionScopeKey(agentId, sessionKey);
   const snapshotMode =
     options?.snapshotMode ?? (autoRecallFrequency === 'every' ? 'every' : 'first');
 
@@ -543,6 +738,9 @@ export function createTransformContext(options?: TransformOptions) {
 
   return async (messages: any[], _signal?: AbortSignal): Promise<any[]> => {
     const result = [...messages];
+    // Injection telemetry for this prompt build (plan §6 K0 item 3), emitted
+    // once at the single exit below.
+    const injection = newTurnInjection();
 
     // Inject date/time into the last user message so the LLM knows today's
     // date. Precise time is only appended for clearly time-sensitive turns.
@@ -578,6 +776,7 @@ export function createTransformContext(options?: TransformOptions) {
         const query = getUserQueryText(blocks);
         // Skip very short messages — too vague for meaningful memory search
         if (query.trim().length >= 5) {
+          const laneStarted = performance.now();
           try {
             const cacheKey = nsSessionKey;
             let memories: RetrievedMemory[];
@@ -595,7 +794,8 @@ export function createTransformContext(options?: TransformOptions) {
             }
 
             if (memories.length > 0) {
-              const memoryLines = buildMemoryLines(memories, query);
+              const memoryEntries = selectMemoryEntries(memories, query);
+              const memoryLines = buildMemoryLines(memoryEntries);
               if (memoryLines.length > 0) {
                 const memoryHint = `\n\n<memory_context>\nRelevant remembered information:\n${memoryLines.join('\n')}\n</memory_context>`;
                 const memoryKey = nsSessionKey;
@@ -618,6 +818,12 @@ export function createTransformContext(options?: TransformOptions) {
                     { type: 'text', text: memoryHint, injected: true } as any,
                   ];
                   result[idx] = { ...lastUserMsg, content: injectedBlocks };
+                  recordInjectedLane(injection, 'memories', {
+                    ids: memoryEntries.map((m) => m.id),
+                    itemCount: memoryEntries.length,
+                    block: memoryHint,
+                    startedMs: laneStarted,
+                  });
                   if (cacheProfile === 'deepseek')
                     deepseekMemorySignatureBySession.set(memoryKey, memoryHint);
                 } else {
@@ -629,6 +835,7 @@ export function createTransformContext(options?: TransformOptions) {
               }
             }
           } catch {
+            injection.degraded = true;
             options?.logger?.debug('Memory retrieval failed — continuing without memory context');
           }
         }
@@ -647,6 +854,7 @@ export function createTransformContext(options?: TransformOptions) {
           const query = getUserQueryText(blocks);
           // Skip very short messages — too vague for meaningful memory search
           if (query.trim().length >= 5) {
+            const laneStarted = performance.now();
             try {
               const memories = await memoryRetriever.retrieve({
                 query,
@@ -655,7 +863,8 @@ export function createTransformContext(options?: TransformOptions) {
               });
 
               if (memories.length > 0) {
-                const memoryLines = buildMemoryLines(memories, query);
+                const memoryEntries = selectMemoryEntries(memories, query);
+                const memoryLines = buildMemoryLines(memoryEntries);
                 if (memoryLines.length > 0) {
                   const memoryHint = `\n\n<memory_context>\nRelevant remembered information:\n${memoryLines.join('\n')}\n</memory_context>`;
                   const memoryKey = nsSessionKey;
@@ -671,6 +880,12 @@ export function createTransformContext(options?: TransformOptions) {
                       { type: 'text', text: memoryHint, injected: true } as any,
                     ];
                     result[idx] = { ...lastUserMsg, content: injectedBlocks };
+                    recordInjectedLane(injection, 'memories', {
+                      ids: memoryEntries.map((m) => m.id),
+                      itemCount: memoryEntries.length,
+                      block: memoryHint,
+                      startedMs: laneStarted,
+                    });
                     if (cacheProfile === 'deepseek')
                       deepseekMemorySignatureBySession.set(memoryKey, memoryHint);
                   } else {
@@ -682,6 +897,7 @@ export function createTransformContext(options?: TransformOptions) {
                 }
               }
             } catch (err) {
+              injection.degraded = true;
               options?.logger?.debug(
                 { err },
                 'Memory retrieval failed — continuing without memory context',
@@ -703,30 +919,40 @@ export function createTransformContext(options?: TransformOptions) {
       if (lastUserMsg?.content) {
         const query = getUserQueryText(lastUserMsg.content);
         if (query.trim().length >= 5 && isEpisodicRelevantRequest(query)) {
+          const laneStarted = performance.now();
           try {
             const items = options.episodicContextProvider(query) ?? [];
-            const entries = items
+            const selected = items
               .filter((item) => typeof item?.excerpt === 'string' && item.excerpt.trim() !== '')
-              .slice(0, EPISODIC_MAX_ITEMS)
-              .map(formatEpisodicEntry);
-            const block = buildBudgetedBlock(
+              .slice(0, EPISODIC_MAX_ITEMS);
+            const entries = selected.map(formatEpisodicEntry);
+            const budgeted = buildBudgetedBlock(
               'recent_conversation',
               entries,
               EPISODIC_BLOCK_TOKEN_BUDGET,
             );
-            if (block) {
+            if (budgeted) {
               const idx = result.lastIndexOf(lastUserMsg);
               const blocks = ensureContentBlocks(lastUserMsg.content);
               result[idx] = {
                 ...lastUserMsg,
-                content: [...blocks, { type: 'text', text: block, injected: true } as any],
+                content: [...blocks, { type: 'text', text: budgeted.block, injected: true } as any],
               };
+              recordInjectedLane(injection, 'messages', {
+                ids: selected
+                  .slice(0, budgeted.kept)
+                  .flatMap((item) => (item.messageId ? [item.messageId] : [])),
+                itemCount: budgeted.kept,
+                block: budgeted.block,
+                startedMs: laneStarted,
+              });
               options?.logger?.debug(
-                { count: entries.length, tokens: Math.ceil(estimateTokensForText(block)) },
+                { count: entries.length, tokens: Math.ceil(estimateTokensForText(budgeted.block)) },
                 'Episodic conversation injected into context',
               );
             }
           } catch {
+            injection.degraded = true;
             options?.logger?.debug('Episodic context injection failed — continuing without it');
           }
         }
@@ -744,34 +970,42 @@ export function createTransformContext(options?: TransformOptions) {
       if (lastUserMsg?.content) {
         const query = getUserQueryText(lastUserMsg.content);
         if (query.trim() !== '') {
+          const laneStarted = performance.now();
           try {
             const items = options.knowledgeContextProvider(query) ?? [];
-            const entries = items
+            const selected = items
               .filter((item) => typeof item?.slug === 'string' && item.slug.trim() !== '')
-              .slice(0, KNOWLEDGE_MAX_ITEMS)
-              .map((item) => {
-                const title = flattenInjectedText(item.title ?? '');
-                const line = title ? `${item.slug.trim()} — ${title}` : item.slug.trim();
-                return neutralizePromptTags(truncate(line, KNOWLEDGE_LINE_MAX_CHARS));
-              });
-            const block = buildBudgetedBlock(
+              .slice(0, KNOWLEDGE_MAX_ITEMS);
+            const entries = selected.map((item) => {
+              const title = flattenInjectedText(item.title ?? '');
+              const line = title ? `${item.slug.trim()} — ${title}` : item.slug.trim();
+              return neutralizePromptTags(truncate(line, KNOWLEDGE_LINE_MAX_CHARS));
+            });
+            const budgeted = buildBudgetedBlock(
               'knowledge_available',
               entries,
               KNOWLEDGE_BLOCK_TOKEN_BUDGET,
             );
-            if (block) {
+            if (budgeted) {
               const idx = result.lastIndexOf(lastUserMsg);
               const blocks = ensureContentBlocks(lastUserMsg.content);
               result[idx] = {
                 ...lastUserMsg,
-                content: [...blocks, { type: 'text', text: block, injected: true } as any],
+                content: [...blocks, { type: 'text', text: budgeted.block, injected: true } as any],
               };
+              recordInjectedLane(injection, 'knowledge', {
+                ids: selected.slice(0, budgeted.kept).map((item) => item.slug.trim()),
+                itemCount: budgeted.kept,
+                block: budgeted.block,
+                startedMs: laneStarted,
+              });
               options?.logger?.debug(
-                { count: entries.length, tokens: Math.ceil(estimateTokensForText(block)) },
+                { count: entries.length, tokens: Math.ceil(estimateTokensForText(budgeted.block)) },
                 'Knowledge titles injected into context',
               );
             }
           } catch {
+            injection.degraded = true;
             options?.logger?.debug('Knowledge title injection failed — continuing without it');
           }
         }
@@ -1117,6 +1351,7 @@ export function createTransformContext(options?: TransformOptions) {
     // Keep only last N messages (preserve system prompt if present).
     // Must also preserve tool_calls ↔ toolResult pairing: DeepSeek and other
     // strict providers reject orphaned tool results.
+    let outbound = result;
     if (result.length > maxMessages) {
       const systemMsg = result[0]?.role === 'system' ? result[0] : null;
       const nonSystem = systemMsg ? result.slice(1) : result;
@@ -1174,9 +1409,12 @@ export function createTransformContext(options?: TransformOptions) {
         }
       }
 
-      return systemMsg ? [systemMsg, ...trimmed] : trimmed;
+      outbound = systemMsg ? [systemMsg, ...trimmed] : trimmed;
     }
 
-    return result;
+    // Single exit: every lane above either recorded its block here or already
+    // set `degraded`, so this is the one place the turn's facts are emitted.
+    reportTurnInjection(injection, nsSessionKey);
+    return outbound;
   };
 }

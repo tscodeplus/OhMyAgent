@@ -553,6 +553,12 @@ export class AgentService {
     // Capture turn start for elapsed-time computation in the pre-complete
     // callback (which fires before agent.prompt() returns).
     const turnStart = Date.now();
+    // Publish it to the shared turn context: the episodic provider (built once
+    // per runtime, reading `turnContext` lazily) treats everything created at or
+    // after this instant as *this* turn, so the eagerly-persisted user message
+    // cannot match its own query. Stamped before prompt() so the very first
+    // transform call of the turn already sees it.
+    runtime.turnContext.turnStartedAt = turnStart;
 
     // Baseline for the current turn's message window — tool-call extraction
     // (completion metrics, harness failure analysis) only considers messages
@@ -1261,6 +1267,10 @@ export class AgentService {
     runtime.bridge.start(runtime.agent);
     runtime.turnActive = true;
     runtime.lastTouchedAt = Date.now();
+    // This idle-card run is a turn of its own: without a fresh boundary the
+    // episodic provider would keep excluding everything since the *previous*
+    // turn began, silently hiding the exchange just finished.
+    runtime.turnContext.turnStartedAt = runtime.lastTouchedAt;
     runtime.agent
       .prompt(message)
       .catch(() => {

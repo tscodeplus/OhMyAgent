@@ -299,5 +299,34 @@ describe('memory routes — governance / batch / pipeline status', () => {
       expect(body.observability.counts['memory.embedding.failed']).toBe(1);
       expect(body.observabilityAllTime.total).toBeGreaterThanOrEqual(3);
     });
+
+    it('keeps per-turn injection rows out of the degradation counters', async () => {
+      // One injection row per prompt build would otherwise swamp a fault panel
+      // — all three counters are read as "is anything broken right now?".
+      const fresh = Date.now() - 60 * 60 * 1000;
+      db.prepare(
+        `INSERT INTO maintenance_runs (id, job_name, status, started_at)
+         VALUES ('run-1', 'dreamcycle_hygiene', 'success', ?)`,
+      ).run(String(fresh - 60_000));
+      for (const event of ['memory.injection', 'memory.fts.failed']) {
+        db.prepare('INSERT INTO memory_observation_events (event, created_at) VALUES (?, ?)').run(
+          event,
+          String(fresh),
+        );
+      }
+
+      const res = await app.inject({ method: 'GET', url: '/api/memory/pipeline/status' });
+      const body = res.json();
+
+      expect(body.observability.total).toBe(1);
+      expect(body.observability.counts['memory.fts.failed']).toBe(1);
+      expect(body.observability.counts).not.toHaveProperty('memory.injection');
+      expect(body.observabilityAllTime.total).toBe(1);
+      expect(body.observabilityAllTime.counts['memory.fts.failed']).toBe(1);
+      expect(body.observabilityAllTime.counts).not.toHaveProperty('memory.injection');
+      expect(body.observabilitySinceLastRun.total).toBe(1);
+      expect(body.observabilitySinceLastRun.counts['memory.fts.failed']).toBe(1);
+      expect(body.observabilitySinceLastRun.counts).not.toHaveProperty('memory.injection');
+    });
   });
 });

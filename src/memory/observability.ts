@@ -10,7 +10,48 @@ export type MemoryObservationEvent =
   | 'memory.merge.failed'
   | 'memory.entity.failed'
   | 'memory.summary.parse_failed'
-  | 'memory.write.degraded';
+  | 'memory.write.degraded'
+  /**
+   * One automatic-injection row per prompt build (plan §6 K0 item 3): which
+   * ids went in, how many tokens each lane cost, how long each lane took, and
+   * whether a lane was skipped by a throw. The only non-failure member — its
+   * details are a measurement, so the degradation counters in
+   * `webui/memory-routes.ts` exclude it rather than count it as a fault.
+   */
+  | 'memory.injection'
+  /**
+   * A tool call acted on a page `memory.injection` offered (the plan's
+   * ②「是否被引用」). Correlated event, same shape of measurement: it says the
+   * offer was not wasted, which no offline eval can see. Written only for the
+   * knowledge lane — the other two lanes have no tool that reads them back.
+   */
+  | 'memory.injection.referenced';
+
+/**
+ * Events that record what was injected into a prompt — not what failed.
+ *
+ * They exist so retrieval quality can be measured per turn (ids, token cost,
+ * latency), which means one row per prompt build rather than one per incident.
+ * Every other consumer of this table counts *degradation*, so they must all skip
+ * this family: an unfiltered `COUNT(*)` would report thousands of "degradation
+ * events" on a healthy device, which is worse than no telemetry because it
+ * teaches the operator to ignore the panel.
+ *
+ * That is why the predicate lives here, next to the union, instead of being
+ * repeated in each counter — the day a second informational event appears, one
+ * edit keeps WebUI, memory-doctor and pipeline metrics in agreement.
+ */
+export const INFORMATIONAL_EVENT_PREFIXES = ['memory.injection'] as const;
+
+/** SQL predicate for "this row is a degradation event". */
+export const DEGRADATION_EVENT_SQL = INFORMATIONAL_EVENT_PREFIXES.map(
+  (prefix) => `event NOT LIKE '${prefix}%'`,
+).join(' AND ');
+
+/** JS twin of {@link DEGRADATION_EVENT_SQL}, for counters built in memory. */
+export function isDegradationEvent(event: string): boolean {
+  return !INFORMATIONAL_EVENT_PREFIXES.some((prefix) => event.startsWith(prefix));
+}
 
 export interface MemoryObservation {
   event: MemoryObservationEvent;

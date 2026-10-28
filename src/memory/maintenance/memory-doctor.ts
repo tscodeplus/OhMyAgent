@@ -4,6 +4,7 @@ import type { PersonaStore } from '../persona-store.js';
 import type { PersonaDistiller } from '../persona-distiller.js';
 import { parseEpochMs } from '../../shared/timestamp.js';
 import { loadSqliteVecExtension } from '../sqlite-vec.js';
+import { DEGRADATION_EVENT_SQL } from '../observability.js';
 
 export interface DoctorCheck {
   name: string;
@@ -236,7 +237,7 @@ export class MemoryDoctor {
       const rows = this.db
         .prepare(
           `SELECT event, COUNT(*) AS n FROM memory_observation_events
-           WHERE CAST(created_at AS INTEGER) >= ? GROUP BY event`,
+           WHERE ${DEGRADATION_EVENT_SQL} AND CAST(created_at AS INTEGER) >= ? GROUP BY event`,
         )
         .all(Date.now() - 24 * 60 * 60 * 1000) as Array<{ event: string; n: number }>;
       recentTotal = rows.reduce((sum, row) => sum + row.n, 0);

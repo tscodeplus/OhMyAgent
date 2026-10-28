@@ -17,6 +17,7 @@ import {
 } from '../../memory/repositories/memory-term-repository.js';
 import { MaintenanceRunRepository } from '../../memory/maintenance/maintenance-run-repository.js';
 import { PersonaFeedback } from '../../memory/persona/feedback.js';
+import { DEGRADATION_EVENT_SQL } from '../../memory/observability.js';
 import type { UserPersona } from '../../memory/persona-model.js';
 import { parseEpochMs } from '../../shared/timestamp.js';
 
@@ -104,8 +105,27 @@ function recordPersonaManualOverride(
 }
 
 /**
+ * The one definition of "degradation event" for every counter below.
+ *
+ * The `memory.injection` family is a measurement, not a fault (plan §6 K0 item
+ * 3): one `memory.injection` row per prompt build, and one
+ * `memory.injection.referenced` row whenever a tool read an offered page. All
+ * three counters answer the same question — "what is degrading right now?" —
+ * and the panel renders them on one line, so they must agree on the answer; an
+ * unfiltered one would report thousands of healthy rows while the others read
+ * zero, which is how a panel gets ignored. The exclusion is a negative
+ * predicate on purpose: a new failure event then counts by default instead of
+ * disappearing from the panel until someone adds it to a list.
+ * `MemoryHygiene.clean()` prunes the per-prompt rows after 30 days.
+ */
+// The predicate lives next to the event union (src/memory/observability.ts) so
+// every degradation counter skips the informational `memory.injection` family.
+const DEGRADATION_EVENT_FILTER = DEGRADATION_EVENT_SQL;
+
+/**
  * Degradation events within the last 24h, counted straight from
- * memory_observation_events (epoch-ms digit-string timestamps).
+ * memory_observation_events (epoch-ms digit-string timestamps). The
+ * `memory.injection` family is excluded — see `DEGRADATION_EVENT_FILTER`.
  */
 function recentObservabilityEvents(db: Database.Database): {
   windowHours: number;
@@ -118,7 +138,7 @@ function recentObservabilityEvents(db: Database.Database): {
   try {
     const rows = db
       .prepare(
-        'SELECT event, COUNT(*) AS n FROM memory_observation_events WHERE CAST(created_at AS INTEGER) >= ? GROUP BY event',
+        `SELECT event, COUNT(*) AS n FROM memory_observation_events WHERE ${DEGRADATION_EVENT_FILTER} AND CAST(created_at AS INTEGER) >= ? GROUP BY event`,
       )
       .all(since) as Array<{ event: string; n: number | string }>;
     for (const row of rows) {
@@ -131,7 +151,10 @@ function recentObservabilityEvents(db: Database.Database): {
   return { windowHours: 24, total, counts };
 }
 
-/** All-time degradation counters from memory_observation_events. */
+/**
+ * All-time degradation counters from memory_observation_events. The
+ * `memory.injection` family is excluded — see `DEGRADATION_EVENT_FILTER`.
+ */
 function allTimeObservabilityEvents(db: Database.Database): {
   total: number;
   counts: Record<string, number>;
@@ -140,7 +163,9 @@ function allTimeObservabilityEvents(db: Database.Database): {
   let total = 0;
   try {
     const rows = db
-      .prepare('SELECT event, COUNT(*) AS n FROM memory_observation_events GROUP BY event')
+      .prepare(
+        `SELECT event, COUNT(*) AS n FROM memory_observation_events WHERE ${DEGRADATION_EVENT_FILTER} GROUP BY event`,
+      )
       .all() as Array<{ event: string; n: number | string }>;
     for (const row of rows) {
       counts[row.event] = Number(row.n);
@@ -154,7 +179,8 @@ function allTimeObservabilityEvents(db: Database.Database): {
 
 /**
  * Degradation events since the last DreamCycle run started — the "latest run
- * was clean?" signal that the rolling 24h window cannot answer.
+ * was clean?" signal that the rolling 24h window cannot answer. The
+ * `memory.injection` family is excluded — see `DEGRADATION_EVENT_FILTER`.
  */
 function sinceLastRunObservabilityEvents(db: Database.Database): {
   runStartedAt: number | null;
@@ -179,7 +205,7 @@ function sinceLastRunObservabilityEvents(db: Database.Database): {
     try {
       const rows = db
         .prepare(
-          'SELECT event, COUNT(*) AS n FROM memory_observation_events WHERE CAST(created_at AS INTEGER) >= ? GROUP BY event',
+          `SELECT event, COUNT(*) AS n FROM memory_observation_events WHERE ${DEGRADATION_EVENT_FILTER} AND CAST(created_at AS INTEGER) >= ? GROUP BY event`,
         )
         .all(runStartedAt) as Array<{ event: string; n: number | string }>;
       for (const row of rows) {
