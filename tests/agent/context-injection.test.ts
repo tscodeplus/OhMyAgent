@@ -21,6 +21,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type Database from 'better-sqlite3';
 import {
   createTransformContext,
+  readInjectionReferences,
   recordInjectionReference,
 } from '../../src/agent/context-transform.js';
 import type {
@@ -988,5 +989,200 @@ describe('injection reference tracking', () => {
 
     // The old offer must not be credited to a later tool call.
     expect(record.mock.calls.map((call) => call[0])).toEqual(['memory.injection']);
+  });
+});
+
+/**
+ * The turn-end reader (plan §6 K0 item 3, ②「是否被引用」) for the lanes that
+ * have no tool to read them back.
+ *
+ * `knowledge_get` proves the knowledge lane was used, because reading a page by
+ * slug is proof. A memory or an excerpt has no such tool: the only evidence is
+ * the answer itself, and the transform returns before the answer exists, so the
+ * check runs at turn end (`agent-service`'s `turn_end` listener).
+ *
+ * The rule under test is a literal-quote rule, deliberately conservative: an
+ * item counts when a distinctive clause of the injected text appears in the
+ * answer. A word both sides happen to share is not evidence, a paraphrase is not
+ * evidence, and a false "it was used" is the failure mode worth a test — the
+ * metric exists to say something true, not to say something often.
+ */
+describe('turn-end reference reading', () => {
+  let record: ReturnType<typeof vi.spyOn>;
+
+  /** A clause of the injected memory, and an answer that quotes it. */
+  const MEMORY_CONTENT = '用户偏好简洁回复，不要长篇大论';
+  const MEMORY_QUOTE = '当然，你说过不要长篇大论，这里直接说结论。';
+  const MEMORY_UNRELATED = '这里直接说结论：TypeScript 的快速排序带注释。';
+
+  const EPISODIC_EXCERPT = '上次那个 ETL 脚本放在 /srv/etl 下，批量替换用的是 Python';
+  const EPISODIC_QUOTE = '按你上次说的，批量替换用的是 Python，脚本还在 /srv/etl 里。';
+
+  beforeEach(() => {
+    record = vi.spyOn(memoryObservability, 'record');
+  });
+
+  afterEach(() => {
+    record.mockRestore();
+  });
+
+  /** The emitted `memory.injection.referenced` payloads, in order. */
+  function referenced(): Array<Record<string, any>> {
+    return record.mock.calls
+      .filter((call) => call[0] === 'memory.injection.referenced')
+      .map((call) => (call[1] ?? {}) as Record<string, any>);
+  }
+
+  function memoryRetrieverReturning(content: string, id: string): MemoryRetriever {
+    return {
+      retrieveGrouped: async () => [
+        { id, content, scope: 'user', kind: 'preference', score: 0.9, createdAt: 1 },
+      ],
+      retrieve: async () => [],
+    } as unknown as MemoryRetriever;
+  }
+
+  /**
+   * Drive the prompt build that offers the item. Note that the build is told the
+   * agent id but the reader is not — the session's published scope key is what
+   * the reader resolves, which is the only way it can work from agent-service
+   * (the effective agent id is resolved inside the factory).
+   */
+  async function buildMemoryPrompt(sessionKey: string, content: string, id: string): Promise<void> {
+    const transform = createTransformContext({
+      maxMessages: 5,
+      sessionKey,
+      agentId: 'agent-turn-end',
+      memoryRetriever: memoryRetrieverReturning(content, id),
+    });
+    await transform([{ role: 'user', content: NEUTRAL_QUERY }]);
+  }
+
+  async function buildEpisodicPrompt(sessionKey: string): Promise<void> {
+    const transform = createTransformContext({
+      maxMessages: 5,
+      sessionKey,
+      agentId: 'agent-turn-end',
+      episodicContextProvider: () => [
+        {
+          createdAt: Date.UTC(2026, 9, 8),
+          channel: 'feishu',
+          sessionTitle: '脚本检查',
+          role: 'user',
+          excerpt: EPISODIC_EXCERPT,
+          messageId: 'msg-quote',
+        },
+      ],
+    });
+    await transform([{ role: 'user', content: RECALL_QUERY }]);
+  }
+
+  it('credits a memory the answer quotes', async () => {
+    await buildMemoryPrompt('turn-end-memory-hit', MEMORY_CONTENT, 'mem-quote');
+
+    readInjectionReferences({ sessionKey: 'turn-end-memory-hit', answerText: MEMORY_QUOTE });
+
+    expect(referenced()).toEqual([
+      {
+        lane: 'memories',
+        toolName: 'assistant_message',
+        knowledgeSlugs: [],
+        memoryIds: ['mem-quote'],
+        messageIds: [],
+      },
+    ]);
+  });
+
+  it('credits nothing when the answer never quotes the injected memory', async () => {
+    await buildMemoryPrompt('turn-end-memory-miss', MEMORY_CONTENT, 'mem-quote');
+
+    readInjectionReferences({ sessionKey: 'turn-end-memory-miss', answerText: MEMORY_UNRELATED });
+
+    expect(referenced()).toEqual([]);
+  });
+
+  it('credits an episodic excerpt the answer quotes, under the message lane', async () => {
+    await buildEpisodicPrompt('turn-end-episodic-hit');
+
+    readInjectionReferences({ sessionKey: 'turn-end-episodic-hit', answerText: EPISODIC_QUOTE });
+
+    expect(referenced()).toEqual([
+      {
+        lane: 'messages',
+        toolName: 'assistant_message',
+        knowledgeSlugs: [],
+        memoryIds: [],
+        messageIds: ['msg-quote'],
+      },
+    ]);
+  });
+
+  it('never credits a shared word, however often the answer uses it', async () => {
+    // The memory is one term. The answer is about that term. Neither is proof
+    // that the injected line was read, and crediting it would make the metric a
+    // lie — so a single word is not a fragment in the first place.
+    await buildMemoryPrompt('turn-end-word', 'Excel', 'mem-word');
+
+    readInjectionReferences({
+      sessionKey: 'turn-end-word',
+      answerText: '我用 Excel 处理这张表，Excel 的 Power Query 就够了，Excel 很方便。',
+    });
+
+    expect(referenced()).toEqual([]);
+  });
+
+  it('credits each offer once, and only while the registry still holds it', async () => {
+    const now = vi.spyOn(performance, 'now');
+    try {
+      // Not 0: the LRU treats a zero start timestamp as "no TTL recorded".
+      now.mockReturnValue(1_000);
+      await buildMemoryPrompt('turn-end-ttl', MEMORY_CONTENT, 'mem-ttl');
+
+      readInjectionReferences({ sessionKey: 'turn-end-ttl', answerText: MEMORY_QUOTE });
+      expect(referenced()).toHaveLength(1);
+
+      // Consumed: a second read of the same answer is not a second reference.
+      readInjectionReferences({ sessionKey: 'turn-end-ttl', answerText: MEMORY_QUOTE });
+      expect(referenced()).toHaveLength(1);
+
+      // A later build offers it again, and the 15-minute TTL is what bounds how
+      // long anything can be credited to that build.
+      await buildMemoryPrompt('turn-end-ttl', MEMORY_CONTENT, 'mem-ttl');
+      now.mockReturnValue(1_000 + 16 * 60_000);
+      // The registry debounces its clock reads for 1 ms, so the jump has to
+      // outlive that debounce or the stale cached reading is used.
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      readInjectionReferences({ sessionKey: 'turn-end-ttl', answerText: MEMORY_QUOTE });
+      expect(referenced()).toHaveLength(1);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('is a no-op for a session that injected nothing', async () => {
+    readInjectionReferences({
+      sessionKey: 'turn-end-no-injection',
+      answerText: MEMORY_QUOTE,
+    });
+
+    expect(referenced()).toEqual([]);
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it('survives an empty answer and bounds the scan of an enormous one', async () => {
+    await buildMemoryPrompt('turn-end-size', MEMORY_CONTENT, 'mem-size');
+
+    expect(() =>
+      readInjectionReferences({ sessionKey: 'turn-end-size', answerText: '' }),
+    ).not.toThrow();
+    expect(referenced()).toEqual([]);
+
+    // The scan is capped (20 KB): a quote past the window is not counted, and
+    // an enormous answer costs the same as a short one.
+    const enormous = `${'填充'.repeat(20_000)}${MEMORY_QUOTE}`;
+    expect(() =>
+      readInjectionReferences({ sessionKey: 'turn-end-size', answerText: enormous }),
+    ).not.toThrow();
+    expect(referenced()).toEqual([]);
   });
 });

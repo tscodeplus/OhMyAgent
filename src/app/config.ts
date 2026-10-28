@@ -477,6 +477,35 @@ const configSchema = z.object({
         maxVariants: z.coerce.number().int().positive().default(4),
       })
       .default({}),
+    // Extraction of entities/relations out of memory text
+    // (`entity_backfill` + `MemoryWriter`). One block, because both call the
+    // same `extractEntitiesLLM`: `llm` is the switch for spending a model call
+    // on it, and the two numbers are the cost bound. Absent block = enabled with
+    // conservative defaults, so an upgrade is never silently expensive; an
+    // explicit `llm: false` is the off switch. Keys stay snake_case, like
+    // `graph` below, so `src/app/config-loader.ts` can pass them through as
+    // written in config.yaml.
+    entityExtraction: z
+      .object({
+        llm: z.boolean().default(true),
+        // Hard cap on model calls per maintenance run — this runs on a phone.
+        max_memories_per_run: z.coerce.number().int().positive().default(5),
+        min_confidence: z.coerce.number().min(0).max(1).default(0.6),
+      })
+      .default({}),
+    // Provenance backfill (`provenance_backfill`): gives a historical memory its
+    // source message when its own text proves one — `memory_sources.source =
+    // 'backfill'`, the value migration-v13 documented but nothing produced.
+    // Absent block = enabled with conservative defaults; `enabled: false` is the
+    // off switch. Keys stay snake_case, like `entity_extraction` above, so
+    // `src/app/config-loader.ts` passes them through as written in config.yaml.
+    provenanceBackfill: z
+      .object({
+        enabled: z.boolean().default(true),
+        // Memories probed per run — each one costs an FTS query per probe tier.
+        max_memories_per_run: z.coerce.number().int().positive().default(20),
+      })
+      .default({}),
     // Memory hygiene
     hygiene: z
       .object({
@@ -548,6 +577,8 @@ const configSchema = z.object({
             terms_backfill: z.boolean().default(true),
             embedding_cache_trim: z.boolean().default(true),
             entity_backfill: z.boolean().default(true),
+            /** `memory.provenance_backfill` — content-matched source messages. */
+            provenance_backfill: z.boolean().default(true),
             persona_consistency: z.boolean().default(true),
             offload_hygiene: z.boolean().default(true),
             scene_cluster: z.boolean().default(false),
@@ -1171,6 +1202,11 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
         enabled: envBool(env.MEMORY_HYGIENE_ENABLED, true),
         retentionDays: env.MEMORY_HYGIENE_RETENTION_DAYS,
       },
+      entityExtraction: {
+        llm: envBool(env.MEMORY_ENTITY_EXTRACTION_LLM, true),
+        max_memories_per_run: env.MEMORY_ENTITY_EXTRACTION_MAX_MEMORIES_PER_RUN,
+        min_confidence: env.MEMORY_ENTITY_EXTRACTION_MIN_CONFIDENCE,
+      },
       embeddingCircuitBreaker: {
         failureThreshold: env.EMBEDDING_CB_FAILURE_THRESHOLD,
         cooldownSec: env.EMBEDDING_CB_COOLDOWN_SEC,
@@ -1462,6 +1498,11 @@ function applyEnvOverrides(
       : []),
     ...(env.MEMORY_HYGIENE_ENABLED !== undefined || env.MEMORY_HYGIENE_RETENTION_DAYS !== undefined
       ? [{ env: '1', field: 'hygiene' }]
+      : []),
+    ...(env.MEMORY_ENTITY_EXTRACTION_LLM !== undefined ||
+    env.MEMORY_ENTITY_EXTRACTION_MAX_MEMORIES_PER_RUN !== undefined ||
+    env.MEMORY_ENTITY_EXTRACTION_MIN_CONFIDENCE !== undefined
+      ? [{ env: '1', field: 'entityExtraction' }]
       : []),
     ...(env.EMBEDDING_CB_FAILURE_THRESHOLD !== undefined ||
     env.EMBEDDING_CB_COOLDOWN_SEC !== undefined

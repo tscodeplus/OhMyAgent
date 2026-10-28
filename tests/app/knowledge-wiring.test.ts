@@ -14,7 +14,7 @@
  * `conversation_search.enabled`.
  */
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -33,6 +33,7 @@ import {
 import type { KnowledgeCurator, KnowledgeCurateConfig } from '../../src/memory/knowledge/curate.js';
 import { loadConfig, resetConfig, stopConfigWatcher } from '../../src/app/config.js';
 import { openDatabase } from '../../src/memory/db.js';
+import { MessageRepository } from '../../src/memory/repositories/message-repository.js';
 import type { AppConfig, AppServices } from '../../src/app/types.js';
 
 const BASE_ENV = {
@@ -263,5 +264,41 @@ describe('knowledge curation is wired into the nightly cycle (plan §6 K2-5)', (
     expect(curatorOf(dreamCycle)).toBeUndefined();
     // No curator to resolve: `/knowledge curate` answers "not wired".
     expect(currentKnowledgeCurator()).toBeUndefined();
+  });
+});
+
+/**
+ * The share trigger's install switch (plan §6 K2-5, third entry point).
+ *
+ * Where it hangs is `MessageRepository.onUserMessage` — asserted here, from the
+ * real composer, because "the listener is not registered when the layer is off" is
+ * the difference between a disabled install paying nothing and paying a URL test
+ * on every message. `tests/knowledge/share-trigger.test.ts` covers what the
+ * trigger does once it is installed.
+ */
+describe('the share curation trigger is installed with the knowledge layer', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const listenInstalled = async (mutate?: (config: AppConfig) => void): Promise<number> => {
+    const config = makeConfig(mutate);
+    const db = openDatabase(':memory:');
+    const spy = vi.spyOn(MessageRepository.prototype, 'onUserMessage');
+    await createMemoryServices(config, silentLogger(), db);
+    return spy.mock.calls.length;
+  };
+
+  it('registers the observer once, on the repository every channel writes through', async () => {
+    expect(await listenInstalled()).toBe(1);
+  });
+
+  it('installs no observer at all when knowledge.enabled is false', async () => {
+    // No service, nothing to curate with — so not even the cheap listener exists.
+    expect(
+      await listenInstalled((cfg) => {
+        cfg.knowledge.enabled = false;
+      }),
+    ).toBe(0);
   });
 });

@@ -290,6 +290,22 @@ channels:
 #     enabled: false
 #     # window_days: 7
 #     # min_memories: 5
+#   # Entity/relation extraction out of stored memory text. The deterministic
+#   # pass (mentions only) always runs; this block bounds the model pass that
+#   # types the relations, which is what the knowledge graph is built from.
+#   # Absent block = enabled with these defaults; `llm: false` is the off switch.
+#   entity_extraction:
+#     llm: true                     # false = deterministic mentions only (no model calls)
+#     max_memories_per_run: 5       # hard cap on model calls per maintenance run
+#     min_confidence: 0.6           # drop model relations below this confidence
+#   # Provenance backfill: gives a memory written before K1 a source message in
+#   # memory_sources when the memory's own text proves one (an identifier, URL,
+#   # path or quoted span that occurs in exactly one message, or in one
+#   # contiguous stretch of one session). Ambiguity never writes a row.
+#   # Absent block = enabled with these defaults; `enabled: false` is the switch.
+#   provenance_backfill:
+#     enabled: true
+#     max_memories_per_run: 20      # memories probed per maintenance run
 #   auto_compress:
 #     enabled: true
 #     # reserve_tokens: 16384

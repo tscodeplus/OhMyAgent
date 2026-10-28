@@ -7,6 +7,7 @@ import { createEmbeddingBackfillJob } from '../../memory/maintenance/jobs/embedd
 import { createTermsBackfillJob } from '../../memory/maintenance/jobs/terms-backfill-job.js';
 import { createEmbeddingCacheTrimJob } from '../../memory/maintenance/jobs/embedding-cache-trim-job.js';
 import { createEntityBackfillJob } from '../../memory/maintenance/jobs/entity-backfill-job.js';
+import { createProvenanceBackfillJob } from '../../memory/maintenance/jobs/provenance-backfill-job.js';
 import { createOffloadHygieneJob } from '../../memory/maintenance/jobs/offload-hygiene-job.js';
 import { createPersonaConsistencyJob } from '../../memory/maintenance/jobs/persona-consistency-job.js';
 // scene_cluster and memory_hygiene are now handled by DreamCycle (nightly)
@@ -134,6 +135,7 @@ export function createSchedulers(input: {
       terms_backfill: true,
       embedding_cache_trim: true,
       entity_backfill: true,
+      provenance_backfill: true,
       persona_consistency: true,
       offload_hygiene: true,
       scene_cluster: false,
@@ -167,7 +169,31 @@ export function createSchedulers(input: {
     );
   }
   if (jobConfigs.entity_backfill !== false) {
-    maintenanceScheduler.register(createEntityBackfillJob(db, memory.memoryLinkRepo));
+    // Two generations: the deterministic mention pass (unchanged), then a
+    // budgeted LLM pass that types the relations nothing ever attested — see
+    // the job's header. `memory.entity_extraction` is the cost bound
+    // (`max_memories_per_run` model calls per run, `llm: false` to switch the
+    // second pass off); the aux config is passed by reference because
+    // `createMemoryServices` mutates it in place on hot-reload.
+    maintenanceScheduler.register(
+      createEntityBackfillJob(db, memory.memoryLinkRepo, {
+        config: config.memory.entityExtraction,
+        auxConfig: memory.auxModelConfig,
+        logger,
+      }),
+    );
+  }
+  if (jobConfigs.provenance_backfill !== false) {
+    // Gives a historical memory its source message when its own text proves one
+    // (`memory_sources.source = 'backfill'`). Bounded per run and `enabled:
+    // false` inside `memory.provenance_backfill` is the switch; the job reports
+    // `skipped` rather than doing any query when it is off.
+    maintenanceScheduler.register(
+      createProvenanceBackfillJob(db, {
+        config: config.memory.provenanceBackfill,
+        logger,
+      }),
+    );
   }
   if (jobConfigs.persona_consistency !== false) {
     maintenanceScheduler.register(

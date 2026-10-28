@@ -39,6 +39,8 @@ import { PersonaAuditService } from '../../memory/persona/persona-audit-service.
 import type { openDatabase } from '../../memory/db.js';
 import { createKnowledgeService } from '../../memory/knowledge/service.js';
 import type { KnowledgeService } from '../../memory/knowledge/service-contract.js';
+import { ShareCurationTrigger } from '../../memory/knowledge/share-trigger.js';
+import { currentKnowledgeCurator } from '../../commands/command-handler.js';
 import { currentJudgeEngine } from '../../judge/engine-lookup.js';
 
 export interface MemoryServices {
@@ -543,6 +545,31 @@ export async function createMemoryServices(
         'Knowledge service init failed — knowledge tools, routes and injection stay off',
       );
     }
+  }
+
+  // Share curation (plan §6 K2-5, the half nobody types a command for): a user
+  // message that carries a link becomes at most one page, through the same
+  // `curateMessage` call `/knowledge share` makes. `share-trigger.ts` carries the
+  // seam argument (message repository, not the four channel extensions and not
+  // the turn path).
+  //
+  // Installed only when the layer is usable: with no `knowledgeService` there is
+  // nothing a trigger could reach, so a disabled install pays exactly zero — no
+  // listener, no URL test, no resolver call. `curate.mode: off` is deliberately
+  // NOT part of this check: the mode is hot-reloadable and this composer is not
+  // re-run on reload, so registering on it would leave the trigger dead after the
+  // operator switches curation back on. The trigger reads the live mode from
+  // `curator.limits` on every fire instead.
+  //
+  // The curator is resolved lazily through `currentKnowledgeCurator()` (the
+  // resolver `createSchedulers` installs after this composer runs), which is why
+  // this needs no ordering between the two composers.
+  if (knowledgeService) {
+    const shareTrigger = new ShareCurationTrigger({
+      logger,
+      getCurator: currentKnowledgeCurator,
+    });
+    messageRepository.onUserMessage((message) => shareTrigger.observeUserMessage(message));
   }
 
   return {

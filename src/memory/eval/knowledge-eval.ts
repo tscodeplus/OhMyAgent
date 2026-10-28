@@ -1,5 +1,5 @@
 /**
- * Knowledge-workbench eval runner — plan §6 K0 (baseline measurement).
+ * Knowledge-workbench eval runner — plan §6 K0, measuring the stack that ships.
  *
  * Three datasets in `tests/eval/knowledge/` (JSONL, one case per line):
  *
@@ -7,21 +7,59 @@
  *   semantic.jsonl    knowledge questions,      golden = `expectedMemoryIds[]` + `expectedKeywords[]`
  *   preference.jsonl  preference quizzes,       golden = `mustContain[]` + `mustNotContain[]`
  *
- * Retrieval is injected, not imported: the runner takes async
- * `retrieveMessages` / `retrieveMemories` / `retrieveKnowledge` callbacks and
- * treats each wired callback as one lane. That is what makes the same numbers
- * comparable before and after K1 (`session_search`) and K2 (knowledge pages)
- * exist — at K0 only the memory lane is wired, so the episodic number is the
- * honest 0 of "the injected block cannot contain a message id today".
+ * ## What is measured
+ *
+ * Retrieval is injected, not imported: the runner takes ONE async `search`
+ * callback whose result is "what `unifiedSearch()` returned" — an ordered fused
+ * hit list, each hit tagged with the lane that produced it, plus the per-lane
+ * run reports. Measuring the fused list instead of each lane separately is the
+ * whole point: the previous K0 harness scored the memory lane alone
+ * (`MemoryRetriever.retrieveGrouped`), which stopped being what the agent
+ * injects once K1 (`session_search` over `messages_fts_jieba`), K2 (knowledge
+ * pages) and K5 (`unifiedSearch()`) shipped. A number that describes a lane the
+ * agent no longer uses alone is not a regression signal; it is a fossil.
+ *
+ * Per-lane attribution is kept (`KnowledgeEvalRun.byLane`,
+ * `KnowledgeEvalRun.cases`), so a regression can be blamed on one lane instead
+ * of on "the eval": every hit in the measured top-K remembers which lane put it
+ * there, and each lane gets its own id-recall and precision over the same
+ * id-labelled cases.
+ *
+ * ## What is not scored
+ *
+ * A dataset's goldens are quoted from one corpus (`manifest.json` says which:
+ * the shipped three say `dev-machine`). On any other corpus the keyword and id
+ * expectations cannot match, so a `0.0%` there does not mean "retrieval
+ * failed" — it means "wrong corpus", which is the worst kind of gate: it reads
+ * as a failure and is unfalsifiable. So a dataset that is not applicable
+ * reports `not applicable` (`null` in the JSON, `n/a` in the report) together
+ * with the reason, and the aggregate metrics skip it instead of averaging a
+ * zero into them. `portable: true` in the manifest is the opposite declaration:
+ * expectations that hold on any corpus, with id goldens scored only for the ids
+ * that exist in the corpus actually measured (`idExists`).
  *
  * A case whose golden cannot be derived from the live database carries
  * `"unlabelled": true`. Unlabelled cases are excluded from every metric and
  * counted separately (`KnowledgeEvalRun.*.unlabelled`), because a fabricated
  * golden would turn "we cannot measure this yet" into "we failed it".
  *
+ * ## Metric definitions (harness v2)
+ *
+ * `HARNESS_VERSION` is 2. It exists because v1 scored each dataset on its
+ * *primary lane's* top-5 (memories for `semantic`, messages for `episodic`) while
+ * v2 scores the **fused** top-K that `unifiedSearch()` returns — the list the
+ * agent actually injects. Same field names, different measurement, therefore
+ * incomparable numbers: `formatBaselineDiff()` refuses to diff across a
+ * `harnessVersion`, lane-set or corpus change instead of printing a delta.
+ *
+ * The search is called at `max(topK, RANKING_DEPTH)` so that `rAt10` is a real
+ * depth-10 recall; `topK` (default 5) still bounds every "injected" metric
+ * (`idRecallAt5`, `keywordRecallAt5`, `P@5`, `R@5`, `NDCG@5`, `MRR`, and the
+ * per-lane numbers), which is the plan's defined hit: the top-5 injected union.
+ *
  * Usage:
- *   npx tsx src/memory/eval/knowledge-eval.ts              # run, diff vs newest baseline
- *   npx tsx src/memory/eval/knowledge-eval.ts --baseline   # run, write data/eval/baseline-<date>.json
+ *   npx tsx src/memory/eval/knowledge-eval.ts --corpus dev-machine
+ *   npx tsx src/memory/eval/knowledge-eval.ts --corpus dev-machine --baseline
  *
  * Importing this module is side-effect free: the live database wiring and the
  * CLI both happen behind `if (import.meta.url === ...)` and use dynamic imports,
@@ -39,9 +77,30 @@ import type { EvalMetrics, EvalResult } from './metrics.js';
 // ─── Constants ───
 
 export const KNOWLEDGE_EVAL_DATASET_DIR = 'tests/eval/knowledge';
+/** Corpus declaration for a dataset directory — see `KnowledgeEvalManifest`. */
+export const KNOWLEDGE_EVAL_MANIFEST_FILE = 'manifest.json';
 export const BASELINE_DIR = 'data/eval';
 export const DEFAULT_TOP_K = 5;
-export const BASELINE_VERSION = 1;
+/**
+ * Depth the search is called at, so `rAt10` measures ten results instead of
+ * aliasing `rAt5` (the K0 harness asked each lane for exactly `topK` and then
+ * reported the same number twice under two names).
+ */
+export const RANKING_DEPTH = 10;
+/** Shape of `data/eval/baseline-<date>.json`. Bumped when that JSON changes. */
+export const BASELINE_FILE_VERSION = 2;
+/**
+ * The harness's identity, not the file's. Bumped whenever a metric's definition
+ * changes: a number from another harness is not a comparable number, and
+ * `formatBaselineDiff()` is the gate that says so.
+ *
+ *   1 — K0: each dataset scored on its primary lane's top-5 (memory lane only
+ *       from the shipped wiring), `rAt10` aliasing `rAt5`.
+ *   2 — fused three-lane top-K through `unifiedSearch()`, per-lane attribution,
+ *       corpus-scoped applicability, `rAt10` measured at depth 10.
+ */
+export const HARNESS_VERSION = 2;
+export const KNOWLEDGE_EVAL_MANIFEST_VERSION = 1;
 
 /**
  * How much newer than the persona a preference memory may be before the
@@ -56,16 +115,7 @@ export const PERSONA_FRESHNESS_TOLERANCE_MS = 24 * 60 * 60 * 1000;
 /** Lane order fixes the concatenation order of the injected union. */
 const LANE_ORDER: readonly EvalLane[] = ['messages', 'memories', 'knowledge'];
 
-/**
- * Which lane is supposed to answer each dataset. K0 wires `memories` only, so
- * `episodic` scores 0 by construction; K1 wires `messages` and the number
- * becomes meaningful. `semantic` moves to `knowledge` in K2 — `keywordRecallAt5`
- * is the metric that stays comparable across that switch.
- */
-const PRIMARY_LANE: Readonly<Record<'episodic' | 'semantic', EvalLane>> = {
-  episodic: 'messages',
-  semantic: 'memories',
-};
+const DATASET_ORDER: readonly KnowledgeEvalDatasetName[] = ['episodic', 'semantic', 'preference'];
 
 // ─── Types ───
 
@@ -73,12 +123,39 @@ export type EvalLane = 'messages' | 'memories' | 'knowledge';
 export type KnowledgeEvalDatasetName = 'episodic' | 'semantic' | 'preference';
 
 /** One injected item: `id` feeds the id metrics, `text` feeds the text metrics. */
-export interface RetrievalHit {
+export interface EvalSearchHit {
+  /** Which lane produced this hit — the per-lane attribution's only input. */
+  lane: EvalLane;
+  /** Lane-native id: message id, memory id, or knowledge page id. */
   id: string;
   text: string;
 }
 
-export type RetrieveFn = (query: string, topK: number) => Promise<RetrievalHit[]>;
+/** What one lane did for one query; absent lane = not wired for this run. */
+export interface EvalLaneRun {
+  hits: number;
+  /** Rows the fusion dropped because a page already covers their source. */
+  dropped?: number;
+  /** Set when the lane failed; the other lanes still answered. */
+  error?: string;
+}
+
+/**
+ * The measured object: the fused list `unifiedSearch()` returns, plus the
+ * per-lane report it already computes.
+ *
+ * It is a narrowed copy of `UnifiedSearchResult` on purpose — `lane`/`ref`/
+ * `snippet` mapped to `lane`/`id`/`text` — so this module can be tested without
+ * a database, and so the eval cannot start depending on fields it does not use.
+ */
+export interface EvalSearchResult {
+  /** Fused, best-first. Each hit names the lane that produced it. */
+  hits: EvalSearchHit[];
+  /** One entry per lane that actually ran; a missing key means "not wired". */
+  lanes: Partial<Record<EvalLane, EvalLaneRun>>;
+}
+
+export type EvalSearchFn = (query: string, topK: number) => Promise<EvalSearchResult>;
 
 export interface EpisodicEvalCase {
   id: string;
@@ -110,20 +187,58 @@ export interface PreferenceEvalCase {
   note?: string;
 }
 
+/**
+ * Which corpus one dataset file's goldens were written against.
+ *
+ * Exactly one of the two fields is required, and that requirement is what stops
+ * a dataset from silently claiming to work everywhere:
+ *
+ * - `corpus: '<label>'` — the goldens are quoted rows of that one corpus. On a
+ *   run that does not declare the same corpus the dataset reports
+ *   `not applicable` rather than `0%`.
+ * - `portable: true` — the expectations hold on any corpus (a shape claim like
+ *   "the top hit is one of these message ids"), so the dataset scores anywhere;
+ *   id goldens that do not exist in the measured corpus are counted as
+ *   unresolvable and excluded per case, never as misses.
+ */
+export interface DatasetCorpusDeclaration {
+  corpus?: string;
+  portable?: boolean;
+  note?: string;
+}
+
+export interface KnowledgeEvalManifest {
+  version: number;
+  datasets: Record<KnowledgeEvalDatasetName, DatasetCorpusDeclaration>;
+}
+
 export interface KnowledgeEvalDataset {
+  manifest: KnowledgeEvalManifest;
   episodic: EpisodicEvalCase[];
   semantic: SemanticEvalCase[];
   preference: PreferenceEvalCase[];
 }
 
 export interface RunKnowledgeEvalOptions {
+  /** The fused search under measure (`unifiedSearch()` in the CLI). */
+  search: EvalSearchFn;
   /** Directory holding the three JSONL files. Defaults to `tests/eval/knowledge`. */
   datasetDir?: string;
-  /** Top-K requested per lane. Defaults to `DEFAULT_TOP_K` (5). */
+  /** Top-K of the fused list that the "injected" metrics score. Defaults to 5. */
   topK?: number;
-  retrieveMessages?: RetrieveFn;
-  retrieveMemories?: RetrieveFn;
-  retrieveKnowledge?: RetrieveFn;
+  /**
+   * Which corpus this run measures (`--corpus <label>`). `null`/omitted means
+   * undeclared — a corpus-specific dataset then reports `not applicable`,
+   * because guessing that the run is on the right corpus is the assumption this
+   * whole distinction exists to remove.
+   */
+  corpus?: string | null;
+  /**
+   * Whether a golden id exists in the measured corpus. Only consulted for
+   * portable datasets (see `DatasetCorpusDeclaration`); absent means the caller
+   * cannot resolve ids, so a portable dataset's id goldens are scored as-is.
+   */
+  idExists?: (id: string) => boolean;
   /**
    * `memories.status` reader for `inactiveLeakageCount`. Sync because every
    * caller so far is a better-sqlite3 prepared statement.
@@ -137,57 +252,123 @@ export interface RunKnowledgeEvalOptions {
 }
 
 export interface IdRankingReport {
+  /** False when the dataset's corpus expectations do not hold here — then every metric is null. */
+  applicable: boolean;
+  /** Why it is or is not applicable — populated either way. */
+  applicabilityReason: string;
   labelled: number;
   unlabelled: number;
   unlabelledIds: string[];
-  idRecallAt5: number;
-  pAt5: number;
-  rAt5: number;
-  rAt10: number;
-  mrr: number;
-  ndcgAt5: number;
+  /** Labelled cases excluded from scoring because their golden ids do not exist in this corpus (portable datasets only). */
+  unresolvable: number;
+  unresolvableIds: string[];
+  idRecallAt5: number | null;
+  pAt5: number | null;
+  rAt5: number | null;
+  rAt10: number | null;
+  mrr: number | null;
+  ndcgAt5: number | null;
   queriesWithResults: number;
 }
 
 export interface KeywordReport {
   keywordCases: number;
-  keywordRecallAt5: number;
+  keywordRecallAt5: number | null;
   missedCaseIds: string[];
 }
 
 export interface PreferenceReport {
+  applicable: boolean;
+  applicabilityReason: string;
   labelled: number;
   unlabelled: number;
   unlabelledIds: string[];
+  unresolvable: number;
+  unresolvableIds: string[];
   mustContainCases: number;
-  mustContainRate: number;
+  mustContainRate: number | null;
   mustContainMissIds: string[];
   staleCases: number;
-  stalePreferenceRate: number;
+  stalePreferenceRate: number | null;
   leakedCaseIds: string[];
 }
 
+/** Per-lane blame surface: one row per lane, over the same cases as the aggregate. */
+export interface LaneAttribution {
+  lane: EvalLane;
+  /** Hits this lane put into the measured top-K across every query the run issued. */
+  hits: number;
+  /** Queries where the lane put at least one hit into the measured top-K. */
+  queriesWithHits: number;
+  /** Id-labelled cases scored for this lane's recall/precision (0 when no id dataset is applicable). */
+  idCases: number;
+  /** Of `idCases`, how many got at least one expected id from this lane. */
+  idCasesWithHit: number;
+  /** Macro mean over `idCases` of `|expected ∩ lane hits| / |expected|`; null when nothing was scored. */
+  idRecallAt5: number | null;
+  /** `Σ relevant lane hits / Σ lane hits` over `idCases`; null when the lane contributed nothing there. */
+  precisionAt5: number | null;
+}
+
+/** Which lane produced each hit of one case, so a miss has an owner. */
+export interface EvalCaseAttribution {
+  dataset: KnowledgeEvalDatasetName;
+  id: string;
+  query: string;
+  /** False ⇒ the dataset was not applicable here (or the goldens are absent); the case was not scored. */
+  scored: boolean;
+  /** Why the case was not scored — always set when `scored` is false. */
+  skippedReason?: string;
+  /** The measured top-K, best first, tagged with the lane that produced each hit. */
+  hits: Array<{ lane: EvalLane; id: string }>;
+  /** Expected ids the measured top-K contains, with the lane that supplied them. */
+  matchedIds: Array<{ lane: EvalLane; id: string }>;
+}
+
 export interface KnowledgeEvalRun extends EvalResult {
+  harnessVersion: number;
   topK: number;
+  /** Corpus this run declared it measures; null = undeclared. */
+  corpus: string | null;
   datasetDir: string;
-  /** Lanes that were wired and therefore contributed injected content. */
+  /** Lanes that actually ran — what the numbers came from. */
   lanes: EvalLane[];
-  /** Lanes with no callback — their contribution to the injected union was empty. */
+  /** Lanes that never ran; printed explicitly so silence cannot read as success. */
   unwiredLanes: EvalLane[];
+  /** Lanes that put at least one hit into a measured top-K. */
+  lanesWithHits: EvalLane[];
+  /** Per-lane failures seen while measuring — a lane that threw still has a name. */
+  laneErrors: Array<{ lane: EvalLane; message: string }>;
+  /** Per-dataset corpus fit, with the reason. */
+  datasetApplicability: DatasetApplicability[];
   statusLookupProvided: boolean;
+  byLane: LaneAttribution[];
+  cases: EvalCaseAttribution[];
   episodic: IdRankingReport;
   semantic: IdRankingReport & KeywordReport;
   preference: PreferenceReport;
 }
 
+export interface DatasetApplicability {
+  dataset: KnowledgeEvalDatasetName;
+  /** `null` for a portable dataset. */
+  corpusExpectation: string | null;
+  portable: boolean;
+  applicable: boolean;
+  reason: string;
+}
+
 export interface KnowledgeEvalBaseline extends KnowledgeEvalRun {
+  /** Baseline file shape (`BASELINE_FILE_VERSION`). */
   version: number;
 }
 
 interface QueryRetrieval {
-  idsByLane: Partial<Record<EvalLane, string[]>>;
-  unionIds: string[];
-  unionText: string;
+  /** Fused order, up to `RANKING_DEPTH`. */
+  hits: EvalSearchHit[];
+  /** Measured top-K: what the "injected" metrics score. */
+  topHits: EvalSearchHit[];
+  text: string;
 }
 
 interface IdRankingTotals {
@@ -198,6 +379,12 @@ interface IdRankingTotals {
   rAt10: number;
   mrr: number;
   ndcgAt5: number;
+}
+
+export interface CorpusFit {
+  applicable: boolean;
+  /** Human explanation — set whichever way the check went. */
+  reason: string;
 }
 
 // ─── Pure text / metric helpers ───
@@ -312,6 +499,71 @@ function weightedMean(parts: Array<{ value: number; weight: number }>): number {
   const totalWeight = parts.reduce((sum, part) => sum + part.weight, 0);
   if (totalWeight === 0) return 0;
   return parts.reduce((sum, part) => sum + part.value * part.weight, 0) / totalWeight;
+}
+
+/**
+ * The aggregate over datasets that were actually scored.
+ *
+ * A not-applicable dataset drops out instead of contributing a zero: that
+ * substitution is the whole point of the corpus distinction. When nothing was
+ * scored the aggregate is `null`, not `0` — an unfalsifiable zero is what the
+ * old single-lane harness printed on every foreign corpus.
+ */
+function aggregateMetric(parts: Array<{ value: number | null; weight: number }>): number | null {
+  const usable = parts.filter(
+    (part): part is { value: number; weight: number } => part.value !== null && part.weight > 0,
+  );
+  return usable.length === 0 ? null : weightedMean(usable);
+}
+
+// ─── Corpus applicability ───
+
+function normaliseCorpusLabel(label: string | null | undefined): string | null {
+  if (typeof label !== 'string') return null;
+  const trimmed = label.trim().toLowerCase();
+  return trimmed.length === 0 ? null : trimmed;
+}
+
+/**
+ * Does this dataset's goldens belong to the corpus this run measures?
+ *
+ * Order matters: `portable` first (so it never needs a corpus), then the
+ * undeclared-run case (reported separately from a mismatch, because the fix is
+ * `--corpus <label>` rather than a different dataset), then the comparison.
+ * Every branch returns a sentence, including the applicable one — a fit line
+ * that only appears when it fails teaches operators to read silence as success.
+ */
+export function computeCorpusFit(
+  declaration: DatasetCorpusDeclaration,
+  runCorpus: string | null | undefined,
+): CorpusFit {
+  if (declaration.portable === true) {
+    return {
+      applicable: true,
+      reason: 'portable dataset — its expectations hold on any corpus',
+    };
+  }
+  const expected = normaliseCorpusLabel(declaration.corpus);
+  const actual = normaliseCorpusLabel(runCorpus);
+  if (expected === null) {
+    return {
+      applicable: false,
+      reason: `dataset declares no corpus in ${KNOWLEDGE_EVAL_MANIFEST_FILE} — cannot tell whether its goldens belong to this corpus`,
+    };
+  }
+  if (actual === null) {
+    return {
+      applicable: false,
+      reason: `this run declares no corpus (pass --corpus <label>); the dataset expects '${expected}'`,
+    };
+  }
+  if (actual !== expected) {
+    return {
+      applicable: false,
+      reason: `dataset written for corpus '${expected}', this run measures '${actual}'`,
+    };
+  }
+  return { applicable: true, reason: `corpus '${expected}' matches the dataset` };
 }
 
 // ─── Dataset loader ───
@@ -464,11 +716,95 @@ function loadPreference(filePath: string): PreferenceEvalCase[] {
   return cases;
 }
 
+function loadCorpusDeclaration(
+  raw: unknown,
+  dataset: KnowledgeEvalDatasetName,
+  where: string,
+): DatasetCorpusDeclaration {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error(
+      `${where}: datasets.${dataset} must be an object declaring "corpus" or "portable"`,
+    );
+  }
+  const entry = raw as Record<string, unknown>;
+  const declaration: DatasetCorpusDeclaration = {};
+  if (entry.corpus !== undefined) {
+    if (typeof entry.corpus !== 'string' || entry.corpus.trim().length === 0) {
+      throw new Error(`${where}: datasets.${dataset}.corpus must be a non-empty string`);
+    }
+    declaration.corpus = entry.corpus;
+  }
+  if (entry.portable !== undefined) {
+    if (typeof entry.portable !== 'boolean') {
+      throw new Error(`${where}: datasets.${dataset}.portable must be a boolean`);
+    }
+    declaration.portable = entry.portable;
+  }
+  if (declaration.corpus !== undefined && declaration.portable !== undefined) {
+    // Both at once is a contradiction: "these exact rows" and "any corpus".
+    throw new Error(
+      `${where}: datasets.${dataset} declares both "corpus" and "portable" — pick one`,
+    );
+  }
+  if (declaration.corpus === undefined && declaration.portable === undefined) {
+    throw new Error(
+      `${where}: datasets.${dataset} must declare "corpus" (these goldens were quoted from it) or "portable": true (they hold anywhere)`,
+    );
+  }
+  const note = optionalNote(entry, where);
+  if (note !== undefined) declaration.note = note;
+  return declaration;
+}
+
+/**
+ * Read `manifest.json`. Required, not optional: a dataset directory without a
+ * corpus declaration is precisely the state that produced a 0.0% score nobody
+ * could interpret, so the loader refuses rather than defaulting.
+ */
+export function loadKnowledgeEvalManifest(
+  datasetDir: string = KNOWLEDGE_EVAL_DATASET_DIR,
+): KnowledgeEvalManifest {
+  const filePath = path.join(path.resolve(datasetDir), KNOWLEDGE_EVAL_MANIFEST_FILE);
+  const where = path.join(datasetDir, KNOWLEDGE_EVAL_MANIFEST_FILE);
+  if (!fs.existsSync(filePath)) {
+    throw new Error(
+      `${where}: missing — every dataset directory must declare which corpus its goldens were written against (see the shipped ${KNOWLEDGE_EVAL_MANIFEST_FILE})`,
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  } catch (err) {
+    throw new Error(`${where}: invalid JSON (${err instanceof Error ? err.message : String(err)})`);
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`${where}: expected a JSON object`);
+  }
+  const entry = parsed as Record<string, unknown>;
+  if (entry.version !== KNOWLEDGE_EVAL_MANIFEST_VERSION) {
+    throw new Error(
+      `${where}: unsupported manifest version ${String(entry.version)} (this harness reads ${KNOWLEDGE_EVAL_MANIFEST_VERSION})`,
+    );
+  }
+  const datasetsRaw = entry.datasets;
+  if (datasetsRaw === null || typeof datasetsRaw !== 'object' || Array.isArray(datasetsRaw)) {
+    throw new Error(`${where}: "datasets" must be an object keyed by dataset name`);
+  }
+  const datasets = datasetsRaw as Record<string, unknown>;
+  const declarations = {} as Record<KnowledgeEvalDatasetName, DatasetCorpusDeclaration>;
+  for (const dataset of DATASET_ORDER) {
+    declarations[dataset] = loadCorpusDeclaration(datasets[dataset], dataset, where);
+  }
+  return { version: KNOWLEDGE_EVAL_MANIFEST_VERSION, datasets: declarations };
+}
+
 export function loadKnowledgeEvalDataset(
   datasetDir: string = KNOWLEDGE_EVAL_DATASET_DIR,
 ): KnowledgeEvalDataset {
   const dir = path.resolve(datasetDir);
+  const manifest = loadKnowledgeEvalManifest(datasetDir);
   return {
+    manifest,
     episodic: loadEpisodic(path.join(dir, 'episodic.jsonl')),
     semantic: loadSemantic(path.join(dir, 'semantic.jsonl')),
     preference: loadPreference(path.join(dir, 'preference.jsonl')),
@@ -513,164 +849,279 @@ function computeIdRankingTotals(
   };
 }
 
-function mergeIdRankingReport(
+function buildIdRankingReport(
   totals: IdRankingTotals,
   unlabelledIds: string[],
-  idRecallAt5: number,
+  unresolvableIds: string[],
+  idRecallAt5: number | null,
+  applicability: { applicable: boolean; reason: string },
 ): IdRankingReport {
+  const scored = applicability.applicable && totals.scored > 0;
   return {
+    applicable: applicability.applicable,
+    applicabilityReason: applicability.reason,
     labelled: totals.scored,
     unlabelled: unlabelledIds.length,
     unlabelledIds,
-    idRecallAt5,
-    pAt5: totals.pAt5,
-    rAt5: totals.rAt5,
-    rAt10: totals.rAt10,
-    mrr: totals.mrr,
-    ndcgAt5: totals.ndcgAt5,
-    queriesWithResults: totals.queriesWithResults,
+    unresolvable: unresolvableIds.length,
+    unresolvableIds,
+    idRecallAt5: scored ? idRecallAt5 : null,
+    pAt5: scored ? totals.pAt5 : null,
+    rAt5: scored ? totals.rAt5 : null,
+    rAt10: scored ? totals.rAt10 : null,
+    mrr: scored ? totals.mrr : null,
+    ndcgAt5: scored ? totals.ndcgAt5 : null,
+    queriesWithResults: applicability.applicable ? totals.queriesWithResults : 0,
   };
+}
+
+/**
+ * A portable dataset's id goldens are only scorable where those ids exist.
+ * Requiring ALL of them keeps the recall denominator honest: scoring a case
+ * with one absent golden would book a guaranteed miss against the lane.
+ */
+function isGoldenResolvable(
+  expectedIds: string[],
+  declaration: DatasetCorpusDeclaration,
+  idExists: ((id: string) => boolean) | undefined,
+): boolean {
+  if (declaration.portable !== true || idExists === undefined) return true;
+  if (expectedIds.length === 0) return true;
+  return expectedIds.every((id) => idExists(id));
+}
+
+/** Where in the measured top-K an expected-id hit came from. */
+function matchedByLane(
+  expectedIds: string[],
+  hits: EvalSearchHit[],
+): Array<{ lane: EvalLane; id: string }> {
+  const expected = new Set(expectedIds);
+  const matched: Array<{ lane: EvalLane; id: string }> = [];
+  const seen = new Set<string>();
+  for (const hit of hits) {
+    if (!expected.has(hit.id) || seen.has(hit.id)) continue;
+    seen.add(hit.id);
+    matched.push({ lane: hit.lane, id: hit.id });
+  }
+  return matched;
 }
 
 export async function runKnowledgeEval(
   options: RunKnowledgeEvalOptions,
 ): Promise<KnowledgeEvalRun> {
-  const topK = options.topK ?? DEFAULT_TOP_K;
+  const topK = Math.max(1, Math.trunc(options.topK ?? DEFAULT_TOP_K));
+  const depth = Math.max(topK, RANKING_DEPTH);
   const datasetDir = options.datasetDir ?? KNOWLEDGE_EVAL_DATASET_DIR;
   const dataset = loadKnowledgeEvalDataset(datasetDir);
+  const corpus = normaliseCorpusLabel(options.corpus ?? null);
 
-  const laneFns: Record<EvalLane, RetrieveFn | undefined> = {
-    messages: options.retrieveMessages,
-    memories: options.retrieveMemories,
-    knowledge: options.retrieveKnowledge,
-  };
-  const lanes = LANE_ORDER.filter((lane) => laneFns[lane] !== undefined);
-  const unwiredLanes = LANE_ORDER.filter((lane) => laneFns[lane] === undefined);
+  const applicability = {} as Record<KnowledgeEvalDatasetName, DatasetApplicability>;
+  for (const name of DATASET_ORDER) {
+    const declaration = dataset.manifest.datasets[name];
+    const fit = computeCorpusFit(declaration, corpus);
+    applicability[name] = {
+      dataset: name,
+      corpusExpectation: declaration.portable === true ? null : (declaration.corpus ?? null),
+      portable: declaration.portable === true,
+      applicable: fit.applicable,
+      reason: fit.reason,
+    };
+  }
+
+  // Every labelled case is searched, including those whose dataset turns out
+  // not applicable: latency is a corpus-independent claim (G4 compares it
+  // against a baseline on the same corpus), and skipping the calls would turn a
+  // device run into a report with nothing measured in it at all. Nothing from
+  // those datasets is scored.
+  const labelledQueries: string[] = [];
+  const seenQueries = new Set<string>();
+  const allCases: Array<EpisodicEvalCase | SemanticEvalCase | PreferenceEvalCase> = [
+    ...dataset.episodic,
+    ...dataset.semantic,
+    ...dataset.preference,
+  ];
+  for (const evalCase of allCases) {
+    if (evalCase.unlabelled) continue;
+    if (seenQueries.has(evalCase.query)) continue;
+    seenQueries.add(evalCase.query);
+    labelledQueries.push(evalCase.query);
+  }
 
   const retrievalByQuery = new Map<string, QueryRetrieval>();
   const latencySamples: number[] = [];
+  const observedLanes = new Set<EvalLane>();
+  const lanesWithHits = new Set<EvalLane>();
+  const laneErrors = new Map<EvalLane, string>();
   const injectedIds = new Set<string>();
 
-  const labelledCases: Array<{ query: string }> = [
-    ...dataset.episodic.filter((c) => !c.unlabelled),
-    ...dataset.semantic.filter((c) => !c.unlabelled),
-    ...dataset.preference.filter((c) => !c.unlabelled),
-  ];
-
   // Sequential on purpose: latencies are a product claim (G4), and running the
-  // lanes concurrently would measure a queue, not a retrieval.
-  for (const evalCase of labelledCases) {
-    if (retrievalByQuery.has(evalCase.query)) continue;
-    const idsByLane: Partial<Record<EvalLane, string[]>> = {};
-    const unionIds: string[] = [];
-    const unionTexts: string[] = [];
-    const samples: number[] = [];
+  // queries concurrently would measure a queue, not a retrieval.
+  for (const query of labelledQueries) {
+    const started = performance.now();
+    let result: EvalSearchResult;
+    try {
+      result = await options.search(query, depth);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // A search that throws is a harness-level failure, not a lane failure;
+      // it is recorded against every lane the run has seen so far so the report
+      // cannot present an empty result as a clean one.
+      for (const lane of LANE_ORDER) {
+        if (!laneErrors.has(lane)) laneErrors.set(lane, message);
+      }
+      retrievalByQuery.set(query, { hits: [], topHits: [], text: '' });
+      continue;
+    }
+    latencySamples.push(performance.now() - started);
+
     for (const lane of LANE_ORDER) {
-      const retrieve = laneFns[lane];
-      if (!retrieve) continue;
-      const started = performance.now();
-      const hits = (await retrieve(evalCase.query, topK)).slice(0, topK);
-      samples.push(performance.now() - started);
-      idsByLane[lane] = hits.map((hit) => hit.id);
-      for (const hit of hits) {
-        unionIds.push(hit.id);
-        unionTexts.push(hit.text);
-        injectedIds.add(hit.id);
+      const report = result.lanes[lane];
+      if (!report) continue;
+      observedLanes.add(lane);
+      if (report.hits > 0) lanesWithHits.add(lane);
+      if (report.error !== undefined && report.error !== null && !laneErrors.has(lane)) {
+        laneErrors.set(lane, String(report.error));
       }
     }
-    retrievalByQuery.set(evalCase.query, {
-      idsByLane,
-      unionIds,
-      unionText: unionTexts.join('\n'),
+
+    const hits = result.hits.slice(0, depth);
+    for (const hit of hits) {
+      if (observedLanes.has(hit.lane)) continue;
+      // A hit from a lane the caller did not report as running: trust the hit,
+      // because it is in the list the agent would inject, and record the lane
+      // so the attribution does not silently lose it.
+      observedLanes.add(hit.lane);
+      lanesWithHits.add(hit.lane);
+    }
+
+    const topHits = hits.slice(0, topK);
+    for (const hit of topHits) injectedIds.add(hit.id);
+    retrievalByQuery.set(query, {
+      hits,
+      topHits,
+      text: topHits.map((hit) => hit.text).join('\n'),
     });
-    latencySamples.push(...samples);
   }
 
-  const primaryIds = (name: 'episodic' | 'semantic'): Map<string, string[]> => {
-    const lane = PRIMARY_LANE[name];
-    const cases: Array<{ query: string }> =
-      name === 'episodic' ? dataset.episodic : dataset.semantic;
-    const map = new Map<string, string[]>();
-    for (const evalCase of cases) {
-      map.set(evalCase.query, retrievalByQuery.get(evalCase.query)?.idsByLane[lane] ?? []);
-    }
-    return map;
-  };
+  // Every query the run issued already has its fused ids, so one map serves all
+  // three datasets — which is the point: the ranking no longer depends on
+  // which lane a dataset "belongs" to.
+  const rankedIdsByQuery = new Map<string, string[]>();
+  for (const evalCase of allCases) {
+    rankedIdsByQuery.set(
+      evalCase.query,
+      retrievalByQuery.get(evalCase.query)?.hits.map((hit) => hit.id) ?? [],
+    );
+  }
 
-  const hitsAnyId = (expectedIds: string[], query: string): boolean => {
-    if (expectedIds.length === 0) return false;
-    const retrieved = retrievalByQuery.get(query);
-    if (!retrieved) return false;
-    const expected = new Set(expectedIds);
-    return retrieved.unionIds.some((id) => expected.has(id));
-  };
+  const topHitsFor = (query: string): EvalSearchHit[] => retrievalByQuery.get(query)?.topHits ?? [];
 
   // ── episodic: session recall ──
   const episodicUnlabelledIds = dataset.episodic.filter((c) => c.unlabelled).map((c) => c.id);
-  const episodicScored = dataset.episodic.filter(
-    (c) => !c.unlabelled && c.expectedMessageIds.length > 0,
-  );
+  const episodicUnresolvable: string[] = [];
+  const episodicScored = dataset.episodic
+    .filter((c) => !c.unlabelled)
+    .filter((c) => {
+      const resolvable = isGoldenResolvable(
+        c.expectedMessageIds,
+        dataset.manifest.datasets.episodic,
+        options.idExists,
+      );
+      if (!resolvable) episodicUnresolvable.push(c.id);
+      return resolvable && applicability.episodic.applicable;
+    });
   const episodicTotals = computeIdRankingTotals(
     episodicScored.map((c) => ({ query: c.query, expectedIds: c.expectedMessageIds })),
-    primaryIds('episodic'),
+    rankedIdsByQuery,
   );
-  const episodicIdHits = episodicScored.filter((c) =>
-    hitsAnyId(c.expectedMessageIds, c.query),
+  const episodicIdHits = episodicScored.filter(
+    (c) => matchedByLane(c.expectedMessageIds, topHitsFor(c.query)).length > 0,
   ).length;
-  const episodic = mergeIdRankingReport(
+  const episodic = buildIdRankingReport(
     episodicTotals,
     episodicUnlabelledIds,
-    episodicScored.length > 0 ? episodicIdHits / episodicScored.length : 0,
+    episodicUnresolvable,
+    episodicScored.length > 0 ? episodicIdHits / episodicScored.length : null,
+    applicability.episodic,
   );
 
   // ── semantic: knowledge questions ──
   const semanticUnlabelledIds = dataset.semantic.filter((c) => c.unlabelled).map((c) => c.id);
-  const semanticIdCases = dataset.semantic.filter(
-    (c) => !c.unlabelled && (c.expectedMemoryIds?.length ?? 0) > 0,
-  );
+  const semanticUnresolvable: string[] = [];
+  const semanticLabels = dataset.semantic.filter((c) => !c.unlabelled);
+  const semanticIdScored = semanticLabels.filter((c) => {
+    const expected = c.expectedMemoryIds ?? [];
+    if (expected.length === 0) return false;
+    const resolvable = isGoldenResolvable(
+      expected,
+      dataset.manifest.datasets.semantic,
+      options.idExists,
+    );
+    if (!resolvable) {
+      semanticUnresolvable.push(c.id);
+      return false;
+    }
+    return applicability.semantic.applicable;
+  });
   const semanticTotals = computeIdRankingTotals(
-    semanticIdCases.map((c) => ({ query: c.query, expectedIds: c.expectedMemoryIds ?? [] })),
-    primaryIds('semantic'),
+    semanticIdScored.map((c) => ({ query: c.query, expectedIds: c.expectedMemoryIds ?? [] })),
+    rankedIdsByQuery,
   );
-  const semanticIdHits = semanticIdCases.filter((c) =>
-    hitsAnyId(c.expectedMemoryIds ?? [], c.query),
+  const semanticIdHits = semanticIdScored.filter(
+    (c) => matchedByLane(c.expectedMemoryIds ?? [], topHitsFor(c.query)).length > 0,
   ).length;
-  const semanticKeywordCases = dataset.semantic.filter(
-    (c) => !c.unlabelled && c.expectedKeywords.length > 0,
+  const semanticKeywordCases = semanticLabels.filter(
+    (c) => c.expectedKeywords.length > 0 && applicability.semantic.applicable,
   );
   const semanticKeywordMisses: string[] = [];
   let semanticKeywordHits = 0;
   for (const evalCase of semanticKeywordCases) {
-    const text = retrievalByQuery.get(evalCase.query)?.unionText ?? '';
+    const text = retrievalByQuery.get(evalCase.query)?.text ?? '';
     if (computeKeywordRecallAt5(text, evalCase.expectedKeywords)) {
       semanticKeywordHits++;
     } else {
       semanticKeywordMisses.push(evalCase.id);
     }
   }
-  const semantic = {
-    ...mergeIdRankingReport(
+  const keywordRecallAt5 =
+    applicability.semantic.applicable && semanticKeywordCases.length > 0
+      ? semanticKeywordHits / semanticKeywordCases.length
+      : null;
+  const semantic: IdRankingReport & KeywordReport = {
+    ...buildIdRankingReport(
       semanticTotals,
       semanticUnlabelledIds,
-      semanticIdCases.length > 0 ? semanticIdHits / semanticIdCases.length : 0,
+      semanticUnresolvable,
+      semanticIdScored.length > 0 ? semanticIdHits / semanticIdScored.length : null,
+      applicability.semantic,
     ),
     keywordCases: semanticKeywordCases.length,
-    keywordRecallAt5:
-      semanticKeywordCases.length > 0 ? semanticKeywordHits / semanticKeywordCases.length : 0,
-    missedCaseIds: semanticKeywordMisses,
+    keywordRecallAt5,
+    missedCaseIds: applicability.semantic.applicable ? semanticKeywordMisses : [],
   };
 
   // ── preference: does the injected text carry the current value, and only it? ──
   const preferenceUnlabelledIds = dataset.preference.filter((c) => c.unlabelled).map((c) => c.id);
-  const preferenceLabelled = dataset.preference.filter((c) => !c.unlabelled);
+  const preferenceUnresolvable: string[] = [];
+  const preferenceScored = dataset.preference
+    .filter((c) => !c.unlabelled)
+    .filter((c) => {
+      const resolvable = isGoldenResolvable(
+        c.mustContain,
+        dataset.manifest.datasets.preference,
+        options.idExists,
+      );
+      if (!resolvable) preferenceUnresolvable.push(c.id);
+      return resolvable && applicability.preference.applicable;
+    });
   let staleCases = 0;
   let staleLeaks = 0;
   let containCases = 0;
   let containHits = 0;
   const leakedCaseIds: string[] = [];
   const mustContainMissIds: string[] = [];
-  for (const evalCase of preferenceLabelled) {
-    const text = normaliseEvalText(retrievalByQuery.get(evalCase.query)?.unionText ?? '');
+  for (const evalCase of preferenceScored) {
+    const text = normaliseEvalText(retrievalByQuery.get(evalCase.query)?.text ?? '');
     if (evalCase.mustNotContain.length > 0) {
       staleCases++;
       const leaked = evalCase.mustNotContain.some((value) =>
@@ -691,47 +1142,151 @@ export async function runKnowledgeEval(
     }
   }
   const preference: PreferenceReport = {
-    labelled: preferenceLabelled.length,
+    applicable: applicability.preference.applicable,
+    applicabilityReason: applicability.preference.reason,
+    labelled: preferenceScored.length,
     unlabelled: preferenceUnlabelledIds.length,
     unlabelledIds: preferenceUnlabelledIds,
+    unresolvable: preferenceUnresolvable.length,
+    unresolvableIds: preferenceUnresolvable,
     mustContainCases: containCases,
-    mustContainRate: containCases > 0 ? containHits / containCases : 0,
+    mustContainRate: containCases > 0 ? containHits / containCases : null,
     mustContainMissIds,
     staleCases,
-    stalePreferenceRate: staleCases > 0 ? staleLeaks / staleCases : 0,
+    stalePreferenceRate: staleCases > 0 ? staleLeaks / staleCases : null,
     leakedCaseIds,
   };
 
+  // ── per-lane attribution ──
+  const idScoredCases: Array<{ query: string; expectedIds: string[] }> = [
+    ...episodicScored.map((c) => ({ query: c.query, expectedIds: c.expectedMessageIds })),
+    ...semanticIdScored.map((c) => ({ query: c.query, expectedIds: c.expectedMemoryIds ?? [] })),
+  ];
+  const byLane: LaneAttribution[] = LANE_ORDER.map((lane) => {
+    let hits = 0;
+    let queriesWithHits = 0;
+    for (const evalCase of [...dataset.episodic, ...dataset.semantic, ...dataset.preference]) {
+      if (evalCase.unlabelled) continue;
+      const laneHits = topHitsFor(evalCase.query).filter((hit) => hit.lane === lane);
+      if (laneHits.length === 0) continue;
+      hits += laneHits.length;
+      queriesWithHits++;
+    }
+    let recallSum = 0;
+    let idCasesWithHit = 0;
+    let relevantLaneHits = 0;
+    let laneHitsScored = 0;
+    for (const evalCase of idScoredCases) {
+      const expected = new Set(evalCase.expectedIds);
+      const laneHits = topHitsFor(evalCase.query).filter((hit) => hit.lane === lane);
+      const relevant = laneHits.filter((hit) => expected.has(hit.id)).length;
+      laneHitsScored += laneHits.length;
+      relevantLaneHits += relevant;
+      if (relevant > 0) idCasesWithHit++;
+      recallSum += expected.size > 0 ? relevant / expected.size : 0;
+    }
+    return {
+      lane,
+      hits,
+      queriesWithHits,
+      idCases: idScoredCases.length,
+      idCasesWithHit,
+      idRecallAt5: idScoredCases.length > 0 ? recallSum / idScoredCases.length : null,
+      precisionAt5: laneHitsScored > 0 ? relevantLaneHits / laneHitsScored : null,
+    };
+  });
+
+  // ── per-case attribution ──
+  const cases: EvalCaseAttribution[] = [];
+  const unresolvableReason = 'its golden ids are absent from this corpus';
+  const pushCase = (
+    name: KnowledgeEvalDatasetName,
+    evalCase: { id: string; query: string; unlabelled?: boolean },
+    expectedIds: string[],
+    scored: boolean,
+    unresolvable: boolean,
+  ): void => {
+    if (evalCase.unlabelled) return;
+    const fit = applicability[name];
+    const skippedReason = scored
+      ? undefined
+      : !fit.applicable
+        ? fit.reason
+        : unresolvable
+          ? unresolvableReason
+          : 'no metric scores this case';
+    const top = topHitsFor(evalCase.query);
+    cases.push({
+      dataset: name,
+      id: evalCase.id,
+      query: evalCase.query,
+      scored,
+      ...(skippedReason === undefined ? {} : { skippedReason }),
+      hits: top.map((hit) => ({ lane: hit.lane, id: hit.id })),
+      matchedIds: matchedByLane(expectedIds, top),
+    });
+  };
+  for (const evalCase of dataset.episodic) {
+    pushCase(
+      'episodic',
+      evalCase,
+      evalCase.expectedMessageIds,
+      episodicScored.some((c) => c.id === evalCase.id),
+      episodicUnresolvable.includes(evalCase.id),
+    );
+  }
+  for (const evalCase of dataset.semantic) {
+    pushCase(
+      'semantic',
+      evalCase,
+      evalCase.expectedMemoryIds ?? [],
+      semanticIdScored.some((c) => c.id === evalCase.id) ||
+        semanticKeywordCases.some((c) => c.id === evalCase.id),
+      semanticUnresolvable.includes(evalCase.id),
+    );
+  }
+  for (const evalCase of dataset.preference) {
+    pushCase(
+      'preference',
+      evalCase,
+      // Attribution is id-based and a preference case carries text, not ids;
+      // `mustContain` is scored by the containment check, not here.
+      [],
+      preferenceScored.some((c) => c.id === evalCase.id),
+      preferenceUnresolvable.includes(evalCase.id),
+    );
+  }
+
   // ── aggregate ──
   const latency = computeLatencyPercentiles(latencySamples);
-  const injectedIdList = [...injectedIds];
+  const hasLatency = latencySamples.length > 0;
   const metrics: EvalMetrics = {
-    pAt5: weightedMean([
-      { value: episodicTotals.pAt5, weight: episodicTotals.scored },
-      { value: semanticTotals.pAt5, weight: semanticTotals.scored },
+    pAt5: aggregateMetric([
+      { value: episodic.pAt5, weight: episodic.labelled },
+      { value: semantic.pAt5, weight: semantic.labelled },
     ]),
-    rAt5: weightedMean([
-      { value: episodicTotals.rAt5, weight: episodicTotals.scored },
-      { value: semanticTotals.rAt5, weight: semanticTotals.scored },
+    rAt5: aggregateMetric([
+      { value: episodic.rAt5, weight: episodic.labelled },
+      { value: semantic.rAt5, weight: semantic.labelled },
     ]),
-    rAt10: weightedMean([
-      { value: episodicTotals.rAt10, weight: episodicTotals.scored },
-      { value: semanticTotals.rAt10, weight: semanticTotals.scored },
+    rAt10: aggregateMetric([
+      { value: episodic.rAt10, weight: episodic.labelled },
+      { value: semantic.rAt10, weight: semantic.labelled },
     ]),
-    mrr: weightedMean([
-      { value: episodicTotals.mrr, weight: episodicTotals.scored },
-      { value: semanticTotals.mrr, weight: semanticTotals.scored },
+    mrr: aggregateMetric([
+      { value: episodic.mrr, weight: episodic.labelled },
+      { value: semantic.mrr, weight: semantic.labelled },
     ]),
-    ndcgAt5: weightedMean([
-      { value: episodicTotals.ndcgAt5, weight: episodicTotals.scored },
-      { value: semanticTotals.ndcgAt5, weight: semanticTotals.scored },
+    ndcgAt5: aggregateMetric([
+      { value: episodic.ndcgAt5, weight: episodic.labelled },
+      { value: semantic.ndcgAt5, weight: semantic.labelled },
     ]),
-    totalQueries: episodicTotals.scored + semanticTotals.scored,
-    queriesWithResults: episodicTotals.queriesWithResults + semanticTotals.queriesWithResults,
+    totalQueries: episodic.labelled + semantic.labelled,
+    queriesWithResults: episodic.queriesWithResults + semantic.queriesWithResults,
     keywordRecallAt5: semantic.keywordRecallAt5,
-    idRecallAt5: weightedMean([
-      { value: episodic.idRecallAt5, weight: episodicScored.length },
-      { value: semantic.idRecallAt5, weight: semanticIdCases.length },
+    idRecallAt5: aggregateMetric([
+      { value: episodic.idRecallAt5, weight: episodic.labelled },
+      { value: semantic.idRecallAt5, weight: semantic.labelled },
     ]),
     stalePreferenceRate: preference.stalePreferenceRate,
     personaFreshness: computePersonaFreshness(
@@ -739,21 +1294,29 @@ export async function runKnowledgeEval(
       options.newestActiveMemoryUpdatedAt,
     ),
     inactiveLeakageCount: options.statusLookup
-      ? computeInactiveLeakageCount(injectedIdList, options.statusLookup)
+      ? computeInactiveLeakageCount([...injectedIds], options.statusLookup)
       : 0,
-    averageRetrievalLatencyMs: latency.avg,
-    latencyP50Ms: latency.p50,
-    latencyP95Ms: latency.p95,
+    averageRetrievalLatencyMs: hasLatency ? latency.avg : null,
+    latencyP50Ms: hasLatency ? latency.p50 : null,
+    latencyP95Ms: hasLatency ? latency.p95 : null,
   };
 
+  const lanes = LANE_ORDER.filter((lane) => observedLanes.has(lane));
   const run: KnowledgeEvalRun = {
     timestamp: new Date().toISOString(),
+    harnessVersion: HARNESS_VERSION,
     summary: '',
     topK,
+    corpus,
     datasetDir,
     lanes: [...lanes],
-    unwiredLanes: [...unwiredLanes],
+    unwiredLanes: LANE_ORDER.filter((lane) => !observedLanes.has(lane)),
+    lanesWithHits: LANE_ORDER.filter((lane) => lanesWithHits.has(lane)),
+    laneErrors: [...laneErrors.entries()].map(([lane, message]) => ({ lane, message })),
+    datasetApplicability: DATASET_ORDER.map((name) => applicability[name]),
     statusLookupProvided: options.statusLookup !== undefined,
+    byLane,
+    cases,
     metrics,
     episodic,
     semantic,
@@ -775,22 +1338,44 @@ function formatPercent(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
+function formatPercentOrNa(value: number | null): string {
+  return value === null ? 'n/a' : formatPercent(value);
+}
+
+function formatDecimalOrNa(value: number | null): string {
+  return value === null ? 'n/a' : value.toFixed(4);
+}
+
 function formatMs(value: number): string {
   return `${value.toFixed(1)}ms`;
+}
+
+function formatMsOrNa(value: number | null): string {
+  return value === null ? 'n/a' : formatMs(value);
+}
+
+function formatLaneRow(row: LaneAttribution): string {
+  return (
+    `${row.lane} idRecall@5 ${formatPercentOrNa(row.idRecallAt5)}` +
+    ` P@5 ${formatPercentOrNa(row.precisionAt5)}` +
+    ` (${row.idCasesWithHit}/${row.idCases} case(s) with an expected id)`
+  );
 }
 
 function formatDatasetDetail(run: KnowledgeEvalRun): string[] {
   const lines: string[] = [];
   const unlabelledNotes = (ids: string[]): string =>
     ids.length === 0 ? '' : `  (unlabelled: ${ids.join(', ')})`;
+  const unresolvableNotes = (ids: string[]): string =>
+    ids.length === 0 ? '' : `  (goldens absent from this corpus: ${ids.join(', ')})`;
   lines.push(
-    `episodic:   ${run.episodic.labelled} labelled, ${run.episodic.unlabelled} unlabelled${unlabelledNotes(run.episodic.unlabelledIds)}`,
+    `episodic:   ${run.episodic.labelled} scored, ${run.episodic.unlabelled} unlabelled${unlabelledNotes(run.episodic.unlabelledIds)}${unresolvableNotes(run.episodic.unresolvableIds)}`,
   );
   lines.push(
-    `semantic:   ${run.semantic.labelled} labelled, ${run.semantic.unlabelled} unlabelled${unlabelledNotes(run.semantic.unlabelledIds)}`,
+    `semantic:   ${run.semantic.labelled} scored, ${run.semantic.unlabelled} unlabelled${unlabelledNotes(run.semantic.unlabelledIds)}${unresolvableNotes(run.semantic.unresolvableIds)}`,
   );
   lines.push(
-    `preference: ${run.preference.labelled} labelled, ${run.preference.unlabelled} unlabelled${unlabelledNotes(run.preference.unlabelledIds)}` +
+    `preference: ${run.preference.labelled} scored, ${run.preference.unlabelled} unlabelled${unlabelledNotes(run.preference.unlabelledIds)}` +
       `, ${run.preference.staleCases} changed-preference case(s)`,
   );
   if (run.preference.mustContainMissIds.length > 0) {
@@ -807,22 +1392,41 @@ function formatDatasetDetail(run: KnowledgeEvalRun): string[] {
 
 export function formatKnowledgeEvalReport(run: KnowledgeEvalRun): string {
   const metrics = run.metrics;
+  const hitsByLane = new Map(run.byLane.map((row) => [row.lane, row.hits]));
+  const laneText =
+    run.lanes.length === 0
+      ? '(none)'
+      : run.lanes.map((lane) => `${lane} (${hitsByLane.get(lane) ?? 0} hit(s))`).join(', ');
+  const fitLines = run.datasetApplicability.map(
+    (fit) =>
+      `  ${fit.dataset.padEnd(11)}${fit.applicable ? 'applicable    ' : 'NOT APPLICABLE'} — ${fit.reason}`,
+  );
+  const laneErrorLines =
+    run.laneErrors.length === 0
+      ? []
+      : [`lane errors: ${run.laneErrors.map((e) => `${e.lane} — ${e.message}`).join(' | ')}`];
   return [
-    '=== Knowledge Eval (K0 baseline) ===',
-    `dataset: ${run.datasetDir}  topK: ${run.topK}`,
-    `lanes wired: ${run.lanes.length > 0 ? run.lanes.join(', ') : '(none)'}` +
-      (run.unwiredLanes.length > 0 ? `  |  not wired: ${run.unwiredLanes.join(', ')}` : ''),
+    `=== Knowledge Eval (harness v${run.harnessVersion}, fused unified search) ===`,
+    `dataset: ${run.datasetDir}  topK: ${run.topK}  corpus: ${run.corpus ?? '(undeclared)'}`,
+    // Both halves are always printed: a lane that was not measured must never
+    // be inferred from the absence of a line.
+    `lanes wired: ${laneText}  |  not wired: ${run.unwiredLanes.length > 0 ? run.unwiredLanes.join(', ') : '(none)'}`,
+    ...laneErrorLines,
+    'corpus fit:',
+    ...fitLines,
     `id metrics over ${metrics.totalQueries} id-labelled case(s)` +
       ` (${metrics.queriesWithResults} returned a candidate)`,
-    `  idRecall@5: ${formatPercent(metrics.idRecallAt5)}   keywordRecall@5: ${formatPercent(metrics.keywordRecallAt5)}`,
-    `  P@5: ${formatPercent(metrics.pAt5)}   R@5: ${formatPercent(metrics.rAt5)}   R@10: ${formatPercent(metrics.rAt10)}` +
-      `   MRR: ${metrics.mrr.toFixed(4)}   NDCG@5: ${metrics.ndcgAt5.toFixed(4)}`,
-    `  stalePreferenceRate: ${formatPercent(metrics.stalePreferenceRate)}` +
+    `  idRecall@5: ${formatPercentOrNa(metrics.idRecallAt5)}   keywordRecall@5: ${formatPercentOrNa(metrics.keywordRecallAt5)}`,
+    `  P@5: ${formatPercentOrNa(metrics.pAt5)}   R@5: ${formatPercentOrNa(metrics.rAt5)}` +
+      `   R@10: ${formatPercentOrNa(metrics.rAt10)}` +
+      `   MRR: ${formatDecimalOrNa(metrics.mrr)}   NDCG@5: ${formatDecimalOrNa(metrics.ndcgAt5)}`,
+    `  by lane: ${run.byLane.map(formatLaneRow).join(' | ')}`,
+    `  stalePreferenceRate: ${formatPercentOrNa(metrics.stalePreferenceRate)}` +
       `   inactiveLeakageCount: ${metrics.inactiveLeakageCount}` +
       (run.statusLookupProvided ? '' : ' (no status lookup wired)'),
     `  personaFreshness: ${metrics.personaFreshness}`,
-    `  latency: avg ${formatMs(metrics.averageRetrievalLatencyMs)}` +
-      `   p50 ${formatMs(metrics.latencyP50Ms)}   p95 ${formatMs(metrics.latencyP95Ms)}`,
+    `  latency: avg ${formatMsOrNa(metrics.averageRetrievalLatencyMs)}` +
+      `   p50 ${formatMsOrNa(metrics.latencyP50Ms)}   p95 ${formatMsOrNa(metrics.latencyP95Ms)}`,
   ].join('\n');
 }
 
@@ -853,7 +1457,8 @@ const METRIC_ROWS: readonly MetricRow[] = [
   { key: 'queriesWithResults', label: 'queriesWithResults', unit: 'count' },
 ];
 
-function formatMetricValue(value: number, unit: MetricRow['unit']): string {
+function formatMetricValue(value: number | null, unit: MetricRow['unit']): string {
+  if (value === null) return 'n/a';
   switch (unit) {
     case 'rate':
       return formatPercent(value);
@@ -866,7 +1471,12 @@ function formatMetricValue(value: number, unit: MetricRow['unit']): string {
   }
 }
 
-function formatMetricDelta(current: number, baseline: number, unit: MetricRow['unit']): string {
+function formatMetricDelta(
+  current: number | null,
+  baseline: number | null,
+  unit: MetricRow['unit'],
+): string {
+  if (current === null || baseline === null) return 'n/a';
   if (current === baseline) return '0';
   const delta = current - baseline;
   const sign = delta > 0 ? '+' : '';
@@ -898,7 +1508,7 @@ export function writeBaseline(
   const resolvedDir = path.resolve(dir);
   fs.mkdirSync(resolvedDir, { recursive: true });
   const filePath = path.join(resolvedDir, `baseline-${baselineDateStamp(now)}.json`);
-  const baseline: KnowledgeEvalBaseline = { version: BASELINE_VERSION, ...run };
+  const baseline: KnowledgeEvalBaseline = { version: BASELINE_FILE_VERSION, ...run };
   fs.writeFileSync(filePath, `${JSON.stringify(baseline, null, 2)}\n`, 'utf-8');
   return filePath;
 }
@@ -918,15 +1528,79 @@ export function loadBaseline(filePath: string): KnowledgeEvalBaseline {
   return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as KnowledgeEvalBaseline;
 }
 
-export function formatBaselineDiff(current: EvalMetrics, baseline: KnowledgeEvalBaseline): string {
+export type BaselineDiffStatus = 'compared' | 'refused';
+
+export interface BaselineDiff {
+  status: BaselineDiffStatus;
+  /** Set when refused: what did not match. */
+  reason?: string;
+  /** What the CLI prints — the table, or the refusal plus the fix. */
+  text: string;
+}
+
+const REGENERATE_HINT =
+  'Regenerate the baseline with `pnpm eval:knowledge --corpus <label> --baseline` and diff against that.';
+
+/**
+ * Compare a run with a baseline — or refuse to.
+ *
+ * A delta between two different harnesses is not a measurement, it is a
+ * subtraction of unlike things: v1's `MRR` came from the memory lane alone and
+ * v2's from the fused list, and the same 0.35 in both files means two different
+ * things. The same holds for a different lane set (a run that measured two lanes
+ * is not a regression of one that measured three) and a different corpus (the
+ * goldens belong to one corpus). So the gate refuses and names the fix, instead
+ * of emitting a number somebody will paste into a release note.
+ */
+export function formatBaselineDiff(
+  run: KnowledgeEvalRun,
+  baseline: KnowledgeEvalBaseline,
+): BaselineDiff {
+  const refusals: string[] = [];
+  if (baseline.version !== BASELINE_FILE_VERSION) {
+    refusals.push(
+      `baseline file shape version ${String(baseline.version)}, this harness writes version ${BASELINE_FILE_VERSION}`,
+    );
+  }
+  if (baseline.harnessVersion !== run.harnessVersion) {
+    refusals.push(
+      `baseline harnessVersion ${String(baseline.harnessVersion)}, current harness v${run.harnessVersion}` +
+        ' — the metric definitions differ, so the numbers are not comparable',
+    );
+  }
+  const baselineLanes = [...(baseline.lanes ?? [])].sort().join(',') || '(none)';
+  const currentLanes = [...run.lanes].sort().join(',') || '(none)';
+  if (baselineLanes !== currentLanes) {
+    refusals.push(
+      `baseline measured lanes [${baselineLanes}], this run measured [${currentLanes}]`,
+    );
+  }
+  const baselineCorpus = (baseline.corpus ?? null) || '(undeclared)';
+  const currentCorpus = run.corpus ?? '(undeclared)';
+  if (baselineCorpus !== currentCorpus) {
+    refusals.push(`baseline corpus '${baselineCorpus}', this run corpus '${currentCorpus}'`);
+  }
+
+  if (refusals.length > 0) {
+    return {
+      status: 'refused',
+      reason: refusals.join('; '),
+      text: [
+        '=== Diff vs baseline: REFUSED ===',
+        ...refusals.map((line) => `  - ${line}`),
+        REGENERATE_HINT,
+      ].join('\n'),
+    };
+  }
+
   const lines = [
-    `=== Diff vs baseline (${baseline.timestamp}) ===`,
-    `baseline lanes: ${baseline.lanes.join(', ') || '(none)'}`,
+    `=== Diff vs baseline (${baseline.timestamp}, harness v${baseline.harnessVersion}) ===`,
+    `baseline lanes: ${baselineLanes}   corpus: ${baselineCorpus}`,
     `${'metric'.padEnd(24)}${'baseline'.padStart(12)}${'current'.padStart(12)}${'delta'.padStart(12)}`,
   ];
   for (const row of METRIC_ROWS) {
     const before = baseline.metrics[row.key];
-    const after = current[row.key];
+    const after = run.metrics[row.key];
     lines.push(
       `${row.label.padEnd(24)}${formatMetricValue(before, row.unit).padStart(12)}` +
         `${formatMetricValue(after, row.unit).padStart(12)}` +
@@ -935,9 +1609,55 @@ export function formatBaselineDiff(current: EvalMetrics, baseline: KnowledgeEval
   }
   lines.push(
     `${'personaFreshness'.padEnd(24)}${baseline.metrics.personaFreshness.padStart(12)}` +
-      `${current.personaFreshness.padStart(12)}`,
+      `${run.metrics.personaFreshness.padStart(12)}`,
   );
-  return lines.join('\n');
+  return { status: 'compared', text: lines.join('\n') };
+}
+
+// ─── unifiedSearch wiring ───
+
+/** `unifiedSearch()`'s lane names → this harness's. */
+export function toEvalLane(lane: 'message' | 'memory' | 'knowledge'): EvalLane {
+  if (lane === 'message') return 'messages';
+  if (lane === 'memory') return 'memories';
+  return 'knowledge';
+}
+
+/**
+ * Narrow a `unifiedSearch()` result to what the harness scores.
+ *
+ * `lanes` is the set the caller actually requested: `unifiedSearch()` always
+ * reports all three lanes, so its own map cannot distinguish "the knowledge
+ * lane ran and found nothing" from "it was never wired" — and that difference
+ * is what the report is required to state.
+ */
+export function toEvalSearchResult(
+  fused: {
+    hits: Array<{ lane: 'message' | 'memory' | 'knowledge'; ref: string; snippet: string }>;
+    lanes: Record<
+      'message' | 'memory' | 'knowledge',
+      { hits: number; dropped: number; error?: string }
+    >;
+  },
+  lanes: readonly ('message' | 'memory' | 'knowledge')[],
+): EvalSearchResult {
+  const reports: Partial<Record<EvalLane, EvalLaneRun>> = {};
+  for (const lane of lanes) {
+    const report = fused.lanes[lane];
+    reports[toEvalLane(lane)] = {
+      hits: report.hits,
+      dropped: report.dropped,
+      ...(report.error === undefined ? {} : { error: report.error }),
+    };
+  }
+  return {
+    hits: fused.hits.map((hit) => ({
+      lane: toEvalLane(hit.lane),
+      id: hit.ref,
+      text: hit.snippet,
+    })),
+    lanes: reports,
+  };
 }
 
 // ─── CLI ───
@@ -945,43 +1665,63 @@ export function formatBaselineDiff(current: EvalMetrics, baseline: KnowledgeEval
 interface CliOptions {
   baseline: boolean;
   help: boolean;
+  corpus: string | null;
 }
 
 function parseCliArgs(argv: string[]): CliOptions {
-  const options: CliOptions = { baseline: false, help: false };
-  for (const arg of argv) {
+  const options: CliOptions = { baseline: false, help: false, corpus: null };
+  for (let index = 0; index < argv.length; index++) {
+    const arg = argv[index];
     if (arg === '--baseline') options.baseline = true;
     else if (arg === '--help' || arg === '-h') options.help = true;
-    else throw new Error(`unknown option: ${arg} (try --help)`);
+    else if (arg === '--corpus') {
+      const value = argv[index + 1];
+      if (value === undefined || value.startsWith('-')) {
+        throw new Error('--corpus needs a label (e.g. --corpus dev-machine)');
+      }
+      options.corpus = value;
+      index++;
+    } else if (arg.startsWith('--corpus=')) {
+      options.corpus = arg.slice('--corpus='.length);
+    } else throw new Error(`unknown option: ${arg} (try --help)`);
   }
   return options;
 }
 
-const CLI_HELP = `Usage: tsx src/memory/eval/knowledge-eval.ts [--baseline]
+const CLI_HELP = `Usage: tsx src/memory/eval/knowledge-eval.ts [--baseline] [--corpus <label>]
 
-  (no flag)   run the three datasets and diff the metrics against the newest
-              ${BASELINE_DIR}/baseline-<date>.json
-  --baseline  run and archive the report as ${BASELINE_DIR}/baseline-<date>.json
-  --help      this text
+  (no flag)        run the three datasets through unifiedSearch() (message +
+                   memory + knowledge lanes fused) and diff the metrics against
+                   the newest ${BASELINE_DIR}/baseline-<date>.json
+  --baseline       run and archive the report as ${BASELINE_DIR}/baseline-<date>.json
+  --corpus <label> declare which corpus this run measures; the shipped datasets
+                   were quoted from 'dev-machine'. A corpus-specific dataset run
+                   on another corpus reports "not applicable" instead of 0%.
+  --help           this text
 
-The run measures the lane that the app actually injects today (auto-recall over
-\`memories\`). Message retrieval (K1) and knowledge pages (K2) have no
-implementation yet, so those lanes are reported as "not wired" and contribute
-nothing to the injected union — the episodic number is therefore the honest
-baseline of the current stack, not a skipped measurement.
+Exit codes: 0 = the run completed (including a refused diff — the diff refuses
+loudly when the baseline came from another harness version, lane set or corpus),
+1 = the run itself failed.
+
+The measured object is the fused top-${DEFAULT_TOP_K} that unifiedSearch() returns,
+i.e. what the agent actually injects — not one lane. Per-lane attribution is in
+the report so a regression has an owner.
 `;
 
 interface LiveEvalContext {
   databasePath: string;
-  options: RunKnowledgeEvalOptions;
+  options: Omit<RunKnowledgeEvalOptions, 'datasetDir' | 'corpus'>;
+  /** Lanes the context actually wired, for the honest status line. */
+  lanes: string[];
   close: () => void;
 }
 
 /**
- * Wires the memory lane exactly the way `bootstrap()` does
- * (`src/app/composers/memory-services.ts`): same retriever, same config values.
- * Loaded through dynamic imports so importing this module in a test does not
- * open `config.yaml`, SQLite or pino.
+ * Wires the same stack `bootstrap()` does (`src/app/composers/memory-services.ts`):
+ * one database handle, the hybrid memory retriever, the knowledge service when
+ * `knowledge.enabled`, all fused by `unifiedSearch()` exactly as `/api/search`
+ * and `session_search` fuse them. Loaded through dynamic imports so importing
+ * this module in a test does not open `config.yaml`, SQLite or pino.
  */
 async function createLiveEvalContext(): Promise<LiveEvalContext> {
   await import('dotenv/config');
@@ -996,6 +1736,8 @@ async function createLiveEvalContext(): Promise<LiveEvalContext> {
     { CircuitBreaker },
     { createEmbeddingClient },
     { parseEpochMs },
+    { unifiedSearch },
+    { createKnowledgeService },
   ] = await Promise.all([
     import('../../app/config.js'),
     import('../db.js'),
@@ -1007,6 +1749,8 @@ async function createLiveEvalContext(): Promise<LiveEvalContext> {
     import('../circuit-breaker.js'),
     import('../../provider/embedding-client.js'),
     import('../../shared/timestamp.js'),
+    import('../unified-search.js'),
+    import('../knowledge/service.js'),
   ]);
 
   const config = loadConfig();
@@ -1052,6 +1796,19 @@ async function createLiveEvalContext(): Promise<LiveEvalContext> {
     searchConcurrency: config.performance?.embeddingApiConcurrency ?? 8,
   });
 
+  const knowledgeService = config.knowledge?.enabled
+    ? createKnowledgeService({
+        db,
+        config: {
+          enabled: config.knowledge.enabled,
+          requireSources: config.knowledge.curate.requireSources,
+          minMemoryConfidence: config.knowledge.curate.minMemoryConfidence,
+          shadow: config.knowledge.curate.shadow,
+          logRetentionDays: config.knowledge.logRetentionDays,
+        },
+      })
+    : undefined;
+
   const statusStatement = db.prepare('SELECT status FROM memories WHERE id = ?');
   // Rows that live in `memories` but are not retrievable knowledge: the persona
   // blob (injected separately as `<persona>`, so counting it here both double
@@ -1074,15 +1831,35 @@ async function createLiveEvalContext(): Promise<LiveEvalContext> {
     )
     .get() as { updated_at?: unknown } | undefined;
 
+  const requested: Array<'message' | 'memory' | 'knowledge'> = ['message', 'memory'];
+  if (knowledgeService) requested.push('knowledge');
+
+  const search: EvalSearchFn = async (query, topK) => {
+    const fused = await unifiedSearch({
+      query,
+      limit: topK,
+      perLaneLimit: topK,
+      lanes: requested,
+      messages: { db },
+      memories: {
+        retriever: {
+          retrieve: async (retrieval) => {
+            const memories = await retriever.retrieve(retrieval);
+            return memories.filter((memory) => !alwaysOnIds.has(memory.id));
+          },
+        },
+        agentId: 'default',
+      },
+      ...(knowledgeService ? { knowledge: { service: knowledgeService } } : {}),
+    });
+    return toEvalSearchResult(fused, requested);
+  };
+
   return {
     databasePath,
+    lanes: [...requested],
     options: {
-      retrieveMemories: async (query, topK) => {
-        const memories = await retriever.retrieveGrouped({ query, agentId: 'default', topK });
-        return memories
-          .filter((memory) => !alwaysOnIds.has(memory.id))
-          .map((memory) => ({ id: memory.id, text: memory.content }));
-      },
+      search,
       statusLookup: (memoryId) => {
         const row = statusStatement.get(memoryId) as { status?: string } | undefined;
         return row?.status ?? null;
@@ -1105,11 +1882,13 @@ async function runKnowledgeEvalCli(argv: string[]): Promise<number> {
   try {
     console.log(`database: ${live.databasePath}`);
     console.log(
-      'memory lane: auto-recall retrieveGrouped(topK=5), persona/hygiene rows excluded (always-on context)',
+      `lanes requested: ${live.lanes.join(', ')}` +
+        (live.lanes.includes('knowledge') ? '' : ' (knowledge.enabled is false)'),
     );
     const run = await runKnowledgeEval({
       ...live.options,
       datasetDir: KNOWLEDGE_EVAL_DATASET_DIR,
+      corpus: options.corpus,
       logger: (line) => console.log(line),
     });
 
@@ -1126,7 +1905,8 @@ async function runKnowledgeEvalCli(argv: string[]): Promise<number> {
       console.log(`no baseline in ${BASELINE_DIR}/ — run once with --baseline to create one`);
       return 0;
     }
-    console.log(formatBaselineDiff(run.metrics, loadBaseline(latest)));
+    const diff = formatBaselineDiff(run, loadBaseline(latest));
+    console.log(diff.text);
     return 0;
   } finally {
     live.close();

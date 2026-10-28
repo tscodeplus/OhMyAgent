@@ -3,6 +3,8 @@ import { AgentService } from '../../src/agent/agent-service.js';
 import type { AgentFactory } from '../../src/agent/agent-factory.js';
 import type { ReplyDispatcher } from '../../src/app/types.js';
 import { activeSkillFeedbackIds } from '../../src/agent/skill-activator.js';
+import { createTransformContext } from '../../src/agent/context-transform.js';
+import { memoryObservability } from '../../src/memory/observability.js';
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -206,11 +208,68 @@ describe('AgentService', () => {
     );
   });
 
+  it('credits an injected memory the finished answer quotes', async () => {
+    // End-to-end over the turn-end seam: the transform publishes the offer, the
+    // service's `turn_end` listener reads the answer, and the correlation row
+    // names the memory. The reader is not told the agent id — it resolves the
+    // scope key the build published, which is the whole reason that key is
+    // published at all.
+    const transform = createTransformContext({
+      maxMessages: 5,
+      sessionKey: 'default',
+      agentId: 'agent-turn-end',
+      memoryRetriever: {
+        retrieveGrouped: async () => [
+          {
+            id: 'mem-quoted',
+            content: '用户偏好简洁回复，不要长篇大论',
+            scope: 'user',
+            kind: 'preference',
+            score: 0.9,
+            createdAt: 1,
+          },
+        ],
+        retrieve: async () => [],
+      } as any,
+    });
+    await transform([{ role: 'user', content: '写一个排序函数' }]);
+
+    const record = vi.spyOn(memoryObservability, 'record');
+    try {
+      await service.execute('现在直接给结论');
+
+      factory.agent._emit({
+        type: 'turn_end',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: '当然，你说过不要长篇大论，这就是结论。' }],
+        },
+        toolResults: [],
+      });
+
+      const referenced = record.mock.calls.filter(
+        (call) => call[0] === 'memory.injection.referenced',
+      );
+      expect(referenced).toHaveLength(1);
+      expect(referenced[0]![1]).toEqual({
+        lane: 'memories',
+        toolName: 'assistant_message',
+        knowledgeSlugs: [],
+        memoryIds: ['mem-quoted'],
+        messageIds: [],
+      });
+    } finally {
+      record.mockRestore();
+    }
+  });
+
   it('execute() subscribes to agent events via EventBridge', async () => {
     await service.execute('test');
 
-    // EventBridge.start() + the activity-based turn watchdog each subscribe
-    expect(factory.agent.subscribe).toHaveBeenCalledTimes(2);
+    // EventBridge.start() + the activity-based turn watchdog each subscribe, and
+    // the turn-end injection reference reader is registered on the agent itself
+    // when the runtime is built.
+    expect(factory.agent.subscribe).toHaveBeenCalledTimes(3);
   });
 
   // ------------------------------------------------------------------ execute: dispatcher lifecycle
@@ -563,8 +622,9 @@ describe('AgentService', () => {
     // (bridge.start) and the bridge is cleaned up in finally block.
     await service.execute('test');
 
-    // EventBridge + turn watchdog listeners are both removed after the run
-    expect(factory.agent.subscribe).toHaveBeenCalledTimes(2);
+    // EventBridge + turn watchdog listeners are both removed after the run; the
+    // runtime's injection reference reader stays on the agent with the runtime.
+    expect(factory.agent.subscribe).toHaveBeenCalledTimes(3);
     expect(service.isRunning()).toBe(false);
   });
 
@@ -573,7 +633,7 @@ describe('AgentService', () => {
 
     await expect(service.execute('test')).rejects.toThrow('boom');
 
-    expect(factory.agent.subscribe).toHaveBeenCalledTimes(2);
+    expect(factory.agent.subscribe).toHaveBeenCalledTimes(3);
     expect(service.isRunning()).toBe(false);
   });
 

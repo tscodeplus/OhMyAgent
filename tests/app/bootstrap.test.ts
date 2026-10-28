@@ -368,6 +368,10 @@ vi.mock('../../src/commands/command-handler.js', () => ({
   // The scheduler composer hands the knowledge curator to the /knowledge
   // command through this resolver (§6 K2-5 entry 2), so the mock must expose it.
   setKnowledgeCuratorResolver: vi.fn(),
+  // The memory composer registers the share trigger against this same resolver
+  // (§6 K2-5, third entry point); `undefined` is "no curator wired", i.e. the
+  // trigger is inert in this test.
+  currentKnowledgeCurator: vi.fn(() => undefined),
 }));
 
 vi.mock('../../extensions/channel-feishu/chat-queue.js', () => ({

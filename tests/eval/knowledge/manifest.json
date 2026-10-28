@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "datasets": {
+    "episodic": {
+      "corpus": "dev-machine",
+      "note": "expectedMessageIds are rows of the authoring machine's data/app.db; on another corpus the goldens cannot exist, so the dataset reports not-applicable instead of 0%."
+    },
+    "semantic": {
+      "corpus": "dev-machine",
+      "note": "expectedMemoryIds and expectedKeywords are quoted from the authoring machine's memories table."
+    },
+    "preference": {
+      "corpus": "dev-machine",
+      "note": "mustContain/mustNotContain are literal wordings of that corpus's preference rows."
+    }
+  }
+}

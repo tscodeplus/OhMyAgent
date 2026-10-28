@@ -255,6 +255,30 @@ export interface AppConfig {
       windowDays: number;
       minMemories: number;
     };
+    /**
+     * Entity/relation extraction (`entity_backfill`, `MemoryWriter`). Inner keys
+     * are snake_case on purpose, matching `memory.entity_extraction` in
+     * config.yaml and the block the loader passes through.
+     */
+    entityExtraction?: {
+      /** false = deterministic mentions only, no model call. */
+      llm: boolean;
+      /** Hard cap on model calls per maintenance run. */
+      max_memories_per_run: number;
+      /** Model relations below this confidence are dropped. */
+      min_confidence: number;
+    };
+    /**
+     * Provenance backfill (`provenance_backfill`). Inner keys are snake_case on
+     * purpose, matching `memory.provenance_backfill` in config.yaml and the
+     * block the loader passes through.
+     */
+    provenanceBackfill?: {
+      /** Off switch: false = the job reports `skipped` and writes nothing. */
+      enabled: boolean;
+      /** Hard cap on memories probed per maintenance run. */
+      max_memories_per_run: number;
+    };
     /** Knowledge-graph projection of `memory_links` (src/graph/graph-sync.ts). */
     graph?: {
       enabled: boolean;
@@ -276,6 +300,8 @@ export interface AppConfig {
         terms_backfill: boolean;
         embedding_cache_trim: boolean;
         entity_backfill: boolean;
+        /** Content-matched source messages (`memory.provenance_backfill`). */
+        provenance_backfill: boolean;
         persona_consistency: boolean;
         offload_hygiene: boolean;
         scene_cluster: boolean;

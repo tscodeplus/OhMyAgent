@@ -44,6 +44,8 @@ import { buildFriendlyErrorMessage } from './provider-error.js';
 import { recoverFromOverflow } from './overflow-recovery.js';
 import { waitForIdleWithTimeout } from '../shared/with-timeout.js';
 import { subscribeToolRunAudit } from './tool-audit.js';
+import { readInjectionReferences } from './context-transform.js';
+import { extractText } from '../shared/text-extract.js';
 import { activeSkillFeedbackIds } from './skill-activator.js';
 import { inferSatisfaction } from '../skills/skill-evolution/skill-metrics.js';
 import type { HarnessServices } from '../harness/factory.js';
@@ -479,6 +481,7 @@ export class AgentService {
           this.persistence.toolRunRepository,
         );
       }
+      this.subscribeInjectionReferences(runtime.agent, sessionId);
       this.runtimes.set(sessionId, runtime);
       this.enforceRuntimeBudget(sessionId);
     } else if (options?.channel) {
@@ -505,6 +508,7 @@ export class AgentService {
           this.persistence.toolRunRepository,
         );
       }
+      this.subscribeInjectionReferences(runtime.agent, sessionId);
     }
 
     // Create a fresh dispatcher and bridge for each turn (new card per message)
@@ -1764,6 +1768,39 @@ export class AgentService {
     toolRunRepository: ToolRunRepository,
   ): () => void {
     return subscribeToolRunAudit(agent, sessionId, toolRunRepository);
+  }
+
+  /**
+   * Run the injection reference check at every assistant turn end.
+   *
+   * Plan §6 K0 item 3, ②「是否被引用」 covers three lanes; the knowledge lane is
+   * reported by `knowledge_get` (agent-factory's `afterToolCall`), but memories
+   * and excerpts have no tool that reads them back, so the only evidence they
+   * were used is the answer itself. The transform returns before the answer
+   * exists, which is why this has to be a turn-end reader rather than part of
+   * the prompt build.
+   *
+   * The listener lives on the Agent, so it is registered once per Agent instance
+   * and dies with it — every path that builds a new one subscribes next to its
+   * audit subscription. It is synchronous and cheap (bounded offers, bounded
+   * answer window) and swallows its own errors: a metric must never fail a turn.
+   */
+  private subscribeInjectionReferences(agent: Agent, sessionId: string): () => void {
+    return agent.subscribe((event) => {
+      if (event.type !== 'turn_end') return;
+      try {
+        readInjectionReferences({
+          agentId: this.sessionAgentMap.get(sessionId),
+          sessionKey: sessionId,
+          answerText: extractText((event.message as { content?: unknown } | undefined)?.content),
+        });
+      } catch (err) {
+        this.persistence?.logger?.debug(
+          { err, sessionId },
+          'Injection reference read failed — metric skipped',
+        );
+      }
+    });
   }
 
   /**

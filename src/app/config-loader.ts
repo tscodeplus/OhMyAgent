@@ -212,6 +212,8 @@ function buildMemorySection(memCfg: YamlNode): Record<string, unknown> {
   const personaCfg = memCfg?.persona as YamlNode;
   const sceneCfg = memCfg?.scene_clustering as YamlNode;
   const graphCfg = memCfg?.graph as YamlNode;
+  const entityExtractionCfg = memCfg?.entity_extraction as YamlNode;
+  const provenanceBackfillCfg = memCfg?.provenance_backfill as YamlNode;
   const compressCfg = memCfg?.auto_compress as YamlNode;
   const compressModelCfg = compressCfg?.model as YamlNode;
 
@@ -341,6 +343,37 @@ function buildMemorySection(memCfg: YamlNode): Record<string, unknown> {
       windowDays: num(sceneCfg?.window_days, 7, 'sceneCfg?.window_days'),
       minMemories: num(sceneCfg?.min_memories, 5, 'sceneCfg?.min_memories'),
     },
+    // Entity/relation extraction (`entity_backfill`). Snake_case inner keys, for
+    // the same reason as `graph` below: the YAML spelling is what the job's
+    // config schema declares, and camelCasing it here would silently fall back
+    // to the defaults. The key labels are dot paths so the startup error names
+    // `memory.entity_extraction.<key>` (`yamlKeyFromLabel` maps `memCfg`; a
+    // `?`-style label would reach it as one unmapped segment).
+    entityExtraction: {
+      llm: yamlBool(entityExtractionCfg?.llm, true, 'memCfg.entity_extraction.llm'),
+      max_memories_per_run: num(
+        entityExtractionCfg?.max_memories_per_run,
+        5,
+        'memCfg.entity_extraction.max_memories_per_run',
+      ),
+      min_confidence: num(
+        entityExtractionCfg?.min_confidence,
+        0.6,
+        'memCfg.entity_extraction.min_confidence',
+      ),
+    },
+    // Provenance backfill (`provenance_backfill`). Snake_case inner keys for the
+    // same reason as `entity_extraction`: the YAML spelling is what the job's
+    // config schema declares, and camelCasing it here would silently fall back
+    // to the defaults — the failure mode this section already hit once.
+    provenanceBackfill: {
+      enabled: yamlBool(provenanceBackfillCfg?.enabled, true, 'memCfg.provenance_backfill.enabled'),
+      max_memories_per_run: num(
+        provenanceBackfillCfg?.max_memories_per_run,
+        20,
+        'memCfg.provenance_backfill.max_memories_per_run',
+      ),
+    },
     // Knowledge-graph projection (src/graph/graph-sync.ts). Keys stay
     // snake_case here on purpose: unlike the rest of this section, this block
     // is read back as snake_case by src/graph/graph-config.ts and declared
@@ -401,6 +434,11 @@ function buildMemorySection(memCfg: YamlNode): Record<string, unknown> {
           memCfg?.maintenance?.jobs?.entity_backfill,
           true,
           'memCfg?.maintenance?.jobs?.entity_backfill',
+        ),
+        provenance_backfill: yamlBool(
+          memCfg?.maintenance?.jobs?.provenance_backfill,
+          true,
+          'memCfg?.maintenance?.jobs?.provenance_backfill',
         ),
         persona_consistency: yamlBool(
           memCfg?.maintenance?.jobs?.persona_consistency,
@@ -1838,13 +1876,19 @@ export function jsConfigToYaml(
         for (const [jsKey, yamlKey] of Object.entries(memTopMap)) {
           if (mem[jsKey] !== undefined) m[yamlKey] = mem[jsKey];
         }
-        // Sub-sections
+        // Sub-sections. `entityExtraction`, `provenanceBackfill` and `graph`
+        // carry snake_case inner keys in AppConfig (the loader passes them
+        // through as YAML spellings), so the spread below round-trips them
+        // verbatim.
         for (const sub of [
           'hygiene',
           'persona',
           'sceneClustering',
           'maintenance',
           'autoCompress',
+          'entityExtraction',
+          'provenanceBackfill',
+          'graph',
         ]) {
           if (mem[sub]) {
             const subMap: Record<string, string> = {
@@ -1853,6 +1897,9 @@ export function jsConfigToYaml(
               sceneClustering: 'scene_clustering',
               maintenance: 'maintenance',
               autoCompress: 'auto_compress',
+              entityExtraction: 'entity_extraction',
+              provenanceBackfill: 'provenance_backfill',
+              graph: 'graph',
             };
             m[subMap[sub]] = {
               ...((m[subMap[sub]] as Record<string, unknown>) || {}),

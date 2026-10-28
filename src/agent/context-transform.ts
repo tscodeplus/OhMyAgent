@@ -189,19 +189,35 @@ const autoRecalledSessions = new LRUCache<string, true>({ max: 2000 });
  * consume-on-hit (an id is credited to the build that offered it, once, and a
  * stale offer is dropped rather than handed to a later turn).
  *
- * Bounded three ways, because this lives as long as the process does: one LRU
- * entry per session (`max`), a 15-minute TTL, and ids only — each lane's array
- * is already capped by that lane's item cap at build time.
+ * Bounded four ways, because this lives as long as the process does: one LRU
+ * entry per session (`max`), a 15-minute TTL, each lane's array capped by that
+ * lane's item cap at build time, and at most two ≤60-character evidence
+ * fragments per item (see `referenceFragments`) — ~1 KB per session, never a
+ * copy of the injected text.
  */
 interface InjectedOffer {
-  memories: string[];
-  messages: string[];
-  knowledge: string[];
+  memories: InjectionOfferItem[];
+  messages: InjectionOfferItem[];
+  knowledge: InjectionOfferItem[];
 }
 const injectedOfferBySession = new LRUCache<string, InjectedOffer>({
   max: 2000,
   ttl: 15 * 60_000,
 });
+/**
+ * The scope key each session's last build published under.
+ *
+ * The turn-end reader (`readInjectionReferences`) is called from agent-service,
+ * which knows the session but not the effective agent id — the factory derives
+ * that from the resolved agent config, and `options.agentId` is unset on the
+ * ordinary IM path. Rather than guess, the build records the key it used and the
+ * reader resolves through it. Same bounds as the registry it points into.
+ */
+const publishedInjectionScope = new LRUCache<string, string>({
+  max: 2000,
+  ttl: 15 * 60_000,
+});
+
 /** Snapshot-mode memory retrieval results, keyed by agentId:session. */
 const snapshotMemoryCache = new LRUCache<string, RetrievedMemory[]>({
   max: 500,
@@ -214,6 +230,112 @@ const desktopBridgeInjectedSessions = new LRUCache<string, true>({ max: 2000 });
 const lastCompressedIndexBySession = new LRUCache<string, number>({ max: 500 });
 const lastCompressionSummaryBySession = new LRUCache<string, string>({ max: 500 });
 
+// ── Reference tracking: what "an injected item was used" means ──────────────
+
+/**
+ * One injected item as the reference check sees it: the id the telemetry names,
+ * and the literal fragments of the text that reached the prompt.
+ *
+ * Fragments are extracted at build time from the item's own text (memory
+ * content, excerpt) rather than from the rendered block, so the block's headers
+ * — date, channel, `user:` — never become evidence. The knowledge lane carries
+ * none: a page is matched by slug, which is exact and needs no text.
+ */
+interface InjectionOfferItem {
+  id: string;
+  fragments: string[];
+}
+
+/**
+ * Minimum length of a fragment that may be called evidence of use, measured
+ * after normalisation.
+ *
+ * Below this a match is a coincidence: "用户", "the user", "ok", "TypeScript"
+ * all appear in answers for reasons unrelated to what was injected. Every
+ * fragment that clears the floor is also a whole clause (the extractor splits on
+ * punctuation), which is what makes a literal substring match evidence rather
+ * than a guess.
+ */
+const REFERENCE_FRAGMENT_MIN_CHARS = 6;
+
+/** Longest fragment kept: an answer quoting a phrase quotes its head, not 200 characters of it. */
+const REFERENCE_FRAGMENT_MAX_CHARS = 60;
+
+/** Fragments kept per item, longest first. */
+const REFERENCE_FRAGMENTS_PER_ITEM = 2;
+
+/** Offers examined per lane at turn end — a build caps at 5/2/2, this is the belt. */
+const REFERENCE_MAX_ITEMS_PER_LANE = 8;
+
+/**
+ * Answer characters scanned at turn end.
+ *
+ * A hit test does not need the whole reply: a fragment quoted 20 KB into an
+ * answer is worth less than the cost of scanning every enormous answer the
+ * gateway ever produces, and the cap keeps the scan O(1) in reply length.
+ */
+const REFERENCE_MAX_ANSWER_CHARS = 20_000;
+
+/**
+ * `toolName` recorded when the answer text, not a tool call, proved the
+ * reference. The payload's field names the consumer that acted on the offer;
+ * the memory and message lanes have no tool to name, so it names the consumer.
+ */
+const ANSWER_REFERENCE_CONSUMER = 'assistant_message';
+
+/**
+ * Normalise text for the reference check — case-folded, inner whitespace
+ * collapsed, trimmed.
+ *
+ * The fragment extracted at build time and the answer scanned at turn end go
+ * through this same function, for the reason the id matcher trims both sides
+ * before comparing: two normalisations would mean a fragment that exists
+ * verbatim in the answer is not found, and the miss would be invisible.
+ */
+function normalizeReferenceText(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * The fragments of `text` that could prove it was read.
+ *
+ * Clauses, not words: the text is split on sentence/clause punctuation and
+ * newlines and only pieces long enough to be distinctive survive, longest
+ * first. A word ("Excel") is a topic the memory and the answer can share with
+ * no causal link; "批量替换用的是 python" is a statement that can only come from
+ * the injected text. The rule is therefore deliberately lossy — a memory the
+ * answer paraphrases is *not* counted — because a false "it was used" makes the
+ * metric a lie, while a missing datapoint only costs a datapoint.
+ *
+ * Known residual risk: punctuation and spacing must match, so an answer that
+ * re-punctuates a quoted clause is missed; and a clause of ≥6 characters that a
+ * task answer cannot avoid (a product name, a file path) can match without the
+ * model having read the injection.
+ */
+function referenceFragments(text: string | undefined): string[] {
+  if (!text) return [];
+  return normalizeReferenceText(text)
+    .split(/[。；;，,、!！?？.:：\n\r]+/)
+    .map((fragment) => fragment.trim().slice(0, REFERENCE_FRAGMENT_MAX_CHARS))
+    .filter((fragment) => isStatementFragment(fragment))
+    .sort((a, b) => b.length - a.length)
+    .slice(0, REFERENCE_FRAGMENTS_PER_ITEM);
+}
+
+/**
+ * Is this clause more than a term?
+ *
+ * Both tests are about the same thing from two directions: a fragment has to be
+ * a statement. Unspaced scripts say that with length alone ("不要长篇大论" is
+ * six characters of clause), while a space-separated script needs at least two
+ * words in it — a lone `TypeScript` is a topic the answer may name for its own
+ * reasons, and crediting a memory for it would be a false positive.
+ */
+function isStatementFragment(fragment: string): boolean {
+  if (fragment.length < REFERENCE_FRAGMENT_MIN_CHARS) return false;
+  if (/\p{Script=Han}/u.test(fragment)) return (fragment.match(/\p{L}/gu) ?? []).length >= 3;
+  return fragment.split(' ').filter((word) => word !== '').length >= 2;
+}
 function isMemoryRelevantRequest(text: string): boolean {
   return MEMORY_RELEVANT_PATTERNS.some((pattern) => pattern.test(text));
 }
@@ -614,6 +736,12 @@ interface InjectionCandidate {
   text: string;
   /** Ids this entry contributes to its lane's telemetry row (ids only). */
   ids: string[];
+  /**
+   * The item's own text (excerpt), from which the reference check extracts its
+   * evidence fragments. Never rendered: the block text above carries headers
+   * that must not become evidence.
+   */
+  referenceText?: string;
 }
 
 /**
@@ -716,9 +844,9 @@ function blockTag(lane: InjectedBlockLane): 'recent_conversation' | 'knowledge_a
 type InjectionLane = 'memories' | 'messages' | 'knowledge';
 
 interface TurnInjection {
-  /** Ids this prompt build injected, per lane. Ids only — never text. */
-  ids: Record<InjectionLane, string[]>;
-  /** Items rendered into the block; `ids` is shorter when an item carries none. */
+  /** What this build offered, per lane, as the reference check sees it. */
+  offer: Record<InjectionLane, InjectionOfferItem[]>;
+  /** Items rendered into the block; `offer` is shorter when an item carries no id. */
   itemCounts: Record<InjectionLane, number>;
   /** Estimated tokens per lane, measured on the block as built. */
   tokens: Record<InjectionLane, number>;
@@ -732,7 +860,7 @@ interface TurnInjection {
 
 function newTurnInjection(): TurnInjection {
   return {
-    ids: { memories: [], messages: [], knowledge: [] },
+    offer: { memories: [], messages: [], knowledge: [] },
     itemCounts: { memories: 0, messages: 0, knowledge: 0 },
     tokens: { memories: 0, messages: 0, knowledge: 0 },
     latencyMs: { memories: 0, messages: 0, knowledge: 0 },
@@ -744,9 +872,14 @@ function newTurnInjection(): TurnInjection {
 function recordInjectedLane(
   injection: TurnInjection,
   lane: InjectionLane,
-  injected: { ids: string[]; itemCount: number; block: string; latencyMs: number },
+  injected: {
+    offer: InjectionOfferItem[];
+    itemCount: number;
+    block: string;
+    latencyMs: number;
+  },
 ): void {
-  injection.ids[lane] = injected.ids;
+  injection.offer[lane] = injected.offer;
   injection.itemCounts[lane] = injected.itemCount;
   injection.tokens[lane] = Math.ceil(estimateTokensForText(injected.block));
   injection.latencyMs[lane] = Math.round(injected.latencyMs);
@@ -762,16 +895,23 @@ function recordInjectedLane(
  *
  * Also republishes the offer for `recordInjectionReference` — every lane, not
  * just knowledge — and clears it when nothing was injected: a later reader must
- * never be credited to an older prompt build's offer.
+ * never be credited to an older prompt build's offer. The scope key the build
+ * used is published per session so the turn-end reader, which does not know the
+ * effective agent id, can resolve back to this entry.
  */
-function reportTurnInjection(injection: TurnInjection, scopeKey: string): void {
+function reportTurnInjection(
+  injection: TurnInjection,
+  scopeKey: string,
+  sessionKey: string | undefined,
+): void {
   const offer: InjectedOffer = {
-    memories: [...injection.ids.memories],
-    messages: [...injection.ids.messages],
-    knowledge: [...injection.ids.knowledge],
+    memories: injection.offer.memories,
+    messages: injection.offer.messages,
+    knowledge: injection.offer.knowledge,
   };
   if (offer.memories.length + offer.messages.length + offer.knowledge.length > 0) {
     injectedOfferBySession.set(scopeKey, offer);
+    publishedInjectionScope.set(sessionKey || 'default', scopeKey);
   } else {
     injectedOfferBySession.delete(scopeKey);
   }
@@ -779,9 +919,9 @@ function reportTurnInjection(injection: TurnInjection, scopeKey: string): void {
   const totalTokens =
     injection.tokens.memories + injection.tokens.messages + injection.tokens.knowledge;
   memoryObservability.record('memory.injection', {
-    memoryIds: injection.ids.memories,
-    knowledgeSlugs: injection.ids.knowledge,
-    messageIds: injection.ids.messages,
+    memoryIds: offer.memories.map((item) => item.id),
+    knowledgeSlugs: offer.knowledge.map((item) => item.id),
+    messageIds: offer.messages.map((item) => item.id),
     itemCounts: {
       memories: injection.itemCounts.memories,
       messages: injection.itemCounts.messages,
@@ -819,13 +959,12 @@ function isSameKnowledgeSlug(offered: string, ref: string): boolean {
  * Record that a consumer acted on something this session's last prompt build
  * injected (plan §6 K0 item 3, ②「是否被引用」), for any of the three lanes.
  *
- * The knowledge lane is the one with an in-repo caller today (`knowledge_get`
- * reads a page back, and `agent-factory` reports the ref from `afterToolCall`),
- * because that is the only lane whose content the model can explicitly ask for
- * again. The mechanism itself is lane-agnostic: a consumer that can prove it
- * used an injected memory or excerpt — a tool returning the ids it read — passes
- * that lane and its ids here, and gets the same event. `lane` defaults to
- * `knowledge` so the existing call site is unchanged.
+ * Two kinds of caller exist. A tool that reads an offer back (`knowledge_get`,
+ * reported from `agent-factory`'s `afterToolCall`) names the ids it acted on and
+ * passes them here. A turn-end reader (`readInjectionReferences`) has no tool to
+ * quote, so it proves use from the answer text and calls the same emitter.
+ * Between them all three lanes are covered: the knowledge lane by slug, the
+ * memory and message lanes by literal fragment.
  *
  * Calling this with an id that was not offered — or offering the same id twice
  * in one build — records nothing.
@@ -853,27 +992,116 @@ export function recordInjectionReference(params: {
   for (const ref of params.refs) {
     const trimmed = ref.trim();
     if (trimmed === '') continue;
-    for (const id of offered) {
-      const matches = lane === 'knowledge' ? isSameKnowledgeSlug(id, trimmed) : id === trimmed;
-      if (matches) referenced.add(id);
+    for (const item of offered) {
+      const matches =
+        lane === 'knowledge' ? isSameKnowledgeSlug(item.id, trimmed) : item.id === trimmed;
+      if (matches) referenced.add(item.id);
     }
   }
   if (referenced.size === 0) return;
+
+  recordReferencedIds(scopeKey, offer, lane, params.toolName, Array.from(referenced));
+}
+
+/**
+ * Consume the referenced ids from an offer and emit the correlation row.
+ *
+ * Shared by both producers so "matched, consumed, recorded" cannot drift apart:
+ * the tool path passes ids it matched, the turn-end path passes ids whose
+ * fragments it found in the answer.
+ */
+function recordReferencedIds(
+  scopeKey: string,
+  offer: InjectedOffer,
+  lane: InjectionLane,
+  toolName: string,
+  ids: string[],
+): void {
+  const referenced = new Set(ids);
+  const offered = offer[lane];
 
   // Consume: one reference per offer, so reading the same page twice in a turn
   // is one reference, and an id offered again next build can be credited again.
   injectedOfferBySession.set(scopeKey, {
     ...offer,
-    [lane]: offered.filter((id) => !referenced.has(id)),
+    [lane]: offered.filter((item) => !referenced.has(item.id)),
   });
-  const ids = Array.from(referenced);
+  const matched = Array.from(referenced);
   memoryObservability.record('memory.injection.referenced', {
     lane,
-    toolName: params.toolName,
-    knowledgeSlugs: lane === 'knowledge' ? ids : [],
-    memoryIds: lane === 'memories' ? ids : [],
-    messageIds: lane === 'messages' ? ids : [],
+    toolName,
+    knowledgeSlugs: lane === 'knowledge' ? matched : [],
+    memoryIds: lane === 'memories' ? matched : [],
+    messageIds: lane === 'messages' ? matched : [],
   });
+}
+
+/**
+ * The offer a turn-end reader should look at: the one this session's last build
+ * published.
+ *
+ * The registry key is `agentId:sessionKey` so two agents sharing a session never
+ * read each other's injections, but the caller with an answer in hand
+ * (agent-service) does not know the agent id the transform was built with — the
+ * factory derives it from the resolved agent config, and `options.agentId` is
+ * unset on the ordinary IM path, where the key reads `default:<session>`.
+ * Guessing `*:<session>` there would silently never match, so the published key
+ * is the resolution and the caller's own key is only the fallback.
+ */
+function resolveOfferScope(agentId: string | undefined, sessionKey: string | undefined): string {
+  return (
+    publishedInjectionScope.get(sessionKey || 'default') ?? injectionScopeKey(agentId, sessionKey)
+  );
+}
+
+/**
+ * Turn-end reader: was an injected memory or excerpt actually used (plan §6 K0
+ * item 3, ②「是否被引用」)?
+ *
+ * The transform returns before the answer exists, so the two lanes that have no
+ * tool to read them back (`knowledge_get` covers the third) can only be checked
+ * after generation. The evidence is literal: an item counts when a fragment of
+ * the text that was injected appears in the answer, matched through the same
+ * normalisation `referenceFragments` applied at build time. Nothing else — not
+ * a topic word, not a paraphrase — is evidence, and the rule is intentionally
+ * one-sided: a false "it was used" makes the metric a lie, a miss only costs a
+ * datapoint.
+ *
+ * Matching consumes the offer exactly as the tool path does, so one answer
+ * cannot credit the same memory twice, and the registry's TTL bounds how long
+ * anything here can still be attributed to a build.
+ *
+ * Cost is bounded by construction: ≤8 offers per lane, ≤2 fragments of ≤60
+ * characters each, one scan of ≤20 KB of answer, once per assistant turn, and
+ * no allocation proportional to session history. Callers may therefore run it
+ * inline — but it is still a metric, so agent-service calls it inside a guard:
+ * a failed metric must not fail a turn.
+ */
+export function readInjectionReferences(params: {
+  agentId?: string;
+  sessionKey?: string;
+  answerText: string;
+}): void {
+  const answer = params.answerText;
+  if (!answer) return;
+  const scopeKey = resolveOfferScope(params.agentId, params.sessionKey);
+  const offer = injectedOfferBySession.get(scopeKey);
+  if (!offer) return;
+  const haystack = normalizeReferenceText(answer.slice(0, REFERENCE_MAX_ANSWER_CHARS));
+  if (haystack === '') return;
+
+  // The knowledge lane is deliberately absent: its reference is a slug the model
+  // asked for by name (`knowledge_get`), which is proof, not a likeness test.
+  for (const lane of ['memories', 'messages'] as const) {
+    const matched = offer[lane]
+      .slice(0, REFERENCE_MAX_ITEMS_PER_LANE)
+      .filter((item) =>
+        item.fragments.some((fragment) => fragment !== '' && haystack.includes(fragment)),
+      )
+      .map((item) => item.id);
+    if (matched.length === 0) continue;
+    recordReferencedIds(scopeKey, offer, lane, ANSWER_REFERENCE_CONSUMER, matched);
+  }
 }
 
 /**
@@ -1021,7 +1249,10 @@ export function createTransformContext(options?: TransformOptions) {
                   ];
                   result[idx] = { ...lastUserMsg, content: injectedBlocks };
                   recordInjectedLane(injection, 'memories', {
-                    ids: memoryEntries.map((m) => m.id),
+                    offer: memoryEntries.map((m) => ({
+                      id: m.id,
+                      fragments: referenceFragments(m.content),
+                    })),
                     itemCount: memoryEntries.length,
                     block: memoryHint,
                     latencyMs: performance.now() - laneStarted,
@@ -1083,7 +1314,10 @@ export function createTransformContext(options?: TransformOptions) {
                     ];
                     result[idx] = { ...lastUserMsg, content: injectedBlocks };
                     recordInjectedLane(injection, 'memories', {
-                      ids: memoryEntries.map((m) => m.id),
+                      offer: memoryEntries.map((m) => ({
+                        id: m.id,
+                        fragments: referenceFragments(m.content),
+                      })),
                       itemCount: memoryEntries.length,
                       block: memoryHint,
                       latencyMs: performance.now() - laneStarted,
@@ -1145,6 +1379,9 @@ export function createTransformContext(options?: TransformOptions) {
                 score: item.score,
                 text: formatEpisodicEntry(item),
                 ids: item.messageId ? [item.messageId] : [],
+                // The excerpt, not the rendered line: the date/channel/speaker
+                // header is not something the model can quote back.
+                referenceText: item.excerpt,
               });
             });
         } catch {
@@ -1194,7 +1431,14 @@ export function createTransformContext(options?: TransformOptions) {
           // model reads, and the ids must describe that block.
           const kept = [...allocation.kept[lane]].sort((a, b) => a.rank - b.rank);
           recordInjectedLane(injection, lane, {
-            ids: kept.flatMap((entry) => entry.ids),
+            // One offer item per id: the reference check names what was
+            // injected, and an entry with no id cannot be named.
+            offer: kept.flatMap((entry) =>
+              entry.ids.map((id) => ({
+                id,
+                fragments: referenceFragments(entry.referenceText),
+              })),
+            ),
             itemCount: kept.length,
             block,
             latencyMs: laneLatencyMs[lane],
@@ -1616,7 +1860,7 @@ export function createTransformContext(options?: TransformOptions) {
 
     // Single exit: every lane above either recorded its block here or already
     // set `degraded`, so this is the one place the turn's facts are emitted.
-    reportTurnInjection(injection, nsSessionKey);
+    reportTurnInjection(injection, nsSessionKey, sessionKey);
     return outbound;
   };
 }

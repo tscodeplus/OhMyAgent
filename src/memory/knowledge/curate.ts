@@ -3,8 +3,10 @@
  *
  * Turns memories into knowledge pages. It is the single engine behind all three
  * curation entry points — `DreamCycle`'s `knowledge_curate` phase ({@link run}),
- * `/knowledge curate` (also {@link run}, with the `manual` trigger) and
- * `/knowledge share` ({@link KnowledgeCurator.curateMessage}) — and it
+ * `/knowledge curate` (also {@link run}, with the `manual` trigger) and a shared
+ * message ({@link KnowledgeCurator.curateMessage}, reached both by `/knowledge
+ * share` and by the automatic trigger in `share-trigger.ts`; only their trigger
+ * label differs) — and it
  * deliberately owns no write logic of its own: every page goes through
  * `KnowledgeService.create/update` with `{ actor: 'system', enforceAdmission:
  * true }`, so admission, provenance, version checking, FTS and the log row have
@@ -96,11 +98,28 @@ import type {
 export type CurateMode = 'off' | 'manual' | 'nightly';
 
 /**
- * Who asked for this run. `manual` is an explicit user request, which is
- * admission rule 3 — that is why it is derived from the trigger rather than
- * passed as a separate flag.
+ * Who asked for this run.
+ *
+ * `nightly` is the `DreamCycle` phase — nobody asked, so admission rule 3 does not
+ * apply. `manual` is a typed command (`/knowledge curate`, `/knowledge share`) and
+ * `share` is a link arriving in a user message (see `share-trigger.ts`); both are
+ * an explicit request, so the two are kept apart only for telemetry and logs —
+ * telling an automatic share from a typed command is the difference between "the
+ * feature works" and "someone is exercising it".
  */
-export type CurateTrigger = 'nightly' | 'manual';
+export type CurateTrigger = 'nightly' | 'manual' | 'share';
+
+/**
+ * Whether the trigger is a user request, i.e. admission rule 3.
+ *
+ * Everything except the nightly phase is: `manual` because someone typed it, and
+ * `share` because the message *is* the thing they chose to share. This is derived
+ * from the trigger rather than passed as a separate flag so the two cannot
+ * disagree.
+ */
+function isExplicitRequest(trigger: CurateTrigger): boolean {
+  return trigger !== 'nightly';
+}
 
 export interface KnowledgeCurateConfig {
   /** `knowledge.enabled` — the layer switch; `false` makes the run inert. */
@@ -475,6 +494,24 @@ export class KnowledgeCurator {
   }
 
   /**
+   * The gates a caller outside this file has to respect.
+   *
+   * The share trigger (`share-trigger.ts`) reads `enabled`/`mode` to refuse a
+   * message *before* spending a call, and `maxPagesPerRun` to bound one burst —
+   * from here rather than from a second copy of the config, because these are the
+   * values this curator enforces itself. A copy anywhere else would drift the
+   * first time a setting changes. This is not a new switch: it is the same
+   * `knowledge.enabled` / `curate.mode` / `curate.max_pages_per_run` triple.
+   */
+  get limits(): { enabled: boolean; mode: CurateMode; maxPagesPerRun: number } {
+    return {
+      enabled: this.config.enabled,
+      mode: this.config.mode,
+      maxPagesPerRun: this.config.maxPagesPerRun,
+    };
+  }
+
+  /**
    * Run one curation pass.
    *
    * Never opens a transaction (the service does, per page) and never writes a
@@ -561,8 +598,10 @@ export class KnowledgeCurator {
    * the caller renders a sentence, and a silent no-op would look like a refusal.
    */
   async curateMessage(ref: string, options: CurateRunOptions = {}): Promise<CurateRunReport> {
-    // The user pressing the command *is* admission rule 3, so this is a `manual`
-    // trigger: `mode: off` refuses (below), `manual` and `nightly` both run.
+    // Sharing *is* admission rule 3 — someone chose this message — so the default
+    // trigger is an explicit one: `mode: off` refuses (below), `manual`/`share` and
+    // `nightly` both run. The share trigger passes `share` so the log line tells an
+    // automatic share from a typed `/knowledge share`; the two behave identically.
     const trigger: CurateTrigger = options.trigger ?? 'manual';
     const report: CurateRunReport = {
       since: 0,
@@ -852,7 +891,7 @@ export class KnowledgeCurator {
       {
         subject: slug ? subject : '',
         sourceCount: sources.length,
-        explicitRequest: trigger === 'manual',
+        explicitRequest: isExplicitRequest(trigger),
       },
       this.config.requireSources,
     );
@@ -915,10 +954,11 @@ export class KnowledgeCurator {
     const writeOptions: KnowledgeWriteOptions = {
       actor: 'system',
       enforceAdmission: true,
-      // The user asked for this page (a `manual` trigger) — admission rule 3,
-      // stated to the service so it does not have to infer it from the actor and
-      // then contradict the pre-flight check above.
-      explicitRequest: trigger === 'manual',
+      // The user asked for this page (an explicit trigger, see
+      // `isExplicitRequest`) — admission rule 3, stated to the service so it does
+      // not have to infer it from the actor and then contradict the pre-flight
+      // check above.
+      explicitRequest: isExplicitRequest(trigger),
     };
 
     let result: KnowledgeWriteResult;
