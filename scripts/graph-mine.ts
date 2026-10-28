@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 /**
- * `pnpm graph:mine` — mine entities out of memory text the graph never covered.
+ * `pnpm graph:mine` — record the subject of `memory_links` rows from memory text.
  *
- * The same pass the `graph_sync` maintenance job runs after the link
- * projection, exposed for one-off use: filling a graph that was built before
- * mention mining existed, or re-running it by hand after lowering
- * `memory.graph.max_mentions_per_memory`. Deterministic and model-free, so it is
- * safe to run against a live database (it takes the same busy timeout the server
- * uses) and safe to re-run (a mined memory keeps its edges as its own cursor).
+ * Since K3 the graph projection reads `memory_links.subject_entity` and never
+ * derives a subject, so a link written without one cannot project at all. This
+ * is that pass — the same one the `graph_sync` job runs, exposed for a one-off
+ * backfill: links written before the subject column existed, or a re-run after
+ * lowering `memory.graph.max_mentions_per_memory`. Deterministic and model-free,
+ * so it is safe against a live database (same busy timeout as the server) and
+ * safe to re-run.
+ *
+ * Run `pnpm graph:sync` afterwards when you want the projection to pick the new
+ * subjects up immediately instead of at the next 6-hourly sweep.
  *
  *   pnpm graph:mine                      # mine up to 500 memories
  *   pnpm graph:mine --limit 2000         # raise the per-run bound
@@ -25,9 +29,8 @@ import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { loadYamlFile } from '../src/app/config-loader.js';
-import { mineGraphFromMemories } from '../src/graph/graph-sync.js';
+import { mineMemoryLinkSubjects } from '../src/graph/entity-mining.js';
 import { DEFAULT_GRAPH_SYNC_CONFIG } from '../src/graph/graph-config.js';
-import { EntityRepository } from '../src/memory/repositories/entity-repository.js';
 
 const DEFAULT_DB_PATH = '~/.ohmyagent/data/app.db';
 
@@ -152,22 +155,20 @@ function main(): number {
       );
     }
 
-    const summary = mineGraphFromMemories(db, new EntityRepository(db), {
+    const summary = mineMemoryLinkSubjects(db, {
       limit: options.limit,
       maxMentionsPerMemory: options.maxMentions,
       dryRun: options.dryRun,
     });
 
     console.log(
-      `[graph:mine] entities ${summary.entitiesCreated} created, ${summary.entitiesMatched} matched | ` +
-        `edges ${summary.edgesCreated} created, ${summary.edgesRefreshed} refreshed | ` +
-        `skipped ${summary.skipped}`,
+      `[graph:mine] memories ${summary.memoriesMined} mined, ${summary.skipped} skipped | ` +
+        `links ${summary.linksCreated} created, ${summary.linksAnnotated} annotated | ` +
+        `mentions ${summary.mentionsMined}` +
+        (options.dryRun ? ' (dry run, nothing written)' : ''),
     );
-    if (options.verbose) {
-      console.log(
-        `[graph:mine] memories ${summary.memoriesMined}, mentions ${summary.mentionsMined}` +
-          (options.dryRun ? ' (dry run, nothing written)' : ''),
-      );
+    if (!options.dryRun && summary.memoriesMined > 0) {
+      console.log('[graph:mine] run `pnpm graph:sync` to project these subjects now');
     }
     return 0;
   } finally {

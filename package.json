@@ -15,7 +15,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:smoke:webui": "vitest run --config vitest.smoke.config.ts",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p ui/tsconfig.json",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json && tsc --noEmit -p ui/tsconfig.json",
     "typecheck:tests": "tsc --noEmit -p tsconfig.test.json",
     "lint": "eslint src extensions",
     "lint:fix": "eslint src extensions --fix",

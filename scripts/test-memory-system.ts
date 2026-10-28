@@ -55,7 +55,7 @@ async function main() {
   // Try sqlite-vec
   let hasVec = false;
   try {
-    loadSqliteVec(db);
+    loadSqliteVec(db, 0);
     hasVec = true;
     log('setup', 'sqlite-vec loaded');
   } catch {
