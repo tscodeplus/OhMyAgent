@@ -176,7 +176,8 @@ export function runGraphReset(argv: string[]): number {
     console.log(
       `[graph:reset] placeholders ${summary.placeholderEntities} entities + ${summary.placeholderEdges} edges | ` +
         `MENTIONED edges ${summary.mentionEdges} | ` +
-        `orphans ${summary.orphanEndpointEdges} endpoint, ${summary.orphanMemoryEdges} memory`,
+        `orphans ${summary.orphanEndpointEdges} endpoint, ${summary.orphanMemoryEdges} memory | ` +
+        `unattested edges ${summary.unattestedEdges}`,
     );
     console.log(
       options.dryRun
