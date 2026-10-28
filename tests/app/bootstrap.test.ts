@@ -365,6 +365,9 @@ vi.mock('../../extensions/channel-feishu/message-handler.js', () => ({
 
 vi.mock('../../src/commands/command-handler.js', () => ({
   handleCommand: vi.fn(async () => null),
+  // The scheduler composer hands the knowledge curator to the /knowledge
+  // command through this resolver (§6 K2-5 entry 2), so the mock must expose it.
+  setKnowledgeCuratorResolver: vi.fn(),
 }));
 
 vi.mock('../../extensions/channel-feishu/chat-queue.js', () => ({

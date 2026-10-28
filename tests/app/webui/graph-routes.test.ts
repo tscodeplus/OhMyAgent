@@ -24,6 +24,8 @@ import { EmbeddingRepository } from '../../../src/memory/repositories/embedding-
 import { EmbeddingCacheRepo } from '../../../src/memory/repositories/embedding-cache-repository';
 import { MemoryRetriever } from '../../../src/memory/memory-retriever';
 import { tokenizeForIndex } from '../../../src/memory/fts-tokenizer';
+import { createKnowledgeService } from '../../../src/memory/knowledge/service';
+import type { KnowledgeService } from '../../../src/memory/knowledge/service-contract';
 
 describe('knowledge-graph routes', () => {
   let db: Database.Database;
@@ -502,7 +504,211 @@ describe('knowledge-graph routes', () => {
 
       const response = await app.inject({ method: 'GET', url: '/api/search?q=nothingmatches' });
       expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual({ q: 'nothingmatches', results: [] });
+      // `q` and `results` are the original contract; `pages` / `lanes` / `deduped`
+      // are additive and stay well-formed when nothing matched.
+      expect(response.json()).toEqual({
+        q: 'nothingmatches',
+        results: [],
+        pages: [],
+        lanes: {
+          message: { hits: 0, dropped: 0 },
+          memory: { hits: 0, dropped: 0 },
+          knowledge: { hits: 0, dropped: 0 },
+        },
+        deduped: [],
+      });
+    });
+
+    // ─── K5: the ranking comes from unifiedSearch(), not from this handler ───
+
+    /** A second app with the knowledge lane wired — `app` stays the layer-off case. */
+    async function appWithKnowledge(
+      knowledge: Pick<KnowledgeService, 'search' | 'get'>,
+    ): Promise<ReturnType<typeof Fastify>> {
+      const wired = Fastify({ logger: false });
+      registerGraphRoutes(wired, { db, memoryRetriever: retriever, knowledge });
+      await wired.ready();
+      return wired;
+    }
+
+    function seedMemory(id: string, content: string, kind = 'preference'): void {
+      new MemoryRepository(db).create({
+        id,
+        scope: 'user',
+        scope_key: 'user-1',
+        kind,
+        content,
+      });
+    }
+
+    /**
+     * One active page. `sources` must resolve to real rows — a page with no
+     * citation is refused by the same anti-hallucination gate — so a test that
+     * wants no page-wins dedupe cites a message instead of a memory.
+     */
+    function seedPage(
+      knowledge: KnowledgeService,
+      slug: string,
+      content: string,
+      sources: Array<{ kind: 'memory' | 'message'; id: string }>,
+    ): void {
+      const created = knowledge.create(
+        { pageType: 'topic', slug, title: `Alice 的偏好 (${slug})`, content, sources },
+        { actor: 'agent' },
+      );
+      expect(created.ok).toBe(true);
+    }
+
+    it('answers from all three lanes and reports what each contributed', async () => {
+      seedMemory('mem-alice', 'Alice prefers dark mode');
+      seedMessage('msg-alice', 'sess-alice', 'Alice and Bob met in Berlin');
+      const knowledge = createKnowledgeService({ db });
+      seedPage(knowledge, 'alice-topic', 'Alice 偏好深色主题。', [
+        { kind: 'message', id: 'msg-alice' },
+      ]);
+
+      const wired = await appWithKnowledge(knowledge);
+      try {
+        const response = await wired.inject({ method: 'GET', url: '/api/search?q=Alice' });
+        expect(response.statusCode).toBe(200);
+        const payload = response.json();
+
+        // Lane attribution: every lane says how many rows it returned.
+        expect(payload.lanes.message.hits).toBeGreaterThan(0);
+        expect(payload.lanes.memory.hits).toBeGreaterThan(0);
+        expect(payload.lanes.knowledge.hits).toBeGreaterThan(0);
+
+        const resultKinds = payload.results.map((result: { kind: string }) => result.kind);
+        expect(resultKinds).toContain('message');
+        expect(resultKinds).toContain('memory');
+
+        // Pages ride in their own array, in the row shape the UI already renders.
+        expect(payload.pages).toHaveLength(1);
+        expect(payload.pages[0]).toMatchObject({ kind: 'knowledge', title: expect.any(String) });
+        expect(payload.pages[0].title).toContain('Alice');
+        expect(payload.deduped).toEqual([]);
+
+        // One ordering across the fused lanes: within a kind the scores descend.
+        const scores = payload.results.map((result: { score: number }) => result.score);
+        expect([...scores].sort((a: number, b: number) => b - a)).toEqual(scores);
+      } finally {
+        await wired.close();
+      }
+    });
+
+    it('drops a memory the returned page cites, and says which page covers it', async () => {
+      seedMemory('mem-cited', 'Alice prefers dark mode');
+      const knowledge = createKnowledgeService({ db });
+      seedPage(knowledge, 'alice-topic', 'Alice 偏好深色主题。', [
+        { kind: 'memory', id: 'mem-cited' },
+      ]);
+
+      const wired = await appWithKnowledge(knowledge);
+      try {
+        const response = await wired.inject({ method: 'GET', url: '/api/search?q=Alice' });
+        expect(response.statusCode).toBe(200);
+        const payload = response.json();
+
+        const memoryIds = payload.results
+          .filter((result: { kind: string }) => result.kind === 'memory')
+          .map((result: { id: string }) => result.id);
+        // Page wins: the memory it was curated from is not a second answer.
+        expect(memoryIds).not.toContain('mem-cited');
+        expect(payload.deduped).toEqual([
+          {
+            lane: 'memory',
+            id: 'mem-cited',
+            reason: 'cited_by_knowledge_page',
+            page_slug: 'alice-topic',
+          },
+        ]);
+        expect(payload.lanes.memory).toEqual({ hits: 1, dropped: 1 });
+        expect(payload.pages).toHaveLength(1);
+        expect(payload.pages[0].title).toContain('alice-topic');
+      } finally {
+        await wired.close();
+      }
+    });
+
+    it('keeps the original response shape for a memory-only query', async () => {
+      seedMemory('mem-alice', 'Alice prefers dark mode');
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/search?q=Alice&kinds=memory',
+      });
+      expect(response.statusCode).toBe(200);
+      const payload = response.json();
+
+      // Nothing removed or renamed: `q` + `results` are the old payload, the rest
+      // is additive (which is why the WebUI needs no change to keep working).
+      expect(Object.keys(payload).sort()).toEqual(['deduped', 'lanes', 'pages', 'q', 'results']);
+      expect(payload.q).toBe('Alice');
+      expect(payload.pages).toEqual([]);
+      expect(payload.lanes.memory).toEqual({ hits: 1, dropped: 0 });
+
+      expect(payload.results).toHaveLength(1);
+      const [row] = payload.results;
+      expect(Object.keys(row).sort()).toEqual([
+        'created_at',
+        'id',
+        'kind',
+        'score',
+        'snippet',
+        'title',
+      ]);
+      expect(row).toMatchObject({
+        kind: 'memory',
+        id: 'mem-alice',
+        title: 'Alice prefers dark mode',
+        // title + snippet read as one string, as they did before the fusion.
+        snippet: '',
+      });
+    });
+
+    it('answers from the memory and message lanes when the knowledge layer is off', async () => {
+      seedMemory('mem-alice', 'Alice prefers dark mode');
+      seedMessage('msg-alice', 'sess-alice', 'Alice and Bob met in Berlin');
+
+      // `app` was registered without a knowledge service — the state of every
+      // install where `knowledge.enabled` is false.
+      const response = await app.inject({ method: 'GET', url: '/api/search?q=Alice' });
+      expect(response.statusCode).toBe(200);
+      const payload = response.json();
+
+      expect(payload.pages).toEqual([]);
+      expect(payload.lanes.knowledge).toEqual({ hits: 0, dropped: 0 });
+      expect(payload.lanes.knowledge.error).toBeUndefined();
+      expect(payload.deduped).toEqual([]);
+      expect(payload.results.map((result: { kind: string }) => result.kind)).toEqual(
+        expect.arrayContaining(['memory', 'message']),
+      );
+    });
+
+    it('does not fail the request when the knowledge lane throws', async () => {
+      seedMessage('msg-alice', 'sess-alice', 'Alice and Bob met in Berlin');
+      const broken = {
+        search: (): never => {
+          throw new Error('knowledge index unavailable');
+        },
+        get: () => null,
+      };
+
+      const wired = await appWithKnowledge(broken);
+      try {
+        const response = await wired.inject({ method: 'GET', url: '/api/search?q=Alice' });
+        expect(response.statusCode).toBe(200);
+        const payload = response.json();
+
+        expect(payload.lanes.knowledge.error).toContain('knowledge index unavailable');
+        expect(payload.pages).toEqual([]);
+        // The other lanes still answer — a broken lane is a thinner page, not a 500.
+        expect(payload.results.some((result: { kind: string }) => result.kind === 'message')).toBe(
+          true,
+        );
+      } finally {
+        await wired.close();
+      }
     });
   });
 });

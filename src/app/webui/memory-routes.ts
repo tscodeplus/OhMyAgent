@@ -16,6 +16,8 @@ import {
   extractMemoryTerms,
 } from '../../memory/repositories/memory-term-repository.js';
 import { MaintenanceRunRepository } from '../../memory/maintenance/maintenance-run-repository.js';
+import { PersonaFeedback } from '../../memory/persona/feedback.js';
+import type { UserPersona } from '../../memory/persona-model.js';
 import { parseEpochMs } from '../../shared/timestamp.js';
 
 /** DreamCycle phases — mirrors the phase list in dream-cycle.ts runAll(). */
@@ -71,6 +73,34 @@ function deleteMemoryWithDerivedStores(db: Database.Database, id: string): void 
   new MemoryRepository(db).delete(id);
   db.prepare('DELETE FROM memory_terms WHERE memory_id = ?').run(id);
   dropEmbedding(db, id);
+}
+
+/**
+ * `PUT /api/persona` is the `persona.manual_override` signal (plan §6 K4.2): the
+ * edit records which fields changed and closes the preference memories that
+ * carried the values it replaced. It *observes* the save, so a failure here
+ * only logs — the persona row is already written and must stay saved.
+ *
+ * Both sides are `unknown` on purpose: the PUT body is unvalidated JSON and
+ * `services.personaStore` is untyped, while the diff only reads the known field
+ * paths, so this is the one seam where the cast belongs.
+ */
+function recordPersonaManualOverride(
+  cfg: MemoryRouteConfig,
+  before: unknown,
+  after: unknown,
+): void {
+  try {
+    new PersonaFeedback(cfg.db, new MemoryRepository(cfg.db), {
+      logger: cfg.services.logger,
+    }).recordManualOverride({
+      before: (before ?? null) as UserPersona | null,
+      after: after as UserPersona,
+      source: 'webui',
+    });
+  } catch (err) {
+    cfg.services.logger.warn({ err }, 'Failed to record persona.manual_override');
+  }
 }
 
 /**
@@ -621,14 +651,18 @@ export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfi
         const base = personaStore.get() ?? createEmptyPersona();
         const updated = { ...base, ...persona, lastUpdated: new Date().toISOString() };
         personaStore.save(updated);
+        recordPersonaManualOverride(cfg, base, updated);
         return reply.send({ ok: true });
       }
 
       // Fallback: write directly to memories table
-      const content = JSON.stringify({ ...persona, lastUpdated: new Date().toISOString() });
+      const saved = { ...persona, lastUpdated: new Date().toISOString() };
+      const content = JSON.stringify(saved);
       const existing = cfg.db
-        .prepare("SELECT id FROM memories WHERE kind = 'persona' AND scope = 'user' LIMIT 1")
-        .get() as { id: string } | undefined;
+        .prepare(
+          "SELECT id, content FROM memories WHERE kind = 'persona' AND scope = 'user' LIMIT 1",
+        )
+        .get() as { id: string; content: string } | undefined;
 
       if (existing) {
         // Route through the repository (syncs jieba FTS) and refresh the
@@ -649,6 +683,17 @@ export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfi
         });
         reindexLexicalTerms(cfg.db, created.id, content);
       }
+
+      // The replaced row is the `before` half of the override diff; an unparseable
+      // one counts as "no prior persona" — recording the edit matters more than
+      // reconstructing a corrupt row.
+      let before: unknown = null;
+      try {
+        before = existing ? JSON.parse(existing.content) : null;
+      } catch {
+        before = null;
+      }
+      recordPersonaManualOverride(cfg, before, saved);
 
       return reply.send({ ok: true });
     } catch (err) {

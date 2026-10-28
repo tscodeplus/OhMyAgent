@@ -11,6 +11,7 @@ import FilesView from './components/files/FilesView';
 import DashboardView from './components/dashboard/DashboardView';
 import MemoryView from './components/memory/MemoryView';
 import GraphView from './components/graph/GraphView';
+import KnowledgeView from './components/knowledge/KnowledgeView';
 import CronView from './components/cron/CronView';
 import InboxView from './components/inbox/InboxView';
 import { apiRequest } from './utils/api';
@@ -131,6 +132,7 @@ export default function App() {
         <Route path="/files" element={<FilesView />} />
         <Route path="/dashboard" element={<DashboardView />} />
         <Route path="/memory" element={<MemoryView />} />
+        <Route path="/knowledge" element={<KnowledgeView />} />
         <Route path="/graph" element={<GraphView />} />
         <Route path="/cron" element={<CronView />} />
         <Route path="/inbox/:sessionId" element={<InboxView />} />

@@ -8,6 +8,10 @@
 
 import { i18n } from '../i18n/index.js';
 import type { ConversationSessions } from '../memory/conversation-sessions.js';
+import type { KnowledgeService } from '../memory/knowledge/service-contract.js';
+import type { KnowledgeCurator } from '../memory/knowledge/curate.js';
+import { isPageType, type KnowledgePage, type PageType } from '../memory/knowledge/types.js';
+import { truncate } from '../shared/truncation.js';
 import { teamModeStore } from '../agent/team-mode-store.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { load as parseYaml } from 'js-yaml';
@@ -97,6 +101,27 @@ export interface CommandDeps {
    *  When present, the operator identity passed to handleCommand is required
    *  to satisfy it; a failing check rejects the command. */
   isAdmin?: (operator: { senderId?: string; chatType?: string }) => boolean;
+  /**
+   * Curated knowledge pages for `/knowledge` (plan §6 K2-5, entry point 2).
+   * Absent when `knowledge.enabled` is false — the layer is inert then (no
+   * tools, no curation job, no injection), so the command reports it as off
+   * instead of failing on a missing dependency.
+   */
+  knowledgeService?: KnowledgeService;
+  /**
+   * Row counts for `/knowledge stats`. The `KnowledgeService` contract has no
+   * aggregate accessor (its `list` is paginated), so the wiring point counts
+   * pages itself — the same reason `GET /api/knowledge/stats` reads the table
+   * directly. Absent means "no counts here", not "no pages".
+   */
+  knowledgeStats?: () => KnowledgeStatsSnapshot;
+}
+
+/** Page counts `/knowledge stats` renders. Keys are the stored enum values. */
+export interface KnowledgeStatsSnapshot {
+  total: number;
+  byStatus: Record<string, number>;
+  byPageType: Record<string, number>;
 }
 
 /** Operator context of the message that issued a slash command. */
@@ -176,6 +201,8 @@ export async function handleCommand(
       return handleAnswer(args, sessionKey, deps);
     case '/permission':
       return await handlePermission(args, deps, operator);
+    case '/knowledge':
+      return await handleKnowledge(args, deps);
     default:
       return null;
   }
@@ -756,4 +783,242 @@ async function handlePermission(
 
   const result = await setMode(sub as PolicyMode, deps);
   return { reply: result.message };
+}
+
+// ── /knowledge command ───────────────────────────────────────────────────────
+
+/**
+ * Process-wide curator lookup for `/knowledge curate` (plan §6 K2-5, entry
+ * point 2).
+ *
+ * The one `KnowledgeCurator` is built in `createSchedulers`, next to the
+ * `DreamCycle` whose nightly phase runs the same job — the two entry points must
+ * be one instance behind two triggers, not two objects over one database. But
+ * `CommandDeps` is assembled before and independently of the schedulers (the
+ * WebUI route table and each channel extension build their own), so it cannot
+ * take a constructor-time instance. They read this resolver instead, the same
+ * seam `src/judge/engine-lookup.ts` uses for the judge engine. Unset = the
+ * knowledge layer is off or curation is not wired here, and the command says so
+ * rather than inventing a page.
+ */
+let resolveKnowledgeCurator: () => KnowledgeCurator | undefined = () => undefined;
+
+export function setKnowledgeCuratorResolver(resolve: () => KnowledgeCurator | undefined): void {
+  resolveKnowledgeCurator = resolve;
+}
+
+/** The live curator, or `undefined` when nothing is wired. Never throws. */
+export function currentKnowledgeCurator(): KnowledgeCurator | undefined {
+  try {
+    return resolveKnowledgeCurator();
+  } catch {
+    return undefined;
+  }
+}
+
+/** Pages per `/knowledge list` / `pending` reply — a chat message, not a browse UI. */
+const KNOWLEDGE_PAGE_LIST_LIMIT = 20;
+/** `/knowledge show` body budget; the whole page is readable in the WebUI editor. */
+const KNOWLEDGE_SHOW_MAX_CHARS = 1200;
+/** Pages named in a `/knowledge curate` reply — the run is capped, the reply more so. */
+const KNOWLEDGE_CURATE_REPORT_LIMIT = 10;
+
+/** `page_type/slug` is the page's address — the same form `[[wikilink]]` resolves. */
+function knowledgePageAddress(page: KnowledgePage): string {
+  return `${page.page_type}/${page.slug}`;
+}
+
+/**
+ * `/knowledge show` accepts both the address (`topic/excel-etl`) and the bare
+ * slug, because `list` prints the address while a wikilink is often written as
+ * just `[[excel-etl]]`.
+ */
+function parseKnowledgeShowRef(raw: string): { slug: string; pageType?: PageType } {
+  const slash = raw.indexOf('/');
+  if (slash > 0 && isPageType(raw.slice(0, slash))) {
+    return { pageType: raw.slice(0, slash) as PageType, slug: raw.slice(slash + 1) };
+  }
+  return { slug: raw };
+}
+
+/** `active 9 · pending 3` — enum values are data, not prose, so they stay untranslated. */
+function formatKnowledgeCounts(counts: Record<string, number>): string {
+  const entries = Object.entries(counts);
+  if (entries.length === 0) return i18n.t('commands:knowledge.none');
+  return entries.map(([name, count]) => `${name} ${count}`).join(' · ');
+}
+
+/**
+ * The pages a curation run wrote, read back from the service.
+ *
+ * `CurateRunReport` reports counts, not identities, and the reply has to name
+ * what changed. Both statuses are read because `curate.shadow` writes `pending`
+ * rows, which `list` hides by design; `list` is newest-updated-first, so the
+ * run's own pages are at the front of what is scanned and a page is "touched"
+ * when its `updated_at` is at or after the run started.
+ */
+function knowledgePagesWrittenSince(service: KnowledgeService, since: number): KnowledgePage[] {
+  return [
+    ...service.list({ status: 'active', limit: KNOWLEDGE_PAGE_LIST_LIMIT }),
+    ...service.listPending(KNOWLEDGE_PAGE_LIST_LIMIT),
+  ]
+    .filter((page) => (page.updated_at ?? 0) >= since)
+    .slice(0, KNOWLEDGE_CURATE_REPORT_LIMIT);
+}
+
+/**
+ * `/knowledge list | show <slug> | pending | approve <id> | stats | curate`.
+ *
+ * Reads go through `KnowledgeService`, so `/knowledge` sees exactly what the
+ * model sees: `active` pages only, except in `pending`, which is the one place
+ * shadow-mode pages are visible. `/knowledge stats` is the exception — counts
+ * are supplied by the wiring point (`knowledgeStats`) because the service
+ * contract has no aggregate.
+ *
+ * `curate` is the explicit-request entry point (§6 K2-5): one curation pass, run
+ * now, awaited before the reply, with the manual trigger — which is admission
+ * rule 3 ("the user asked for this page"). Idempotency is the engine's: the slug
+ * comes from the subject, so a second run updates the page instead of creating a
+ * twin. It never throws into the chat path — the whole switch is inside a
+ * try/catch that answers with a sentence.
+ */
+async function handleKnowledge(args: string, deps: CommandDeps): Promise<CommandResult> {
+  const service = deps.knowledgeService;
+  // `knowledge.enabled: false` leaves the layer inert, and a channel that never
+  // wired it is in the same position: say so instead of throwing.
+  if (!service) {
+    return { reply: i18n.t('commands:knowledge.disabled') };
+  }
+
+  const parts = args.trim().split(/\s+/);
+  const sub = (parts[0] ?? '').toLowerCase();
+  const rest = parts.slice(1).join(' ').trim();
+
+  try {
+    switch (sub) {
+      // Bare `/knowledge` lists pages, like bare `/skill` lists skills.
+      case '':
+      case 'list': {
+        const pages = service.list({ status: 'active', limit: KNOWLEDGE_PAGE_LIST_LIMIT });
+        if (pages.length === 0) return { reply: i18n.t('commands:knowledge.empty') };
+        return {
+          reply: i18n.t('commands:knowledge.listHeader', {
+            count: pages.length,
+            list: pages
+              .map((page) => `- \`${knowledgePageAddress(page)}\` ${page.title}`)
+              .join('\n'),
+          }),
+        };
+      }
+
+      case 'show': {
+        if (!rest) return { reply: i18n.t('commands:knowledge.showUsage') };
+        const detail = service.get(parseKnowledgeShowRef(rest));
+        if (!detail) {
+          return { reply: i18n.t('commands:knowledge.pageNotFound', { ref: rest }) };
+        }
+        const page = detail.page;
+        return {
+          reply: i18n.t('commands:knowledge.pageDetail', {
+            title: page.title,
+            address: knowledgePageAddress(page),
+            version: page.version,
+            status: page.status,
+            sources: detail.sources.length
+              ? detail.sources
+                  .map((source) => `${source.source_kind}:${source.source_id}`)
+                  .join(', ')
+              : i18n.t('commands:knowledge.sourcesNone'),
+            links: detail.links.length
+              ? detail.links.map((link) => `[[${link.slug}]]${link.missing ? ' ?' : ''}`).join(' ')
+              : i18n.t('commands:knowledge.linksNone'),
+            content: truncate(page.content, KNOWLEDGE_SHOW_MAX_CHARS),
+          }),
+        };
+      }
+
+      case 'pending': {
+        const pages = service.listPending(KNOWLEDGE_PAGE_LIST_LIMIT);
+        if (pages.length === 0) return { reply: i18n.t('commands:knowledge.noPending') };
+        return {
+          reply: i18n.t('commands:knowledge.pendingHeader', {
+            count: pages.length,
+            // The id is what `approve` takes, so it is printed verbatim.
+            list: pages
+              .map((page) => `- \`${page.id}\` ${knowledgePageAddress(page)} ${page.title}`)
+              .join('\n'),
+          }),
+        };
+      }
+
+      case 'approve': {
+        if (!rest) return { reply: i18n.t('commands:knowledge.approveUsage') };
+        if (!service.setStatus(rest, 'active', 'user')) {
+          return { reply: i18n.t('commands:knowledge.approveNotFound', { id: rest }) };
+        }
+        return { reply: i18n.t('commands:knowledge.approved', { id: rest }) };
+      }
+
+      case 'stats': {
+        const snapshot = deps.knowledgeStats?.();
+        if (!snapshot) return { reply: i18n.t('commands:knowledge.countsUnavailable') };
+        return {
+          reply: i18n.t('commands:knowledge.stats', {
+            total: snapshot.total,
+            statuses: formatKnowledgeCounts(snapshot.byStatus),
+            types: formatKnowledgeCounts(snapshot.byPageType),
+          }),
+        };
+      }
+
+      case 'curate': {
+        // No seam for a topic filter: `CurateRunOptions` is trigger + signal, and
+        // the engine picks its own subjects. An argument is a usage error rather
+        // than a silent "curated something else".
+        if (rest) return { reply: i18n.t('commands:knowledge.curateUsage') };
+        // The instance the nightly phase uses, resolved from the schedulers.
+        const curator = currentKnowledgeCurator();
+        if (!curator) return { reply: i18n.t('commands:knowledge.curateUnavailable') };
+
+        const startedAt = Date.now();
+        // `manual` is the trigger that counts as admission rule 3, and the page
+        // cap is the configured `curate.max_pages_per_run` — `run()` has no
+        // per-call cap, by design (one budget, one place to read it).
+        const report = await curator.run({ trigger: 'manual' });
+        if (report.skipped) {
+          return { reply: i18n.t('commands:knowledge.curateSkipped', { reason: report.skipped }) };
+        }
+
+        const pages = knowledgePagesWrittenSince(service, startedAt);
+        if (pages.length === 0) {
+          return {
+            reply: i18n.t('commands:knowledge.curateNoPages', {
+              rejected: formatKnowledgeCounts(report.rejected),
+              failed: report.failed,
+            }),
+          };
+        }
+        return {
+          reply: i18n.t('commands:knowledge.curateDone', {
+            created: report.created,
+            updated: report.updated,
+            failed: report.failed,
+            pages: pages
+              .map((page) => `- \`${knowledgePageAddress(page)}\` ${page.title}`)
+              .join('\n'),
+          }),
+        };
+      }
+
+      default:
+        return { reply: i18n.t('commands:knowledge.usage') };
+    }
+  } catch (err) {
+    // A malformed JSON column (a hand-edited row) must not take the channel down.
+    return {
+      reply: i18n.t('commands:knowledge.failed', {
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    };
+  }
 }

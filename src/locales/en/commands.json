@@ -110,5 +110,25 @@
     "renamed": "Session renamed to \"{{title}}\"",
     "usage": "Usage: /rename <new title>",
     "unavailable": "This channel does not support renaming sessions"
+  },
+  "knowledge": {
+    "disabled": "The knowledge layer is off — add a `knowledge:` section with `enabled: true` to config.yaml to use /knowledge.",
+    "usage": "Usage: /knowledge list | show <slug> | pending | approve <id> | stats",
+    "listHeader": "**Knowledge pages ({{count}})**\n\n{{list}}",
+    "empty": "No knowledge pages yet.",
+    "showUsage": "Usage: /knowledge show <slug> — a page address works too (topic/excel-etl)",
+    "pageNotFound": "No knowledge page \"{{ref}}\".",
+    "pageDetail": "**{{title}}** (`{{address}}` · v{{version}} · {{status}})\n\nSources: {{sources}}\nLinks: {{links}}\n\n{{content}}",
+    "sourcesNone": "none",
+    "linksNone": "none",
+    "pendingHeader": "**Pending pages ({{count}})**\n\n{{list}}",
+    "noPending": "No pages are waiting for review. Curated pages land here only while `knowledge.curate.shadow` is on.",
+    "approveUsage": "Usage: /knowledge approve <id> — ids come from /knowledge pending",
+    "approved": "✅ Approved page {{id}} — it is now searchable and injectable.",
+    "approveNotFound": "No pending page with id {{id}}.",
+    "stats": "**Knowledge pages**: {{total}}\nStatus: {{statuses}}\nTypes: {{types}}",
+    "countsUnavailable": "Page counts are not available on this channel — see the knowledge pages in the WebUI.",
+    "none": "none",
+    "failed": "Knowledge command failed: {{error}}"
   }
 }

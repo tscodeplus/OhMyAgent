@@ -9,7 +9,8 @@
     "files": "Files",
     "panels": "Panels",
     "main": "Navigation",
-    "graph": "Knowledge Graph"
+    "graph": "Knowledge Graph",
+    "knowledge": "Knowledge Pages"
   },
   "tabs": {
     "chat": "Chat",
@@ -19,7 +20,8 @@
     "skills": "Skills",
     "marketplace": "Marketplace",
     "files": "Files",
-    "graph": "Knowledge Graph"
+    "graph": "Knowledge Graph",
+    "knowledge": "Knowledge Pages"
   },
   "sidebar": {
     "projects": "Chat",
@@ -1566,5 +1568,103 @@
     "filterGroupResult": "Results",
     "filterGroupMemory": "Memory types",
     "contextCollapse": "Collapse"
+  },
+  "knowledge": {
+    "title": "Knowledge Pages",
+    "subtitle": "Pages curated by the agent and written by you — browse, search and edit them, and review shadow-mode drafts",
+    "statsTotal": "{{count}} pages",
+    "statsPending": "{{count}} pending",
+    "statsArchived": "{{count}} archived",
+    "indexWarning": "The search index and the page table disagree ({{pages}} pages, {{indexed}} indexed) — run pnpm knowledge:reindex",
+    "tabPages": "Pages",
+    "tabReview": "Review queue",
+    "selectPrompt": "Pick a page from the list to read or edit it",
+    "searchPlaceholder": "Search page titles and content…",
+    "searchActiveOnlyHint": "Search covers active pages only",
+    "searchNoResults": "No page matches this search",
+    "searchError": "Search failed. Please try again.",
+    "searchCapped": "Showing the first {{count}} matches",
+    "loadError": "Failed to load knowledge pages",
+    "notEnabledHint": "The knowledge layer is switched off — set knowledge.enabled: true in config.yaml to use pages.",
+    "emptyTitle": "No knowledge pages yet",
+    "emptyHint": "Pages appear here once the agent curates them from your conversations.",
+    "emptyArchived": "No archived pages",
+    "retry": "Retry",
+    "pageTypeAll": "All types",
+    "pageTypes": {
+      "entity": "Entity",
+      "project": "Project",
+      "topic": "Topic",
+      "decision": "Decision",
+      "snippet": "Snippet"
+    },
+    "statuses": {
+      "active": "Active",
+      "pending": "Pending",
+      "archived": "Archived"
+    },
+    "updatedAt": "Updated {{time}}",
+    "range": "{{from}}–{{to}}",
+    "prevPage": "Previous page",
+    "nextPage": "Next page",
+    "version": "v{{version}}",
+    "confidence": "Confidence {{value}}%",
+    "editor": {
+      "back": "Back to list",
+      "archivedNotice": "This page is archived and read-only. It is kept for history and is no longer offered to search or to the agent.",
+      "missing": "This page no longer exists",
+      "loadError": "Failed to load this page",
+      "titleLabel": "Title",
+      "titlePlaceholder": "Page title",
+      "titleRequired": "A page needs a title",
+      "contentLabel": "Content",
+      "contentPlaceholder": "Markdown body — [[wikilinks]] are parsed into relations",
+      "aliasesLabel": "Aliases",
+      "aliasesHint": "Comma separated",
+      "tagsLabel": "Tags",
+      "tagsHint": "Comma separated",
+      "confidenceLabel": "Confidence",
+      "confidenceHint": "0–1; leave empty to keep the stored value",
+      "confidenceInvalid": "Confidence must be a number between 0 and 1",
+      "save": "Save",
+      "saved": "Page saved",
+      "saveError": "Failed to save the page",
+      "dangling": "Saved, but these links point at pages that do not exist yet: {{slugs}}",
+      "reset": "Reset changes",
+      "dirtyHint": "Unsaved changes",
+      "cleanHint": "No changes",
+      "confirmDiscard": "You have unsaved changes. Discard them?",
+      "sourcesLabel": "Sources",
+      "sourcesEmpty": "No sources recorded",
+      "linksLabel": "Outgoing links",
+      "linksEmpty": "No outgoing links",
+      "linkMissing": "This page does not exist yet",
+      "updated": "Edited {{time}} by {{actor}}",
+      "actorUnknown": "unknown"
+    },
+    "conflict": {
+      "title": "This page changed while you were editing",
+      "body": "You opened version {{baseVersion}}; the server is now at version {{currentVersion}}. Nothing was overwritten — your text is still in the editor.",
+      "currentContentLabel": "Content currently on the server",
+      "emptyContent": "(empty page)",
+      "reloadReapply": "Reload and re-apply",
+      "reloadReapplyHint": "Writes your changes onto the version above. Only the fields you edited are sent, so the rest of the newer version stays as it is.",
+      "discardMine": "Discard my changes"
+    },
+    "review": {
+      "title": "Shadow review queue",
+      "subtitle": "Drafts the agent wrote in shadow mode. They stay invisible to search and to the agent until you approve them.",
+      "empty": "Nothing is waiting for review",
+      "loadError": "Failed to load the review queue",
+      "approve": "Approve",
+      "archive": "Archive",
+      "approved": "Approved — {{title}} is now active",
+      "approveError": "Failed to approve the page",
+      "archived": "Archived — {{title}}",
+      "archiveError": "Failed to archive the page",
+      "preview": "Show content",
+      "hidePreview": "Hide content",
+      "written": "by {{actor}} {{time}}"
+    }
   }
 }

@@ -304,6 +304,32 @@ channels:
 #     #   memory_hygiene: true         # and scene_cluster are not wired into the
 #     #   scene_cluster: false         # scheduler, so their values are inert.
 
+# --- Knowledge Pages & Conversation Search (optional) ---
+# Curated knowledge pages live in SQLite (knowledge_pages + sources/links/log).
+# The whole layer is inert while `enabled: false`. What is NOT configurable is
+# the admission rule ("what counts as knowledge") — only whether the layer runs,
+# how often it writes, and how boldly.
+#
+# knowledge:
+#   enabled: true                   # master switch: false = no tools, no job, no injection
+#   read:
+#     enabled: true                 # knowledge_search / knowledge_get / knowledge_write
+#   curate:
+#     mode: nightly                 # off (frozen) | manual (/knowledge curate) | nightly
+#     shadow: false                 # true = new pages land as `pending` until approved
+#     max_pages_per_run: 5          # pages written per nightly run; 0 = no writes
+#     require_sources: 2            # admission: at least N independent sources per page
+#     min_memory_confidence: 0.6    # lower-confidence memories never seed a page
+#     model_ref: ""                 # empty = reuse memory_aux_models
+#   log_retention_days: 90          # knowledge_log horizon; 0 = keep forever
+#   inject:
+#     enabled: true                 # inject page titles each turn
+#     max_pages: 2                  # titles per turn (the real budget is ≤150 tokens)
+#
+# conversation_search:              # episodic retrieval over past messages
+#   enabled: true
+#   auto_inject_max_items: 2        # 0 = no automatic injection (the tool still works)
+
 # --- Agents ---
 # Define agent personas. Each key is an agent ID.
 # The "default" agent is always present (built-in fallback if omitted).

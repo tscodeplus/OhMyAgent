@@ -237,6 +237,78 @@ export const judgeSectionSchema = z.object({
   recordState: z.boolean().default(false),
 });
 
+/**
+ * The `knowledge:` section (MyDocs/KNOWLEDGE_WORKBENCH_PLAN.md §9.1, switch table
+ * in §6 K2-5). Curated knowledge pages live in SQLite; this block decides
+ * whether the layer runs, how strict a page's admission is, whether a write is
+ * visible before review, and how much of them is injected per turn.
+ *
+ * Every key has a default, so an absent section resolves to the documented
+ * behaviour instead of `undefined`. What is deliberately NOT configurable is the
+ * admission rule itself ("what counts as knowledge") — only whether the layer
+ * runs, how strict the source threshold is, and how boldly a write lands (plan
+ * §4 principle 9). `logRetentionDays: 0` keeps `knowledge_log` forever.
+ *
+ * A key belongs here only when a runtime reader consumes it: a switch that only
+ * replays itself is worse than no switch, so it gets deleted rather than
+ * documented.
+ */
+export const knowledgeSectionSchema = z
+  .object({
+    /** Master switch: false = the whole layer is inert (no tools, no job, no injection). */
+    enabled: z.boolean().default(true),
+    /** Read surface (`knowledge_search` / `knowledge_get`), and with them `knowledge_write`. */
+    read: z
+      .object({
+        enabled: z.boolean().default(true),
+      })
+      .default({}),
+    curate: z
+      .object({
+        /** `nightly` = the DreamCycle phase; `manual` = only `/knowledge curate`; `off` = frozen. */
+        mode: z.enum(['off', 'manual', 'nightly']).default('nightly'),
+        /** true = curated pages land as `pending` and need approval before they are visible. */
+        shadow: z.boolean().default(false),
+        /** Pages written per nightly run. 0 = no writes (same effect as `mode: off`). */
+        maxPagesPerRun: z.coerce.number().int().nonnegative().default(5),
+        /** Admission rule 2: a page needs at least this many independent sources. */
+        requireSources: z.coerce.number().int().min(1).default(2),
+        /** Memories below this confidence never seed a page. */
+        minMemoryConfidence: z.coerce.number().min(0).max(1).default(0.6),
+        /** Curation model; empty = reuse `memory_aux_models`. */
+        modelRef: z.string().default(''),
+      })
+      .default({}),
+    /** `knowledge_log` retention in days. 0 = keep forever (grows with the page count). */
+    logRetentionDays: z.coerce.number().int().nonnegative().default(90),
+    inject: z
+      .object({
+        /** Inject page titles each turn. Off = the model must call the tools explicitly. */
+        enabled: z.boolean().default(true),
+        /** Titles per turn (the ≤150-token injection budget). */
+        maxPages: z.coerce.number().int().nonnegative().default(2),
+      })
+      .default({}),
+  })
+  .default({});
+
+/**
+ * The `conversation_search:` section — episodic retrieval over `messages`.
+ *
+ * `autoInjectMaxItems` bounds the automatic `recent_conversation` context block;
+ * 0 disables that injection without disabling the tool.
+ */
+export const conversationSearchSectionSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    /** Items injected per turn. 0 = no automatic injection (the tool still works). */
+    autoInjectMaxItems: z.coerce.number().int().nonnegative().default(2),
+  })
+  .default({});
+
+export type KnowledgeSectionConfig = z.infer<typeof knowledgeSectionSchema>;
+export type ConversationSearchSectionConfig = z.infer<typeof conversationSearchSectionSchema>;
+
 const configSchema = z.object({
   // NOTE: judgeSectionSchema has all-section defaults; `.optional()` keeps a
   // config.yaml without `judge:` fully inert.
@@ -515,6 +587,14 @@ const configSchema = z.object({
       })
       .default({}),
   }),
+  // Both sections carry their own defaults, so they are not `.optional()`:
+  // `knowledge` and `conversationSearch` are always present objects in the
+  // parsed config. An *absent* YAML section is mapped to `enabled: false` by
+  // the loader (a new subsystem must not switch itself on during an upgrade,
+  // the same rule `mcp` and `judge` follow), while an explicit block without
+  // an `enabled:` key keeps the `enabled: true` default below.
+  knowledge: knowledgeSectionSchema,
+  conversationSearch: conversationSearchSectionSchema,
   cron: z
     .object({
       enabled: z.boolean().default(true),

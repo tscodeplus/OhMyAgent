@@ -37,9 +37,25 @@ import { rebuildJiebaFts } from '../../memory/fts.js';
 import { PersonaDistillationLog } from '../../memory/persona/persona-distillation-log.js';
 import { PersonaAuditService } from '../../memory/persona/persona-audit-service.js';
 import type { openDatabase } from '../../memory/db.js';
+import { createKnowledgeService } from '../../memory/knowledge/service.js';
+import type { KnowledgeService } from '../../memory/knowledge/service-contract.js';
 import { currentJudgeEngine } from '../../judge/engine-lookup.js';
 
 export interface MemoryServices {
+  /**
+   * The one open handle to `data/app.db`.
+   *
+   * Exposed because two consumers need raw SQL rather than a repository and are
+   * built before `AppServices` exists: `session_search` (conversation-search)
+   * and the tool-registration composer. Callers must not open their own
+   * connection — `openDatabase()` is not re-entrant on one file.
+   */
+  database: ReturnType<typeof openDatabase>;
+  /**
+   * Curated knowledge pages (plan §6 K2). Absent when `knowledge.enabled` is
+   * false or construction failed — every consumer must read that as "layer off".
+   */
+  knowledgeService?: KnowledgeService;
   embeddingClient: ReturnType<typeof createEmbeddingClient>;
   memoryRepository: MemoryRepository;
   embeddingRepository: EmbeddingRepository;
@@ -494,7 +510,44 @@ export async function createMemoryServices(
     logger,
   });
 
+  // Knowledge pages (plan §6 K2) are built HERE, where the database handle
+  // already exists, so that every consumer — the four tool definitions, the
+  // WebUI page-editor routes, the per-turn `<knowledge_available>` provider and
+  // the nightly curation job — shares ONE instance over ONE connection.
+  //
+  // Failure must never break bootstrap: a broken knowledge layer degrades to
+  // "off" (no service, so no tools/routes/injection) while memory keeps working.
+  let knowledgeService: KnowledgeService | undefined;
+  // `?.` on purpose: `AppConfig` declares `knowledge` as always present, but
+  // createMemoryServices is also called with hand-built partial configs (the
+  // bootstrap tests build one object per scenario). An absent block means the
+  // layer is off — the same rule the config loader applies to a missing YAML
+  // section — not a crash during bootstrap.
+  if (config.knowledge?.enabled) {
+    try {
+      knowledgeService = createKnowledgeService({
+        db,
+        config: {
+          enabled: config.knowledge.enabled,
+          requireSources: config.knowledge.curate.requireSources,
+          minMemoryConfidence: config.knowledge.curate.minMemoryConfidence,
+          shadow: config.knowledge.curate.shadow,
+          logRetentionDays: config.knowledge.logRetentionDays,
+        },
+        logger,
+      });
+      logger.info('Knowledge service initialized (knowledge pages are editable and searchable)');
+    } catch (err) {
+      logger.warn(
+        { err },
+        'Knowledge service init failed — knowledge tools, routes and injection stay off',
+      );
+    }
+  }
+
   return {
+    database: db,
+    knowledgeService,
     embeddingClient,
     memoryRepository,
     embeddingRepository,

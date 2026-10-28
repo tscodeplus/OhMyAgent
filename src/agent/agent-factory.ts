@@ -19,6 +19,7 @@ import type {
 import type { SkillRegistry } from '../skills/skill-registry.js';
 import { getDefaultModel } from '../provider/pi-ai-setup.js';
 import { createTransformContext } from './context-transform.js';
+import { searchMessages } from '../memory/conversation-search.js';
 import { estimateStaticContextTokens } from './compress.js';
 import { convertToLlm } from './convert-to-llm.js';
 import type { ApprovalDecisionType } from '../app/types.js';
@@ -973,6 +974,51 @@ export function createAgentFactory(
           offloadConfig: configRef.current.memory.offloading,
           offloadStore: offloadStore,
           personaContextProvider: personaStore ? () => personaStore.toContextString() : undefined,
+          // K1-4: the episodic leg of automatic injection. Only a recall-shaped
+          // turn reaches it (the transform owns that gate), and the flags are
+          // read live so a config reload switches injection on/off without a
+          // runtime rebuild. `autoInjectMaxItems` doubles as the hard cap the
+          // transform applies, so asking for more would only burn token budget.
+          //
+          // `until: Date.now()` scopes the search to messages that already
+          // exist: the current turn's reply is not written yet. On the WebUI
+          // path the user message is persisted at turn start, so it can match
+          // its own query — the 2-item cap keeps that from crowding out the
+          // second, genuinely earlier hit.
+          episodicContextProvider: (query: string) => {
+            const conversationSearch = configRef.current.conversationSearch;
+            const db = getServices?.()?.db;
+            if (!conversationSearch.enabled || conversationSearch.autoInjectMaxItems <= 0 || !db) {
+              return undefined;
+            }
+            const hits = searchMessages({
+              db,
+              query,
+              limit: conversationSearch.autoInjectMaxItems,
+              until: Date.now(),
+              // Same derivation as the tool: only an explicitly selected project
+              // narrows the search; an IM turn keeps every session visible.
+              policy: options?.projectId ? { projectId: options.projectId } : {},
+            });
+            return hits.map((hit) => ({
+              createdAt: hit.created_at,
+              channel: hit.channel,
+              sessionTitle: hit.session_title,
+              role: hit.role,
+              excerpt: hit.snippet,
+            }));
+          },
+          // K2-6: offer the titles of the pages worth reading this turn. The
+          // body stays behind `knowledge_get`; `titlesForInjection` already
+          // applies the relevance floor, so an unfocused turn yields no block.
+          knowledgeContextProvider: (query: string) => {
+            const knowledge = configRef.current.knowledge;
+            const knowledgeService = getServices?.()?.knowledgeService;
+            if (!knowledge.enabled || !knowledge.inject.enabled || !knowledgeService) {
+              return undefined;
+            }
+            return knowledgeService.titlesForInjection(query, knowledge.inject.maxPages);
+          },
           desktopBridgeReminderProvider: bridgeRegistry
             ? (sKey?: string) => {
                 if (!sKey || !bridgeRegistry.hasBridge(sKey)) return undefined;

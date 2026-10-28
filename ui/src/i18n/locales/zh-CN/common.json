@@ -9,7 +9,8 @@
     "files": "文件",
     "panels": "功能面板",
     "main": "主导航",
-    "graph": "知识图谱"
+    "graph": "知识图谱",
+    "knowledge": "知识页"
   },
   "tabs": {
     "chat": "对话",
@@ -19,7 +20,8 @@
     "skills": "技能",
     "marketplace": "技能市场",
     "files": "文件",
-    "graph": "知识图谱"
+    "graph": "知识图谱",
+    "knowledge": "知识页"
   },
   "sidebar": {
     "projects": "对话",
@@ -1566,5 +1568,103 @@
     "filterGroupResult": "结果",
     "filterGroupMemory": "记忆类型",
     "contextCollapse": "收起"
+  },
+  "knowledge": {
+    "title": "知识页",
+    "subtitle": "由 agent 策展、你也参与编写的知识页——浏览、搜索、编辑，并在这里审阅影子模式的草稿",
+    "statsTotal": "共 {{count}} 页",
+    "statsPending": "{{count}} 页待审",
+    "statsArchived": "{{count}} 页已归档",
+    "indexWarning": "搜索索引与页表不一致（{{pages}} 页，{{indexed}} 条索引）——请运行 pnpm knowledge:reindex",
+    "tabPages": "知识页",
+    "tabReview": "待审队列",
+    "selectPrompt": "从左侧列表中选择一页查看或编辑",
+    "searchPlaceholder": "搜索标题与正文…",
+    "searchActiveOnlyHint": "搜索只覆盖已生效的页面",
+    "searchNoResults": "没有匹配的知识页",
+    "searchError": "搜索失败，请重试。",
+    "searchCapped": "只显示前 {{count}} 条匹配",
+    "loadError": "加载知识页失败",
+    "notEnabledHint": "知识层当前未启用——在 config.yaml 中设置 knowledge.enabled: true 后即可使用知识页。",
+    "emptyTitle": "还没有知识页",
+    "emptyHint": "当 agent 从对话中策展出知识后，页面会出现在这里。",
+    "emptyArchived": "没有已归档的页面",
+    "retry": "重试",
+    "pageTypeAll": "全部类型",
+    "pageTypes": {
+      "entity": "实体",
+      "project": "项目",
+      "topic": "主题",
+      "decision": "决策",
+      "snippet": "片段"
+    },
+    "statuses": {
+      "active": "已生效",
+      "pending": "待审",
+      "archived": "已归档"
+    },
+    "updatedAt": "更新于 {{time}}",
+    "range": "{{from}}–{{to}}",
+    "prevPage": "上一页",
+    "nextPage": "下一页",
+    "version": "v{{version}}",
+    "confidence": "置信度 {{value}}%",
+    "editor": {
+      "back": "返回列表",
+      "archivedNotice": "该页面已归档，只能查看。它作为历史保留，不再参与搜索，也不会提供给 agent。",
+      "missing": "该页面已不存在",
+      "loadError": "加载该页面失败",
+      "titleLabel": "标题",
+      "titlePlaceholder": "页面标题",
+      "titleRequired": "页面必须有标题",
+      "contentLabel": "正文",
+      "contentPlaceholder": "Markdown 正文——[[wikilink]] 会被解析成关系",
+      "aliasesLabel": "别名",
+      "aliasesHint": "用逗号分隔",
+      "tagsLabel": "标签",
+      "tagsHint": "用逗号分隔",
+      "confidenceLabel": "置信度",
+      "confidenceHint": "0–1；留空则保留原值",
+      "confidenceInvalid": "置信度必须是 0 到 1 之间的数字",
+      "save": "保存",
+      "saved": "页面已保存",
+      "saveError": "保存页面失败",
+      "dangling": "已保存，但有链接指向尚不存在的页面：{{slugs}}",
+      "reset": "撤销修改",
+      "dirtyHint": "有未保存的修改",
+      "cleanHint": "没有修改",
+      "confirmDiscard": "有未保存的修改，确定放弃吗？",
+      "sourcesLabel": "来源",
+      "sourcesEmpty": "没有记录来源",
+      "linksLabel": "出链",
+      "linksEmpty": "没有出链",
+      "linkMissing": "该页面尚不存在",
+      "updated": "{{time}}由 {{actor}} 编辑",
+      "actorUnknown": "未知"
+    },
+    "conflict": {
+      "title": "编辑期间该页面已发生变化",
+      "body": "你打开的是第 {{baseVersion}} 版，服务器现在是第 {{currentVersion}} 版。没有内容被覆盖——你的文字仍在编辑器里。",
+      "currentContentLabel": "服务器当前正文",
+      "emptyContent": "（空页面）",
+      "reloadReapply": "重载并重新应用",
+      "reloadReapplyHint": "把你的修改写进上面这一版：只会提交你改过的字段，新版本的其他内容保持不变。",
+      "discardMine": "放弃我的修改"
+    },
+    "review": {
+      "title": "影子待审队列",
+      "subtitle": "agent 在影子模式下写的草稿。在你批准之前，它们对搜索和 agent 都不可见。",
+      "empty": "没有待审的页面",
+      "loadError": "加载待审队列失败",
+      "approve": "批准",
+      "archive": "归档",
+      "approved": "已批准——{{title}} 现已生效",
+      "approveError": "批准页面失败",
+      "archived": "已归档——{{title}}",
+      "archiveError": "归档页面失败",
+      "preview": "查看正文",
+      "hidePreview": "收起正文",
+      "written": "由 {{actor}} 于 {{time}}"
+    }
   }
 }

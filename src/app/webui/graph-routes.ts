@@ -15,6 +15,10 @@
  * recursive-CTE walk, the temporal predicate (`valid_from <= asOf < valid_to`)
  * and the depth clamp. This module only turns its result into the node/edge
  * payload the WebUI draws.
+ *
+ * `/api/search` ranks through `unifiedSearch()` (`src/memory/unified-search.ts`)
+ * — the K5 fusion point — rather than ranking the same three sources here as
+ * well. See the handler for the response contract.
  */
 
 import type { FastifyInstance } from 'fastify';
@@ -25,7 +29,15 @@ import {
   type EntityEdge,
 } from '../../memory/repositories/entity-repository.js';
 import type { MemoryRetriever } from '../../memory/memory-retriever.js';
-import { buildFtsQuery } from '../../memory/fts-tokenizer.js';
+import type { KnowledgeService } from '../../memory/knowledge/service-contract.js';
+import { unifiedSearch } from '../../memory/unified-search.js';
+import type {
+  UnifiedKnowledgeHit,
+  UnifiedLaneReport,
+  UnifiedMemoryHit,
+  UnifiedMessageHit,
+  UnifiedSearchLane,
+} from '../../memory/unified-search.js';
 import { inferChannel } from '../../memory/session-channel.js';
 import { loadMessageContext, titleFromMetadata } from './session-message-view.js';
 import type { FooterConfig } from '../types.js';
@@ -38,6 +50,8 @@ const MAX_SEARCH_LIMIT = 50;
 const MAX_GRAPH_DEPTH = 3;
 /** The three legs `/api/search` unions; `kinds` selects a subset of them. */
 const SEARCH_KINDS: SearchResultKind[] = ['entity', 'memory', 'message'];
+/** Lanes `unifiedSearch()` fuses; `limit` is a per-lane allowance on each. */
+const SEARCH_LANES = 3;
 /** Search rows are rendered as one-line list entries — long text is noise. */
 const TITLE_MAX_CHARS = 80;
 const SNIPPET_MAX_CHARS = 200;
@@ -87,11 +101,49 @@ export interface SearchResult {
   /**
    * Owning session's title and channel, so a result row can say where it came
    * from ("飞书 · 目录检查") and the UI can decide whether "open session" means
-   * the IM inbox or a project chat. Resolved in one IN-query per page, never
-   * per row.
+   * the IM inbox or a project chat.
    */
   session_title?: string;
   channel?: string;
+}
+
+/**
+ * A knowledge page hit: the consumer-facing row shape, its own `kind` and its
+ * own array.
+ *
+ * Pages are not in `results` because the WebUI renders `results` by a closed
+ * kind list (`entity`/`memory`/`message`): a fourth kind there would be dropped
+ * from every group, and a page-only answer would render as "no results". They
+ * share the row fields so a kind-aware group can render them as they are.
+ */
+export interface SearchPageRow extends Omit<SearchResult, 'kind'> {
+  kind: 'knowledge';
+}
+
+/** A memory dropped because a returned page already covers it (same-source rule). */
+export interface SearchDedupeRecord {
+  lane: 'memory';
+  /** The dropped memory id. */
+  id: string;
+  reason: 'cited_by_knowledge_page';
+  /** The page that covers it, so the drop is explainable from the payload. */
+  page_slug: string;
+}
+
+/**
+ * `GET /api/search` payload.
+ *
+ * `q` and `results` are the original contract and are unchanged — same keys,
+ * same kinds, one row per hit. `pages`, `lanes` and `deduped` are additive: a
+ * client that ignores them sees the previous payload.
+ */
+export interface SearchResponse {
+  q: string;
+  results: SearchResult[];
+  pages: SearchPageRow[];
+  /** What each fused lane contributed. Entities are not a lane (see the handler). */
+  lanes: Record<UnifiedSearchLane, UnifiedLaneReport>;
+  deduped: SearchDedupeRecord[];
 }
 
 export interface GraphRouteConfig {
@@ -104,6 +156,14 @@ export interface GraphRouteConfig {
    * not wired up.
    */
   memoryRetriever?: Pick<MemoryRetriever, 'retrieve'>;
+  /**
+   * The knowledge lane — the same service the knowledge routes and tools read.
+   * Optional, and absent is the normal state: while `knowledge.enabled` is
+   * false no service is built at all. Absent means the page lane does not run,
+   * so pages are never returned and the page-wins dedupe cannot fire; the
+   * memory/message lanes answer exactly as they did before.
+   */
+  knowledge?: Pick<KnowledgeService, 'search' | 'get'>;
   /** Footer defaults for messages saved before the footer snapshot existed. */
   getFooterConfig?: () => FooterConfig;
 }
@@ -355,56 +415,79 @@ function loadNeighbourhood(
   };
 }
 
-interface MessageHit {
-  message_id: string;
-  content_original: string;
-  session_id: string | null;
-  role: string | null;
-  created_at: string | number | null;
-  rank: number;
+/**
+ * Row mappers — one per lane, so the response keeps the shape the WebUI already
+ * renders while the *ranking* comes from `unifiedSearch()`.
+ *
+ * The message lane hands back a match window (±120 chars around the hit) rather
+ * than the stored body, so its head becomes the title: for a long CJK message
+ * the first 80 characters frequently contain no match at all, which is exactly
+ * the row that used to read as unrelated to the query.
+ */
+function toMessageRow(hit: UnifiedMessageHit, term: string): SearchResult {
+  const title = plainText(hit.snippet, TITLE_MAX_CHARS);
+  return {
+    kind: 'message',
+    id: hit.ref,
+    title,
+    snippet: buildSnippet(hit.snippet, term, title.length),
+    score: hit.score,
+    session_id: hit.sessionId,
+    created_at: hit.createdAt,
+    ...(hit.sessionTitle ? { session_title: hit.sessionTitle } : {}),
+    ...(hit.channel ? { channel: hit.channel } : {}),
+  };
+}
+
+/** A memory row: the lane's excerpt is the memory content, so title + snippet split it. */
+function toMemoryRow(hit: UnifiedMemoryHit, term: string): SearchResult {
+  const title = plainText(hit.snippet, TITLE_MAX_CHARS);
+  return {
+    kind: 'memory',
+    id: hit.ref,
+    title,
+    snippet: buildSnippet(hit.snippet, term, title.length),
+    score: hit.score,
+    ...(hit.createdAt ? { created_at: hit.createdAt } : {}),
+  };
 }
 
 /**
- * Message hits from `messages_fts_jieba`. The index stores jieba-segmented text
- * in an unicode61 FTS5 table, so the query must be segmented the same way —
- * `buildFtsQuery` is the same helper the memory FTS path uses, including its
- * unicode-regex fallback when jieba is unavailable.
- *
- * Returns [] (never throws) when the table is missing or the MATCH expression
- * is rejected: message search is one leg of a unified search, not a reason to
- * fail the request.
+ * A page row. `id` is the page id (what `knowledge_get` takes) and the title is
+ * the page's own title: a page is a document with a name, not an excerpt whose
+ * head happens to be where the match is.
  */
-function searchMessages(db: Database.Database, query: string, limit: number): MessageHit[] {
-  if (!tableExists(db, 'messages_fts_jieba')) return [];
-  const ftsQuery = buildFtsQuery(query);
-  if (!ftsQuery) return [];
-  try {
-    return db
-      .prepare(
-        `SELECT message_id, content_original, session_id, role, created_at,
-                bm25(messages_fts_jieba) AS rank
-         FROM messages_fts_jieba
-         WHERE messages_fts_jieba MATCH ?
-         ORDER BY rank
-         LIMIT ?`,
-      )
-      .all(ftsQuery, limit) as MessageHit[];
-  } catch {
-    // Unparsable MATCH (or an index left over from another tokenizer setup).
-    return [];
-  }
+function toPageRow(hit: UnifiedKnowledgeHit): SearchPageRow {
+  return {
+    kind: 'knowledge',
+    id: hit.ref,
+    title: plainText(hit.title, TITLE_MAX_CHARS),
+    snippet: plainText(hit.snippet, SNIPPET_MAX_CHARS),
+    score: hit.score,
+  };
 }
 
-/** BM25 rank is negative and unbounded; map it into (0, 1) like fts.ts does. */
-function normalizeBm25(rank: number): number {
-  const relevance = -rank;
-  return relevance > 0 ? relevance / (1 + relevance) : 0;
-}
-
-function toEpochMs(value: string | number | null): number | undefined {
-  if (value === null) return undefined;
-  const parsed = typeof value === 'number' ? value : Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : undefined;
+/**
+ * The memory lane as `unifiedSearch()` will call it, with `memory_kinds` applied
+ * inside the lane.
+ *
+ * `unifiedSearch` hands a retriever only the query and the page size, so the
+ * narrowing lives in the retriever it is given. Over-fetch while filtering: the
+ * kind filter runs after retrieval, so asking for `limit` rows and dropping most
+ * of them would return a page far shorter than the caller allowed.
+ */
+function memoryLaneRetriever(
+  retriever: Pick<MemoryRetriever, 'retrieve'>,
+  kinds: Set<string> | null,
+): Pick<MemoryRetriever, 'retrieve'> {
+  if (!kinds) return retriever;
+  return {
+    retrieve: async (options) => {
+      const overFetch = Math.min((options.topK ?? DEFAULT_SEARCH_LIMIT) * 4, MAX_SEARCH_LIMIT * 2);
+      const found = await retriever.retrieve({ ...options, topK: overFetch });
+      return found.filter((memory) => kinds.has(memory.kind));
+    },
+  };
 }
 
 export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig): void {
@@ -485,9 +568,24 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
   });
 
   /**
-   * Unified search across the three things a user opens the graph for:
-   * entities, memories and chat messages. Each leg is capped at `limit`, so the
-   * response holds at most 3 × limit rows — the UI groups them by kind anyway.
+   * Unified search: one fused ranking over the retrieval lanes, plus the graph's
+   * entity index.
+   *
+   * The message / memory / knowledge lanes are merged by `unifiedSearch()`
+   * (`src/memory/unified-search.ts`): one ranker, one provenance-dedupe rule
+   * (a returned page drops the memories it cites), one place to change. The
+   * handler no longer ranks any of the three itself — before this it held a
+   * second, divergent ordering of the same sources, which is what K5 exists to
+   * remove.
+   *
+   * Entities are NOT fused: an entity is a graph node, not a retrieval lane — it
+   * has no lane score and no provenance row — so it keeps
+   * `EntityRepository.searchEntities`'s exact-then-shortest order and is reported
+   * outside `lanes`.
+   *
+   * Response contract (see `SearchResponse`): `q` and `results` are unchanged —
+   * `limit` is still a per-kind page size, still capped, still grouped by kind —
+   * and `pages` / `lanes` / `deduped` are additive.
    */
   app.get('/api/search', async (request, reply) => {
     const {
@@ -546,12 +644,12 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
     }
 
     try {
-      const results: SearchResult[] = [];
+      const entityRows: SearchResult[] = [];
 
       if (wants('entity') && tableExists(cfg.db, 'entities')) {
         const entities = repo.searchEntities(term, limit);
         entities.forEach((entity, index) => {
-          results.push({
+          entityRows.push({
             kind: 'entity',
             id: entity.id,
             title: plainText(entity.name, TITLE_MAX_CHARS),
@@ -567,66 +665,71 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
         });
       }
 
-      // The memory leg is the only one that can touch the provider, so skipping
-      // it when the user filtered it out is a real latency win.
-      if (wants('memory') && cfg.memoryRetriever) {
-        // Reuses the chat-recalled ranking path; textOnly skips the embedding
-        // call so a search box keystroke never waits on the provider.
-        //
-        // Over-fetch when narrowing by kind: the kind filter is applied after
-        // retrieval, so asking for `limit` rows and then dropping most of them
-        // would return a page far shorter than the caller allowed.
-        const memories = await cfg.memoryRetriever.retrieve({
-          query: term,
-          topK: memoryKinds ? Math.min(limit * 4, MAX_SEARCH_LIMIT * 2) : limit,
-          textOnly: true,
-        });
-        const kept = memoryKinds
-          ? memories.filter((memory) => memoryKinds.has(memory.kind)).slice(0, limit)
-          : memories;
-        for (const memory of kept) {
-          // title + snippet must read as ONE continuous text, not the same
-          // sentence twice: the head goes in the title, the snippet is the part
-          // that answers the query (see buildSnippet).
-          const title = plainText(memory.content, TITLE_MAX_CHARS);
-          results.push({
-            kind: 'memory',
-            id: memory.id,
-            title,
-            snippet: buildSnippet(memory.content, term, title.length),
-            score: memory.score,
-            ...(memory.createdAt ? { created_at: memory.createdAt } : {}),
-          });
+      // The knowledge lane is not gated by `kinds`: `kinds` selects which legs
+      // the *client* renders, and knowledge is not one of them (its rows ride in
+      // `pages`, which the current WebUI ignores). Running the lane regardless
+      // is what lets the page-wins dedupe below remove a memory a page already
+      // answers — the one visible K5 change on today's client.
+      const fused = await unifiedSearch({
+        query: term,
+        // `limit` stays a per-lane page size, as it was per leg; the fused list is
+        // sized to hold one lane's full allowance from each of the three, so the
+        // fusion trims by rank only past that (per-lane allowances of 17+ share
+        // `MAX_SEARCH_LIMIT` and the weakest rows lose).
+        limit: Math.min(limit * SEARCH_LANES, MAX_SEARCH_LIMIT),
+        perLaneLimit: limit,
+        // The memory lane is the only one that can touch the provider, so
+        // skipping it when the user filtered it out is a real latency win.
+        // `textOnly` keeps a search-box keystroke from waiting on it at all.
+        ...(wants('message') ? { messages: { db: cfg.db } } : {}),
+        ...(wants('memory') && cfg.memoryRetriever
+          ? {
+              memories: {
+                retriever: memoryLaneRetriever(cfg.memoryRetriever, memoryKinds),
+                textOnly: true,
+              },
+            }
+          : {}),
+        ...(cfg.knowledge ? { knowledge: { service: cfg.knowledge } } : {}),
+        logger: app.log,
+      });
+
+      const results: SearchResult[] = [...entityRows];
+      const pages: SearchPageRow[] = [];
+      for (const hit of fused.hits) {
+        if (hit.lane === 'knowledge') {
+          pages.push(toPageRow(hit));
+          continue;
         }
+        // The message lane spends its budget on ±1 context rows so a quoted hit
+        // is not quoted alone. That is right for a tool result and wrong for a
+        // list: a neighbour has no match (score 0) and would read as a hit.
+        if (hit.lane === 'message') {
+          if (!hit.expanded) results.push(toMessageRow(hit, term));
+          continue;
+        }
+        results.push(toMemoryRow(hit, term));
       }
 
-      const messageHits = wants('message') ? searchMessages(cfg.db, term, limit) : [];
-      // Session titles/channels for the whole page in one query — the row label
-      // needs them and N round-trips for N hits would be a latency trap.
-      const sessionMeta = lookupSessionMeta(
-        cfg.db,
-        messageHits.map((hit) => hit.session_id).filter((id): id is string => Boolean(id)),
-      );
-      for (const hit of messageHits) {
-        const createdAt = toEpochMs(hit.created_at);
-        const meta = hit.session_id ? sessionMeta.get(hit.session_id) : undefined;
-        results.push({
-          kind: 'message',
-          id: hit.message_id,
-          title: plainText(hit.content_original, TITLE_MAX_CHARS),
-          snippet: buildSnippet(hit.content_original, term, TITLE_MAX_CHARS),
-          score: normalizeBm25(hit.rank),
-          ...(hit.session_id ? { session_id: hit.session_id } : {}),
-          ...(createdAt !== undefined ? { created_at: createdAt } : {}),
-          ...(meta?.title ? { session_title: meta.title } : {}),
-          ...(meta?.channel ? { channel: meta.channel } : {}),
-        });
-      }
-
-      // Scores come from three different scales; ordering only has to be stable
-      // and meaningful *within* a kind, which is how the UI renders them.
+      // Two score scales remain — the entity leg's positional score and the
+      // RRF-fused lanes — and they are only comparable *within* a kind, which is
+      // how the UI renders them. Within a kind this sort is an identity: the
+      // fused score is monotonic in lane rank.
       results.sort((a, b) => b.score - a.score);
-      return reply.send({ q: term, results });
+
+      const payload: SearchResponse = {
+        q: term,
+        results,
+        pages,
+        lanes: fused.lanes,
+        deduped: fused.deduped.map((record) => ({
+          lane: record.lane,
+          id: record.ref,
+          reason: record.reason,
+          page_slug: record.pageSlug,
+        })),
+      };
+      return reply.send(payload);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: message });
@@ -696,38 +799,4 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
       return reply.status(500).send({ error: message });
     }
   });
-}
-
-/**
- * Title/channel for a handful of sessions, keyed by id.
- *
- * Title falls back to the same metadata mirror the inbox uses, so a session
- * created before v9 (no `title` column value) still labels its search hits.
- */
-function lookupSessionMeta(
-  db: Database.Database,
-  ids: string[],
-): Map<string, { title?: string; channel?: string }> {
-  const out = new Map<string, { title?: string; channel?: string }>();
-  const unique = [...new Set(ids)];
-  if (unique.length === 0) return out;
-
-  const placeholders = unique.map(() => '?').join(', ');
-  const rows = db
-    .prepare(`SELECT id, channel, title, metadata FROM sessions WHERE id IN (${placeholders})`)
-    .all(...unique) as Array<{
-    id: string;
-    channel: string | null;
-    title: string | null;
-    metadata: string | null;
-  }>;
-
-  for (const row of rows) {
-    const title = row.title ?? titleFromMetadata(row.metadata);
-    out.set(row.id, {
-      ...(title ? { title } : {}),
-      ...(row.channel ? { channel: row.channel } : {}),
-    });
-  }
-  return out;
 }

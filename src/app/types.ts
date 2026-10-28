@@ -374,6 +374,20 @@ export interface AppConfig {
    * (`archiveSectionSchema`).
    */
   archive?: ArchiveSectionConfig;
+  /**
+   * Curated knowledge pages (MyDocs/KNOWLEDGE_WORKBENCH_PLAN.md §9.1). The shape
+   * is inferred from `knowledgeSectionSchema` in src/app/config.ts, which
+   * defaults every key, so the section is always present in the parsed config;
+   * `enabled` is false when `config.yaml` has no `knowledge:` section, which
+   * leaves the layer inert (no tools, no curation job, no injection).
+   */
+  knowledge: import('./config.js').KnowledgeSectionConfig;
+  /**
+   * Episodic retrieval over `messages` (same plan section). Inferred from
+   * `conversationSearchSectionSchema`; always present, and `enabled` is false
+   * when `config.yaml` has no `conversation_search:` section.
+   */
+  conversationSearch: import('./config.js').ConversationSearchSectionConfig;
   /** Footer display options. Applies to all channels. */
   footer: FooterConfig;
 
@@ -966,6 +980,13 @@ export interface AppServices {
   messageRepository: MessageRepository;
   episodeRepository: EpisodeRepository;
   toolRunRepository: ToolRunRepository;
+  /**
+   * Curated knowledge pages (MyDocs/KNOWLEDGE_WORKBENCH_PLAN.md §6 K2). The ONE
+   * instance, built in `createMemoryServices` alongside the database handle, so
+   * the tools, the WebUI routes and the per-turn injection share it. Absent
+   * when `knowledge.enabled` is false or its construction failed.
+   */
+  knowledgeService?: import('../memory/knowledge/service-contract.js').KnowledgeService;
 
   // ── Agent ──
   agentFactory: AgentFactory;

@@ -110,5 +110,25 @@
     "renamed": "会话已重命名为「{{title}}」",
     "usage": "用法：/rename 新标题",
     "unavailable": "当前渠道不支持重命名会话"
+  },
+  "knowledge": {
+    "disabled": "知识层未开启 —— 在 config.yaml 里加上 `knowledge:` 段并设 `enabled: true` 才能使用 /knowledge。",
+    "usage": "用法：/knowledge list | show <slug> | pending | approve <id> | stats",
+    "listHeader": "**知识页（{{count}}）**\n\n{{list}}",
+    "empty": "还没有知识页。",
+    "showUsage": "用法：/knowledge show <slug> —— 也可以直接写页地址（topic/excel-etl）",
+    "pageNotFound": "没有知识页「{{ref}}」。",
+    "pageDetail": "**{{title}}**（`{{address}}` · v{{version}} · {{status}}）\n\n来源：{{sources}}\n链接：{{links}}\n\n{{content}}",
+    "sourcesNone": "无",
+    "linksNone": "无",
+    "pendingHeader": "**待审核的页（{{count}}）**\n\n{{list}}",
+    "noPending": "没有待审核的知识页。只有 `knowledge.curate.shadow` 打开时，策展出的页才会落到这里。",
+    "approveUsage": "用法：/knowledge approve <id> —— id 从 /knowledge pending 里取",
+    "approved": "✅ 已批准知识页 {{id}} —— 现在可以被检索和注入。",
+    "approveNotFound": "没有 id 为 {{id}} 的待审核页。",
+    "stats": "**知识页总数**：{{total}}\n状态：{{statuses}}\n类型：{{types}}",
+    "countsUnavailable": "当前渠道拿不到页数统计 —— 请在 WebUI 的知识页里查看。",
+    "none": "无",
+    "failed": "知识命令执行失败：{{error}}"
   }
 }

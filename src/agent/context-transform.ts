@@ -16,12 +16,28 @@
  *
  * Persona is appended after the user text and other dynamic context so repeated
  * user-message prefixes stay stable while current preferences remain available.
+ *
+ * Two optional per-turn blocks sit between the memory block and persona, OFF
+ * unless their provider is supplied (MyDocs/KNOWLEDGE_WORKBENCH_PLAN.md §6 K1-4
+ * and K2-6):
+ *
+ *   <recent_conversation> — up to 2 raw message excerpts for a recall-shaped
+ *       query ("上次那个方案叫什么"), from conversation search. Conditional on
+ *       intent: a turn that asks for new work never pays for it.
+ *   <knowledge_available> — up to 2 curated page titles + slugs, so the model
+ *       knows a page exists and can read its body with `knowledge_get` instead
+ *       of guessing from a title.
+ *
+ * Both are budgeted (≤250 and ≤150 tokens; together the plan's ≤400 G4 limit)
+ * and both are no-ops when their provider throws — retrieval must never be a
+ * reason a turn fails.
  */
 
 import type { MemoryRetriever, RetrievedMemory } from '../memory/memory-retriever.js';
 import type { MermaidCanvas } from '../runtime-artifacts/mermaid-canvas.js';
 import type { AutoCompressConfig } from '../app/types.js';
 import { compressContext, estimateTokensCached } from './compress.js';
+import { estimateTokensForText } from '../shared/token-estimate.js';
 import { extractPreferredName } from '../memory/persona-store.js';
 import { isPromptInjection } from '../memory/memory-filter.js';
 import { truncate } from '../shared/truncation.js';
@@ -122,6 +138,8 @@ const INJECTED_BLOCK_PREFIXES = [
   '[最新用户偏好',
   // XML-wrapped injection blocks (pi-style structure)
   '<memory_context>',
+  '<recent_conversation>',
+  '<knowledge_available>',
   '<persona>',
   '<task_progress>',
   '<archived_tool_results>',
@@ -220,6 +238,47 @@ function buildMemoryLines(memories: RetrievedMemory[], query: string): string[] 
   );
 }
 
+/**
+ * One message excerpt for the `<recent_conversation>` block.
+ *
+ * Structured, not pre-formatted: the transform renders the date, collapses
+ * whitespace, neutralises prompt tags and enforces the budget, so a provider
+ * cannot spend more of the context window than the cap allows.
+ */
+export interface EpisodicContextItem {
+  /** Epoch milliseconds — rendered as `YYYY-MM-DD` by the transform. */
+  createdAt: number;
+  /** Owning session's title, if it has one. */
+  sessionTitle?: string | null;
+  /** Channel id as stored (`feishu`, `webui`, …). */
+  channel?: string | null;
+  role: string;
+  /** Already windowed around the match by the caller (`conversation-search`). */
+  excerpt: string;
+}
+
+/** One curated page offered as a title, per plan §6 K2-6. */
+export interface KnowledgeContextItem {
+  /** `page_type/slug`, e.g. `topic/excel-etl` or bare `excel-etl` as stored. */
+  slug: string;
+  title: string;
+}
+
+// ── Per-turn injection budget (plan §4 principle 5 / §6 G4) ─────────────────
+// The whole automatic injection may add ≤400 tokens per turn. The two blocks
+// below are capped separately (250 + 150 = 400) so neither can starve the
+// other, and each drops its weakest entries until it fits.
+const EPISODIC_BLOCK_TOKEN_BUDGET = 250;
+const EPISODIC_MAX_ITEMS = 2;
+/** Plan K1-4: "≤2 条片段 × ≤200 字". */
+const EPISODIC_EXCERPT_MAX_CHARS = 200;
+const KNOWLEDGE_BLOCK_TOKEN_BUDGET = 150;
+const KNOWLEDGE_MAX_ITEMS = 2;
+/** One `slug — title` line; a title long enough to blow the budget is not a title. */
+const KNOWLEDGE_LINE_MAX_CHARS = 80;
+/** Header (date · channel · title) is metadata, not content — keep it short. */
+const INJECTION_HEADER_MAX_CHARS = 60;
+
 export interface TransformOptions {
   /** Maximum number of messages to retain (default: 100). */
   maxMessages?: number;
@@ -276,6 +335,27 @@ export interface TransformOptions {
   /** Optional dynamic persona context. Prepended so current preferences override stale context. */
   personaContextProvider?: () => string;
   /**
+   * Optional episodic provider (plan §6 K1-4): raw conversation excerpts for a
+   * recall-shaped query, best first. Receives the turn's user text — the search
+   * needs the query, unlike the persona provider.
+   *
+   * The transform owns the block (`<recent_conversation>`), the 2-item cap and
+   * the token budget; the provider owns retrieval and any turn-level gating it
+   * wants (e.g. `conversationSearch.enabled`). Returning `[]`/`undefined` means
+   * "nothing relevant", not an error. Undefined provider = no block, exactly as
+   * before this option existed.
+   */
+  episodicContextProvider?: (query: string) => EpisodicContextItem[] | undefined;
+  /**
+   * Optional knowledge provider (plan §6 K2-6): at most a couple of page
+   * titles worth offering this turn, most relevant first — typically
+   * `KnowledgeService.titlesForInjection(query, max)`.
+   *
+   * Titles only, never bodies: the body is a `knowledge_get` call away, and the
+   * budget for this block is 150 tokens. Undefined provider = no block.
+   */
+  knowledgeContextProvider?: (query: string) => KnowledgeContextItem[] | undefined;
+  /**
    * Optional provider that returns a system-reminder string when a Desktop Bridge
    * is active for the current session. Injected into the context so the LLM knows
    * it can access the user's local files and shell.
@@ -312,6 +392,92 @@ export interface TransformOptions {
    * resolves to a JudgeEngine and the respective point mode is not 'off'.
    */
   judgeGet?: () => import('../judge/engine.js').JudgeEngine | undefined;
+}
+
+/**
+ * Deictic and temporal back-references — "上次", "当时", "we discussed".
+ *
+ * This is the K1-4 trigger for the episodic block, and it is deliberately a
+ * separate list from `MEMORY_RELEVANT_PATTERNS`: that one decides whether to
+ * talk about memory at all (and drives the DeepSeek cache bypass), while this
+ * one decides whether the turn is *asking about a past exchange*. A query may
+ * match either; the block is injected if it matches one.
+ */
+const RECALL_QUERY_PATTERNS = [
+  /上次|上回|那次|当时|刚才|刚刚|前几天|前阵子|之前|以前/,
+  /我们(?:说过|聊过|提过|讨论过)|说过|聊过|讨论过/,
+  /\b(last time|earlier|previously|the other day|we (?:discussed|talked|said)|before that)\b/i,
+];
+
+function isEpisodicRelevantRequest(text: string): boolean {
+  return (
+    isMemoryRelevantRequest(text) || RECALL_QUERY_PATTERNS.some((pattern) => pattern.test(text))
+  );
+}
+
+/** `YYYY-MM-DD` in local time; empty when the timestamp is unreadable. */
+function formatInjectionDate(epochMs: number): string {
+  if (!Number.isFinite(epochMs) || epochMs <= 0) return '';
+  const date = new Date(epochMs);
+  if (Number.isNaN(date.getTime())) return '';
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+/** One-line excerpt: retrieved chat text is Markdown/HTML-heavy and multi-line. */
+function flattenInjectedText(value: string): string {
+  return value
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Render one `<recent_conversation>` entry, shaped like plan §6 K1-4:
+ *
+ * ```
+ * 2026-10-08 · 飞书 · 目录检查
+ *   user: 上次那个 Excel 的批量替换脚本放在哪？
+ * ```
+ */
+function formatEpisodicEntry(item: EpisodicContextItem): string {
+  const title = item.sessionTitle?.trim();
+  const header = [
+    formatInjectionDate(item.createdAt),
+    item.channel?.trim() ?? '',
+    title ? truncate(title, INJECTION_HEADER_MAX_CHARS) : '',
+  ]
+    .filter((part) => part !== '')
+    .join(' · ');
+  const excerpt = truncate(
+    neutralizePromptTags(flattenInjectedText(item.excerpt)),
+    EPISODIC_EXCERPT_MAX_CHARS,
+  );
+  const speaker = item.role?.trim() || 'unknown';
+  const line = `  ${speaker}: ${excerpt}`;
+  return header ? `${header}\n${line}` : line;
+}
+
+/**
+ * Build a tagged block from candidate entries under a token budget.
+ *
+ * Callers pass entries best-first, so the tail is what gets dropped: an
+ * injection that cannot fit is reduced, never truncated mid-line, and a block
+ * that cannot fit even one entry is omitted entirely (an empty tag would be
+ * pure cost). Uses the same CJK-aware estimator as context compression, so
+ * "150 tokens" means the same thing here as it does to the overflow guard.
+ */
+function buildBudgetedBlock(
+  tag: 'recent_conversation' | 'knowledge_available',
+  entries: string[],
+  tokenBudget: number,
+): string | null {
+  for (let count = entries.length; count > 0; count--) {
+    const block = `\n\n<${tag}>\n${entries.slice(0, count).join('\n')}\n</${tag}>`;
+    if (estimateTokensForText(block) <= tokenBudget) return block;
+  }
+  return null;
 }
 
 /**
@@ -522,6 +688,91 @@ export function createTransformContext(options?: TransformOptions) {
               );
             }
             autoRecalledSessions.set(nsSessionKey, true);
+          }
+        }
+      }
+    }
+
+    // ── K1-4: episodic injection (`<recent_conversation>`) ──
+    // Only for a recall-shaped turn: "上次那个方案叫什么" needs the original
+    // wording, while "写一个排序函数" pays 250 tokens for nothing. The provider
+    // does the search; this block owns the cap (2 items × ≤200 chars, ≤250
+    // tokens), the neutralisation, and the failure mode (log + skip).
+    if (options?.episodicContextProvider) {
+      const lastUserMsg = [...result].reverse().find((m: any) => m.role === 'user');
+      if (lastUserMsg?.content) {
+        const query = getUserQueryText(lastUserMsg.content);
+        if (query.trim().length >= 5 && isEpisodicRelevantRequest(query)) {
+          try {
+            const items = options.episodicContextProvider(query) ?? [];
+            const entries = items
+              .filter((item) => typeof item?.excerpt === 'string' && item.excerpt.trim() !== '')
+              .slice(0, EPISODIC_MAX_ITEMS)
+              .map(formatEpisodicEntry);
+            const block = buildBudgetedBlock(
+              'recent_conversation',
+              entries,
+              EPISODIC_BLOCK_TOKEN_BUDGET,
+            );
+            if (block) {
+              const idx = result.lastIndexOf(lastUserMsg);
+              const blocks = ensureContentBlocks(lastUserMsg.content);
+              result[idx] = {
+                ...lastUserMsg,
+                content: [...blocks, { type: 'text', text: block, injected: true } as any],
+              };
+              options?.logger?.debug(
+                { count: entries.length, tokens: Math.ceil(estimateTokensForText(block)) },
+                'Episodic conversation injected into context',
+              );
+            }
+          } catch {
+            options?.logger?.debug('Episodic context injection failed — continuing without it');
+          }
+        }
+      }
+    }
+
+    // ── K2-6: knowledge titles (`<knowledge_available>`) ──
+    // Titles and slugs only: the body is a `knowledge_get` call away, and the
+    // block's budget (≤2 titles, ≤150 tokens) exists to say "a page about this
+    // exists" without pre-empting the tool. `titlesForInjection` already
+    // applies the relevance floor, so an unfocused query yields no entries and
+    // therefore no block.
+    if (options?.knowledgeContextProvider) {
+      const lastUserMsg = [...result].reverse().find((m: any) => m.role === 'user');
+      if (lastUserMsg?.content) {
+        const query = getUserQueryText(lastUserMsg.content);
+        if (query.trim() !== '') {
+          try {
+            const items = options.knowledgeContextProvider(query) ?? [];
+            const entries = items
+              .filter((item) => typeof item?.slug === 'string' && item.slug.trim() !== '')
+              .slice(0, KNOWLEDGE_MAX_ITEMS)
+              .map((item) => {
+                const title = flattenInjectedText(item.title ?? '');
+                const line = title ? `${item.slug.trim()} — ${title}` : item.slug.trim();
+                return neutralizePromptTags(truncate(line, KNOWLEDGE_LINE_MAX_CHARS));
+              });
+            const block = buildBudgetedBlock(
+              'knowledge_available',
+              entries,
+              KNOWLEDGE_BLOCK_TOKEN_BUDGET,
+            );
+            if (block) {
+              const idx = result.lastIndexOf(lastUserMsg);
+              const blocks = ensureContentBlocks(lastUserMsg.content);
+              result[idx] = {
+                ...lastUserMsg,
+                content: [...blocks, { type: 'text', text: block, injected: true } as any],
+              };
+              options?.logger?.debug(
+                { count: entries.length, tokens: Math.ceil(estimateTokensForText(block)) },
+                'Knowledge titles injected into context',
+              );
+            }
+          } catch {
+            options?.logger?.debug('Knowledge title injection failed — continuing without it');
           }
         }
       }

@@ -420,10 +420,6 @@ reboot.
 
 7. **Optional: knowledge export (and a no-file consistency check)**
 
-   > **Not yet implemented.** The `knowledge:*` scripts land with the knowledge
-   > layer; until then only `pnpm graph:export` exists, and this item is a no-op
-   > (skip it on a deploy today).
-
    If you want the knowledge pages as browsable markdown (Obsidian, grep, git):
 
    ```bash
