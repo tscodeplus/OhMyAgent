@@ -113,7 +113,7 @@
   },
   "knowledge": {
     "disabled": "The knowledge layer is off — add a `knowledge:` section with `enabled: true` to config.yaml to use /knowledge.",
-    "usage": "Usage: /knowledge list | show <slug> | pending | approve <id> | stats",
+    "usage": "Usage: /knowledge list | show <slug> | pending | approve <id> | stats | curate | share <message-id|url>",
     "listHeader": "**Knowledge pages ({{count}})**\n\n{{list}}",
     "empty": "No knowledge pages yet.",
     "showUsage": "Usage: /knowledge show <slug> — a page address works too (topic/excel-etl)",
@@ -128,6 +128,17 @@
     "approveNotFound": "No pending page with id {{id}}.",
     "stats": "**Knowledge pages**: {{total}}\nStatus: {{statuses}}\nTypes: {{types}}",
     "countsUnavailable": "Page counts are not available on this channel — see the knowledge pages in the WebUI.",
+    "curateUsage": "Usage: /knowledge curate — it takes no argument. To turn one shared message into a page use /knowledge share <message-id|url>.",
+    "curateUnavailable": "Curation is not available here — the knowledge layer is off, or no curator is wired on this channel.",
+    "curateSkipped": "Curation was skipped ({{reason}}) — nothing was written.",
+    "curateNoPages": "Curation wrote no pages (rejected: {{rejected}}, failed: {{failed}}).",
+    "curateDone": "**Curation finished**: {{created}} created, {{updated}} updated, {{failed}} failed.\n\n{{pages}}",
+    "shareUsage": "Usage: /knowledge share <message-id|url> — the message to turn into a knowledge page",
+    "shareMessageNotFound": "No message of yours found for \"{{ref}}\".",
+    "shareSkipped": "Nothing was curated ({{reason}}) — no page was written.",
+    "shareNoPage": "No page came out of that message (rejected: {{rejected}}, failed: {{failed}}).",
+    "shareDone": "✅ Page `{{address}}` **{{title}}** is written — it is searchable and injectable now.",
+    "shareDonePending": "✅ Page `{{address}}` **{{title}}** was written and is waiting for review — approve it with /knowledge pending and /knowledge approve <id>.",
     "none": "none",
     "failed": "Knowledge command failed: {{error}}"
   }

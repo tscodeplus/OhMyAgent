@@ -34,6 +34,7 @@
     "graph:reset": "tsx scripts/graph-reset.ts",
     "knowledge:reindex": "tsx scripts/knowledge-reindex.ts",
     "knowledge:export": "tsx scripts/knowledge-export.ts",
+    "knowledge:merge": "tsx scripts/knowledge-merge.ts",
     "test:memory:v11": "vitest run tests/memory tests/agent/memory-injection.test.ts tests/tools/memory-tools.test.ts tests/e2e/memory-flow.test.ts",
     "build:desktop": "cd desktop && npm run build:sidecar",
     "start:desktop": "cd desktop && npm run dev:sidecar",

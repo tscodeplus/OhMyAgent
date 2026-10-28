@@ -461,6 +461,12 @@ export function searchEpisodicContext(params: EpisodicSearchParams): EpisodicCon
     sessionTitle: hit.session_title,
     role: hit.role,
     excerpt: hit.snippet,
+    // Relevance, for the cross-block budget (plan §6 K5 item 4): the transform
+    // ranks this lane against the knowledge lane, so it needs the number the
+    // search already computed rather than only the order. `conversation-search`
+    // normalises BM25 into (0,1) and gives a ±1 neighbour 0 — a neighbour is
+    // context, not a hit, and it loses the budget first.
+    score: hit.score,
     // Carried for the per-turn injection event (plan §6 K0 item 3): the block
     // renders only text, but the row that records the injection names the
     // messages, so a later `session_search` hit can be traced back to it.

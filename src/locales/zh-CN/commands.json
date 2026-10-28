@@ -113,7 +113,7 @@
   },
   "knowledge": {
     "disabled": "知识层未开启 —— 在 config.yaml 里加上 `knowledge:` 段并设 `enabled: true` 才能使用 /knowledge。",
-    "usage": "用法：/knowledge list | show <slug> | pending | approve <id> | stats",
+    "usage": "用法：/knowledge list | show <slug> | pending | approve <id> | stats | curate | share <消息id|链接>",
     "listHeader": "**知识页（{{count}}）**\n\n{{list}}",
     "empty": "还没有知识页。",
     "showUsage": "用法：/knowledge show <slug> —— 也可以直接写页地址（topic/excel-etl）",
@@ -128,6 +128,17 @@
     "approveNotFound": "没有 id 为 {{id}} 的待审核页。",
     "stats": "**知识页总数**：{{total}}\n状态：{{statuses}}\n类型：{{types}}",
     "countsUnavailable": "当前渠道拿不到页数统计 —— 请在 WebUI 的知识页里查看。",
+    "curateUsage": "用法：/knowledge curate —— 它不接受参数。要把某一条分享的消息变成页，请用 /knowledge share <消息id|链接>。",
+    "curateUnavailable": "当前渠道不能策展 —— 知识层未开启，或者没有接入策展器。",
+    "curateSkipped": "策展被跳过（{{reason}}）—— 没有写入任何页。",
+    "curateNoPages": "策展没有写出页（被拒：{{rejected}}，失败：{{failed}}）。",
+    "curateDone": "**策展完成**：新建 {{created}}，更新 {{updated}}，失败 {{failed}}。\n\n{{pages}}",
+    "shareUsage": "用法：/knowledge share <消息id|链接> —— 要变成知识页的那条消息",
+    "shareMessageNotFound": "找不到与「{{ref}}」对应的你的消息。",
+    "shareSkipped": "没有策展（{{reason}}）—— 没有写入任何页。",
+    "shareNoPage": "这条消息没有产出页（被拒：{{rejected}}，失败：{{failed}}）。",
+    "shareDone": "✅ 知识页 `{{address}}` **{{title}}** 已写入 —— 现在可以被检索和注入。",
+    "shareDonePending": "✅ 知识页 `{{address}}` **{{title}}** 已写入，正在等待审核 —— 用 /knowledge pending 和 /knowledge approve <id> 批准它。",
     "none": "无",
     "failed": "知识命令执行失败：{{error}}"
   }

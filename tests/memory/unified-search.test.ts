@@ -291,3 +291,115 @@ describe('unifiedSearch: empty and failing lanes', () => {
     expect(result.hits.some((hit) => hit.lane === 'memory')).toBe(true);
   });
 });
+
+describe('unifiedSearch: lane set', () => {
+  it('fuses only the lanes asked for and reports the others as empty, not failed', async () => {
+    const result = await unifiedSearch({
+      query: 'excel',
+      lanes: ['message'],
+      messages: { db },
+      memories: { retriever: memoryRetriever(seededMemories()) },
+      knowledge: { service: knowledge },
+      perLaneLimit: 5,
+    });
+
+    expect(result.hits.every((hit) => hit.lane === 'message')).toBe(true);
+    expect(result.lanes.message.hits).toBeGreaterThan(0);
+    // A lane that was not asked for is indistinguishable from a lane that
+    // matched nothing: `{ hits: 0, dropped: 0 }` and no `error`.
+    expect(result.lanes.memory).toEqual({ hits: 0, dropped: 0 });
+    expect(result.lanes.knowledge).toEqual({ hits: 0, dropped: 0 });
+  });
+
+  it('runs message + knowledge without the memory lane', async () => {
+    const result = await unifiedSearch({
+      query: 'excel',
+      lanes: ['message', 'knowledge'],
+      messages: { db },
+      memories: { retriever: memoryRetriever(seededMemories()) },
+      knowledge: { service: knowledge },
+      perLaneLimit: 5,
+    });
+
+    expect(new Set(result.hits.map((hit) => hit.lane))).toEqual(new Set(['message', 'knowledge']));
+    expect(result.lanes.memory).toEqual({ hits: 0, dropped: 0 });
+    expect(result.deduped).toEqual([]);
+  });
+
+  it('does not run a lane that is named but has no options', async () => {
+    const result = await unifiedSearch({
+      query: 'excel',
+      lanes: ['message', 'knowledge'],
+      messages: { db },
+      perLaneLimit: 5,
+    });
+
+    expect(result.hits.every((hit) => hit.lane === 'message')).toBe(true);
+    // Named without a service to query = not run, and not an error.
+    expect(result.lanes.knowledge).toEqual({ hits: 0, dropped: 0 });
+  });
+
+  it('defaults to every configured lane when no set is given', async () => {
+    const result = await unifiedSearch({
+      query: 'excel',
+      messages: { db },
+      knowledge: { service: knowledge },
+      perLaneLimit: 5,
+    });
+
+    expect(new Set(result.hits.map((hit) => hit.lane))).toEqual(new Set(['message', 'knowledge']));
+    expect(result.lanes.memory).toEqual({ hits: 0, dropped: 0 });
+  });
+
+  it('applies a per-lane allowance without lowering the shared per-lane limit', async () => {
+    const second = knowledge.create(
+      {
+        pageType: 'topic',
+        slug: 'excel-etl-second',
+        title: 'Excel ETL, second page',
+        content: 'Excel ETL 的第二个页面：Power Query 之后再接 Python。',
+        sources: [{ kind: 'memory', id: MEMORY_FREE }],
+      },
+      { actor: 'agent' },
+    );
+    expect(second.ok).toBe(true);
+
+    const capped = await unifiedSearch({
+      query: 'excel',
+      lanes: ['knowledge'],
+      knowledge: { service: knowledge },
+      perLaneLimit: 5,
+      perLaneLimits: { knowledge: 1 },
+    });
+    const uncapped = await unifiedSearch({
+      query: 'excel',
+      lanes: ['knowledge'],
+      knowledge: { service: knowledge },
+      perLaneLimit: 5,
+    });
+
+    expect(capped.lanes.knowledge.hits).toBe(1);
+    expect(uncapped.lanes.knowledge.hits).toBe(2);
+    expect(capped.hits).toHaveLength(1);
+  });
+});
+
+describe('unifiedSearch: deterministic ordering', () => {
+  it('orders equal lane ranks message-first and repeats identically', async () => {
+    const options = {
+      query: 'excel',
+      lanes: ['message', 'knowledge'] as const,
+      messages: { db },
+      knowledge: { service: knowledge },
+      perLaneLimit: 5,
+    };
+
+    const first = await unifiedSearch({ ...options, lanes: [...options.lanes] });
+    const second = await unifiedSearch({ ...options, lanes: [...options.lanes] });
+
+    // Same-ranks fuse to the same score, so the documented lane order decides —
+    // raw text before a curated page.
+    expect(first.hits.slice(0, 2).map((hit) => hit.lane)).toEqual(['message', 'knowledge']);
+    expect(first.hits.map((hit) => hit.key)).toEqual(second.hits.map((hit) => hit.key));
+  });
+});

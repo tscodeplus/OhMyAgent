@@ -7,6 +7,26 @@
  * readable by nobody but the WebUI, so "上次那个方案叫什么" had no route to an
  * answer. See `src/memory/conversation-search.ts` for the retrieval contract.
  *
+ * ## Why it goes through `unifiedSearch()`
+ *
+ * The same corpus was ranked twice — once here, once by the WebUI's
+ * `/api/search` — which is the divergence K5 exists to remove. So this tool
+ * asks `unifiedSearch()` for the message lane (raw transcript) plus the
+ * knowledge lane (the curated page that may already settle the question), and
+ * the fused list is what it renders. The knowledge lane is optional: with the
+ * layer off, no service is wired in, the fusion reduces to the message lane
+ * alone (an identity), and the result is byte-for-byte what this tool returned
+ * before K5.
+ *
+ * ## The budget
+ *
+ * `limit` stays a **hard total cap**, neighbourhood expansion and knowledge
+ * hits included: a budget that only capped hits would let `limit: 8` return
+ * 8 × 3 = 24 fragments and blow the 400-token per-turn budget. Fusion enforces
+ * it (`hits.length <= limit`, whatever mix of lanes), and the page lane may
+ * spend at most `KNOWLEDGE_SUPPLEMENT_LIMIT` of those entries so the message
+ * lane keeps the allowance the caller asked for.
+ *
  * The split mirrors `memory/recall-definition.ts`: this module owns the
  * arguments, the search call and the result formatting; `session-search-
  * definition.ts` owns the registry-facing `ToolDefinition` (capability
@@ -21,13 +41,29 @@ import type { ToolExecutionResult } from '../../platform/tool-result.js';
 import {
   DEFAULT_CONVERSATION_SEARCH_LIMIT,
   MAX_CONVERSATION_SEARCH_LIMIT,
-  searchMessages,
 } from '../../../memory/conversation-search.js';
-import type { ConversationSearchHit } from '../../../memory/conversation-search.js';
 import type { SessionAccessPolicy } from '../../../memory/session-access.js';
+import type { KnowledgeService } from '../../../memory/knowledge/service-contract.js';
+import { unifiedSearch } from '../../../memory/unified-search.js';
+import type {
+  UnifiedKnowledgeHit,
+  UnifiedMessageHit,
+  UnifiedSearchResult,
+} from '../../../memory/unified-search.js';
 
 export const SESSION_SEARCH_TOOL_NAME = 'session_search';
 export const SESSION_SEARCH_TOOL_LABEL = 'Session Search';
+
+/**
+ * How many of the `limit` entries the knowledge lane may take.
+ *
+ * Pages are a supplement, not a second half of the answer: this tool exists to
+ * hand back messages, and a page lane that returned as many rows as the message
+ * lane would take half the budget on every call. Two is the same ceiling the
+ * per-turn `<knowledge_available>` block uses (titles only, ≤2), so a tool
+ * result tells the model about as many pages as injection does.
+ */
+const KNOWLEDGE_SUPPLEMENT_LIMIT = 2;
 
 export const sessionSearchParams = z.object({
   query: z
@@ -56,7 +92,8 @@ export const sessionSearchParams = z.object({
     .max(MAX_CONVERSATION_SEARCH_LIMIT)
     .optional()
     .describe(
-      `Maximum entries to return, surrounding context included (default ${DEFAULT_CONVERSATION_SEARCH_LIMIT}).`,
+      `Maximum entries to return across messages and knowledge pages, surrounding context ` +
+        `included (default ${DEFAULT_CONVERSATION_SEARCH_LIMIT}).`,
     ),
 });
 
@@ -68,20 +105,27 @@ export interface SessionSearchToolOptions {
   db: Database.Database;
   /** Current session's project id; undefined means "no project restriction". */
   projectId?: string;
-  logger?: Pick<import('pino').Logger, 'debug'>;
+  /**
+   * The knowledge lane's service. Absent means the layer is off, and the tool
+   * behaves exactly as the message-only search it used to be.
+   */
+  knowledge?: Pick<KnowledgeService, 'search' | 'get'>;
+  logger?: Pick<import('pino').Logger, 'debug' | 'warn'>;
 }
 
 export const SESSION_SEARCH_DESCRIPTION =
   'Search the original text of past conversations (every channel, all sessions) and return the ' +
   'matching messages with their session title, channel, time, one message of surrounding ' +
-  'context, and the ids of memories / knowledge pages derived from them. Use it for anything ' +
+  'context, and the ids of memories / knowledge pages derived from them. Curated knowledge ' +
+  'pages that match are returned alongside them, labelled by source. Use it for anything ' +
   'that refers to an earlier discussion ("the plan from last time", "where did we put that ' +
   'script") instead of guessing from summaries.';
 
 /**
  * Run the search and render it for the model.
  *
- * `metadata.hits` carries the structured result: later per-turn injection of a
+ * `metadata.hits` carries the structured message result and `metadata.pages`
+ * the knowledge hits from the same fused list: later per-turn injection of a
  * `<recent_conversation>` block formats the same array instead of re-querying.
  */
 export async function runSessionSearch(
@@ -103,17 +147,32 @@ export async function runSessionSearch(
   // search — an IM or project-less turn keeps every session visible.
   const policy: SessionAccessPolicy = options.projectId ? { projectId: options.projectId } : {};
 
-  let hits: ConversationSearchHit[];
+  // The cap the caller asked for, defaulted here rather than in the fusion:
+  // `unifiedSearch` defaults to 10 and this tool's documented default is 8.
+  const limit = input.limit ?? DEFAULT_CONVERSATION_SEARCH_LIMIT;
+
+  let fused: UnifiedSearchResult;
   try {
-    hits = searchMessages({
-      db: options.db,
+    fused = await unifiedSearch({
       query: input.query,
-      sessionId: input.sessionId,
-      channel: input.channel,
-      since: input.since,
-      until: input.until,
-      limit: input.limit,
-      policy,
+      // Message + knowledge, explicitly: without the set, "message only" would
+      // be an accident of which options the composer happened to pass.
+      lanes: ['message', 'knowledge'],
+      messages: {
+        db: options.db,
+        policy,
+        sessionId: input.sessionId,
+        channel: input.channel,
+        since: input.since,
+        until: input.until,
+      },
+      ...(options.knowledge ? { knowledge: { service: options.knowledge } } : {}),
+      // `limit` is the TOTAL cap: fusion trims the mixed list to it, so pages
+      // and neighbourhood rows compete for the same entries.
+      limit,
+      perLaneLimit: limit,
+      perLaneLimits: { knowledge: Math.min(limit, KNOWLEDGE_SUPPLEMENT_LIMIT) },
+      logger: options.logger,
     });
   } catch (err) {
     return errorResult(
@@ -121,38 +180,88 @@ export async function runSessionSearch(
     );
   }
 
+  const messageHits = fused.hits.filter((hit): hit is UnifiedMessageHit => hit.lane === 'message');
+  const pageHits = fused.hits.filter((hit): hit is UnifiedKnowledgeHit => hit.lane === 'knowledge');
+
+  // Chronological, as this tool has always rendered them: a hit plus its
+  // neighbour is meant to read as the consecutive exchange it was. The fused
+  // order decided *which* entries survive the cap; it is not a display order.
+  const orderedMessages = [...messageHits].sort(
+    (a, b) => a.createdAt - b.createdAt || a.ref.localeCompare(b.ref),
+  );
+
   options.logger?.debug(
-    { query: input.query, hitCount: hits.length, limit: input.limit },
+    {
+      query: input.query,
+      hitCount: orderedMessages.length,
+      pageCount: pageHits.length,
+      limit,
+      lanes: fused.lanes,
+    },
     'session_search results',
   );
 
-  if (hits.length === 0) {
-    return textResult(`No conversation messages matched "${input.query}".`, { hits });
+  const metadata = {
+    query: input.query,
+    hits: orderedMessages,
+    pages: pageHits,
+    lanes: fused.lanes,
+  };
+
+  if (orderedMessages.length === 0 && pageHits.length === 0) {
+    return textResult(`No conversation messages matched "${input.query}".`, metadata);
   }
 
-  const lines = hits.map((hit, index) => formatHit(hit, index));
-  return textResult(
-    `Found ${hits.length} message(s) for "${input.query}" (oldest first; entries marked ` +
-      `"+context" are the neighbouring message, not a keyword match):\n\n${lines.join('\n\n')}`,
-    { query: input.query, hits },
-  );
+  const sections: string[] = [];
+  if (orderedMessages.length === 0) {
+    sections.push(`No conversation messages matched "${input.query}".`);
+  } else {
+    sections.push(
+      `Found ${orderedMessages.length} message(s) for "${input.query}" (oldest first; entries ` +
+        `marked "+context" are the neighbouring message, not a keyword match):`,
+      orderedMessages.map((hit, index) => formatMessageHit(hit, index)).join('\n\n'),
+    );
+  }
+
+  if (pageHits.length > 0) {
+    sections.push(
+      `Found ${pageHits.length} knowledge page(s) for "${input.query}" (curated pages, already ` +
+        `written down — cite the page instead of re-deriving its content from the messages):`,
+      pageHits.map((hit, index) => formatPageHit(hit, index)).join('\n\n'),
+    );
+  }
+
+  return textResult(sections.join('\n\n'), metadata);
 }
 
-function formatHit(hit: ConversationSearchHit, index: number): string {
+function formatMessageHit(hit: UnifiedMessageHit, index: number): string {
   const header = [
-    `${index + 1}. ${formatTime(hit.created_at)}`,
+    `${index + 1}. ${formatTime(hit.createdAt)}`,
     hit.channel,
-    hit.session_title ?? '(untitled session)',
+    hit.sessionTitle ?? '(untitled session)',
     hit.role,
     hit.expanded ? '+context' : undefined,
   ]
     .filter((part): part is string => Boolean(part))
     .join(' · ');
 
-  const meta = [`message ${hit.message_id}`, `session ${hit.session_id}`];
-  if (hit.memory_ids.length > 0) meta.push(`memories ${hit.memory_ids.join(', ')}`);
-  if (hit.knowledge_slugs.length > 0) meta.push(`knowledge ${hit.knowledge_slugs.join(', ')}`);
+  const meta = [`message ${hit.ref}`, `session ${hit.sessionId}`];
+  if (hit.memoryIds.length > 0) meta.push(`memories ${hit.memoryIds.join(', ')}`);
+  if (hit.knowledgeSlugs.length > 0) meta.push(`knowledge ${hit.knowledgeSlugs.join(', ')}`);
 
+  return `${header}\n  (${meta.join(' · ')})\n  ${hit.snippet}`;
+}
+
+/**
+ * A page hit, in the same shape as a message hit (index, title, metadata line,
+ * excerpt) so the model reads one kind of block — the section heading and the
+ * `page` label are what tell it this is a curated document, not a past message.
+ * `slug` is what `knowledge_get` takes; the id is there for `knowledge_*`
+ * bookkeeping and logs.
+ */
+function formatPageHit(hit: UnifiedKnowledgeHit, index: number): string {
+  const header = [`${index + 1}. ${hit.title}`, hit.pageType].join(' · ');
+  const meta = [`page ${hit.slug}`, `id ${hit.ref}`];
   return `${header}\n  (${meta.join(' · ')})\n  ${hit.snippet}`;
 }
 

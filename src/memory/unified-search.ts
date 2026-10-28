@@ -74,7 +74,9 @@
  * The table lives here because this file is the only place where all three
  * lanes are visible at once: whichever lane is switched off, this module keeps
  * working with the remaining ones, and a lane that throws degrades to an empty
- * lane with its error reported rather than failing the caller.
+ * lane with its error reported rather than failing the caller. Which lanes run
+ * is the caller's choice (`lanes`), so "message only" and "message +
+ * knowledge" are configurations of one implementation, not three of them.
  */
 
 import type Database from 'better-sqlite3';
@@ -212,7 +214,25 @@ export interface UnifiedSearchKnowledgeLaneOptions {
 
 export interface UnifiedSearchOptions {
   query: string;
-  /** Omit a lane to leave it out of the fusion entirely. */
+  /**
+   * Which lanes fuse — the caller's answer to "which lanes answer this
+   * question", independent of which lane options it happened to supply.
+   *
+   * Omitted means "every lane whose options are present", which is the
+   * behaviour every existing caller (the WebUI's `/api/search`) already had.
+   * Supplied, it is intersected with the lanes that have options: naming a
+   * lane without options for it does not fabricate one (a lane cannot be run
+   * without its database handle / service), and a lane with options but not in
+   * the set is not run at all — no `error`, no `hits`, exactly as if its
+   * options had not been passed.
+   *
+   * This exists because "message + knowledge" is a real request
+   * (`session_search`: raw transcript plus the curated page that settles it)
+   * and it must not become a second, hand-written implementation of the
+   * fusion.
+   */
+  lanes?: readonly UnifiedSearchLane[];
+  /** Lane options, as before. Omit a lane's options to leave it out. */
   messages?: UnifiedSearchMessageLaneOptions;
   memories?: UnifiedSearchMemoryLaneOptions;
   knowledge?: UnifiedSearchKnowledgeLaneOptions;
@@ -220,6 +240,17 @@ export interface UnifiedSearchOptions {
   limit?: number;
   /** Rows fetched per lane before fusion (default 8, clamped to [1, 50]). */
   perLaneLimit?: number;
+  /**
+   * Per-lane allowance, overriding `perLaneLimit` for the lanes it names and
+   * clamped the same way (default: `perLaneLimit`).
+   *
+   * Needed because the lanes are not equal partners everywhere: `limit` is one
+   * budget, and a caller may want the message lane to keep its full allowance
+   * while a supplement lane spends only a couple of slots. Equal allowances
+   * would give a supplement lane half the answer purely because it returned as
+   * many rows as the primary lane.
+   */
+  perLaneLimits?: Partial<Record<UnifiedSearchLane, number>>;
   logger?: Pick<Logger, 'debug' | 'warn'>;
 }
 
@@ -321,15 +352,32 @@ export async function unifiedSearch(options: UnifiedSearchOptions): Promise<Unif
 
   if (!query) return { query, hits: [], lanes, deduped };
 
+  const laneLimit = (lane: UnifiedSearchLane): number =>
+    clamp(options.perLaneLimits?.[lane] ?? perLaneLimit, 1, MAX_PER_LANE_LIMIT);
+
+  // A lane runs only when it has both an entry in the requested set (when there
+  // is one) and the options to run it. A lane left out this way reports
+  // `{ hits: 0, dropped: 0 }` like every other lane — not an error, because it
+  // did not fail.
+  const requested = options.lanes ? new Set(options.lanes) : null;
+  const wants = (lane: UnifiedSearchLane, configured: boolean): boolean =>
+    configured && (requested === null || requested.has(lane));
+
+  const messages = wants('message', options.messages !== undefined) ? options.messages : undefined;
+  const memories = wants('memory', options.memories !== undefined) ? options.memories : undefined;
+  const knowledge = wants('knowledge', options.knowledge !== undefined)
+    ? options.knowledge
+    : undefined;
+
   const [messageHits, memoryHits, knowledgeHits] = await Promise.all([
     runLane(lanes, 'message', options.logger, () =>
-      options.messages ? collectMessageHits(query, perLaneLimit, options.messages) : [],
+      messages ? collectMessageHits(query, laneLimit('message'), messages) : [],
     ),
     runLane(lanes, 'memory', options.logger, () =>
-      options.memories ? collectMemoryHits(query, perLaneLimit, options.memories) : [],
+      memories ? collectMemoryHits(query, laneLimit('memory'), memories) : [],
     ),
     runLane(lanes, 'knowledge', options.logger, () =>
-      options.knowledge ? collectKnowledgeHits(query, perLaneLimit, options.knowledge) : [],
+      knowledge ? collectKnowledgeHits(query, laneLimit('knowledge'), knowledge) : [],
     ),
   ]);
 
@@ -372,6 +420,11 @@ export async function unifiedSearch(options: UnifiedSearchOptions): Promise<Unif
       query,
       limit,
       hits: hits.length,
+      ran: {
+        message: messages !== undefined,
+        memory: memories !== undefined,
+        knowledge: knowledge !== undefined,
+      },
       lanes: {
         message: lanes.message.hits,
         memory: lanes.memory.hits,

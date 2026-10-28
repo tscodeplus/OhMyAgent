@@ -300,6 +300,11 @@ there is no second directory to keep in sync.
 Use SQLite's `VACUUM INTO`, not `cp`: it takes a consistent snapshot of a live
 database (WAL included) and leaves a single compact file.
 
+An **upgrade takes this snapshot for you**, into `data/backups/` and before the
+code is replaced — the scheduled copy below is for everything that is not an
+upgrade (a bad edit, a wiped phone, a restore rehearsal). §10 covers the upgrade
+path.
+
 `~/bin/oma-backup.sh`:
 
 ```bash
@@ -367,7 +372,9 @@ Keep `data/app.db.broken` until you have confirmed the restored data looks right
 ## 9. Verification checklist
 
 Run these in order after the first deploy, after every upgrade, and after a
-reboot.
+reboot. Steps 1 and 4 have an automated equivalent for upgrades —
+`bash scripts/deploy-termux.sh check` (§10) asserts what the machine can check
+without you: the running process, the deployed commit and the migrated schema.
 
 1. **Process and health**
 
@@ -439,7 +446,216 @@ reboot.
 
 ---
 
-## 10. What this runbook could not verify from a Windows dev box
+## 10. 升级（带数据）— upgrading with the database in place
+
+An upgrade replaces the code and leaves `data/app.db` where it is. The new
+process **migrates the database itself on boot**: there is no migration command
+to run, no version to set, no `sqlite3` statement in the runbook. What the
+upgrade does need from you is a snapshot that predates the schema change, and a
+way to tell "the new code started and migrated" apart from "something is
+listening and it might be yesterday's process".
+
+`scripts/deploy-termux.sh` does both. An upgrade is one command:
+
+```bash
+# on the dev box
+bash scripts/deploy-termux.sh verify      # read-only: what would change, and is a backup even possible?
+bash scripts/deploy-termux.sh             # the upgrade itself
+```
+
+`verify` is the same report as `preflight` and `--dry-run`; `check` (§ below) is
+the one that runs _after_ the restart. Both are read-only and neither writes to
+the device.
+
+### What happens automatically
+
+| Step                  | Runs where                                | What it does                                                                                                                                                                                                  |
+| --------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pre-upgrade snapshot  | deploy script, before anything is stopped | `VACUUM INTO data/backups/pre-upgrade-<git describe>-<timestamp>.db`, then re-opens the copy (`quick_check` + row counts)                                                                                     |
+| Source swap + rebuild | deploy script                             | `pnpm install`, `pnpm build`, WebUI build                                                                                                                                                                     |
+| Schema migrations     | the new process, on boot                  | every migration `v2…v16`, each idempotent and guarded: a missing column is added, a missing table is created                                                                                                  |
+| Graph legacy repair   | the new process, on boot (migration v17)  | deletes the pre-v15 placeholder nodes / `MENTIONED` edges / orphan edges and, when it finds that damage, backfills `memory_links.subject_entity` and re-projects — in `openDatabase()`, before the port binds |
+| Graph projection      | the process, `graph_sync` maintenance job | projects `memory_links` rows that name a subject into `entities`/`entity_edges`, every 6 h                                                                                                                    |
+| Verification          | deploy script, after the restart          | `/api/health`, build freshness, running commit, process age vs. deploy stamp, the migrated schema, the FTS backfill, and before/after row counts (below)                                                      |
+
+**The graph cleanup is no longer a step anyone runs.** The old manual sequence —
+`pnpm graph:reset` → `pnpm graph:mine` → `pnpm graph:sync` — is **no longer part
+of the upgrade path**, and the deploy script does not run it either: migration
+v17 performs the same cleanup (`src/graph/legacy-cleanup.ts`, the code the CLI
+calls, so the two cannot drift) inside `openDatabase()`. `graph:sync` was never an
+operator step — the in-process `graph_sync` job owns the projection. Running any
+of the three by hand after an upgrade is harmless but redundant.
+
+One consequence worth knowing on an install that predates the graph entirely
+(the common case): there is nothing legacy to delete, so v17 does not scan 700
+memories at every boot. The subject backfill left over from that install is the
+`graph_sync` job's work — first maintenance tick after boot (≈5 min), then every
+6 h — and `check` reports it as a warning, not a failure.
+
+Migrations themselves are _not_ the deploy script's job: they run inside
+`openDatabase()` before the HTTP server listens. That is also why a failed
+migration cannot be seen over HTTP — the process dies before it binds the port,
+so `sv status` shows `run:` for a moment and then goes down.
+
+### What an upgrade deliberately does not do
+
+`config.yaml` and `.env` are **not in the deploy tarball** (they are gitignored,
+and §4 has you create them by hand on the phone). An upgrade therefore leaves
+them exactly as they are — which also means a layer that was never configured
+stays off after the upgrade: with no `knowledge:` section the knowledge tools,
+curation and injection remain inert, and with no `conversation_search:` section
+per-turn conversation recall stays off. The tables exist, the tools are
+registered, nothing is broken; the switches are simply still absent. Add those
+sections yourself (and restart) when you want the layer — the runbook's §4 is the
+place to start, and `GET /api/health` plus the WebUI will show no change until
+you do.
+
+### Where the backup lands
+
+```
+~/.ohmyagent/data/backups/pre-upgrade-<git describe>-<YYYYmmdd-HHMMSS>.db
+# e.g. data/backups/pre-upgrade-v4.3.1-42-geb00ee0-20261028-225836.db
+```
+
+- It is a **`VACUUM INTO` snapshot**, not a `cp`: consistent while the service is
+  still running, WAL included, one compact file (usually smaller than
+  `app.db` + `app.db-wal` combined).
+- The label is `git describe --tags --always` of the commit being deployed, with
+  `-dirty` appended when the deploy also shipped uncommitted changes — it names
+  the _new_ code, the timestamp says when the old data was frozen.
+- The script re-opens the snapshot and checks `PRAGMA quick_check` plus the row
+  counts of `memories`/`sessions`/`messages`/`knowledge_pages` against the live
+  database. A snapshot that does not match **aborts the deploy before anything is
+  stopped or replaced**.
+- `DELETE_DATABASE=true` skips the snapshot (there is nothing to preserve: that
+  deploy deletes `data/app.db`) and says so in the log.
+- Nothing prunes this directory. Each upgrade adds one file — `du -sh
+~/.ohmyagent/data/backups` before a long series of upgrades, and delete old
+  snapshots by hand once you trust the current install.
+
+### Verify the upgrade
+
+```bash
+bash scripts/deploy-termux.sh verify       # before: what the upgrade would do (read-only)
+bash scripts/deploy-termux.sh check        # after: from the dev box (over SSH)
+```
+
+On the device itself — no SSH in the path, so this is the form to use when the
+phone is not reachable from the dev box:
+
+```bash
+bash ~/.ohmyagent/scripts/deploy-termux.sh check --local
+```
+
+Either form prints one line per check and exits non-zero if any of them failed.
+What it asserts, and why each line exists:
+
+- **service** — `sv status ohmyagent` reports `run:`.
+- **health** — `GET /api/health` answers `{"ok":true,…}`. Necessary, not
+  sufficient: it only proves _something_ is listening.
+- **version** — the `version` that process reports equals `package.json` on disk;
+  a mismatch means the process started before this build.
+- **running code** — the node process running `dist/src/index.js` is _younger_
+  than `data/deploy-stamp.json` (written after the build, before the restart), so
+  this deploy started it and it is not yesterday's process. The age is measured on
+  `/proc/<pid>/stat`'s tick clock; `/proc/uptime` is denied to an unprivileged
+  Termux app, so the reference point is the checking process's own start ticks.
+- **deployed commit** — the device's `git HEAD` equals the dev box's.
+- **build** — `dist/src/index.js` was written during this deploy: its mtime is
+  compared against the deploy stamp (same clock), so a phone whose clock runs
+  behind the dev box cannot fail a healthy upgrade. A `dist` older than
+  `src/index.ts` is reported as a warning instead — that comparison mixes two
+  clocks (tar keeps the dev box's mtimes).
+- **migrations** — every table and column that only a migration can add is there:
+  `entities`/`entity_aliases`/`entity_edges` (v10), `memory_sources` +
+  `memories.embedding_status` (v13), `knowledge_*` + `knowledge_fts_jieba` (v14),
+  `memory_links.subject_entity*` (v15), `persona_distillation_runs.input_memory_ids`
+  (v16), and the v4/v9/v11/v12 `sessions` columns. A missing one means
+  `openDatabase()` did not finish (the comment in `src/memory/db.ts` records what
+  that failure mode looks like).
+- **messages_fts_jieba** — the row count equals the `messages` row count. This is
+  the v10 backfill over every existing message (1813 rows on the reference
+  device): the slowest, most failure-prone step on a phone, and the one that can
+  stop halfway while still serving queries. A shortfall means the index is
+  incomplete; `/api/health` cannot see it.
+- **graph placeholders / graph MENTIONED edges** — `entities` rows with
+  `entity_type='memory'` and `entity_edges` rows with `relation_type='MENTIONED'`
+  are `0`. These are what the pre-v15 projection invented; migration v17 removes
+  them at boot, so a non-zero count means it did not run.
+- **graph subjects** — a warning, not a failure: when `memory_links` has rows and
+  none names a subject yet, the `graph_sync` job fills them in (first tick after
+  boot, then every 6 h). A fresh upgrade is allowed to report zero here.
+- **before/after row counts** — `memories`, `messages`, `sessions` and
+  `memory_links` are counted twice: in the pre-upgrade snapshot and in the live
+  database. **Data preserved is the assertion that matters most**, so any count
+  that fell below the snapshot is a `FAIL` naming the delta and the snapshot to
+  restore; growth is reported but is not a failure (the service keeps writing):
+
+  ```
+  INFO pre-upgrade snapshot — data/backups/pre-upgrade-v4.3.1-42-geb00ee0-20261028-225836.db (34.1 MB, 2026-10-28 14:53:56Z)
+  TBL  table            before    after   change
+  TBL  memories            712      712        0
+  TBL  messages           1813     1817       +4
+  TBL  sessions             46       46        0
+  TBL  memory_links        123      123        0
+  OK   data preserved — no row count fell below the pre-upgrade snapshot
+  ```
+
+- **database integrity** — `PRAGMA quick_check` is `ok`.
+
+When something fails, the script prints a `[FAIL]` block naming the exact backup
+file and the log command:
+
+```
+[FAIL] 3 check(s) failed — the upgrade is NOT verified.
+       Database backup : ~/.ohmyagent/data/backups/pre-upgrade-v4.3.1-42-geb00ee0-20261028-225836.db
+       Restore it with : bash scripts/deploy-termux.sh stop
+                         ssh … "cd ~/.ohmyagent && mv data/app.db data/app.db.failed && …"
+                         bash scripts/deploy-termux.sh start
+       Server log      : bash scripts/deploy-termux.sh logs
+```
+
+The migration error itself is in that log, as a `[migration-vN]` or `[schema]`
+line.
+
+### Roll back
+
+The backup restores the **data**; the previous commit restores the **code**. Do
+both, in this order, when the new code is what broke the upgrade:
+
+```bash
+# 1. On the dev box, redeploy the commit you came from.
+git log --oneline -5                     # find the previous commit
+# 2. Stop the service first: the new code must not reopen the migrated file.
+bash scripts/deploy-termux.sh stop
+# 3. Put the pre-upgrade snapshot back (on the device).
+ssh -p 8022 <user>@<device> 'cd ~/.ohmyagent \
+  && mv data/app.db data/app.db.failed \
+  && rm -f data/app.db-wal data/app.db-shm \
+  && cp data/backups/pre-upgrade-<label>-<timestamp>.db data/app.db \
+  && chmod 600 data/app.db'
+# 4. Check out the old commit and deploy it — the deploy script ships the working
+#    tree, so the checkout is what selects the code.
+git checkout <previous-commit>
+bash scripts/deploy-termux.sh
+```
+
+Then run `bash scripts/deploy-termux.sh check` again and confirm the failing
+lines are gone. Keep `data/app.db.failed` until the WebUI shows the data you
+expected (memory counts, knowledge pages): a restore you have not looked at is
+still a guess. If only the _code_ is suspect and the migrations were ordinary
+additive ones, restoring the snapshot is optional; if a migration is what threw,
+restoring it is the point.
+
+### `DELETE_DATABASE=true` is not an upgrade
+
+It deletes `data/app.db`, `app.db-wal` and `app.db-shm` before the build, skips
+the snapshot, and starts on an empty database. There is no undo — that is the
+one deploy that cannot be rolled back from `data/backups/`.
+
+---
+
+## 11. What this runbook could not verify from a Windows dev box
 
 Everything below was written from the repository and general Android/Termux
 knowledge, not from a working phone:

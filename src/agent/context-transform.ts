@@ -28,9 +28,20 @@
  *       knows a page exists and can read its body with `knowledge_get` instead
  *       of guessing from a title.
  *
- * Both are budgeted (≤250 and ≤150 tokens; together the plan's ≤400 G4 limit)
- * and both are no-ops when their provider throws — retrieval must never be a
- * reason a turn fails.
+ * Both are budgeted (together the plan's ≤400 G4 limit, configurable through
+ * `injectionBudget`) and both are no-ops when their provider throws — retrieval
+ * must never be a reason a turn fails.
+ *
+ * Since plan §6 K5 item 4 the ≤400 tokens are ONE pool, not two independent
+ * budgets appended in a fixed order: both providers are consulted, then a single
+ * ranking pass (`allocateInjectionCandidates`) decides which entries fit. The
+ * blocks themselves stay separate and keep their labels — they are what the
+ * model reads — but a weak knowledge title no longer takes tokens a stronger
+ * excerpt needed. Cross-lane comparability is the whole difficulty: per-lane
+ * scores are not numbers on one scale (`KnowledgeService`'s search contract only
+ * promises scores comparable within one result set), so each in-tree provider
+ * normalises its relevance onto the same BM25 curve before reporting it, and a
+ * provider that reports nothing is ordered by position.
  */
 
 import type { MemoryRetriever, RetrievedMemory } from '../memory/memory-retriever.js';
@@ -169,15 +180,25 @@ const deepseekCanvasSignatureBySession = new LRUCache<string, string>({
 /** Sessions that already had classic auto-recall triggered ('first' mode). */
 const autoRecalledSessions = new LRUCache<string, true>({ max: 2000 });
 /**
- * Knowledge slugs offered to this session's last prompt build, for the
- * reference check (plan §6 K0 item 3, ②「是否被引用」).
+ * What this session's last prompt build injected, per lane, for the reference
+ * check (plan §6 K0 item 3, ②「是否被引用」).
  *
- * The transform's per-invocation state dies before the model's tool calls run,
- * so the offer has to be published somewhere the tool hook can read it. Short
- * TTL and consume-on-hit: a slug is credited to the prompt build that offered
- * it, once, and a stale offer is dropped rather than handed to a later turn.
+ * The transform's per-invocation state dies before the model's next tool call
+ * runs, so the offer has to be published somewhere the caller can read it: one
+ * entry per build, replaced on the next build, with a short TTL and
+ * consume-on-hit (an id is credited to the build that offered it, once, and a
+ * stale offer is dropped rather than handed to a later turn).
+ *
+ * Bounded three ways, because this lives as long as the process does: one LRU
+ * entry per session (`max`), a 15-minute TTL, and ids only — each lane's array
+ * is already capped by that lane's item cap at build time.
  */
-const injectedKnowledgeBySession = new LRUCache<string, string[]>({
+interface InjectedOffer {
+  memories: string[];
+  messages: string[];
+  knowledge: string[];
+}
+const injectedOfferBySession = new LRUCache<string, InjectedOffer>({
   max: 2000,
   ttl: 15 * 60_000,
 });
@@ -289,6 +310,14 @@ export interface EpisodicContextItem {
   /** Already windowed around the match by the caller (`conversation-search`). */
   excerpt: string;
   /**
+   * Relevance in (0, 1], best first, when the caller can report one (the real
+   * provider passes `ConversationSearchHit.score`, already normalised BM25).
+   *
+   * Optional because a provider that only knows an order is still useful: the
+   * transform then ranks the entry by its position in the returned list.
+   */
+  score?: number;
+  /**
    * `messages.id` of the hit this excerpt came from, when the caller knows it.
    *
    * Optional and only ever recorded — no caller renders it, but without it the
@@ -303,12 +332,25 @@ export interface KnowledgeContextItem {
   /** `page_type/slug`, e.g. `topic/excel-etl` or bare `excel-etl` as stored. */
   slug: string;
   title: string;
+  /**
+   * Relevance in (0, 1], best first, when the provider can report one.
+   *
+   * This is the only cross-block signal there is (plan §6 K5 item 4), so it has
+   * to be on a comparable scale: raw BM25 magnitudes are not, which is why
+   * `titlesForInjection` normalises onto the same curve `conversation-search`
+   * uses. Omitted means "ordered, not scored", and the transform ranks such an
+   * entry by its position.
+   */
+  score?: number;
 }
 
-// ── Per-turn injection budget (plan §4 principle 5 / §6 G4) ─────────────────
-// The whole automatic injection may add ≤400 tokens per turn. The two blocks
-// below are capped separately (250 + 150 = 400) so neither can starve the
-// other, and each drops its weakest entries until it fits.
+// ── Per-turn injection budget (plan §4 principle 5 / §6 G4, §6 K5 item 4) ───
+// The whole automatic injection may add ≤400 tokens per turn. That was two
+// independent budgets (250 episodic + 150 knowledge) appended in a fixed order,
+// which let a weak knowledge title spend tokens a stronger excerpt needed; the
+// 400 is now one pool allocated by one ranking pass, and the lanes' item and
+// line caps are what bound each block. The numbers stay configuration
+// (`TransformOptions.injectionBudget`) — the constants below are the defaults.
 const EPISODIC_BLOCK_TOKEN_BUDGET = 250;
 const EPISODIC_MAX_ITEMS = 2;
 /** Plan K1-4: "≤2 条片段 × ≤200 字". */
@@ -319,6 +361,44 @@ const KNOWLEDGE_MAX_ITEMS = 2;
 const KNOWLEDGE_LINE_MAX_CHARS = 80;
 /** Header (date · channel · title) is metadata, not content — keep it short. */
 const INJECTION_HEADER_MAX_CHARS = 60;
+
+/**
+ * Token budgets for the two injected blocks, as configuration rather than
+ * constants: `totalTokens` is the plan's ≤400 G4 ceiling for both blocks
+ * together, and the per-lane ceilings are optional — left unset, a lane may use
+ * the whole pool, which is the point of K5-4 (the pool follows relevance, not a
+ * fixed 250/150 split). Set a lane ceiling to reserve the other lane's share.
+ */
+export interface InjectionBudgetConfig {
+  /** Ceiling for `<recent_conversation>` + `<knowledge_available>`, in tokens. */
+  totalTokens?: number;
+  /** Optional ceiling for the episodic block alone. */
+  episodicTokens?: number;
+  /** Optional ceiling for the knowledge block alone. */
+  knowledgeTokens?: number;
+  /** Episodic entries per turn (the provider may return more; the tail is cut). */
+  episodicMaxItems?: number;
+  /** Knowledge titles per turn. */
+  knowledgeMaxItems?: number;
+}
+
+interface ResolvedInjectionBudget {
+  totalTokens: number;
+  episodicTokens?: number;
+  knowledgeTokens?: number;
+  episodicMaxItems: number;
+  knowledgeMaxItems: number;
+}
+
+function resolveInjectionBudget(config?: InjectionBudgetConfig): ResolvedInjectionBudget {
+  return {
+    totalTokens: config?.totalTokens ?? EPISODIC_BLOCK_TOKEN_BUDGET + KNOWLEDGE_BLOCK_TOKEN_BUDGET,
+    episodicTokens: config?.episodicTokens,
+    knowledgeTokens: config?.knowledgeTokens,
+    episodicMaxItems: config?.episodicMaxItems ?? EPISODIC_MAX_ITEMS,
+    knowledgeMaxItems: config?.knowledgeMaxItems ?? KNOWLEDGE_MAX_ITEMS,
+  };
+}
 
 export interface TransformOptions {
   /** Maximum number of messages to retain (default: 100). */
@@ -387,6 +467,11 @@ export interface TransformOptions {
    * before this option existed.
    */
   episodicContextProvider?: (query: string) => EpisodicContextItem[] | undefined;
+  /**
+   * Token budgets for the two injected blocks. Defaults to 400 tokens shared by
+   * both, with each lane bounded by its item and line caps.
+   */
+  injectionBudget?: InjectionBudgetConfig;
   /**
    * Optional knowledge provider (plan §6 K2-6): at most a couple of page
    * titles worth offering this turn, most relevant first — typically
@@ -501,27 +586,122 @@ function formatEpisodicEntry(item: EpisodicContextItem): string {
 }
 
 /**
- * Build a tagged block from candidate entries under a token budget.
+ * Render a tagged block from entries, or `null` for an empty lane.
  *
- * Callers pass entries best-first, so the tail is what gets dropped: an
- * injection that cannot fit is reduced, never truncated mid-line, and a block
- * that cannot fit even one entry is omitted entirely (an empty tag would be
- * pure cost). Uses the same CJK-aware estimator as context compression, so
- * "150 tokens" means the same thing here as it does to the overflow guard.
- *
- * Returns how many leading entries fit so the caller can report the ids it
- * actually injected instead of the ids it offered.
+ * Budgets are not enforced here: `allocateInjectionCandidates` owns that, because
+ * the two blocks now share one pool and a block is only cheap to rebuild while
+ * deciding what fits. An empty tag is never rendered — it is pure cost.
  */
-function buildBudgetedBlock(
+function renderInjectedBlock(
   tag: 'recent_conversation' | 'knowledge_available',
   entries: string[],
-  tokenBudget: number,
-): { block: string; kept: number } | null {
-  for (let count = entries.length; count > 0; count--) {
-    const block = `\n\n<${tag}>\n${entries.slice(0, count).join('\n')}\n</${tag}>`;
-    if (estimateTokensForText(block) <= tokenBudget) return { block, kept: count };
+): string | null {
+  if (entries.length === 0) return null;
+  return `\n\n<${tag}>\n${entries.join('\n')}\n</${tag}>`;
+}
+
+/** The two lanes that own a labelled block; memories share `<memory_context>`. */
+type InjectedBlockLane = 'messages' | 'knowledge';
+
+/** One entry competing for the shared injection budget (plan §6 K5 item 4). */
+interface InjectionCandidate {
+  lane: InjectedBlockLane;
+  /** Position in the provider's output — the fallback order when no score. */
+  rank: number;
+  /** Provider-reported relevance in (0, 1], when it reported one. */
+  score?: number;
+  /** Rendered entry, as it appears inside the block. */
+  text: string;
+  /** Ids this entry contributes to its lane's telemetry row (ids only). */
+  ids: string[];
+}
+
+/**
+ * Allocation weight for one candidate: bounded, and comparable across lanes.
+ *
+ * A provider that reports `score` is taken at its word — the value is relevance
+ * in (0, 1], which both in-tree providers normalise raw BM25 into, so the two
+ * lanes land on one curve instead of two magnitudes. A provider that reports
+ * nothing is ordered by position, the only information it gave: `1/(rank+1)`
+ * puts its best hit at parity with the other lane's best and its second entry at
+ * half, which is the honest reading of "the caller did not say how much better".
+ * A reported `0` is a real value (an expanded neighbour is context, not a hit),
+ * never "unscored".
+ */
+function candidateWeight(candidate: InjectionCandidate): number {
+  const score = candidate.score;
+  if (typeof score === 'number' && Number.isFinite(score) && score >= 0) {
+    return Math.min(score, 1);
   }
-  return null;
+  return 1 / (candidate.rank + 1);
+}
+
+function compareInjectionCandidates(a: InjectionCandidate, b: InjectionCandidate): number {
+  const byWeight = candidateWeight(b) - candidateWeight(a);
+  if (byWeight !== 0) return byWeight;
+  // Ties keep the pre-K5-4 order: the episodic block is appended first.
+  if (a.lane !== b.lane) return a.lane === 'messages' ? -1 : 1;
+  return a.rank - b.rank;
+}
+
+/**
+ * One ranking pass over both blocks: decide what fits the shared budget.
+ *
+ * Candidates are admitted best-weight first, and each admission is checked
+ * against the lane's optional ceiling and the pool as a whole by re-rendering
+ * both blocks — an entry that does not fit is dropped whole, never truncated
+ * mid-line, and a lane that fits nothing renders no block at all. A rejected
+ * candidate does not stop the pass: a cheaper entry further down can still fit,
+ * and keeping the weaker of two excerpts while dropping the stronger is exactly
+ * the outcome the pre-K5-4 tail-drop produced anyway.
+ *
+ * Work is bounded by the item caps (2 + 2 by default), so the re-render per
+ * candidate is at most a handful of short strings — no allocation loop can grow
+ * with query size.
+ */
+function allocateInjectionCandidates(
+  candidates: InjectionCandidate[],
+  budget: ResolvedInjectionBudget,
+): {
+  kept: Record<InjectedBlockLane, InjectionCandidate[]>;
+  blocks: Record<InjectedBlockLane, string | null>;
+} {
+  const kept: Record<InjectedBlockLane, InjectionCandidate[]> = { messages: [], knowledge: [] };
+  const blocks: Record<InjectedBlockLane, string | null> = { messages: null, knowledge: null };
+  const laneCeiling: Record<InjectedBlockLane, number> = {
+    messages: budget.episodicTokens ?? budget.totalTokens,
+    knowledge: budget.knowledgeTokens ?? budget.totalTokens,
+  };
+
+  for (const candidate of [...candidates].sort(compareInjectionCandidates)) {
+    const lane = candidate.lane;
+    const other: InjectedBlockLane = lane === 'messages' ? 'knowledge' : 'messages';
+    // Rebuilt from scratch per candidate (≤4 candidates × 2 short blocks): the
+    // rendered block is what the token estimate is measured on, so deciding on
+    // anything else would be measuring a different object than the one injected.
+    const laneEntries = [...kept[lane], candidate]
+      .sort((a, b) => a.rank - b.rank)
+      .map((entry) => entry.text);
+    const otherEntries = [...kept[other]]
+      .sort((a, b) => a.rank - b.rank)
+      .map((entry) => entry.text);
+    const laneBlock = renderInjectedBlock(blockTag(lane), laneEntries);
+    const otherBlock = renderInjectedBlock(blockTag(other), otherEntries);
+    const laneTokens = laneBlock ? estimateTokensForText(laneBlock) : 0;
+    const otherTokens = otherBlock ? estimateTokensForText(otherBlock) : 0;
+    if (laneTokens > laneCeiling[lane]) continue;
+    if (laneTokens + otherTokens > budget.totalTokens) continue;
+
+    kept[lane].push(candidate);
+    blocks[lane] = laneBlock;
+    blocks[other] = otherBlock;
+  }
+
+  return { kept, blocks };
+}
+
+function blockTag(lane: InjectedBlockLane): 'recent_conversation' | 'knowledge_available' {
+  return lane === 'messages' ? 'recent_conversation' : 'knowledge_available';
 }
 
 // ── Per-turn injection telemetry (plan §6 K0 item 3) ────────────────────────
@@ -564,12 +744,12 @@ function newTurnInjection(): TurnInjection {
 function recordInjectedLane(
   injection: TurnInjection,
   lane: InjectionLane,
-  injected: { ids: string[]; itemCount: number; block: string; startedMs: number },
+  injected: { ids: string[]; itemCount: number; block: string; latencyMs: number },
 ): void {
   injection.ids[lane] = injected.ids;
   injection.itemCounts[lane] = injected.itemCount;
   injection.tokens[lane] = Math.ceil(estimateTokensForText(injected.block));
-  injection.latencyMs[lane] = Math.round(performance.now() - injected.startedMs);
+  injection.latencyMs[lane] = Math.round(injected.latencyMs);
   injection.blocks += 1;
 }
 
@@ -580,15 +760,20 @@ function recordInjectedLane(
  * — the turn completed, but an incomplete injection is invisible to the offline
  * eval and is the one thing only this row can report.
  *
- * Also republishes the knowledge offer for `recordInjectionReference`, and
- * clears it when nothing was offered: a tool call must never be credited to an
- * older prompt build's offer.
+ * Also republishes the offer for `recordInjectionReference` — every lane, not
+ * just knowledge — and clears it when nothing was injected: a later reader must
+ * never be credited to an older prompt build's offer.
  */
 function reportTurnInjection(injection: TurnInjection, scopeKey: string): void {
-  if (injection.ids.knowledge.length > 0) {
-    injectedKnowledgeBySession.set(scopeKey, [...injection.ids.knowledge]);
+  const offer: InjectedOffer = {
+    memories: [...injection.ids.memories],
+    messages: [...injection.ids.messages],
+    knowledge: [...injection.ids.knowledge],
+  };
+  if (offer.memories.length + offer.messages.length + offer.knowledge.length > 0) {
+    injectedOfferBySession.set(scopeKey, offer);
   } else {
-    injectedKnowledgeBySession.delete(scopeKey);
+    injectedOfferBySession.delete(scopeKey);
   }
   if (injection.blocks === 0) return;
   const totalTokens =
@@ -631,47 +816,63 @@ function isSameKnowledgeSlug(offered: string, ref: string): boolean {
 }
 
 /**
- * Record that a tool call acted on a page this session's last prompt build
- * offered (plan §6 K0 item 3, ②「是否被引用」).
+ * Record that a consumer acted on something this session's last prompt build
+ * injected (plan §6 K0 item 3, ②「是否被引用」), for any of the three lanes.
  *
- * Only the knowledge lane can be checked this way: the model reads a page with
- * `knowledge_get`, while memories and excerpts have no tool that reads them
- * back, so their "was it used?" question still needs a turn-end reader that no
- * file owns. Calling this with a slug that was not offered — or offering the
- * same page twice in one build — records nothing.
+ * The knowledge lane is the one with an in-repo caller today (`knowledge_get`
+ * reads a page back, and `agent-factory` reports the ref from `afterToolCall`),
+ * because that is the only lane whose content the model can explicitly ask for
+ * again. The mechanism itself is lane-agnostic: a consumer that can prove it
+ * used an injected memory or excerpt — a tool returning the ids it read — passes
+ * that lane and its ids here, and gets the same event. `lane` defaults to
+ * `knowledge` so the existing call site is unchanged.
  *
- * `refs` are the candidate references from the tool call, unparsed: matching
- * (and the page-type prefix equivalence) belongs here, next to the offer list.
+ * Calling this with an id that was not offered — or offering the same id twice
+ * in one build — records nothing.
+ *
+ * `refs` are the candidate references from the consumer, unparsed: matching
+ * (and the page-type prefix equivalence, which only applies to slugs) belongs
+ * here, next to the offer list.
  */
 export function recordInjectionReference(params: {
   agentId?: string;
   sessionKey?: string;
   toolName: string;
   refs: string[];
+  /** Which lane's offer these refs may match. Defaults to `knowledge`. */
+  lane?: InjectionLane;
 }): void {
+  const lane = params.lane ?? 'knowledge';
   const scopeKey = injectionScopeKey(params.agentId, params.sessionKey);
-  const offered = injectedKnowledgeBySession.get(scopeKey);
-  if (!offered || offered.length === 0) return;
+  const offer = injectedOfferBySession.get(scopeKey);
+  if (!offer) return;
+  const offered = offer[lane];
+  if (offered.length === 0) return;
 
   const referenced = new Set<string>();
   for (const ref of params.refs) {
     const trimmed = ref.trim();
     if (trimmed === '') continue;
-    for (const slug of offered) {
-      if (isSameKnowledgeSlug(slug, trimmed)) referenced.add(slug);
+    for (const id of offered) {
+      const matches = lane === 'knowledge' ? isSameKnowledgeSlug(id, trimmed) : id === trimmed;
+      if (matches) referenced.add(id);
     }
   }
   if (referenced.size === 0) return;
 
   // Consume: one reference per offer, so reading the same page twice in a turn
-  // is one reference, and a page offered again next build can be credited again.
-  injectedKnowledgeBySession.set(
-    scopeKey,
-    offered.filter((slug) => !referenced.has(slug)),
-  );
+  // is one reference, and an id offered again next build can be credited again.
+  injectedOfferBySession.set(scopeKey, {
+    ...offer,
+    [lane]: offered.filter((id) => !referenced.has(id)),
+  });
+  const ids = Array.from(referenced);
   memoryObservability.record('memory.injection.referenced', {
-    knowledgeSlugs: Array.from(referenced),
+    lane,
     toolName: params.toolName,
+    knowledgeSlugs: lane === 'knowledge' ? ids : [],
+    memoryIds: lane === 'memories' ? ids : [],
+    messageIds: lane === 'messages' ? ids : [],
   });
 }
 
@@ -734,6 +935,7 @@ export function createTransformContext(options?: TransformOptions) {
   const dateLanguage = options?.dateLanguage;
   const cacheProfile = options?.cacheProfile ?? 'default';
   const prefixTokens = options?.staticContextTokens ?? 0;
+  const injectionBudget = resolveInjectionBudget(options?.injectionBudget);
   const dateGranularity = 'day';
 
   return async (messages: any[], _signal?: AbortSignal): Promise<any[]> => {
@@ -822,7 +1024,7 @@ export function createTransformContext(options?: TransformOptions) {
                     ids: memoryEntries.map((m) => m.id),
                     itemCount: memoryEntries.length,
                     block: memoryHint,
-                    startedMs: laneStarted,
+                    latencyMs: performance.now() - laneStarted,
                   });
                   if (cacheProfile === 'deepseek')
                     deepseekMemorySignatureBySession.set(memoryKey, memoryHint);
@@ -884,7 +1086,7 @@ export function createTransformContext(options?: TransformOptions) {
                       ids: memoryEntries.map((m) => m.id),
                       itemCount: memoryEntries.length,
                       block: memoryHint,
-                      startedMs: laneStarted,
+                      latencyMs: performance.now() - laneStarted,
                     });
                     if (cacheProfile === 'deepseek')
                       deepseekMemorySignatureBySession.set(memoryKey, memoryHint);
@@ -909,105 +1111,105 @@ export function createTransformContext(options?: TransformOptions) {
       }
     }
 
-    // ── K1-4: episodic injection (`<recent_conversation>`) ──
-    // Only for a recall-shaped turn: "上次那个方案叫什么" needs the original
-    // wording, while "写一个排序函数" pays 250 tokens for nothing. The provider
-    // does the search; this block owns the cap (2 items × ≤200 chars, ≤250
-    // tokens), the neutralisation, and the failure mode (log + skip).
-    if (options?.episodicContextProvider) {
+    // ── K1-4 + K2-6 + K5-4: the two labelled blocks, one shared budget ──
+    // Both providers are consulted first, then ONE ranking pass decides what
+    // fits the plan's ≤400-token budget (K5-4): the blocks keep their labels and
+    // their order in the message — the labels are what the model reads — but a
+    // weak knowledge title can no longer spend budget a stronger excerpt needed.
+    // Each lane keeps its own failure mode (log + skip, the turn always
+    // completes) and its own telemetry fields.
+    //
+    // The episodic lane is still gated on a recall-shaped turn: "上次那个方案叫什么"
+    // needs the original wording, while "写一个排序函数" must not pay for it.
+    {
       const lastUserMsg = [...result].reverse().find((m: any) => m.role === 'user');
-      if (lastUserMsg?.content) {
-        const query = getUserQueryText(lastUserMsg.content);
-        if (query.trim().length >= 5 && isEpisodicRelevantRequest(query)) {
-          const laneStarted = performance.now();
-          try {
-            const items = options.episodicContextProvider(query) ?? [];
-            const selected = items
-              .filter((item) => typeof item?.excerpt === 'string' && item.excerpt.trim() !== '')
-              .slice(0, EPISODIC_MAX_ITEMS);
-            const entries = selected.map(formatEpisodicEntry);
-            const budgeted = buildBudgetedBlock(
-              'recent_conversation',
-              entries,
-              EPISODIC_BLOCK_TOKEN_BUDGET,
-            );
-            if (budgeted) {
-              const idx = result.lastIndexOf(lastUserMsg);
-              const blocks = ensureContentBlocks(lastUserMsg.content);
-              result[idx] = {
-                ...lastUserMsg,
-                content: [...blocks, { type: 'text', text: budgeted.block, injected: true } as any],
-              };
-              recordInjectedLane(injection, 'messages', {
-                ids: selected
-                  .slice(0, budgeted.kept)
-                  .flatMap((item) => (item.messageId ? [item.messageId] : [])),
-                itemCount: budgeted.kept,
-                block: budgeted.block,
-                startedMs: laneStarted,
-              });
-              options?.logger?.debug(
-                { count: entries.length, tokens: Math.ceil(estimateTokensForText(budgeted.block)) },
-                'Episodic conversation injected into context',
-              );
-            }
-          } catch {
-            injection.degraded = true;
-            options?.logger?.debug('Episodic context injection failed — continuing without it');
-          }
-        }
-      }
-    }
+      const query = lastUserMsg?.content ? getUserQueryText(lastUserMsg.content) : '';
+      const candidates: InjectionCandidate[] = [];
+      const laneLatencyMs: Record<InjectedBlockLane, number> = { messages: 0, knowledge: 0 };
 
-    // ── K2-6: knowledge titles (`<knowledge_available>`) ──
-    // Titles and slugs only: the body is a `knowledge_get` call away, and the
-    // block's budget (≤2 titles, ≤150 tokens) exists to say "a page about this
-    // exists" without pre-empting the tool. `titlesForInjection` already
-    // applies the relevance floor, so an unfocused query yields no entries and
-    // therefore no block.
-    if (options?.knowledgeContextProvider) {
-      const lastUserMsg = [...result].reverse().find((m: any) => m.role === 'user');
-      if (lastUserMsg?.content) {
-        const query = getUserQueryText(lastUserMsg.content);
-        if (query.trim() !== '') {
-          const laneStarted = performance.now();
-          try {
-            const items = options.knowledgeContextProvider(query) ?? [];
-            const selected = items
-              .filter((item) => typeof item?.slug === 'string' && item.slug.trim() !== '')
-              .slice(0, KNOWLEDGE_MAX_ITEMS);
-            const entries = selected.map((item) => {
+      if (
+        options?.episodicContextProvider &&
+        query.trim().length >= 5 &&
+        isEpisodicRelevantRequest(query)
+      ) {
+        const laneStarted = performance.now();
+        try {
+          const items = options.episodicContextProvider(query) ?? [];
+          items
+            .filter((item) => typeof item?.excerpt === 'string' && item.excerpt.trim() !== '')
+            .slice(0, injectionBudget.episodicMaxItems)
+            .forEach((item, rank) => {
+              candidates.push({
+                lane: 'messages',
+                rank,
+                score: item.score,
+                text: formatEpisodicEntry(item),
+                ids: item.messageId ? [item.messageId] : [],
+              });
+            });
+        } catch {
+          injection.degraded = true;
+          options?.logger?.debug('Episodic context injection failed — continuing without it');
+        }
+        laneLatencyMs.messages = performance.now() - laneStarted;
+      }
+
+      // Titles and slugs only: the body is a `knowledge_get` call away, so this
+      // block exists to say "a page about this exists" without pre-empting the
+      // tool. `titlesForInjection` already applies the relevance floor, so an
+      // unfocused query yields no entries and therefore no block.
+      if (options?.knowledgeContextProvider && query.trim() !== '') {
+        const laneStarted = performance.now();
+        try {
+          const items = options.knowledgeContextProvider(query) ?? [];
+          items
+            .filter((item) => typeof item?.slug === 'string' && item.slug.trim() !== '')
+            .slice(0, injectionBudget.knowledgeMaxItems)
+            .forEach((item, rank) => {
               const title = flattenInjectedText(item.title ?? '');
               const line = title ? `${item.slug.trim()} — ${title}` : item.slug.trim();
-              return neutralizePromptTags(truncate(line, KNOWLEDGE_LINE_MAX_CHARS));
-            });
-            const budgeted = buildBudgetedBlock(
-              'knowledge_available',
-              entries,
-              KNOWLEDGE_BLOCK_TOKEN_BUDGET,
-            );
-            if (budgeted) {
-              const idx = result.lastIndexOf(lastUserMsg);
-              const blocks = ensureContentBlocks(lastUserMsg.content);
-              result[idx] = {
-                ...lastUserMsg,
-                content: [...blocks, { type: 'text', text: budgeted.block, injected: true } as any],
-              };
-              recordInjectedLane(injection, 'knowledge', {
-                ids: selected.slice(0, budgeted.kept).map((item) => item.slug.trim()),
-                itemCount: budgeted.kept,
-                block: budgeted.block,
-                startedMs: laneStarted,
+              candidates.push({
+                lane: 'knowledge',
+                rank,
+                score: item.score,
+                text: neutralizePromptTags(truncate(line, KNOWLEDGE_LINE_MAX_CHARS)),
+                ids: [item.slug.trim()],
               });
-              options?.logger?.debug(
-                { count: entries.length, tokens: Math.ceil(estimateTokensForText(budgeted.block)) },
-                'Knowledge titles injected into context',
-              );
-            }
-          } catch {
-            injection.degraded = true;
-            options?.logger?.debug('Knowledge title injection failed — continuing without it');
-          }
+            });
+        } catch {
+          injection.degraded = true;
+          options?.logger?.debug('Knowledge title injection failed — continuing without it');
+        }
+        laneLatencyMs.knowledge = performance.now() - laneStarted;
+      }
+
+      if (lastUserMsg?.content && candidates.length > 0) {
+        const allocation = allocateInjectionCandidates(candidates, injectionBudget);
+        const appendedBlocks: any[] = [];
+        for (const lane of ['messages', 'knowledge'] as const) {
+          const block = allocation.blocks[lane];
+          if (!block) continue;
+          appendedBlocks.push({ type: 'text', text: block, injected: true });
+          // Rendered order (rank), not admission order: the block is what the
+          // model reads, and the ids must describe that block.
+          const kept = [...allocation.kept[lane]].sort((a, b) => a.rank - b.rank);
+          recordInjectedLane(injection, lane, {
+            ids: kept.flatMap((entry) => entry.ids),
+            itemCount: kept.length,
+            block,
+            latencyMs: laneLatencyMs[lane],
+          });
+          options?.logger?.debug(
+            { count: kept.length, tokens: Math.ceil(estimateTokensForText(block)) },
+            lane === 'messages'
+              ? 'Episodic conversation injected into context'
+              : 'Knowledge titles injected into context',
+          );
+        }
+        if (appendedBlocks.length > 0) {
+          const idx = result.lastIndexOf(lastUserMsg);
+          const blocks = ensureContentBlocks(lastUserMsg.content);
+          result[idx] = { ...lastUserMsg, content: [...blocks, ...appendedBlocks] };
         }
       }
     }

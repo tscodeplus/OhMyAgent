@@ -867,7 +867,8 @@ function knowledgePagesWrittenSince(service: KnowledgeService, since: number): K
 }
 
 /**
- * `/knowledge list | show <slug> | pending | approve <id> | stats | curate`.
+ * `/knowledge list | show <slug> | pending | approve <id> | stats | curate |
+ * share <message-id|url>`.
  *
  * Reads go through `KnowledgeService`, so `/knowledge` sees exactly what the
  * model sees: `active` pages only, except in `pending`, which is the one place
@@ -881,6 +882,12 @@ function knowledgePagesWrittenSince(service: KnowledgeService, since: number): K
  * comes from the subject, so a second run updates the page instead of creating a
  * twin. It never throws into the chat path — the whole switch is inside a
  * try/catch that answers with a sentence.
+ *
+ * `share` is the third entry point: it takes one message reference and asks the
+ * same curator for at most one page from it (`curateMessage`), so a link a user
+ * dropped into the chat becomes knowledge without waiting for the nightly pass.
+ * The two never overlap in meaning: `curate` selects its own subjects from
+ * memories, `share` is about exactly one message.
  */
 async function handleKnowledge(args: string, deps: CommandDeps): Promise<CommandResult> {
   const service = deps.knowledgeService;
@@ -1007,6 +1014,48 @@ async function handleKnowledge(args: string, deps: CommandDeps): Promise<Command
               .map((page) => `- \`${knowledgePageAddress(page)}\` ${page.title}`)
               .join('\n'),
           }),
+        };
+      }
+
+      case 'share': {
+        // A shared link/attachment is a message, so the entry point is a message
+        // reference — an id, or the URL that message contains. `/knowledge
+        // curate` stays argument-free: it curates a window, this curates one
+        // thing, and conflating the two would make `/knowledge curate <id>` mean
+        // something the engine's options cannot express.
+        if (!rest) return { reply: i18n.t('commands:knowledge.shareUsage') };
+        const curator = currentKnowledgeCurator();
+        if (!curator) return { reply: i18n.t('commands:knowledge.curateUnavailable') };
+
+        const startedAt = Date.now();
+        // `manual` is the trigger that counts as admission rule 3 — the user
+        // pressed the command, so one shared message is enough to make a page.
+        const report = await curator.curateMessage(rest, { trigger: 'manual' });
+        if (report.skipped === 'message_not_found') {
+          return { reply: i18n.t('commands:knowledge.shareMessageNotFound', { ref: rest }) };
+        }
+        if (report.skipped) {
+          return { reply: i18n.t('commands:knowledge.shareSkipped', { reason: report.skipped }) };
+        }
+
+        const page = knowledgePagesWrittenSince(service, startedAt)[0];
+        if (!page) {
+          return {
+            reply: i18n.t('commands:knowledge.shareNoPage', {
+              rejected: formatKnowledgeCounts(report.rejected),
+              failed: report.failed,
+            }),
+          };
+        }
+        // Shadow mode is a review queue, not a failure: say which one happened so
+        // "it worked" and "it is waiting for you" are not the same sentence.
+        return {
+          reply: i18n.t(
+            page.status === 'active'
+              ? 'commands:knowledge.shareDone'
+              : 'commands:knowledge.shareDonePending',
+            { address: knowledgePageAddress(page), title: page.title },
+          ),
         };
       }
 

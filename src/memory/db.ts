@@ -15,6 +15,7 @@ import { migrateV13 } from './migration-v13.js';
 import { migrateV14 } from './migration-v14.js';
 import { migrateV15 } from './migration-v15.js';
 import { migrateV16 } from './migration-v16.js';
+import { migrateV17 } from './migration-v17.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -213,6 +214,32 @@ export function openDatabase(dbPath: string): Database.Database {
   const v14Result = migrateV14(db);
   if (v14Result.created.length > 0) {
     logger.info(`[V14] Knowledge migration: created: ${v14Result.created.join(', ')}`);
+  }
+
+  // V17 migration: repair legacy graph DATA (no schema change) — delete the
+  // pre-K3 `memory:<id>` placeholder nodes, the `MENTIONED` co-occurrence edges
+  // and the orphan edges, backfill `memory_links.subject_entity`, then project.
+  // It belongs here rather than above because it adds no column: it needs the
+  // tables first (`entities`/`entity_edges` from v10, `memory_links` from
+  // applySchema) and `memory_links.subject_entity` from v15, so the v4/v9/v11/
+  // v12/v15 rule that puts column-adding migrations *before* applySchema does
+  // not apply to it. Like v10/v14 it is a replay on every open, so it guards on
+  // "anything to repair" and costs one read-only COUNT query once the database
+  // is clean.
+  const v17Result = migrateV17(db, logger);
+  const v17DeletedRows =
+    v17Result.cleaned.placeholderEntities +
+    v17Result.cleaned.placeholderEdges +
+    v17Result.cleaned.mentionEdges +
+    v17Result.cleaned.orphanEndpointEdges +
+    v17Result.cleaned.orphanMemoryEdges;
+  const v17LinkRows = v17Result.mined.linksCreated + v17Result.mined.linksAnnotated;
+  if (v17DeletedRows > 0 || v17LinkRows > 0 || v17Result.projected.edgesCreated > 0) {
+    logger.info(
+      `[V17] Graph data migration: deleted ${v17DeletedRows} legacy rows, ` +
+        `wrote ${v17LinkRows} link subjects, ` +
+        `projected ${v17Result.projected.entitiesCreated} entities / ${v17Result.projected.edgesCreated} edges`,
+    );
   }
 
   // Backfill FTS index for memories that are missing from it (first-time

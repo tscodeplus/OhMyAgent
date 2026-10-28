@@ -388,7 +388,14 @@ describe('KnowledgeCurator', () => {
 
       expect(report.created).toBe(1);
       expect(service.writes[0].kind).toBe('create');
-      expect(service.writes[0].options).toEqual({ actor: 'system', enforceAdmission: true });
+      expect(service.writes[0].options).toEqual({
+        actor: 'system',
+        enforceAdmission: true,
+        // The nightly pass is not a user request: admission rule 3 must not be
+        // satisfied by it. `explicitRequest` states that without lying about
+        // the actor, which is what the `manual`/`share` routes set to true.
+        explicitRequest: false,
+      });
       const input = service.writes[0].input as CreateKnowledgePageInput;
       expect(input.slug).toBe('power-query');
       expect(input.pageType).toBe('topic');

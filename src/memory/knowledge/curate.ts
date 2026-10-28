@@ -1,12 +1,23 @@
 /**
- * KnowledgeCurator — the nightly curation job (plan §6 K2-5, §9.4).
+ * KnowledgeCurator — the curation engine (plan §6 K2-5, §9.4).
  *
- * Turns memories into knowledge pages. It is one of the three curation entry
- * points (`DreamCycle`'s `knowledge_curate` phase, `/knowledge curate`, and the
- * share flow) and it deliberately owns no write logic of its own: every page
- * goes through `KnowledgeService.create/update` with
- * `{ actor: 'system', enforceAdmission: true }`, so admission, provenance,
- * version checking, FTS and the log row have exactly one implementation.
+ * Turns memories into knowledge pages. It is the single engine behind all three
+ * curation entry points — `DreamCycle`'s `knowledge_curate` phase ({@link run}),
+ * `/knowledge curate` (also {@link run}, with the `manual` trigger) and
+ * `/knowledge share` ({@link KnowledgeCurator.curateMessage}) — and it
+ * deliberately owns no write logic of its own: every page goes through
+ * `KnowledgeService.create/update` with `{ actor: 'system', enforceAdmission:
+ * true }`, so admission, provenance, version checking, FTS and the log row have
+ * exactly one implementation.
+ *
+ * ## The share flow
+ *
+ * A shared link or attachment is a *message*, not a memory, so it enters through
+ * the message id: one message in, at most one page out, written by the same
+ * grouping → page → `writeGroups` path as the nightly pass. The shared message is
+ * attached as an extra `message` citation; it never gets a writer of its own.
+ * The user asked for that page, which is admission rule 3 — passed down as
+ * `explicitRequest`, so one source is enough and shadow mode still applies.
  *
  * ## What one run does
  *
@@ -70,9 +81,11 @@ import type {
   KnowledgeWriteRejection,
   KnowledgeWriteResult,
 } from './service-contract.js';
+import { parseEpochMs } from '../../shared/timestamp.js';
 import type {
   CreateKnowledgePageInput,
   KnowledgeSourceInput,
+  KnowledgeSourceKind,
   PageType,
   UpdateKnowledgePageInput,
 } from './types.js';
@@ -108,7 +121,13 @@ export interface KnowledgeCurateConfig {
 // ── Report ──────────────────────────────────────────────────────────────
 
 export type CurateSkipReason =
-  'disabled' | 'mode_manual' | 'no_aux_model' | 'no_candidates' | 'no_groups';
+  | 'disabled'
+  | 'mode_manual'
+  | 'no_aux_model'
+  | 'no_candidates'
+  | 'no_groups'
+  /** The shared reference (`curateMessage`) matched no user message. */
+  | 'message_not_found';
 
 export interface CurateRunReport {
   /** Set when the run did nothing; absent on a run that reached the write loop. */
@@ -145,8 +164,11 @@ export interface KnowledgeCurateDeps {
    * `DreamCycle.synthesize` reaches through `mergeMemory`, so there is no second
    * LLM client.
    */
-  callLLM?: (options: AuxLLMCallOptions) => Promise<string>;
+  callLLM?: AuxCaller;
 }
+
+/** One aux-LLM completion; the curated prompts are the only callers. */
+type AuxCaller = (options: AuxLLMCallOptions) => Promise<string>;
 
 // ── Constants ───────────────────────────────────────────────────────────
 
@@ -199,6 +221,21 @@ export interface CurateGroup {
   subject: string;
   /** Memory ids the model cited, filtered to ids it was actually shown. */
   memoryIds: string[];
+}
+
+/**
+ * One thing a page cites and the page-writing call reads: a memory row, or (share
+ * flow) the message the user shared.
+ *
+ * `scope`/`confidence` are memory-only; a message carries neither, and both are
+ * nullable so a citation kind cannot quietly inherit a memory's trust score.
+ */
+export interface CurateSource {
+  kind: KnowledgeSourceKind;
+  id: string;
+  content: string;
+  scope: string | null;
+  confidence: number | null;
 }
 
 export interface CuratedPage {
@@ -275,6 +312,14 @@ const PAGE_SYSTEM_PROMPT = [
   'Output ONLY JSON, no prose:',
   '{"title":"<page title>","content":"<markdown body>","tags":["<tag>"],"aliases":["<other name for the subject>"]}',
 ].join('\n');
+
+/**
+ * The share flow's grouping input: the same candidate line format as a memory
+ * batch, prefixed so the model knows the row is a message that was shared rather
+ * than a durable memory it may treat as already-compressed.
+ */
+const MESSAGE_GROUPING_PREFIX =
+  'The user shared the message below and asked for it to become a knowledge page.';
 
 /** Strip ``` fences and surrounding prose, then parse the first JSON value. */
 function parseJsonValue(raw: string): unknown {
@@ -392,6 +437,30 @@ function formatMemoryLines(rows: ReadonlyArray<{ id: string; content: string }>)
   return rows.map((row) => `- [${row.id}] ${truncate(row.content, MAX_MEMORY_CHARS)}`).join('\n');
 }
 
+/**
+ * The group's memory sources plus, on the share flow, the message that was
+ * shared.
+ *
+ * `extra` comes first because it is the reason the page exists: the per-page cap
+ * must never be what drops the shared message's provenance. Deduplication is by
+ * `kind:id` — the same memory mentioned twice is one citation (the service
+ * dedupes again on its side).
+ */
+function mergeSources(
+  extra: readonly CurateSource[],
+  memories: readonly CurateSource[],
+): CurateSource[] {
+  const seen = new Set<string>();
+  const out: CurateSource[] = [];
+  for (const source of [...extra, ...memories]) {
+    const key = `${source.kind}:${source.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(source);
+  }
+  return out.slice(0, MAX_SOURCES_PER_PAGE);
+}
+
 // ── Curator ─────────────────────────────────────────────────────────────
 
 export class KnowledgeCurator {
@@ -436,7 +505,7 @@ export class KnowledgeCurator {
     }
 
     // `skipReason` already proved a caller exists.
-    const callLLM = this.resolveCaller() as (options: AuxLLMCallOptions) => Promise<string>;
+    const callLLM = this.resolveCaller() as AuxCaller;
 
     report.since = this.windowStart();
     if (options.signal?.aborted) {
@@ -469,6 +538,145 @@ export class KnowledgeCurator {
       return report;
     }
 
+    return this.writeGroups(groups, trigger, callLLM, report, { signal: options.signal });
+  }
+
+  /**
+   * Curate one shared message — the share entry point (`/knowledge share`).
+   *
+   * The whole reason this exists as a curator method rather than a second writer:
+   * a shared link arrives as a message, and a message is evidence, not an
+   * observation. So the message is the *candidate* (the grouping call names a
+   * subject from it) and also a **citation** of the page it produces, while the
+   * page itself is written by the same loop and the same service call the
+   * nightly pass uses.
+   *
+   * `ref` is a message id, or a URL that one user message contains — the user has
+   * a link, not a row id. At most one page comes out: a model that proposes
+   * several subjects from one link is guessing, and the user asked about *that*
+   * message.
+   *
+   * Returns a skipped report instead of throwing when the layer/mode is off or the
+   * message is unknown. A failed aux-LLM call throws the same way `run()` does:
+   * the caller renders a sentence, and a silent no-op would look like a refusal.
+   */
+  async curateMessage(ref: string, options: CurateRunOptions = {}): Promise<CurateRunReport> {
+    // The user pressing the command *is* admission rule 3, so this is a `manual`
+    // trigger: `mode: off` refuses (below), `manual` and `nightly` both run.
+    const trigger: CurateTrigger = options.trigger ?? 'manual';
+    const report: CurateRunReport = {
+      since: 0,
+      candidates: 0,
+      groups: 0,
+      created: 0,
+      updated: 0,
+      rejected: {},
+      failed: 0,
+      aborted: false,
+    };
+
+    const skip = this.skipReason(trigger);
+    if (skip) {
+      report.skipped = skip;
+      this.logger.debug({ trigger, skip }, 'knowledge share curate skipped');
+      return report;
+    }
+
+    const callLLM = this.resolveCaller() as AuxCaller;
+    const message = this.findUserMessage(ref.trim());
+    if (!message) {
+      report.skipped = 'message_not_found';
+      this.logger.debug({ ref }, 'knowledge share curate: no such message');
+      return report;
+    }
+
+    report.since = message.createdAt;
+    report.candidates = 1;
+    if (options.signal?.aborted) {
+      report.aborted = true;
+      return report;
+    }
+
+    const groups = parseGroupingResponse(
+      await callLLM({
+        systemPrompt: GROUPING_SYSTEM_PROMPT,
+        userPrompt: `${MESSAGE_GROUPING_PREFIX}\n${formatMemoryLines([message])}`,
+        temperature: 0.1,
+        maxTokens: 800,
+        logger: this.logger,
+      }),
+      new Set([message.id]),
+    );
+    report.groups = groups.length;
+    const group = groups[0];
+    if (!group) {
+      report.skipped = 'no_groups';
+      this.logger.debug(
+        { messageId: message.id },
+        'knowledge share curate: the message names no subject',
+      );
+      return report;
+    }
+
+    return this.writeGroups([group], trigger, callLLM, report, {
+      signal: options.signal,
+      extraSources: [
+        {
+          kind: 'message',
+          id: message.id,
+          content: message.content,
+          scope: null,
+          confidence: null,
+        },
+      ],
+    });
+  }
+
+  /**
+   * The user message a share reference names, or `null`.
+   *
+   * Id first; a URL falls back to the newest user message whose content contains
+   * it. That fallback is a `LIKE` scan, which is acceptable only because this is a
+   * user-triggered command on a bounded table (`messages`, never the turn path) and
+   * it stops at the first row.
+   */
+  private findUserMessage(ref: string): { id: string; content: string; createdAt: number } | null {
+    if (!ref) return null;
+    const byId = this.db
+      .prepare("SELECT id, content, created_at FROM messages WHERE id = ? AND role = 'user'")
+      .get(ref) as { id: string; content: string; created_at: unknown } | undefined;
+    const row =
+      byId ??
+      (/^https?:\/\//i.test(ref)
+        ? (this.db
+            .prepare(
+              `SELECT id, content, created_at FROM messages
+                WHERE role = 'user' AND content LIKE ? ESCAPE '\\'
+                ORDER BY CAST(created_at AS INTEGER) DESC LIMIT 1`,
+            )
+            .get(`%${escapeLike(ref)}%`) as
+            { id: string; content: string; created_at: unknown } | undefined)
+        : undefined);
+    if (!row) return null;
+    return { id: row.id, content: row.content, createdAt: parseEpochMs(row.created_at) };
+  }
+
+  /**
+   * Write the groups one at a time, then log and — when every group failed and
+   * nothing was written — surface the last failure.
+   *
+   * Shared by both entry points: one loop, one cap, one abort point, one log line,
+   * so the nightly pass and a shared message cannot drift apart in how many pages
+   * they write or what they report.
+   */
+  private async writeGroups(
+    groups: readonly CurateGroup[],
+    trigger: CurateTrigger,
+    callLLM: AuxCaller,
+    report: CurateRunReport,
+    options: { signal?: AbortSignal; extraSources?: readonly CurateSource[] } = {},
+  ): Promise<CurateRunReport> {
+    const extraSources = options.extraSources ?? [];
     let lastError: unknown = null;
     for (const group of groups) {
       // Abort is honoured only here: a page write is atomic inside the service,
@@ -479,7 +687,7 @@ export class KnowledgeCurator {
       }
       if (report.created + report.updated >= this.config.maxPagesPerRun) break;
 
-      const error = await this.curateGroup(group, trigger, callLLM, report);
+      const error = await this.curateGroup(group, trigger, callLLM, report, extraSources);
       if (error) lastError = error;
       if (options.signal?.aborted) {
         report.aborted = true;
@@ -522,7 +730,7 @@ export class KnowledgeCurator {
   }
 
   /** The aux-LLM completion, or `null` when no model is configured. */
-  private resolveCaller(): ((options: AuxLLMCallOptions) => Promise<string>) | null {
+  private resolveCaller(): AuxCaller | null {
     if (this.deps.callLLM) return this.deps.callLLM;
     const auxConfig = this.config.auxConfig;
     const configured = Boolean(auxConfig?.modelRef || (auxConfig?.fallbackRefs?.length ?? 0) > 0);
@@ -584,14 +792,15 @@ export class KnowledgeCurator {
    *
    * The cross-window half is what makes admission rule 2 (recurrence) reachable
    * in steady state — with a one-night window, every topic would otherwise look
-   * like a single mention forever.
+   * like a single mention forever. It also means the share flow inherits whatever
+   * the memory layer already knows about the subject the message names.
    */
-  private gatherSources(subject: string, groupIds: readonly string[]): SourceMemory[] {
+  private gatherSources(subject: string, groupIds: readonly string[]): CurateSource[] {
     const kinds = [...CANDIDATE_KINDS];
     const placeholders = kinds.map(() => '?').join(',');
     const idPlaceholders = groupIds.map(() => '?').join(',');
     const idClause = groupIds.length > 0 ? ` OR id IN (${idPlaceholders})` : '';
-    return this.db
+    const rows = this.db
       .prepare(
         `SELECT id, content, scope, confidence
            FROM memories
@@ -609,22 +818,35 @@ export class KnowledgeCurator {
         ...groupIds,
         MAX_SOURCES_PER_PAGE,
       ) as SourceMemory[];
+    return rows.map((row) => ({
+      kind: 'memory',
+      id: row.id,
+      content: row.content,
+      scope: row.scope,
+      confidence: row.confidence,
+    }));
   }
 
   /**
    * Curate one group. Returns the error that made the group fail, or `null`.
+   *
+   * `extraSources` are the citations the group brought with it that are not
+   * memories — on the share flow, the shared message itself. They count towards
+   * admission, feed the page call and land in `knowledge_sources` like any other
+   * citation, so a page from a shared link is traceable back to the message.
    */
   private async curateGroup(
     group: CurateGroup,
     trigger: CurateTrigger,
-    callLLM: (options: AuxLLMCallOptions) => Promise<string>,
+    callLLM: AuxCaller,
     report: CurateRunReport,
+    extraSources: readonly CurateSource[] = [],
   ): Promise<unknown> {
     const subject = group.subject.trim();
     // A subject that slugifies to nothing cannot identify a page; treat it as
     // unnamed so rule 1 answers for it (the service would refuse it too).
     const slug = slugifySegment(subject);
-    const sources = this.gatherSources(subject, group.memoryIds);
+    const sources = mergeSources(extraSources, this.gatherSources(subject, group.memoryIds));
 
     const rejection = evaluateAdmission(
       {
@@ -645,9 +867,12 @@ export class KnowledgeCurator {
 
     // Deterministic, never model-chosen: `(page_type, slug)` is the page's
     // identity, so a model flip between page types would create a duplicate.
-    const pageType: PageType = sources.every((source) => source.scope === 'project')
-      ? 'project'
-      : 'topic';
+    // Derived from the memory scopes only — a shared message has no scope, and
+    // letting it vote would let the share flow file `topic/x` beside the
+    // `project/x` the nightly pass already wrote for the same subject.
+    const scopes = sources.flatMap((source) => (source.scope === null ? [] : [source.scope]));
+    const pageType: PageType =
+      scopes.length > 0 && scopes.every((scope) => scope === 'project') ? 'project' : 'topic';
 
     let raw: string;
     try {
@@ -675,11 +900,26 @@ export class KnowledgeCurator {
     }
 
     const sourceInputs: KnowledgeSourceInput[] = sources.map((source) => ({
-      kind: 'memory',
+      kind: source.kind,
       id: source.id,
     }));
-    const confidence = Math.round(Math.min(...sources.map((s) => s.confidence)) * 100) / 100;
-    const writeOptions: KnowledgeWriteOptions = { actor: 'system', enforceAdmission: true };
+    // A message citation has no confidence, so the page's confidence is the floor
+    // of what its *memories* claim; with no memory source at all it stays unset
+    // rather than inheriting an invented number.
+    const confidences = sources.flatMap((source) =>
+      source.confidence === null ? [] : [source.confidence],
+    );
+    const confidence = confidences.length
+      ? Math.round(Math.min(...confidences) * 100) / 100
+      : undefined;
+    const writeOptions: KnowledgeWriteOptions = {
+      actor: 'system',
+      enforceAdmission: true,
+      // The user asked for this page (a `manual` trigger) — admission rule 3,
+      // stated to the service so it does not have to infer it from the actor and
+      // then contradict the pre-flight check above.
+      explicitRequest: trigger === 'manual',
+    };
 
     let result: KnowledgeWriteResult;
     try {

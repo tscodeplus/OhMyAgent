@@ -68,6 +68,8 @@ import {
   inferEntityType,
   mineMemoryLinkSubjects,
   MENTION_RELATION_TYPE,
+  isTokenAlignedMention,
+  isVouchableEntityName,
   type MemoryLinkMiningSummary,
 } from './entity-mining.js';
 import { DEFAULT_GRAPH_SYNC_CONFIG, type GraphSyncConfig } from './graph-config.js';
@@ -138,6 +140,8 @@ interface LinkRow {
   target_entity_type: string | null;
   relation_type: string;
   confidence: unknown;
+  /** The memory text, so an endpoint can be checked against token boundaries. */
+  memory_content: string | null;
 }
 
 export interface CloseContradictedEdgesInput {
@@ -225,7 +229,8 @@ function readLinksByMemory(db: Database.Database, memoryIds: string[]): Map<stri
               ml.target_entity AS target_entity,
               ml.target_entity_type AS target_entity_type,
               ml.relation_type AS relation_type,
-              ml.confidence AS confidence
+              ml.confidence AS confidence,
+              m.content AS memory_content
        FROM memory_links ml
        JOIN memories m ON m.id = ml.source_memory_id
        WHERE ml.source_memory_id IN (${placeholders})
@@ -253,6 +258,17 @@ function hasSubject(link: LinkRow): boolean {
 function isUsableLink(link: LinkRow, minConfidence: number): boolean {
   if (!link.target_entity.trim()) return false;
   if (!link.relation_type.trim()) return false;
+  // Both endpoints have to read as entities and have to sit on token boundaries
+  // of the memory that claims them. The measured failure mode was
+  // `如何称呼 —ADVISES→ 何称 / 张奇` at confidence 0.95: every endpoint there is a
+  // substring of the memory text, so only a boundary test can tell a name from a
+  // slice. Enforcing it here (rather than deleting the rows) keeps the link as
+  // retrieval evidence while stopping it from becoming a statement.
+  if (!isVouchableEntityName(link.subject_entity)) return false;
+  if (!isVouchableEntityName(link.target_entity)) return false;
+  const content = link.memory_content ?? '';
+  if (!isTokenAlignedMention(content, link.subject_entity ?? '')) return false;
+  if (!isTokenAlignedMention(content, link.target_entity)) return false;
   const confidence = Number(link.confidence);
   return Number.isFinite(confidence) && confidence >= minConfidence;
 }

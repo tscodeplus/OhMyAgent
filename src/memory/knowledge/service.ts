@@ -150,10 +150,12 @@ function checkSubject(title: string): AdmissionCheck {
 /**
  * Evaluate the three admission rules.
  *
- * `requested` is derived from the actor: a write attributed to the user *is* the
- * explicit request ("记下来 / 整理成文档"), because the service never sees the
- * turn's text and `KnowledgeWriteOptions` exposes no other channel. Curation
- * writes arrive as `agent`/`system` and must earn the other two rules.
+ * `requested` defaults to "the write is attributed to the user" — a write the
+ * user made *is* the explicit request ("记下来 / 整理成文档") — because the service
+ * never sees the turn's text. `KnowledgeWriteOptions.explicitRequest` is the
+ * channel for a caller that knows better: the curator's `manual` trigger (the
+ * user ran a command that asked for the page) says so while still attributing
+ * the body to `system`.
  */
 function evaluateAdmission(input: {
   title: string;
@@ -324,7 +326,7 @@ export function createKnowledgeService(deps: KnowledgeServiceDeps): KnowledgeSer
         title: input.title,
         sources,
         requireSources: Math.max(1, config.requireSources),
-        requested: options.actor === 'user',
+        requested: options.explicitRequest ?? options.actor === 'user',
       });
       const failed = checks.filter((check) => !check.passed);
       // Two of three rules must pass; `failed[0]` exists whenever we reject.
@@ -383,7 +385,10 @@ export function createKnowledgeService(deps: KnowledgeServiceDeps): KnowledgeSer
     return changed;
   }
 
-  function titlesForInjection(query: string, max: number): Array<{ slug: string; title: string }> {
+  function titlesForInjection(
+    query: string,
+    max: number,
+  ): Array<{ slug: string; title: string; score?: number }> {
     const limit = clamp(max, 1, 5);
     if (!query.trim()) return [];
 
@@ -395,10 +400,16 @@ export function createKnowledgeService(deps: KnowledgeServiceDeps): KnowledgeSer
     // on every turn. Absolute thresholds are meaningless across query lengths,
     // so the comparison stays within the set (the contract's own caveat).
     const floor = hits[0].score > 0 ? hits[0].score / 2 : 0;
-    return hits
-      .filter((hit) => hit.score >= floor)
-      .slice(0, limit)
-      .map((hit) => ({ slug: hit.slug, title: hit.title }));
+    return (
+      hits
+        .filter((hit) => hit.score >= floor)
+        .slice(0, limit)
+        // `score` is reported as relevance in (0,1] — the same BM25→(0,1) curve
+        // `conversation-search` uses (`x / (1 + x)`) — because the caller ranks
+        // this lane against the conversation lane, and a raw −bm25 magnitude (or
+        // a title hit's `bestScore * 2 + 1`) is not on that scale.
+        .map((hit) => ({ slug: hit.slug, title: hit.title, score: hit.score / (1 + hit.score) }))
+    );
   }
 
   function linksOf(pageId: string) {

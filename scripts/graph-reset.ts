@@ -3,23 +3,22 @@
  * `pnpm graph:reset` — remove what the pre-K3 graph invented.
  *
  * Before the projection read a recorded subject, `graph-sync` had to guess one
- * for every `memory_links` row that missed it: the highest-confidence link
- * named the subject, and a memory with a single link got a `memory:<id>`
- * placeholder node instead. It also wrote `MENTIONED` edges for plain
- * co-occurrence. Measured on the real database that produced 9 placeholder
- * nodes out of 22 entities and 17 `MENTIONED` edges out of 18 — the graph could
- * not be traversed into anything.
+ * for every `memory_links` row that missed it: the highest-confidence link named
+ * the subject, and a memory with a single link got a `memory:<id>` placeholder
+ * node instead. It also wrote `MENTIONED` edges for plain co-occurrence.
+ * Measured on the real database that produced 9 placeholder nodes out of 22
+ * entities and 17 `MENTIONED` edges out of 18 — the graph could not be traversed
+ * into anything.
  *
- * This command deletes exactly that legacy data, in this order:
- *   1. `entities` with `entity_type = 'memory'` and every edge touching them,
- *   2. `entity_edges` whose relation is `MENTIONED` (co-occurrence, not a
- *      statement — the projection no longer writes them either),
- *   3. edges with a missing endpoint (written while `PRAGMA foreign_keys` was
- *      off, which the v10 tables cannot prevent),
- *   4. edges whose `source_memory_id` no longer exists in `memories`.
+ * The deletes live in `src/graph/legacy-cleanup.ts`, not here: migration v17
+ * runs the same code at startup (so an upgrade repairs itself), and this command
+ * exists for a one-off run against a live database. Keeping one implementation
+ * is the point — the previous copy in this script drifted from the projection
+ * and `pnpm graph:mine` was broken for weeks because of it.
  *
- * Real entities and their edges are never touched. Nothing is re-created here:
- * run `pnpm graph:sync` afterwards to project from `memory_links.subject_entity`.
+ * This command only cleans. Nothing is re-created here: run `pnpm graph:mine`
+ * then `pnpm graph:sync` afterwards, or let migration v17 do all three on the
+ * next start.
  *
  *   pnpm graph:reset                      # delete in batches of 500
  *   pnpm graph:reset --dry-run            # report the counts, change nothing
@@ -42,205 +41,19 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import Database from 'better-sqlite3';
 import { loadYamlFile } from '../src/app/config-loader.js';
-import { LEGACY_PLACEHOLDER_ENTITY_TYPE } from '../src/graph/graph-sync.js';
-import { MENTION_RELATION_TYPE } from '../src/graph/entity-mining.js';
+import {
+  cleanupLegacyGraph,
+  DEFAULT_LEGACY_CLEANUP_BATCH_SIZE,
+  missingGraphTables,
+} from '../src/graph/legacy-cleanup.js';
+
+/**
+ * The script's public name for the cleanup. Kept as a re-export so the CLI, its
+ * tests and the migration keep exactly one implementation.
+ */
+export { cleanupLegacyGraph as resetGraph };
 
 const DEFAULT_DB_PATH = '~/.ohmyagent/data/app.db';
-const DEFAULT_BATCH_SIZE = 500;
-
-export interface GraphResetOptions {
-  /** Rows removed per transaction. Default 500. */
-  limit?: number;
-  /** Do the work, report the counts, then roll everything back. */
-  dryRun?: boolean;
-  /** Optional sink for per-step progress; silent when absent. */
-  log?: (message: string) => void;
-}
-
-export interface GraphResetSummary {
-  /** `entities` rows with `entity_type = 'memory'` deleted. */
-  placeholderEntities: number;
-  /** Edges deleted because one endpoint was such a placeholder. */
-  placeholderEdges: number;
-  /** Legacy co-occurrence edges (`MENTIONED`) deleted. */
-  mentionEdges: number;
-  /** Edges deleted because an endpoint no longer exists. */
-  orphanEndpointEdges: number;
-  /** Edges deleted because their `source_memory_id` no longer exists. */
-  orphanMemoryEdges: number;
-}
-
-/**
- * Sentinel thrown inside the dry-run transaction: better-sqlite3 rolls back on
- * throw and offers no other way to abort a transaction.
- */
-const DRY_RUN_ROLLBACK = Symbol('graph-reset dry-run');
-
-interface DeletePlan {
-  key: keyof GraphResetSummary;
-  /** Ids still to remove; the batch loop repeats until this returns nothing. */
-  selectIds: (limit: number) => string[];
-  /** Remove one batch of ids; returns how many rows were actually deleted. */
-  deleteBatch: (ids: string[]) => number;
-}
-
-function hasTable(db: Database.Database, name: string): boolean {
-  return (
-    db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !==
-    undefined
-  );
-}
-
-function placeholderPlan(db: Database.Database, summary: GraphResetSummary): DeletePlan {
-  // Foreign-key cascades would do this on their own, but they only fire while
-  // `PRAGMA foreign_keys` is on — and the data this command cleans up was
-  // written by a process that may have had it off. Deleting explicitly keeps
-  // the result identical either way.
-  const deleteEdges = db.prepare(
-    'DELETE FROM entity_edges WHERE source_entity_id = ? OR target_entity_id = ?',
-  );
-  const deleteAliases = db.prepare('DELETE FROM entity_aliases WHERE entity_id = ?');
-  const deleteEntity = db.prepare('DELETE FROM entities WHERE id = ?');
-  return {
-    key: 'placeholderEntities',
-    selectIds: (limit) =>
-      (
-        db
-          .prepare('SELECT id FROM entities WHERE entity_type = ? ORDER BY created_at, id LIMIT ?')
-          .all(LEGACY_PLACEHOLDER_ENTITY_TYPE, limit) as Array<{ id: string }>
-      ).map((row) => row.id),
-    deleteBatch: (ids) => {
-      let deleted = 0;
-      for (const id of ids) {
-        summary.placeholderEdges += deleteEdges.run(id, id).changes;
-        deleteAliases.run(id);
-        deleted += deleteEntity.run(id).changes;
-      }
-      return deleted;
-    },
-  };
-}
-
-function mentionEdgePlan(db: Database.Database): DeletePlan {
-  const deleteEdge = db.prepare('DELETE FROM entity_edges WHERE id = ?');
-  return {
-    key: 'mentionEdges',
-    selectIds: (limit) =>
-      (
-        db
-          .prepare(
-            `SELECT id FROM entity_edges
-             WHERE upper(trim(relation_type)) = ?
-             ORDER BY created_at, id
-             LIMIT ?`,
-          )
-          .all(MENTION_RELATION_TYPE, limit) as Array<{ id: string }>
-      ).map((row) => row.id),
-    deleteBatch: (ids) => ids.reduce((sum, id) => sum + deleteEdge.run(id).changes, 0),
-  };
-}
-
-function orphanEndpointPlan(db: Database.Database): DeletePlan {
-  const deleteEdge = db.prepare('DELETE FROM entity_edges WHERE id = ?');
-  return {
-    key: 'orphanEndpointEdges',
-    selectIds: (limit) =>
-      (
-        db
-          .prepare(
-            `SELECT e.id AS id
-             FROM entity_edges e
-             LEFT JOIN entities s ON s.id = e.source_entity_id
-             LEFT JOIN entities t ON t.id = e.target_entity_id
-             WHERE s.id IS NULL OR t.id IS NULL
-             ORDER BY e.created_at, e.id
-             LIMIT ?`,
-          )
-          .all(limit) as Array<{ id: string }>
-      ).map((row) => row.id),
-    deleteBatch: (ids) => ids.reduce((sum, id) => sum + deleteEdge.run(id).changes, 0),
-  };
-}
-
-function orphanMemoryPlan(db: Database.Database): DeletePlan {
-  const deleteEdge = db.prepare('DELETE FROM entity_edges WHERE id = ?');
-  return {
-    key: 'orphanMemoryEdges',
-    selectIds: (limit) =>
-      (
-        db
-          .prepare(
-            `SELECT e.id AS id
-             FROM entity_edges e
-             WHERE e.source_memory_id IS NOT NULL
-               AND NOT EXISTS (SELECT 1 FROM memories m WHERE m.id = e.source_memory_id)
-             ORDER BY e.created_at, e.id
-             LIMIT ?`,
-          )
-          .all(limit) as Array<{ id: string }>
-      ).map((row) => row.id),
-    deleteBatch: (ids) => ids.reduce((sum, id) => sum + deleteEdge.run(id).changes, 0),
-  };
-}
-
-/**
- * Remove the legacy placeholder nodes, the `MENTIONED` edges and the orphan
- * edges. Idempotent: a second call finds nothing.
- */
-export function resetGraph(
-  db: Database.Database,
-  options: GraphResetOptions = {},
-): GraphResetSummary {
-  const limit = Math.max(1, Math.floor(options.limit ?? DEFAULT_BATCH_SIZE));
-  const dryRun = options.dryRun === true;
-  const { log } = options;
-
-  const summary: GraphResetSummary = {
-    placeholderEntities: 0,
-    placeholderEdges: 0,
-    mentionEdges: 0,
-    orphanEndpointEdges: 0,
-    orphanMemoryEdges: 0,
-  };
-
-  const runStep = (plan: DeletePlan): void => {
-    const deleteBatch = db.transaction((ids: string[]) => plan.deleteBatch(ids));
-    for (;;) {
-      const ids = plan.selectIds(limit);
-      if (ids.length === 0) break;
-      const deleted = deleteBatch(ids);
-      summary[plan.key] += deleted;
-      if (deleted === 0) break;
-    }
-    log?.(`[graph:reset] ${plan.key}: ${String(summary[plan.key])}`);
-  };
-
-  const runAll = (): void => {
-    runStep(placeholderPlan(db, summary));
-    runStep(mentionEdgePlan(db));
-    runStep(orphanEndpointPlan(db));
-    runStep(orphanMemoryPlan(db));
-  };
-
-  if (!dryRun) {
-    runAll();
-    return summary;
-  }
-
-  // Dry run: the same deletes inside one outer transaction, rolled back at the
-  // end. Counting instead of deleting would report step 2 against data step 1
-  // has not removed yet, so the numbers would not match a real run.
-  const outer = db.transaction(() => {
-    runAll();
-    throw DRY_RUN_ROLLBACK;
-  });
-  try {
-    outer();
-  } catch (err) {
-    if (err !== DRY_RUN_ROLLBACK) throw err;
-  }
-  return summary;
-}
 
 interface CliOptions {
   limit: number;
@@ -251,7 +64,7 @@ interface CliOptions {
 
 export function parseResetArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
-    limit: DEFAULT_BATCH_SIZE,
+    limit: DEFAULT_LEGACY_CLEANUP_BATCH_SIZE,
     dryRun: false,
     verbose: false,
     help: false,
@@ -288,13 +101,14 @@ function parsePositiveInt(flag: string, value: string): number {
 function printHelp(): void {
   console.log(`Usage: pnpm graph:reset [--limit <n>] [--dry-run] [--verbose]
 
-  --limit, -l <n>   Rows removed per transaction (default: ${DEFAULT_BATCH_SIZE})
+  --limit, -l <n>   Rows removed per transaction (default: ${DEFAULT_LEGACY_CLEANUP_BATCH_SIZE})
   --dry-run         Report the counts, then roll every delete back
   --verbose, -v     Print the resolved options and per-step counts
 
 Deletes entity_type='memory' placeholder nodes (and their edges), the legacy
 MENTIONED co-occurrence edges, and orphan edges. Real entities are untouched.
-Run \`pnpm graph:sync\` afterwards to rebuild the graph from memory_links.
+Run \`pnpm graph:mine\` and \`pnpm graph:sync\` afterwards to rebuild the graph
+from memory_links — or let migration v17 do all three on the next start.
 
 Environment:
   DATABASE_PATH     Overrides database.path from config.yaml
@@ -338,10 +152,10 @@ export function runGraphReset(argv: string[]): number {
   db.pragma('busy_timeout = 5000');
 
   try {
-    const missing = ['entities', 'entity_edges'].filter((table) => !hasTable(db, table));
+    const missing = missingGraphTables(db);
     if (missing.length > 0) {
       console.error(
-        `[graph:reset] missing table(s): ${missing.join(', ')} — start the agent once so the v10 migration runs.`,
+        `[graph:reset] missing table(s): ${missing.join(', ')} — start the agent once so the schema and migrations create them.`,
       );
       return 1;
     }
@@ -353,7 +167,7 @@ export function runGraphReset(argv: string[]): number {
       );
     }
 
-    const summary = resetGraph(db, {
+    const summary = cleanupLegacyGraph(db, {
       limit: options.limit,
       dryRun: options.dryRun,
       log: options.verbose ? (message) => console.log(message) : undefined,
@@ -367,7 +181,7 @@ export function runGraphReset(argv: string[]): number {
     console.log(
       options.dryRun
         ? '[graph:reset] dry run — nothing was deleted'
-        : '[graph:reset] done — run `pnpm graph:sync` to project from memory_links.subject_entity',
+        : '[graph:reset] done — run `pnpm graph:mine` then `pnpm graph:sync` to rebuild from memory_links.subject_entity',
     );
     return 0;
   } finally {

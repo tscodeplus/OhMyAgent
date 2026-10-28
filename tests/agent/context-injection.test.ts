@@ -554,6 +554,200 @@ describe('per-turn injection instrumentation', () => {
 });
 
 /**
+ * Cross-block budget allocation (plan §6 K5 item 4).
+ *
+ * Before K5-4 the two blocks were built independently and appended in a fixed
+ * order, each with its own 250/150-token budget — so a weak knowledge title
+ * spent tokens a much better excerpt needed. Now one ranking pass allocates the
+ * shared ≤400-token pool, while the blocks keep their labels and counts.
+ *
+ * The budgets in these tests are derived from the same estimator the transform
+ * uses (`blockTokens` measures what a lone provider injects), so the assertion is
+ * about *who wins the pool*, never about a hand-computed token count that would
+ * rot the moment an entry grows a character.
+ */
+describe('cross-block budget allocation (K5-4)', () => {
+  const SHORT_EPISODIC: EpisodicContextItem[] = [
+    {
+      createdAt: Date.UTC(2026, 9, 8),
+      channel: 'feishu',
+      sessionTitle: '目录检查',
+      role: 'user',
+      excerpt: '上次那个 ETL 脚本放在 /srv/etl 下，批量替换用的是 Python',
+      messageId: 'msg-alloc',
+    },
+  ];
+  const TITLE: KnowledgeContextItem[] = [
+    { slug: 'topic/excel-etl', title: 'Excel ETL：用 Power Query 替代手工 VLOOKUP' },
+  ];
+
+  let record: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    record = vi.spyOn(memoryObservability, 'record');
+  });
+  afterEach(() => {
+    record.mockRestore();
+  });
+
+  /**
+   * The `memory.injection` payload of the LAST build in the test. The budget
+   * measurements above are builds too, so "the only call" is not an assertion
+   * these tests can make.
+   */
+  function lastInjectionDetails(): Record<string, any> {
+    const calls = record.mock.calls.filter((call) => call[0] === 'memory.injection');
+    expect(calls.length).toBeGreaterThan(0);
+    return (calls[calls.length - 1]![1] ?? {}) as Record<string, any>;
+  }
+
+  async function injectedText(options: {
+    sessionKey: string;
+    episodic?: EpisodicContextItem[];
+    knowledge?: KnowledgeContextItem[];
+    totalTokens?: number;
+    episodicTokens?: number;
+    knowledgeTokens?: number;
+    query?: string;
+  }): Promise<string> {
+    const transform = createTransformContext({
+      maxMessages: 5,
+      sessionKey: options.sessionKey,
+      injectionBudget: {
+        totalTokens: options.totalTokens ?? 10_000,
+        episodicTokens: options.episodicTokens,
+        knowledgeTokens: options.knowledgeTokens,
+      },
+      episodicContextProvider: options.episodic ? () => options.episodic! : undefined,
+      knowledgeContextProvider: options.knowledge ? () => options.knowledge! : undefined,
+    });
+    const result = await transform([{ role: 'user', content: options.query ?? RECALL_QUERY }]);
+    return textBlocks(result[0]!.content)
+      .filter(
+        (text) => text.includes('<recent_conversation>') || text.includes('<knowledge_available>'),
+      )
+      .join('\n');
+  }
+
+  /** Tokens the two blocks cost when each is injected alone, at a huge budget. */
+  async function blockTokens(): Promise<{ episodic: number; knowledge: number }> {
+    const sessionKey = `alloc-measure-${Math.random().toString(36).slice(2)}`;
+    const episodicOnly = await injectedText({ sessionKey, episodic: SHORT_EPISODIC });
+    const knowledgeOnly = await injectedText({ sessionKey, knowledge: TITLE });
+    return {
+      episodic: Math.ceil(estimateTokensForText(episodicOnly)),
+      knowledge: Math.ceil(estimateTokensForText(knowledgeOnly)),
+    };
+  }
+
+  it('gives the pool to the better-scored episode over the weaker knowledge title', async () => {
+    const { episodic, knowledge } = await blockTokens();
+    // Fits either block alone; fits neither pair together.
+    const totalTokens = Math.max(episodic, knowledge);
+    expect(episodic + knowledge).toBeGreaterThan(totalTokens);
+
+    const text = await injectedText({
+      sessionKey: 'alloc-episodic-wins',
+      totalTokens,
+      episodic: [{ ...SHORT_EPISODIC[0]!, score: 0.9 }],
+      knowledge: [{ ...TITLE[0]!, score: 0.05 }],
+    });
+
+    expect(text).toContain('<recent_conversation>');
+    expect(text).toContain('ETL 脚本');
+    expect(text).not.toContain('<knowledge_available>');
+
+    const details = lastInjectionDetails();
+    expect(details.itemCounts).toEqual({ memories: 0, messages: 1, knowledge: 0 });
+    expect(details.messageIds).toEqual(['msg-alloc']);
+    expect(details.knowledgeSlugs).toEqual([]);
+  });
+
+  it('gives the pool to the better-scored knowledge title over a weak episode', async () => {
+    const { episodic, knowledge } = await blockTokens();
+    const totalTokens = Math.max(episodic, knowledge);
+
+    const text = await injectedText({
+      sessionKey: 'alloc-knowledge-wins',
+      totalTokens,
+      episodic: [{ ...SHORT_EPISODIC[0]!, score: 0.02 }],
+      knowledge: [{ ...TITLE[0]!, score: 0.9 }],
+    });
+
+    expect(text).toContain('<knowledge_available>');
+    expect(text).toContain('topic/excel-etl');
+    expect(text).not.toContain('<recent_conversation>');
+
+    const details = lastInjectionDetails();
+    expect(details.itemCounts).toEqual({ memories: 0, messages: 0, knowledge: 1 });
+    expect(details.knowledgeSlugs).toEqual(['topic/excel-etl']);
+    expect(details.messageIds).toEqual([]);
+  });
+
+  it('keeps both labelled blocks and their per-lane counts when both fit', async () => {
+    const text = await injectedText({
+      sessionKey: 'alloc-both-fit',
+      episodic: SHORT_EPISODIC,
+      knowledge: TITLE,
+    });
+
+    expect(text.indexOf('<recent_conversation>')).toBeGreaterThan(-1);
+    expect(text.indexOf('<knowledge_available>')).toBeGreaterThan(
+      text.indexOf('</recent_conversation>'),
+    );
+
+    const details = lastInjectionDetails();
+    expect(details.itemCounts).toEqual({ memories: 0, messages: 1, knowledge: 1 });
+    expect(details.messageIds).toEqual(['msg-alloc']);
+    expect(details.knowledgeSlugs).toEqual(['topic/excel-etl']);
+    expect(details.estimatedTokens.total).toBeLessThanOrEqual(400);
+  });
+
+  it('drops the entry that does not fit instead of starving the other lane', async () => {
+    const { knowledge } = await blockTokens();
+    // Enough for the title line, not for the (larger) excerpt block.
+    const text = await injectedText({
+      sessionKey: 'alloc-drop-oversized',
+      totalTokens: knowledge,
+      episodic: episodicItems(2).map((item, index) => ({ ...item, messageId: `msg-${index}` })),
+      knowledge: TITLE,
+    });
+
+    expect(text).toContain('<knowledge_available>');
+    expect(text).not.toContain('<recent_conversation>');
+  });
+
+  it('honours a per-lane ceiling from configuration', async () => {
+    const text = await injectedText({
+      sessionKey: 'alloc-lane-ceiling',
+      episodicTokens: 1,
+      episodic: SHORT_EPISODIC,
+      knowledge: TITLE,
+    });
+
+    expect(text).not.toContain('<recent_conversation>');
+    expect(text).toContain('<knowledge_available>');
+  });
+
+  it('still gates the episodic lane on a recall-shaped query', async () => {
+    const episodicProvider = vi.fn(() => SHORT_EPISODIC);
+    const transform = createTransformContext({
+      maxMessages: 5,
+      sessionKey: 'alloc-intent-gate',
+      episodicContextProvider: episodicProvider,
+      knowledgeContextProvider: () => TITLE,
+    });
+
+    const result = await transform([{ role: 'user', content: NEUTRAL_QUERY }]);
+    const text = joined(result[0]!.content);
+
+    expect(episodicProvider).not.toHaveBeenCalled();
+    expect(text).not.toContain('<recent_conversation>');
+    // The knowledge lane is not gate-kept by intent and still injects.
+    expect(text).toContain('<knowledge_available>');
+  });
+});
+
+/**
  * Reference tracking (plan §6 K0 item 3, ②「是否被引用」).
  *
  * Only the knowledge lane can be checked: a page is read with `knowledge_get`,
@@ -597,7 +791,13 @@ describe('injection reference tracking', () => {
 
     expect(record).toHaveBeenCalledTimes(2);
     expect(record.mock.calls[1]![0]).toBe('memory.injection.referenced');
-    expect(record.mock.calls[1]![1]).toEqual({ knowledgeSlugs: [SLUG], toolName: 'knowledge_get' });
+    expect(record.mock.calls[1]![1]).toEqual({
+      lane: 'knowledge',
+      toolName: 'knowledge_get',
+      knowledgeSlugs: [SLUG],
+      memoryIds: [],
+      messageIds: [],
+    });
 
     // Reading the same page again is not a second reference.
     recordInjectionReference({
@@ -637,8 +837,11 @@ describe('injection reference tracking', () => {
 
     expect(record.mock.calls[1]![0]).toBe('memory.injection.referenced');
     expect(record.mock.calls[1]![1]).toEqual({
-      knowledgeSlugs: ['excel-etl'],
+      lane: 'knowledge',
       toolName: 'knowledge_get',
+      knowledgeSlugs: ['excel-etl'],
+      memoryIds: [],
+      messageIds: [],
     });
   });
 
@@ -653,6 +856,122 @@ describe('injection reference tracking', () => {
     });
 
     expect(record).toHaveBeenCalledTimes(1);
+  });
+
+  it('records a reference for the memory lane, with that lane of ids', async () => {
+    // Only the knowledge lane has an in-repo reader (`knowledge_get`), so this
+    // drives the generalized seam the way a memory-reading consumer would: the
+    // offer published by the build is matched, consumed, and reported per lane.
+    const retriever = {
+      retrieveGrouped: async () => [
+        {
+          id: 'mem-ref',
+          content: '偏好简洁回复',
+          scope: 'user',
+          kind: 'preference',
+          score: 0.8,
+          createdAt: 1,
+        },
+      ],
+      retrieve: async () => [],
+    } as unknown as MemoryRetriever;
+    const transform = createTransformContext({
+      maxMessages: 5,
+      sessionKey: 'ref-memory',
+      agentId: 'agent-ref',
+      memoryRetriever: retriever,
+    });
+    await transform([{ role: 'user', content: NEUTRAL_QUERY }]);
+
+    recordInjectionReference({
+      agentId: 'agent-ref',
+      sessionKey: 'ref-memory',
+      toolName: 'memory_recall',
+      lane: 'memories',
+      refs: ['mem-ref'],
+    });
+
+    expect(record.mock.calls[1]![0]).toBe('memory.injection.referenced');
+    expect(record.mock.calls[1]![1]).toEqual({
+      lane: 'memories',
+      toolName: 'memory_recall',
+      knowledgeSlugs: [],
+      memoryIds: ['mem-ref'],
+      messageIds: [],
+    });
+
+    // Consumed: the same id cannot be credited twice from one offer.
+    recordInjectionReference({
+      agentId: 'agent-ref',
+      sessionKey: 'ref-memory',
+      toolName: 'memory_recall',
+      lane: 'memories',
+      refs: ['mem-ref'],
+    });
+    expect(record).toHaveBeenCalledTimes(2);
+  });
+
+  it('records a reference for the messages lane, with the excerpt ids', async () => {
+    const transform = createTransformContext({
+      maxMessages: 5,
+      sessionKey: 'ref-messages',
+      episodicContextProvider: () => [{ ...episodicItems(1)[0]!, messageId: 'msg-ref' }],
+    });
+    await transform([{ role: 'user', content: RECALL_QUERY }]);
+
+    recordInjectionReference({
+      sessionKey: 'ref-messages',
+      toolName: 'session_search',
+      lane: 'messages',
+      refs: ['msg-ref'],
+    });
+
+    expect(record.mock.calls[1]![1]).toEqual({
+      lane: 'messages',
+      toolName: 'session_search',
+      knowledgeSlugs: [],
+      memoryIds: [],
+      messageIds: ['msg-ref'],
+    });
+  });
+
+  it('does not credit an id that the lane did not offer', async () => {
+    const transform = createTransformContext({
+      maxMessages: 5,
+      sessionKey: 'ref-unnamed',
+      episodicContextProvider: () => [{ ...episodicItems(1)[0]!, messageId: 'msg-offered' }],
+    });
+    await transform([{ role: 'user', content: RECALL_QUERY }]);
+
+    recordInjectionReference({
+      sessionKey: 'ref-unnamed',
+      toolName: 'session_search',
+      lane: 'messages',
+      refs: ['msg-never-offered'],
+    });
+
+    expect(record.mock.calls.map((call) => call[0])).toEqual(['memory.injection']);
+  });
+
+  it('forgets an offer the registry has evicted', async () => {
+    // The offer registry is one bounded LRU entry per session (max 2000) with a
+    // 15-minute TTL: what a long-lived gateway remembers must not grow with the
+    // number of sessions it has ever served. Session 0's offer is what has to be
+    // gone by the time 2000 newer sessions have replaced it.
+    await offerSlugs('ref-bound-0', [SLUG]);
+    for (let index = 1; index <= 2000; index++) {
+      await offerSlugs(`ref-bound-${index}`, [SLUG]);
+    }
+
+    const before = record.mock.calls.length;
+    recordInjectionReference({
+      agentId: 'agent-ref',
+      sessionKey: 'ref-bound-0',
+      toolName: 'knowledge_get',
+      refs: [SLUG],
+    });
+
+    expect(record.mock.calls.length).toBe(before);
   });
 
   it('drops the offer on a build that offered nothing', async () => {

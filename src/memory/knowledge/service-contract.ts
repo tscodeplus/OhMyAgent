@@ -114,6 +114,18 @@ export interface KnowledgeWriteOptions {
    * — they are the authority the rules exist to approximate.
    */
   enforceAdmission?: boolean;
+  /**
+   * The user asked for this page in so many words — admission rule 3.
+   *
+   * Defaults to "the write is attributed to the user" (`actor === 'user'`),
+   * which covers a WebUI edit. A *curation* write passes it explicitly: the
+   * curator knows whether its trigger was a user request (`manual`, e.g.
+   * `/knowledge curate` or a shared message) or the nightly batch, and the actor
+   * stays `system` either way — the page body was machine-written, the request
+   * was not. Without this, a user-triggered curation write of a single shared
+   * message could not pass rule 3 at all.
+   */
+  explicitRequest?: boolean;
 }
 
 export interface KnowledgeService {
@@ -140,8 +152,15 @@ export interface KnowledgeService {
    * Titles only — the plan caps automatic injection at a couple of headings
    * (≤150 tokens) and leaves the body to an explicit tool call. Returns `[]`
    * when nothing clears the relevance floor; never invents a hit.
+   *
+   * `score` is relevance in (0,1], normalised so a cross-lane ranking can
+   * compare it against another lane's scores; the raw BM25 magnitude stays
+   * inside the service.
    */
-  titlesForInjection(query: string, max: number): Array<{ slug: string; title: string }>;
+  titlesForInjection(
+    query: string,
+    max: number,
+  ): Array<{ slug: string; title: string; score?: number }>;
   /** Outgoing links of a page, for `knowledge_get` and the WebUI backlink panel. */
   linksOf(pageId: string): KnowledgeLink[];
 }

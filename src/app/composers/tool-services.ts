@@ -255,9 +255,21 @@ export function registerV4ToolDefinitions(input: {
   // `conversation_search.enabled`: with the section off, raw messages are not a
   // retrieval surface and the tool would be a schema the model pays for and
   // cannot use. It reads the shared db handle rather than opening a connection.
+  //
+  // The knowledge lane rides along under the SAME gate as the knowledge tools
+  // below (`knowledge.read.enabled`): the tool would otherwise show the model
+  // pages that `knowledge_search` / `knowledge_get` are forbidden to return,
+  // which is a read surface switched off in one place and on in another. No
+  // service there = no lane, and the tool degrades to messages only (K5).
   if (config.conversationSearch?.enabled) {
     toolPlatformRegistry.registerDefinition(
-      createSessionSearchToolDefinition({ db: memory.database, logger }),
+      createSessionSearchToolDefinition({
+        db: memory.database,
+        logger,
+        ...(memory.knowledgeService && config.knowledge?.read.enabled
+          ? { knowledge: memory.knowledgeService }
+          : {}),
+      }),
     );
   }
 

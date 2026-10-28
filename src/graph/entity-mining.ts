@@ -43,7 +43,7 @@
 
 import type Database from 'better-sqlite3';
 import type { Logger } from 'pino';
-import { cutCJK, ZH_STOP_WORDS } from '../memory/fts-tokenizer.js';
+import { cutCJK, isJiebaAvailable, ZH_STOP_WORDS } from '../memory/fts-tokenizer.js';
 import { canonicalizeEntityName } from '../memory/repositories/entity-repository.js';
 
 export interface MineableMemory {
@@ -124,6 +124,124 @@ const ORGANIZATION_NAME_RE =
 /** Entity type to record for a mined name. See `ORGANIZATION_NAME_RE`. */
 export function inferEntityType(name: string): string {
   return ORGANIZATION_NAME_RE.test(name.trim()) ? 'organization' : 'concept';
+}
+
+/**
+ * Is this name something the projector may turn into a graph endpoint?
+ *
+ * The projector has to be a second line of defence, not just a re-arranger: the
+ * pre-K3 extractor wrote `如何称呼 —ADVISES→ 张奇`-shaped rows (a surname sliced
+ * out of prose), and the same rows reached `entity_edges` with a
+ * `source_memory_id`, which made noise look authoritative. Deleting those rows
+ * (see `purgeUntrustedRelations`) fixes the data that exists; this predicate is
+ * what stops the next bad row from becoming an edge.
+ *
+ * It is deliberately structural and cheap — no model, no dictionary beyond the
+ * stop sets this module already carries:
+ *   - at least two characters, and at least one letter;
+ *   - not a pure number, date or punctuation run;
+ *   - not a generic word from the mining stop lists (用户/希望/信息…, the/a/of…);
+ *   - not a bare CJK function word (何时/如何/什么…), which is a sentence
+ *     fragment rather than a name and is what most of the measured garbage was.
+ * It cannot tell a real Chinese name from a plausible-looking one, so it is a
+ * filter, not a guarantee — the guarantee is that typed relations only come from
+ * an extractor that read the sentence.
+ */
+const CJK_FUNCTION_WORDS = new Set([
+  '何时',
+  '如何',
+  '什么',
+  '哪个',
+  '哪些',
+  '为何',
+  '怎么',
+  '是否',
+  '可以',
+  '应该',
+  '一个',
+  '一张',
+  '一张图',
+  '今天',
+  '昨天',
+  '明天',
+  '现在',
+  '正在',
+  '已经',
+  '这个',
+  '那个',
+  '这里',
+  '那里',
+  '我们',
+  '你们',
+  '他们',
+]);
+
+export function isVouchableEntityName(name: string | null | undefined): boolean {
+  const trimmed = (name ?? '').trim();
+  if (trimmed.length < 2 || trimmed.length > DEFAULT_MAX_MENTION_NAME_LENGTH) return false;
+  if (!/\p{L}/u.test(trimmed)) return false;
+  if (/^\p{N}[\p{N}\s.,\-/年月日:]*$/u.test(trimmed)) return false;
+  if (CJK_FUNCTION_WORDS.has(trimmed)) return false;
+  if (CJK_GENERIC_WORDS.has(trimmed) || ZH_STOP_WORDS.has(trimmed)) return false;
+  if (LATIN_STOP_WORDS.has(trimmed.toLowerCase())) return false;
+  return true;
+}
+
+/**
+ * Does `name` sit on token boundaries of `text`?
+ *
+ * This is the discriminator the graph needed. The measured garbage was not
+ * absent from the memory — `如何称呼 —ADVISES→ 何称` came from a name that is
+ * literally a substring of `如何称呼`, and `张奇` is a substring of `张照奇`. A
+ * containment test therefore cannot tell a name from a slice; token alignment
+ * can, because jieba segments `如何称呼` as 如何 + 称呼 and `张照奇` as one token,
+ * so neither 何称 nor 张奇 can be reassembled from whole tokens.
+ *
+ * Used by the projector (`graph-sync`) to refuse a typed edge whose endpoint is
+ * a fragment, and by the deterministic extractor to refuse the same candidate at
+ * write time. Latin names are checked the same way against a whitespace/word
+ * boundary split, so `Excel` matches but the `xcel` inside it does not.
+ *
+ * Fail-open, in two directions, because a false rejection costs a real entity:
+ *   - the name not appearing in the text at all is NOT evidence of a fragment.
+ *     An extractor is allowed to canonicalise (`PQ` → `Power Query`), and a
+ *     model-supplied subject may be a paraphrase. Only a name that appears but
+ *     straddles a token boundary is provably a slice.
+ *   - without jieba (`isJiebaAvailable()` false) the check passes rather than
+ *     rejecting every CJK name.
+ */
+export function isTokenAlignedMention(text: string, name: string): boolean {
+  const target = name.trim();
+  if (target === '') return false;
+  if (text === '' || !text.includes(target)) return true;
+
+  if (/^[\p{Script=Latin}\p{N}._+#-]+$/u.test(target)) {
+    const words = text.toLowerCase().split(/[^\p{Script=Latin}\p{N}._+#-]+/u);
+    return words.includes(target.toLowerCase());
+  }
+
+  if (!/\p{Script=Han}/u.test(target)) return true;
+  const tokens = cutCJK(text);
+  if (tokens.length === 0) return true;
+
+  // Concatenate the raw tokens and remember every offset a token starts at. A
+  // compound entity legitimately spans several tokens (知识图谱 arrives as
+  // 知识|图谱), so the test is not "is it one token" but "does its every
+  // occurrence start and end on a boundary". `何称` occurs in 如何+称呼 at an
+  // offset inside 如何, which is what makes it a slice rather than a name.
+  const boundaries = new Set<number>([0]);
+  let joined = '';
+  for (const token of tokens) {
+    joined += token;
+    boundaries.add(joined.length);
+  }
+
+  let index = joined.indexOf(target);
+  while (index !== -1) {
+    if (boundaries.has(index) && boundaries.has(index + target.length)) return true;
+    index = joined.indexOf(target, index + 1);
+  }
+  return false;
 }
 
 /** One mention before dedupe/ordering; `index` is its offset in the cleaned text. */
