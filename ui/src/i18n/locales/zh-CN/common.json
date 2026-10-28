@@ -1509,8 +1509,13 @@
     "retracted": "已失效",
     "validFrom": "自 {{date}} 起",
     "validUntil": "{{date}} 失效",
-    "filterLabel": "筛选结果类型",
     "filterNone": "未选择任何类型，至少选择一项",
-    "contextHitIn": "搜索命中"
+    "contextHitIn": "搜索命中",
+    "filterButton": "类型",
+    "filterTitle": "搜索范围",
+    "filterAll": "全选",
+    "filterClear": "清空",
+    "filterGroupResult": "结果",
+    "filterGroupMemory": "记忆类型"
   }
 }

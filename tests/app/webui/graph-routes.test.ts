@@ -365,6 +365,46 @@ describe('knowledge-graph routes', () => {
       spy.mockRestore();
     });
 
+    it('narrows the memory leg to the requested memory kinds', async () => {
+      const memories = new MemoryRepository(db);
+      memories.create({
+        id: 'mem-pref',
+        scope: 'user',
+        scope_key: 'user-1',
+        kind: 'preference',
+        content: 'Alice prefers dark mode',
+      });
+      memories.create({
+        id: 'mem-fact',
+        scope: 'user',
+        scope_key: 'user-1',
+        kind: 'fact',
+        content: 'Alice works in Berlin',
+      });
+
+      const onlyFacts = await app.inject({
+        method: 'GET',
+        url: '/api/search?q=Alice&kinds=memory&memory_kinds=fact',
+      });
+      expect(onlyFacts.statusCode).toBe(200);
+      const factIds = onlyFacts.json().results.map((result: { id: string }) => result.id);
+      expect(factIds).toContain('mem-fact');
+      expect(factIds).not.toContain('mem-pref');
+
+      // Absent parameter keeps the old behaviour: every memory kind.
+      const allKinds = await app.inject({ method: 'GET', url: '/api/search?q=Alice&kinds=memory' });
+      const allIds = allKinds.json().results.map((result: { id: string }) => result.id);
+      expect(allIds).toEqual(expect.arrayContaining(['mem-fact', 'mem-pref']));
+    });
+
+    it('rejects an empty memory_kinds list', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/search?q=Alice&memory_kinds=,',
+      });
+      expect(response.statusCode).toBe(400);
+    });
+
     it('rejects an unknown or empty kind list', async () => {
       const unknown = await app.inject({
         method: 'GET',

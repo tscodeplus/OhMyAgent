@@ -13,9 +13,15 @@ import type { Message } from '../../types/session';
 const CONTEXT_RADIUS = 8;
 
 interface SearchContextPanelProps {
-  /** The hit being inspected; null closes the panel. */
+  /** The hit being inspected; null closes the drawer. */
   hit: SearchResult | null;
   onClose: () => void;
+  /**
+   * Measured box of the result list, so the drawer spans exactly that column on
+   * wide screens. Null on phones (or before the first measurement falls back to
+   * the CSS defaults), where the sheet stays full-bleed.
+   */
+  box?: { left: number; width: number } | null;
 }
 
 /**
@@ -34,7 +40,7 @@ interface SearchContextPanelProps {
  * on large screens it is centred and capped so it still reads as a sheet
  * rather than as a new page.
  */
-export default function SearchContextPanel({ hit, onClose }: SearchContextPanelProps) {
+export default function SearchContextPanel({ hit, onClose, box }: SearchContextPanelProps) {
   const { t } = useTranslation('common');
   const navigate = useNavigate();
   const [context, setContext] = useState<SearchContextResponse | null>(null);
@@ -111,13 +117,16 @@ export default function SearchContextPanel({ hit, onClose }: SearchContextPanelP
         role="dialog"
         aria-modal="true"
         aria-label={t('graph.contextTitle')}
+        // Inline box wins on wide screens: it is the measured rect of the result
+        // list, which is narrower than the viewport and starts after the sidebar.
+        style={box ? { left: box.left, right: 'auto', width: box.width } : undefined}
         className={cn(
           'fixed inset-x-0 bottom-0 z-40 flex flex-col border-t bg-white shadow-2xl dark:bg-neutral-900',
           'max-h-[78vh] rounded-t-2xl border-neutral-200 sm:max-h-[72vh] dark:border-neutral-800',
-          // On a wide screen the sheet stops growing horizontally; a 1400px
-          // transcript line is unreadable, and the cap is what keeps it looking
-          // like a drawer pulled over the page rather than a second page.
-          'sm:mx-auto sm:max-w-3xl sm:rounded-2xl sm:border sm:border-b-0',
+          // Fallback when no measurement is available yet: centred and capped, so
+          // the first frame cannot flash a full-width sheet.
+          !box && 'sm:mx-auto sm:max-w-3xl sm:rounded-2xl sm:border sm:border-b-0',
+          box && 'sm:rounded-2xl sm:border sm:border-b-0',
         )}
       >
         {/* Grab handle: the standard cue that this surface was pulled up from

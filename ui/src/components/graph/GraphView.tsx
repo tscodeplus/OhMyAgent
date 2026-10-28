@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Network, Search } from 'lucide-react';
 import { apiRequest } from '../../utils/api';
@@ -9,6 +9,7 @@ import Spinner from '../ui/Spinner';
 import NeighbourhoodGraph from './NeighbourhoodGraph';
 import EntityDetail from './EntityDetail';
 import SearchContextPanel from './SearchContextPanel';
+import SearchKindFilter, { type SearchKindSelection } from './SearchKindFilter';
 import type {
   EntityDetailPayload,
   GraphPayload,
@@ -21,13 +22,25 @@ import type {
 const RESULT_KINDS: SearchResultKind[] = ['entity', 'memory', 'message'];
 const SEARCH_RESULT_LIMIT = 10;
 const DEPTH_OPTIONS = [1, 2, 3];
+/** Horizontal breathing room between the search-hit drawer and the result card. */
+const DRAWER_INSET_PX = 2;
 
 export default function GraphView() {
   const { t } = useTranslation('common');
 
   const [query, setQuery] = useState('');
-  /** Which result kinds the search may return; all of them until narrowed. */
-  const [kinds, setKinds] = useState<SearchResultKind[]>(RESULT_KINDS);
+  /**
+   * Which legs/kinds the search may return. Memory kinds default to "all" (null)
+   * rather than an explicit list, so a kind the database learns later is included
+   * without the user re-selecting anything.
+   */
+  const [selection, setSelection] = useState<SearchKindSelection>({
+    entity: true,
+    message: true,
+    memoryKinds: null,
+  });
+  /** Memory kinds that exist in the database, for the type dropdown. */
+  const [availableMemoryKinds, setAvailableMemoryKinds] = useState<string[]>([]);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -41,8 +54,11 @@ export default function GraphView() {
 
   const [aliases, setAliases] = useState<string[]>([]);
   const [aliasesLoading, setAliasesLoading] = useState(false);
-  /** Search hit opened in the context panel; null = closed. */
+  /** Search hit opened in the context drawer; null = closed. */
   const [contextHit, setContextHit] = useState<SearchResult | null>(null);
+  /** The result list, used to line the drawer up with it on wide screens. */
+  const resultsRef = useRef<HTMLDivElement | null>(null);
+  const [drawerBox, setDrawerBox] = useState<{ left: number; width: number } | null>(null);
 
   const loadGraph = useCallback(async () => {
     setGraphLoading(true);
@@ -91,19 +107,42 @@ export default function GraphView() {
     };
   }, [selectedId]);
 
-  // Debounced so typing does not fire one request per keystroke. The kind
-  // filter goes to the server rather than being applied to the response: each
-  // leg there is capped at `limit`, so client-side hiding would silently return
-  // a shorter page than the cap allows.
+  // The dropdown offers the same memory kinds the memory page filters by, so it
+  // reads the same endpoint instead of hard-coding a vocabulary that would drift.
+  useEffect(() => {
+    let cancelled = false;
+    apiRequest<{ kinds: string[] }>('/api/memory/filters')
+      .then((payload) => {
+        if (!cancelled) setAvailableMemoryKinds(payload.kinds ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setAvailableMemoryKinds([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Debounced so typing does not fire one request per keystroke. The filter goes
+  // to the server rather than being applied to the response: each leg there is
+  // capped at `limit`, so client-side hiding would silently return a shorter
+  // page than the cap allows.
   useEffect(() => {
     const term = query.trim();
+    const memoryKinds = selection.memoryKinds;
+    const memoryOn = memoryKinds === null || memoryKinds.length > 0;
+    const legs = [
+      ...(selection.entity ? ['entity'] : []),
+      ...(memoryOn ? ['memory'] : []),
+      ...(selection.message ? ['message'] : []),
+    ];
     if (!term) {
       setResults([]);
       setSearchError(null);
       setSearching(false);
       return;
     }
-    if (kinds.length === 0) {
+    if (legs.length === 0) {
       // Nothing is being asked for, so nothing is fetched — but keep whatever
       // is on screen out of the way of the hint.
       setResults([]);
@@ -114,10 +153,12 @@ export default function GraphView() {
     let cancelled = false;
     setSearching(true);
     setSearchError(null);
-    const requestedKinds = RESULT_KINDS.filter((kind) => kinds.includes(kind)).join(',');
+    const requestedKinds = RESULT_KINDS.filter((kind) => legs.includes(kind)).join(',');
+    const memoryKindFilter =
+      memoryOn && memoryKinds !== null ? `&memory_kinds=${memoryKinds.join(',')}` : '';
     const timer = setTimeout(() => {
       apiRequest<SearchPayload>(
-        `/api/search?q=${encodeURIComponent(term)}&limit=${SEARCH_RESULT_LIMIT}&kinds=${requestedKinds}`,
+        `/api/search?q=${encodeURIComponent(term)}&limit=${SEARCH_RESULT_LIMIT}&kinds=${requestedKinds}${memoryKindFilter}`,
       )
         .then((payload) => {
           if (!cancelled) setResults(payload.results);
@@ -136,7 +177,43 @@ export default function GraphView() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [query, kinds, t]);
+  }, [query, selection, t]);
+
+  // The drawer spans the result list rather than the viewport: `fixed` is
+  // measured against the viewport, which the sidebar and the page padding shift,
+  // so a centred sheet lands off the column it belongs to. Measured on open and
+  // on resize — the sidebar collapses without a window resize, hence the observer.
+  useEffect(() => {
+    if (!contextHit) {
+      setDrawerBox(null);
+      return;
+    }
+    const measure = () => {
+      const element = resultsRef.current;
+      // Phones keep the full-bleed sheet; a measured box would fight the layout.
+      if (!element || window.innerWidth < 640) {
+        setDrawerBox(null);
+        return;
+      }
+      const rect = element.getBoundingClientRect();
+      // Inset a couple of pixels on each side rather than matching the result
+      // card edge for edge: an exact overlay reads as if the card itself turned
+      // into a panel, and the hairline of the card behind is what tells the eye
+      // this is a surface pulled over the page.
+      setDrawerBox({
+        left: Math.round(rect.left) + DRAWER_INSET_PX,
+        width: Math.round(rect.width) - DRAWER_INSET_PX * 2,
+      });
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    const observer = new ResizeObserver(measure);
+    if (resultsRef.current) observer.observe(resultsRef.current);
+    return () => {
+      window.removeEventListener('resize', measure);
+      observer.disconnect();
+    };
+  }, [contextHit]);
 
   const nodesById = useMemo(
     () => new Map((graph?.nodes ?? []).map((node) => [node.id, node])),
@@ -151,11 +228,12 @@ export default function GraphView() {
     })).filter((group) => group.items.length > 0);
   }, [results]);
 
-  const toggleKind = (kind: SearchResultKind) => {
-    setKinds((current) =>
-      current.includes(kind) ? current.filter((value) => value !== kind) : [...current, kind],
-    );
-  };
+  /** True when nothing at all is selected, so no request is worth making. */
+  const noSelection =
+    !selection.entity &&
+    !selection.message &&
+    selection.memoryKinds !== null &&
+    selection.memoryKinds.length === 0;
 
   const hasQuery = query.trim().length > 0;
 
@@ -172,61 +250,44 @@ export default function GraphView() {
           </p>
         </header>
 
-        {/* Unified search: entities, memories and messages in one box. */}
-        <div className="relative">
-          <Search
-            size={14}
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 dark:text-neutral-400"
+        {/* Unified search: entities, memories and messages in one box, with the
+            type filter beside it. The filter is a dropdown of checkboxes rather
+            than a chip row: it carries the memory kinds too, which would turn
+            chips into two or three lines of noise. */}
+        <div className="flex items-stretch gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search
+              size={14}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 dark:text-neutral-400"
+            />
+            <input
+              type="text"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t('graph.searchPlaceholder')}
+              aria-label={t('graph.searchPlaceholder')}
+              className="w-full rounded-lg border border-neutral-300 bg-white py-2 pl-9 pr-3 text-sm text-neutral-900 focus:border-primary focus:outline-none dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
+            />
+          </div>
+          <SearchKindFilter
+            value={selection}
+            availableMemoryKinds={availableMemoryKinds}
+            onChange={setSelection}
           />
-          <input
-            type="text"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={t('graph.searchPlaceholder')}
-            aria-label={t('graph.searchPlaceholder')}
-            className="w-full rounded-lg border border-neutral-300 bg-white py-2 pl-9 pr-3 text-sm text-neutral-900 focus:border-primary focus:outline-none dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
-          />
-        </div>
-
-        {/* Multi-select: a search for "Excel" is often narrowed to one kind
-            after the fact ("which conversations mentioned it"), so the filters
-            are toggles rather than a single-choice picker. All on by default —
-            the unified result list is the point of this page. */}
-        <div
-          className="mt-2 flex flex-wrap items-center gap-1.5"
-          role="group"
-          aria-label={t('graph.filterLabel')}
-        >
-          {RESULT_KINDS.map((kind) => {
-            const active = kinds.includes(kind);
-            return (
-              <button
-                key={kind}
-                type="button"
-                aria-pressed={active}
-                onClick={() => toggleKind(kind)}
-                className={cn(
-                  'rounded-full border px-2.5 py-1 text-[11px] transition-colors',
-                  active
-                    ? 'border-primary/40 bg-primary/10 text-primary'
-                    : 'border-neutral-300 text-neutral-500 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800',
-                )}
-              >
-                {t(`graph.kinds.${kind}`)}
-              </button>
-            );
-          })}
         </div>
 
         {hasQuery && (
-          <div className="mt-2 rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
+          <div
+            ref={resultsRef}
+            className="mt-2 rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900"
+          >
             {searching ? (
               <div className="flex justify-center py-6">
                 <Spinner size="sm" />
               </div>
             ) : searchError ? (
               <p className="px-2 py-3 text-xs text-red-600 dark:text-red-400">{searchError}</p>
-            ) : kinds.length === 0 ? (
+            ) : noSelection ? (
               <p className="px-2 py-3 text-xs text-neutral-500 dark:text-neutral-400">
                 {t('graph.filterNone')}
               </p>
@@ -400,7 +461,9 @@ export default function GraphView() {
         </div>
       </div>
 
-      {contextHit && <SearchContextPanel hit={contextHit} onClose={() => setContextHit(null)} />}
+      {contextHit && (
+        <SearchContextPanel hit={contextHit} onClose={() => setContextHit(null)} box={drawerBox} />
+      )}
     </div>
   );
 }

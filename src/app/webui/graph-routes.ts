@@ -494,7 +494,13 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
       q,
       limit: limitParam,
       kinds: kindsParam,
-    } = request.query as { q?: string; limit?: string; kinds?: string };
+      memory_kinds: memoryKindsParam,
+    } = request.query as {
+      q?: string;
+      limit?: string;
+      kinds?: string;
+      memory_kinds?: string;
+    };
     const term = (q ?? '').trim();
     if (!term) return reply.status(400).send({ error: 'q is required' });
 
@@ -523,6 +529,22 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
     }
     const wants = (kind: SearchResultKind): boolean => kinds.includes(kind);
 
+    // Optional narrowing of the memory leg to specific memory kinds (preference,
+    // fact, summary, …) — the same vocabulary the memory page filters by. Absent
+    // means "every kind", which is why it is a separate parameter rather than
+    // reusing `kinds` (that one selects which *legs* run).
+    let memoryKinds: Set<string> | null = null;
+    if (memoryKindsParam !== undefined) {
+      const requested = memoryKindsParam
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean);
+      if (requested.length === 0) {
+        return reply.status(400).send({ error: 'memory_kinds is empty' });
+      }
+      memoryKinds = new Set(requested);
+    }
+
     try {
       const results: SearchResult[] = [];
 
@@ -550,12 +572,19 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
       if (wants('memory') && cfg.memoryRetriever) {
         // Reuses the chat-recalled ranking path; textOnly skips the embedding
         // call so a search box keystroke never waits on the provider.
+        //
+        // Over-fetch when narrowing by kind: the kind filter is applied after
+        // retrieval, so asking for `limit` rows and then dropping most of them
+        // would return a page far shorter than the caller allowed.
         const memories = await cfg.memoryRetriever.retrieve({
           query: term,
-          topK: limit,
+          topK: memoryKinds ? Math.min(limit * 4, MAX_SEARCH_LIMIT * 2) : limit,
           textOnly: true,
         });
-        for (const memory of memories) {
+        const kept = memoryKinds
+          ? memories.filter((memory) => memoryKinds.has(memory.kind)).slice(0, limit)
+          : memories;
+        for (const memory of kept) {
           // title + snippet must read as ONE continuous text, not the same
           // sentence twice: the head goes in the title, the snippet is the part
           // that answers the query (see buildSnippet).
