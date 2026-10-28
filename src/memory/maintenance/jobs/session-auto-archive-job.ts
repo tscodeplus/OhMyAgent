@@ -26,8 +26,8 @@ import { SessionRepository } from '../../repositories/session-repository.js';
 import type { MaintenanceJob, MaintenanceJobResult } from '../maintenance-job.js';
 
 const JOB_NAME = 'session_auto_archive';
-/** One hour: archiving is not real-time, and a shorter tick buys nothing. */
-const DEFAULT_INTERVAL_MS = 60 * 60 * 1000;
+/** Every two hours: archiving is not real-time, so a tighter tick buys nothing. */
+const DEFAULT_INTERVAL_MS = 2 * 60 * 60 * 1000;
 /** Rows per UPDATE statement. */
 const BATCH_SIZE = 500;
 /**

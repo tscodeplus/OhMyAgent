@@ -13,6 +13,7 @@ import { createPersonaConsistencyJob } from '../../memory/maintenance/jobs/perso
 import { createMemoryDoctorJob } from '../../memory/maintenance/jobs/memory-doctor-job.js';
 import { createGraphSyncJob } from '../../graph/graph-sync.js';
 import { createSessionAutoArchiveJob } from '../../memory/maintenance/jobs/session-auto-archive-job.js';
+import { createMaintenanceHistoryPruneJob } from '../../memory/maintenance/jobs/maintenance-history-prune-job.js';
 import { loadConfig } from '../config.js';
 import { resolveGraphSyncConfig } from '../../graph/graph-config.js';
 import { DreamCycle } from '../../memory/dream-cycle.js';
@@ -102,6 +103,7 @@ export function createSchedulers(input: {
       offload_hygiene: true,
       scene_cluster: false,
       memory_doctor: true,
+      maintenance_history_prune: true,
     },
   };
   const maintenanceScheduler = new MaintenanceScheduler(
@@ -149,6 +151,11 @@ export function createSchedulers(input: {
   // memory_doctor now defaults to true — it is diagnostic + safe repair.
   if (jobConfigs.memory_doctor !== false) {
     maintenanceScheduler.register(createMemoryDoctorJob(memory.memoryDoctor));
+  }
+  // Keeps `maintenance_runs` bounded: every job run writes a row and nothing else
+  // ever deletes one, while the only readers want the newest row per job.
+  if (jobConfigs.maintenance_history_prune !== false) {
+    maintenanceScheduler.register(createMaintenanceHistoryPruneJob(maintenanceRunRepo));
   }
   // Knowledge-graph projection of `memory_links` into `entities`/`entity_edges`.
   // It runs here — not on the turn path and not inside DreamCycle — because the

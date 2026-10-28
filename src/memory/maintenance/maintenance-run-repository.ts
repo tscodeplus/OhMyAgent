@@ -63,4 +63,25 @@ export class MaintenanceRunRepository {
       .prepare('SELECT * FROM maintenance_runs ORDER BY started_at DESC LIMIT ?')
       .all(limit) as MaintenanceRunRecord[];
   }
+
+  /**
+   * Delete run history older than `olderThanMs` (epoch ms) and report how many
+   * rows went.
+   *
+   * Nothing reads old runs — `getLastRun` wants the newest row per job and the
+   * pipeline status wants the newest per dreamcycle phase — so this table only
+   * grows. It is pruned by time rather than "keep the last N per job" on purpose:
+   * a fixed row count gives a 2-hourly job ~41 days of history and a daily one
+   * ~500 days from the same setting, so "how far back can I look" would depend on
+   * each job's cadence. A time window answers that question the same way for all
+   * of them.
+   *
+   * `started_at` is TEXT holding epoch-ms digit strings, hence the CAST.
+   */
+  pruneOlderThan(olderThanMs: number): number {
+    const result = this.db
+      .prepare('DELETE FROM maintenance_runs WHERE CAST(started_at AS INTEGER) < ?')
+      .run(olderThanMs);
+    return result.changes;
+  }
 }

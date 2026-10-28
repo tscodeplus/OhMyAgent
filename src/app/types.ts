@@ -280,6 +280,8 @@ export interface AppConfig {
         offload_hygiene: boolean;
         scene_cluster: boolean;
         memory_doctor: boolean;
+        /** Deletes `maintenance_runs` rows older than 90 days. */
+        maintenance_history_prune: boolean;
       };
     };
     dreamCycle?: {

@@ -420,6 +420,11 @@ function buildMemorySection(memCfg: YamlNode): Record<string, unknown> {
           true,
           'memCfg?.maintenance?.jobs?.memory_doctor',
         ),
+        maintenance_history_prune: yamlBool(
+          memCfg?.maintenance?.jobs?.maintenance_history_prune,
+          true,
+          'memCfg?.maintenance?.jobs?.maintenance_history_prune',
+        ),
         terms_backfill: yamlBool(
           memCfg?.maintenance?.jobs?.terms_backfill,
           true,

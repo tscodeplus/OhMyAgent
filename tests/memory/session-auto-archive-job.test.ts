@@ -61,6 +61,12 @@ describe('session auto-archive job', () => {
     ).map((row) => row.id);
   }
 
+  it('runs every two hours', () => {
+    const job = createSessionAutoArchiveJob(db, () => ({ enabled: true, days: 30 }));
+    expect(job.intervalMs).toBe(2 * 60 * 60 * 1000);
+    expect(job.enabled).toBe(true);
+  });
+
   it('writes nothing and reports skipped while disabled', async () => {
     seedSession('old', 40);
     const job = createSessionAutoArchiveJob(db, () => ({ enabled: false, days: 30 }));

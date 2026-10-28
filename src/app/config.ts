@@ -480,6 +480,8 @@ const configSchema = z.object({
             offload_hygiene: z.boolean().default(true),
             scene_cluster: z.boolean().default(false),
             memory_doctor: z.boolean().default(true),
+            /** Deletes `maintenance_runs` rows older than 90 days. */
+            maintenance_history_prune: z.boolean().default(true),
           })
           .default({}),
       })
