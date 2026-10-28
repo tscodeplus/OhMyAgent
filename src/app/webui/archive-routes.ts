@@ -18,8 +18,10 @@
  *     the timestamp each row shows; ordering by `archived_at` would put a row's
  *     visible time out of order inside its own group. `archived_at` still has
  *     its own meaning (what is archived, and when), it just does not sort.
- *   - Paging cursor is an exclusive `updated_at` (same field as the ordering, or
- *     "load more" would interleave).
+ *   - Paging cursor is the pair `(updated_at, id)` — the sort key itself, or
+ *     "load more" would interleave against the order shown. The id is needed
+ *     because a batch archive stamps every row with one `Date.now()`, so a
+ *     boundary inside such a group would otherwise drop the rest of it.
  *   - Auto-restore lives elsewhere: when an archived conversation receives a new
  *     turn, `SessionRepository.clearArchive()` drops the flag (see
  *     AgentService). There is no "silently swallow new messages" mode.
@@ -55,6 +57,11 @@ function parseBefore(raw: string | undefined): number | undefined {
   if (raw === undefined || raw === '') return undefined;
   const parsed = parseInt(raw, 10);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+/** `beforeId` completes the cursor into `(updated_at, id)`; see `sessionCursorWhere`. */
+function parseBeforeId(raw: string | undefined): string | undefined {
+  return raw === undefined || raw === '' ? undefined : raw;
 }
 
 /** `kind` filter: anything other than the two known trees is a client bug. */
@@ -161,7 +168,13 @@ export function registerArchiveRoutes(
       kind: kindParam,
       limit: limitParam,
       before: beforeParam,
-    } = request.query as { kind?: string; limit?: string; before?: string };
+      beforeId: beforeIdParam,
+    } = request.query as {
+      kind?: string;
+      limit?: string;
+      before?: string;
+      beforeId?: string;
+    };
 
     const kind = parseKind(kindParam);
     if (kind === null) {
@@ -174,7 +187,12 @@ export function registerArchiveRoutes(
     const before = parseBefore(beforeParam);
 
     // One extra row decides `hasMore` without a second COUNT query.
-    const rows = sessionRepository.listArchived({ kind, limit: limit + 1, before });
+    const rows = sessionRepository.listArchived({
+      kind,
+      limit: limit + 1,
+      before,
+      beforeId: parseBeforeId(beforeIdParam),
+    });
     const hasMore = rows.length > limit;
     const items = hasMore ? rows.slice(0, limit) : rows;
 

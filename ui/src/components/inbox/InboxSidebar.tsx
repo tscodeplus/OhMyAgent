@@ -121,11 +121,18 @@ export default function InboxSidebar({ refreshKey, onChanged }: InboxSidebarProp
   }, [fetchFirstPage]);
 
   const loadMore = useCallback(async () => {
-    const oldest = items[items.length - 1]?.updated_at;
-    if (oldest === undefined || loadingMore) return;
+    const last = items[items.length - 1];
+    if (last === undefined || loadingMore) return;
     setLoadingMore(true);
     try {
-      const page = await fetchInbox({ limit: PAGE_SIZE, before: oldest });
+      // The cursor is the pair `(updated_at, id)` — a timestamp alone loses the
+      // rows that share the cursor row's millisecond once a page boundary falls
+      // inside that group.
+      const page = await fetchInbox({
+        limit: PAGE_SIZE,
+        before: last.updated_at,
+        beforeId: last.id,
+      });
       setItems((prev) => {
         // Cursor paging over a live table can repeat a row — dedupe by id.
         const seen = new Set(prev.map((item) => item.id));

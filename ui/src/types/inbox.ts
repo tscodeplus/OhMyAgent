@@ -62,6 +62,8 @@ export interface InboxQuery {
   /** 1..200 */
   limit?: number;
   before?: number;
+  /** Id of the `before` row — completes the cursor into `(updated_at, id)`. */
+  beforeId?: string;
 }
 
 /** Query for `GET /api/inbox/:id/messages`. `before` is an epoch-ms cursor. */

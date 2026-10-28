@@ -111,7 +111,12 @@ export function fetchSearchContext(params: {
 
 export function fetchInbox(params: InboxQuery = {}): Promise<InboxPage> {
   return apiRequest<InboxPage>(
-    `/api/inbox${queryString({ channel: params.channel, limit: params.limit, before: params.before })}`,
+    `/api/inbox${queryString({
+      channel: params.channel,
+      limit: params.limit,
+      before: params.before,
+      beforeId: params.beforeId,
+    })}`,
   );
 }
 
@@ -128,7 +133,12 @@ export function fetchInboxSession(
 /** Archived conversations of both trees (project chats + IM inbox), paged. */
 export function fetchArchive(params: ArchiveQuery = {}): Promise<ArchivePage> {
   return apiRequest<ArchivePage>(
-    `/api/archive${queryString({ kind: params.kind, limit: params.limit, before: params.before })}`,
+    `/api/archive${queryString({
+      kind: params.kind,
+      limit: params.limit,
+      before: params.before,
+      beforeId: params.beforeId,
+    })}`,
   );
 }
 

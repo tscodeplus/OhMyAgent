@@ -361,11 +361,44 @@ describe('IM inbox routes', () => {
     const cursor = firstBody.items[1].updated_at;
     const second = await app.inject({
       method: 'GET',
-      url: `/api/inbox?limit=2&before=${cursor}`,
+      url: `/api/inbox?limit=2&before=${cursor}&beforeId=${firstBody.items[1].id}`,
     });
     const secondBody = second.json();
     expect(secondBody.items.map((i: { id: string }) => i.id)).toEqual(['qq:3']);
     expect(secondBody.hasMore).toBe(false);
+  });
+
+  it('keeps rows that share the cursor timestamp reachable', async () => {
+    // Ties are the normal case: several sessions can be created (or a batch
+    // archived) in the same millisecond, so a timestamp-only cursor would drop
+    // the rest of the group once the page boundary falls inside it.
+    seedSession({ id: 'qq:1', channel: 'qq', updated_at: 5000 });
+    seedSession({ id: 'qq:2', channel: 'qq', updated_at: 5000 });
+    seedSession({ id: 'qq:3', channel: 'qq', updated_at: 5000 });
+
+    const first = (await app.inject({ method: 'GET', url: '/api/inbox?limit=2' })).json();
+    expect(first.items.map((i: { id: string }) => i.id)).toEqual(['qq:3', 'qq:2']);
+    expect(first.hasMore).toBe(true);
+
+    const cursorRow = first.items[1];
+    const next = (
+      await app.inject({
+        method: 'GET',
+        url: `/api/inbox?limit=2&before=${cursorRow.updated_at}&beforeId=${cursorRow.id}`,
+      })
+    ).json();
+    expect(next.items.map((i: { id: string }) => i.id)).toEqual(['qq:1']);
+    expect(next.hasMore).toBe(false);
+
+    // The single-field cursor is still accepted, and this is what it costs: the
+    // rest of the tie group is unreachable. That is why the UI sends the id.
+    const legacy = (
+      await app.inject({
+        method: 'GET',
+        url: `/api/inbox?limit=2&before=${cursorRow.updated_at}`,
+      })
+    ).json();
+    expect(legacy.items).toEqual([]);
   });
 
   it('returns the transcript with the inbox header fields', async () => {

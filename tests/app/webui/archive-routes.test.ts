@@ -208,11 +208,44 @@ describe('archive routes', () => {
     const next = (
       await app.inject({
         method: 'GET',
-        url: `/api/archive?limit=2&before=${first.items[1].updated_at}`,
+        url: `/api/archive?limit=2&before=${first.items[1].updated_at}&beforeId=${first.items[1].id}`,
       })
     ).json();
     expect(next.items.map((i: { id: string }) => i.id)).toEqual(['a']);
     expect(next.hasMore).toBe(false);
+  });
+
+  it('keeps rows that share the cursor timestamp reachable', async () => {
+    // `setArchived` stamps a whole batch with one `Date.now()`, so a page
+    // boundary inside such a group is the normal case, not an edge case.
+    seedSession({ id: 'a', project_id: 'proj-1', updated_at: 5000 });
+    seedSession({ id: 'b', project_id: 'proj-1', updated_at: 5000 });
+    seedSession({ id: 'c', project_id: 'proj-1', updated_at: 5000 });
+    await archive(['a', 'b', 'c']);
+
+    const first = (await app.inject({ method: 'GET', url: '/api/archive?limit=2' })).json();
+    expect(first.items.map((i: { id: string }) => i.id)).toEqual(['c', 'b']);
+    expect(first.hasMore).toBe(true);
+
+    const cursorRow = first.items[1];
+    const next = (
+      await app.inject({
+        method: 'GET',
+        url: `/api/archive?limit=2&before=${cursorRow.updated_at}&beforeId=${cursorRow.id}`,
+      })
+    ).json();
+    expect(next.items.map((i: { id: string }) => i.id)).toEqual(['a']);
+    expect(next.hasMore).toBe(false);
+
+    // Timestamp alone: the rest of the tie group is unreachable. This endpoint
+    // still accepts the old cursor shape, which is exactly why the UI sends both.
+    const legacy = (
+      await app.inject({
+        method: 'GET',
+        url: `/api/archive?limit=2&before=${cursorRow.updated_at}`,
+      })
+    ).json();
+    expect(legacy.items).toEqual([]);
   });
 
   it('narrows to one tree with `kind`', async () => {

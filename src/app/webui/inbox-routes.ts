@@ -47,6 +47,15 @@ function parseBefore(raw: string | undefined): number | undefined {
 }
 
 /**
+ * `beforeId` completes the cursor into `(updated_at, id)`; see
+ * `sessionCursorWhere` for why a timestamp alone loses rows. Empty means
+ * "absent", so `?before=1&beforeId=` degrades to the single-field cursor.
+ */
+function parseBeforeId(raw: string | undefined): string | undefined {
+  return raw === undefined || raw === '' ? undefined : raw;
+}
+
+/**
  * Live-state hooks for transcript housekeeping. Both are optional so the route
  * module stays usable without an agent service (tests, tooling).
  */
@@ -84,7 +93,13 @@ export function registerInboxRoutes(
       channel: channelParam,
       limit: limitParam,
       before: beforeParam,
-    } = request.query as { channel?: string; limit?: string; before?: string };
+      beforeId: beforeIdParam,
+    } = request.query as {
+      channel?: string;
+      limit?: string;
+      before?: string;
+      beforeId?: string;
+    };
 
     const channel = channelParam === undefined || channelParam === '' ? undefined : channelParam;
     if (channel !== undefined && !isInboxChannel(channel)) {
@@ -102,6 +117,7 @@ export function registerInboxRoutes(
       channel,
       limit: limit + 1,
       before,
+      beforeId: parseBeforeId(beforeIdParam),
     });
     const hasMore = rows.length > limit;
     const items = hasMore ? rows.slice(0, limit) : rows;

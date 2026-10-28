@@ -156,12 +156,18 @@ export default function ArchiveSidebar({ refreshKey, onChanged }: ArchiveSidebar
   }, [fetchFirstPage]);
 
   const loadMore = useCallback(async () => {
-    // Cursor is `updated_at`, the same field the list is ordered by.
-    const oldest = items[items.length - 1]?.updated_at;
-    if (oldest === undefined || loadingMore) return;
+    const last = items[items.length - 1];
+    if (last === undefined || loadingMore) return;
     setLoadingMore(true);
     try {
-      const page = await fetchArchive({ limit: PAGE_SIZE, before: oldest });
+      // Cursor is the pair `(updated_at, id)`, the list's own sort key — a batch
+      // archive stamps every row with one timestamp, so the id is what keeps the
+      // rest of such a group reachable.
+      const page = await fetchArchive({
+        limit: PAGE_SIZE,
+        before: last.updated_at,
+        beforeId: last.id,
+      });
       setItems((prev) => {
         // Cursor paging over a live table can repeat a row — dedupe by id.
         const seen = new Set(prev.map((item) => item.id));

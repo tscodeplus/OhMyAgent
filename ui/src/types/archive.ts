@@ -60,6 +60,8 @@ export interface ArchiveQuery {
   /** 1..200 */
   limit?: number;
   before?: number;
+  /** Id of the `before` row — completes the cursor into `(updated_at, id)`. */
+  beforeId?: string;
 }
 
 /** Why a selected conversation was not deleted — a key, localized by the UI. */

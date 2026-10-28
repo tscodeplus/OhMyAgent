@@ -60,6 +60,17 @@ export interface ListInboxOptions {
   /** Exclusive `updated_at` cursor — only sessions strictly older than this. */
   before?: number;
   /**
+   * Tie-breaker for `before`: the id of the cursor row itself.
+   *
+   * `updated_at` is not unique — a batch write stamps several rows with the
+   * same millisecond — so a cursor that compares the timestamp alone skips every
+   * row that shares it once the page boundary falls inside that group. Supplying
+   * the id turns the cursor into the pair `(updated_at, id)`, which is unique.
+   * Omitted means "match the timestamp strictly", i.e. the older single-field
+   * behaviour, kept for callers that do not track ids.
+   */
+  beforeId?: string;
+  /**
    * Include archived conversations. Default false: the inbox lists what is
    * active, and archived rows live under `listArchived` / `GET /api/archive`.
    */
@@ -89,6 +100,8 @@ export interface ListArchivedOptions {
   limit: number;
   /** Exclusive `updated_at` cursor — only conversations last active before this. */
   before?: number;
+  /** Tie-breaker for `before` (see `ListInboxOptions.beforeId`). */
+  beforeId?: string;
   kind?: 'project' | 'inbox';
 }
 
@@ -103,6 +116,39 @@ export interface ArchivedOwnerCount {
 
 /** Longest preview the inbox list renders (truncated in TS, not in SQL). */
 const PREVIEW_MAX_CHARS = 120;
+
+/**
+ * Cursor predicate for the paged session lists, i.e. "everything after the row
+ * the client last saw" under `ORDER BY updated_at DESC, id DESC`.
+ *
+ * Two things make this more than `updated_at < ?`:
+ *
+ *   - `updated_at` is not unique. `setArchived` stamps a whole batch with one
+ *     `Date.now()`, and several sessions can be created in the same millisecond,
+ *     so a boundary that falls inside such a group would silently drop the rest
+ *     of it. The id completes the key: `(updated_at, id)` is unique, and since
+ *     both lists sort ids DESC the residual group is walked in the same
+ *     direction.
+ *   - the column is TEXT holding epoch-ms digit strings, so the cursor is bound
+ *     as text too. Binding a number makes SQLite compare across storage classes
+ *     and lets the cursor row itself through on the next page.
+ *
+ * Returns `null` when there is no cursor. Mirrored by the two WebUI lists
+ * (收件箱 / 归档), which send the last row's `updated_at` *and* `id`.
+ */
+function sessionCursorWhere(
+  options: { before?: number; beforeId?: string },
+  params: Record<string, unknown>,
+): string | null {
+  if (options.before === undefined) return null;
+  params.before = String(options.before);
+  if (options.beforeId === undefined || options.beforeId === '') {
+    // Legacy single-field cursor: strictly older, ties beyond the boundary lost.
+    return 's.updated_at < @before';
+  }
+  params.beforeId = options.beforeId;
+  return '(s.updated_at < @before OR (s.updated_at = @before AND s.id < @beforeId))';
+}
 
 /**
  * Activity cutoff for auto-archive: sessions untouched before this are eligible.
@@ -263,14 +309,8 @@ export class SessionRepository {
       where.push('s.channel = @channel');
       params.channel = options.channel;
     }
-    if (options.before !== undefined) {
-      // `updated_at` is a TEXT column holding epoch-ms digit strings (13 chars
-      // for any real timestamp), so the cursor is bound as text: comparing the
-      // column against a bound INTEGER makes SQLite compare across storage
-      // classes and lets the cursor row itself through on the next page.
-      where.push('s.updated_at < @before');
-      params.before = String(options.before);
-    }
+    const cursor = sessionCursorWhere(options, params);
+    if (cursor) where.push(cursor);
 
     const rows = this.db
       .prepare(
@@ -285,7 +325,7 @@ export class SessionRepository {
                   ORDER BY created_at DESC LIMIT 1) AS preview
            FROM sessions s
           WHERE ${where.join(' AND ')}
-          ORDER BY s.updated_at DESC
+          ORDER BY s.updated_at DESC, s.id DESC
           LIMIT @limit`,
       )
       .all(params) as Array<
@@ -396,7 +436,9 @@ export class SessionRepository {
    * Both cursor and ordering column are TEXT holding epoch-ms digit strings
    * (13 chars, so lexicographic == numeric), and the cursor is bound as text:
    * comparing the column against a bound INTEGER would mix storage classes and
-   * let the cursor row through again (same trap as the inbox cursor).
+   * let the cursor row through again (same trap as the inbox cursor). Ordering
+   * and cursor are built together by `sessionCursorWhere`, so paging cannot
+   * drift from the sort.
    */
   listArchived(options: ListArchivedOptions): ArchivedSessionRow[] {
     const where: string[] = ['s.archived_at IS NOT NULL'];
@@ -407,10 +449,8 @@ export class SessionRepository {
     } else if (options.kind === 'inbox') {
       where.push('s.project_id IS NULL');
     }
-    if (options.before !== undefined) {
-      where.push('s.updated_at < @before');
-      params.before = String(options.before);
-    }
+    const cursor = sessionCursorWhere(options, params);
+    if (cursor) where.push(cursor);
 
     const rows = this.db
       .prepare(
