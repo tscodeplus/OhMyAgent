@@ -36,7 +36,8 @@
     "rename": "重命名",
     "delete": "删除",
     "confirmDelete": "确认删除",
-    "noSessions": "暂无会话"
+    "noSessions": "暂无会话",
+    "archive": "归档"
   },
   "chat": {
     "input": {
@@ -1473,6 +1474,36 @@
     "deleted": "已删除会话",
     "deleteError": "删除失败",
     "confirmDelete": "确定要删除「{{name}}」吗？该会话的消息记录会一起删除，且无法恢复。"
+  },
+  "archive": {
+    "title": "归档",
+    "kindProject": "对话",
+    "kindInbox": "收件箱",
+    "empty": "还没有归档的会话",
+    "loadError": "归档加载失败",
+    "loadMore": "加载更多",
+    "unknownProject": "已删除的对话空间",
+    "restore": "取消归档",
+    "archived": "已归档 {{count}} 个会话",
+    "archiveError": "归档失败",
+    "restored": "已取消归档 {{count}} 个会话",
+    "restoreError": "取消归档失败"
+  },
+  "selection": {
+    "mode": "多选",
+    "count": "已选 {{count}} 项",
+    "selectAll": "全选",
+    "clearAll": "取消全选",
+    "exit": "退出多选",
+    "delete": "删除",
+    "confirmDelete": "确定要删除选中的 {{count}} 个会话吗？消息记录会一并删除，且无法恢复。",
+    "deleted": "已删除 {{count}} 个会话",
+    "deleteError": "删除失败",
+    "deletePartial": "{{count}} 个会话未删除（{{reasons}}）",
+    "skipRunning": "{{count}} 个正在回复中",
+    "skipMissing": "{{count}} 个已不存在",
+    "skipFailed": "{{count}} 个删除出错",
+    "reasonSeparator": "，"
   },
   "graph": {
     "title": "知识图谱",

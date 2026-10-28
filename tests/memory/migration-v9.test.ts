@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { migrateV9 } from '../../src/memory/migration-v9';
+import { migrateV11 } from '../../src/memory/migration-v11';
 import { applySchema } from '../../src/memory/schema';
 import { openDatabase } from '../../src/memory/db';
 import { SessionRepository } from '../../src/memory/repositories/session-repository';
@@ -82,7 +83,10 @@ describe('migration-v9: schema', () => {
   beforeEach(() => {
     migrated = new Database(':memory:');
     migrated.exec(LEGACY_SESSIONS_DDL);
+    // openDatabase runs every column-adding migration in order; v11 adds
+    // `archived_at`, which the fresh schema (compared below) also declares.
     migrateV9(migrated);
+    migrateV11(migrated);
 
     fresh = new Database(':memory:');
     applySchema(fresh);

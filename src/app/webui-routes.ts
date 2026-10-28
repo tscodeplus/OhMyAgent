@@ -16,6 +16,8 @@ import { registerProjectRoutes } from './webui/project-routes.js';
 import { registerAgentRoutes } from './webui/agent-routes.js';
 import { registerSessionRoutes } from './webui/session-routes.js';
 import { registerInboxRoutes } from './webui/inbox-routes.js';
+import { registerArchiveRoutes } from './webui/archive-routes.js';
+import { registerSessionDeleteRoutes } from './webui/session-delete-routes.js';
 import { registerChatRoutes, type ChatRouteConfig } from './webui/chat-routes.js';
 import { registerConfigRoutes } from './webui/config-routes.js';
 import { registerJudgeRoutes } from './webui/judge-routes.js';
@@ -94,36 +96,50 @@ export async function registerWebUIRoutes(
   });
 
   registerSessionRoutes(app, cfg.db, () => cfg.getConfig().footer);
+
+  /**
+   * Bot display name for a channel, shared by the inbox and the archive so a
+   * group label cannot differ between the two trees.
+   */
+  const resolveBotName = async (channel: string): Promise<string | undefined> => {
+    // Ask the platform first: the bot's name lives in its owner's console and
+    // is edited there, so a config copy is stale the moment someone renames it.
+    const discovered = await cfg.services.botIdentity?.resolve(channel);
+    if (discovered) return discovered;
+
+    // Fallback for a channel that cannot answer (platform unreachable, or a
+    // bridge with no bot identity at all) — better a configured label than a
+    // bare "QQ"/"飞书" in the sidebar.
+    const config = cfg.getConfig();
+    if (channel === 'feishu') return config.feishu.botName || undefined;
+    if (channel === 'telegram') return config.telegram?.botName || undefined;
+    return undefined;
+  };
+
   // Read-only IM inbox (sessions with project_id IS NULL). Same auth: the
   // webuiAuthHook is a root-level onRequest hook registered in bootstrap.ts.
-  registerInboxRoutes(
-    app,
-    cfg.db,
-    () => cfg.getConfig().footer,
-    async (channel) => {
-      // Ask the platform first: the bot's name lives in its owner's console and
-      // is edited there, so a config copy is stale the moment someone renames it.
-      const discovered = await cfg.services.botIdentity?.resolve(channel);
-      if (discovered) return discovered;
+  registerInboxRoutes(app, cfg.db, () => cfg.getConfig().footer, resolveBotName, {
+    // A turn in flight would keep writing into the row being deleted.
+    isRunning: (sessionId) => cfg.services.agentService.isRunning(sessionId),
+    // The agent holds the conversation in memory; deleting the transcript has
+    // to drop it too or the next reply answers from deleted history.
+    destroyRuntime: (sessionId) => {
+      cfg.services.agentService.destroyRuntime(sessionId);
+    },
+  });
 
-      // Fallback for a channel that cannot answer (platform unreachable, or a
-      // bridge with no bot identity at all) — better a configured label than a
-      // bare "QQ"/"飞书" in the sidebar.
-      const config = cfg.getConfig();
-      if (channel === 'feishu') return config.feishu.botName || undefined;
-      if (channel === 'telegram') return config.telegram?.botName || undefined;
-      return undefined;
+  // Batch delete for a multi-select in any of the three lists (project chats, IM
+  // inbox, archive). One endpoint, because a selection can span both trees.
+  registerSessionDeleteRoutes(app, cfg.db, {
+    isRunning: (sessionId) => cfg.services.agentService.isRunning(sessionId),
+    destroyRuntime: (sessionId) => {
+      cfg.services.agentService.destroyRuntime(sessionId);
     },
-    {
-      // A turn in flight would keep writing into the row being deleted.
-      isRunning: (sessionId) => cfg.services.agentService.isRunning(sessionId),
-      // The agent holds the conversation in memory; deleting the transcript has
-      // to drop it too or the next reply answers from deleted history.
-      destroyRuntime: (sessionId) => {
-        cfg.services.agentService.destroyRuntime(sessionId);
-      },
-    },
-  );
+  });
+
+  // Archive of both trees (project chats + IM inbox) and the batch flag write.
+  // Auto-restore on new messages happens in the agent turn path, not here.
+  registerArchiveRoutes(app, cfg.db, resolveBotName);
 
   const chatConfig: ChatRouteConfig = {
     agentService: cfg.services.agentService,

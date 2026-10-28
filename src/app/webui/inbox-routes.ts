@@ -27,6 +27,7 @@ import {
   ConversationSessions,
   normalizeConversationTitle,
 } from '../../memory/conversation-sessions.js';
+import { resolveBotNames, type BotNameResolver } from './bot-names.js';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -36,25 +37,6 @@ function parseLimit(raw: string | undefined): number {
   const parsed = parseInt(raw ?? String(DEFAULT_LIMIT), 10);
   if (!Number.isFinite(parsed)) return DEFAULT_LIMIT;
   return Math.min(Math.max(1, parsed), MAX_LIMIT);
-}
-
-/**
- * Bot name per channel for a batch of channels. Resolving once per channel keeps
- * a platform lookup (or its 3 s timeout) from repeating for every row, and one
- * channel that fails cannot take the others' labels down with it.
- */
-async function resolveBotNames(
-  getBotName: ((channel: string) => string | undefined | Promise<string | undefined>) | undefined,
-  channels: string[],
-): Promise<Map<string, string>> {
-  const names = new Map<string, string>();
-  await Promise.all(
-    [...new Set(channels)].map(async (channel) => {
-      const name = await getBotName?.(channel);
-      if (name) names.set(channel, name);
-    }),
-  );
-  return names;
 }
 
 /** `before` is an exclusive epoch-ms cursor; anything unparsable means "no cursor". */
@@ -90,7 +72,7 @@ export function registerInboxRoutes(
    * asked of the platform itself. Optional: unconfigured channels and
    * every non-bot channel degrade to the plain label.
    */
-  getBotName?: (channel: string) => string | undefined | Promise<string | undefined>,
+  getBotName?: BotNameResolver,
   hooks?: InboxWriteHooks,
 ): void {
   const sessionRepository = new SessionRepository(db);

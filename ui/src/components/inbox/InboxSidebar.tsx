@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ChevronDown, Inbox as InboxIcon } from 'lucide-react';
+import { Archive, ChevronDown, Inbox as InboxIcon, Trash2 } from 'lucide-react';
 import { cn, formatRelativeTime } from '../../lib/utils';
-import { apiRequest, fetchInbox } from '../../utils/api';
+import { apiRequest, deleteSessions, fetchInbox, setArchived } from '../../utils/api';
+import { describeSkippedDeletes } from '../../utils/deleteFeedback';
 import { useLongPress } from '../../utils/useLongPress';
+import { useRowSelection } from '../../utils/useRowSelection';
 import Spinner from '../ui/Spinner';
 import ConfirmDialog from '../ui/ConfirmDialog';
+import RowCheckbox from '../ui/RowCheckbox';
 import SessionContextMenu from '../app-shell/SessionContextMenu';
+import SelectionActionBar from '../app-shell/SelectionActionBar';
 import { useToast } from '../ui/Toast';
 import type { InboxChannel, InboxChannelCount, InboxSessionSummary } from '../../types/inbox';
 import { channelLabel, groupInboxItems, inboxItemLabel, normalizeInboxChannel } from './inboxModel';
@@ -22,9 +26,11 @@ const INBOX_PATH = '/inbox/';
 interface InboxSidebarProps {
   /** Bumped by the shell when projects/sessions change. */
   refreshKey?: number;
+  /** Ask the shell to re-fetch the archive after an archive action. */
+  onChanged?: () => void;
 }
 
-export default function InboxSidebar({ refreshKey }: InboxSidebarProps) {
+export default function InboxSidebar({ refreshKey, onChanged }: InboxSidebarProps) {
   const { t } = useTranslation('common');
   const navigate = useNavigate();
   const location = useLocation();
@@ -53,7 +59,12 @@ export default function InboxSidebar({ refreshKey }: InboxSidebarProps) {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
   const [confirmDelete, setConfirmDelete] = useState<InboxSessionSummary | null>(null);
+  /** Batch delete pending confirmation — null when the dialog is closed. */
+  const [confirmBatchDelete, setConfirmBatchDelete] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [archiving, setArchiving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const selection = useRowSelection();
 
   const toggleSection = useCallback(() => {
     setSectionOpen((open) => {
@@ -199,7 +210,71 @@ export default function InboxSidebar({ refreshKey }: InboxSidebarProps) {
     setContextMenu({ item, x, y });
   }, []);
 
+  /**
+   * Archive one conversation or a batch. The row leaves the inbox and shows up
+   * under 归档; its transcript is untouched, and a new incoming message brings
+   * it back (see AgentService's turn-start clearArchive).
+   */
+  const archive = useCallback(
+    async (ids: string[]) => {
+      if (ids.length === 0) return;
+      setArchiving(true);
+      try {
+        const res = await setArchived(ids, true);
+        const moved = new Set(ids);
+        setItems((prev) => prev.filter((row) => !moved.has(row.id)));
+        showToast(t('archive.archived', { count: res.updated }), 'success');
+        selection.exit();
+        onChanged?.();
+        void fetchFirstPage(false);
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : t('archive.archiveError'), 'error');
+      } finally {
+        setArchiving(false);
+      }
+    },
+    [fetchFirstPage, onChanged, selection, showToast, t],
+  );
+
+  /**
+   * Delete a selected batch. Unlike a single delete this does not try to keep the
+   * pane on the same chat slot: a batch can remove several transcripts of one
+   * slot at once, so the fallback is "the server's replacement for the session I
+   * was looking at, else the newest remaining row".
+   */
+  const deleteBatch = useCallback(
+    async (ids: string[]) => {
+      setConfirmBatchDelete(false);
+      if (ids.length === 0) return;
+      setDeleting(true);
+      try {
+        const res = await deleteSessions(ids);
+        const removed = new Set(ids.filter((id) => !res.skipped.some((s) => s.id === id)));
+        setItems((prev) => prev.filter((row) => !removed.has(row.id)));
+        showToast(t('selection.deleted', { count: res.deleted }), 'success');
+        const partial = describeSkippedDeletes(t, res.skipped);
+        if (partial) showToast(partial, 'warning', 4000);
+        selection.exit();
+        onChanged?.();
+        if (activeId && removed.has(activeId)) {
+          const next =
+            res.replacements[activeId] ??
+            items.find((row) => !removed.has(row.id))?.id ??
+            undefined;
+          navigate(next ? INBOX_PATH + encodeURIComponent(next) : '/');
+        }
+        void fetchFirstPage(false);
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : t('selection.deleteError'), 'error');
+      } finally {
+        setDeleting(false);
+      }
+    },
+    [activeId, fetchFirstPage, items, navigate, onChanged, selection, showToast, t],
+  );
+
   const groups = useMemo(() => groupInboxItems(items), [items]);
+  const loadedIds = useMemo(() => items.map((item) => item.id), [items]);
 
   // channel -> bot display name, straight from the API's per-channel counts.
   const botNames = useMemo(() => {
@@ -228,6 +303,15 @@ export default function InboxSidebar({ refreshKey }: InboxSidebarProps) {
             setRenameDraft(contextMenu.item.title ?? '');
             setContextMenu(null);
           }}
+          onArchive={() => {
+            const id = contextMenu.item.id;
+            setContextMenu(null);
+            void archive([id]);
+          }}
+          onSelectMultiple={() => {
+            selection.enter(contextMenu.item.id);
+            setContextMenu(null);
+          }}
           onDelete={() => {
             setConfirmDelete(contextMenu.item);
             setContextMenu(null);
@@ -245,6 +329,14 @@ export default function InboxSidebar({ refreshKey }: InboxSidebarProps) {
           if (confirmDelete) void doDelete(confirmDelete);
         }}
         onCancel={() => setConfirmDelete(null)}
+      />
+      <ConfirmDialog
+        open={confirmBatchDelete}
+        title={t('selection.delete')}
+        message={t('selection.confirmDelete', { count: selection.count })}
+        confirmLabel={t('selection.delete')}
+        onConfirm={() => void deleteBatch([...selection.selected])}
+        onCancel={() => setConfirmBatchDelete(false)}
       />
       <div className="flex items-center gap-1.5 px-2">
         <InboxIcon
@@ -275,6 +367,29 @@ export default function InboxSidebar({ refreshKey }: InboxSidebarProps) {
 
       {sectionOpen && (
         <div className="pb-1">
+          {selection.selecting && (
+            <SelectionActionBar
+              count={selection.count}
+              loadedIds={loadedIds}
+              selectedIds={selection.selected}
+              onSetMany={selection.setMany}
+              onExit={selection.exit}
+              busy={archiving || deleting}
+              actions={[
+                {
+                  label: t('sidebar.archive'),
+                  icon: Archive,
+                  onClick: () => void archive([...selection.selected]),
+                },
+                {
+                  label: t('selection.delete'),
+                  icon: Trash2,
+                  danger: true,
+                  onClick: () => setConfirmBatchDelete(true),
+                },
+              ]}
+            />
+          )}
           {loading && items.length === 0 ? (
             <div className="flex justify-center px-2 py-2">
               <Spinner size="sm" />
@@ -289,22 +404,37 @@ export default function InboxSidebar({ refreshKey }: InboxSidebarProps) {
                 const collapsed = collapsedChannels.has(group.channel);
                 const botName = botNames.get(group.channel);
                 const label = channelLabel(t, group.channel, botName);
+                const groupIds = group.items.map((item) => item.id);
+                const allSelected = selection.allSelected(groupIds);
+                const someSelected = selection.someSelected(groupIds);
                 return (
                   <div key={group.channel}>
                     <button
                       type="button"
-                      onClick={() => toggleChannel(group.channel)}
+                      onClick={() =>
+                        selection.selecting
+                          ? selection.setMany(groupIds, !allSelected)
+                          : toggleChannel(group.channel)
+                      }
                       aria-expanded={!collapsed}
                       title={group.channel === 'unknown' ? t('inbox.channels.unknownHint') : label}
                       className="flex h-6 w-full items-center gap-1 rounded-md px-2 text-[11px] font-medium text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
                     >
-                      <ChevronDown
-                        className={cn(
-                          'h-3 w-3 shrink-0 transition-transform duration-200',
-                          collapsed ? '-rotate-90' : '',
-                        )}
-                        strokeWidth={1.75}
-                      />
+                      {selection.selecting ? (
+                        <RowCheckbox
+                          checked={allSelected}
+                          indeterminate={!allSelected && someSelected}
+                          onChange={() => selection.setMany(groupIds, !allSelected)}
+                        />
+                      ) : (
+                        <ChevronDown
+                          className={cn(
+                            'h-3 w-3 shrink-0 transition-transform duration-200',
+                            collapsed ? '-rotate-90' : '',
+                          )}
+                          strokeWidth={1.75}
+                        />
+                      )}
                       <span className="truncate">{label}</span>
                       <span className="ml-auto shrink-0 tabular-nums">{group.items.length}</span>
                     </button>
@@ -319,11 +449,18 @@ export default function InboxSidebar({ refreshKey }: InboxSidebarProps) {
                           busy={busyId === item.id}
                           renaming={renamingId === item.id}
                           renameDraft={renamingId === item.id ? renameDraft : ''}
+                          selecting={selection.selecting}
+                          selected={selection.selected.has(item.id)}
+                          onToggleSelected={() => selection.toggle(item.id)}
                           onRenameDraftChange={setRenameDraft}
                           onRenameCommit={() => void commitRename(item)}
                           onRenameCancel={() => setRenamingId(null)}
                           onOpenMenu={(x, y) => openContextMenu(item, x, y)}
-                          onSelect={() => navigate(INBOX_PATH + encodeURIComponent(item.id))}
+                          onSelect={() =>
+                            selection.selecting
+                              ? selection.toggle(item.id)
+                              : navigate(INBOX_PATH + encodeURIComponent(item.id))
+                          }
                         />
                       ))}
                   </div>
@@ -362,6 +499,9 @@ function InboxRow({
   busy,
   renaming,
   renameDraft,
+  selecting,
+  selected,
+  onToggleSelected,
   onRenameDraftChange,
   onRenameCommit,
   onRenameCancel,
@@ -374,6 +514,9 @@ function InboxRow({
   busy: boolean;
   renaming: boolean;
   renameDraft: string;
+  selecting: boolean;
+  selected: boolean;
+  onToggleSelected: () => void;
   onRenameDraftChange: (value: string) => void;
   onRenameCommit: () => void;
   onRenameCancel: () => void;
@@ -420,12 +563,13 @@ function InboxRow({
       className={cn(
         'sidebar-row flex w-full flex-col gap-0.5 rounded-lg py-1 pl-6 pr-2 text-left transition-colors',
         busy && 'opacity-60',
-        active
+        active || selected
           ? 'bg-neutral-200/70 dark:bg-neutral-800'
           : 'hover:bg-neutral-100 dark:hover:bg-neutral-800',
       )}
     >
-      <span className="flex w-full items-baseline gap-2">
+      <span className="flex w-full items-center gap-1.5">
+        {selecting && <RowCheckbox checked={selected} onChange={onToggleSelected} />}
         <span className="min-w-0 flex-1 truncate text-[13px] text-neutral-700 dark:text-neutral-300">
           {label}
         </span>

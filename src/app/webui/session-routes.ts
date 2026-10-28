@@ -75,12 +75,24 @@ export function registerSessionRoutes(
     });
   });
 
-  // List sessions for a project
+  // List sessions for a project. Archived conversations are excluded by
+  // default: they live under /api/archive until they are restored (or receive a
+  // new turn, which clears the flag — see AgentService). One consequence is
+  // deliberate: the WebUI's "open the most recent session" bootstrap cannot land
+  // on an archived conversation.
+  //
+  // `?includeArchived=1` is for callers that need to resolve a session they
+  // already know by id (the desktop caption's title lookup), not for lists.
   app.get('/api/projects/:projectId/sessions', async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
+    const { includeArchived } = request.query as { includeArchived?: string };
+    const archivedFilter =
+      includeArchived === '1' || includeArchived === 'true' ? '' : 'AND archived_at IS NULL';
 
     const rows = db
-      .prepare('SELECT * FROM sessions WHERE project_id = ? ORDER BY updated_at DESC')
+      .prepare(
+        `SELECT * FROM sessions WHERE project_id = ? ${archivedFilter} ORDER BY updated_at DESC`,
+      )
       .all(projectId) as any[];
 
     const sessions = rows.map((s) => ({

@@ -36,7 +36,8 @@
     "rename": "Rename",
     "delete": "Delete",
     "confirmDelete": "Confirm Delete",
-    "noSessions": "No sessions yet"
+    "noSessions": "No sessions yet",
+    "archive": "Archive"
   },
   "chat": {
     "input": {
@@ -1473,6 +1474,36 @@
     "deleted": "Conversation deleted",
     "deleteError": "Delete failed",
     "confirmDelete": "Delete \"{{name}}\"? Its messages are deleted with it and cannot be recovered."
+  },
+  "archive": {
+    "title": "Archive",
+    "kindProject": "Chats",
+    "kindInbox": "Inbox",
+    "empty": "Nothing archived yet",
+    "loadError": "Failed to load the archive",
+    "loadMore": "Load more",
+    "unknownProject": "Deleted space",
+    "restore": "Unarchive",
+    "archived": "Archived {{count}} conversation(s)",
+    "archiveError": "Archive failed",
+    "restored": "Unarchived {{count}} conversation(s)",
+    "restoreError": "Unarchive failed"
+  },
+  "selection": {
+    "mode": "Select",
+    "count": "{{count}} selected",
+    "selectAll": "Select all",
+    "clearAll": "Clear",
+    "exit": "Exit selection",
+    "delete": "Delete",
+    "confirmDelete": "Delete the {{count}} selected conversation(s)? Their messages are deleted too, and this cannot be undone.",
+    "deleted": "Deleted {{count}} conversation(s)",
+    "deleteError": "Delete failed",
+    "deletePartial": "{{count}} conversation(s) not deleted ({{reasons}})",
+    "skipRunning": "{{count}} still replying",
+    "skipMissing": "{{count}} no longer exist",
+    "skipFailed": "{{count}} failed to delete",
+    "reasonSeparator": ", "
   },
   "graph": {
     "title": "Knowledge Graph",

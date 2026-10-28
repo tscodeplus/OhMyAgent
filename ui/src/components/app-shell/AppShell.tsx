@@ -22,6 +22,7 @@ import { useDesktopPlatform } from '../../utils/desktop';
 import { useToast } from '../ui/Toast';
 import ProjectList from './ProjectList';
 import InboxSidebar from '../inbox/InboxSidebar';
+import ArchiveSidebar from '../archive/ArchiveSidebar';
 import SettingsModal from '../settings/SettingsModal';
 import SetupWizard from '../setup-wizard/SetupWizard';
 import CreateProjectModal from '../project-wizard/CreateProjectModal';
@@ -263,7 +264,13 @@ export default function AppShell() {
     let cancelled = false;
     const load = async () => {
       try {
-        const sessions = await apiRequest<Session[]>(`/api/projects/${projectId}/sessions`);
+        // includeArchived: this lookup only resolves the title of the session
+        // that is already open. An archived conversation is still readable, and
+        // its position in the caption must not collapse to "对话" just because
+        // it left the sidebar list.
+        const sessions = await apiRequest<Session[]>(
+          `/api/projects/${projectId}/sessions?includeArchived=1`,
+        );
         if (cancelled) return;
         const s = sessions.find((x) => x.id === sessionId);
         setCurrentSessionTitle(
@@ -413,7 +420,11 @@ export default function AppShell() {
             onCreateProject={() => setShowCreateProject(true)}
           />
           {/* IM channels inbox — same scrolling column, below the chats. */}
-          <InboxSidebar refreshKey={refreshKey} />
+          <InboxSidebar refreshKey={refreshKey} onChanged={() => setRefreshKey((k) => k + 1)} />
+          {/* 归档 — a peer of the inbox. Rows keep the owner they had before
+              archiving, so the section groups by project / channel instead of
+              inventing a second filing system. */}
+          <ArchiveSidebar refreshKey={refreshKey} onChanged={() => setRefreshKey((k) => k + 1)} />
         </div>
 
         {/* Panels drawer — labelled expand/collapse row (the visible label
@@ -636,6 +647,8 @@ export default function AppShell() {
             onRefresh={() => setRefreshKey((k) => k + 1)}
             onCreateProject={() => setShowCreateProject(true)}
           />
+          <InboxSidebar refreshKey={refreshKey} onChanged={() => setRefreshKey((k) => k + 1)} />
+          <ArchiveSidebar refreshKey={refreshKey} onChanged={() => setRefreshKey((k) => k + 1)} />
         </div>
       </div>
 

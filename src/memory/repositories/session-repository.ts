@@ -59,6 +59,46 @@ export interface ListInboxOptions {
   limit: number;
   /** Exclusive `updated_at` cursor — only sessions strictly older than this. */
   before?: number;
+  /**
+   * Include archived conversations. Default false: the inbox lists what is
+   * active, and archived rows live under `listArchived` / `GET /api/archive`.
+   */
+  includeArchived?: boolean;
+}
+
+/** One archived conversation, with the owner it should be grouped under. */
+export interface ArchivedSessionRow {
+  id: string;
+  /** Which sidebar tree the row came from. */
+  kind: 'project' | 'inbox';
+  project_id: string | null;
+  /** Project name for `kind: 'project'` rows (NULL once the project is gone). */
+  project_name: string | null;
+  channel: string | null;
+  external_chat_id: string | null;
+  title: string | null;
+  /** Epoch ms (see `parseEpochMs`); the row's own last-activity time. */
+  updated_at: number;
+  /** Epoch ms; the archive list is ordered by this, newest first. */
+  archived_at: number;
+  message_count: number;
+  preview: string;
+}
+
+export interface ListArchivedOptions {
+  limit: number;
+  /** Exclusive `archived_at` cursor. */
+  before?: number;
+  kind?: 'project' | 'inbox';
+}
+
+/** Owner bucket for the archive sidebar's group headers. */
+export interface ArchivedOwnerCount {
+  kind: 'project' | 'inbox';
+  project_id: string | null;
+  project_name: string | null;
+  channel: string | null;
+  count: number;
 }
 
 /** Longest preview the inbox list renders (truncated in TS, not in SQL). */
@@ -197,6 +237,10 @@ export class SessionRepository {
     const where: string[] = ['s.project_id IS NULL'];
     const params: Record<string, unknown> = { limit: options.limit };
 
+    if (!options.includeArchived) {
+      where.push('s.archived_at IS NULL');
+    }
+
     if (options.channel !== undefined) {
       where.push('s.channel = @channel');
       params.channel = options.channel;
@@ -247,15 +291,144 @@ export class SessionRepository {
   }
 
   /** Per-channel session counts for the inbox tab badges. */
-  countByChannel(): Array<{ channel: string; count: number }> {
+  countByChannel(options: { includeArchived?: boolean } = {}): Array<{
+    channel: string;
+    count: number;
+  }> {
+    const archivedFilter = options.includeArchived ? '' : 'AND archived_at IS NULL';
     return this.db
       .prepare(
         `SELECT COALESCE(channel, 'unknown') AS channel, COUNT(*) AS count
            FROM sessions
-          WHERE project_id IS NULL
+          WHERE project_id IS NULL ${archivedFilter}
           GROUP BY COALESCE(channel, 'unknown')
           ORDER BY count DESC`,
       )
       .all() as Array<{ channel: string; count: number }>;
+  }
+
+  /**
+   * Archive or unarchive a batch of conversations (project chats and IM
+   * transcripts alike — the flag does not care which list a row came from).
+   *
+   * `updated_at` is deliberately left alone: archiving is a housekeeping fact,
+   * not activity, and bumping the timestamp would reorder the very list the row
+   * is leaving. Rows already in the requested state are not counted, so the
+   * number returned is "rows this call actually changed".
+   */
+  setArchived(ids: string[], archived: boolean): number {
+    if (ids.length === 0) return 0;
+    // The two statements bind a different number of parameters, so the binding
+    // tuple is built alongside rather than assuming one shape.
+    const stmt = this.db.prepare(
+      archived
+        ? 'UPDATE sessions SET archived_at = ? WHERE id = ? AND archived_at IS NULL'
+        : 'UPDATE sessions SET archived_at = NULL WHERE id = ? AND archived_at IS NOT NULL',
+    );
+    const archivedAt = String(Date.now());
+    const run = this.db.transaction((list: string[]) => {
+      let changed = 0;
+      for (const id of list) {
+        changed += (archived ? stmt.run(archivedAt, id) : stmt.run(id)).changes;
+      }
+      return changed;
+    });
+    return run(ids);
+  }
+
+  /**
+   * Drop the archive flag for one session, if it is set.
+   *
+   * Called when a conversation becomes active again (a new incoming turn): an
+   * archived IM chat that receives a message must reappear in the inbox rather
+   * than silently swallow it. Never bumps `updated_at`.
+   */
+  clearArchive(id: string): boolean {
+    const result = this.db
+      .prepare('UPDATE sessions SET archived_at = NULL WHERE id = ? AND archived_at IS NOT NULL')
+      .run(id);
+    return result.changes > 0;
+  }
+
+  /**
+   * Archive listing: every session with `archived_at` set, newest archive
+   * first, carrying the owner (project name or channel) the sidebar groups by.
+   *
+   * `archived_at` is a TEXT column of epoch-ms digit strings, so the cursor is
+   * bound as text — comparing the column against a bound INTEGER would mix
+   * storage classes and let the cursor row through again (same trap as the
+   * inbox cursor).
+   */
+  listArchived(options: ListArchivedOptions): ArchivedSessionRow[] {
+    const where: string[] = ['s.archived_at IS NOT NULL'];
+    const params: Record<string, unknown> = { limit: options.limit };
+
+    if (options.kind === 'project') {
+      where.push('s.project_id IS NOT NULL');
+    } else if (options.kind === 'inbox') {
+      where.push('s.project_id IS NULL');
+    }
+    if (options.before !== undefined) {
+      where.push('s.archived_at < @before');
+      params.before = String(options.before);
+    }
+
+    const rows = this.db
+      .prepare(
+        `SELECT s.id                AS id,
+                CASE WHEN s.project_id IS NULL THEN 'inbox' ELSE 'project' END AS kind,
+                s.project_id        AS project_id,
+                p.name              AS project_name,
+                s.channel           AS channel,
+                s.external_chat_id  AS external_chat_id,
+                s.title             AS title,
+                s.updated_at        AS updated_at,
+                s.archived_at       AS archived_at,
+                (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count,
+                (SELECT content FROM messages m WHERE m.session_id = s.id
+                  ORDER BY created_at DESC LIMIT 1) AS preview
+           FROM sessions s
+           LEFT JOIN projects p ON p.id = s.project_id
+          WHERE ${where.join(' AND ')}
+          ORDER BY s.archived_at DESC, s.id DESC
+          LIMIT @limit`,
+      )
+      .all(params) as Array<
+      Omit<ArchivedSessionRow, 'kind' | 'preview' | 'updated_at' | 'archived_at'> & {
+        kind: 'project' | 'inbox';
+        preview: string | null;
+        updated_at: string | number;
+        archived_at: string | number;
+      }
+    >;
+
+    return rows.map((row) => ({
+      ...row,
+      updated_at: parseEpochMs(row.updated_at),
+      archived_at: parseEpochMs(row.archived_at),
+      preview: row.preview === null ? '' : String(row.preview).slice(0, PREVIEW_MAX_CHARS),
+    }));
+  }
+
+  /**
+   * Per-owner archive counts, for the archive sidebar's group headers. One row
+   * per project (kind `project`) or per channel (kind `inbox`) that still owns
+   * at least one archived conversation.
+   */
+  countArchivedByOwner(): ArchivedOwnerCount[] {
+    return this.db
+      .prepare(
+        `SELECT CASE WHEN s.project_id IS NULL THEN 'inbox' ELSE 'project' END AS kind,
+                s.project_id AS project_id,
+                p.name       AS project_name,
+                CASE WHEN s.project_id IS NULL THEN COALESCE(s.channel, 'unknown') END AS channel,
+                COUNT(*)     AS count
+           FROM sessions s
+           LEFT JOIN projects p ON p.id = s.project_id
+          WHERE s.archived_at IS NOT NULL
+          GROUP BY kind, s.project_id, channel
+          ORDER BY count DESC, s.project_id, channel`,
+      )
+      .all() as ArchivedOwnerCount[];
   }
 }

@@ -9,6 +9,7 @@ import { migrateV7 } from './migration-v7.js';
 import { migrateV8 } from './migration-v8.js';
 import { migrateV9 } from './migration-v9.js';
 import { migrateV10 } from './migration-v10.js';
+import { migrateV11 } from './migration-v11.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -97,6 +98,16 @@ export function openDatabase(dbPath: string): Database.Database {
   }
   if (v9Result.backfilled > 0) {
     logger.info(`[V9] Session migration: backfilled ${v9Result.backfilled} column values`);
+  }
+
+  // V11 migration: add sessions.archived_at (the WebUI archive flag) and its
+  // index. Same ordering constraint as V4/V9 — applySchema's
+  // idx_sessions_archived DDL references `archived_at`, which only this
+  // migration can add to a table that already exists. Every existing row stays
+  // NULL (active), so the upgrade archives nothing.
+  const v11Result = migrateV11(db);
+  if (v11Result.added.length > 0) {
+    logger.info(`[V11] Session migration: added columns: ${v11Result.added.join(', ')}`);
   }
 
   // V2 + V3 migrations: the same ordering constraint as V4, for `memories`.

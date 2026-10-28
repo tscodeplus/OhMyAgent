@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   channel TEXT,
   external_chat_id TEXT,
   title TEXT,
+  archived_at TEXT,
   created_at TEXT NOT NULL DEFAULT (cast(strftime('%s','now') as integer) * 1000),
   updated_at TEXT NOT NULL DEFAULT (cast(strftime('%s','now') as integer) * 1000),
   metadata TEXT
@@ -317,6 +318,10 @@ const INDEXES = [
   // ConversationSessions looks up "the current transcript of this chat" by
   // chat_id (which records the chat slot) once per incoming IM message.
   'CREATE INDEX IF NOT EXISTS idx_sessions_chat_id ON sessions(chat_id)',
+  // Archive listing: `WHERE archived_at IS NOT NULL ORDER BY archived_at DESC`,
+  // while the inbox and project lists add `archived_at IS NULL` to a query that
+  // is already index-driven by channel/project.
+  'CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived_at, updated_at DESC)',
   // memory_embeddings.memory_id is a FK but SQLite does NOT auto-index FKs.
   // findByMemoryId / deleteByMemoryId / cosineSearch's JOIN all filter on it.
   'CREATE INDEX IF NOT EXISTS idx_memory_embeddings_memory ON memory_embeddings(memory_id)',

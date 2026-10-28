@@ -581,6 +581,13 @@ export class AgentService {
         // Hand the turn's channel and transport chat handle to the session row
         // so IM sessions are groupable in the inbox (see memory/session-channel).
         this.ensureSession(sessionId, { channel: options?.channel, chatId: options?.chatId });
+        // A new turn means the conversation is active again: archiving says "done
+        // with this for now", not "mute it", so an archived IM chat that receives
+        // a message returns to the inbox instead of swallowing it. Cleared here,
+        // at turn start, and NOT in ensureSession — persistMessages calls
+        // ensureSession when a turn *ends*, which would undo an archive the
+        // operator made while the reply was still streaming.
+        this.persistence.sessionRepository.clearArchive(sessionId);
         // Auto-title the conversation from its first user message. Fire-and-forget:
         // never blocks or breaks the turn, and only writes when the current title
         // is still a placeholder (user renames always win).

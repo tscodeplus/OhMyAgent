@@ -668,6 +668,9 @@ describe('AgentService', () => {
       countBySessionId: vi.fn(() => 0),
     };
     const sessionRepository = {
+      // execute() clears the archive flag at turn start: a new message means the
+      // conversation is active again, so it must leave 归档.
+      clearArchive: vi.fn(),
       findById: vi.fn(() => undefined),
       create: vi.fn(),
       touch: vi.fn(),
@@ -732,6 +735,9 @@ describe('AgentService', () => {
       countBySessionId: vi.fn(() => 0),
     };
     const sessionRepository = {
+      // execute() clears the archive flag at turn start: a new message means the
+      // conversation is active again, so it must leave 归档.
+      clearArchive: vi.fn(),
       findById: vi.fn(() => undefined),
       create: vi.fn(),
       touch: vi.fn(),
@@ -785,6 +791,9 @@ describe('AgentService', () => {
       countBySessionId: vi.fn(() => 0),
     };
     const sessionRepository = {
+      // execute() clears the archive flag at turn start: a new message means the
+      // conversation is active again, so it must leave 归档.
+      clearArchive: vi.fn(),
       findById: vi.fn(() => undefined),
       create: vi.fn(),
       touch: vi.fn(),
@@ -860,6 +869,64 @@ describe('AgentService', () => {
     );
   });
 
+  it('un-archives a conversation when a new turn starts, and only at turn start', async () => {
+    // Archiving says "done with this for now", not "mute it": an archived IM
+    // chat that receives a message has to reappear in the inbox. The clear must
+    // happen at turn START — persistMessages also calls ensureSession at turn
+    // END, so clearing there would undo an archive the operator made while the
+    // reply was still streaming.
+    const order: string[] = [];
+    const messageRepository = {
+      create: vi.fn(),
+      countBySessionId: vi.fn(() => 0),
+    };
+    const sessionRepository = {
+      findById: vi.fn(() => ({ id: 'session-1', channel: 'feishu', metadata: null })),
+      create: vi.fn(),
+      touch: vi.fn(() => {
+        order.push('touch');
+      }),
+      setChannelIfMissing: vi.fn(),
+      clearArchive: vi.fn(() => {
+        order.push('clearArchive');
+        return true;
+      }),
+    };
+    const episodeRepository = { findBySessionId: vi.fn(() => []) };
+    const memorySummarizer = { summarizeSession: vi.fn(async () => {}) };
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+
+    const agent = createMockAgent();
+    agent.prompt.mockImplementationOnce(async () => {
+      agent.state.messages = [
+        { role: 'user', content: 'hello' },
+        { role: 'assistant', content: 'hi' },
+      ];
+    });
+
+    const svc = new AgentService(
+      createMockFactory(agent) as unknown as AgentFactory,
+      () => createMockDispatcher(),
+      {
+        sessionRepository: sessionRepository as any,
+        messageRepository: messageRepository as any,
+        episodeRepository: episodeRepository as any,
+        memorySummarizer: memorySummarizer as any,
+        logger: logger as any,
+      },
+    );
+
+    await svc.execute('hello', { sessionId: 'session-1', channel: 'feishu' });
+
+    // Exactly once for the turn: the turn-start ensureSession touched the row,
+    // the turn-end persistence pass touched it again, but no clear followed.
+    expect(sessionRepository.clearArchive).toHaveBeenCalledTimes(1);
+    expect(sessionRepository.clearArchive).toHaveBeenCalledWith('session-1');
+    // Called right after the turn-start ensureSession() touched the row, i.e.
+    // before the turn ran — and never again after the turn-end persistence pass.
+    expect(order).toEqual(['touch', 'clearArchive', 'touch']);
+  });
+
   it('creates the session before writing tool audit rows', async () => {
     const callOrder: string[] = [];
     const messageRepository = {
@@ -867,6 +934,9 @@ describe('AgentService', () => {
       countBySessionId: vi.fn(() => 0),
     };
     const sessionRepository = {
+      // execute() clears the archive flag at turn start: a new message means the
+      // conversation is active again, so it must leave 归档.
+      clearArchive: vi.fn(),
       findById: vi.fn(() => undefined),
       create: vi.fn(() => {
         callOrder.push('session.create');

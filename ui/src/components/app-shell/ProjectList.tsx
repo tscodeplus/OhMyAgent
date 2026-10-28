@@ -267,6 +267,9 @@ export default function ProjectList({ refreshKey, onRefresh, onCreateProject }: 
                 {isExpanded && (
                   <SessionList
                     projectId={proj.id}
+                    // Archiving a session changes the archive, not the project
+                    // list — hand it the shell's refresh so 归档 repopulates.
+                    onChanged={onRefresh}
                     onSessionSelect={(sid) => {
                       setSelectedProjectId(proj.id);
                       setSelectedSessionId(sid);

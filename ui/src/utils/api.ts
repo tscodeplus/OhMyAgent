@@ -1,4 +1,5 @@
 import type { InboxMessagesQuery, InboxPage, InboxQuery, InboxSessionDetail } from '../types/inbox';
+import type { ArchivePage, ArchiveQuery, DeleteSessionsResult } from '../types/archive';
 import type { SearchContextResponse } from '../types/graph';
 
 const TOKEN_KEY = 'ohmyagent_token';
@@ -122,4 +123,40 @@ export function fetchInboxSession(
   return apiRequest<InboxSessionDetail>(
     `/api/inbox/${encodeURIComponent(id)}/messages${queryString({ limit: params.limit, before: params.before })}`,
   );
+}
+
+/** Archived conversations of both trees (project chats + IM inbox), paged. */
+export function fetchArchive(params: ArchiveQuery = {}): Promise<ArchivePage> {
+  return apiRequest<ArchivePage>(
+    `/api/archive${queryString({ kind: params.kind, limit: params.limit, before: params.before })}`,
+  );
+}
+
+/**
+ * Archive (`archived: true`, default) or restore a batch of conversations.
+ * Ids from both trees are accepted; the response counts rows that actually
+ * changed, so a selection another device already moved is not an error.
+ */
+export function setArchived(
+  ids: string[],
+  archived = true,
+): Promise<{ ok: boolean; updated: number }> {
+  return apiRequest<{ ok: boolean; updated: number }>('/api/archive', {
+    method: 'POST',
+    body: JSON.stringify({ ids, archived }),
+  });
+}
+
+/**
+ * Delete a batch of conversations from any of the three lists.
+ *
+ * Partial by design: a row that is mid-reply or already gone comes back in
+ * `skipped` with a reason key instead of failing the whole batch, so a selection
+ * of twenty rows is never lost because one of them moved.
+ */
+export function deleteSessions(ids: string[]): Promise<DeleteSessionsResult> {
+  return apiRequest<DeleteSessionsResult>('/api/sessions/delete', {
+    method: 'POST',
+    body: JSON.stringify({ ids }),
+  });
 }
