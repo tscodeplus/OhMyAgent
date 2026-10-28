@@ -1,25 +1,38 @@
 /**
- * Deterministic mention mining — entities from memory text, zero model calls.
+ * Deterministic mention mining — the subject producer for `memory_links`.
  *
- * Why this exists: `graph-sync` only projects `memory_links`, and the memory
- * extractor links very few entities per turn (the reference dev database held
- * 30 memories and 4 links). Five of those memories talk about Excel and Power
- * Query; exactly one of them ever produced a link, so the graph showed `Power
- * Query` and nothing else. An entity therefore existed only if some link
- * happened to name it, and the rest of the conversation history stayed
- * invisible. This module extracts the missing half for free.
+ * Why this exists: the memory extractor links very few entities per turn (the
+ * reference dev database held 30 memories and 4 links), and a `memory_links`
+ * row it writes carries no subject — its `relation_type` is a document-level
+ * keyword hint that applies to every entity found in the same text, so the row
+ * says "this text contains a founding keyword and names Acme", never "X founded
+ * Acme". The graph projection therefore had to invent a subject (highest
+ * confidence, or a `memory:<id>` placeholder node when there was only one
+ * link); measured on the real database, 9 of 22 nodes were those placeholders
+ * and the one surviving predicate edge was almost certainly false.
+ *
+ * This module is the writer that removes the guess. For a memory it mines the
+ * mentions deterministically, takes the most confident one as the memory's
+ * subject, and records it — with both entity types — on every `memory_links`
+ * row of that memory, inserting a `MENTIONED` row for each remaining mention.
+ * The projection then *reads* the subject instead of re-deriving it, and since
+ * a `MENTIONED` row is co-occurrence rather than a statement it never becomes
+ * an `entity_edges` edge (see `graph-sync.ts`). `memory_links` stays what the
+ * plan calls it: a weak "memory × mentioned entity" association that serves
+ * recall, not the graph.
  *
  * The contract is "deterministic and cheap", not "accurate": a jieba/Title-Case
- * heuristic will over-extract, and `GraphSyncSummary`-style counts carry no
- * precision guarantee. Two properties are non-negotiable though, because later
- * graph passes rely on them:
+ * heuristic will over-extract, and the returned counts carry no precision
+ * guarantee. Two properties are non-negotiable though, because the projection
+ * relies on them:
  *
  *   - **Deterministic** — same content in, same mentions out, in the same order
  *     (confidence desc, then first-mention order). No `Date`, no randomness, no
  *     locale-dependent comparison.
  *   - **Idempotent-friendly** — names are canonicalised with the same
- *     `canonicalizeEntityName` the repository uses, so re-mining an unchanged
- *     memory re-states existing entities instead of splitting them.
+ *     `canonicalizeEntityName` the projection uses, and inserted rows carry a
+ *     deterministic id, so re-mining an unchanged memory refreshes instead of
+ *     duplicating.
  *
  * Neither a curated vocabulary nor a stop-word list may be the reason a test
  * passes: the vocabulary only raises confidence for genuinely high-value
@@ -28,6 +41,8 @@
  * not because it is listed).
  */
 
+import type Database from 'better-sqlite3';
+import type { Logger } from 'pino';
 import { cutCJK, ZH_STOP_WORDS } from '../memory/fts-tokenizer.js';
 import { canonicalizeEntityName } from '../memory/repositories/entity-repository.js';
 
@@ -69,6 +84,47 @@ export interface MineMentionOptions {
 
 export const DEFAULT_MAX_MENTIONS_PER_MEMORY = 8;
 export const DEFAULT_MAX_MENTION_NAME_LENGTH = 40;
+
+/**
+ * Memories one mining call works through when the caller does not say.
+ *
+ * The `graph_sync` job always passes its configured `max_links_per_run`, so
+ * this is only the standalone default. It is spelled here rather than imported
+ * from `graph-config.ts` because that module imports `entity-mining.ts` for
+ * `DEFAULT_MAX_MENTIONS_PER_MEMORY` — importing it back would make the two
+ * modules cyclic and could evaluate `DEFAULT_GRAPH_SYNC_CONFIG` before this
+ * constant exists.
+ */
+const DEFAULT_MINED_MEMORIES_PER_RUN = 500;
+
+/**
+ * The only relation deterministic mining can assert.
+ *
+ * A mined mention carries no verb, so inventing one would put a claim in the
+ * database that nothing supports. `MENTIONED` says exactly what the text
+ * proves — this memory talks about this name — and the projection keeps such
+ * rows out of `entity_edges` for that reason.
+ */
+export const MENTION_RELATION_TYPE = 'MENTIONED';
+
+/**
+ * A name announces itself as an organization through its suffix. Nothing else
+ * is decidable by shape.
+ *
+ * There is deliberately no `person` rule. The previous heuristic
+ * (`/^[A-Z][a-z]+(?: [A-Z][a-z]+){1,2}$/`) typed "Power Query" as a person — a
+ * measured defect in the plan §3.4 — and a wrong type splits one real entity
+ * into two rows under `UNIQUE(canonical_name, entity_type)`. `person` may only
+ * be asserted by a producer that actually knows (the LLM entity extractor's
+ * `type` field, an SPO triplet); deterministic mining leaves it at `concept`.
+ */
+const ORGANIZATION_NAME_RE =
+  /(公司|集团|大学|学院|研究院|研究所|实验室|医院|Inc\.?|Corp\.?|Ltd\.?|LLC|GmbH|S\.A\.)$/i;
+
+/** Entity type to record for a mined name. See `ORGANIZATION_NAME_RE`. */
+export function inferEntityType(name: string): string {
+  return ORGANIZATION_NAME_RE.test(name.trim()) ? 'organization' : 'concept';
+}
 
 /** One mention before dedupe/ordering; `index` is its offset in the cleaned text. */
 interface Candidate extends MinedMention {
@@ -727,4 +783,343 @@ export function mineMentionedEntities(
     )
     .slice(0, maxMentions)
     .map(({ name, confidence, source }) => ({ name, confidence, source }));
+}
+
+// ─── Subject producer: memory_links rows ────────────────────────────
+
+export interface MemoryLinkMiningOptions {
+  /** Max memories mined by this call. Default 500. */
+  limit?: number;
+  /** Max mentions taken from one memory. Default 8. */
+  maxMentionsPerMemory?: number;
+  /**
+   * A mined name must appear in at least this many memories of the batch to
+   * become a target, unless the graph already knows it or it came from the
+   * curated vocabulary. Default 2 — see `buildMentionFilter` for why one
+   * occurrence is not enough.
+   */
+  minDocumentFrequency?: number;
+  /** Run the whole pass, then roll it back — nothing is written. */
+  dryRun?: boolean;
+  /** Cooperative cancellation between memories (scheduler timeout). */
+  signal?: AbortSignal;
+  /** Optional sink for per-row diagnostics; silent when absent. */
+  logger?: Logger;
+}
+
+export interface MemoryLinkMiningSummary {
+  /** Memories that gained a subject on at least one link (or a new link). */
+  memoriesMined: number;
+  /** Mentions accepted from those memories, the subject included. */
+  mentionsMined: number;
+  /** `memory_links` rows inserted for mentions other than the subject. */
+  linksCreated: number;
+  /** Rows written by another producer that gained their three subject columns. */
+  linksAnnotated: number;
+  /** Memories with nothing minable, or nothing to associate. */
+  skipped: number;
+}
+
+interface MinableMemoryRow {
+  memory_id: string;
+  content: string;
+  memory_kind: string | null;
+  memory_scope: string | null;
+}
+
+interface ExistingLinkRow {
+  link_id: string;
+  target_entity: string;
+}
+
+/**
+ * Sentinel thrown inside the dry-run transaction: better-sqlite3 rolls back on
+ * throw and offers no other way to abort a transaction, so the rollback *is*
+ * the dry run.
+ */
+const DRY_RUN_ROLLBACK = Symbol('entity-mining dry-run');
+
+/**
+ * Memories no producer has given a subject yet, newest first.
+ *
+ * The cursor is the subject itself: a memory leaves this batch as soon as one
+ * of its link rows has `subject_entity` set. That leaves two kinds of memory
+ * behind — one whose only minable mention is its own subject (there is nothing
+ * to associate it with) and one whose mentions were all filtered out as
+ * fragments. Neither has anything to record, so neither has a row that could
+ * move it out of the batch; they are re-examined until the `limit` window
+ * pushes them out.
+ *
+ * Newest first is what makes that eviction work: an old memory that records
+ * nothing keeps its slot only until `limit` newer memories exist, so a backlog
+ * of them can never crowd out a memory that does have a subject to record.
+ * Oldest first would let such a backlog occupy every slot of every run forever.
+ */
+const MINABLE_MEMORY_SQL = `
+SELECT m.id AS memory_id,
+       m.content AS content,
+       m.kind AS memory_kind,
+       m.scope AS memory_scope
+FROM memories m
+WHERE m.status = 'active'
+  AND trim(m.content) <> ''
+  -- Two kinds are stored for bookkeeping, not as conversation content, and both
+  -- mine as pure noise: the persona row is a distilled JSON profile (its keys and
+  -- values read like entity names), and scene rows hold a path pointer
+  -- ("scenes/<session>_<date>.md") whose fragments — the directory name, a uuid,
+  -- two dates — are the worst offenders in the whole corpus.
+  AND m.kind NOT IN ('persona', 'scene')
+  AND NOT EXISTS (
+    SELECT 1
+    FROM memory_links ml
+    WHERE ml.source_memory_id = m.id
+      AND ml.subject_entity IS NOT NULL
+  )
+ORDER BY m.created_at DESC, m.id DESC
+LIMIT @memoryLimit
+`;
+
+function readMinableMemories(db: Database.Database, limit: number): MinableMemoryRow[] {
+  return db.prepare(MINABLE_MEMORY_SQL).all({ memoryLimit: limit }) as MinableMemoryRow[];
+}
+
+/** Mention must occur in at least this many of the batch's memories. */
+const DEFAULT_MIN_DOCUMENT_FREQUENCY = 2;
+
+function optionMinDocumentFrequency(options: MemoryLinkMiningOptions): number {
+  const value = Number(options.minDocumentFrequency ?? DEFAULT_MIN_DOCUMENT_FREQUENCY);
+  return Number.isFinite(value) && value >= 1 ? Math.floor(value) : DEFAULT_MIN_DOCUMENT_FREQUENCY;
+}
+
+/**
+ * Record a subject on the `memory_links` rows of every memory that lacks one.
+ *
+ * For each memory the most confident mined mention becomes the subject; its
+ * name and type are written on the memory's existing rows (whose subject a
+ * keyword-only extractor cannot know), and each remaining mention is inserted
+ * as its own `MENTIONED` row. Writes `memory_links` only — never
+ * `entities`/`entity_edges`: co-occurrence is not a statement, and the graph
+ * keeps only what a producer asserted (`syncGraphFromMemoryLinks`).
+ *
+ * Safe to call repeatedly: the batch excludes memories that already carry a
+ * subject, existing rows keep the subject they were given first, and inserted
+ * rows use a deterministic id. Throws only when the database itself is
+ * unusable — every per-memory problem is counted in `skipped`.
+ */
+export function mineMemoryLinkSubjects(
+  db: Database.Database,
+  options: MemoryLinkMiningOptions = {},
+): MemoryLinkMiningSummary {
+  const limit = Math.max(1, Math.floor(options.limit ?? DEFAULT_MINED_MEMORIES_PER_RUN));
+  const maxMentionsPerMemory = Math.max(
+    1,
+    Math.floor(options.maxMentionsPerMemory ?? DEFAULT_MAX_MENTIONS_PER_MEMORY),
+  );
+  const dryRun = options.dryRun === true;
+  const { logger, signal } = options;
+
+  const summary: MemoryLinkMiningSummary = {
+    memoriesMined: 0,
+    mentionsMined: 0,
+    linksCreated: 0,
+    linksAnnotated: 0,
+    skipped: 0,
+  };
+
+  const mine = db.transaction(() => {
+    const batch = readMinableMemories(db, limit);
+    if (batch.length === 0) return;
+
+    const extracted = batch.map((memory) => ({
+      memory,
+      mentions: mineMentionedEntities(
+        {
+          id: memory.memory_id,
+          content: memory.content,
+          kind: memory.memory_kind ?? undefined,
+          scope: memory.memory_scope ?? undefined,
+        },
+        { maxMentions: maxMentionsPerMemory },
+      ),
+    }));
+
+    // Two passes over the batch instead of one: extraction per memory, then a
+    // corpus-level filter before anything is written.
+    //
+    // Per-memory extraction alone cannot tell a topic from a sentence fragment —
+    // "Excel" and "问过" look equally plausible in isolation, and jieba happily
+    // emits verbs. Across the batch the difference is stark: a real topic recurs
+    // ("Excel" in 5 memories), a fragment is a one-off. So a name mentioned in a
+    // single memory is dropped unless the graph already knows it (an existing
+    // entity or alias) or it was found in the curated vocabulary.
+    //
+    // Cheap, deterministic and explainable — no model call and no per-name
+    // judgement to disagree with later.
+    const requestedMinDf = optionMinDocumentFrequency(options);
+    const effectiveMinDf = batch.length >= requestedMinDf * 2 ? requestedMinDf : 1;
+    const mentionFilter = buildMentionFilter(db, extracted, effectiveMinDf);
+
+    const selectExisting = db.prepare(
+      'SELECT id AS link_id, target_entity FROM memory_links WHERE source_memory_id = ?',
+    );
+    const annotate = db.prepare(
+      `UPDATE memory_links
+       SET subject_entity = @subject,
+           subject_entity_type = @subjectType,
+           target_entity_type = @targetType
+       WHERE id = @id`,
+    );
+    const insert = db.prepare(
+      `INSERT OR IGNORE INTO memory_links (
+         id, source_memory_id, target_entity, relation_type, confidence,
+         subject_entity, subject_entity_type, target_entity_type
+       ) VALUES (
+         @id, @sourceMemoryId, @targetEntity, @relationType, @confidence,
+         @subject, @subjectType, @targetType
+       )`,
+    );
+
+    for (const { memory, mentions: rawMentions } of extracted) {
+      if (signal?.aborted) break;
+
+      const mentions = rawMentions.filter((mention) => mentionFilter(mention));
+      if (mentions.length === 0) {
+        summary.skipped++;
+        logger?.debug(
+          { memoryId: memory.memory_id },
+          '[entity-mining] memory skipped (no minable mention)',
+        );
+        continue;
+      }
+
+      const subject = mentions[0]!;
+      const subjectKey = canonicalizeEntityName(subject.name);
+      if (!subjectKey) {
+        summary.skipped++;
+        continue;
+      }
+      // The subject is recorded, not inferred later: every row written or
+      // annotated here says what the memory is about, so the projection never
+      // has to pick a subject by confidence or invent a placeholder node.
+      const subjectType = inferEntityType(subject.name);
+
+      try {
+        const existing = selectExisting.all(memory.memory_id) as ExistingLinkRow[];
+        const linkedKeys = new Set<string>();
+        for (const row of existing) {
+          const targetKey = canonicalizeEntityName(row.target_entity);
+          if (targetKey) linkedKeys.add(targetKey);
+          // The subject's own row states no relation to anything; leaving it
+          // NULL keeps "subject unknown" truthful for a row that carries no fact.
+          if (targetKey === subjectKey) continue;
+          const result = annotate.run({
+            id: row.link_id,
+            subject: subject.name,
+            subjectType,
+            targetType: inferEntityType(row.target_entity),
+          });
+          summary.linksAnnotated += result.changes;
+        }
+
+        for (const mention of mentions) {
+          const targetKey = canonicalizeEntityName(mention.name);
+          if (!targetKey || targetKey === subjectKey || linkedKeys.has(targetKey)) continue;
+          const result = insert.run({
+            // Deterministic id: re-mining the same memory must not stack a second
+            // row for the same name even if the earlier row was deleted by hand.
+            id: `${memory.memory_id}:${targetKey}`,
+            sourceMemoryId: memory.memory_id,
+            targetEntity: mention.name,
+            relationType: MENTION_RELATION_TYPE,
+            confidence: Math.min(subject.confidence, mention.confidence),
+            subject: subject.name,
+            subjectType,
+            targetType: inferEntityType(mention.name),
+          });
+          if (result.changes > 0) {
+            summary.linksCreated += result.changes;
+            linkedKeys.add(targetKey);
+          }
+        }
+
+        summary.memoriesMined++;
+        summary.mentionsMined += mentions.length;
+      } catch (err) {
+        // One malformed memory must not abort the run; it stays unmined and the
+        // next pass retries it.
+        summary.skipped++;
+        logger?.warn(
+          { memoryId: memory.memory_id, err: err instanceof Error ? err.message : String(err) },
+          '[entity-mining] memory skipped',
+        );
+      }
+    }
+
+    if (dryRun) throw DRY_RUN_ROLLBACK;
+  });
+
+  try {
+    mine();
+  } catch (err) {
+    if (err !== DRY_RUN_ROLLBACK) throw err;
+  }
+
+  return summary;
+}
+
+/**
+ * Predicate that decides whether a mined mention survives the corpus filter.
+ *
+ * Kept as a closure over the counts so the write loop stays a plain loop, and
+ * so the reason a mention was dropped is visible in one place:
+ *   - seen in >= minDocumentFrequency memories of this batch, or
+ *   - already an entity/alias (the graph learned it earlier — dropping it now
+ *     would make the graph oscillate between runs), or
+ *   - identified by the curated vocabulary rather than position heuristics.
+ */
+function buildMentionFilter(
+  db: Database.Database,
+  extracted: Array<{ memory: { memory_id: string }; mentions: MinedMention[] }>,
+  minDocumentFrequency: number,
+): (mention: MinedMention) => boolean {
+  const counts = new Map<string, number>();
+  for (const { mentions } of extracted) {
+    const seenHere = new Set<string>();
+    for (const mention of mentions) {
+      const key = canonicalizeEntityName(mention.name);
+      if (!key || seenHere.has(key)) continue;
+      seenHere.add(key);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+
+  const known = new Set<string>();
+  for (const row of db.prepare('SELECT canonical_name FROM entities').all() as Array<{
+    canonical_name: string;
+  }>) {
+    known.add(row.canonical_name);
+  }
+  const aliasColumn = db
+    .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'entity_aliases'")
+    .get()
+    ? (db.prepare('PRAGMA table_info(entity_aliases)').all() as Array<{ name: string }>).some(
+        (column) => column.name === 'alias',
+      )
+    : false;
+  if (aliasColumn) {
+    for (const row of db.prepare('SELECT alias FROM entity_aliases').all() as Array<{
+      alias: string;
+    }>) {
+      const key = canonicalizeEntityName(row.alias);
+      if (key) known.add(key);
+    }
+  }
+
+  return (mention: MinedMention): boolean => {
+    const key = canonicalizeEntityName(mention.name);
+    if (!key) return false;
+    if (known.has(key)) return true;
+    if (mention.source === 'vocabulary') return true;
+    return (counts.get(key) ?? 0) >= minDocumentFrequency;
+  };
 }

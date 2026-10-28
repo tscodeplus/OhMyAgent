@@ -262,6 +262,105 @@ describe('PersonaDistiller', () => {
       expect(mockPersonaStore.save).toHaveBeenCalledOnce();
       expect(vi.mocked(mockPersonaStore.save).mock.calls[0][0].summary).toBe('');
     });
+
+    it('records the run inputs and the field-level diff on the distillation log', async () => {
+      const distillationLog = {
+        startRun: vi.fn(() => 'run-1'),
+        finishRun: vi.fn(),
+        recordProvenance: vi.fn(),
+      };
+      const logged = new PersonaDistiller(
+        mockLLM,
+        mockMemoryRepo,
+        mockPersonaStore,
+        mockLogger,
+        {},
+        distillationLog,
+      );
+
+      const before = createEmptyPersona();
+      before.preferences.languages = ['JavaScript'];
+      // The mock store must reflect save() — the distiller diffs the STORED
+      // persona against the pre-run snapshot to build the provenance.
+      let stored: UserPersona | null = before;
+      vi.mocked(mockPersonaStore.get).mockImplementation(() => stored);
+      vi.mocked(mockPersonaStore.save).mockImplementation((persona: UserPersona) => {
+        stored = persona;
+      });
+      vi.mocked(mockMemoryRepo.findByScopeKind).mockReturnValue(samplePreferences);
+      vi.mocked(mockLLM.call).mockResolvedValue(validFullPersonaJson);
+
+      await logged.rebuildFull();
+
+      expect(distillationLog.recordProvenance).toHaveBeenCalledOnce();
+      const [runId, provenance] = distillationLog.recordProvenance.mock.calls[0] as unknown as [
+        string,
+        { inputMemoryIds: string[]; outputDiff: Record<string, { from: unknown; to: unknown }> },
+      ];
+      expect(runId).toBe('run-1');
+      expect(provenance.inputMemoryIds).toEqual(samplePreferences.map((p) => p.id));
+      expect(provenance.outputDiff).toHaveProperty('preferences.languages', {
+        from: ['JavaScript'],
+        to: ['TypeScript', 'Node.js'],
+      });
+    });
+
+    it('records provenance for a failed run so the inputs stay auditable', async () => {
+      const distillationLog = {
+        startRun: vi.fn(() => 'run-2'),
+        finishRun: vi.fn(),
+        recordProvenance: vi.fn(),
+      };
+      const logged = new PersonaDistiller(
+        mockLLM,
+        mockMemoryRepo,
+        mockPersonaStore,
+        mockLogger,
+        {},
+        distillationLog,
+      );
+      vi.mocked(mockMemoryRepo.findByScopeKind).mockReturnValue(samplePreferences);
+      vi.mocked(mockLLM.call).mockRejectedValue(new Error('provider down'));
+
+      expect(await logged.rebuildFull()).toBe(false);
+
+      expect(distillationLog.recordProvenance).toHaveBeenCalledWith('run-2', {
+        inputMemoryIds: samplePreferences.map((p) => p.id),
+        outputDiff: {},
+      });
+      expect(distillationLog.finishRun).toHaveBeenCalledWith(
+        'run-2',
+        'LLM rebuild did not produce valid persona',
+      );
+    });
+
+    it('closes the memories that carried a replaced value through supersede()', async () => {
+      const oldCarrier = makePref('用户偏好使用 JavaScript 开发', oldT);
+      const newCarrier = makePref('用户使用 TypeScript 开发', newT);
+      const supersede = vi.fn(() => true);
+      const repoWithSupersede = {
+        findByScopeKind: vi.fn(() => [oldCarrier, newCarrier]),
+        supersede,
+      };
+      const before = createEmptyPersona();
+      before.preferences.languages = ['JavaScript'];
+      let stored: UserPersona | null = before;
+      vi.mocked(mockPersonaStore.get).mockImplementation(() => stored);
+      vi.mocked(mockPersonaStore.save).mockImplementation((persona: UserPersona) => {
+        stored = persona;
+      });
+      vi.mocked(mockLLM.call).mockResolvedValue(validFullPersonaJson);
+
+      const closing = new PersonaDistiller(
+        mockLLM,
+        repoWithSupersede,
+        mockPersonaStore,
+        mockLogger,
+      );
+      await closing.rebuildFull();
+
+      expect(supersede).toHaveBeenCalledWith(oldCarrier.id, newCarrier.id);
+    });
   });
 
   // ── distillIncremental ──

@@ -23,6 +23,8 @@ import {
   mergePartialPersona,
 } from './persona-model.js';
 import type { UserPersona, PartialPersona } from './persona-model.js';
+import { diffPersonaFields, type PersonaOutputDiff } from './persona/provenance-query.js';
+import { resolveSupersedingPersonaMemories } from './persona/feedback.js';
 
 /**
  * Narrow query interface for the distiller.
@@ -31,6 +33,11 @@ import type { UserPersona, PartialPersona } from './persona-model.js';
  */
 export interface PreferenceQuery {
   findByScopeKind(scope: string, kind: string): Memory[];
+  /**
+   * Marks `oldId` superseded by `newId`. Only the real repository implements
+   * it; when absent (read-only mocks) the contradiction closing is skipped.
+   */
+  supersede?(oldId: string, newId: string): boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -188,6 +195,14 @@ export class PersonaDistiller {
     private readonly distillationLog?: {
       startRun(mode: string, count: number): string;
       finishRun(id: string, error?: string): void;
+      /**
+       * Records what the run distilled from and what it changed (v16 columns).
+       * Optional: a log without it still runs, just without provenance.
+       */
+      recordProvenance?(
+        id: string,
+        provenance: { inputMemoryIds: string[]; outputDiff: PersonaOutputDiff },
+      ): void;
     },
   ) {
     this.outputLanguage = config.outputLanguage;
@@ -244,10 +259,12 @@ export class PersonaDistiller {
       (p) => (p as any).status !== 'deleted' && (p as any).status !== 'superseded',
     );
     const runId = this.distillationLog?.startRun('rebuild', activePreferences.length);
+    const inputMemoryIds = activePreferences.map((p) => p.id);
 
     if (activePreferences.length === 0) {
       this.personaStore.save(createEmptyPersona());
       this.logger.info('Persona reset because no active preference memories remain');
+      this.recordProvenance(runId, inputMemoryIds, {});
       this.distillationLog?.finishRun(runId!);
       return true;
     }
@@ -265,6 +282,7 @@ export class PersonaDistiller {
       schema,
     ].join('\n');
 
+    const before = this.personaStore.get();
     let rebuildSucceeded = false;
     try {
       const response = await this.llm.call(
@@ -291,6 +309,13 @@ export class PersonaDistiller {
         this.personaStore.applyFastPreference(p.content);
       }
     }
+
+    // Diff the stored persona against what was there before the run — the fast
+    // preference above patches it too, so diffing the LLM output alone would
+    // record a provenance the database does not match.
+    const outputDiff = diffPersonaFields(before, this.personaStore.get());
+    this.closeSupersededFields(outputDiff);
+    this.recordProvenance(runId, inputMemoryIds, outputDiff);
 
     this.distillationLog?.finishRun(
       runId!,
@@ -332,6 +357,7 @@ export class PersonaDistiller {
     }
 
     const runId = this.distillationLog?.startRun('incremental', newPrefs.length);
+    const inputMemoryIds = newPrefs.map((p) => p.id);
 
     const currentPersona = this.personaStore.get();
     const existingJson = currentPersona ? personaToJson(currentPersona) : 'No existing persona';
@@ -363,14 +389,20 @@ export class PersonaDistiller {
       if (Object.keys(partial).length > 0) {
         const base = this.personaStore.get() ?? createEmptyPersona();
         const merged = mergePartialPersona(base, partial);
+        const outputDiff = diffPersonaFields(base, merged);
         this.personaStore.save(merged);
+        this.closeSupersededFields(outputDiff);
+        this.recordProvenance(runId, inputMemoryIds, outputDiff);
         this.logger.info('Persona updated via incremental distillation');
+      } else {
+        this.recordProvenance(runId, inputMemoryIds, {});
       }
 
       this.distillationLog?.finishRun(runId!);
       return partial;
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
+      this.recordProvenance(runId, inputMemoryIds, {});
       this.logger.info({ err }, 'Incremental distillation LLM failed, returning empty update');
       this.distillationLog?.finishRun(runId!, errorMsg);
       return {};
@@ -409,6 +441,53 @@ export class PersonaDistiller {
   }
 
   // ── Private helpers ──
+
+  /**
+   * Record what this run distilled from and what it changed.
+   * Never throws: provenance is an audit trail, not a precondition for saving
+   * the persona the user just paid an LLM call for.
+   */
+  private recordProvenance(
+    runId: string | undefined,
+    inputMemoryIds: string[],
+    outputDiff: PersonaOutputDiff,
+  ): void {
+    if (!runId || !this.distillationLog?.recordProvenance) return;
+    try {
+      this.distillationLog.recordProvenance(runId, { inputMemoryIds, outputDiff });
+    } catch (err) {
+      this.logger.warn({ err, runId }, 'Failed to record persona distillation provenance');
+    }
+  }
+
+  /**
+   * A field whose value changed closes the memories that carried the old value
+   * (`invalidated_at` + `supersedes_id` via `MemoryRepository.supersede`). This
+   * is what makes the persona forget: without it the old preference stays
+   * active and gets recalled again on the next distillation.
+   */
+  private closeSupersededFields(outputDiff: PersonaOutputDiff): void {
+    const changes = Object.entries(outputDiff);
+    if (changes.length === 0) return;
+    if (!this.memoryRepo.supersede) return;
+    for (const [field, change] of changes) {
+      try {
+        const closed = resolveSupersedingPersonaMemories({
+          memoryStore: this.memoryRepo,
+          from: change.from,
+          to: change.to,
+        });
+        if (closed.closedIds.length > 0) {
+          this.logger.info(
+            { field, closedIds: closed.closedIds, successorId: closed.successorId },
+            'Persona field change closed the memories that carried the old value',
+          );
+        }
+      } catch (err) {
+        this.logger.warn({ err, field }, 'Failed to close superseded persona memories');
+      }
+    }
+  }
 
   private parseFullResponse(response: string): UserPersona | null {
     const cleaned = extractJson(response);

@@ -222,7 +222,12 @@ describe('PersonaStore', () => {
         kind: 'preference',
         content: '用户希望被称呼为老板',
       });
-      db.prepare('UPDATE memories SET created_at = ? WHERE id = ?').run(
+      // Pin both timestamps: `updated_at` keeps the DB default (current
+      // second), which can land after the persona's `lastUpdated` when the
+      // test crosses a second boundary — the old preference then counts as
+      // "newer" and the overlay assertion flips.
+      db.prepare('UPDATE memories SET created_at = ?, updated_at = ? WHERE id = ?').run(
+        '2000-01-01 00:00:00',
         '2000-01-01 00:00:00',
         oldPref.id,
       );
@@ -299,6 +304,92 @@ describe('PersonaStore', () => {
       expect(result).toContain('[当前用户画像');
       expect(result).toContain('[最新用户偏好，优先于用户画像]');
       expect(result).toContain('用户希望被称呼为老大');
+    });
+
+    describe('{ withProvenance }', () => {
+      function provenanceSource() {
+        return {
+          whyAll: () => [
+            {
+              field: 'preferences.languages',
+              value: 'TypeScript',
+              status: 'fresh' as const,
+              memories: [
+                {
+                  id: 'mem-ts',
+                  content: '用户使用 TypeScript 开发',
+                  kind: 'preference',
+                  status: 'active',
+                  created_at: '1',
+                  invalidated_at: null,
+                  closed: false,
+                },
+              ],
+              runId: 'run-1',
+              distilledAt: '2',
+            },
+            {
+              field: 'skills.known',
+              value: 'Rust',
+              status: 'stale' as const,
+              memories: [
+                {
+                  id: 'mem-rust',
+                  content: '用户在学 Rust',
+                  kind: 'preference',
+                  status: 'superseded',
+                  created_at: '1',
+                  invalidated_at: '3',
+                  closed: true,
+                },
+              ],
+              runId: 'run-1',
+              distilledAt: '2',
+            },
+            {
+              field: 'context.device',
+              value: '',
+              status: 'unknown' as const,
+              memories: [],
+              runId: null,
+              distilledAt: null,
+            },
+          ],
+        };
+      }
+
+      it('is off by default — no source block, unchanged 500-char snippet', () => {
+        store.save(makeFullPersona());
+        const sourced = new PersonaStore(memoryRepo, provenanceSource());
+
+        expect(sourced.toContextString()).toBe(store.toContextString());
+        expect(sourced.toContextString()).not.toContain('画像来源');
+      });
+
+      it('appends the justifying memories and marks stale fields', () => {
+        store.save(makeFullPersona());
+        const sourced = new PersonaStore(memoryRepo, provenanceSource());
+
+        const result = sourced.toContextString({ withProvenance: true });
+
+        expect(result).toContain('画像来源');
+        expect(result).toContain('用户使用 TypeScript 开发');
+        expect(result).toContain('mem-ts');
+        expect(result).toContain('[stale]');
+        // Fields without sources are not listed.
+        expect(result).not.toContain('context.device');
+        expect(result.length).toBeLessThanOrEqual(1200);
+      });
+
+      it('degrades to the plain snippet when no provenance source is wired', () => {
+        store.save(makeFullPersona());
+
+        const result = store.toContextString({ withProvenance: true });
+
+        expect(result).toContain('用户画像');
+        expect(result).not.toContain('画像来源');
+        expect(result.length).toBeLessThanOrEqual(500);
+      });
     });
   });
 

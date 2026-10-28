@@ -7,6 +7,11 @@ import type { Memory } from '../../src/memory/repositories/memory-repository';
  *
  * The fixture is a two-hop chain — mem-a shares Alice with mem-b, mem-b shares
  * Bob with mem-c — so only the second hop can surface mem-c.
+ *
+ * What this pins is the `memory_links` walk inside `MemoryRetriever` (1-hop
+ * expansion over "memory × mentioned entity" associations). It is deliberately
+ * NOT a test of `entity_edges`: since K3 the graph is a derived view of
+ * asserted statements, and recall never traverses it.
  */
 
 function createMemory(id: string, content: string): Memory {

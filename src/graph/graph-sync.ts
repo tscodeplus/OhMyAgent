@@ -1,66 +1,52 @@
 /**
- * GraphSync — materialises `entities`/`entity_edges` from `memory_links` and
- * from the memory text the links never covered.
+ * GraphSync — projects the statements `memory_links` carries into
+ * `entities`/`entity_edges`.
  *
- * The memory entity extractor already pays for one LLM call per finished turn
- * and stores what it found as `memory_links(source_memory_id, target_entity,
- * relation_type, confidence)`. The v10 graph tables exist but had no writer, so
- * `EntityRepository.neighbors()` / `searchEntities()` could only ever see rows
- * some caller inserted by hand. This module is that writer — and it is a pure,
- * deterministic projection of rows that already exist: no prompt, no network,
- * nothing that could disagree with the extraction that produced the links.
- * (The SPO triplet extractor in `src/graph/entity-extractor.ts` stays available
- * as optional enrichment; it is deliberately not called from here.)
+ * The graph is a **derived view**: it holds nothing a producer did not assert.
+ * A `memory_links` row is such an assertion only when it names its subject —
+ * `(subject_entity, relation_type, target_entity)` — and the subject is written
+ * where it is actually known (the extraction pass in `entity-mining.ts`, or a
+ * future SPO producer), never reconstructed here.
  *
- * The projection alone leaves most conversation history out of the graph: the
- * extractor links a handful of entities per turn, so a memory that talks about
- * Excel contributes nothing unless one link happens to name it. `mineGraphFromMemories`
- * closes that gap with deterministic mention mining (`entity-mining.ts`, still
- * no model call), and the same `graph_sync` job runs it right after the
- * projection — see "Mention mining" at the bottom of this file.
+ * ## What becomes an edge
+ * Exactly one row → one edge:
  *
- * ## Mapping
- * `memory_links` has no subject column. One extraction pass stores a turn's
- * entities side by side, each carrying the relation keyword it detected, so a
- * memory's own subject is the entity it mentions most confidently:
+ *   `memory_links(subject 'Alice Smith', WORKS_AT, 'Acme Corp', confidence 0.9)`
+ *   → `alice smith (person) --WORKS_AT (0.9)--> acme corp (organization)`
  *
- *   - ≥2 links: the highest-confidence link names the subject, and every other
- *     link becomes an edge `subject --relation--> target`.
- *   - exactly 1 link: nothing in the row says who the subject is, so the memory
- *     itself becomes the subject through a placeholder entity
- *     `memory:<memory_id>` of type `memory`. Dropping the row instead would
- *     lose the fact entirely.
+ * Two kinds of row deliberately produce nothing:
  *
- * Worked example — memory `4f2a` ("Alice Smith joined Acme Corp in March",
- * created_at 1791333925000) with links `(4f2a, Alice Smith, WORKS_AT, 0.9)` and
- * `(4f2a, Acme Corp, WORKS_AT, 0.8)` projects to:
+ *   - **No subject** (`subject_entity IS NULL`) — the keyword extractor in
+ *     `src/memory/entity-extractor.ts` assigns its relation keyword to *every*
+ *     entity found in the text, so such a row says "this text contains a
+ *     founding keyword and names Acme", not "X founded Acme". Picking the
+ *     highest-confidence row as the subject is what put `SQLite` at the centre
+ *     of a memory about vector search; the row keeps NULL and is skipped.
+ *   - **`MENTIONED`** — co-occurrence is not a statement. Measured on the real
+ *     database, 17 of 18 edges were `MENTIONED`, which is why traversing the
+ *     graph produced nothing. Such rows stay in `memory_links` (they serve
+ *     one-hop recall) and never reach `entity_edges`.
  *
- *   `alice smith (person) --WORKS_AT (confidence 0.8, source_memory_id 4f2a,
- *    valid_from 1791333925000)--> acme corp (organization)`
+ * There is no `memory:<id>` placeholder node any more: a memory is not an
+ * entity. `LEGACY_PLACEHOLDER_ENTITY_TYPE` survives only so `graph:reset` can
+ * find the nodes older versions wrote.
  *
- * The same memory holding only `(4f2a, 程语, MENTIONED, 0.6)` projects to:
- *
- *   `memory:4f2a (memory) --MENTIONED (confidence 0.6)--> 程语 (concept)`
- *
- * `entity_type` is not recorded in `memory_links`, so it is inferred from the
- * name's shape — see `inferEntityType`.
+ * ## Temporal model
+ * `entity_edges` timestamps are INTEGER epoch-ms and facts are never deleted: a
+ * fact that stops being true is *closed* by setting `valid_to`
+ * (`closeContradictedEdges`), so "what was true in June" stays answerable.
+ * `memory_links.created_at` is a TEXT epoch-ms column and goes through
+ * `parseEpochMs` before it becomes `valid_from`.
  *
  * ## Idempotency and progress
- * `EntityRepository.upsertEntity` matches on canonical name and
- * `linkEntities` refreshes the still-open edge for the same (subject, relation,
- * object) instead of stacking duplicates, so a re-run can only refresh. Progress
- * therefore needs no cursor table and no `maintenance_runs` metadata (there is
- * no metadata column, and stuffing a cursor into `error`/`job_name` would
- * corrupt the audit trail): a memory is projected once one of its edges carries
- * its id as `source_memory_id`, so the edges themselves are the cursor. Per-link
- * coverage cannot serve as the marker — the subject's own link never becomes an
- * edge. A run is capped by `limit` links, and one memory's links are projected
- * as a whole so its subject never changes between runs.
- *
- * A memory whose facts were all restated by an earlier memory shares that
- * earlier memory's edges (same subject/relation/object) and therefore never
- * records a `source_memory_id` of its own; it is re-projected — refreshed,
- * never duplicated — on later runs. That is bounded by `limit`.
+ * `EntityRepository.upsertEntity` matches on canonical name and `linkEntities`
+ * refreshes the still-open edge for the same (subject, relation, object)
+ * instead of stacking duplicates, so a re-run can only refresh. Progress needs
+ * no cursor table: a memory counts as projected once one of its edges carries
+ * its id as `source_memory_id`, so the edges themselves are the cursor. A
+ * memory whose rows are all unsubjected or `MENTIONED` never records an edge
+ * and is therefore re-examined on later runs — bounded by `limit`, and cheap
+ * because the batch is ordered and capped.
  *
  * Failures are per-row: a malformed link is logged and skipped, and only a
  * broken database (prepare/transaction failure) reaches the caller.
@@ -78,7 +64,12 @@ import {
   EntityRepository,
 } from '../memory/repositories/entity-repository.js';
 import { parseEpochMs } from '../shared/timestamp.js';
-import { mineMentionedEntities, type MinedMention } from './entity-mining.js';
+import {
+  inferEntityType,
+  mineMemoryLinkSubjects,
+  MENTION_RELATION_TYPE,
+  type MemoryLinkMiningSummary,
+} from './entity-mining.js';
 import { DEFAULT_GRAPH_SYNC_CONFIG, type GraphSyncConfig } from './graph-config.js';
 
 /** `maintenance_runs.job_name` of the scheduled projector. */
@@ -91,17 +82,13 @@ export const GRAPH_SYNC_JOB_NAME = 'graph_sync';
  */
 export const GRAPH_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
-/** `entity_type` of the per-memory placeholder node. */
-export const MEMORY_ENTITY_TYPE = 'memory';
-
 /**
- * Relation of a mined mention edge: "this memory's subject mentioned X".
- *
- * A mined mention carries no verb (deterministic extraction cannot tell
- * WORKS_AT from LIKES), so inventing one would put a claim in the graph that
- * nothing supports. MENTIONED is the one relation the text itself proves.
+ * `entity_type` of the per-memory placeholder node older versions created for
+ * memories with a single link. Nothing writes it any more; `scripts/graph-reset.ts`
+ * is the one reader, which is why the constant lives here rather than in that
+ * script (the value is graph history, not a CLI detail).
  */
-export const MENTION_RELATION_TYPE = 'MENTIONED';
+export const LEGACY_PLACEHOLDER_ENTITY_TYPE = 'memory';
 
 export interface GraphSyncOptions {
   /** Max links projected by this call. Default 500. */
@@ -125,7 +112,13 @@ export interface GraphSyncSummary {
   edgesCreated: number;
   /** Edges that already existed and were re-stated (confidence/valid_from). */
   edgesRefreshed: number;
-  /** Links that could not be projected (blank target, inactive memory, …). */
+  /** Open edges this run closed because the subject stated a newer object. */
+  edgesClosed: number;
+  /** Rows skipped because no producer named their subject (`subject_entity IS NULL`). */
+  linksWithoutSubject: number;
+  /** Rows skipped because co-occurrence is not a statement (`MENTIONED`). */
+  mentionLinksFiltered: number;
+  /** Rows that could not be projected (blank target, inactive memory, self-loop, low confidence). */
   skipped: number;
   memoriesProcessed: number;
   linksProcessed: number;
@@ -139,9 +132,21 @@ interface BatchMemoryRow {
 interface LinkRow {
   link_id: string;
   source_memory_id: string;
+  subject_entity: string | null;
+  subject_entity_type: string | null;
   target_entity: string;
+  target_entity_type: string | null;
   relation_type: string;
   confidence: unknown;
+}
+
+export interface CloseContradictedEdgesInput {
+  subjectId: string;
+  relationType: string;
+  /** Edge target the caller just (re)stated; only *other* objects are closed. */
+  keepTargetId: string;
+  /** Epoch ms at which the previous object stopped being true. */
+  at: number;
 }
 
 /**
@@ -152,33 +157,11 @@ interface LinkRow {
 const DRY_RUN_ROLLBACK = Symbol('graph-sync dry-run');
 
 /**
- * Organization names announce themselves with a suffix; a Latin given+family
- * name is a person. Everything else — including every CJK name, where the
- * extractor's surname heuristics are not available here — stays `concept`,
- * because guessing wrong splits one real entity into two rows under
- * `UNIQUE(canonical_name, entity_type)`. A two-word Title Case name is
- * indistinguishable from a person's name by shape alone and is classified as
- * `person`. No rule produces `place`: nothing in `memory_links` distinguishes a
- * place from any other noun.
- */
-const ORGANIZATION_NAME_RE =
-  /(公司|集团|大学|学院|研究院|研究所|实验室|医院|Inc\.?|Corp\.?|Ltd\.?|LLC|GmbH|S\.A\.)$/i;
-const PERSON_NAME_RE = /^[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}$/;
-
-export function inferEntityType(name: string): string {
-  const trimmed = name.trim();
-  if (ORGANIZATION_NAME_RE.test(trimmed)) return 'organization';
-  if (PERSON_NAME_RE.test(trimmed)) return 'person';
-  return 'concept';
-}
-
-/**
- * Memories with links that are not in the graph yet, oldest first.
+ * Memories with projectable links that are not in the graph yet, oldest first.
  *
  * A memory counts as projected once any edge carries its id as
- * `source_memory_id`. Per-link coverage cannot be used here: the subject's own
- * link never becomes an edge (it *is* the subject), so it would look
- * unprojected forever.
+ * `source_memory_id`. Per-link coverage cannot be used here: several links of
+ * one memory can restate the same edge.
  */
 const BATCH_MEMORY_SQL = `
 SELECT m.id AS memory_id, m.created_at AS memory_created_at
@@ -189,6 +172,8 @@ WHERE m.status = 'active'
     FROM memory_links ml
     WHERE ml.source_memory_id = m.id
       AND trim(ml.target_entity) <> ''
+      AND coalesce(trim(ml.subject_entity), '') <> ''
+      AND upper(trim(ml.relation_type)) <> @mentionRelation
       AND ml.confidence >= @minConfidence
   )
   AND NOT EXISTS (
@@ -218,12 +203,14 @@ function readBatchMemories(
   limit: number,
   minConfidence: number,
 ): BatchMemoryRow[] {
-  return db
-    .prepare(BATCH_MEMORY_SQL)
-    .all({ memoryLimit: limit, minConfidence }) as BatchMemoryRow[];
+  return db.prepare(BATCH_MEMORY_SQL).all({
+    memoryLimit: limit,
+    minConfidence,
+    mentionRelation: MENTION_RELATION_TYPE,
+  }) as BatchMemoryRow[];
 }
 
-/** All links of the batch's memories, hottest first (the subject is chosen by order). */
+/** All links of the batch's memories, deterministic order (ties the projection must not depend on). */
 function readLinksByMemory(db: Database.Database, memoryIds: string[]): Map<string, LinkRow[]> {
   const grouped = new Map<string, LinkRow[]>();
   if (memoryIds.length === 0) return grouped;
@@ -233,7 +220,10 @@ function readLinksByMemory(db: Database.Database, memoryIds: string[]): Map<stri
     .prepare(
       `SELECT ml.id AS link_id,
               ml.source_memory_id AS source_memory_id,
+              ml.subject_entity AS subject_entity,
+              ml.subject_entity_type AS subject_entity_type,
               ml.target_entity AS target_entity,
+              ml.target_entity_type AS target_entity_type,
               ml.relation_type AS relation_type,
               ml.confidence AS confidence
        FROM memory_links ml
@@ -252,19 +242,66 @@ function readLinksByMemory(db: Database.Database, memoryIds: string[]): Map<stri
   return grouped;
 }
 
+function isMentionLink(link: LinkRow): boolean {
+  return link.relation_type.trim().toUpperCase() === MENTION_RELATION_TYPE;
+}
+
+function hasSubject(link: LinkRow): boolean {
+  return (link.subject_entity ?? '').trim() !== '';
+}
+
 function isUsableLink(link: LinkRow, minConfidence: number): boolean {
   if (!link.target_entity.trim()) return false;
-  if (!String(link.relation_type ?? '').trim()) return false;
+  if (!link.relation_type.trim()) return false;
   const confidence = Number(link.confidence);
   return Number.isFinite(confidence) && confidence >= minConfidence;
 }
 
 /**
- * Project `memory_links` into the entity graph.
+ * Close the open edges that a newer statement contradicts.
+ *
+ * The same `(subject, relation)` pointing at a different object is a
+ * contradiction: `Alice works_at Acme` and `Alice works_at Initech` cannot both
+ * be true at once. The older edge is not deleted — its `valid_to` is set to
+ * `at`, which is what makes "what did she work at in June" answerable. An edge
+ * that started after `at` (a backfill projecting an older memory last) is
+ * closed at its own `valid_from`, so the invariant "one open object per
+ * (subject, relation)" still holds without claiming a negative interval.
+ *
+ * @returns number of edges closed.
+ */
+export function closeContradictedEdges(
+  db: Database.Database,
+  input: CloseContradictedEdgesInput,
+): number {
+  const at = Number.isFinite(input.at) ? Math.floor(input.at) : Date.now();
+  const result = db
+    .prepare(
+      `UPDATE entity_edges
+       SET valid_to = CASE
+             WHEN valid_from IS NOT NULL AND valid_from > @at THEN valid_from
+             ELSE @at
+           END
+       WHERE source_entity_id = @subjectId
+         AND relation_type = @relationType
+         AND target_entity_id <> @keepTargetId
+         AND valid_to IS NULL`,
+    )
+    .run({
+      subjectId: input.subjectId,
+      relationType: input.relationType,
+      keepTargetId: input.keepTargetId,
+      at,
+    });
+  return result.changes;
+}
+
+/**
+ * Project subject-bearing `memory_links` rows into the entity graph.
  *
  * Safe to call repeatedly: a second call over unchanged data creates no rows.
  * Throws only when the database itself is unusable — every per-row problem is
- * counted in `skipped`.
+ * counted in the summary.
  */
 export function syncGraphFromMemoryLinks(
   db: Database.Database,
@@ -281,6 +318,9 @@ export function syncGraphFromMemoryLinks(
     entitiesMatched: 0,
     edgesCreated: 0,
     edgesRefreshed: 0,
+    edgesClosed: 0,
+    linksWithoutSubject: 0,
+    mentionLinksFiltered: 0,
     skipped: 0,
     memoriesProcessed: 0,
     linksProcessed: 0,
@@ -310,47 +350,50 @@ export function syncGraphFromMemoryLinks(
 
     for (const memory of batch) {
       if (signal?.aborted) break;
-      // A memory's links are projected as one group: splitting them would let
-      // the subject flip between runs. `limit` therefore bounds the run to
-      // `limit` links plus at most one group's worth.
       if (summary.linksProcessed >= limit) break;
 
       const links = linksByMemory.get(memory.memory_id) ?? [];
-      const usable = links.filter((link) => {
-        if (isUsableLink(link, minConfidence)) return true;
-        summary.skipped++;
-        logger?.debug(
-          { linkId: link.link_id, memoryId: memory.memory_id },
-          '[graph-sync] link skipped (blank target/relation or low confidence)',
-        );
-        return false;
-      });
-      if (usable.length === 0) continue;
+      let projectedHere = 0;
 
-      const anchor = usable[0]!;
-      const hasSubject = usable.length > 1;
-      const subjectName = hasSubject ? anchor.target_entity.trim() : `memory:${memory.memory_id}`;
-      const subjectType = hasSubject ? inferEntityType(subjectName) : MEMORY_ENTITY_TYPE;
-      const validFromMs = parseEpochMs(memory.memory_created_at);
-      const validFrom = validFromMs > 0 ? validFromMs : Date.now();
+      for (const link of links) {
+        if (!hasSubject(link)) {
+          // The truthful answer is "subject unknown". Re-deriving one is what
+          // produced the placeholder nodes and the mis-attributed subjects.
+          summary.linksWithoutSubject++;
+          continue;
+        }
+        if (isMentionLink(link)) {
+          summary.mentionLinksFiltered++;
+          continue;
+        }
+        if (!isUsableLink(link, minConfidence)) {
+          summary.skipped++;
+          logger?.debug(
+            { linkId: link.link_id, memoryId: memory.memory_id },
+            '[graph-sync] link skipped (blank target/relation or low confidence)',
+          );
+          continue;
+        }
 
-      try {
-        const subject = repo.upsertEntity({ name: subjectName, entityType: subjectType });
-        upsertCalls++;
+        const subjectName = link.subject_entity!.trim();
+        const targetName = link.target_entity.trim();
+        if (canonicalizeEntityName(subjectName) === canonicalizeEntityName(targetName)) {
+          summary.skipped++;
+          continue;
+        }
 
-        for (const link of usable) {
-          // The subject's own row carries the subject, not an edge.
-          if (hasSubject && link === anchor) continue;
+        const validFromMs = parseEpochMs(memory.memory_created_at);
+        const validFrom = validFromMs > 0 ? validFromMs : Date.now();
 
-          const targetName = link.target_entity.trim();
-          if (canonicalizeEntityName(targetName) === canonicalizeEntityName(subjectName)) {
-            summary.skipped++;
-            continue;
-          }
-
+        try {
+          const subject = repo.upsertEntity({
+            name: subjectName,
+            entityType: link.subject_entity_type?.trim() || inferEntityType(subjectName),
+          });
+          upsertCalls++;
           const target = repo.upsertEntity({
             name: targetName,
-            entityType: inferEntityType(targetName),
+            entityType: link.target_entity_type?.trim() || inferEntityType(targetName),
           });
           upsertCalls++;
 
@@ -363,18 +406,27 @@ export function syncGraphFromMemoryLinks(
             validFrom,
           });
           linkCalls++;
+          projectedHere++;
           summary.linksProcessed++;
+
+          summary.edgesClosed += closeContradictedEdges(db, {
+            subjectId: subject.id,
+            relationType: link.relation_type.trim(),
+            keepTargetId: target.id,
+            at: validFrom,
+          });
+        } catch (err) {
+          // One malformed row must not abort the run: it stays unprojected and
+          // the next pass retries it.
+          summary.skipped++;
+          logger?.warn(
+            { linkId: link.link_id, memoryId: memory.memory_id, err: errMessage(err) },
+            '[graph-sync] link skipped',
+          );
         }
-        summary.memoriesProcessed++;
-      } catch (err) {
-        // One malformed memory must not abort the run: it stays unprojected and
-        // the next pass retries it.
-        summary.skipped += usable.length;
-        logger?.warn(
-          { memoryId: memory.memory_id, err: err instanceof Error ? err.message : String(err) },
-          '[graph-sync] memory skipped',
-        );
       }
+
+      if (projectedHere > 0) summary.memoriesProcessed++;
     }
 
     summary.entitiesCreated =
@@ -395,262 +447,8 @@ export function syncGraphFromMemoryLinks(
   return summary;
 }
 
-/**
- * Mention mining — the second pass of `graph_sync`.
- *
- * Everything below this point reads `memories` instead of `memory_links`:
- * `mineGraphFromMemories` extracts names from text no link named and writes
- * them with the same `EntityRepository` the projection uses, so the graph gains
- * a deterministic, model-free floor underneath the LLM-derived relations. The
- * two passes are independent on purpose — the projection keeps its cursor
- * (`source_memory_id` on links) and the mining pass keeps its own (an edge of
- * relation `MENTIONED`), so one can be disabled or re-tuned without corrupting
- * the other's progress.
- */
-export interface GraphMiningOptions {
-  /** Max memories mined by this call. Default `maxLinksPerRun` (500). */
-  limit?: number;
-  /** Max mentions taken from one memory. Default 8. */
-  maxMentionsPerMemory?: number;
-  /**
-   * A mined name must appear in at least this many memories to become an entity,
-   * unless the graph already knows it or it came from the curated vocabulary.
-   * Default 2 — see buildMentionFilter for why one occurrence is not enough.
-   */
-  minDocumentFrequency?: number;
-  /** Run the whole pass, then roll it back — nothing is written. */
-  dryRun?: boolean;
-  /** Cooperative cancellation between memories (scheduler timeout). */
-  signal?: AbortSignal;
-  /** Optional sink for per-row diagnostics; silent when absent. */
-  logger?: Logger;
-}
-
-export interface GraphMiningSummary {
-  /** Memories that contributed at least one mention. */
-  memoriesMined: number;
-  /** Mentions accepted (the subject included) — every mention past the subject became an edge. */
-  mentionsMined: number;
-  entitiesCreated: number;
-  entitiesMatched: number;
-  edgesCreated: number;
-  edgesRefreshed: number;
-  /** Memories with nothing minable (blank/emoji/number-only content). */
-  skipped: number;
-}
-
-interface MineableMemoryRow {
-  memory_id: string;
-  content: string;
-  memory_kind: string | null;
-  memory_scope: string | null;
-  memory_created_at: string | null;
-}
-
-/**
- * Memories nothing has mined yet, oldest first.
- *
- * The marker is the same one the link projection uses — an edge carrying the
- * memory's id as `source_memory_id` — narrowed to `MENTIONED` edges so a memory
- * whose links produced only, say, a `WORKS_AT` edge is still mined for the
- * names in its text. Mined edges always carry `source_memory_id`, and a memory
- * with at least one mention always produces at least one edge, so a mined
- * memory drops out of this batch permanently; only memories with nothing to
- * mine (blank, emoji, numbers) are re-scanned, bounded by `limit`.
- */
-const MINEABLE_MEMORY_SQL = `
-SELECT m.id AS memory_id,
-       m.content AS content,
-       m.kind AS memory_kind,
-       m.scope AS memory_scope,
-       m.created_at AS memory_created_at
-FROM memories m
-WHERE m.status = 'active'
-  AND trim(m.content) <> ''
-  -- Two kinds are stored for bookkeeping, not as conversation content, and both
-  -- mine as pure noise: the persona row is a distilled JSON profile (its keys and
-  -- values read like entity names), and scene rows hold a path pointer
-  -- ("scenes/<session>_<date>.md") whose fragments — the directory name, a uuid,
-  -- two dates — are the worst offenders in the whole corpus.
-  AND m.kind NOT IN ('persona', 'scene')
-  AND NOT EXISTS (
-    SELECT 1
-    FROM entity_edges e
-    WHERE e.source_memory_id = m.id
-      AND e.relation_type = @mentionRelation
-  )
-ORDER BY m.created_at, m.id
-LIMIT @memoryLimit
-`;
-
-function readMineableMemories(db: Database.Database, limit: number): MineableMemoryRow[] {
-  return db.prepare(MINEABLE_MEMORY_SQL).all({
-    memoryLimit: limit,
-    mentionRelation: MENTION_RELATION_TYPE,
-  }) as MineableMemoryRow[];
-}
-
-/**
- * Mine the memories no edge covers yet and write them into the graph.
- *
- * This is the second half of `graph_sync`: `syncGraphFromMemoryLinks` projects
- * what the extractor already found, this pass covers the (usually much larger)
- * remainder with heuristics from `entity-mining.ts` — no prompt, no network.
- *
- * Shape follows the link projection so one memory means one subject: the most
- * confident mention becomes the subject and every other mention becomes a
- * `MENTIONED` edge to it, which is what connects the mined nodes to each other
- * instead of parking each behind its own placeholder. A memory with a single
- * mention has no stated subject, so it uses the `memory:<id>` placeholder for
- * the same reason the link projection does.
- *
- * Safe to call repeatedly: mined edges are only created for memories that have
- * no `MENTIONED` edge yet, and `EntityRepository` upserts entities by canonical
- * name. Throws only when the database itself is unusable.
- */
-export function mineGraphFromMemories(
-  db: Database.Database,
-  repo: EntityRepository,
-  options: GraphMiningOptions = {},
-): GraphMiningSummary {
-  const limit = Math.max(1, Math.floor(options.limit ?? DEFAULT_GRAPH_SYNC_CONFIG.maxLinksPerRun));
-  const maxMentionsPerMemory = Math.max(
-    1,
-    Math.floor(options.maxMentionsPerMemory ?? DEFAULT_GRAPH_SYNC_CONFIG.maxMentionsPerMemory),
-  );
-  const dryRun = options.dryRun === true;
-  const { logger, signal } = options;
-
-  const summary: GraphMiningSummary = {
-    memoriesMined: 0,
-    mentionsMined: 0,
-    entitiesCreated: 0,
-    entitiesMatched: 0,
-    edgesCreated: 0,
-    edgesRefreshed: 0,
-    skipped: 0,
-  };
-
-  let upsertCalls = 0;
-  let linkCalls = 0;
-
-  const mine = db.transaction(() => {
-    const batch = readMineableMemories(db, limit);
-    if (batch.length === 0) return;
-
-    const entitiesBefore = countRows(db, 'SELECT COUNT(*) AS cnt FROM entities');
-    const edgesBefore = countRows(db, 'SELECT COUNT(*) AS cnt FROM entity_edges');
-
-    // Two passes over the batch instead of one: extraction per memory, then a
-    // corpus-level filter before anything is written.
-    //
-    // Per-memory extraction alone cannot tell a topic from a sentence fragment —
-    // "Excel" and "问过" look equally plausible in isolation, and jieba happily
-    // emits verbs. Across the batch the difference is stark: a real topic recurs
-    // ("Excel" in 5 memories), a fragment is a one-off. So a name mentioned in a
-    // single memory is dropped unless the graph already knows it (an existing
-    // entity or alias) or it was found in the curated vocabulary.
-    //
-    // Cheap, deterministic and explainable — no model call and no per-name
-    // judgement to disagree with later.
-    const extracted = batch.map((memory) => ({
-      memory,
-      mentions: mineMentionedEntities(
-        {
-          id: memory.memory_id,
-          content: memory.content,
-          kind: memory.memory_kind ?? undefined,
-          scope: memory.memory_scope ?? undefined,
-          created_at: memory.memory_created_at,
-        },
-        { maxMentions: maxMentionsPerMemory },
-      ),
-    }));
-    // A document-frequency cutoff needs a corpus to measure. With a handful of
-    // memories every name occurs once, so applying the cutoff would throw away
-    // every non-vocabulary entity and leave a single subject per memory — the
-    // graph would look better populated on a large corpus and half-empty on a
-    // fresh install, for no reason the user could see. So the cutoff only
-    // engages once the batch is at least twice the threshold in size.
-    const requestedMinDf = optionMinDocumentFrequency(options);
-    const effectiveMinDf = batch.length >= requestedMinDf * 2 ? requestedMinDf : 1;
-    const mentionFilter = buildMentionFilter(db, extracted, effectiveMinDf);
-
-    for (const { memory, mentions: rawMentions } of extracted) {
-      if (signal?.aborted) break;
-
-      const mentions = rawMentions.filter((mention) => mentionFilter(mention));
-      if (mentions.length === 0) {
-        summary.skipped++;
-        logger?.debug(
-          { memoryId: memory.memory_id },
-          '[graph-mine] memory skipped (no minable mention)',
-        );
-        continue;
-      }
-
-      const subjectMention = mentions[0]!;
-      const hasSubject = mentions.length > 1;
-      const subjectName = hasSubject ? subjectMention.name : `memory:${memory.memory_id}`;
-      const subjectType = hasSubject ? inferEntityType(subjectName) : MEMORY_ENTITY_TYPE;
-      const validFromMs = parseEpochMs(memory.memory_created_at);
-      const validFrom = validFromMs > 0 ? validFromMs : Date.now();
-
-      try {
-        const subject = repo.upsertEntity({ name: subjectName, entityType: subjectType });
-        upsertCalls++;
-
-        for (const mention of mentions) {
-          if (hasSubject && mention === subjectMention) continue;
-
-          const target = repo.upsertEntity({
-            name: mention.name,
-            entityType: inferEntityType(mention.name),
-          });
-          upsertCalls++;
-
-          repo.linkEntities({
-            sourceId: subject.id,
-            targetId: target.id,
-            relationType: MENTION_RELATION_TYPE,
-            // The edge claims the subject mentions the target, so it is only as
-            // trustworthy as the weaker of the two extractions.
-            confidence: Math.min(subjectMention.confidence, mention.confidence),
-            sourceMemoryId: memory.memory_id,
-            validFrom,
-          });
-          linkCalls++;
-        }
-
-        summary.memoriesMined++;
-        summary.mentionsMined += mentions.length;
-      } catch (err) {
-        // One malformed memory must not abort the run; it stays unmined and the
-        // next pass retries it.
-        summary.skipped++;
-        logger?.warn(
-          { memoryId: memory.memory_id, err: err instanceof Error ? err.message : String(err) },
-          '[graph-mine] memory skipped',
-        );
-      }
-    }
-
-    summary.entitiesCreated =
-      countRows(db, 'SELECT COUNT(*) AS cnt FROM entities') - entitiesBefore;
-    summary.entitiesMatched = Math.max(0, upsertCalls - summary.entitiesCreated);
-    summary.edgesCreated = countRows(db, 'SELECT COUNT(*) AS cnt FROM entity_edges') - edgesBefore;
-    summary.edgesRefreshed = Math.max(0, linkCalls - summary.edgesCreated);
-
-    if (dryRun) throw DRY_RUN_ROLLBACK;
-  });
-
-  try {
-    mine();
-  } catch (err) {
-    if (err !== DRY_RUN_ROLLBACK) throw err;
-  }
-
-  return summary;
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 /**
@@ -661,11 +459,11 @@ export function mineGraphFromMemories(
  * per-job error isolation — so the graph can neither run on the turn path nor
  * take the memory pipeline down with it.
  *
- * One job, two passes, in this order: the link projection first (it carries the
- * extractor's LLM-derived relations, which are better than any heuristic), then
- * the mention mining over the memories it did not cover. They share one
+ * One job, two passes, in this order: the subject pass (`mineMemoryLinkSubjects`)
+ * records what each memory is about on its `memory_links` rows, then the
+ * projection turns the rows that state a fact into edges. They share one
  * `maintenance_runs` row and one `limit` per run — each pass applies it to its
- * own unit (links, memories) — so enabling mining does not double the run cost.
+ * own unit (memories) — so enabling mining does not double the run cost.
  */
 export function createGraphSyncJob(
   db: Database.Database,
@@ -673,13 +471,11 @@ export function createGraphSyncJob(
   logger: Logger = createLogger(),
 ): MaintenanceJob {
   const repo = new EntityRepository(db);
-  const emptyMining: GraphMiningSummary = {
+  const emptyMining: MemoryLinkMiningSummary = {
     memoriesMined: 0,
     mentionsMined: 0,
-    entitiesCreated: 0,
-    entitiesMatched: 0,
-    edgesCreated: 0,
-    edgesRefreshed: 0,
+    linksCreated: 0,
+    linksAnnotated: 0,
     skipped: 0,
   };
   return {
@@ -689,15 +485,10 @@ export function createGraphSyncJob(
     async run({ dryRun, signal }): Promise<MaintenanceJobResult> {
       const start = Date.now();
       try {
-        const summary = syncGraphFromMemoryLinks(db, repo, {
-          limit: config.maxLinksPerRun,
-          minConfidence: config.minConfidence,
-          dryRun,
-          signal,
-          logger,
-        });
+        // Subject first: the projection must read a recorded subject, never
+        // derive one, so the pass that writes it has to run before it.
         const mined = config.mineMentions
-          ? mineGraphFromMemories(db, repo, {
+          ? mineMemoryLinkSubjects(db, {
               limit: config.maxLinksPerRun,
               maxMentionsPerMemory: config.maxMentionsPerMemory,
               dryRun,
@@ -705,9 +496,20 @@ export function createGraphSyncJob(
               logger,
             })
           : emptyMining;
+        const summary = syncGraphFromMemoryLinks(db, repo, {
+          limit: config.maxLinksPerRun,
+          minConfidence: config.minConfidence,
+          dryRun,
+          signal,
+          logger,
+        });
         const affectedRows =
-          summary.edgesCreated + summary.edgesRefreshed + mined.edgesCreated + mined.edgesRefreshed;
-        // Nothing extracted, nothing minable: report it instead of pretending a
+          summary.edgesCreated +
+          summary.edgesRefreshed +
+          summary.edgesClosed +
+          mined.linksCreated +
+          mined.linksAnnotated;
+        // Nothing recorded, nothing projected: report it instead of pretending a
         // run happened.
         if (
           summary.memoriesProcessed === 0 &&
@@ -723,6 +525,8 @@ export function createGraphSyncJob(
             details: {
               reason: 'no_projectable_links',
               skipped: summary.skipped,
+              linksWithoutSubject: summary.linksWithoutSubject,
+              mentionLinksFiltered: summary.mentionLinksFiltered,
               mined,
             },
           };
@@ -744,74 +548,9 @@ export function createGraphSyncJob(
           dryRun,
           affectedRows: 0,
           durationMs: Date.now() - start,
-          error: err instanceof Error ? err.message : String(err),
+          error: errMessage(err),
         };
       }
     },
-  };
-}
-
-/** Mention must occur in at least this many of the batch's memories. */
-const DEFAULT_MIN_DOCUMENT_FREQUENCY = 2;
-
-function optionMinDocumentFrequency(options: GraphMiningOptions): number {
-  const value = Number(options.minDocumentFrequency ?? DEFAULT_MIN_DOCUMENT_FREQUENCY);
-  return Number.isFinite(value) && value >= 1 ? Math.floor(value) : DEFAULT_MIN_DOCUMENT_FREQUENCY;
-}
-
-/**
- * Predicate that decides whether a mined mention survives the corpus filter.
- *
- * Kept as a closure over the counts so the write loop stays a plain loop, and
- * so the reason a mention was dropped is visible in one place:
- *   - seen in >= minDocumentFrequency memories of this batch, or
- *   - already an entity/alias (the graph learned it earlier — dropping it now
- *     would make the graph oscillate between runs), or
- *   - identified by the curated vocabulary rather than position heuristics.
- */
-function buildMentionFilter(
-  db: Database.Database,
-  extracted: Array<{ memory: { memory_id: string }; mentions: MinedMention[] }>,
-  minDocumentFrequency: number,
-): (mention: MinedMention) => boolean {
-  const counts = new Map<string, number>();
-  for (const { mentions } of extracted) {
-    const seenHere = new Set<string>();
-    for (const mention of mentions) {
-      const key = canonicalizeEntityName(mention.name);
-      if (!key || seenHere.has(key)) continue;
-      seenHere.add(key);
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-  }
-
-  const known = new Set<string>();
-  for (const row of db.prepare('SELECT canonical_name FROM entities').all() as Array<{
-    canonical_name: string;
-  }>) {
-    known.add(row.canonical_name);
-  }
-  const aliasColumn = db
-    .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'entity_aliases'")
-    .get()
-    ? (db.prepare('PRAGMA table_info(entity_aliases)').all() as Array<{ name: string }>).some(
-        (column) => column.name === 'alias',
-      )
-    : false;
-  if (aliasColumn) {
-    for (const row of db.prepare('SELECT alias FROM entity_aliases').all() as Array<{
-      alias: string;
-    }>) {
-      const key = canonicalizeEntityName(row.alias);
-      if (key) known.add(key);
-    }
-  }
-
-  return (mention: MinedMention): boolean => {
-    const key = canonicalizeEntityName(mention.name);
-    if (!key) return false;
-    if (known.has(key)) return true;
-    if (mention.source === 'vocabulary') return true;
-    return (counts.get(key) ?? 0) >= minDocumentFrequency;
   };
 }

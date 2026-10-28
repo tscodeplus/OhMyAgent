@@ -5,13 +5,23 @@ import {
   personaToJson,
   personaFromJson,
 } from './persona-model.js';
+import type { PersonaFieldProvenance } from './persona/provenance-query.js';
 import { truncate } from '../shared/truncation.js';
 
-const PERSONA_ID = '__persona__';
+/**
+ * The `memories` row that holds the persona. Exported because the provenance
+ * and feedback paths name it too: it is the successor of last resort when a
+ * persona value changed without a memory behind the new value.
+ */
+export const PERSONA_MEMORY_ID = '__persona__';
 const PERSONA_SCOPE = 'user';
 const PERSONA_SCOPE_KEY = '__persona__';
 const PERSONA_KIND = 'persona';
 const LATEST_PREFERENCE_LIMIT = 5;
+/** `withProvenance` renders one line per memory; five fields is the budget. */
+const PROVENANCE_FIELD_LIMIT = 5;
+const PROVENANCE_MEMORY_LIMIT = 2;
+const PROVENANCE_CONTEXT_LIMIT = 1200;
 
 function timestampMs(value: string | undefined): number {
   if (!value) return 0;
@@ -82,6 +92,23 @@ export function extractPreferredName(content: string): string | null {
 }
 
 /**
+ * Read side of the distillation provenance, injected so the store stays free of
+ * SQL. Implemented by `PersonaProvenanceQuery`.
+ */
+export interface PersonaProvenanceSource {
+  whyAll(): PersonaFieldProvenance[];
+}
+
+export interface PersonaContextOptions {
+  /**
+   * Append the memories that justify each field — the `why do you think I use
+   * TypeScript?` mode. Default off: the injected snippet is capped at 500 chars
+   * and source ids are noise unless the model is asked to justify itself.
+   */
+  withProvenance?: boolean;
+}
+
+/**
  * PersonaStore manages user persona persistence and context injection.
  *
  * Stores serialised UserPersona objects in the memories table via
@@ -98,7 +125,10 @@ export function extractPreferredName(content: string): string | null {
  *   agent_id   = null
  */
 export class PersonaStore {
-  constructor(private readonly memoryRepo: MemoryRepository) {}
+  constructor(
+    private readonly memoryRepo: MemoryRepository,
+    private readonly provenance?: PersonaProvenanceSource,
+  ) {}
 
   /**
    * Read the latest persona from the memories table.
@@ -134,7 +164,7 @@ export class PersonaStore {
     const content = personaToJson(persona);
 
     this.memoryRepo.upsert({
-      id: PERSONA_ID,
+      id: PERSONA_MEMORY_ID,
       scope: PERSONA_SCOPE,
       scope_key: PERSONA_SCOPE_KEY,
       kind: PERSONA_KIND,
@@ -185,9 +215,10 @@ export class PersonaStore {
 
   /**
    * Format the current persona as a concise Chinese text snippet suitable
-   * for LLM context injection.  Returns a message under 500 characters.
+   * for LLM context injection.  Returns a message under 500 characters
+   * (up to PROVENANCE_CONTEXT_LIMIT when `withProvenance` is on).
    */
-  toContextString(): string {
+  toContextString(options: PersonaContextOptions = {}): string {
     const persona = this.get();
     const latestPreferences = this.getPreferencesNewerThan(persona?.lastUpdated).slice(
       0,
@@ -269,7 +300,39 @@ export class PersonaStore {
     }
 
     const result = lines.join('\n');
-    return truncate(result, 500);
+    if (!options.withProvenance) return truncate(result, 500);
+    return this.withProvenanceLines(result);
+  }
+
+  /**
+   * Append `[画像来源 …]`: per field, the memories the value was distilled from,
+   * marked stale when those memories were closed — so the model can answer
+   * "why do you think …" with specifics and stop asserting a stale value.
+   */
+  private withProvenanceLines(base: string): string {
+    if (!this.provenance) return truncate(base, 500);
+    let fields: PersonaFieldProvenance[];
+    try {
+      fields = this.provenance.whyAll();
+    } catch {
+      return truncate(base, 500);
+    }
+    const sourced = fields
+      .filter((field) => field.memories.length > 0)
+      .slice(0, PROVENANCE_FIELD_LIMIT);
+    if (sourced.length === 0) return truncate(base, 500);
+
+    const lines: string[] = [
+      base,
+      '[画像来源 — 被问「你为什么这么认为」时引用以下记忆，标记为 stale 的不要当作事实]',
+    ];
+    for (const field of sourced) {
+      const stale = field.status === 'stale' ? ' [stale]' : '';
+      for (const memory of field.memories.slice(0, PROVENANCE_MEMORY_LIMIT)) {
+        lines.push(`- ${field.field}${stale}: ${truncate(memory.content, 80)} (${memory.id})`);
+      }
+    }
+    return truncate(lines.join('\n'), PROVENANCE_CONTEXT_LIMIT);
   }
 
   /**
