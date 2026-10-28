@@ -25,9 +25,10 @@ an empty database, which the server creates on first start:
 
 - The dev database is full of test memories, superseded rows and experiment
   residue; importing it would corrupt recall quality rather than preserve it.
-- The vault projection (`pnpm graph:export`) and all memory state are derived
-  from whatever database is live, so a fresh prod database simply starts with an
-  empty vault — nothing needs copying.
+- The vault projection (`pnpm graph:export`), the knowledge export
+  (`pnpm knowledge:export`) and all memory state are derived from whatever
+  database is live, so a fresh prod database simply starts with nothing to
+  export — nothing needs copying.
 - What _is_ copied by hand is **configuration, not knowledge**: `config.yaml`
   and `.env` (provider keys, channel credentials, `WEBUI_TOKEN`).
 
@@ -285,12 +286,16 @@ Note that with a tunnel you can keep the agent bound to `127.0.0.1` only
 
 What matters:
 
-| Path                | Why                                                           |
-| ------------------- | ------------------------------------------------------------- |
-| `data/app.db`       | All memory, sessions, approvals. The only irreplaceable file. |
-| `config.yaml`       | Providers, channels, tool policy.                             |
-| `.env`              | Secrets (`WEBUI_TOKEN`, API keys).                            |
-| `vault/` (optional) | Generated projection — regenerate with `pnpm graph:export`.   |
+| Path                    | Why                                                                                                                                                                        |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `data/app.db`           | All memory, sessions, approvals **and knowledge pages**. Irreplaceable.                                                                                                    |
+| `config.yaml`           | Providers, channels, tool policy.                                                                                                                                          |
+| `.env`                  | Secrets (`WEBUI_TOKEN`, API keys).                                                                                                                                         |
+| `knowledge/` (optional) | One-way markdown export of the knowledge pages — regenerate with `pnpm knowledge:export` (once the knowledge layer lands). Not a source of truth; losing it costs nothing. |
+
+Knowledge pages live in `data/app.db` (`knowledge_pages` and friends), not in a
+file tree, so the `VACUUM INTO` snapshot below is a complete backup of them —
+there is no second directory to keep in sync.
 
 Use SQLite's `VACUUM INTO`, not `cp`: it takes a consistent snapshot of a live
 database (WAL included) and leaves a single compact file.
@@ -413,14 +418,28 @@ reboot.
    repeated restarts, and `df -h $HOME` has room for the growing database plus
    snapshots.
 
-7. **Optional: vault projection**
+7. **Optional: knowledge export (and a no-file consistency check)**
+
+   > **Not yet implemented.** The `knowledge:*` scripts land with the knowledge
+   > layer; until then only `pnpm graph:export` exists, and this item is a no-op
+   > (skip it on a deploy today).
+
+   If you want the knowledge pages as browsable markdown (Obsidian, grep, git):
 
    ```bash
-   cd ~/OhMyAgent && pnpm graph:export --out ~/vault
+   cd ~/OhMyAgent && pnpm knowledge:export --out ~/knowledge
    ```
 
-   Read-only against `data/app.db`; the second run must report `0 written`
-   (idempotent). Notes under `~/vault/manual/**` are yours and are never touched.
+   Read-only against `data/app.db`; the second run must report nothing changed
+   (idempotent). It is a one-way projection — editing those files does **not**
+   feed back into the database.
+
+   If you only want to know whether the full-text index still matches the pages,
+   skip the export and run the consistency check instead:
+
+   ```bash
+   pnpm knowledge:reindex --check     # compares knowledge_fts_jieba row count with knowledge_pages
+   ```
 
 ---
 
