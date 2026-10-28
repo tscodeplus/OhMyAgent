@@ -1516,6 +1516,7 @@
     "filterAll": "All",
     "filterClear": "None",
     "filterGroupResult": "Results",
-    "filterGroupMemory": "Memory types"
+    "filterGroupMemory": "Memory types",
+    "contextCollapse": "Collapse"
   }
 }

@@ -1516,6 +1516,7 @@
     "filterAll": "全选",
     "filterClear": "清空",
     "filterGroupResult": "结果",
-    "filterGroupMemory": "记忆类型"
+    "filterGroupMemory": "记忆类型",
+    "contextCollapse": "收起"
   }
 }
