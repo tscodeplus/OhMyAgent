@@ -199,7 +199,7 @@ export default function GraphView({
               <>
                 {graph.truncated && (
                   <p className="mb-1 text-[11px] text-amber-600 dark:text-amber-400">
-                    {t('graph.truncated')}
+                    {t('graph.truncated', { count: graph.nodes.length })}
                   </p>
                 )}
                 <NeighbourhoodGraph

@@ -21,7 +21,7 @@ interface PanelSize {
  *
  * The layout is computed in CSS pixels and the `viewBox` is that same box, so
  * one SVG unit is one pixel. Measuring is therefore not cosmetic: it is what
- * keeps a 9px label 9px on a phone and on a 4K desktop. A fixed 600-unit box
+ * keeps a 10px label 10px on a phone and on a 4K desktop. A fixed 600-unit box
  * stretched with `w-full` is what made the same graph render its labels at ~7px
  * on one screen and ~18px on another.
  */
@@ -157,7 +157,7 @@ export default function NeighbourhoodGraph({
                   y={position.y + radius + LABEL_SIZE + 1}
                   textAnchor="middle"
                   fontSize={LABEL_SIZE}
-                  strokeWidth={2.5}
+                  strokeWidth={3}
                   paintOrder="stroke"
                   className={
                     isFocus
@@ -175,7 +175,7 @@ export default function NeighbourhoodGraph({
 
       {layout.unlinked.length > 0 && (
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span className="text-[11px] text-neutral-500 dark:text-neutral-400">
+          <span className="text-xs text-neutral-500 dark:text-neutral-400">
             {t('graph.unlinkedCount', { count: layout.unlinked.length })}
           </span>
           {layout.unlinked.slice(0, CHIP_LIMIT).map((node) => (
@@ -184,13 +184,13 @@ export default function NeighbourhoodGraph({
               type="button"
               onClick={() => onSelect(node.id)}
               title={node.name}
-              className="group inline-flex max-w-[11rem] cursor-pointer items-center gap-1.5 text-[11px] text-neutral-600 hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-neutral-100"
+              className="group inline-flex max-w-[11rem] cursor-pointer items-center gap-1.5 text-xs text-neutral-600 hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-neutral-100"
             >
               {/* Same dot as a drawn node, so the list reads as the part of the
                   graph that has no edge to show rather than as a form field. */}
               <span
                 aria-hidden
-                className="h-[7px] w-[7px] shrink-0 rounded-full bg-neutral-300 group-hover:bg-neutral-500 dark:bg-neutral-600 dark:group-hover:bg-neutral-400"
+                className="h-[9px] w-[9px] shrink-0 rounded-full bg-neutral-300 group-hover:bg-neutral-500 dark:bg-neutral-600 dark:group-hover:bg-neutral-400"
               />
               {/* The list is not a drawing: it has the panel's width to wrap
                   into, so the name is shown whole and only the CSS ellipsis
@@ -199,7 +199,7 @@ export default function NeighbourhoodGraph({
             </button>
           ))}
           {layout.unlinked.length > CHIP_LIMIT && (
-            <span className="text-[11px] text-neutral-500 dark:text-neutral-400">
+            <span className="text-xs text-neutral-500 dark:text-neutral-400">
               +{layout.unlinked.length - CHIP_LIMIT}
             </span>
           )}
@@ -208,7 +208,12 @@ export default function NeighbourhoodGraph({
 
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-500 dark:text-neutral-400">
         {layout.hiddenCount > 0 && (
-          <span>{t('graph.showingFirst', { count: visible.length })}</span>
+          <span>
+            {t('graph.showingFirst', {
+              shown: layout.rendered.length,
+              hidden: layout.hiddenCount,
+            })}
+          </span>
         )}
         <span>{t('graph.clickHint')}</span>
       </div>

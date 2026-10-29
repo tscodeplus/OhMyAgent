@@ -32,10 +32,10 @@ import type { GraphEdge, GraphNode } from '../../types/graph';
  */
 
 /** Circle radius; small on purpose — the label carries the identity. */
-export const NODE_RADIUS = 3.5;
+export const NODE_RADIUS = 4.5;
 /** The entity the user opened, drawn a touch heavier than its neighbours. */
-export const FOCUS_RADIUS = 5;
-export const LABEL_SIZE = 9;
+export const FOCUS_RADIUS = 6;
+export const LABEL_SIZE = 10;
 /**
  * Only a safety net for absurd names: the real limit is the space a node gets
  * (`fitLabel`), so "Power Query" renders whole when the ring is wide enough and
@@ -52,11 +52,14 @@ export const MAX_RENDERED = 40;
 /** Distance between two rings of the radial layout. */
 const RING_STEP = 54;
 /** Smallest arc between two nodes, whatever their labels say (circle + air). */
-const MIN_ARC = 24;
+const MIN_ARC = 26;
 /** Space kept between two neighbouring labels on the same ring. */
 const LABEL_GAP = 6;
-/** Gap between two packed components. */
-const COMPONENT_GAP = 30;
+/**
+ * Gap between two packed components. Wide enough that a name in one column does
+ * not have to stop at the next: the columns share the canvas, not the edge.
+ */
+const COMPONENT_GAP = 46;
 /** Half a truncated label, so the outermost node's text is not clipped. */
 const PAD_X = 26;
 const PAD_TOP = 9;
