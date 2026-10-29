@@ -33,7 +33,9 @@ They have different evidence, different admission rules, and different consumers
 
 9. **A page links to an entity node; it never creates one.** `knowledge_pages.entity_id` is filled by a lookup on the canonicalised title (`migration-v21` backfills NULL-only, `KnowledgeRepository` resolves on insert and re-resolves only when the title moves). NULL is the truthful state for a page whose name no memory has attested — page-first is a legitimate order, and a page is not a producer that may vouch for a node. The read side is `entity_query`'s `pages` array, which is omitted (not empty) when the knowledge layer is absent: "no pages" and "no such layer" are different answers.
 
-10. **A page link's predicate comes from the target's `page_type`.** `knowledge_links.relation_type` is derived from the closed set in `knowledge/types.ts` (`topic → ABOUT`, `project → PART_OF`, `decision → DECIDED_BY`, `entity → MENTIONS`, `snippet → QUOTES`) at write time and backfilled for existing rows. It is not parsed from the body and not configurable: the wikilink stays `[[page_type/slug]]`, which Obsidian already resolves, and the vocabulary stays in code for the same reason `RELATION_EVIDENCE` does.
+10. **An edge's weight ages at read time, and only when asked.** `entity_edges.confidence` is what the producer asserted and never changes after projection; `src/graph/decay.ts` computes `effective_confidence` from the edge's own `valid_from` to the instant being asked about (so `asOf` answers about that instant, not today), and it is omitted unless `memory.graph.decay_half_life_days` is a positive number. A stored decayed value would lose the producer's number, change what `asOf` means, and need a rewrite job. The stored number is never overwritten.
+
+11. **A page link's predicate comes from the target's `page_type`.** `knowledge_links.relation_type` is derived from the closed set in `knowledge/types.ts` (`topic → ABOUT`, `project → PART_OF`, `decision → DECIDED_BY`, `entity → MENTIONS`, `snippet → QUOTES`) at write time and backfilled for existing rows. It is not parsed from the body and not configurable: the wikilink stays `[[page_type/slug]]`, which Obsidian already resolves, and the vocabulary stays in code for the same reason `RELATION_EVIDENCE` does.
 
 ---
 
@@ -113,7 +115,7 @@ Kept because each one is the reason a rule exists. They are not targets and shou
 
 These are gaps in the design, not rules: each is verified against the code as of 2026-10-29, and none is covered by a rule in §2.
 
-- **pages have no scope isolation** — `knowledge_pages` has no `scope` column, so a page written from one IM chat is a candidate answer in every other chat on the same database.
+- **pages have no scope isolation** — `knowledge_pages` has no `scope` column, so a page written from one IM chat is a candidate answer in every other chat on the same database. The column and the read filter are the easy half; there is no _source_ for the scope today, because `ToolDefinition.execute(args)` receives no session or channel identity, and a filter parameter nobody passes is dead code. This needs a tool-context change first.
 
 This file should not grow into a backlog. When a gap closes, delete it here and record the rule it produced in §2.
 
