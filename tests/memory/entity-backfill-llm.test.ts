@@ -187,6 +187,37 @@ describe('entity_backfill — LLM pass', () => {
     });
   });
 
+  it('still asks the model about a memory the deterministic pass found nothing in', async () => {
+    // The starvation this pins: a memory with no links at all is selected by the
+    // mention pass on *every* run, and that pass writes nothing when the text
+    // holds no extractable name. Excluding "handled this run" memories from the
+    // model therefore meant those memories were never asked — measured on the
+    // reference database as 13 of 28 memories, with a run reporting
+    // `llmCalls: 0, degradedReason: null`, i.e. success with no decision behind
+    // it. The mention pass cannot type anything, so it is not a reason to skip.
+    const text = '用户偏好简短回答，不要长篇大论。';
+    seedMemory('m1', text);
+    modelAnswers({ [text]: [] });
+
+    const result = await runJob();
+
+    expect(result.details).toMatchObject({
+      llmAttempted: true,
+      llmCalls: 1,
+      llmFailures: 0,
+      typedLinksWritten: 0,
+      degradedReason: null,
+    });
+    // "I asked and there was nothing" is recorded, so the answer is not bought
+    // again on the next run.
+    expect(
+      db.prepare('SELECT outcome FROM entity_extraction_log WHERE memory_id = ?').get('m1'),
+    ).toEqual({ outcome: 'none' });
+
+    const second = await runJob();
+    expect(second.details).toMatchObject({ llmAttempted: false, llmCalls: 0 });
+  });
+
   it('does not re-process a memory on a second run', async () => {
     seedMemory('m1', ADVISES_TEXT);
     seedMention('l1', 'm1', '张伟', null);
@@ -407,18 +438,21 @@ describe('entity_backfill — LLM pass', () => {
     expect(result.details).toMatchObject({ llmCalls: 0, llmAttempted: false });
   });
 
-  it('does not spend the LLM budget on memories the deterministic pass just handled', async () => {
+  it('asks the newest candidates first, whether or not the mention pass touched them', async () => {
     const answers: Record<string, Array<Record<string, unknown>>> = {};
     const now = Date.now();
 
-    // Seven newer memories with no links at all: the deterministic pass gives
-    // them mentions in this run, so they must not consume LLM budget.
-    for (let i = 0; i < 7; i++) {
+    // Five newer memories the mention pass will handle in this run. Under the
+    // previous rule these consumed no budget — and a memory the mention pass
+    // writes *nothing* for was therefore never asked at all, on any run, because
+    // having no links is what keeps it in the mention pass (see the case above).
+    // "Handled by the mention pass" is not "typed", so it is not a reason to skip.
+    for (let i = 0; i < 5; i++) {
       seedMemory(`fresh-${i}`, '王小明是我的同事，人很靠谱', now + 1000 + i);
     }
 
-    // Five older memories that already have mentions: the candidates the model
-    // pass exists for.
+    // Five older memories that already have mentions: the backlog the budget
+    // reaches once the newest have an answer on file.
     for (let i = 0; i < 5; i++) {
       const id = `old-${i}`;
       seedMemory(id, ADVISES_TEXT, now - 1000 - i);
@@ -436,12 +470,20 @@ describe('entity_backfill — LLM pass', () => {
     ];
     modelAnswers(answers);
 
-    const result = await runJob({
-      config: { ...DEFAULT_ENTITY_EXTRACTION_JOB_CONFIG, max_memories_per_run: 5 },
-    });
+    const budget = { ...DEFAULT_ENTITY_EXTRACTION_JOB_CONFIG, max_memories_per_run: 5 };
+    const first = await runJob({ config: budget });
 
+    // Newest-first, and the cap still holds: the five fresh ones are asked and
+    // answer "no relation", which the ledger records.
     expect(auxLLMCall).toHaveBeenCalledTimes(5);
-    expect(result.details).toMatchObject({ llmCalls: 5, typedLinksWritten: 5 });
+    expect(first.details).toMatchObject({ llmCalls: 5, typedLinksWritten: 0 });
+    expect(
+      db.prepare("SELECT COUNT(*) AS n FROM entity_extraction_log WHERE outcome = 'none'").get(),
+    ).toEqual({ n: 5 });
+
+    // The backlog is served on the next run instead of being starved by it.
+    const second = await runJob({ config: budget });
+    expect(second.details).toMatchObject({ llmCalls: 5, typedLinksWritten: 5 });
   });
 
   it('reports candidates on a dry run without calling the model', async () => {

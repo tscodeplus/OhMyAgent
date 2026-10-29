@@ -28,10 +28,17 @@
  *
  * - `max_memories_per_run` is a hard cap on **LLM calls per run**, not per
  *   batch, and it is reported as `llmCallBudget` in the result details.
- * - Memories already carrying a typed link are never candidates again, memories
- *   shorter than {@link MIN_LLM_CONTENT_CHARS} are skipped, and a memory handled
- *   by the deterministic pass in this run is excluded from the LLM pass — one
- *   memory is never processed twice in one run.
+ * - Memories already carrying a typed link are never candidates again, and
+ *   memories shorter than {@link MIN_LLM_CONTENT_CHARS} are skipped.
+ * - A memory the deterministic pass *scanned* in this run is still a candidate
+ *   for the model. The deterministic pass only ever writes `MENTIONED` rows, so
+ *   "it already looked at this one" is not "this one has been typed" — and
+ *   excluding it starves exactly the memories the deterministic pass found
+ *   nothing in: they have no links, so every run selects them for the mention
+ *   pass, and if that pass writes nothing they would never be asked. Measured on
+ *   the reference database before this rule changed: 13 of 28 memories had no
+ *   links at all and `llmCalls: 0, degradedReason: null` — a run that reported
+ *   success while refusing to ask anyone anything.
  * - No aux model configured (or `memory.entity_extraction.llm: false`) means the
  *   LLM pass does not run at all: `llmAttempted: false` and a `degradedReason`
  *   say so. It never throws, and the deterministic pass is untouched.
@@ -458,11 +465,9 @@ export function createEntityBackfillJob(
       }
 
       // ── Generation 1: mentions, no model ──────────────────────────────
-      const processed = new Set<string>();
       let mentionLinksWritten = 0;
       for (const row of deterministicRows) {
         if (signal?.aborted) break;
-        processed.add(row.id);
         try {
           const entities = extractEntities(row.content, { scope: row.scope, kind: row.kind });
           for (const entity of entities) {
@@ -494,11 +499,10 @@ export function createEntityBackfillJob(
       let duplicateTargets = 0;
 
       if (!degradedReason && llmBudget > 0) {
-        // The window is wider than the budget by the deterministic batch size:
-        // a memory this run just gave mentions to is excluded below, and a
-        // `LIMIT maxLlmCalls` window would then spend the budget on nothing.
-        // Scanning more rows costs one query, never another model call.
-        const candidates = readLlmCandidates(llmBudget + deterministicRows.length);
+        // The window is the budget: the SQL already excludes memories with a
+        // typed link, and `length(content) >= MIN_LLM_CONTENT_CHARS` already
+        // removes the short ones, so nothing read here is skipped below.
+        const candidates = readLlmCandidates(llmBudget);
         const llmConfig: LLMExtractionConfig = {
           // A task-specific model overrides the auxiliary model for this call
           // only; the shared config object is not mutated.
@@ -513,8 +517,6 @@ export function createEntityBackfillJob(
         for (const row of candidates) {
           if (signal?.aborted) break;
           if (llmCalls >= llmBudget) break;
-          if (processed.has(row.id)) continue;
-          processed.add(row.id);
           llmCalls++;
 
           let triples: EntityTriple[];
