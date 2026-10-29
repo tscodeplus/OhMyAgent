@@ -6,8 +6,11 @@
  * can attest. What is pinned here is the contract the graph depends on —
  *
  *   - a memory nobody has typed gets one model call and, when the model returns
- *     a relation the memory supports, a typed `memory_links` row that carries
- *     the memory's already-recorded subject (otherwise the projector skips it);
+ *     a relation the memory supports, a typed `memory_links` row carrying the
+ *     subject the *model* stated. Nothing is composed any more: the previous
+ *     version paired the mined subject with a relation the model gave some other
+ *     entity, which is how `Python —USES→ excel-mcp` came out of a sentence
+ *     saying Python was not to be used;
  *   - a memory that has been typed (or that this run already handled) is never
  *     sent again;
  *   - answers the projector's gates would refuse are not written, and are
@@ -155,7 +158,15 @@ describe('entity_backfill — LLM pass', () => {
     seedMention('l1', 'm1', '张伟', null);
     seedMention('l2', 'm1', 'Acme', '张伟');
     modelAnswers({
-      [ADVISES_TEXT]: [{ entity: 'Acme', relation: 'ADVISES', confidence: 0.9 }],
+      [ADVISES_TEXT]: [
+        {
+          subject: '张伟',
+          relation: 'ADVISES',
+          object: 'Acme',
+          evidence: '张伟是Acme公司的顾问',
+          confidence: 0.9,
+        },
+      ],
     });
 
     const result = await runJob();
@@ -181,7 +192,15 @@ describe('entity_backfill — LLM pass', () => {
     seedMention('l1', 'm1', '张伟', null);
     seedMention('l2', 'm1', 'Acme', '张伟');
     modelAnswers({
-      [ADVISES_TEXT]: [{ entity: 'Acme', relation: 'ADVISES', confidence: 0.9 }],
+      [ADVISES_TEXT]: [
+        {
+          subject: '张伟',
+          relation: 'ADVISES',
+          object: 'Acme',
+          evidence: '张伟是Acme公司的顾问',
+          confidence: 0.9,
+        },
+      ],
     });
 
     await runJob();
@@ -192,18 +211,30 @@ describe('entity_backfill — LLM pass', () => {
     expect(typedCount()).toBe(1);
   });
 
-  it('refuses an endpoint that is a fragment of the text and says so', async () => {
+  it('refuses an endpoint that is a fragment of the text, before it reaches the job', async () => {
     const text = '请问如何称呼你比较合适';
     seedMemory('m1', text);
     // No subject recorded: the fragment gate and not the relation gate is what
-    // has to refuse this answer.
+    // has to refuse this answer. Since the extractor gained the token-alignment
+    // gate this is refused one step earlier — a fragment never becomes a triple,
+    // so the job has nothing to reject and the ledger says 0.
     seedMention('l1', 'm1', '称呼', null);
-    modelAnswers({ [text]: [{ entity: '何称', relation: 'ADVISES', confidence: 0.9 }] });
+    modelAnswers({
+      [text]: [
+        {
+          subject: '何称',
+          relation: 'ADVISES',
+          object: '称呼',
+          evidence: '如何称呼',
+          confidence: 0.9,
+        },
+      ],
+    });
 
     const result = await runJob();
 
     expect(typedCount()).toBe(0);
-    expect(result.details).toMatchObject({ rejectedByGates: 1, typedLinksWritten: 0 });
+    expect(result.details).toMatchObject({ typedLinksWritten: 0 });
   });
 
   it('refuses a relation the memory does not attest and says so', async () => {
@@ -212,7 +243,17 @@ describe('entity_backfill — LLM pass', () => {
     const text = '穿衣建议：周五降温，注意保暖';
     seedMemory('m1', text);
     seedMention('l1', 'm1', '周五', '穿衣建议');
-    modelAnswers({ [text]: [{ entity: '周五', relation: 'ADVISES', confidence: 0.9 }] });
+    modelAnswers({
+      [text]: [
+        {
+          subject: '穿衣建议',
+          relation: 'ADVISES',
+          object: '周五',
+          evidence: '穿衣建议：周五降温',
+          confidence: 0.9,
+        },
+      ],
+    });
 
     const result = await runJob();
 
@@ -263,6 +304,65 @@ describe('entity_backfill — LLM pass', () => {
     });
   });
 
+  it('does not re-buy an answer that stated no relation', async () => {
+    // A null answer cannot be stored in `memory_links`, so without the ledger
+    // (migration v18) this memory is a candidate on every single run.
+    const text = '用户偏好简短回复，不要解释过程';
+    seedMemory('m1', text);
+    seedMention('l1', 'm1', '用户', null);
+    modelAnswers({ [text]: [] });
+
+    await runJob();
+    const second = await runJob();
+
+    expect(auxLLMCall).toHaveBeenCalledTimes(1);
+    expect(second.details).toMatchObject({ llmCalls: 0, llmAttempted: false });
+    expect(
+      (
+        db.prepare('SELECT outcome FROM entity_extraction_log WHERE memory_id = ?').get('m1') as {
+          outcome: string;
+        }
+      ).outcome,
+    ).toBe('none');
+  });
+
+  it('re-examines a memory whose text changed', async () => {
+    seedMemory('m1', ADVISES_TEXT);
+    // A mention, so the memory is an LLM candidate from the start (the
+    // deterministic pass otherwise handles it in this run and spends no call).
+    seedMention('l1', 'm1', 'Acme', '张伟');
+    modelAnswers({ [ADVISES_TEXT]: [] });
+
+    await runJob();
+    // The edit is the seam: repository update drops the ledger row.
+    db.prepare('UPDATE memories SET content = ? WHERE id = ?').run('张伟是Acme公司的顾问。', 'm1');
+    db.prepare('DELETE FROM entity_extraction_log WHERE memory_id = ?').run('m1');
+    modelAnswers({ '张伟是Acme公司的顾问。': [] });
+
+    await runJob();
+    expect(auxLLMCall).toHaveBeenCalledTimes(2);
+  });
+
+  it('never skips a memory whose call failed', async () => {
+    // A failure is not an answer: the ledger must not record it as examined.
+    const text = '张伟是Acme公司的顾问';
+    seedMemory('m1', text);
+    seedMention('l1', 'm1', 'Acme', '张伟');
+    auxLLMCall.mockRejectedValue(new Error('gateway down'));
+
+    const first = await runJob();
+    expect(first.details).toMatchObject({
+      llmCalls: 1,
+      llmFailures: 1,
+      degradedReason: 'llm_failed',
+    });
+
+    modelAnswers({ [text]: [] });
+    const second = await runJob();
+    expect(auxLLMCall).toHaveBeenCalledTimes(2);
+    expect(second.details).toMatchObject({ llmCalls: 1 });
+  });
+
   it('holds max_memories_per_run against 50 candidates', async () => {
     const answers: Record<string, Array<Record<string, unknown>>> = {};
     for (let i = 0; i < 50; i++) {
@@ -271,7 +371,15 @@ describe('entity_backfill — LLM pass', () => {
       seedMemory(id, text, Date.now() + i);
       seedMention(`${id}-s`, id, '张伟', null);
       seedMention(`${id}-t`, id, 'Acme', '张伟');
-      answers[text] = [{ entity: 'Acme', relation: 'ADVISES', confidence: 0.9 }];
+      answers[text] = [
+        {
+          subject: '张伟',
+          relation: 'ADVISES',
+          object: 'Acme',
+          evidence: '张伟是Acme公司的顾问',
+          confidence: 0.9,
+        },
+      ];
     }
     modelAnswers(answers);
 
@@ -317,7 +425,15 @@ describe('entity_backfill — LLM pass', () => {
       seedMention(`${id}-s`, id, '张伟', null);
       seedMention(`${id}-t`, id, 'Acme', '张伟');
     }
-    answers[ADVISES_TEXT] = [{ entity: 'Acme', relation: 'ADVISES', confidence: 0.9 }];
+    answers[ADVISES_TEXT] = [
+      {
+        subject: '张伟',
+        relation: 'ADVISES',
+        object: 'Acme',
+        evidence: '张伟是Acme公司的顾问',
+        confidence: 0.9,
+      },
+    ];
     modelAnswers(answers);
 
     const result = await runJob({

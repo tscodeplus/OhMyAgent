@@ -39,6 +39,7 @@ import type {
   UnifiedSearchLane,
 } from '../../memory/unified-search.js';
 import { inferChannel } from '../../memory/session-channel.js';
+import { readHintsForMemories, type GraphHint } from '../../graph/neighborhood.js';
 import { loadMessageContext, titleFromMetadata } from './session-message-view.js';
 import type { FooterConfig } from '../types.js';
 
@@ -144,6 +145,13 @@ export interface SearchResponse {
   /** What each fused lane contributed. Entities are not a lane (see the handler). */
   lanes: Record<UnifiedSearchLane, UnifiedLaneReport>;
   deduped: SearchDedupeRecord[];
+  /**
+   * Relations the graph already records about the returned memories.
+   *
+   * Additive by design: a client that ignores the field behaves exactly as before,
+   * and nothing here influences `results` order or `score`.
+   */
+  hints: GraphHint[];
 }
 
 export interface GraphRouteConfig {
@@ -725,10 +733,20 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
       // fused score is monotonic in lane rank.
       results.sort((a, b) => b.score - a.score);
 
+      // Structural hints for the memories this query actually returned. Derived,
+      // never ranked: they are attached beside the results so the client can show
+      // them, and a wrong edge costs a wrong hint instead of a wrong hit order.
+      const memoryIds = results
+        .filter((row) => row.kind === 'memory')
+        .map((row) => row.id)
+        .slice(0, SEARCH_LANES * MAX_SEARCH_LIMIT);
+      const hints = readHintsForMemories(cfg.db, memoryIds);
+
       const payload: SearchResponse = {
         q: term,
         results,
         pages,
+        hints,
         lanes: fused.lanes,
         deduped: fused.deduped.map((record) => ({
           lane: record.lane,

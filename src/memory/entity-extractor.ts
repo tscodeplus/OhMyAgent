@@ -26,6 +26,9 @@ import type { AuxModelConfig } from './aux-llm-client.js';
 import { auxLLMCall } from './aux-llm-client.js';
 import { errorForObservation, hashForObservation, memoryObservability } from './observability.js';
 import { cutCJK } from './fts-tokenizer.js';
+// The graph layer owns "is this string a name or a phrase"; reusing it keeps the
+// write path and the projection from disagreeing about what may be an endpoint.
+import { isTokenAlignedMention, isVouchableEntityName } from '../graph/entity-mining.js';
 
 import surnames from './data/chinese-surnames.json' with { type: 'json' };
 import stopWords from './data/entity-stop-words.json' with { type: 'json' };
@@ -35,6 +38,8 @@ export interface ExtractedEntity {
   entity: string;
   relationType: string;
   confidence: number;
+  /** `PERSON|ORG|PRODUCT|CONCEPT` when the producer named one. */
+  entityType?: string;
 }
 
 export interface LLMExtractionConfig {
@@ -335,60 +340,238 @@ export function extractEntities(text: string, options?: ExtractOptions): Extract
 
 // ─── LLM-driven extraction (primary path) ───────────────────────────
 
-const LLM_EXTRACTION_PROMPT =
-  'Extract the named entities from the text: people, organizations, products, tools, ' +
-  'platforms and technical concepts. Relation is how the text connects the entity to ' +
-  'what the sentence is about — USES (a tool/feature is used, called, run or applied), ' +
-  'DEPENDS_ON (requires, needs, only works with), PART_OF (is a part, feature or ' +
-  'component of), EXTENDS (extends, forks, is built on top of), plus the social ones. ' +
-  'Use MENTIONED only when the text names the entity and states nothing about it. ' +
-  'Output ONLY a JSON array:\n' +
-  '[{"entity":"name","type":"PERSON|ORG|PRODUCT|CONCEPT",' +
-  '"relation":"FOUNDED|INVESTED|ADVISES|WORKS_AT|ATTENDED|USES|DEPENDS_ON|PART_OF|EXTENDS|MENTIONED",' +
-  '"confidence":0.9}]\n' +
-  'If no entities, output [].';
+/**
+ * A relation the text *states*, quoted from the text.
+ *
+ * The entity list shape this replaces could only say "these names appear", so the
+ * write path had to compose a triple out of two different answers: the subject
+ * came from the mining pass and the relation from a model talking about the
+ * object. Measured on a real memory ("用户偏好使用 excel-mcp，而不是 Python")
+ * that produced `Python —USES→ excel-mcp` — a statement neither producer made,
+ * and one the sentence argues against. A triple carries its own anchor, so
+ * nothing has to be composed.
+ */
+export interface EntityTriple {
+  subject: string;
+  subjectType?: string;
+  relation: string;
+  object: string;
+  objectType?: string;
+  /** The span the model copied out of the memory; verified literally below. */
+  evidence?: string;
+  confidence: number;
+}
 
-export async function extractEntitiesLLM(
+const LLM_TRIPLE_PROMPT = [
+  'You extract the relations a text STATES between the entities it names.',
+  'Output ONLY a JSON array, one object per stated relation:',
+  '[{"subject":"A","relation":"USES","object":"B","evidence":"the words that say so","confidence":0.9}]',
+  '',
+  'relation is exactly one of:',
+  'FOUNDED, INVESTED, ADVISES, WORKS_AT, ATTENDED, USES, DEPENDS_ON, PART_OF, EXTENDS.',
+  'USES = one thing is used, called, run or applied to do something;',
+  'DEPENDS_ON = requires, needs, only works with, must be installed first;',
+  'PART_OF = is a feature, component, module or subset of;',
+  'EXTENDS = extends, forks, is built on top of.',
+  '',
+  'Rules:',
+  '- subject and object are entity names exactly as the text writes them',
+  '- evidence is the shortest span of the text that states this relation, copied',
+  '  character for character, and it must contain BOTH subject and object',
+  '- a pair the text merely mentions is NOT a relation — omit it',
+  '- no relation stated anywhere -> output []',
+  '- no prose, no markdown fences',
+].join('\n');
+
+export async function extractTriplesLLM(
   text: string,
   config: LLMExtractionConfig,
   options?: ExtractOptions,
-): Promise<ExtractedEntity[]> {
+): Promise<EntityTriple[]> {
   const hasModel = config.auxConfig?.modelRef || (config.auxConfig?.fallbackRefs?.length ?? 0) > 0;
-  if (!config.enabled || !hasModel) {
-    return extractEntities(text, options);
-  }
+  if (!config.enabled || !hasModel) return [];
+  // A JSON record (a distilled profile, an exported row) is not prose: there is
+  // no sentence stating a relation, and the model spends its whole budget
+  // reasoning about a "task" it was never given. Measured: a profile blob was the
+  // only content shape that still came back truncated after the budget increase.
+  if (looksLikeJsonDocument(text)) return [];
 
   try {
     const response = await auxLLMCall(config.auxConfig!, {
-      systemPrompt: LLM_EXTRACTION_PROMPT,
+      systemPrompt: LLM_TRIPLE_PROMPT,
       userPrompt: text,
       temperature: 0,
       // 300 was too small for a reasoning model: the budget went into the
       // reasoning stream and the JSON never got emitted, so every extraction
       // fell back to the regex path even though the call itself succeeded.
-      maxTokens: 1000,
+      maxTokens: 1500,
       logger: config.logger,
     });
 
-    const entities = parseLLMEntities(response);
-
-    if (entities.length > 0) {
-      config.logger.debug({ count: entities.length }, 'LLM entity extraction succeeded');
-      return entities.filter((e) => e.confidence >= config.minConfidence);
+    const values = parseEntityJsonValues(response);
+    // "The model returned nothing parseable" is a real failure. "The model
+    // returned JSON saying there is no relation" is a success — conflating the
+    // two is what made a healthy run look like a broken one.
+    if (values.length === 0 && !/^\s*\[\s*\]\s*$/.test(response)) {
+      options?.onFallback?.('llm_empty');
+      return [];
     }
 
-    options?.onFallback?.('llm_empty');
-    return extractEntities(text, options);
+    const triples = values
+      .map((value) => readTriple(value, text))
+      .filter((triple): triple is EntityTriple => triple !== null)
+      .filter((triple) => triple.confidence >= config.minConfidence);
+
+    const deduped = new Map<string, EntityTriple>();
+    for (const triple of triples) {
+      const key = [
+        canonicalNameKey(triple.subject),
+        triple.relation,
+        canonicalNameKey(triple.object),
+      ].join('|');
+      if (!deduped.has(key)) deduped.set(key, triple);
+    }
+    config.logger.debug(
+      { objects: values.length, triples: deduped.size },
+      'LLM triple extraction finished',
+    );
+    return [...deduped.values()];
   } catch (err) {
     memoryObservability.record('memory.entity.failed', {
       contentHash: hashForObservation(text),
       contentLength: text.length,
       error: errorForObservation(err),
     });
-    config.logger.info({ err }, 'LLM entity extraction failed, falling back to regex');
+    config.logger.info({ err }, 'LLM triple extraction failed');
     options?.onFallback?.('llm_error');
+    return [];
+  }
+}
+
+function looksLikeJsonDocument(text: string): boolean {
+  // Deliberately shape-only: `JSON.parse` would miss a *truncated* record, and a
+  // truncated record is exactly what gets fed back by the profile distillers. A
+  // memory that opens with a brace is a row, not a sentence, whether or not its
+  // tail survived.
+  const trimmed = text.trim();
+  return trimmed.startsWith('{') || trimmed.startsWith('[');
+}
+
+/** Whitespace- and case-insensitive comparison key. */
+function canonicalNameKey(name: string): string {
+  return name.trim().replace(/\s+/g, '').toLowerCase();
+}
+
+function normalizeForMatch(text: string): string {
+  return text.replace(/\s+/g, '').toLowerCase();
+}
+
+/**
+ * One parsed object → one verified triple, or `null` if any gate refuses it.
+ *
+ * Every gate here fails *closed*, unlike the graph gates: this decides what gets
+ * written, and a triple is only worth writing when the text itself backs it. The
+ * cheapest such proof is `evidence` — the model must copy the span, and a copied
+ * span can be looked for in the source. A model that paraphrases or invents is
+ * caught here for the price of an `includes()`.
+ */
+function readTriple(value: unknown, text: string): EntityTriple | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const obj = value as Record<string, unknown>;
+  const subject = firstString(obj, ['subject', 'source', 'from', 'head', 'entity']);
+  const object = firstString(obj, ['object', 'target', 'to', 'tail', 'entity2']);
+  const relation = firstString(obj, ['relation', 'relationship', 'predicate', 'rel']);
+  if (!subject || !object || !relation) return null;
+  if (!RELATION_PRIORITY[relation]) return null;
+  if (subject.length > 80 || object.length > 80) return null;
+  if (GENERIC_TERMS.has(subject) || GENERIC_TERMS.has(object)) return null;
+  if (!isVouchableEntityName(subject) || !isVouchableEntityName(object)) return null;
+  // A phrase the tokenizer splits is not an entity ("Excel 相关操作"), and a
+  // fragment sliced out of a longer word is not a mention of anything.
+  if (!isTokenAlignedMention(text, subject) || !isTokenAlignedMention(text, object)) return null;
+  const subjectKey = canonicalNameKey(subject);
+  const objectKey = canonicalNameKey(object);
+  if (subjectKey === '' || objectKey === '' || subjectKey === objectKey) return null;
+
+  // Both endpoints must actually occur in the memory: a name the text never
+  // writes cannot be a thing the text said something about.
+  const haystack = normalizeForMatch(text);
+  if (!haystack.includes(subjectKey) || !haystack.includes(objectKey)) return null;
+
+  const evidence = firstString(obj, ['evidence', 'quote', 'span', 'support']);
+  if (evidence !== undefined) {
+    // An evidence span the text does not contain is worse than none: it reads as
+    // proof and is not.
+    const quoted = normalizeForMatch(evidence);
+    if (!haystack.includes(quoted)) return null;
+    // ...and it has to quote *both* endpoints. This is what catches a model that
+    // names a descriptive phrase as the subject: measured on "通过 excel-mcp 使用
+    // Power Query 获取文件" it answered `Excel 相关操作 —USES→ excel-mcp`, and the
+    // span it quoted contains excel-mcp but not "Excel 相关操作".
+    if (!quoted.includes(subjectKey) || !quoted.includes(objectKey)) return null;
+  }
+
+  const confidence =
+    typeof obj.confidence === 'number' && Number.isFinite(obj.confidence)
+      ? Math.max(0, Math.min(1, obj.confidence))
+      : evidence
+        ? 0.9
+        : 0.8;
+
+  const subjectType = firstString(obj, ['subjectType', 'subject_type']);
+  const objectType = firstString(obj, ['objectType', 'object_type', 'type']);
+  const triple: EntityTriple = { subject, relation, object, confidence };
+  if (subjectType) triple.subjectType = subjectType.toUpperCase();
+  if (objectType) triple.objectType = objectType.toUpperCase();
+  if (evidence) triple.evidence = evidence;
+  return triple;
+}
+
+function firstString(obj: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = obj[key];
+    if (typeof value === 'string' && value.trim() !== '') return value.trim();
+  }
+  return undefined;
+}
+
+/**
+ * Mention-only view of the same model call, kept for callers that store
+ * `memory_links` rows without relation structure.
+ *
+ * The endpoints of a stated relation are, by construction, mentioned — so this
+ * does not need a second model call, and it never has to invent a subject.
+ */
+export async function extractEntitiesLLM(
+  text: string,
+  config: LLMExtractionConfig,
+  options?: ExtractOptions,
+): Promise<ExtractedEntity[]> {
+  const triples = await extractTriplesLLM(text, config, options);
+  const byName = new Map<string, ExtractedEntity>();
+  for (const triple of triples) {
+    for (const [name, type] of [
+      [triple.subject, triple.subjectType],
+      [triple.object, triple.objectType],
+    ] as const) {
+      const key = canonicalNameKey(name);
+      const existing = byName.get(key);
+      if (!existing || existing.confidence < triple.confidence) {
+        byName.set(key, {
+          entity: name,
+          relationType: 'MENTIONED',
+          confidence: triple.confidence,
+          ...(type ? { entityType: type } : {}),
+        });
+      }
+    }
+  }
+  if (byName.size === 0) {
+    // No relation stated. The deterministic pass still names entities, and those
+    // mentions are what the graph's nodes are built from.
     return extractEntities(text, options);
   }
+  return [...byName.values()];
 }
 
 export function parseLLMEntities(response: string): ExtractedEntity[] {

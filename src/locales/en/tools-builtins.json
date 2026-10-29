@@ -20,7 +20,8 @@
   },
   "memoryRecall": {
     "noResults": "No relevant memories found.",
-    "resultItem": "{{index}}. {{content}} (score: {{score}})"
+    "resultItem": "{{index}}. {{content}} (score: {{score}})",
+    "structuralHints": "Structural hints (derived from the knowledge graph, may be incomplete):"
   },
   "approval": {
     "pathOutsideAllowed": "Path(s) outside allowed directories: {{paths}}"

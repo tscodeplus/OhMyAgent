@@ -84,6 +84,7 @@ import {
   isVouchableEntityName,
   type MemoryLinkMiningSummary,
 } from './entity-mining.js';
+import { discoverAliases } from './alias-discovery.js';
 import { DEFAULT_GRAPH_SYNC_CONFIG, type GraphSyncConfig } from './graph-config.js';
 import { selfHealGraph } from './graph-prune.js';
 
@@ -153,6 +154,8 @@ export interface GraphSyncSummary {
 interface BatchMemoryRow {
   memory_id: string;
   memory_created_at: string | null;
+  /** Needed by `discoverAliases`: an abbreviation is only real if this text says so. */
+  memory_content: string | null;
 }
 
 interface LinkRow {
@@ -192,7 +195,7 @@ const DRY_RUN_ROLLBACK = Symbol('graph-sync dry-run');
  * one memory can restate the same edge.
  */
 const BATCH_MEMORY_SQL = `
-SELECT m.id AS memory_id, m.created_at AS memory_created_at
+SELECT m.id AS memory_id, m.created_at AS memory_created_at, m.content AS memory_content
 FROM memories m
 WHERE m.status = 'active'
   AND EXISTS (
@@ -446,6 +449,27 @@ function projectMentionNodes(
  * Throws only when the database itself is unusable — every per-row problem is
  * counted in the summary.
  */
+/**
+ * Aliases one memory states for one name, cached for the run.
+ *
+ * `upsertEntity` records them as `entity_aliases`, which makes the *next* lookup
+ * of the abbreviation resolve to this node instead of forking a new one — the
+ * merge happens through the existing lookup order, not through a repair pass.
+ * Cached because a busy memory upserts the same few names many times, and the
+ * scan is regex over the whole content.
+ */
+function makeAliasLookup(): (memoryId: string, text: string, name: string) => string[] {
+  const cache = new Map<string, string[]>();
+  return (memoryId, text, name) => {
+    const key = JSON.stringify([memoryId, name.toLowerCase()]);
+    const hit = cache.get(key);
+    if (hit) return hit;
+    const aliases = discoverAliases(text, name);
+    cache.set(key, aliases);
+    return aliases;
+  };
+}
+
 export function syncGraphFromMemoryLinks(
   db: Database.Database,
   repo: EntityRepository,
@@ -455,6 +479,7 @@ export function syncGraphFromMemoryLinks(
   const minConfidence = options.minConfidence ?? DEFAULT_GRAPH_SYNC_CONFIG.minConfidence;
   const dryRun = options.dryRun === true;
   const { logger, signal } = options;
+  const aliasesFor = makeAliasLookup();
 
   const summary: GraphSyncSummary = {
     entitiesCreated: 0,
@@ -498,6 +523,7 @@ export function syncGraphFromMemoryLinks(
       if (summary.linksProcessed >= limit) break;
 
       const links = linksByMemory.get(memory.memory_id) ?? [];
+      const content = memory.memory_content ?? '';
       let projectedHere = 0;
 
       for (const link of links) {
@@ -534,11 +560,13 @@ export function syncGraphFromMemoryLinks(
           const subject = repo.upsertEntity({
             name: subjectName,
             entityType: link.subject_entity_type?.trim() || inferEntityType(subjectName),
+            aliases: aliasesFor(memory.memory_id, content, subjectName),
           });
           upsertCalls++;
           const target = repo.upsertEntity({
             name: targetName,
             entityType: link.target_entity_type?.trim() || inferEntityType(targetName),
+            aliases: aliasesFor(memory.memory_id, content, targetName),
           });
           upsertCalls++;
 

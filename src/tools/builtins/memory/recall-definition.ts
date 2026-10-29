@@ -24,6 +24,7 @@ export function createMemoryRecallToolDefinition(options: {
   topK?: number;
   agentId?: string;
   logger?: import('pino').Logger;
+  hintsFor?: (memoryIds: string[]) => import('../../../graph/neighborhood.js').GraphHint[];
 }): ToolDefinition {
   const legacyTool = createMemoryRecallTool(options);
 

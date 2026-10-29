@@ -12,6 +12,15 @@ export interface MemoryLink {
 export interface CreateMemoryLinkInput {
   id: string;
   source_memory_id: string;
+  /**
+   * The entity the relation is anchored to.
+   *
+   * A typed relation needs one: `target_entity` alone says "this memory is about
+   * X", not "A does something to X". Left undefined for a bare mention, which is
+   * the only row a producer without relation structure can honestly write.
+   */
+  subject_entity?: string | null;
+  subject_entity_type?: string | null;
   target_entity: string;
   relation_type: string;
   confidence?: number;
@@ -26,8 +35,14 @@ export class MemoryLinkRepository {
 
   create(input: CreateMemoryLinkInput): MemoryLink {
     const stmt = this.db.prepare(`
-      INSERT INTO memory_links (id, source_memory_id, target_entity, relation_type, confidence)
-      VALUES (@id, @source_memory_id, @target_entity, @relation_type, @confidence)
+      INSERT INTO memory_links (
+        id, source_memory_id, target_entity, relation_type, confidence,
+        subject_entity, subject_entity_type
+      )
+      VALUES (
+        @id, @source_memory_id, @target_entity, @relation_type, @confidence,
+        @subject_entity, @subject_entity_type
+      )
     `);
     stmt.run({
       id: input.id,
@@ -35,6 +50,8 @@ export class MemoryLinkRepository {
       target_entity: input.target_entity,
       relation_type: input.relation_type,
       confidence: input.confidence ?? 1.0,
+      subject_entity: input.subject_entity ?? null,
+      subject_entity_type: input.subject_entity_type ?? null,
     });
     return this.findById(input.id)!;
   }

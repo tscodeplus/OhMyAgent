@@ -1,0 +1,63 @@
+graph: state the relation, then let something read it
+
+The graph had 371 nodes and zero edges on the device, and every explanation so far
+was about extraction. It was not: a triple was being *composed* — the subject came
+from the mining pass, the relation from a model answering about a different entity.
+Measured, that is how `Python —USES→ excel-mcp` came out of a memory reading
+"偏好使用 excel-mcp，而不是 Python". Nothing in the pipeline ever asked one
+producer for all three parts.
+
+Triples, from one producer
+  `extractTriplesLLM` asks for `{subject, relation, object, evidence}` and the
+  write path stores the model's subject instead of copying the mined one. The
+  gates that decide what may be *written* fail closed, unlike the graph's:
+  relation from the vocabulary, both endpoints literally in the memory and
+  token-aligned, no filenames, no self-loops, and — the cheap one that catches
+  most of it — the quoted evidence must appear in the text *and contain both
+  names*. That last rule is what refuses `Excel 相关操作 —USES→ excel-mcp`, whose
+  evidence quotes the target but not its own subject.
+
+  The extraction model is now configurable per task (`memory.entity_extraction.
+  model`). Extraction is throughput work: the reasoning auxiliary model spent
+  1500 tokens thinking and returned nothing in 20s, `claude-haiku-5-5` returned
+  the right triple in 4s. Summaries keep using `memory_aux_models`.
+
+"No relation stated" is an answer, not a failure
+  `llmFailures: 4` of 8 was never the model being down. It answered `["User",
+  "TypeScript"]`, `{"text":…,"type":…}` and `{"name":…,"type":…}` — schemas the
+  old parser dropped on the floor, then counted as empty. A parseable "nothing
+  here" is now a success; only an unparseable reply or a thrown call is a failure.
+
+The job re-bought the same null answer forever
+  Candidates are "memories with no typed link", and a null answer has nowhere to
+  live in `memory_links`, so every run paid again for the same memories. Migration
+  v18 adds `entity_extraction_log` (memory, content hash, outcome): the model's
+  own ledger, dropped by the repository whenever the text changes, and never
+  written for a failed call.
+
+Aliases the corpus writes itself
+  `Power Query` / `PQ` / `power query` were separate nodes, and the retrieval
+  expansion joins on the exact string, so a memory that used the abbreviation was
+  unreachable from a query using the full name. `alias-discovery` reads only
+  *explicit* definitions — brackets, 又称/简称/aka, `X 是 Y 的简称` — and hands them
+  to `upsertEntity`, which already resolves aliases before forking a node. No
+  model is asked which names are the same thing: a wrong merge is unrecoverable,
+  a missed abbreviation only preserves the duplicate that already existed.
+
+Something finally reads an edge
+  Edges had exactly one consumer (the WebUI), so a correct one never changed an
+  answer. `/api/search` and `memory_recall` now append the relations the graph
+  records about the memories they returned, each with the source memory
+  (`[mem:a1b2c3d4]`) so a wrong hint can be traced to the sentence that made it.
+  Hints are appended, never scored: an edge is derived from a memory, so letting
+  it raise that memory's rank would turn one bad edge into a ranking bug on top of
+  a content bug.
+
+Measured on the reference database: `excel-mcp —USES→ Power Query` (0.8) is now a
+real edge, `graph:sync` is idempotent across runs, and the second sync reports
+0 created. Everything else stays refused: `skills —PART_OF→ 项目根目录` is refused
+because 包含 is not yet an evidence predicate for PART_OF, and adding it would also
+attest the reverse direction, which nothing in the text supports.
+
+Gates: pnpm test 5123 passed, typecheck (src + scripts + ui), typecheck:tests,
+eslint 0 errors, prettier clean.

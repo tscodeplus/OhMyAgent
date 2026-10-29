@@ -61,6 +61,7 @@
  * is written without one, and the next `graph_sync` mining pass annotates it.
  */
 
+import { createHash } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import type { Logger } from 'pino';
 import type { MemoryLinkRepository } from '../../repositories/memory-link-repository.js';
@@ -68,8 +69,8 @@ import type { MaintenanceJob, MaintenanceJobResult } from '../maintenance-job.js
 import type { AuxModelConfig } from '../../aux-llm-client.js';
 import {
   extractEntities,
-  extractEntitiesLLM,
-  type ExtractedEntity,
+  extractTriplesLLM,
+  type EntityTriple,
   type LLMExtractionConfig,
 } from '../../entity-extractor.js';
 import {
@@ -110,8 +111,18 @@ export interface EntityExtractionJobConfig {
   llm: boolean;
   /** Hard cap on LLM calls per run. */
   max_memories_per_run: number;
-  /** Drop a model relation below this confidence (`extractEntitiesLLM` filters it). */
+  /** Drop a model relation below this confidence (`extractTriplesLLM` filters it). */
   min_confidence: number;
+  /**
+   * Extraction-specific `provider/model` override.
+   *
+   * This job is throughput-bound, not quality-bound: it wants a fast model that
+   * answers in JSON immediately, while the auxiliary model is chosen for
+   * summarisation quality. Measured on the reference corpus, the reasoning aux
+   * model burned its whole token budget thinking and returned nothing, while a
+   * small fast model answered correctly in a fifth of the time.
+   */
+  model?: string;
 }
 
 /**
@@ -161,6 +172,17 @@ const LLM_CANDIDATE_SQL = `
       SELECT 1 FROM memory_links ml
       WHERE ml.source_memory_id = m.id
         AND upper(trim(ml.relation_type)) <> @mentionRelation
+    )
+    -- The model has already read this text. Without this the job re-buys "no
+    -- relation stated" on every run: a null answer cannot be stored in
+    -- memory_links, so it had nowhere to be remembered (migration v18). The
+    -- ledger's content hash records what was read; a memory whose text changes
+    -- has its ledger row dropped by the repository on update, so an edit re-opens
+    -- extraction without this query needing a hash SQLite cannot compute.
+    AND NOT EXISTS (
+      SELECT 1 FROM entity_extraction_log el
+      WHERE el.memory_id = m.id
+        AND el.outcome <> 'error'
     )
   ORDER BY m.created_at DESC, m.id DESC
   LIMIT @limit
@@ -229,6 +251,19 @@ function recordedSubject(
  * job cannot write a row that would be skipped, and named here so the log says
  * which one refused it.
  */
+/** Stable fingerprint of the exact text a model was shown. */
+function contentHashFor(content: string): string {
+  return createHash('sha256').update(content).digest('hex');
+}
+
+/** Identity of a typed statement: same subject, same target. */
+function linkPairKey(subject: string | null, target: string): string {
+  const subjectKey = canonicalizeEntityName(subject ?? '');
+  const targetKey = canonicalizeEntityName(target);
+  if (subjectKey === '' || targetKey === '') return '';
+  return `${subjectKey}|${targetKey}`;
+}
+
 function gateRejection(
   content: string,
   relationType: string,
@@ -268,6 +303,20 @@ export function createEntityBackfillJob(
      WHERE id = @id`,
   );
 
+  /**
+   * The extraction ledger (v18). One row per memory: what the model was shown and
+   * what came of it, so a null answer is remembered instead of re-bought.
+   */
+  const recordExtraction = db.prepare(`
+    INSERT INTO entity_extraction_log (memory_id, content_hash, outcome, triples_written, created_at)
+    VALUES (@memoryId, @contentHash, @outcome, @written, @now)
+    ON CONFLICT(memory_id) DO UPDATE SET
+      content_hash = excluded.content_hash,
+      outcome = excluded.outcome,
+      triples_written = excluded.triples_written,
+      created_at = excluded.created_at
+  `);
+
   const selectExistingLinks = db.prepare(
     `SELECT target_entity, relation_type, subject_entity, subject_entity_type, confidence
      FROM memory_links
@@ -291,73 +340,83 @@ export function createEntityBackfillJob(
    * how many the gates refused, and how many were a second relation on a target
    * that already had one (a duplicate is not a gate failure).
    */
+  /**
+   * Write the relations the model stated, each carrying its own subject.
+   *
+   * The previous version composed a triple out of two answers — the mined subject
+   * plus whatever relation the model gave the target — and produced
+   * `Python —USES→ excel-mcp` from a memory saying Python was *not* to be used.
+   * A triple is written only when all three of its parts came from the same
+   * answer, and the projector's attestation gates still run on top: a row that
+   * cannot become an edge is not worth storing.
+   */
   function writeTypedRelations(
     row: MemoryRow,
-    entities: ExtractedEntity[],
+    triples: EntityTriple[],
   ): { written: number; rejected: number; duplicates: number } {
     const existing = selectExistingLinks.all(row.id) as ExistingLinkRow[];
-    const recorded = recordedSubject(existing);
-    const subject = recorded?.subject ?? null;
-    // Only a *typed* link to a target blocks another one: a `MENTIONED` row is
-    // what the typed row is meant to be added next to.
-    const typedTargets = new Set(
+    // Only an identical (subject, target) pair blocks a second row: the same
+    // target under a different subject is a different statement.
+    const typedPairs = new Set(
       existing
         .filter((link) => link.relation_type.trim().toUpperCase() !== MENTION_RELATION_TYPE)
-        .map((link) => canonicalizeEntityName(link.target_entity))
+        .map((link) => linkPairKey(link.subject_entity ?? null, link.target_entity))
         .filter((key) => key !== ''),
     );
     let written = 0;
     let rejected = 0;
     let duplicates = 0;
 
-    for (const entity of entities) {
-      const target = entity.entity.trim();
-      const relationType = entity.relationType.trim();
+    for (const triple of triples) {
+      const subject = triple.subject.trim();
+      const target = triple.object.trim();
+      const relationType = triple.relation.trim();
       if (relationType.toUpperCase() === MENTION_RELATION_TYPE) continue;
 
       const reason = gateRejection(row.content, relationType, subject, target);
-      if (!reason) {
-        const targetKey = canonicalizeEntityName(target);
-        if (targetKey !== '' && typedTargets.has(targetKey)) {
-          // A second relation on a target this answer already typed: the first
-          // one stands.
-          duplicates++;
-          continue;
-        }
-        try {
-          const link = memoryLinkRepo.create({
-            id: generateId(),
-            source_memory_id: row.id,
-            target_entity: target,
-            relation_type: relationType,
-            confidence: entity.confidence,
-          });
-          // Same columns the mining pass records, so the projector can read this
-          // row the moment it exists.
-          annotateLink.run({
-            id: link.id,
-            subject,
-            subjectType: recorded?.subjectType ?? (subject ? inferEntityType(subject) : null),
-            targetType: inferEntityType(target),
-          });
-          if (targetKey !== '') typedTargets.add(targetKey);
-          written++;
-          continue;
-        } catch (err) {
-          logger.debug(
-            { memoryId: row.id, err: err instanceof Error ? err.message : String(err) },
-            '[entity_backfill] typed link insert failed',
-          );
-          rejected++;
-          continue;
-        }
+      if (reason) {
+        rejected++;
+        logger.debug(
+          { memoryId: row.id, subject, target, relationType, reason },
+          '[entity_backfill] model triple rejected by the graph gates',
+        );
+        continue;
       }
 
-      rejected++;
-      logger.debug(
-        { memoryId: row.id, target, relationType, reason },
-        '[entity_backfill] model relation rejected by the graph gates',
-      );
+      const pairKey = linkPairKey(subject, target);
+      if (pairKey !== '' && typedPairs.has(pairKey)) {
+        duplicates++;
+        continue;
+      }
+
+      try {
+        const subjectType = triple.subjectType ?? inferEntityType(subject);
+        const link = memoryLinkRepo.create({
+          id: generateId(),
+          source_memory_id: row.id,
+          subject_entity: subject,
+          subject_entity_type: subjectType,
+          target_entity: target,
+          relation_type: relationType,
+          confidence: triple.confidence,
+        });
+        // `create` writes the subject; this fills the target type the projector
+        // reads, so both columns come from one place for old and new rows alike.
+        annotateLink.run({
+          id: link.id,
+          subject,
+          subjectType,
+          targetType: inferEntityType(target),
+        });
+        if (pairKey !== '') typedPairs.add(pairKey);
+        written++;
+      } catch (err) {
+        logger.debug(
+          { memoryId: row.id, err: err instanceof Error ? err.message : String(err) },
+          '[entity_backfill] typed link insert failed',
+        );
+        rejected++;
+      }
     }
 
     return { written, rejected, duplicates };
@@ -441,7 +500,11 @@ export function createEntityBackfillJob(
         // Scanning more rows costs one query, never another model call.
         const candidates = readLlmCandidates(llmBudget + deterministicRows.length);
         const llmConfig: LLMExtractionConfig = {
-          auxConfig: options.auxConfig,
+          // A task-specific model overrides the auxiliary model for this call
+          // only; the shared config object is not mutated.
+          auxConfig: config.model
+            ? { ...options.auxConfig, modelRef: config.model }
+            : options.auxConfig,
           enabled: true,
           minConfidence: config.min_confidence,
           logger,
@@ -454,17 +517,21 @@ export function createEntityBackfillJob(
           processed.add(row.id);
           llmCalls++;
 
-          let entities: ExtractedEntity[];
+          let triples: EntityTriple[];
+          let extractionFailed = false;
           try {
-            entities = await extractEntitiesLLM(row.content, llmConfig, {
+            triples = await extractTriplesLLM(row.content, llmConfig, {
               scope: row.scope,
               kind: row.kind,
-              onFallback: () => {
+              onFallback: (reason) => {
                 llmFailures++;
+                // A failed call is not an answer: it must never let the ledger
+                // claim this memory was examined.
+                if (reason === 'llm_error') extractionFailed = true;
               },
             });
           } catch (err) {
-            // `extractEntitiesLLM` catches model failures itself; this is the
+            // `extractTriplesLLM` catches model failures itself; this is the
             // last-resort guard so a broken extractor cannot fail the run.
             logger.debug(
               { memoryId: row.id, err: err instanceof Error ? err.message : String(err) },
@@ -473,10 +540,18 @@ export function createEntityBackfillJob(
             continue;
           }
 
-          const result = writeTypedRelations(row, entities);
+          const result = writeTypedRelations(row, triples);
           typedLinksWritten += result.written;
           rejectedByGates += result.rejected;
           duplicateTargets += result.duplicates;
+
+          recordExtraction.run({
+            memoryId: row.id,
+            contentHash: contentHashFor(row.content),
+            outcome: extractionFailed ? 'error' : triples.length > 0 ? 'triples' : 'none',
+            written: result.written,
+            now: Date.now(),
+          });
         }
       }
 

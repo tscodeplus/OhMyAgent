@@ -312,6 +312,11 @@ channels:
 #     llm: true                     # false = deterministic mentions only (no model calls)
 #     max_memories_per_run: 5       # hard cap on model calls per maintenance run
 #     min_confidence: 0.6           # drop model relations below this confidence
+#     # Extraction-specific model override (`provider/model`). Extraction is a
+#     # throughput job: a fast non-reasoning model answers in JSON immediately,
+#     # while a reasoning auxiliary model can spend the whole budget thinking.
+#     # Omit to use memory_aux_models.
+#     # model: opencode-go/claude-haiku-5-5
 #   # Provenance backfill: gives a memory written before K1 a source message in
 #   # memory_sources when the memory's own text proves one (an identifier, URL,
 #   # path or quoted span that occurs in exactly one message, or in one

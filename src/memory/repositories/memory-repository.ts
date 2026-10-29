@@ -58,6 +58,8 @@ export interface UpdateMemoryInput {
 
 export class MemoryRepository {
   private readonly db: Database.Database;
+  /** Lazily probed: the extraction ledger arrives with migration v18, not applySchema. */
+  private extractionLedger: boolean | null = null;
 
   constructor(db: Database.Database) {
     this.db = db;
@@ -402,6 +404,24 @@ export class MemoryRepository {
   }
 
   /** Remove a memory's derived rows (terms / links / embeddings). */
+  /**
+   * Drop the extraction ledger row for a memory whose text changed.
+   *
+   * Guarded because migration-created tables are not in `applySchema`: fixtures
+   * built from the base schema alone do not have v10/v18's tables, and a memory
+   * update must not fail over a table that only the maintenance path uses.
+   */
+  private clearExtractionLedger(id: string): void {
+    if (this.extractionLedger === null) {
+      this.extractionLedger =
+        this.db
+          .prepare(`SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?`)
+          .get('entity_extraction_log') !== undefined;
+    }
+    if (!this.extractionLedger) return;
+    this.db.prepare('DELETE FROM entity_extraction_log WHERE memory_id = ?').run(id);
+  }
+
   private deleteDerivedStores(id: string): void {
     this.db.prepare('DELETE FROM memory_terms WHERE memory_id = ?').run(id);
     this.db.prepare('DELETE FROM memory_links WHERE source_memory_id = ?').run(id);
@@ -418,6 +438,12 @@ export class MemoryRepository {
   }): Memory {
     const existing = this.findById(input.id);
     if (existing) {
+      if (existing.content !== input.content) {
+        // Different text is a different question: whatever the extraction model
+        // answered about the old wording does not apply to the new one, so the
+        // ledger row goes and the next maintenance run asks again (migration v18).
+        this.clearExtractionLedger(input.id);
+      }
       // Reset to active if previously soft-deleted/superseded
       this.db
         .prepare(

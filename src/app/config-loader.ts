@@ -361,6 +361,9 @@ function buildMemorySection(memCfg: YamlNode): Record<string, unknown> {
         0.6,
         'memCfg.entity_extraction.min_confidence',
       ),
+      ...(typeof entityExtractionCfg?.model === 'string' && entityExtractionCfg.model.trim() !== ''
+        ? { model: entityExtractionCfg.model.trim() }
+        : {}),
     },
     // Provenance backfill (`provenance_backfill`). Snake_case inner keys for the
     // same reason as `entity_extraction`: the YAML spelling is what the job's

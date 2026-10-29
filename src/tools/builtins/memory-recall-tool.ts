@@ -7,6 +7,7 @@ import type { AgentTool } from '../../pi-mono/agent/types.js';
 import { defaultAgentId } from '../../agent/agent-context.js';
 import { truncate } from '../../shared/truncation.js';
 import type { Logger } from 'pino';
+import { formatHints, type GraphHint } from '../../graph/neighborhood.js';
 
 /** @deprecated Use `createMemoryRecallToolDefinition` from `./memory/recall-definition.js` instead. */
 type MemoryRecallProvider = Pick<MemoryRetriever, 'retrieve'> &
@@ -18,6 +19,14 @@ export function createMemoryRecallTool(options: {
   agentId?: string;
   getAgentId?: () => string | undefined;
   logger?: Pick<Logger, 'debug' | 'info' | 'warn'>;
+  /**
+   * Relations the graph records about the memories just recalled.
+   *
+   * Optional so a caller without a graph (tests, a bare retriever) gets exactly
+   * the old output. Hints are appended after the memories and are labelled as
+   * incomplete, because they are a derived view, not another retrieval result.
+   */
+  hintsFor?: (memoryIds: string[]) => GraphHint[];
 }): AgentTool<any> {
   const schema = z.object({
     query: z.string().describe('Search query for finding relevant memories'),
@@ -86,7 +95,21 @@ export function createMemoryRecallTool(options: {
           )
           .join('\n');
 
-        return { content: [{ type: 'text', text: formatted }] };
+        const hints = options.hintsFor?.(safeResults.map((r) => r.id)) ?? [];
+        if (hints.length === 0) {
+          return { content: [{ type: 'text', text: formatted }] };
+        }
+        // Appended, never sorted into the results above: an edge is derived from a
+        // memory, so promoting that memory would turn one bad edge into a ranking
+        // bug on top of a content bug. Each line keeps its source id so a wrong
+        // relation can be traced back to the sentence that produced it.
+        const hintBlock = [
+          '',
+          i18n.t('tools-builtins:memoryRecall.structuralHints'),
+          ...formatHints(hints),
+        ].join('\n');
+
+        return { content: [{ type: 'text', text: `${formatted}${hintBlock}` }] };
       } catch (error) {
         return {
           content: [

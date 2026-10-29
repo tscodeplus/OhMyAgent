@@ -537,6 +537,9 @@ describe('knowledge-graph routes', () => {
       // are additive and stay well-formed when nothing matched.
       expect(response.json()).toEqual({
         q: 'nothingmatches',
+        // Additive: the graph's view of the returned memories. `[]` here is the
+        // ordinary answer on an empty graph, not an error.
+        hints: [],
         results: [],
         pages: [],
         lanes: {
@@ -671,7 +674,15 @@ describe('knowledge-graph routes', () => {
 
       // Nothing removed or renamed: `q` + `results` are the old payload, the rest
       // is additive (which is why the WebUI needs no change to keep working).
-      expect(Object.keys(payload).sort()).toEqual(['deduped', 'lanes', 'pages', 'q', 'results']);
+      // `hints` is additive by design: a client that ignores it sees the old shape.
+      expect(Object.keys(payload).sort()).toEqual([
+        'deduped',
+        'hints',
+        'lanes',
+        'pages',
+        'q',
+        'results',
+      ]);
       expect(payload.q).toBe('Alice');
       expect(payload.pages).toEqual([]);
       expect(payload.lanes.memory).toEqual({ hits: 1, dropped: 0 });

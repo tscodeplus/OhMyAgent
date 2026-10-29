@@ -16,6 +16,7 @@ import { migrateV14 } from './migration-v14.js';
 import { migrateV15 } from './migration-v15.js';
 import { migrateV16 } from './migration-v16.js';
 import { migrateV17 } from './migration-v17.js';
+import { migrateV18 } from './migration-v18.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -240,6 +241,14 @@ export function openDatabase(dbPath: string): Database.Database {
         `wrote ${v17LinkRows} link subjects, ` +
         `projected ${v17Result.projected.entitiesCreated} entities / ${v17Result.projected.edgesCreated} edges`,
     );
+  }
+
+  // V18: the extraction model's own ledger. After applySchema like v17 — it is a
+  // new table, not a column add, and it must exist before the job that writes to
+  // it is constructed (bootstrap builds services right after this returns).
+  const v18Result = migrateV18(db);
+  if (v18Result.created) {
+    logger.info('[V18] Created entity_extraction_log (skips memories already read)');
   }
 
   // Backfill FTS index for memories that are missing from it (first-time

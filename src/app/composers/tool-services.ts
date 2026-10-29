@@ -8,6 +8,7 @@ import { configEventBus } from '../config-event-bus.js';
 import { createShellTool } from '../../tools/builtins/shell-tool.js';
 import { createFileReadTool } from '../../tools/builtins/file-read-tool.js';
 import { createFileSearchTool } from '../../tools/builtins/file-search-tool.js';
+import { readHintsForMemories, type GraphHint } from '../../graph/neighborhood.js';
 import { createMemoryRecallTool } from '../../tools/builtins/memory-recall-tool.js';
 import {
   createMemoryStoreTool,
@@ -80,6 +81,16 @@ export interface ToolServices {
   memoryFilter: ReturnType<typeof createDefaultMemoryFilter>;
 }
 
+/**
+ * Relations the graph records about recounted memories.
+ *
+ * One provider for both tool surfaces: the graph is advisory here, so a missing
+ * table or a failed query returns `[]` instead of failing the recall call.
+ */
+function createMemoryHintProvider(memory: MemoryServices): (memoryIds: string[]) => GraphHint[] {
+  return (memoryIds) => readHintsForMemories(memory.database, memoryIds);
+}
+
 export function createToolServices(input: {
   config: AppConfig;
   logger: AppServices['logger'];
@@ -88,6 +99,7 @@ export function createToolServices(input: {
   servicesRef: { current?: AppServices };
 }): ToolServices {
   const { config, logger, memory, policyCenter, servicesRef } = input;
+  const memoryHintsFor = createMemoryHintProvider(memory);
   const toolRegistry = new ToolRegistryImpl();
   toolRegistry.register(
     createShellTool({
@@ -111,7 +123,11 @@ export function createToolServices(input: {
 
   const memoryFilter = createDefaultMemoryFilter();
   toolRegistry.register(
-    createMemoryRecallTool({ memoryRetriever: memory.memoryRetriever, logger }),
+    createMemoryRecallTool({
+      memoryRetriever: memory.memoryRetriever,
+      logger,
+      hintsFor: memoryHintsFor,
+    }),
   );
   toolRegistry.register(createMemoryStoreTool({ memoryWriter: memory.memoryWriter, memoryFilter }));
   toolRegistry.register(
@@ -169,6 +185,7 @@ export function registerV4ToolDefinitions(input: {
     orchestrator,
   } = input;
   const { toolPlatformRegistry, memoryFilter } = tools;
+  const memoryHintsFor = createMemoryHintProvider(memory);
 
   // MCP visibility must reflect the CURRENT config: the `config` argument is a
   // startup snapshot, while spawn/plan_and_spawn resolve child tools lazily at
@@ -202,7 +219,11 @@ export function registerV4ToolDefinitions(input: {
     }),
   );
   toolPlatformRegistry.registerDefinition(
-    createMemoryRecallToolDefinition({ memoryRetriever: memory.memoryRetriever, logger }),
+    createMemoryRecallToolDefinition({
+      memoryRetriever: memory.memoryRetriever,
+      logger,
+      hintsFor: memoryHintsFor,
+    }),
   );
   toolPlatformRegistry.registerDefinition(
     createMemoryStoreToolDefinition({ memoryWriter: memory.memoryWriter, memoryFilter }),

@@ -176,9 +176,17 @@ const CJK_FUNCTION_WORDS = new Set([
   '他们',
 ]);
 
+const FILE_LIKE =
+  /[\\/]|^[A-Za-z]:|\.(xlsx|xls|docx|pdf|txt|md|json|ts|js|py|log|csv|png|jpe?g|zip|db|sqlite)$/i;
+
 export function isVouchableEntityName(name: string | null | undefined): boolean {
   const trimmed = (name ?? '').trim();
   if (trimmed.length < 2 || trimmed.length > DEFAULT_MAX_MENTION_NAME_LENGTH) return false;
+  // A path or filename is an artifact, not an entity: the relation it appears in
+  // is about the tool that read the file. Measured need — a model answering about
+  // "通过 excel-mcp 使用 Power Query 获取 E:\Excelile_info.xlsx" offered
+  // `file_info.xlsx —USES→ excel-mcp`, which is true of nobody.
+  if (FILE_LIKE.test(trimmed)) return false;
   if (!/\p{L}/u.test(trimmed)) return false;
   if (/^\p{N}[\p{N}\s.,\-/年月日:]*$/u.test(trimmed)) return false;
   if (CJK_FUNCTION_WORDS.has(trimmed)) return false;

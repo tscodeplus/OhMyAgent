@@ -491,6 +491,12 @@ const configSchema = z.object({
         // Hard cap on model calls per maintenance run — this runs on a phone.
         max_memories_per_run: z.coerce.number().int().positive().default(5),
         min_confidence: z.coerce.number().min(0).max(1).default(0.6),
+        // Optional `provider/model` override for *this* task only. Extraction is
+        // a throughput job, so it wants a fast non-reasoning model, while
+        // summaries want the auxiliary model's quality. Measured on the reference
+        // corpus: the reasoning aux model spent 1500 tokens thinking and returned
+        // nothing in 20s, `claude-haiku-5-5` returned the right triple in 4s.
+        model: z.string().optional(),
       })
       .default({}),
     // Provenance backfill (`provenance_backfill`): gives a historical memory its
