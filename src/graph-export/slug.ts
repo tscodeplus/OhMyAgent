@@ -96,13 +96,21 @@ export function safeJoin(root: string, ...segments: string[]): string {
   return target;
 }
 
-/** True when `relativePath` is one of the note paths this exporter generates. */
+/**
+ * True when `relativePath` is one of the note paths this exporter generates.
+ *
+ * `pages/` is one namespace at three depths, because a page's address carries
+ * what makes it unique: `pages/<slug>.md` (a row with no usable page type),
+ * `pages/<page_type>/<slug>.md` (a global page) and
+ * `pages/<scope>/<page_type>/<slug>.md` (a page from one conversation). Every
+ * depth has to be recognised, or a note written one run becomes a note the next
+ * run cannot delete.
+ */
 export function isGeneratedNotePath(relativePath: string): boolean {
   const normalized = relativePath.replace(/\\/g, '/');
   return (
     normalized === 'index.md' ||
-    /^pages\/[^/]+\.md$/.test(normalized) ||
-    /^pages\/[^/]+\/[^/]+\.md$/.test(normalized) ||
+    /^pages\/(?:[^/]+\/){0,2}[^/]+\.md$/.test(normalized) ||
     /^entities\/[^/]+\.md$/.test(normalized) ||
     /^memories\/[^/]+\.md$/.test(normalized) ||
     /^sessions\/[^/]+\.md$/.test(normalized)

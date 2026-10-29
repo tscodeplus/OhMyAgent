@@ -5,6 +5,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import { applySchema } from '../../src/memory/schema';
 import { migrateV14 } from '../../src/memory/migration-v14';
+import { migrateV22 } from '../../src/memory/migration-v22';
 import {
   ENTITY_TABLES_ABSENT_NOTICE,
   VAULT_STATE_FILE,
@@ -13,6 +14,7 @@ import {
 import { parseAliases } from '../../src/graph-export/entity-tables';
 import {
   VaultPathError,
+  isGeneratedNotePath,
   safeJoin,
   safeFileStem,
   slugifySegment,
@@ -431,13 +433,15 @@ describe('exportVault — knowledge page layer', () => {
     version?: number;
     tags?: string[];
     aliases?: string[];
+    /** Omitted means `global`: the column's default, as before the v22 migration. */
+    scope?: string;
     sources?: Array<{ kind: string; id: string }>;
   }): void {
     db.prepare(
       `INSERT INTO knowledge_pages
          (id, page_type, slug, title, content, aliases, tags, confidence,
-          version, status, created_at, updated_at, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0.9, ?, ?, ?, ?, 'user')`,
+          version, status, scope, created_at, updated_at, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0.9, ?, ?, ?, ?, ?, 'user')`,
     ).run(
       row.id,
       row.pageType ?? 'topic',
@@ -448,6 +452,7 @@ describe('exportVault — knowledge page layer', () => {
       row.tags ? JSON.stringify(row.tags) : null,
       row.version ?? 1,
       row.status ?? 'active',
+      row.scope ?? 'global',
       CREATED_AT,
       UPDATED_PAGE_AT,
     );
@@ -461,6 +466,7 @@ describe('exportVault — knowledge page layer', () => {
 
   beforeEach(() => {
     migrateV14(db);
+    migrateV22(db);
   });
 
   it('writes one note per active page at pages/<page_type>/<slug>.md', () => {
@@ -501,8 +507,20 @@ describe('exportVault — knowledge page layer', () => {
       .split('\n')
       .filter((line) => /^[a-z_]+:/.test(line))
       .map((line) => line.split(':')[0]);
-    expect(keys).toEqual(['title', 'page_type', 'status', 'version', 'tags', 'aliases', 'sources']);
+    expect(keys).toEqual([
+      'title',
+      'page_type',
+      'scope',
+      'status',
+      'version',
+      'tags',
+      'aliases',
+      'sources',
+    ]);
     expect(note).toContain('page_type: topic');
+    // `scope` is always written, `global` included: it says which conversation
+    // the page exists for, which the directory alone does not.
+    expect(note).toContain('scope: global');
     expect(note).toContain('status: active');
     expect(note).toContain('version: 3');
     expect(note).toContain('  - etl');
@@ -604,6 +622,159 @@ describe('exportVault — knowledge page layer', () => {
     const note = fs.readFileSync(path.join(outDir, 'pages', 'imported-note.md'), 'utf8');
     // The stored value is projected, not guessed into the closed set.
     expect(note).toContain('page_type: legacy-import');
+  });
+
+  describe('page scope', () => {
+    const CHAT_A = 'feishu:oc_a';
+    const CHAT_B = 'telegram:42';
+
+    function noteAt(relativePath: string): string {
+      return fs.readFileSync(path.join(outDir, ...relativePath.split('/')), 'utf8');
+    }
+
+    /** One slug, one page type, three conversations — the collision case. */
+    function insertSameSlugEverywhere(): void {
+      insertPage({
+        id: 'page-global',
+        slug: 'deploy-process',
+        title: 'Deploy process',
+        content: 'Console copy.',
+        scope: 'global',
+      });
+      insertPage({
+        id: 'page-chat-a',
+        slug: 'deploy-process',
+        title: 'Deploy process',
+        content: 'Feishu copy.',
+        scope: CHAT_A,
+      });
+      insertPage({
+        id: 'page-chat-b',
+        slug: 'deploy-process',
+        title: 'Deploy process',
+        content: 'Telegram copy.',
+        scope: CHAT_B,
+      });
+    }
+
+    it('writes one note per scope instead of overwriting one path', () => {
+      insertSameSlugEverywhere();
+
+      const result = exportVault({ db, outDir });
+
+      // The global page keeps the pre-scope path, so an existing vault and its
+      // `[[deploy-process]]` links keep working.
+      const globalNote = noteAt('pages/topic/deploy-process.md');
+      expect(globalNote).toContain('Console copy.');
+      expect(globalNote).toContain('scope: global');
+
+      // A scoped page gets an address of its own — scope, then page type — so the
+      // second write cannot replace the first (that is what a bare
+      // `pages/<page_type>/<slug>.md` did once two chats shared a slug).
+      const chatA = noteAt('pages/feishu-oc-a/topic/deploy-process.md');
+      expect(chatA).toContain('Feishu copy.');
+      expect(chatA).toContain('scope: feishu:oc_a');
+      const chatB = noteAt('pages/telegram-42/topic/deploy-process.md');
+      expect(chatB).toContain('Telegram copy.');
+      expect(chatB).toContain('scope: telegram:42');
+
+      expect(result.written.filter((file) => file.startsWith('pages/')).sort()).toEqual([
+        'pages/feishu-oc-a/topic/deploy-process.md',
+        'pages/telegram-42/topic/deploy-process.md',
+        'pages/topic/deploy-process.md',
+      ]);
+    });
+
+    it('counts pages once and recognises both path shapes on a re-run', () => {
+      insertSameSlugEverywhere();
+      exportVault({ db, outDir });
+
+      const index = noteAt('index.md');
+      expect(index).toContain('| Pages | 3 |');
+      // One entry per page, not one per file that survived a collision.
+      expect(index.split('\n').filter((line) => line.includes('deploy-process'))).toHaveLength(3);
+      // A global page is still linked by its bare slug (Obsidian shortest path);
+      // a scoped one is linked by path, because its stem is no longer unique.
+      expect(index).toContain('- [[deploy-process|Deploy process]] — topic');
+      expect(index).toContain(
+        '- [[pages/feishu-oc-a/topic/deploy-process|Deploy process]] — topic, feishu:oc_a',
+      );
+
+      // Both shapes are inside the generated namespace ...
+      expect(isGeneratedNotePath('pages/topic/deploy-process.md')).toBe(true);
+      expect(isGeneratedNotePath('pages/feishu-oc-a/topic/deploy-process.md')).toBe(true);
+      expect(isGeneratedNotePath('../escape.md')).toBe(false);
+
+      // ... so a re-run neither rewrites nor deletes them, at either depth.
+      const second = exportVault({ db, outDir });
+      expect(second.written).toEqual([]);
+      expect(second.deleted).toEqual([]);
+      expect(second.unchanged).toEqual(
+        expect.arrayContaining([
+          'pages/topic/deploy-process.md',
+          'pages/feishu-oc-a/topic/deploy-process.md',
+          'pages/telegram-42/topic/deploy-process.md',
+        ]),
+      );
+      const state = JSON.parse(noteAt(VAULT_STATE_FILE)) as { files: string[] };
+      expect(state.files).toEqual(
+        expect.arrayContaining([
+          'pages/topic/deploy-process.md',
+          'pages/feishu-oc-a/topic/deploy-process.md',
+          'pages/telegram-42/topic/deploy-process.md',
+        ]),
+      );
+    });
+
+    it('deletes a scoped note, and only that one, when its page is archived', () => {
+      insertSameSlugEverywhere();
+      exportVault({ db, outDir });
+
+      db.prepare("UPDATE knowledge_pages SET status = 'archived' WHERE id = 'page-chat-a'").run();
+
+      const second = exportVault({ db, outDir });
+
+      expect(second.deleted).toEqual(['pages/feishu-oc-a/topic/deploy-process.md']);
+      expect(
+        fs.existsSync(path.join(outDir, 'pages', 'feishu-oc-a', 'topic', 'deploy-process.md')),
+      ).toBe(false);
+      // The same slug in the console and in the other chat is untouched.
+      expect(noteAt('pages/topic/deploy-process.md')).toContain('Console copy.');
+      expect(noteAt('pages/telegram-42/topic/deploy-process.md')).toContain('Telegram copy.');
+    });
+
+    it('keeps two scopes that slugify alike in separate directories', () => {
+      // `feishu:oc-1` and `feishu:oc_1` fold onto the same directory name, so the
+      // hash suffix is what stops one chat's note from replacing the other's.
+      insertPage({
+        id: 'page-dash',
+        slug: 'deploy-process',
+        title: 'Deploy process',
+        content: 'Dash scope.',
+        scope: 'feishu:oc-1',
+      });
+      insertPage({
+        id: 'page-underscore',
+        slug: 'deploy-process',
+        title: 'Deploy process',
+        content: 'Underscore scope.',
+        scope: 'feishu:oc_1',
+      });
+
+      exportVault({ db, outDir });
+
+      const notes = Object.keys(snapshot(outDir)).filter((file) => file.startsWith('pages/'));
+      expect(notes).toHaveLength(2);
+      expect(new Set(notes.map((file) => file.split('/')[1])).size).toBe(2);
+      const contents = notes.map((file) => noteAt(file)).sort();
+      expect(contents.some((text) => text.includes('Dash scope.'))).toBe(true);
+      expect(contents.some((text) => text.includes('Underscore scope.'))).toBe(true);
+      // Deterministic: the paths do not depend on insertion order.
+      const firstPaths = Object.keys(snapshot(outDir)).sort();
+      const second = exportVault({ db, outDir });
+      expect(second.written).toEqual([]);
+      expect(Object.keys(snapshot(outDir)).sort()).toEqual(firstPaths);
+    });
   });
 });
 

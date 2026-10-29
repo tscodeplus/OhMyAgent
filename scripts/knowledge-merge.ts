@@ -127,9 +127,11 @@ function printHelp(): void {
   --type, -t <t>    Only this page type (${PAGE_TYPES.join(' | ')}); repeatable
   --verbose, -v     Print every piece of evidence behind a proposal
 
-Proposes merges of knowledge pages of the same page type that name the same
-thing: the same normalized name, a colliding alias, or one edit apart. No model
-is called — the evidence is the names as stored.
+Proposes merges of knowledge pages of the same page type **and scope** that name
+the same thing: the same normalized name, a colliding alias, or one edit apart.
+Two chats holding the same title are the same subject discussed in two places,
+so they are never proposed as duplicates; only global pages merge with each
+other. No model is called — the evidence is the names as stored.
 
 Applying a merge repoints the loser's citations, its incoming [[wikilinks]] and
 its graph entities to the survivor, moves its names onto the survivor, and
@@ -174,10 +176,11 @@ function pad(text: string, width: number): string {
  */
 function renderProposalTable(candidates: MergeCandidate[], verbose: boolean): string[] {
   if (candidates.length === 0) return [];
-  const header = ['#', 'TYPE', 'SURVIVES', 'ARCHIVED', 'EVIDENCE'];
+  const header = ['#', 'TYPE', 'SCOPE', 'SURVIVES', 'ARCHIVED', 'EVIDENCE'];
   const rows = candidates.map((candidate, index) => [
     String(index + 1),
     candidate.pageType,
+    candidate.scope,
     `${clip(candidate.survivor.title, MAX_TITLE_WIDTH)} (${candidate.survivor.slug})`,
     `${clip(candidate.loser.title, MAX_TITLE_WIDTH)} (${candidate.loser.slug})`,
     candidate.evidence.map((entry) => entry.kind).join(', '),

@@ -19,6 +19,18 @@
  *     of length >= 4 only (`Postgres` / `Postgress`). Word-length CJK has no
  *     useful edit distance: 知识图谱 and 知识库 are one edit apart and unrelated.
  *
+ * ## Scope
+ *
+ * A page belongs to a conversation (`scope.ts`, migration-v22), and the same
+ * title in two chats is the same subject discussed in two places — legitimate,
+ * not a duplicate. A candidate pair therefore has to share its `scope` as well
+ * as its `page_type`; grouping ignores every page from another scope entirely,
+ * so a curation in chat B can never be folded into chat A's page on the same
+ * subject. Global pages still merge with global pages: that is the console's one
+ * namespace, and the one place where "we wrote this twice" is unambiguous.
+ * Scope comes from the row and is compared as a string, which keeps the scan
+ * reproducible and needs nothing from the model.
+ *
  * **No model call.** A merge is destructive in a way a proposal is not, so the
  * decision that two names are one thing must be reproducible from the data —
  * the same database produces the same candidates in the same order, every run.
@@ -78,8 +90,9 @@
 
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
-import { hasTable } from '../../graph-export/sqlite-schema.js';
+import { hasTable, pickColumn, tableColumns } from '../../graph-export/sqlite-schema.js';
 import { canonicalizeEntityName } from '../repositories/entity-repository.js';
+import { normalizeScope } from './scope.js';
 import { slugify } from './slug.js';
 import type { PageType } from './types.js';
 
@@ -103,6 +116,8 @@ export interface MergeEvidence {
 export interface MergePageIdentity {
   id: string;
   pageType: PageType;
+  /** The conversation the page belongs to (`scope.ts`), normalised; `global` for the console's pages. */
+  scope: string;
   slug: string;
   title: string;
   aliases: string[];
@@ -114,6 +129,8 @@ export interface MergePageIdentity {
 /** One proposed merge: `loser` is archived into `survivor`. */
 export interface MergeCandidate {
   pageType: PageType;
+  /** Shared by both pages: a pair is only proposed inside one scope. */
+  scope: string;
   survivor: MergePageIdentity;
   loser: MergePageIdentity;
   evidence: MergeEvidence[];
@@ -248,9 +265,15 @@ function readPageIdentities(
   options: MergePlanOptions,
   notes: string[],
 ): MergePageIdentity[] {
+  // A database whose v22 migration has not run yet has no `scope` column. Its
+  // pages are all global by definition (that was the whole table), so the read
+  // stays correct instead of throwing on a hand-restored or older file.
+  const scopeColumn = pickColumn(tableColumns(db, 'knowledge_pages'), ['scope']);
   const params: unknown[] = [];
-  let sql = `SELECT id, page_type, slug, title, aliases, created_at
-             FROM knowledge_pages WHERE status = 'active'`;
+  let sql =
+    'SELECT id, page_type, slug, title, aliases, created_at' +
+    (scopeColumn ? `, "${scopeColumn}"` : '') +
+    " FROM knowledge_pages WHERE status = 'active'";
   const types = options.pageTypes?.filter((type) => type.length > 0) ?? [];
   if (types.length > 0) {
     sql += ` AND page_type IN (${types.map(() => '?').join(', ')})`;
@@ -274,6 +297,7 @@ function readPageIdentities(
     return {
       id,
       pageType: String(row.page_type) as PageType,
+      scope: normalizeScope(scopeColumn ? row[scopeColumn] : undefined),
       slug: String(row.slug),
       title: String(row.title),
       aliases: parseAliases(row.aliases, id, notes),
@@ -339,22 +363,33 @@ function addEvidence(
 }
 
 /**
- * Candidate pairs among `pages`, never across `page_type`: a `project` page and
- * a `topic` page may carry the same name and still be two different resources
- * (`Power Query` the project vs the tool), and folding them would lose one
- * page_type outright — there is no survivor that is both.
+ * Candidate pairs among `pages`, never across `page_type` or `scope`.
+ *
+ * `page_type`: a `project` page and a `topic` page may carry the same name and
+ * still be two different resources (`Power Query` the project vs the tool), and
+ * folding them would lose one page_type outright — there is no survivor that is
+ * both.
+ *
+ * `scope`: the same title in two chats is one subject discussed in two places.
+ * Pairing across scopes would archive one conversation's page into another's, so
+ * the grouping happens here, before any name is compared — a post-hoc filter
+ * would already have ranked and claimed pages in the wrong namespace.
  */
 function findPairs(pages: MergePageIdentity[], notes: string[]): PairAccumulator {
   const accumulator: PairAccumulator = { survivors: new Map(), pages: new Map() };
-  const byType = new Map<PageType, MergePageIdentity[]>();
+  const groups = new Map<
+    string,
+    { pageType: PageType; scope: string; pages: MergePageIdentity[] }
+  >();
   for (const page of pages) {
-    const group = byType.get(page.pageType) ?? [];
-    group.push(page);
-    byType.set(page.pageType, group);
+    const key = `${page.pageType}|${page.scope}`;
+    const group = groups.get(key) ?? { pageType: page.pageType, scope: page.scope, pages: [] };
+    group.pages.push(page);
+    groups.set(key, group);
   }
-  for (const [pageType, group] of byType) {
-    if (group.length < 2) continue;
-    collectPairs(group, accumulator, notes, pageType);
+  for (const group of groups.values()) {
+    if (group.pages.length < 2) continue;
+    collectPairs(group.pages, accumulator, notes, group.pageType, group.scope);
   }
   return accumulator;
 }
@@ -370,6 +405,7 @@ function collectPairs(
   accumulator: PairAccumulator,
   notes: string[],
   pageType: PageType,
+  scope: string,
 ): void {
   // Lane 1: identical normalized name, from any name column.
   const byKey = new Map<string, PageName[]>();
@@ -424,7 +460,8 @@ function collectPairs(
   for (const [length, bucket] of [...editNames].sort((a, b) => a[0] - b[0])) {
     if (bucket.length > MAX_EDIT_DISTANCE_BUCKET) {
       notes.push(
-        `edit-distance lane skipped for ${pageType} ${length}-character names: ` +
+        `edit-distance lane skipped for ${pageType} names in scope ${scope}, ` +
+          `${length} characters: ` +
           `${bucket.length} candidates (limit ${MAX_EDIT_DISTANCE_BUCKET}) — ` +
           'the exact-name lanes still covered them',
       );
@@ -526,6 +563,7 @@ export function findMergeCandidates(
     const [survivor, loser] = chooseSurvivor(first, second);
     candidates.push({
       pageType: survivor.pageType,
+      scope: survivor.scope,
       survivor,
       loser,
       evidence: pair.evidence,
@@ -949,10 +987,17 @@ function applyCandidate(
 function pageRef(page: MergePageIdentity): {
   id: string;
   pageType: PageType;
+  scope: string;
   slug: string;
   title: string;
 } {
-  return { id: page.id, pageType: page.pageType, slug: page.slug, title: page.title };
+  return {
+    id: page.id,
+    pageType: page.pageType,
+    scope: page.scope,
+    slug: page.slug,
+    title: page.title,
+  };
 }
 
 /**

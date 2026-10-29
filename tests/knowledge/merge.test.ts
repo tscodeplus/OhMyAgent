@@ -10,6 +10,11 @@
  * The proposal list is also asserted to be order-stable across calls: the
  * command's whole value is that a human can review it, and a table that reshuffles
  * between runs is not reviewable.
+ *
+ * Scope is the other axis: `knowledge_pages` is one table behind every chat, so
+ * two conversations holding the same title is a legitimate pair of pages, not a
+ * duplicate. A candidate must share its scope, and the tests below pin both
+ * halves — no pairing across scopes, pairing still happens inside one.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -34,6 +39,8 @@ import {
 } from './fixtures.js';
 
 const NOW = 1_780_000_000_000;
+const CHAT_A = 'feishu:oc_a';
+const CHAT_B = 'telegram:42';
 
 interface PageRow {
   id: string;
@@ -56,7 +63,12 @@ describe('knowledge:merge', () => {
   });
 
   function createPage(
-    overrides: Partial<CreateKnowledgePageInput> & { slug: string; title: string },
+    overrides: Partial<CreateKnowledgePageInput> & {
+      slug: string;
+      title: string;
+      /** Omitted means a global page, i.e. the console's namespace. */
+      scope?: string;
+    },
   ): string {
     const result = repository.insertPage(
       {
@@ -153,6 +165,8 @@ describe('knowledge:merge', () => {
       expect(plan.candidates).toHaveLength(1);
       const [candidate] = plan.candidates;
       expect(candidate.pageType).toBe('topic');
+      // Pages written without a scope are the console's, i.e. global.
+      expect(candidate.scope).toBe('global');
       // More citations wins: pageA is the page other pages already rely on.
       expect(candidate.survivor.id).toBe(pageA);
       expect(candidate.loser.id).toBe(pageB);
@@ -179,6 +193,7 @@ describe('knowledge:merge', () => {
       const plan = findMergeCandidates(db);
 
       expect(plan.candidates).toHaveLength(1);
+      expect(plan.candidates[0].scope).toBe('global');
       expect(plan.candidates[0].evidence).toEqual([
         {
           kind: 'edit_distance',
@@ -223,6 +238,97 @@ describe('knowledge:merge', () => {
       expect(plan.candidates).toHaveLength(1);
       // The exact normalized-name pair outranks the one-edit pair.
       expect(plan.candidates[0].evidence.map((entry) => entry.kind)).toContain('normalized_name');
+    });
+
+    it('does not pair the same title across scopes', () => {
+      // Same page type, same title, three conversations. Before the scope rule
+      // this was one proposal and one of the three pages was archived into
+      // another conversation's page.
+      const inA = createPage({
+        slug: 'deploy-process',
+        title: 'Deploy process',
+        scope: CHAT_A,
+      });
+      const inB = createPage({ slug: 'deploy-steps', title: 'Deploy process', scope: CHAT_B });
+      const global = createPage({ slug: 'deploy-runbook', title: 'Deploy process' });
+      // An alias is a claim of identity *inside* its conversation, so two chats
+      // that each alias onto `deploy` are still two pages.
+      createPage({
+        slug: 'release-runbook',
+        title: 'Release runbook',
+        aliases: ['deploy'],
+        scope: CHAT_A,
+      });
+      createPage({
+        slug: 'deploy-notes',
+        title: 'Deploy notes',
+        aliases: ['deploy'],
+        scope: CHAT_B,
+      });
+
+      const plan = findMergeCandidates(db);
+
+      expect(plan.candidates).toEqual([]);
+      expect(plan.pairCount).toBe(0);
+      // Sanity: the pages really are stored in the scopes this test assumes.
+      expect(repository.findById(inA)?.scope).toBe(CHAT_A);
+      expect(repository.findById(inB)?.scope).toBe(CHAT_B);
+      expect(repository.findById(global)?.scope).toBe('global');
+    });
+
+    it('still merges two duplicates inside one scope, and leaves another chat alone', () => {
+      const survivor = createPage({
+        slug: 'power-query',
+        title: 'Power Query',
+        aliases: ['PQ'],
+        sources: [...TWO_MEMORY_SOURCES],
+        scope: CHAT_A,
+      });
+      const loser = createPage({
+        slug: 'power-query-tool',
+        title: 'power  query',
+        sources: [{ kind: 'memory', id: MEMORY_C }],
+        scope: CHAT_A,
+      });
+      // The same duplicate in another chat: not part of this pair, before or after.
+      const otherChat = createPage({
+        slug: 'power-query-tool',
+        title: 'power  query',
+        sources: [{ kind: 'memory', id: MEMORY_C }],
+        scope: CHAT_B,
+      });
+
+      const plan = findMergeCandidates(db);
+
+      expect(plan.candidates).toHaveLength(1);
+      const [candidate] = plan.candidates;
+      expect(candidate.scope).toBe(CHAT_A);
+      expect(candidate.survivor.scope).toBe(CHAT_A);
+      expect(candidate.loser.scope).toBe(CHAT_A);
+      expect(candidate.survivor.id).toBe(survivor);
+      expect(candidate.loser.id).toBe(loser);
+      expect([candidate.survivor.id, candidate.loser.id]).not.toContain(otherChat);
+
+      const [outcome] = applyMergePlan(db, findMergeCandidates(db));
+      expect(outcome.status).toBe('merged');
+
+      expect(row(survivor).status).toBe('active');
+      expect(row(loser).status).toBe('archived');
+      // The other chat's page is untouched: nothing renamed, nothing archived.
+      expect(row(otherChat).status).toBe('active');
+      expect(repository.findById(otherChat)?.title).toBe('power  query');
+      expect(aliasesOf(otherChat)).toEqual([]);
+
+      // The audit entry names the scope the merge happened in.
+      const log = db.prepare("SELECT reason FROM knowledge_log WHERE action = 'merge'").get() as {
+        reason: string;
+      };
+      const payload = JSON.parse(log.reason) as {
+        survivor: { id: string; scope: string };
+        loser: { id: string; scope: string };
+      };
+      expect(payload.survivor).toMatchObject({ id: survivor, scope: CHAT_A });
+      expect(payload.loser).toMatchObject({ id: loser, scope: CHAT_A });
     });
 
     it('proposes nothing when the knowledge layer is absent', () => {

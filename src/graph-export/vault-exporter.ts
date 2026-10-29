@@ -39,6 +39,7 @@ import { dedupeStrings } from './collections.js';
 import { hasTable, pickColumn, tableColumns } from './sqlite-schema.js';
 import { isGeneratedNotePath, safeFileStem, safeJoin } from './slug.js';
 import { isPageType } from '../memory/knowledge/types.js';
+import { normalizeScope, SCOPE_GLOBAL } from '../memory/knowledge/scope.js';
 
 /** Vault-relative path of the generated-file state. Root-level and dot-prefixed so Obsidian ignores it. */
 export const VAULT_STATE_FILE = '.oma-state.json';
@@ -113,6 +114,8 @@ interface SessionRecord {
 interface KnowledgePageRecord {
   id: string;
   pageType: string | null;
+  /** The conversation the page belongs to (`scope.ts`), normalised; `global` for console pages. */
+  scope: string;
   slug: string;
   title: string;
   status: string | null;
@@ -136,6 +139,12 @@ interface GeneratedPage {
   stem: string;
   /** Vault-relative POSIX path. */
   path: string;
+  /**
+   * What a link in `index.md` must name to reach exactly this note: the bare stem
+   * for a global page (the shortest path Obsidian resolves), the vault path
+   * without `.md` for a scoped one, whose stem another scope may also hold.
+   */
+  linkTarget: string;
 }
 
 type Row = Record<string, unknown>;
@@ -319,7 +328,7 @@ function readKnowledgePageSources(db: Database.Database): Map<string, string[]> 
 }
 
 /**
- * Active knowledge pages, in `(page_type, slug)` order.
+ * Active knowledge pages, in `(page_type, scope, slug)` order.
  *
  * `status = 'active'` is the knowledge layer's hard read filter (search, get,
  * injection, link resolution), so the vault uses the same one: a `pending` page
@@ -332,7 +341,7 @@ function readKnowledgePages(db: Database.Database): KnowledgePageRecord[] {
   const rows = db
     .prepare(
       `SELECT * FROM knowledge_pages WHERE status = 'active'
-        ORDER BY page_type, slug, id`,
+        ORDER BY page_type, scope, slug, id`,
     )
     .all() as Row[];
 
@@ -347,6 +356,9 @@ function readKnowledgePages(db: Database.Database): KnowledgePageRecord[] {
     pages.push({
       id,
       pageType: asText(row.page_type),
+      // A database older than the v22 scope migration has no column at all; every
+      // page it holds predates the concept, which is exactly `global`.
+      scope: normalizeScope(row.scope),
       slug,
       title: asText(row.title) ?? slug,
       status: asText(row.status),
@@ -391,37 +403,101 @@ function shortDate(timestamp: string | null): string | null {
 }
 
 /**
- * Vault path and stem of every page note.
+ * Vault path, stem and link target of every page note.
  *
- * `pages/<page_type>/<slug>.md`, or `pages/<slug>.md` when the row's `page_type`
- * is outside the closed set — there is no directory to file such a row under
- * that would not invent a type for it. The stem is the slug with no prefix,
- * because the page body addresses its neighbours as `[[slug]]`: Obsidian
- * resolves a bare link by file name (shortest path), so a prefixed stem would
- * turn every existing wikilink into a dead one.
+ * `pages/<page_type>/<slug>.md` for a global page, or `pages/<slug>.md` when its
+ * `page_type` is outside the closed set — there is no directory to file such a
+ * row under that would not invent a type for it. A page from a conversation goes
+ * under its scope: `pages/<scope>/<page_type>/<slug>.md`. Without that segment
+ * two chats holding `topic/deploy-process` would be one file, and the second
+ * write would silently replace the first — the vault would show one
+ * conversation's page as if it were the other's. Global paths are unchanged, so
+ * an existing vault keeps working and its `[[slug]]` links keep resolving.
+ *
+ * The stem is the slug with no prefix, because the page body addresses its
+ * neighbours as `[[slug]]`: Obsidian resolves a bare link by file name (shortest
+ * path), so a prefixed stem would turn every existing wikilink into a dead one.
+ * A scoped page keeps the same stem — its address is the path, which is why
+ * `index.md` links scoped pages by path instead of by stem.
  *
  * `safeFileStem` differs from the slug only for the names a filesystem refuses
  * outright (Windows `CON`, `NUL`, …): such a page cannot be addressed as
  * `[[con]]` on Windows either, and one failed write would abort the export.
  */
 function assignPageFiles(pages: readonly KnowledgePageRecord[]): GeneratedPage[] {
+  const scopeDirectories = assignScopeDirectories(pages.map((page) => page.scope));
   const taken = new Set<string>();
   const files: GeneratedPage[] = [];
   for (const page of pages) {
-    const dir = isPageType(page.pageType) ? `pages/${page.pageType}` : 'pages';
+    const dir = pageNoteDirectory(page, scopeDirectories);
     let stem = safeFileStem(page.slug);
     let notePath = `${dir}/${stem}.md`;
     if (taken.has(notePath)) {
-      // Only a corrupt `page_type` can get here: two untitled-by-type rows that
-      // share a slug. The id keeps them apart, deterministically.
+      // Two rows can only reach one path when their addresses coincide: the same
+      // slug twice under a `page_type` outside the closed set, or a scope whose
+      // slug happens to name a page type. The id keeps them apart, deterministically.
       const suffix = createHash('sha256').update(page.id).digest('hex').slice(0, 8);
       stem = `${stem}-${suffix}`;
       notePath = `${dir}/${stem}.md`;
     }
     taken.add(notePath);
-    files.push({ page, stem, path: notePath });
+    files.push({
+      page,
+      stem,
+      path: notePath,
+      linkTarget: page.scope === SCOPE_GLOBAL ? stem : notePath.replace(/\.md$/, ''),
+    });
   }
   return files;
+}
+
+/**
+ * Directory of one page note, per {@link assignPageFiles}: scope (unless global),
+ * then the page type when the row has a usable one.
+ */
+function pageNoteDirectory(
+  page: KnowledgePageRecord,
+  scopeDirectories: Map<string, string>,
+): string {
+  const segments = ['pages'];
+  if (page.scope !== SCOPE_GLOBAL) {
+    segments.push(scopeDirectories.get(page.scope) ?? safeFileStem(page.scope));
+  }
+  if (isPageType(page.pageType)) segments.push(page.pageType);
+  return segments.join('/');
+}
+
+/**
+ * One directory name per non-global scope.
+ *
+ * A scope is `channel:<chatId>` / `session:<id>` as stored, so it becomes a slug
+ * (`feishu:oc_1` → `feishu-oc-1`) — `:` and `_` are not path characters, and a
+ * raw scope in a path would be a directory name a re-parse could not recover.
+ * Two distinct scopes can fold onto the same slug (`feishu:oc-1` and
+ * `feishu:oc_1`), so such a group is disambiguated with a hash of the raw scope,
+ * exactly as {@link assignStems} does for two names that slugify alike. Both the
+ * slug and the hash are functions of the stored value, so a re-run writes the
+ * same paths.
+ */
+function assignScopeDirectories(scopes: readonly string[]): Map<string, string> {
+  const directories = new Map<string, string>();
+  const byDirectory = new Map<string, string[]>();
+  for (const scope of [...new Set(scopes)].sort()) {
+    if (scope === SCOPE_GLOBAL) continue;
+    const directory = safeFileStem(scope);
+    directories.set(scope, directory);
+    const group = byDirectory.get(directory) ?? [];
+    group.push(scope);
+    byDirectory.set(directory, group);
+  }
+  for (const [directory, group] of byDirectory) {
+    if (group.length < 2) continue;
+    for (const scope of group) {
+      const suffix = createHash('sha256').update(scope).digest('hex').slice(0, 8);
+      directories.set(scope, `${directory}-${suffix}`);
+    }
+  }
+  return directories;
 }
 
 function confidenceSuffix(confidence: number | null): string {
@@ -564,11 +640,17 @@ function memoryTitle(memory: MemoryRecord): string {
  * authored text (curated pages deliberately carry no top-level heading, the
  * title is stored separately), so the vault stays a projection rather than a
  * second author. Key order is fixed by the object literal: title, page_type,
- * status, version, then the lists, which keeps two runs byte-identical.
+ * scope, status, version, then the lists, which keeps two runs byte-identical.
+ *
+ * `scope` is written for every page, `global` included: it says which
+ * conversation the page exists for, which is the one fact a reader cannot infer
+ * from the directory (`global` pages live at the same depth as a page type) and
+ * the reason a scoped page's note sits under `pages/<scope>/`.
  */
 function renderPageNote(page: KnowledgePageRecord): string {
   const frontmatterData: Record<string, unknown> = { title: page.title };
   if (page.pageType) frontmatterData.page_type = page.pageType;
+  frontmatterData.scope = page.scope;
   if (page.status) frontmatterData.status = page.status;
   if (page.version !== null) frontmatterData.version = page.version;
   if (page.tags.length > 0) frontmatterData.tags = page.tags;
@@ -648,8 +730,14 @@ function renderIndex(input: {
   if (input.pages.length > 0) {
     lines.push('## Pages', '');
     for (const entry of input.pages) {
-      const suffix = entry.page.pageType ? ` — ${entry.page.pageType}` : '';
-      lines.push(`- ${wikilink(entry.stem, entry.page.title)}${suffix}`);
+      // Page type, then the scope of any page that is not global — the one thing
+      // that tells two notes with the same title apart.
+      const labels = [
+        entry.page.pageType,
+        entry.page.scope === SCOPE_GLOBAL ? null : entry.page.scope,
+      ].filter((label): label is string => Boolean(label));
+      const suffix = labels.length > 0 ? ` — ${labels.join(', ')}` : '';
+      lines.push(`- ${wikilink(entry.linkTarget, entry.page.title)}${suffix}`);
     }
     lines.push('');
   }
