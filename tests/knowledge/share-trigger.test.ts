@@ -29,6 +29,8 @@ import { SESSION_ID, openSeededDatabase } from './fixtures.js';
 const LINK = 'https://example.com/power-query';
 const SHARE_CONTENT = `Excel 清洗用 Power Query，看这个 ${LINK} 讲得挺清楚`;
 const PLAIN_CONTENT = 'Excel 里我们用 Power Query 清洗数据';
+/** What the harness's session resolver answers — see `scopeOfSession`. */
+const SESSION_SCOPE = `webui:session:${SESSION_ID}`;
 
 interface LogRecord {
   level: 'debug' | 'info' | 'warn' | 'error';
@@ -121,6 +123,11 @@ function harness(
   const trigger = new ShareCurationTrigger({
     logger,
     getCurator: () => curator,
+    // The trigger does not read the sessions table itself: the wiring point hands
+    // it the scope, so the harness stands in for that resolver. The production one
+    // is `scopeFromContext({channel, chatId, sessionId})` over the session row
+    // (see `createMemoryServices`); here the session id is the whole identity.
+    scopeOfSession: (sessionId) => `webui:session:${sessionId}`,
     // Default: run the deferred task on demand instead of on a timer, so
     // `idle()` is the only wait. "Deferred" is still proven — `observe` pushes to
     // the queue and the drain yields before the first curation call.
@@ -203,14 +210,56 @@ describe('share curation trigger', () => {
     await h.trigger.idle();
 
     expect(curate).toHaveBeenCalledTimes(1);
-    expect(curate).toHaveBeenCalledWith(message.id, { trigger: 'share' });
+    expect(curate).toHaveBeenCalledWith(message.id, { trigger: 'share', scope: SESSION_SCOPE });
 
     // shadow mode: the page exists, and it waits for review.
     const pending = h.service.listPending();
     expect(pending).toHaveLength(1);
     expect(pending[0]).toMatchObject({ slug: 'power-query', status: 'pending' });
+    // The page belongs to the conversation the link was shared in, not to every
+    // chat on the database.
+    expect(pending[0].scope).toBe(SESSION_SCOPE);
     // Provenance points back at the message that shared the link.
     expect(pageSources(h.db, pending[0].id)).toContain(`message:${message.id}`);
+  });
+
+  it('scopes each page to the session its message came from', async () => {
+    const OTHER_SESSION = 'session-other';
+    h.db
+      .prepare(
+        `INSERT INTO sessions (id, chat_id, user_id, channel, created_at, updated_at)
+         VALUES (?, ?, 'user-knowledge', 'webui', ?, ?)`,
+      )
+      .run(OTHER_SESSION, OTHER_SESSION, String(Date.now()), String(Date.now()));
+
+    h.script(...onePageAnswers('message-scope-a'));
+    h.script(...onePageAnswers('message-scope-b'));
+    h.messages.create({
+      id: 'message-scope-a',
+      session_id: SESSION_ID,
+      role: 'user',
+      content: SHARE_CONTENT,
+    });
+    h.messages.create({
+      id: 'message-scope-b',
+      session_id: OTHER_SESSION,
+      role: 'user',
+      content: SHARE_CONTENT,
+    });
+    await h.trigger.idle();
+
+    // The same subject shared in two conversations is two pages, each readable
+    // only where it was written.
+    const rows = h.db
+      .prepare('SELECT slug, scope FROM knowledge_pages ORDER BY scope')
+      .all() as Array<{ slug: string; scope: string }>;
+    expect(rows).toEqual([
+      { slug: 'power-query', scope: SESSION_SCOPE },
+      { slug: 'power-query', scope: `webui:session:${OTHER_SESSION}` },
+    ]);
+    // Both are shadow pages, and the review queue is the one read that spans
+    // every scope: a queue that hid one could never get it approved.
+    expect(h.service.listPending()).toHaveLength(2);
   });
 
   it('curates a re-delivered message only once', async () => {

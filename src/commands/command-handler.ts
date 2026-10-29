@@ -10,6 +10,8 @@ import { i18n } from '../i18n/index.js';
 import type { ConversationSessions } from '../memory/conversation-sessions.js';
 import type { KnowledgeService } from '../memory/knowledge/service-contract.js';
 import type { KnowledgeCurator } from '../memory/knowledge/curate.js';
+import { isVisibleInScope, scopeFromContext } from '../memory/knowledge/scope.js';
+import { inferChannel } from '../memory/session-channel.js';
 import { isPageType, type KnowledgePage, type PageType } from '../memory/knowledge/types.js';
 import { truncate } from '../shared/truncation.js';
 import { teamModeStore } from '../agent/team-mode-store.js';
@@ -202,7 +204,7 @@ export async function handleCommand(
     case '/permission':
       return await handlePermission(args, deps, operator);
     case '/knowledge':
-      return await handleKnowledge(args, deps);
+      return await handleKnowledge(args, deps, knowledgeCommandScope(sessionKey, chatId, operator));
     default:
       return null;
   }
@@ -823,6 +825,29 @@ const KNOWLEDGE_SHOW_MAX_CHARS = 1200;
 /** Pages named in a `/knowledge curate` reply — the run is capped, the reply more so. */
 const KNOWLEDGE_CURATE_REPORT_LIMIT = 10;
 
+/**
+ * The conversation a `/knowledge` command reads and writes.
+ *
+ * The command runs inside a chat, so its knowledge is that chat's plus `global`
+ * — the same scope the knowledge tools and curation use, which is why the
+ * channel comes from the operator (Telegram/WeChat/QQ pass it) or, when the
+ * adapter does not, from the session key itself (`inferChannel`). A key that
+ * names no channel keeps the session as the conversation (`session:<id>`) and a
+ * command with neither falls through to `global`, which is the console.
+ */
+function knowledgeCommandScope(
+  sessionKey: string,
+  chatId?: string,
+  operator?: CommandOperator,
+): string {
+  const inferred = operator?.channel ?? inferChannel(sessionKey, chatId);
+  return scopeFromContext({
+    channel: inferred === 'unknown' ? undefined : inferred,
+    chatId,
+    sessionId: sessionKey,
+  });
+}
+
 /** `page_type/slug` is the page's address — the same form `[[wikilink]]` resolves. */
 function knowledgePageAddress(page: KnowledgePage): string {
   return `${page.page_type}/${page.slug}`;
@@ -857,10 +882,18 @@ function formatKnowledgeCounts(counts: Record<string, number>): string {
  * run's own pages are at the front of what is scanned and a page is "touched"
  * when its `updated_at` is at or after the run started.
  */
-function knowledgePagesWrittenSince(service: KnowledgeService, since: number): KnowledgePage[] {
+function knowledgePagesWrittenSince(
+  service: KnowledgeService,
+  since: number,
+  scope: string,
+): KnowledgePage[] {
   return [
-    ...service.list({ status: 'active', limit: KNOWLEDGE_PAGE_LIST_LIMIT }),
-    ...service.listPending(KNOWLEDGE_PAGE_LIST_LIMIT),
+    ...service.list({ status: 'active', limit: KNOWLEDGE_PAGE_LIST_LIMIT, scope }),
+    // The review queue itself is cross-scope (see `pending`), so the run's own
+    // shadow pages are picked out with the read rule rather than a second query.
+    ...service
+      .listPending(KNOWLEDGE_PAGE_LIST_LIMIT)
+      .filter((page) => isVisibleInScope(page.scope, scope)),
   ]
     .filter((page) => (page.updated_at ?? 0) >= since)
     .slice(0, KNOWLEDGE_CURATE_REPORT_LIMIT);
@@ -872,9 +905,16 @@ function knowledgePagesWrittenSince(service: KnowledgeService, since: number): K
  *
  * Reads go through `KnowledgeService`, so `/knowledge` sees exactly what the
  * model sees: `active` pages only, except in `pending`, which is the one place
- * shadow-mode pages are visible. `/knowledge stats` is the exception — counts
- * are supplied by the wiring point (`knowledgeStats`) because the service
- * contract has no aggregate.
+ * shadow-mode pages are visible. Reads are addressed to the command's chat
+ * (`scope`): `list`/`show` see that conversation's pages plus `global` ones, not
+ * another chat's. `pending` stays cross-scope on purpose — it is the review
+ * queue, and a queue that hid a page could never get it approved. `/knowledge
+ * stats` is the exception — counts are supplied by the wiring point
+ * (`knowledgeStats`) because the service contract has no aggregate.
+ *
+ * Writes go into the command's chat scope as well: `curate` and `share` pass it
+ * to the curator, so a page distilled from this conversation is readable here and
+ * nowhere else.
  *
  * `curate` is the explicit-request entry point (§6 K2-5): one curation pass, run
  * now, awaited before the reply, with the manual trigger — which is admission
@@ -889,7 +929,11 @@ function knowledgePagesWrittenSince(service: KnowledgeService, since: number): K
  * The two never overlap in meaning: `curate` selects its own subjects from
  * memories, `share` is about exactly one message.
  */
-async function handleKnowledge(args: string, deps: CommandDeps): Promise<CommandResult> {
+async function handleKnowledge(
+  args: string,
+  deps: CommandDeps,
+  scope: string,
+): Promise<CommandResult> {
   const service = deps.knowledgeService;
   // `knowledge.enabled: false` leaves the layer inert, and a channel that never
   // wired it is in the same position: say so instead of throwing.
@@ -906,7 +950,7 @@ async function handleKnowledge(args: string, deps: CommandDeps): Promise<Command
       // Bare `/knowledge` lists pages, like bare `/skill` lists skills.
       case '':
       case 'list': {
-        const pages = service.list({ status: 'active', limit: KNOWLEDGE_PAGE_LIST_LIMIT });
+        const pages = service.list({ status: 'active', limit: KNOWLEDGE_PAGE_LIST_LIMIT, scope });
         if (pages.length === 0) return { reply: i18n.t('commands:knowledge.empty') };
         return {
           reply: i18n.t('commands:knowledge.listHeader', {
@@ -920,7 +964,7 @@ async function handleKnowledge(args: string, deps: CommandDeps): Promise<Command
 
       case 'show': {
         if (!rest) return { reply: i18n.t('commands:knowledge.showUsage') };
-        const detail = service.get(parseKnowledgeShowRef(rest));
+        const detail = service.get(parseKnowledgeShowRef(rest), { scope });
         if (!detail) {
           return { reply: i18n.t('commands:knowledge.pageNotFound', { ref: rest }) };
         }
@@ -991,12 +1035,12 @@ async function handleKnowledge(args: string, deps: CommandDeps): Promise<Command
         // `manual` is the trigger that counts as admission rule 3, and the page
         // cap is the configured `curate.max_pages_per_run` — `run()` has no
         // per-call cap, by design (one budget, one place to read it).
-        const report = await curator.run({ trigger: 'manual' });
+        const report = await curator.run({ trigger: 'manual', scope });
         if (report.skipped) {
           return { reply: i18n.t('commands:knowledge.curateSkipped', { reason: report.skipped }) };
         }
 
-        const pages = knowledgePagesWrittenSince(service, startedAt);
+        const pages = knowledgePagesWrittenSince(service, startedAt, scope);
         if (pages.length === 0) {
           return {
             reply: i18n.t('commands:knowledge.curateNoPages', {
@@ -1030,7 +1074,7 @@ async function handleKnowledge(args: string, deps: CommandDeps): Promise<Command
         const startedAt = Date.now();
         // `manual` is the trigger that counts as admission rule 3 — the user
         // pressed the command, so one shared message is enough to make a page.
-        const report = await curator.curateMessage(rest, { trigger: 'manual' });
+        const report = await curator.curateMessage(rest, { trigger: 'manual', scope });
         if (report.skipped === 'message_not_found') {
           return { reply: i18n.t('commands:knowledge.shareMessageNotFound', { ref: rest }) };
         }
@@ -1038,7 +1082,7 @@ async function handleKnowledge(args: string, deps: CommandDeps): Promise<Command
           return { reply: i18n.t('commands:knowledge.shareSkipped', { reason: report.skipped }) };
         }
 
-        const page = knowledgePagesWrittenSince(service, startedAt)[0];
+        const page = knowledgePagesWrittenSince(service, startedAt, scope)[0];
         if (!page) {
           return {
             reply: i18n.t('commands:knowledge.shareNoPage', {

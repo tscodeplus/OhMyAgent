@@ -32,6 +32,11 @@
  *     model) are the rest of the cost control, and they are read from the
  *     curator rather than duplicated here.
  *
+ * The page lands in the conversation the link was shared in: the message's
+ * session is resolved to a scope (`scopeOfSession`, see `scope.ts`) and handed to
+ * `curateMessage`, so a link shared in one group chat does not become an answer
+ * in every other chat on the same database.
+ *
  * What this module deliberately does not do: fetch a shared URL, expand an
  * attachment, or read a page title. The message is evidence, and the curator
  * already knows how to turn one message into one page. A link whose message names
@@ -119,6 +124,8 @@ export function findSharedUrl(content: string): string | undefined {
 /** The slice of a `messages` row the trigger reads. */
 export interface SharedMessage {
   id: string;
+  /** The session the row was stored in — how the trigger finds the chat's scope. */
+  session_id: string;
   role: string;
   content: string;
 }
@@ -137,6 +144,17 @@ export interface ShareCurationTriggerDeps {
    * turn.
    */
   getCurator: () => KnowledgeCurator | undefined;
+  /**
+   * The scope the page belongs to, from the session the message was stored in.
+   *
+   * A message carries only `session_id`; the channel and the transport chat
+   * handle live on the session row, and `scopeFromContext` turns them into
+   * `channel:<chatId>`. This is a callback rather than a database handle so the
+   * trigger stays free of repository imports — `createMemoryServices` owns the
+   * lookup (see `scope.ts` for the model). Called on the caller's stack, once
+   * per candidate message, and a throw is caught like every other failure here.
+   */
+  scopeOfSession: (sessionId: string) => string;
   /**
    * Test seam: schedules one deferred tick. Production omits it and yields with an
    * unref'd `setTimeout` — a microtask would still run inside the turn's own task,
@@ -162,7 +180,7 @@ export class ShareCurationTrigger {
   /** Message ids already handled → when they were handled (insertion-ordered). */
   private readonly seen = new Map<string, number>();
   /** Message ids waiting for a curation turn, oldest first. */
-  private readonly queue: string[] = [];
+  private readonly queue: Array<{ messageId: string; scope: string }> = [];
   /** The serialized queue: each `observe` appends one drain to the chain. */
   private tail: Promise<void> = Promise.resolve();
   private burstStartedAt = 0;
@@ -204,12 +222,17 @@ export class ShareCurationTrigger {
         return;
       }
 
+      // The conversation the page belongs to, resolved while the message's
+      // session identity is still on this stack. Done after the cheap refusals
+      // so a dropped message costs no query.
+      const scope = this.deps.scopeOfSession(message.session_id);
+
       // Marked as seen before the run, not after: a curation that fails must not
       // be retried forever by a client that re-delivers the message.
       this.markSeen(message.id);
-      this.queue.push(message.id);
+      this.queue.push({ messageId: message.id, scope });
       this.tail = this.tail.then(() => this.drain());
-      this.logger.debug({ messageId: message.id, url }, 'share curation: queued');
+      this.logger.debug({ messageId: message.id, url, scope }, 'share curation: queued');
     } catch (err) {
       // Called from `MessageRepository.create`: the row is already stored, and no
       // bookkeeping failure here may surface as a failed turn.
@@ -237,16 +260,16 @@ export class ShareCurationTrigger {
   /** One curation turn at a time; the queue may grow while this runs. */
   private async drain(): Promise<void> {
     while (this.queue.length > 0) {
-      const messageId = this.queue.shift()!;
+      const job = this.queue.shift()!;
       try {
         // The yield that keeps the first curation off the caller's task.
         await this.nextTick();
-        await this.curate(messageId);
+        await this.curate(job.messageId, job.scope);
       } catch (err) {
         // Nothing above may take the queue down with it: this chain is what every
         // later share waits on, so a failed job is logged and the next one runs.
         this.logger.warn(
-          { messageId, err: errorMessage(err) },
+          { messageId: job.messageId, err: errorMessage(err) },
           'share curation: queued job failed (ignored)',
         );
       }
@@ -269,7 +292,7 @@ export class ShareCurationTrigger {
    * in `knowledge_log`, so the trigger label is the one signal that says whether
    * the feature is being used or the command is being exercised.
    */
-  private async curate(messageId: string): Promise<void> {
+  private async curate(messageId: string, scope: string): Promise<void> {
     const curator = this.curator();
     if (!curator) {
       this.logger.debug({ messageId }, 'share curation: no curator wired (knowledge layer off)');
@@ -295,7 +318,7 @@ export class ShareCurationTrigger {
     }
 
     try {
-      const report = await curator.curateMessage(messageId, { trigger: 'share' });
+      const report = await curator.curateMessage(messageId, { trigger: 'share', scope });
       if (report.skipped) {
         this.logger.debug({ messageId, skip: report.skipped }, 'share curation: curation skipped');
         return;

@@ -40,6 +40,7 @@ import type { openDatabase } from '../../memory/db.js';
 import { createKnowledgeService } from '../../memory/knowledge/service.js';
 import type { KnowledgeService } from '../../memory/knowledge/service-contract.js';
 import { ShareCurationTrigger } from '../../memory/knowledge/share-trigger.js';
+import { scopeFromContext } from '../../memory/knowledge/scope.js';
 import { currentKnowledgeCurator } from '../../commands/command-handler.js';
 import { currentJudgeEngine } from '../../judge/engine-lookup.js';
 
@@ -564,10 +565,24 @@ export async function createMemoryServices(
   // The curator is resolved lazily through `currentKnowledgeCurator()` (the
   // resolver `createSchedulers` installs after this composer runs), which is why
   // this needs no ordering between the two composers.
+  //
+  // The scope a shared link's page belongs to comes from the session row the
+  // message was stored in: a message carries only `session_id`, while the channel
+  // and the transport chat handle are on `sessions` (v9). `scopeFromContext`
+  // prefers the chat over the session, so a group chat's page stays readable in
+  // that group and not in every other conversation on this database.
   if (knowledgeService) {
     const shareTrigger = new ShareCurationTrigger({
       logger,
       getCurator: currentKnowledgeCurator,
+      scopeOfSession: (sessionId) => {
+        const session = sessionRepository.findById(sessionId);
+        return scopeFromContext({
+          channel: session?.channel,
+          chatId: session?.external_chat_id,
+          sessionId,
+        });
+      },
     });
     messageRepository.onUserMessage((message) => shareTrigger.observeUserMessage(message));
   }

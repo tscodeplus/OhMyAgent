@@ -26,6 +26,7 @@ import type {
   UpdateKnowledgePageInput,
 } from '../../src/memory/knowledge/types.js';
 import type { AuxLLMCallOptions } from '../../src/memory/aux-llm-client.js';
+import { isVisibleInScope, normalizeScope } from '../../src/memory/knowledge/scope.js';
 
 // ── Fakes ───────────────────────────────────────────────────────────────
 
@@ -47,8 +48,9 @@ class FakeKnowledgeService implements KnowledgeService {
   refuse: (KnowledgeWriteResult & { ok: false }) | null = null;
   private seq = 0;
 
-  private key(pageType: string, slug: string): string {
-    return `${pageType}:${slug}`;
+  /** `page_type:scope:slug` — the identity the real table's unique index has. */
+  private key(pageType: string, slug: string, scope: string): string {
+    return `${pageType}:${normalizeScope(scope)}:${slug}`;
   }
 
   create(input: CreateKnowledgePageInput, options: KnowledgeWriteOptions): KnowledgeWriteResult {
@@ -67,11 +69,12 @@ class FakeKnowledgeService implements KnowledgeService {
       confidence: input.confidence ?? null,
       version: 1,
       status: input.status ?? 'active',
+      scope: normalizeScope(options.scope),
       created_at: Date.now(),
       updated_at: Date.now(),
       updated_by: 'system',
     };
-    this.pages.set(this.key(page.page_type, page.slug), page);
+    this.pages.set(this.key(page.page_type, page.slug, page.scope), page);
     return {
       ok: true,
       id: page.id,
@@ -90,7 +93,7 @@ class FakeKnowledgeService implements KnowledgeService {
     options: KnowledgeWriteOptions,
   ): KnowledgeWriteResult {
     if (this.refuse) return this.refuse;
-    const existing = this.resolve(ref);
+    const existing = this.resolve(ref, options.scope);
     if (!existing) return { ok: false, code: 'not_found', slug: 'slug' in ref ? ref.slug : ref.id };
     if (input.expectedVersion !== undefined && input.expectedVersion !== existing.version) {
       return {
@@ -114,7 +117,9 @@ class FakeKnowledgeService implements KnowledgeService {
       version: existing.version + 1,
       updated_at: Date.now(),
     };
-    this.pages.set(this.key(updated.page_type, updated.slug), updated);
+    // The scope is the address, not part of the patch: an update rewrites the
+    // page it found and never moves it to another conversation.
+    this.pages.set(this.key(updated.page_type, updated.slug, updated.scope), updated);
     return {
       ok: true,
       id: updated.id,
@@ -127,8 +132,11 @@ class FakeKnowledgeService implements KnowledgeService {
     };
   }
 
-  get(ref: { slug: string; pageType?: PageType } | { id: string }): KnowledgePageDetail | null {
-    const page = this.resolve(ref);
+  get(
+    ref: { slug: string; pageType?: PageType } | { id: string },
+    options?: { scope?: string },
+  ): KnowledgePageDetail | null {
+    const page = this.resolve(ref, options?.scope);
     if (!page) return null;
     return { page, sources: [], links: [] };
   }
@@ -164,12 +172,21 @@ class FakeKnowledgeService implements KnowledgeService {
     return [];
   }
 
+  /** The read rule of `scope.ts`: own scope plus `global`, own scope first. */
   private resolve(
     ref: { slug: string; pageType?: PageType } | { id: string },
+    scope?: string,
   ): KnowledgePage | undefined {
-    if ('id' in ref) return [...this.pages.values()].find((page) => page.id === ref.id);
-    if (ref.pageType) return this.pages.get(this.key(ref.pageType, ref.slug));
-    return [...this.pages.values()].find((page) => page.slug === ref.slug);
+    const candidates = [...this.pages.values()].filter((page) => {
+      if ('id' in ref) return page.id === ref.id;
+      if (ref.pageType && page.page_type !== ref.pageType) return false;
+      return page.slug === ref.slug;
+    });
+    const visible =
+      scope === undefined
+        ? candidates
+        : candidates.filter((page) => isVisibleInScope(page.scope, scope));
+    return visible.sort((a, b) => Number(a.scope === 'global') - Number(b.scope === 'global'))[0];
   }
 }
 
@@ -473,7 +490,7 @@ describe('KnowledgeCurator', () => {
       expect(input.status).toBe('pending');
       expect(service.listPending()).toHaveLength(1);
       // Nothing flips it afterwards: approval is `setStatus`, not the curator.
-      expect(service.pages.get('topic:power-query')?.status).toBe('pending');
+      expect(service.pages.get('topic:global:power-query')?.status).toBe('pending');
 
       // Re-running in shadow mode updates the same page without demoting or
       // promoting it.
@@ -481,7 +498,7 @@ describe('KnowledgeCurator', () => {
       await curator({ shadow: true }).run();
       const update = service.writes[1].input as UpdateKnowledgePageInput;
       expect(update.status).toBeUndefined();
-      expect(service.pages.get('topic:power-query')?.status).toBe('pending');
+      expect(service.pages.get('topic:global:power-query')?.status).toBe('pending');
     });
 
     it('aborts between pages when the signal fires', async () => {
@@ -537,6 +554,75 @@ describe('KnowledgeCurator', () => {
       expect(report.created).toBe(1);
       expect(report.failed).toBe(1);
       expect(service.pages.size).toBe(1);
+    });
+  });
+
+  // ── Scope (migration-v22) ───────────────────────────────────────────
+
+  /**
+   * The curator is the main path pages arrive by, so it is the main way one
+   * chat's knowledge could leak into another: a page written with no scope is
+   * readable in every chat, and a lookup with no scope finds — and rewrites —
+   * the page another chat wrote for the same subject.
+   */
+  describe('scope', () => {
+    const CHAT_A = 'feishu:oc_a';
+    const CHAT_B = 'telegram:42';
+
+    function twoSources(): void {
+      insertMemory({ id: 'm1', content: 'Power Query replaced the manual VLOOKUP ETL' });
+      insertMemory({ id: 'm2', content: 'Power Query is used for all ETL here' });
+    }
+
+    it('writes the page into the conversation the run was given', async () => {
+      twoSources();
+      responses = [grouping([{ subject: 'Power Query', memoryIds: ['m1', 'm2'] }]), page()];
+
+      await curator().run({ trigger: 'manual', scope: CHAT_A });
+
+      expect(service.writes[0].options.scope).toBe(CHAT_A);
+      expect(service.pages.get(`topic:${CHAT_A}:power-query`)?.scope).toBe(CHAT_A);
+    });
+
+    it('leaves the scope unset when there is no conversation (the nightly phase)', async () => {
+      twoSources();
+      responses = [grouping([{ subject: 'Power Query', memoryIds: ['m1', 'm2'] }]), page()];
+
+      await curator().run();
+
+      // Omitted, not invented: the service normalises it to `global`, and the
+      // nightly pass has no chat to scope to.
+      expect(service.writes[0].options.scope).toBeUndefined();
+      expect(service.pages.get('topic:global:power-query')?.scope).toBe('global');
+    });
+
+    it('a re-run in one chat updates that chat’s page, not another chat’s', async () => {
+      twoSources();
+      responses = [grouping([{ subject: 'Power Query', memoryIds: ['m1', 'm2'] }]), page()];
+      await curator().run({ trigger: 'manual', scope: CHAT_A });
+
+      // The same subject curated from a second chat is a second page: the
+      // lookup is addressed, so chat A's page is not even a candidate.
+      responses = [
+        grouping([{ subject: 'power query', memoryIds: ['m1'] }]),
+        page({ content: 'Chat B’s own take on Power Query.' }),
+      ];
+      const fromB = await curator().run({ trigger: 'manual', scope: CHAT_B });
+
+      expect(fromB.created).toBe(1);
+      expect(fromB.updated).toBe(0);
+      expect(service.pages.size).toBe(2);
+      expect(service.pages.get(`topic:${CHAT_A}:power-query`)?.version).toBe(1);
+      expect(service.pages.get(`topic:${CHAT_B}:power-query`)?.version).toBe(1);
+
+      // ...and a re-run back in chat A updates chat A's page, with its version.
+      responses = [grouping([{ subject: 'Power Query', memoryIds: ['m1'] }]), page()];
+      const again = await curator().run({ trigger: 'manual', scope: CHAT_A });
+
+      expect(again.updated).toBe(1);
+      expect(service.pages.size).toBe(2);
+      expect(service.pages.get(`topic:${CHAT_A}:power-query`)?.version).toBe(2);
+      expect(service.pages.get(`topic:${CHAT_B}:power-query`)?.version).toBe(1);
     });
   });
 

@@ -66,6 +66,16 @@
  *     re-run UPDATEs that page (with `expectedVersion`) instead of creating a
  *     second one (§9.4 rule 3).
  *
+ * ## Which conversation the page belongs to
+ *
+ * Every write carries `KnowledgeWriteOptions.scope` (migration-v22) — the
+ * conversation that triggered the run. `/knowledge curate` and a shared message
+ * pass their chat's scope, so a page distilled from one group chat is readable
+ * there and nowhere else; the nightly phase has no chat and writes `global`.
+ * The dedupe lookup and the existing-page list take the same scope, so a re-run
+ * in one chat updates *that* chat's page and is never offered another chat's
+ * page as a link target.
+ *
  * ## What it refuses to guess
  *
  * `page_type` is never taken from the model. `knowledge_pages` is unique on
@@ -95,6 +105,7 @@ import type {
   UpdateKnowledgePageInput,
 } from './types.js';
 import { isPageType } from './types.js';
+import { scopeSql } from './scope.js';
 
 // ── Config ──────────────────────────────────────────────────────────────
 
@@ -174,6 +185,15 @@ export interface CurateRunOptions {
   trigger?: CurateTrigger;
   /** Checked between pages — never inside a write. */
   signal?: AbortSignal;
+  /**
+   * The conversation this run writes into — `KnowledgeWriteOptions.scope`.
+   *
+   * Omitted means `global`, which is the nightly phase: it has no chat. The
+   * channel entry points pass `scopeFromContext(...)`, so a page distilled from a
+   * group chat is readable in that chat and nowhere else, and the page lookup
+   * before the write is addressed the same way.
+   */
+  scope?: string;
 }
 
 export interface KnowledgeCurateDeps {
@@ -617,7 +637,10 @@ export class KnowledgeCurator {
       return report;
     }
 
-    return this.writeGroups(groups, trigger, callLLM, report, { signal: options.signal });
+    return this.writeGroups(groups, trigger, callLLM, report, {
+      signal: options.signal,
+      scope: options.scope,
+    });
   }
 
   /**
@@ -701,6 +724,7 @@ export class KnowledgeCurator {
 
     return this.writeGroups([group], trigger, callLLM, report, {
       signal: options.signal,
+      scope: options.scope,
       extraSources: [
         {
           kind: 'message',
@@ -755,7 +779,11 @@ export class KnowledgeCurator {
     trigger: CurateTrigger,
     callLLM: AuxCaller,
     report: CurateRunReport,
-    options: { signal?: AbortSignal; extraSources?: readonly CurateSource[] } = {},
+    options: {
+      signal?: AbortSignal;
+      extraSources?: readonly CurateSource[];
+      scope?: string;
+    } = {},
   ): Promise<CurateRunReport> {
     const extraSources = options.extraSources ?? [];
     let lastError: unknown = null;
@@ -768,7 +796,14 @@ export class KnowledgeCurator {
       }
       if (report.created + report.updated >= this.config.maxPagesPerRun) break;
 
-      const error = await this.curateGroup(group, trigger, callLLM, report, extraSources);
+      const error = await this.curateGroup(
+        group,
+        trigger,
+        callLLM,
+        report,
+        extraSources,
+        options.scope,
+      );
       if (error) lastError = error;
       if (options.signal?.aborted) {
         report.aborted = true;
@@ -925,15 +960,23 @@ export class KnowledgeCurator {
    * in `knowledge_pages` (migration v14), not the TEXT digit string of the legacy
    * tables, so this orders numerically without `parseEpochMs`.
    */
-  private existingPageHints(page: { pageType: PageType; slug: string }): ExistingPageHint[] {
+  private existingPageHints(
+    page: { pageType: PageType; slug: string },
+    scope?: string,
+  ): ExistingPageHint[] {
+    // Same read rule as everywhere else (own scope plus `global`): a page this
+    // conversation cannot read is not a target it may address, and offering one
+    // would put another chat's slug into this page's body as a dangling link.
+    const filter = scope === undefined ? null : scopeSql('scope', scope);
+    const scopeClause = filter ? ` AND ${filter.sql}` : '';
     const rows = this.db
       .prepare(
         `SELECT page_type, slug, title FROM knowledge_pages
-          WHERE status = 'active' AND NOT (page_type = ? AND slug = ?)
+          WHERE status = 'active' AND NOT (page_type = ? AND slug = ?)${scopeClause}
           ORDER BY updated_at DESC, id ASC
           LIMIT ?`,
       )
-      .all(page.pageType, page.slug, MAX_EXISTING_PAGE_HINTS) as Array<{
+      .all(page.pageType, page.slug, ...(filter?.params ?? []), MAX_EXISTING_PAGE_HINTS) as Array<{
       page_type: string;
       slug: string;
       title: string;
@@ -952,6 +995,11 @@ export class KnowledgeCurator {
    * memories — on the share flow, the shared message itself. They count towards
    * admission, feed the page call and land in `knowledge_sources` like any other
    * citation, so a page from a shared link is traceable back to the message.
+   *
+   * `scope` is the conversation the page belongs to; `undefined` is `global`
+   * (the nightly phase). It is passed to the lookup before the write as well as
+   * to the write itself, so the two cannot disagree about which page this run is
+   * updating.
    */
   private async curateGroup(
     group: CurateGroup,
@@ -959,6 +1007,7 @@ export class KnowledgeCurator {
     callLLM: AuxCaller,
     report: CurateRunReport,
     extraSources: readonly CurateSource[] = [],
+    scope?: string,
   ): Promise<unknown> {
     const subject = group.subject.trim();
     // A subject that slugifies to nothing cannot identify a page; treat it as
@@ -996,7 +1045,7 @@ export class KnowledgeCurator {
     try {
       raw = await callLLM({
         systemPrompt: PAGE_SYSTEM_PROMPT,
-        userPrompt: `SUBJECT: ${subject}\n\nMEMORIES:\n${formatMemoryLines(sources)}\n\nEXISTING PAGES:\n${formatPageHints(this.existingPageHints({ pageType, slug }))}`,
+        userPrompt: `SUBJECT: ${subject}\n\nMEMORIES:\n${formatMemoryLines(sources)}\n\nEXISTING PAGES:\n${formatPageHints(this.existingPageHints({ pageType, slug }, scope))}`,
         temperature: 0.2,
         maxTokens: 1200,
         logger: this.logger,
@@ -1038,11 +1087,16 @@ export class KnowledgeCurator {
       // not have to infer it from the actor and then contradict the pre-flight
       // check above.
       explicitRequest: isExplicitRequest(trigger),
+      // `undefined` is `global` (the nightly phase); the service normalises it.
+      scope,
     };
 
     let result: KnowledgeWriteResult;
     try {
-      const existing = this.deps.knowledgeService.get({ slug, pageType });
+      // Addressed, not merely visible: a page of the same subject in *this*
+      // conversation is what a re-run updates, and another chat's page is not
+      // reachable from here.
+      const existing = this.deps.knowledgeService.get({ slug, pageType }, { scope });
       if (existing) {
         const update: UpdateKnowledgePageInput = {
           title: page.title,

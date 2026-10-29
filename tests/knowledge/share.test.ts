@@ -313,6 +313,33 @@ describe('/knowledge share', () => {
     expect(h.service.listPending()).toHaveLength(1);
   });
 
+  it('writes the page into the chat the command was issued from', async () => {
+    const curator = h.curator();
+    setKnowledgeCuratorResolver(() => curator);
+    h.script(...onePageAnswers('Power Query', [SHARED_MESSAGE]));
+
+    const result = await handleCommand(
+      `/knowledge share ${SHARED_MESSAGE}`,
+      'telegram:42',
+      commandDeps({ knowledgeService: h.service }),
+      undefined,
+      '42',
+      { channel: 'telegram' },
+    );
+
+    // The reply still finds the page it just wrote (the read-back is addressed to
+    // the same scope), and the row carries that scope rather than `global`.
+    expect(result!.reply).toBe(
+      i18n.t('commands:knowledge.shareDonePending', {
+        address: 'topic/power-query',
+        title: 'Power Query',
+      }),
+    );
+    expect(h.db.prepare('SELECT scope FROM knowledge_pages').get()).toEqual({
+      scope: 'telegram:42',
+    });
+  });
+
   it('reports an unknown reference instead of failing silently', async () => {
     setKnowledgeCuratorResolver(() => h.curator());
 
