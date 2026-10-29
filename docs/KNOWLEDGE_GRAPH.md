@@ -115,7 +115,7 @@ Kept because each one is the reason a rule exists. They are not targets and shou
 
 These are gaps in the design, not rules: each is verified against the code as of 2026-10-29, and none is covered by a rule in §2.
 
-- **pages have no scope isolation** — `knowledge_pages` has no `scope` column, so a page written from one IM chat is a candidate answer in every other chat on the same database. The column and the read filter are the easy half; there is no _source_ for the scope today, because `ToolDefinition.execute(args)` receives no session or channel identity, and a filter parameter nobody passes is dead code. This needs a tool-context change first.
+- **pages have no scope isolation** — `knowledge_pages` has no `scope` column, so a page curated from one IM chat is a candidate answer in every other chat on the same database, `findByTitleOrAlias` lets a curation in chat B _update_ chat A's page, and `/knowledge share` publishes to everyone. The identity needed to fix it already exists: `ToolDefinition.execute(args, ctx)` receives a `ToolExecutionContext` carrying `sessionId`, `channel`, `chatId` and `projectId` — the knowledge tools simply ignore the second argument. So the remaining work is inside the knowledge layer (a column, a unique index on `(page_type, scope, slug)`, and scope-aware repository/service/tools/curation/injection/API), not a platform change.
 
 This file should not grow into a backlog. When a gap closes, delete it here and record the rule it produced in §2.
 
