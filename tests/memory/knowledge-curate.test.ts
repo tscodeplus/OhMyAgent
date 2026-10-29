@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import type { Logger } from 'pino';
-import { applySchema } from '../../src/memory/schema.js';
+import { openDatabase } from '../../src/memory/db.js';
 import {
   KnowledgeCurator,
   evaluateAdmission,
@@ -265,8 +265,9 @@ describe('KnowledgeCurator', () => {
   }
 
   beforeEach(() => {
-    db = new Database(':memory:');
-    applySchema(db);
+    // The real migration chain, not `applySchema` alone: the curator reads
+    // `knowledge_pages` for link targets, which migration v14 creates.
+    db = openDatabase(':memory:');
     service = new FakeKnowledgeService();
     llmCalls = [];
     responses = [];

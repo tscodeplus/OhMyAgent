@@ -5,8 +5,9 @@
  * split is enforced here, not by convention:
  *
  *   - every read goes through an existing handle (the CLI opens it read-only),
- *   - only `index.md`, `entities/`, `memories/` and `sessions/` are written,
- *     so `manual/**` (hand-written notes) can never be overwritten or deleted,
+ *   - only `index.md`, `pages/`, `entities/`, `memories/` and `sessions/` are
+ *     written, so `manual/**` (hand-written notes) can never be overwritten or
+ *     deleted,
  *   - `.oma-state.json` remembers what this exporter generated last run, so a
  *     note that no longer has a backing row is deleted while anything else in
  *     the vault is left alone,
@@ -28,10 +29,16 @@ import {
   wikilink,
   wikilinkTarget,
 } from './format.js';
-import { readEntityGraph, type EntityGraph, type GraphEntity } from './entity-tables.js';
+import {
+  parseAliases,
+  readEntityGraph,
+  type EntityGraph,
+  type GraphEntity,
+} from './entity-tables.js';
 import { dedupeStrings } from './collections.js';
 import { hasTable, pickColumn, tableColumns } from './sqlite-schema.js';
 import { isGeneratedNotePath, safeFileStem, safeJoin } from './slug.js';
+import { isPageType } from '../memory/knowledge/types.js';
 
 /** Vault-relative path of the generated-file state. Root-level and dot-prefixed so Obsidian ignores it. */
 export const VAULT_STATE_FILE = '.oma-state.json';
@@ -95,10 +102,40 @@ interface SessionRecord {
   episodes: { summary: string; createdAt: string | null }[];
 }
 
+/**
+ * One `knowledge_pages` row, as the projection needs it.
+ *
+ * `pageType` stays a raw string rather than `PageType`: the column is a closed
+ * set at the write boundary, but this exporter reads whatever an older or
+ * hand-edited database holds, and it must not throw on a value the memory layer
+ * would refuse.
+ */
+interface KnowledgePageRecord {
+  id: string;
+  pageType: string | null;
+  slug: string;
+  title: string;
+  status: string | null;
+  version: number | null;
+  tags: string[];
+  aliases: string[];
+  /** Citations as `kind:id`, sorted — the page's provenance, not a payload. */
+  sources: string[];
+  content: string;
+}
+
 interface GeneratedNote {
   /** Vault-relative POSIX path. */
   path: string;
   content: string;
+}
+
+interface GeneratedPage {
+  page: KnowledgePageRecord;
+  /** File stem: what an Obsidian `[[wikilink]]` has to name to reach this note. */
+  stem: string;
+  /** Vault-relative POSIX path. */
+  path: string;
 }
 
 type Row = Record<string, unknown>;
@@ -254,6 +291,76 @@ function readSessions(db: Database.Database): SessionRecord[] {
 }
 
 /**
+ * Citations per page, as `kind:id`, in the order the primary key gives.
+ *
+ * Read separately from the pages so an install with pages but no sources table
+ * (never produced by a migration, but possible in a hand-restored database)
+ * still exports the pages.
+ */
+function readKnowledgePageSources(db: Database.Database): Map<string, string[]> {
+  const byPage = new Map<string, string[]>();
+  if (!hasTable(db, 'knowledge_sources')) return byPage;
+  const rows = db
+    .prepare(
+      `SELECT page_id, source_kind, source_id FROM knowledge_sources
+        ORDER BY page_id, source_kind, source_id`,
+    )
+    .all() as Row[];
+  for (const row of rows) {
+    const pageId = asText(row.page_id);
+    const kind = asText(row.source_kind);
+    const sourceId = asText(row.source_id);
+    if (!pageId || !kind || !sourceId) continue;
+    const sources = byPage.get(pageId) ?? [];
+    sources.push(`${kind}:${sourceId}`);
+    byPage.set(pageId, sources);
+  }
+  return byPage;
+}
+
+/**
+ * Active knowledge pages, in `(page_type, slug)` order.
+ *
+ * `status = 'active'` is the knowledge layer's hard read filter (search, get,
+ * injection, link resolution), so the vault uses the same one: a `pending` page
+ * is unreviewed curation and an `archived` page is history, and exporting either
+ * would let the vault show what the agent itself will not answer from.
+ */
+function readKnowledgePages(db: Database.Database): KnowledgePageRecord[] {
+  if (!hasTable(db, 'knowledge_pages')) return [];
+  const sourcesByPage = readKnowledgePageSources(db);
+  const rows = db
+    .prepare(
+      `SELECT * FROM knowledge_pages WHERE status = 'active'
+        ORDER BY page_type, slug, id`,
+    )
+    .all() as Row[];
+
+  const pages: KnowledgePageRecord[] = [];
+  for (const row of rows) {
+    const id = asText(row.id);
+    const slug = asText(row.slug);
+    // A page body is markdown, stored verbatim: only an unreadable or empty one
+    // is skipped, and `trim()` here is the test, not the projection.
+    const content = typeof row.content === 'string' ? row.content : '';
+    if (!id || !slug || !content.trim()) continue;
+    pages.push({
+      id,
+      pageType: asText(row.page_type),
+      slug,
+      title: asText(row.title) ?? slug,
+      status: asText(row.status),
+      version: asNumber(row.version),
+      tags: dedupeStrings(parseAliases(row.tags)),
+      aliases: dedupeStrings(parseAliases(row.aliases)),
+      sources: sourcesByPage.get(id) ?? [],
+      content,
+    });
+  }
+  return pages;
+}
+
+/**
  * Assign one file stem per key, disambiguating keys that slugify to the same
  * text (`Alice Smith` vs `alice-smith`) with a hash of the raw key. The mapping
  * depends only on the data, so it is stable across runs.
@@ -281,6 +388,40 @@ function assignStems(items: { key: string; raw: string }[]): Map<string, string>
 
 function shortDate(timestamp: string | null): string | null {
   return timestamp ? timestamp.slice(0, 10) : null;
+}
+
+/**
+ * Vault path and stem of every page note.
+ *
+ * `pages/<page_type>/<slug>.md`, or `pages/<slug>.md` when the row's `page_type`
+ * is outside the closed set — there is no directory to file such a row under
+ * that would not invent a type for it. The stem is the slug with no prefix,
+ * because the page body addresses its neighbours as `[[slug]]`: Obsidian
+ * resolves a bare link by file name (shortest path), so a prefixed stem would
+ * turn every existing wikilink into a dead one.
+ *
+ * `safeFileStem` differs from the slug only for the names a filesystem refuses
+ * outright (Windows `CON`, `NUL`, …): such a page cannot be addressed as
+ * `[[con]]` on Windows either, and one failed write would abort the export.
+ */
+function assignPageFiles(pages: readonly KnowledgePageRecord[]): GeneratedPage[] {
+  const taken = new Set<string>();
+  const files: GeneratedPage[] = [];
+  for (const page of pages) {
+    const dir = isPageType(page.pageType) ? `pages/${page.pageType}` : 'pages';
+    let stem = safeFileStem(page.slug);
+    let notePath = `${dir}/${stem}.md`;
+    if (taken.has(notePath)) {
+      // Only a corrupt `page_type` can get here: two untitled-by-type rows that
+      // share a slug. The id keeps them apart, deterministically.
+      const suffix = createHash('sha256').update(page.id).digest('hex').slice(0, 8);
+      stem = `${stem}-${suffix}`;
+      notePath = `${dir}/${stem}.md`;
+    }
+    taken.add(notePath);
+    files.push({ page, stem, path: notePath });
+  }
+  return files;
 }
 
 function confidenceSuffix(confidence: number | null): string {
@@ -416,6 +557,28 @@ function memoryTitle(memory: MemoryRecord): string {
   return cleaned.length > 80 ? `${cleaned.slice(0, 77)}...` : cleaned;
 }
 
+/**
+ * One knowledge-page note: YAML frontmatter, then the stored body verbatim.
+ *
+ * No heading is synthesised and no markdown is re-rendered — the body is the
+ * authored text (curated pages deliberately carry no top-level heading, the
+ * title is stored separately), so the vault stays a projection rather than a
+ * second author. Key order is fixed by the object literal: title, page_type,
+ * status, version, then the lists, which keeps two runs byte-identical.
+ */
+function renderPageNote(page: KnowledgePageRecord): string {
+  const frontmatterData: Record<string, unknown> = { title: page.title };
+  if (page.pageType) frontmatterData.page_type = page.pageType;
+  if (page.status) frontmatterData.status = page.status;
+  if (page.version !== null) frontmatterData.version = page.version;
+  if (page.tags.length > 0) frontmatterData.tags = page.tags;
+  if (page.aliases.length > 0) frontmatterData.aliases = page.aliases;
+  if (page.sources.length > 0) frontmatterData.sources = page.sources;
+
+  const body = page.content.replace(/\n+$/, '');
+  return `${frontmatterBlock(frontmatterData)}\n${body}\n`;
+}
+
 function renderSessionNote(session: SessionRecord): string {
   const frontmatterData: Record<string, unknown> = { id: session.id };
   if (session.chatId) frontmatterData.chat_id = session.chatId;
@@ -436,6 +599,7 @@ function renderIndex(input: {
   relations: EntityGraph['relations'];
   memories: MemoryRecord[];
   sessions: SessionRecord[];
+  pages: GeneratedPage[];
   entityTablesPresent: boolean;
   memoryStems: Map<string, string>;
 }): string {
@@ -444,9 +608,9 @@ function renderIndex(input: {
     '# OhMyAgent vault',
     '',
     'This vault is a **projection** of the agent database: `pnpm graph:export`',
-    'rewrites `index.md`, `entities/`, `memories/` and `sessions/` in one direction.',
-    'Knowledge is authored in the database (through the agent), never in these notes —',
-    'edits to a generated note are lost on the next export.',
+    'rewrites `index.md`, `pages/`, `entities/`, `memories/` and `sessions/` in one',
+    'direction. Knowledge is authored in the database (through the agent), never in',
+    'these notes — edits to a generated note are lost on the next export.',
     '',
     `Notes under \`${MANUAL_DIR}/\` are hand-written and are never overwritten or deleted.`,
     '',
@@ -458,8 +622,10 @@ function renderIndex(input: {
     `| Relations | ${input.relations.length} |`,
     `| Memories | ${input.memories.length} |`,
     `| Sessions | ${input.sessions.length} |`,
+    `| Pages | ${input.pages.length} |`,
     '',
-    'Only `active` memories are projected; superseded and deleted rows stay in the database.',
+    'Only `active` memories and `active` knowledge pages are projected; superseded',
+    'memories and pending or archived pages stay in the database.',
     '',
   ];
 
@@ -475,6 +641,15 @@ function renderIndex(input: {
     for (const entity of input.entities) {
       const suffix = entity.entityType ? ` — ${entity.entityType}` : '';
       lines.push(`- ${wikilink(entity.name)}${suffix}`);
+    }
+    lines.push('');
+  }
+
+  if (input.pages.length > 0) {
+    lines.push('## Pages', '');
+    for (const entry of input.pages) {
+      const suffix = entry.page.pageType ? ` — ${entry.page.pageType}` : '';
+      lines.push(`- ${wikilink(entry.stem, entry.page.title)}${suffix}`);
     }
     lines.push('');
   }
@@ -556,6 +731,7 @@ export function exportVault(options: ExportVaultOptions): ExportVaultResult {
   const memories = readMemories(options.db);
   const memoryLinksById = readMemoryEntityLinks(options.db);
   const sessions = readSessions(options.db);
+  const knowledgePages = assignPageFiles(readKnowledgePages(options.db));
   const entityRead = readEntityGraph(options.db);
   const entityTablesPresent = entityRead.present;
   const graph = entityRead.graph;
@@ -568,6 +744,10 @@ export function exportVault(options: ExportVaultOptions): ExportVaultResult {
   const entityByName = new Map(graph.entities.map((entity) => [entity.name.toLowerCase(), entity]));
 
   const generated: GeneratedNote[] = [];
+
+  for (const entry of knowledgePages) {
+    generated.push({ path: entry.path, content: renderPageNote(entry.page) });
+  }
 
   for (const entity of graph.entities) {
     generated.push({
@@ -602,6 +782,7 @@ export function exportVault(options: ExportVaultOptions): ExportVaultResult {
       relations: graph.relations,
       memories,
       sessions,
+      pages: knowledgePages,
       entityTablesPresent,
       memoryStems,
     }),

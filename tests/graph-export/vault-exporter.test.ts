@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { applySchema } from '../../src/memory/schema';
+import { migrateV14 } from '../../src/memory/migration-v14';
 import {
   ENTITY_TABLES_ABSENT_NOTICE,
   VAULT_STATE_FILE,
@@ -414,6 +415,195 @@ describe('exportVault — dry run and read-only database', () => {
     } finally {
       readonlyDb.close();
     }
+  });
+});
+
+describe('exportVault — knowledge page layer', () => {
+  const UPDATED_PAGE_AT = 1735862400000; // 2025-01-03T00:00:00Z
+
+  function insertPage(row: {
+    id: string;
+    slug: string;
+    title: string;
+    content: string;
+    pageType?: string;
+    status?: string;
+    version?: number;
+    tags?: string[];
+    aliases?: string[];
+    sources?: Array<{ kind: string; id: string }>;
+  }): void {
+    db.prepare(
+      `INSERT INTO knowledge_pages
+         (id, page_type, slug, title, content, aliases, tags, confidence,
+          version, status, created_at, updated_at, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0.9, ?, ?, ?, ?, 'user')`,
+    ).run(
+      row.id,
+      row.pageType ?? 'topic',
+      row.slug,
+      row.title,
+      row.content,
+      row.aliases ? JSON.stringify(row.aliases) : null,
+      row.tags ? JSON.stringify(row.tags) : null,
+      row.version ?? 1,
+      row.status ?? 'active',
+      CREATED_AT,
+      UPDATED_PAGE_AT,
+    );
+    for (const source of row.sources ?? []) {
+      db.prepare(
+        `INSERT INTO knowledge_sources (page_id, source_kind, source_id, created_at)
+         VALUES (?, ?, ?, ?)`,
+      ).run(row.id, source.kind, source.id, CREATED_AT);
+    }
+  }
+
+  beforeEach(() => {
+    migrateV14(db);
+  });
+
+  it('writes one note per active page at pages/<page_type>/<slug>.md', () => {
+    insertPage({
+      id: 'page-1',
+      pageType: 'topic',
+      slug: 'power-query',
+      title: 'Power Query',
+      content: 'Power Query is how the monthly ETL runs.\n',
+      version: 3,
+      tags: ['etl', 'excel'],
+      aliases: ['PQ'],
+      sources: [
+        { kind: 'memory', id: 'mem-1' },
+        { kind: 'message', id: 'msg-1' },
+      ],
+    });
+    insertPage({
+      id: 'page-2',
+      pageType: 'project',
+      slug: 'excel-etl',
+      title: 'Excel ETL',
+      content: 'The pipeline project.',
+      sources: [{ kind: 'memory', id: 'mem-1' }],
+    });
+
+    const result = exportVault({ db, outDir });
+
+    expect(result.written).toContain('pages/topic/power-query.md');
+    expect(result.written).toContain('pages/project/excel-etl.md');
+
+    const note = fs.readFileSync(path.join(outDir, 'pages', 'topic', 'power-query.md'), 'utf8');
+    const frontmatterEnd = note.indexOf('\n---\n', 4);
+    expect(note.startsWith('---\ntitle: Power Query\n')).toBe(true);
+    // Key order is fixed, so two runs cannot reorder the frontmatter.
+    const keys = note
+      .slice(4, frontmatterEnd)
+      .split('\n')
+      .filter((line) => /^[a-z_]+:/.test(line))
+      .map((line) => line.split(':')[0]);
+    expect(keys).toEqual(['title', 'page_type', 'status', 'version', 'tags', 'aliases', 'sources']);
+    expect(note).toContain('page_type: topic');
+    expect(note).toContain('status: active');
+    expect(note).toContain('version: 3');
+    expect(note).toContain('  - etl');
+    expect(note).toContain('  - PQ');
+    expect(note).toContain('  - memory:mem-1');
+    expect(note).toContain('  - message:msg-1');
+    // Body verbatim (only the trailing newline is normalised).
+    expect(note.slice(frontmatterEnd + 5)).toBe('\nPower Query is how the monthly ETL runs.\n');
+
+    const index = fs.readFileSync(path.join(outDir, 'index.md'), 'utf8');
+    expect(index).toContain('| Pages | 2 |');
+    expect(index).toContain('## Pages');
+    expect(index).toContain('- [[power-query|Power Query]] — topic');
+
+    // Projection, not authorship: a second run over the same rows is a no-op.
+    const second = exportVault({ db, outDir });
+    expect(second.written).toEqual([]);
+    expect(second.unchanged).toContain('pages/topic/power-query.md');
+  });
+
+  it('omits pending and archived pages, and deletes a note when its page is archived', () => {
+    insertPage({ id: 'page-ok', slug: 'kept-page', title: 'Kept', content: 'Active body.' });
+    insertPage({
+      id: 'page-pending',
+      slug: 'shadow-page',
+      title: 'Shadow',
+      content: 'Unreviewed curation.',
+      status: 'pending',
+    });
+    insertPage({
+      id: 'page-archived',
+      slug: 'old-page',
+      title: 'Old',
+      content: 'History.',
+      status: 'archived',
+    });
+
+    const first = exportVault({ db, outDir });
+
+    expect(first.written.filter((file) => file.startsWith('pages/'))).toEqual([
+      'pages/topic/kept-page.md',
+    ]);
+    expect(fs.existsSync(path.join(outDir, 'pages', 'topic', 'shadow-page.md'))).toBe(false);
+    expect(fs.existsSync(path.join(outDir, 'pages', 'topic', 'old-page.md'))).toBe(false);
+    const index = fs.readFileSync(path.join(outDir, 'index.md'), 'utf8');
+    expect(index).toContain('| Pages | 1 |');
+
+    // Archiving removes the note: the vault follows the status filter, and a
+    // page note is a deletable generated path like any other.
+    db.prepare("UPDATE knowledge_pages SET status = 'archived' WHERE id = 'page-ok'").run();
+    const second = exportVault({ db, outDir });
+    expect(second.deleted).toEqual(['pages/topic/kept-page.md']);
+    expect(fs.existsSync(path.join(outDir, 'pages', 'topic', 'kept-page.md'))).toBe(false);
+  });
+
+  it('names the file after the slug so an Obsidian [[slug]] resolves to it', () => {
+    insertPage({
+      id: 'page-target',
+      slug: 'power-query',
+      title: 'Power Query',
+      content: 'The ETL tool.',
+    });
+    insertPage({
+      id: 'page-source',
+      slug: 'excel-etl',
+      title: 'Excel ETL',
+      content: 'Runs on [[power-query]] every week.',
+    });
+
+    exportVault({ db, outDir });
+
+    // Obsidian resolves a bare `[[power-query]]` by file name, so the stem has to
+    // be the slug: exactly one note in the vault may carry that name.
+    const matches = Object.keys(snapshot(outDir)).filter((file) =>
+      file.endsWith('/power-query.md'),
+    );
+    expect(matches).toEqual(['pages/topic/power-query.md']);
+    expect(fs.readFileSync(path.join(outDir, ...matches[0].split('/')), 'utf8')).toContain(
+      'The ETL tool.',
+    );
+    // The linking note keeps the body verbatim, so the link is still there.
+    expect(fs.readFileSync(path.join(outDir, 'pages', 'topic', 'excel-etl.md'), 'utf8')).toContain(
+      '[[power-query]]',
+    );
+  });
+
+  it('falls back to pages/<slug>.md when page_type is outside the closed set', () => {
+    insertPage({
+      id: 'page-legacy',
+      pageType: 'legacy-import',
+      slug: 'imported-note',
+      title: 'Imported',
+      content: 'From an older database.',
+    });
+
+    exportVault({ db, outDir });
+
+    expect(fs.existsSync(path.join(outDir, 'pages', 'imported-note.md'))).toBe(true);
+    const note = fs.readFileSync(path.join(outDir, 'pages', 'imported-note.md'), 'utf8');
+    // The stored value is projected, not guessed into the closed set.
+    expect(note).toContain('page_type: legacy-import');
   });
 });
 

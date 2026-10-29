@@ -101,6 +101,8 @@ export function isGeneratedNotePath(relativePath: string): boolean {
   const normalized = relativePath.replace(/\\/g, '/');
   return (
     normalized === 'index.md' ||
+    /^pages\/[^/]+\.md$/.test(normalized) ||
+    /^pages\/[^/]+\/[^/]+\.md$/.test(normalized) ||
     /^entities\/[^/]+\.md$/.test(normalized) ||
     /^memories\/[^/]+\.md$/.test(normalized) ||
     /^sessions\/[^/]+\.md$/.test(normalized)

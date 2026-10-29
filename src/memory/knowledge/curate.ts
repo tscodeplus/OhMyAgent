@@ -36,7 +36,10 @@
  *   4. Per group: gather the whole supporting source set (the group's own ids
  *      plus every active memory that mentions the subject), check the admission
  *      rules, then one aux-LLM call writes the page body, then one service
- *      write.
+ *      write. That call is also shown the address and title of the existing
+ *      active pages (bounded, bodies never), because a page graph needs a
+ *      producer: `knowledge_links` is parsed from the body, so a model that
+ *      cannot address a slug writes no edge — it invents one instead.
  *
  * ## The three rules (§6 K2-3.2), and who enforces them
  *
@@ -91,6 +94,7 @@ import type {
   PageType,
   UpdateKnowledgePageInput,
 } from './types.js';
+import { isPageType } from './types.js';
 
 // ── Config ──────────────────────────────────────────────────────────────
 
@@ -217,6 +221,15 @@ const MAX_SUBJECT_CHARS = 80;
 /** Per-memory prompt budget; the LLM only needs the gist to group and summarise. */
 const MAX_MEMORY_CHARS = 400;
 
+/**
+ * How many existing pages the page call is shown as link targets.
+ *
+ * Bounded like every other read in this file: the list is only there so the
+ * model can address a page that already exists, and a phone must not carry the
+ * whole page table into one prompt.
+ */
+const MAX_EXISTING_PAGE_HINTS = 40;
+
 // ── Row shapes ──────────────────────────────────────────────────────────
 
 interface CandidateMemory {
@@ -262,6 +275,18 @@ export interface CuratedPage {
   content: string;
   tags: string[];
   aliases: string[];
+}
+
+/**
+ * One existing page the page call may link to: the address only, never its body.
+ *
+ * The body is not shown on purpose — the memories are the page's only source, and
+ * pasting another page's text would smuggle in evidence the page does not cite.
+ */
+export interface ExistingPageHint {
+  pageType: PageType;
+  slug: string;
+  title: string;
 }
 
 // ── Admission ───────────────────────────────────────────────────────────
@@ -328,6 +353,7 @@ const PAGE_SYSTEM_PROMPT = [
   '- Use only what the memories support. If they are thin, write a short page; never invent facts, numbers, names or dates.',
   '- Markdown body, at most 1200 characters, no top-level heading (the title is stored separately).',
   '- Write in the language the memories are written in.',
+  '- When the body mentions a topic that the EXISTING PAGES list contains, write its link exactly as `[[page_type/slug]]` (e.g. `[[topic/power-query]]`); a target that is not on that list must be written as plain text — never guess a slug, and never link the subject to itself.',
   'Output ONLY JSON, no prose:',
   '{"title":"<page title>","content":"<markdown body>","tags":["<tag>"],"aliases":["<other name for the subject>"]}',
 ].join('\n');
@@ -454,6 +480,22 @@ function escapeLike(value: string): string {
 
 function formatMemoryLines(rows: ReadonlyArray<{ id: string; content: string }>): string {
   return rows.map((row) => `- [${row.id}] ${truncate(row.content, MAX_MEMORY_CHARS)}`).join('\n');
+}
+
+/**
+ * The link-target list of the page call.
+ *
+ * `(none)` rather than an omitted section: the rule in `PAGE_SYSTEM_PROMPT` that
+ * forbids inventing a slug has to apply the same way whether or not this vault
+ * already has pages, and a missing list is how a model starts guessing one.
+ */
+function formatPageHints(hints: readonly ExistingPageHint[]): string {
+  if (hints.length === 0) return '(none)';
+  return hints
+    .map(
+      (hint) => `- [[${hint.pageType}/${hint.slug}]] — ${truncate(hint.title, MAX_SUBJECT_CHARS)}`,
+    )
+    .join('\n');
 }
 
 /**
@@ -867,6 +909,43 @@ export class KnowledgeCurator {
   }
 
   /**
+   * The pages the page call may cite: active targets only, newest first, bounded.
+   *
+   * Without this list the model cannot know a slug, so a `[[wikilink]]` never
+   * reaches a body — and the parse in `KnowledgeRepository.writeLinks()` then has
+   * nothing to store, which leaves `knowledge_links` empty even though the
+   * mechanism works. It is a prompt input, not a write rule: the repository still
+   * re-parses the body and resolves every target at write time, so a link this
+   * list did not offer is stored as a dangling target rather than refused.
+   *
+   * The page being written is excluded (a page linking itself is prose, not a
+   * relation) and rows whose `page_type` is outside the closed set are dropped: an
+   * untyped `[[slug]]` is the only way to address them, and the body would then
+   * depend on the slug being unique across types. `updated_at` is INTEGER epoch-ms
+   * in `knowledge_pages` (migration v14), not the TEXT digit string of the legacy
+   * tables, so this orders numerically without `parseEpochMs`.
+   */
+  private existingPageHints(page: { pageType: PageType; slug: string }): ExistingPageHint[] {
+    const rows = this.db
+      .prepare(
+        `SELECT page_type, slug, title FROM knowledge_pages
+          WHERE status = 'active' AND NOT (page_type = ? AND slug = ?)
+          ORDER BY updated_at DESC, id ASC
+          LIMIT ?`,
+      )
+      .all(page.pageType, page.slug, MAX_EXISTING_PAGE_HINTS) as Array<{
+      page_type: string;
+      slug: string;
+      title: string;
+    }>;
+    return rows.flatMap((row) =>
+      isPageType(row.page_type)
+        ? [{ pageType: row.page_type, slug: row.slug, title: row.title }]
+        : [],
+    );
+  }
+
+  /**
    * Curate one group. Returns the error that made the group fail, or `null`.
    *
    * `extraSources` are the citations the group brought with it that are not
@@ -917,7 +996,7 @@ export class KnowledgeCurator {
     try {
       raw = await callLLM({
         systemPrompt: PAGE_SYSTEM_PROMPT,
-        userPrompt: `SUBJECT: ${subject}\n\nMEMORIES:\n${formatMemoryLines(sources)}`,
+        userPrompt: `SUBJECT: ${subject}\n\nMEMORIES:\n${formatMemoryLines(sources)}\n\nEXISTING PAGES:\n${formatPageHints(this.existingPageHints({ pageType, slug }))}`,
         temperature: 0.2,
         maxTokens: 1200,
         logger: this.logger,
@@ -1015,6 +1094,15 @@ export class KnowledgeCurator {
       { subject, slug, pageType, created: result.created, version: result.version },
       'knowledge curate: page written',
     );
+    // A dangling target is allowed (the repository already wrote the `link` log
+    // row) but never silent: curated bodies now link routinely, so a target that
+    // resolved to nothing is the signal that the existing-pages list was stale.
+    if (result.danglingLinks.length > 0) {
+      this.logger.debug(
+        { subject, slug, dangling: result.danglingLinks },
+        'knowledge curate: page links to targets that do not exist',
+      );
+    }
     return null;
   }
 
