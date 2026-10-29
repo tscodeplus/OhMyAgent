@@ -72,6 +72,15 @@ export interface KnowledgePage {
   created_at: number | null;
   updated_at: number | null;
   updated_by: string | null;
+  /**
+   * The entity node this page is about, when one exists.
+   *
+   * NULL is the truthful answer for a page whose title names a subject no memory
+   * has attested: a page is allowed to arrive before the graph knows the name,
+   * and inventing a node from a page would put an unvouched-for entity in the
+   * graph (migration-v21 backfills it, the repository resolves it on write).
+   */
+  entity_id: string | null;
 }
 
 /** A `knowledge_sources` row: one citation from a page to a memory/message/session. */
@@ -87,6 +96,15 @@ export interface KnowledgeLink {
   from_page_id: string;
   to_page_id: string;
   label: string | null;
+  /**
+   * The predicate the link states, derived from the target's `page_type`.
+   *
+   * A wikilink records that two pages are connected, never how; deriving the
+   * predicate from the type the author already wrote adds the "how" without new
+   * syntax (`[[topic/x]]` is `ABOUT`, `[[project/x]]` is `PART_OF`). See
+   * {@link relationForPageType}.
+   */
+  relation_type: string | null;
   created_at: number | null;
 }
 
@@ -103,6 +121,29 @@ export interface KnowledgeBacklink {
   slug: string;
   title: string;
   label: string | null;
+  /** The predicate the linking page stated; see {@link relationForPageType}. */
+  relation_type: string | null;
+}
+
+/**
+ * Page type → the predicate a link *into* that type states.
+ *
+ * Deliberately a closed table in code, not config: same rule as
+ * `RELATION_EVIDENCE` in the entity layer (AGENTS.md — the vocabulary is code,
+ * only thresholds are knobs). A switch here would let the page graph drift from
+ * what the bodies actually say.
+ */
+export const PAGE_LINK_RELATIONS: Record<PageType, string> = {
+  entity: 'MENTIONS',
+  project: 'PART_OF',
+  topic: 'ABOUT',
+  decision: 'DECIDED_BY',
+  snippet: 'QUOTES',
+};
+
+/** The predicate for a wikilink, given the type of the page it points at. */
+export function relationForPageType(pageType: PageType): string {
+  return PAGE_LINK_RELATIONS[pageType];
 }
 
 /** A `knowledge_log` row. Append-only; `page_id` is NULL for global actions. */

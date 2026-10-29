@@ -151,11 +151,15 @@ describe('KnowledgeRepository', () => {
       if (!linking.ok) return;
 
       expect(linking.danglingLinks).toEqual([]);
+      // The predicate comes from the target's page_type, not from the body's
+      // wording: the second wikilink is the typed form of the same target, so it
+      // is the same row (keyed on from+to) with the same relation.
       expect(repository.linksOf(linking.page.id)).toEqual([
         {
           from_page_id: linking.page.id,
           to_page_id: target.page.id,
           label: null,
+          relation_type: 'ABOUT',
           created_at: expect.any(Number),
         },
       ]);
@@ -485,7 +489,7 @@ describe('KnowledgeRepository', () => {
       if (!linker.ok) throw new Error('insert failed');
 
       expect(repository.linksTo(target.page.id)).toEqual([
-        { slug: 'excel-etl', title: 'Excel ETL', label: 'PQ' },
+        { slug: 'excel-etl', title: 'Excel ETL', label: 'PQ', relation_type: 'MENTIONS' },
       ]);
       // The forward direction is unchanged: the linker has one outgoing link.
       expect(repository.linksOf(linker.page.id)).toHaveLength(1);

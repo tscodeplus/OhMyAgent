@@ -99,6 +99,32 @@ describe('entity_query tool', () => {
     expect(names).not.toContain('Zeta');
   });
 
+  it('lists the curated pages written about the entity', async () => {
+    // migration-v21 links a page to the entity its title folds to; that link is
+    // what turns "what is asserted about Alice" into "what is written about
+    // Alice" without a second lookup at the call site.
+    db.prepare(
+      `INSERT INTO knowledge_pages
+         (id, page_type, slug, title, content, aliases, tags, confidence, version, status,
+          entity_id, created_at, updated_at, updated_by)
+       VALUES ('p-alice', 'entity', 'alice', 'Alice', 'body', NULL, NULL, NULL, 1, 'active',
+               'ent-alice', 10, 10, 'agent')`,
+    ).run();
+
+    const payload = payloadOf(await run({ name: 'Alice' }));
+    expect(payload.pages).toEqual([{ page_type: 'entity', slug: 'alice', title: 'Alice' }]);
+  });
+
+  it('omits pages entirely when the database has no knowledge layer', async () => {
+    db.exec('DROP TABLE knowledge_pages');
+
+    const payload = payloadOf(await run({ name: 'Alice' }));
+    // Omitted, not an empty array: "no knowledge layer" and "no page written"
+    // are different answers, and reporting the first as the second reads as a
+    // confirmed absence.
+    expect(payload).not.toHaveProperty('pages');
+  });
+
   it('reports the cap instead of silently returning a short answer', async () => {
     const payload = payloadOf(await run({ name: 'Alice', limit: 1 }));
     expect(payload.truncated).toBe(true);

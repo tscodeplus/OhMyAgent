@@ -62,6 +62,7 @@ class FakeKnowledgeService implements KnowledgeService {
       title: input.title,
       content: input.content,
       aliases: input.aliases ? JSON.stringify(input.aliases) : null,
+      entity_id: null,
       tags: input.tags ? JSON.stringify(input.tags) : null,
       confidence: input.confidence ?? null,
       version: 1,

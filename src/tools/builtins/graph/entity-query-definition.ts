@@ -81,7 +81,44 @@ export type EntityQueryArgs = z.infer<typeof entityQueryParams>;
  * an id against the node list; the queried entity is reported once as `entity`
  * and the neighbours are `nodes`.
  */
-function toPayload(query: EntityGraphQuery, includeMentions: boolean): Record<string, unknown> {
+interface EntityPageRow {
+  slug: string;
+  page_type: string;
+  title: string;
+}
+
+/**
+ * The curated pages written about this entity (migration-v21's `entity_id`).
+ *
+ * This is what makes the two graphs one answer: `entity_query` used to report
+ * what memories asserted about a name and nothing about what a human or agent
+ * had written about it. Absent on a database that has no knowledge layer, in
+ * which case the key is simply omitted rather than reporting an empty list as
+ * if there were none.
+ */
+function pagesAbout(db: Database.Database, entityId: string): EntityPageRow[] | null {
+  const table = db
+    .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_pages'`)
+    .get() as { name: string } | undefined;
+  if (!table) return null;
+  const column = (db.pragma('table_info(knowledge_pages)') as Array<{ name: string }>).some(
+    (row) => row.name === 'entity_id',
+  );
+  if (!column) return null;
+  return db
+    .prepare(
+      `SELECT slug, page_type, title FROM knowledge_pages
+        WHERE entity_id = ? AND status = 'active'
+        ORDER BY updated_at DESC, id ASC LIMIT 5`,
+    )
+    .all(entityId) as EntityPageRow[];
+}
+
+function toPayload(
+  query: EntityGraphQuery,
+  includeMentions: boolean,
+  pages: EntityPageRow[] | null,
+): Record<string, unknown> {
   const nameById = new Map<string, string>([[query.origin.id, query.origin.name]]);
   for (const node of query.nodes) nameById.set(node.id, node.name);
   const nameOf = (id: string): string => nameById.get(id) ?? id;
@@ -98,6 +135,15 @@ function toPayload(query: EntityGraphQuery, includeMentions: boolean): Record<st
       confidence: edge.confidence,
     })),
     ...(includeMentions ? { mentions: query.mentions } : {}),
+    ...(pages === null
+      ? {}
+      : {
+          pages: pages.map((page) => ({
+            page_type: page.page_type,
+            slug: page.slug,
+            title: page.title,
+          })),
+        }),
     truncated: query.truncated,
   };
 }
@@ -109,7 +155,7 @@ export function createEntityQueryToolDefinition(options: {
     name: 'entity_query',
     label: 'Entity Query',
     description:
-      'Query the knowledge graph: one entity’s neighbourhood as edges (subject, relation, object) with their validity window and confidence. Use it for "what is X connected to", "what did X depend on in June" (asOf), or to read one relation type. Edges are statements a producer asserted; co-occurrence ("mentioned together") is never a neighbour or an edge — includeMentions lists it separately. The gates judge adjacency, not word order, so treat a direction the source text does not state as unverified. `truncated: true` means a cap cut the answer.',
+      'Query the knowledge graph: one entity’s neighbourhood as edges (subject, relation, object) with their validity window and confidence, plus the curated pages written about it (`pages`). Use it for "what is X connected to", "what did X depend on in June" (asOf), or to read one relation type. Edges are statements a producer asserted; co-occurrence ("mentioned together") is never a neighbour or an edge — includeMentions lists it separately. The gates judge adjacency, not word order, so treat a direction the source text does not state as unverified. `truncated: true` means a cap cut the answer.',
     category: 'memory',
     parametersSchema: zodToTypeBox(entityQueryParams),
     capability: entityQueryToolCapability,
@@ -139,13 +185,16 @@ export function createEntityQueryToolDefinition(options: {
         );
       }
 
-      return textResult(JSON.stringify(toPayload(query, includeMentions)), {
-        entity: query.origin.name,
-        nodes: query.nodes.length,
-        edges: query.edges.length,
-        mentions: query.mentions.length,
-        truncated: query.truncated,
-      });
+      return textResult(
+        JSON.stringify(toPayload(query, includeMentions, pagesAbout(options.db, query.origin.id))),
+        {
+          entity: query.origin.name,
+          nodes: query.nodes.length,
+          edges: query.edges.length,
+          mentions: query.mentions.length,
+          truncated: query.truncated,
+        },
+      );
     },
   };
 }

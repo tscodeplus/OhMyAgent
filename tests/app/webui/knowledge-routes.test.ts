@@ -326,9 +326,17 @@ describe('knowledge routes', () => {
       const res = await app.inject({ method: 'GET', url: `/api/knowledge/page/${POWER_QUERY}` });
       expect(res.statusCode).toBe(200);
       expect(
-        (res.json() as { backlinks: Array<{ slug: string; title: string; label: string | null }> })
-          .backlinks,
-      ).toEqual([{ slug: 'excel-etl', title: 'Excel ETL', label: 'PQ' }]);
+        (
+          res.json() as {
+            backlinks: Array<{
+              slug: string;
+              title: string;
+              label: string | null;
+              relation_type: string | null;
+            }>;
+          }
+        ).backlinks,
+      ).toEqual([{ slug: 'excel-etl', title: 'Excel ETL', label: 'PQ', relation_type: 'ABOUT' }]);
 
       // The type + slug address serves the same detail.
       const byPair = await app.inject({

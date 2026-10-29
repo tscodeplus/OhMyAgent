@@ -31,6 +31,10 @@ They have different evidence, different admission rules, and different consumers
 
 8. **Direction is a gate, not an assumption.** `attestsRelation()` measures distance, and distance is symmetric, so `directionOf()` places the predicate between the two endpoint spans and returns `forward` / `reversed` / `unknown`. Only `reversed` is refused — at write time by `readTriple()` (quoted evidence first, the memory second) and at projection/prune time by `edgeIsRefused()`; `unknown` stays admissible, because a direction the text does not state is unprovable, not disproven. A passive marker (被/由/受/为…所/给/是…的, `used by`) keeps a sentence forward: it states the same relation in surface order, so calling it reversed would delete a true edge. The reason this is a gate and not a nicety: `closeContradictedEdges` closes the other open edges of the same `(subject, relation)`, so a reversed row retracts a true one from "current", and "closed, not deleted" does not help a reader who queries `valid_to IS NULL`. `pnpm graph:direction` reports the three counts read-only; the rule is code, and the passive list lives beside `RELATION_EVIDENCE`, never in config.
 
+9. **A page links to an entity node; it never creates one.** `knowledge_pages.entity_id` is filled by a lookup on the canonicalised title (`migration-v21` backfills NULL-only, `KnowledgeRepository` resolves on insert and re-resolves only when the title moves). NULL is the truthful state for a page whose name no memory has attested — page-first is a legitimate order, and a page is not a producer that may vouch for a node. The read side is `entity_query`'s `pages` array, which is omitted (not empty) when the knowledge layer is absent: "no pages" and "no such layer" are different answers.
+
+10. **A page link's predicate comes from the target's `page_type`.** `knowledge_links.relation_type` is derived from the closed set in `knowledge/types.ts` (`topic → ABOUT`, `project → PART_OF`, `decision → DECIDED_BY`, `entity → MENTIONS`, `snippet → QUOTES`) at write time and backfilled for existing rows. It is not parsed from the body and not configurable: the wikilink stays `[[page_type/slug]]`, which Obsidian already resolves, and the vocabulary stays in code for the same reason `RELATION_EVIDENCE` does.
+
 ---
 
 ## 3. Rejected design: promote `MENTIONED` into an edge
@@ -109,12 +113,7 @@ Kept because each one is the reason a rule exists. They are not targets and shou
 
 These are gaps in the design, not rules: each is verified against the code as of 2026-10-29, and none is covered by a rule in §2.
 
-- two graphs (entities × pages) are disconnected — no `knowledge_pages.entity_id`;
-- the page graph is untyped and has no backlink query;
-- `knowledge_fts_jieba.title` is `UNINDEXED` and the name leg is exact-match only;
-- pages have no scope isolation;
-- the model can receive hints but cannot query the graph (no depth / relation / asOf parameters);
-- no graph eval, and graph hints are not covered by the injection reference probe;
+- **pages have no scope isolation** — `knowledge_pages` has no `scope` column, so a page written from one IM chat is a candidate answer in every other chat on the same database.
 
 This file should not grow into a backlog. When a gap closes, delete it here and record the rule it produced in §2.
 

@@ -421,7 +421,7 @@ describe('knowledge service', () => {
       seedPages();
 
       expect(service.backlinks({ slug: 'power-query', pageType: 'entity' })).toEqual([
-        { slug: 'excel-etl', title: 'Excel ETL', label: 'PQ' },
+        { slug: 'excel-etl', title: 'Excel ETL', label: 'PQ', relation_type: 'MENTIONS' },
       ]);
     });
 

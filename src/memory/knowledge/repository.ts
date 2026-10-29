@@ -37,7 +37,9 @@ import type {
   PageType,
   UpdateKnowledgePageInput,
 } from './types.js';
+import { relationForPageType } from './types.js';
 import { slugify } from './slug.js';
+import { canonicalizeEntityName } from '../repositories/entity-repository.js';
 import { resolveWikilinks } from './links.js';
 import { indexKnowledgePage } from './indexer.js';
 
@@ -82,6 +84,9 @@ function escapeLike(text: string): string {
 }
 
 export class KnowledgeRepository {
+  /** Cached `entities`-table probe: absent on a knowledge-only database. */
+  private entitiesTable: boolean | undefined;
+
   private readonly db: Database.Database;
 
   constructor(db: Database.Database) {
@@ -218,7 +223,8 @@ export class KnowledgeRepository {
   linksTo(pageId: string): KnowledgeBacklink[] {
     return this.db
       .prepare(
-        `SELECT p.slug AS slug, p.title AS title, l.label AS label
+        `SELECT p.slug AS slug, p.title AS title, l.label AS label,
+                l.relation_type AS relation_type
          FROM knowledge_links l
          JOIN knowledge_pages p ON p.id = l.from_page_id
          WHERE l.to_page_id = ? AND p.status = 'active'
@@ -281,8 +287,8 @@ export class KnowledgeRepository {
         .prepare(
           `INSERT INTO knowledge_pages
              (id, page_type, slug, title, content, aliases, tags, confidence,
-              version, status, created_at, updated_at, updated_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
+              version, status, entity_id, created_at, updated_at, updated_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
         )
         .run(
           id,
@@ -294,6 +300,7 @@ export class KnowledgeRepository {
           serializeArray(input.tags),
           input.confidence ?? null,
           input.status,
+          this.resolveEntityId(input.title),
           now,
           now,
           input.updatedBy,
@@ -377,7 +384,7 @@ export class KnowledgeRepository {
         .prepare(
           `UPDATE knowledge_pages
            SET title = ?, content = ?, aliases = ?, tags = ?, confidence = ?,
-               version = ?, status = ?, updated_at = ?, updated_by = ?
+               version = ?, status = ?, entity_id = ?, updated_at = ?, updated_by = ?
            WHERE id = ?`,
         )
         .run(
@@ -388,6 +395,12 @@ export class KnowledgeRepository {
           input.confidence ?? current.confidence,
           version,
           status,
+          // A retitled page is about a different subject iff its new title folds
+          // to a different canonical name; keep the link when nothing moved, so
+          // an unrelated body edit cannot unlink a page.
+          canonicalizeEntityName(title) === canonicalizeEntityName(current.title)
+            ? current.entity_id
+            : this.resolveEntityId(title),
           now,
           input.updatedBy ?? current.updated_by,
           current.id,
@@ -487,17 +500,26 @@ export class KnowledgeRepository {
   private writeLinks(pageId: string, content: string): string[] {
     const { links, dangling } = resolveWikilinks(
       content,
-      (link) => this.resolveActivePageId(link.pageType, link.slug),
+      (link) => this.resolveActivePageId(link.pageType, link.slug)?.id ?? null,
       { selfPageId: pageId },
     );
 
     this.db.prepare('DELETE FROM knowledge_links WHERE from_page_id = ?').run(pageId);
     const insert = this.db.prepare(
-      `INSERT OR REPLACE INTO knowledge_links (from_page_id, to_page_id, label, created_at)
-       VALUES (?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO knowledge_links
+         (from_page_id, to_page_id, label, relation_type, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
     );
     const now = Date.now();
-    for (const link of links) insert.run(pageId, link.toPageId, link.label, now);
+    for (const link of links) {
+      // The predicate is the target's type, not the body's wording: a wikilink
+      // says "these pages are connected" and the type says how. Read from the
+      // row the resolver just matched, so a link and its predicate cannot come
+      // from two different pages.
+      const targetType = this.pageTypeById(link.toPageId);
+      const relation = targetType ? relationForPageType(targetType) : null;
+      insert.run(pageId, link.toPageId, link.label, relation, now);
+    }
 
     return dangling;
   }
@@ -509,20 +531,60 @@ export class KnowledgeRepository {
    * silently satisfying another page's citation is exactly the leak the status
    * filter exists to prevent.
    */
-  private resolveActivePageId(pageType: PageType | null, slug: string): string | null {
+  private resolveActivePageId(
+    pageType: PageType | null,
+    slug: string,
+  ): { id: string; pageType: PageType } | null {
     const row = pageType
       ? (this.db
           .prepare(
-            `SELECT id FROM knowledge_pages WHERE page_type = ? AND slug = ? AND status = 'active'`,
+            `SELECT id, page_type FROM knowledge_pages
+              WHERE page_type = ? AND slug = ? AND status = 'active'`,
           )
-          .get(pageType, slug) as { id: string } | undefined)
+          .get(pageType, slug) as { id: string; page_type: PageType } | undefined)
       : (this.db
           .prepare(
-            `SELECT id FROM knowledge_pages WHERE slug = ? AND status = 'active'
+            `SELECT id, page_type FROM knowledge_pages WHERE slug = ? AND status = 'active'
              ORDER BY updated_at DESC, id ASC LIMIT 1`,
           )
-          .get(slug) as { id: string } | undefined);
+          .get(slug) as { id: string; page_type: PageType } | undefined);
+    return row ? { id: row.id, pageType: row.page_type } : null;
+  }
+
+  private pageTypeById(id: string): PageType | null {
+    const row = this.db.prepare('SELECT page_type FROM knowledge_pages WHERE id = ?').get(id) as
+      { page_type: PageType } | undefined;
+    return row?.page_type ?? null;
+  }
+
+  /**
+   * The entity node whose canonical name this title folds to, or NULL.
+   *
+   * A lookup, never an insert: the graph's nodes are attested by memories, and a
+   * page creating one would put a subject in the graph that no producer vouched
+   * for (see `KnowledgePage.entity_id`). The `entities` table is absent on a
+   * knowledge-only database, which is not an error — it means nothing is linked.
+   */
+  private resolveEntityId(title: string): string | null {
+    if (!this.hasEntitiesTable()) return null;
+    const canonical = canonicalizeEntityName(title);
+    if (!canonical) return null;
+    const row = this.db
+      .prepare(
+        `SELECT id FROM entities WHERE canonical_name = ?
+          ORDER BY updated_at DESC, id ASC LIMIT 1`,
+      )
+      .get(canonical) as { id: string } | undefined;
     return row?.id ?? null;
+  }
+
+  private hasEntitiesTable(): boolean {
+    if (this.entitiesTable !== undefined) return this.entitiesTable;
+    const row = this.db
+      .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'entities'`)
+      .get() as { name: string } | undefined;
+    this.entitiesTable = row !== undefined;
+    return this.entitiesTable;
   }
 
   private appendLog(entry: {

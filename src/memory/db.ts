@@ -19,6 +19,7 @@ import { migrateV17 } from './migration-v17.js';
 import { migrateV18 } from './migration-v18.js';
 import { migrateV19 } from './migration-v19.js';
 import { migrateV20 } from './migration-v20.js';
+import { migrateV21 } from './migration-v21.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -278,6 +279,24 @@ export function openDatabase(dbPath: string): Database.Database {
   }
   if (v20Result.createdIndexes.length > 0) {
     logger.info(`[V20] Knowledge migration: created: ${v20Result.createdIndexes.join(', ')}`);
+  }
+
+  // V21: the page graph meets the entity graph. `knowledge_pages.entity_id`
+  // points a page at the entity node its title folds to; `knowledge_links`
+  // gains the predicate derived from the target's page_type. After applySchema
+  // like v14/v20 — both tables are v14's, so schema.ts references neither
+  // column and there is nothing for an upgraded database to be missing. Both
+  // backfills are NULL-only and count-guarded, so a migrated database pays one
+  // read-only COUNT per open.
+  const v21Result = migrateV21(db);
+  if (v21Result.added.length > 0) {
+    logger.info(`[V21] Knowledge migration: added columns: ${v21Result.added.join(', ')}`);
+  }
+  if (v21Result.pagesLinked > 0 || v21Result.linksTyped > 0) {
+    logger.info(
+      `[V21] Knowledge migration: linked ${v21Result.pagesLinked} page(s) to entities, ` +
+        `typed ${v21Result.linksTyped} page link(s)`,
+    );
   }
 
   // Backfill FTS index for memories that are missing from it (first-time
