@@ -22,9 +22,16 @@ describe('EntityRepository', () => {
   });
 
   describe('canonicalizeEntityName', () => {
-    it('trims, collapses whitespace and lowercases latin', () => {
-      expect(canonicalizeEntityName('  Alice   SMITH ')).toBe('alice smith');
+    it('folds case, spaces and separators into one identity', () => {
+      // Separators are not identity (migration v19): `Oh My Agent` / `oh-my-agent`
+      // / `OhMyAgent` are one node, and a memory that wrote one form used to be
+      // unreachable from a query that wrote another.
+      expect(canonicalizeEntityName('  Alice   SMITH ')).toBe('alicesmith');
+      expect(canonicalizeEntityName('Oh My Agent')).toBe(canonicalizeEntityName('oh-my-agent'));
+      expect(canonicalizeEntityName('IndexTTS-2')).toBe(canonicalizeEntityName('IndexTTS2'));
       expect(canonicalizeEntityName('张三')).toBe('张三');
+      // Dots stay: a version separator and a domain are not the same thing.
+      expect(canonicalizeEntityName('Node.js')).toBe('node.js');
     });
   });
 
@@ -58,7 +65,7 @@ describe('EntityRepository', () => {
       const company = repo.upsertEntity({ name: 'Fruit Co', entityType: 'company' });
 
       expect(repo.entityCount()).toBe(2);
-      expect(company.canonical_name).toBe('fruit co');
+      expect(company.canonical_name).toBe('fruitco');
     });
 
     it('records the supplied spellings as aliases for later lookups', () => {

@@ -81,10 +81,16 @@ const MAX_DEPTH = 5;
  * one space, ASCII letters lowercased. CJK is left untouched (it has no case).
  */
 export function canonicalizeEntityName(name: string): string {
+  // Separators are not identity: `IndexTTS-2` / `IndexTTS2`, `OhMyAgent` /
+  // `Oh My Agent`, `excel_mcp` / `excel mcp` are one thing each, and a memory that
+  // wrote one form was unreachable from a query using another — the graph grew a
+  // second half-graph instead of merging. Dots are kept: `Node.js` and `Nodejs`
+  // are the same product but `socket.io` and `socketio` are not worth guessing,
+  // and the folding of separators is the case the corpus actually produces.
   return name
     .trim()
-    .replace(/\s+/g, ' ')
-    .replace(/[A-Z]+/g, (match) => match.toLowerCase());
+    .replace(/[\s\-_]+/g, '')
+    .toLowerCase();
 }
 
 function escapeLike(value: string): string {

@@ -17,6 +17,7 @@ import { migrateV15 } from './migration-v15.js';
 import { migrateV16 } from './migration-v16.js';
 import { migrateV17 } from './migration-v17.js';
 import { migrateV18 } from './migration-v18.js';
+import { migrateV19 } from './migration-v19.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -249,6 +250,16 @@ export function openDatabase(dbPath: string): Database.Database {
   const v18Result = migrateV18(db);
   if (v18Result.created) {
     logger.info('[V18] Created entity_extraction_log (skips memories already read)');
+  }
+
+  // V19: one entity per name. Rewrites canonical names under the current folding
+  // rule and merges the nodes that fold together, in that order (see the module).
+  const v19Result = migrateV19(db);
+  if (v19Result.merged > 0 || v19Result.renamedCanonical > 0) {
+    logger.info(
+      `[V19] merged ${v19Result.merged} duplicate node(s), rewrote ` +
+        `${v19Result.renamedCanonical} canonical name(s)`,
+    );
   }
 
   // Backfill FTS index for memories that are missing from it (first-time

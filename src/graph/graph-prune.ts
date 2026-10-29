@@ -89,19 +89,26 @@ export function refusedEdgePlan(db: Database.Database): GraphDeletePlan {
 }
 
 /** Same name, different type: as a batch-deletable plan. */
-export function duplicateNodePlan(db: Database.Database): GraphDeletePlan {
-  const groups = db.prepare(
-    `SELECT canonical_name AS canonical
-       FROM entities
-      GROUP BY canonical_name
-     HAVING COUNT(*) > 1
-      ORDER BY canonical_name`,
-  );
+export function duplicateNodePlan(
+  db: Database.Database,
+  options: {
+    /**
+     * How two rows are decided to be the same entity.
+     *
+     * Defaults to the stored `canonical_name`, which is what the projection
+     * writes. Migration v19 passes the *current* folding rule instead, so it can
+     * merge rows written under the previous one before their stored keys are
+     * rewritten (`entities` is unique on `(canonical_name, entity_type)`, so the
+     * rewrite has to come second).
+     */
+    nameKey?: (candidate: string) => string;
+  } = {},
+): GraphDeletePlan {
   const members = db.prepare(
-    `SELECT id, created_at,
+    `SELECT id, name, canonical_name, created_at,
             (SELECT COUNT(*) FROM entity_edges x
               WHERE x.source_entity_id = entities.id OR x.target_entity_id = entities.id) AS degree
-       FROM entities WHERE canonical_name = ?`,
+       FROM entities`,
   );
   const loserEdges = db.prepare(
     `SELECT id, source_entity_id, target_entity_id, relation_type
@@ -134,12 +141,26 @@ export function duplicateNodePlan(db: Database.Database): GraphDeletePlan {
   const losers = new Map<string, string>();
   const selectIds = (): string[] => {
     losers.clear();
-    for (const group of groups.all() as Array<{ canonical: string }>) {
-      const rows = members.all(group.canonical) as Array<{
-        id: string;
-        created_at: number;
-        degree: number;
-      }>;
+    const grouped = new Map<string, Array<{ id: string; created_at: number; degree: number }>>();
+    for (const row of members.all() as Array<{
+      id: string;
+      name: string;
+      canonical_name: string;
+      created_at: number;
+      degree: number;
+    }>) {
+      // No rule given → group the way the projection always has (case and
+      // spacing already folded by the stored key). A rule given → it is applied
+      // to the *display* name, because that is what it is a rule about; the
+      // stored canonical may predate it.
+      const key = options.nameKey
+        ? options.nameKey(row.name || row.canonical_name)
+        : row.canonical_name;
+      const bucket = grouped.get(key);
+      if (bucket) bucket.push(row);
+      else grouped.set(key, [row]);
+    }
+    for (const rows of grouped.values()) {
       if (rows.length < 2) continue;
       const [keeper, ...rest] = rows.sort(
         (a, b) => b.degree - a.degree || Number(a.created_at) - Number(b.created_at),

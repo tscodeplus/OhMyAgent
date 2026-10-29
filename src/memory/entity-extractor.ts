@@ -369,7 +369,14 @@ const LLM_TRIPLE_PROMPT = [
   '',
   'relation is exactly one of:',
   'FOUNDED, INVESTED, ADVISES, WORKS_AT, ATTENDED, USES, DEPENDS_ON, PART_OF, EXTENDS.',
-  'USES = one thing is used, called, run or applied to do something;',
+  // Widened after a measured miss: "希望使用 Power Query 获取 Excel 文件信息" is a
+  // stated use, and the model answered []. Spelling out that handling a file
+  // format counts — and that a stated intention counts — is what turned that
+  // answer into a triple. The endpoint rules did not move: the model then offered
+  // `Excel 文件` as an object, and the token-alignment gate still refuses it.
+  'USES = one thing is used, called, run or applied to do something, including a',
+  '  tool that reads, writes or handles a file format, a site or an API. A stated',
+  '  intention ("希望使用 X") counts as a use;',
   'DEPENDS_ON = requires, needs, only works with, must be installed first;',
   'PART_OF = is a feature, component, module or subset of;',
   'EXTENDS = extends, forks, is built on top of.',
