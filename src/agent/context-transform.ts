@@ -28,6 +28,11 @@
  *       knows a page exists and can read its body with `knowledge_get` instead
  *       of guessing from a title.
  *
+ * The knowledge block is read in the turn's scope (`scopeFromContext`, migration
+ * v22): a page curated in one chat is not a candidate title in another, while a
+ * turn with no conversation identity (cron, console) keeps asking without a
+ * scope and therefore sees every page.
+ *
  * Both are budgeted (together the plan's ≤400 G4 limit, configurable through
  * `injectionBudget`) and both are no-ops when their provider throws — retrieval
  * must never be a reason a turn fails.
@@ -46,6 +51,7 @@
 
 import type { MemoryRetriever, RetrievedMemory } from '../memory/memory-retriever.js';
 import { memoryObservability } from '../memory/observability.js';
+import { scopeFromContext, SCOPE_GLOBAL } from '../memory/knowledge/scope.js';
 import type { MermaidCanvas } from '../runtime-artifacts/mermaid-canvas.js';
 import type { AutoCompressConfig } from '../app/types.js';
 import { compressContext, estimateTokensCached } from './compress.js';
@@ -570,6 +576,19 @@ export interface TransformOptions {
   /** Session key for scoped memory retrieval. */
   sessionKey?: string;
   /**
+   * The conversation this prompt is being built for: channel id and chat id as
+   * the channel layer knows them (`feishu` / `oc_1`).
+   *
+   * Used for one thing — resolving the read scope of the knowledge block
+   * (`scopeFromContext`) — so a turn in chat A is not offered chat B's page
+   * titles. Both absent means "no conversation" (cron, an install that passes
+   * no identity), which keeps the block unscoped. The console channel is folded
+   * to `global` inside `scopeFromContext`, so a WebUI turn passes a channel and
+   * still reads everything.
+   */
+  channel?: string;
+  chatId?: string;
+  /**
    * Agent ID for agent-scoped snapshot memory injection (V2).
    * When set, uses retrieveGrouped with 3-pool retrieval (current/shared/other)
    * instead of the classic single-pool retrieve.
@@ -621,12 +640,21 @@ export interface TransformOptions {
   /**
    * Optional knowledge provider (plan §6 K2-6): at most a couple of page
    * titles worth offering this turn, most relevant first — typically
-   * `KnowledgeService.titlesForInjection(query, max)`.
+   * `KnowledgeService.titlesForInjection(query, max, { scope })`.
    *
    * Titles only, never bodies: the body is a `knowledge_get` call away, and the
    * budget for this block is 150 tokens. Undefined provider = no block.
+   *
+   * `scope` is the turn's read scope, computed once per build from
+   * {@link TransformOptions.channel} / {@link TransformOptions.chatId} /
+   * {@link TransformOptions.sessionKey} through `scopeFromContext`, and
+   * `undefined` when the turn is unscoped (no channel, no chat, no session —
+   * cron, an install that never passes identity). `undefined` is not the same
+   * ask as `'global'`: it means every scope, which is what an unscoped caller
+   * saw before pages had scopes, while `'global'` would hide every chat's pages
+   * from it. A provider that ignores the argument keeps returning everything.
    */
-  knowledgeContextProvider?: (query: string) => KnowledgeContextItem[] | undefined;
+  knowledgeContextProvider?: (query: string, scope?: string) => KnowledgeContextItem[] | undefined;
   /**
    * Optional provider that returns a system-reminder string when a Desktop Bridge
    * is active for the current session. Injected into the context so the LLM knows
@@ -1280,6 +1308,25 @@ export function createTransformContext(options?: TransformOptions) {
   const injectionBudget = resolveInjectionBudget(options?.injectionBudget);
   const dateGranularity = 'day';
 
+  /**
+   * The read scope of this build's `<knowledge_available>` block, or `undefined`
+   * for a turn that belongs to no conversation.
+   *
+   * `undefined` means "omit the scope argument", not "pass `global`": the
+   * service reads an absent scope as every scope, which is what cron, the
+   * console and an install that passes no identity saw before pages had scopes,
+   * while passing `'global'` would filter their reads to globals only. That is
+   * why the decision is made here, once, and not left to the call site.
+   */
+  const knowledgeTurnScope = (): string | undefined => {
+    const scope = scopeFromContext({
+      channel: options?.channel,
+      chatId: options?.chatId,
+      sessionId: sessionKey,
+    });
+    return scope === SCOPE_GLOBAL ? undefined : scope;
+  };
+
   return async (messages: any[], _signal?: AbortSignal): Promise<any[]> => {
     const result = [...messages];
     // Injection telemetry for this prompt build (plan §6 K0 item 3), emitted
@@ -1508,11 +1555,14 @@ export function createTransformContext(options?: TransformOptions) {
       // Titles and slugs only: the body is a `knowledge_get` call away, so this
       // block exists to say "a page about this exists" without pre-empting the
       // tool. `titlesForInjection` already applies the relevance floor, so an
-      // unfocused query yields no entries and therefore no block.
+      // unfocused query yields no entries and therefore no block. The turn's
+      // scope goes with the query: a page written in another chat is neither
+      // offered here nor allowed to decide what this chat's titles are.
       if (options?.knowledgeContextProvider && query.trim() !== '') {
         const laneStarted = performance.now();
+        const askedScope = knowledgeTurnScope();
         try {
-          const items = options.knowledgeContextProvider(query) ?? [];
+          const items = options.knowledgeContextProvider(query, askedScope) ?? [];
           items
             .filter((item) => typeof item?.slug === 'string' && item.slug.trim() !== '')
             .slice(0, injectionBudget.knowledgeMaxItems)

@@ -35,6 +35,9 @@ import { memoryObservability } from '../../src/memory/observability.js';
 import { openDatabase } from '../../src/memory/db.js';
 import { MessageRepository } from '../../src/memory/repositories/message-repository.js';
 import { estimateTokensForText } from '../../src/shared/token-estimate.js';
+import { createKnowledgeService } from '../../src/memory/knowledge/service.js';
+import type { KnowledgeService } from '../../src/memory/knowledge/service-contract.js';
+import { openSeededDatabase, TWO_MEMORY_SOURCES } from '../knowledge/fixtures.js';
 
 /** The injected text blocks of the (single) user message. */
 function textBlocks(content: unknown): string[] {
@@ -1304,5 +1307,193 @@ describe('turn-end reference reading — graph hints', () => {
     });
 
     expect(referenced()).toEqual([]);
+  });
+});
+
+/**
+ * The knowledge block is read in the turn's scope (migration-v22).
+ *
+ * This block is the most visible form of the leak the scope column exists for:
+ * it is built on every turn, so a page curated in one group chat being offered
+ * as a title in another is not an edge case but the normal state of an install
+ * with several chats.
+ *
+ * What is under test here is the wiring — the transform resolving the turn's
+ * scope and the provider passing it on — not the scope model itself
+ * (`tests/memory/migration-v22.test.ts`) and not the ranking
+ * (`tests/knowledge/scope-isolation.test.ts`):
+ *
+ * - a page written in chat A is offered in chat A and never in chat B;
+ * - a `global` page is offered in both;
+ * - a turn with no conversation identity (the console, cron, an install that
+ *   passes nothing) still asks with no scope at all, so it keeps seeing every
+ *   page — the behaviour it had before pages had scopes;
+ * - the ≤150-token knowledge and ≤250-token episodic caps are unchanged.
+ */
+describe("knowledge injection in the turn's scope", () => {
+  const DEPLOY_QUERY = 'deploy checklist';
+
+  let db: Database.Database;
+  let service: KnowledgeService;
+
+  beforeEach(() => {
+    db = openSeededDatabase();
+    service = createKnowledgeService({ db });
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  /** The factory's wiring, minus its config gate: the transform supplies the scope. */
+  function scopedProvider(max = 2) {
+    return vi.fn((query: string, scope?: string) =>
+      service.titlesForInjection(query, max, { scope }),
+    );
+  }
+
+  function writePage(slug: string, scope: string, content?: string): void {
+    const result = service.create(
+      {
+        pageType: 'topic',
+        slug,
+        title: 'Deploy checklist',
+        content: content ?? 'Deploy checklist: run the release script.',
+        sources: TWO_MEMORY_SOURCES,
+      },
+      { actor: 'agent', scope },
+    );
+    expect(result.ok).toBe(true);
+  }
+
+  async function injectedBlocks(options: {
+    sessionKey?: string;
+    channel?: string;
+    chatId?: string;
+    query?: string;
+    provider: (query: string, scope?: string) => KnowledgeContextItem[] | undefined;
+    episodic?: EpisodicContextItem[];
+  }): Promise<string[]> {
+    const transform = createTransformContext({
+      maxMessages: 5,
+      sessionKey: options.sessionKey,
+      channel: options.channel,
+      chatId: options.chatId,
+      episodicContextProvider: options.episodic ? () => options.episodic! : undefined,
+      knowledgeContextProvider: options.provider,
+    });
+    const result = await transform([{ role: 'user', content: options.query ?? DEPLOY_QUERY }]);
+    return textBlocks(result[0]!.content);
+  }
+
+  function knowledgeBlockOf(blocks: string[]): string {
+    return blocks.find((text) => text.includes('<knowledge_available>')) ?? '';
+  }
+
+  it("offers chat A's page in chat A and never in chat B", async () => {
+    writePage('deploy-a', 'feishu:oc_a');
+    writePage('deploy-b', 'telegram:42');
+
+    const inA = scopedProvider();
+    const blockA = knowledgeBlockOf(
+      await injectedBlocks({
+        sessionKey: 'scope-chat-a',
+        channel: 'feishu',
+        chatId: 'oc_a',
+        provider: inA,
+      }),
+    );
+    expect(inA.mock.calls[0]![1]).toBe('feishu:oc_a');
+    expect(blockA).toContain('deploy-a — Deploy checklist');
+    expect(blockA).not.toContain('deploy-b');
+
+    const inB = scopedProvider();
+    const blockB = knowledgeBlockOf(
+      await injectedBlocks({
+        sessionKey: 'scope-chat-b',
+        channel: 'telegram',
+        chatId: '42',
+        provider: inB,
+      }),
+    );
+    expect(inB.mock.calls[0]![1]).toBe('telegram:42');
+    expect(blockB).toContain('deploy-b — Deploy checklist');
+    expect(blockB).not.toContain('deploy-a');
+  });
+
+  it('offers a global page to both chats', async () => {
+    writePage('deploy-a', 'feishu:oc_a');
+    writePage('deploy-global', 'global');
+
+    const blockA = knowledgeBlockOf(
+      await injectedBlocks({
+        sessionKey: 'scope-global-a',
+        channel: 'feishu',
+        chatId: 'oc_a',
+        provider: scopedProvider(),
+      }),
+    );
+    expect(blockA).toContain('deploy-a — Deploy checklist');
+    expect(blockA).toContain('deploy-global — Deploy checklist');
+
+    const blockB = knowledgeBlockOf(
+      await injectedBlocks({
+        sessionKey: 'scope-global-b',
+        channel: 'telegram',
+        chatId: '42',
+        provider: scopedProvider(),
+      }),
+    );
+    expect(blockB).toContain('deploy-global — Deploy checklist');
+    expect(blockB).not.toContain('deploy-a');
+  });
+
+  it('keeps the console and an identity-less turn unscoped, and they still see every page', async () => {
+    writePage('deploy-a', 'feishu:oc_a');
+    writePage('deploy-b', 'telegram:42');
+
+    // The WebUI chat carries channel `webui` and chatId `webui:<project>`; the
+    // console is not a conversation, so the ask stays unscoped and unchanged.
+    const consoleProvider = scopedProvider();
+    const consoleBlock = knowledgeBlockOf(
+      await injectedBlocks({
+        sessionKey: 'scope-console',
+        channel: 'webui',
+        chatId: 'webui:proj-1',
+        provider: consoleProvider,
+      }),
+    );
+    expect(consoleProvider.mock.calls[0]![1]).toBeUndefined();
+    expect(consoleBlock).toContain('deploy-a');
+    expect(consoleBlock).toContain('deploy-b');
+
+    // A turn that passes no identity at all (cron, a programmatic caller) asks
+    // the same way — `undefined` is "every scope", not "globals only".
+    const anonymous = scopedProvider();
+    const anonymousBlock = knowledgeBlockOf(await injectedBlocks({ provider: anonymous }));
+    expect(anonymous.mock.calls[0]![1]).toBeUndefined();
+    expect(anonymousBlock).toContain('deploy-a');
+    expect(anonymousBlock).toContain('deploy-b');
+  });
+
+  it('keeps the per-lane token caps while the scope narrows the candidate set', async () => {
+    writePage('deploy-a', 'feishu:oc_a', '批量替换脚本用 python 跑，结果写到 out 目录。');
+    writePage('deploy-b', 'telegram:42');
+
+    const blocks = await injectedBlocks({
+      sessionKey: 'scope-caps',
+      channel: 'feishu',
+      chatId: 'oc_a',
+      query: RECALL_QUERY,
+      provider: scopedProvider(),
+      episodic: episodicItems(3),
+    });
+
+    const knowledge = knowledgeBlockOf(blocks);
+    const episodic = blocks.find((text) => text.includes('<recent_conversation>')) ?? '';
+    expect(knowledge).toContain('deploy-a');
+    expect(knowledge).not.toContain('deploy-b');
+    expect(estimateTokensForText(knowledge)).toBeLessThanOrEqual(150);
+    expect(estimateTokensForText(episodic)).toBeLessThanOrEqual(250);
   });
 });

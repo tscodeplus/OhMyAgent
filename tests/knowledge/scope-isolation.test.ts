@@ -186,4 +186,29 @@ describe('page scope isolation', () => {
         .sort(),
     ).toEqual(['b-page', 'deploy-process']);
   });
+
+  it('offers a turn its own titles plus globals, and everything when no scope is asked', () => {
+    // One page per scope, identical title and body, so the relevance floor and
+    // the normalisation are neutral: only the scope filter can change the set.
+    service.create(page({ slug: 'deploy-a' }), { actor: 'agent', scope: CHAT_A });
+    service.create(page({ slug: 'deploy-global' }), { actor: 'user', scope: 'global' });
+    service.create(page({ slug: 'deploy-b' }), { actor: 'agent', scope: CHAT_B });
+
+    // Today's answer, unchanged: no options means every scope (the console).
+    const everywhere = service.titlesForInjection('deploy', 5).map((title) => title.slug);
+    expect(everywhere).toHaveLength(3);
+    expect(everywhere).toEqual(expect.arrayContaining(['deploy-a', 'deploy-global', 'deploy-b']));
+
+    // Chat A reads its own page and the global one, and the ranking is computed
+    // over that set — B's page is absent, not merely ranked last.
+    const inA = service.titlesForInjection('deploy', 5, { scope: CHAT_A });
+    expect(inA.map((title) => title.slug).sort()).toEqual(['deploy-a', 'deploy-global']);
+    expect(inA[0]!.score).toBe(1);
+
+    const inB = service.titlesForInjection('deploy', 5, { scope: CHAT_B });
+    expect(inB.map((title) => title.slug).sort()).toEqual(['deploy-b', 'deploy-global']);
+
+    // The item cap still applies inside the scope.
+    expect(service.titlesForInjection('deploy', 1, { scope: CHAT_A })).toHaveLength(1);
+  });
 });

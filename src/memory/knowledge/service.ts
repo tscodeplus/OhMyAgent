@@ -425,11 +425,17 @@ export function createKnowledgeService(deps: KnowledgeServiceDeps): KnowledgeSer
   function titlesForInjection(
     query: string,
     max: number,
+    options?: { scope?: string },
   ): Array<{ slug: string; title: string; score?: number }> {
     const limit = clamp(max, 1, 5);
     if (!query.trim()) return [];
 
-    const hits = search(query, { limit });
+    // The scope is handed to `search` and nothing else: the floor and the
+    // normalisation below then run over the pages this caller may read, so
+    // another chat's better-scoring title can neither be injected nor push a
+    // visible title out of the result set. Absent, the call is exactly what it
+    // was before migration-v22 (every scope, the console's view).
+    const hits = search(query, options?.scope ? { limit, scope: options.scope } : { limit });
     if (hits.length === 0) return [];
 
     // The fused score is an RRF value: comparable inside this result set and

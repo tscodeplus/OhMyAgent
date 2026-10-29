@@ -136,6 +136,17 @@ describe('scope model', () => {
     expect(scopeFromContext(undefined)).toBe(SCOPE_GLOBAL);
   });
 
+  it('folds the console channel to global, because a console is not a conversation', () => {
+    // The WebUI does pass a channel and a chat id (`webui`, `webui:<project>`),
+    // yet a page a human writes or approves there is the authority for the
+    // whole install: scoping it to one project would make it a page no chat
+    // ever reads.
+    expect(scopeFromContext({ channel: 'webui', chatId: 'webui:proj_1' })).toBe(SCOPE_GLOBAL);
+    expect(scopeFromContext({ channel: 'WebUI', sessionId: 's1' })).toBe(SCOPE_GLOBAL);
+    // Any other channel keeps its scope.
+    expect(scopeFromContext({ channel: 'feishu', chatId: 'oc_1' })).toBe('feishu:oc_1');
+  });
+
   it('lets a chat read its own pages and globals, and nothing else', () => {
     expect(isVisibleInScope('feishu:oc_1', 'feishu:oc_1')).toBe(true);
     expect(isVisibleInScope('global', 'feishu:oc_1')).toBe(true);

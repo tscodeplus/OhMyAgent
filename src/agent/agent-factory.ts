@@ -1058,6 +1058,12 @@ export function createAgentFactory(
           autoRecallFrequency: configRef.current.memory.autoRecallFrequency as 'first' | 'every',
           sessionKey: sessionId,
           agentId: runtimeAgentId,
+          // The turn's conversation, for the knowledge block's read scope. The
+          // WebUI path rebuilds the agent every turn (it passes `channel`), so
+          // these are the current turn's ids, and a turn with neither keeps the
+          // block unscoped, which is what cron and the console need.
+          channel: options?.channel,
+          chatId,
           dateLanguage: configRef.current.uiLanguage,
           offloadConfig: configRef.current.memory.offloading,
           offloadStore: offloadStore,
@@ -1090,13 +1096,20 @@ export function createAgentFactory(
           // K2-6: offer the titles of the pages worth reading this turn. The
           // body stays behind `knowledge_get`; `titlesForInjection` already
           // applies the relevance floor, so an unfocused turn yields no block.
-          knowledgeContextProvider: (query: string) => {
+          //
+          // `scope` is the turn's read scope (the transform computes it and
+          // omits it for a turn with no conversation): without it a page
+          // curated in one chat is offered as a title in every other, and the
+          // leak is on every turn rather than only on an explicit search.
+          knowledgeContextProvider: (query: string, scope?: string) => {
             const knowledge = configRef.current.knowledge;
             const knowledgeService = getServices?.()?.knowledgeService;
             if (!knowledge.enabled || !knowledge.inject.enabled || !knowledgeService) {
               return undefined;
             }
-            return knowledgeService.titlesForInjection(query, knowledge.inject.maxPages);
+            return knowledgeService.titlesForInjection(query, knowledge.inject.maxPages, {
+              scope,
+            });
           },
           desktopBridgeReminderProvider: bridgeRegistry
             ? (sKey?: string) => {

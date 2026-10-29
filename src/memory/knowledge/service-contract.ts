@@ -184,10 +184,17 @@ export interface KnowledgeService {
    * `score` is relevance in (0,1] **relative to the best hit in this result set**
    * (top = 1), which is what makes it comparable with another lane's scores; the
    * raw fused rank value stays inside the service.
+   *
+   * `options.scope` filters the candidates before the relevance floor and the
+   * normalisation run, so the ranking is computed over what the caller may read
+   * (migration-v22): a title from another chat must neither be injected nor
+   * decide which of this chat's titles clear the floor. Omitted means every
+   * scope, which is the console's view and the pre-scope behaviour.
    */
   titlesForInjection(
     query: string,
     max: number,
+    options?: { scope?: string },
   ): Array<{ slug: string; title: string; score?: number }>;
   /** Outgoing links of a page, for `knowledge_get` and the WebUI backlink panel. */
   linksOf(pageId: string): KnowledgeLink[];
