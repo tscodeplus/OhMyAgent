@@ -46,6 +46,7 @@ import type { MaintenanceRunRepository } from './maintenance/maintenance-run-rep
 import type { KnowledgeCurator } from './knowledge/curate.js';
 import { mergeMemory, appendMemoryDispute } from './memory-merge.js';
 import type { MergeConfig } from './memory-merge.js';
+import { invalidatePagesCitingMemory } from './knowledge/memory-page-invalidation.js';
 import { extractEntities } from './entity-extractor.js';
 import { generateId } from '../shared/ids.js';
 import { parseEpochMs } from '../shared/timestamp.js';
@@ -448,6 +449,15 @@ export class DreamCycle {
           // Soft-delete the newer memory (superseded by the merged one)
           const superseded = isNewer ? anchorMem : neighborMem;
           this.memoryRepo.softDelete(superseded.id);
+
+          // Both rows may be cited by knowledge pages, and both changed meaning:
+          // `existing` now says something a page does not quote, and `superseded`
+          // is not readable any more. Re-queue those pages exactly as
+          // `MemoryWriter` and `memory_update` do (§8 S1), so a nightly merge
+          // cannot leave a page asserting a superseded fact. The helper is a
+          // no-op when nothing cites the row, which is the common case.
+          await invalidatePagesCitingMemory(this.db, existing.id, 'update', this.logger);
+          await invalidatePagesCitingMemory(this.db, superseded.id, 'update', this.logger);
 
           mergedCount++;
           this.logger.debug(

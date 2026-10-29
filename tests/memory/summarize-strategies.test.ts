@@ -11,7 +11,7 @@
  *   - Tool checks message count and triggers summarizer
  */
 import { i18n } from '../../src/i18n/index.js';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import Database from 'better-sqlite3';
 import { SessionRepository } from '../../src/memory/repositories/session-repository.js';
 import { MessageRepository } from '../../src/memory/repositories/message-repository.js';
@@ -51,6 +51,20 @@ function insertMessages(msgRepo: MessageRepository, sessionId: string, count: nu
 }
 
 // ---- Tests ----
+
+/**
+ * Warm the pi-ai module before any test runs.
+ *
+ * `resolveSummaryModelConnection` reaches the model registry through a lazy
+ * `await import('@earendil-works/pi-ai')`. Cold, that import is ~2.7 s (it parses
+ * every provider's model JSON), which sat just under vitest's 10 s per-test cap
+ * on an idle machine and over it when the suite runs with full parallelism.
+ * Paying it once here keeps the cap meaning "this test hung", not "this test
+ * loaded a module".
+ */
+beforeAll(async () => {
+  await import('@earendil-works/pi-ai');
+});
 
 describe('Strategy 1: Batch-triggered summarization (maybeSummarize logic)', () => {
   /** Replicate the maybeSummarize threshold logic. */

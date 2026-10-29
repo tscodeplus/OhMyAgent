@@ -30,7 +30,7 @@ interface QueueResponse {
   limit: number;
   window: number;
   scanned: number;
-  counts: { volatile: number; duplicate: number };
+  counts: { volatile: number; duplicate: number; never_referenced: number };
 }
 
 describe('memory routes — review queue', () => {
@@ -137,5 +137,66 @@ describe('memory routes — review queue', () => {
     const body = await fetchQueue('?limit=9999&window=1');
     expect(body.limit).toBe(200);
     expect(body.window).toBe(50);
+  });
+
+  // ── outcome-based reason: offered repeatedly, never credited ──
+
+  function recordInjection(id: string, times: number, referenced = 0): void {
+    const insert = db.prepare(
+      `INSERT INTO memory_observation_events (event, details, created_at) VALUES (?, ?, ?)`,
+    );
+    const now = String(Date.now());
+    for (let i = 0; i < times; i++) {
+      insert.run(
+        'memory.injection',
+        JSON.stringify({ memoryIds: [id], knowledgeSlugs: [], messageIds: [] }),
+        now,
+      );
+    }
+    for (let i = 0; i < referenced; i++) {
+      insert.run(
+        'memory.injection.referenced',
+        JSON.stringify({ lane: 'memories', toolName: 'memory_recall', memoryIds: [id] }),
+        now,
+      );
+    }
+  }
+
+  it('queues a memory that was injected repeatedly and never credited', async () => {
+    const id = seed({ content: '用户喜欢用红色标注（从未被用过）' });
+    recordInjection(id, 3);
+
+    const body = await fetchQueue();
+    const item = body.items.find((i) => i.id === id);
+    expect(item?.reasons).toEqual(['never-referenced']);
+    expect(body.counts.never_referenced).toBe(1);
+  });
+
+  it('leaves a memory alone once it has been credited', async () => {
+    const id = seed({ content: '用户喜欢用蓝色标注（被用过一次）' });
+    recordInjection(id, 5, 1);
+
+    const body = await fetchQueue();
+    expect(body.items.some((i) => i.id === id)).toBe(false);
+  });
+
+  it('does not queue a memory offered fewer times than the threshold', async () => {
+    const id = seed({ content: '只被注入过两次的普通事实' });
+    recordInjection(id, 2);
+
+    const body = await fetchQueue();
+    expect(body.items.some((i) => i.id === id)).toBe(false);
+  });
+
+  it('ignores injection evidence older than the window', async () => {
+    const id = seed({ content: '很久以前注入过的旧事实' });
+    const stale = String(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const insert = db.prepare(
+      `INSERT INTO memory_observation_events (event, details, created_at) VALUES ('memory.injection', ?, ?)`,
+    );
+    for (let i = 0; i < 5; i++) insert.run(JSON.stringify({ memoryIds: [id] }), stale);
+
+    const body = await fetchQueue();
+    expect(body.items.some((i) => i.id === id)).toBe(false);
   });
 });

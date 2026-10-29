@@ -124,6 +124,70 @@ function recordPersonaManualOverride(
 const DEGRADATION_EVENT_FILTER = DEGRADATION_EVENT_SQL;
 
 /**
+ * How many times a memory must have been offered before "never used" means
+ * anything. One offer that the model ignored is not evidence; three is the point
+ * where an item that never gets credited stops looking like bad luck.
+ */
+const NEVER_REFERENCED_MIN_INJECTIONS = 3;
+
+/** How far back the review queue reads injection evidence. */
+const NEVER_REFERENCED_WINDOW_DAYS = 7;
+
+/**
+ * Per-memory injection counts over the recent window: offered vs. credited.
+ *
+ * Both events carry their memory ids in `details.memoryIds` — the table itself
+ * has no memory column, because one row describes a whole prompt (plan §8 S6
+ * note on why there is no `pending` column to fix this). `json_each` reads the
+ * array without materialising the JSON in JS, and JSON1 is compiled into the
+ * bundled SQLite (verified by `tests/app/memory-routes-review-queue.test.ts`).
+ *
+ * Bounded twice: only the last {@link NEVER_REFERENCED_WINDOW_DAYS} days, and
+ * only the registered event names. `MemoryHygiene` prunes `memory.injection`
+ * after its own retention, so the window can legitimately come back empty on a
+ * quiet install — that is "no evidence", and the reason then never fires.
+ */
+function readInjectionUsage(
+  db: Database.Database,
+): Map<string, { injected: number; referenced: number }> {
+  const usage = new Map<string, { injected: number; referenced: number }>();
+  const hasTable = db
+    .prepare(
+      "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'memory_observation_events'",
+    )
+    .get() as { present: number } | undefined;
+  if (!hasTable) return usage;
+
+  const cutoff = Date.now() - NEVER_REFERENCED_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  let rows: Array<{ event: string; memory_id: string; n: number }>;
+  try {
+    rows = db
+      .prepare(
+        `SELECT e.event AS event, j.value AS memory_id, COUNT(*) AS n
+           FROM memory_observation_events e, json_each(e.details, '$.memoryIds') j
+          WHERE e.event IN ('memory.injection', 'memory.injection.referenced')
+            AND json_valid(e.details)
+            AND CAST(e.created_at AS INTEGER) >= ?
+          GROUP BY e.event, j.value
+          LIMIT 5000`,
+      )
+      .all(cutoff) as Array<{ event: string; memory_id: string; n: number }>;
+  } catch {
+    // A build without JSON1 would throw here; the queue then simply has no
+    // outcome-based reason, which is exactly what it did before.
+    return usage;
+  }
+
+  for (const row of rows) {
+    const entry = usage.get(row.memory_id) ?? { injected: 0, referenced: 0 };
+    if (row.event === 'memory.injection') entry.injected += row.n;
+    else entry.referenced += row.n;
+    usage.set(row.memory_id, entry);
+  }
+  return usage;
+}
+
+/**
  * Degradation events within the last 24h, counted straight from
  * memory_observation_events (epoch-ms digit-string timestamps). The
  * `memory.injection` family is excluded — see `DEGRADATION_EVENT_FILTER`.
@@ -628,10 +692,16 @@ export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfi
       }
 
       const items: Array<Record<string, unknown>> = [];
+      const usage = readInjectionUsage(cfg.db);
       for (const row of rows) {
         const reasons: string[] = [];
         const content = textOf(row);
         if (assessDurability(content) === 'volatile') reasons.push('volatile');
+
+        // Injected repeatedly, never once credited: the memory layer spent prompt
+        // budget on it and the model never used it. This is the only reason in
+        // the queue that measures *outcome* instead of shape — it is what tells
+        // noise apart from a merely odd-looking fact.
 
         const bucket = groups.get(`${row.scope}|${row.scope_key ?? ''}|${content.trim()}`) ?? [];
         let duplicateOf: string | undefined;
@@ -648,6 +718,11 @@ export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfi
             reasons.push('duplicate');
             duplicateOf = String(newest.id);
           }
+        }
+
+        const seen = usage.get(String(row.id));
+        if (seen && seen.injected >= NEVER_REFERENCED_MIN_INJECTIONS && seen.referenced === 0) {
+          reasons.push('never-referenced');
         }
 
         if (reasons.length === 0) continue;
@@ -676,6 +751,9 @@ export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfi
         counts: {
           volatile: items.filter((i) => (i.reasons as string[]).includes('volatile')).length,
           duplicate: items.filter((i) => (i.reasons as string[]).includes('duplicate')).length,
+          never_referenced: items.filter((i) =>
+            (i.reasons as string[]).includes('never-referenced'),
+          ).length,
         },
         generatedAt: Date.now(),
       });
