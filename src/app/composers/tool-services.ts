@@ -32,6 +32,7 @@ import { createSessionSearchToolDefinition } from '../../tools/builtins/session/
 import { createKnowledgeSearchToolDefinition } from '../../tools/builtins/knowledge/search-definition.js';
 import { createKnowledgeGetToolDefinition } from '../../tools/builtins/knowledge/get-definition.js';
 import { createKnowledgeWriteToolDefinition } from '../../tools/builtins/knowledge/write-definition.js';
+import { createEntityQueryToolDefinition } from '../../tools/builtins/graph/entity-query-definition.js';
 import { createComputerUseToolDefinition } from '../../tools/builtins/computer-use/definition.js';
 import { createSpawnAgentToolDefinition } from '../../tools/builtins/agents/spawn-definition.js';
 import { createPlanAndSpawnToolDefinition } from '../../tools/builtins/agents/plan-spawn-definition.js';
@@ -310,6 +311,12 @@ export function registerV4ToolDefinitions(input: {
       createKnowledgeWriteToolDefinition({ knowledgeService }),
     );
   }
+
+  // The graph read surface. No config key gates it: the tables are populated by
+  // the background sync, and while they are empty the tool answers "no such
+  // entity" — an honest answer, not a schema the model cannot use. Reads the
+  // shared db handle rather than opening a connection.
+  toolPlatformRegistry.registerDefinition(createEntityQueryToolDefinition({ db: memory.database }));
 
   if (computerUseHost) {
     toolPlatformRegistry.registerDefinition(

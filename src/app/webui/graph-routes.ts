@@ -11,9 +11,11 @@
  * READ-ONLY: nothing here writes to the graph. Edge retraction/history belongs
  * to EntityRepository, not to a read surface.
  *
- * Traversal is NOT reimplemented: `EntityRepository.neighbors` owns the
- * recursive-CTE walk, the temporal predicate (`valid_from <= asOf < valid_to`)
- * and the depth clamp. This module only turns its result into the node/edge
+ * Traversal is NOT reimplemented: the walk itself — `EntityRepository`'s
+ * recursive-CTE query, the temporal predicate (`valid_from <= asOf < valid_to`),
+ * the depth clamp and the mention-vs-edge split — lives in
+ * `src/graph/graph-query.ts`, which `entity_query` answers from as well. This
+ * module only parses the query string and turns the result into the node/edge
  * payload the WebUI draws.
  *
  * `/api/search` ranks through `unifiedSearch()` (`src/memory/unified-search.ts`)
@@ -23,11 +25,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
-import {
-  EntityRepository,
-  type Entity,
-  type EntityEdge,
-} from '../../memory/repositories/entity-repository.js';
+import { EntityRepository } from '../../memory/repositories/entity-repository.js';
 import type { MemoryRetriever } from '../../memory/memory-retriever.js';
 import type { KnowledgeService } from '../../memory/knowledge/service-contract.js';
 import { unifiedSearch } from '../../memory/unified-search.js';
@@ -40,15 +38,24 @@ import type {
 } from '../../memory/unified-search.js';
 import { inferChannel } from '../../memory/session-channel.js';
 import { readHintsForMemories, type GraphHint } from '../../graph/neighborhood.js';
+import {
+  DEFAULT_GRAPH_QUERY_LIMIT,
+  MAX_QUERY_DEPTH,
+  loadEdgesBetween,
+  loadGraphNodes,
+  parseGraphAsOf,
+  parseGraphRelationTypes,
+  queryEntityGraph,
+  type GraphEdgeFilter,
+  type GraphQueryEdge,
+  type GraphQueryNode,
+} from '../../graph/graph-query.js';
 import { loadMessageContext, titleFromMetadata } from './session-message-view.js';
 import type { FooterConfig } from '../types.js';
 
-const DEFAULT_GRAPH_LIMIT = 50;
 const MAX_GRAPH_LIMIT = 200;
 const DEFAULT_SEARCH_LIMIT = 20;
 const MAX_SEARCH_LIMIT = 50;
-/** Mirrors the WebUI's depth selector; deeper walks read the whole graph. */
-const MAX_GRAPH_DEPTH = 3;
 /** The three legs `/api/search` unions; `kinds` selects a subset of them. */
 const SEARCH_KINDS: SearchResultKind[] = ['entity', 'memory', 'message'];
 /** Lanes `unifiedSearch()` fuses; `limit` is a per-lane allowance on each. */
@@ -57,30 +64,9 @@ const SEARCH_LANES = 3;
 const TITLE_MAX_CHARS = 80;
 const SNIPPET_MAX_CHARS = 200;
 
-export interface GraphNode {
-  id: string;
-  name: string;
-  canonical_name: string;
-  entity_type: string;
-  description?: string;
-  /**
-   * Incident edges in the whole graph, retracted ones included: a node whose
-   * facts were all retracted must not look isolated — that is the point of
-   * keeping history.
-   */
-  degree: number;
-}
-
-export interface GraphEdge {
-  id: string;
-  /** Source/target are entity ids, matching `GraphNode.id`. */
-  source: string;
-  target: string;
-  relation_type: string;
-  confidence: number;
-  valid_from?: number;
-  valid_to?: number;
-}
+/** A payload node/edge, as the WebUI draws it; the query shapes live in graph-query.ts. */
+export type GraphNode = GraphQueryNode;
+export type GraphEdge = GraphQueryEdge;
 
 export interface GraphPayload {
   nodes: GraphNode[];
@@ -213,21 +199,6 @@ function clampInt(raw: string | undefined, fallback: number, min: number, max: n
   return Math.min(Math.max(min, parsed), max);
 }
 
-/** Epoch-ms point in time; unparsable means "no temporal filter". */
-function parseAsOf(raw: string | undefined): number | undefined {
-  if (raw === undefined || raw === '') return undefined;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function parseRelationTypes(raw: string | undefined): string[] {
-  if (!raw) return [];
-  return raw
-    .split(',')
-    .map((type) => type.trim())
-    .filter((type) => type.length > 0);
-}
-
 /**
  * SQLite databases created before v10 have no graph tables at all. Checked once
  * per request rather than cached: the tables appear the first time the graph
@@ -252,116 +223,6 @@ function plainText(value: string, maxChars: number): string {
   return flattened.length > maxChars ? `${flattened.slice(0, maxChars)}…` : flattened;
 }
 
-/** `@p0, @p1, …` — one bound parameter per id, never interpolated. */
-function idPlaceholders(ids: string[], prefix: string, params: Record<string, unknown>): string {
-  return ids
-    .map((id, index) => {
-      params[`${prefix}${index}`] = id;
-      return `@${prefix}${index}`;
-    })
-    .join(', ');
-}
-
-interface EdgeFilter {
-  asOf?: number;
-  relationTypes?: string[];
-  limit: number;
-}
-
-/**
- * Edges whose BOTH endpoints are inside `ids`. Direction is preserved
- * (`source`/`target`), because the UI groups relations by direction and draws
- * arrowheads — a bidirectional view would lose that.
- *
- * Reads one row past the cap so the caller can report truncation truthfully
- * instead of guessing from `edges.length === limit`.
- */
-function loadEdgesBetween(
-  db: Database.Database,
-  ids: string[],
-  filter: EdgeFilter,
-): { edges: GraphEdge[]; truncated: boolean } {
-  if (ids.length === 0) return { edges: [], truncated: false };
-  const params: Record<string, unknown> = { limit: filter.limit + 1 };
-  const sourceIn = idPlaceholders(ids, 'src', params);
-  const targetIn = idPlaceholders(ids, 'tgt', params);
-
-  // Same temporal predicate as EntityRepository.neighbors: an edge that started
-  // after asOf was not true yet, a retracted one only up to valid_to.
-  let sql = `
-    SELECT id, source_entity_id, target_entity_id, relation_type, confidence, valid_from, valid_to
-    FROM entity_edges
-    WHERE source_entity_id IN (${sourceIn})
-      AND target_entity_id IN (${targetIn})
-      AND (@asOf IS NULL OR ((valid_from IS NULL OR valid_from <= @asOf)
-           AND (valid_to IS NULL OR valid_to > @asOf)))`;
-
-  if (filter.asOf !== undefined) params.asOf = filter.asOf;
-  else params.asOf = null;
-
-  const relationTypes = filter.relationTypes ?? [];
-  if (relationTypes.length > 0) {
-    sql += ` AND relation_type IN (${idPlaceholders(relationTypes, 'rel', params)})`;
-  }
-
-  sql += ' ORDER BY confidence DESC, created_at DESC LIMIT @limit';
-
-  const rows = db.prepare(sql).all(params) as Array<
-    Pick<
-      EntityEdge,
-      | 'id'
-      | 'source_entity_id'
-      | 'target_entity_id'
-      | 'relation_type'
-      | 'confidence'
-      | 'valid_from'
-      | 'valid_to'
-    >
-  >;
-
-  return {
-    edges: rows.slice(0, filter.limit).map((row) => ({
-      id: row.id,
-      source: row.source_entity_id,
-      target: row.target_entity_id,
-      relation_type: row.relation_type,
-      confidence: row.confidence,
-      ...(row.valid_from !== null ? { valid_from: row.valid_from } : {}),
-      ...(row.valid_to !== null ? { valid_to: row.valid_to } : {}),
-    })),
-    truncated: rows.length > filter.limit,
-  };
-}
-
-/** Node rows (with degree) for `ids`, ordered by the caller's id order. */
-function loadNodes(db: Database.Database, ids: string[]): GraphNode[] {
-  if (ids.length === 0) return [];
-  const params: Record<string, unknown> = {};
-  const placeholders = idPlaceholders(ids, 'id', params);
-  const rows = db
-    .prepare(
-      `SELECT e.id, e.name, e.canonical_name, e.entity_type, e.description,
-              (SELECT COUNT(*) FROM entity_edges x
-                WHERE x.source_entity_id = e.id OR x.target_entity_id = e.id) AS degree
-       FROM entities e
-       WHERE e.id IN (${placeholders})`,
-    )
-    .all(params) as Array<Entity & { degree: number }>;
-
-  const byId = new Map(rows.map((row) => [row.id, row]));
-  return ids
-    .map((id) => byId.get(id))
-    .filter((row): row is Entity & { degree: number } => row !== undefined)
-    .map((row) => ({
-      id: row.id,
-      name: row.name,
-      canonical_name: row.canonical_name,
-      entity_type: row.entity_type,
-      ...(row.description ? { description: row.description } : {}),
-      degree: Number(row.degree),
-    }));
-}
-
 /**
  * Overview payload: the busiest entities first, then the edges among them.
  *
@@ -373,7 +234,7 @@ function loadNodes(db: Database.Database, ids: string[]): GraphNode[] {
  * alphabet and hide exactly the names the corpus talks about most. Mentions are
  * the natural second key: it is the same evidence that admitted the node.
  */
-function loadOverview(db: Database.Database, limit: number, filter: EdgeFilter): GraphPayload {
+function loadOverview(db: Database.Database, limit: number, filter: GraphEdgeFilter): GraphPayload {
   const rows = db
     .prepare(
       `SELECT e.id
@@ -388,7 +249,7 @@ function loadOverview(db: Database.Database, limit: number, filter: EdgeFilter):
     .all({ limit: limit + 1 }) as Array<{ id: string }>;
 
   const truncated = rows.length > limit;
-  const nodes = loadNodes(
+  const nodes = loadGraphNodes(
     db,
     rows.slice(0, limit).map((row) => row.id),
   );
@@ -398,37 +259,6 @@ function loadOverview(db: Database.Database, limit: number, filter: EdgeFilter):
     filter,
   );
   return { nodes, edges, truncated: truncated || edgesTruncated };
-}
-
-/** Neighbourhood payload for one entity, honouring depth / asOf / relation types. */
-function loadNeighbourhood(
-  db: Database.Database,
-  repo: EntityRepository,
-  origin: Entity,
-  filter: EdgeFilter,
-  depth: number,
-): GraphPayload {
-  const neighbors = repo.neighbors(origin.id, {
-    depth,
-    asOf: filter.asOf,
-    relationTypes: filter.relationTypes,
-    limit: filter.limit,
-  });
-  // Origin first: the UI centres the layout on nodes[0].
-  const ids = [origin.id, ...neighbors.map((neighbor) => neighbor.entity.id)];
-  const nodes = loadNodes(db, ids);
-  const { edges, truncated: edgesTruncated } = loadEdgesBetween(
-    db,
-    nodes.map((node) => node.id),
-    filter,
-  );
-  return {
-    nodes,
-    edges,
-    // `neighbors` caps its own SQL at `limit`; hitting the cap means the walk
-    // may have more, so say so rather than silently dropping nodes.
-    truncated: neighbors.length >= filter.limit || edgesTruncated,
-  };
 }
 
 /**
@@ -526,11 +356,11 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
       types?: string;
     };
 
-    const limit = clampInt(query.limit, DEFAULT_GRAPH_LIMIT, 1, MAX_GRAPH_LIMIT);
-    const depth = clampInt(query.depth, 1, 1, MAX_GRAPH_DEPTH);
-    const filter: EdgeFilter = {
-      asOf: parseAsOf(query.asOf),
-      relationTypes: parseRelationTypes(query.types),
+    const limit = clampInt(query.limit, DEFAULT_GRAPH_QUERY_LIMIT, 1, MAX_GRAPH_LIMIT);
+    const depth = clampInt(query.depth, 1, 1, MAX_QUERY_DEPTH);
+    const filter: GraphEdgeFilter = {
+      asOf: parseGraphAsOf(query.asOf),
+      relationTypes: parseGraphRelationTypes(query.types),
       limit,
     };
 
@@ -548,12 +378,22 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
       }
 
       // `entity` is whatever the user clicked or typed: an id, a canonical name
-      // or an alias. Same resolution order EntityRepository.upsertEntity uses.
-      const origin =
-        repo.findById(entityRef) ?? repo.findByName(entityRef) ?? repo.findByAlias(entityRef);
-      if (!origin) return reply.status(404).send({ error: 'Entity not found' });
+      // or an alias. The walk itself is `queryEntityGraph` — the same function
+      // `entity_query` answers from, so the tool and the drawing cannot drift.
+      const neighbourhood = queryEntityGraph(cfg.db, entityRef, {
+        depth,
+        asOf: filter.asOf,
+        relationTypes: filter.relationTypes,
+        limit,
+      });
+      if (!neighbourhood) return reply.status(404).send({ error: 'Entity not found' });
 
-      return reply.send(loadNeighbourhood(cfg.db, repo, origin, filter, depth));
+      return reply.send({
+        // Origin first: the UI centres the layout on nodes[0].
+        nodes: [neighbourhood.origin, ...neighbourhood.nodes],
+        edges: neighbourhood.edges,
+        truncated: neighbourhood.truncated,
+      } satisfies GraphPayload);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: message });

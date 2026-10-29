@@ -28,6 +28,7 @@ import { createKnowledgeGetToolDefinition } from '../../src/tools/builtins/knowl
 import { createKnowledgeSearchToolDefinition } from '../../src/tools/builtins/knowledge/search-definition.js';
 import { createKnowledgeWriteToolDefinition } from '../../src/tools/builtins/knowledge/write-definition.js';
 import { createSessionSearchToolDefinition } from '../../src/tools/builtins/session/session-search-definition.js';
+import { createEntityQueryToolDefinition } from '../../src/tools/builtins/graph/entity-query-definition.js';
 import type { KnowledgeService } from '../../src/memory/knowledge/service-contract.js';
 import type Database from 'better-sqlite3';
 
@@ -44,6 +45,7 @@ function buildRegisteredDefinitions(): ToolDefinition<any>[] {
     createKnowledgeGetToolDefinition({ knowledgeService }),
     createKnowledgeWriteToolDefinition({ knowledgeService }),
     createSessionSearchToolDefinition({ db }),
+    createEntityQueryToolDefinition({ db }),
   ];
 }
 
@@ -160,9 +162,32 @@ describe('tool registration gates (plan §8.1)', () => {
     });
   });
 
+  it('entity_query is a read-only memory tool: no approval, not deferral-exempt', () => {
+    // The graph is a derived view of the same SQLite file the memory tools read,
+    // so it sits in the same capability row — a fail-closed default here would
+    // demand approval for every traversal.
+    expect(getCapabilityForTool('entity_query')).toEqual({
+      category: 'memory',
+      readOnly: true,
+      readsFiles: false,
+      writesFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'none',
+    });
+  });
+
   it('new tools use a single spelling — no invented kebab aliases', () => {
     const all = [...PROFILE_TOOLS.restricted, ...PROFILE_TOOLS.standard];
-    for (const name of ['session_search', 'knowledge_search', 'knowledge_get', 'knowledge_write']) {
+    for (const name of [
+      'session_search',
+      'knowledge_search',
+      'knowledge_get',
+      'knowledge_write',
+      'entity_query',
+    ]) {
       expect(all.filter((entry) => entry.replace(/_/g, '-') === name.replace(/_/g, '-'))).toEqual([
         name,
         name,
