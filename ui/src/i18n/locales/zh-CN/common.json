@@ -1594,6 +1594,7 @@
     "contextOlderHidden": "更早的消息已省略",
     "contextNewerHidden": "更新的消息已省略",
     "showingFirst": "显示前 {{count}} 个",
+    "unlinkedCount": "{{count}} 个实体没有关系：",
     "truncated": "节点过多，已按上限截断",
     "clickHint": "点击节点可切换到该实体",
     "canvasLabel": "实体关系图",

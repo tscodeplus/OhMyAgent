@@ -15,6 +15,12 @@
     "sourceMap": false,
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    // A test that imports a `ui/src` module reaches the whole type graph it
+    // belongs to, and `ui/src/types/session.ts` imports a `.tsx` component by
+    // type. Without `jsx` TypeScript refuses to resolve that file at all
+    // (TS6142), so the config has to be able to parse JSX even though nothing
+    // here renders it.
+    "jsx": "react-jsx",
     "types": ["node", "vitest/globals"]
   },
   "include": ["src/**/*.ts", "extensions/**/*.ts", "tests/**/*.ts"],

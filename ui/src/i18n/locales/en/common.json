@@ -1594,6 +1594,7 @@
     "contextOlderHidden": "Earlier messages omitted",
     "contextNewerHidden": "Newer messages omitted",
     "showingFirst": "Showing the first {{count}}",
+    "unlinkedCount": "{{count}} entities have no relations:",
     "truncated": "Too many nodes — the view is capped",
     "clickHint": "Click a node to centre it",
     "canvasLabel": "Entity relation graph",
