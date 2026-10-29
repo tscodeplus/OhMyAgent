@@ -1657,6 +1657,9 @@
       "pending": "Pending",
       "archived": "Archived"
     },
+    "scopes": {
+      "global": "Global"
+    },
     "updatedAt": "Updated {{time}}",
     "range": "{{from}}–{{to}}",
     "prevPage": "Previous page",

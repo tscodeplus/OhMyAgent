@@ -37,6 +37,13 @@ export interface KnowledgePagePayload {
   /** Optimistic-concurrency token: every PUT must echo the version it read. */
   version: number;
   status: KnowledgePageStatus;
+  /**
+   * The conversation this page belongs to (`memory/knowledge/scope.ts`):
+   * `'global'` for a page the console wrote or a human approved, otherwise the
+   * `channel:<chatId>` / `session:<id>` that produced it. Render it with
+   * `compactScopeLabel` — the raw value is an address, not a label.
+   */
+  scope: string;
   /** Epoch milliseconds, not an ISO string — format with `formatRelativeTime`. */
   createdAt: number | null;
   updatedAt: number | null;

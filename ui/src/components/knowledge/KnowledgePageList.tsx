@@ -6,6 +6,7 @@ import Button from '../ui/Button';
 import Select from '../ui/Select';
 import Spinner from '../ui/Spinner';
 import { KnowledgeApiError, listKnowledgePages, searchKnowledgePages } from './knowledge-api';
+import KnowledgeScopeBadge from './KnowledgeScopeBadge';
 import {
   PAGE_TYPES,
   type KnowledgePageStatus,
@@ -290,6 +291,9 @@ export default function KnowledgePageList({
                     </span>
                   </span>
                   <span className="flex w-full items-baseline gap-2 text-[11px] text-neutral-500 dark:text-neutral-400">
+                    {/* Which conversation this page came from: a list that spans
+                        every scope is otherwise a pile of pages nobody can place. */}
+                    <KnowledgeScopeBadge scope={page.scope} />
                     <span className="min-w-0 flex-1 truncate">{page.slug}</span>
                     <span className="shrink-0">
                       {page.updatedAt

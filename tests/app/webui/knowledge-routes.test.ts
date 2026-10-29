@@ -11,6 +11,8 @@
  * What is pinned here:
  *   - `GET  /api/knowledge/pages`   — default active filter, pageType/limit/offset
  *   - `GET  /api/knowledge/pending` — the shadow review queue
+ *   - page scope                    — `?scope=` on both lists, scope in every
+ *                                     payload; the console write stays global
  *   - `GET  /api/knowledge/search`  — `q` required, per-type/tag filters, snippets
  *   - `GET  /api/knowledge/page/:id`, `/page/:pageType/:slug` — detail + 404
  *   - `PUT  /api/knowledge/page/:id` — 409 on a stale `expectedVersion`, 400 on a
@@ -66,6 +68,8 @@ describe('knowledge routes', () => {
     tags?: string[];
     status?: KnowledgePageStatus;
     sources?: KnowledgeSourceInput[];
+    /** Omitted means `global`, the write default (migration-v22). */
+    scope?: string;
   }): string {
     const result = service.create(
       {
@@ -78,7 +82,7 @@ describe('knowledge routes', () => {
         sources: input.sources ?? [{ kind: 'memory', id: MEMORY_A }],
         updatedBy: 'agent',
       },
-      { actor: 'agent', enforceAdmission: false },
+      { actor: 'agent', enforceAdmission: false, scope: input.scope },
     );
     if (!result.ok) throw new Error(`seed page failed: ${result.code}`);
     return result.id;
@@ -220,6 +224,191 @@ describe('knowledge routes', () => {
       expect(body.pages[0]).toMatchObject({ status: 'pending' });
       expect(body.pages[0].content).toContain('电池');
       expect(body.count).toBe(1);
+    });
+  });
+
+  /**
+   * Page scope (migration-v22): a page belongs to the conversation that wrote
+   * it. The console is the one reader meant to see all of them, so the default
+   * here is every scope and `?scope=` is the narrowing filter — and every
+   * payload names the scope, because an approver cannot judge a draft without
+   * knowing which chat proposed it.
+   */
+  describe('page scope', () => {
+    /** One scoped page per chat — the shape a channel-curation write produces. */
+    function seedScopedChats(): void {
+      seedPage({
+        pageType: 'topic',
+        slug: 'feishu-only',
+        title: 'Feishu Only',
+        content: 'Feishu 群里的正文',
+        scope: 'feishu:oc_1',
+      });
+      seedPage({
+        pageType: 'topic',
+        slug: 'telegram-only',
+        title: 'Telegram Only',
+        content: 'Telegram 会话里的正文',
+        scope: 'telegram:session:s1',
+      });
+    }
+
+    it('lists every scope by default, each page naming its own', async () => {
+      seedScopedChats();
+
+      const res = await app.inject({ method: 'GET', url: '/api/knowledge/pages' });
+      expect(res.statusCode).toBe(200);
+      const body = res.json() as {
+        pages: Array<{ slug: string; scope: string }>;
+        count: number;
+      };
+      // Unscoped is the console default: the two chat pages sit beside the
+      // global seed rather than replacing it.
+      expect(body.count).toBe(3);
+      expect(Object.fromEntries(body.pages.map((page) => [page.slug, page.scope]))).toEqual({
+        'power-query': 'global',
+        'feishu-only': 'feishu:oc_1',
+        'telegram-only': 'telegram:session:s1',
+      });
+    });
+
+    it('narrows ?scope= to that scope plus the global pages', async () => {
+      seedScopedChats();
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/knowledge/pages?scope=feishu:oc_1',
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json() as { pages: Array<{ slug: string }>; count: number };
+      // Read rule, not equality: `power-query` is global and stays visible in
+      // the chat, `telegram-only` belongs to another conversation.
+      expect(body.pages.map((page) => page.slug).sort()).toEqual(['feishu-only', 'power-query']);
+      expect(body.count).toBe(2);
+    });
+
+    it('returns an empty list for a scope nobody wrote under, not an error', async () => {
+      seedScopedChats();
+
+      // A scope nobody wrote under is a filter that matches no conversation, not
+      // a 400. Global pages still answer it — that is the read rule (`S` plus
+      // `global`, never equality) — so the genuinely empty case is a filter no
+      // global page passes either.
+      const empty = await app.inject({
+        method: 'GET',
+        url: '/api/knowledge/pages?scope=wechat:ghost&pageType=project',
+      });
+      expect(empty.statusCode).toBe(200);
+      const body = empty.json() as { pages: unknown[]; count: number; limit: number };
+      expect(body.pages).toEqual([]);
+      expect(body.count).toBe(0);
+      // Still an ordinary list response, paging included: the UI renders its
+      // empty state instead of an error.
+      expect(body.limit).toBe(20);
+
+      // Without the type filter the same unknown scope still returns the global
+      // pages, and none of another chat's.
+      const globalsOnly = await app.inject({
+        method: 'GET',
+        url: '/api/knowledge/pages?scope=wechat:ghost',
+      });
+      expect(
+        (globalsOnly.json() as { pages: Array<{ scope: string }> }).pages.map((p) => p.scope),
+      ).toEqual(['global']);
+
+      // An empty parameter is "no filter", not "global only" — the console only
+      // narrows when it is asked to.
+      const blank = await app.inject({ method: 'GET', url: '/api/knowledge/pages?scope=' });
+      expect((blank.json() as { count: number }).count).toBe(3);
+    });
+
+    it('carries the scope in the detail payload', async () => {
+      const scoped = seedPage({
+        pageType: 'topic',
+        slug: 'feishu-only',
+        title: 'Feishu Only',
+        content: 'Feishu 群里的正文',
+        scope: 'feishu:oc_1',
+      });
+
+      const byId = await app.inject({ method: 'GET', url: `/api/knowledge/page/${scoped}` });
+      expect(byId.statusCode).toBe(200);
+      expect((byId.json() as { page: { scope: string } }).page.scope).toBe('feishu:oc_1');
+
+      const byPair = await app.inject({
+        method: 'GET',
+        url: '/api/knowledge/page/topic/feishu-only',
+      });
+      expect(byPair.statusCode).toBe(200);
+      expect((byPair.json() as { page: { scope: string } }).page.scope).toBe('feishu:oc_1');
+
+      // A page written without a scope is global, and the detail says so.
+      const global = await app.inject({ method: 'GET', url: `/api/knowledge/page/${POWER_QUERY}` });
+      expect((global.json() as { page: { scope: string } }).page.scope).toBe('global');
+    });
+
+    it('filters the review queue by scope and keeps the global drafts', async () => {
+      const feishuDraft = seedPage({
+        pageType: 'entity',
+        slug: 'wework',
+        title: 'WeWork',
+        content: 'WeWork 的正文',
+        status: 'pending',
+        scope: 'feishu:oc_1',
+      });
+      const otherDraft = seedPage({
+        pageType: 'entity',
+        slug: 'other-chat',
+        title: 'Other Chat',
+        content: '别的群的正文',
+        status: 'pending',
+        scope: 'telegram:session:s1',
+      });
+
+      const all = await app.inject({ method: 'GET', url: '/api/knowledge/pending' });
+      const allBody = all.json() as { pages: Array<{ id: string; scope: string }>; count: number };
+      expect(allBody.count).toBe(3);
+      expect(allBody.pages.find((page) => page.id === SHADOW)?.scope).toBe('global');
+      expect(allBody.pages.find((page) => page.id === feishuDraft)?.scope).toBe('feishu:oc_1');
+
+      const scoped = await app.inject({
+        method: 'GET',
+        url: '/api/knowledge/pending?scope=feishu:oc_1',
+      });
+      expect(scoped.statusCode).toBe(200);
+      const body = scoped.json() as { pages: Array<{ id: string }>; count: number };
+      // The global draft is still this chat's to review; the telegram one is not.
+      expect(body.pages.map((page) => page.id).sort()).toEqual([SHADOW, feishuDraft].sort());
+      expect(body.count).toBe(2);
+      expect(body.pages.map((page) => page.id)).not.toContain(otherDraft);
+    });
+
+    it('writes a console page as global, so every chat can read it', async () => {
+      const created = await app.inject({
+        method: 'POST',
+        url: '/api/knowledge/page',
+        payload: {
+          pageType: 'topic',
+          title: 'Console Page',
+          content: '控制台写入的正文',
+          sources: [{ kind: 'memory', id: MEMORY_A }],
+        },
+      });
+      expect(created.statusCode).toBe(201);
+      const id = (created.json() as { id: string }).id;
+
+      const detail = await app.inject({ method: 'GET', url: `/api/knowledge/page/${id}` });
+      expect((detail.json() as { page: { scope: string } }).page.scope).toBe('global');
+
+      // And the page a reviewer approves is readable from a chat — the whole
+      // reason the queue writes global.
+      const inChat = await app.inject({
+        method: 'GET',
+        url: '/api/knowledge/pages?scope=feishu:oc_1',
+      });
+      expect(
+        (inChat.json() as { pages: Array<{ id: string }> }).pages.map((page) => page.id),
+      ).toContain(id);
     });
   });
 

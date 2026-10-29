@@ -12,6 +12,7 @@ import {
   fetchPendingKnowledgePages,
 } from './knowledge-api';
 import type { KnowledgePagePayload } from './types';
+import KnowledgeScopeBadge from './KnowledgeScopeBadge';
 
 /** The route's own default; the queue is a review list, not a browsing surface. */
 const PENDING_LIMIT = 50;
@@ -166,6 +167,10 @@ export default function KnowledgeReviewQueue({ refreshKey, onChanged }: Knowledg
                         <span className="rounded bg-neutral-100 px-1.5 py-0.5 dark:bg-neutral-800">
                           {t(`knowledge.pageTypes.${page.pageType}`)}
                         </span>
+                        {/* The queue is where the scope decides the answer: the
+                            same subject curated in two chats is two drafts, and
+                            only one of them belongs here. */}
+                        <KnowledgeScopeBadge scope={page.scope} />
                         <span className="truncate">{page.slug}</span>
                         {page.updatedAt && (
                           <span>

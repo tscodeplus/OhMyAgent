@@ -1657,6 +1657,9 @@
       "pending": "待审",
       "archived": "已归档"
     },
+    "scopes": {
+      "global": "全局"
+    },
     "updatedAt": "更新于 {{time}}",
     "range": "{{from}}–{{to}}",
     "prevPage": "上一页",

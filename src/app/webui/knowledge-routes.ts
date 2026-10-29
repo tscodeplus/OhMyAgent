@@ -13,6 +13,14 @@
  * translates the service's rejection codes into distinguishable status codes,
  * and renders rows as camelCase JSON.
  *
+ * `scope` (migration-v22) is a filter, never a permission. Reads are unscoped by
+ * default — the console browses every conversation — and `?scope=` narrows one
+ * to a single scope **plus** the `global` pages, the same read rule every other
+ * lane follows. Writes here carry no scope at all, so a page created, edited or
+ * approved at the console stays `global` and is readable everywhere: the review
+ * queue exists to promote drafts into shared knowledge, and a queue that
+ * produced pages nobody outside one chat could read would be a dead end.
+ *
  * Two rules from the plan are enforced HERE as well as in the service, because a
  * leak would make a shadow page indistinguishable from a confirmed fact:
  *
@@ -96,6 +104,13 @@ interface KnowledgePagePayload {
   confidence: number | null;
   version: number;
   status: KnowledgePageStatus;
+  /**
+   * The conversation this page belongs to — `'global'` or the `channel:<chatId>`
+   * it was written in (`memory/knowledge/scope.ts`). Always present: a reviewer
+   * approving a page has to see which chat it came from, and an editor has to
+   * see that a page is shared rather than chat-local.
+   */
+  scope: string;
   createdAt: number | null;
   updatedAt: number | null;
   updatedBy: string | null;
@@ -149,6 +164,7 @@ function toPagePayload(page: KnowledgePage): KnowledgePagePayload {
     confidence: page.confidence,
     version: page.version,
     status: page.status,
+    scope: page.scope,
     createdAt: page.created_at,
     updatedAt: page.updated_at,
     updatedBy: page.updated_by,
@@ -201,6 +217,21 @@ function acceptedWrite(result: Extract<KnowledgeWriteResult, { ok: true }>): {
     status: result.status,
     danglingLinks: result.danglingLinks,
   };
+}
+
+/**
+ * Query-string `scope`.
+ *
+ * Unlike `pageType` it is not a closed set — the value is whatever the channel
+ * layer composed (`channel:<chatId>`, `session:<id>`, `global`), so there is
+ * nothing here to reject. Omitting it (or sending it empty) means **no filter**,
+ * which is the console default: browse every scope. A scope nobody has written
+ * under is an empty result, not an error.
+ */
+function readScopeParam(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  return trimmed ? trimmed : undefined;
 }
 
 /** Query-string `pageType` — an unknown name is a 400, never "no filter". */
@@ -515,6 +546,8 @@ export function registerKnowledgeRoutes(app: FastifyInstance, cfg: KnowledgeRout
    * Browse pages, newest-updated first.
    *   `?status=active|archived`  — default active; `pending` is a 400
    *   `?pageType=<closed set>`   — one page kind
+   *   `?scope=<scope>`           — one conversation plus the global pages; omit
+   *                                for every scope (the console default)
    *   `?limit=1..100` `?offset=0..`
    */
   app.get('/api/knowledge/pages', async (request, reply) => {
@@ -522,6 +555,7 @@ export function registerKnowledgeRoutes(app: FastifyInstance, cfg: KnowledgeRout
       const query = request.query as {
         status?: string;
         pageType?: string;
+        scope?: string;
         limit?: string;
         offset?: string;
       };
@@ -537,6 +571,7 @@ export function registerKnowledgeRoutes(app: FastifyInstance, cfg: KnowledgeRout
       const pages = service.list({
         status: status.status,
         pageType: pageType.pageType,
+        scope: readScopeParam(query.scope),
         limit,
         offset,
       });
@@ -553,12 +588,24 @@ export function registerKnowledgeRoutes(app: FastifyInstance, cfg: KnowledgeRout
     }
   });
 
-  /** The `curate.shadow` review queue — the only endpoint that returns pending pages. */
+  /**
+   * The `curate.shadow` review queue — the only endpoint that returns pending pages.
+   *
+   * `?scope=` narrows it to one conversation plus the `global` drafts, which is
+   * how a reviewer answers "what did this chat propose?". Unscoped, the queue is
+   * every scope, unchanged. `service.listPending` takes no scope, and
+   * `list({ status: 'pending' })` is exactly what it delegates to, so the filter
+   * goes through that one call rather than a second code path.
+   */
   app.get('/api/knowledge/pending', async (request, reply) => {
     try {
-      const { limit: limitParam } = request.query as { limit?: string };
-      const limit = clampInt(limitParam, DEFAULT_PENDING_LIMIT, 1, MAX_PENDING_LIMIT);
-      const pages = service.listPending(limit);
+      const query = request.query as { limit?: string; scope?: string };
+      const limit = clampInt(query.limit, DEFAULT_PENDING_LIMIT, 1, MAX_PENDING_LIMIT);
+      const pages = service.list({
+        status: 'pending',
+        scope: readScopeParam(query.scope),
+        limit,
+      });
       return reply.send({ pages: pages.map(toPagePayload), count: pages.length });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

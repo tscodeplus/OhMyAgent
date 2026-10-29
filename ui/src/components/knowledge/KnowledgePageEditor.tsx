@@ -8,6 +8,7 @@ import Spinner from '../ui/Spinner';
 import Textarea from '../ui/Textarea';
 import { useToast } from '../ui/Toast';
 import { KnowledgeApiError, fetchKnowledgePage, updateKnowledgePage } from './knowledge-api';
+import KnowledgeScopeBadge from './KnowledgeScopeBadge';
 import type { KnowledgeSelection } from './KnowledgePageList';
 import type { KnowledgePageDetailPayload, KnowledgePagePatch, KnowledgePagePayload } from './types';
 
@@ -297,6 +298,9 @@ export default function KnowledgePageEditor({
               <span>{t('knowledge.version', { version: page.version })}</span>
               <span>·</span>
               <span>{t(`knowledge.statuses.${page.status}`)}</span>
+              {/* Beside the status: `global` here means the page is shared with
+                  every chat, which is what a console edit leaves behind. */}
+              <KnowledgeScopeBadge scope={page.scope} />
             </div>
             <p className="mt-1 text-[11px] text-neutral-500 dark:text-neutral-400">
               {page.updatedAt
