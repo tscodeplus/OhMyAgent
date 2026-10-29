@@ -60,10 +60,15 @@ const LABEL_GAP = 6;
  * not have to stop at the next: the columns share the canvas, not the edge.
  */
 const COMPONENT_GAP = 46;
-/** Half a truncated label, so the outermost node's text is not clipped. */
-const PAD_X = 26;
-const PAD_TOP = 9;
-const PAD_BOTTOM = 16;
+/**
+ * A component reserves its own label half-widths (`Box.padX`), so a packed column
+ * keeps room for what it prints instead of a fixed 26px guess: with a 10px font a
+ * name like `memory-recall` is 76px wide, and the previous fixed padding cut it on
+ * the column nearest the panel edge while the column itself had space.
+ */
+const MIN_PAD_X = 12;
+const PAD_TOP = 12;
+const PAD_BOTTOM = 18;
 /**
  * Small graphs are drawn larger rather than centred in dead space: positions
  * spread, glyph sizes stay put, so a 4-node neighbourhood fills the panel
@@ -117,6 +122,13 @@ interface Box {
   positions: Map<string, LayoutPoint>;
   width: number;
   height: number;
+  /** Half the widest label on this cluster, reserved on each side. */
+  padX: number;
+  /** Distance from the topmost/bottom mode centre to the box edge. */
+  padTop: number;
+  padBottom: number;
+  originX: number;
+  originY: number;
 }
 
 /**
@@ -334,11 +346,22 @@ function radialComponent(
 
   const xs = [...positions.values()].map((point) => point.x);
   const ys = [...positions.values()].map((point) => point.y);
+  const originX = Math.min(...xs);
+  const originY = Math.min(...ys);
+  const padX = Math.max(
+    MIN_PAD_X,
+    ...ids.map((id) => estimateLabelWidth(names.get(id) ?? id) / 2 + 2),
+  );
   return {
     ids,
     positions,
-    width: Math.max(...xs) - Math.min(...xs) + PAD_X * 2,
-    height: Math.max(...ys) - Math.min(...ys) + PAD_TOP + PAD_BOTTOM,
+    padX,
+    padTop: PAD_TOP,
+    padBottom: PAD_BOTTOM,
+    originX,
+    originY,
+    width: Math.max(...xs) - originX + padX * 2,
+    height: Math.max(...ys) - originY + PAD_TOP + PAD_BOTTOM,
   };
 }
 
@@ -367,10 +390,8 @@ function packComponents(
       cursorY += rowHeight + COMPONENT_GAP;
       rowHeight = 0;
     }
-    const xs = [...box.positions.values()].map((point) => point.x);
-    const ys = [...box.positions.values()].map((point) => point.y);
-    const shiftX = cursorX + (PAD_X - Math.min(...xs));
-    const shiftY = cursorY + (PAD_TOP - Math.min(...ys));
+    const shiftX = cursorX + box.padX - box.originX;
+    const shiftY = cursorY + box.padTop - box.originY;
     for (const [id, point] of box.positions) {
       points.set(id, { x: point.x + shiftX, y: point.y + shiftY });
     }
@@ -439,7 +460,8 @@ export function layoutGraph(input: LayoutInput): LayoutResult {
       for (const entry of slice) drawn.add(entry.id);
       boxes.push(radialComponent(slice, names));
     }
-    const packed = packComponents(boxes, Math.max(1, width - PAD_X * 2));
+    // Boxes carry their own label padding, so the full width is available.
+    const packed = packComponents(boxes, Math.max(1, width));
     return { ...packed, drawn, boxes };
   };
 
@@ -488,7 +510,9 @@ export function layoutGraph(input: LayoutInput): LayoutResult {
   for (let index = 0; index < rendered.length; index++) {
     const own = points.get(rendered[index].id);
     if (!own) continue;
-    const panelRoom = 2 * Math.min(own.x, width - own.x) - 8;
+    // A centred label of width W stays inside the panel while W/2 ≤ min(x, w−x).
+    // Two pixels cover the halo stroke; the estimate already carries slack.
+    const panelRoom = 2 * Math.min(own.x, width - own.x) - 2;
     let shared = Infinity;
     for (let other = 0; other < rendered.length; other++) {
       if (other === index) continue;
