@@ -437,7 +437,12 @@ describe('knowledge service', () => {
         { actor: 'agent' },
       );
       const queued = shadowed.create(
-        createInput({ slug: 'draft', title: 'Draft', content: '见 [[power-query]]。', status: 'pending' }),
+        createInput({
+          slug: 'draft',
+          title: 'Draft',
+          content: '见 [[power-query]]。',
+          status: 'pending',
+        }),
         { actor: 'agent' },
       );
       if (!target.ok || !queued.ok) throw new Error('insert failed');

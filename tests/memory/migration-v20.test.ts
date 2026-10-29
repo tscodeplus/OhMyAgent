@@ -34,8 +34,7 @@ function v14Database(): Database.Database {
 
 function sqlOf(db: Database.Database, name: string): string {
   const row = db.prepare('SELECT sql FROM sqlite_master WHERE name = ?').get(name) as
-    | { sql: string | null }
-    | undefined;
+    { sql: string | null } | undefined;
   return row?.sql ?? '';
 }
 
@@ -108,9 +107,7 @@ describe('migration v20', () => {
       consistent: true,
     });
     // Still a read filter, not a storage one: search never returns the pending row.
-    expect(
-      searchKnowledgeIndex(db, 'Queued', { status: 'active', limit: 10 }),
-    ).toEqual([]);
+    expect(searchKnowledgeIndex(db, 'Queued', { status: 'active', limit: 10 })).toEqual([]);
   });
 
   it('is a no-op the second time it runs — no duplicate index rows', () => {

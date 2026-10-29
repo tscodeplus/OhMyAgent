@@ -207,9 +207,7 @@ describe('knowledge index', () => {
     expect(searchKnowledgeIndex(db, 'Tables', { status: 'active', limit: 10 })).toEqual([]);
     expect(ftsRows(result.page.id)).toHaveLength(1);
     expect(
-      searchKnowledgeIndex(db, 'Kernel', { status: 'active', limit: 10 }).map(
-        (hit) => hit.pageId,
-      ),
+      searchKnowledgeIndex(db, 'Kernel', { status: 'active', limit: 10 }).map((hit) => hit.pageId),
     ).toEqual([result.page.id]);
   });
 

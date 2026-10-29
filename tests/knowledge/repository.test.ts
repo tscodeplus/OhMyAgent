@@ -431,7 +431,9 @@ describe('KnowledgeRepository', () => {
       );
 
       expect(
-        repository.findByTitleOrAlias('power', { status: 'active', limit: 5 }).map((page) => page.slug),
+        repository
+          .findByTitleOrAlias('power', { status: 'active', limit: 5 })
+          .map((page) => page.slug),
       ).toEqual(['power', 'power-bi']);
     });
 
@@ -442,7 +444,9 @@ describe('KnowledgeRepository', () => {
       );
 
       expect(
-        repository.findByTitleOrAlias('100%', { status: 'active', limit: 5 }).map((page) => page.slug),
+        repository
+          .findByTitleOrAlias('100%', { status: 'active', limit: 5 })
+          .map((page) => page.slug),
       ).toEqual(['pct-done']);
       // Escaped, so this is "titles starting with a literal %" — not "everything".
       expect(repository.findByTitleOrAlias('%', { status: 'active', limit: 5 })).toEqual([]);
@@ -452,18 +456,30 @@ describe('KnowledgeRepository', () => {
 
   describe('linksTo (backlinks)', () => {
     function link(from: string, to: string): void {
-      const result = repository.insertPage(createInput({ slug: from, content: `见 [[${to}]]` }), 'agent');
+      const result = repository.insertPage(
+        createInput({ slug: from, content: `见 [[${to}]]` }),
+        'agent',
+      );
       if (!result.ok) throw new Error(`insert failed: ${result.code}`);
     }
 
     it('returns the active pages that cite the given page', () => {
       const target = repository.insertPage(
-        createInput({ pageType: 'entity', slug: 'power-query', title: 'Power Query', content: '本体' }),
+        createInput({
+          pageType: 'entity',
+          slug: 'power-query',
+          title: 'Power Query',
+          content: '本体',
+        }),
         'agent',
       );
       if (!target.ok) throw new Error('insert failed');
       const linker = repository.insertPage(
-        createInput({ slug: 'excel-etl', title: 'Excel ETL', content: '见 [[entity/power-query|PQ]]' }),
+        createInput({
+          slug: 'excel-etl',
+          title: 'Excel ETL',
+          content: '见 [[entity/power-query|PQ]]',
+        }),
         'agent',
       );
       if (!linker.ok) throw new Error('insert failed');
@@ -477,7 +493,12 @@ describe('KnowledgeRepository', () => {
 
     it('drops a linker that is not active', () => {
       const target = repository.insertPage(
-        createInput({ pageType: 'entity', slug: 'power-query', title: 'Power Query', content: '本体' }),
+        createInput({
+          pageType: 'entity',
+          slug: 'power-query',
+          title: 'Power Query',
+          content: '本体',
+        }),
         'agent',
       );
       if (!target.ok) throw new Error('insert failed');

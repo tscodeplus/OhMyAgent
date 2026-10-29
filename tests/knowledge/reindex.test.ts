@@ -36,7 +36,15 @@ describe('knowledge reindex', () => {
 
   function insert(slug: string, title: string, content: string, status: KnowledgePageStatus) {
     const result = repository.insertPage(
-      { pageType: 'topic', slug, title, content, sources: TWO_MEMORY_SOURCES, status, updatedBy: 'agent' },
+      {
+        pageType: 'topic',
+        slug,
+        title,
+        content,
+        sources: TWO_MEMORY_SOURCES,
+        status,
+        updatedBy: 'agent',
+      },
       'agent',
     );
     if (!result.ok) throw new Error(`insert failed: ${result.code}`);
@@ -46,9 +54,9 @@ describe('knowledge reindex', () => {
   it('rebuilds the body and the title of every page', () => {
     const page = insert('pivot', 'Pivot Tables', '数据透视的用法。', 'active');
     // Simulate drift: a write that changed the page row without touching the index.
-    db.prepare("UPDATE knowledge_pages SET title = 'Kernel Log', content = '内核日志。' WHERE id = ?").run(
-      page.id,
-    );
+    db.prepare(
+      "UPDATE knowledge_pages SET title = 'Kernel Log', content = '内核日志。' WHERE id = ?",
+    ).run(page.id);
 
     expect(searchKnowledgeIndex(db, 'Kernel', { status: 'active', limit: 5 })).toEqual([]);
 

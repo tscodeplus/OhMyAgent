@@ -331,7 +331,10 @@ describe('knowledge routes', () => {
       ).toEqual([{ slug: 'excel-etl', title: 'Excel ETL', label: 'PQ' }]);
 
       // The type + slug address serves the same detail.
-      const byPair = await app.inject({ method: 'GET', url: '/api/knowledge/page/topic/power-query' });
+      const byPair = await app.inject({
+        method: 'GET',
+        url: '/api/knowledge/page/topic/power-query',
+      });
       expect(
         (byPair.json() as { backlinks: Array<{ slug: string }> }).backlinks.map(
           (backlink) => backlink.slug,
